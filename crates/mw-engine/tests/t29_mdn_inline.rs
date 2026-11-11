@@ -2291,3 +2291,31 @@ async fn delivery_headers_are_returned_as_address_lists_when_named() {
     let plain = jmap(&h, json!([["Email/get", { "ids": [id], "properties": ["subject"] }, "g"]])).await;
     assert!(result(&plain, "g")["list"][0].get("header:Delivered-To:asAddresses").is_none());
 }
+
+#[tokio::test]
+async fn scheduled_receipts_require_admin_opt_in_and_dispatch_once_at_the_due_time() {
+    let h = setup().await;
+    let id = find(&h, "request").await;
+    let _ = email(&h, &id).await;
+    let now = chrono::Utc::now();
+    let due = now + chrono::Duration::minutes(10);
+    assert!(!h.engine.schedule_read_receipt(&h.account_id, &id, "message", Some(due.timestamp())).await.unwrap());
+    h.store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+        key: "receipts.scheduleAllowed".into(),
+        global_value: Some("true".into()),
+        global_locked: false,
+        allow_user_override: false,
+        updated_by: "test".into(),
+        updated_at: now.timestamp(),
+    }).await.unwrap();
+    assert!(h.engine.schedule_read_receipt(&h.account_id, &id, "sender", Some(due.timestamp())).await.unwrap());
+    assert_eq!(h.store.mdn_sender_schedule(&h.account_id, ANN, now.timestamp()).await.unwrap(), Some(due.timestamp()));
+    let unrelated = find(&h, "plain").await;
+    assert!(!h.engine.schedule_read_receipt(&h.account_id, &unrelated, "enrol", None).await.unwrap());
+    h.engine.dispatch_tick_at(now).await.unwrap();
+    assert!(h.submitter.handed().is_empty());
+    h.engine.dispatch_tick_at(due).await.unwrap();
+    h.engine.dispatch_tick_at(due).await.unwrap();
+    assert_eq!(h.submitter.handed().len(), 1);
+    assert_eq!(h.store.scheduled_mdn_time(&h.account_id, &id).await.unwrap(), None);
+}

@@ -107,6 +107,12 @@ An integer from 0 to 50, default 50. The number of recent mail actions the **Und
 
 An integer from 0 to 50, default 50. The most actions any user may keep in the Undo and Redo history, whatever `ui.undoHistorySize` says for them. `0` turns the history off for everyone. Global only; enforced in the web client only.
 
+<a id="receipts.scheduleAllowed"></a>
+### Scheduled read receipts
+
+Administrators can enable scheduled read receipts for native mailboxes with `receipts.scheduleAllowed`. A sender schedule applies to eligible messages opened in a full reader before the chosen time. Clearing a sender schedule stops enrolling new messages. Cancel individual queued receipts from the message.
+
+
 <a id="folders.hideEmpty"></a>
 ### Hide empty folders (`folders.hideEmpty`)
 

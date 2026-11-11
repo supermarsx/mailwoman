@@ -38,3 +38,15 @@ receipts-delivery-current-on = New messages request delivery notifications.
 receipts-delivery-current-off = New messages do not request delivery notifications.
 receipts-delivery-default = Request delivery notifications for new messages when supported
 receipts-delivery-description = Choose the initial delivery-notification option for new messages. Each message can choose differently. Your administrator can lock this default or prohibit delivery notifications altogether. A server delivery report does not prove anyone read your message.
+
+receipts-schedule = Schedule receipt
+receipts-schedule-time = Send date and time
+receipts-schedule-scope = Apply to
+receipts-schedule-message = This message
+receipts-schedule-sender = This sender
+receipts-schedule-sender-help = Also queues eligible requests from this sender that you open in a full message view before the scheduled time.
+receipts-save-schedule = Save schedule
+receipts-scheduled = Receipt scheduled for { $time }.
+receipts-cancel-schedule = Cancel scheduled receipt
+receipts-stop-sender-schedule = Stop scheduling for this sender
+receipts-schedule-error = Could not change the schedule. Choose a time within the next 30 days and try again.

@@ -110,6 +110,7 @@ impl Engine {
     pub async fn dispatch_tick_at(&self, now: DateTime<Utc>) -> Result<()> {
         self.fire_due_submissions(now).await?;
         self.resurface_due_snoozes(now).await?;
+        self.dispatch_scheduled_mdn(now).await?;
         Ok(())
     }
 

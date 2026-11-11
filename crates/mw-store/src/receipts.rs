@@ -217,6 +217,112 @@ impl Store {
     }
 }
 
+/// A due receipt to be revalidated before contacting the submitter.
+pub struct ScheduledMdn {
+    pub account_id: String,
+    pub email_id: String,
+    pub requested_by: String,
+    pub send_at: i64,
+}
+
+impl Store {
+    pub async fn scheduled_mdn_time(&self, account: &str, email: &str) -> Result<Option<i64>, StoreError> {
+        let row = q("SELECT send_at FROM scheduled_mdn WHERE account_id=?1 AND email_id=?2")
+            .bind(account).bind(email).fetch_optional(&self.backend).await?;
+        Ok(row.map(|row| row.get_i64("send_at")))
+    }
+
+    pub async fn mdn_sender_schedule(&self, account: &str, address: &str, now: i64) -> Result<Option<i64>, StoreError> {
+        let row = q("SELECT send_at FROM mdn_sender_schedule WHERE account_id=?1 AND address=?2 AND send_at>?3")
+            .bind(account).bind(address).bind(now).fetch_optional(&self.backend).await?;
+        Ok(row.map(|row| row.get_i64("send_at")))
+    }
+
+    /// Serialise the cap with other writes for this account.
+    pub async fn schedule_mdn(
+        &self, account: &str, email: &str, address: &str, at: i64, sender_rule: Option<&str>, expected_rule: Option<&str>,
+    ) -> Result<bool, StoreError> {
+        let mut tx = self.receipt_rule_tx(account).await?;
+        if let Some(sender) = expected_rule {
+            let current = q("SELECT send_at FROM mdn_sender_schedule WHERE account_id=?1 AND address=?2")
+                .bind(account).bind(sender).fetch_all_tx(&mut tx).await?;
+            if current.first().is_none_or(|row| row.get_i64("send_at") != at) {
+                return Ok(false);
+            }
+        }
+        let changed = q("INSERT INTO scheduled_mdn(account_id,email_id,requested_by,send_at)
+            SELECT ?1,?2,?3,?4 FROM messages
+            WHERE stable_id=?2 AND account_id=?1 AND (
+                EXISTS(SELECT 1 FROM scheduled_mdn WHERE account_id=?1 AND email_id=?2)
+                OR (SELECT COUNT(*) FROM scheduled_mdn WHERE account_id=?1)<200)
+            ON CONFLICT(account_id,email_id) DO UPDATE SET requested_by=excluded.requested_by,send_at=excluded.send_at,retry_at=NULL
+            WHERE (scheduled_mdn.lease_until IS NULL OR scheduled_mdn.lease_until<=?6) AND ?5=CAST(0 AS BIGINT)")
+            .bind(account).bind(email).bind(address).bind(at).bind(i64::from(expected_rule.is_some())).bind(chrono::Utc::now().timestamp()).execute_tx(&mut tx).await?;
+        if changed == 0 {
+            return Ok(false);
+        }
+        if let Some(sender) = sender_rule {
+            q("DELETE FROM mdn_sender_schedule WHERE account_id=?1 AND send_at<=?2")
+                .bind(account).bind(chrono::Utc::now().timestamp()).execute_tx(&mut tx).await?;
+            let changed = q("INSERT INTO mdn_sender_schedule(account_id,address,send_at)
+                SELECT ?1,?2,?3 FROM accounts WHERE id=?1 AND (
+                    EXISTS(SELECT 1 FROM mdn_sender_schedule WHERE account_id=?1 AND address=?2)
+                    OR (SELECT COUNT(*) FROM mdn_sender_schedule WHERE account_id=?1)<100)
+                ON CONFLICT(account_id,address) DO UPDATE SET send_at=excluded.send_at")
+                .bind(account).bind(sender).bind(at).execute_tx(&mut tx).await?;
+            if changed == 0 {
+                return Ok(false);
+            }
+        }
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    pub async fn cancel_scheduled_mdn(&self, account: &str, email: &str) -> Result<bool, StoreError> {
+        Ok(q("DELETE FROM scheduled_mdn WHERE account_id=?1 AND email_id=?2 AND (lease_until IS NULL OR lease_until<=?3)")
+            .bind(account).bind(email).bind(chrono::Utc::now().timestamp()).execute(&self.backend).await? > 0)
+    }
+
+    pub async fn clear_mdn_sender_schedule(&self, account: &str, sender: &str) -> Result<(), StoreError> {
+        q("DELETE FROM mdn_sender_schedule WHERE account_id=?1 AND address=?2")
+            .bind(account).bind(sender).execute(&self.backend).await?;
+        Ok(())
+    }
+
+    pub async fn due_scheduled_mdn(&self, now: i64) -> Result<Vec<ScheduledMdn>, StoreError> {
+        let rows = q("SELECT account_id,email_id,requested_by,send_at FROM scheduled_mdn
+            WHERE send_at<=?1 AND (lease_until IS NULL OR lease_until<=?1) AND (retry_at IS NULL OR retry_at<=?1)
+            ORDER BY send_at,account_id,email_id LIMIT 24")
+            .bind(now).fetch_all(&self.backend).await?;
+        Ok(rows.into_iter().map(|row| ScheduledMdn {
+            account_id: row.get_string("account_id"),
+            email_id: row.get_string("email_id"),
+            requested_by: row.get_string("requested_by"),
+            send_at: row.get_i64("send_at"),
+        }).collect())
+    }
+
+    pub async fn claim_scheduled_mdn(&self, row: &ScheduledMdn, now: i64, lease: i64) -> Result<bool, StoreError> {
+        Ok(q("UPDATE scheduled_mdn SET lease_until=?1 WHERE account_id=?2 AND email_id=?3
+            AND send_at=?4 AND requested_by=?5 AND (lease_until IS NULL OR lease_until<=?6) AND (retry_at IS NULL OR retry_at<=?6)")
+            .bind(lease).bind(&row.account_id).bind(&row.email_id).bind(row.send_at)
+            .bind(&row.requested_by).bind(now).execute(&self.backend).await? > 0)
+    }
+
+    pub async fn defer_scheduled_mdn(&self, row: &ScheduledMdn, lease: i64, retry: i64) -> Result<(), StoreError> {
+        q("UPDATE scheduled_mdn SET retry_at=?1,lease_until=NULL WHERE account_id=?2 AND email_id=?3 AND lease_until=?4")
+            .bind(retry).bind(&row.account_id).bind(&row.email_id).bind(lease).execute(&self.backend).await?;
+        Ok(())
+    }
+
+    pub async fn finish_scheduled_mdn(&self, row: &ScheduledMdn, lease: i64) -> Result<(), StoreError> {
+        q("DELETE FROM scheduled_mdn WHERE account_id=?1 AND email_id=?2 AND lease_until=?3")
+            .bind(&row.account_id).bind(&row.email_id).bind(lease).execute(&self.backend).await?;
+        Ok(())
+    }
+
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

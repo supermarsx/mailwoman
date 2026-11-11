@@ -147,8 +147,24 @@ impl Engine {
         } else {
             self.receipt_policy_action(account, &request).await?
         };
+        let scheduled_at = self.store().scheduled_mdn_time(account, email_id).await?;
+        let schedule_allowed = action != Action::None && self.scheduled_mdn_allowed(account).await?;
+        let schedule_sender = if schedule_allowed && request.same_as_sender && !request.from_list
+            && self.held_mdn_policy(account).await?.is_none()
+        {
+            normalize_sender(&request.to).ok()
+        } else {
+            None
+        };
+        let sender_schedule_at = if let Some(sender) = schedule_sender.as_deref() {
+            self.store().mdn_sender_schedule(account, sender, chrono::Utc::now().timestamp()).await?
+        } else {
+            None
+        };
         Ok(Some(
-            json!({"accountId": account, "emailId": email_id, "requestedBy": request.to,
+            json!({"scheduleAllowed": schedule_allowed, "scheduledAt": scheduled_at,
+            "scheduleSender": schedule_sender, "senderScheduleAt": sender_schedule_at,
+            "accountId": account, "emailId": email_id, "requestedBy": request.to,
             "handled": handled, "action": match action { Action::None => "none", Action::Ask => "ask", Action::Automatic => "automatic" }}),
         ))
     }

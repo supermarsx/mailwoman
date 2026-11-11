@@ -17,13 +17,21 @@ export const receiptPolicyApi:ReceiptPolicyApi={
  async save(policy,signal){const response=await apiFetch(withBase('/api/account/mdn-policy'),{method:'PUT',credentials:'same-origin',signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({policy})});if(!response.ok)throw new ReceiptPolicyError(response.status);},
 };
 
-export interface ReceiptDecision {accountId:string;emailId:string;requestedBy:string;handled:boolean;action:'none'|'ask'|'automatic'}
+export interface ReceiptDecision {accountId:string;emailId:string;requestedBy:string;handled:boolean;action:'none'|'ask'|'automatic';scheduleAllowed?:boolean;scheduledAt?:number|null;scheduleSender?:string|null;senderScheduleAt?:number|null}
 export async function loadReceiptDecision(accountId:string,emailId:string,signal:AbortSignal):Promise<ReceiptDecision|null>{
  const response=await apiFetch(withBase(`/api/account/mdn-decision/${encodeURIComponent(emailId)}`),{credentials:'same-origin',signal});
  if(response.status===204||response.status===404)return null;if(!response.ok)throw new ReceiptPolicyError(response.status);
  const value=await response.json() as Partial<ReceiptDecision>;
  if(value.accountId!==accountId||value.emailId!==emailId||typeof value.requestedBy!=='string'||typeof value.handled!=='boolean'||!['none','ask','automatic'].includes(value.action??''))throw new Error('Invalid receipt decision');
  return value as ReceiptDecision;
+}
+
+export type ReceiptScheduleScope='message'|'sender'|'enrol';
+export async function saveReceiptSchedule(emailId:string,scope:ReceiptScheduleScope,sendAt:number|null,signal:AbortSignal):Promise<void>{
+ const response=await apiFetch(withBase(`/api/account/mdn-decision/${encodeURIComponent(emailId)}`),{
+  method:'PUT',credentials:'same-origin',signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({scope,sendAt}),
+ });
+ if(!response.ok)throw new ReceiptPolicyError(response.status);
 }
 
 export interface ReceiptSenderRule {address:string;decision:'always'|'never';updatedAt:number}

@@ -179,3 +179,16 @@ recipient. Read receipt times are the times the reports arrived. A displayed
 report is a recipient application's claim. The badge matches the original
 Message-ID and recipient and does not treat missing reports as delivery failures
 or unread messages. Use **Check older messages** to continue the bounded lookup.
+
+## Scheduled read receipts
+
+Enable `receipts.scheduleAllowed` in Admin Settings to offer **Schedule receipt**
+on eligible messages in native mailboxes. Choose a local date and time up to
+30 days ahead. A sender schedule also queues eligible requests from that exact
+sender when the user opens them in a full message view before the chosen time.
+Stop the sender schedule to stop enrolling new messages, or cancel a queued
+receipt from the original message.
+
+The server keeps the schedule across browser sessions and rechecks receipt policy
+and the original request before sending. A disconnected mailbox retries when it
+becomes available, for up to seven days after the scheduled time.

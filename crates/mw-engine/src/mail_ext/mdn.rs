@@ -59,6 +59,7 @@ mod standard;
 
 struct Delivery {
     automatic: bool,
+    scheduled: bool,
     report: Option<Vec<u8>>,
     identity: Option<(String, String)>,
 }
@@ -256,6 +257,106 @@ fn refusal(kind: &str, description: impl Into<String>) -> Value {
 }
 
 impl Engine {
+    pub(crate) async fn scheduled_mdn_allowed(&self, account_id: &str) -> Result<bool> {
+        use mw_store::settings_policy::{ResolveInput, SettingScope, SettingSubject, resolve};
+        let key = "receipts.scheduleAllowed";
+        let address = self.store().get_account(account_id).await?.username.to_ascii_lowercase();
+        let domain = address.rsplit_once('@').map_or("", |(_, domain)| domain);
+        let policy = self.store().get_setting_policy(key).await?;
+        let rows = self.store().setting_values_for_subject(&SettingSubject {
+            personal_owner: None, domain, account_id, address: &address,
+        }).await?;
+        let values = rows.iter().filter(|row| row.key == key && row.scope != SettingScope::User).collect::<Vec<_>>();
+        let effective = resolve(&ResolveInput {
+            floor: "false", floor_is_env: false, pin: None, policy: policy.as_ref(), values: &values,
+        });
+        Ok(effective.value == "true")
+    }
+
+    /// Admit a job using the same owned-message and receipt eligibility checks as the reader.
+    pub async fn schedule_read_receipt(
+        &self, account: &str, email: &str, scope: &str, send_at: Option<i64>,
+    ) -> Result<bool> {
+        if scope == "message" && send_at.is_none() {
+            return Ok(self.store().cancel_scheduled_mdn(account, email).await?);
+        }
+        let Some(decision) = self.receipt_response_decision(account, email).await? else {
+            return Ok(false);
+        };
+        let address = decision["requestedBy"].as_str().unwrap_or_default();
+        let sender = decision["scheduleSender"].as_str();
+        if scope == "sender" && send_at.is_none() {
+            if let Ok(address) = mw_store::receipts::normalize_sender(address) {
+                self.store().clear_mdn_sender_schedule(account, &address).await?;
+                return Ok(true);
+            }
+            return Ok(false);
+        }
+        if decision["scheduleAllowed"] != true || decision["action"] == "none" {
+            return Ok(false);
+        }
+        let now = chrono::Utc::now().timestamp();
+        let at = match scope {
+            "enrol" if send_at.is_none() => decision["senderScheduleAt"].as_i64(),
+            "message" | "sender" => send_at,
+            _ => return Ok(false),
+        };
+        let Some(at) = at.filter(|at| *at > now && *at <= now + 30 * 86_400) else {
+            return Ok(false);
+        };
+        let sender_rule = match scope {
+            "sender" | "enrol" => {
+                let Some(sender) = sender else { return Ok(false); };
+                Some(sender)
+            }
+            _ => None,
+        };
+        Ok(self.store().schedule_mdn(
+            account, email, address, at,
+            sender_rule.filter(|_| scope == "sender"),
+            sender_rule.filter(|_| scope == "enrol"),
+        ).await?)
+    }
+
+    pub(crate) async fn dispatch_scheduled_mdn(&self, now: chrono::DateTime<chrono::Utc>) -> Result<()> {
+        let now = now.timestamp();
+        for job in self.store().due_scheduled_mdn(now).await? {
+            let lease = now + 300;
+            if !self.store().claim_scheduled_mdn(&job, now, lease).await? {
+                continue;
+            }
+            if job.send_at > now - 7 * 86_400 {
+                if self.runtime(&job.account_id).is_none() {
+                    self.store().defer_scheduled_mdn(&job, lease, now + 60).await?;
+                    continue;
+                }
+                let decision = match self.receipt_response_decision(&job.account_id, &job.email_id).await {
+                    Ok(decision) => decision,
+                    Err(error) => {
+                        tracing::warn!(%error, "scheduled receipt eligibility unavailable");
+                        self.store().defer_scheduled_mdn(&job, lease, now + 300).await?;
+                        continue;
+                    }
+                };
+                if decision.is_some_and(|d| d["scheduleAllowed"] == true
+                    && d["action"] != "none" && d["requestedBy"].as_str() == Some(job.requested_by.as_str()))
+                {
+                    let result = self.mdn_send_common(
+                        &job.account_id, &json!({"emailId": job.email_id}), None, Some(&job.requested_by),
+                    ).await;
+                    if result["type"] == "mdnNotSent" || result["type"] == "serverFail" {
+                        // The existing MDN ledger distinguishes a definitive refusal from an
+                        // ambiguous SMTP outcome. A later attempt still uses that ledger.
+                        self.store().defer_scheduled_mdn(&job, lease, now + 300).await?;
+                        continue;
+                    }
+                }
+            }
+            self.store().finish_scheduled_mdn(&job, lease).await?;
+        }
+        Ok(())
+    }
+
     /// Administrator authority applies to explicit sends and raw submissions too.
     pub(crate) async fn mdn_sending_allowed(&self, account_id: &str) -> Result<bool> {
         Ok(
@@ -390,7 +491,7 @@ impl Engine {
     /// `mdnAutomaticRefused`, `mdnNoRecipientAddress`, `mdnNotSent`,
     /// `accountNotFound`, `serverFail`.
     pub(crate) async fn mdn_send(&self, account_id: &str, args: &Value) -> Value {
-        self.mdn_send_common(account_id, args, None).await
+        self.mdn_send_common(account_id, args, None, None).await
     }
 
     async fn mdn_send_common(
@@ -398,6 +499,7 @@ impl Engine {
         account_id: &str,
         args: &Value,
         standard: Option<&standard::SendOptions>,
+        scheduled_recipient: Option<&str>,
     ) -> Value {
         match self.mdn_sending_allowed(account_id).await {
             Ok(true) => {}
@@ -441,6 +543,9 @@ impl Engine {
             Err(why) => return refusal("mdnNotRequested", why.description()),
         };
 
+        if scheduled_recipient.is_some_and(|recipient| recipient != request.to) {
+            return refusal("mdnNotAllowed", "the original receipt request changed");
+        }
         let role = match self.store().get_mailbox(&msg.mailbox_id).await {
             Ok(mb) => mb.role,
             Err(e) => return server_fail(e),
@@ -461,6 +566,14 @@ impl Engine {
             Ok(false) => {}
             Ok(true) => return already_sent(),
             Err(e) => return server_fail(e),
+        }
+
+        if scheduled_recipient.is_none() {
+            match self.store().scheduled_mdn_time(account_id, email_id).await {
+                Ok(Some(_)) => return refusal("mdnScheduled", "this read receipt has a scheduled send time"),
+                Ok(None) => {}
+                Err(error) => return server_fail(error),
+            }
         }
 
         if automatic {
@@ -578,6 +691,7 @@ impl Engine {
                 &parsed,
                 Delivery {
                     automatic,
+                    scheduled: scheduled_recipient.is_some(),
                     report,
                     identity: standard
                         .map(|options| (options.identity_id.clone(), options.identity.clone())),
@@ -820,6 +934,19 @@ impl Engine {
         .map_err(|error| EngineError::Unsupported(error.code().into()))?;
         if verdicts.iter().any(|verdict| verdict.blocked) {
             return Err(EngineError::Unsupported("dlpBlocked".into()));
+        }
+        if delivery.scheduled {
+            let allowed = self.scheduled_mdn_allowed(&msg.account_id).await.unwrap_or(false)
+                && self.receipt_policy_action(&msg.account_id, request).await
+                    .is_ok_and(|action| action != policy::Action::None);
+            if !allowed {
+                return Err(EngineError::Unsupported("scheduled receipt forbidden by policy".into()));
+            }
+        }
+        if !delivery.scheduled
+            && !matches!(self.store().scheduled_mdn_time(&msg.account_id, &msg.stable_id).await, Ok(None))
+        {
+            return Err(EngineError::Unsupported("read receipt has a scheduled send time".into()));
         }
         let result = rt.submitter.submit(outgoing).await?;
         if result.accepted.is_empty() {

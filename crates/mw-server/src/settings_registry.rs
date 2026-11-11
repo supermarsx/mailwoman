@@ -3746,6 +3746,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "public config sign-in notice"
     )),
     def!(
+        "receipts.scheduleAllowed",
+        Kind::Bool,
+        "false",
+        GD,
+        "mail",
+        "allow scheduled read receipts for individual messages or senders"
+    ),
+    def!(
         "receipts.dsnAllowed",
         Kind::Bool,
         "true",

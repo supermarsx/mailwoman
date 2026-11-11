@@ -41,3 +41,15 @@ receipts-delivery-current-on = As novas mensagens pedem notificações de entreg
 receipts-delivery-current-off = As novas mensagens não pedem notificações de entrega.
 receipts-delivery-default = Pedir notificações de entrega para novas mensagens, quando suportado
 receipts-delivery-description = Escolha a opção inicial de notificação de entrega para novas mensagens. Cada mensagem pode escolher de forma diferente. O seu administrador pode bloquear esta predefinição ou proibir totalmente as notificações de entrega. Um relatório de entrega do servidor não prova que alguém leu a sua mensagem.
+
+receipts-schedule = Agendar confirmação
+receipts-schedule-time = Data e hora de envio
+receipts-schedule-scope = Aplicar a
+receipts-schedule-message = Esta mensagem
+receipts-schedule-sender = Este remetente
+receipts-schedule-sender-help = Também agenda pedidos elegíveis deste remetente que abrir na vista completa antes da hora escolhida.
+receipts-save-schedule = Guardar agendamento
+receipts-scheduled = Confirmação agendada para { $time }.
+receipts-cancel-schedule = Cancelar confirmação agendada
+receipts-stop-sender-schedule = Parar agendamentos para este remetente
+receipts-schedule-error = Não foi possível alterar o agendamento. Escolha uma hora nos próximos 30 dias e tente novamente.

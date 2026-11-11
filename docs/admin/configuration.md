@@ -706,6 +706,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="login.showrememberedhint"></a>`login.showRememberedHint` | appearance | global | false | plain |  | yes | show explanatory text for remembered sign-in addresses |
 | <a id="login.showaccounthelpnotice"></a>`login.showAccountHelpNotice` | appearance | global+domain | false | plain |  | yes | show optional account-help notice after a refused sign-in |
 | <a id="login.notice"></a>`login.notice` | appearance | global | null | plain |  | yes | public config sign-in notice |
+| <a id="receipts.scheduleallowed"></a>`receipts.scheduleAllowed` | mail | global+domain | false | plain |  | yes | allow scheduled read receipts for individual messages or senders |
 | <a id="receipts.dsnallowed"></a>`receipts.dsnAllowed` | mail | global+domain+admin_user | true | plain |  | yes | Allow delivery status notification requests at SMTP submission |
 | <a id="mail.readreceipts"></a>`mail.readReceipts` | mail | global+domain+user | "ask" | plain |  | yes | mdn_policy:<account> (MDN/send) |
 | <a id="mail.opentracking"></a>`mail.openTracking` | mail | global+domain+user | false | plain |  | yes | Default outgoing open tracking for new messages; a locked false value also forbids token minting and recording |

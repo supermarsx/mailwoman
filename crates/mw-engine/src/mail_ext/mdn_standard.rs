@@ -384,7 +384,7 @@ impl Engine {
                 );
                 continue;
             };
-            let result=self.mdn_send_common(account_id,&json!({"emailId":email_id,"automatic":options.sending==MdnSendingMode::Automatic}),Some(&options)).await;
+            let result=self.mdn_send_common(account_id,&json!({"emailId":email_id,"automatic":options.sending==MdnSendingMode::Automatic}),Some(&options),None).await;
             if result.get("sent") == Some(&Value::Bool(true)) {
                 let mut defaults = result["standardDefaults"]
                     .as_object()

@@ -5,7 +5,7 @@ use mw_store::receipts::{SenderDecision, SenderRuleWrite, normalize_sender};
 pub(super) fn router() -> Router<AppState> {
     Router::new()
         .route("/api/account/mdn-senders", get(list).put(write))
-        .route("/api/account/mdn-decision/{id}", get(decision))
+        .route("/api/account/mdn-decision/{id}", get(decision).put(schedule))
 }
 
 async fn list(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -132,6 +132,37 @@ async fn decision(
                 "receipt decision unavailable",
             )
                 .into_response()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Schedule {
+    scope: String,
+    send_at: Option<i64>,
+}
+
+async fn schedule(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<Schedule>,
+) -> Response {
+    let session = match session_of(&state, &headers).await {
+        Ok(session) => session,
+        Err(response) => return response,
+    };
+    let Some(engine) = &state.engine else { return no_mdn_policy(); };
+    if id.is_empty() || id.len() > 512 || !matches!(body.scope.as_str(), "message" | "sender" | "enrol") {
+        return bad_request("invalid receipt schedule");
+    }
+    match engine.schedule_read_receipt(&session.account_id, &id, &body.scope, body.send_at).await {
+        Ok(true) => (StatusCode::NO_CONTENT, [("cache-control", "no-store")]).into_response(),
+        Ok(false) => (StatusCode::CONFLICT, "receipt schedule could not be changed").into_response(),
+        Err(error) => {
+            tracing::warn!(%error, "receipt schedule unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
     }
 }

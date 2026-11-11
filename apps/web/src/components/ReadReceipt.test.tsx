@@ -34,3 +34,19 @@ it('a receipt being sent is not aborted when the decision reloads (t93)',async()
  expect(sent?.aborted).toBe(false);finish();
  expect(api.send).toHaveBeenCalledTimes(1);
 });
+
+it('enrols an eligible sender request only when a full reader is active',async()=>{
+ const api=service();
+ const at=Math.floor(Date.now()/1000)+600;
+ api.schedule=vi.fn(async()=>{});
+ const decision={accountId:'a',emailId:'m',requestedBy:'sender@example.org',handled:false,action:'automatic' as const,scheduleAllowed:true,scheduleSender:'sender@example.org',senderScheduleAt:at};
+ vi.mocked(api.load).mockResolvedValueOnce(decision).mockResolvedValue({...decision,scheduledAt:at});
+ const [full,setFull]=createSignal(false);
+ render(()=><ReadReceipt accountId="a" emailId="m" active displayed fullView={full()} api={api}/>);
+ await screen.findByRole('button',{name:'Schedule receipt'});
+ expect(api.schedule).not.toHaveBeenCalled();
+ setFull(true);
+ await screen.findByRole('button',{name:'Cancel scheduled receipt'});
+ expect(api.schedule).toHaveBeenCalledWith('m','enrol',null,expect.any(AbortSignal));
+ expect(api.send).not.toHaveBeenCalled();
+});
