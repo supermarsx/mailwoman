@@ -267,3 +267,13 @@ describe('Microsoft tenants and MEO Empresas',()=>{
   expect(meo.querySelector('image')?.getAttribute('href')).toContain('meo-site.png');expect(meo.querySelector('text')).toBeNull();
  });
 });
+
+it.each([['wise','wise.com'],['revolut','revolut.com'],['monzo','monzo.com'],['n26','n26.com'],['bunq','bunq.com'],['starling','starlingbank.com'],['cashapp','cash.app'],['venmo','venmo.com']])('bundles a real %s fintech mark and matches its sender domain',async(id,host)=>{
+ expect(brandForHost(`notifications@mail.${host}`)?.id).toBe(id);
+ expect(brandForHost(`notifications@${host}.example.org`)).toBeUndefined();
+ const path=await loadBrandPath(id);expect(path?.length).toBeGreaterThan(20);
+ expect(brandFor(id)?.noMark).not.toBe(true);
+});
+it('recognizes fintech business-account names without remote logo requests',()=>{
+ expect(brandFor('Revolut Business')?.id).toBe('revolut');expect(brandFor('Wise Business')?.id).toBe('wise');expect(brandFor('Transfer Wise')?.id).toBe('wise');
+});

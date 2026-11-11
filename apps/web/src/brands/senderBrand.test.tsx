@@ -84,3 +84,9 @@ it('uses bundled tenant/enterprise marks in the reader while preserving authenti
   expect(render(()=><SenderBrandMark address={address} auth={auth({dmarc:'fail'})}/>).container.querySelector('svg')).toBeNull();
  }
 });
+
+it.each([['wise','wise.com'],['revolut','revolut.com'],['monzo','monzo.com'],['n26','n26.com'],['bunq','bunq.com'],['starling','starlingbank.com'],['cashapp','cash.app'],['venmo','venmo.com']])('shows %s fintech sender icons while preserving authentication safeguards',(id,host)=>{
+ expect(brandAvatarFor(`hello@mail.${host}`,null)?.id).toBe(id);
+ expect(brandAvatarFor(`hello@${host}`,auth({dkimDomain:host}),'always')?.id).toBe(id);
+ expect(brandAvatarFor(`hello@${host}`,auth({dmarc:'fail'}))).toBeUndefined();
+});

@@ -111,8 +111,8 @@ export const EXTRA = [
 
   // Payments, fintech and banks
   ['paypal', 'PayPal', 'paypal', [], ['paypal.com', 'paypal.pt', 'paypal.es', 'paypal.de', 'paypal.fr', 'paypal.it', 'paypal.co.uk', 'paypal-communication.com', 'paypal.me'], 'finance'],
-  ['wise', 'Wise', 'wise', ['transferwise'], ['wise.com', 'transferwise.com'], 'finance'],
-  ['revolut', 'Revolut', 'revolut', [], ['revolut.com'], 'finance'],
+  ['wise', 'Wise', 'wise', ['transferwise', 'wise business', 'transfer wise'], ['wise.com', 'transferwise.com'], 'finance'],
+  ['revolut', 'Revolut', 'revolut', ['revolut business', 'revolut bank'], ['revolut.com'], 'finance'],
   ['visa', 'Visa', 'visa', [], ['visa.com', 'visaeurope.com'], 'finance'],
   ['mastercard', 'Mastercard', 'mastercard', [], ['mastercard.com'], 'finance'],
   ['stripe', 'Stripe', 'stripe', [], ['stripe.com'], 'finance'],
