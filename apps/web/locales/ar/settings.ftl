@@ -356,6 +356,7 @@ settings-permissions-storage-request = طلب تخزين دائم
 settings-permissions-storage-policy = لا يسمح المسؤول بطلبات التخزين الدائم.
 settings-permissions-error = تعذّر إكمال إجراء المتصفح. تحقق من إعدادات الحساب المحفوظة وأذونات المتصفح لهذا الموقع.
 settings-notif-background-rules = تُقيَّم قواعد المحتوى أثناء فتح Mailwoman. تُكتم إشعارات النظام في الخلفية ما دامت أي قواعد محتوى مهيأة، لأن الإيقاظ المعتم في الخلفية لا يتضمن تفاصيل الرسالة.
+settings-nav-regional = الإعدادات الإقليمية
 settings-time-title = المناطق الزمنية
 settings-time-help = اختر كيفية ظهور أوقات الرسائل ومنطقة مقارنة اختيارية للجدولة. لا تُستنتج المواقع أبدًا من عناوين البريد الإلكتروني.
 settings-time-displayZone = المنطقة الزمنية للعرض

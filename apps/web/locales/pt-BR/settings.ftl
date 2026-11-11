@@ -367,6 +367,7 @@ settings-permissions-storage-request = Solicitar armazenamento persistente
 settings-permissions-storage-policy = Seu administrador não permite solicitações de armazenamento persistente.
 settings-permissions-error = Não foi possível concluir a ação do navegador. Verifique as configurações salvas da conta e as permissões do navegador para este site.
 settings-notif-background-rules = As regras de conteúdo são avaliadas enquanto o Mailwoman está aberto. As notificações de sistema em segundo plano ficam suprimidas enquanto houver regras de conteúdo configuradas, pois um despertar opaco em segundo plano não contém detalhes da mensagem.
+settings-nav-regional = Configurações regionais
 settings-time-title = Fusos horários
 settings-time-help = Escolha como os horários das mensagens aparecem e, opcionalmente, um fuso de comparação para agendamentos. Os locais nunca são inferidos a partir de endereços de e-mail.
 settings-time-displayZone = Fuso horário de exibição

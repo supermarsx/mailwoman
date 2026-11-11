@@ -363,6 +363,7 @@ settings-permissions-error = The browser action could not be completed. Check th
 
 settings-notif-background-rules = Content rules are evaluated while Mailwoman is open. Background system notifications are suppressed while any content rules are configured, because an opaque background wake does not contain message details.
 
+settings-nav-regional = Regional settings
 settings-time-title = Time zones
 settings-time-help = Choose how message times appear and an optional comparison zone for scheduling. Locations are never inferred from email addresses.
 settings-time-displayZone = Display time zone

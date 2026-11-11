@@ -367,6 +367,7 @@ settings-permissions-storage-request = Permanente opslag aanvragen
 settings-permissions-storage-policy = Uw beheerder staat geen verzoeken om permanente opslag toe.
 settings-permissions-error = De browseractie kon niet worden voltooid. Controleer de opgeslagen accountinstellingen en de browsertoestemmingen van deze site.
 settings-notif-background-rules = Inhoudsregels worden beoordeeld terwijl Mailwoman open is. Systeemmeldingen op de achtergrond worden onderdrukt zolang er inhoudsregels zijn ingesteld, omdat een ondoorzichtige achtergrondwake geen berichtdetails bevat.
+settings-nav-regional = Regionale instellingen
 settings-time-title = Tijdzones
 settings-time-help = Kies hoe berichttijden worden weergegeven en eventueel een vergelijkingstijdzone voor het plannen. Locaties worden nooit afgeleid uit e-mailadressen.
 settings-time-displayZone = Weergavetijdzone

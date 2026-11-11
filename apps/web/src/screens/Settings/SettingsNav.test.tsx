@@ -47,7 +47,7 @@ it('filters compact sections by search terms and support without offering an unr
  expect(within(open()).getAllByRole('menuitemradio')).toHaveLength(3);
  expect(screen.queryByRole('menuitemradio',{name:t('settings-notif-title')})).toBeNull();
  fireEvent.keyDown(document.activeElement!,{key:'Escape'});
- setQuery('IANA');const matched=open();expect(within(matched).getAllByRole('menuitemradio')).toHaveLength(1);expect(within(matched).getByRole('menuitemradio',{name:t('settings-time-title')})).toBeVisible();
+ setQuery('IANA');const matched=open();expect(within(matched).getAllByRole('menuitemradio')).toHaveLength(1);expect(within(matched).getByRole('menuitemradio',{name:t('settings-nav-regional')})).toBeVisible();
  fireEvent.keyDown(document.activeElement!,{key:'Escape'});
  setSupported(['appearance','metadata']);expect(trigger()).toBeDisabled();expect(screen.getAllByText('No matching settings sections.').length).toBeGreaterThan(0);
  setQuery('no-such-setting');expect(trigger()).toBeDisabled();expect(screen.queryByRole('menu')).toBeNull();

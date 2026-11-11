@@ -346,6 +346,7 @@ settings-permissions-storage-request = 永続ストレージを要求
 settings-permissions-storage-policy = 管理者は永続ストレージのリクエストを許可していません。
 settings-permissions-error = ブラウザーの操作を完了できませんでした。保存済みのアカウント設定と、このサイトのブラウザー権限を確認してください。
 settings-notif-background-rules = コンテンツルールは Mailwoman を開いている間に評価されます。コンテンツルールが設定されている間は、バックグラウンドのシステム通知は抑制されます。不透明なバックグラウンドの起動には、メッセージの詳細が含まれないためです。
+settings-nav-regional = 地域設定
 settings-time-title = タイムゾーン
 settings-time-help = メッセージの時刻の表示方法と、スケジュール調整用の比較タイムゾーン(任意)を選択します。場所がメールアドレスから推測されることはありません。
 settings-time-displayZone = 表示タイムゾーン

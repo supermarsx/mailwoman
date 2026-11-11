@@ -363,6 +363,7 @@ settings-permissions-storage-request = 请求持久存储
 settings-permissions-storage-policy = 管理员不允许持久存储请求。
 settings-permissions-error = 无法完成浏览器操作。请检查已保存的账户设置以及此网站的浏览器权限。
 settings-notif-background-rules = 内容规则只在 Mailwoman 打开时评估。配置了任何内容规则时,后台系统通知会被抑制,因为不透明的后台唤醒不包含邮件详情。
+settings-nav-regional = 区域设置
 settings-time-title = 时区
 settings-time-help = 选择邮件时间的显示方式,以及用于日程安排的可选对照时区。绝不会根据电子邮件地址推断位置。
 settings-time-displayZone = 显示时区

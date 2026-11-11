@@ -359,6 +359,7 @@ settings-permissions-error = Não foi possível concluir a ação do navegador. 
 
 settings-notif-background-rules = As regras de conteúdo são avaliadas enquanto o Mailwoman está aberto. As notificações do sistema em segundo plano são suprimidas enquanto existirem regras de conteúdo configuradas, porque um despertar opaco em segundo plano não contém os detalhes da mensagem.
 
+settings-nav-regional = Definições regionais
 settings-time-title = Fusos horários
 settings-time-help = Escolha como são apresentadas as horas das mensagens e, opcionalmente, um fuso de comparação para agendamentos. A localização nunca é deduzida a partir dos endereços de e-mail.
 settings-time-displayZone = Fuso horário de apresentação

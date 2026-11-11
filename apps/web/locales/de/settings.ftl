@@ -350,6 +350,7 @@ settings-permissions-storage-request = Persistenten Speicher anfragen
 settings-permissions-storage-policy = Ihre Administration erlaubt keine Anfragen für persistenten Speicher.
 settings-permissions-error = Die Browseraktion konnte nicht abgeschlossen werden. Prüfen Sie die gespeicherten Kontoeinstellungen und die Browserberechtigungen dieser Website.
 settings-notif-background-rules = Inhaltsregeln werden ausgewertet, solange Mailwoman geöffnet ist. Systembenachrichtigungen im Hintergrund werden unterdrückt, solange Inhaltsregeln konfiguriert sind, da ein undurchsichtiges Hintergrund-Wecken keine Nachrichtendetails enthält.
+settings-nav-regional = Regionale Einstellungen
 settings-time-title = Zeitzonen
 settings-time-help = Wählen Sie, wie Nachrichtenzeiten angezeigt werden, und optional eine Vergleichszeitzone für die Terminplanung. Standorte werden nie aus E-Mail-Adressen abgeleitet.
 settings-time-displayZone = Anzeigezeitzone
