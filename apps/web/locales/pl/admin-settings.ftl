@@ -2511,3 +2511,7 @@ admin-settings-key-reader-attachment-thumbnails = Miniatury załączników obraz
 
 admin-settings-key-mail-compose-auto-add-mention-recipients = Automatycznie dodawaj wspomniane osoby jako odbiorców
 admin-settings-help-mail-compose-auto-add-mention-recipients = Po wybraniu osoby z podpowiedzi @wzmianek dodaj ją do pola Do, chyba że jest już w polu Do, DW lub UDW. Domyślnie wyłączone.
+
+admin-settings-linked-disable-title = Wyłączyć zapisany dostęp do połączonych kont?
+admin-settings-linked-disable-body = Zapisanie zmiany usuwa dane logowania używane do odnawiania dostępu do połączonych kont. Użytkownicy będą musieli zalogować się ponownie, gdy dostęp będzie wymagał odnowienia. Ponowne włączenie opcji nie przywraca tych danych.
+admin-settings-linked-disable-confirm = Wyłącz i usuń zapisany dostęp

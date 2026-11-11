@@ -31,6 +31,7 @@ import { PageState } from '../shell/templates/PageFrame.tsx';
 import { resourceValue } from '../../../components/resourceValue.ts';
 import { ScopedValues } from './ScopedValues.tsx';
 import { ValueInput } from './ValueInput.tsx';
+import {createLinkedMailboxDisableConfirmation} from './LinkedMailboxDisableConfirmation.tsx';
 import { impactLabels } from './impact.ts';
 import { settingHelp, settingLabel } from './labels.ts';
 import { settingAnchorId } from './keys.ts';
@@ -134,6 +135,7 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
     const s = setting();
     return s ? toDraft(s.kind, s.globalValue ?? s.effective.value) : '';
   });
+  const linkedDisable=createLinkedMailboxDisableConfirmation({key:()=>props.settingKey,draft,stored:storedDraft,scope:()=>JSON.stringify([props.settingKey,setting()?.etag,writable()]),setDraft});
   const dirty = (): boolean => {
     const s = setting();
     if (!s) return false;
@@ -182,6 +184,7 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
 
   async function save(e: Event): Promise<void> {
     e.preventDefault();
+    if(linkedDisable.pending())return;
     const s = setting();
     if (!s) return;
     setDone(null);
@@ -254,7 +257,7 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
                 error={valueError() ?? blockedReason()}
               >
                 {(w) => (
-                  <ValueInputOf setting={s()} draft={draft()} onDraft={setDraft} wiring={w} disabled={!writable()} />
+                  <ValueInputOf setting={s()} draft={draft()} onDraft={linkedDisable.change} wiring={w} disabled={!writable()} />
                 )}
               </FormField>
             </div>
@@ -380,6 +383,7 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
             }}
             onCancel={() => setPreview(null)}
           />
+          {linkedDisable.dialog()}
         </div>
       )}
     </Show>

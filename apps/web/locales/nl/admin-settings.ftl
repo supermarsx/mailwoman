@@ -2493,3 +2493,7 @@ admin-settings-key-reader-attachment-thumbnails = Miniaturen van afbeeldingsbijl
 
 admin-settings-key-mail-compose-auto-add-mention-recipients = Genoemde personen automatisch als ontvangers toevoegen
 admin-settings-help-mail-compose-auto-add-mention-recipients = Wanneer je iemand uit de @vermeldingssuggesties kiest, wordt die persoon aan Aan toegevoegd, tenzij die al in Aan, Cc of Bcc staat. Standaard uitgeschakeld.
+
+admin-settings-linked-disable-title = Opgeslagen toegang tot gekoppelde accounts uitschakelen?
+admin-settings-linked-disable-body = Opslaan verwijdert de inloggegevens waarmee toegang tot gekoppelde accounts wordt vernieuwd. Gebruikers moeten opnieuw inloggen wanneer de toegang moet worden vernieuwd. Opnieuw inschakelen herstelt deze inloggegevens niet.
+admin-settings-linked-disable-confirm = Uitschakelen en opgeslagen toegang wissen

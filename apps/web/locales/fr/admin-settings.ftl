@@ -2499,3 +2499,7 @@ admin-settings-key-reader-attachment-thumbnails = Vignettes des images jointes
 
 admin-settings-key-mail-compose-auto-add-mention-recipients = Ajouter automatiquement les personnes mentionnées aux destinataires
 admin-settings-help-mail-compose-auto-add-mention-recipients = Lorsque vous sélectionnez une personne dans les suggestions de @mentions, elle est ajoutée à À si elle ne figure pas déjà dans À, Cc ou Cci. Désactivé par défaut.
+
+admin-settings-linked-disable-title = Désactiver l’accès enregistré aux comptes liés ?
+admin-settings-linked-disable-body = Enregistrer cette modification supprime les identifiants servant à renouveler l’accès aux comptes liés. Les utilisateurs devront se reconnecter lorsque cet accès doit être renouvelé. Réactiver cette option ne restaure pas ces identifiants.
+admin-settings-linked-disable-confirm = Désactiver et effacer l’accès enregistré

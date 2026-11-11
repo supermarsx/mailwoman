@@ -260,3 +260,13 @@ describe('Admin › one setting', () => {
     expect(put.body).toEqual({ value: 64, locked: false });
   });
 });
+
+it('confirms disabling linked accounts in the detailed editor and restores the checkbox on Escape',async()=>{
+ const policy=setting({key:'accounts.linkingEnabled',category:'accounts',kind:{type:'bool'},default:false,globalValue:true,effective:{value:true,source:'global'},scopes:'global',userOverride:false,allowUserOverride:false});
+ const calls=stubFetch(()=>json(200,{values:[]}));
+ render(()=><SettingDetail settingKey={policy.key} load={async()=>({setting:policy,etag:'"e0"'})}/>);
+ const toggle=await screen.findByRole('checkbox');fireEvent.click(toggle);
+ const dialog=await screen.findByRole('alertdialog');expect(dialog).toHaveTextContent('Re-enabling this option will not restore');
+ fireEvent.keyDown(dialog,{key:'Escape'});await waitFor(()=>expect(screen.queryByRole('alertdialog')).toBeNull());expect(toggle).toBeChecked();expect(calls.filter(call=>call.method==='PUT')).toHaveLength(0);
+ vi.unstubAllGlobals();
+});

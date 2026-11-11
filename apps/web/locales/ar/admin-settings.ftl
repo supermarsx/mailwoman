@@ -2515,3 +2515,7 @@ admin-settings-key-reader-attachment-thumbnails = الصور المصغرة ال
 
 admin-settings-key-mail-compose-auto-add-mention-recipients = إضافة الأشخاص المذكورين تلقائيًا إلى المستلمين
 admin-settings-help-mail-compose-auto-add-mention-recipients = عند اختيار شخص من اقتراحات @الإشارات، تتم إضافته إلى حقل إلى ما لم يكن موجودًا بالفعل في إلى أو نسخة أو نسخة مخفية. معطّل افتراضيًا.
+
+admin-settings-linked-disable-title = هل تريد تعطيل الوصول المحفوظ للحسابات المرتبطة؟
+admin-settings-linked-disable-body = يؤدي حفظ هذا التغيير إلى حذف بيانات تسجيل الدخول المستخدمة لتجديد الوصول للحسابات المرتبطة. سيحتاج المستخدمون إلى تسجيل الدخول مجددًا عند تجديد الوصول. إعادة تفعيل الخيار لا تستعيد هذه البيانات.
+admin-settings-linked-disable-confirm = تعطيل ومسح الوصول المحفوظ

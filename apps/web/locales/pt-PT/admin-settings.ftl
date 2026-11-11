@@ -2291,3 +2291,7 @@ admin-settings-help-mail-cross-account-transfer = Transfira mensagens entre caix
 
 admin-settings-key-mail-compose-auto-add-mention-recipients = Adicionar automaticamente as pessoas mencionadas aos destinatários
 admin-settings-help-mail-compose-auto-add-mention-recipients = Ao selecionar uma pessoa nas sugestões de @menções, adicioná-la a Para, exceto se já estiver em Para, Cc ou Bcc. Desativado por predefinição.
+
+admin-settings-linked-disable-title = Desativar o acesso guardado às contas associadas?
+admin-settings-linked-disable-body = Guardar esta alteração remove as credenciais guardadas para renovar o acesso às contas associadas. Os utilizadores terão de iniciar sessão novamente nessas contas quando for necessário renovar o acesso. Reativar esta opção não restaura essas credenciais.
+admin-settings-linked-disable-confirm = Desativar e limpar o acesso guardado

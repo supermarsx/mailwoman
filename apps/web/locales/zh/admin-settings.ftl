@@ -2485,3 +2485,7 @@ admin-settings-key-reader-attachment-thumbnails = 图像附件缩略图
 
 admin-settings-key-mail-compose-auto-add-mention-recipients = 自动将提及的人添加为收件人
 admin-settings-help-mail-compose-auto-add-mention-recipients = 从 @提及建议中选择某人时，如果对方尚未出现在收件人、抄送或密送中，则将其添加到收件人。默认关闭。
+
+admin-settings-linked-disable-title = 要禁用关联账号的已保存访问吗？
+admin-settings-linked-disable-body = 保存此更改会删除用于续期关联账号访问权限的凭据。需要续期时，用户必须重新登录关联账号。重新启用此选项不会恢复这些凭据。
+admin-settings-linked-disable-confirm = 禁用并清除已保存访问

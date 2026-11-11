@@ -2511,3 +2511,7 @@ admin-settings-key-reader-attachment-thumbnails = Миниатюры прикр�
 
 admin-settings-key-mail-compose-auto-add-mention-recipients = Автоматически добавлять упомянутых людей в получатели
 admin-settings-help-mail-compose-auto-add-mention-recipients = При выборе человека из подсказок @упоминаний добавлять его в поле Кому, если его ещё нет в полях Кому, Копия или Скрытая копия. По умолчанию отключено.
+
+admin-settings-linked-disable-title = Отключить сохранённый доступ к связанным аккаунтам?
+admin-settings-linked-disable-body = При сохранении удаляются учётные данные для продления доступа к связанным аккаунтам. Пользователям потребуется войти снова, когда доступ нужно будет продлить. Повторное включение не восстановит эти данные.
+admin-settings-linked-disable-confirm = Отключить и удалить сохранённый доступ

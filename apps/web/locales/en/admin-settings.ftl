@@ -2288,3 +2288,7 @@ admin-settings-help-mail-cross-account-transfer = Transfer messages between link
 
 admin-settings-key-mail-compose-auto-add-mention-recipients = Automatically add mentioned people as recipients
 admin-settings-help-mail-compose-auto-add-mention-recipients = When you select a person from @mention suggestions, add them to To unless they are already in To, Cc or Bcc. Off by default.
+
+admin-settings-linked-disable-title = Disable saved linked-account access?
+admin-settings-linked-disable-body = Saving this change removes the saved credentials used to renew linked-account access. Users will need to sign in to their linked accounts again when access needs renewing. Re-enabling this option will not restore those credentials.
+admin-settings-linked-disable-confirm = Disable and clear saved access

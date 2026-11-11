@@ -2511,3 +2511,7 @@ admin-settings-key-reader-attachment-thumbnails = Мініатюри вклад�
 
 admin-settings-key-mail-compose-auto-add-mention-recipients = Автоматично додавати згаданих людей до одержувачів
 admin-settings-help-mail-compose-auto-add-mention-recipients = Після вибору людини з підказок @згадок додавати її в поле Кому, якщо її ще немає в полях Кому, Копія або Прихована копія. Типово вимкнено.
+
+admin-settings-linked-disable-title = Вимкнути збережений доступ до пов’язаних облікових записів?
+admin-settings-linked-disable-body = Збереження зміни видаляє облікові дані для поновлення доступу до пов’язаних облікових записів. Користувачам доведеться знову ввійти, коли доступ потребуватиме поновлення. Повторне ввімкнення не відновить ці дані.
+admin-settings-linked-disable-confirm = Вимкнути та видалити збережений доступ

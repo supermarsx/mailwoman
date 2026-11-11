@@ -2499,3 +2499,7 @@ admin-settings-key-reader-attachment-thumbnails = Miniaturansichten der Bildanh�
 
 admin-settings-key-mail-compose-auto-add-mention-recipients = Erwähnte Personen automatisch als Empfänger hinzufügen
 admin-settings-help-mail-compose-auto-add-mention-recipients = Wenn Sie eine Person aus den @Erwähnungsvorschlägen auswählen, wird sie zu An hinzugefügt, sofern sie nicht bereits in An, Cc oder Bcc steht. Standardmäßig deaktiviert.
+
+admin-settings-linked-disable-title = Gespeicherten Zugriff auf verknüpfte Konten deaktivieren?
+admin-settings-linked-disable-body = Beim Speichern werden die Zugangsdaten zur Erneuerung des Zugriffs auf verknüpfte Konten entfernt. Benutzer müssen sich zur Erneuerung des Zugriffs erneut anmelden. Erneutes Aktivieren stellt diese Zugangsdaten nicht wieder her.
+admin-settings-linked-disable-confirm = Deaktivieren und gespeicherten Zugriff löschen

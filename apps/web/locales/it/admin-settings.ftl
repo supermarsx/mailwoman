@@ -2493,3 +2493,7 @@ admin-settings-key-reader-attachment-thumbnails = Miniature delle immagini alleg
 
 admin-settings-key-mail-compose-auto-add-mention-recipients = Aggiungi automaticamente le persone menzionate ai destinatari
 admin-settings-help-mail-compose-auto-add-mention-recipients = Quando selezioni una persona dai suggerimenti delle @menzioni, aggiungila ad A se non è già presente in A, Cc o Ccn. Disattivato per impostazione predefinita.
+
+admin-settings-linked-disable-title = Disattivare l’accesso salvato agli account collegati?
+admin-settings-linked-disable-body = Salvare questa modifica rimuove le credenziali usate per rinnovare l’accesso agli account collegati. Gli utenti dovranno accedere di nuovo quando occorre rinnovare l’accesso. Riattivare questa opzione non ripristina le credenziali.
+admin-settings-linked-disable-confirm = Disattiva e cancella l’accesso salvato

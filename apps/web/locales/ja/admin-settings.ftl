@@ -2485,3 +2485,7 @@ admin-settings-key-reader-attachment-thumbnails = 画像添付ファイルのサ
 
 admin-settings-key-mail-compose-auto-add-mention-recipients = メンションした相手を自動的に宛先に追加する
 admin-settings-help-mail-compose-auto-add-mention-recipients = @メンションの候補から相手を選択したとき、宛先、Cc、Bcc にまだ含まれていなければ宛先に追加します。既定では無効です。
+
+admin-settings-linked-disable-title = リンクされたアカウントの保存済みアクセスを無効にしますか？
+admin-settings-linked-disable-body = この変更を保存すると、リンクされたアカウントへのアクセス更新に使う認証情報が削除されます。アクセスを更新する際は再度ログインが必要です。この設定を再度有効にしても、削除された認証情報は復元されません。
+admin-settings-linked-disable-confirm = 無効にして保存済みアクセスを削除

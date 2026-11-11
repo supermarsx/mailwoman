@@ -2,7 +2,7 @@
 // env pin and 412 handling for one representative key.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor } from '@solidjs/testing-library';
+import { fireEvent, screen, waitFor, within } from '@solidjs/testing-library';
 import { Show } from 'solid-js';
 import { InlineSettingEditor } from './InlineSettingEditor.tsx';
 import type { AdminSetting } from '../../../api/admin/settings.ts';
@@ -104,4 +104,18 @@ describe('InlineSettingEditor', () => {
     expect(await screen.findByRole('spinbutton')).toBeInTheDocument();
     expect(load).toHaveBeenCalledWith(base.key);
   });
+});
+
+it.each(['accounts.linkingEnabled','accounts.storeLinkedCredentials'])('confirms disabling %s before credentials can be cleared',async key=>{
+ const policy:AdminSetting={...base,key,kind:{type:'bool'},globalValue:true,effective:{value:true,source:'global'},default:false};
+ const saved={...policy,globalValue:false,effective:{value:false,source:'global' as const},etag:'"e1"'};
+ const fetcher=vi.fn<typeof fetch>(async()=>json(200,saved,'"e1"'));vi.stubGlobal('fetch',fetcher);
+ renderInShell(()=><InlineSettingEditor settingKey={key} setting={policy}/>);
+ const toggle=await screen.findByRole('checkbox');expect(toggle).toBeChecked();fireEvent.click(toggle);
+ const dialog=await screen.findByRole('alertdialog');expect(dialog).toHaveTextContent('sign in to their linked accounts again');expect(fetcher).not.toHaveBeenCalled();
+ fireEvent.click(within(dialog).getByRole('button',{name:'Cancel'}));expect(toggle).toBeChecked();expect(fetcher).not.toHaveBeenCalled();
+ fireEvent.click(toggle);fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button',{name:'Disable and clear saved access'}));
+ await waitFor(()=>expect(screen.queryByRole('alertdialog')).toBeNull());expect(toggle).not.toBeChecked();expect(fetcher).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Save'}));await waitFor(()=>expect(fetcher).toHaveBeenCalled());
+ expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toEqual({globalValue:false});
 });

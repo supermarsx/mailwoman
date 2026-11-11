@@ -26,6 +26,7 @@ import { useEtag } from '../shell/useEtag.ts';
 import { useSavingToast } from '../shell/useSavingToast.ts';
 import { ScopedValues } from './ScopedValues.tsx';
 import { ValueInput } from './ValueInput.tsx';
+import {createLinkedMailboxDisableConfirmation} from './LinkedMailboxDisableConfirmation.tsx';
 import { impactLabels } from './impact.ts';
 import { settingAnchorId } from './keys.ts';
 import { settingHelp, settingLabel } from './labels.ts';
@@ -135,6 +136,7 @@ export function InlineSettingEditor(props: InlineSettingEditorProps): JSX.Elemen
     const s = row();
     return s ? toDraft(s.kind, s.globalValue ?? s.effective.value) : '';
   });
+  const linkedDisable=createLinkedMailboxDisableConfirmation({key:()=>props.settingKey,draft,stored:storedDraft,scope:()=>JSON.stringify([props.settingKey,row()?.etag,writable()]),setDraft});
   const dirty = (): boolean => {
     const s = row();
     if (!s) return false;
@@ -179,6 +181,7 @@ export function InlineSettingEditor(props: InlineSettingEditorProps): JSX.Elemen
   }
   async function save(e: Event): Promise<void> {
     e.preventDefault();
+    if(linkedDisable.pending())return;
     const s = row();
     if (!s) return;
     setDone(null);
@@ -230,7 +233,7 @@ export function InlineSettingEditor(props: InlineSettingEditorProps): JSX.Elemen
               {(w) => (
                 <Show
                   when={props.editor}
-                  fallback={<ValueInput kind={s().kind} draft={draft()} onDraft={setDraft} wiring={w} disabled={!writable()} nullable={s().nullable} {...(s().kind.type === 'bool' ? { checkboxLabel: label() } : {})} />}
+                  fallback={<ValueInput kind={s().kind} draft={draft()} onDraft={linkedDisable.change} wiring={w} disabled={!writable()} nullable={s().nullable} {...(s().kind.type === 'bool' ? { checkboxLabel: label() } : {})} />}
                 >
                   {(render) => render()({
                     get setting() { return s(); },
@@ -308,6 +311,7 @@ export function InlineSettingEditor(props: InlineSettingEditorProps): JSX.Elemen
           </form>
         )}
       </Show>
+      {linkedDisable.dialog()}
     </article>
   );
 }
