@@ -130,3 +130,9 @@ reader-option-always = Toujours
 reader-option-hover = En survol ou en mise au point
 
 reader-option-never = Jamais
+
+reader-card-header = En-tête du message
+reader-autoHideHeader = Masquer automatiquement les en-têtes des messages
+reader-autoHideHeader-help = Ouvrir chaque message avec les détails de l’expéditeur, des destinataires et les métadonnées repliés. L’objet et les actions restent visibles. Utilisez Afficher l’en-tête pour voir les détails. Désactivé par défaut.
+reader-header-show = Afficher l’en-tête
+reader-header-hide = Masquer l’en-tête

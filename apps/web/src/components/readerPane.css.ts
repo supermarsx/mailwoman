@@ -21,6 +21,9 @@ const DESKTOP = 'screen and (min-width: 761px)';
 // Keep the already configured skeleton over the opaque frame until its current
 // document has parsed. Never show the empty bridge's default canvas in between.
 globalStyle('.reader__frame--pending', {visibility:'hidden',pointerEvents:'none'});
+globalStyle('.reader__header--collapsible', {position:'relative'});
+globalStyle('.reader__header--collapsible .reader__subject', {paddingInlineEnd:'2.75rem'});
+globalStyle('.reader__header-toggle', {position:'absolute',insetBlockStart:'.5rem',insetInlineEnd:'.5rem',display:'inline-flex',alignItems:'center',justifyContent:'center'});
 // A compact label in the corner of the body area, never a cover: it holds no background and takes no pointer events.
 globalStyle('.reader__frame-loading', {position:'absolute',insetBlockStart:0,insetInlineStart:0,zIndex:1,pointerEvents:'none',padding:vars.space[3]});
 // Another message is loading into the open reader: its chrome stays mounted and updates in place.

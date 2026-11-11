@@ -2292,3 +2292,6 @@ admin-settings-help-mail-compose-auto-add-mention-recipients = When you select a
 admin-settings-linked-disable-title = Disable saved linked-account access?
 admin-settings-linked-disable-body = Saving this change removes the saved credentials used to renew linked-account access. Users will need to sign in to their linked accounts again when access needs renewing. Re-enabling this option will not restore those credentials.
 admin-settings-linked-disable-confirm = Disable and clear saved access
+
+admin-settings-key-reader-auto-hide-header = Automatically hide message headers
+admin-settings-help-reader-auto-hide-header = Open each message with sender, recipient and metadata details collapsed. The subject and actions stay visible. Use Show header to reveal the details. Off by default.

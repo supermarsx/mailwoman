@@ -2497,3 +2497,6 @@ admin-settings-help-mail-compose-auto-add-mention-recipients = Ao selecionar uma
 admin-settings-linked-disable-title = Desativar o acesso salvo às contas vinculadas?
 admin-settings-linked-disable-body = Salvar esta alteração remove as credenciais salvas para renovar o acesso às contas vinculadas. Os usuários precisarão entrar novamente nessas contas quando o acesso precisar ser renovado. Reativar esta opção não restaura essas credenciais.
 admin-settings-linked-disable-confirm = Desativar e limpar o acesso salvo
+
+admin-settings-key-reader-auto-hide-header = Ocultar automaticamente os cabeçalhos das mensagens
+admin-settings-help-reader-auto-hide-header = Abrir cada mensagem com os detalhes do remetente, destinatários e metadados recolhidos. O assunto e as ações permanecem visíveis. Use Mostrar cabeçalho para ver os detalhes. Desativado por padrão.

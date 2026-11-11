@@ -130,3 +130,9 @@ reader-option-always = Sempre
 reader-option-hover = Ao passar o mouse ou focar
 
 reader-option-never = Nunca
+
+reader-card-header = Cabeçalho da mensagem
+reader-autoHideHeader = Ocultar automaticamente os cabeçalhos das mensagens
+reader-autoHideHeader-help = Abrir cada mensagem com os detalhes do remetente, destinatários e metadados recolhidos. O assunto e as ações permanecem visíveis. Use Mostrar cabeçalho para ver os detalhes. Desativado por padrão.
+reader-header-show = Mostrar cabeçalho
+reader-header-hide = Ocultar cabeçalho

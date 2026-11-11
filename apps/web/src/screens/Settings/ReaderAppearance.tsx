@@ -8,6 +8,7 @@ import { SettingsCard } from './layout/SettingsCard.tsx';
 import type { CardSpec } from './layout/rows.tsx';
 import * as css from './styles.css.ts';
 import { AttachmentsBarSettings, ATTACHMENTS_BAR_CARD_SPEC } from './AttachmentsBarSettings.tsx';
+import {ToggleRow} from './layout/rows.tsx';
 import { snapZoom, ZOOM_STEPS } from '../../components/readerZoom.ts';
 import {AttachmentPreviewPreferences,ATTACHMENT_PREVIEW_CARD} from './AttachmentPreviewPreferences.tsx';
 
@@ -25,10 +26,11 @@ const fields: Record<string, Field> = {
   zoom: { key: 'zoom', fallback: 100, steps: ZOOM_STEPS },
 };
 // Card -> ordered fields. Every key above appears in exactly one card.
-export const READER_CARDS: { id: string; title: string; help: string; keys: string[]; leading?: 'attachmentsCollapsed' }[] = [
+export const READER_CARDS: { id: string; title: string; help: string; keys: string[]; leading?: 'attachmentsCollapsed'|'autoHideHeader' }[] = [
   { id: 'reader-card-text', title: 'reader-card-text', help: 'reader-card-text-help', keys: ['colorMode', 'fontSize', 'lineHeight', 'contentWidth', 'zoom'] },
   { id: 'reader-card-actions', title: 'reader-card-actions', help: 'reader-card-actions-help', keys: ['actionStyle', 'attachmentsDensity'], leading: 'attachmentsCollapsed' },
   { id: 'reader-card-loading', title: 'reader-card-loading', help: 'reader-card-loading-help', keys: ['loading', 'loadingDelayMs'] },
+  { id:'reader-card-header',title:'reader-card-header',help:'reader-autoHideHeader-help',keys:[],leading:'autoHideHeader' },
 ];
 
 function FieldRow(props: { field: Field }): JSX.Element {
@@ -53,11 +55,12 @@ function AttachmentsCollapsedRow(): JSX.Element {
 }
 
 export function ReaderAppearanceSettings(): JSX.Element {
+  const autoHideHeader=useSetting<boolean>('reader.autoHideHeader',false);
   onMount(() => { void loadCatalog('reader'); void loadCatalog('settings-policy'); });
   return <>
     <header><h3 class={css.heading}>{t('reader-settings-title')}</h3><p class={css.meta}>{t('reader-settings-help')}</p></header>
     <For each={READER_CARDS}>{card => <SettingsCard id={card.id} title={t(card.title)} description={t(card.help)}>
-      <Show when={card.leading}><AttachmentsCollapsedRow /></Show>
+      <Show when={card.leading}><Show when={card.leading==='autoHideHeader'} fallback={<AttachmentsCollapsedRow/>}><ToggleRow id="reader-autoHideHeader" label={t('reader-autoHideHeader')} help={t('reader-autoHideHeader-help')} handle={autoHideHeader}/></Show></Show>
       <For each={card.keys}>{key => <FieldRow field={fields[key]!} />}</For>
     </SettingsCard>}</For>
     <ReaderActionPreferences />

@@ -118,3 +118,9 @@ reader-option-always = 总是
 reader-option-hover = 悬停或聚焦时
 
 reader-option-never = 从来没有
+
+reader-card-header = 邮件标头
+reader-autoHideHeader = 自动隐藏邮件标头
+reader-autoHideHeader-help = 打开每封邮件时折叠发件人、收件人和元数据详情。主题和操作保持可见。使用显示标头可查看详情。默认关闭。
+reader-header-show = 显示标头
+reader-header-hide = 隐藏标头

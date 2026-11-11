@@ -2503,3 +2503,6 @@ admin-settings-help-mail-compose-auto-add-mention-recipients = Lorsque vous sél
 admin-settings-linked-disable-title = Désactiver l’accès enregistré aux comptes liés ?
 admin-settings-linked-disable-body = Enregistrer cette modification supprime les identifiants servant à renouveler l’accès aux comptes liés. Les utilisateurs devront se reconnecter lorsque cet accès doit être renouvelé. Réactiver cette option ne restaure pas ces identifiants.
 admin-settings-linked-disable-confirm = Désactiver et effacer l’accès enregistré
+
+admin-settings-key-reader-auto-hide-header = Masquer automatiquement les en-têtes des messages
+admin-settings-help-reader-auto-hide-header = Ouvrir chaque message avec les détails de l’expéditeur, des destinataires et les métadonnées repliés. L’objet et les actions restent visibles. Utilisez Afficher l’en-tête pour voir les détails. Désactivé par défaut.

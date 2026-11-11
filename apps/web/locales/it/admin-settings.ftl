@@ -2497,3 +2497,6 @@ admin-settings-help-mail-compose-auto-add-mention-recipients = Quando selezioni 
 admin-settings-linked-disable-title = Disattivare l’accesso salvato agli account collegati?
 admin-settings-linked-disable-body = Salvare questa modifica rimuove le credenziali usate per rinnovare l’accesso agli account collegati. Gli utenti dovranno accedere di nuovo quando occorre rinnovare l’accesso. Riattivare questa opzione non ripristina le credenziali.
 admin-settings-linked-disable-confirm = Disattiva e cancella l’accesso salvato
+
+admin-settings-key-reader-auto-hide-header = Nascondi automaticamente le intestazioni dei messaggi
+admin-settings-help-reader-auto-hide-header = Apri ogni messaggio con i dettagli di mittente, destinatari e metadati compressi. Oggetto e azioni restano visibili. Usa Mostra intestazione per vedere i dettagli. Disattivato per impostazione predefinita.

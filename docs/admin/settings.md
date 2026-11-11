@@ -2151,6 +2151,7 @@ These keys support global and domain defaults, administrator locks and user over
 | <a id="reader.loading"></a>`reader.loading` | skeleton, indicator, none | skeleton |
 | <a id="reader.loadingDelayMs"></a>`reader.loadingDelayMs` | 0–1000 milliseconds | 120 |
 | <a id="reader.zoom"></a>`reader.zoom` | 50–200 percent (the reader snaps to 50, 67, 75, 90, 100, 110, 125, 150, 175, 200) | 100 |
+| <a id="reader.autoHideHeader"></a>`reader.autoHideHeader` | true, false (start each message with sender, recipient and metadata details collapsed; Show header reveals them while subject, actions and receipt prompts remain available) | false |
 | <a id="reader.attachmentsCollapsed"></a>`reader.attachmentsCollapsed` | true, false (the reader's attachments bar starts collapsed; the user's last toggle is saved here) | false |
 | <a id="attachments.bar.clickToToggle"></a>`attachments.bar.clickToToggle` | true, false (clicking anywhere on the reader's attachments bar header expands or collapses it; when false only the arrow button does) | true |
 | <a id="attachments.bar.showDownloadButtons"></a>`attachments.bar.showDownloadButtons` | always, hover, never (when each attachment in the bar shows its download button; touch screens always show it in hover mode) | hover |

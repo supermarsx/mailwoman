@@ -138,3 +138,9 @@ reader-option-always = دائما
 reader-option-hover = عند التمرير أو التركيز
 
 reader-option-never = أبدا
+
+reader-card-header = رأس الرسالة
+reader-autoHideHeader = إخفاء رؤوس الرسائل تلقائيًا
+reader-autoHideHeader-help = افتح كل رسالة مع طي تفاصيل المرسل والمستلمين والبيانات الوصفية. يبقى الموضوع والإجراءات ظاهرين. استخدم إظهار الرأس لعرض التفاصيل. معطّل افتراضيًا.
+reader-header-show = إظهار الرأس
+reader-header-hide = إخفاء الرأس

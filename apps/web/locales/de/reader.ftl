@@ -124,3 +124,9 @@ reader-option-always = Immer
 reader-option-hover = Beim Schweben oder Fokussieren
 
 reader-option-never = Niemals
+
+reader-card-header = Nachrichtenkopf
+reader-autoHideHeader = Nachrichtenköpfe automatisch ausblenden
+reader-autoHideHeader-help = Jede Nachricht mit eingeklappten Absender-, Empfänger- und Metadaten öffnen. Betreff und Aktionen bleiben sichtbar. Mit Kopf anzeigen lassen sich die Details einblenden. Standardmäßig deaktiviert.
+reader-header-show = Kopf anzeigen
+reader-header-hide = Kopf ausblenden

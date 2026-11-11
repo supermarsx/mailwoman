@@ -8,6 +8,7 @@ import {
   createMemo,
   createResource,
   createSignal,
+  createUniqueId,
   lazy,
   Suspense,
   on,
@@ -751,7 +752,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const replyDrafts=createReplyDraftIndex(app.accountId);
   const [linkAuthority,setLinkAuthority]=createSignal(preferenceAccount());
   onCleanup(observePreferenceAccount(account=>setLinkAuthority(account)));
-  onMount(() => { void loadCatalog('remote-images'); void loadCatalog('privacy'); void loadCatalog('contacts'); });
+  onMount(() => { void loadCatalog('remote-images'); void loadCatalog('privacy'); void loadCatalog('contacts'); void loadCatalog('reader'); });
 
   // A memo, so readers of the id (the decrypt reset, the verdict fetch, the entry
   // motion) run when ANOTHER message opens, not on every update of the open one:
@@ -880,6 +881,11 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const [bodyDisplays, setBodyDisplays] = createSignal(0);
   const [receiptDisplayed,setReceiptDisplayed]=createSignal<{key:string;html:string}|null>(null);
   const receiptDocumentKey=()=>JSON.stringify([app.accountId(),emailId()]);
+  const autoHideHeader=()=>settings()['reader.autoHideHeader']?.value===true;
+  const [headerExpanded,setHeaderExpanded]=createSignal(false);
+  const headerDetailsId=createUniqueId();
+  createEffect(on(()=>JSON.stringify([receiptDocumentKey(),autoHideHeader()]),()=>setHeaderExpanded(false)));
+  const headerCollapsed=()=>autoHideHeader()&&!headerExpanded();
   const [listHeaders,setListHeaders]=createSignal<{scope:string;url:string;raw:string}|null>(null);
   const messageHeaderUrl=()=>{
     const email=app.openEmail(),accountId=app.accountId(),template=app.downloadUrl();
@@ -1526,8 +1532,10 @@ function ReaderBody(props: ReaderProps): JSX.Element {
         {(email) => (
           <>
             <Show when={props.view}>{(view) => <RemoteChangeNotice view={view()} />}</Show>
-            <header class="reader__header">
+            <header class="reader__header" classList={{'reader__header--collapsible':autoHideHeader()}}>
               <h2 ref={subjectHeading} tabIndex={-1} class="reader__subject">{displayText((switching() ? pendingEntry()?.subject : undefined) ?? email().subject ?? rawT('mail-no-subject'))}</h2>
+              <Show when={autoHideHeader()}><button type="button" class="btn btn--ghost reader__header-toggle" aria-label={t(headerCollapsed()?'reader-header-show':'reader-header-hide')} title={t(headerCollapsed()?'reader-header-show':'reader-header-hide')} aria-expanded={!headerCollapsed()} aria-controls={headerDetailsId} onClick={()=>setHeaderExpanded(!headerExpanded())}><Icon name={headerCollapsed()?'chevronDown':'chevronUp'}/></button></Show>
+              <div id={headerDetailsId} hidden={headerCollapsed()} data-testid="reader-header-details">
               <div class="reader__meta">
                 <div class="reader__address-group">
                   <div class="reader__address-line"><span class="reader__address-label">{t('mail-compose-from')}</span><SenderBrandMark address={email().from?.[0]?.email} auth={verdict()?.auth}/><ContactAddresses addresses={email().from} onOpen={addressCard.open}/></div>
@@ -1575,6 +1583,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   engine={policy().inlineParts === true} downloadUrl={app.downloadUrl()}/>}
               </Show>
               <Show when={app.accountId()}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true} proxyUrl={privacy.state === 'ready' && policy().inlineParts !== true && email().blobId && app.downloadUrl() ? buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'}) : undefined}/></Show>
+              </div>
               <Show when={app.accountId()&&policy().inlineParts===true}><ReadReceipt accountId={app.accountId()!} emailId={email().id} active={props.active!==false} fullView={props.view!==undefined} displayed={receiptDisplayed()?.key===receiptDocumentKey()&&receiptDisplayed()?.html===bodySrcdoc()&&!showDecrypt()}/></Show>
 
               {/* One action row (t57): reply group, View conversation (threads of more

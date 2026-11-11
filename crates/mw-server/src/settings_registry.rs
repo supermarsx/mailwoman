@@ -3328,6 +3328,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "message body zoom in percent; the reader snaps it to its zoom steps"
     ),
     def!(
+        "reader.autoHideHeader",
+        Kind::Bool,
+        "false",
+        GDU,
+        "reader",
+        "open messages with sender, recipient and metadata details collapsed; the subject and actions stay visible and details can be expanded"
+    ),
+    def!(
         "reader.attachmentsCollapsed",
         Kind::Bool,
         "true",

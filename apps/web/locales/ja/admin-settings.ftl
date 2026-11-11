@@ -2489,3 +2489,6 @@ admin-settings-help-mail-compose-auto-add-mention-recipients = @メンション�
 admin-settings-linked-disable-title = リンクされたアカウントの保存済みアクセスを無効にしますか？
 admin-settings-linked-disable-body = この変更を保存すると、リンクされたアカウントへのアクセス更新に使う認証情報が削除されます。アクセスを更新する際は再度ログインが必要です。この設定を再度有効にしても、削除された認証情報は復元されません。
 admin-settings-linked-disable-confirm = 無効にして保存済みアクセスを削除
+
+admin-settings-key-reader-auto-hide-header = メッセージのヘッダーを自動的に隠す
+admin-settings-help-reader-auto-hide-header = 各メッセージを開く際、差出人、宛先、メタデータの詳細を折りたたみます。件名と操作は表示したままです。ヘッダーを表示で詳細を確認できます。既定では無効です。

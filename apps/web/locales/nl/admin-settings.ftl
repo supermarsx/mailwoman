@@ -2497,3 +2497,6 @@ admin-settings-help-mail-compose-auto-add-mention-recipients = Wanneer je iemand
 admin-settings-linked-disable-title = Opgeslagen toegang tot gekoppelde accounts uitschakelen?
 admin-settings-linked-disable-body = Opslaan verwijdert de inloggegevens waarmee toegang tot gekoppelde accounts wordt vernieuwd. Gebruikers moeten opnieuw inloggen wanneer de toegang moet worden vernieuwd. Opnieuw inschakelen herstelt deze inloggegevens niet.
 admin-settings-linked-disable-confirm = Uitschakelen en opgeslagen toegang wissen
+
+admin-settings-key-reader-auto-hide-header = Berichtkoppen automatisch verbergen
+admin-settings-help-reader-auto-hide-header = Open elk bericht met ingeklapte afzender-, ontvanger- en metagegevens. Het onderwerp en de acties blijven zichtbaar. Gebruik Kop tonen om de details te zien. Standaard uitgeschakeld.

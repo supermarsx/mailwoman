@@ -124,3 +124,9 @@ reader-option-always = Altijd
 reader-option-hover = Bij hover of focus
 
 reader-option-never = Nooit
+
+reader-card-header = Berichtkop
+reader-autoHideHeader = Berichtkoppen automatisch verbergen
+reader-autoHideHeader-help = Open elk bericht met ingeklapte afzender-, ontvanger- en metagegevens. Het onderwerp en de acties blijven zichtbaar. Gebruik Kop tonen om de details te zien. Standaard uitgeschakeld.
+reader-header-show = Kop tonen
+reader-header-hide = Kop verbergen

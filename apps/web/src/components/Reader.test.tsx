@@ -190,6 +190,21 @@ describe('Reader: Reply, Reply all, Forward', () => {
     const addresses = within(cc).getAllByRole('button');
     expect(addresses.map(button => button.getAttribute('title'))).toEqual(['carol@example.org', 'alias@corp.example']);
     expect(addresses.every(button => button.getAttribute('aria-haspopup') === 'dialog' && button.tabIndex === 0)).toBe(true);
+    expect(screen.getByTestId('reader-header-details')).toBeVisible();
+    expect(screen.queryByRole('button',{name:'Show header'})).toBeNull();
+  });
+
+  it('automatically hides header details after opt-in, allows revealing them and respects an admin opt-out',async()=>{
+    await openReader(ORIGINAL);
+    const apply=(value:boolean,locked=false)=>loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'reader.autoHideHeader':{value,source:locked?'global':'user',locked}}}),{headers:{'content-type':'application/json'}})});
+    try{
+      await apply(true);
+      const details=screen.getByTestId('reader-header-details');expect(details).not.toBeVisible();
+      expect(screen.getByRole('heading',{name:ORIGINAL.subject!})).toBeVisible();expect(screen.getByRole('toolbar',{name:'Message actions'})).toBeVisible();
+      const show=screen.getByRole('button',{name:'Show header'});expect(show).toHaveAttribute('aria-expanded','false');fireEvent.click(show);
+      expect(details).toBeVisible();fireEvent.click(screen.getByRole('button',{name:'Hide header'}));expect(details).not.toBeVisible();
+      await apply(false,true);expect(details).toBeVisible();expect(screen.queryByRole('button',{name:'Show header'})).toBeNull();
+    }finally{clearSettings();}
   });
 
   it('offers quick reply only after opt-in and preserves the standard reply metadata', async () => {

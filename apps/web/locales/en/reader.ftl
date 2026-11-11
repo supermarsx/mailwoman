@@ -96,3 +96,9 @@ reader-attachments-download-all-warned = { $count ->
     [one] One file that needs a confirmation was left out. Download it on its own.
    *[other] { $count } files that need a confirmation were left out. Download them one by one.
  }
+
+reader-card-header = Message header
+reader-autoHideHeader = Automatically hide message headers
+reader-autoHideHeader-help = Open each message with sender, recipient and metadata details collapsed. The subject and actions stay visible. Use Show header to reveal the details. Off by default.
+reader-header-show = Show header
+reader-header-hide = Hide header

@@ -2515,3 +2515,6 @@ admin-settings-help-mail-compose-auto-add-mention-recipients = Po wybraniu osoby
 admin-settings-linked-disable-title = Wyłączyć zapisany dostęp do połączonych kont?
 admin-settings-linked-disable-body = Zapisanie zmiany usuwa dane logowania używane do odnawiania dostępu do połączonych kont. Użytkownicy będą musieli zalogować się ponownie, gdy dostęp będzie wymagał odnowienia. Ponowne włączenie opcji nie przywraca tych danych.
 admin-settings-linked-disable-confirm = Wyłącz i usuń zapisany dostęp
+
+admin-settings-key-reader-auto-hide-header = Automatycznie ukrywaj nagłówki wiadomości
+admin-settings-help-reader-auto-hide-header = Otwieraj każdą wiadomość ze zwiniętymi danymi nadawcy, odbiorców i metadanymi. Temat i działania pozostają widoczne. Użyj Pokaż nagłówek, aby zobaczyć szczegóły. Domyślnie wyłączone.

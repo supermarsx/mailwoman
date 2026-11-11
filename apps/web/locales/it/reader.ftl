@@ -127,3 +127,9 @@ reader-option-always = Sempre
 reader-option-hover = Al passaggio del mouse o messa a fuoco
 
 reader-option-never = Mai
+
+reader-card-header = Intestazione del messaggio
+reader-autoHideHeader = Nascondi automaticamente le intestazioni dei messaggi
+reader-autoHideHeader-help = Apri ogni messaggio con i dettagli di mittente, destinatari e metadati compressi. Oggetto e azioni restano visibili. Usa Mostra intestazione per vedere i dettagli. Disattivato per impostazione predefinita.
+reader-header-show = Mostra intestazione
+reader-header-hide = Nascondi intestazione

@@ -2503,3 +2503,6 @@ admin-settings-help-mail-compose-auto-add-mention-recipients = Wenn Sie eine Per
 admin-settings-linked-disable-title = Gespeicherten Zugriff auf verknüpfte Konten deaktivieren?
 admin-settings-linked-disable-body = Beim Speichern werden die Zugangsdaten zur Erneuerung des Zugriffs auf verknüpfte Konten entfernt. Benutzer müssen sich zur Erneuerung des Zugriffs erneut anmelden. Erneutes Aktivieren stellt diese Zugangsdaten nicht wieder her.
 admin-settings-linked-disable-confirm = Deaktivieren und gespeicherten Zugriff löschen
+
+admin-settings-key-reader-auto-hide-header = Nachrichtenköpfe automatisch ausblenden
+admin-settings-help-reader-auto-hide-header = Jede Nachricht mit eingeklappten Absender-, Empfänger- und Metadaten öffnen. Betreff und Aktionen bleiben sichtbar. Mit Kopf anzeigen lassen sich die Details einblenden. Standardmäßig deaktiviert.

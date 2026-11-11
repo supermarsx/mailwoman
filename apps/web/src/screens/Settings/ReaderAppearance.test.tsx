@@ -9,7 +9,7 @@ beforeEach(()=>{
  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
   const entry=(value:unknown)=>({value,source:'global',locked});
   if(init?.method==='PUT'){const value=(JSON.parse(String(init.body)) as {value:unknown}).value;writes.push({key:String(input),value});return new Response(JSON.stringify(entry(value)));}
-  return new Response(JSON.stringify({settings:{'reader.attachmentsCollapsed':entry(true),'reader.attachmentsDensity':entry('compact')}}));
+  return new Response(JSON.stringify({settings:{'reader.attachmentsCollapsed':entry(true),'reader.attachmentsDensity':entry('compact'),'reader.autoHideHeader':entry(false)}}));
  }));
 });
 afterEach(()=>{vi.unstubAllGlobals();clearSettings();});
@@ -23,4 +23,15 @@ it('honors administrator locks for both attachment presentation defaults',async(
  locked=true;render(()=><ReaderAppearanceSettings/>);
  await waitFor(()=>expect(screen.getByLabelText('Attachment density')).toHaveValue('compact'));
  expect(screen.getByLabelText('Attachment density')).toBeDisabled();expect(screen.getByLabelText('Collapse attachments by default')).toBeDisabled();expect(writes).toEqual([]);
+});
+
+it('keeps automatic header hiding off by default and saves an explicit opt-in',async()=>{
+ render(()=><ReaderAppearanceSettings/>);
+ const toggle=await screen.findByLabelText('Automatically hide message headers');await waitFor(()=>expect(toggle).toBeEnabled());expect(toggle).not.toBeChecked();
+ fireEvent.click(toggle);await waitFor(()=>expect(writes).toContainEqual({key:'/api/settings/reader.autoHideHeader',value:true}));
+});
+it('honours the administrator lock on automatic header hiding',async()=>{
+ locked=true;render(()=><ReaderAppearanceSettings/>);
+ await waitFor(()=>expect(screen.getByLabelText('Automatically hide message headers')).toBeDisabled());
+ expect(writes).toEqual([]);
 });

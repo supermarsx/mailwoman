@@ -19,7 +19,7 @@ beforeEach(()=>{
 });
 afterEach(()=>{vi.unstubAllGlobals();clearSettings();});
 const mount=()=>render(()=><RetainedSettingsSection name="reader" active accountBound={false}>{()=><ReaderAppearanceSettings/>}</RetainedSettingsSection>);
-const ALL_KEYS=['colorMode','fontSize','lineHeight','contentWidth','zoom','actionStyle','attachmentsDensity','attachmentsCollapsed','loading','loadingDelayMs'];
+const ALL_KEYS=['colorMode','fontSize','lineHeight','contentWidth','zoom','actionStyle','attachmentsDensity','attachmentsCollapsed','loading','loadingDelayMs','autoHideHeader'];
 
 it('shows every message display setting exactly once, as stacked cards with no extra navigation',async()=>{
  mount();

@@ -99,3 +99,9 @@ reader-attachments-download-all-warned = { $count ->
     [one] Um ficheiro que exige confirmação ficou de fora. Transfira-o individualmente.
    *[other] { $count } ficheiros que exigem confirmação ficaram de fora. Transfira-os um a um.
  }
+
+reader-card-header = Cabeçalho da mensagem
+reader-autoHideHeader = Ocultar automaticamente os cabeçalhos das mensagens
+reader-autoHideHeader-help = Abrir cada mensagem com os detalhes do remetente, destinatários e metadados recolhidos. O assunto e as ações permanecem visíveis. Use Mostrar cabeçalho para ver os detalhes. Desativado por predefinição.
+reader-header-show = Mostrar cabeçalho
+reader-header-hide = Ocultar cabeçalho

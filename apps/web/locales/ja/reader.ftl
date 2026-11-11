@@ -118,3 +118,9 @@ reader-option-always = いつも
 reader-option-hover = ホバーまたはフォーカス時
 
 reader-option-never = 決してしない
+
+reader-card-header = メッセージのヘッダー
+reader-autoHideHeader = メッセージのヘッダーを自動的に隠す
+reader-autoHideHeader-help = 各メッセージを開く際、差出人、宛先、メタデータの詳細を折りたたみます。件名と操作は表示したままです。ヘッダーを表示で詳細を確認できます。既定では無効です。
+reader-header-show = ヘッダーを表示
+reader-header-hide = ヘッダーを隠す

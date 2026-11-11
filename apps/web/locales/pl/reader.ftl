@@ -132,3 +132,9 @@ reader-option-always = Zawsze
 reader-option-hover = Po najechaniu kursorem lub skupieniu
 
 reader-option-never = Nigdy
+
+reader-card-header = Nagłówek wiadomości
+reader-autoHideHeader = Automatycznie ukrywaj nagłówki wiadomości
+reader-autoHideHeader-help = Otwieraj każdą wiadomość ze zwiniętymi danymi nadawcy, odbiorców i metadanymi. Temat i działania pozostają widoczne. Użyj Pokaż nagłówek, aby zobaczyć szczegóły. Domyślnie wyłączone.
+reader-header-show = Pokaż nagłówek
+reader-header-hide = Ukryj nagłówek

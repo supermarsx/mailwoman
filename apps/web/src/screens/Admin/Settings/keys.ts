@@ -355,6 +355,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'reader.attachmentThumbnails',
   'reader.colorMode', 'reader.fontSize', 'reader.lineHeight',
   'reader.contentWidth', 'reader.loading', 'reader.loadingDelayMs', 'reader.zoom', 'reader.attachmentsCollapsed',
+  'reader.autoHideHeader',
   'attachments.bar.clickToToggle', 'attachments.bar.showDownloadButtons', 'attachments.bar.downloadAll', 'attachments.bar.zipInlineImages',
   'cap.integration.nextcloud',
   'cap.integration.google',

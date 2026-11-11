@@ -2489,3 +2489,6 @@ admin-settings-help-mail-compose-auto-add-mention-recipients = 从 @提及建议
 admin-settings-linked-disable-title = 要禁用关联账号的已保存访问吗？
 admin-settings-linked-disable-body = 保存此更改会删除用于续期关联账号访问权限的凭据。需要续期时，用户必须重新登录关联账号。重新启用此选项不会恢复这些凭据。
 admin-settings-linked-disable-confirm = 禁用并清除已保存访问
+
+admin-settings-key-reader-auto-hide-header = 自动隐藏邮件标头
+admin-settings-help-reader-auto-hide-header = 打开每封邮件时折叠发件人、收件人和元数据详情。主题和操作保持可见。使用显示标头可查看详情。默认关闭。

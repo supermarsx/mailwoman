@@ -2519,3 +2519,6 @@ admin-settings-help-mail-compose-auto-add-mention-recipients = عند اختيا
 admin-settings-linked-disable-title = هل تريد تعطيل الوصول المحفوظ للحسابات المرتبطة؟
 admin-settings-linked-disable-body = يؤدي حفظ هذا التغيير إلى حذف بيانات تسجيل الدخول المستخدمة لتجديد الوصول للحسابات المرتبطة. سيحتاج المستخدمون إلى تسجيل الدخول مجددًا عند تجديد الوصول. إعادة تفعيل الخيار لا تستعيد هذه البيانات.
 admin-settings-linked-disable-confirm = تعطيل ومسح الوصول المحفوظ
+
+admin-settings-key-reader-auto-hide-header = إخفاء رؤوس الرسائل تلقائيًا
+admin-settings-help-reader-auto-hide-header = افتح كل رسالة مع طي تفاصيل المرسل والمستلمين والبيانات الوصفية. يبقى الموضوع والإجراءات ظاهرين. استخدم إظهار الرأس لعرض التفاصيل. معطّل افتراضيًا.
