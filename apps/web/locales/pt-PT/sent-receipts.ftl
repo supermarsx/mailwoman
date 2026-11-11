@@ -1,0 +1,21 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+sent-receipts-button = Recibos
+sent-receipts-title = Recibos por destinatário
+sent-receipts-explanation = Os relatórios são enviados pelas aplicações dos destinatários ou pelos servidores de correio. A coluna de leitura mostra quando o relatório chegou. A entrega mostra a hora da última tentativa, quando disponível.
+sent-receipts-loading = A procurar relatórios correspondentes…
+sent-receipts-failed = Não foi possível concluir a pesquisa de recibos.
+sent-receipts-incomplete = Não foi possível verificar alguns dos relatórios encontrados.
+sent-receipts-missing-id = Esta mensagem não tem um Message-ID único que permita associar relatórios.
+sent-receipts-recipient = Destinatário
+sent-receipts-read = Recibo de leitura
+sent-receipts-delivery = Estado da entrega
+sent-receipts-awaiting = A aguardar relatório
+sent-receipts-no-report = Sem relatório
+sent-receipts-none = Não foram encontrados relatórios nas mensagens verificadas até agora.
+sent-receipts-more = Verificar mensagens mais antigas
+sent-receipts-mdn-displayed = Apresentada
+sent-receipts-mdn-deleted = Eliminada
+sent-receipts-mdn-dispatched = Encaminhada
+sent-receipts-mdn-processed = Processada
+sent-receipts-mdn-denied = Recibo recusado
+sent-receipts-mdn-failed = Falha no recibo

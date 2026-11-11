@@ -171,3 +171,11 @@ errors. They therefore retain explicit authentication/unsupported-operation
 refusals, but classify other send failures as uncertain rather than automatically
 retrying a possibly accepted message. This does not provide provider-side
 idempotency or recall.
+
+## Recipient receipts on sent mail
+
+Open **Receipts** in the Sent message header to see read and delivery reports by
+recipient. Read receipt times are the times the reports arrived. A displayed
+report is a recipient application's claim. The badge matches the original
+Message-ID and recipient and does not treat missing reports as delivery failures
+or unread messages. Use **Check older messages** to continue the bounded lookup.

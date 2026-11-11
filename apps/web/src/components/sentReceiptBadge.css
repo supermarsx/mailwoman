@@ -1,0 +1,13 @@
+.sent-receipts { display: grid; gap: .65rem; }
+.sent-receipts p { margin: 0; }
+.sent-receipts__table { overflow-x: auto; }
+.sent-receipts table { border-collapse: collapse; inline-size: 100%; }
+.sent-receipts th, .sent-receipts td {
+  text-align: start;
+  vertical-align: top;
+  padding: .5rem .65rem;
+  border-block-end: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.sent-receipts time { display: block; color: var(--text-dim); font-size: .875em; }
+.sent-receipts > button { justify-self: start; }

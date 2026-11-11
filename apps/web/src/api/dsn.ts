@@ -12,6 +12,7 @@ export interface DeliveryRecipient {
 }
 export interface DeliveryReport {
   reportingMta: string; envelopeId: string | null; arrivalDate: string | null;
+  originalMessageId?: string | null;
   recipients: DeliveryRecipient[];
 }
 const text = (value: unknown): value is string => typeof value === 'string' && value.length <= 4096;
@@ -44,7 +45,23 @@ export function isDeliveryReportHeader(raw: string): boolean {
 }
 /** Uses the existing authorized blob URL, never a message-supplied remote URL. */
 export async function fetchProxyDeliveryReport(url: string, signal: AbortSignal): Promise<DeliveryReport | null> {
-  if (!isDeliveryReportHeader(await fetchMailHeaders(url,signal))) return null;
+  return deliveryReport((await fetchProxyReport(url, signal, isDeliveryReportHeader))?.report);
+}
+
+export function isDispositionReportHeader(raw: string): boolean {
+  const values = mailHeaderValues(raw).get('content-type');
+  if (values?.length !== 1) return false;
+  return /^multipart\/report\s*(?:;|$)/i.test(values[0]!)
+    && /;\s*report-type\s*=\s*(?:"(?:global-)?disposition-notification"|(?:global-)?disposition-notification)(?:\s*;|\s*$)/i.test(values[0]!);
+}
+
+export interface ProxyReport { report?: unknown; mdn?: unknown }
+export async function fetchProxyReceiptReports(url: string, signal: AbortSignal): Promise<ProxyReport | null> {
+  return fetchProxyReport(url, signal, (raw) => isDeliveryReportHeader(raw) || isDispositionReportHeader(raw));
+}
+
+async function fetchProxyReport(url: string, signal: AbortSignal, accepts: (raw: string) => boolean): Promise<ProxyReport | null> {
+  if (!accepts(await fetchMailHeaders(url, signal))) return null;
   const source = await apiFetch(url,{signal});
   if (!source.ok || !source.body) throw new Error('Delivery report unavailable');
   const reader = source.body.getReader();
@@ -69,5 +86,5 @@ export async function fetchProxyDeliveryReport(url: string, signal: AbortSignal)
     method:'POST',signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({bytesBase64:btoa(binary)}),
   });
   if (!response.ok) throw new Error('Delivery report unavailable');
-  return deliveryReport((await response.json() as {report:unknown}).report);
+  return await response.json() as ProxyReport;
 }

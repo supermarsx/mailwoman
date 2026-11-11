@@ -1,6 +1,6 @@
 //! Read-only delivery-status reports (RFC 3464 and RFC 6533).
 //! All returned text is an unverified claim made by the message sender.
-use mail_parser::{MessageParser, MimeHeaders, PartType};
+use mail_parser::{MessageParser, HeaderName, MimeHeaders, PartType};
 use std::collections::BTreeMap;
 
 const MAX_RAW: usize = 8 * 1024 * 1024;
@@ -24,6 +24,7 @@ pub struct DsnRecipient {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DsnReport {
     pub reporting_mta: String,
+    pub original_message_id: Option<String>,
     pub envelope_id: Option<String>,
     pub arrival_date: Option<String>,
     pub recipients: Vec<DsnRecipient>,
@@ -77,7 +78,23 @@ pub fn parse_dsn(raw: &[u8]) -> Option<DsnReport> {
     if kind.eq_ignore_ascii_case("delivery-status") && !text.is_ascii() {
         return None;
     }
-    parse_fields(text)
+    let mut report = parse_fields(text)?;
+    let mut originals = children.iter().filter_map(|id| message.parts.get(*id as usize)).filter(|part| {
+        part.content_type().is_some_and(|ct| {
+            let kind = ct.ctype();
+            let subtype = ct.subtype().unwrap_or_default();
+            (kind.eq_ignore_ascii_case("message") && ["rfc822", "global", "global-headers"].iter().any(|v| subtype.eq_ignore_ascii_case(v)))
+                || (kind.eq_ignore_ascii_case("text") && subtype.eq_ignore_ascii_case("rfc822-headers"))
+        })
+    });
+    if let Some(original) = originals.next()
+        && originals.next().is_none()
+        && let Some(headers) = MessageParser::default().parse_headers(original.contents())
+        && headers.headers().iter().filter(|header| header.name == HeaderName::MessageId).count() == 1
+    {
+        report.original_message_id = headers.message_id().map(str::to_owned);
+    }
+    Some(report)
 }
 
 fn clean(value: &str) -> String {
@@ -206,6 +223,7 @@ fn parse_fields(text: &str) -> Option<DsnReport> {
     }
     Some(DsnReport {
         reporting_mta,
+        original_message_id: None,
         envelope_id: general.get("original-envelope-id").cloned(),
         arrival_date: general.get("arrival-date").cloned(),
         recipients,
@@ -237,6 +255,15 @@ mod tests {
         assert_eq!(r.recipients.len(), 2);
         assert_eq!(r.recipients[1].action, "delayed");
         assert!(r.recipients[1].retry_until.is_some());
+    }
+    #[test]
+    fn correlation_uses_only_the_direct_returned_original_headers() {
+        for content_type in ["text/rfc822-headers", "message/rfc822"] {
+            let raw = report("delivery-status", &format!(
+                "{FAILED}\r\n--b\r\nContent-Type: {content_type}\r\n\r\nFrom: a@example.org\r\nMessage-ID: <original@example.org>\r\n\r\nBody"
+            ));
+            assert_eq!(parse_dsn(&raw).unwrap().original_message_id.as_deref(), Some("original@example.org"));
+        }
     }
     #[test]
     fn success_actions_do_not_mean_read() {

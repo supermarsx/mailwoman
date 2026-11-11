@@ -59,10 +59,17 @@ async fn parse(
         // Retained inside the task: HTTP cancellation/timeout cannot release a
         // slot while bounded CPU work is still in progress.
         let _permit = permit;
-        mw_engine::jmap::dsn_report_json(&raw)
+        let report = mw_engine::jmap::dsn_report_json(&raw);
+        let mdn = mw_mime::parse_mdn(&raw).map(|report| json!({
+            "originalMessageId": report.original_message_id,
+            "finalRecipient": report.final_recipient,
+            "originalRecipient": report.original_recipient,
+            "disposition": report.disposition.as_str(),
+        }));
+        json!({"report": report, "mdn": mdn})
     });
     let response = match tokio::time::timeout(std::time::Duration::from_secs(5), task).await {
-        Ok(Ok(report)) => Json(json!({"report":report})).into_response(),
+        Ok(Ok(reports)) => Json(reports).into_response(),
         _ => StatusCode::UNPROCESSABLE_ENTITY.into_response(),
     };
     (

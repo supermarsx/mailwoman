@@ -5157,7 +5157,7 @@ pub fn dsn_report_json(raw: &[u8]) -> Value {
         })
         .collect();
     json!({"reportingMta": report.reporting_mta, "envelopeId": report.envelope_id,
-        "arrivalDate": report.arrival_date, "recipients": recipients})
+        "arrivalDate": report.arrival_date, "originalMessageId": report.original_message_id, "recipients": recipients})
 }
 
 /// Most entries `mailwomanInlineParts` lists for one message.

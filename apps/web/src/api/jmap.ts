@@ -334,7 +334,12 @@ function envelopeRecipients(input: DraftInput): { email: string }[] {
 export function draftCreateSpec(input: DraftInput): Record<string, unknown> {
   const spec: Record<string, unknown> = {
     mailboxIds: { [input.draftMailboxId]: true },
-    keywords: { $draft: true, $seen: true },
+    keywords: {
+      $draft: true,
+      $seen: true,
+      ...(input.requestReadReceipt ? { $mailwomanReadReceiptRequested: true } : {}),
+      ...(input.requestDeliveryReceipt ? { $mailwomanDeliveryReceiptRequested: true } : {}),
+    },
     from: [input.from],
     to: parseRecipients(input.to),
   };

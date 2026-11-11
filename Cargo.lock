@@ -5648,6 +5648,7 @@ dependencies = [
  "mw-mail-transport",
  "mw-mcp",
  "mw-mfa",
+ "mw-mime",
  "mw-mock-jmap",
  "mw-net",
  "mw-oauth",

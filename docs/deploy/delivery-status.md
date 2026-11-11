@@ -8,6 +8,11 @@ Engine mode supplies the explicitly requested `mailwomanDsnReport` Email/get pro
 
 Limits are 8 MiB for the complete message, 256 KiB for the decoded status part, 64 recipients and 4 KiB per field. The proxy endpoint allows two concurrent parser tasks with a five-second response deadline; a task retains its permit if its request is cancelled. The browser aborts the proxy operation after fifteen seconds and cancels it when its reader is disposed or replaced. Ordinary messages only require the bounded header check, not a complete body download.
 
-Only a direct matching machine-readable part of a root multipart/report is interpreted. Forwarded reports, MDNs, ambiguous duplicate fields, oversized reports, malformed required fields, and informal textual bounce formats are left as ordinary email. Their original message body remains available. No sender-controlled HTML or links are rendered from status fields. This feature does not implement outbound DSN requests, automatic bounce processing, sent-message correlation, or read receipts.
+Only a direct matching machine-readable part of a root multipart/report is interpreted. Forwarded reports, MDNs, ambiguous duplicate fields, oversized reports, malformed required fields, and informal textual bounce formats are left as ordinary email. Their original message body remains available. No sender-controlled HTML or links are rendered from status fields. In Sent, **Receipts** looks for reports whose original Message-ID and recipient
+match the sent message. Delivery correlation uses the Message-ID in the direct
+returned original headers. Reports without a matching identifier still open
+individually. The badge checks bounded pages of messages up to 512 KiB and can
+check older pages on request. It shows a delivery report's last attempt time
+when available, otherwise the report's received time.
 
 Acceptance evidence is tracked in `.orchestration/logs/codex-dsn-*`; an implementation checkpoint alone is not browser acceptance.

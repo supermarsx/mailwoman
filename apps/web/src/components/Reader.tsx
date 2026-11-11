@@ -56,6 +56,7 @@ import { badgeDensity, badgeLabels, badgeMode, badgeVisible } from '../state/rea
 import { overallTone } from './security/model.ts';
 import { mailFeature } from '../state/mailFeatures.ts';
 import { SpamScore } from './security/SpamScore.tsx';
+import { SentReceiptBadge } from './SentReceiptBadge.tsx';
 import { DeliveryStatus } from './security/DeliveryStatus.tsx';
 import { ReadReceipt } from './ReadReceipt.tsx';
 import { MailingListBadge } from './MailingListBadge.tsx';
@@ -1556,6 +1557,10 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <Show when={sanitizedBadge()}>{badge=><BadgeContextMenu badge="sanitized"><SanitizedBadge state={badge().state} report={badge().report} action={badge().action}/></BadgeContextMenu>}</Show>
               <HeaderFactsBadges email={email()} messageId={email().messageId?.[0] ?? undefined} supersededLookup={id=>isSuperseded(jmapClient,app.accountId()!,id)}/>
               </div>
+              <Show when={props.active !== false && app.accountId() && app.mailboxes().some(box => box.role === 'sent' && email().mailboxIds?.[box.id]) ? JSON.stringify([app.accountId(), email().id, policy().inlineParts]) : undefined} keyed>
+                {(_scope: string) => <SentReceiptBadge accountId={app.accountId()!} emailId={email().id}
+                  engine={policy().inlineParts === true} downloadUrl={app.downloadUrl()}/>}
+              </Show>
               <Show when={app.accountId()}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true} proxyUrl={privacy.state === 'ready' && policy().inlineParts !== true && email().blobId && app.downloadUrl() ? buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'}) : undefined}/></Show>
               <Show when={app.accountId()&&policy().inlineParts===true}><ReadReceipt accountId={app.accountId()!} emailId={email().id} active={props.active!==false} fullView={props.view!==undefined} displayed={receiptDisplayed()?.key===receiptDocumentKey()&&receiptDisplayed()?.html===bodySrcdoc()&&!showDecrypt()}/></Show>
 

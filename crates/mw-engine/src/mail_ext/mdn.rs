@@ -195,11 +195,17 @@ pub(crate) fn email_properties(raw: &[u8]) -> (Option<Value>, Value) {
         })
     });
     let report = match mw_mime::parse_mdn(raw) {
-        Some(r) => json!({
-            "originalMessageId": r.original_message_id,
-            "finalRecipient": r.final_recipient,
-            "disposition": r.disposition.as_str(),
-        }),
+        Some(r) => {
+            let mut value = json!({
+                "originalMessageId": r.original_message_id,
+                "finalRecipient": r.final_recipient,
+                "disposition": r.disposition.as_str(),
+            });
+            if let Some(recipient) = r.original_recipient {
+                value["originalRecipient"] = json!(recipient);
+            }
+            value
+        }
         None => Value::Null,
     };
     (request, report)

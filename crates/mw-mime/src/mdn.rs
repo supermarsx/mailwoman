@@ -14,7 +14,7 @@ use mail_builder::MessageBuilder;
 use mail_builder::headers::content_type::ContentType;
 use mail_builder::headers::raw::Raw;
 use mail_builder::mime::{BodyPart, MimePart};
-use mail_parser::{MessageParser, MimeHeaders};
+use mail_parser::{MessageParser, MimeHeaders, PartType};
 use mw_jmap::EmailAddress;
 
 use crate::MimeError;
@@ -455,7 +455,8 @@ pub fn parse_mdn(raw: &[u8]) -> Option<MdnReport> {
     {
         return None;
     }
-    let part = message.parts.iter().find(|p| {
+    let PartType::Multipart(children) = &message.root_part().body else { return None };
+    let mut reports = children.iter().filter_map(|id| message.parts.get(*id as usize)).filter(|p| {
         p.content_type().is_some_and(|ct| {
             ct.ctype().eq_ignore_ascii_case("message")
                 && ct.subtype().is_some_and(|s| {
@@ -463,11 +464,11 @@ pub fn parse_mdn(raw: &[u8]) -> Option<MdnReport> {
                         || s.eq_ignore_ascii_case("global-disposition-notification")
                 })
         })
-    })?;
+    });
+    let part = reports.next()?;
     let contents = part.contents();
-    parse_fields(&String::from_utf8_lossy(
-        &contents[..contents.len().min(MAX_FIELD_BYTES)],
-    ))
+    if reports.next().is_some() || contents.len() > MAX_FIELD_BYTES { return None; }
+    parse_fields(&String::from_utf8_lossy(contents))
 }
 
 /// Read the fields of a `message/disposition-notification` body.
@@ -486,10 +487,12 @@ fn parse_fields(text: &str) -> Option<MdnReport> {
         }
     }
     let field = |name: &str| {
-        lines.iter().find_map(|line| {
+        let mut values = lines.iter().filter_map(|line| {
             let (n, v) = line.split_once(':')?;
-            n.trim().eq_ignore_ascii_case(name).then(|| clean(v))
-        })
+            n.trim().eq_ignore_ascii_case(name).then_some(v)
+        });
+        let value = values.next()?;
+        values.next().is_none().then(|| clean(value))
     };
 
     let disposition = field("Disposition")?;
