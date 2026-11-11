@@ -125,6 +125,13 @@ struct FolderProps {
     unified_inbox: Option<bool>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AttachmentPin {
+    email_id: String,
+    blob_id: String,
+}
+
 fn valid_folder_props(props: &FolderProps) -> bool {
     props.notes.as_ref().is_none_or(|n| {
         n.chars().count() <= 2000 && !n.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
@@ -147,6 +154,8 @@ pub(super) struct Preferences {
     /// Folder id -> notes and per-folder overrides.
     #[serde(skip_serializing_if = "Option::is_none")]
     folder_props: Option<BTreeMap<String, FolderProps>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pinned_attachments: Option<Vec<AttachmentPin>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     analytics_consent: Option<bool>,
     /// t63: consent to one browser analytics tag, `<provider>:<loader sha256>`,
@@ -301,6 +310,10 @@ fn valid(document: &Document) -> bool {
         && choices(&p.folder_nest_mode, &["ask", "server", "local"])
         && choices(&p.folder_grab_handles, &["hover", "always"])
         && choices(&p.folder_new_placement, &["end", "alphabetical"])
+        && p.pinned_attachments.as_ref().is_none_or(|pins| {
+            pins.len() <= 100
+                && pins.iter().all(|pin| valid_id(&pin.email_id) && valid_id(&pin.blob_id))
+        })
         && p.folder_props.as_ref().is_none_or(|all| {
             all.len() <= 200 && all.iter().all(|(id, props)| valid_id(id) && valid_folder_props(props))
         })

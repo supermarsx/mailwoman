@@ -41,3 +41,7 @@ attach-filters-results = { $count ->
     [one] 1 ficheiro
    *[other] { $count } ficheiros
 }
+
+attach-pins-only = Anexos afixados
+attach-pin = Afixar anexo
+attach-pins-error = Não foi possível carregar os anexos afixados.

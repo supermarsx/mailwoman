@@ -40,3 +40,7 @@ attach-filters-results = { $count ->
     [one] 1 file
    *[other] { $count } files
 }
+
+attach-pins-only = Pinned attachments
+attach-pin = Pin attachment
+attach-pins-error = Pinned attachments could not be loaded.

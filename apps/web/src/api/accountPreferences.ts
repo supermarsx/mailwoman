@@ -33,6 +33,7 @@ export interface AccountUiPreferences {
   folderOrder?: string[];
   userFoldersCollapsed?: boolean;
   folderHidden?: string[];
+  pinnedAttachments?: {emailId:string;blobId:string}[];
   folderIcons?: Record<string, FolderIcon>;
   tags?: Record<string, AccountTag>;
   folderLabels?: Record<string,string[]>;

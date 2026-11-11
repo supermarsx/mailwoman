@@ -36,6 +36,8 @@ for(const width of [1280,390])test(`friendly attachment filters scan all metadat
  await page.locator('#shell-nav').getByRole('button',{name:'Attachments',exact:true}).click();
  const screen=page.locator('section.mw-attach');await expect(screen).toBeVisible();const form=screen.getByRole('form',{name:'Attachment filters'});await expect(form).toBeVisible();
  const row=(name:string)=>screen.getByRole('row').filter({hasText:name});await expect(row('report-2026.pdf')).toBeVisible();
+ await expect(form.getByRole('combobox',{name:'Search in',exact:true})).toHaveCount(0);
+ await form.getByText('More filters',{exact:true}).click();
  await expect(form.getByRole('combobox',{name:'Search in',exact:true})).toHaveValue('all');
  // Only page0 has been fetched. The normal type control starts the account scan.
  expect([...new Set(state.positions)]).toEqual([0]);await form.getByRole('combobox',{name:'Filter by type',exact:true}).selectOption('image');await expect(row('logo-brand.png')).toBeVisible();expect(state.positions).toContain(1);
@@ -50,7 +52,7 @@ for(const width of [1280,390])test(`friendly attachment filters scan all metadat
  await form.getByRole('button',{name:'Remove filter: Sender: bob',exact:true}).click();await expect(form.getByLabel('Sender',{exact:true})).toHaveValue('');
  await form.getByRole('button',{name:'Clear filters',exact:true}).click();await expect(form.getByRole('group',{name:'Active attachment filters'})).toHaveCount(0);await expect(row('report-2026.pdf')).toBeVisible();
  for(const[type,name]of [['document','proposal.docx'],['spreadsheet','budget.xlsx'],['archive','records.zip']]){await form.getByRole('combobox',{name:'Filter by type',exact:true}).selectOption(type!);await expect(row(name!)).toBeVisible();await expect(screen.locator('tbody tr')).toHaveCount(1);}
- await form.getByText('More filters',{exact:true}).click();await form.getByLabel('File name',{exact:true}).fill('records');await form.getByLabel('File extensions',{exact:true}).fill('zip');await expect(row('records.zip')).toBeVisible();
+ await form.getByLabel('File name',{exact:true}).fill('records');await form.getByLabel('File extensions',{exact:true}).fill('zip');await expect(row('records.zip')).toBeVisible();
  if(width===390){const region=screen.getByRole('region',{name:'Attachments',exact:true});await region.scrollIntoViewIfNeeded();expect(await region.evaluate(element=>element.scrollWidth>element.clientWidth)).toBe(true);await region.hover();await page.mouse.wheel(400,0);await expect.poll(()=>region.evaluate(element=>element.scrollLeft)).toBeGreaterThan(0);}
  expect(state.downloads).toBe(0);expect(state.positions).toContain(4);
 });

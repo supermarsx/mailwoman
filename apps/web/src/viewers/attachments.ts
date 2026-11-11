@@ -109,6 +109,22 @@ export function parseAttachments(emails: EmailWithAttachments[]): AttachmentItem
   return out;
 }
 
+/** Resolve pins through the current account's message access. */
+export async function loadPinnedAttachments(client: Client, accountId: Id, pins: readonly Pick<AttachmentItem,'emailId'|'blobId'>[]): Promise<AttachmentItem[]> {
+  const ids=[...new Set(pins.map(pin=>pin.emailId))];
+  const rows:AttachmentItem[]=[];
+  for(let offset=0;offset<ids.length;offset+=25){
+    const response=await client.jmap({using:[CAP_CORE,CAP_MAIL],methodCalls:[['Email/get',{
+      accountId,ids:ids.slice(offset,offset+25),properties:['id','attachments','mailboxIds','from','subject','receivedAt'],
+    },'pins']]});
+    const result=response.methodResponses.find(([name,,tag])=>name==='Email/get'&&tag==='pins');
+    if(!result||!Array.isArray(result[1]['list']))throw new Error('Pinned attachments could not be loaded');
+    rows.push(...parseAttachments(result[1]['list'] as EmailWithAttachments[]));
+  }
+  const keys=new Set(pins.map(pin=>JSON.stringify([pin.emailId,pin.blobId])));
+  return rows.filter(row=>keys.has(JSON.stringify([row.emailId,row.blobId])));
+}
+
 /** Live loader: runs the query and flattens it. Used by `<Attachments>` in-app. */
 export async function loadAttachments(client: Client, accountId: Id): Promise<AttachmentItem[]> {
   const res = await client.jmap(attachmentsQuery(accountId));

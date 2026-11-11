@@ -3,6 +3,9 @@
 
 import { batch, createEffect, createMemo, createResource, createSignal, onCleanup, For, Show, type JSX } from 'solid-js';
 import { t, formatDate, loadCatalog } from '../i18n';
+import {accountUiPreferences,setAccountUiPreferences} from '../api/accountPreferences.ts';
+import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
+import {createConfiguredClient} from '../api/transport.ts';
 import {Icon} from '../components/Icon.tsx';
 import {inspectFile} from '../viewers/fileInfo.ts';
 import { AsyncError } from '../components/AsyncState.tsx';
@@ -13,6 +16,7 @@ import {
   categoryOf,
   filterAttachments,
   formatSize,
+  loadPinnedAttachments,
   parseAttachmentQuery,
   searchAttachmentPages,
   type AttachmentFilters,
@@ -25,6 +29,7 @@ import {
 export interface AttachmentsProps {
   /** Live loader (e.g. `() => loadAttachments(client, accountId)`). */
   load?: () => Promise<AttachmentItem[]>;
+  accountId?: string | null;
   loadPage?: (position: number) => Promise<AttachmentPage>;
   /** Preloaded rows (tests / offline slice); used when `load` is absent. */
   items?: AttachmentItem[];
@@ -60,6 +65,28 @@ const SEARCH_DELAY=400;
 
 export function Attachments(props: AttachmentsProps): JSX.Element {
   void loadCatalog('attachments-filters');
+  const [pinnedOnly,setPinnedOnly]=createSignal(false);
+  const pins=()=>accountUiPreferences().pinnedAttachments??[];
+  const isPinned=(item:AttachmentItem)=>pins().some(pin=>pin.emailId===item.emailId&&pin.blobId===item.blobId);
+  const [pinOwner,setPinOwner]=createSignal(preferenceAccount());
+  onCleanup(observePreferenceAccount(setPinOwner));
+  const ownsPins=()=>Boolean(props.accountId&&pinOwner()?.id===props.accountId);
+  function togglePin(item:AttachmentItem):void {
+    const owner=preferenceAccount();
+    if(!owner||owner.id!==props.accountId||!preferenceAccountIsCurrent(owner))return;
+    if(isPinned(item)){
+      setAccountUiPreferences({pinnedAttachments:pins().filter(pin=>pin.emailId!==item.emailId||pin.blobId!==item.blobId)});
+    }else if(pins().length<100){
+      setAccountUiPreferences({pinnedAttachments:[...pins(),{emailId:item.emailId,blobId:item.blobId}]});
+    }
+  }
+  const pinQuery=createMemo(()=>pinnedOnly()&&ownsPins()&&pins().length?{account:props.accountId!,pins:pins()}:false);
+  const [pinnedRows,{refetch:retryPins}]=createResource(pinQuery,async ({account,pins})=>{
+    const owner=preferenceAccount();
+    if(!owner||owner.id!==account)return [];
+    const rows=await loadPinnedAttachments(createConfiguredClient(),account,pins);
+    return preferenceAccountIsCurrent(owner)?rows:[];
+  });
   const [fields,setFields]=createSignal<FilterFields>(emptyFields());
   const [searchScope,setSearchScope]=createSignal<'all'|'page'>('all');
   const change=(key:keyof FilterFields,value:string)=>setFields(previous=>({...previous,[key]:value}));
@@ -90,7 +117,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
   };
   createEffect(()=>{
     query();cat();fields();searchScope();clearTimeout(searchTimer);resetSearch();
-    if(props.loadPage&&searchScope()==='all'&&active()&&!invalid())searchTimer=setTimeout(()=>void searchAccount(),SEARCH_DELAY);
+    if(props.loadPage&&searchScope()==='all'&&active()&&!invalid()&&!pinnedOnly())searchTimer=setTimeout(()=>void searchAccount(),SEARCH_DELAY);
   });
   onCleanup(()=>{clearTimeout(searchTimer);searchController?.abort();});
   function clearFilters():void {batch(()=>{setQuery('');setCat('all');setFields(emptyFields());});}
@@ -122,7 +149,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
   };
   async function searchAccount(): Promise<void> {
     clearTimeout(searchTimer);
-    if (!props.loadPage||invalid()) return;
+    if (!props.loadPage||invalid()||pinnedOnly()) return;
     resetSearch();
     const controller = new AbortController(); searchController = controller;
     setSearch({items: [], pages: 0, limited: false}); setSearching(true);
@@ -143,7 +170,9 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
   const all = (): AttachmentItem[] => current()?.items ?? props.items ?? [];
 
   const filtered = createMemo<AttachmentItem[]>(() => {
-    const rows = search()?.items ?? filterAttachments(all(), filters());
+    const rows = pinnedOnly()
+      ? filterAttachments(pinnedRows.state==='ready'?pinnedRows.latest??[]:[],filters()).filter(isPinned)
+      : search()?.items ?? filterAttachments(all(), filters());
     const {column,ascending}=sort();
     const value=(item:AttachmentItem):string|number=>column==='type'?item.mime:column==='sender'?item.from:column==='date'?item.receivedAt:item[column];
     return [...rows].sort((a,b)=>{const av=value(a),bv=value(b);return (typeof av==='number'&&typeof bv==='number'?av-bv:String(av).localeCompare(String(bv),undefined,{numeric:true,sensitivity:'base'}))*(ascending?1:-1);});
@@ -153,16 +182,17 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
     <section class="mw-attach" data-mw-surface aria-label={t('common-attach-title')}>
       <header class="mw-attach__bar">
         <h2 class="mw-attach__title">{t('common-attach-title')}</h2>
+        <Show when={ownsPins()}><button type="button" class="btn btn--ghost" aria-pressed={pinnedOnly()} onClick={()=>setPinnedOnly(value=>!value)}><Icon name="pin"/>{t('attach-pins-only')}</button></Show>
         <span class={table.resultCount}>{t('attach-filters-results',{count:filtered().length})}</span>
-        <button type="button" class={table.name} aria-label={t('common-attach-refresh')} title={t('common-attach-refresh')} disabled={data.loading||searching()} onClick={()=>{if(search())void searchAccount();else void refetch();}}><Icon name="refresh"/></button>
+        <button type="button" class={table.name} aria-label={t('common-attach-refresh')} title={t('common-attach-refresh')} disabled={data.loading||searching()} onClick={()=>{if(pinnedOnly())void retryPins();else if(search())void searchAccount();else void refetch();}}><Icon name="refresh"/></button>
       </header>
-      <form class={table.filters} aria-label={t('attach-filters-title')} onSubmit={event=>{event.preventDefault();clearTimeout(searchTimer);if(props.loadPage&&searchScope()==='all')void searchAccount();}}>
+      <form class={table.filters} aria-label={t('attach-filters-title')} onSubmit={event=>{event.preventDefault();clearTimeout(searchTimer);if(props.loadPage&&searchScope()==='all'&&!pinnedOnly())void searchAccount();}}>
         <div class={table.searchRow}>
           <label class={table.searchField}><span><Icon name="search"/>{t('common-attach-search')}</span><input class={table.control} type="search" placeholder={t('attach-filters-placeholder')} aria-label={t('common-attach-search')} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
           <button class="btn" type="submit" disabled={searching()||!!invalid()}><Icon name="search"/>{t(props.loadPage&&searchScope()==='all'?'common-attach-search-account':'attach-filters-apply')}</button>
           <button class="btn btn--ghost" type="button" disabled={!active()} onClick={clearFilters}>{t('attach-filters-clear')}</button>
         </div>
-        <div class={table.filterGrid}>
+        <details class={table.more}><summary><Icon name="filter"/>{t('attach-filters-more')}</summary><div class={table.filterGrid}>
           <label class={table.field}><span><Icon name="file"/>{t('common-attach-filter-type')}</span><select class={table.control} value={cat()} onChange={event=>setCat(event.currentTarget.value as TypeCategory|'all')}><For each={CATEGORIES}>{value=><option value={value}>{catLabel(value)}</option>}</For></select></label>
           <label class={table.field}><span><Icon name="person"/>{t('attach-filters-from')}</span><input class={table.control} type="search" value={fields().from} placeholder={t('attach-filters-from-placeholder')} onInput={event=>change('from',event.currentTarget.value)}/></label>
           <label class={table.field}><span><Icon name="mail"/>{t('attach-filters-subject')}</span><input class={table.control} type="search" value={fields().subject} onInput={event=>change('subject',event.currentTarget.value)}/></label>
@@ -170,11 +200,9 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
           <label class={table.field}><span><Icon name="calendar"/>{t('attach-filters-date')}</span><select class={table.control} value={fields().date} onChange={event=>setFields(previous=>({...previous,date:event.currentTarget.value,after:'',before:''}))}><For each={['any','7','30','year','custom']}>{value=><option value={value}>{t(`attach-filters-date-${value}`)}</option>}</For></select></label>
           <label class={table.field}><span><Icon name="package"/>{t('attach-filters-size')}</span><select class={table.control} value={fields().size} onChange={event=>setFields(previous=>({...previous,size:event.currentTarget.value,min:'',max:''}))}><For each={['any','small','medium','large','custom']}>{value=><option value={value}>{t(`attach-filters-size-${value}`)}</option>}</For></select></label>
           <Show when={props.loadPage}><label class={table.field}><span><Icon name="globe"/>{t('attach-filters-scope')}</span><select class={table.control} value={searchScope()} onChange={event=>setSearchScope(event.currentTarget.value as 'all'|'page')}><option value="all">{t('attach-filters-scope-all')}</option><option value="page">{t('attach-filters-scope-page')}</option></select></label></Show>
-        </div>
-        <details class={table.more}><summary><Icon name="filter"/>{t('attach-filters-more')}</summary><div class={table.filterGrid}>
           <label class={table.field}><span>{t('attach-filters-filename')}</span><input class={table.control} type="search" value={fields().filename} onInput={event=>change('filename',event.currentTarget.value)}/></label>
           <label class={table.field}><span>{t('attach-filters-extensions')}</span><input class={table.control} type="text" value={fields().extensions} placeholder={t('attach-filters-extensions-placeholder')} onInput={event=>change('extensions',event.currentTarget.value)}/></label>
-        </div><p class={table.help}>{t('attach-filters-operators')}</p></details>
+        </div><p class={table.help}>{t('attach-filters-operators')}</p>
         <Show when={fields().date==='custom'}><div class={table.filterGrid}>
           <label class={table.field}><span>{t('attach-filters-after')}</span><input class={table.control} type="date" value={fields().after} max={fields().before||undefined} onInput={event=>change('after',event.currentTarget.value)}/></label>
           <label class={table.field}><span>{t('attach-filters-before')}</span><input class={table.control} type="date" value={fields().before} min={fields().after||undefined} onInput={event=>change('before',event.currentTarget.value)}/></label>
@@ -184,6 +212,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
           <label class={table.field}><span>{t('attach-filters-max')}</span><input class={table.control} type="number" min="0" step="any" value={fields().max} onInput={event=>change('max',event.currentTarget.value)}/></label>
         </div></Show>
         <Show when={invalid()}><p class={table.validation} role="alert">{invalid()}</p></Show>
+        </details>
         <Show when={chips().length}><div class={table.chips} role="group" aria-label={t('attach-filters-active')}><For each={chips()}>{chip=><button class={table.chip} type="button" onClick={chip.clear} aria-label={t('attach-filters-remove',{filter:chip.label})}><span>{chip.label}</span><Icon name="close"/></button>}</For></div></Show>
       </form>
       <Show when={search()}>{result=><div class={table.paging} role="status">
@@ -192,13 +221,13 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
       </div>}</Show>
       <Show when={searchError()}><AsyncError error={searchError()} onRetry={()=>void searchAccount()}/></Show>
 
-      <Show when={!data.error} fallback={<AsyncError error={data.error} onRetry={()=>void refetch()}/> }><Show
-        when={!data.loading||all().length>0}
+      <Show when={pinnedOnly()||!data.error} fallback={<AsyncError error={data.error} onRetry={()=>void refetch()}/> }><Show
+        when={pinnedOnly()||!data.loading||all().length>0}
         fallback={<InlineLoading message={t('common-attach-loading')} onRetry={()=>void refetch()}/>}
       >
         <Show
           when={filtered().length > 0}
-          fallback={<Show when={searching()} fallback={<p class="mw-attach__status">{t('common-attach-empty')}</p>}><InlineLoading message={t('common-attach-loading')}/></Show>}
+          fallback={<Show when={pinnedOnly()&&pinnedRows.error} fallback={<Show when={searching()||(pinnedOnly()&&pinnedRows.loading)} fallback={<p class="mw-attach__status">{t('common-attach-empty')}</p>}><InlineLoading message={t('common-attach-loading')}/></Show>}><p role="alert">{t('attach-pins-error')} <button type="button" onClick={()=>void retryPins()}>{t('common-retry')}</button></p></Show>}
         >
           <div class={table.wrap} role="region" aria-label={t('common-attach-title')} tabIndex={0}><table class={table.table} aria-label={t('common-attach-title')} aria-busy={data.loading||searching()}><thead><tr><For each={COLUMNS}>{key=><th scope="col" aria-sort={sort().column===key?(sort().ascending?'ascending':'descending'):'none'}><button type="button" class={table.name} onClick={()=>setSort(old=>({column:key,ascending:old.column===key?!old.ascending:true}))}>{t(`common-attach-column-${key}`)}<Show when={sort().column===key}><Icon name={sort().ascending?'chevronUp':'chevronDown'}/></Show></button></th>}</For></tr></thead><tbody>
             <For each={filtered()}>
@@ -213,6 +242,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
                   >
                     <Icon name={inspectFile(item.name,item.mime).icon}/><span>{item.name}</span>
                   </button>
+                  <Show when={ownsPins()}><button type="button" class="btn btn--ghost" aria-pressed={isPinned(item)} title={t('attach-pin')} aria-label={t('attach-pin')} disabled={!isPinned(item)&&pins().length>=100} onClick={()=>togglePin(item)}><Icon name="pin"/></button></Show>
                   <For each={inspectFile(item.name,item.mime).warnings}>{warning=><span class={table.warning} title={t(`mail-file-warning-${warning}`)} aria-label={t(`mail-file-warning-${warning}`)}><Icon name="alert"/></span>}</For>
                   </td><td title={item.mime}>{catLabel(categoryOf(item.mime,item.name))}</td><td>{formatSize(item.size)}</td><td>{item.from}</td><td><Show when={props.onOpenMessage} fallback={item.subject}><button type="button" class={table.name} onClick={()=>props.onOpenMessage?.(item)} title={t('common-attach-open-message')}>{item.subject}</button></Show></td><td>{Number.isNaN(Date.parse(item.receivedAt))?'—':formatDate(new Date(item.receivedAt))}</td>
                 </tr>
@@ -221,7 +251,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
           </tbody></table></div>
         </Show>
       </Show></Show>
-      <Show when={props.loadPage && !search()}><nav class={table.paging} aria-label={t('common-attach-pages')}>
+      <Show when={props.loadPage && !search() && !pinnedOnly()}><nav class={table.paging} aria-label={t('common-attach-pages')}>
         <button type="button" disabled={data.loading || positions().length===1} onClick={()=>setPositions(old=>old.slice(0,-1))}>{t('common-attach-previous')}</button>
         <span>{t('common-attach-page',{page:positions().length})}</span>
         <button type="button" disabled={data.loading || current()?.nextPosition == null} onClick={()=>{const next=current()?.nextPosition;if(next!=null)setPositions(old=>[...old,next]);}}>{t('common-attach-next')}</button>
