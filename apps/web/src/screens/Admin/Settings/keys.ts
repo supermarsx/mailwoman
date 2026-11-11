@@ -499,6 +499,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'ui.notifyNewVersion',
   'ui.undoHistorySize',
   'ui.undoHistoryMax',
+  'mail.unifiedInbox',
   'mail.crossAccountTransfer',
   'folders.hideEmpty',
   'folders.colour',
