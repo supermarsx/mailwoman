@@ -8,6 +8,8 @@ import {
   createMemo,
   createResource,
   createSignal,
+  lazy,
+  Suspense,
   on,
   onCleanup,
   onMount,
@@ -718,6 +720,8 @@ interface ReaderProps {
   /** Open Settings at a section (the remote-images banner links to Privacy). */
   onOpenSettings?: (section: string) => void;
 }
+const InlineCompose=lazy(async()=>({default:(await import('./Compose.tsx')).Compose}));
+
 export function Reader(props: ReaderProps): JSX.Element {
   const app=useApp();
   const scoped={...app,
@@ -738,6 +742,12 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     window.addEventListener('online',update);window.addEventListener('offline',update);
     onCleanup(()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);});
   });
+  const [quickReply,setQuickReply]=createSignal<{account:string;email:string;initial:ComposeInitial}>();
+  const activeQuickReply=()=> {
+    const reply=quickReply();
+    return reply?.account===app.accountId()&&reply?.email===app.openEmail()?.id?reply:undefined;
+  };
+  createEffect(()=>{if(quickReply()&&!activeQuickReply())setQuickReply(undefined);});
   const replyDrafts=createReplyDraftIndex(app.accountId);
   const [linkAuthority,setLinkAuthority]=createSignal(preferenceAccount());
   onCleanup(observePreferenceAccount(account=>setLinkAuthority(account)));
@@ -1317,7 +1327,9 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       // The reader moved on while this was prepared: do not open a composer
       // about a message that is no longer the one on screen.
       if (!current()) return;
-      props.onCompose(compact ? {...initial, compact: true} : initial);
+      if(compact){
+        if(effectiveSettings()['mail.quickReply']?.value===true)setQuickReply({account,email:email.id,initial:{...initial,compact:true}});
+      }else props.onCompose(initial);
     } catch {
       if(current())app.showToast('error', t('mail-reply-failed'));
     } finally {
@@ -1569,7 +1581,14 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   actions and the max-security switch; what does not fit folds into More. */}
               <ReaderToolbar email={email()} colors={{get value(){return colorChoice();},get setting(){return colorSetting();},get locked(){return colorLocked();},onChange:(choice)=>setMessageColorOverride(colorKey(),choice),onMakeDefault:(choice)=>void makeColorDefault(choice)}} {...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})} {...(props.onEditDraft?{onEditDraft:props.onEditDraft}:{})} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />{colorConfirm.Dialog()}
               <Show when={cleanupOpen()}><SweepDialog fromEmail={sender()} onClose={()=>setCleanupOpen(false)}/></Show>
-              <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose && mailFeature('allowReply')}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
+              <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose && mailFeature('allowReply') && !activeQuickReply() && !isDraftMessage(email(),app.mailboxes())}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
+              <Show when={activeQuickReply()} keyed>{reply=>
+                <div class="reader__quick-reply" data-testid="reader-quick-reply">
+                  <Suspense fallback={<p role="status">{t('common-loading')}</p>}>
+                    <InlineCompose embedded active={props.active!==false} initial={reply.initial} onClose={()=>setQuickReply(undefined)}/>
+                  </Suspense>
+                </div>
+              }</Show>
               <Show when={props.onEditDraft&&isDraftMessage(email(),app.mailboxes())}><div class={replyStateCss.notice} role="status" data-testid="reader-draft-notice"><span>{t('mail-draft-notice')}</span><button type="button" class="btn" data-testid="reader-draft-notice-edit" onClick={()=>props.onEditDraft?.(email().id)}><Icon name="compose"/>{t('mail-draft-continue')}</button></div></Show>
               <ReaderReplyState answered={email().keywords?.['$answered']===true} forwarded={email().keywords?.['$forwarded']===true} draft={replyDrafts().get(email().id)} onOpen={props.onOpenReplyDraft}/>
               <AutoTagSection email={email()} />

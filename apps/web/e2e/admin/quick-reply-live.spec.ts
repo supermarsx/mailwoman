@@ -2,7 +2,7 @@ import { test, expect } from '../csrf.ts';
 import { signInManually, messageRow, sidebarInbox, drawerButton, storageAuthorityHeaders, ribbonControl } from '../helpers.ts';
 import { sendRawSmtp } from '../crypto-helpers.ts';
 
-test('opted-in quick reply opens a compact tab and expands without losing text @phone', async ({ page, context }) => {
+test('opted-in quick reply opens a compact inline composer and expands without losing text @phone', async ({ page, context }) => {
   const subject = `Quick reply ${Date.now()}`;
   await sendRawSmtp({ from: 'sender@example.test', message: `From: sender@example.test\r\nTo: testuser@example.org\r\nSubject: ${subject}\r\nMessage-ID: <quick-${Date.now()}@example.test>\r\nDate: ${new Date().toUTCString()}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nOriginal message for a compact reply.\r\n` });
   await signInManually(page, { username: 'testuser', password: 'testpass' });
@@ -21,8 +21,8 @@ test('opted-in quick reply opens a compact tab and expands without losing text @
     }).toPass({ timeout: 30000 });
     await messageRow(page, subject).click();
     await page.getByRole('button', { name: 'Quick reply', exact: true }).click();
-    await expect(page.getByRole('tab', { name: `Re: ${subject}`, exact: true })).toHaveAttribute('aria-selected', 'true');
-    const composer = page.getByRole('region', { name: 'Compose message', exact: true });
+    await expect(page.getByRole('tab', { name: `Re: ${subject}`, exact: true })).toHaveCount(0);
+    const composer = page.getByTestId('reader-quick-reply').getByRole('region', { name: 'Compose message', exact: true });
     await expect(composer.getByLabel('To', { exact: true })).toHaveCount(0);
     await expect(composer.getByRole('region', { name: 'Quick reply', exact: true })).toContainText('sender@example.test');
     // On a phone the Message type group folds into a dropdown (t38-e5).

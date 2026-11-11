@@ -561,7 +561,7 @@ mail-external-help = Check the To, Cc and Bcc recipients before sending confiden
 mail-external-reviewed = I have checked these external recipients.
 mail-external-confirm-required = Review and confirm the external recipients before sending.
 mail-quick-reply = Quick reply
-mail-quick-reply-help = Offer a compact reply tab with recipients already filled in. Off by default. The normal safety checks and send options still apply.
+mail-quick-reply-help = Offer a compact reply in the message reader with recipients already filled in. Off by default. The normal safety checks and send options still apply.
 mail-quick-reply-expand = Edit recipients and subject
 
 mail-attachment-policy-loading = Checking attachment policy…

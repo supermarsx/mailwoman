@@ -552,7 +552,7 @@ mail-external-help = Verifique os destinatários em Para, Cc e Bcc antes de envi
 mail-external-reviewed = Verifiquei estes destinatários externos.
 mail-external-confirm-required = Reveja e confirme os destinatários externos antes de enviar.
 mail-quick-reply = Resposta rápida
-mail-quick-reply-help = Oferece um separador de resposta compacto com os destinatários já preenchidos. Desativado por predefinição. As verificações de segurança e opções de envio habituais continuam a aplicar-se.
+mail-quick-reply-help = Mostra uma resposta compacta na vista da mensagem, com os destinatários já preenchidos. Desativada por predefinição.
 mail-quick-reply-expand = Editar destinatários e assunto
 
 mail-attachment-policy-loading = A verificar a política de anexos…

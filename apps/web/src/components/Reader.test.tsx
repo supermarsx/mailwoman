@@ -16,7 +16,9 @@ import { resolve } from 'node:path';
 import { initSync, sanitizeEmailHtmlReader } from '../wasm/mw-sanitize/mw_sanitize.js';
 beforeAll(() => initSync({ module: readFileSync(resolve('src/wasm/mw-sanitize/mw_sanitize_bg.wasm')) }));
 // These tests count threading downloads; spam-header fetching has its own suite.
-vi.mock('./security/SpamScore.tsx', () => ({ SpamScore: () => null }));
+const inlineCompose=vi.hoisted(()=>vi.fn());
+vi.mock('./Compose.tsx',()=>({Compose:(props:{initial:ComposeInitial})=>{inlineCompose(props.initial);return null;}}));
+vi.mock('./security/SpamScore.tsx' , () => ({ SpamScore: () => null }));
 vi.mock('./security/DeliveryStatus.tsx', () => ({ DeliveryStatus: () => null }));
 
 // Reply / Reply all / Forward from the reader toolbar: what the composer is
@@ -196,8 +198,9 @@ describe('Reader: Reply, Reply all, Forward', () => {
     try {
       await loadSettings({ refresh: true, fetcher: async () => new Response(JSON.stringify({ settings: { 'mail.quickReply': { value: true, source: 'user', locked: false } } }), { headers: { 'content-type': 'application/json' } }) });
       fireEvent.click(screen.getByRole('button', { name: 'Quick reply' }));
-      await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1));
-      expect(onCompose.mock.calls[0]?.[0]).toMatchObject({ compact: true, mode: 'reply', to: 'Alice Example <alice@example.org>', inReplyTo: ['orig@example.org'], source: { emailId: 'm1', keyword: '$answered' } });
+      await waitFor(() => expect(inlineCompose).toHaveBeenCalledTimes(1));
+      expect(onCompose).not.toHaveBeenCalled();
+      expect(inlineCompose.mock.calls[0]?.[0]).toMatchObject({ compact: true, mode: 'reply', to: 'Alice Example <alice@example.org>', inReplyTo: ['orig@example.org'], source: { emailId: 'm1', keyword: '$answered' } });
     } finally { clearSettings(); }
   });
 

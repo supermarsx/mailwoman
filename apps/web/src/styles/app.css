@@ -1060,3 +1060,7 @@ table.settings-package-table { min-inline-size:38rem; }
 .attachment-modal__name { flex:1 1 0; min-inline-size:0; }
 
 .attachment-modal > .mw-viewer { flex:1 1 0; min-block-size:0; }
+
+.reader__quick-reply { margin-block: .75rem; }
+.reader__quick-reply > .workspace-compose { height: auto; max-height: min(65vh, 38rem); }
+.reader__quick-reply > .workspace-compose > .compose { height: auto; border: 1px solid var(--border); }
