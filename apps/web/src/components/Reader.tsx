@@ -363,7 +363,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
   const attachmentDensity = () => effectiveSettings()['reader.attachmentsDensity']?.value === 'comfortable' ? 'comfortable' as const : 'compact' as const;
   /** Mount the thumbnails on first open, then keep them (no refetch on toggle). */
   const [everOpen, setEverOpen] = createSignal(false);
-  createEffect(on(()=>JSON.stringify([app.accountId(),props.email.id,collapseSetting()?.value,collapseSetting()?.locked]),()=>{setCollapsedLocal(null);setEverOpen(false);setOpenItem(null);setAcknowledged(false);}));
+  createEffect(on(()=>JSON.stringify([app.accountId(),props.email.id,collapseSetting()?.value,collapseSetting()?.locked]),()=>{setCollapsedLocal(null);setEverOpen(collapseSetting()?.value===false);setOpenItem(null);setAcknowledged(false);}));
   createEffect(() => { if (!collapsed()) setEverOpen(true); });
   function toggle(): void {
     const next = !collapsed();
@@ -384,6 +384,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
   // Files first; parts the body consumes (cid images) sit in their own group, never dropped.
   const fileItems = createMemo(() => items().filter((item) => item.inline !== true));
   const inlineItems = createMemo(() => items().filter((item) => item.inline === true));
+  const inlineOnly = createMemo(() => fileItems().length === 0);
   const totalSize = createMemo(() => fileItems().reduce((sum, item) => sum + item.size, 0));
   const inlineSize = createMemo(() => inlineItems().reduce((sum, item) => sum + item.size, 0));
   const summaryText = (): string => fileItems().length > 0
@@ -395,10 +396,10 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
   const cloudActions = createMemo<ContextAction[]>(() => items().map((item, i) => ({ id: `nc${i}`, label: t('nextcloud-save-attachment', { name: isolate(item.name) }), icon: 'nextcloud', disabled: !decision(item)?.allowed, run: () => { setCloudItem(item); } })));
   const cloudMenu = createContextMenu({ label: () => t('nextcloud-save-options'), scope: () => props.email.id, actions: cloudActions });
 
-  const renderStrip = (list: BarItem[]): JSX.Element => (
+  const AttachmentStrip = (strip: {items:BarItem[]}): JSX.Element => (
         <ThumbnailStrip
           density={attachmentDensity()}
-          items={list}
+          items={strip.items}
           selectedBlobId={openItem()?.blobId ?? ''}
           dragSource={{ accountId: app.accountId(), emailId: props.email.id }}
           onSelect={(it) => {setAcknowledged(false); if(props.onOpenAttachment)props.onOpenAttachment(it);else setOpenItem(it);}}
@@ -456,11 +457,11 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
             panel keeps its height, so the body below never moves. */}
         <Show when={attachmentPolicy.state==='ready'} fallback={<Show when={attachmentPolicy.error} fallback={<div data-testid="async-pending" data-policy="pending" role="status" aria-label={t('mail-attachment-policy-loading')} aria-busy="true" inert><ThumbnailStrip density={attachmentDensity()} items={items()} selectedBlobId="" onSelect={() => undefined} resolveThumb={() => Promise.resolve('')} /></div>}><AsyncError message={t('mail-attachment-policy-unavailable')} onRetry={()=>{void retryPolicy();}}/></Show>}>
         <div data-policy="ready">
-        {renderStrip(fileItems())}
+        <AttachmentStrip items={fileItems()}/>
         <Show when={inlineItems().length > 0}>
-          <details class="reader__attachments-inline" data-testid="reader-attachments-inline" open={fileItems().length === 0}>
+          <details class="reader__attachments-inline" data-testid="reader-attachments-inline" open={inlineOnly()}>
             <summary>{t('reader-attachments-inline-group', { count: inlineItems().length })}</summary>
-            {renderStrip(inlineItems())}
+            <AttachmentStrip items={inlineItems()}/>
           </details>
         </Show>
         </div>

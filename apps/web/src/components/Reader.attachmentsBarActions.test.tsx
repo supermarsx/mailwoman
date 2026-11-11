@@ -5,6 +5,7 @@ import type { AppState } from '../state/store.ts';
 import type { Email } from '../api/jmap-types.ts';
 import { clearSettings, loadSettings } from '../api/settings.ts';
 import { AttachmentsPane } from './Reader.tsx';
+import {createSignal} from 'solid-js';
 
 const downloadOne = vi.fn((..._args: unknown[]) => Promise.resolve());
 const downloadZip = vi.fn((..._args: unknown[]) => Promise.resolve());
@@ -28,8 +29,10 @@ async function setup(attachments: unknown[], values: Values = {}) {
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify(policy), { status: 200, headers: { 'content-type': 'application/json' } }))));
   await apply({ 'reader.attachmentsCollapsed': { value: true }, ...values });
   const app = { accountId: () => 'a1', downloadUrl: () => 'https://m/d/{accountId}/{blobId}/{name}?type={type}', showToast, openMessage: vi.fn(), nextcloud: { enabled: () => false, ensureEnabled: () => Promise.resolve(), service: {} } } as unknown as AppState;
-  const view = render(() => <AppContext.Provider value={app}><AttachmentsPane email={{ id: 'e1', hasAttachment: true, attachments } as unknown as Email} /></AppContext.Provider>);
-  return { app, showToast, view };
+  const [parts,setParts]=createSignal(attachments);
+  const [messageId,setMessageId]=createSignal('e1');
+  const view = render(() => <AppContext.Provider value={app}><AttachmentsPane email={{ id: messageId(), hasAttachment: true, attachments:parts() } as unknown as Email} /></AppContext.Provider>);
+  return { app, showToast, view,setParts,setMessageId };
 }
 type View = Awaited<ReturnType<typeof setup>>['view'];
 const expanded = (view: View) => view.getByTestId('reader-attachments-toggle').getAttribute('aria-expanded');
@@ -40,6 +43,33 @@ beforeEach(() => { downloadOne.mockClear(); downloadZip.mockClear(); });
 afterEach(() => { cleanup(); clearSettings(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('attachments bar toggle', () => {
+  it('updates an already expanded attachment list without toggling the bar',async()=>{
+    const {view,setParts}=await setup([PDF],open);
+    await waitFor(()=>expect(view.container.querySelector('[data-policy="ready"]')).not.toBeNull());
+    expect(view.getByTitle('a.pdf')).toBeVisible();
+    setParts([DOC]);
+    await waitFor(()=>expect(view.getByTitle('b.doc')).toBeVisible());
+    expect(view.queryByTitle('a.pdf')).toBeNull();expect(expanded(view)).toBe('true');
+  });
+  it('updates files and inline images while both sections are already open',async()=>{
+    const {view,setParts}=await setup([PDF,INLINE],open);
+    await waitFor(()=>expect(view.container.querySelector('[data-policy="ready"]')).not.toBeNull());
+    expect(view.getByTitle('a.pdf')).toBeVisible();
+    const inline=view.getByTestId('reader-attachments-inline') as HTMLDetailsElement;
+    inline.open=true;
+    setParts([DOC,{...INLINE,blobId:'new-inline',name:'updated-logo.png'}]);
+    await waitFor(()=>expect(view.getByTitle('updated-logo.png')).toBeVisible());
+    expect(view.getByTitle('b.doc')).toBeVisible();expect(view.queryByTitle('logo.png')).toBeNull();
+    expect(inline.open).toBe(true);expect(expanded(view)).toBe('true');
+  });
+  it('shows the next message attachments when expanded is the configured default',async()=>{
+    const {view,setParts,setMessageId}=await setup([PDF],open);
+    await waitFor(()=>expect(view.container.querySelector('[data-policy="ready"]')).not.toBeNull());
+    expect(view.getByTitle('a.pdf')).toBeVisible();
+    setMessageId('e2');setParts([DOC]);
+    await waitFor(()=>expect(view.getByTitle('b.doc')).toBeVisible());
+    expect(view.queryByTitle('a.pdf')).toBeNull();expect(expanded(view)).toBe('true');
+  });
   it('toggles when the header is clicked anywhere, and aria-expanded follows', async () => {
     const { view } = await setup([PDF]);
     expect(expanded(view)).toBe('false');
