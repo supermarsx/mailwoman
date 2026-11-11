@@ -15,6 +15,7 @@ export const NICKNAME_MAX = 64;
 
 export interface MailboxLayout {
   revision: string;
+  hidden?: string[];
   order: string[];
   nicknames: Record<string, string>;
   /** t86: the avatar per layout key (absent = the generated one). Older servers send none. */
@@ -72,7 +73,7 @@ export function mailboxAvatar(linkId: string | null): MailboxAvatarSpec | undefi
 }
 
 /** The arrangement with `keys` in a new order (from `moveTo` on the display order). */
-export function layoutChange(list: LinkedMailboxList, edit: { order?: string[]; nickname?: { key: string; value: string }; avatar?: { key: string; value: MailboxAvatarSpec | undefined } }): Omit<MailboxLayout, 'revision'> {
+export function layoutChange(list: LinkedMailboxList, edit: { order?: string[]; nickname?: { key: string; value: string }; avatar?: { key: string; value: MailboxAvatarSpec | undefined }; visibility?: {key:string;visible:boolean} }): Omit<MailboxLayout, 'revision'> {
   const nicknames = { ...(list.layout?.nicknames ?? {}) };
   if (edit.nickname) {
     if (edit.nickname.value === '') delete nicknames[edit.nickname.key];
@@ -83,7 +84,9 @@ export function layoutChange(list: LinkedMailboxList, edit: { order?: string[]; 
     if (isDefaultAvatar(edit.avatar.value)) delete avatars[edit.avatar.key];
     else avatars[edit.avatar.key] = edit.avatar.value!;
   }
-  return { order: edit.order ?? orderedKeys(list), nicknames, avatars };
+  let hidden=[...(list.layout?.hidden??[])];
+  if(edit.visibility){hidden=hidden.filter(key=>key!==edit.visibility!.key);if(!edit.visibility.visible&&edit.visibility.key!==MAIN_KEY)hidden.push(edit.visibility.key);}
+  return { order: edit.order ?? orderedKeys(list), nicknames, avatars, hidden };
 }
 
 /**

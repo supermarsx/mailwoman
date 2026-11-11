@@ -140,3 +140,7 @@ linked-accounts-avatar-icon-bell = Sino
 linked-accounts-avatar-icon-cart = Carrinho de compras
 linked-accounts-avatar-icon-plane = Avião
 linked-accounts-avatar-icon-school = Escola
+
+linked-accounts-selector-visible = Mostrar { $address } no seletor de contas
+linked-accounts-show-selector = Mostrar no seletor de contas
+linked-accounts-hide-selector = Ocultar no seletor de contas

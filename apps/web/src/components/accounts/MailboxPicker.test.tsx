@@ -135,3 +135,13 @@ describe('mailbox picker (a switcher only, t48 k)',()=>{
     expect(document.querySelectorAll('[data-account-indicator] [data-mailbox-unread]')).toHaveLength(2);
   });
 });
+
+it('hides an account from the selector while preserving its active account label',()=>{
+ const onSelect=vi.fn();
+ render(()=><MailboxPicker variant="full" choices={choices.map(choice=>({...choice,hidden:choice.linkId==='work'}))} activeLinkId="work" busy={false} onSelect={onSelect}/>);
+ const trigger=screen.getByRole('button',{name:/linked-accounts-select:.*work@example.org/});
+ fireEvent.click(trigger);
+ const menu=screen.getByRole('menu',{name:'linked-accounts-select'});
+ expect(within(menu).getAllByRole('menuitemradio').map(item=>item.dataset['link'])).toEqual(['','old']);
+ expect(onSelect).not.toHaveBeenCalled();
+});

@@ -136,3 +136,7 @@ linked-accounts-avatar-icon-bell = Bell
 linked-accounts-avatar-icon-cart = Shopping cart
 linked-accounts-avatar-icon-plane = Plane
 linked-accounts-avatar-icon-school = School
+
+linked-accounts-selector-visible = Show { $address } in the account selector
+linked-accounts-show-selector = Show in account selector
+linked-accounts-hide-selector = Hide from account selector

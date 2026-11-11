@@ -40,7 +40,7 @@ export type LinkMailboxProof={method:'totp'|'recovery';code:string}|{method:'web
 
 function validLayout(value:unknown):value is MailboxLayout {
   const layout=value as MailboxLayout|null;
-  return !!layout&&typeof layout.revision==='string'&&Array.isArray(layout.order)&&layout.order.length<=32&&layout.order.every(key=>typeof key==='string')
+  return !!layout&&(layout.hidden===undefined||(Array.isArray(layout.hidden)&&layout.hidden.length<=32&&layout.hidden.every(key=>typeof key==='string'&&key!=='main')))&&typeof layout.revision==='string'&&Array.isArray(layout.order)&&layout.order.length<=32&&layout.order.every(key=>typeof key==='string')
     &&typeof layout.nicknames==='object'&&layout.nicknames!==null&&!Array.isArray(layout.nicknames)&&Object.values(layout.nicknames).every(name=>typeof name==='string'&&name.length<=256)
     &&(layout.avatars===undefined||(typeof layout.avatars==='object'&&layout.avatars!==null&&!Array.isArray(layout.avatars)&&Object.keys(layout.avatars).length<=32));
 }

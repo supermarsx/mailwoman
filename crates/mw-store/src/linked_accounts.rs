@@ -62,6 +62,7 @@ pub struct LinkedLayoutRow {
     pub nicknames_json: String,
     pub revision: String,
     pub avatars_json: String,
+    pub hidden_json: String,
 }
 
 /// t48: the opened credential a link is re-established from. The password is
@@ -387,13 +388,14 @@ impl Store {
     /// revision, avatars_json)`. Validation against the current links is the
     /// caller's.
     pub async fn linked_layout(&self, parent: &str) -> Result<Option<LinkedLayoutRow>, StoreError> {
-        Ok(q("SELECT ll.order_json,ll.nicknames_json,ll.revision,ll.avatars_json FROM linked_layout ll JOIN session_principal sp ON sp.principal_id=ll.owner_principal_id JOIN sessions s ON s.id=sp.session_id AND s.account_id=sp.primary_account_id JOIN identity_principal p ON p.id=sp.principal_id JOIN identity_binding b ON b.id=sp.binding_id AND b.principal_id=p.id WHERE sp.session_id=?1 AND s.linked_internal=0 AND p.state='active' AND b.retired_at IS NULL")
+        Ok(q("SELECT ll.order_json,ll.nicknames_json,ll.revision,ll.avatars_json,ll.hidden_json FROM linked_layout ll JOIN session_principal sp ON sp.principal_id=ll.owner_principal_id JOIN sessions s ON s.id=sp.session_id AND s.account_id=sp.primary_account_id JOIN identity_principal p ON p.id=sp.principal_id JOIN identity_binding b ON b.id=sp.binding_id AND b.principal_id=p.id WHERE sp.session_id=?1 AND s.linked_internal=0 AND p.state='active' AND b.retired_at IS NULL")
             .bind(parent).fetch_optional(&self.backend).await?
             .map(|r| LinkedLayoutRow {
                 order_json: r.get_string("order_json"),
                 nicknames_json: r.get_string("nicknames_json"),
                 revision: r.get_string("revision"),
                 avatars_json: r.get_string("avatars_json"),
+                hidden_json: r.get_string("hidden_json"),
             }))
     }
 
@@ -409,6 +411,13 @@ impl Store {
         nicknames_json: &str,
         avatars_json: Option<&str>,
         now: i64,
+    ) -> Result<Option<String>, StoreError> {
+        self.put_linked_layout_with_visibility(parent, expected, order_json, nicknames_json, avatars_json, None, now).await
+    }
+
+    pub async fn put_linked_layout_with_visibility(
+        &self, parent: &str, expected: &str, order_json: &str, nicknames_json: &str,
+        avatars_json: Option<&str>, hidden_json: Option<&str>, now: i64,
     ) -> Result<Option<String>, StoreError> {
         let mut tx = self.backend.begin().await?;
         serialize(&mut tx).await?;
@@ -429,8 +438,8 @@ impl Store {
         }
         let revision = uuid::Uuid::new_v4().to_string();
         // `?6` NULL = keep: a new row starts with none.
-        q("INSERT INTO linked_layout(owner_principal_id,order_json,nicknames_json,revision,updated_at,avatars_json) VALUES(?1,?2,?3,?4,?5,COALESCE(?6,'{}')) ON CONFLICT(owner_principal_id) DO UPDATE SET order_json=excluded.order_json,nicknames_json=excluded.nicknames_json,revision=excluded.revision,updated_at=excluded.updated_at,avatars_json=COALESCE(?6,linked_layout.avatars_json)")
-            .bind(&owner).bind(order_json).bind(nicknames_json).bind(&revision).bind(now).bind(avatars_json).execute_tx(&mut tx).await?;
+        q("INSERT INTO linked_layout(owner_principal_id,order_json,nicknames_json,revision,updated_at,avatars_json,hidden_json) VALUES(?1,?2,?3,?4,?5,COALESCE(?6,'{}'),COALESCE(?7,'[]')) ON CONFLICT(owner_principal_id) DO UPDATE SET order_json=excluded.order_json,nicknames_json=excluded.nicknames_json,revision=excluded.revision,updated_at=excluded.updated_at,avatars_json=COALESCE(?6,linked_layout.avatars_json),hidden_json=COALESCE(?7,linked_layout.hidden_json)")
+            .bind(&owner).bind(order_json).bind(nicknames_json).bind(&revision).bind(now).bind(avatars_json).bind(hidden_json).execute_tx(&mut tx).await?;
         tx.commit().await?;
         Ok(Some(revision))
     }

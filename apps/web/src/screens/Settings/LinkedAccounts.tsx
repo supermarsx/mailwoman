@@ -68,12 +68,16 @@ function OwnedLinkedAccounts():JSX.Element {
   function move(from:number,slot:number):void{
     const current=list();if(!current||busy())return;
     const order=moveTo(orderedKeys(current),from,slot);
-    mutate({...current,layout:{revision:current.layout?.revision??'',order,nicknames:current.layout?.nicknames??{},avatars:current.layout?.avatars??{}}});
+    mutate({...current,layout:{revision:current.layout?.revision??'',order,nicknames:current.layout?.nicknames??{},avatars:current.layout?.avatars??{},hidden:current.layout?.hidden??[]}});
     void layoutAction(()=>saveLayout(api,current,fresh=>layoutChange(fresh,{order})));
   }
   async function rename(id:string|null,nickname:string):Promise<boolean>{
     const current=list();if(!current)return false;
     return await layoutAction(()=>saveLayout(api,current,fresh=>layoutChange(fresh,{nickname:{key:keyOf(id),value:nickname}})));
+  }
+  function setVisibility(id:string,visible:boolean):void {
+    const current=list();if(!current||busy())return;
+    void layoutAction(()=>saveLayout(api,current,fresh=>layoutChange(fresh,{visibility:{key:id,visible}})));
   }
   async function setAvatar(id:string|null,avatar:MailboxAvatarSpec|undefined):Promise<boolean>{
     const current=list();if(!current)return false;
@@ -92,7 +96,7 @@ function OwnedLinkedAccounts():JSX.Element {
     <Show when={!list.error&&list()}>{value=><>
       <Show when={app.linkedMailboxId()===null} fallback={<p class={css.meta}>{t('linked-accounts-primary-preference')}</p>}><LinkedPreference onChanged={()=>{invalidateLinkedAccounts();void refetch();}}/></Show>
       <Show when={value().policy.reason==='linkedBackendUnsupported'}><p class={css.meta}>{t('linked-accounts-backend-unsupported')}</p></Show>
-      <LinkedAccountList value={value()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename} onRenew={setRenewing} onAvatar={setAvatar}/>
+      <LinkedAccountList value={value()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename} onRenew={setRenewing} onAvatar={setAvatar} onVisibility={setVisibility}/>
       <Show when={renewing()}>{account=><RenewAccessDialog account={account()} label={mailboxNickname(account().id)||account().address||account().displayName} api={api}
         onRenewed={()=>{setRenewing(undefined);invalidateLinkedAccounts();void refetch();}} onCancel={()=>setRenewing(undefined)} onGone={()=>{setRenewing(undefined);void refetch();}}/>}</Show>
     </>}</Show>

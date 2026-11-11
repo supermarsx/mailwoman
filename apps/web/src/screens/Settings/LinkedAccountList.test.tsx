@@ -172,3 +172,13 @@ describe('Settings › Linked mailboxes (the management table, t48 k)',()=>{
     expect(actions.onMove).toHaveBeenLastCalledWith(1,0);
   });
 });
+
+it('keeps a hidden linked mailbox manageable and allows showing it again',()=>{
+ const onVisibility=vi.fn();
+ render(()=><LinkedAccountList value={{...value,layout:{revision:'r1',order:[],nicknames:{},hidden:['child']}}} busy={false} onAdd={()=>{}} onUnlink={()=>{}} onSetFirst={()=>{}} onMove={()=>{}} onRename={async()=>true} onVisibility={onVisibility}/>);
+ const toggle=within(row('child')).getByRole('button',{name:/linked-accounts-selector-visible/});
+ expect(toggle).toHaveAttribute('aria-pressed','false');
+ fireEvent.click(toggle);
+ expect(onVisibility).toHaveBeenCalledWith('child',true);
+ expect(row('main').querySelector('[title="linked-accounts-hide-selector"]')).toBeNull();
+});

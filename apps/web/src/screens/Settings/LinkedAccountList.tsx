@@ -39,6 +39,7 @@ export function LinkedAccountList(props:{
   /** Renew an expired link's access in place. */
   onRenew?:(account:LinkedMailbox)=>void;
   /** t86: save a mailbox's avatar (`undefined` = the generated one); resolves false when refused. */
+  onVisibility?:(id:string,visible:boolean)=>void;
   onAvatar?:(id:string|null,avatar:MailboxAvatarSpec|undefined)=>Promise<boolean>;
 }):JSX.Element {
   const [confirm,setConfirm]=createSignal<string>();
@@ -141,6 +142,14 @@ export function LinkedAccountList(props:{
               </div>
             </Show>
             <div class={table.actions} data-linked-actions>
+              <Show when={linkId!==null&&props.onVisibility}>
+                <button type="button" class={icon} disabled={props.busy} aria-pressed={!props.value.layout?.hidden?.includes(key)}
+                  aria-label={t('linked-accounts-selector-visible',{address:nameFor(key)})}
+                  title={t(props.value.layout?.hidden?.includes(key)?'linked-accounts-show-selector':'linked-accounts-hide-selector')}
+                  onClick={()=>props.onVisibility?.(linkId!,props.value.layout?.hidden?.includes(key)===true)}>
+                  <Icon name={props.value.layout?.hidden?.includes(key)?'eyeOff':'eye'}/>
+                </button>
+              </Show>
               <Show when={expired()}>
                 <span class={table.status} role="img" data-linked-status aria-label={t('linked-accounts-expired')} data-tooltip={t('linked-accounts-expired')}><Icon name="alert"/></span>
               </Show>

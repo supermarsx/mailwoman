@@ -44,7 +44,7 @@ export function mailboxChoices(list:LinkedMailboxList,unread:(linkId:string|null
     if(linkId===null){const nickname=nick(null);return {linkId,address:list.primary.address,...(nickname?{nickname}:{}),...face(null),signIn:true,available:true,unread:unread(null)};}
     const account=list.accounts.find(item=>item.id===linkId)!;
     const nickname=nick(linkId);
-    return {linkId,address:account.address??account.displayName,name:account.displayName,...(nickname?{nickname}:{}),...face(linkId),
+    return {linkId,hidden:list.layout?.hidden?.includes(key)===true,address:account.address??account.displayName,name:account.displayName,...(nickname?{nickname}:{}),...face(linkId),
       available:list.policy.enabled&&account.status==='ready',unread:unread(linkId),
       ...(list.policy.enabled&&account.status==='reauthRequired'?{renew:true}:{})};
   });

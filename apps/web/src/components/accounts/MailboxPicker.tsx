@@ -31,6 +31,7 @@ import '../senderIcons/palette.css';
  * `unread` is the inbox unread count or null when unknown.
  */
 export interface MailboxChoice {
+  hidden?: boolean;
   /** Null means the sign-in (parent) account; every child ID comes from the owned server list. */
   linkId: string | null;
   address: string;
@@ -341,7 +342,7 @@ export function MailboxPicker(props: {
               if (next instanceof Node) close();
             }}
           >
-            <For each={props.choices}>
+            <For each={props.choices.filter(choice=>!choice.hidden)}>
               {(choice) => {
                 const isActive = (): boolean => choice.linkId === props.activeLinkId;
                 return (

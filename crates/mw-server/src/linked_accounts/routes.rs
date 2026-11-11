@@ -951,7 +951,9 @@ fn layout_view(
         .filter_map(|(k, v)| nickname(&v).ok().flatten().map(|v| (k, json!(v))))
         .collect();
     let avatars = avatars_view(&stored.avatars_json, keys);
-    json!({"revision":stored.revision,"order":normalized_order(&order,keys),"nicknames":nicknames,"avatars":avatars})
+    let hidden: Vec<String> = serde_json::from_str(&stored.hidden_json).unwrap_or_default();
+    let hidden: Vec<_> = hidden.into_iter().filter(|key| key != "main" && keys.contains(key)).collect();
+    json!({"revision":stored.revision,"order":normalized_order(&order,keys),"nicknames":nicknames,"avatars":avatars,"hidden":hidden})
 }
 
 #[derive(Deserialize)]
@@ -963,6 +965,8 @@ struct LayoutRequest {
     /// t86: absent = keep the stored avatars (a client that predates them).
     #[serde(default)]
     avatars: Option<std::collections::BTreeMap<String, AvatarRequest>>,
+    #[serde(default)]
+    hidden: Option<Vec<String>>,
 }
 
 /// `PUT /api/accounts/layout` — the owner's order, nicknames and avatars for their
@@ -974,7 +978,8 @@ async fn set_layout(
     Json(body): Json<LayoutRequest>,
 ) -> Result<Response, Response> {
     let parent = parent(&state, &headers, true).await?;
-    if body.order.len() > 32
+    if body.hidden.as_ref().is_some_and(|ids| ids.len() > 32)
+        || body.order.len() > 32
         || body.nicknames.len() > 32
         || body.avatars.as_ref().is_some_and(|a| a.len() > 32)
         || body.revision.len() > 64
@@ -1010,6 +1015,8 @@ async fn set_layout(
             Some(out)
         }
     };
+    let hidden: Option<Vec<_>> = body.hidden.as_ref().map(|ids| keys.iter().filter(|key| key.as_str() != "main" && ids.contains(key)).cloned().collect());
+    let hidden_json = hidden.as_ref().map(serde_json::to_string).transpose().map_err(unavailable)?;
     let order_json = serde_json::to_string(&order).map_err(unavailable)?;
     let nicknames_json = serde_json::to_string(&nicknames).map_err(unavailable)?;
     let avatars_json = avatars
@@ -1017,14 +1024,15 @@ async fn set_layout(
         .map(serde_json::to_string)
         .transpose()
         .map_err(unavailable)?;
-    let Some(revision) = state
+    let Some(_revision) = state
         .store
-        .put_linked_layout(
+        .put_linked_layout_with_visibility(
             &parent.id,
             &body.revision,
             &order_json,
             &nicknames_json,
             avatars_json.as_deref(),
+            hidden_json.as_deref(),
             chrono::Utc::now().timestamp(),
         )
         .await
@@ -1032,23 +1040,10 @@ async fn set_layout(
     else {
         return Err(failure(StatusCode::CONFLICT, "layoutConflict"));
     };
-    // Avatars not sent are the stored ones: read them back for the answer.
-    let avatars = match avatars {
-        Some(avatars) => avatars,
-        None => avatars_view(
-            &state
-                .store
-                .linked_layout(&parent.id)
-                .await
-                .map_err(unavailable)?
-                .unwrap_or_default()
-                .avatars_json,
-            &keys,
-        ),
-    };
+    let stored = state.store.linked_layout(&parent.id).await.map_err(unavailable)?;
     Ok((
         [(axum::http::header::CACHE_CONTROL, "private, no-store")],
-        Json(json!({"layout":{"revision":revision,"order":order,"nicknames":nicknames,"avatars":avatars}})),
+        Json(json!({"layout":layout_view(stored, &keys)})),
     )
         .into_response())
 }
