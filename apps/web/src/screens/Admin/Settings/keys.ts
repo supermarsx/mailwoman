@@ -201,6 +201,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'mail.compose.checkMissingAttachment',
   'mail.compose.checkEmptySubject',
   'mail.compose.autoChipRecipients',
+  'mail.compose.autoAddMentionRecipients',
   'mail.compose.recipientSeparator',
   'mail.compose.headerCollapse',
   'mail.compose.headerAutoCollapseSeconds',

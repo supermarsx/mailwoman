@@ -2210,6 +2210,11 @@ Global/domain/user pre-send checks in the composer. Each takes one of four value
 
 The checks are: a recipient address in To, Cc or Bcc that is not a valid mailbox; text that mentions an attachment ("attached", "enclosed", "anexo", "adjunto", "pièce jointe", "angehängt", "allegato", "bijlage" and similar) while nothing is attached (quoted lines, the quoted original and the signature are ignored); and an empty subject. The external-recipient check is `mail.externalRecipientWarning`, which also accepts `warn-remember` and `deny`; its `off` value means no check, and `confirm` keeps its separate "I have checked these recipients" box. Administrators can lock any of these to prevent user overrides. While a draft is open, the composer also shows invalid addresses and a missing subject in a compact strip above the fields; recipients outside the trusted domains appear in a smaller, dismissible line.
 
+<a id="mail.compose.autoAddMentionRecipients"></a>
+### `mail.compose.autoAddMentionRecipients`
+
+Global/domain/user boolean, default `false`. Selecting a person from the composer's @mention suggestions inserts the mention in every editor mode. When this setting is enabled, selection also adds the person to To unless the address is already in To, Cc or Bcc. Typing or pasting a mention does not add recipients. Users can change this under Settings → Compose → Addressing; administrators can set a default or lock the effective value through the Mail settings category.
+
 <a id="mail.compose.autoChipRecipients"></a>
 <a id="mail.compose.recipientSeparator"></a>
 ### `mail.compose.autoChipRecipients`, `mail.compose.recipientSeparator`

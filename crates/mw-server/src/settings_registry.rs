@@ -2176,6 +2176,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "seconds the composer body must hold focus before a complete header (recipient and subject) folds to its summary line; 0 never folds it on its own"
     ),
     def!(
+        "mail.compose.autoAddMentionRecipients",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "automatically add a person selected from mention suggestions to To, unless already in To, Cc or Bcc"
+    ),
+    def!(
         "mail.compose.autoChipRecipients",
         Kind::Bool,
         "true",
@@ -9616,6 +9624,16 @@ impl From<StoreError> for CeilingError {
 mod tests {
     use super::*;
     use mw_store::ServerKey;
+
+    #[test]
+    fn automatic_mention_recipients_are_opt_in_and_user_admin_configurable() {
+        let def = lookup("mail.compose.autoAddMentionRecipients").unwrap();
+        assert_eq!(def.scopes, Scopes::GlobalDomainUser);
+        assert_eq!(def.default_value(), json!(false));
+        assert!(validate(def, &json!(true), "/value").is_ok());
+        assert!(validate(def, &json!(false), "/value").is_ok());
+        assert!(validate(def, &json!("true"), "/value").is_err());
+    }
 
     #[test]
     fn sender_domain_link_trust_is_exact_and_bounded() {

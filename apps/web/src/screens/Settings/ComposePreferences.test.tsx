@@ -42,6 +42,20 @@ it('keeps quick replies off by default and saves an explicit account opt-in', ()
   expect(handles.save).toHaveBeenCalledWith('mail.quickReply', true);
 });
 
+it('keeps mention recipients off by default and saves an explicit opt-in', () => {
+  render(() => <ComposePreferences />);
+  const toggle = screen.getByLabelText('Automatically add mentioned people as recipients');
+  expect(toggle).not.toBeChecked();
+  fireEvent.click(toggle);
+  expect(handles.save).toHaveBeenCalledWith('mail.compose.autoAddMentionRecipients', true);
+});
+
+it('honours an administrator lock on automatic mention recipients', () => {
+  handles.locked = true;
+  render(() => <ComposePreferences />);
+  expect(screen.getByLabelText('Automatically add mentioned people as recipients')).toBeDisabled();
+});
+
 it('keeps From hidden by default and saves an explicit account preference', () => {
   render(() => <ComposePreferences />);
   const input = screen.getByLabelText('Show From when composing');

@@ -2508,3 +2508,6 @@ admin-settings-help-reader-attachment-thumbnails = За замовчування
 admin-settings-key-reader-attachment-action-style = Дії попереднього перегляду вкладених файлів
 
 admin-settings-key-reader-attachment-thumbnails = Мініатюри вкладених зображень
+
+admin-settings-key-mail-compose-auto-add-mention-recipients = Автоматично додавати згаданих людей до одержувачів
+admin-settings-help-mail-compose-auto-add-mention-recipients = Після вибору людини з підказок @згадок додавати її в поле Кому, якщо її ще немає в полях Кому, Копія або Прихована копія. Типово вимкнено.

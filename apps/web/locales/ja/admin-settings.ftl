@@ -2482,3 +2482,6 @@ admin-settings-help-reader-attachment-thumbnails = デフォルトではオフ�
 admin-settings-key-reader-attachment-action-style = 添付ファイルのプレビューのアクション
 
 admin-settings-key-reader-attachment-thumbnails = 画像添付ファイルのサムネイル
+
+admin-settings-key-mail-compose-auto-add-mention-recipients = メンションした相手を自動的に宛先に追加する
+admin-settings-help-mail-compose-auto-add-mention-recipients = @メンションの候補から相手を選択したとき、宛先、Cc、Bcc にまだ含まれていなければ宛先に追加します。既定では無効です。

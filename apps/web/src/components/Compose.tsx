@@ -247,7 +247,9 @@ export function Compose(props: {
     setLayout((cur) => (isEmptyLayout(cur) ? { font: decodeFont(saved) } : cur));
   });
 
-  const mentionSource:MentionSource={cards:()=>app.contacts(),lookup:query=>app.autocompleteContacts?.(query)??Promise.resolve([]),scope:()=>preferenceAccount(),onPick:pick=>setTo(toWithMention(to(),cc(),bcc(),pick,separator()==='semicolon'?';':','))};
+  const mentionSource:MentionSource={cards:()=>app.contacts(),lookup:query=>app.autocompleteContacts?.(query)??Promise.resolve([]),scope:()=>preferenceAccount(),onPick:pick=>{
+    if(settings()['mail.compose.autoAddMentionRecipients']?.value===true)setTo(toWithMention(to(),cc(),bcc(),pick,separator()==='semicolon'?';':','));
+  }};
 
   /** The plain-text Body field. It is the fallback for all three ways the rich
    *  editor can be absent — plain-text mode, the chunk still loading, and the

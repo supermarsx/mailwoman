@@ -2490,3 +2490,6 @@ admin-settings-help-reader-attachment-thumbnails = Standaard uitgeschakeld. Sta 
 admin-settings-key-reader-attachment-action-style = Voorbeeldacties voor bijlagen
 
 admin-settings-key-reader-attachment-thumbnails = Miniaturen van afbeeldingsbijlagen
+
+admin-settings-key-mail-compose-auto-add-mention-recipients = Genoemde personen automatisch als ontvangers toevoegen
+admin-settings-help-mail-compose-auto-add-mention-recipients = Wanneer je iemand uit de @vermeldingssuggesties kiest, wordt die persoon aan Aan toegevoegd, tenzij die al in Aan, Cc of Bcc staat. Standaard uitgeschakeld.

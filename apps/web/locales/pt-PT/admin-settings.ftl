@@ -2288,3 +2288,6 @@ admin-settings-key-mail-unified-inbox = Correio unificado
 admin-settings-help-mail-unified-inbox = Consulte e pesquise a caixa de correio principal e as caixas associadas em conjunto.
 admin-settings-key-mail-cross-account-transfer = Copiar ou mover para outra conta
 admin-settings-help-mail-cross-account-transfer = Transfira mensagens entre caixas associadas que suportem exportação e importação.
+
+admin-settings-key-mail-compose-auto-add-mention-recipients = Adicionar automaticamente as pessoas mencionadas aos destinatários
+admin-settings-help-mail-compose-auto-add-mention-recipients = Ao selecionar uma pessoa nas sugestões de @menções, adicioná-la a Para, exceto se já estiver em Para, Cc ou Bcc. Desativado por predefinição.

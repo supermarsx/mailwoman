@@ -36,6 +36,7 @@ export const COMPOSE_CARDS: readonly CardSpec[] = [
     { id: 'reply-from-mode', label: 'settings-reply-from', help: 'settings-reply-from-help' },
     { id: 'quick-reply', label: 'mail-quick-reply', help: 'mail-quick-reply-help' },
     { id: 'auto-chip', label: 'settings-auto-chip', help: 'settings-auto-chip-help' },
+    { id: 'mention-recipients', label: 'settings-mention-recipients', help: 'settings-mention-recipients-help' },
     { id: 'recipient-separator', label: 'settings-recipient-separator' },
     { id: 'header-collapse', label: 'settings-header-collapse', help: 'settings-header-collapse-help' },
     { id: 'quote-style', label: 'settings-quote-style', help: 'settings-quote-help' },
@@ -69,6 +70,7 @@ export function ComposePreferences(): JSX.Element {
   }
   const quick = useSetting<boolean>('mail.quickReply', false);
   const autoChip = useSetting<boolean>('mail.compose.autoChipRecipients', true);
+  const mentionRecipients = useSetting<boolean>('mail.compose.autoAddMentionRecipients', false);
   const separator = useSetting<RecipientSeparator>('mail.compose.recipientSeparator', 'comma', isRecipientSeparator);
   const headerCollapse = useSetting<HeaderCollapseMode>('mail.compose.headerCollapse', HEADER_COLLAPSE_DEFAULT, isHeaderCollapseMode);
   const headerAutoCollapse = useSetting<number>('mail.compose.headerAutoCollapseSeconds', 0, (v): v is number => typeof v === 'number');
@@ -113,6 +115,7 @@ export function ComposePreferences(): JSX.Element {
       </>}</SettingRow>
       <ToggleRow id="quick-reply" label={t('mail-quick-reply')} help={t('mail-quick-reply-help')} handle={quick} />
       <ToggleRow id="auto-chip" label={t('settings-auto-chip')} help={t('settings-auto-chip-help')} handle={autoChip} />
+      <ToggleRow id="mention-recipients" label={t('settings-mention-recipients')} help={t('settings-mention-recipients-help')} handle={mentionRecipients} />
       <SelectRow id="recipient-separator" label={t('settings-recipient-separator')} handle={separator} accept={isRecipientSeparator} options={(['comma', 'semicolon'] as const).map(v => ({ value: v, label: t(`settings-recipient-separator-${v}`) }))} />
       <SelectRow id="header-collapse" label={t('settings-header-collapse')} help={t('settings-header-collapse-help')} handle={headerCollapse} accept={isHeaderCollapseMode} options={HEADER_COLLAPSE_MODES.map(v => ({ value: v, label: t(`settings-header-collapse-${v}`) }))} />
       <SettingRow controlId="header-auto-collapse" label={t('settings-header-auto-collapse')} help={t('settings-header-auto-collapse-help')} handle={headerAutoCollapse}>{d => <input id="header-auto-collapse" class={css.input} type="number" min="0" max="60" value={headerAutoCollapse.value()} disabled={!headerAutoCollapse.entry() || headerAutoCollapse.locked() || headerAutoCollapse.saving()} aria-describedby={d()} onChange={e => { const n = e.currentTarget.valueAsNumber; if (Number.isInteger(n) && n >= 0 && n <= 60) void headerAutoCollapse.set(n); }} />}</SettingRow>

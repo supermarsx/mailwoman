@@ -2490,3 +2490,6 @@ admin-settings-help-reader-attachment-thumbnails = Desativado por padrão. Permi
 admin-settings-key-reader-attachment-action-style = Ações de visualização de anexos
 
 admin-settings-key-reader-attachment-thumbnails = Miniaturas de anexos de imagens
+
+admin-settings-key-mail-compose-auto-add-mention-recipients = Adicionar automaticamente as pessoas mencionadas aos destinatários
+admin-settings-help-mail-compose-auto-add-mention-recipients = Ao selecionar uma pessoa nas sugestões de @menções, adicioná-la a Para, a menos que já esteja em Para, Cc ou Cco. Desativado por padrão.

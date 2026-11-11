@@ -2508,3 +2508,6 @@ admin-settings-help-reader-attachment-thumbnails = Domyślnie wyłączone. Zezwa
 admin-settings-key-reader-attachment-action-style = Działania podglądu załącznika
 
 admin-settings-key-reader-attachment-thumbnails = Miniatury załączników obrazów
+
+admin-settings-key-mail-compose-auto-add-mention-recipients = Automatycznie dodawaj wspomniane osoby jako odbiorców
+admin-settings-help-mail-compose-auto-add-mention-recipients = Po wybraniu osoby z podpowiedzi @wzmianek dodaj ją do pola Do, chyba że jest już w polu Do, DW lub UDW. Domyślnie wyłączone.

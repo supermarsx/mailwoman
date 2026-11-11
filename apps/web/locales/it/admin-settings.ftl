@@ -2490,3 +2490,6 @@ admin-settings-help-reader-attachment-thumbnails = Disattivato per impostazione 
 admin-settings-key-reader-attachment-action-style = Azioni di anteprima dell'allegato
 
 admin-settings-key-reader-attachment-thumbnails = Miniature delle immagini allegate
+
+admin-settings-key-mail-compose-auto-add-mention-recipients = Aggiungi automaticamente le persone menzionate ai destinatari
+admin-settings-help-mail-compose-auto-add-mention-recipients = Quando selezioni una persona dai suggerimenti delle @menzioni, aggiungila ad A se non è già presente in A, Cc o Ccn. Disattivato per impostazione predefinita.

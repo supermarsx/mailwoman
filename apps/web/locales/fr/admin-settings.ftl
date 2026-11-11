@@ -2496,3 +2496,6 @@ admin-settings-help-reader-attachment-thumbnails = Désactivé par défaut. Auto
 admin-settings-key-reader-attachment-action-style = Actions d’aperçu des pièces jointes
 
 admin-settings-key-reader-attachment-thumbnails = Vignettes des images jointes
+
+admin-settings-key-mail-compose-auto-add-mention-recipients = Ajouter automatiquement les personnes mentionnées aux destinataires
+admin-settings-help-mail-compose-auto-add-mention-recipients = Lorsque vous sélectionnez une personne dans les suggestions de @mentions, elle est ajoutée à À si elle ne figure pas déjà dans À, Cc ou Cci. Désactivé par défaut.

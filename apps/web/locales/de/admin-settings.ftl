@@ -2496,3 +2496,6 @@ admin-settings-help-reader-attachment-thumbnails = Standardmäßig deaktiviert. 
 admin-settings-key-reader-attachment-action-style = Vorschauaktionen für Anhänge
 
 admin-settings-key-reader-attachment-thumbnails = Miniaturansichten der Bildanhänge
+
+admin-settings-key-mail-compose-auto-add-mention-recipients = Erwähnte Personen automatisch als Empfänger hinzufügen
+admin-settings-help-mail-compose-auto-add-mention-recipients = Wenn Sie eine Person aus den @Erwähnungsvorschlägen auswählen, wird sie zu An hinzugefügt, sofern sie nicht bereits in An, Cc oder Bcc steht. Standardmäßig deaktiviert.

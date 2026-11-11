@@ -2482,3 +2482,6 @@ admin-settings-help-reader-attachment-thumbnails = 默认关闭。允许可见�
 admin-settings-key-reader-attachment-action-style = 附件预览操作
 
 admin-settings-key-reader-attachment-thumbnails = 图像附件缩略图
+
+admin-settings-key-mail-compose-auto-add-mention-recipients = 自动将提及的人添加为收件人
+admin-settings-help-mail-compose-auto-add-mention-recipients = 从 @提及建议中选择某人时，如果对方尚未出现在收件人、抄送或密送中，则将其添加到收件人。默认关闭。

@@ -2512,3 +2512,6 @@ admin-settings-help-reader-attachment-thumbnails = إيقاف بشكل افتر�
 admin-settings-key-reader-attachment-action-style = إجراءات معاينة المرفقات
 
 admin-settings-key-reader-attachment-thumbnails = الصور المصغرة المرفقة
+
+admin-settings-key-mail-compose-auto-add-mention-recipients = إضافة الأشخاص المذكورين تلقائيًا إلى المستلمين
+admin-settings-help-mail-compose-auto-add-mention-recipients = عند اختيار شخص من اقتراحات @الإشارات، تتم إضافته إلى حقل إلى ما لم يكن موجودًا بالفعل في إلى أو نسخة أو نسخة مخفية. معطّل افتراضيًا.

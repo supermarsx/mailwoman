@@ -2285,3 +2285,6 @@ admin-settings-key-mail-unified-inbox = Unified mail
 admin-settings-help-mail-unified-inbox = Browse and search the primary and linked mailboxes together.
 admin-settings-key-mail-cross-account-transfer = Copy or move to another account
 admin-settings-help-mail-cross-account-transfer = Transfer messages between linked mailboxes that support export and import.
+
+admin-settings-key-mail-compose-auto-add-mention-recipients = Automatically add mentioned people as recipients
+admin-settings-help-mail-compose-auto-add-mention-recipients = When you select a person from @mention suggestions, add them to To unless they are already in To, Cc or Bcc. Off by default.
