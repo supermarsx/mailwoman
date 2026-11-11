@@ -70,8 +70,10 @@ function PdfDocument(props: { url: string; name: string; onDetails: ((details: V
   function theme(): Record<string, string|boolean> {
     const root = frame.ownerDocument.documentElement;
     const style = host.getComputedStyle(root);
-    const result: Record<string, string|boolean> = { dark: root.dataset.appearance === 'dark', 'font-sans': style.fontFamily };
-    for (const key of ['bg', 'bg-alt', 'surface', 'text', 'text-dim', 'border', 'accent', 'accent-text']) result[key] = style.getPropertyValue(`--${key}`).trim();
+    const body=host.getComputedStyle(frame.ownerDocument.body);
+    const appearance=root.dataset.appearance;
+    const result: Record<string, string|boolean> = { dark: appearance==='light'?false:appearance==='dark'?true:style.colorScheme==='dark', 'font-sans': body.fontFamily,'font-size':body.fontSize,direction:body.direction };
+    for (const key of ['bg', 'bg-alt', 'surface', 'text', 'text-dim', 'border', 'accent', 'accent-text','danger','warning','success','radius-sm','radius-md']) result[key] = style.getPropertyValue(`--${key}`).trim();
     return result;
   }
   function post(type: string, details: Record<string, unknown> = {}, transfer: Transferable[] = []): void {
@@ -133,7 +135,8 @@ function PdfDocument(props: { url: string; name: string; onDetails: ((details: V
     host.addEventListener('message', receive);
     observer?.disconnect();
     observer = new MutationObserver(() => { if (sent) post('theme', { theme: theme() }); });
-    observer.observe(frame.ownerDocument.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-accent', 'data-appearance', 'style', 'class'] });
+    observer.observe(frame.ownerDocument.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-accent', 'data-appearance', 'style', 'class','dir'] });
+    observer.observe(frame.ownerDocument.body,{attributes:true,attributeFilter:['style','class','dir']});
   }
   createEffect(()=>{const allowed=mailFeature('allowDownload');if(sent&&!disposed)post('permissions',{downloadAllowed:allowed});});
   onMount(() => {

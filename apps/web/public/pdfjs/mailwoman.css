@@ -1,5 +1,5 @@
 /* Local theme adapter; upstream viewer.css and responsive tooling stay intact. */
-:root:root {
+:root:root, .dialog.dialog, #viewsManager, #secondaryToolbar, #findbar, .editorParamsToolbar, .menuContainer {
   --body-bg-color: var(--mw-bg, #202124);
   --toolbar-bg-color: var(--mw-surface, #292a2d);
   --toolbar-border-color: var(--mw-border, #5f6368);
@@ -21,8 +21,40 @@
   --sidebaritem-bg-color: var(--mw-bg-alt, #303134);
   --sidebaritem-color: var(--mw-text, #e8eaed);
   --focus-ring-color: var(--mw-accent, #8ab4f8);
+  --dialog-bg-color: var(--mw-surface);
+  --dialog-border-color: var(--mw-border);
+  --separator-color: var(--mw-border);
+  --link-fg-color: var(--mw-accent);
+  --link-hover-fg-color: var(--mw-accent);
+  --textarea-bg-color: var(--mw-bg-alt);
+  --textarea-fg-color: var(--mw-text);
+  --textarea-border-color: var(--mw-border);
+  --input-text-bg-color: var(--mw-bg-alt);
+  --input-text-fg-color: var(--mw-text);
+  --radio-bg-color: var(--mw-bg-alt);
+  --radio-checked-bg-color: var(--mw-accent);
+  --radio-border-color: var(--mw-border);
+  --radio-checked-border-color: var(--mw-accent);
+  --button-primary-bg-color: var(--mw-accent);
+  --button-primary-fg-color: var(--mw-accent-text);
+  --button-primary-border-color: var(--mw-accent);
+  --button-primary-hover-bg-color: var(--mw-accent);
+  --button-primary-hover-fg-color: var(--mw-accent-text);
+  --button-primary-hover-border-color: var(--mw-accent);
+  --button-primary-active-bg-color: var(--mw-accent);
+  --button-primary-active-fg-color: var(--mw-accent-text);
+  --button-primary-active-border-color: var(--mw-accent);
+  --button-secondary-bg-color: var(--mw-bg-alt);
+  --button-secondary-fg-color: var(--mw-text);
+  --button-secondary-border-color: var(--mw-border);
+  --button-secondary-hover-bg-color: var(--mw-border);
+  --button-secondary-hover-fg-color: var(--mw-text);
+  --button-secondary-hover-border-color: var(--mw-border);
+  --button-secondary-active-bg-color: var(--mw-border);
+  --button-secondary-active-fg-color: var(--mw-text);
+  --button-secondary-active-border-color: var(--mw-border);
 }
-body { font-family: var(--mw-font-sans, system-ui, sans-serif); }
+body { font-family: var(--mw-font-sans, system-ui, sans-serif); font-size:var(--mw-font-size,14px); }
 :root #mainContainer { min-width: 0; }
 button, input, select { font-family: inherit; }
 .menuContainer, dialog { background-color: var(--mw-surface); color: var(--mw-text); }

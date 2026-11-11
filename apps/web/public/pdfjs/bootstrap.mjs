@@ -77,12 +77,13 @@ function externalLink(url) {
 }
 function applyTheme(theme) {
   if (!theme || typeof theme !== 'object') return;
-  const keys = ['bg', 'bg-alt', 'surface', 'text', 'text-dim', 'border', 'accent', 'accent-text', 'font-sans'];
+  const keys = ['bg', 'bg-alt', 'surface', 'text', 'text-dim', 'border', 'accent', 'accent-text', 'font-sans','font-size','danger','warning','success','radius-sm','radius-md'];
   for (const key of keys) {
     const value = theme[key];
     if (typeof value === 'string' && value.length <= 300 && !/[;{}<>]|url\s*\(/i.test(value)) document.documentElement.style.setProperty(`--mw-${key}`, value);
   }
   document.documentElement.style.colorScheme = theme.dark ? 'dark' : 'light';
+  document.documentElement.dir=theme.direction==='rtl'?'rtl':'ltr';
 }
 function applyDownloadPermission() {
   for(const id of ['downloadButton','secondaryDownload']){const button=document.getElementById(id);if(button)button.disabled=configuration?.downloadAllowed===false;}

@@ -25,6 +25,10 @@ finite deadline; password entry remains interactive without a typing deadline.
 The active app theme is passed as a restricted set of color/font tokens and
 does not restyle the PDF's document content.
 
+The bridge also follows live changes to the app's appearance, accent, UI font,
+direction and surface/text/control colors, including viewer dialogs and menus.
+An explicit light or dark app appearance takes precedence over browser defaults.
+
 PDF.js Save sends the current PDF bytes through the frame-, instance- and
 nonce-bound bridge. The parent checks the current download permission and
 validates the byte payload, MIME type and filename before starting a local
