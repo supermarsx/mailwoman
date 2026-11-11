@@ -25,6 +25,13 @@ finite deadline; password entry remains interactive without a typing deadline.
 The active app theme is passed as a restricted set of color/font tokens and
 does not restyle the PDF's document content.
 
+PDF.js Save sends the current PDF bytes through the frame-, instance- and
+nonce-bound bridge. The parent checks the current download permission and
+validates the byte payload, MIME type and filename before starting a local
+download. This avoids opaque-origin frame downloads failing in Firefox and
+preserves saved form fields and annotations. Object URLs are released after
+download initiation or when the viewer closes.
+
 Upstream files, all required font/CMap/codec licenses and localization catalogs
 live in `apps/web/public/pdfjs`. `manifest.json` records archive provenance and
 individual asset hashes. The PDF scripting/QuickJS bundles, source maps, example

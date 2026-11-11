@@ -4,6 +4,12 @@ export const PDF_CHANNEL = 'mailwoman-pdf-v1';
 export const PDF_FRAME_ORIGIN = 'null';
 /** Scripts only: the frame never shares the app's origin, storage or cookies. */
 export const PDF_FRAME_SANDBOX = 'allow-scripts allow-downloads allow-modals';
+export function pdfDownload(data:Record<string,unknown>):{bytes:ArrayBuffer;name:string;mime:string}|null {
+  if(!(data['bytes'] instanceof ArrayBuffer)||data['bytes'].byteLength===0||data['bytes'].byteLength>512*1024*1024)return null;
+  const name=typeof data['name']==='string'?data['name'].slice(0,255).replace(/[\\/\u0000-\u001f\u007f]/g,'_'):'';
+  const mime=typeof data['mime']==='string'&&/^[\w.+-]+\/[\w.+-]+$/.test(data['mime'])?data['mime']:'application/octet-stream';
+  return {bytes:data['bytes'],name:name||'document.pdf',mime};
+}
 export function authorizedPdfBlob(value: string, origin = location.origin): boolean {
   try { const url = new URL(value); return url.protocol === 'blob:' && url.origin === origin; } catch { return false; }
 }

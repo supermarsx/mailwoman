@@ -1,8 +1,15 @@
+import {pdfDownload} from './pdfBridge.ts';
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { authorizedPdfBlob, pdfFailureContext, pdfFailureLines, pdfFrameError, pdfHostFailure, PDF_ERROR_BOUNDARY, safePdfLink, validPdfMessage, PDF_CHANNEL, PDF_FRAME_ORIGIN, PDF_FRAME_SANDBOX } from './pdfBridge.ts';
 describe('PDF link and frame boundary', () => {
+  it('accepts download bytes and sanitizes names without accepting document URLs',()=>{
+    const bytes=new Uint8Array([37,80,68,70]).buffer;
+    expect(pdfDownload({bytes,name:'../../report.pdf',mime:'application/pdf'})).toEqual({bytes,name:'.._.._report.pdf',mime:'application/pdf'});
+    expect(pdfDownload({bytes:new ArrayBuffer(0)})).toBeNull();expect(pdfDownload({bytes:'https://outside.test/pdf'})).toBeNull();
+    expect(pdfDownload({bytes,name:'report.pdf',mime:'text/html; script=bad'})?.mime).toBe('application/octet-stream');
+  });
   it('only reads attachment blobs created by the current origin', () => {
     expect(authorizedPdfBlob(`blob:${location.origin}/authorized`)).toBe(true);
     for (const value of ['https://outside.test/pdf', '/api/attachment', 'blob:https://outside.test/id', 'data:application/pdf;base64,AAAA', 'blob:broken']) expect(authorizedPdfBlob(value)).toBe(false);

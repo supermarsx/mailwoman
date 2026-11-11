@@ -13,11 +13,14 @@
 // authenticated attachment route and posts them to the frame, which is addressed
 // by window (an opaque origin cannot be a postMessage target, so '*') and
 // answers only to the frame window with the origin 'null' and the per-frame nonce.
-import { createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import type { ViewerDetails, ViewerProps } from '../contracts/viewer.ts';
 import { shellBase } from '../api/basePath.ts';
 import { apiFetch } from '../api/http.ts';
 import { t } from '../i18n/index.ts';
+import {mailFeature} from '../state/mailFeatures.ts';
+import {pdfDownload} from './pdfBridge.ts';
+import {toast} from '../components/toast/index.ts';
 import { ConfirmDialog } from '../screens/Admin/shell/ConfirmDialog.tsx';
 import { reportBoundaryError } from '../observability/clientErrors.ts';
 import { viewerDetailsFrom } from './attachmentDetails.ts';
@@ -44,6 +47,7 @@ function PdfDocument(props: { url: string; name: string; onDetails: ((details: V
   let deadline: ReturnType<typeof setTimeout>|undefined;
   let bytes: ArrayBuffer | undefined;
   let abort = new AbortController();
+  const downloads=new Map<string,ReturnType<typeof setTimeout>>();
   let nonce = crypto.randomUUID();
   const [status, setStatus] = createSignal<'loading'|'ready'|'error'>('loading');
   const [link, setLink] = createSignal<string>();
@@ -76,7 +80,7 @@ function PdfDocument(props: { url: string; name: string; onDetails: ((details: V
   function open(): void {
     if (!ready || !bytes || sent || disposed || failed) return;
     sent = true;
-    post('open', { bytes, name: props.name, locale: frame.ownerDocument.documentElement.lang || 'en', theme: theme() }, [bytes]);
+    post('open', { bytes, name: props.name, locale: frame.ownerDocument.documentElement.lang || 'en', theme: theme(),downloadAllowed:mailFeature('allowDownload') }, [bytes]);
     bytes = undefined;
   }
   function receive(event: MessageEvent): void {
@@ -93,6 +97,16 @@ function PdfDocument(props: { url: string; name: string; onDetails: ((details: V
       ready = true; open(); return;
     }
     if (failed || event.data.instance !== instance || event.data.nonce !== nonce || !sent) return;
+    if(event.data.type==='download'){
+      if(!mailFeature('allowDownload')){toast.error(t('reader-attachments-download-off'));return;}
+      const file=pdfDownload(event.data);if(!file)return;
+      try{
+        const url=host.URL.createObjectURL(new Blob([file.bytes],{type:file.mime}));
+        const anchor=frame.ownerDocument.createElement('a');anchor.href=url;anchor.download=file.name;frame.ownerDocument.body.append(anchor);anchor.click();anchor.remove();
+        downloads.set(url,setTimeout(()=>{host.URL.revokeObjectURL(url);downloads.delete(url);},60_000));
+      }catch{toast.error(t('mail-attachment-download-failed'));}
+      return;
+    }
     if (event.data.type === 'password') passwordAsked = true;
     if (event.data.type === 'loaded' || event.data.type === 'password') { clearTimeout(deadline); setStatus('ready'); }
     if (event.data.type === 'loaded') props.onDetails?.({ ...viewerDetailsFrom(event.data), passwordRequired: passwordAsked });
@@ -121,6 +135,7 @@ function PdfDocument(props: { url: string; name: string; onDetails: ((details: V
     observer = new MutationObserver(() => { if (sent) post('theme', { theme: theme() }); });
     observer.observe(frame.ownerDocument.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-accent', 'data-appearance', 'style', 'class'] });
   }
+  createEffect(()=>{const allowed=mailFeature('allowDownload');if(sent&&!disposed)post('permissions',{downloadAllowed:allowed});});
   onMount(() => {
     bindHost();
     deadline = setTimeout(timedOut, 45_000);
@@ -134,6 +149,7 @@ function PdfDocument(props: { url: string; name: string; onDetails: ((details: V
     host.removeEventListener('message', receive);
     observer?.disconnect();
     bytes = undefined;
+    for(const [url,timer] of downloads){clearTimeout(timer);host.URL.revokeObjectURL(url);}downloads.clear();
   });
   return <div class="mw-viewer__pdf-full" data-pdf-state={status()}>
     <Show when={status() === 'loading'}><p role="status" class="mw-viewer__loading">{t('common-viewer-rendering-pdf')}</p></Show>

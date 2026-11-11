@@ -65,8 +65,8 @@ globalThis.trustedTypes?.createPolicy('default', {
 history.replaceState(null, '', location.pathname);
 // Messages go to the host window only. Until the host has spoken first the origin
 // is unknown, and the only thing sent then is this frame's random instance id.
-function send(type, detail = {}) {
-  if (host !== window) host.postMessage({ channel: CHANNEL, type, nonce, instance, ...detail }, hostOrigin ?? '*');
+function send(type, detail = {}, transfer = []) {
+  if (host !== window) host.postMessage({ channel: CHANNEL, type, nonce, instance, ...detail }, hostOrigin ?? '*', transfer);
 }
 function externalLink(url) {
   try {
@@ -83,6 +83,9 @@ function applyTheme(theme) {
     if (typeof value === 'string' && value.length <= 300 && !/[;{}<>]|url\s*\(/i.test(value)) document.documentElement.style.setProperty(`--mw-${key}`, value);
   }
   document.documentElement.style.colorScheme = theme.dark ? 'dark' : 'light';
+}
+function applyDownloadPermission() {
+  for(const id of ['downloadButton','secondaryDownload']){const button=document.getElementById(id);if(button)button.disabled=configuration?.downloadAllowed===false;}
 }
 
 // PDF.js cannot start its own worker from an opaque origin (it judges "same
@@ -122,6 +125,7 @@ const initialization = new Promise(resolve => {
       resolve(message);
     } else if (message.nonce === nonce && nonce !== null) {
       if (message.type === 'theme') applyTheme(message.theme);
+      if (message.type === 'permissions') { configuration.downloadAllowed=message.downloadAllowed!==false;applyDownloadPermission(); }
       else if (message.type === 'destroy') void application?.close();
     }
   }
@@ -200,6 +204,15 @@ async function start() {
   // Embedded attachments are downloads, not new viewer windows taking arbitrary
   // file= inputs. The main PDF's save/download retains annotations and form data.
   if (application.downloadManager) {
+    // An opaque-origin blob cannot reliably download through upstream's
+    // target="_parent" (Firefox). The owning app saves a fresh copy instead.
+    const saveData = (data, filename, mime) => {
+      if(configuration?.downloadAllowed===false)return;
+      const bytes = data instanceof ArrayBuffer ? data.slice(0) : ArrayBuffer.isView(data) ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) : null;
+      if (bytes?.byteLength) send('download', { bytes, name: filename, mime }, [bytes]);
+    };
+    application.downloadManager.download = (data, _url, filename) => saveData(data, filename, 'application/pdf');
+    application.downloadManager.downloadData = (data, filename, mime) => saveData(data, filename, mime || 'application/octet-stream');
     application.downloadManager.openOrDownloadData = (data, filename) => {
       application.downloadManager.downloadData(data, filename, 'application/octet-stream');
       return false;
@@ -231,6 +244,7 @@ async function start() {
   await application.open({ data: new Uint8Array(message.bytes) });
   stage = 'loaded';
   application._contentDispositionFilename = [...String(message.name || 'document.pdf')].map(char => char === '/' || char === '\\' || char.charCodeAt(0) < 32 ? '_' : char).join('');
+  applyDownloadPermission();
   document.title = application._contentDispositionFilename;
   opened = true;
   send('loaded', { pages: application.pdfDocument.numPages, ...(await documentMeta()) });
