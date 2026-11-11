@@ -500,6 +500,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'ui.undoHistorySize',
   'ui.undoHistoryMax',
   'folders.hideEmpty',
+  'folders.colour',
   'folders.reorder.enabled',
   'folders.reorder.allowNesting',
   'folders.reorder.allowServerMove',

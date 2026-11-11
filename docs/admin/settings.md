@@ -112,6 +112,11 @@ An integer from 0 to 50, default 50. The most actions any user may keep in the U
 
 Administrators can enable scheduled read receipts for native mailboxes with `receipts.scheduleAllowed`. A sender schedule applies to eligible messages opened in a full reader before the chosen time. Clearing a sender schedule stops enrolling new messages. Cancel individual queued receipts from the message.
 
+<a id="folders.colour"></a>
+### Folder colour (`folders.colour`)
+
+Set a default hex colour for folder icons and names. An empty value follows the theme. Lock this setting to apply it to all folders, or allow users to choose their own defaults and per-folder colours.
+
 <a id="reader.actions.create-task"></a>
 ### Create task from message
 

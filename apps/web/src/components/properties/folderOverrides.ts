@@ -7,7 +7,7 @@ import {settings,type SettingEntry} from '../../api/settings.ts';
 import {allowedOverrides,type OverrideKey} from './policy.ts';
 
 export interface FolderProps {
- notes?:string;hideWhenEmpty?:boolean;counters?:'none'|'unread'|'total'|'both';badgeColour?:string;compactBadge?:boolean;
+ notes?:string;hideWhenEmpty?:boolean;counters?:'none'|'unread'|'total'|'both';badgeColour?:string;folderColour?:string;compactBadge?:boolean;
  notifications?:'on'|'off'|'vips';sort?:'date'|'from'|'subject'|'size';threading?:boolean;
  previewLines?:number;markReadDelayMs?:number;replyIdentity?:string;unifiedInbox?:boolean;
 }
@@ -15,6 +15,21 @@ export type OverrideSource='folder'|'user'|'admin-default'|'admin-locked';
 export interface Effective<T=unknown> {value:T|undefined;source:OverrideSource;locked:boolean;overridden:boolean}
 export type OverrideKind={kind:'enum';options:readonly string[]}|{kind:'bool'}|{kind:'colour'}|{kind:'lines'}|{kind:'delay'}|{kind:'identity'};
 export interface OverrideDef {key:OverrideKey;prop:keyof FolderProps;/** The user setting whose value applies when the folder does not override. */setting:string|null;type:OverrideKind;/** Shipped value while the settings snapshot is not loaded. */defaultValue?:unknown;/** Maps the setting's value to the override's value space. */fromSetting?:(value:unknown)=>unknown}
+
+export function isFolderColour(value:unknown):value is string {
+ return typeof value==='string'&&/^#[0-9a-f]{6}$/i.test(value);
+}
+
+const folderColourDef:OverrideDef={key:'folderColour',prop:'folderColour',setting:'folders.colour',type:{kind:'colour'}};
+
+export function folderColourOverride(props:FolderProps|undefined):Effective {
+ return effectiveOverride(folderColourDef,props);
+}
+
+export function folderColour(folderId:string,preferences:Readonly<Record<string,FolderProps>>|undefined):string|undefined {
+ const value=folderColourOverride(preferences?.[folderId]).value;
+ return isFolderColour(value)?value:undefined;
+}
 
 export const OVERRIDE_DEFS:readonly OverrideDef[]=[
  {key:'hideWhenEmpty',prop:'hideWhenEmpty',setting:'folders.hideEmpty',type:{kind:'bool'},defaultValue:false},

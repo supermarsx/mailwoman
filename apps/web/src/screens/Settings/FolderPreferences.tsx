@@ -35,6 +35,10 @@ import {observePreferenceAccount, preferenceAccount, preferenceAccountIsCurrent}
 import {t, loadCatalog} from '../../i18n';
 import {createSettingsNavigation, type SettingsNavigation} from './navigation.tsx';
 import {folderIcon, folderIsHidden, folderPathLabel, shownFolderIds, type PreferenceFolder} from './folderPreferenceModel.ts';
+import {ColorField} from '../../components/color/ColorPicker.tsx';
+import {allowedOverrides} from '../../components/properties/policy.ts';
+import {folderColour,folderColourOverride,isFolderColour,withOverride} from '../../components/properties/folderOverrides.ts';
+import {LockNote} from './LockNote.tsx';
 import {useSetting} from './useSetting.ts';
 import {ToggleRow} from './layout/rows.tsx';
 import {ControlRow} from './layout/SettingRow.tsx';
@@ -55,7 +59,11 @@ function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountU
  const owner=preferenceAccount();const [pending,setPending]=createSignal(false);
  const [draft,setDraft]=createSignal<FolderIcon|''>(props.prefs().folderIcons?.[props.folder.id]??'');
  const [labels,setLabels]=createSignal(props.prefs().folderLabels?.[props.folder.id]??[]);
- const snapshot=()=>JSON.stringify([draft(),[...labels()].sort()]);const [baseline,setBaseline]=createSignal(snapshot());
+ const originalColour=()=>props.prefs().folderProps?.[props.folder.id]?.folderColour??null;
+ const [colour,setColour]=createSignal(originalColour());
+ const canColour=()=>allowedOverrides().includes('folderColour')&&!folderColourOverride(undefined).locked;
+ const previewColour=()=>canColour()?colour()??folderColour(props.folder.id,undefined):folderColour(props.folder.id,props.prefs().folderProps);
+ const snapshot=()=>JSON.stringify([draft(),[...labels()].sort(),canColour()?colour():originalColour()]);const [baseline,setBaseline]=createSignal(snapshot());
  const choices=()=>[...new Set([...props.tags().map(tag=>tag.id),...labels()])];
  const LeaveDialog=useLeaveConfirm(props.navigation,()=>snapshot()!==baseline(),()=>t(pending()?'settings-folders-leave-pending':'settings-folders-discard'));
  createEffect(()=>{if(pending()&&accountUiPreferenceStatus()==='synced'&&owner&&preferenceAccountIsCurrent(owner)){setBaseline(snapshot());void props.navigation.navigate({section:'folders'});}});
@@ -64,7 +72,8 @@ function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountU
   const icons={...props.prefs().folderIcons};const selected=draft();
   if(selected)icons[props.folder.id]=selected;else delete icons[props.folder.id];
   const folderLabels={...props.prefs().folderLabels};if(labels().length)folderLabels[props.folder.id]=labels();else delete folderLabels[props.folder.id];
-  props.update({folderIcons:icons,...(props.prefs().folderLabels?.[props.folder.id]||choices().length||Object.keys(folderLabels).length?{folderLabels}:{})});if(props.local){setBaseline(snapshot());void props.navigation.navigate({section:'folders'});}else setPending(true);
+  const colourPatch=canColour()&&colour()!==originalColour()?{folderProps:withOverride(props.prefs().folderProps,props.folder.id,{folderColour:colour()??undefined})}:{};
+  props.update({folderIcons:icons,...colourPatch,...(props.prefs().folderLabels?.[props.folder.id]||choices().length||Object.keys(folderLabels).length?{folderLabels}:{})});if(props.local){setBaseline(snapshot());void props.navigation.navigate({section:'folders'});}else setPending(true);
  }
  return <section class={css.section} aria-label={t('settings-folders-edit',{name:props.folder.name})}>
   <h3 class={css.heading}>{t('settings-folders-edit',{name:props.folder.name})}</h3>
@@ -72,7 +81,10 @@ function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountU
   <div class={css.field}><span>{t('settings-folders-icon',{name:props.folder.name})}</span>
    <FolderIconPicker label={t('settings-folders-icon',{name:props.folder.name})} value={draft()} disabled={pending()} automaticIcon={folderIcon(props.folder,{})} onChange={setDraft}/>
   </div>
-  <p><Icon name={draft()||folderIcon(props.folder,{})}/> {props.folder.name}</p>
+  <Show when={allowedOverrides().includes('folderColour')}>
+   <ColorField label={t('settings-folder-colour')} value={colour()} fallback="#3366cc" emptyLabel={t('color-picker-default')} disabled={pending()||!canColour()} onChange={setColour}/>
+  </Show>
+  <p style={{color:previewColour()}}><Icon name={draft()||folderIcon(props.folder,{})}/> {props.folder.name}</p>
   <Show when={choices().length}><fieldset class={css.section}><legend>{t('settings-folder-labels')}</legend><p class={css.meta}>{t('settings-folder-labels-help')}</p><For each={choices()}>{id=><label class={css.check}><input class={css.checkbox} type="checkbox" checked={labels().includes(id)} disabled={pending()||(!labels().includes(id)&&labels().length>=32)} onChange={event=>setLabels(value=>event.currentTarget.checked?[...value,id]:value.filter(label=>label!==id))}/>{props.tags().find(tag=>tag.id===id)?.name??id}</label>}</For></fieldset></Show>
   <Show when={pending()}><p role="status">{t(`settings-folders-sync-${accountUiPreferenceStatus()}`)}</p><Show when={accountUiPreferenceStatus()==='error'}><button class={css.ghost} onClick={()=>void retryAccountUiPreferences()}>{t('settings-folders-retry')}</button></Show></Show>
   <div class={css.actions}><button type="button" class={css.button} disabled={pending()||snapshot()===baseline()} onClick={save}>{t('settings-folders-save')}</button><button type="button" class={css.ghost} onClick={()=>void props.navigation.navigate({section:'folders'})}>{t('settings-folders-back')}</button></div>
@@ -80,6 +92,7 @@ function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountU
  </section>;
 }
 export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
+ const defaultColour=useSetting<string>('folders.colour','',(v):v is string=>v===''||isFolderColour(v));
  const hideEmpty=useSetting<boolean>('folders.hideEmpty',false,(value):value is boolean=>typeof value==='boolean');
  const navigation=props.navigation??createSettingsNavigation({section:'folders'});
  const app=useContext(AppContext),owner=preferenceAccount();
@@ -189,6 +202,9 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   <ControlRow controlId="folders-collapse-user" label={t('settings-folders-collapse-user')} help={t('settings-folders-hidden-help')} note={<p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>}>{describedBy=>
    <input id="folders-collapse-user" type="checkbox" checked={prefs().userFoldersCollapsed===true} disabled={!current()} aria-describedby={describedBy()} onChange={event=>update({userFoldersCollapsed:event.currentTarget.checked})}/>
   }</ControlRow>
+  <ControlRow controlId="folders-colour" group label={t('settings-folders-colour')} help={t('settings-folders-colour-help')} note={<LockNote id="folders-colour-lock" locked={defaultColour.locked()}/>}>{()=>
+   <><ColorField label={t('settings-folders-colour')} value={defaultColour.value()||null} fallback="#3366cc" emptyLabel={t('color-picker-default')} disabled={defaultColour.locked()||defaultColour.saving()} onChange={value=>void defaultColour.set(value??'')}/><Show when={defaultColour.error()}><span role="alert">{defaultColour.error()}</span></Show></>
+  }</ControlRow>
   <ToggleRow id="folders-hide-empty" label={t('settings-folders-hide-empty')} help={t('settings-folders-hide-empty-help')} handle={hideEmpty}/>
   <Show when={!props.onChange&&app&&ability()?.manages&&current()}><button type="button" class="btn btn--ghost" onClick={()=>setCreating({})}><Icon name="folder"/>{t('folder-create')}</button></Show>
   </SettingsCard>
@@ -228,7 +244,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
     <td class={folderCss.selectCell}><input type="checkbox" aria-label={t('settings-folders-select',{name:folder.name})} disabled={!current()} checked={selected().has(folder.id)} onClick={event=>pick(folder.id,event)} onChange={()=>undefined}/></td>
     <td><div class={folderCss.name} style={{'padding-inline-start':`${row.depth*1.25}rem`}}>
      <Show when={row.hasChildren} fallback={<span class={folderCss.twistySpacer}/>}><button type="button" class={`btn btn--ghost ${folderCss.twisty}`} aria-expanded={row.expanded} aria-label={t(row.expanded?'folder-ops-collapse':'folder-ops-expand',{name:folder.name})} onClick={()=>setExpanded(folder.id,!row.expanded)}><Icon name={row.expanded?'chevronDown':'chevron'}/></button></Show>
-     <button type="button" class={`btn btn--ghost ${folderCss.drag}`} disabled={!current()||!!lockReason(folder.id)||filtering()} title={lockedReason(folder.id)==='locked'?t('folder-dnd-locked-hint'):lockedReason(folder.id)==='forced'?t('folder-dnd-forced-hint'):t('settings-folders-drag',{name:folder.name})} aria-label={t('settings-folders-drag',{name:folder.name})}><Icon name="sort"/></button><Icon name={folderIcon(folder,prefs())}/><span class={folderCss.folderName} title={folderPathLabel(folder)}>{folder.name}</span><Show when={pinned(folder.id)||layout.forced().has(folder.id)}><Icon name="pin"/></Show><Show when={starred(folder.id)}><span class="sidebar__box-star" aria-hidden="true"><Icon name="star"/></span><span class={folderCss.srOnly}>{t('folder-star-starred')}</span></Show><Show when={lockedReason(folder.id)}><span class={dndCss.lockIcon} data-testid="folder-lock" title={lockedReason(folder.id)==='locked'?t('folder-dnd-locked-hint'):t('folder-dnd-forced-hint')}><Icon name="lock"/><span class={folderCss.srOnly}>{t('folder-dnd-locked-row')}</span></span></Show></div>
+     <button type="button" class={`btn btn--ghost ${folderCss.drag}`} disabled={!current()||!!lockReason(folder.id)||filtering()} title={lockedReason(folder.id)==='locked'?t('folder-dnd-locked-hint'):lockedReason(folder.id)==='forced'?t('folder-dnd-forced-hint'):t('settings-folders-drag',{name:folder.name})} aria-label={t('settings-folders-drag',{name:folder.name})}><Icon name="sort"/></button><Icon name={folderIcon(folder,prefs())} style={{color:folderColour(folder.id,prefs().folderProps)}}/><span class={folderCss.folderName} style={{color:folderColour(folder.id,prefs().folderProps)}} title={folderPathLabel(folder)}>{folder.name}</span><Show when={pinned(folder.id)||layout.forced().has(folder.id)}><Icon name="pin"/></Show><Show when={starred(folder.id)}><span class="sidebar__box-star" aria-hidden="true"><Icon name="star"/></span><span class={folderCss.srOnly}>{t('folder-star-starred')}</span></Show><Show when={lockedReason(folder.id)}><span class={dndCss.lockIcon} data-testid="folder-lock" title={lockedReason(folder.id)==='locked'?t('folder-dnd-locked-hint'):t('folder-dnd-forced-hint')}><Icon name="lock"/><span class={folderCss.srOnly}>{t('folder-dnd-locked-row')}</span></span></Show></div>
      <div class={folderCss.metadata}><Show when={locationLabel(folder)}><span class={folderCss.mobileLocation}>{locationLabel(folder)}</span></Show><span>{t(hidden()?'settings-folders-hidden':'settings-folders-visible')}</span><Show when={rowCounts(folder)}><span>{rowCounts(folder)}</span></Show><Show when={prefs().folderLabels?.[folder.id]?.length}><span>{prefs().folderLabels?.[folder.id]?.map(id=>props.tags?.().find(tag=>tag.id===id)?.name??id).join(', ')}</span></Show><Show when={arranged().has(folder.id)}><span class={folderCss.badge} data-testid="arranged-only" title={t('folder-dnd-arranged-only-help',{path:folderPathLabel(folder)})}>{t('folder-dnd-arranged-only')}</span><Show when={!props.onChange&&ability()?.manages}><button type="button" class="btn btn--ghost" disabled={!current()} onClick={()=>void layout.arranger.applyToServer(folder.id)}>{t('folder-dnd-apply-server')}</button></Show></Show></div></td>
     <td class={folderCss.location}><span title={locationLabel(folder)}>{locationLabel(folder)||t('settings-folders-root')}</span></td>
     <td><div class={folderCss.actions}>

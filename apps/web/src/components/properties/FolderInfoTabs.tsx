@@ -3,12 +3,13 @@ import {For,Show,createMemo,type JSX} from 'solid-js';
 import {useApp} from '../../state/context.ts';
 import {accountUiPreferences,setAccountUiPreferences,type FolderIcon} from '../../api/accountPreferences.ts';
 import type {Mailbox} from '../../api/jmap-types.ts';
-import {isolate,t} from '../../i18n';
+import {isolate,loadCatalog,t} from '../../i18n';
 import {Icon} from '../Icon.tsx';
 import {FolderCountBadge} from '../FolderCountBadge.tsx';
 import {FolderIconPicker} from '../../screens/Settings/FolderIconPicker.tsx';
 import {folderIcon,type PreferenceFolder} from '../../screens/Settings/folderPreferenceModel.ts';
-import {withOverride} from './folderOverrides.ts';
+import {ColorField} from '../color/ColorPicker.tsx';
+import {folderColour,folderColourOverride,withOverride} from './folderOverrides.ts';
 import {allowedOverrides,remoteForDisplay,remoteVisibility} from './policy.ts';
 import {copyText,folderTypeKey,pathOf} from './folderDialogUtil.ts';
 import type {StatsState} from './useFolderStats.ts';
@@ -37,6 +38,8 @@ export function General(props:{box:Mailbox}):JSX.Element {
  </section>;
 }
 
+void loadCatalog('settings');
+
 const PALETTE=['#d9534f','#e8833a','#c99a00','#3fa34d','#2a9d8f','#3b82f6','#7c5cd6','#d6568f','#6b7280'];
 
 export function Appearance(props:{box:Mailbox}):JSX.Element {
@@ -51,22 +54,31 @@ export function Appearance(props:{box:Mailbox}):JSX.Element {
   setAccountUiPreferences({folderIcons:next?{...rest,[id()]:next}:rest});
  }
  function setColour(next:string):void {setAccountUiPreferences({folderProps:withOverride(prefs().folderProps,id(),{badgeColour:next||undefined})});}
- const touched=()=>icon()!==''||(canColour()&&colour()!=='');
+ const folderTint=()=>folderColour(id(),prefs().folderProps);
+ const canTint=()=>allowedOverrides().includes('folderColour')&&!folderColourOverride(undefined).locked;
+ function setTint(value:string|null):void {
+  if(canTint())setAccountUiPreferences({folderProps:withOverride(prefs().folderProps,id(),{folderColour:value??undefined})});
+ }
+ const touched=()=>icon()!==''||(canColour()&&colour()!=='')||(canTint()&&Boolean(prefs().folderProps?.[id()]?.folderColour));
  return <div data-testid="props-appearance" style={{display:'contents'}}>
   <section class={css.card} aria-labelledby="props-prev-title">
    <h3 id="props-prev-title" class={css.cardTitle}>{t('props-card-preview')}</h3>
    <p class={css.cardHelp}>{t('props-preview-help')}</p>
    <div class={css.previewRow} data-testid="props-preview">
-    <span style={colour()?{color:colour()}:undefined} aria-hidden="true"><Icon name={folderIcon(props.box as unknown as PreferenceFolder,prefs())}/></span>
-    <span class={css.previewName}>{isolate(props.box.name)}</span>
+    <span style={{color:folderTint()}} aria-hidden="true"><Icon name={folderIcon(props.box as unknown as PreferenceFolder,prefs())}/></span>
+    <span class={css.previewName} style={{color:folderTint()}}>{isolate(props.box.name)}</span>
     <FolderCountBadge folder={props.box}/>
    </div>
-   <div class={css.row}><button type="button" class="btn btn--ghost" data-testid="props-appearance-reset" disabled={!touched()} onClick={()=>{setIcon('');if(canColour())setColour('');}}>{t('props-reset-default')}</button></div>
+   <div class={css.row}><button type="button" class="btn btn--ghost" data-testid="props-appearance-reset" disabled={!touched()} onClick={()=>{setIcon('');if(canColour())setColour('');setTint(null);}}>{t('props-reset-default')}</button></div>
   </section>
   <section class={css.card} aria-labelledby="props-icon-title">
    <h3 id="props-icon-title" class={css.cardTitle}>{t('props-card-icon')}</h3>
    <FolderIconPicker label={t('props-card-icon')} value={icon() as FolderIcon|''} automaticIcon={automatic()} onChange={setIcon}/>
   </section>
+  <Show when={allowedOverrides().includes('folderColour')}><section class={css.card} aria-labelledby="props-folder-colour-title">
+   <h3 id="props-folder-colour-title" class={css.cardTitle}>{t('settings-folder-colour')}</h3>
+   <ColorField label={t('settings-folder-colour')} value={prefs().folderProps?.[id()]?.folderColour??null} fallback={folderTint()??'#3366cc'} emptyLabel={t('color-picker-default')} disabled={!canTint()} onChange={setTint}/>
+  </section></Show>
   <Show when={canColour()}><section class={css.card} aria-labelledby="props-colour-title">
    <h3 id="props-colour-title" class={css.cardTitle}>{t('props-card-colour')}</h3>
    <p class={css.cardHelp}>{t('props-colour-help')}</p>

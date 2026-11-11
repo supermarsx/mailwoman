@@ -61,6 +61,7 @@ import { readingPane } from '../components/readingPane.ts';
 import { readingPaneSplit } from '../components/readingPaneSplit.ts';
 import { messageOpenTarget, type OpenGesture } from '../components/messageOpen.ts';
 import { visibleSidebarFolders } from '../components/folderVisibility.ts';
+import {folderColour} from '../components/properties/folderOverrides.ts';
 import { folderIcon, folderIsHidden, type PreferenceFolder } from './Settings/folderPreferenceModel.ts';
 import { mailFeature, spamFolderHidden, viewsClosedByDelete, vanishedIds, type ListSnapshot } from '../state/mailFeatures.ts';
 import type { MessageView } from '../state/slices/messageView.ts';
@@ -721,7 +722,7 @@ export function MailboxScreen(): JSX.Element {
                   void app.selectMailbox(box().id);
                 }}
               >
-                <Icon name={folderIcon(box(),accountUiPreferences())}/><span class="sidebar__box-name">{displayText(box().name)}</span>
+                <Icon name={folderIcon(box(),accountUiPreferences())} style={{color:folderColour(id,accountUiPreferences().folderProps)}}/><span class="sidebar__box-name" style={{color:folderColour(id,accountUiPreferences().folderProps)}}>{displayText(box().name)}</span>
                 <Show when={isStarred(id)}><span class="sidebar__box-star" aria-hidden="true" data-testid="folder-star"><Icon name="star"/></span></Show>
                 <FolderCountBadge folder={row()?.hasChildren&&!row()!.expanded?{...box(),unreadEmails:rolledUnread(app.mailboxes(),id)}:box()}/>
               </button>

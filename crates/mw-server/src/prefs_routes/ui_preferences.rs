@@ -104,6 +104,8 @@ struct FolderProps {
     #[serde(skip_serializing_if = "Option::is_none")]
     badge_colour: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    folder_colour: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     compact_badge: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     hide_when_empty: Option<bool>,
@@ -127,8 +129,10 @@ fn valid_folder_props(props: &FolderProps) -> bool {
     props.notes.as_ref().is_none_or(|n| {
         n.chars().count() <= 2000 && !n.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
     }) && choices(&props.counters, &["none", "unread", "total", "both"])
-        && props.badge_colour.as_ref().is_none_or(|c| {
-            c.len() == 7 && c.starts_with('#') && c[1..].bytes().all(|b| b.is_ascii_hexdigit())
+        && [&props.badge_colour, &props.folder_colour].into_iter().all(|colour| {
+            colour.as_ref().is_none_or(|c| {
+                c.len() == 7 && c.starts_with('#') && c[1..].bytes().all(|b| b.is_ascii_hexdigit())
+            })
         })
         && choices(&props.notifications, &["on", "off", "vips"])
         && choices(&props.sort, &["date", "from", "subject", "size"])

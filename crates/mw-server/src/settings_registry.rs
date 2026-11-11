@@ -120,6 +120,8 @@ impl ScopeId {
 pub enum Text {
     /// Any text without control characters.
     Plain,
+    /// A six-digit hex colour or empty to use the theme.
+    HexColour,
     /// `[a-z0-9-]`, may be empty (theme and accent ids).
     Slug,
     /// An `https://` URL.
@@ -207,6 +209,7 @@ impl Kind {
                 "type": "text",
                 "format": match shape {
                     Text::Plain => "plain",
+                    Text::HexColour => "hex-colour",
                     Text::Slug => "slug",
                     Text::HttpsUrl => "httpsUrl",
                     Text::HttpUrl => "httpUrl",
@@ -2738,10 +2741,10 @@ pub static REGISTRY: &[SettingDef] = &[
             max_len: 12,
             max_item: 24
         },
-        r#"["counters","badgeColour","compactBadge","notifications","sort","threading","previewLines","markReadDelay","replyIdentity","unifiedInbox","hideWhenEmpty"]"#,
+        r#"["counters","badgeColour","compactBadge","notifications","sort","threading","previewLines","markReadDelay","replyIdentity","unifiedInbox","hideWhenEmpty","folderColour"]"#,
         GD,
         "mail",
-        "Per-folder overrides users may set: counters, badgeColour, compactBadge, notifications, sort, threading, previewLines, markReadDelay, replyIdentity, unifiedInbox, hideWhenEmpty"
+        "Per-folder overrides users may set: counters, badgeColour, compactBadge, notifications, sort, threading, previewLines, markReadDelay, replyIdentity, unifiedInbox, hideWhenEmpty, folderColour"
     ),
     def!(
         "properties.folder.notes.enabled",
@@ -3395,6 +3398,14 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "folders",
         "hide empty folders in the sidebar; per-folder overrides apply unless the setting is locked"
+    ),
+    def!(
+        "folders.colour",
+        text(Text::HexColour, 7),
+        r#""""#,
+        GDU,
+        "folders",
+        "default folder icon and name colour as #RRGGBB; empty follows the theme"
     ),
     def!(
         "folders.reorder.enabled",
@@ -8610,6 +8621,9 @@ fn is_url(s: &str, schemes: &[&str]) -> bool {
 fn check_text(shape: Text, s: &str) -> Result<(), &'static str> {
     let ok = match shape {
         Text::Plain => no_controls(s),
+        Text::HexColour => s.is_empty() || s.strip_prefix('#').is_some_and(|hex| {
+            hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit())
+        }),
         Text::Slug => s
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
@@ -8628,6 +8642,7 @@ fn check_text(shape: Text, s: &str) -> Result<(), &'static str> {
     } else {
         Err(match shape {
             Text::Plain => "must not contain control characters",
+            Text::HexColour => "must be #RRGGBB or empty",
             Text::Slug => "may contain only a-z, 0-9 and -",
             Text::HttpsUrl => "must be an https:// URL",
             Text::HttpUrl => "must be an http:// or https:// URL",

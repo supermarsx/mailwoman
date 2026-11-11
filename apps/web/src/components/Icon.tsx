@@ -620,12 +620,14 @@ export const ICON_NAMES = Object.keys(PATHS) as IconName[];
 export interface IconProps {
   name: IconName;
   class?: string;
+  style?: JSX.CSSProperties;
 }
 
 export function Icon(props: IconProps): JSX.Element {
   return (
     <svg
       class={[DIRECTIONAL.has(props.name) ? 'icon--directional' : '', props.class ?? ''].join(' ').trim() || undefined}
+      style={props.style}
       width="16"
       height="16"
       viewBox="0 0 16 16"

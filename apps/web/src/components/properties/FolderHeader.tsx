@@ -16,7 +16,7 @@ import {folderIcon,type PreferenceFolder} from '../../screens/Settings/folderPre
 import {toast} from '../toast/toast.ts';
 import {formatBytes} from './folderStats.ts';
 import type {StatsState} from './useFolderStats.ts';
-import {appliedOverride} from './folderOverrides.ts';
+import {folderColour} from './folderOverrides.ts';
 import {copyText,dateText,folderTypeKey,pathOf} from './folderDialogUtil.ts';
 import * as css from './folderDialog.css.ts';
 
@@ -40,7 +40,7 @@ export function FolderHeader(props:{box:Mailbox;stats:StatsState;titleId:string;
   }catch{toast.error(t('props-subscribe-failed'));}
   finally{setBusy(false);}
  }
- const colour=()=>appliedOverride('badgeColour',b().id,prefs().folderProps) as string|undefined;
+ const colour=()=>folderColour(b().id,prefs().folderProps);
  const shared=()=>props.stats.stats()?.remote?.namespace==='shared'||props.stats.stats()?.remote?.namespace==='other';
  return <header class={css.header} data-testid="props-header">
   <div class={css.identity}>
