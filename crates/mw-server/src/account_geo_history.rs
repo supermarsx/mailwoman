@@ -2,7 +2,7 @@
 //! for `security.signin.accountGeoMode = block-unusual-countries`.
 //!
 //! "Usual" used to be judged from the authentication log's retained rows, so
-//! it forgot as the log aged out (`logs.auth.retentionDays`, 7 by default).
+//! it forgot as the log aged out (`logs.auth.retentionDays`, 1095 by default).
 //! This history is separate from the log and kept for
 //! `security.signin.accountGeoHistoryDays` (default 365).
 //!

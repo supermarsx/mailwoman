@@ -42,7 +42,7 @@ With `cookies.honourGpc` on (default) a Global Privacy Control signal turns anal
 
 ### Re-prompting and lifetime
 
-A decision is stored in the browser (`localStorage` key `mw.consent`) with the policy version and the time. The visitor is asked again when `cookies.lifetimeDays` has passed or, with `cookies.repromptOnVersion` on, when `cookies.policyVersion` differs from the stored one. Raise the version when your cookie use or policy changes.
+A decision is stored in the browser (`localStorage` key `mw.consent`) with the policy version and the time. The visitor is asked again when `cookies.lifetimeDays` (365 days by default) has passed or, with `cookies.repromptOnVersion` on, when `cookies.policyVersion` differs from the stored one. Raise the version when your cookie use or policy changes.
 
 For a signed-in visitor the decision is also kept on the server, so another browser of the same account can adopt it when it has no decision of its own.
 
@@ -75,7 +75,7 @@ The browser scans `document.cookie`, `localStorage`, `sessionStorage` and Indexe
 
 ## Consent log and statistics
 
-With `cookies.logConsent` on (default) each decision is stored with: time, domain, policy version, decision (`acceptAll`, `rejectAll`, `custom`, `notice`), the category choices, a region code (`??` when unknown), the privacy signal and, only for a signed-in visitor, the account id. No address, IP address or user agent is stored. Rows older than `cookies.logRetentionDays` (default 365) are deleted, checked at most once an hour.
+With `cookies.logConsent` on (default) each decision is stored with: time, domain, policy version, decision (`acceptAll`, `rejectAll`, `custom`, `notice`), the category choices, a region code (`??` when unknown), the privacy signal and, only for a signed-in visitor, the account id. No address, IP address or user agent is stored. Consent records are kept without an age limit by default. A positive `cookies.logRetentionDays` enables age-based cleanup for that domain, checked at most once an hour. Browser consent renewal still follows `cookies.lifetimeDays`.
 
 The tab shows decision counts, the share of visitors allowing each category, decisions per day (UTC) and the top regions, over 7, 30 or 90 days. **Export log (CSV)** downloads the rows of the period; the export is audited. Statistics cover only decisions recorded while the log was on.
 

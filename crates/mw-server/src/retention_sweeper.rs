@@ -150,7 +150,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
         id: "imageHandles",
         owner: Owner::Sweeper,
         unit: Unit::Grace,
-        key: Some(GRACE),
+        key: Some("retention.imageHandles.graceDays"),
         fixed_days: None,
         target: Some("imageHandles"),
         table: None,
@@ -180,7 +180,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     existing("authHistory", Some("logs.auth.retentionDays"), None, Some("signin_event")),
     existing("requestMetrics", Some("metrics.rollupDays"), None, Some("request_metrics_bucket")),
     existing("clientTiming", Some("metrics.rollupDays"), None, Some("client_timing_bucket")),
-    existing("metrics", Some("retention.metrics.hourBucketsDays"), None, Some("metrics_bucket")),
+    existing("metrics", Some("retention.metrics.dayBucketsDays"), None, Some("metrics_bucket")),
     existing("clientErrors", Some("retention.clientErrors.eventDays"), None, Some("client_error_event")),
     existing("protectionEvents", None, Some(30), Some("request_protection_event")),
     existing("protectionSubjects", None, None, Some("request_protection_subject")),
@@ -799,7 +799,7 @@ mod tests {
             .await
             .unwrap();
         let now = 1_800_000_000i64;
-        for (id, fired) in [("old", now - 400 * DAY), ("new", now - DAY)] {
+        for (id, fired) in [("old", now - 1100 * DAY), ("new", now - DAY)] {
             sqlx::query("INSERT INTO alert_event(id,rule_id,fired_at,summary,delivered_json) VALUES(?,?,?,?,?)")
                 .bind(id).bind("r").bind(fired).bind("s").bind("[]")
                 .execute(&pool).await.unwrap();

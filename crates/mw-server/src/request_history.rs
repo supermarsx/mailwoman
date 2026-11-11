@@ -174,7 +174,7 @@ impl Policy {
                     }),
             }
         }
-        let retention_days = read(store, "metrics.rollupDays", 30, 1, 400).await?;
+        let retention_days = read(store, "metrics.rollupDays", 1095, 1, 1095).await?;
         let max_range_seconds = read(store, "metrics.maxRangeSeconds", 2592000, 3600, 34560000)
             .await?
             .min(retention_days * 86400);

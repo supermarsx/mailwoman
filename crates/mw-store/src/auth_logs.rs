@@ -25,7 +25,7 @@ pub struct AuthLogLimits {
 impl Default for AuthLogLimits {
     fn default() -> Self {
         Self {
-            retention_days: 7,
+            retention_days: 1095,
             max_entries: 50_000,
         }
     }
@@ -125,7 +125,7 @@ impl Store {
         }
         let cutoff = event
             .ts
-            .saturating_sub(i64::from(limits.retention_days.clamp(1, 90)) * 86_400);
+            .saturating_sub(i64::from(limits.retention_days.clamp(1, 1095)) * 86_400);
         q("DELETE FROM signin_event WHERE last_seen<?1")
             .bind(cutoff)
             .execute_tx(&mut tx)
@@ -147,7 +147,7 @@ impl Store {
             .execute_tx(&mut tx)
             .await?;
         q("DELETE FROM signin_event WHERE last_seen<?1")
-            .bind(now.saturating_sub(i64::from(limits.retention_days.clamp(1, 90)) * 86400))
+            .bind(now.saturating_sub(i64::from(limits.retention_days.clamp(1, 1095)) * 86400))
             .execute_tx(&mut tx)
             .await?;
         q("DELETE FROM signin_event WHERE id IN (SELECT id FROM signin_event ORDER BY last_seen DESC,id DESC LIMIT 2147483647 OFFSET ?1)").bind(i64::from(limits.max_entries.clamp(1,100000))).execute_tx(&mut tx).await?;

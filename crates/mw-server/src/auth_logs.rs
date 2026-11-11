@@ -38,8 +38,8 @@ pub(crate) async fn limits(store: &mw_store::Store) -> AuthLogLimits {
         .ok()
         .flatten()
         .and_then(|v| v.value.as_u64())
-        .unwrap_or(7)
-        .clamp(1, 90);
+        .unwrap_or(1095)
+        .clamp(1, 1095);
     let cap = crate::settings_registry::effective_for(store, "logs.auth.maxEntries", &subject)
         .await
         .ok()

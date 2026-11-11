@@ -71,7 +71,7 @@ The retention sweeper (`retention_sweep` job, daily) rolls the table up:
 |---|---|---|
 | 1 minute | 48 hours | `retention.metrics.minuteBucketsHours` (at least 1) |
 | 1 hour | 60 days | `retention.metrics.hourBucketsDays` (at least 1) |
-| 1 day | 400 days | `retention.metrics.dayBucketsDays` (0 keeps without limit; the console warns) |
+| 1 day | 1095 days | `retention.metrics.dayBucketsDays` (0 keeps without limit; the console warns) |
 
 Minute rows older than the first limit are merged into hour rows (sketches
 added, per instance and dimension set), hour rows older than the second into day

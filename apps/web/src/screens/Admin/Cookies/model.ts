@@ -57,7 +57,7 @@ export function configFromRows(rows: readonly AdminSetting[], inv: InventoryView
     enabled: true,
     mode: (v('cookies.mode') as ConsentConfig['mode']) ?? 'optIn',
     version: Number(v('cookies.policyVersion') ?? 1),
-    lifetimeDays: Number(v('cookies.lifetimeDays') ?? 180),
+    lifetimeDays: Number(v('cookies.lifetimeDays') ?? 365),
     reprompt: v('cookies.repromptOnVersion') !== false,
     layout: (v('cookies.layout') as ConsentConfig['layout']) ?? 'banner',
     position: (v('cookies.position') as ConsentConfig['position']) ?? 'bottom',

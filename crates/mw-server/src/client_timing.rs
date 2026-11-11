@@ -69,7 +69,7 @@ impl Default for Policy {
             enabled: true,
             sample_rate_percent: 100,
             min_samples: 20,
-            retention_days: 30,
+            retention_days: 1095,
         }
     }
 }
@@ -92,7 +92,7 @@ impl Policy {
                 .unwrap_or(d.enabled),
             sample_rate_percent: int(read(store, SAMPLE_KEY).await, 1, 100, d.sample_rate_percent),
             min_samples: int(read(store, MIN_SAMPLES_KEY).await, 1, 100_000, d.min_samples),
-            retention_days: int(read(store, "metrics.rollupDays").await, 1, 400, d.retention_days),
+            retention_days: int(read(store, "metrics.rollupDays").await, 1, 1095, d.retention_days),
         }
     }
 }

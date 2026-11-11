@@ -93,7 +93,7 @@ read live, no reload needed), and the server answers `204` and discards any
 folder or message figure it still receives from that person (a stale tab, for
 example). Admin > Observability notes when the instance default is off.
 
-History is kept for `metrics.rollupDays` (default 30 days, hourly), the same
+History is kept for `metrics.rollupDays` (default 1095 days, hourly), the same
 as request history. It is isolated per application instance and written
 every 30 seconds, so a restart keeps it. Both SQLite and PostgreSQL store it
 in `client_timing_bucket`.

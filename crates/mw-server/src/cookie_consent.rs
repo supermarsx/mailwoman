@@ -515,14 +515,22 @@ async fn maybe_purge(state: &AppState) {
     {
         return;
     }
-    let days = settings_registry::effective_for(&state.store, "cookies.logRetentionDays", &Default::default())
-        .await
-        .ok()
-        .flatten()
-        .and_then(|v| v.value.as_i64())
-        .unwrap_or(365)
-        .clamp(1, 3650);
-    let _ = state.store.purge_cookie_consents(t - days * 86_400).await;
+    let Ok(domains) = state.store.cookie_consent_domains().await else { return };
+    for domain in domains {
+        let subject = mw_store::settings_policy::SettingSubject {
+            domain: &domain,
+            ..Default::default()
+        };
+        let days = settings_registry::effective_for(&state.store, "cookies.logRetentionDays", &subject)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|setting| setting.value.as_i64())
+            .unwrap_or(0);
+        if days > 0 {
+            let _ = state.store.purge_domain_cookie_consents(&domain, t - days * 86_400).await;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

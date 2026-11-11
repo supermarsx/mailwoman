@@ -403,7 +403,7 @@ impl Store {
         if instance.is_empty()
             || instance.len() > 64
             || buckets.len() > 256
-            || !(1..=400).contains(&retention_days)
+            || !(1..=1095).contains(&retention_days)
         {
             return Err(StoreError::Corrupt(
                 "invalid metrics snapshot bounds".into(),
@@ -445,7 +445,7 @@ impl Store {
         to: i64,
         seconds: i64,
     ) -> Result<Vec<Bucket>, StoreError> {
-        if from < 0 || to <= from || to - from > 401 * 86400 || ![60, 3600].contains(&seconds) {
+        if from < 0 || to <= from || to - from > 1096 * 86400 || ![60, 3600].contains(&seconds) {
             return Err(StoreError::Corrupt("invalid metrics range".into()));
         }
         // Suppress oversized payloads inside the same SQL snapshot, before transfer.
@@ -604,7 +604,7 @@ mod tests {
         );
         assert!(
             store
-                .request_metrics_history(time, time + 402 * 86400, 3600)
+                .request_metrics_history(time, time + 1097 * 86400, 3600)
                 .await
                 .is_err()
         );

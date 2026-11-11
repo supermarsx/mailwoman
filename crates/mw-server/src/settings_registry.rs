@@ -5907,7 +5907,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "privacy.openTracking.retentionDays",
         int(1, 400),
-        "90",
+        "365",
         G,
         "privacy",
         "open-tracking token retention"
@@ -6125,8 +6125,8 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "metrics.rollupDays",
-        int(1, 400),
-        "30",
+        int(1, 1095),
+        "1095",
         G,
         "observability",
         "hourly metric rollups kept"
@@ -6174,7 +6174,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "retention.metrics.dayBucketsDays",
         int(0, 3650),
-        "400",
+        "1095",
         G,
         "privacy",
         "Days of one-day statistics kept (0 keeps them without limit)"
@@ -6606,7 +6606,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "dsr.retention.completedDays",
         int(30, 3650),
-        "365",
+        "1825",
         G,
         "privacy",
         "days a finished request is kept"
@@ -7421,8 +7421,8 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "logs.auth.retentionDays",
-        int(1, 90),
-        "7",
+        int(1, 1095),
+        "1095",
         G,
         "observability",
         "authentication history days kept"
@@ -7438,7 +7438,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "retention.sessions.idleDays",
         int(0, 3650),
-        "90",
+        "1095",
         G,
         "privacy",
         "Days a browser or native-client session row may sit unused before it is deleted; 0 keeps them"
@@ -7510,7 +7510,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "retention.assistAudit.days",
         int(0, 3650),
-        "365",
+        "730",
         G,
         "privacy",
         "Days assistant access records are kept; 0 keeps them forever"
@@ -7518,7 +7518,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "retention.alertEvents.days",
         int(0, 3650),
-        "90",
+        "1095",
         G,
         "privacy",
         "Days fired-alert records are kept; 0 keeps them forever"
@@ -7548,9 +7548,17 @@ pub static REGISTRY: &[SettingDef] = &[
         "Days an expired token, remembered device, sign-in challenge or image link is kept after it expired; 0 removes it at once"
     ),
     def!(
+        "retention.imageHandles.graceDays",
+        int(0, 3650),
+        "180",
+        G,
+        "privacy",
+        "Days expired image handles are retained before cleanup"
+    ),
+    def!(
         "retention.ipAddresses.days",
         int(0, 3650),
-        "90",
+        "1095",
         G,
         "privacy",
         "Days before stored IP addresses in authentication and audit history are truncated or hashed; 0 keeps them as recorded"
@@ -8112,7 +8120,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "cookies.lifetimeDays",
         int(1, 730),
-        "180",
+        "365",
         GD,
         "privacy",
         "Days a consent decision stays valid"
@@ -8151,8 +8159,8 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "cookies.logRetentionDays",
-        int(1, 3650),
-        "365",
+        int(0, 3650),
+        "0",
         GD,
         "privacy",
         "Days consent log rows are kept"

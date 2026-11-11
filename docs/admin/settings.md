@@ -518,7 +518,7 @@ How visible the watermark is, from 0.02 (faint) to 0.5.
 <a id="privacy.openTracking.retentionDays"></a>
 ### Open tracking history (`privacy.openTracking.retentionDays`)
 
-How many days read-tracking records are kept (1–400; default 90). Changes apply to token creation, history reads and image recording without a restart. Expired records and their event rows are deleted; expiry cannot be extended by loading an old pixel.
+How many days read-tracking records are kept (1–400; default 365). Changes apply to token creation, history reads and image recording without a restart. Expired records and their event rows are deleted; expiry cannot be extended by loading an old pixel.
 
 <a id="privacy.openTracking.unboundTtlHours"></a>
 ### Unsent tracking tokens (`privacy.openTracking.unboundTtlHours`)
@@ -692,7 +692,7 @@ Days of hourly performance statistics kept before they are merged into daily row
 <a id="retention.metrics.dayBucketsDays"></a>
 ### Daily statistics kept (days) (`retention.metrics.dayBucketsDays`)
 
-Days of daily performance statistics kept before they are deleted. 0 keeps them without limit, which lets the table grow slowly for as long as the server runs. Default 400.
+Days of daily performance statistics kept before they are deleted. 0 keeps them without limit, which lets the table grow slowly for as long as the server runs. Default 1095.
 
 <a id="observability.clientTiming.enabled"></a>
 ### Browser load times (`observability.clientTiming.enabled`)
@@ -962,7 +962,7 @@ A download link stops working after it has been used once.
 <a id="dsr.retention.completedDays"></a>
 ### Finished request retention (`dsr.retention.completedDays`)
 
-Days a finished request and its trail are kept before they are deleted.
+Days a finished request and its trail are kept before they are deleted. Default 1825.
 
 <a id="dsr.notify.admins"></a>
 ### Record new requests for admins (`dsr.notify.admins`)
@@ -1824,7 +1824,7 @@ spam classification applies the recipient account's domain and profile policy.
 
 <a id="logs.auth.retentionDays"></a>
 ### Authentication history (`logs.auth.retentionDays`)
-Global, hot. Default 7 days; range 1–90. Authentication history is pruned on writes. Durable successful webmail identity is stored separately, so pruning does not change policy identity.
+Global, hot. Default 1095 days; range 1–1095. Authentication history is pruned on writes. Durable successful webmail identity is stored separately, so pruning does not change policy identity.
 
 <a id="logs.auth.maxEntries"></a>
 ### Authentication entry limit (`logs.auth.maxEntries`)
@@ -1876,11 +1876,11 @@ Global, hot. Default `365`. Days a record of a data-loss-prevention rule match i
 
 <a id="retention.assistAudit.days"></a>
 ### Assistant access records (days) (`retention.assistAudit.days`)
-Global, hot. Default `365`. Days a record of an assistant using a capability (actor, capability, scope summary) is kept. 0 keeps them forever.
+Global, hot. Default `730`. Days a record of an assistant using a capability (actor, capability, scope summary) is kept. 0 keeps them forever.
 
 <a id="retention.alertEvents.days"></a>
 ### Fired alert records (days) (`retention.alertEvents.days`)
-Global, hot. Default `90`. Days a record of a fired administrator alert is kept. 0 keeps them forever.
+Global, hot. Default `1095`. Days a record of a fired administrator alert is kept. 0 keeps them forever.
 
 <a id="retention.jobRuns.days"></a>
 ### Background job history (days) (`retention.jobRuns.days`)
@@ -1892,11 +1892,11 @@ Global, hot. Default `30`. Days the send record of a delivered or cancelled mess
 
 <a id="retention.expiredCredentials.graceDays"></a>
 ### Expired credentials (days after expiry) (`retention.expiredCredentials.graceDays`)
-Global, hot. Default `1`. Days an expired remembered device, sign-in challenge, sign-in token, OAuth token, webhook nonce, source failure counter or image link handle is kept after it expired. 0 removes it on the next run.
+Global, hot. Default `1`. Days an expired remembered device, sign-in challenge, sign-in token, OAuth token, webhook nonce, source failure counter is kept after it expired. 0 removes it on the next run.
 
 <a id="retention.ipAddresses.days"></a>
 ### Reduce stored IP addresses after (days) (`retention.ipAddresses.days`)
-Global, hot. Default `90`. After this many days the IP address in authentication history and audit entries is truncated or hashed and the row is kept. 0 keeps addresses as recorded.
+Global, hot. Default `1095`. After this many days the IP address in authentication history and audit entries is truncated or hashed and the row is kept. 0 keeps addresses as recorded.
 
 <a id="retention.ipAddresses.mode"></a>
 ### IP reduction method (`retention.ipAddresses.mode`)
@@ -2100,7 +2100,7 @@ Global, hot. Default `true`. Cuts bearer tokens, API keys, passwords in URLs and
 
 <a id="retention.sessions.idleDays"></a>
 ### Unused sessions (days) (`retention.sessions.idleDays`)
-Global, hot. Default `90`. Days a browser or native-client session record, with its address and user agent, may go unused before it is deleted. The session timeouts apply first; this only removes rows left behind. 0 keeps them.
+Global, hot. Default `1095`. Days a browser or native-client session record, with its address and user agent, may go unused before it is deleted. The session timeouts apply first; this only removes rows left behind. 0 keeps them.
 
 ### Message display
 
@@ -2363,7 +2363,7 @@ Off by default. `security.signin.accountGeoMode` is a global/domain/user setting
 <a id="account-geo-history"></a>
 #### Country history for "unusual countries"
 
-`block-unusual-countries` used to judge "usual" from the authentication log's retained rows, so it forgot as the log aged out (`logs.auth.retentionDays`, 7 days by default). It now keeps a separate, durable list per account, for `security.signin.accountGeoHistoryDays` days (default 365, 30 to 3650); a longer or shorter log retention no longer changes it.
+`block-unusual-countries` used to judge "usual" from the authentication log's retained rows, so it forgot as the log aged out (`logs.auth.retentionDays`, 1095 days by default). It now keeps a separate, durable list per account, for `security.signin.accountGeoHistoryDays` days (default 365, 30 to 3650); a longer or shorter log retention no longer changes it.
 
 What is stored, exactly: one row in the settings table per account, key `acct-geo:v1:<account id>`, holding a list of at most 64 entries. Each entry is an ISO 3166 country code, the time of the first and the last successful sign-in from that country, and how many such sign-ins there were. Nothing else: no IP addresses, devices, user agents or sign-in methods. When the list is full the entry with the oldest last-seen time is dropped. Entries whose last sign-in is older than the retention are ignored immediately and removed by an hourly sweep.
 
@@ -3180,7 +3180,7 @@ Global seconds, default 3,600; bounded from 60 to 34,560,000. Applies when both 
 <a id="metrics.maxRangeSeconds"></a>
 ### Maximum request history range (`metrics.maxRangeSeconds`)
 
-Global seconds, default 2,592,000 (30 days); bounded from 3,600 to 34,560,000. The effective limit also respects `metrics.rollupDays` (1–400 days). Request history records response-ready latency for requests that reach application middleware, not full streamed transfers or transport-parser rejections. Aggregate snapshots flush every 15 seconds; a sudden process loss can lose the unflushed tail. Minute snapshots are retained for 48 hours, hourly snapshots for the configured retention. Percentiles combine histogram counts across replicas, with no request paths, addresses or identities stored. Missing periods remain unavailable, not zero. Queries return at most 1,000 points and refuse scans exceeding 20,000 stored buckets; reduce the range if the deployment has too many replica snapshots. Only unscoped Dashboard read or Observability read access can see this server-wide history.
+Global seconds, default 2,592,000 (30 days); bounded from 3,600 to 34,560,000. The effective limit also respects `metrics.rollupDays` (1–1095 days). Request history records response-ready latency for requests that reach application middleware, not full streamed transfers or transport-parser rejections. Aggregate snapshots flush every 15 seconds; a sudden process loss can lose the unflushed tail. Minute snapshots are retained for 48 hours, hourly snapshots for the configured retention. Percentiles combine histogram counts across replicas, with no request paths, addresses or identities stored. Missing periods remain unavailable, not zero. Queries return at most 1,000 points and refuse scans exceeding 20,000 stored buckets; reduce the range if the deployment has too many replica snapshots. Only unscoped Dashboard read or Observability read access can see this server-wide history.
 
 <a id="contacts.senderIcons"></a>
 ### Bundled sender icons (`contacts.senderIcons`)
@@ -3592,7 +3592,7 @@ Global/domain integer 1 to 1,000,000, default 1. Stored with each decision. A st
 <a id="cookies.lifetimeDays"></a>
 ### `cookies.lifetimeDays`
 
-Global/domain integer 1 to 730, default 180.
+Global/domain integer 1 to 730, default 365.
 
 <a id="cookies.repromptOnVersion"></a>
 ### `cookies.repromptOnVersion`
@@ -3617,7 +3617,7 @@ Global/domain boolean, default `true`. Each row holds time, domain, policy versi
 <a id="cookies.logRetentionDays"></a>
 ### `cookies.logRetentionDays`
 
-Global/domain integer 1 to 3650, default 365.
+Global/domain integer 0 to 3650. The default of 0 keeps consent records without an age limit.
 
 <a id="cookies.scanIntervalHours"></a>
 ### `cookies.scanIntervalHours`
@@ -3842,3 +3842,8 @@ Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characte
 
 <a id="mail.search.defaultScope"></a>
 `mail.search.defaultScope` is `folder` (default) or `all`. Searches start in the current folder unless the user chooses all folders. Global/domain/user policy, lockable.
+
+<a id="retention.imageHandles.graceDays"></a>
+### Expired image handle retention
+
+The sweeper keeps expired handles for 180 days by default. A value of 0 removes them after expiry. The grace period does not extend signed-link validity.

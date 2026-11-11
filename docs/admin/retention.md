@@ -29,12 +29,12 @@ After `retention.ipAddresses.days` days the address in authentication history (`
 | `passwordChangeAudit` | account id, change method, outcome, time | 365 days | `retention.passwordChangeAudit.days` | Sweeper, by age. |
 | `ssoLoginAudit` | provider, hash of the subject, outcome, time | 90 days | `retention.ssoLoginAudit.days` | Sweeper, by age. |
 | `dlpAudit` | account id, rule that matched, action, time | 365 days | `retention.dlpAudit.days` | Sweeper, by age. |
-| `assistAudit` | actor, capability, scope summary, time | 365 days | `retention.assistAudit.days` | Sweeper, by age. |
-| `alertEvents` | alert summary and delivery targets | 90 days | `retention.alertEvents.days` | Sweeper, by age. |
+| `assistAudit` | actor, capability, scope summary, time | 730 days | `retention.assistAudit.days` | Sweeper, by age. |
+| `alertEvents` | alert summary and delivery targets | 1095 days | `retention.alertEvents.days` | Sweeper, by age. |
 | `jobRuns` | who triggered a run, summary | 90 days | `retention.jobRuns.days` | Sweeper, by age; running jobs are kept. |
 | `outbox` | send record: account, message id, identity, time, last error | 30 days | `retention.outbox.days` | Sweeper, by age, only delivered and cancelled sends. Pending, being-sent, failed, uncertain and unfiled-copy rows are never removed. |
-| `sessions` | account, user agent, IP address, device label, last use | 90 days unused | `retention.sessions.idleDays` | Sweeper, by last use. Session timeouts apply first; this removes rows left behind. |
-| `nativeSessions` | account, client type, last use | 90 days unused | `retention.sessions.idleDays` | Sweeper, by last use. |
+| `sessions` | account, user agent, IP address, device label, last use | 1095 days unused | `retention.sessions.idleDays` | Sweeper, by last use. Session timeouts apply first; this removes rows left behind. |
+| `nativeSessions` | account, client type, last use | 1095 days unused | `retention.sessions.idleDays` | Sweeper, by last use. |
 | `rememberedDevices` | account, device label, token hash, expiry | 1 day after expiry | `retention.expiredCredentials.graceDays` | Sweeper, once expired for the grace period. |
 | `signinChallenges` | peer key (hash), nonce, expiry | 1 day after expiry | `retention.expiredCredentials.graceDays` | Sweeper, once expired; consumed on use and trimmed on write. |
 | `oidcTokens` | token hash, grant, expiry | 1 day after expiry | `retention.expiredCredentials.graceDays` | Sweeper, once expired; access tokens also trimmed on write. |
@@ -42,26 +42,34 @@ After `retention.ipAddresses.days` days the address in authentication history (`
 | `oauthTokens` | token hash, client, account, scopes | 1 day after expiry | `retention.expiredCredentials.graceDays` | Sweeper, once expired. |
 | `webhookNonces` | webhook id, nonce, time | 1 day after expiry | `retention.expiredCredentials.graceDays` | Sweeper, by time seen. |
 | `sourceFailures` | source IP address, failure timestamps, lock expiry | 1 day after expiry | `retention.expiredCredentials.graceDays` | Sweeper, once expired. |
-| `imageHandles` | image-proxy link handles (`rc.h.*` rows in settings): claims for one proxied image | 1 day after expiry | `retention.expiredCredentials.graceDays` | Sweeper, once expired; also trimmed when a handle is stored. |
-| `authHistoryIp` | IP address on each authentication event | 90 days, then reduced | `retention.ipAddresses.days` | Sweeper, reduces the address and keeps the row. |
-| `auditLogIp` | IP address on each audit entry | 90 days, then reduced | `retention.ipAddresses.days` | Sweeper, reduces the address and keeps the row (rows with a hash chain excepted). |
+| `imageHandles` | image-proxy link handles (`rc.h.*` rows in settings): claims for one proxied image | 180 days after expiry | `retention.imageHandles.graceDays` | Sweeper, after expiry plus the grace period. |
+| `authHistoryIp` | IP address on each authentication event | 1095 days, then reduced | `retention.ipAddresses.days` | Sweeper, reduces the address and keeps the row. |
+| `auditLogIp` | IP address on each audit entry | 1095 days, then reduced | `retention.ipAddresses.days` | Sweeper, reduces the address and keeps the row (rows with a hash chain excepted). |
 | `auditLog` | administrator and security actions, actors, IP address | keep until a policy is set | Audit retention page (per category, with legal hold) | Existing `audit_prune` job; writes a checkpoint when rows are removed. |
-| `authHistory` | username attempted, result, IP address, user agent, country | 7 days (and `logs.auth.maxEntries` entries) | `logs.auth.retentionDays` | Existing; trimmed on write. |
-| `requestMetrics` | route-class latency histograms (no person identifiers) | 30 days | `metrics.rollupDays` | Existing; trimmed when a bucket is saved. |
-| `clientTiming` | anonymous browser load-time histograms; medians derive from them | 30 days | `metrics.rollupDays` | Existing; trimmed when a bucket is saved. |
-| `metrics` | persisted performance statistics: counts and quantile sketches per minute, hour and day (image proxy latency, browser load times, rate-limit and request-protection decisions); no person identifiers | 48 hours of minutes, 60 days of hours, 400 days of days | `retention.metrics.minuteBucketsHours`, `retention.metrics.hourBucketsDays`, `retention.metrics.dayBucketsDays` | Rolled up by the sweeper: minute rows older than the first limit merge into hour rows, hour rows older than the second merge into day rows, day rows past the third are deleted. A day limit of 0 keeps day rows without limit (the console warns); the other two must be at least 1. See [metrics-persistence.md](metrics-persistence.md). |
+| `authHistory` | username attempted, result, IP address, user agent, country | 1095 days (and `logs.auth.maxEntries` entries) | `logs.auth.retentionDays` | Existing; trimmed on write. |
+| `requestMetrics` | route-class latency histograms (no person identifiers) | 1095 days | `metrics.rollupDays` | Existing; trimmed when a bucket is saved. |
+| `clientTiming` | anonymous browser load-time histograms; medians derive from them | 1095 days | `metrics.rollupDays` | Existing; trimmed when a bucket is saved. |
+| `metrics` | persisted performance statistics: counts and quantile sketches per minute, hour and day (image proxy latency, browser load times, rate-limit and request-protection decisions); no person identifiers | 48 hours of minutes, 60 days of hours, 1095 days of days | `retention.metrics.minuteBucketsHours`, `retention.metrics.hourBucketsDays`, `retention.metrics.dayBucketsDays` | Rolled up by the sweeper: minute rows older than the first limit merge into hour rows, hour rows older than the second merge into day rows, day rows past the third are deleted. A day limit of 0 keeps day rows without limit (the console warns); the other two must be at least 1. See [metrics-persistence.md](metrics-persistence.md). |
 | `clientErrors` | browser error reports: scrubbed error name, message, boundary, route template and stack frames, build, coarse browser, OS and viewport class; a keyed account hash only when `observability.client.includeAccountHash` is on | 30 days for occurrences, 180 days for groups | `retention.clientErrors.eventDays`, `retention.clientErrors.groupDays` | Pruned by the sweeper (occurrences first, then groups not seen since the group limit; at most 5000 groups are kept). See [observability.md](observability.md#client-errors). |
 | `protectionEvents` | request-protection decisions keyed by a hash of the client | 30 days (fixed) | none | Existing; trimmed on write and on read. |
 | `protectionSubjects` | counters per hashed client, account or admin | their own expiry | none | Existing; trimmed on write. |
 | `sessionWatch` | session fingerprints for theft detection | 15 days | `security.theft.retentionDays` | Existing; periodic sweep. |
-| `dsrRequests` | data-subject requests and their trail | 365 days after completion | `dsr.retention.completedDays` | Existing, owned by the data-subject request feature. |
-| `openTracking` | open-tracking tokens and events | per setting | `privacy.openTracking.retentionDays` | Existing. |
+| `dsrRequests` | data-subject requests and their trail | 1825 days after completion | `dsr.retention.completedDays` | Existing, owned by the data-subject request feature. |
+| `openTracking` | open-tracking tokens and events | 365 days | `privacy.openTracking.retentionDays` | Existing. |
 | `diagnostics` | diagnostic run results | per setting | `diagnostics.retentionDays` | Existing; pruned after each run. |
 | `securityNotices` | in-app security notices per account | per setting | `security.alerts.noticeRetentionDays` | Existing. |
 | `usageCounters` | per-account usage counters | 400 days | `usage.retentionDays` | Existing. |
 | `accountGeo` | countries an account signed in from | 365 days | `security.signin.accountGeoHistoryDays` | Existing. |
 | `uploads` | uploaded attachment blobs not yet attached | 24 hours | none (the `gc_uploads` job parameter) | Existing `gc_uploads` job. |
 | `logFiles` | server log files written by the server | 14 days | `logging.file.maxAgeDays` | Rotation, below. |
+
+### Account closure
+
+Mailbox and personal workspace data remain available while the account is in use.
+When an account closes, use the [erasure workflow](data-requests.md#erasure) to remove
+the local account data. The regular cleanup jobs age out retained records according
+to their own policies. Mail held by an upstream provider follows that provider's
+account closure and erasure process.
 
 ### Not swept, and why
 

@@ -703,6 +703,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'retention.outbox.days',
   'retention.sessions.idleDays',
   'retention.expiredCredentials.graceDays',
+  'retention.imageHandles.graceDays',
   'retention.ipAddresses.days',
   'retention.ipAddresses.mode',
   'retention.user.enabled',

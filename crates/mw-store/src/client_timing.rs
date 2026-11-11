@@ -153,7 +153,7 @@ impl Store {
         if instance.is_empty()
             || instance.len() > 64
             || buckets.len() > 1024
-            || !(1..=400).contains(&retention_days)
+            || !(1..=1095).contains(&retention_days)
         {
             return Err(StoreError::Corrupt("invalid timing snapshot bounds".into()));
         }
@@ -196,7 +196,7 @@ impl Store {
         from: i64,
         to: i64,
     ) -> Result<Vec<TimingBucket>, StoreError> {
-        if from < 0 || to <= from || to - from > 401 * 86400 {
+        if from < 0 || to <= from || to - from > 1096 * 86400 {
             return Err(StoreError::Corrupt("invalid timing range".into()));
         }
         let rows = q("SELECT bucket_start,metric,device,sample_count,sum_ms,histogram_json FROM client_timing_bucket WHERE bucket_start>=?1 AND bucket_start<?2 ORDER BY bucket_start,metric,device,instance_id LIMIT 50001")

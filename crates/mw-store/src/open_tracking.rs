@@ -22,7 +22,7 @@ use crate::{Store, StoreError};
 /// Unbound tokens (minted, never tied to a sent message) live this long.
 pub const UNBOUND_TTL_HOURS: i64 = 24;
 /// Every token, bound or not, is deleted after this many days.
-pub const RETENTION_DAYS: i64 = 90;
+pub const RETENTION_DAYS: i64 = 365;
 /// Event rows kept per token; later loads only move the totals.
 pub const MAX_EVENTS_PER_TOKEN: i64 = 200;
 

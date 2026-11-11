@@ -117,6 +117,26 @@ impl Store {
             .await?)
     }
 
+    /// Domains with consent records, including the empty domain for anonymous defaults.
+    pub async fn cookie_consent_domains(&self) -> Result<Vec<String>, StoreError> {
+        let rows = q("SELECT DISTINCT domain FROM cookie_consent")
+            .fetch_all(&self.backend)
+            .await?;
+        Ok(rows.iter().map(|row| row.get_string("domain")).collect())
+    }
+
+    pub async fn purge_domain_cookie_consents(
+        &self,
+        domain: &str,
+        before: i64,
+    ) -> Result<u64, StoreError> {
+        Ok(q("DELETE FROM cookie_consent WHERE domain=?1 AND created_at<?2")
+            .bind(domain)
+            .bind(before)
+            .execute(&self.backend)
+            .await?)
+    }
+
     /// Delete every consent row of one account (an erasure request).
     pub async fn delete_cookie_consents_for_account(
         &self,

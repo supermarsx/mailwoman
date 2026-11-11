@@ -2271,3 +2271,5 @@ admin-settings-help-reader-attachment-thumbnails = Desativado por defeito. Permi
 admin-settings-key-reader-attachment-action-style = Ações de visualização de anexos
 
 admin-settings-key-reader-attachment-thumbnails = Miniaturas de anexos de imagens
+admin-settings-key-retention-image-handles-grace-days = Conservação de identificadores de imagem expirados
+admin-settings-help-retention-image-handles-grace-days = Dias de conservação dos identificadores de imagem após a expiração. Zero elimina-os após expirarem.
