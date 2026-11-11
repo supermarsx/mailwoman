@@ -1,6 +1,6 @@
 import {test,expect} from '../csrf.ts';
 import {ADMIN} from '../admin/admin-path.ts';
-import {pinComposerRibbonOnPhone,revealRibbonControl,useTabbedWorkspace,withUserSetting} from '../helpers.ts';
+import {login,pinComposerRibbonOnPhone,revealRibbonControl,useTabbedWorkspace,withUserSetting} from '../helpers.ts';
 import type {AdminSetting} from '../../src/api/admin/settings.ts';
 
 test('personal and shared response templates insert literal text and replace only after consent',async({page,playwright,baseURL},info)=>{
@@ -42,4 +42,41 @@ test('personal and shared response templates insert literal text and replace onl
  }finally{
   try{if(original){const current=await admin.get(endpoint);const headers={'if-match':current.headers()['etag']!};const restored=original.updatedAt===null?await admin.delete(endpoint,{headers}):await admin.put(endpoint,{headers,data:{globalValue:original.globalValue,allowUserOverride:original.allowUserOverride,locked:original.globalLocked}});expect([200,204]).toContain(restored.status());}}finally{await admin.dispose();await restoreLayout();await restorePersonal();await restoreEnabled();await restoreDraftMode();await unpin();}
  }
+});
+
+test('the Templates sidebar opens a full message as a draft', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.route(/\/api\/settings(?:\?.*)?$/, async (route) => {
+    const response = await route.fetch();
+    if (!response.ok()) return route.fulfill({ response });
+    const data = await response.json();
+    const setting = (value: unknown) => ({ value, source: 'global', locked: true });
+    Object.assign(data.settings, {
+      'mail.templates.enabled': setting(true),
+      'mail.templates.showInSidebar': setting(true),
+      'mail.templates.allowPersonal': setting(false),
+      'mail.templates.shared': setting([{ id: 'full-message', title: 'Welcome draft', subject: 'Welcome aboard',
+        body: 'Hello <b>new teammate</b>', to: 'new@example.test', cc: 'team@example.test', bcc: 'records@example.test' }]),
+      'mail.draftSaveMode': setting('manual'),
+      'notifications.askPermission': setting(false),
+    });
+    await route.fulfill({ response, json: data });
+  });
+  try {
+    await login(page);
+    await page.locator('.sidebar').getByRole('button', { name: 'Templates', exact: true }).click();
+    const pane = page.getByRole('tabpanel', { name: 'Templates', exact: true });
+    await pane.getByRole('button', { name: 'Welcome draft', exact: true }).click();
+    await pane.getByRole('button', { name: 'Compose from template', exact: true }).click();
+    const composer = page.locator('form.compose').last();
+    await expect(composer.getByLabel('Subject', { exact: true })).toHaveValue('Welcome aboard');
+    await expect(composer.getByTestId('compose-chips-to')).toContainText('new@example.test');
+    await expect(composer.getByTestId('compose-chips-cc')).toContainText('team@example.test');
+    await expect(composer.getByTestId('compose-chips-bcc')).toContainText('records@example.test');
+    const editor = composer.getByRole('tabpanel', { name: 'Visual editor' }).frameLocator('iframe').locator('body');
+    await expect(editor).toContainText('Hello <b>new teammate</b>');
+    await expect(editor.locator('b')).toHaveCount(0);
+  } finally {
+    await page.unrouteAll({ behavior: 'wait' });
+  }
 });

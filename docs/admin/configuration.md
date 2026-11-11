@@ -336,6 +336,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.cache.preloadmessages"></a>`mail.cache.preloadMessages` | mail | global+domain+user | false | plain |  | yes | Browser session mail cache: preloadMessages |
 | <a id="mail.cache.excludedfolders"></a>`mail.cache.excludedFolders` | mail | global+domain+user | ["role:trash","role:junk"] | plain |  | yes | Browser session mail cache: excludedFolders |
 | <a id="mail.templates.enabled"></a>`mail.templates.enabled` | mail | global+domain+user | true | plain |  | yes | Plain-text response templates: enabled |
+| <a id="mail.templates.showinsidebar"></a>`mail.templates.showInSidebar` | mail | global+domain+user | true | plain |  | yes | Show the Templates workspace in the mailbox sidebar |
 | <a id="mail.templates.allowpersonal"></a>`mail.templates.allowPersonal` | mail | global+domain+admin_user | true | plain |  | yes | Plain-text response templates: allowPersonal |
 | <a id="mail.templates.shared"></a>`mail.templates.shared` | mail | global+domain+admin_user | [] | plain |  | yes | Plain-text response templates: shared |
 | <a id="mail.templates.personal"></a>`mail.templates.personal` | mail | global+domain+user | [] | plain |  | yes | Plain-text response templates: personal |

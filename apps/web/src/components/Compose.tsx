@@ -203,11 +203,11 @@ export function Compose(props: {
   const compact = () => initial?.compact === true && !expanded();
   const [to, setTo] = createSignal(initial?.to ?? '');
   const [cc, setCc] = createSignal(initial?.cc ?? '');
-  const [bcc, setBcc] = createSignal('');
-  let autoBccValue='';let bccEdited=false;
+  const [bcc, setBcc] = createSignal(initial?.bcc ?? '');
+  let autoBccValue='';let bccEdited=initial?.bcc !== undefined;
   // The Cc and Bcc fields stay folded away until asked for, or until one of
   // them holds something (a reply-all, a resumed draft).
-  const [ccBccOpen, setCcBccOpen] = createSignal((initial?.cc ?? '') !== '');
+  const [ccBccOpen, setCcBccOpen] = createSignal(Boolean(initial?.cc || initial?.bcc));
   // The Reply-To row: the identity's own value is prefilled and follows the identity until the user edits it.
   const [replyToText, setReplyToText] = createSignal('');
   const [replyToEdited, setReplyToEdited] = createSignal(false);

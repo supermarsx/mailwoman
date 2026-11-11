@@ -2269,3 +2269,5 @@ admin-settings-key-reader-attachment-thumbnails = Image attachment thumbnails
 admin-settings-help-reader-attachment-thumbnails = Off by default. Allow visible image attachments to load thumbnail previews. Attachment security rules still apply. Can be set and locked globally, per domain, or per user.
 admin-settings-key-retention-image-handles-grace-days = Expired image handle retention
 admin-settings-help-retention-image-handles-grace-days = Days expired image handles are kept before cleanup. Zero removes them after expiry.
+admin-settings-key-mail-templates-show-in-sidebar = Show Templates in the sidebar
+admin-settings-help-mail-templates-show-in-sidebar = Show the Templates workspace in the mailbox sidebar while templates are enabled. Administrators can set and lock the preference.

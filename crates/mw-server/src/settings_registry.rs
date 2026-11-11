@@ -716,6 +716,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "Plain-text response templates: enabled"
     ),
     def!(
+        "mail.templates.showInSidebar",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "Show the Templates workspace in the mailbox sidebar"
+    ),
+    def!(
         "mail.templates.allowPersonal",
         Kind::Bool,
         "true",
@@ -8782,16 +8790,24 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                 let invalid = || {
                     Refusal::invalid(
                         &format!("{field}/{index}"),
-                        "expected unique id, plain title and plain text body within their limits",
+                        "expected a unique id, title, plain text body and optional subject and recipient fields within their limits",
                     )
                 };
                 let object = item.as_object().ok_or_else(invalid)?;
-                if object.len() != 3
+                if object.keys().any(|key| !matches!(key.as_str(), "id" | "title" | "body" | "subject" | "to" | "cc" | "bcc"))
                     || !object.contains_key("id")
                     || !object.contains_key("title")
                     || !object.contains_key("body")
                 {
                     return Err(invalid());
+                }
+                for (field, max) in [("subject", 998), ("to", 2000), ("cc", 2000), ("bcc", 2000)] {
+                    if let Some(value) = object.get(field) {
+                        let text = value.as_str().ok_or_else(invalid)?;
+                        if text.chars().count() > max || text.chars().any(char::is_control) {
+                            return Err(invalid());
+                        }
+                    }
                 }
                 let id = object["id"].as_str().ok_or_else(invalid)?;
                 let title = object["title"].as_str().ok_or_else(invalid)?;
@@ -9637,6 +9653,10 @@ mod tests {
         let def = lookup("mail.templates.personal").unwrap();
         let value = json!([{"id":"reply_1","title":"Resposta","body":"  Hello\r\n\t<literal>  "}]);
         assert_eq!(validate(def, &value, "/value").unwrap(), value);
+        let message = json!([{"id":"welcome","title":"Welcome","body":"Hello","subject":"Welcome!","to":"person@example.test","bcc":"copy@example.test"}]);
+        assert_eq!(validate(def, &message, "/value").unwrap(), message);
+        let injected = json!([{"id":"welcome","title":"Welcome","body":"Hello","subject":"Hello\r\nBcc: injected@example.test"}]);
+        assert!(validate(def, &injected, "/value").is_err());
         for bad in [
             json!([{"id":"a","title":"t","body":"b","html":true}]),
             json!([{"id":"a","title":"t","body":"b"},{"id":"a","title":"t","body":"b"}]),

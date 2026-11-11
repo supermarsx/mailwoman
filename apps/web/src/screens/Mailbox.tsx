@@ -71,7 +71,7 @@ import { AttachmentTab, type AttachmentTabItem } from '../viewers/AttachmentTab.
 import { buildDownloadUrl } from '../viewers/attachments.ts';
 import type { StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { useBranding, brandAssetUrl } from '../branding.ts';
-import { batch, createEffect, createMemo, createSignal, on, untrack, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
+import { batch, createEffect, createMemo, createSignal, lazy, on, untrack, For, Show, Suspense, onMount, onCleanup, type JSX } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
 import { useApp } from '../state/context.ts';
 import { createEntryMotion } from '../shell/createEntryMotion.ts';
@@ -111,6 +111,9 @@ import { setRetentionFolder } from '../state/retentionFocus.ts';
 import { AssistPanel } from '../modules/assist/index.ts';
 // t88: the search input, its icon buttons and the filter chips.
 import { SearchBox } from '../components/search/SearchBox.tsx';
+
+const Templates = lazy(() => import('./Templates.tsx'));
+void loadCatalog('response-templates');
 // i18n: the ids this file shows live in these catalogs, which load with it.
 void loadCatalog('folder-dnd');
 
@@ -505,7 +508,7 @@ export function MailboxScreen(): JSX.Element {
   let initialRoutePending=true;
   const surface = (): ShellSurface => router.route().surface;
   // t98: a surface the feature profile turns off (also when the profile loads or changes later) goes back to mail.
-  const surfaceAllowed = (d: ShellSurface): boolean => !((d==='attachments'&&!featureOn('views.attachments'))||(isPimSurface(d)&&!featureOn(d))||(d==='keys'&&!featureOn('keys')));
+  const surfaceAllowed = (d: ShellSurface): boolean => !((d==='templates'&&settings()['mail.templates.enabled']?.value===false)||(d==='attachments'&&!featureOn('views.attachments'))||(isPimSurface(d)&&!featureOn(d))||(d==='keys'&&!featureOn('keys')));
   createEffect(()=>{const d=surface();if(!surfaceAllowed(d))untrack(()=>router.navigate('mail'));});
   createEffect(()=>{const off=panes().filter(pane=>pane.surface!==undefined&&!surfaceAllowed(pane.surface)).map(pane=>pane.id);if(off.length>0)untrack(()=>void closePanes(off));});
   createEffect(()=>{const destination=surface(),accountId=app.accountId();untrack(()=>{
@@ -514,7 +517,7 @@ export function MailboxScreen(): JSX.Element {
     if(!accountId)return;
     const module=APP_NAV_MODULES.find(item=>item.id===destination);
     const kind=destination==='attachments'?'attachments':destination==='outbox'?'outbox':'module';
-    const title=module?rawT(`common-module-${module.id}`):rawT(destination==='attachments'?'mail-nav-attachments':'mail-nav-outbox');
+    const title=module?rawT(`common-module-${module.id}`):rawT(destination==='templates'?'response-templates-workspace':destination==='attachments'?'mail-nav-attachments':'mail-nav-outbox');
     const id=`surface:${accountId}:${destination}`;if(!canOpenPane(id)){router.navigate(activePane()?.surface??'mail');return;}
     if(!panes().some(pane=>pane.id===id))setPanes(old=>[...old,{id,kind,title,surface:destination,reference:destination}]);
     subTabs.open({id,kind,title});
@@ -903,6 +906,7 @@ export function MailboxScreen(): JSX.Element {
       return box?.name ?? t('mail-brand');
     }
     if (s === 'outbox') return t('mail-nav-outbox');
+    if (s === 'templates') return t('response-templates-workspace');
     if (s === 'attachments') return t('mail-nav-attachments');
     return APP_NAV_MODULES.find((m) => m.id === s)?.label ?? t('mail-brand');
   });
@@ -1100,6 +1104,13 @@ export function MailboxScreen(): JSX.Element {
           >
             <Icon name="attachment"/><span class="sidebar__box-name">{t('mail-nav-attachments')}</span>
           </button></Show>
+          <Show when={settings()['mail.templates.enabled']?.value === true && settings()['mail.templates.showInSidebar']?.value !== false}>
+            <button type="button" class={`sidebar__box ${a11y.focusable}`}
+              classList={{'sidebar__box--active': surface() === 'templates'}} aria-label={t('response-templates-workspace')}
+              title={t('response-templates-workspace')} onClick={() => router.navigate('templates')}>
+              <Icon name="book"/><span class="sidebar__box-name">{t('response-templates-workspace')}</span>
+            </button>
+          </Show>
           <Show when={featureOn('views.events')}><EventsNavEntry active={surface() === 'mail' && app.selectedMailboxId() === EVENTS_VIEW_ID} onSelect={() => { router.navigate('mail'); subTabs.activate('mail'); void app.selectMailbox(EVENTS_VIEW_ID); }}/></Show>
           <button
             type="button"
@@ -1213,6 +1224,11 @@ export function MailboxScreen(): JSX.Element {
               <Show when={pane.kind==='outbox'}><Outbox/></Show>
               <Show when={pane.kind==='attachments'}><Attachments mailboxes={app.mailboxes()} loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
               <Show when={pane.kind==='sharing'&&pane.reference&&pane.accountId}><SharingDialog embedded mailboxId={pane.reference!} accountId={pane.accountId!} mailboxName={pane.title} onClose={()=>void closePane(pane.id)}/></Show>
+              <Show when={pane.surface === 'templates'}>
+                <AsyncBoundary><Suspense fallback={<AsyncPending message={t('mail-loading')}/>}>
+                  <Templates onCompose={initial => openComposer(initial)} />
+                </Suspense></AsyncBoundary>
+              </Show>
               <Show when={pane.kind==='module'&&APP_NAV_MODULES.find(module=>module.id===pane.surface)}>{module=><main class="module-pane" data-surface={module().id} data-mw-surface><AsyncBoundary><Suspense fallback={<AsyncPending message={t('mail-module-loading',{module:module().label})}/>}><Dynamic component={module().mount()}/></Suspense></AsyncBoundary></main>}</Show>
               <Show when={pane.kind==='settings' && pane.navigation}>{navigation=><Settings embedded navigation={navigation()} onClose={()=>void closePane(pane.id)}/>}</Show>
               </>}</DetachedWorkspacePane>

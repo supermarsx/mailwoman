@@ -78,7 +78,7 @@ export const PRIVACY_CARDS: readonly CardSpec[] = [
 /** Compose cards added after the first kit pass (undo-send window, response templates). */
 export const COMPOSE_EXTRA_CARDS: readonly CardSpec[] = [
   { id: 'compose-card-send-delay', section: 'compose', title: 'send-delay-title', help: 'send-delay-help', rows: [{ id: 'send-delay-select', label: 'send-delay-label' }] },
-  { id: 'compose-card-templates', section: 'compose', title: 'response-templates-title', rows: [{ id: 'response-templates-enabled', label: 'response-templates-enable' }] },
+  { id: 'compose-card-templates', section: 'compose', title: 'response-templates-title', rows: [{ id: 'response-templates-enabled', label: 'response-templates-enable' }, { id: 'response-templates-sidebar', label: 'response-templates-sidebar' }] },
 ];
 
 /** Time zones, labels and other list or form sections of the Mail and Interface groups. */

@@ -53,6 +53,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'security.health.networks',
 
   'mail.templates.enabled',
+  'mail.templates.showInSidebar',
   'mail.templates.allowPersonal',
   'mail.templates.shared',
   'mail.templates.personal',

@@ -39,6 +39,7 @@ export interface ComposeInitial {
   /** Recipient fields in the composer's own syntax (`Name <addr>, …`). */
   to: string;
   cc: string;
+  bcc?: string;
   subject: string;
   /** The quoted original as HTML already reduced to the compose schema, and
    *  the same content as plain text for the plain-text body. */

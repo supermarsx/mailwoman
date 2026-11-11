@@ -3387,6 +3387,13 @@ message bodies.
 `mail.templates.enabled` defaults to true and supports global/domain/user defaults
 and locks. It controls template use; it never sends a message automatically.
 
+<a id="mail.templates.showInSidebar"></a>
+`mail.templates.showInSidebar` defaults to true. Users can hide the Templates
+workspace from the sidebar. Administrators can set and lock this preference.
+In the workspace, a personal or shared template can start a new draft with its
+optional subject, To, Cc and Bcc fields and plain-text body. Existing body-only
+templates work in the workspace and in the compose ribbon.
+
 <a id="mail.templates.allowPersonal"></a>
 `mail.templates.allowPersonal` defaults to true and is administrative only
 (global/domain/admin-user). False refuses new personal-template writes; removal

@@ -2273,3 +2273,5 @@ admin-settings-key-reader-attachment-action-style = Ações de visualização de
 admin-settings-key-reader-attachment-thumbnails = Miniaturas de anexos de imagens
 admin-settings-key-retention-image-handles-grace-days = Conservação de identificadores de imagem expirados
 admin-settings-help-retention-image-handles-grace-days = Dias de conservação dos identificadores de imagem após a expiração. Zero elimina-os após expirarem.
+admin-settings-key-mail-templates-show-in-sidebar = Mostrar Modelos na barra lateral
+admin-settings-help-mail-templates-show-in-sidebar = Mostra o espaço de trabalho Modelos na barra lateral enquanto os modelos estiverem ativados. Os administradores podem definir e bloquear esta preferência.

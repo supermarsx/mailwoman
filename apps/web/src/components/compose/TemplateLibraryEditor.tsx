@@ -1,10 +1,10 @@
 import {createMemo,createSignal,createUniqueId,For,Show,type JSX} from 'solid-js';
 import {loadCatalog,rawT,t} from '../../i18n';
 import {newIdempotencyKey} from '../../api/recovery.ts';
-import {matchingTemplates,TEMPLATE_BODY_LIMIT,TEMPLATE_LIMIT,TEMPLATE_TITLE_LIMIT,type ResponseTemplate} from './responseTemplateModel.ts';
+import {matchingTemplates,TEMPLATE_BODY_LIMIT,TEMPLATE_LIMIT,TEMPLATE_TITLE_LIMIT,TEMPLATE_HEADERS,TEMPLATE_HEADER_LIMITS,validResponseTemplates,type ResponseTemplate} from './responseTemplateModel.ts';
 import * as css from './responseTemplates.css.ts';
 
-export function TemplateLibraryEditor(props:{value:readonly ResponseTemplate[];onChange:(next:ResponseTemplate[])=>void;disabled?:boolean;id?:string;describedBy?:string|undefined}):JSX.Element{
+export function TemplateLibraryEditor(props:{value:readonly ResponseTemplate[];onChange:(next:ResponseTemplate[])=>void;disabled?:boolean;id?:string;describedBy?:string|undefined;onUse?:(row:ResponseTemplate)=>void}):JSX.Element{
  void loadCatalog('response-templates');
  const fallbackId=createUniqueId(),[selected,setSelected]=createSignal<string|null>(null),[query,setQuery]=createSignal('');
  const item=createMemo(()=>props.value.find(row=>row.id===selected()));
@@ -18,7 +18,17 @@ export function TemplateLibraryEditor(props:{value:readonly ResponseTemplate[];o
   <Show when={props.value.length===0}><p>{t('response-templates-empty')}</p></Show>
   <Show when={item()}>{row=><>
    <label class={css.field}>{t('response-templates-name')}<input class={css.control} disabled={props.disabled} value={row().title} maxLength={TEMPLATE_TITLE_LIMIT} onInput={event=>update({title:event.currentTarget.value})}/></label>
+   <For each={TEMPLATE_HEADERS}>{field => (
+    <label class={css.field}>{t(`response-templates-header-${field}`)}
+     <input class={css.control} disabled={props.disabled} value={row()[field] ?? ''}
+       maxLength={TEMPLATE_HEADER_LIMITS[field]} onInput={event => update({[field]: event.currentTarget.value})}/>
+    </label>
+   )}</For>
    <label class={css.field}>{t('response-templates-body')}<textarea class={css.body} disabled={props.disabled} value={row().body} maxLength={TEMPLATE_BODY_LIMIT} onInput={event=>update({body:event.currentTarget.value})}/></label>
+   <Show when={props.onUse}>
+    <button type="button" class="btn" disabled={!validResponseTemplates([row()])}
+      onClick={() => props.onUse?.(row())}>{t('response-templates-compose')}</button>
+   </Show>
    <button type="button" class="btn btn--ghost" disabled={props.disabled} onClick={()=>{if(!props.disabled){props.onChange(props.value.filter(value=>value.id!==row().id));setSelected(null);}}}>{t('response-templates-remove')}</button>
   </>}</Show>
  </div>;

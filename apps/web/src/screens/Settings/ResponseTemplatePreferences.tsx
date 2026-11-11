@@ -1,4 +1,4 @@
-import {createEffect,createSignal,on,onCleanup,type JSX} from 'solid-js';
+import {createEffect,createSignal,createUniqueId,Show,on,onCleanup,type JSX} from 'solid-js';
 import {loadCatalog,t} from '../../i18n';
 import {TemplateLibraryEditor} from '../../components/compose/TemplateLibraryEditor.tsx';
 import {validResponseTemplates,type ResponseTemplate} from '../../components/compose/responseTemplateModel.ts';
@@ -12,9 +12,11 @@ import {ControlRow} from './layout/SettingRow.tsx';
 import {SettingsCard} from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 
-export function ResponseTemplatePreferences():JSX.Element{
+export function ResponseTemplatePreferences(props: { onUse?: (row: ResponseTemplate) => void } = {}):JSX.Element{
  void loadCatalog('response-templates');
  const enabled=useSetting('mail.templates.enabled',true),allowed=useSetting('mail.templates.allowPersonal',true);
+ const sidebar=useSetting('mail.templates.showInSidebar',true);
+ const workspaceId=createUniqueId();
  const personal=useSetting<ResponseTemplate[]>('mail.templates.personal',[],validResponseTemplates);
  const [draft,setDraft]=createSignal<ResponseTemplate[]>([]),[baseline,setBaseline]=createSignal('[]');
  const dirty=()=>JSON.stringify(draft())!==baseline();
@@ -32,12 +34,23 @@ export function ResponseTemplatePreferences():JSX.Element{
   if(ok)toast.success(t('response-templates-saved'),{id});else toast.error(personal.error(),{id});savingToast=undefined;
  }
  async function toggle(value:boolean):Promise<void>{const owner=preferenceAccount();const ok=await enabled.set(value);if(disposed||preferenceAccount()!==owner)return;if(ok)toast.success(t('response-templates-saved'));else toast.error(enabled.error());}
- return <SettingsCard id="compose-card-templates" wide title={t('response-templates-title')}>
+ return <SettingsCard id={props.onUse ? workspaceId : 'compose-card-templates'} wide title={t(props.onUse ? 'response-templates-personal' : 'response-templates-title')}>
+  <Show when={!props.onUse}>
   <ControlRow controlId="response-templates-enabled" label={t('response-templates-enable')} note={<LockNote locked={enabled.locked()}/>}>{()=>
    <input id="response-templates-enabled" type="checkbox" checked={enabled.value()} disabled={!enabled.entry()||enabled.locked()||enabled.saving()} onChange={event=>void toggle(event.currentTarget.checked)}/>
   }</ControlRow>
+  <ControlRow controlId="response-templates-sidebar" label={t('response-templates-sidebar')} note={<LockNote locked={sidebar.locked()}/>}>{() =>
+   <input id="response-templates-sidebar" type="checkbox" checked={sidebar.value()}
+     disabled={!sidebar.entry() || sidebar.locked() || sidebar.saving()}
+     onChange={event => void sidebar.set(event.currentTarget.checked)}/>
+  }</ControlRow>
+  <Show when={sidebar.error()}><p role="alert">{sidebar.error()}</p></Show>
+  </Show>
   <p class={css.meta}>{t(allowed.value()?'response-templates-personal-help':'response-templates-personal-blocked')}</p><LockNote locked={personal.locked()}/>
-  <TemplateLibraryEditor value={draft()} onChange={setDraft} disabled={disabled()}/>
+  <Show when={allowed.value() || !props.onUse}>
+   <TemplateLibraryEditor value={draft()} onChange={setDraft} disabled={disabled()}
+     {...(props.onUse && allowed.value() && enabled.value() ? {onUse: props.onUse} : {})}/>
+  </Show>
   <p class={css.meta}>{t('response-templates-limits')}</p>
   <div class={css.actions}><button type="button" class={css.button} disabled={disabled()||!dirty()||!validResponseTemplates(draft())} onClick={()=>void save()}>{t('response-templates-save')}</button><button type="button" class={css.ghost} disabled={!dirty()||personal.saving()} onClick={()=>setDraft(personal.value().map(row=>({...row})))}>{t('response-templates-discard-button')}</button></div>
   <Leave/>
