@@ -94,6 +94,9 @@
   background: var(--bg-alt);
   border-block-start: var(--border-hair) solid var(--border);
 }
+.reader__attachments-inline { margin-block: 12px 4px; padding-block-start: 8px; border-block-start: var(--border-hair) solid var(--border); }
+.reader__attachments-inline > summary { padding: 6px 8px; color: var(--text-dim); cursor: pointer; }
+.reader__attachments-inline[open] > summary { margin-block-end: 8px; }
 .mw-thumb {
   flex: 0 0 auto;
   width: 92px;
