@@ -13,7 +13,7 @@ function actions(spy: (id: string) => void): SelectionAction[] {
   }));
 }
 
-function mount(opts: { width?: number; total?: number } = {}) {
+function mount(opts: { width?: number; total?: number; compact?: boolean } = {}) {
   const [count, setCount] = createSignal(0);
   const [busy,setBusy]=createSignal(false);
   const ran: string[] = [];
@@ -30,7 +30,7 @@ function mount(opts: { width?: number; total?: number } = {}) {
     <section id="pane" style={{ position: 'relative' }}>
       <button id="row" type="button">Row</button>
       <button id="row2" type="button">Row 2</button>
-      <SelectionBar busy={busy()} count={count()} total={opts.total ?? 10} selectAll={selectAll} clear={clear} actions={list} returnFocus={returnFocus} scope="s" />
+      <SelectionBar compact={opts.compact ?? false} busy={busy()} count={count()} total={opts.total ?? 10} selectAll={selectAll} clear={clear} actions={list} returnFocus={returnFocus} scope="s" />
     </section>
   ));
   return { setCount, setBusy, ran, selectAll, clear, returnFocus, move };
@@ -63,6 +63,15 @@ describe('inlineCount', () => {
 });
 
 describe('SelectionBar', () => {
+  it('keeps Select all and Select none reachable in the narrow folder bar overflow',async()=>{
+    stubLayout(210);const {setCount,selectAll,clear}=mount({compact:true});setCount(2);
+    expect(screen.queryByTestId('bulk-select-all')).toBeNull();
+    fireEvent.click(await screen.findByTestId('bulk-more'));
+    fireEvent.click(screen.getByRole('menuitem',{name:'Select all'}));expect(selectAll).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByTestId('bulk-more'));
+    fireEvent.click(screen.getByRole('menuitem',{name:'Select none'}));expect(clear).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('toolbar')).toBeNull();
+  });
   it('disables More while a folder refresh is busy and opens it when ready',async()=>{
     stubLayout(300);const {setCount,setBusy}=mount();setCount(2);setBusy(true);
     const more=await screen.findByRole('button',{name:'More selection actions'});

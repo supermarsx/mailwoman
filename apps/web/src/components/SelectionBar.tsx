@@ -32,14 +32,22 @@ export interface SelectionAction {
   menu?: () => ContextAction[];
   disabled?: boolean;
   testId?: string;
+  title?: string | undefined;
 }
 
 export interface SelectionBarProps {
-  /** Selected messages; the bar also shows for an explicitly active selection mode. */
+  /** Selected items; the bar also shows for an explicitly active selection mode. */
   count: number;
+  countLabel?: string;
+  announcement?: string;
+  label?: string;
+  testId?: string;
+  clearTestId?: string;
+  /** Narrow panes keep Select all in More so the count and close button fit. */
+  compact?: boolean;
   active?: boolean;
   dismiss?: () => void;
-  /** Selectable messages in the view; Select all turns into Select none at this count. */
+  /** Selectable items in the view; Select all turns into Select none at this count. */
   total: number;
   selectAll: () => void;
   clear: () => void;
@@ -69,7 +77,7 @@ export function SelectionBar(props: SelectionBarProps): JSX.Element {
   return (
     <>
       <span class={css.live} role="status" aria-live="polite" aria-atomic="true" data-testid="selection-bar-status">
-        {props.count > 0 ? t('selection-bar-announce', { count: props.count }) : ''}
+        {props.count > 0 ? props.announcement ?? t('selection-bar-announce', { count: props.count }) : ''}
       </span>
       <Show when={props.active || props.count > 0}>
         <Bar {...props} />
@@ -111,8 +119,9 @@ function Bar(props: SelectionBarProps): JSX.Element {
     if (action.menu) openMenu(action.id, action.label, action.menu, trigger);
     else void action.run?.();
   }
-  const moreItems = (): ContextAction[] =>
-    overflow().map((action) => ({
+  const moreItems = (): ContextAction[] => [
+    ...(props.compact ? [{id:'select-all',label:all()?t('selection-bar-select-none'):t('selection-bar-select-all'),icon:'check' as const,run:()=>all()?props.clear():props.selectAll()}] : []),
+    ...overflow().map((action) => ({
       id: action.id,
       label: action.menu ? `${action.label}…` : action.label,
       icon: action.icon,
@@ -125,7 +134,8 @@ function Bar(props: SelectionBarProps): JSX.Element {
           queueMicrotask(() => openMenu(action.id, action.label, action.menu!, trigger));
         } else return action.run?.();
       },
-    }));
+    })),
+  ];
 
   // ── fitting the bar to its pane ──────────────────────────────────────────
   function measure(): void {
@@ -142,8 +152,8 @@ function Bar(props: SelectionBarProps): JSX.Element {
     // hide exactly the overflow this is measuring.
     const edges = ['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth'] as const;
     const fixed = edges.reduce((sum, key) => sum + (parseFloat(style[key]) || 0), 0)
-      + others.reduce((sum, el) => sum + el.offsetWidth, 0) + Math.max(0, others.length - 1) * gap;
-    setFit(inlineCount(props.actions.length, available, fixed, slot));
+      + others.reduce((sum, el) => sum + Math.max(el.offsetWidth, props.compact ? el.scrollWidth : 0), 0) + Math.max(0, others.length - 1) * gap;
+    setFit(props.compact && available > 0 && slot > 0 ? Math.max(0,Math.min(props.actions.length,Math.floor((available-fixed-slot)/slot))) : inlineCount(props.actions.length, available, fixed, slot));
   }
   onMount(() => {
     measure();
@@ -219,16 +229,16 @@ function Bar(props: SelectionBarProps): JSX.Element {
   return (
     <div
       ref={bar}
-      class={css.bar}
+      class={`${css.bar} ${props.compact ? css.compact : ''}`}
       role="toolbar"
-      aria-label={t('selection-bar-label')}
+      aria-label={props.label ?? t('selection-bar-label')}
       aria-keyshortcuts="F6"
-      data-testid="bulk-bar"
+      data-testid={props.testId ?? "bulk-bar"}
       onKeyDown={onKeyDown}
       onFocusIn={(e) => { const at = controls().indexOf(e.target as HTMLButtonElement); if (at >= 0) { stop = at; syncStops(); } }}
     >
-      <span class={css.count} data-testid="bulk-count">{t('selection-bar-count', { count: props.count })}</span>
-      <button
+      <span class={css.count} data-testid="bulk-count">{props.countLabel ?? t('selection-bar-count', { count: props.count })}</span>
+      <Show when={!props.compact}><button
         type="button"
         class={css.button}
         aria-label={all() ? t('selection-bar-select-none') : t('selection-bar-select-all')}
@@ -237,7 +247,7 @@ function Bar(props: SelectionBarProps): JSX.Element {
       >
         <Icon name={all() ? 'minus' : 'check'} />
       </button>
-      <span class={css.separator} aria-hidden="true" />
+      <span class={css.separator} aria-hidden="true" /></Show>
       {/* Keyed by id, not by object: the actions are rebuilt on every change
           (a label flips to "Mark unread"), and a re-created button would drop
           the focus it holds. */}
@@ -251,6 +261,7 @@ function Bar(props: SelectionBarProps): JSX.Element {
             data-slot=""
             data-testid={action().testId}
             aria-label={action().label}
+            title={action().title ?? action().label}
             aria-haspopup={action().menu ? 'menu' : undefined}
             aria-expanded={action().menu ? expanded() === id : undefined}
             disabled={props.count === 0 || action().disabled === true || props.busy === true}
@@ -261,7 +272,7 @@ function Bar(props: SelectionBarProps): JSX.Element {
           );
         }}
       </For>
-      <Show when={overflow().length > 0}>
+      <Show when={props.compact || overflow().length > 0}>
         <button
           ref={moreButton}
           type="button"
@@ -277,8 +288,8 @@ function Bar(props: SelectionBarProps): JSX.Element {
           <Icon name="more" />
         </button>
       </Show>
-      <span class={css.separator} aria-hidden="true" />
-      <button type="button" class={css.button} aria-label={t('selection-bar-clear')} data-testid="bulk-clear" onClick={() => (props.dismiss ?? props.clear)()}>
+      <Show when={!props.compact}><span class={css.separator} aria-hidden="true" /></Show>
+      <button type="button" class={css.button} aria-label={t('selection-bar-clear')} data-testid={props.clearTestId ?? "bulk-clear"} onClick={() => (props.dismiss ?? props.clear)()}>
         <Icon name="close" />
       </button>
       {menu.menu()}

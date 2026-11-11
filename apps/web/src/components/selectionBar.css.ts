@@ -7,7 +7,7 @@
 // Sizes are fixed rems so the bar is one line at every width: the controls that
 // do not fit go into its More menu (see `inlineCount` in SelectionBar.tsx).
 
-import { keyframes, style } from '@vanilla-extract/css';
+import { globalStyle, keyframes, style } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
 
 /** The bar's height and its distance from the pane's bottom edge. */
@@ -122,3 +122,7 @@ export const paneBody = style({
   minHeight: 0,
   minWidth: 0,
 });
+
+/** The sidebar keeps its count, overflow and close controls on one line. */
+export const compact = style({gap:'0.125rem'});
+globalStyle(`${compact} > span[data-testid="bulk-count"]`,{flex:'0 1 auto',minWidth:0,overflow:'hidden',textOverflow:'ellipsis',fontSize:'0.8rem',paddingInline:'0.125rem'});

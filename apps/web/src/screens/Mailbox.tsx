@@ -54,6 +54,7 @@ import {FolderContextMenu} from '../components/FolderContextMenu.tsx';
 import {useFolderMarquee} from '../components/useFolderMarquee.tsx';
 import {clearSelectedFolders,clickFolder,extendFolderSelection,selectAllFolders,selectedFolderIds} from '../components/folderSelection.ts';
 import {FolderSelectionBar} from '../components/FolderSelectionBar.tsx';
+import * as folderBulkCss from '../components/selectionBar.css.ts';
 import {peekMessageDrag,takeMessageDrag} from '../components/messageDrag.ts';
 import {folderDropTarget} from '../components/messageDrag.css.ts';
 import { ResizeHandle } from '../components/ResizeHandle.tsx';
@@ -1086,7 +1087,7 @@ export function MailboxScreen(): JSX.Element {
         onClick={(e) => {
           // The mailbox picker's trigger only opens its menu; choosing a
           // mailbox closes the drawer through the switch itself (below).
-          if (e.target instanceof Element && e.target.closest('button') !== null && e.target.closest('.sidebar__account') === null && e.target.closest('[data-folder-disclosure]')===null && e.target.closest('[data-folder-twisty]')===null) closeNav();
+          if (e.target instanceof Element && e.target.closest('button') !== null && e.target.closest('.sidebar__account') === null && e.target.closest('[data-testid="folder-selection-bar"]') === null && e.target.closest('[data-folder-disclosure]')===null && e.target.closest('[data-folder-twisty]')===null) closeNav();
         }}
       >
         <div class="sidebar__head">
@@ -1108,8 +1109,8 @@ export function MailboxScreen(): JSX.Element {
         <FolderNestDialog arranger={folderLayout.arranger} nameOf={id=>app.mailboxes().find(value=>value.id===id)?.name??''}/>
         <p class={folderSrOnly} role="status" aria-live="polite" data-testid="folder-dnd-status">{folderDnd.announcement()}</p>
         <Show when={(accountUiPreferences().folderStarred?.length??0)>0}><button type="button" class={`btn btn--ghost sidebar__starred-only ${a11y.focusable}`} aria-pressed={starredOnly()} title={t('folder-star-only-help')} onClick={()=>setStarredOnly(!starredOnly())}><Icon name={starredOnly()?'star':'starOutline'}/><span class="sidebar__box-name">{t('folder-star-only')}</span></button></Show>
-        <Show when={selectedFolderIds().size>0}><FolderSelectionBar ids={selectedFolderIds()} onMove={ids=>setArranging(ids[0]??null)}/></Show>
-        <div class="sidebar__scroll" ref={folderMarquee.ref}>{folderMarquee.liveRegion()}
+        <div class={folderBulkCss.paneBody}>
+        <div class="sidebar__scroll" classList={{[folderBulkCss.listInset]:selectedFolderIds().size>0}} ref={folderMarquee.ref}>{folderMarquee.liveRegion()}
         <FolderCreationControl><nav class="sidebar__nav" {...pinDnd.unpinProps} aria-label={t('mail-nav-mailboxes')} aria-busy={!!app.me()&&app.mailboxes().length===0}>
           <div class="sidebar__folder-rows" data-folder-region role={app.mailboxes().length>0?'tree':undefined} aria-label={app.mailboxes().length>0?t('mail-nav-mailboxes'):undefined} aria-multiselectable={app.mailboxes().length>0?'true':undefined} onKeyDown={onTreeKey} onFocusIn={onTreeFocus}>
           <Show when={app.me()&&app.mailboxes().length===0}><AsyncPending variant="folders" rows={folderRows()} quiet message={t('mail-folders-loading')} onRetry={()=>void app.refreshFolders()}/></Show>
@@ -1203,6 +1204,8 @@ export function MailboxScreen(): JSX.Element {
             )}
           </For>
         </nav>
+        </div>
+        <Show when={selectedFolderIds().size>0}><FolderSelectionBar ids={selectedFolderIds()} total={visibleFolderIds().length} selectAll={()=>selectAllFolders(visibleFolderIds())} returnFocus={()=>{const id=visibleFolderIds().find(id=>selectedFolderIds().has(id))??app.selectedMailboxId()??visibleFolderIds()[0];if(id)focusFolder(id);}} onMove={ids=>setArranging(ids[0]??null)}/></Show>
         </div>
         {sidebarMenu.menu()}
         <div class="sidebar__footer">

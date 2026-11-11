@@ -5,8 +5,7 @@ export const heading=style({display:'flex',alignItems:'start',justifyContent:'sp
 export const tools=style({display:'flex',alignItems:'center',flexWrap:'wrap',gap:vars.space[2],maxInlineSize:'64rem'});
 export const search=style({display:'flex',alignItems:'center',gap:vars.space[2],flex:'1 1 16rem',maxInlineSize:'28rem',minInlineSize:0});
 globalStyle(`${search} > input:not([type="checkbox"]):not([type="radio"])`,{minInlineSize:0,inlineSize:'100%'});
-export const bulk=style({display:'flex',alignItems:'center',flexWrap:'wrap',gap:vars.space[2],padding:vars.space[2],border:`${vars.border.hair} solid ${vars.color.borderStrong}`,background:vars.color.bgAlt,maxInlineSize:'64rem'});
-globalStyle(`${bulk} > span`,{fontWeight:vars.weight.medium,marginInlineEnd:vars.space[2]});
+export const floatingActions=style({position:'sticky',bottom:0,height:0,zIndex:20,maxInlineSize:'64rem'});
 export const wrap = style({maxInlineSize:'64rem',minInlineSize:0,overflowX:'auto'});
 export const table = style({inlineSize:'100%',borderCollapse:'collapse',tableLayout:'auto'});
 globalStyle(`${table} th, ${table} td`,{padding:`${vars.space[2]} ${vars.space[2]}`,textAlign:'start',verticalAlign:'middle',borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`,overflowWrap:'anywhere'});

@@ -10,6 +10,8 @@ import {folderDialogEnabled} from '../../components/properties/policy.ts';
 import {FocusedInboxPreference} from './FocusedInboxPreference.tsx';
 import {FocusedSenders} from './FocusedSenders.tsx';
 import {Icon} from '../../components/Icon.tsx';
+import {SelectionBar,type SelectionAction} from '../../components/SelectionBar.tsx';
+import * as bulkCss from '../../components/selectionBar.css.ts';
 import {useLeaveConfirm} from '../../components/confirm.tsx';
 import {CreateFolderDialog} from '../../components/FolderMaintenance.tsx';
 import {useRenameContext} from '../../components/RenameFolder.tsx';
@@ -171,6 +173,19 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   const ids=new Set(prefs().folderPinned??[]);for(const folder of targets)if(value)ids.add(folder.id);else ids.delete(folder.id);
   update({folderPinned:[...ids]});
  }
+ const bulkActions=createMemo<SelectionAction[]>(()=>[
+  {id:'move',label:t('folder-dnd-selected-move'),icon:'folder',disabled:selectedFolders().some(folder=>!!lockReason(folder.id)),run:()=>{setMoveTo(selectedFolders().map(folder=>folder.id));}},
+  {id:'pin',label:t('settings-folders-pin-selected'),icon:'pin',run:()=>setPinned(selectedFolders(),true)},
+  {id:'unpin',label:t('settings-folders-unpin-selected'),icon:'pin',run:()=>setPinned(selectedFolders(),false)},
+  {id:'show',label:t('settings-folders-show-selected'),icon:'eye',run:()=>setVisibility(selectedFolders(),true)},
+  {id:'hide',label:t('settings-folders-hide-selected'),icon:'eyeOff',disabled:selectedFolders().every(folder=>folder.role==='inbox'),run:()=>setVisibility(selectedFolders(),false)},
+  ...(serverOk()?[
+   {id:'subscribe',testId:'bulk-subscribe',label:t('settings-folders-subscribe-selected'),icon:'check' as const,run:()=>subscribe(selectedFolders(),true)},
+   {id:'unsubscribe',testId:'bulk-unsubscribe',label:t('settings-folders-unsubscribe-selected'),icon:'close' as const,run:()=>subscribe(selectedFolders(),false)},
+   {id:'empty',testId:'bulk-empty',label:t('folder-bar-empty'),icon:'delete' as const,disabled:!emptiable(),title:emptiable()?undefined:t('folder-ops-move-unavailable'),run:()=>{setBulkEmpty(selectedFolders().map(folder=>folder.id));}},
+   {id:'delete',testId:'bulk-delete',label:t('settings-folders-delete-selected'),icon:'delete' as const,disabled:!deletable(),title:deletable()?undefined:t('settings-folders-bulk-delete-none'),run:()=>{setBulkDelete(selectedFolders().map(folder=>folder.id));}},
+  ]:[]),
+ ]);
  const context=createContextMenu({label:()=>t('settings-folders-actions'),scope:()=>`${owner?.id}:${owner?.generation}:${ownerCurrent()}:${menuFolder()}`,actions:()=>{
   const folder=folders().find(value=>value.id===menuFolder());if(!folder||!current())return [];
   const actions:ContextAction[]=[
@@ -226,24 +241,9 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    <button type="button" class="btn btn--ghost" disabled={!current()||!folders().length} onClick={()=>setSelected(new Set(folders().map(folder=>folder.id)))}>{t('settings-folders-select-all')}</button>
    <button type="button" class="btn btn--ghost" data-testid="select-user-folders" disabled={!current()||!userFolders().length} onClick={()=>{setSelected(new Set(userFolders().map(folder=>folder.id)));setAnchor(null);}}>{t('settings-folders-select-user')}</button>
   </div>
-  <Show when={selectedFolders().length}><div class={folderCss.bulk} role="group" aria-label={t('settings-folders-selected',{count:selectedFolders().length})}>
-   <span role="status">{t('settings-folders-selected',{count:selectedFolders().length})}</span>
-   <button type="button" class="btn btn--ghost" disabled={selectedFolders().some(folder=>!!lockReason(folder.id))} onClick={()=>setMoveTo(selectedFolders().map(folder=>folder.id))}>{t('folder-dnd-selected-move')}</button>
-   <button type="button" class="btn btn--ghost" onClick={()=>setPinned(selectedFolders(),true)}>{t('settings-folders-pin-selected')}</button>
-   <button type="button" class="btn btn--ghost" onClick={()=>setPinned(selectedFolders(),false)}>{t('settings-folders-unpin-selected')}</button>
-   <button type="button" class="btn btn--ghost" onClick={()=>setVisibility(selectedFolders(),true)}>{t('settings-folders-show-selected')}</button>
-   <button type="button" class="btn btn--ghost" disabled={selectedFolders().every(folder=>folder.role==='inbox')} onClick={()=>setVisibility(selectedFolders(),false)}>{t('settings-folders-hide-selected')}</button>
-   <Show when={serverOk()}>
-    <button type="button" class="btn btn--ghost" data-testid="bulk-subscribe" onClick={()=>void subscribe(selectedFolders(),true)}>{t('settings-folders-subscribe-selected')}</button>
-    <button type="button" class="btn btn--ghost" data-testid="bulk-unsubscribe" onClick={()=>void subscribe(selectedFolders(),false)}>{t('settings-folders-unsubscribe-selected')}</button>
-    <button type="button" class="btn btn--ghost" data-testid="bulk-empty" disabled={!emptiable()} title={emptiable()?undefined:t('folder-ops-move-unavailable')} onClick={()=>setBulkEmpty(selectedFolders().map(folder=>folder.id))}><Icon name="delete"/>{t('folder-bar-empty')}</button>
-    <button type="button" class="btn btn--ghost" data-testid="bulk-delete" disabled={!deletable()} title={deletable()?undefined:t('settings-folders-bulk-delete-none')} onClick={()=>setBulkDelete(selectedFolders().map(folder=>folder.id))}><Icon name="delete"/>{t('settings-folders-delete-selected')}</button>
-   </Show>
-   <button type="button" class="btn btn--ghost" onClick={()=>setSelected(new Set<string>())}>{t('settings-folders-clear')}</button>
-  </div></Show>
   <p class={css.meta}>{t('settings-folders-order-help')}</p>
   <p class={folderCss.srOnly} role="status" aria-live="polite">{dnd.announcement()}</p>
-  <div class={folderCss.wrap} ref={wrapEl} role="region" aria-label={t('settings-folders-table')} tabIndex={0}><table class={folderCss.table}><thead><tr><th class={folderCss.selectCell}><input type="checkbox" aria-label={t('settings-folders-select-visible')} disabled={!current()||!visible().length} checked={visible().length>0&&visible().every(folder=>selected().has(folder.id))} ref={input=>createEffect(()=>{input.indeterminate=visible().some(folder=>selected().has(folder.id))&&!visible().every(folder=>selected().has(folder.id));})} onChange={event=>{const checked=event.currentTarget.checked;setSelected(value=>{const next=new Set(value);for(const folder of visible())if(checked)next.add(folder.id);else next.delete(folder.id);return next;});}}/></th><th>{t('settings-folders-name')}</th><th class={folderCss.location}>{t('settings-folders-location')}</th><th>{t('settings-folders-actions')}</th></tr></thead><tbody>
+  <div class={folderCss.wrap} classList={{[bulkCss.listInset]:selectedFolders().length>0}} ref={wrapEl} role="region" aria-label={t('settings-folders-table')} tabIndex={0}><table class={folderCss.table}><thead><tr><th class={folderCss.selectCell}><input type="checkbox" aria-label={t('settings-folders-select-visible')} disabled={!current()||!visible().length} checked={visible().length>0&&visible().every(folder=>selected().has(folder.id))} ref={input=>createEffect(()=>{input.indeterminate=visible().some(folder=>selected().has(folder.id))&&!visible().every(folder=>selected().has(folder.id));})} onChange={event=>{const checked=event.currentTarget.checked;setSelected(value=>{const next=new Set(value);for(const folder of visible())if(checked)next.add(folder.id);else next.delete(folder.id);return next;});}}/></th><th>{t('settings-folders-name')}</th><th class={folderCss.location}>{t('settings-folders-location')}</th><th>{t('settings-folders-actions')}</th></tr></thead><tbody>
    <For each={tableRows()}>{row=>{const folder=row.box as unknown as PreferenceFolder;const hidden=()=>folderIsHidden(folder,props.folders(),prefs());return <tr {...dnd.rowProps(folder.id)} style={{'--folder-indent':'1.25rem',...dnd.dropVars(folder.id)}} data-folder-id={folder.id} data-depth={row.depth} data-selected={selected().has(folder.id)||undefined} onKeyDown={event=>{if(folderDialogEnabled()&&isPropertiesShortcut(event)){const live=app?.mailboxes().find(box=>box.id===folder.id);if(live){event.preventDefault();openFolderProperties(live);return;}}dnd.key(event,folder.id);}} onContextMenu={event=>{setMenuFolder(folder.id);context.open(event);}}>
     <td class={folderCss.selectCell}><input type="checkbox" aria-label={t('settings-folders-select',{name:folder.name})} disabled={!current()} checked={selected().has(folder.id)} onClick={event=>pick(folder.id,event)} onChange={()=>undefined}/></td>
     <td><div class={folderCss.name} style={{'padding-inline-start':`${row.depth*1.25}rem`}}>
@@ -265,6 +265,9 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    </tr>;}}</For>
    <Show when={!visible().length}><tr><td colSpan={4} class={folderCss.empty}>{t('settings-folders-empty')}</td></tr></Show>
   </tbody></table></div>
+  <div class={folderCss.floatingActions}>
+   <SelectionBar count={selectedFolders().length} countLabel={t('settings-folders-selected',{count:selectedFolders().length})} announcement={t('settings-folders-selected',{count:selectedFolders().length})} label={t('folder-bar-label')} testId="settings-folder-selection-bar" total={folders().length} selectAll={()=>setSelected(new Set(folders().map(folder=>folder.id)))} clear={()=>setSelected(new Set<string>())} scope={`${owner?.id}:${owner?.generation}`} actions={bulkActions()} returnFocus={()=>wrapEl?.focus()}/>
+  </div>
   </SettingsCard>
   {context.menu()}
   <FolderNestDialog arranger={layout.arranger} nameOf={id=>props.folders().find(folder=>folder.id===id)?.name??''}/>

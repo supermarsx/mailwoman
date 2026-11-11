@@ -11,10 +11,9 @@ import {useEmptyAbility} from './EmptyFolderDialog.tsx';
 import {BulkDeleteFoldersDialog} from './BulkDeleteFoldersDialog.tsx';
 import {BulkEmptyFoldersDialog} from './BulkEmptyFoldersDialog.tsx';
 import {runMarkAllRead} from './folderOps.ts';
-import {Icon} from './Icon.tsx';
+import {SelectionBar,type SelectionAction} from './SelectionBar.tsx';
 import {toast} from './toast/toast.ts';
 import {clearSelectedFolders} from './folderSelection.ts';
-import * as css from './folderSelectionBar.css.ts';
 // i18n: the ids this file shows live in these catalogs, which load with it.
 void loadCatalog('settings');
 /**
@@ -22,7 +21,7 @@ void loadCatalog('settings');
  * Pin, Star, Subscribe and Unsubscribe for the whole set. What the account or the administrator does not allow is
  * disabled with its reason as the tooltip (system folders are never deleted; Empty needs the backend's ability).
  */
-export function FolderSelectionBar(props:{ids:ReadonlySet<string>;onMove:(ids:string[])=>void}):JSX.Element {
+export function FolderSelectionBar(props:{ids:ReadonlySet<string>;onMove:(ids:string[])=>void;total:number;selectAll:()=>void;returnFocus:()=>void}):JSX.Element {
  const app=useApp(),ability=useRenameContext(),emptyAbility=useEmptyAbility();
  void loadCatalog('folder-dnd');void loadCatalog('folder-select');
  const [deleting,setDeleting]=createSignal<string[]|null>(null),[emptying,setEmptying]=createSignal<string[]|null>(null);
@@ -50,20 +49,19 @@ export function FolderSelectionBar(props:{ids:ReadonlySet<string>;onMove:(ids:st
   const targets=chosen().filter(box=>box.myRights?.maySetSeen!==false&&box.mailwomanSearchQuery===undefined).map(box=>box.id);
   void runMarkAllRead({app,client:createConfiguredClient(),accountId,current:()=>preferenceAccountIsCurrent(owner)&&app.accountId()===accountId},t('folder-select-count',{count:targets.length}),targets);
  }
- const btn=(testId:string,label:string,icon:Parameters<typeof Icon>[0]['name'],run:()=>void,disabled=false,title?:string)=>
-  <button type="button" class={`btn btn--ghost ${css.action}`} data-testid={testId} disabled={disabled} {...(title?{title}:{})} onClick={run}><Icon name={icon}/><span>{label}</span></button>;
- return <div class={css.bar} role="toolbar" aria-label={t('folder-bar-label')} data-testid="folder-selection-bar">
-  <span class={css.count} role="status">{t('folder-select-count',{count:props.ids.size})}</span>
-  {btn('bar-delete',t('settings-folders-delete-selected'),'delete',()=>setDeleting([...props.ids]),!manages()||!deletable(),!manages()?t('folder-ops-delete-unavailable'):!deletable()?t('settings-folders-bulk-delete-none'):undefined)}
-  {btn('bar-empty',t('folder-bar-empty'),'delete',()=>setEmptying([...props.ids]),!emptiable(),emptiable()?undefined:t('folder-ops-move-unavailable'))}
-  {btn('bar-read',t('folder-bar-mark-read'),'mailRead',markRead)}
-  {btn('bar-move',t('folder-dnd-arrange-menu'),'folder',()=>props.onMove([...props.ids]))}
-  {btn('bar-pin',t(allIn(prefs().folderPinned)?'folder-bar-unpin':'folder-bar-pin'),'pin',()=>toggle('folderPinned'))}
-  {btn('bar-star',t(allIn(prefs().folderStarred)?'folder-bar-unstar':'folder-bar-star'),'star',()=>toggle('folderStarred'))}
-  {btn('bar-subscribe',t('settings-folders-subscribe-selected'),'check',()=>void subscribe(true),!manages())}
-  {btn('bar-unsubscribe',t('settings-folders-unsubscribe-selected'),'close',()=>void subscribe(false),!manages())}
-  {btn('bar-clear',t('settings-folders-clear'),'close',clearSelectedFolders)}
+ const actions=createMemo<SelectionAction[]>(()=>[
+  {id:'move',testId:'bar-move',label:t('folder-dnd-arrange-menu'),icon:'folder',run:()=>props.onMove([...props.ids])},
+  {id:'read',testId:'bar-read',label:t('folder-bar-mark-read'),icon:'mailRead',run:markRead},
+  {id:'pin',testId:'bar-pin',label:t(allIn(prefs().folderPinned)?'folder-bar-unpin':'folder-bar-pin'),icon:'pin',run:()=>toggle('folderPinned')},
+  {id:'star',testId:'bar-star',label:t(allIn(prefs().folderStarred)?'folder-bar-unstar':'folder-bar-star'),icon:'star',run:()=>toggle('folderStarred')},
+  {id:'empty',testId:'bar-empty',label:t('folder-bar-empty'),icon:'delete',run:()=>{setEmptying([...props.ids]);},disabled:!emptiable(),title:emptiable()?undefined:t('folder-ops-move-unavailable')},
+  {id:'delete',testId:'bar-delete',label:t('settings-folders-delete-selected'),icon:'delete',run:()=>{setDeleting([...props.ids]);},disabled:!manages()||!deletable(),title:!manages()?t('folder-ops-delete-unavailable'):!deletable()?t('settings-folders-bulk-delete-none'):undefined},
+  {id:'subscribe',testId:'bar-subscribe',label:t('settings-folders-subscribe-selected'),icon:'check',run:()=>subscribe(true),disabled:!manages()},
+  {id:'unsubscribe',testId:'bar-unsubscribe',label:t('settings-folders-unsubscribe-selected'),icon:'close',run:()=>subscribe(false),disabled:!manages()},
+ ]);
+ return <>
+  <SelectionBar compact count={chosen().length} countLabel={t('selection-bar-count',{count:chosen().length})} announcement={t('folder-select-count',{count:chosen().length})} label={t('folder-bar-label')} testId="folder-selection-bar" clearTestId="bar-clear" total={props.total} selectAll={props.selectAll} clear={clearSelectedFolders} actions={actions()} scope={app.accountId()??''} returnFocus={props.returnFocus}/>
   <Show when={deleting()}>{ids=><BulkDeleteFoldersDialog ids={ids()} context={ability} onDone={()=>clearSelectedFolders()} onClose={()=>setDeleting(null)}/>}</Show>
   <Show when={emptying()&&emptyAbility()}>{a=><BulkEmptyFoldersDialog ids={emptying()!} ability={a()} onClose={()=>setEmptying(null)}/>}</Show>
- </div>;
+ </>;
 }
