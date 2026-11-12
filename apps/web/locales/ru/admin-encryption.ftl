@@ -115,3 +115,8 @@ admin-encryption-col-holds = Содержит
 admin-encryption-col-sealed = Зашифрован
 admin-encryption-sealed = Зашифрован
 admin-encryption-not-sealed = Не зашифрован
+
+admin-encryption-files-encrypt = Зашифровать существующие архивы и журналы
+admin-encryption-files-help = Файлы аутентифицируются и шифруются перед заменой. Внешнее хранилище, stdout и старые резервные копии остаются ответственностью оператора.
+admin-encryption-files-done = Миграция файлов завершена. Обновите результаты покрытия.
+admin-encryption-evidence-files-encrypted = { $files }; { admin-encryption-state-plaintext }: { $plaintext }; { admin-encryption-state-unknown }: { $unknown }

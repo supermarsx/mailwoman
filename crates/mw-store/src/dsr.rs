@@ -421,6 +421,11 @@ impl Store {
             .await
     }
 
+    /// A purpose-separated key for the encrypted search directory.
+    pub fn search_file_key(&self) -> crate::ServerKey {
+        crate::ServerKey::from_bytes(&self.key.derive("search-directory-v1")).expect("32-byte derived key")
+    }
+
     pub fn seal_blob(&self, plain: &[u8]) -> Result<Vec<u8>, StoreError> {
         Ok(self.key.seal(plain)?)
     }

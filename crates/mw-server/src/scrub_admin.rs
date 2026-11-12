@@ -231,6 +231,7 @@ pub(crate) fn scrub_log_file(
     } else {
         raw
     };
+    let plain=crate::observability::log_files::decode_log(&plain)?;
     let text = String::from_utf8_lossy(&plain);
     let mut changed = 0u64;
     let mut out = String::with_capacity(text.len());
@@ -247,12 +248,13 @@ pub(crate) fn scrub_log_file(
     let tmp = path.with_extension("scrub-tmp");
     {
         let mut f = std::fs::File::create(&tmp)?;
+        let sealed=crate::observability::log_files::encode_log(out.as_bytes())?;
         if gz {
             let mut enc = flate2::write::GzEncoder::new(&mut f, flate2::Compression::default());
-            enc.write_all(out.as_bytes())?;
+            enc.write_all(&sealed)?;
             enc.finish()?;
         } else {
-            f.write_all(out.as_bytes())?;
+            f.write_all(&sealed)?;
         }
         f.sync_all()?;
     }

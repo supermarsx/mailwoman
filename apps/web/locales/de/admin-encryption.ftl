@@ -115,3 +115,8 @@ admin-encryption-col-holds = Enthält
 admin-encryption-col-sealed = Versiegelt
 admin-encryption-sealed = Versiegelt
 admin-encryption-not-sealed = Nicht versiegelt
+
+admin-encryption-files-encrypt = Vorhandene Archiv- und Protokolldateien verschlüsseln
+admin-encryption-files-help = Dateien werden vor dem Ersetzen authentifiziert und verschlüsselt. Externer Speicher, stdout und alte Backups bleiben Betreiberaufgabe.
+admin-encryption-files-done = Dateimigration abgeschlossen. Aktualisieren Sie die Abdeckungsanzeige.
+admin-encryption-evidence-files-encrypted = { $files }; { admin-encryption-state-plaintext }: { $plaintext }; { admin-encryption-state-unknown }: { $unknown }

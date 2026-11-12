@@ -114,12 +114,7 @@ pub(crate) fn build_engine(store: &mw_store::Store, db_path: &str) -> Arc<Engine
     match search_index_place(db_path, search_dir.as_deref()) {
         SearchIndexPlace::Disk(dir) => match open_index_dir(store, &dir) {
             Ok(engine) => {
-                // A warning, at every start: this is the one place the data
-                // directory holds mail text that is not sealed.
-                tracing::warn!(
-                    "search index: on disk at {}. It holds the text of every indexed message (sender, recipients, subject, body, attachment text) UNSEALED, unlike the database, which seals message bodies under the server key. Protect this directory like the key itself, or set MW_SEARCH_DIR=memory to keep the index in RAM and rebuild it from the database at each start.",
-                    dir.display()
-                );
+                tracing::info!("search index: authenticated encryption at rest at {}",dir.display());
                 Arc::new(engine)
             }
             Err(e) => {

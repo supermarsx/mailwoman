@@ -14,17 +14,17 @@ The live view is **Administration > Compliance > Encryption**. Every row there i
 
 ## What is protected, store by store
 
-Determined by reading the code and the files, 2026-11-05.
+Implementation updated 2026-11-12. Check the live coverage view for the files present in your deployment.
 
 | Store | SQLite, key configured | SQLite, no key | Postgres |
 |---|---|---|---|
 | Database file, WAL and journal | Encrypted (SQLCipher 4, AES-256-CBC, HMAC-SHA512 per page) | Plain SQLite file. Credentials, cached message bodies and envelopes, notes, embeddings, second-factor secrets and other secrets are sealed per column (XChaCha20-Poly1305 under the server key); everything else is readable | Not encrypted by the application. Same per-column sealing. Disk or volume encryption is the operator's |
 | Data export parts (`dsr_part`) | Encrypted with the database | Sealed only when `dsr.export.encrypt` is on, otherwise plaintext | Same as the left column, minus the file |
-| Search index (`<db>.search-index` or `MW_SEARCH_DIR`) | **Plaintext** Tantivy files holding message text | Same | Memory by default; plaintext if `MW_SEARCH_DIR` names a directory |
+| Search index (`<db>.search-index` or `MW_SEARCH_DIR`) | Authenticated XChaCha20-Poly1305 files, with a purpose-separated server-key subkey | Same | Memory by default; encrypted files when a directory is configured |
 | Uploaded files (`MW_UPLOAD_DIR`) | Sealed per object with the server key | Same | Same |
 | Embeddings | Inside the database, sealed per vector | Same | Same |
-| Log files (`logging.file.*`) | **Plaintext**, with addresses and tokens redacted | Same | Same |
-| Retention archive (`retention.archive.directory`) | **Plaintext** gzip. The seal is an HMAC for integrity, not secrecy | Same | Same |
+| Log files (`logging.file.*`) | Independently authenticated encrypted records, with redaction before encryption | Same | Same |
+| Retention archive (`retention.archive.directory`) | Gzip compressed in memory, then authenticated encryption; HMAC chain retained | Same | Same |
 | Server key (`<db>.server-key`, `MW_SERVER_KEY`, `MW_SERVER_KEY_FILE`) | A plain file protected by permissions, or an environment variable | Same | Same |
 | Database key (`MW_DB_KEY*`) | Never in the database or settings. A file, environment variable or command output | n/a | n/a |
 | Rollback copies (`<db>.pre-*`) | Plaintext after `db encrypt` until you purge them | n/a | n/a |
@@ -32,7 +32,30 @@ Determined by reading the code and the files, 2026-11-05.
 
 Not covered by anything here: process memory, swap, core dumps, the clear-text key while the server runs, the Redis/Valkey cache (see `docs/deploy/cache.md`), and your reverse proxy and mail servers.
 
-The search index is the one place the data directory holds mail text that is not sealed, with or without a database key. Either keep it in memory (`MW_SEARCH_DIR=memory`, rebuilt from the database at each start) or put its directory on an encrypted volume. The server logs a warning about this at every start when the index is on disk.
+Persistent search migrates existing Tantivy metadata and segment files while
+holding the real index writer lock. File encryption binds each ciphertext to
+its filename. Wrong keys or tampering refuse opening; the server may rebuild a
+memory-only index from the database instead of writing plaintext. Decrypted
+index data lives in process memory, so encrypted search uses more RAM than
+plaintext memory mapping.
+
+**Administration → Compliance → Encryption → Encrypt existing archive and log
+files** migrates historical app-owned logs and archives. Archive metadata changes
+only after the new ciphertext is synced, and the old plaintext file is removed
+afterward. Migrated archives retain their original logical content hashes so the
+existing integrity chain remains valid. Read, export, restore, verification and
+log scrubbing support the encrypted formats. The current log migrates before
+its next append; the explicit action covers rotated historical logs too.
+
+The coverage view reads current files, authenticates samples and archive
+metadata, and flags legacy plaintext or unverifiable files rather than assuming
+that an enabled setting proves encryption. Disabled file logging does not hide
+existing log files. An interrupted migration may leave extra files; investigate
+reported plaintext/unknown results before declaring coverage complete.
+
+Migration cannot erase old filesystem snapshots, SSD blocks or existing backups.
+Use encrypted host volumes and protect the server key separately. Container/stdout
+logs and remote-provider storage remain the operator's responsibility.
 
 ## How it works
 

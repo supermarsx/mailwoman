@@ -17,6 +17,7 @@
 //! returns `stableId`s in sort order.
 
 mod query;
+mod sealed_directory;
 /// A8 (26.19): cosine re-rank of an already-retrieved lexical hit list, behind the
 /// opt-in `semantic` flag. Pure vector math over `std` — retrieval is untouched, so
 /// the default search path is byte-identical to 26.18.
@@ -472,6 +473,20 @@ impl Index {
         }
         let inner = TantivyIndex::open_or_create(dir, schema)?;
         Self::from_index(inner, fields)
+    }
+
+    /// Open a persistent index whose metadata and segments are authenticated
+    /// ciphertext. Existing plaintext index files migrate before opening.
+    pub fn open_sealed(data_dir:&Path,key:mw_store::ServerKey)->Result<Self>{
+        std::fs::create_dir_all(data_dir)?;
+        let dir=sealed_directory::SealedDirectory::open(data_dir,key.clone())?;
+        let (schema,fields)=build_schema();
+        if TantivyIndex::exists(&dir).map_err(|e|SearchError::Io(e.to_string()))? && TantivyIndex::open(dir.clone())?.schema()!=schema {
+            drop(dir);clear_index_files(data_dir)?;
+            let dir=sealed_directory::SealedDirectory::open(data_dir,key)?;
+            return Self::from_index(TantivyIndex::open_or_create(dir,schema)?,fields);
+        }
+        Self::from_index(TantivyIndex::open_or_create(dir,schema)?,fields)
     }
 
     fn open_fresh(data_dir: &Path, schema: Schema, fields: Fields) -> Result<Self> {
@@ -1232,6 +1247,22 @@ fn u64_term(field: Field, value: u64) -> Box<dyn Query> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encrypted_index_migrates_reopens_and_rejects_tampering(){
+        let dir=std::env::temp_dir().join(format!("mw-sealed-search-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let key=mw_store::ServerKey::generate();
+        {let index=Index::open(&dir).unwrap();index.upsert(&doc("secret","uniquesecretphrase","person@example.org")).unwrap();}
+        {let index=Index::open_sealed(&dir,key.clone()).unwrap();assert_eq!(index.search(&parse_query("uniquesecretphrase").unwrap(),10).unwrap(),vec!["secret"]);}
+        for entry in std::fs::read_dir(&dir).unwrap().flatten(){
+            let name=entry.file_name().to_string_lossy().into_owned();if name.ends_with(".lock"){continue;}
+            let bytes=std::fs::read(entry.path()).unwrap();assert!(bytes.starts_with(b"MWB1"),"{name}");assert!(!bytes.windows(18).any(|w|w==b"uniquesecretphrase"));
+        }
+        assert!(Index::open_sealed(&dir,mw_store::ServerKey::generate()).is_err());
+        {let index=Index::open_sealed(&dir,key.clone()).unwrap();assert_eq!(index.search(&parse_query("uniquesecretphrase").unwrap(),10).unwrap(),vec!["secret"]);}
+        let path=dir.join("meta.json");let mut bytes=std::fs::read(&path).unwrap();let last=bytes.len()-1;bytes[last]^=1;std::fs::write(path,bytes).unwrap();assert!(Index::open_sealed(&dir,key).is_err());
+        assert!(dir.starts_with(std::env::temp_dir()));std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn sender_domain_matches_only_exact_address_domains_and_composes() {

@@ -1140,6 +1140,7 @@ async fn build_app_inner(
     let geoip_dir = geoip::data_dir(&config.db_path);
     let admin_overlay = admin_apply::env_overlay()?;
     let key = server_key::resolve(&config.db_path, config.server_key_hex.as_deref())?;
+    observability::log_files::install_file_key(key.clone());
     encryption_status::remember_database(&config.db_path);
     let store = Store::open(&config.db_path, key.clone()).await?;
     // Attachment upload store (t15): when `MW_UPLOAD_DIR` is configured, seal + write

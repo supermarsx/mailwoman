@@ -36,6 +36,14 @@ use std::path::{Path, PathBuf};
 /// The `prev_seal` of a store's first segment.
 pub const GENESIS: &str = "genesis";
 
+fn segment_path(dir:&Path,location:&str)->Result<PathBuf,StoreError>{
+    let mut components=Path::new(location).components();
+    if !matches!(components.next(),Some(std::path::Component::Normal(_)))||components.next().is_some(){return Err(StoreError::Invalid("archive filename must stay in its directory".into()));}
+    let path=dir.join(location);
+    if let Ok(metadata)=std::fs::symlink_metadata(&path){if !metadata.file_type().is_file(){return Err(StoreError::Invalid("archive segment must be a regular file".into()));}}
+    Ok(path)
+}
+
 /// One column of an archived table.
 #[derive(Debug, Clone, Copy)]
 pub struct Col {
@@ -435,8 +443,8 @@ impl Store {
             plain.extend_from_slice(r.to_string().as_bytes());
             plain.push(b'\n');
         }
-        let file = compress(&plain)?;
         let id = uuid::Uuid::new_v4().to_string();
+        let file = self.key.seal_bound(&compress(&plain)?, "retention-archive-file-v1", &[t.id, &id, &key_gen.to_string()])?;
         let name = format!("{}-{:08}-{}.mwarc", t.id, seq, &id[..8]);
         let path = dir.join(&name);
         let tmp = dir.join(format!("{name}.tmp"));
@@ -496,6 +504,36 @@ impl Store {
         Ok(seg)
     }
 
+    /// Encrypt legacy compressed files without changing the logical content
+    /// hash or integrity chain. Metadata switches only after ciphertext is synced.
+    pub async fn archive_encrypt_legacy(&self,dir:&Path)->Result<u64,StoreError>{
+        let segments=self.archive_segments(None).await?;let mut changed=0;
+        for seg in segments{
+            if seg.state=="purged"{continue;}
+            let old=segment_path(dir,&seg.location)?;let bytes=std::fs::read(&old).map_err(io)?;
+            if bytes.starts_with(b"MWB1"){continue;}
+            if sha_hex(&bytes)!=seg.content_hash||self.archive_seal(&seg)!=seg.seal{return Err(StoreError::Corrupt("archive verification failed; migration refused".into()));}
+            decompress(&bytes)?;
+            let sealed=self.key.seal_bound(&bytes,"retention-archive-file-v1",&[&seg.store_id,&seg.id,&seg.key_gen.to_string()])?;
+            let name=format!("{}.{}.enc",seg.location,uuid::Uuid::new_v4());
+            let path=dir.join(&name);let mut file=std::fs::OpenOptions::new().create_new(true).write(true).open(&path).map_err(io)?;
+            file.write_all(&sealed).map_err(io)?;file.sync_all().map_err(io)?;drop(file);
+            let updated=q("UPDATE retention_archive_segment SET location=?1,bytes=?2 WHERE id=?3 AND location=?4 AND content_hash=?5")
+                .bind(name).bind(sealed.len() as i64).bind(seg.id.as_str()).bind(seg.location.as_str()).bind(seg.content_hash.as_str()).execute(&self.backend).await?;
+            if updated>0{std::fs::remove_file(old).map_err(io)?;changed+=1;}else{let _=std::fs::remove_file(path);}
+        }
+        Ok(changed)
+    }
+    fn archive_decode_file(&self,seg:&Segment,bytes:&[u8])->Result<Vec<u8>,StoreError>{
+        let compressed=if bytes.starts_with(b"MWB1"){
+            self.key.open_bound(bytes,"retention-archive-file-v1",&[&seg.store_id,&seg.id,&seg.key_gen.to_string()])?
+        }else{bytes.to_vec()};
+        // New segments hash ciphertext; migrated legacy segments retain their
+        // original compressed-content hash so successors' seals remain valid.
+        if sha_hex(bytes)!=seg.content_hash&&sha_hex(&compressed)!=seg.content_hash{return Err(StoreError::Corrupt("archive content hash mismatch".into()));}
+        Ok(compressed)
+    }
+
     /// Check one segment against its file and the segment before it.
     pub async fn archive_verify(&self, seg: &Segment, dir: &Path, prev: Option<&Segment>) -> Verdict {
         if seg.state == "purged" {
@@ -505,14 +543,18 @@ impl Store {
         if seg.prev_seal != expected_prev {
             return Verdict::ChainBroken;
         }
-        let Ok(bytes) = std::fs::read(dir.join(&seg.location)) else {
+        let Ok(path)=segment_path(dir,&seg.location) else{return Verdict::ContentChanged;};
+        let Ok(bytes) = std::fs::read(path) else {
             return Verdict::Missing;
         };
-        if sha_hex(&bytes) != seg.content_hash {
+        if self.archive_decode_file(seg,&bytes).is_err() {
             return Verdict::ContentChanged;
         }
         if self.archive_seal(seg) != seg.seal {
             return Verdict::SealMismatch;
+        }
+        if bytes.starts_with(b"MWB1") && self.key.open_bound(&bytes,"retention-archive-file-v1",&[&seg.store_id,&seg.id,&seg.key_gen.to_string()]).is_err() {
+            return Verdict::ContentChanged;
         }
         Verdict::Ok
     }
@@ -561,11 +603,10 @@ impl Store {
         if seg.state == "purged" {
             return Err(StoreError::Invalid("segment was purged".into()));
         }
-        let bytes = std::fs::read(dir.join(&seg.location)).map_err(io)?;
-        if sha_hex(&bytes) != seg.content_hash {
-            return Err(StoreError::Invalid("segment content hash mismatch".into()));
-        }
-        let plain = decompress(&bytes)?;
+        let bytes = std::fs::read(segment_path(dir,&seg.location)?).map_err(io)?;
+        if self.archive_seal(&seg)!=seg.seal{return Err(StoreError::Corrupt("archive seal mismatch".into()));}
+        let compressed=self.archive_decode_file(&seg,&bytes)?;
+        let plain = decompress(&compressed)?;
         let text = String::from_utf8(plain).map_err(|_| StoreError::Invalid("segment is not UTF-8".into()))?;
         let mut rows = Vec::new();
         for (i, line) in text.lines().enumerate() {
@@ -670,7 +711,7 @@ impl Store {
         let mut n = 0;
         for r in &rows {
             let seg = segment(r);
-            match std::fs::remove_file(dir.join(&seg.location)) {
+            match std::fs::remove_file(segment_path(dir,&seg.location)?) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(io(e)),
@@ -818,6 +859,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn legacy_archive_encryption_preserves_chain_and_restore(){
+        let (s,dir)=store().await;let arch=dir.join("archive");let table=archive_table("assistAudit").unwrap();
+        put(&s,"legacy","2020-01-01T00:00:00Z").await;
+        s.archive_move(table,1_700_000_000,10,10,&arch,1,1000,&[],false).await.unwrap();
+        let mut segment=s.archive_segments(None).await.unwrap().remove(0);
+        let path=arch.join(&segment.location);let ciphertext=std::fs::read(&path).unwrap();
+        let plain=s.key.open_bound(&ciphertext,"retention-archive-file-v1",&[&segment.store_id,&segment.id,&segment.key_gen.to_string()]).unwrap();
+        std::fs::write(&path,&plain).unwrap();segment.content_hash=sha_hex(&plain);segment.seal=s.archive_seal(&segment);
+        q("UPDATE retention_archive_segment SET content_hash=?1,seal=?2 WHERE id=?3").bind(&segment.content_hash).bind(&segment.seal).bind(&segment.id).execute(&s.backend).await.unwrap();
+        assert_eq!(s.archive_encrypt_legacy(&arch).await.unwrap(),1);assert!(!path.exists());
+        assert_eq!(s.archive_encrypt_legacy(&arch).await.unwrap(),0);
+        let migrated=s.archive_segments(None).await.unwrap().remove(0);assert_eq!(migrated.seal,segment.seal);assert_eq!(migrated.content_hash,segment.content_hash);
+        assert_eq!(s.archive_verify_all(None,&arch,2000).await.unwrap().ok,1);
+        assert_eq!(s.archive_restore(&migrated.id,&arch).await.unwrap(),1);
+        assert!(dir.starts_with(std::env::temp_dir()));std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
     async fn archive_write_verify_tamper_restore() {
         let (s, dir) = store().await;
         let arch = dir.join("arch");
@@ -843,6 +902,9 @@ mod tests {
         assert_eq!(segs[1].prev_seal, segs[0].seal);
         let ok = s.archive_verify_all(None, &arch, 2000).await.unwrap();
         assert_eq!((ok.checked, ok.ok), (2, 2));
+
+        // Ciphertext is the persistent format; gzip only exists in memory.
+        for segment in &segs{let bytes=std::fs::read(arch.join(&segment.location)).unwrap();assert!(bytes.starts_with(b"MWB1"));assert!(decompress(&bytes).is_err());}
 
         // Search by key and export.
         let hits = s.archive_search("assistAudit", Some("old1"), None, 10, &arch).await.unwrap();

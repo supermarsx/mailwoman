@@ -115,3 +115,8 @@ admin-encryption-col-holds = يحتوي على
 admin-encryption-col-sealed = مختوم
 admin-encryption-sealed = مختوم
 admin-encryption-not-sealed = غير مختوم
+
+admin-encryption-files-encrypt = تشفير ملفات الأرشيف والسجلات الحالية
+admin-encryption-files-help = تُصادَق الملفات وتُشفّر قبل استبدالها. يبقى التخزين الخارجي وstdout والنسخ الاحتياطية القديمة مسؤولية المشغّل.
+admin-encryption-files-done = اكتمل ترحيل الملفات. حدّث نتائج التغطية.
+admin-encryption-evidence-files-encrypted = { $files }; { admin-encryption-state-plaintext }: { $plaintext }; { admin-encryption-state-unknown }: { $unknown }

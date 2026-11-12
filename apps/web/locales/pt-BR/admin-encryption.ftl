@@ -115,3 +115,8 @@ admin-encryption-col-holds = Contém
 admin-encryption-col-sealed = Selada
 admin-encryption-sealed = Selada
 admin-encryption-not-sealed = Não selada
+
+admin-encryption-files-encrypt = Criptografar arquivos e logs existentes
+admin-encryption-files-help = Os arquivos são autenticados e criptografados antes da substituição. Armazenamento externo, stdout e backups antigos continuam sob responsabilidade do operador.
+admin-encryption-files-done = Migração concluída. Atualize os resultados da cobertura.
+admin-encryption-evidence-files-encrypted = { $files }; { admin-encryption-state-plaintext }: { $plaintext }; { admin-encryption-state-unknown }: { $unknown }

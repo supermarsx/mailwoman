@@ -115,3 +115,8 @@ admin-encryption-col-holds = 内容
 admin-encryption-col-sealed = 已封存
 admin-encryption-sealed = 已封存
 admin-encryption-not-sealed = 未封存
+
+admin-encryption-files-encrypt = 加密现有归档和日志文件
+admin-encryption-files-help = 文件在替换前会进行身份验证和加密。外部存储、stdout和旧备份仍由运营方负责保护。
+admin-encryption-files-done = 文件迁移已完成。请刷新保护范围结果。
+admin-encryption-evidence-files-encrypted = { $files }; { admin-encryption-state-plaintext }: { $plaintext }; { admin-encryption-state-unknown }: { $unknown }

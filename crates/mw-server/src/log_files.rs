@@ -23,6 +23,53 @@ use std::{
     sync::{Mutex, OnceLock, RwLock},
 };
 
+// Each append is independently authenticated; rotation may rename/compress the
+// ciphertext without decrypting it. stdout remains the platform's responsibility.
+const SEALED_LOG: &[u8] = b"MWLOG1:";
+fn key_cell()->&'static RwLock<Option<mw_store::ServerKey>> {
+    static K:OnceLock<RwLock<Option<mw_store::ServerKey>>>=OnceLock::new();
+    K.get_or_init(||RwLock::new(None))
+}
+pub fn install_file_key(key:mw_store::ServerKey){*key_cell().write().unwrap_or_else(|e|e.into_inner())=Some(key);}
+fn file_key()->Option<mw_store::ServerKey>{key_cell().read().unwrap_or_else(|e|e.into_inner()).clone()}
+fn crypto_error(error:impl std::fmt::Display)->io::Error{io::Error::new(io::ErrorKind::InvalidData,error.to_string())}
+fn encrypt_log(bytes:&[u8],key:&mw_store::ServerKey)->io::Result<Vec<u8>>{
+    use base64::Engine as _;
+    let sealed=key.seal_bound(bytes,"application-log-record-v1",&[]).map_err(crypto_error)?;
+    let mut out=SEALED_LOG.to_vec();out.extend_from_slice(base64::engine::general_purpose::STANDARD.encode(sealed).as_bytes());out.push(b'\n');Ok(out)
+}
+pub(crate) fn decode_log(bytes:&[u8])->io::Result<Vec<u8>>{
+    if !bytes.starts_with(SEALED_LOG){return Ok(bytes.to_vec());}
+    let key=file_key().ok_or_else(||crypto_error("log encryption key unavailable"))?;
+    decode_log_with_key(bytes,&key)
+}
+fn decode_log_with_key(bytes:&[u8],key:&mw_store::ServerKey)->io::Result<Vec<u8>>{
+    use base64::Engine as _;
+    let mut out=Vec::new();
+    for record in bytes.split(|b|*b==b'\n').filter(|r|!r.is_empty()){
+        let encoded=record.strip_prefix(SEALED_LOG).ok_or_else(||crypto_error("invalid encrypted log record"))?;
+        let sealed=base64::engine::general_purpose::STANDARD.decode(encoded).map_err(crypto_error)?;
+        out.extend_from_slice(&key.open_bound(&sealed,"application-log-record-v1",&[]).map_err(crypto_error)?);
+    }
+    Ok(out)
+}
+pub(crate) fn encode_log(bytes:&[u8])->io::Result<Vec<u8>>{
+    match file_key(){Some(key)=>encrypt_log(bytes,&key),None=>Ok(bytes.to_vec())}
+}
+fn migrate_log(path:&Path,key:&mw_store::ServerKey)->io::Result<()> {
+    use std::io::Read;
+    if !fs::symlink_metadata(path)?.file_type().is_file(){return Err(crypto_error("log migration requires a regular file"));}
+    let raw=fs::read(path)?;let gzip=path.extension().is_some_and(|ext|ext=="gz");
+    let plain=if gzip{let mut bytes=Vec::new();flate2::read::MultiGzDecoder::new(&raw[..]).read_to_end(&mut bytes)?;bytes}else{raw};
+    if plain.is_empty(){return Ok(());}
+    if plain.starts_with(SEALED_LOG){decode_log_with_key(&plain,key)?;return Ok(());}
+    let sealed=encrypt_log(&plain,key)?;
+    let tmp=path.with_extension(format!("encrypt-{}.tmp",uuid::Uuid::new_v4()));
+    let mut file=OpenOptions::new().create_new(true).write(true).open(&tmp)?;
+    if gzip{let mut enc=flate2::write::GzEncoder::new(&mut file,flate2::Compression::default());enc.write_all(&sealed)?;enc.finish()?;}else{file.write_all(&sealed)?;}
+    file.sync_all()?;drop(file);fs::rename(tmp,path)
+}
+
 /// How an address appears in a log line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Redaction {
@@ -41,6 +88,21 @@ impl Redaction {
             _ => Self::Full,
         }
     }
+}
+
+/// Migrate existing app-owned log files under the writer lock. Old files stay
+/// in place if encryption fails; no plaintext migration file is created.
+pub(crate) fn encrypt_legacy_logs()->io::Result<usize>{
+    let policy=policy();let Some(key)=file_key() else{return Err(crypto_error("server key unavailable"));};
+    let mut sink=sink_cell().lock().unwrap_or_else(|e|e.into_inner());*sink=None;
+    let mut count=0;
+    if !policy.directory.exists(){return Ok(0);}
+    for entry in fs::read_dir(&policy.directory)?{
+        let entry=entry?;if !entry.file_type()?.is_file(){continue;}
+        let name=entry.file_name().to_string_lossy().into_owned();
+        if name==CURRENT||(name.starts_with("mailwoman-")&&(name.ends_with(".log")||name.ends_with(".log.gz"))){migrate_log(&entry.path(),&key)?;count+=1;}
+    }
+    Ok(count)
 }
 
 /// The effective `logging.*` settings.
@@ -293,6 +355,7 @@ pub struct FileSink {
     file: Option<File>,
     size: u64,
     opened_at: i64,
+    key: Option<mw_store::ServerKey>,
 }
 
 impl FileSink {
@@ -302,6 +365,7 @@ impl FileSink {
             file: None,
             size: 0,
             opened_at: 0,
+            key:None,
         }
     }
 
@@ -316,6 +380,7 @@ impl FileSink {
     fn open(&mut self, now: i64) -> io::Result<()> {
         fs::create_dir_all(&self.dir)?;
         let path = self.dir.join(CURRENT);
+        if let Some(key)=&self.key {if path.exists(){migrate_log(&path,key)?;}}
         let f = OpenOptions::new().create(true).append(true).open(&path)?;
         let meta = f.metadata()?;
         self.size = meta.len();
@@ -370,6 +435,8 @@ impl FileSink {
 
     /// Append `bytes`, rotating first when the size or age limit is reached.
     pub fn write(&mut self, bytes: &[u8], now: i64, p: &Policy) -> io::Result<()> {
+        let encrypted;
+        let bytes=if let Some(key)=&self.key{encrypted=encrypt_log(bytes,key)?;&encrypted[..]}else{bytes};
         if self.file.is_none() {
             self.open(now)?;
         }
@@ -431,6 +498,7 @@ pub fn status() -> serde_json::Value {
         .unwrap_or(0);
     serde_json::json!({
         "fileEnabled": p.file_enabled,
+        "encryptedWrites":file_key().is_some(),
         "directory": p.directory.to_string_lossy(),
         "currentBytes": live,
         "rotatedFiles": rotated.len(),
@@ -477,7 +545,8 @@ impl Drop for EventBuffer {
             let plain = ansi_re().replace_all(&line, "");
             let now = chrono::Utc::now().timestamp();
             let mut cell = sink_cell().lock().unwrap_or_else(|e| e.into_inner());
-            let sink = cell.get_or_insert_with(|| FileSink::new(p.directory.clone()));
+            let Some(key)=file_key() else{return;};
+            let sink = cell.get_or_insert_with(|| {let mut sink=FileSink::new(p.directory.clone());sink.key=Some(key);sink});
             // A file that cannot be written must not stop the server logging.
             let _ = sink.write(plain.as_bytes(), now, &p);
         }
@@ -544,6 +613,18 @@ mod tests {
             compress: false,
             ..Policy::default()
         }
+    }
+
+    #[test]
+    fn encrypted_log_records_migrate_rotate_and_authenticate(){
+        let dir=tmp("encrypted");let key=mw_store::ServerKey::generate();let policy=small();
+        fs::write(dir.join(CURRENT),"legacy secret@example.org\n").unwrap();
+        let mut sink=FileSink::new(dir.clone());sink.key=Some(key.clone());sink.write(b"new secret@example.org\n",1000,&policy).unwrap();drop(sink);
+        let raw=fs::read(dir.join(CURRENT)).unwrap();assert!(raw.starts_with(SEALED_LOG));assert!(!String::from_utf8_lossy(&raw).contains("secret@example.org"));
+        let plain=decode_log_with_key(&raw,&key).unwrap();assert!(String::from_utf8_lossy(&plain).contains("secret@example.org"));
+        assert!(decode_log_with_key(&raw,&mw_store::ServerKey::generate()).is_err());
+        let mut bad=raw.clone();bad[12]^=1;assert!(decode_log_with_key(&bad,&key).is_err());
+        assert!(dir.starts_with(std::env::temp_dir()));fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

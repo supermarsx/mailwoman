@@ -176,9 +176,9 @@ impl Engine {
     }
 
     /// Build an engine over a persistent index rooted at `dir`. The index holds
-    /// message text unsealed, so `dir` needs the same protection as the store.
+    /// encrypted message terms; its key is derived from the store server key.
     pub fn open_with_search(store: Store, dir: &Path) -> Result<Self> {
-        let search = mw_search::Index::open(dir)
+        let search = mw_search::Index::open_sealed(dir,store.search_file_key())
             .map_err(|e| EngineError::Protocol(format!("open search index: {e}")))?;
         let mut engine = Self::with_search(store, Arc::new(search));
         engine.search_dir = Some(dir.to_path_buf());

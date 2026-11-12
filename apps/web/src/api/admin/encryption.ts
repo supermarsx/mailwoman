@@ -50,3 +50,5 @@ export const verifyEncryption = async (): Promise<VerifyReport> =>
   (await adminRequest<VerifyReport>('/encryption/verify', { method: 'POST', body: {} })).data;
 export const rehearseEncryption = async (): Promise<Rehearsal> =>
   (await adminRequest<Rehearsal>('/encryption/rehearse', { method: 'POST', body: {} })).data;
+
+export const encryptExistingFiles=async():Promise<{archiveSegments:number;logFiles:number}> => (await adminRequest<{archiveSegments:number;logFiles:number}>('/encryption/encrypt-files',{method:'POST',body:{}})).data;

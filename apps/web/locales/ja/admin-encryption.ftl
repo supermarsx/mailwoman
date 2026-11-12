@@ -115,3 +115,8 @@ admin-encryption-col-holds = 保持する内容
 admin-encryption-col-sealed = 封印
 admin-encryption-sealed = 封印済み
 admin-encryption-not-sealed = 封印なし
+
+admin-encryption-files-encrypt = 既存のアーカイブとログを暗号化
+admin-encryption-files-help = ファイルは置換前に認証・暗号化されます。外部ストレージ、stdout、古いバックアップの保護は運用者が行います。
+admin-encryption-files-done = ファイル移行が完了しました。保護範囲を更新してください。
+admin-encryption-evidence-files-encrypted = { $files }; { admin-encryption-state-plaintext }: { $plaintext }; { admin-encryption-state-unknown }: { $unknown }

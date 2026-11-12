@@ -4,13 +4,14 @@
 // This reports configuration and observed file contents; it does not certify
 // compliance with any law or standard.
 
-import { For, Show, createResource, createSignal, onMount, type JSX } from 'solid-js';
+import { For, Show, createResource, createSignal, onMount, useContext, type JSX } from 'solid-js';
 import { formatDateTime, formatNumber, loadCatalog, t } from '../../../i18n';
 import {
-  loadEncryption, rehearseEncryption, verifyEncryption,
+  loadEncryption, rehearseEncryption, verifyEncryption, encryptExistingFiles,
   type EncryptionSnapshot, type Rehearsal, type VerifyReport,
 } from '../../../api/admin/encryption.ts';
 import { listAdminSettings, type AdminSetting } from '../../../api/admin/settings.ts';
+import {ShellContext} from '../shell/context.ts';
 import { AdminSubsection } from '../AdminSubsection.tsx';
 import { InlineSettingEditor } from '../Settings/InlineSettingEditor.tsx';
 import { StatsSection } from '../shell/ChartCard.tsx';
@@ -24,6 +25,7 @@ export interface EncryptionApi {
   verify: () => Promise<VerifyReport>;
   rehearse: () => Promise<Rehearsal>;
   settings: () => Promise<AdminSetting[]>;
+  encryptFiles?:typeof encryptExistingFiles;
 }
 
 const liveApi: EncryptionApi = {
@@ -38,19 +40,21 @@ const liveApi: EncryptionApi = {
 
 export default function Encryption(props: { api?: EncryptionApi }): JSX.Element {
   const api = props.api ?? liveApi;
+  const shell=useContext(ShellContext);const [migrated,setMigrated]=createSignal(false);
   onMount(() => void loadCatalog('admin-encryption'));
   const [snap, { refetch }] = createResource(() => api.load());
   const [rows] = createResource(() => api.settings().catch(() => [] as AdminSetting[]));
-  const [busy, setBusy] = createSignal<'verify' | 'rehearse' | null>(null);
+  const [busy, setBusy] = createSignal<'verify' | 'rehearse' | 'files' | null>(null);
   const [verify, setVerify] = createSignal<VerifyReport | null>(null);
   const [rehearsal, setRehearsal] = createSignal<Rehearsal | null>(null);
   const [failure, setFailure] = createSignal<unknown>(null);
 
-  const act = async (kind: 'verify' | 'rehearse'): Promise<void> => {
+  const act = async (kind: 'verify' | 'rehearse' | 'files'): Promise<void> => {
     setBusy(kind);
     setFailure(null);
     try {
-      if (kind === 'verify') setVerify(await api.verify());
+      if(kind==='files'){await (api.encryptFiles??encryptExistingFiles)();setMigrated(true);await refetch();}
+      else if (kind === 'verify') setVerify(await api.verify());
       else setRehearsal(await api.rehearse());
     } catch (error) {
       setFailure(error);
@@ -140,7 +144,10 @@ export default function Encryption(props: { api?: EncryptionApi }): JSX.Element 
             </AdminSubsection>
 
             <AdminSubsection title={t('admin-encryption-actions')} description={t('admin-encryption-actions-note')}>
+              <p>{t('admin-encryption-files-help')}</p>
+              <Show when={migrated()}><p role="status">{t('admin-encryption-files-done')}</p></Show>
               <div class={css.headingRow}>
+                <button type="button" class="btn" disabled={busy()!==null||!shell?.can.can('settings.write')} onClick={()=>void act('files')} data-testid="encryption-files">{t('admin-encryption-files-encrypt')}</button>
                 <button type="button" class="btn" disabled={busy() !== null || s().backend !== 'sqlite'} onClick={() => void act('verify')} data-testid="encryption-verify">
                   {busy() === 'verify' ? t('admin-encryption-verifying') : t('admin-encryption-verify')}
                 </button>

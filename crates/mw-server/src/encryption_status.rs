@@ -43,6 +43,7 @@ fn database() -> String {
 }
 
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(Method::POST,"/encryption/encrypt-files",Capability::SettingsWrite,encrypt_files_route);
     r.admin_endpoint(Method::GET, "/encryption", Capability::SettingsRead, status_route);
     r.admin_endpoint(Method::POST, "/encryption/verify", Capability::SettingsWrite, verify_route);
     r.admin_endpoint(Method::POST, "/encryption/rehearse", Capability::SettingsWrite, rehearse_route);
@@ -99,6 +100,32 @@ fn sample_dir(dir: &Path, limit: usize) -> (usize, usize, usize) {
     }
     (seen, plain, ok)
 }
+
+/// Authenticated samples, excluding lock files; unknown or oversized files
+/// never become a green encryption claim merely because of their filename.
+fn encrypted_files(dir:&Path,kind:&str,key:Option<mw_store::ServerKey>)->(usize,usize,usize){
+    use std::io::Read;
+    let (mut seen,mut plain,mut unknown)=(0,0,0);
+    let entries=match std::fs::read_dir(dir){Ok(entries)=>entries,Err(error) if error.kind()==std::io::ErrorKind::NotFound=>return (0,0,0),Err(_)=>return (0,0,1)};
+    for entry in entries.flatten(){
+        let name=entry.file_name().to_string_lossy().into_owned();
+        let relevant=match kind{"search"=>name=="meta.json"||name==".managed.json"||name.split('.').next().is_some_and(|stem|stem.len()==32&&stem.bytes().all(|b|b.is_ascii_hexdigit())),"logs"=>name=="mailwoman.log"||(name.starts_with("mailwoman-")&&(name.ends_with(".log")||name.ends_with(".log.gz"))),_=>name.contains(".mwarc")&&!name.ends_with(".tmp")};
+        if !relevant{continue;}seen+=1;
+        if seen>200{unknown+=1;break;}
+        if !entry.file_type().is_ok_and(|kind|kind.is_file())||entry.metadata().is_ok_and(|m|m.len()>128*1024*1024){unknown+=1;continue;}
+        let Ok(mut bytes)=std::fs::read(entry.path()) else{unknown+=1;continue};
+        if bytes.is_empty(){seen-=1;continue;}
+        if kind=="logs"&&name.ends_with(".gz"){
+            let mut decoded=Vec::new();if flate2::read::MultiGzDecoder::new(&bytes[..]).take(128*1024*1024+1).read_to_end(&mut decoded).is_err()||decoded.len()>128*1024*1024{unknown+=1;continue;}bytes=decoded;
+        }
+        if kind=="logs"{
+            if !bytes.starts_with(b"MWLOG1:"){plain+=1;}else if crate::observability::log_files::decode_log(&bytes).is_err(){unknown+=1;}
+        }else if !bytes.starts_with(b"MWB1"){plain+=1;}
+        else if kind=="search"&&key.as_ref().is_none_or(|key|key.open_bound(&bytes,"search-file-v1",&[&name]).is_err()){unknown+=1;}
+    }
+    (seen,plain,unknown)
+}
+fn coverage_state(seen:usize,plain:usize,unknown:usize)->&'static str{if plain>0{"plaintext"}else if unknown>0{"unknown"}else if seen==0{"not-stored"}else{"encrypted"}}
 
 fn db_file(_state: &AppState) -> Option<PathBuf> {
     encryption::sqlite_file_from_dsn(&database())
@@ -195,13 +222,8 @@ pub(crate) async fn snapshot(state: &AppState) -> Value {
     let search_env = std::env::var("MW_SEARCH_DIR").ok();
     match engine_mode::search_index_place(&db, search_env.as_deref()) {
         SearchIndexPlace::Disk(dir) => {
-            let (seen, _, _) = sample_dir(&dir, 200);
-            stores.push(row(
-                "searchIndex",
-                if seen == 0 { "unknown" } else { "plaintext" },
-                "evidence-search-disk",
-                json!({"files": seen}),
-            ));
+            let (seen,plain,unknown)=encrypted_files(&dir,"search",Some(state.store.search_file_key()));
+            stores.push(row("searchIndex",coverage_state(seen,plain,unknown),"evidence-files-encrypted",json!({"files":seen,"plaintext":plain,"unknown":unknown})));
         }
         SearchIndexPlace::Memory(_) => stores.push(row("searchIndex", "memory-only", "evidence-search-memory", json!({}))),
     }
@@ -234,8 +256,11 @@ pub(crate) async fn snapshot(state: &AppState) -> Value {
 
     // 5. Logs.
     let logs = crate::observability::log_files::status();
-    if logs["fileEnabled"].as_bool().unwrap_or(false) {
-        stores.push(row("logs", "plaintext", "evidence-logs-file", json!({"directory": logs["directory"], "redaction": true})));
+    let log_dir=PathBuf::from(logs["directory"].as_str().unwrap_or("logs"));
+    let log_coverage=encrypted_files(&log_dir,"logs",None);
+    if logs["fileEnabled"].as_bool().unwrap_or(false)||log_coverage.0>0||log_coverage.2>0 {
+        let (seen,plain,unknown)=log_coverage;
+        stores.push(row("logs",coverage_state(seen,plain,unknown),"evidence-files-encrypted",json!({"files":seen,"plaintext":plain,"unknown":unknown})));
     } else {
         stores.push(row("logs", "not-stored", "evidence-logs-stdout", json!({})));
     }
@@ -260,7 +285,17 @@ pub(crate) async fn snapshot(state: &AppState) -> Value {
         "evidence-exports",
         json!({"dsrExportSealed": export_sealed, "storedIn": "database"}),
     ));
-    stores.push(row("archive", "plaintext", "evidence-archive", json!({"integrity": "hmac-sha256", "confidentiality": false})));
+    let archive_dir=crate::auth_logs::sweeper::text_value(&state.store,"retention.archive.directory").await;
+    let (seen,plain,mut unknown)=encrypted_files(Path::new(&archive_dir),"archive",None);
+    if let Ok(segments)=state.store.archive_segments(None).await{
+        let mut previous=None;
+        for segment in &segments {
+            if previous.is_some_and(|p:&mw_store::retention_archive::Segment|p.store_id!=segment.store_id){previous=None;}
+            if segment.state!="purged"&&!matches!(state.store.archive_verify(segment,Path::new(&archive_dir),previous).await,mw_store::retention_archive::Verdict::Ok){unknown+=1;}
+            previous=Some(segment);
+        }
+    }else{unknown+=1;}
+    stores.push(row("archive",coverage_state(seen,plain,unknown),"evidence-files-encrypted",json!({"files":seen,"plaintext":plain,"unknown":unknown})));
 
     // 7. Secrets.
     let key_file = std::env::var_os("MW_SERVER_KEY_FILE").map(PathBuf::from).or_else(|| {
@@ -452,4 +487,14 @@ mod tests {
         assert_eq!(r["state"], "encrypted");
         assert_eq!(r["evidence"], "evidence-db-header");
     }
+}
+
+async fn encrypt_files_route(State(state):State<AppState>,ctx:AdminCtx)->Result<Response,AdminApiError>{
+    ctx.require_unscoped(Capability::SettingsWrite)?;
+    let dir=crate::auth_logs::sweeper::text_value(&state.store,"retention.archive.directory").await;
+    if !mw_store::retention_archive::directory_is_valid(&dir){return Err(AdminApiError::invalid("invalidDirectory","Invalid archive directory.","/directory"));}
+    let archive=state.store.archive_encrypt_legacy(Path::new(&dir)).await.map_err(AdminApiError::internal)?;
+    let logs=tokio::task::spawn_blocking(crate::observability::log_files::encrypt_legacy_logs).await.map_err(AdminApiError::internal)?.map_err(AdminApiError::internal)?;
+    crate::admin_accounts::audit(&state,&ctx,"encryption-files-migrated","encryption:files",None,Some(json!({"archiveSegments":archive,"logFiles":logs}))).await;
+    Ok(no_store(json!({"archiveSegments":archive,"logFiles":logs})))
 }

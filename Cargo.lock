@@ -5599,6 +5599,7 @@ version = "26.19.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "mw-store",
  "serde",
  "serde_json",
  "tantivy",

@@ -115,3 +115,8 @@ admin-encryption-col-holds = Bevat
 admin-encryption-col-sealed = Verzegeld
 admin-encryption-sealed = Verzegeld
 admin-encryption-not-sealed = Niet verzegeld
+
+admin-encryption-files-encrypt = Bestaande archief- en logbestanden versleutelen
+admin-encryption-files-help = Bestanden worden vóór vervanging geauthenticeerd en versleuteld. Externe opslag, stdout en oude back-ups blijven de verantwoordelijkheid van de beheerder.
+admin-encryption-files-done = Bestandsmigratie voltooid. Vernieuw de dekkingsresultaten.
+admin-encryption-evidence-files-encrypted = { $files }; { admin-encryption-state-plaintext }: { $plaintext }; { admin-encryption-state-unknown }: { $unknown }
