@@ -1,3 +1,6 @@
+import {requestMessageOpen} from './state/messageOpenRequest.ts';
+import {toast} from './components/toast/toast.ts';
+import type {IncomingMail} from './realtime/incomingMail.ts';
 import {useInterfacePreferences} from './theme/interfacePreferences.ts';
 import { onMount, onCleanup, createEffect, createSignal, Show, Switch, Match, type JSX } from 'solid-js';
 import {resetClientPolicy} from './api/policy.ts';
@@ -17,7 +20,7 @@ import { RestrictionBanner } from './components/RestrictionBanner.tsx';
 import { AsyncBoundary, LazyRoute } from './components/ErrorBoundary.tsx';
 import { scheduleIdlePrefetch } from './boot/idlePrefetch.ts';
 import { AsyncError, AsyncPending } from './components/AsyncState.tsx';
-import { t } from './i18n/index.ts';
+import { t, isolate } from './i18n/index.ts';
 import { clearSettings, loadSettings } from './api/settings.ts';
 import { startAnalytics } from './api/startAnalytics.ts';
 
@@ -184,10 +187,6 @@ export function App(): JSX.Element {
     // off/unreachable resolves to DISABLED_CONFIG, so every Assist surface stays
     // hidden and the mailbox UX is unchanged (no Assist affordances render).
     void app.assist.loadConfig();
-    // Resolve the platform capability layer for this runtime (plan §2.1). In a
-    // browser this is a no-op returning the browser impl; in a shell it installs
-    // the native impl (dynamically importing tauri.ts). e7 relies on this at boot.
-    void initPlatform();
   });
 
   // Boot splash (t52): it stays up through the session check and the mailbox
@@ -211,53 +210,49 @@ export function App(): JSX.Element {
   });
 
   const [notificationAccount, setNotificationAccount] = createSignal<PreferenceAccount | null>(null);
-  const [notificationRevision,setNotificationRevision]=createSignal(0);
-  let knownUnread: Set<string> | null = null;
-  let knownNotificationAccount: PreferenceAccount | null = null;
-  onMount(() => {
-    onCleanup(observePreferenceAccount(setNotificationAccount));
-    // Permission is a browser property, not a signal. Seed the current list
-    // after enabling it so the next arriving message can actually notify.
-    const changed=():void=>{knownUnread=null;setNotificationRevision(value=>value+1);};
-    window.addEventListener('mw:notifications-changed',changed);
-    onCleanup(()=>window.removeEventListener('mw:notifications-changed',changed));
-  });
-
-  // V5 native new-mail notification + unread badge (plan §3 e6), fed by the live
-  // message list (which the realtime StateChange refetch updates). Gated so the
-  // browser path is byte-identical; notifications only fire while the tab is
-  // hidden, and the first run just seeds the baseline (no notification storm).
-  createEffect(() => {
-    notificationRevision();
-    const messages = app.messages();
-    const account = notificationAccount();
-    if (account !== knownNotificationAccount) {
-      knownUnread = null;
-      knownNotificationAccount = account;
-    }
-    if (!account || !inMail()) { knownUnread = null; return; }
-    if (!capabilityEnabled('notifications') && (typeof Notification === 'undefined' || Notification.permission !== 'granted')) return;
-    const platform = getPlatform();
-    const unread = messages.filter((m) => m.keywords?.['$seen'] !== true);
-    void platform.setBadgeCount(unread.length);
-    if (knownUnread !== null && typeof document !== 'undefined' && document.hidden) {
-      const candidates = unread.filter(message => !knownUnread?.has(message.id));
-      if (candidates.length > 0) {
-        // Recheck administrator policy immediately before each delivery batch.
-        // A failed check or an account transition suppresses the batch.
-        void new SettingsService().notifications().then(config => {
-          if (!preferenceAccountIsCurrent(account) || !document.hidden) return;
-          for (const message of candidates) {
-            if (shouldNotify(config, { ...message, mailboxNames: app.mailboxes().filter(mailbox => message.mailboxIds?.[mailbox.id]).map(mailbox => mailbox.name) })) void platform.notify({
-              id: message.id, title: t('common-notify-new-message'),
-              body: message.subject ?? t('common-notify-no-subject'),
-              ...(message.threadId !== undefined ? { threadId: message.threadId } : {}),
-            });
-          }
-        }).catch(() => undefined);
+  const notificationTargets=new Map<string,{owner:PreferenceAccount;messageId:string}>();
+  let notificationActionsOff:(()=>void)|undefined,disposed=false,genericPushUntil=0;
+  function clearIncomingAlerts():void{for(const id of notificationTargets.keys())toast.dismiss(id);notificationTargets.clear();}
+  function openNotification(id:string):void {
+    const target=notificationTargets.get(id);
+    if(target&&preferenceAccountIsCurrent(target.owner)){window.focus();requestMessageOpen(target.messageId,target.owner);}
+  }
+  async function incoming(batch:IncomingMail):Promise<void>{
+    if(!preferenceAccountIsCurrent(batch.owner)||!inMail())return;
+    try{
+      const config=await new SettingsService().notifications();
+      if(disposed||!preferenceAccountIsCurrent(batch.owner)||!inMail())return;
+      const allowed=batch.messages.filter(message=>shouldNotify(config,{...message,mailboxNames:app.mailboxes().filter(box=>message.mailboxIds?.[box.id]).map(box=>box.name)}));
+      const first=allowed[0];if(!first)return;
+      const title=allowed.length===1?t('common-notify-new-message'):t('common-notify-new-count',{count:allowed.length});
+      const sender=first.from?.[0]?.name||first.from?.[0]?.email;
+      const body=`${sender?`${isolate(sender)}: `:''}${isolate(first.subject||t('common-notify-no-subject'))}`;
+      const id=`mw-mail:${batch.owner.storageAuthority??batch.owner.id}:${first.id}`;
+      notificationTargets.set(id,{owner:batch.owner,messageId:first.id});
+      while(notificationTargets.size>100)notificationTargets.delete(notificationTargets.keys().next().value!);
+      if(!document.hidden){
+        toast.info(`${title} — ${body}`,{id,action:{label:t('common-open'),run:()=>requestMessageOpen(first.id,batch.owner)},testId:'incoming-mail-toast'});
       }
-    }
-    knownUnread = new Set(unread.map((m) => m.id));
+      if(Date.now()>genericPushUntil&&(document.hidden||!document.hasFocus())&&(capabilityEnabled('notifications')||(typeof Notification!=='undefined'&&Notification.permission==='granted'))){
+        await getPlatform().notify({id,title,body,...(first.threadId?{threadId:first.threadId}:{})});
+      }
+    }catch{/* Missing/failed policy and account transitions never grant delivery. */}
+  }
+  onMount(()=>{
+    onCleanup(observePreferenceAccount(owner=>{clearIncomingAlerts();genericPushUntil=0;setNotificationAccount(owner);}));
+    const off=app.onIncomingMail?.(batch=>{void incoming(batch);});onCleanup(()=>off?.());
+    const worker=navigator.serviceWorker;
+    const wake=(event:MessageEvent):void=>{if(event.data?.type==='mw-push-wake'&&event.data.notificationShown===true)genericPushUntil=Date.now()+10_000;};
+    worker?.addEventListener?.('message',wake);onCleanup(()=>worker?.removeEventListener?.('message',wake));
+    void initPlatform().then(platform=>{if(!disposed)notificationActionsOff=platform.onNotificationAction?.(event=>openNotification(event.notificationId));}).catch(()=>undefined);
+  });
+  onCleanup(()=>{disposed=true;notificationActionsOff?.();clearIncomingAlerts();app.stopRealtime();});
+  // The badge is separate from alert delivery. Incoming alerts are driven by
+  // created-object changes, including mail outside the folder currently open.
+  createEffect(()=>{
+    if(!notificationAccount()||!inMail())return;
+    if(!capabilityEnabled('notifications')&&(typeof Notification==='undefined'||Notification.permission!=='granted'))return;
+    void getPlatform().setBadgeCount(app.messages().filter(message=>message.keywords?.['$seen']!==true).length);
   });
 
   // V5 deep links / mailto (plan §3 e6). Inert in a browser (onOpenUrl never

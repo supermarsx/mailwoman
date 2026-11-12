@@ -206,3 +206,4 @@ common-context-pinned = Éléments épinglés
 common-context-unpin = Désépingler
 common-context-my-day = Ajouter à Ma journée
 common-context-remove-my-day = Retirer de Ma journée
+common-notify-new-count = Nouveaux messages : { $count }

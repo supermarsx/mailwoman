@@ -2,6 +2,12 @@
 
 `notifications.enabled` follows the existing global/domain/user setting policy. The account notification editor saves ordered sender, mailbox and subject substring rules and an explicit IANA quiet-hours time zone. The first matching rule wins. Old quiet-hours records without a zone use UTC. Failed or malformed policy reads do not grant delivery.
 
+Incoming-mail alerts default to off. Enable them in Settings → Notifications; administrator policy can override availability. While the app is open, unread newly created messages in the active account produce a foreground toast with an Open action. Hidden or unfocused windows can show a system notification when browser permission is granted. Toasts do not require browser notification permission. Both paths obey the same enabled setting, rules and quiet hours, and discard results after account changes. Inactive linked accounts do not currently produce these detailed alerts.
+
+Detection follows JMAP `Email/changes`, independently of the displayed folder, pagination or search. Initial state is seeded silently; drafts, read messages, spam/trash/sent-only messages and historical backfill older than five minutes before monitoring began do not trigger alerts. A batch is grouped into one alert. Clicking a live alert opens its message in the mail workspace. System notifications opened after the app has closed or reloaded return to the mailbox. Mobile browsers that reject the page Notification constructor use the existing service worker instead.
+
+Delivery while the app is closed additionally requires explicit browser push registration and configured server push delivery. A generic background push and its resulting live refresh are deduplicated for ten seconds in an open app; a failed push permission check still wakes open tabs for refresh.
+
 `notifications.pushAllowed` is an administrator-only global/domain ceiling (default true). It gates subscription registration and every background dispatch. `push.quietHours` adds a deployment-wide UTC quiet window; the old `push.quiet_hours` value is used only when the canonical setting is unconfigured. A configured null disables that legacy fallback.
 
 Browser notification permission is requested only by the explicit device button. The application no longer prompts from passive delivery. Foreground-generated system notifications re-read account policy before each batch and discard delayed results after an account transition.

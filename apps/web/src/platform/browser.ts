@@ -168,28 +168,27 @@ export function createBrowserPlatform(): Platform {
       localStore()?.removeItem(SECURE_PREFIX + key);
     },
 
-    // ── Notifications: Notification API where permitted; degrade silently. ──
+    // Browser permission is only requested from explicit UI gestures.
     async notify(input: NotifyInput) {
-      if (!hasNotification()) return;
-      try {
-        const Notif = globalThis.Notification;
-        const show = (): void => {
-          const n = new Notif(input.title, { body: input.body, tag: input.id });
-          // No OS action buttons in a plain browser: a click is the 'default'
-          // action, carrying the thread back so the consumer can deep-link.
-          n.onclick = () => dispatchAction({ notificationId: input.id, actionId: 'default' });
-        };
-        if (Notif.permission === 'granted') {
-          show();
-
+      if(!hasNotification()||globalThis.Notification.permission!=='granted')return;
+      try{
+        try{
+          const notification=new globalThis.Notification(input.title,{body:input.body,tag:input.id});
+          notification.onclick=()=>{notification.close?.();dispatchAction({notificationId:input.id,actionId:'default'});};
+        }catch{
+          // Mobile browsers may grant permission but reject the page constructor.
+          // An existing app worker can display the same notification instead.
+          const registration=await nav()?.serviceWorker?.getRegistration?.(shellBase());
+          await registration?.showNotification(input.title,{body:input.body,tag:input.id,data:{mwNotificationId:input.id}});
         }
-      } catch {
-        /* Notifications unavailable (e.g. insecure context): degrade to nothing. */
-      }
+      }catch{/* No permission escalation or unhandled platform failure. */}
     },
     onNotificationAction(cb: (e: NotificationActionEvent) => void): Unsubscribe {
       actionListeners.add(cb);
-      return () => actionListeners.delete(cb);
+      const worker=nav()?.serviceWorker;
+      const fromWorker=(event:MessageEvent):void=>{const data=event.data as {type?:unknown;notificationId?:unknown}|null;if(data?.type==='mw-notification-action'&&typeof data.notificationId==='string'&&data.notificationId.length<=4096)cb({notificationId:data.notificationId,actionId:'default'});};
+      worker?.addEventListener?.('message',fromWorker);
+      return ()=>{actionListeners.delete(cb);worker?.removeEventListener?.('message',fromWorker);};
     },
     async setBadgeCount(n: number) {
       const navigator_ = nav() as

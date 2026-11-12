@@ -220,3 +220,9 @@ describe('browser platform under a sub-path', () => {
     }
   });
 });
+
+it('uses the service-worker notification API when the page constructor is unavailable',async()=>{
+ class MobileNotification {static permission='granted';constructor(){throw new TypeError('Use ServiceWorkerRegistration.showNotification');}}
+ g.Notification=MobileNotification;const showNotification=vi.fn(async()=>{});const worker=new EventTarget() as EventTarget&{getRegistration:()=>Promise<unknown>};worker.getRegistration=async()=>({showNotification});Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:worker});
+ const platform=createBrowserPlatform(),action=vi.fn();const off=platform.onNotificationAction(action);await platform.notify({id:'mobile-message',title:'New message',body:'Subject'});expect(showNotification).toHaveBeenCalledWith('New message',{body:'Subject',tag:'mobile-message',data:{mwNotificationId:'mobile-message'}});worker.dispatchEvent(new MessageEvent('message',{data:{type:'mw-notification-action',notificationId:'mobile-message'}}));expect(action).toHaveBeenCalledWith({notificationId:'mobile-message',actionId:'default'});off();worker.dispatchEvent(new MessageEvent('message',{data:{type:'mw-notification-action',notificationId:'mobile-message'}}));expect(action).toHaveBeenCalledOnce();
+});

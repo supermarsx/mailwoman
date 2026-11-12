@@ -724,3 +724,11 @@ describe('final-check hardening', () => {
     expect(sw.caches.urls().length).toBe(601);
   }, 30_000);
 });
+
+it('notification clicks focus the mail shell instead of an admin window and forward the message action',async()=>{
+ const worker=bootWorker('https://mail.example.com/mail/sw.js');const admin={url:'https://mail.example.com/mail/admin',focus:vi.fn(async()=>{}),postMessage:vi.fn()},mail={url:'https://mail.example.com/mail/',focus:vi.fn(async()=>{}),postMessage:vi.fn()};await worker.notificationClick({mwNotificationId:'mail-message'},[admin,mail]);expect(admin.focus).not.toHaveBeenCalled();expect(mail.focus).toHaveBeenCalledOnce();expect(mail.postMessage).toHaveBeenCalledWith({type:'mw-notification-action',notificationId:'mail-message'});
+});
+
+it('marks an opaque wake after showing its OS alert so the page can avoid a duplicate',async()=>{
+ const worker=bootWorker();worker.pushState.clientOpen=true;worker.network.fetch=async()=>new Response(JSON.stringify({allowed:true}),{headers:{'content-type':'application/json'}});await worker.push();expect(worker.pushState.notifications).toEqual(['Mailwoman']);expect(worker.pushState.clientMessages).toEqual([{type:'mw-push-wake',notificationShown:true}]);
+});

@@ -1,3 +1,4 @@
+import {createIncomingMail,type IncomingMail} from '../realtime/incomingMail.ts';
 import { startMailboxSessionActivity } from '../api/sessionActivity.ts';
 import {accountScopedSlice,accountScopedFetcher} from './accountScopedSlice.ts';
 import { startAccountUiPreferences } from '../api/accountPreferences.ts';
@@ -81,6 +82,7 @@ export type AppState = StoreCoreApi &
     // ── V7 last-mile mailbox integrations (plan §2.7/§14, e14b). Namespaced so
     // their rich APIs don't collide with the flat accessors above; each is inert
     // (hidden) until its backend is configured, keeping the disabled path unchanged.
+    onIncomingMail?(handler:(batch:IncomingMail)=>void):()=>void;
     readonly assist: AssistSlice;
     readonly directory: DirectorySlice;
     readonly nextcloud: NextcloudSlice;
@@ -192,6 +194,9 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
     broadcastChange: () => publishPeerSync(),
   };
   const mail = createMailSlice(mailCtx);
+  const incomingListeners=new Set<(batch:IncomingMail)=>void>();
+  const incoming=createIncomingMail({client,accountId:mail.accountId,mailboxes:mail.mailboxes,deliver:batch=>{for(const listener of incomingListeners)listener(batch);}});
+
 
   // Realtime push (plan §2.2): the controller's reconciler fires `onChanged`
   // for the datatypes that actually moved → refetch the live list / outbox.
@@ -202,6 +207,7 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
   const realtime = createRealtimeSlice(ctx, {
     onChanged: (accountId, types) => {
       if (accountId !== mail.accountId()) return;
+      if(types.includes('Email'))incoming.changed();
       // A Mailbox change may be a folder created, renamed or deleted on another
       // device (t39 L8): read the folder list again, which also refreshes the
       // open folder. An Email-only change refreshes the open folder.
@@ -212,6 +218,7 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
     // An open linked mailbox (t46) arrives on the same stream, already matched
     // to the verified link and its storage authority.
     onActiveLinkedChanged: (types) => {
+      if(types.includes('Email'))incoming.changed();
       if (types.includes('Email') || types.includes('Mailbox')) void mail.refreshCurrentMailbox();
       if (types.includes('EmailSubmission')) void outbox.refreshOutbox().catch(() => undefined);
     },
@@ -228,6 +235,9 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
     ...tags,
     ...outbox,
     ...realtime,
+    startRealtime(){incoming.start();realtime.startRealtime();},
+    stopRealtime(){incoming.stop();realtime.stopRealtime();},
+    onIncomingMail(handler){incomingListeners.add(handler);return()=>incomingListeners.delete(handler);},
     ...offline,
     ...theme,
     ...calendar,

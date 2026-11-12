@@ -216,3 +216,4 @@ common-context-pinned = Vastgemaakte items
 common-context-unpin = Losmaken
 common-context-my-day = Toevoegen aan Mijn dag
 common-context-remove-my-day = Verwijderen uit Mijn dag
+common-notify-new-count = Nieuwe berichten: { $count }

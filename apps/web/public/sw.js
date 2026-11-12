@@ -537,31 +537,22 @@ self.addEventListener('push', (event) => {
         type: 'window',
         includeUncontrolled: true,
       });
-      // Nudge every open tab to refetch — content is fetched over JMAP, not push.
-      for (const client of clientList) {
-        client.postMessage({ type: 'mw-push-wake' });
-      }
       const anyVisible = clientList.some((c) => c.visibilityState === 'visible');
-      // Only surface an OS notification when the app is not already in front; a
-      // visible tab refetches and renders its own richer, in-app notification.
-      if (!anyVisible && self.registration.showNotification) {
-        // A queued wake can outlive logout, an account switch or a policy change.
-        // Recheck this subscription against the CURRENT authenticated account;
-        // never put its capability URL in a URL/query or a notification.
-        try {
-          const subscription = await self.registration.pushManager?.getSubscription();
-          if (!subscription) return;
-          const digest = await self.crypto.subtle.digest('SHA-256', new self.TextEncoder().encode(subscription.endpoint));
-          const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
-          const permission = await fetch(`${BASE}/api/push/permission?endpointHash=${hash}`, { credentials: 'same-origin', cache: 'no-store' });
-          if (!permission.ok || (await permission.json()).allowed !== true) return;
-        } catch { return; }
-        await self.registration.showNotification('Mailwoman', {
-          body: 'You have new activity.',
-          tag: 'mw-wake',
-          renotify: false,
-        });
-      }
+      const maybeNotify=async()=>{
+        if(anyVisible||!self.registration.showNotification)return false;
+        try{
+          const subscription=await self.registration.pushManager?.getSubscription();if(!subscription)return false;
+          const digest=await self.crypto.subtle.digest('SHA-256',new self.TextEncoder().encode(subscription.endpoint));
+          const hash=Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
+          const permission=await fetch(`${BASE}/api/push/permission?endpointHash=${hash}`,{credentials:'same-origin',cache:'no-store'});
+          if(!permission.ok||(await permission.json()).allowed!==true)return false;
+          await self.registration.showNotification('Mailwoman',{body:'You have new activity.',tag:'mw-wake',renotify:false});return true;
+        }catch{return false;}
+      };
+      const notificationShown=await maybeNotify();
+      // Tell the app when a generic OS alert already covered this wake, before
+      // refetch begins, so it does not show a second rich OS alert for it.
+      for(const client of clientList)client.postMessage({type:'mw-push-wake',...(notificationShown?{notificationShown:true}:{})});
     })(),
   );
 });
@@ -575,9 +566,11 @@ self.addEventListener('notificationclick', (event) => {
         type: 'window',
         includeUncontrolled: true,
       });
-      const existing = clientList.find((c) => 'focus' in c);
+      const existing = clientList.find((c) => {try{return 'focus' in c&&new URL(c.url).origin===self.location.origin&&isShellNavigation(stripBase(new URL(c.url).pathname));}catch{return false;}});
       if (existing) {
         await existing.focus();
+        const id=event.notification.data?.mwNotificationId;
+        if(typeof id==='string'&&id.length<=4096)existing.postMessage({type:'mw-notification-action',notificationId:id});
       } else if (self.clients.openWindow) {
         await self.clients.openWindow(SHELL_URL);
       }

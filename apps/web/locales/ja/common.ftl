@@ -201,3 +201,4 @@ common-context-pinned = ピン留めした項目
 common-context-unpin = ピン留めを解除
 common-context-my-day = 今日の予定に追加
 common-context-remove-my-day = 今日の予定から削除
+common-notify-new-count = 新着メッセージ: { $count }

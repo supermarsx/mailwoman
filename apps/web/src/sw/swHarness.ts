@@ -118,8 +118,9 @@ export interface Worker {
   caches: FakeCacheStorage;
   /** The network as the worker sees it; replace per test. */
   network: { fetch: (req: FakeRequest | string) => Promise<Response>; calls: string[] };
+  notificationClick(data:unknown,clients:{url:string;focus:()=>Promise<void>;postMessage:(value:unknown)=>void}[]):Promise<void>;
   push(): Promise<void>;
-  pushState: { endpoint: string | null; visible: boolean; notifications: string[] };
+  pushState: { endpoint: string | null; visible: boolean; clientOpen:boolean; clientMessages:unknown[]; notifications: string[] };
   install(): Promise<void>;
   activate(): Promise<void>;
   /** `client` is the page that made the request (default: the mail shell, `/`). */
@@ -167,14 +168,15 @@ export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js', options
     calls: [],
     fetch: async () => new Response('ok', { status: 200 }),
   };
-  const pushState: Worker['pushState'] = { endpoint: 'https://push.example/capability-secret', visible: false, notifications: [] };
+  const pushState: Worker['pushState'] = { endpoint: 'https://push.example/capability-secret', visible: false, clientOpen:false, clientMessages:[], notifications: [] };
+  let notificationClients:{url:string;focus:()=>Promise<void>;postMessage:(value:unknown)=>void}[]|undefined;
   const self = {
     crypto: globalThis.crypto, TextEncoder, TextDecoder,
     location,
     addEventListener: (type: string, fn: Listener) => listeners.set(type, fn),
     skipWaiting: async () => undefined,
     __assetDigests: options.digests === undefined ? defaultDigests() : options.digests,
-    clients: { claim: async () => undefined, get: async (id: string) => clientUrls.get(id), matchAll: async () => pushState.visible ? [{ visibilityState: 'visible', postMessage: () => undefined }] : [] },
+    clients: { claim: async () => undefined, get: async (id: string) => clientUrls.get(id), matchAll: async () => notificationClients??(pushState.visible||pushState.clientOpen ? [{ visibilityState: pushState.visible?'visible':'hidden', postMessage: (value:unknown) => pushState.clientMessages.push(value) }] : []) },
     registration: { pushManager: { getSubscription: async () => pushState.endpoint ? { endpoint: pushState.endpoint } : null }, showNotification: async (title: string) => { pushState.notifications.push(title); } },
   };
   const fetchFromWorker = (req: FakeRequest | string): Promise<Response> => {
@@ -195,6 +197,7 @@ export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js', options
     origin: location.origin,
     caches,
     network,
+    async notificationClick(data,clients){notificationClients=clients;const waits:Promise<unknown>[]=[];listeners.get('notificationclick')?.({notification:{data,close(){}},waitUntil:(work:Promise<unknown>)=>waits.push(work)});await Promise.all(waits);notificationClients=undefined;},
     push: () => lifecycle('push'),
     pushState,
     install: () => lifecycle('install'),

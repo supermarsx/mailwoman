@@ -221,3 +221,4 @@ common-context-pinned = Przypięte elementy
 common-context-unpin = Odepnij
 common-context-my-day = Dodaj do Mojego dnia
 common-context-remove-my-day = Usuń z Mojego dnia
+common-notify-new-count = Nowe wiadomości: { $count }

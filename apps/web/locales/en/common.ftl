@@ -234,3 +234,4 @@ common-context-pinned = Pinned items
 common-context-unpin = Unpin
 common-context-my-day = Add to My Day
 common-context-remove-my-day = Remove from My Day
+common-notify-new-count = New messages: { $count }

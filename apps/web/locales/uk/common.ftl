@@ -221,3 +221,4 @@ common-context-pinned = Закріплені елементи
 common-context-unpin = Відкріпити
 common-context-my-day = Додати до Мого дня
 common-context-remove-my-day = Вилучити з Мого дня
+common-notify-new-count = Нові повідомлення: { $count }

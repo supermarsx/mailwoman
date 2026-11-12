@@ -1,3 +1,4 @@
+import {messageOpenRequest,takeMessageOpenRequest} from '../state/messageOpenRequest.ts';
 import {recalledDraftId,takeRecalledDraft} from '../state/recalledDraft.ts';
 import {pendingCompose,takePendingCompose} from '../state/pendingCompose.ts';
 import {requestModuleAction,type ModuleAction} from '../state/moduleActions.ts';
@@ -276,6 +277,7 @@ export function MailboxScreen(): JSX.Element {
   createEffect(()=>{const id=recalledDraftId();if(id){takeRecalledDraft();openComposer(undefined,id);}});
   // Another module (Contacts: send a contact by email) asked for a composer.
   createEffect(()=>{if(pendingCompose()){const draft=takePendingCompose();if(draft)openComposer(draft);}});
+  createEffect(()=>{if(messageOpenRequest()){const id=takeMessageOpenRequest();if(id)untrack(()=>{void openDraftOrMessage(id,undefined,'tab');});}});
   const openingReplyDrafts=new Map<string,AbortController>();
   onCleanup(()=>{for(const controller of openingReplyDrafts.values())controller.abort();});
   async function openReplyDraft(id:string):Promise<void>{

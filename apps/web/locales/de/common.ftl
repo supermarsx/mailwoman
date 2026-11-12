@@ -206,3 +206,4 @@ common-context-pinned = Angeheftete Elemente
 common-context-unpin = Loslösen
 common-context-my-day = Zu Mein Tag hinzufügen
 common-context-remove-my-day = Aus Mein Tag entfernen
+common-notify-new-count = Neue Nachrichten: { $count }
