@@ -398,15 +398,19 @@ test('bundle recorder: package roots from module ids, and the record written by 
     const shaken = pkg('shaken', '2.0.0');
     const fromWorker = pkg('in-worker', '3.0.0');
     const font = pkg('@scope/font', '4.0.0');
+    write(join(root,'package.json'),JSON.stringify({version:'1.0.0'}));
+    const emitted=[];
     const main = rec.bundledPackages({ main: true });
     const worker = rec.bundledPackages();
     main.configResolved({ root });
     worker.configResolved({ root });
     worker.generateBundle({}, { 'w.js': { type: 'chunk', modules: { [`${fromWorker}/index.js`]: { renderedLength: 10 } } } });
-    main.generateBundle({}, {
+    main.generateBundle.call({emitFile:asset=>emitted.push(asset)}, {}, {
       'a.js': { type: 'chunk', modules: { [`${used}/index.js`]: { renderedLength: 5 }, [`${shaken}/index.js`]: { renderedLength: 0 }, [`${root}/src/x.ts`]: { renderedLength: 9 } } },
       'f.woff2': { type: 'asset', originalFileNames: ['node_modules/@scope/font/files/f.woff2'] },
     });
+    const bom=JSON.parse(emitted.find(asset=>asset.fileName==='software-bom.frontend.json').source);
+    assert.equal(bom.bomFormat,'CycloneDX');assert.equal(bom.components.length,3);assert.ok(!JSON.stringify(bom).includes(root));
     void font;
     main.closeBundle();
     const out = JSON.parse(readFileSync(join(root, 'node_modules/.cache/mailwoman-about/bundled-packages.json'), 'utf8'));

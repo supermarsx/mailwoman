@@ -478,6 +478,20 @@ async fn operational_incidents_debounce_health_verify_recovery_and_separate_nis2
 }
 
 #[tokio::test]
+async fn product_inventory_is_public_build_bound_and_ict_contracts_validate_resilience_details(){
+ let base=spawn(&[]).await;let c=client();
+ let meta:Value=c.get(format!("{base}/api/product-security")).send().await.unwrap().json().await.unwrap();assert_eq!(meta["conformityAssessed"],false);assert!(meta["componentCount"].as_u64().unwrap()>100);
+ let bom:Value=c.get(format!("{base}/api/product-security/sbom")).send().await.unwrap().json().await.unwrap();assert_eq!(bom["bomFormat"],"CycloneDX");assert_eq!(bom["metadata"]["properties"][1]["value"],meta["cargoLockSha256"]);assert!(bom.to_string().find("F:\\Projects").is_none());
+ let cookie=admin(&c,&base).await;let mut fields=json!({"contractType":"ict","status":"active","owner":"Operations","counterparty":"Provider","signedAt":"2026-11-01","documentUrl":"https://example.org/contract"});
+ let post=|fields:Value|c.post(format!("{base}/admin/compliance/records")).header("Cookie",&cookie).json(&json!({"kind":"contract","name":"Mail hosting ICT","fields":fields}));
+ assert_eq!(post(fields.clone()).send().await.unwrap().status(),422);
+ for(key,value)in [("serviceDescription","Mail hosting"),("supportedFunctions","Customer correspondence"),("criticality","noncritical"),("serviceLocations","Portugal"),("dataLocations","Portugal"),("securityRequirements","TLS and access control"),("dataReturn","Standard export"),("exitPlan","Export and migrate")]{fields[key]=json!(value);}
+ assert_eq!(post(fields.clone()).send().await.unwrap().status(),201);
+ fields["criticality"]=json!("critical");assert_eq!(post(fields).send().await.unwrap().status(),422);
+}
+
+
+#[tokio::test]
 async fn security_signal_cursor_survives_equal_timestamp_pages_and_monitoring_gaps_are_explicit(){
  let(base,store)=spawn_state(&[]).await;let c=client();let cookie=admin(&c,&base).await;let at=chrono::Utc::now();
  for(id,name,payload,updated)in [

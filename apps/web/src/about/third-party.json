@@ -2,9 +2,9 @@
   "schema": "mailwoman-third-party/2",
   "generator": "scripts/about/gen-third-party.mjs",
   "generatedFrom": {
-    "cargoLock": "bd15d3d0aa6b769dd7f89d38eb4555127750973c52dbd43e992c4d93fe359caa",
-    "mediaWasmLock": "ca63d9934f59dc33721e6adee7e152ebff91a84e6738315c3ec9e64c05582494",
-    "pnpmLock": "179982caeb5302eec3bbacc0095542f05293475ebef1312b2a05b0ab043708a9"
+    "cargoLock": "1fb7beb6341c7a50feccd306199deae0796be97c284f49eeec91316c8bf46b1d",
+    "mediaWasmLock": "6eef6da84b3c199105c1addf17bff57aada1abc3457f8eac546c841bdfb7db87",
+    "pnpmLock": "c08c0eccbca481c40d52563f7d0491c7f7158e7ab59105015a2897758f49c502"
   },
   "images": {
     "runtime": {
@@ -1388,6 +1388,27 @@
       "artifacts": [
         "server",
         "web"
+      ]
+    },
+    {
+      "kind": "crate",
+      "name": "cbc",
+      "version": "0.1.2",
+      "licence": "MIT OR Apache-2.0",
+      "repository": "https://github.com/RustCrypto/block-modes",
+      "texts": [
+        {
+          "file": "LICENSE-APACHE",
+          "id": "e8541ea93f027a6c"
+        },
+        {
+          "file": "LICENSE-MIT",
+          "id": "f3bd9e2e7745e49d"
+        }
+      ],
+      "artifacts": [
+        "server",
+        "desktop"
       ]
     },
     {
@@ -4305,6 +4326,30 @@
     },
     {
       "kind": "crate",
+      "name": "globset",
+      "version": "0.4.19",
+      "licence": "Unlicense OR MIT",
+      "repository": "https://github.com/BurntSushi/ripgrep/tree/master/crates/globset",
+      "texts": [
+        {
+          "file": "COPYING",
+          "id": "65314a6c96683f76"
+        },
+        {
+          "file": "LICENSE-MIT",
+          "id": "154c1af2b38e25e5"
+        },
+        {
+          "file": "UNLICENSE",
+          "id": "ca2abdf695884c77"
+        }
+      ],
+      "artifacts": [
+        "server"
+      ]
+    },
+    {
+      "kind": "crate",
       "name": "group",
       "version": "0.13.0",
       "licence": "MIT OR Apache-2.0",
@@ -5232,6 +5277,26 @@
     },
     {
       "kind": "crate",
+      "name": "image-webp",
+      "version": "0.2.4",
+      "licence": "MIT OR Apache-2.0",
+      "repository": "https://github.com/image-rs/image-webp",
+      "texts": [
+        {
+          "file": "LICENSE-APACHE",
+          "id": "4bf96504d6e83ce5"
+        },
+        {
+          "file": "LICENSE-MIT",
+          "id": "77949ead506e84e3"
+        }
+      ],
+      "artifacts": [
+        "server"
+      ]
+    },
+    {
+      "kind": "crate",
       "name": "imap-proto",
       "version": "0.16.7",
       "licence": "MIT OR Apache-2.0",
@@ -5864,22 +5929,6 @@
     },
     {
       "kind": "crate",
-      "name": "libsqlite3-sys",
-      "version": "0.30.1",
-      "licence": "MIT",
-      "repository": "https://github.com/rusqlite/rusqlite",
-      "texts": [
-        {
-          "file": "LICENSE",
-          "id": "1b22c746764567f5"
-        }
-      ],
-      "artifacts": [
-        "server"
-      ]
-    },
-    {
-      "kind": "crate",
       "name": "linked-hash-map",
       "version": "0.5.6",
       "licence": "MIT OR Apache-2.0",
@@ -6154,6 +6203,27 @@
       "kind": "crate",
       "name": "markup5ever",
       "version": "0.39.0",
+      "licence": "MIT OR Apache-2.0",
+      "repository": "https://github.com/servo/html5ever",
+      "texts": [
+        {
+          "file": "LICENSE-APACHE",
+          "id": "954f335b8baf5e1a"
+        },
+        {
+          "file": "LICENSE-MIT",
+          "id": "35af0fd883383c93"
+        }
+      ],
+      "artifacts": [
+        "server",
+        "web"
+      ]
+    },
+    {
+      "kind": "crate",
+      "name": "markup5ever_rcdom",
+      "version": "0.39.0+unofficial",
       "licence": "MIT OR Apache-2.0",
       "repository": "https://github.com/servo/html5ever",
       "texts": [
@@ -12757,6 +12827,28 @@
     },
     {
       "kind": "crate",
+      "name": "xml5ever",
+      "version": "0.39.0",
+      "licence": "MIT OR Apache-2.0",
+      "repository": "https://github.com/servo/html5ever",
+      "homepage": "https://github.com/servo/html5ever/blob/main/xml5ever/README.md",
+      "texts": [
+        {
+          "file": "LICENSE-APACHE",
+          "id": "954f335b8baf5e1a"
+        },
+        {
+          "file": "LICENSE-MIT",
+          "id": "35af0fd883383c93"
+        }
+      ],
+      "artifacts": [
+        "server",
+        "web"
+      ]
+    },
+    {
+      "kind": "crate",
       "name": "yasna",
       "version": "0.6.0",
       "licence": "MIT OR Apache-2.0",
@@ -13538,26 +13630,6 @@
       "artifacts": [
         "desktop",
         "mobile"
-      ]
-    },
-    {
-      "kind": "crate",
-      "name": "cbc",
-      "version": "0.1.2",
-      "licence": "MIT OR Apache-2.0",
-      "repository": "https://github.com/RustCrypto/block-modes",
-      "texts": [
-        {
-          "file": "LICENSE-APACHE",
-          "id": "e8541ea93f027a6c"
-        },
-        {
-          "file": "LICENSE-MIT",
-          "id": "f3bd9e2e7745e49d"
-        }
-      ],
-      "artifacts": [
-        "desktop"
       ]
     },
     {
@@ -17429,6 +17501,20 @@
   "web": [
     {
       "kind": "npm",
+      "name": "@csstools/css-tokenizer",
+      "version": "3.0.4",
+      "licence": "MIT",
+      "repository": "https://github.com/csstools/postcss-plugins",
+      "homepage": "https://github.com/csstools/postcss-plugins/tree/main/packages/css-tokenizer#readme",
+      "texts": [
+        {
+          "file": "LICENSE.md",
+          "id": "e74bb0fbc94c7fb0"
+        }
+      ]
+    },
+    {
+      "kind": "npm",
       "name": "@fluent/bundle",
       "version": "0.18.0",
       "licence": "Apache-2.0",
@@ -17485,6 +17571,19 @@
     },
     {
       "kind": "npm",
+      "name": "entities",
+      "version": "6.0.1",
+      "licence": "BSD-2-Clause",
+      "repository": "https://github.com/fb55/entities",
+      "texts": [
+        {
+          "file": "LICENSE",
+          "id": "0e57eeaccc07eade"
+        }
+      ]
+    },
+    {
+      "kind": "npm",
       "name": "idb",
       "version": "8.0.3",
       "licence": "ISC",
@@ -17507,6 +17606,20 @@
         {
           "file": "LICENSE",
           "id": "4c54c0a6cedf9284"
+        }
+      ]
+    },
+    {
+      "kind": "npm",
+      "name": "parse5",
+      "version": "7.3.0",
+      "licence": "MIT",
+      "repository": "https://github.com/inikulin/parse5",
+      "homepage": "https://parse5.js.org",
+      "texts": [
+        {
+          "file": "LICENSE",
+          "id": "2c01a01133de3c6d"
         }
       ]
     },
@@ -17697,6 +17810,21 @@
     }
   ],
   "assets": [
+    {
+      "kind": "font",
+      "name": "Manrope",
+      "version": "5.3.0",
+      "licence": "OFL-1.1",
+      "repository": "https://github.com/sharanda/manrope",
+      "homepage": "https://fonts.google.com/specimen/Manrope",
+      "texts": [
+        {
+          "file": "manrope.txt",
+          "id": "2d1efc696b87af82"
+        }
+      ],
+      "note": "bundled"
+    },
     {
       "kind": "font",
       "name": "Jost",

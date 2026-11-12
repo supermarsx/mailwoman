@@ -1,3 +1,4 @@
+import ProductSecurity from '../about/ProductSecurity.tsx';
 import {SettingsTransfer} from './Settings/SettingsTransfer.tsx';
 import {InterfacePreferences} from './Settings/InterfacePreferences.tsx';
 import {CachePreferences} from './Settings/CachePreferences.tsx';
@@ -165,13 +166,13 @@ export function Settings(props: SettingsProps): JSX.Element {
   let settingsContent:HTMLDivElement|undefined;
   useSettingsScroll(navigation.route,()=>settingsContent);
   const [sectionQuery,setSectionQuery]=createSignal('');
-  const linkedSections=new Set(['linked-accounts','appearance','reader','compose','shortcuts','time','labels','signatures','identities','notifications','searches','folders','receipts','mail-transfer']);
+  const linkedSections=new Set(['product-security','linked-accounts','appearance','reader','compose','shortcuts','time','labels','signatures','identities','notifications','searches','folders','receipts','mail-transfer']);
   const supportedSection=(section:string):boolean=>!app.linkedMailboxId?.()||linkedSections.has(section);
   const visible=(section:string):boolean=>supportedSection(section)&&(!props.embedded || navigation.route().section===section);
 
   let panel!: HTMLElement;
   onMount(() => {
-    void loadCatalog('settings');
+    void loadCatalog('resilience'); void loadCatalog('settings');
     void loadCatalog('regional');
     void loadCatalog('linked-accounts');
     void loadCatalog('mail-transfer');
@@ -365,6 +366,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               <RetainedSettingsSection name="access" active={visible('access')} retain={false}>{()=>              <AsyncBoundary>
                 <McpKeys accountId={accountId()} />
               </AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="product-security" active={visible('product-security')} accountBound={false}>{()=> <AsyncBoundary><ProductSecurity/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="metadata" active={visible('metadata')}>{()=>              <AsyncBoundary>
                 <ServerMetadataSection accountId={accountId()} />
               </AsyncBoundary>}</RetainedSettingsSection>

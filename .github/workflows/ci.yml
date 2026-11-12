@@ -232,6 +232,18 @@ jobs:
         run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --doc
       - name: build
         run: cargo build --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: export build-bound product inventory
+        run: node scripts/about/export-product-security.mjs --out "${{ runner.temp }}/mailwoman-product-security"
+      - name: verify product inventory validation
+        run: node --test scripts/about/export-product-security.test.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-security-backend
+          path: ${{ runner.temp }}/mailwoman-product-security
+          if-no-files-found: error
 
   # -------------------------------------------------------------------------
   # rust-crossplatform — the SAME core Rust gate as `rust` above, on macOS and
@@ -515,6 +527,11 @@ jobs:
         run: node --test scripts/shells/*.test.mjs
       - name: build
         run: pnpm -C apps/web build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-security-frontend
+          path: apps/web/dist/software-bom.frontend.json
+          if-no-files-found: error
 
   # -------------------------------------------------------------------------
   # web-crossplatform — the same typecheck / test / build as `web` above, on

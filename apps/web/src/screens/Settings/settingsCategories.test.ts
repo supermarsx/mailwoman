@@ -15,7 +15,7 @@ describe('Settings section icons (t86)', () => {
       reader: 'mailRead', compose: 'compose', folders: 'folder', retention: 'archive', labels: 'tag', rules: 'filter', searches: 'search', receipts: 'mailCheck', 'mail-transfer': 'transfer',
       appearance: 'palette', shortcuts: 'keyboard', notifications: 'bell', time: 'clock',
       nextcloud: 'nextcloud', packages: 'package', access: 'key',
-      metadata: 'serverMetadata',
+      metadata: 'serverMetadata', 'product-security':'info',
     });
   });
 });

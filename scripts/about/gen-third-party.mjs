@@ -18,7 +18,7 @@
 //               Each `cargo metadata --filter-platform <target>` so a dependency of
 //               another platform is not listed.
 //   shells      crates only in the Tauri desktop and mobile apps (their own targets)
-//   web         npm packages rollup included in the web bundle
+//   web         npm packages rollup included, plus the manifest-checked vendored PDF viewer
 //   assets      the bundled Jost face, the fonts `mailwoman fonts pull` fetches, the
 //               icons and theme textures (first-party)
 //   runtimeImage  what the server images add: the distroless Debian packages of the
@@ -90,6 +90,8 @@ const SHIPPED_ARTIFACTS = new Set(['server', 'web', 'plugins']);
 
 // Assets. `covers` lists the files (prefix match) an entry accounts for.
 export const ASSETS = [
+  {kind:'font',name:'Manrope',package:'@fontsource-variable/manrope',licence:'OFL-1.1',repository:'https://github.com/sharanda/manrope',homepage:'https://fonts.google.com/specimen/Manrope',files:['apps/web/public/font-licenses/manrope.txt'],covers:['apps/web/public/font-licenses/manrope.txt'],note:'bundled'},
+
   {
     kind: 'font',
     name: 'Jost',
@@ -592,7 +594,15 @@ export function collectWeb({ root, bundled, texts, flags, problems }) {
   }
   const entries = [];
   const seen = new Set();
-  for (const rec of bundled.packages) {
+  const records=[...bundled.packages];
+  const pdfManifest=join(root,'apps/web/public/pdfjs/manifest.json');
+  if(existsSync(pdfManifest)&&!records.some(p=>p.name==='pdfjs-dist')){
+    const manifest=JSON.parse(readFileSync(pdfManifest,'utf8'));
+    records.push({name:'pdfjs-dist',version:manifest.version});
+    const dir=npmDir(root,'pdfjs-dist',manifest.version);
+    if(dir&&JSON.parse(readFileSync(join(dir,'package.json'),'utf8')).version!==manifest.version)problems.push('Vendored PDF.js version does not match the installed licence source');
+  }
+  for (const rec of records) {
     const key = `${rec.name}@${rec.version}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -658,6 +668,17 @@ export function uncoveredFiles(root, web) {
   const publicFiles = listFiles(join(root, 'apps/web/public')).map(rel);
   for (const p of [...assetFiles, ...publicFiles].sort()) {
     if (covered(p) || FIRST_PARTY_PUBLIC.includes(p)) continue;
+    if(p.startsWith('apps/web/public/pdfjs/')){
+      const manifestPath=join(root,'apps/web/public/pdfjs/manifest.json');
+      if(existsSync(manifestPath)){
+        const manifest=JSON.parse(readFileSync(manifestPath,'utf8'));const file=p.slice('apps/web/public/pdfjs/'.length);
+        if(['manifest.json','bootstrap.mjs','mailwoman.css','polyfills.mjs','web/mailwoman.html'].includes(file))continue;
+        if(manifest.files?.[file]&&web.some(e=>e.name==='pdfjs-dist'&&e.version===manifest.version)){
+          if(createHash('sha256').update(readFileSync(join(root,p))).digest('hex')!==manifest.files[file])problems.push(`${p}: vendored PDF.js manifest hash mismatch`);
+          continue;
+        }
+      }
+    }
     const pkg = VENDORED_PUBLIC[p];
     if (pkg) {
       if (!web.some((e) => e.name === pkg)) problems.push(`${p}: a copy from ${pkg}, which is not in the web list`);

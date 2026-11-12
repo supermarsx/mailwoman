@@ -10,7 +10,7 @@
 // The record is written outside dist/ on purpose: dist/ is embedded in the server
 // and served as is, and the record names local paths.
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 const found = new Map(); // package dir -> { name, version, dir }
@@ -54,6 +54,25 @@ export function bundledPackages(opts = {}) {
         } else {
           for (const src of item.originalFileNames ?? []) note(resolve(root, src));
         }
+      }
+      if (opts.main) {
+        const components = [...found.values()].map(({name, version}) => ({
+          type: 'library', 'bom-ref': `npm:${name}@${version}`, name, version,
+          purl: `pkg:npm/${name.startsWith('@') ? `%40${name.slice(1)}` : name}@${encodeURIComponent(version)}`,
+          properties: [{name:'mailwoman:coverage',value:'Package code or assets observed in this Vite build'}],
+        })).sort((a,b) => a['bom-ref'].localeCompare(b['bom-ref'],'en'));
+        // The full PDF viewer is served as vendored static files, outside Rollup.
+        const pdfPath=join(root,'public/pdfjs/manifest.json');
+        const pdf=existsSync(pdfPath)?JSON.parse(readFileSync(pdfPath,'utf8')):null;
+        if (pdf&&!components.some(c=>c.name==='pdfjs-dist')) components.push({
+          type:'library','bom-ref':`npm:pdfjs-dist@${pdf.version}`,name:'pdfjs-dist',version:pdf.version,
+          purl:`pkg:npm/pdfjs-dist@${pdf.version}`,hashes:[{alg:'SHA-256',content:pdf.archiveSha256}],
+          properties:[{name:'mailwoman:coverage',value:'Vendored PDF.js distribution; archive checksum and per-file manifest; additional notices retained'}],
+        });
+        this.emitFile({type:'asset',fileName:'software-bom.frontend.json',source:JSON.stringify({
+          bomFormat:'CycloneDX',specVersion:'1.6',version:1,
+          metadata:{component:{type:'application',name:'Mailwoman web',version:JSON.parse(readFileSync(join(root,'package.json'),'utf8')).version},properties:[{name:'mailwoman:coverage',value:'Bundled npm packages; vendored assets, system libraries and backend inventory are separate'}]},components,
+        },null,2)});
       }
     },
     closeBundle() {

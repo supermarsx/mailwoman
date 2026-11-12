@@ -1,3 +1,5 @@
+import {loadCatalog} from '../../i18n';
+void loadCatalog('resilience');
 // t66: the user Settings navigation, grouped into categories. Each category
 // lists its sections in order of how often they are opened. Section ids are the
 // workspace routes (`navigate({section})`) and stay unchanged. t86: every
@@ -38,6 +40,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
     { id: 'access', label: 'settings-nav-access', icon: 'key', terms: 'api keys mcp tokens sharing permissions' },
   ] },
   { id: 'about', label: 'settings-category-about', sections: [
+    {id:'product-security',label:'res-about',icon:'info',terms:'about version software bom sbom cra security vulnerabilities support dependencies licenses'},
     { id: 'metadata', label: 'settings-nav-metadata', icon: 'serverMetadata', terms: 'server metadata version' },
   ] },
 ];

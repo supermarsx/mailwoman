@@ -18,7 +18,7 @@ notifications are described in [Governance registers and email](compliance-gover
 The Compliance hub also contains restrictions, consents, breaches, erasure coverage
 and encryption.
 
-Operational incidents and NIS2 preparation are described in [Operational incidents](operational-incidents.md).
+Operational incidents and NIS2 preparation are described in [Operational incidents](operational-incidents.md). Build facts and CRA preparation are in [Product security](product-security.md).
 
 The tab registry lives in `apps/web/src/screens/Admin/Compliance/tabs.ts`.
 

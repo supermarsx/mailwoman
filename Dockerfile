@@ -39,7 +39,7 @@ RUN MW_SOURCEMAP=$MW_SOURCEMAP pnpm build
 # Both build stages need every workspace manifest, even for unselected members.
 # ---------------------------------------------------------------------------
 FROM scratch AS rust-source
-COPY Cargo.toml Cargo.lock rust-toolchain.toml /src/
+COPY Cargo.toml Cargo.lock rust-toolchain.toml SECURITY.md /src/
 COPY .cargo /src/.cargo
 COPY vendor /src/vendor
 COPY crates /src/crates
@@ -47,6 +47,7 @@ COPY plugins /src/plugins
 COPY apps/desktop/src-tauri /src/apps/desktop/src-tauri
 COPY apps/mobile/src-tauri /src/apps/mobile/src-tauri
 COPY apps/web/dist/.gitkeep /src/apps/web/dist/.gitkeep
+COPY apps/web/pnpm-lock.yaml /src/apps/web/pnpm-lock.yaml
 # The server embeds this inert shell independently of optional SPA assets.
 COPY apps/web/public/workspace-popup.html /src/apps/web/public/workspace-popup.html
 # The PDF viewer is embedded whole (entry document, bootstrap, CSS, library, cmaps,
@@ -68,6 +69,7 @@ WORKDIR /src
 # Explicit 16 units preserves the release profile's previous codegen partitioning.
 ARG MW_CARGO_INCREMENTAL=0
 ARG MW_BUILD_JOBS=
+ARG MW_PRODUCT_SUPPORT_UNTIL=
 ARG TARGETPLATFORM
 # Select the already-installed compiler explicitly. Otherwise rustup reads the
 # checkout's developer component list and fetches clippy/rustfmt in this source-
@@ -76,6 +78,7 @@ ENV RUSTUP_TOOLCHAIN=1.98.1 \
     CARGO_INCREMENTAL=${MW_CARGO_INCREMENTAL} \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 COPY --from=rust-source /src/ /src/
+ENV MW_PRODUCT_SUPPORT_UNTIL=${MW_PRODUCT_SUPPORT_UNTIL}
 # Cache the cargo registry and target dir across builds; copy the finished
 # binaries OUT of the (non-persisted) cache mount so later stages can COPY them.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
@@ -148,11 +151,13 @@ RUN apk add --no-cache build-base ca-certificates
 WORKDIR /src
 ARG MW_CARGO_INCREMENTAL=0
 ARG MW_BUILD_JOBS=
+ARG MW_PRODUCT_SUPPORT_UNTIL=
 ENV RUSTFLAGS="-C target-feature=+crt-static" \
     RUSTUP_TOOLCHAIN=1.98.1 \
     CARGO_INCREMENTAL=${MW_CARGO_INCREMENTAL} \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 COPY --from=rust-source /src/ /src/
+ENV MW_PRODUCT_SUPPORT_UNTIL=${MW_PRODUCT_SUPPORT_UNTIL}
 # Build a nonroot passwd/group and an empty data dir to carry into scratch.
 RUN printf 'nonroot:x:65532:65532:nonroot:/data:/sbin/nologin\n' > /etc/mw-passwd \
     && printf 'nonroot:x:65532:\n' > /etc/mw-group \

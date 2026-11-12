@@ -202,3 +202,8 @@ mw-search = { workspace = true }
 # and reads the raw sealed/plaintext columns back to prove at-rest sealing on live
 # Postgres. sqlx is already the mw-store backend (workspace crate) → NET-ZERO deps.
 sqlx = { workspace = true, features = ["postgres", "tls-rustls"] }
+
+[build-dependencies]
+serde_json.workspace = true
+sha2.workspace = true
+toml = "0.8.23"

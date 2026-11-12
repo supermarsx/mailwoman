@@ -93,6 +93,7 @@ pub async fn consent_allowed(store: &mw_store::Store, account_id: &str, purpose:
 mod compliance;
 mod compliance_governance;
 mod operational_incidents;
+mod product_security;
 mod compliance_mail;
 mod compliance_dpia;
 mod compliance_policy;
@@ -1592,6 +1593,7 @@ fn router(
         .merge(breach::router())
         .merge(cookie_consent::router())
         .merge(compliance::router())
+        .merge(product_security::router())
         .merge(consent_ledger::router())
         .merge(privacy_overview::router())
         .merge(restriction::router())
