@@ -91,6 +91,7 @@ pub async fn consent_allowed(store: &mw_store::Store, account_id: &str, purpose:
     consent_ledger::allowed(store, account_id, purpose).await
 }
 mod compliance;
+mod compliance_governance;
 mod compliance_dpia;
 mod compliance_policy;
 mod cookie_inventory;

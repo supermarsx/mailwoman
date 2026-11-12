@@ -408,3 +408,19 @@ async fn reconsent_raises_the_cookie_policy_version_when_a_new_version_is_record
     let cfg: Value = c.get(format!("{base}/api/cookies/config")).send().await.unwrap().json().await.unwrap();
     assert_eq!(cfg["version"], 5);
 }
+
+#[tokio::test]
+async fn governance_links_contracts_and_validates_international_transfers_and_verification(){
+    let base=spawn(&[]).await;let c=client();let cookie=admin(&c,&base).await;
+    assert_eq!(c.get(format!("{base}/admin/compliance/governance")).send().await.unwrap().status(),401);
+    let view=get_json(&c,format!("{base}/admin/compliance/governance"),&cookie).await;
+    assert_eq!(view["catalog"].as_array().unwrap().len(),15);
+    assert!(view["catalog"].as_array().unwrap().iter().all(|row|row["status"]=="unassessed"));
+    let post=|body:Value|c.post(format!("{base}/admin/compliance/records")).header("Cookie",&cookie).json(&body);
+    let contract:Value=post(json!({"kind":"contract","name":"Hosting DPA","fields":{"status":"active","contractType":"dpa","owner":"Privacy","counterparty":"Provider","signedAt":"2026-11-01","documentUrl":"https://example.org/dpa"}})).send().await.unwrap().json().await.unwrap();
+    assert!(contract["id"].is_string(),"{contract}");
+    let bad=post(json!({"kind":"control","name":"Encryption","fields":{"status":"verified"}})).send().await.unwrap();assert_eq!(bad.status(),422);
+    let bad=post(json!({"kind":"transfer","name":"Transfer","fields":{"status":"active","direction":"international","mechanism":"internal"}})).send().await.unwrap();assert_eq!(bad.status(),422);
+    let transfer=post(json!({"kind":"transfer","name":"Offshore support","fields":{"status":"active","direction":"international","mechanism":"scc","owner":"Privacy","exporter":"Controller","importer":"Support","sourceCountry":"PT","destinationCountry":"US","purpose":"Support","categories":"Account metadata","legalBasis":"Contract","safeguards":"Restricted access","assessmentUrl":"https://example.org/tia","reviewAt":"2027-11-01","contractId":contract["id"]}})).send().await.unwrap();assert_eq!(transfer.status(),201,"{}",transfer.text().await.unwrap());
+    let exported=c.get(format!("{base}/admin/compliance/records/export?set=contract&format=csv")).header("Cookie",&cookie).send().await.unwrap().text().await.unwrap();assert!(exported.contains("Hosting DPA")&&exported.contains("documentUrl"));
+}

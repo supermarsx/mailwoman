@@ -31,6 +31,7 @@ pub(crate) fn router() -> Router<AppState> {
 }
 
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(Method::GET,"/compliance/governance",C::SettingsRead,governance_view);
     r.admin_endpoint(Method::GET, "/compliance/summary", C::SettingsRead, summary);
     r.admin_endpoint(Method::GET, "/compliance/policy", C::SettingsRead, policy_view);
     r.admin_endpoint(Method::PUT, "/compliance/policy/overrides", C::SettingsWrite, put_override);
@@ -491,6 +492,16 @@ async fn records_view(State(state): State<AppState>, ctx: AdminCtx, Query(q): Qu
     Ok(no_store(Json(json!({"activities": activities, "processors": processors})).into_response()))
 }
 
+async fn governance_view(State(state):State<AppState>,ctx:AdminCtx)->Result<Response,AdminApiError>{
+    ctx.require_unscoped(C::SettingsRead)?;
+    let mut output=json!({"catalog":crate::compliance_governance::catalog()});
+    for kind in ["contract","transfer","control","processor"]{
+        let rows=state.store.list_compliance_records(kind).await.map_err(AdminApiError::internal)?;
+        output[kind]=json!(rows.iter().map(record_json).collect::<Vec<_>>());
+    }
+    Ok(no_store(Json(output).into_response()))
+}
+
 const ACTIVITY_FIELDS: [&str; 8] = ["purpose", "legalBasis", "subjects", "categories", "recipients", "transfers", "retention", "security"];
 const PROCESSOR_FIELDS: [&str; 5] = ["purpose", "location", "safeguards", "url", "notes"];
 
@@ -512,7 +523,7 @@ fn check_record(b: &RecordBody) -> Result<String, AdminApiError> {
     let allowed: &[&str] = match b.kind.as_str() {
         "activity" => &ACTIVITY_FIELDS,
         "processor" => &PROCESSOR_FIELDS,
-        _ => return Err(AdminApiError::invalid("invalidKind", "Use activity or processor.", "/kind")),
+        _ => crate::compliance_governance::fields(&b.kind).ok_or_else(||AdminApiError::invalid("invalidKind", "Unknown record kind.", "/kind"))?,
     };
     let name = b.name.trim();
     if name.is_empty() || name.chars().count() > 200 || name.chars().any(char::is_control) {
@@ -528,6 +539,7 @@ fn check_record(b: &RecordBody) -> Result<String, AdminApiError> {
         }
         body.insert(k.clone(), json!(v));
     }
+    crate::compliance_governance::validate(&b.kind,&b.fields).map_err(|message|AdminApiError::invalid("invalidRecord",message,"/fields"))?;
     body.insert("enabled".into(), json!(b.enabled));
     Ok(Value::Object(body).to_string())
 }
@@ -535,6 +547,12 @@ fn check_record(b: &RecordBody) -> Result<String, AdminApiError> {
 async fn add_record(State(state): State<AppState>, ctx: AdminCtx, AdminJson(b): AdminJson<RecordBody>) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(C::SettingsWrite)?;
     let body_json = check_record(&b)?;
+    for (field,kind) in [("processorId","processor"),("contractId","contract")]{
+        if let Some(id)=b.fields.get(field).filter(|id|!id.is_empty()){
+            let linked=state.store.get_compliance_record(id).await.map_err(AdminApiError::internal)?;
+            if linked.as_ref().is_none_or(|row|row.kind!=kind){return Err(AdminApiError::invalid("invalidLink","Choose an existing linked record.",format!("/fields/{field}")));}
+        }
+    }
     let existing = state.store.list_compliance_records(&b.kind).await.map_err(AdminApiError::internal)?;
     if existing.len() >= MAX_ROWS {
         return Err(AdminApiError::new(StatusCode::CONFLICT, "tooManyRecords", "Remove a record before adding another."));
@@ -554,6 +572,12 @@ async fn update_record(State(state): State<AppState>, ctx: AdminCtx, Path(id): P
         return Err(AdminApiError::invalid("invalidKind", "The kind cannot change.", "/kind"));
     }
     let body_json = check_record(&b)?;
+    for (field,kind) in [("processorId","processor"),("contractId","contract")]{
+        if let Some(id)=b.fields.get(field).filter(|id|!id.is_empty()){
+            let linked=state.store.get_compliance_record(id).await.map_err(AdminApiError::internal)?;
+            if linked.as_ref().is_none_or(|row|row.kind!=kind){return Err(AdminApiError::invalid("invalidLink","Choose an existing linked record.",format!("/fields/{field}")));}
+        }
+    }
     let row = ComplianceRecord { id, kind: current.kind, name: b.name.trim().to_owned(), body_json, updated_by: ctx.username.clone(), updated_at: now() };
     state.store.put_compliance_record(&row).await.map_err(AdminApiError::internal)?;
     crate::admin_accounts::audit(&state, &ctx, "compliance-record-saved", &format!("compliance:{}", row.kind), None, Some(json!({"name": row.name}))).await;
@@ -622,7 +646,13 @@ async fn export_records(State(state): State<AppState>, ctx: AdminCtx, Query(q): 
     ctx.require_unscoped(C::SettingsRead)?;
     let lang = if q.lang.as_deref() == Some("pt-PT") { "pt-PT" } else { "en" };
     let (activities, procs) = all_records(&state, lang).await?;
-    let (rows, cols, title, stem) = if q.set.as_deref() == Some("processors") {
+    let governance=q.set.as_deref().filter(|kind|crate::compliance_governance::fields(kind).is_some());
+    let mut governance_columns=vec!["name"];
+    if let Some(kind)=governance{governance_columns.extend_from_slice(crate::compliance_governance::fields(kind).unwrap());}
+    let governance_rows=if let Some(kind)=governance{state.store.list_compliance_records(kind).await.map_err(AdminApiError::internal)?.iter().map(record_json).collect::<Vec<_>>()}else{vec![]};
+    let (rows, cols, title, stem) = if let Some(kind)=governance{
+        (governance_rows,&governance_columns[..],kind,kind)
+    } else if q.set.as_deref() == Some("processors") {
         (procs, &PROC_COLS[..], if lang == "pt-PT" { "Subcontratantes e destinatários" } else { "Sub-processors and recipients" }, "sub-processors")
     } else {
         (activities, &CSV_COLS[..], if lang == "pt-PT" { "Registo das atividades de tratamento" } else { "Records of processing activities" }, "processing-records")

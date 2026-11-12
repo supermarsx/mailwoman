@@ -13,7 +13,12 @@ The sidebar entry opens an Overview with one card per tab. A card shows a one-li
 | Records of processing | `processing-records` | Processing activities and sub-processors (below). |
 | Impact assessments | `dpia` | The DPIA register (below). |
 
-Other tabs register themselves in `apps/web/src/screens/Admin/Compliance/tabs.ts`. The ids reserved for them are `breaches`, `restrictions`, `erasure-coverage` and `encryption`.
+Contracts, internal/international transfers, control mappings and outbound email
+notifications are described in [Governance registers and email](compliance-governance.md).
+The Compliance hub also contains restrictions, consents, breaches, erasure coverage
+and encryption.
+
+The tab registry lives in `apps/web/src/screens/Admin/Compliance/tabs.ts`.
 
 The older addresses keep working: `#/data-requests`, `#/retention` and `#/privacy/cookies` open the matching Compliance tab.
 
@@ -84,7 +89,7 @@ The register records your assessment. Whether one is required for a given proces
 
 ## Data stored
 
-Migration `0096_compliance_documents` adds `compliance_policy_version`, `compliance_policy_override`, `compliance_record`, `dpia` and `dpia_version`. They hold text you write and configuration snapshots. They hold no end-user data.
+Migration `0096_compliance_documents` adds `compliance_policy_version`, `compliance_policy_override`, `compliance_record`, `dpia` and `dpia_version`. They hold operator-maintained records and configuration snapshots.
 
 ## Permissions
 

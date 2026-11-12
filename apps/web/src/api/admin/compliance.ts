@@ -68,7 +68,7 @@ export const complianceApi = {
   async addRecord(kind: 'activity' | 'processor', name: string, fields: Record<string, string>, enabled = true): Promise<RecordRow> { return (await adminRequest<RecordRow>('/compliance/records', { method: 'POST', body: { kind, name, fields, enabled } })).data; },
   async updateRecord(id: string, kind: 'activity' | 'processor', name: string, fields: Record<string, string>, enabled = true): Promise<RecordRow> { return (await adminRequest<RecordRow>(`/compliance/records/${encodeURIComponent(id)}`, { method: 'PUT', body: { kind, name, fields, enabled } })).data; },
   async deleteRecord(id: string): Promise<void> { await adminRequest(`/compliance/records/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
-  exportRecords(set: 'activities' | 'processors', format: 'csv' | 'json' | 'html', lang: Lang): Promise<string> { return text(`/compliance/records/export${query({ set, format, lang })}`); },
+  exportRecords(set: 'activities' | 'processors' | 'contract' | 'transfer' | 'control', format: 'csv' | 'json' | 'html', lang: Lang): Promise<string> { return text(`/compliance/records/export${query({ set, format, lang })}`); },
   async dpias(): Promise<Dpia[]> { return (await adminRequest<{ items: Dpia[] }>('/compliance/dpia')).data.items; },
   async dpia(id: string): Promise<Dpia> { return (await adminRequest<Dpia>(`/compliance/dpia/${encodeURIComponent(id)}`)).data; },
   async createDpia(title: string, template: string, lang: Lang): Promise<Dpia> { return (await adminRequest<Dpia>('/compliance/dpia', { method: 'POST', body: { title, template, lang } })).data; },

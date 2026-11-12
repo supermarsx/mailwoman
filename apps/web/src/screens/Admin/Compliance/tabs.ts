@@ -65,6 +65,9 @@ export const COMPLIANCE_TABS: readonly ComplianceTab[] = [
   { id: 'breaches', label: 'admin-nav-breaches', description: 'compliance-card-breaches', icon: 'alert', capability: 'privacy.read', unscoped: true, load: () => import('../Breaches/index.tsx') },
   { id: 'encryption', label: 'admin-nav-encryption', description: 'compliance-card-encryption', icon: 'key', capability: 'settings.read', unscoped: true, load: () => import('../Encryption/index.tsx') },
   { id: 'erasure-coverage', label: 'admin-nav-erasure-coverage', description: 'compliance-card-erasure-coverage', icon: 'sweep', capability: 'privacy.read', unscoped: true, load: () => import('../ErasureCoverage/index.tsx') },
+  {id:'contracts',label:'governance-contract',description:'governance-contract-help',icon:'file',capability:'settings.read',unscoped:true,load:()=>import('./GovernanceTab.tsx').then(m=>({default:m.ContractsTab}))},
+  {id:'transfers',label:'governance-transfer',description:'governance-transfer-help',icon:'transfer',capability:'settings.read',unscoped:true,load:()=>import('./GovernanceTab.tsx').then(m=>({default:m.TransfersTab}))},
+  {id:'controls',label:'governance-control',description:'governance-control-help',icon:'shield',capability:'settings.read',unscoped:true,load:()=>import('./GovernanceTab.tsx').then(m=>({default:m.ControlsTab}))},
   // Registry tail: other areas append one line each, above this comment.
 ];
 
