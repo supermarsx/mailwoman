@@ -743,9 +743,36 @@ struct StatusReq {
     reason: String,
 }
 
+// Queueing is not evidence of notification. All listed people need an individual
+// successful delivery, or an operator must record notification outside the app.
+async fn subjects_informed(state: &AppState, id: &str, body: &Body) -> Result<bool, AdminApiError> {
+    if body.timeline.iter().any(|e| e.kind == "subjects-informed") { return Ok(true); }
+    if body.affected.is_empty() { return Ok(false); }
+    let deliveries = state.store.breach_deliveries(id).await.map_err(store_err)?;
+    Ok(body.affected.iter().all(|person| deliveries.iter().any(|d|
+        d.recipient.eq_ignore_ascii_case(&person.address) &&
+        ((matches!(d.channel.as_str(), "in-app" | "inbox") && d.status == "sent") ||
+         (d.channel == "email" && d.status == "accepted")))))
+}
+
+pub(crate) async fn record_email_delivery(state: &AppState, event: &str, recipient: &str, status: &str) {
+    let Some(rest) = event.strip_prefix("breach-subject:") else { return; };
+    let Some((incident, notice)) = rest.split_once(':') else { return; };
+    if uuid::Uuid::parse_str(incident).is_err() || uuid::Uuid::parse_str(notice).is_err() { return; }
+    let delivery = BreachDelivery {
+        id: uuid::Uuid::new_v4().to_string(), incident_id: incident.into(), notice_id: notice.into(),
+        recipient: recipient.into(), channel: "email".into(), status: status.into(),
+        detail: if status == "accepted" { "Accepted by SMTP relay; mailbox delivery is not confirmed".into() } else { String::new() }, ts: now(),
+    };
+    if let Err(error) = state.store.breach_delivery_add(&delivery).await {
+        // Never resend accepted SMTP DATA just because evidence recording failed.
+        tracing::error!("Could not record breach email outcome: {error}");
+    }
+}
+
 async fn admin_status(State(state): State<AppState>, ctx: AdminCtx, Path(id): Path<String>, Json(req): Json<StatusReq>) -> Result<Response, AdminApiError> {
     let (mut row, mut body, policy) = load(&state, &id).await?;
-    let subjects_informed = body.subject_notices.iter().any(|n| !n.dry_run && n.recipients > 0) || body.timeline.iter().any(|e| e.kind == "subjects-informed");
+    let subjects_informed = subjects_informed(&state, &id, &body).await?;
     let gate = Gate {
         severity: &row.severity,
         authority_notified: !body.authority_notices.is_empty(),
@@ -838,7 +865,8 @@ async fn admin_authority_notice(State(state): State<AppState>, ctx: AdminCtx, Pa
     if !m::PHASES.contains(&phase) {
         return Err(bad("invalidPhase", "Unknown phase.", "/phase"));
     }
-    let notice = m::authority_notice(&row, &body, &policy.authority(), phase, body.authority_notices.len(), now());
+    let mut notice = m::authority_notice(&row, &body, &policy.authority(), phase, body.authority_notices.len(), now());
+    notice["dataSubjectsInformed"] = json!(subjects_informed(&state, &id, &body).await?);
     let reference = m::short_ref(&id);
     audit(&state, &ctx.username, &id, "authority-notice-generated", json!({"phase": phase, "format": q.format})).await;
     match q.format.as_deref() {
@@ -899,7 +927,8 @@ async fn admin_authority_record(State(state): State<AppState>, ctx: AdminCtx, Pa
     if !req.delay_reasons.trim().is_empty() {
         body.delay_reasons = clip(&req.delay_reasons, MAX_TEXT);
     }
-    let snapshot = m::authority_notice(&row, &body, &policy.authority(), phase, body.authority_notices.len(), submitted);
+    let mut snapshot = m::authority_notice(&row, &body, &policy.authority(), phase, body.authority_notices.len(), submitted);
+    snapshot["dataSubjectsInformed"] = json!(subjects_informed(&state, &id, &body).await?);
     body.authority_notices.push(AuthorityRecord {
         id: uuid::Uuid::new_v4().to_string(),
         phase: phase.to_string(),
@@ -1020,6 +1049,7 @@ async fn admin_subject_notice(State(state): State<AppState>, ctx: AdminCtx, Path
     }
     let in_app = policy.b("breach.subjects.inApp");
     let inbox = policy.b("breach.subjects.inbox");
+    let email=policy.b("breach.subjects.email");
     let webhook = policy.b("breach.subjects.webhook") && !policy.strings("breach.notify.webhookUrls").is_empty();
     let mut channels: Vec<&str> = Vec::new();
     if in_app {
@@ -1028,6 +1058,7 @@ async fn admin_subject_notice(State(state): State<AppState>, ctx: AdminCtx, Path
     if inbox {
         channels.push("inbox");
     }
+    if email { channels.push("email"); }
     if webhook {
         channels.push("webhook");
     }
@@ -1092,6 +1123,7 @@ async fn admin_subject_notice(State(state): State<AppState>, ctx: AdminCtx, Path
         plans,
         in_app,
         inbox,
+        email,
         webhook,
         advice: clip(&req.advice, 2000),
         subject_template: req.subject_template.clone(),
@@ -1110,6 +1142,7 @@ struct NoticeJob {
     plans: Vec<Plan>,
     in_app: bool,
     inbox: bool,
+    email: bool,
     webhook: bool,
     advice: String,
     subject_template: Option<String>,
@@ -1153,6 +1186,12 @@ async fn run_notice(state: &AppState, policy: &Policy, job: NoticeJob) {
                         Err(e) => log_delivery(state, &job, &p.address, "in-app", "failed", &e.to_string()).await,
                     }
                 }
+            }
+        }
+        if job.email {
+            match crate::compliance_mail::enqueue(state,&format!("breach-subject:{}:{}",job.incident.id,job.notice_id),&p.address,&subject,&text).await{
+                Ok(id)=>log_delivery(state,&job,&p.address,"email","queued",&id).await,
+                Err(reason)=>log_delivery(state,&job,&p.address,"email","failed",&reason).await,
             }
         }
         if job.inbox {
@@ -1303,6 +1342,10 @@ pub(crate) async fn notify_operators(state: &AppState, policy: &Policy, row: &Br
         out.push(json!({"channel": "webhook", "target": host, "ok": matches!(r, Ok(c) if c < 300), "detail": r.err()}));
     }
     for address in policy.strings("breach.notify.operatorAddresses") {
+        if policy.b("breach.notify.email"){
+            let result=crate::compliance_mail::enqueue(state,&format!("breach-operator:{}:{what}",row.id),&address,subject,text).await;
+            out.push(json!({"channel":"email","ok":result.is_ok(),"queued":result.ok()}));
+        }
         let canonical = state.store.canonical_policy_address(&address).await.unwrap_or(address.to_lowercase());
         let account = state.store.lifecycle_account_bindings(&canonical).await.ok().and_then(|v| v.first().cloned());
         match account {

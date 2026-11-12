@@ -1135,3 +1135,5 @@ admin-session-linked-restricted = Acesso a caixa ligada · origem não apresenta
 admin-session-linked-removed = Acesso a caixa ligada · conta de origem removida
 admin-session-linked-device = Sessão de origem: { $device }
 admin-session-linked-open = Abrir conta de origem
+
+admin-egress-class-system_mail = Ativar email (SMTP)

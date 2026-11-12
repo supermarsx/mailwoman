@@ -8,6 +8,10 @@
 //! them ([`Export`]), what limits how long they stay ([`Rule::retention`]) and,
 //! for audit-style history, how they are pseudonymised ([`Rule::scrub`]).
 //!
+//! Encrypted compliance-delivery recipients cannot be matched by SQL. Their
+//! export, erasure and verification use the authenticated recipient matcher in
+//! mw-server::compliance_mail through dsr_data.
+//!
 //! The registry is the source of truth for three things that used to be separate
 //! lists: the erasure DELETE statements, the verify pass that follows an erasure
 //! (it counts the rows each rule still finds, so a table that is only in the

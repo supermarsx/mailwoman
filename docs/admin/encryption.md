@@ -145,7 +145,7 @@ The sealed columns inside the database are encrypted with the **server key**, wh
 - **Key file lost, key in a secret manager or a copy.** Restore the key; no change to the database.
 - **A failed `db encrypt`, `rekey` or `decrypt`.** The original is untouched or restored; look for `<db>.mw-new` and delete it.
 - **The key is lost everywhere.** The database cannot be opened and the data cannot be recovered. SQLCipher has no back door and neither does Mailwoman. Restore from a backup whose key you still have. This is the cost of the protection, so keep at least two copies of the key in two places, separate from the database and its backups.
-- **The server key is lost.** The database opens, but sealed columns (credentials, cached bodies, notes, second-factor secrets) cannot be read. See `docs/security/zero-access.md`.
+- **The server key is lost.** The database opens, but sealed columns (credentials, cached bodies, notes, second-factor secrets), compliance notification payloads, encrypted file logs and retention archives cannot be read. The encrypted search index cannot be opened with the lost key; rebuild it from recoverable source messages only after arranging the replacement key. See `docs/security/zero-access.md`.
 
 ## Checking that it works
 

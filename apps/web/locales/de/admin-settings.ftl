@@ -2521,3 +2521,44 @@ admin-settings-help-time-hour-cycle = Benutzerdefinierte H- oder h-Muster haben 
 
 admin-settings-key-time-first-day-of-week = Erster Wochentag
 admin-settings-help-time-first-day-of-week = Automatisch folgt den regionalen Kalenderregeln.
+
+admin-settings-key-compliance-mail-enabled = E-Mail aktivieren
+admin-settings-help-compliance-mail-enabled = Konfigurieren Sie ein SMTP-Relay mit TLS. E-Mail nutzt die Proxyroute system_mail. Prüfen Sie eine ungewisse Annahme vor erneutem Versand.
+
+admin-settings-key-compliance-mail-host = SMTP-Relay-Host
+admin-settings-help-compliance-mail-host = Konfigurieren Sie ein SMTP-Relay mit TLS. E-Mail nutzt die Proxyroute system_mail. Prüfen Sie eine ungewisse Annahme vor erneutem Versand.
+
+admin-settings-key-compliance-mail-port = SMTP-Port
+admin-settings-help-compliance-mail-port = Konfigurieren Sie ein SMTP-Relay mit TLS. E-Mail nutzt die Proxyroute system_mail. Prüfen Sie eine ungewisse Annahme vor erneutem Versand.
+
+admin-settings-key-compliance-mail-security = TLS-Modus
+admin-settings-help-compliance-mail-security = Konfigurieren Sie ein SMTP-Relay mit TLS. E-Mail nutzt die Proxyroute system_mail. Prüfen Sie eine ungewisse Annahme vor erneutem Versand.
+
+admin-settings-key-compliance-mail-from = Absenderadresse
+admin-settings-help-compliance-mail-from = Konfigurieren Sie ein SMTP-Relay mit TLS. E-Mail nutzt die Proxyroute system_mail. Prüfen Sie eine ungewisse Annahme vor erneutem Versand.
+
+admin-settings-key-compliance-mail-username = SMTP-Benutzername
+admin-settings-help-compliance-mail-username = Konfigurieren Sie ein SMTP-Relay mit TLS. E-Mail nutzt die Proxyroute system_mail. Prüfen Sie eine ungewisse Annahme vor erneutem Versand.
+
+admin-settings-key-compliance-mail-allowPrivate = Privates Relay zulassen
+admin-settings-help-compliance-mail-allowPrivate = Konfigurieren Sie ein SMTP-Relay mit TLS. E-Mail nutzt die Proxyroute system_mail. Prüfen Sie eine ungewisse Annahme vor erneutem Versand.
+
+admin-settings-key-dsr-notify-emailAdmins = Betreiber über Datenanfragen benachrichtigen
+admin-settings-help-dsr-notify-emailAdmins = Konfigurieren Sie ein SMTP-Relay mit TLS. E-Mail nutzt die Proxyroute system_mail. Prüfen Sie eine ungewisse Annahme vor erneutem Versand.
+
+admin-settings-key-dsr-notify-operatorAddresses = Betreiberempfänger
+admin-settings-help-dsr-notify-operatorAddresses = Konfigurieren Sie ein SMTP-Relay mit TLS. E-Mail nutzt die Proxyroute system_mail. Prüfen Sie eine ungewisse Annahme vor erneutem Versand.
+
+admin-settings-key-dsr-notify-emailRequester = Anfragende per E-Mail informieren
+admin-settings-help-dsr-notify-emailRequester = Konfigurieren Sie ein SMTP-Relay mit TLS. E-Mail nutzt die Proxyroute system_mail. Prüfen Sie eine ungewisse Annahme vor erneutem Versand.
+
+admin-settings-key-breach-notify-email = Betreiber bei Datenschutzverletzungen benachrichtigen
+admin-settings-help-breach-notify-email = Konfigurieren Sie ein SMTP-Relay mit TLS. E-Mail nutzt die Proxyroute system_mail. Prüfen Sie eine ungewisse Annahme vor erneutem Versand.
+
+admin-settings-key-breach-subjects-email = Betroffene per E-Mail informieren
+admin-settings-help-breach-subjects-email = Konfigurieren Sie ein SMTP-Relay mit TLS. E-Mail nutzt die Proxyroute system_mail. Prüfen Sie eine ungewisse Annahme vor erneutem Versand.
+
+admin-settings-key-compliance-mail-requireProxy = Proxyroute verlangen
+admin-settings-help-compliance-mail-requireProxy = Proxyroute verlangen (system_mail).
+admin-settings-key-retention-complianceMail-days = Aufbewahrung abgeschlossener E-Mails (Tage)
+admin-settings-help-retention-complianceMail-days = Abgeschlossene Zustellungen werden so viele Tage aufbewahrt. Offene und ungewisse bleiben bis zur Klärung.

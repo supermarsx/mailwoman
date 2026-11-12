@@ -1133,3 +1133,5 @@ admin-session-linked-open = Otwórz konto Origin
 admin-session-linked-removed = Dostęp do połączonej skrzynki pocztowej · Usunięto konto Origin
 
 admin-session-linked-restricted = Dostęp do połączonej skrzynki pocztowej · nie pokazano pochodzenia (brak dostępu do tego konta)
+
+admin-egress-class-system_mail = Włącz e-mail (SMTP)

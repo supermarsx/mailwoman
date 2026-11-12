@@ -17,7 +17,9 @@ use common::test_db;
 const KEY_HEX: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0";
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 
-async fn spawn(settings: &[(&str, Value)]) -> String {
+async fn spawn(settings: &[(&str,Value)])->String{spawn_state(settings).await.0}
+
+async fn spawn_state(settings: &[(&str, Value)]) -> (String,mw_store::Store) {
     let dir = test_db::unique_dir("mw-t33-compliance");
     let web = dir.join("web");
     std::fs::create_dir_all(&web).unwrap();
@@ -59,7 +61,7 @@ async fn spawn(settings: &[(&str, Value)]) -> String {
     tokio::spawn(async move {
         let _ = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await;
     });
-    format!("http://{addr}")
+    (format!("http://{addr}"),store)
 }
 
 fn client() -> reqwest::Client {
@@ -423,4 +425,23 @@ async fn governance_links_contracts_and_validates_international_transfers_and_ve
     let bad=post(json!({"kind":"transfer","name":"Transfer","fields":{"status":"active","direction":"international","mechanism":"internal"}})).send().await.unwrap();assert_eq!(bad.status(),422);
     let transfer=post(json!({"kind":"transfer","name":"Offshore support","fields":{"status":"active","direction":"international","mechanism":"scc","owner":"Privacy","exporter":"Controller","importer":"Support","sourceCountry":"PT","destinationCountry":"US","purpose":"Support","categories":"Account metadata","legalBasis":"Contract","safeguards":"Restricted access","assessmentUrl":"https://example.org/tia","reviewAt":"2027-11-01","contractId":contract["id"]}})).send().await.unwrap();assert_eq!(transfer.status(),201,"{}",transfer.text().await.unwrap());
     let exported=c.get(format!("{base}/admin/compliance/records/export?set=contract&format=csv")).header("Cookie",&cookie).send().await.unwrap().text().await.unwrap();assert!(exported.contains("Hosting DPA")&&exported.contains("documentUrl"));
+    let test=c.post(format!("{base}/admin/compliance/mail/test")).header("Cookie",&cookie).json(&json!({})).send().await.unwrap();assert_eq!(test.status(),422);
+}
+
+#[tokio::test]
+async fn encrypted_file_migration_and_uncertain_delivery_resolution_require_admin_control(){
+    use base64::Engine as _;
+    let dir=test_db::unique_dir("mw-compliance-encrypted-logs");std::fs::create_dir_all(&dir).unwrap();
+    let log=dir.join("mailwoman.log");std::fs::write(&log,b"privateperson@example.org event\n").unwrap();
+    let (base,store)=spawn_state(&[("logging.file.directory",json!(dir)),("logging.file.enabled",json!(false))]).await;
+    let c=client();let cookie=admin(&c,&base).await;
+    let migration=c.post(format!("{base}/admin/encryption/encrypt-files")).header("Cookie",&cookie).json(&json!({})).send().await.unwrap();assert_eq!(migration.status(),200,"{}",migration.text().await.unwrap());
+    let bytes=std::fs::read(&log).unwrap();assert!(bytes.starts_with(b"MWLOG1:"));assert!(!String::from_utf8_lossy(&bytes).contains("privateperson@example.org"));
+    let notice=json!({"recipient":"external@example.org","subject":"notice","text":"private body","attempts":1,"error":"uncertain"});
+    let payload=store.seal_compliance_delivery("uncertain-notice",notice.to_string().as_bytes()).unwrap();
+    store.put_compliance_record(&mw_store::compliance::ComplianceRecord{id:"uncertain-notice".into(),kind:"compliance-mail:uncertain".into(),name:"test-event".into(),body_json:base64::engine::general_purpose::STANDARD.encode(payload),updated_by:"system".into(),updated_at:1}).await.unwrap();
+    let url=format!("{base}/admin/compliance/mail/uncertain-notice/resolve");
+    assert_eq!(c.post(&url).header("Cookie",&cookie).json(&json!({"action":"retry"})).send().await.unwrap().status(),422);
+    assert_eq!(c.post(&url).header("Cookie",&cookie).json(&json!({"action":"retry","acceptDuplicateRisk":true})).send().await.unwrap().status(),200);
+    assert_eq!(store.get_compliance_record("uncertain-notice").await.unwrap().unwrap().kind,"compliance-mail:pending");
 }

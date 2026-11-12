@@ -260,7 +260,7 @@ function stageLabel(stage: string): string {
 }
 
 const SCHEMES = ['http', 'socks5'] as const;
-const TRAFFIC_CLASSES=['remote_content','ics_feeds','keyservers','webhooks','admin_detect','pki','dns_auth','unsubscribe','siem','oauth','update_check','sieve','analytics','nextcloud','push','package_tracking','plugins','geoip'] as const;
+const TRAFFIC_CLASSES=['remote_content','ics_feeds','keyservers','webhooks','admin_detect','pki','dns_auth','unsubscribe','siem','oauth','update_check','sieve','analytics','nextcloud','push','package_tracking','plugins','geoip','system_mail'] as const;
 
 export interface AdminEgressProps {
   editor?:string|undefined;

@@ -193,3 +193,6 @@ admin-retention-never = 決してしない
 admin-retention-title = 保持とログのローテーション
 
 admin-retention-unavailable = このサーバーでは保持を利用できません。
+
+admin-retention-store-complianceMail = メール通知
+admin-retention-data-complianceMail = メール通知

@@ -1108,3 +1108,5 @@ admin-session-linked-open = فتح حساب الأصل
 admin-session-linked-removed = الوصول إلى صندوق البريد المرتبط · تمت إزالة الحساب الأصلي
 
 admin-session-linked-restricted = الوصول إلى صندوق البريد المرتبط · الأصل غير معروض (لا يمكن الوصول إلى هذا الحساب)
+
+admin-egress-class-system_mail = تفعيل البريد (SMTP)

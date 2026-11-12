@@ -189,3 +189,6 @@ admin-retention-userrules-users = Usuarios con reglas
 admin-retention-userrules-rules = Reglas activas
 admin-retention-userrules-changed = Mensajes modificados, últimos 30 días
 admin-retention-userrules-lastjob = Última tarea
+
+admin-retention-store-complianceMail = Notificaciones por correo
+admin-retention-data-complianceMail = Notificaciones por correo

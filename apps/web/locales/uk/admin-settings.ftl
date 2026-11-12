@@ -2533,3 +2533,44 @@ admin-settings-help-time-hour-cycle = Символи H або h у власно�
 
 admin-settings-key-time-first-day-of-week = Перший день тижня
 admin-settings-help-time-first-day-of-week = Автоматично за регіональними правилами календаря.
+
+admin-settings-key-compliance-mail-enabled = Увімкнути пошту
+admin-settings-help-compliance-mail-enabled = Налаштуйте SMTP-сервер із TLS. Пошта використовує маршрут проксі system_mail. За невизначеного прийняття перевірте результат перед повторним надсиланням.
+
+admin-settings-key-compliance-mail-host = Сервер SMTP
+admin-settings-help-compliance-mail-host = Налаштуйте SMTP-сервер із TLS. Пошта використовує маршрут проксі system_mail. За невизначеного прийняття перевірте результат перед повторним надсиланням.
+
+admin-settings-key-compliance-mail-port = Порт SMTP
+admin-settings-help-compliance-mail-port = Налаштуйте SMTP-сервер із TLS. Пошта використовує маршрут проксі system_mail. За невизначеного прийняття перевірте результат перед повторним надсиланням.
+
+admin-settings-key-compliance-mail-security = Режим TLS
+admin-settings-help-compliance-mail-security = Налаштуйте SMTP-сервер із TLS. Пошта використовує маршрут проксі system_mail. За невизначеного прийняття перевірте результат перед повторним надсиланням.
+
+admin-settings-key-compliance-mail-from = Адреса відправника
+admin-settings-help-compliance-mail-from = Налаштуйте SMTP-сервер із TLS. Пошта використовує маршрут проксі system_mail. За невизначеного прийняття перевірте результат перед повторним надсиланням.
+
+admin-settings-key-compliance-mail-username = Ім’я користувача SMTP
+admin-settings-help-compliance-mail-username = Налаштуйте SMTP-сервер із TLS. Пошта використовує маршрут проксі system_mail. За невизначеного прийняття перевірте результат перед повторним надсиланням.
+
+admin-settings-key-compliance-mail-allowPrivate = Дозволити приватний сервер
+admin-settings-help-compliance-mail-allowPrivate = Налаштуйте SMTP-сервер із TLS. Пошта використовує маршрут проксі system_mail. За невизначеного прийняття перевірте результат перед повторним надсиланням.
+
+admin-settings-key-dsr-notify-emailAdmins = Сповіщати операторів про запити даних
+admin-settings-help-dsr-notify-emailAdmins = Налаштуйте SMTP-сервер із TLS. Пошта використовує маршрут проксі system_mail. За невизначеного прийняття перевірте результат перед повторним надсиланням.
+
+admin-settings-key-dsr-notify-operatorAddresses = Одержувачі оператори
+admin-settings-help-dsr-notify-operatorAddresses = Налаштуйте SMTP-сервер із TLS. Пошта використовує маршрут проксі system_mail. За невизначеного прийняття перевірте результат перед повторним надсиланням.
+
+admin-settings-key-dsr-notify-emailRequester = Сповіщати заявника поштою
+admin-settings-help-dsr-notify-emailRequester = Налаштуйте SMTP-сервер із TLS. Пошта використовує маршрут проксі system_mail. За невизначеного прийняття перевірте результат перед повторним надсиланням.
+
+admin-settings-key-breach-notify-email = Сповіщати операторів про витоки
+admin-settings-help-breach-notify-email = Налаштуйте SMTP-сервер із TLS. Пошта використовує маршрут проксі system_mail. За невизначеного прийняття перевірте результат перед повторним надсиланням.
+
+admin-settings-key-breach-subjects-email = Сповіщати постраждалих осіб поштою
+admin-settings-help-breach-subjects-email = Налаштуйте SMTP-сервер із TLS. Пошта використовує маршрут проксі system_mail. За невизначеного прийняття перевірте результат перед повторним надсиланням.
+
+admin-settings-key-compliance-mail-requireProxy = Вимагати маршрут проксі
+admin-settings-help-compliance-mail-requireProxy = Вимагати маршрут проксі (system_mail).
+admin-settings-key-retention-complianceMail-days = Зберігання історії завершених листів (дні)
+admin-settings-help-retention-complianceMail-days = Строк зберігання завершених доставлень. Очікувані та невизначені залишаються до вирішення.

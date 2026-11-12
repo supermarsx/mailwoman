@@ -43,7 +43,7 @@ The deadline is *aware at* plus `breach.noticeHours` (72 by default; per domain 
 
 **Reasons for delay.** When the deadline has passed with no authority notice recorded, the incident asks for the reasons for the delay, and a late initial notice cannot be recorded without them.
 
-**Operator channels.** `breach.notify.audit` (security events in the audit log), `breach.notify.webhookUrls` (signed POST to each URL, using the same address checks as other outbound webhooks; treat the URLs as secrets) and `breach.notify.operatorAddresses` (the text goes into the inbox of a local account for each address; an address nobody has signed in with is logged as not delivered). The server has no outbound email.
+**Operator channels.** `breach.notify.audit` (security events in the audit log), `breach.notify.webhookUrls` (signed POST to each URL, using the same address checks as other outbound webhooks; treat the URLs as secrets) and `breach.notify.operatorAddresses` (the text goes into the inbox of a local account for each address; an address nobody has signed in with is logged as not delivered). Outbound SMTP email is available through the separately configured, default-off compliance mail service: `breach.notify.email` sends operator notices, and `breach.subjects.email` adds email to the explicit affected-person preview/send workflow. See [Governance and email](compliance-governance.md).
 
 ## Notice to the supervisory authority
 

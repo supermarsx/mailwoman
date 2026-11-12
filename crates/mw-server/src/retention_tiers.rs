@@ -79,7 +79,7 @@ pub(crate) fn class_of(id: &str) -> Option<Class> {
         "passwordChangeAudit" | "ssoLoginAudit" | "dlpAudit" | "assistAudit" | "auditLog" | "dsrRequests" => Class::Long,
         "authHistory" | "authHistoryIp" | "auditLogIp" | "openTracking" | "securityNotices" | "usageCounters"
         | "accountGeo" | "protectionEvents" | "protectionSubjects" | "sessionWatch" => Class::Medium,
-        "alertEvents" | "jobRuns" | "outbox" | "sessions" | "nativeSessions" | "rememberedDevices"
+        "complianceMail" | "alertEvents" | "jobRuns" | "outbox" | "sessions" | "nativeSessions" | "rememberedDevices"
         | "signinChallenges" | "oidcTokens" | "oidcCodes" | "oauthTokens" | "webhookNonces" | "sourceFailures"
         | "imageHandles" | "requestMetrics" | "clientTiming" | "metrics" | "clientErrors" | "diagnostics" | "uploads" | "logFiles" => Class::Short,
         _ => return None,

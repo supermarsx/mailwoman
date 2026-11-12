@@ -1133,3 +1133,5 @@ admin-session-linked-open = Відкрити вихідний рахунок
 admin-session-linked-removed = Доступ до зв’язаної поштової скриньки · вихідний обліковий запис видалено
 
 admin-session-linked-restricted = Доступ до пов’язаної поштової скриньки · походження не показано (немає доступу до цього облікового запису)
+
+admin-egress-class-system_mail = Увімкнути пошту (SMTP)

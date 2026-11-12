@@ -2507,3 +2507,44 @@ admin-settings-help-time-hour-cycle = 自定义模式中的 H 或 h 优先。
 
 admin-settings-key-time-first-day-of-week = 每周的第一天
 admin-settings-help-time-first-day-of-week = 自动遵循地区日历惯例。
+
+admin-settings-key-compliance-mail-enabled = 启用邮件
+admin-settings-help-compliance-mail-enabled = 请配置支持TLS的SMTP中继。邮件使用system_mail代理路由。接受状态不明时，请先检查再重新发送。
+
+admin-settings-key-compliance-mail-host = SMTP中继主机
+admin-settings-help-compliance-mail-host = 请配置支持TLS的SMTP中继。邮件使用system_mail代理路由。接受状态不明时，请先检查再重新发送。
+
+admin-settings-key-compliance-mail-port = SMTP端口
+admin-settings-help-compliance-mail-port = 请配置支持TLS的SMTP中继。邮件使用system_mail代理路由。接受状态不明时，请先检查再重新发送。
+
+admin-settings-key-compliance-mail-security = TLS模式
+admin-settings-help-compliance-mail-security = 请配置支持TLS的SMTP中继。邮件使用system_mail代理路由。接受状态不明时，请先检查再重新发送。
+
+admin-settings-key-compliance-mail-from = 发件人地址
+admin-settings-help-compliance-mail-from = 请配置支持TLS的SMTP中继。邮件使用system_mail代理路由。接受状态不明时，请先检查再重新发送。
+
+admin-settings-key-compliance-mail-username = SMTP用户名
+admin-settings-help-compliance-mail-username = 请配置支持TLS的SMTP中继。邮件使用system_mail代理路由。接受状态不明时，请先检查再重新发送。
+
+admin-settings-key-compliance-mail-allowPrivate = 允许私有中继
+admin-settings-help-compliance-mail-allowPrivate = 请配置支持TLS的SMTP中继。邮件使用system_mail代理路由。接受状态不明时，请先检查再重新发送。
+
+admin-settings-key-dsr-notify-emailAdmins = 向运营方发送数据请求通知
+admin-settings-help-dsr-notify-emailAdmins = 请配置支持TLS的SMTP中继。邮件使用system_mail代理路由。接受状态不明时，请先检查再重新发送。
+
+admin-settings-key-dsr-notify-operatorAddresses = 运营方收件人
+admin-settings-help-dsr-notify-operatorAddresses = 请配置支持TLS的SMTP中继。邮件使用system_mail代理路由。接受状态不明时，请先检查再重新发送。
+
+admin-settings-key-dsr-notify-emailRequester = 向请求者发送进度邮件
+admin-settings-help-dsr-notify-emailRequester = 请配置支持TLS的SMTP中继。邮件使用system_mail代理路由。接受状态不明时，请先检查再重新发送。
+
+admin-settings-key-breach-notify-email = 向运营方发送泄露通知
+admin-settings-help-breach-notify-email = 请配置支持TLS的SMTP中继。邮件使用system_mail代理路由。接受状态不明时，请先检查再重新发送。
+
+admin-settings-key-breach-subjects-email = 向受影响人员发送邮件
+admin-settings-help-breach-subjects-email = 请配置支持TLS的SMTP中继。邮件使用system_mail代理路由。接受状态不明时，请先检查再重新发送。
+
+admin-settings-key-compliance-mail-requireProxy = 要求代理路由
+admin-settings-help-compliance-mail-requireProxy = 要求代理路由 (system_mail).
+admin-settings-key-retention-complianceMail-days = 已完成邮件历史保留天数
+admin-settings-help-retention-complianceMail-days = 已完成的投递保留指定天数。待处理和接受状态不明的投递会保留至解决。

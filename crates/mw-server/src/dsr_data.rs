@@ -289,8 +289,10 @@ pub(crate) async fn build_section(
             // listed as "present, not exported" markers, never their content.
             let p = person_ids(state, s).await.map_err(err)?;
             let rows = store.dsr_export_table_section(name, &p).await.map_err(err)?;
-            count = rows.len();
+            let notifications=if name=="records"{crate::compliance_mail::subject_records(state,&s.address,false).await?}else{Vec::new()};
+            count=rows.len()+notifications.len();
             files.push((format!("{name}.json"), pretty(&json!(rows))));
+            if name=="records"{files.push(("records/compliance-notifications.json".into(),pretty(&json!(notifications))));}
         }
         "requests" => {
             count = requests.len();
@@ -550,6 +552,7 @@ pub(crate) async fn erase(state: &AppState, s: &Subj, request_id: Option<&str>) 
             Err(e) => out.errors.push(format!("message_embeddings: {e}")),
         }
     }
+    match crate::compliance_mail::subject_records(state,&s.address,true).await{Ok(rows)=>add(&mut out,"compliance_notifications",rows.len() as u64),Err(error)=>out.errors.push(error)}
     let (counts, errors) = store.dsr_purge_person(&people).await;
     for (k, n) in counts {
         add(&mut out, &k, n);
@@ -576,6 +579,7 @@ pub(crate) async fn erase(state: &AppState, s: &Subj, request_id: Option<&str>) 
     let (left, verify_errors) = store.dsr_verify_checked(&people).await;
     out.errors.extend(verify_errors);
     out.remaining = left.values().sum();
+    match crate::compliance_mail::subject_records(state,&s.address,false).await{Ok(rows)=>out.remaining+=rows.len() as u64,Err(error)=>out.errors.push(error)}
     if out.errors.is_empty() && out.remaining == 0 {
         let now = chrono::Utc::now().timestamp();
         match store.erasure_record(&s.address, "erasure", request_id, now).await {

@@ -1133,3 +1133,5 @@ admin-session-linked-open = 开设原始账户
 admin-session-linked-removed = 链接邮箱访问·原始帐户已删除
 
 admin-session-linked-restricted = 链接邮箱访问·来源未显示（无法访问该帐户）
+
+admin-egress-class-system_mail = 启用邮件 (SMTP)

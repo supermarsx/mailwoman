@@ -542,7 +542,7 @@ pub(crate) fn authority_notice(
         "measures": {"taken": body.measures_taken, "proposed": body.measures_proposed},
         "risk": {"level": row.severity, "rationale": body.assessment.as_ref().map(|a| a.rationale.clone()).unwrap_or_default()},
         "delay": {"afterDeadline": late, "reasons": body.delay_reasons},
-        "dataSubjectsInformed": !body.subject_notices.iter().all(|n| n.dry_run) && !body.subject_notices.is_empty(),
+        "dataSubjectsInformed": body.timeline.iter().any(|e| e.kind == "subjects-informed"),
     })
 }
 

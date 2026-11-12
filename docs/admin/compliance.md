@@ -89,7 +89,7 @@ The register records your assessment. Whether one is required for a given proces
 
 ## Data stored
 
-Migration `0096_compliance_documents` adds `compliance_policy_version`, `compliance_policy_override`, `compliance_record`, `dpia` and `dpia_version`. They hold operator-maintained records and configuration snapshots.
+Migration `0096_compliance_documents` adds `compliance_policy_version`, `compliance_policy_override`, `compliance_record`, `dpia` and `dpia_version`. They hold operator-maintained records and configuration snapshots. Encrypted outbound compliance delivery records also use the record store; their retention and requester export/erasure are described in the governance guide.
 
 ## Permissions
 

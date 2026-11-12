@@ -1137,3 +1137,5 @@ admin-session-linked-open = Abrir conta de origem
 admin-session-linked-removed = Acesso à caixa de correio vinculada · conta de origem removida
 
 admin-session-linked-restricted = Acesso à caixa de correio vinculada · origem não mostrada (sem acesso a essa conta)
+
+admin-egress-class-system_mail = Ativar email (SMTP)

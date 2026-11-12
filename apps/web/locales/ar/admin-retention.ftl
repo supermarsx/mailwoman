@@ -193,3 +193,6 @@ admin-retention-never = أبدا
 admin-retention-title = الاحتفاظ وتدوير السجل
 
 admin-retention-unavailable = الاحتفاظ غير متوفر على هذا الخادم.
+
+admin-retention-store-complianceMail = إشعارات البريد الإلكتروني
+admin-retention-data-complianceMail = إشعارات البريد الإلكتروني

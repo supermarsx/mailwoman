@@ -1100,3 +1100,5 @@ admin-session-linked-open = Ouvrir un compte d'origine
 admin-session-linked-removed = Accès à la boîte aux lettres liée · Compte d'origine supprimé
 
 admin-session-linked-restricted = Accès à la boîte aux lettres liée · origine non affichée (pas d'accès à ce compte)
+
+admin-egress-class-system_mail = Activer les e-mails (SMTP)

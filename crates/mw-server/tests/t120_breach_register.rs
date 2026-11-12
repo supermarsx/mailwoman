@@ -377,7 +377,20 @@ async fn the_message_to_people_has_a_dry_run_templates_and_a_delivery_log() {
     let notices: Value = f.user.get(format!("{}/api/privacy/breach-notices", f.base)).send().await.unwrap().json().await.unwrap();
     assert_eq!(notices["unread"], 0);
 
-    // The same notice is now on record, so the status can move.
+    // The external address was skipped: a job record alone proves nothing.
+    let (code, v) = f.post(&format!("/breaches/{id}/status"), json!({"status": "notified-subjects"})).await;
+    assert_eq!(code, 409, "{v}");
+    let (_, v) = f.get(&format!("/breaches/{id}/authority-notice")).await;
+    assert_eq!(v["notice"]["dataSubjectsInformed"], false);
+    let notice = d["incident"]["body"]["subjectNotices"][0]["id"].as_str().unwrap();
+    for status in ["queued", "uncertain", "accepted"] {
+        f.store.breach_delivery_add(&mw_store::breach::BreachDelivery {
+            id: uuid::Uuid::new_v4().to_string(), incident_id: id.clone(), notice_id: notice.into(),
+            recipient: "nobody@example.test".into(), channel: "email".into(), status: status.into(), detail: String::new(), ts: now(),
+        }).await.unwrap();
+        let (_, v) = f.get(&format!("/breaches/{id}/authority-notice")).await;
+        assert_eq!(v["notice"]["dataSubjectsInformed"], status == "accepted", "{v}");
+    }
     let (code, v) = f.post(&format!("/breaches/{id}/status"), json!({"status": "notified-subjects"})).await;
     assert_eq!(code, 200, "{v}");
 }

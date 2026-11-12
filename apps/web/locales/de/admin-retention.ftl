@@ -189,3 +189,6 @@ admin-retention-userrules-users = Benutzer mit Regeln
 admin-retention-userrules-rules = Aktive Regeln
 admin-retention-userrules-changed = Geänderte Nachrichten, letzte 30 Tage
 admin-retention-userrules-lastjob = Letzter Job
+
+admin-retention-store-complianceMail = E-Mail-Benachrichtigungen
+admin-retention-data-complianceMail = E-Mail-Benachrichtigungen

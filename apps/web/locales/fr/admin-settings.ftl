@@ -2521,3 +2521,44 @@ admin-settings-help-time-hour-cycle = Les symboles H ou h d’un motif personnal
 
 admin-settings-key-time-first-day-of-week = Premier jour de la semaine
 admin-settings-help-time-first-day-of-week = Automatique suit les conventions régionales du calendrier.
+
+admin-settings-key-compliance-mail-enabled = Activer les e-mails
+admin-settings-help-compliance-mail-enabled = Configurez un relais SMTP avec TLS. Les e-mails utilisent la route proxy system_mail. Vérifiez les acceptations incertaines avant tout renvoi.
+
+admin-settings-key-compliance-mail-host = Hôte du relais SMTP
+admin-settings-help-compliance-mail-host = Configurez un relais SMTP avec TLS. Les e-mails utilisent la route proxy system_mail. Vérifiez les acceptations incertaines avant tout renvoi.
+
+admin-settings-key-compliance-mail-port = Port SMTP
+admin-settings-help-compliance-mail-port = Configurez un relais SMTP avec TLS. Les e-mails utilisent la route proxy system_mail. Vérifiez les acceptations incertaines avant tout renvoi.
+
+admin-settings-key-compliance-mail-security = Mode TLS
+admin-settings-help-compliance-mail-security = Configurez un relais SMTP avec TLS. Les e-mails utilisent la route proxy system_mail. Vérifiez les acceptations incertaines avant tout renvoi.
+
+admin-settings-key-compliance-mail-from = Adresse d’expédition
+admin-settings-help-compliance-mail-from = Configurez un relais SMTP avec TLS. Les e-mails utilisent la route proxy system_mail. Vérifiez les acceptations incertaines avant tout renvoi.
+
+admin-settings-key-compliance-mail-username = Identifiant SMTP
+admin-settings-help-compliance-mail-username = Configurez un relais SMTP avec TLS. Les e-mails utilisent la route proxy system_mail. Vérifiez les acceptations incertaines avant tout renvoi.
+
+admin-settings-key-compliance-mail-allowPrivate = Autoriser un relais privé
+admin-settings-help-compliance-mail-allowPrivate = Configurez un relais SMTP avec TLS. Les e-mails utilisent la route proxy system_mail. Vérifiez les acceptations incertaines avant tout renvoi.
+
+admin-settings-key-dsr-notify-emailAdmins = Notifier les opérateurs des demandes de données
+admin-settings-help-dsr-notify-emailAdmins = Configurez un relais SMTP avec TLS. Les e-mails utilisent la route proxy system_mail. Vérifiez les acceptations incertaines avant tout renvoi.
+
+admin-settings-key-dsr-notify-operatorAddresses = Destinataires opérateurs
+admin-settings-help-dsr-notify-operatorAddresses = Configurez un relais SMTP avec TLS. Les e-mails utilisent la route proxy system_mail. Vérifiez les acceptations incertaines avant tout renvoi.
+
+admin-settings-key-dsr-notify-emailRequester = Notifier le demandeur par e-mail
+admin-settings-help-dsr-notify-emailRequester = Configurez un relais SMTP avec TLS. Les e-mails utilisent la route proxy system_mail. Vérifiez les acceptations incertaines avant tout renvoi.
+
+admin-settings-key-breach-notify-email = Notifier les opérateurs des violations
+admin-settings-help-breach-notify-email = Configurez un relais SMTP avec TLS. Les e-mails utilisent la route proxy system_mail. Vérifiez les acceptations incertaines avant tout renvoi.
+
+admin-settings-key-breach-subjects-email = Notifier les personnes concernées par e-mail
+admin-settings-help-breach-subjects-email = Configurez un relais SMTP avec TLS. Les e-mails utilisent la route proxy system_mail. Vérifiez les acceptations incertaines avant tout renvoi.
+
+admin-settings-key-compliance-mail-requireProxy = Exiger une route proxy
+admin-settings-help-compliance-mail-requireProxy = Exiger une route proxy (system_mail).
+admin-settings-key-retention-complianceMail-days = Conservation des e-mails terminés (jours)
+admin-settings-help-retention-complianceMail-days = Durée de conservation des livraisons terminées. Les livraisons en attente ou incertaines restent jusqu’à résolution.

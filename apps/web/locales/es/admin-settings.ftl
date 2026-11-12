@@ -2521,3 +2521,44 @@ admin-settings-help-time-hour-cycle = Los símbolos H o h de un patrón personal
 
 admin-settings-key-time-first-day-of-week = Primer día de la semana
 admin-settings-help-time-first-day-of-week = Automático sigue las convenciones regionales del calendario.
+
+admin-settings-key-compliance-mail-enabled = Activar correo
+admin-settings-help-compliance-mail-enabled = Configure un servidor SMTP con TLS. El correo usa la ruta proxy system_mail. Revise las aceptaciones inciertas antes de reenviar.
+
+admin-settings-key-compliance-mail-host = Servidor SMTP
+admin-settings-help-compliance-mail-host = Configure un servidor SMTP con TLS. El correo usa la ruta proxy system_mail. Revise las aceptaciones inciertas antes de reenviar.
+
+admin-settings-key-compliance-mail-port = Puerto SMTP
+admin-settings-help-compliance-mail-port = Configure un servidor SMTP con TLS. El correo usa la ruta proxy system_mail. Revise las aceptaciones inciertas antes de reenviar.
+
+admin-settings-key-compliance-mail-security = Modo TLS
+admin-settings-help-compliance-mail-security = Configure un servidor SMTP con TLS. El correo usa la ruta proxy system_mail. Revise las aceptaciones inciertas antes de reenviar.
+
+admin-settings-key-compliance-mail-from = Dirección del remitente
+admin-settings-help-compliance-mail-from = Configure un servidor SMTP con TLS. El correo usa la ruta proxy system_mail. Revise las aceptaciones inciertas antes de reenviar.
+
+admin-settings-key-compliance-mail-username = Usuario SMTP
+admin-settings-help-compliance-mail-username = Configure un servidor SMTP con TLS. El correo usa la ruta proxy system_mail. Revise las aceptaciones inciertas antes de reenviar.
+
+admin-settings-key-compliance-mail-allowPrivate = Permitir servidor privado
+admin-settings-help-compliance-mail-allowPrivate = Configure un servidor SMTP con TLS. El correo usa la ruta proxy system_mail. Revise las aceptaciones inciertas antes de reenviar.
+
+admin-settings-key-dsr-notify-emailAdmins = Notificar a operadores de solicitudes de datos
+admin-settings-help-dsr-notify-emailAdmins = Configure un servidor SMTP con TLS. El correo usa la ruta proxy system_mail. Revise las aceptaciones inciertas antes de reenviar.
+
+admin-settings-key-dsr-notify-operatorAddresses = Destinatarios operadores
+admin-settings-help-dsr-notify-operatorAddresses = Configure un servidor SMTP con TLS. El correo usa la ruta proxy system_mail. Revise las aceptaciones inciertas antes de reenviar.
+
+admin-settings-key-dsr-notify-emailRequester = Notificar al solicitante por correo
+admin-settings-help-dsr-notify-emailRequester = Configure un servidor SMTP con TLS. El correo usa la ruta proxy system_mail. Revise las aceptaciones inciertas antes de reenviar.
+
+admin-settings-key-breach-notify-email = Notificar a operadores de brechas
+admin-settings-help-breach-notify-email = Configure un servidor SMTP con TLS. El correo usa la ruta proxy system_mail. Revise las aceptaciones inciertas antes de reenviar.
+
+admin-settings-key-breach-subjects-email = Notificar a personas afectadas por correo
+admin-settings-help-breach-subjects-email = Configure un servidor SMTP con TLS. El correo usa la ruta proxy system_mail. Revise las aceptaciones inciertas antes de reenviar.
+
+admin-settings-key-compliance-mail-requireProxy = Exigir ruta proxy
+admin-settings-help-compliance-mail-requireProxy = Exigir ruta proxy (system_mail).
+admin-settings-key-retention-complianceMail-days = Retención del historial de correos completados (días)
+admin-settings-help-retention-complianceMail-days = Días de conservación de entregas completadas. Las pendientes e inciertas se conservan hasta su resolución.

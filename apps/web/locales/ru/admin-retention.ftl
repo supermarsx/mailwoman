@@ -187,3 +187,6 @@ admin-retention-intro = Как долго каждое хранилище дер
 admin-retention-loading = Загрузка сроков хранения…
 admin-retention-unavailable = Сроки хранения недоступны на этом сервере.
 admin-retention-never = Никогда
+
+admin-retention-store-complianceMail = Уведомления по почте
+admin-retention-data-complianceMail = Уведомления по почте

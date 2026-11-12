@@ -2537,3 +2537,44 @@ admin-settings-help-time-hour-cycle = تكون الأولوية للرمز H أ�
 
 admin-settings-key-time-first-day-of-week = أول يوم في الأسبوع
 admin-settings-help-time-first-day-of-week = يتبع الإعداد التلقائي قواعد التقويم الإقليمية.
+
+admin-settings-key-compliance-mail-enabled = تفعيل البريد
+admin-settings-help-compliance-mail-enabled = اضبط مرحل SMTP مع TLS. يستخدم البريد مسار الوكيل system_mail. راجع القبول غير المؤكد قبل إعادة الإرسال.
+
+admin-settings-key-compliance-mail-host = مضيف ترحيل SMTP
+admin-settings-help-compliance-mail-host = اضبط مرحل SMTP مع TLS. يستخدم البريد مسار الوكيل system_mail. راجع القبول غير المؤكد قبل إعادة الإرسال.
+
+admin-settings-key-compliance-mail-port = منفذ SMTP
+admin-settings-help-compliance-mail-port = اضبط مرحل SMTP مع TLS. يستخدم البريد مسار الوكيل system_mail. راجع القبول غير المؤكد قبل إعادة الإرسال.
+
+admin-settings-key-compliance-mail-security = وضع TLS
+admin-settings-help-compliance-mail-security = اضبط مرحل SMTP مع TLS. يستخدم البريد مسار الوكيل system_mail. راجع القبول غير المؤكد قبل إعادة الإرسال.
+
+admin-settings-key-compliance-mail-from = عنوان المرسل
+admin-settings-help-compliance-mail-from = اضبط مرحل SMTP مع TLS. يستخدم البريد مسار الوكيل system_mail. راجع القبول غير المؤكد قبل إعادة الإرسال.
+
+admin-settings-key-compliance-mail-username = اسم مستخدم SMTP
+admin-settings-help-compliance-mail-username = اضبط مرحل SMTP مع TLS. يستخدم البريد مسار الوكيل system_mail. راجع القبول غير المؤكد قبل إعادة الإرسال.
+
+admin-settings-key-compliance-mail-allowPrivate = السماح بمرحل خاص
+admin-settings-help-compliance-mail-allowPrivate = اضبط مرحل SMTP مع TLS. يستخدم البريد مسار الوكيل system_mail. راجع القبول غير المؤكد قبل إعادة الإرسال.
+
+admin-settings-key-dsr-notify-emailAdmins = إرسال إشعارات طلبات البيانات للمشغلين
+admin-settings-help-dsr-notify-emailAdmins = اضبط مرحل SMTP مع TLS. يستخدم البريد مسار الوكيل system_mail. راجع القبول غير المؤكد قبل إعادة الإرسال.
+
+admin-settings-key-dsr-notify-operatorAddresses = عناوين المشغلين
+admin-settings-help-dsr-notify-operatorAddresses = اضبط مرحل SMTP مع TLS. يستخدم البريد مسار الوكيل system_mail. راجع القبول غير المؤكد قبل إعادة الإرسال.
+
+admin-settings-key-dsr-notify-emailRequester = إرسال تحديثات لصاحب الطلب
+admin-settings-help-dsr-notify-emailRequester = اضبط مرحل SMTP مع TLS. يستخدم البريد مسار الوكيل system_mail. راجع القبول غير المؤكد قبل إعادة الإرسال.
+
+admin-settings-key-breach-notify-email = إرسال إشعارات الانتهاكات للمشغلين
+admin-settings-help-breach-notify-email = اضبط مرحل SMTP مع TLS. يستخدم البريد مسار الوكيل system_mail. راجع القبول غير المؤكد قبل إعادة الإرسال.
+
+admin-settings-key-breach-subjects-email = إرسال بريد للأشخاص المتأثرين
+admin-settings-help-breach-subjects-email = اضبط مرحل SMTP مع TLS. يستخدم البريد مسار الوكيل system_mail. راجع القبول غير المؤكد قبل إعادة الإرسال.
+
+admin-settings-key-compliance-mail-requireProxy = اشتراط مسار وكيل
+admin-settings-help-compliance-mail-requireProxy = اشتراط مسار وكيل (system_mail).
+admin-settings-key-retention-complianceMail-days = مدة حفظ سجل البريد المكتمل بالأيام
+admin-settings-help-retention-complianceMail-days = عدد أيام حفظ عمليات التسليم المكتملة. تبقى العمليات المعلقة وغير المؤكدة حتى حلها.

@@ -187,3 +187,6 @@ admin-retention-intro = Jak długo każdy magazyn przechowuje dane osobowe i beh
 admin-retention-loading = Wczytywanie retencji…
 admin-retention-unavailable = Retencja nie jest dostępna na tym serwerze.
 admin-retention-never = Nigdy
+
+admin-retention-store-complianceMail = Powiadomienia e-mail
+admin-retention-data-complianceMail = Powiadomienia e-mail

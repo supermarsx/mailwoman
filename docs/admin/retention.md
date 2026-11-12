@@ -4,6 +4,11 @@ Mailwoman keeps personal and behavioural data in a number of stores: history of 
 
 All `retention.*` and `logging.*` keys are global. They have no domain or user scope, because the sweep and the log files belong to the whole server. They are edited in **Administration > Retention** (inline) or **Settings**, and every change is an audit entry. A limit of 0 keeps rows until they are deleted by hand; the console shows a warning for it. The reference for each key is in [settings.md](settings.md).
 
+Completed outbound compliance notification history has its own worker and
+`retention.complianceMail.days` (30 days by default). Pending and uncertain
+messages remain until resolved; subject legal holds pause automatic history
+purging. See [Governance and email](compliance-governance.md).
+
 ## The sweeper
 
 One job, `retention_sweep`, covers every store marked "sweeper" below.
@@ -99,7 +104,7 @@ Every store above belongs to one of three classes. A class is a ceiling in days 
 
 With `retention.archive.enabled`, the stores that have an archive table (`passwordChangeAudit`, `ssoLoginAudit`, `dlpAudit`, `assistAudit`) do not delete rows older than their own limit. The sweeper moves them into sealed archive files instead. The hash-chained audit log keeps its own prune and checkpoint (see the audit retention page) and is not archived.
 
-- **Files.** A file is gzip-compressed JSON lines: one header line, then one object per row. It is written under a temporary name and renamed, once. The directory is `retention.archive.directory` (a local directory, absolute or relative to the working directory; parent-directory segments are refused). There is no remote destination: the archive is a directory, and moving it to other storage is up to the operator.
+- **Files.** New files are authenticated ciphertext of gzip-compressed JSON lines: one header line, then one object per row. It is written under a temporary name and renamed, once. The directory is `retention.archive.directory` (a local directory, absolute or relative to the working directory; parent-directory segments are refused). Historical plaintext archives can be migrated from Compliance → Encryption. There is no remote destination: the archive is a directory, and moving it to other storage is up to the operator.
 - **Order.** A row leaves the hot table only after its file is on disk and its metadata and index rows are committed. A run that stops in between repeats only the delete on the next run; rows already in the index are not archived twice. `retention.archive.batchRows` rows go into one file and `retention.archive.maxSegments` files are written per store per run.
 - **Seal and chain.** Each file has a SHA-256 hash and a seal, `HMAC-SHA256(key, previous seal | file hash | store | number | row count | first and last time | key generation)`. The key is derived from the server key and `retention.archive.keyGeneration`. The first file of a store links to the fixed value `genesis`. A changed file, a changed or removed metadata row, or a reordered file is reported as `contentChanged`, `sealMismatch`, `chainBroken` or `missing`.
 - **Key rotation.** Raise `retention.archive.keyGeneration`. New files are sealed with the new generation; older files carry their own generation and still check. The seal key follows the server key, so losing the server key means the seals can no longer be checked.

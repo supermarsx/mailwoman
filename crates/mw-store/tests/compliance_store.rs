@@ -101,3 +101,20 @@ async fn dpia_keeps_a_version_per_save() {
     assert!(s.delete_dpia("d1").await.unwrap());
     assert!(s.list_dpia_versions("d1").await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn notification_claims_are_atomic_and_payloads_are_bound_to_their_id(){
+    let s=store().await;
+    let sealed=s.seal_compliance_delivery("notice",b"private recipient and message").unwrap();
+    assert_eq!(s.open_compliance_delivery("notice",&sealed).unwrap(),b"private recipient and message");
+    assert!(s.open_compliance_delivery("other",&sealed).is_err());
+    let row=ComplianceRecord{id:"notice".into(),kind:"compliance-mail:pending".into(),name:"event".into(),body_json:"sealed-payload".into(),updated_by:"system".into(),updated_at:1};
+    assert!(s.insert_compliance_record_once(&row).await.unwrap());assert!(!s.insert_compliance_record_once(&row).await.unwrap());
+    let mut claimed=row.clone();claimed.kind="compliance-mail:sending".into();claimed.updated_at=2;
+    let (a,b)=tokio::join!(s.transition_compliance_record(&row,&claimed),s.transition_compliance_record(&row,&claimed));
+    assert_eq!(usize::from(a.unwrap())+usize::from(b.unwrap()),1);
+    let mut sent=claimed.clone();sent.kind="compliance-mail:sent".into();sent.updated_at=3;assert!(s.transition_compliance_record(&claimed,&sent).await.unwrap());
+    let mut pending=row.clone();pending.id="pending".into();s.insert_compliance_record_once(&pending).await.unwrap();
+    assert_eq!(s.purge_compliance_delivery_history(10).await.unwrap(),1);
+    assert!(s.get_compliance_record("pending").await.unwrap().is_some());
+}

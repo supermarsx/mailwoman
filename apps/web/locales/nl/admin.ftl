@@ -1137,3 +1137,5 @@ admin-session-linked-open = Open een origin-account
 admin-session-linked-removed = Toegang tot gekoppelde mailbox · oorsprongsaccount verwijderd
 
 admin-session-linked-restricted = Toegang tot gekoppelde mailbox · herkomst niet getoond (geen toegang tot dat account)
+
+admin-egress-class-system_mail = E-mail inschakelen (SMTP)

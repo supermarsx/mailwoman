@@ -31,6 +31,7 @@ pub(crate) fn router() -> Router<AppState> {
 }
 
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    crate::compliance_mail::register(r);
     r.admin_endpoint(Method::GET,"/compliance/governance",C::SettingsRead,governance_view);
     r.admin_endpoint(Method::GET, "/compliance/summary", C::SettingsRead, summary);
     r.admin_endpoint(Method::GET, "/compliance/policy", C::SettingsRead, policy_view);
@@ -356,6 +357,7 @@ struct Builtin {
 
 // (name, purpose, categories of data and people, security measures)
 const BUILTINS: &[Builtin] = &[
+    Builtin{id:"compliance-mail",en:("Compliance email notifications","Notifying operators and requesters about data requests and personal-data breaches.","Recipient addresses, notification text and delivery outcomes.","TLS, encrypted queue, restricted administration, bounded retention and requester erasure."),pt:("Notificações de conformidade por email","Notificar operadores e requerentes de pedidos de dados e violações de dados pessoais.","Endereços dos destinatários, texto das notificações e resultados da entrega.","TLS, fila cifrada, administração restrita, retenção limitada e apagamento do requerente."),when:"compliance.mail.enabled",retention:&["complianceMail"],recipients:"system_mail"},
     Builtin {
         id: "mail-service",
         en: ("Mail service", "Providing mail, contacts, calendars and notes to account holders.", "Account details, mailbox content, contacts, calendar entries and notes of account holders and their correspondents.", "Hashed passwords, sealed stored credentials, access control by role, HTTPS."),
@@ -435,6 +437,7 @@ async fn builtin_activities(state: &AppState, snapshot: &policy::Snapshot, lang:
             .collect();
         let recipients = match b.recipients {
             "remote" => if pt { "Servidores que alojam o conteúdo remoto pedido" } else { "Servers hosting the remote content requested" }.to_owned(),
+            "system_mail"=>if pt{"Servidor SMTP de notificações configurado pelo administrador"}else{"The SMTP notification relay configured by the administrator"}.to_owned(),
             "assistant" => if pt { "Fornecedor do assistente configurado pelo administrador" } else { "The assistant provider the administrator configured" }.to_owned(),
             _ => if hosting.is_empty() { if pt { "Fornecedor de alojamento (por indicar)" } else { "Hosting provider (not yet filled in)" }.to_owned() } else { hosting.clone() },
         };
@@ -452,7 +455,7 @@ fn processors(snapshot: &policy::Snapshot, lang: &str) -> Vec<Value> {
     policy::EGRESS_RECIPIENTS
         .iter()
         .map(|(class, en, ptx, key)| {
-            let blocked = !key.is_empty() && snapshot.get(*key).and_then(Value::as_str) == Some("block");
+            let blocked = (!key.is_empty() && snapshot.get(*key).and_then(Value::as_str) == Some("block"))||(*key=="compliance.mail.enabled"&&snapshot.get(*key)!=Some(&json!(true)));
             json!({"id": class, "builtin": true, "name": if pt { ptx } else { en }, "enabled": !blocked, "source": "egress-class"})
         })
         .collect()

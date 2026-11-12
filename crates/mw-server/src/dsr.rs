@@ -400,14 +400,21 @@ fn code_hash(id: &str, code: &str) -> String {
 
 /// Put a message in the requester's inbox (best effort, in the background).
 fn notice(state: &AppState, row: &DsrRow, body: &Body, policy: &Policy, subject: &str, description: &str, force: bool, extra: Option<String>) {
-    if !force && !policy.b("dsr.notify.requester") {
+    if !force && !policy.b("dsr.notify.requester") && !policy.b("dsr.notify.emailRequester") {
         return;
     }
     let (state, account, id) = (state.clone(), row.account_id.clone(), row.id.clone());
     let locale = if body.locale.is_empty() { "en".to_string() } else { body.locale.clone() };
     let (subject, description) = (subject.to_string(), description.to_string());
     let guidance = extra.unwrap_or_default();
+    let inbox=force||policy.b("dsr.notify.requester");
+    let email=policy.b("dsr.notify.emailRequester");let recipient=row.address.clone();
     tokio::spawn(async move {
+        if email {
+            let result=crate::compliance_mail::enqueue(&state,&format!("dsr-requester:{id}"),&recipient,&subject,&format!("{description}\n\n{guidance}")).await;
+            event(&state,&id,"system",if result.is_ok(){"email-queued"}else{"email-failed"},json!({"deliveryId":result.ok()})).await;
+        }
+        if !inbox{return;}
         let result = crate::alerts::deliver_text(&state, &account, &locale, &subject, &description, &guidance).await;
         match result {
             Ok(()) => event(&state, &id, "system", "notice-sent", json!({"subject": subject})).await,
@@ -417,6 +424,12 @@ fn notice(state: &AppState, row: &DsrRow, body: &Body, policy: &Policy, subject:
 }
 
 async fn admin_signal(state: &AppState, policy: &Policy, action: &'static str, row: &DsrRow) {
+    if policy.b("dsr.notify.emailAdmins"){
+        for recipient in policy.strings("dsr.notify.operatorAddresses"){
+            let result=crate::compliance_mail::enqueue(state,&format!("dsr-admin:{}:{action}",row.id),&recipient,"Mailwoman data request update",&format!("Request {}: {}. Type: {}. Status: {}. Review it in Administration > Compliance > Data requests.",row.id,action,row.kind,row.status)).await;
+            event(state,&row.id,"system",if result.is_ok(){"operator-email-queued"}else{"operator-email-failed"},json!({"deliveryId":result.ok()})).await;
+        }
+    }
     if policy.b("dsr.notify.admins") {
         security_event(
             state,

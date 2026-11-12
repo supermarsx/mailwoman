@@ -1133,3 +1133,5 @@ admin-session-linked-open = Открыть исходный аккаунт
 admin-session-linked-removed = Доступ к связанному почтовому ящику · исходная учетная запись удалена
 
 admin-session-linked-restricted = Доступ к связанному почтовому ящику · происхождение не указано (нет доступа к этой учетной записи)
+
+admin-egress-class-system_mail = Включить почту (SMTP)

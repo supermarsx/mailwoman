@@ -2533,3 +2533,44 @@ admin-settings-help-time-hour-cycle = Symbole H lub h we własnym wzorcu mają p
 
 admin-settings-key-time-first-day-of-week = Pierwszy dzień tygodnia
 admin-settings-help-time-first-day-of-week = Automatycznie według regionalnych zasad kalendarza.
+
+admin-settings-key-compliance-mail-enabled = Włącz e-mail
+admin-settings-help-compliance-mail-enabled = Skonfiguruj przekaźnik SMTP z TLS. Poczta używa trasy proxy system_mail. Sprawdź niepewne przyjęcie przed ponowną wysyłką.
+
+admin-settings-key-compliance-mail-host = Host przekaźnika SMTP
+admin-settings-help-compliance-mail-host = Skonfiguruj przekaźnik SMTP z TLS. Poczta używa trasy proxy system_mail. Sprawdź niepewne przyjęcie przed ponowną wysyłką.
+
+admin-settings-key-compliance-mail-port = Port SMTP
+admin-settings-help-compliance-mail-port = Skonfiguruj przekaźnik SMTP z TLS. Poczta używa trasy proxy system_mail. Sprawdź niepewne przyjęcie przed ponowną wysyłką.
+
+admin-settings-key-compliance-mail-security = Tryb TLS
+admin-settings-help-compliance-mail-security = Skonfiguruj przekaźnik SMTP z TLS. Poczta używa trasy proxy system_mail. Sprawdź niepewne przyjęcie przed ponowną wysyłką.
+
+admin-settings-key-compliance-mail-from = Adres nadawcy
+admin-settings-help-compliance-mail-from = Skonfiguruj przekaźnik SMTP z TLS. Poczta używa trasy proxy system_mail. Sprawdź niepewne przyjęcie przed ponowną wysyłką.
+
+admin-settings-key-compliance-mail-username = Nazwa użytkownika SMTP
+admin-settings-help-compliance-mail-username = Skonfiguruj przekaźnik SMTP z TLS. Poczta używa trasy proxy system_mail. Sprawdź niepewne przyjęcie przed ponowną wysyłką.
+
+admin-settings-key-compliance-mail-allowPrivate = Zezwalaj na prywatny przekaźnik
+admin-settings-help-compliance-mail-allowPrivate = Skonfiguruj przekaźnik SMTP z TLS. Poczta używa trasy proxy system_mail. Sprawdź niepewne przyjęcie przed ponowną wysyłką.
+
+admin-settings-key-dsr-notify-emailAdmins = Powiadamiaj operatorów o żądaniach danych
+admin-settings-help-dsr-notify-emailAdmins = Skonfiguruj przekaźnik SMTP z TLS. Poczta używa trasy proxy system_mail. Sprawdź niepewne przyjęcie przed ponowną wysyłką.
+
+admin-settings-key-dsr-notify-operatorAddresses = Adresaci operatorzy
+admin-settings-help-dsr-notify-operatorAddresses = Skonfiguruj przekaźnik SMTP z TLS. Poczta używa trasy proxy system_mail. Sprawdź niepewne przyjęcie przed ponowną wysyłką.
+
+admin-settings-key-dsr-notify-emailRequester = Powiadamiaj wnioskodawcę e-mailem
+admin-settings-help-dsr-notify-emailRequester = Skonfiguruj przekaźnik SMTP z TLS. Poczta używa trasy proxy system_mail. Sprawdź niepewne przyjęcie przed ponowną wysyłką.
+
+admin-settings-key-breach-notify-email = Powiadamiaj operatorów o naruszeniach
+admin-settings-help-breach-notify-email = Skonfiguruj przekaźnik SMTP z TLS. Poczta używa trasy proxy system_mail. Sprawdź niepewne przyjęcie przed ponowną wysyłką.
+
+admin-settings-key-breach-subjects-email = Powiadamiaj osoby dotknięte naruszeniem e-mailem
+admin-settings-help-breach-subjects-email = Skonfiguruj przekaźnik SMTP z TLS. Poczta używa trasy proxy system_mail. Sprawdź niepewne przyjęcie przed ponowną wysyłką.
+
+admin-settings-key-compliance-mail-requireProxy = Wymagaj trasy proxy
+admin-settings-help-compliance-mail-requireProxy = Wymagaj trasy proxy (system_mail).
+admin-settings-key-retention-complianceMail-days = Przechowywanie historii zakończonych wiadomości (dni)
+admin-settings-help-retention-complianceMail-days = Liczba dni przechowywania zakończonych dostarczeń. Oczekujące i niepewne pozostają do wyjaśnienia.

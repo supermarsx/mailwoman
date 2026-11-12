@@ -1100,3 +1100,5 @@ admin-session-linked-open = Origin-Konto eröffnen
 admin-session-linked-removed = Zugriff auf verknüpfte Postfächer · Ursprungskonto entfernt
 
 admin-session-linked-restricted = Zugriff auf verknüpfte Postfächer · Herkunft nicht angezeigt (kein Zugriff auf dieses Konto)
+
+admin-egress-class-system_mail = E-Mail aktivieren (SMTP)

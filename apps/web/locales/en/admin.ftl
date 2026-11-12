@@ -1150,3 +1150,5 @@ admin-session-linked-restricted = Linked mailbox access · origin not shown (no 
 admin-session-linked-removed = Linked mailbox access · origin account removed
 admin-session-linked-device = Origin session: { $device }
 admin-session-linked-open = Open origin account
+
+admin-egress-class-system_mail = Enable email (SMTP)

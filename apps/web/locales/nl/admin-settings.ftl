@@ -2515,3 +2515,44 @@ admin-settings-help-time-hour-cycle = H of h in een aangepast patroon heeft voor
 
 admin-settings-key-time-first-day-of-week = Eerste dag van de week
 admin-settings-help-time-first-day-of-week = Automatisch volgt de regionale kalenderconventies.
+
+admin-settings-key-compliance-mail-enabled = E-mail inschakelen
+admin-settings-help-compliance-mail-enabled = Configureer een SMTP-relay met TLS. E-mail gebruikt de proxyroute system_mail. Controleer onzekere acceptatie voordat u opnieuw verzendt.
+
+admin-settings-key-compliance-mail-host = SMTP-relayhost
+admin-settings-help-compliance-mail-host = Configureer een SMTP-relay met TLS. E-mail gebruikt de proxyroute system_mail. Controleer onzekere acceptatie voordat u opnieuw verzendt.
+
+admin-settings-key-compliance-mail-port = SMTP-poort
+admin-settings-help-compliance-mail-port = Configureer een SMTP-relay met TLS. E-mail gebruikt de proxyroute system_mail. Controleer onzekere acceptatie voordat u opnieuw verzendt.
+
+admin-settings-key-compliance-mail-security = TLS-modus
+admin-settings-help-compliance-mail-security = Configureer een SMTP-relay met TLS. E-mail gebruikt de proxyroute system_mail. Controleer onzekere acceptatie voordat u opnieuw verzendt.
+
+admin-settings-key-compliance-mail-from = Afzenderadres
+admin-settings-help-compliance-mail-from = Configureer een SMTP-relay met TLS. E-mail gebruikt de proxyroute system_mail. Controleer onzekere acceptatie voordat u opnieuw verzendt.
+
+admin-settings-key-compliance-mail-username = SMTP-gebruikersnaam
+admin-settings-help-compliance-mail-username = Configureer een SMTP-relay met TLS. E-mail gebruikt de proxyroute system_mail. Controleer onzekere acceptatie voordat u opnieuw verzendt.
+
+admin-settings-key-compliance-mail-allowPrivate = Privérelay toestaan
+admin-settings-help-compliance-mail-allowPrivate = Configureer een SMTP-relay met TLS. E-mail gebruikt de proxyroute system_mail. Controleer onzekere acceptatie voordat u opnieuw verzendt.
+
+admin-settings-key-dsr-notify-emailAdmins = Beheerders over gegevensverzoeken mailen
+admin-settings-help-dsr-notify-emailAdmins = Configureer een SMTP-relay met TLS. E-mail gebruikt de proxyroute system_mail. Controleer onzekere acceptatie voordat u opnieuw verzendt.
+
+admin-settings-key-dsr-notify-operatorAddresses = Beheerders als ontvangers
+admin-settings-help-dsr-notify-operatorAddresses = Configureer een SMTP-relay met TLS. E-mail gebruikt de proxyroute system_mail. Controleer onzekere acceptatie voordat u opnieuw verzendt.
+
+admin-settings-key-dsr-notify-emailRequester = Aanvrager per e-mail informeren
+admin-settings-help-dsr-notify-emailRequester = Configureer een SMTP-relay met TLS. E-mail gebruikt de proxyroute system_mail. Controleer onzekere acceptatie voordat u opnieuw verzendt.
+
+admin-settings-key-breach-notify-email = Beheerders over datalekken mailen
+admin-settings-help-breach-notify-email = Configureer een SMTP-relay met TLS. E-mail gebruikt de proxyroute system_mail. Controleer onzekere acceptatie voordat u opnieuw verzendt.
+
+admin-settings-key-breach-subjects-email = Betrokkenen per e-mail informeren
+admin-settings-help-breach-subjects-email = Configureer een SMTP-relay met TLS. E-mail gebruikt de proxyroute system_mail. Controleer onzekere acceptatie voordat u opnieuw verzendt.
+
+admin-settings-key-compliance-mail-requireProxy = Proxyroute vereisen
+admin-settings-help-compliance-mail-requireProxy = Proxyroute vereisen (system_mail).
+admin-settings-key-retention-complianceMail-days = Bewaartermijn voltooide e-mails (dagen)
+admin-settings-help-retention-complianceMail-days = Bewaar voltooide afleveringen dit aantal dagen. Openstaande en onzekere afleveringen blijven tot afhandeling.

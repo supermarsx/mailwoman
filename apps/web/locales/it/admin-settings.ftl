@@ -2515,3 +2515,44 @@ admin-settings-help-time-hour-cycle = I simboli H o h di un modello personalizza
 
 admin-settings-key-time-first-day-of-week = Primo giorno della settimana
 admin-settings-help-time-first-day-of-week = Automatico segue le convenzioni regionali del calendario.
+
+admin-settings-key-compliance-mail-enabled = Attiva email
+admin-settings-help-compliance-mail-enabled = Configura un relay SMTP con TLS. Le email usano il percorso proxy system_mail. Verifica le accettazioni incerte prima di reinviare.
+
+admin-settings-key-compliance-mail-host = Host del relay SMTP
+admin-settings-help-compliance-mail-host = Configura un relay SMTP con TLS. Le email usano il percorso proxy system_mail. Verifica le accettazioni incerte prima di reinviare.
+
+admin-settings-key-compliance-mail-port = Porta SMTP
+admin-settings-help-compliance-mail-port = Configura un relay SMTP con TLS. Le email usano il percorso proxy system_mail. Verifica le accettazioni incerte prima di reinviare.
+
+admin-settings-key-compliance-mail-security = Modalità TLS
+admin-settings-help-compliance-mail-security = Configura un relay SMTP con TLS. Le email usano il percorso proxy system_mail. Verifica le accettazioni incerte prima di reinviare.
+
+admin-settings-key-compliance-mail-from = Indirizzo del mittente
+admin-settings-help-compliance-mail-from = Configura un relay SMTP con TLS. Le email usano il percorso proxy system_mail. Verifica le accettazioni incerte prima di reinviare.
+
+admin-settings-key-compliance-mail-username = Nome utente SMTP
+admin-settings-help-compliance-mail-username = Configura un relay SMTP con TLS. Le email usano il percorso proxy system_mail. Verifica le accettazioni incerte prima di reinviare.
+
+admin-settings-key-compliance-mail-allowPrivate = Consenti relay privato
+admin-settings-help-compliance-mail-allowPrivate = Configura un relay SMTP con TLS. Le email usano il percorso proxy system_mail. Verifica le accettazioni incerte prima di reinviare.
+
+admin-settings-key-dsr-notify-emailAdmins = Notifica agli operatori le richieste di dati
+admin-settings-help-dsr-notify-emailAdmins = Configura un relay SMTP con TLS. Le email usano il percorso proxy system_mail. Verifica le accettazioni incerte prima di reinviare.
+
+admin-settings-key-dsr-notify-operatorAddresses = Destinatari operatori
+admin-settings-help-dsr-notify-operatorAddresses = Configura un relay SMTP con TLS. Le email usano il percorso proxy system_mail. Verifica le accettazioni incerte prima di reinviare.
+
+admin-settings-key-dsr-notify-emailRequester = Notifica il richiedente via email
+admin-settings-help-dsr-notify-emailRequester = Configura un relay SMTP con TLS. Le email usano il percorso proxy system_mail. Verifica le accettazioni incerte prima di reinviare.
+
+admin-settings-key-breach-notify-email = Notifica gli operatori delle violazioni
+admin-settings-help-breach-notify-email = Configura un relay SMTP con TLS. Le email usano il percorso proxy system_mail. Verifica le accettazioni incerte prima di reinviare.
+
+admin-settings-key-breach-subjects-email = Notifica le persone interessate via email
+admin-settings-help-breach-subjects-email = Configura un relay SMTP con TLS. Le email usano il percorso proxy system_mail. Verifica le accettazioni incerte prima di reinviare.
+
+admin-settings-key-compliance-mail-requireProxy = Richiedi percorso proxy
+admin-settings-help-compliance-mail-requireProxy = Richiedi percorso proxy (system_mail).
+admin-settings-key-retention-complianceMail-days = Conservazione delle email completate (giorni)
+admin-settings-help-retention-complianceMail-days = Giorni di conservazione delle consegne completate. Quelle in attesa o incerte rimangono fino alla risoluzione.

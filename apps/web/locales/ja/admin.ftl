@@ -1102,3 +1102,5 @@ admin-session-linked-open = オリジンアカウントを開く
 admin-session-linked-removed = リンクされたメールボックスへのアクセス · 元のアカウントが削除されました
 
 admin-session-linked-restricted = リンクされたメールボックスへのアクセス · 発信元が表示されない (そのアカウントへのアクセス権なし)
+
+admin-egress-class-system_mail = メールを有効にする (SMTP)

@@ -1049,8 +1049,17 @@ pub async fn connect_sieve_with(
     allow_private: bool,
     encrypted: bool,
 ) -> Result<proxy::stream::ProxyConn, proxy::ProxyRefusal> {
+    connect_operator_stream(plan,TrafficClass::Sieve,domain,host,port,allow_private,encrypted).await
+}
+
+/// SMTP notifications use their own scoped traffic class and never fall back
+/// to a direct socket when the selected proxy fails.
+pub async fn connect_system_mail_with(plan:&EgressPlan,host:&str,port:u16,allow_private:bool)->Result<proxy::stream::ProxyConn,proxy::ProxyRefusal>{
+    connect_operator_stream(plan,TrafficClass::SystemMail,None,host,port,allow_private,true).await
+}
+async fn connect_operator_stream(plan:&EgressPlan,class:TrafficClass,domain:Option<&str>,host:&str,port:u16,allow_private:bool,encrypted:bool)->Result<proxy::stream::ProxyConn,proxy::ProxyRefusal>{
     use proxy::ProxyRefusal;
-    let route = plan.selected_route(TrafficClass::Sieve, domain);
+    let route = plan.selected_route(class, domain);
     if let Some(route) = route {
         if !encrypted && !route.allow_plaintext {
             return Err(ProxyRefusal::PlaintextRefused);

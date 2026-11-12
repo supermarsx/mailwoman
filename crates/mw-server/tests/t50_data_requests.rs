@@ -501,3 +501,20 @@ async fn an_approved_objection_withdraws_consent_for_the_purposes_it_names() {
     let receipts = consents["receipts"].as_array().unwrap();
     assert!(receipts.iter().any(|r| r["purpose"] == "openTracking" && r["source"] == "dsr"), "{receipts:?}");
 }
+
+#[tokio::test]
+async fn incoming_requests_queue_encrypted_operator_email_without_exposing_message_content(){
+    let f=fixture().await;set(&f.store,"dsr.confirmation.required",json!(false)).await;
+    set(&f.store,"compliance.mail.enabled",json!(true)).await;set(&f.store,"dsr.notify.emailAdmins",json!(true)).await;
+    set(&f.store,"dsr.notify.operatorAddresses",json!(["privacy@example.org"])).await;
+    set(&f.store,"dsr.notify.requester",json!(false)).await;set(&f.store,"dsr.notify.emailRequester",json!(true)).await;
+    f.step_up().await;
+    let (status,request)=f.file(json!({"kind":"access"})).await;assert_eq!(status,201,"{request}");
+    let mut queued=Vec::new();
+    for _ in 0..40{queued=f.store.list_compliance_records("compliance-mail:pending").await.unwrap();if queued.iter().any(|row|row.name.starts_with("dsr-requester:")){break;}tokio::time::sleep(std::time::Duration::from_millis(50)).await;}
+    assert!(queued.iter().any(|row|row.name.starts_with("dsr-requester:")),"Requester email is independent of inbox delivery");
+    assert!(queued.iter().any(|row|row.name.starts_with("dsr-admin:")));
+    assert!(queued.iter().all(|row|!row.body_json.contains("privacy@example.org")));
+    let response=f.admin.get(format!("{}/admin/compliance/mail",f.base)).send().await.unwrap();assert_eq!(response.status(),200);
+    let body=response.text().await.unwrap();assert!(body.contains("dsr-admin:"));assert!(!body.contains("privacy@example.org"));assert!(!body.contains("Mailwoman data request update"));
+}

@@ -193,3 +193,6 @@ admin-retention-never = 从来没有
 admin-retention-title = 保留和日志轮转
 
 admin-retention-unavailable = 保留在此服务器上不可用。
+
+admin-retention-store-complianceMail = 电子邮件通知
+admin-retention-data-complianceMail = 电子邮件通知

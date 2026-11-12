@@ -2507,3 +2507,44 @@ admin-settings-help-time-hour-cycle = カスタムパターンの H または h 
 
 admin-settings-key-time-first-day-of-week = 週の最初の曜日
 admin-settings-help-time-first-day-of-week = 自動設定は地域の暦の慣習に従います。
+
+admin-settings-key-compliance-mail-enabled = メールを有効にする
+admin-settings-help-compliance-mail-enabled = TLS対応のSMTP中継を設定してください。メールはsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認してください。
+
+admin-settings-key-compliance-mail-host = SMTP中継ホスト
+admin-settings-help-compliance-mail-host = TLS対応のSMTP中継を設定してください。メールはsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認してください。
+
+admin-settings-key-compliance-mail-port = SMTPポート
+admin-settings-help-compliance-mail-port = TLS対応のSMTP中継を設定してください。メールはsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認してください。
+
+admin-settings-key-compliance-mail-security = TLSモード
+admin-settings-help-compliance-mail-security = TLS対応のSMTP中継を設定してください。メールはsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認してください。
+
+admin-settings-key-compliance-mail-from = 送信者アドレス
+admin-settings-help-compliance-mail-from = TLS対応のSMTP中継を設定してください。メールはsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認してください。
+
+admin-settings-key-compliance-mail-username = SMTPユーザー名
+admin-settings-help-compliance-mail-username = TLS対応のSMTP中継を設定してください。メールはsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認してください。
+
+admin-settings-key-compliance-mail-allowPrivate = プライベート中継を許可
+admin-settings-help-compliance-mail-allowPrivate = TLS対応のSMTP中継を設定してください。メールはsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認してください。
+
+admin-settings-key-dsr-notify-emailAdmins = データ要求を運用者にメール通知
+admin-settings-help-dsr-notify-emailAdmins = TLS対応のSMTP中継を設定してください。メールはsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認してください。
+
+admin-settings-key-dsr-notify-operatorAddresses = 運用者の宛先
+admin-settings-help-dsr-notify-operatorAddresses = TLS対応のSMTP中継を設定してください。メールはsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認してください。
+
+admin-settings-key-dsr-notify-emailRequester = 要求者にメールで更新を通知
+admin-settings-help-dsr-notify-emailRequester = TLS対応のSMTP中継を設定してください。メールはsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認してください。
+
+admin-settings-key-breach-notify-email = 侵害を運用者にメール通知
+admin-settings-help-breach-notify-email = TLS対応のSMTP中継を設定してください。メールはsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認してください。
+
+admin-settings-key-breach-subjects-email = 影響を受ける人にメール通知
+admin-settings-help-breach-subjects-email = TLS対応のSMTP中継を設定してください。メールはsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認してください。
+
+admin-settings-key-compliance-mail-requireProxy = プロキシ経路を必須にする
+admin-settings-help-compliance-mail-requireProxy = プロキシ経路を必須にする (system_mail).
+admin-settings-key-retention-complianceMail-days = 完了したメール履歴の保存日数
+admin-settings-help-retention-complianceMail-days = 完了した配信を指定日数保存します。待機中と受理状況不明の配信は解決するまで保持します。

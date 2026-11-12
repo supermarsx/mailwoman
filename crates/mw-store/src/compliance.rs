@@ -1,8 +1,9 @@
 //! Compliance documents: policy versions and overrides, operator-written
 //! processing records, and the DPIA register with its history.
 //!
-//! These tables hold text an administrator wrote and the configuration facts a
-//! policy was generated from. They hold no end-user data.
+//! These tables hold operator-maintained records and policy snapshots. Outbound
+//! compliance deliveries also use this store, with ID-bound encrypted payloads
+//! and explicit export/erasure and retention handling.
 use crate::{Store, StoreError, backend::Row, q};
 use serde::{Deserialize, Serialize};
 
@@ -222,6 +223,27 @@ impl Store {
             .await?;
         Ok(())
     }
+
+    pub async fn purge_compliance_delivery_history(&self,cutoff:i64)->Result<u64,StoreError>{
+        Ok(q("DELETE FROM compliance_record WHERE id IN (SELECT id FROM compliance_record WHERE kind IN ('compliance-mail:sent','compliance-mail:failed','compliance-mail:dismissed') AND updated_at<?1 LIMIT 1000)").bind(cutoff).execute(&self.backend).await?)
+    }
+
+    /// Insert a durable delivery only once, including across server processes.
+    pub async fn insert_compliance_record_once(&self,r:&ComplianceRecord)->Result<bool,StoreError>{
+        Ok(q("INSERT INTO compliance_record(id,kind,name,body_json,updated_by,updated_at) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO NOTHING")
+            .bind(r.id.as_str()).bind(r.kind.as_str()).bind(r.name.as_str()).bind(r.body_json.as_str()).bind(r.updated_by.as_str()).bind(r.updated_at).execute(&self.backend).await?>0)
+    }
+    pub async fn due_compliance_deliveries(&self,kind:&str,at:i64)->Result<Vec<ComplianceRecord>,StoreError>{
+        let rows=q("SELECT id,kind,name,body_json,updated_by,updated_at FROM compliance_record WHERE kind=?1 AND updated_at<=?2 ORDER BY updated_at,id LIMIT 100").bind(kind).bind(at).fetch_all(&self.backend).await?;
+        Ok(rows.iter().map(record).collect())
+    }
+    /// Compare-and-swap claim/transition: two workers cannot send the same row.
+    pub async fn transition_compliance_record(&self,old:&ComplianceRecord,new:&ComplianceRecord)->Result<bool,StoreError>{
+        Ok(q("UPDATE compliance_record SET kind=?1,body_json=?2,updated_at=?3 WHERE id=?4 AND kind=?5 AND body_json=?6 AND updated_at=?7")
+            .bind(new.kind.as_str()).bind(new.body_json.as_str()).bind(new.updated_at).bind(old.id.as_str()).bind(old.kind.as_str()).bind(old.body_json.as_str()).bind(old.updated_at).execute(&self.backend).await?>0)
+    }
+    pub fn seal_compliance_delivery(&self,id:&str,plain:&[u8])->Result<Vec<u8>,StoreError>{Ok(self.key.seal_bound(plain,"compliance-delivery-v1",&[id])?)}
+    pub fn open_compliance_delivery(&self,id:&str,sealed:&[u8])->Result<Vec<u8>,StoreError>{Ok(self.key.open_bound(sealed,"compliance-delivery-v1",&[id])?)}
 
     pub async fn delete_compliance_record(&self, id: &str) -> Result<bool, StoreError> {
         Ok(q("DELETE FROM compliance_record WHERE id=?1").bind(id).execute(&self.backend).await? > 0)

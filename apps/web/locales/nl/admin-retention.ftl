@@ -187,3 +187,6 @@ admin-retention-userrules-users = Gebruikers met regels
 admin-retention-userrules-rules = Actieve regels
 admin-retention-userrules-changed = Gewijzigde berichten, laatste 30 dagen
 admin-retention-userrules-lastjob = Laatste taak
+
+admin-retention-store-complianceMail = E-mailmeldingen
+admin-retention-data-complianceMail = E-mailmeldingen

@@ -5,7 +5,7 @@ export const SETTING_GROUPS: readonly { id: string; keys: readonly string[] }[] 
   { id: 'clock', keys: ['breach.enabled', 'breach.noticeHours', 'breach.reminders.hours', 'breach.reminders.overdueRepeatHours', 'breach.retention.years'] },
   { id: 'authority', keys: ['breach.authority.name', 'breach.authority.url', 'breach.authority.contact', 'breach.dpo.name', 'breach.dpo.email', 'breach.dpo.phone'] },
   { id: 'templates', keys: ['breach.template.subject', 'breach.template.body'] },
-  { id: 'channels', keys: ['breach.notify.audit', 'breach.notify.webhookUrls', 'breach.notify.operatorAddresses', 'breach.subjects.inApp', 'breach.subjects.inbox', 'breach.subjects.webhook'] },
+  { id: 'channels', keys: ['breach.notify.email', 'breach.subjects.email', 'breach.notify.audit', 'breach.notify.webhookUrls', 'breach.notify.operatorAddresses', 'breach.subjects.inApp', 'breach.subjects.inbox', 'breach.subjects.webhook'] },
   {
     id: 'automation',
     keys: [

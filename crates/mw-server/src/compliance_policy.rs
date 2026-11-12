@@ -27,8 +27,8 @@ pub(crate) const SECTIONS: [&str; 11] = [
 pub(crate) const COOKIE_SECTIONS: [&str; 3] = ["cookie-what", "cookies", "cookie-choices"];
 
 /// Setting keys whose value the generator reads.
-const PREFIXES: [&str; 8] = [
-    "cookies.", "dsr.", "privacy.", "logging.redaction.", "assistant.", "policy.", "mail.openTracking", "mail.readReceipts",
+const PREFIXES: [&str; 9] = [
+    "compliance.mail.", "cookies.", "dsr.", "privacy.", "logging.redaction.", "assistant.", "policy.", "mail.openTracking", "mail.readReceipts",
 ];
 /// Keys that are read but do not describe the processing, so a change to them is not a policy change.
 const NOT_POLICY: [&str; 3] = ["cookies.policyVersion", "policy.autoVersion", "policy.reconsentOnChange"];
@@ -149,7 +149,8 @@ fn title(lang: &str, id: &str) -> &'static str {
 
 /// The third-party traffic classes, for the recipients section and the sub-processor list.
 /// `(class, en, pt, setting that enables it or "")`.
-pub(crate) const EGRESS_RECIPIENTS: [(&str, &str, &str, &str); 8] = [
+pub(crate) const EGRESS_RECIPIENTS: [(&str, &str, &str, &str); 9] = [
+    ("system_mail","The administrator-configured SMTP notification relay, when enabled","O servidor SMTP de notificações configurado pelo administrador, quando ativo","compliance.mail.enabled"),
     ("push", "Push notification services chosen by your browser or device", "Serviços de notificações push escolhidos pelo seu navegador ou dispositivo", ""),
     ("remote_content", "The servers that host remote images in messages (fetched through this server)", "Os servidores que alojam imagens remotas nas mensagens (obtidas através deste servidor)", "privacy.remoteContent"),
     ("keyservers", "OpenPGP key servers, when keys are looked up", "Servidores de chaves OpenPGP, quando são procuradas chaves", ""),
@@ -186,6 +187,7 @@ fn retention_label(lang: &str, id: &str) -> String {
         "authHistory" => ("Sign-in history", "Histórico de início de sessão"),
         "requestMetrics" => ("Request statistics", "Estatísticas de pedidos"),
         "clientErrors" => ("Browser error reports", "Relatórios de erros do navegador"),
+        "complianceMail" => ("Completed notification deliveries","Entregas de notificações concluídas"),
         "dsrRequests" => ("Completed data requests", "Pedidos de dados concluídos"),
         "openTracking" => ("Open tracking events", "Eventos de rastreio de abertura"),
         "diagnostics" => ("Diagnostic runs", "Execuções de diagnóstico"),
@@ -198,8 +200,8 @@ fn retention_label(lang: &str, id: &str) -> String {
 }
 
 /// Stores the retention section lists (others are internal bookkeeping).
-const RETENTION_LISTED: [&str; 21] = [
-    "sessions", "nativeSessions", "rememberedDevices", "authHistory", "authHistoryIp", "auditLogIp", "passwordChangeAudit",
+const RETENTION_LISTED: [&str; 22] = [
+    "complianceMail", "sessions", "nativeSessions", "rememberedDevices", "authHistory", "authHistoryIp", "auditLogIp", "passwordChangeAudit",
     "ssoLoginAudit", "dlpAudit", "assistAudit", "alertEvents", "jobRuns", "outbox", "requestMetrics", "dsrRequests",
     "openTracking", "diagnostics", "logFiles", "accountGeo", "uploads", "clientErrors",
 ];
@@ -377,7 +379,7 @@ fn body(f: &Snapshot, lang: &str, id: &str) -> (String, Vec<&'static str>) {
         "recipients" => {
             let mut items = vec![l(lang, "The hosting provider named under hosting, which stores the data for us.", "O fornecedor de alojamento indicado em alojamento, que guarda os dados por nossa conta.").to_owned()];
             for (_, en, pt, key) in EGRESS_RECIPIENTS {
-                if key.is_empty() || s(f, key) != "block" {
+                if (key!="compliance.mail.enabled"||b(f,key)) && (key.is_empty() || s(f, key) != "block") {
                     items.push(l(lang, en, pt).to_owned());
                 }
             }

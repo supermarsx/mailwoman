@@ -92,6 +92,7 @@ pub async fn consent_allowed(store: &mw_store::Store, account_id: &str, purpose:
 }
 mod compliance;
 mod compliance_governance;
+mod compliance_mail;
 mod compliance_dpia;
 mod compliance_policy;
 mod cookie_inventory;
@@ -1447,6 +1448,7 @@ async fn build_app_inner(
         directory: directory.clone(),
     };
     jobs::start(state.clone());
+    compliance_mail::start(state.clone());
     dsr::start(state.clone());
     breach::start(state.clone());
     image_proxy::remote_content::start_capacity_monitor(state.clone());

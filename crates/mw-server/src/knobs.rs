@@ -699,6 +699,8 @@ pub static CATALOGUE: &[Knob] = &[
         "",
         "CORS origins of the desktop and mobile shells",
     ),
+    boot("MW_COMPLIANCE_SMTP_PASSWORD",Gr::Storage,Secret,R::Boot,"unset","Password for the compliance SMTP relay; never exposed in settings"),
+    boot("MW_COMPLIANCE_SMTP_PASSWORD_FILE",Gr::Storage,Path,R::Boot,"unset","File containing the compliance SMTP password"),
     // ── Storage and host paths ─────────────────────────────────────────────────
     boot(
         "MW_SERVER_KEY",

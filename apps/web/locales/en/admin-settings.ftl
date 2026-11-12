@@ -2310,3 +2310,44 @@ admin-settings-help-time-hour-cycle = Custom H or h pattern tokens take preceden
 
 admin-settings-key-time-first-day-of-week = First day of the week
 admin-settings-help-time-first-day-of-week = Automatic follows regional calendar conventions.
+
+admin-settings-key-compliance-mail-enabled = Enable email
+admin-settings-help-compliance-mail-enabled = Configure a TLS SMTP relay. Mail uses the system_mail proxy route. Uncertain acceptance requires review before resending.
+
+admin-settings-key-compliance-mail-host = SMTP relay host
+admin-settings-help-compliance-mail-host = Configure a TLS SMTP relay. Mail uses the system_mail proxy route. Uncertain acceptance requires review before resending.
+
+admin-settings-key-compliance-mail-port = SMTP port
+admin-settings-help-compliance-mail-port = Configure a TLS SMTP relay. Mail uses the system_mail proxy route. Uncertain acceptance requires review before resending.
+
+admin-settings-key-compliance-mail-security = TLS mode
+admin-settings-help-compliance-mail-security = Configure a TLS SMTP relay. Mail uses the system_mail proxy route. Uncertain acceptance requires review before resending.
+
+admin-settings-key-compliance-mail-from = Sender address
+admin-settings-help-compliance-mail-from = Configure a TLS SMTP relay. Mail uses the system_mail proxy route. Uncertain acceptance requires review before resending.
+
+admin-settings-key-compliance-mail-username = SMTP username
+admin-settings-help-compliance-mail-username = Configure a TLS SMTP relay. Mail uses the system_mail proxy route. Uncertain acceptance requires review before resending.
+
+admin-settings-key-compliance-mail-allowPrivate = Allow private relay
+admin-settings-help-compliance-mail-allowPrivate = Configure a TLS SMTP relay. Mail uses the system_mail proxy route. Uncertain acceptance requires review before resending.
+
+admin-settings-key-dsr-notify-emailAdmins = Email operators about data requests
+admin-settings-help-dsr-notify-emailAdmins = Configure a TLS SMTP relay. Mail uses the system_mail proxy route. Uncertain acceptance requires review before resending.
+
+admin-settings-key-dsr-notify-operatorAddresses = Operator recipients
+admin-settings-help-dsr-notify-operatorAddresses = Configure a TLS SMTP relay. Mail uses the system_mail proxy route. Uncertain acceptance requires review before resending.
+
+admin-settings-key-dsr-notify-emailRequester = Email requester updates
+admin-settings-help-dsr-notify-emailRequester = Configure a TLS SMTP relay. Mail uses the system_mail proxy route. Uncertain acceptance requires review before resending.
+
+admin-settings-key-breach-notify-email = Email breach operators
+admin-settings-help-breach-notify-email = Configure a TLS SMTP relay. Mail uses the system_mail proxy route. Uncertain acceptance requires review before resending.
+
+admin-settings-key-breach-subjects-email = Email affected people
+admin-settings-help-breach-subjects-email = Configure a TLS SMTP relay. Mail uses the system_mail proxy route. Uncertain acceptance requires review before resending.
+
+admin-settings-key-compliance-mail-requireProxy = Require proxy route
+admin-settings-help-compliance-mail-requireProxy = Require proxy route (system_mail).
+admin-settings-key-retention-complianceMail-days = Completed email history retention (days)
+admin-settings-help-retention-complianceMail-days = Retain completed deliveries for this many days. Pending and uncertain deliveries remain until resolved.

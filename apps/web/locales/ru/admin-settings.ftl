@@ -2533,3 +2533,44 @@ admin-settings-help-time-hour-cycle = Символы H или h в своём ш
 
 admin-settings-key-time-first-day-of-week = Первый день недели
 admin-settings-help-time-first-day-of-week = Автоматически по региональным правилам календаря.
+
+admin-settings-key-compliance-mail-enabled = Включить почту
+admin-settings-help-compliance-mail-enabled = Настройте SMTP-сервер с TLS. Почта использует маршрут прокси system_mail. При неясном принятии проверьте результат перед повторной отправкой.
+
+admin-settings-key-compliance-mail-host = Сервер SMTP
+admin-settings-help-compliance-mail-host = Настройте SMTP-сервер с TLS. Почта использует маршрут прокси system_mail. При неясном принятии проверьте результат перед повторной отправкой.
+
+admin-settings-key-compliance-mail-port = Порт SMTP
+admin-settings-help-compliance-mail-port = Настройте SMTP-сервер с TLS. Почта использует маршрут прокси system_mail. При неясном принятии проверьте результат перед повторной отправкой.
+
+admin-settings-key-compliance-mail-security = Режим TLS
+admin-settings-help-compliance-mail-security = Настройте SMTP-сервер с TLS. Почта использует маршрут прокси system_mail. При неясном принятии проверьте результат перед повторной отправкой.
+
+admin-settings-key-compliance-mail-from = Адрес отправителя
+admin-settings-help-compliance-mail-from = Настройте SMTP-сервер с TLS. Почта использует маршрут прокси system_mail. При неясном принятии проверьте результат перед повторной отправкой.
+
+admin-settings-key-compliance-mail-username = Имя пользователя SMTP
+admin-settings-help-compliance-mail-username = Настройте SMTP-сервер с TLS. Почта использует маршрут прокси system_mail. При неясном принятии проверьте результат перед повторной отправкой.
+
+admin-settings-key-compliance-mail-allowPrivate = Разрешить частный сервер
+admin-settings-help-compliance-mail-allowPrivate = Настройте SMTP-сервер с TLS. Почта использует маршрут прокси system_mail. При неясном принятии проверьте результат перед повторной отправкой.
+
+admin-settings-key-dsr-notify-emailAdmins = Уведомлять операторов о запросах данных
+admin-settings-help-dsr-notify-emailAdmins = Настройте SMTP-сервер с TLS. Почта использует маршрут прокси system_mail. При неясном принятии проверьте результат перед повторной отправкой.
+
+admin-settings-key-dsr-notify-operatorAddresses = Адресаты операторы
+admin-settings-help-dsr-notify-operatorAddresses = Настройте SMTP-сервер с TLS. Почта использует маршрут прокси system_mail. При неясном принятии проверьте результат перед повторной отправкой.
+
+admin-settings-key-dsr-notify-emailRequester = Уведомлять заявителя по почте
+admin-settings-help-dsr-notify-emailRequester = Настройте SMTP-сервер с TLS. Почта использует маршрут прокси system_mail. При неясном принятии проверьте результат перед повторной отправкой.
+
+admin-settings-key-breach-notify-email = Уведомлять операторов об утечках
+admin-settings-help-breach-notify-email = Настройте SMTP-сервер с TLS. Почта использует маршрут прокси system_mail. При неясном принятии проверьте результат перед повторной отправкой.
+
+admin-settings-key-breach-subjects-email = Уведомлять затронутых лиц по почте
+admin-settings-help-breach-subjects-email = Настройте SMTP-сервер с TLS. Почта использует маршрут прокси system_mail. При неясном принятии проверьте результат перед повторной отправкой.
+
+admin-settings-key-compliance-mail-requireProxy = Требовать маршрут прокси
+admin-settings-help-compliance-mail-requireProxy = Требовать маршрут прокси (system_mail).
+admin-settings-key-retention-complianceMail-days = Хранение истории завершённых писем (дни)
+admin-settings-help-retention-complianceMail-days = Срок хранения завершённых доставок. Ожидающие и неопределённые остаются до разрешения.
