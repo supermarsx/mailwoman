@@ -10,6 +10,10 @@ import { useEntityNavigation } from './entityEditor.tsx';
 import { createConfirm } from '../../components/confirm.tsx';
 import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
+import * as table from './linkedAccounts.css.ts';
+import * as entity from './entityTable.css.ts';
+import * as ux from '../Admin/shell/ux.css.ts';
+import {Icon} from '../../components/Icon.tsx';
 import { RectificationBanner } from './RectificationBanner.tsx';
 export interface IdentitiesProps { service?:SettingsService }
 export function Identities(props:IdentitiesProps):JSX.Element {
@@ -34,28 +38,26 @@ function OwnedIdentities(props:IdentitiesProps):JSX.Element {
   if(variantsOf(identity.id).length>0){setChoosing(identity.id);return;}
   if(!await removal.ask({title:t('settings-ident-delete-title',{email:identity.email}),body:t(identity.isDefault?'settings-ident-delete-default-body':'settings-ident-delete-body'),confirmLabel:t('settings-delete'),testId:'identity-delete-confirm'}))return;await perform(identity.id);}
  return <><RectificationBanner/><Show when={editor()} keyed fallback={<SettingsCard id="identities-card" wide title={t('settings-ident-title')} description={t('settings-ident-intro')}><Show when={identities.loading}><InlineLoading onRetry={()=>void refetch()}/></Show>
-      <ul class={css.list} data-testid="identity-list">
+      <div class={table.header}><button type="button" class={`${css.button} ${table.addButton}`} disabled={busy()} onClick={()=>void open()}><Icon name="plus"/>{t('settings-ident-new')}</button></div>
+      <ul class={table.table} aria-label={t('settings-ident-title')} data-testid="identity-list">
         <For each={grouped()}>
           {(entry) => (
-            <li class={css.item} data-testid={entry.variant?'identity-variant':'identity-base'} style={entry.variant?{'margin-inline-start':'1.5rem'}:undefined}>
-              <div class={css.itemMain}>
-                <span class={css.itemName}>{isolate(entry.identity.name)}<Show when={entry.identity.label}>{' '}<span class={css.badge} data-testid="identity-label">{isolate(entry.identity.label!)}</span></Show><Show when={entry.identity.isDefault}>{' '}<span class={css.badge} data-testid="identity-default-badge">{t('settings-ident-default-badge')}</span></Show></span>
-                <span class={css.meta}>{isolate(entry.identity.email)}</span>
-                <Show when={entry.variant&&inheritText(entry.identity)}><span class={css.meta} data-testid="identity-inherits">{inheritText(entry.identity)}</span></Show>
-                <Show when={!entry.variant&&variantsOf(entry.identity.id).length>0}><span class={css.meta}>{t('settings-ident-variant-count',{count:variantsOf(entry.identity.id).length})}</span></Show>
+            <li class={`${entity.row} ${entry.variant?entity.variant:''}`} data-testid={entry.variant?'identity-variant':'identity-base'}>
+              <span class={entity.avatar}><Icon name={entry.variant?'clone':'person'}/></span>
+              <div class={table.who}>
+                <span class={entity.name}><span class={entity.label}>{isolate(entry.identity.name)}</span><Show when={entry.identity.label}><span class={css.badge} data-testid="identity-label">{isolate(entry.identity.label!)}</span></Show><Show when={entry.identity.isDefault}><span class={css.badge} data-testid="identity-default-badge">{t('settings-ident-default-badge')}</span></Show></span>
+                <span class={table.address} title={entry.identity.email}>{isolate(entry.identity.email)}</span>
+                <Show when={entry.variant&&inheritText(entry.identity)}><span class={entity.detail} data-testid="identity-inherits">{inheritText(entry.identity)}</span></Show>
+                <Show when={!entry.variant&&variantsOf(entry.identity.id).length>0}><span class={entity.detail}>{t('settings-ident-variant-count',{count:variantsOf(entry.identity.id).length})}</span></Show>
               </div>
-              <div class={css.actions}>
-                <Show when={!entry.identity.isDefault}><button type="button" class={css.ghost} disabled={busy()} onClick={()=>void makeDefault(entry.identity)}>{t('settings-ident-make-default')}</button></Show>
-                <Show when={!entry.variant}><button type="button" class={css.ghost} disabled={busy()} onClick={()=>void open(undefined,entry.identity)}>{t('settings-ident-create-variant')}</button></Show>
-                <button type="button" class={css.ghost} disabled={busy()} onClick={()=>void open(entry.identity.id)}>
-                  {t('settings-edit')}
-                </button>
-                <button type="button" class={css.danger} disabled={busy()} onClick={() => void remove(entry.identity)}>
-                  {t('settings-delete')}
-                </button>
+              <div class={table.actions}>
+                <button type="button" class={`btn btn--ghost ${ux.iconAction}`} disabled={busy()||entry.identity.isDefault===true} aria-pressed={entry.identity.isDefault===true} aria-label={t(entry.identity.isDefault?'settings-ident-default-badge':'settings-ident-make-default')} data-tooltip={t(entry.identity.isDefault?'settings-ident-default-badge':'settings-ident-make-default')} onClick={()=>void makeDefault(entry.identity)}><Icon name={entry.identity.isDefault?'star':'starOutline'}/></button>
+                <Show when={!entry.variant}><button type="button" class={`btn btn--ghost ${ux.iconAction}`} disabled={busy()} aria-label={t('settings-ident-create-variant')} data-tooltip={t('settings-ident-create-variant')} onClick={()=>void open(undefined,entry.identity)}><Icon name="clone"/></button></Show>
+                <button type="button" class={`btn btn--ghost ${ux.iconAction}`} disabled={busy()} aria-label={t('settings-edit')} data-tooltip={t('settings-edit')} onClick={()=>void open(entry.identity.id)}><Icon name="edit"/></button>
+                <button type="button" class={`btn btn--danger ${ux.iconAction}`} disabled={busy()} aria-label={t('settings-delete')} data-tooltip={t('settings-delete')} onClick={()=>void remove(entry.identity)}><Icon name="delete"/></button>
               </div>
               <Show when={choosing()===entry.identity.id}>
-                <div role="group" aria-label={t('settings-ident-variants-choice-title',{email:entry.identity.email})} data-testid="identity-variants-choice" style={{'flex-basis':'100%'}}>
+                <div class={entity.choice} role="group" aria-label={t('settings-ident-variants-choice-title',{email:entry.identity.email})} data-testid="identity-variants-choice">
                   <p class={css.prose}>{t('settings-ident-variants-choice-body',{count:variantsOf(entry.identity.id).length})}</p>
                   <div class={css.actions}>
                     <button type="button" class={css.danger} disabled={busy()} data-testid="identity-delete-with-variants" onClick={()=>void perform(entry.identity.id,'delete')}>{t('settings-ident-delete-with-variants')}</button>
@@ -68,6 +70,6 @@ function OwnedIdentities(props:IdentitiesProps):JSX.Element {
           )}
         </For>
       </ul><Show when={!identities.loading&&(identities()?.length??0)===0}><p class={css.prose} data-testid="identity-empty">{t('settings-ident-empty')}</p></Show><removal.Dialog/>
-<div class={css.actions}><button class={css.button} onClick={()=>void open()}>{t('settings-ident-new')}</button></div></SettingsCard>}>{route=> <Show when={route.kind==='new'} fallback={<Show when={identities()?.find(item=>item.id===route.id)} keyed fallback={<Show when={!identities.loading}><p>{t('settings-editor-missing')}</p><button class={css.ghost} onClick={()=>void back()}>{t('settings-editor-back')}</button></Show>}>{item=><IdentityEditor initial={item} others={identities() ?? []} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/>}</Show>}><IdentityEditor {...(variantBase()?{draftVariantOf:variantBase()!}:{})} others={identities() ?? []} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/></Show>}</Show></>;
+</SettingsCard>}>{route=> <Show when={route.kind==='new'} fallback={<Show when={identities()?.find(item=>item.id===route.id)} keyed fallback={<Show when={!identities.loading}><p>{t('settings-editor-missing')}</p><button class={css.ghost} onClick={()=>void back()}>{t('settings-editor-back')}</button></Show>}>{item=><IdentityEditor initial={item} others={identities() ?? []} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/>}</Show>}><IdentityEditor {...(variantBase()?{draftVariantOf:variantBase()!}:{})} others={identities() ?? []} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/></Show>}</Show></>;
 }
 export default Identities;

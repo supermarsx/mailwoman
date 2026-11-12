@@ -28,23 +28,23 @@ describe('Identities — default and variants', () => {
     expect(within(items[1]!).getByTestId('identity-label')).toHaveTextContent('Newsletters');
     expect(within(items[1]!).getByTestId('identity-inherits')).toHaveTextContent('reply-to');
     expect(within(items[1]!).getByTestId('identity-inherits')).not.toHaveTextContent('organization');
-    expect(within(items[1]!).queryByText('Create variant')).toBeNull();
-    expect(within(items[0]!).queryByText('Make default')).toBeNull();
-    expect(within(items[2]!).getByText('Make default')).toBeInTheDocument();
+    expect(within(items[1]!).queryByRole('button',{name:'Create variant'})).toBeNull();
+    expect(within(items[0]!).queryByRole('button',{name:'Make default'})).toBeNull();
+    expect(within(items[2]!).getByRole('button',{name:'Make default'})).toBeInTheDocument();
   });
 
   it('makes an identity the default', async () => {
     const makeIdentityDefault = vi.fn(async () => undefined);
     render(() => <Identities service={service([base, other], { makeIdentityDefault })} />);
     const row = (await screen.findAllByRole('listitem'))[1]!;
-    fireEvent.click(within(row).getByText('Make default'));
+    fireEvent.click(within(row).getByRole('button',{name:'Make default'}));
     await waitFor(() => expect(makeIdentityDefault).toHaveBeenCalledWith('other'));
   });
 
   it('creates a variant prefilled from its base and requires a label', async () => {
     const upsert = vi.fn(async (_i: Identity) => undefined);
     render(() => <Identities service={service([base], { upsertIdentity: upsert })} />);
-    fireEvent.click(await screen.findByText('Create variant'));
+    fireEvent.click(await screen.findByRole('button',{name:'Create variant'}));
     expect(await screen.findByTestId('identity-variant-intro')).toBeInTheDocument();
     expect(screen.getByLabelText('Email address')).toHaveValue('alex@example.org');
     fireEvent.click(screen.getByTestId('identity-save'));
@@ -61,13 +61,13 @@ describe('Identities — default and variants', () => {
     const deleteIdentity = vi.fn(async () => undefined);
     render(() => <Identities service={service([base, variant], { deleteIdentity })} />);
     const row = (await screen.findAllByRole('listitem'))[0]!;
-    fireEvent.click(within(row).getByText('Delete'));
+    fireEvent.click(within(row).getByRole('button',{name:'Delete'}));
     expect(deleteIdentity).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByTestId('identity-delete-keep-variants'));
     await waitFor(() => expect(deleteIdentity).toHaveBeenCalledWith('base', 'promote'));
     await waitFor(() => expect(screen.queryByTestId('identity-variants-choice')).toBeNull());
-    await waitFor(() => expect(within(screen.getAllByRole('listitem')[0]!).getByText('Delete')).not.toBeDisabled());
-    fireEvent.click(within(screen.getAllByRole('listitem')[0]!).getByText('Delete'));
+    await waitFor(() => expect(within(screen.getAllByRole('listitem')[0]!).getByRole('button',{name:'Delete'})).not.toBeDisabled());
+    fireEvent.click(within(screen.getAllByRole('listitem')[0]!).getByRole('button',{name:'Delete'}));
     fireEvent.click(await screen.findByTestId('identity-delete-with-variants'));
     await waitFor(() => expect(deleteIdentity).toHaveBeenLastCalledWith('base', 'delete'));
   });
@@ -77,8 +77,8 @@ describe('Identities — default and variants', () => {
       throw new SettingsError(409, 'conflict', { code: 'has_variants' });
     });
     render(() => <Identities service={service([base], { deleteIdentity })} />);
-    fireEvent.click(await screen.findByText('Delete'));
-    fireEvent.click(within(await screen.findByTestId('identity-delete-confirm')).getByText('Delete'));
+    fireEvent.click(await screen.findByRole('button',{name:'Delete'}));
+    fireEvent.click(within(await screen.findByTestId('identity-delete-confirm')).getByRole('button',{name:'Delete'}));
     await waitFor(() => expect(screen.getByTestId('identity-variants-choice')).toBeInTheDocument());
   });
 });
