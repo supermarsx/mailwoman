@@ -1,4 +1,5 @@
 import {toast} from '../../components/toast/toast.ts';
+import {requestMailboxOpen} from '../../state/mailboxOpenRequest.ts';
 import {createEffect,createResource,createSignal,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {createLinkedAccountsApi,type LinkedMailbox,type LinkedMailboxChallenge,type LinkMailboxInput,type LinkMailboxProof} from '../../api/linkedAccounts.ts';
 import {publicConfig} from '../../api/publicConfig.ts';
@@ -65,6 +66,17 @@ function OwnedLinkedAccounts():JSX.Element {
     catch(cause){if(!disposed)setError(linkedAccountError(cause));}
     finally{if(!disposed)setBusy(false);}
   }
+  async function openAccount(id:string|null):Promise<void>{
+    if(busy()||app.switchingMailbox()||!await confirmShellNavigation())return;
+    const current=list();if(!current)return;
+    const account=id===null?undefined:current.accounts.find(item=>item.id===id);
+    if(id!==null&&(!current.policy.enabled||account?.status!=='ready'))return;
+    const label=mailboxNickname(id)||(id===null?current.primary.address:account?.address||account?.displayName);
+    setBusy(true);
+    try{await app.switchLinkedMailbox(id,label);if(app.linkedMailboxId()===id)requestMailboxOpen();}
+    catch(cause){if(!disposed)setError(linkedAccountError(cause));}
+    finally{if(!disposed)setBusy(false);}
+  }
   function move(from:number,slot:number):void{
     const current=list();if(!current||busy())return;
     const order=moveTo(orderedKeys(current),from,slot);
@@ -96,7 +108,7 @@ function OwnedLinkedAccounts():JSX.Element {
     <Show when={!list.error&&list()}>{value=><>
       <Show when={app.linkedMailboxId()===null} fallback={<p class={css.meta}>{t('linked-accounts-primary-preference')}</p>}><LinkedPreference onChanged={()=>{invalidateLinkedAccounts();void refetch();}}/></Show>
       <Show when={value().policy.reason==='linkedBackendUnsupported'}><p class={css.meta}>{t('linked-accounts-backend-unsupported')}</p></Show>
-      <LinkedAccountList value={value()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename} onRenew={setRenewing} onAvatar={setAvatar} onVisibility={setVisibility}/>
+      <LinkedAccountList value={value()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename} onRenew={setRenewing} onAvatar={setAvatar} onVisibility={setVisibility} onOpen={id=>void openAccount(id)}/>
       <Show when={renewing()}>{account=><RenewAccessDialog account={account()} label={mailboxNickname(account().id)||account().address||account().displayName} api={api}
         onRenewed={()=>{setRenewing(undefined);invalidateLinkedAccounts();void refetch();}} onCancel={()=>setRenewing(undefined)} onGone={()=>{setRenewing(undefined);void refetch();}}/>}</Show>
     </>}</Show>

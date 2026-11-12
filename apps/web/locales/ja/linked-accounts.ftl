@@ -139,3 +139,5 @@ linked-accounts-avatar-icon-bell = ベル
 linked-accounts-avatar-icon-cart = ショッピングカート
 linked-accounts-avatar-icon-plane = 飛行機
 linked-accounts-avatar-icon-school = 学校
+linked-accounts-go-to = アカウントに移動：{ $address }
+linked-accounts-go-to-short = アカウントに移動

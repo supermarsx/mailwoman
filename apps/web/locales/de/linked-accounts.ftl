@@ -140,3 +140,5 @@ linked-accounts-avatar-icon-bell = Glocke
 linked-accounts-avatar-icon-cart = Einkaufswagen
 linked-accounts-avatar-icon-plane = Flugzeug
 linked-accounts-avatar-icon-school = Schule
+linked-accounts-go-to = Zum Konto wechseln: { $address }
+linked-accounts-go-to-short = Zum Konto wechseln

@@ -140,3 +140,5 @@ linked-accounts-avatar-icon-school = School
 linked-accounts-selector-visible = Show { $address } in the account selector
 linked-accounts-show-selector = Show in account selector
 linked-accounts-hide-selector = Hide from account selector
+linked-accounts-go-to = Go to account: { $address }
+linked-accounts-go-to-short = Go to account

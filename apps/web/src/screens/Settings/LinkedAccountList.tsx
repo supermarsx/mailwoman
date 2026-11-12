@@ -38,6 +38,7 @@ export function LinkedAccountList(props:{
   onRename:(id:string|null,nickname:string)=>Promise<boolean>;
   /** Renew an expired link's access in place. */
   onRenew?:(account:LinkedMailbox)=>void;
+  onOpen?:(id:string|null)=>void;
   /** t86: save a mailbox's avatar (`undefined` = the generated one); resolves false when refused. */
   onVisibility?:(id:string,visible:boolean)=>void;
   onAvatar?:(id:string|null,avatar:MailboxAvatarSpec|undefined)=>Promise<boolean>;
@@ -142,6 +143,9 @@ export function LinkedAccountList(props:{
               </div>
             </Show>
             <div class={table.actions} data-linked-actions>
+              <Show when={props.onOpen}><button type="button" class={icon} data-linked-open disabled={props.busy||!ready()}
+                aria-label={t('linked-accounts-go-to',{address:nameFor(key)})} data-tooltip={t('linked-accounts-go-to-short')}
+                onClick={()=>props.onOpen?.(linkId)}><Icon name="mail"/></button></Show>
               <Show when={linkId!==null&&props.onVisibility}>
                 <button type="button" class={icon} disabled={props.busy} aria-pressed={!props.value.layout?.hidden?.includes(key)}
                   aria-label={t('linked-accounts-selector-visible',{address:nameFor(key)})}

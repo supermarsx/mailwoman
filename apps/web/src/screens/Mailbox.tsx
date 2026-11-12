@@ -1,4 +1,5 @@
 import {messageOpenRequest,takeMessageOpenRequest} from '../state/messageOpenRequest.ts';
+import {mailboxOpenRequest,takeMailboxOpenRequest} from '../state/mailboxOpenRequest.ts';
 import {recalledDraftId,takeRecalledDraft} from '../state/recalledDraft.ts';
 import {pendingCompose,takePendingCompose} from '../state/pendingCompose.ts';
 import {requestModuleAction,type ModuleAction} from '../state/moduleActions.ts';
@@ -527,6 +528,7 @@ export function MailboxScreen(): JSX.Element {
   const initialRoute=router.route();
   let initialRoutePending=true;
   const surface = (): ShellSurface => router.route().surface;
+  createEffect(()=>{if(mailboxOpenRequest()&&takeMailboxOpenRequest())untrack(()=>{noteWorkspaceIntent();router.navigate('mail');subTabs.activate('mail');});});
   const launch=(id:string,action:ModuleAction)=>{requestModuleAction(id,action);router.navigate(id as ShellSurface);};
   const sidebarMenu=createEntityContextMenu({items:()=>[...shownModules(),...(featureOn('views.attachments')?[{id:'attachments',label:t('mail-nav-attachments'),icon:'attachment' as const}]:[]),{id:'outbox',label:t('mail-nav-outbox'),icon:'clock' as const}],id:item=>item.id,name:item=>item.label,scope:app.accountId,actions:item=>{
     const id=item.id as ShellSurface;

@@ -140,3 +140,5 @@ linked-accounts-avatar-icon-bell = Sino
 linked-accounts-avatar-icon-cart = Carrinho de compras
 linked-accounts-avatar-icon-plane = Avião
 linked-accounts-avatar-icon-school = Escola
+linked-accounts-go-to = Ir para a conta: { $address }
+linked-accounts-go-to-short = Ir para a conta

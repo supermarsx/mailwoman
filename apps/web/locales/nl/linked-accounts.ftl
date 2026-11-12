@@ -140,3 +140,5 @@ linked-accounts-avatar-icon-bell = Bel
 linked-accounts-avatar-icon-cart = Winkelwagen
 linked-accounts-avatar-icon-plane = Vliegtuig
 linked-accounts-avatar-icon-school = School
+linked-accounts-go-to = Ga naar account: { $address }
+linked-accounts-go-to-short = Ga naar account

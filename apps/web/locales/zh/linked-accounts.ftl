@@ -139,3 +139,5 @@ linked-accounts-avatar-icon-bell = 铃铛
 linked-accounts-avatar-icon-cart = 购物车
 linked-accounts-avatar-icon-plane = 飞机
 linked-accounts-avatar-icon-school = 学校
+linked-accounts-go-to = 转到帐户：{ $address }
+linked-accounts-go-to-short = 转到帐户

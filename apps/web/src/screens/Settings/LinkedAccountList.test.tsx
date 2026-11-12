@@ -16,6 +16,13 @@ const row=(key:string)=>document.querySelector<HTMLElement>(`[data-linked-row][d
 const flush=async()=>{for(let i=0;i<4;i++)await Promise.resolve();};
 
 describe('Settings › Linked mailboxes (the management table, t48 k)',()=>{
+  it('opens ready and hidden accounts while keeping expired links unavailable',()=>{
+    const onOpen=vi.fn();const data={...value,layout:{revision:'r',order:[],nicknames:{},hidden:['child']},accounts:[...value.accounts,{...value.accounts[0]!,id:'expired',status:'reauthRequired' as const}]};
+    render(()=><LinkedAccountList value={data} busy={false} onAdd={()=>{}} onUnlink={()=>{}} onSetFirst={()=>{}} onMove={()=>{}} onRename={async()=>true} onOpen={onOpen}/>);
+    fireEvent.click(row('child').querySelector('[data-linked-open]')!);expect(onOpen).toHaveBeenLastCalledWith('child');
+    fireEvent.click(row('main').querySelector('[data-linked-open]')!);expect(onOpen).toHaveBeenLastCalledWith(null);
+    expect(row('expired').querySelector('[data-linked-open]')).toBeDisabled();
+  });
   it('rows: slim grip, avatar, nickname over address, primary star and icon actions with tooltips and labels',()=>{
     mount();
     const child=row('child');

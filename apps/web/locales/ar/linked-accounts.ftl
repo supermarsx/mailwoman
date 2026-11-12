@@ -144,3 +144,5 @@ linked-accounts-avatar-icon-bell = جرس
 linked-accounts-avatar-icon-cart = عربة تسوق
 linked-accounts-avatar-icon-plane = طائرة
 linked-accounts-avatar-icon-school = مدرسة
+linked-accounts-go-to = الانتقال إلى الحساب: { $address }
+linked-accounts-go-to-short = الانتقال إلى الحساب

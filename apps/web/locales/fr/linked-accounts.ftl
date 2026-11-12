@@ -140,3 +140,5 @@ linked-accounts-avatar-icon-bell = Cloche
 linked-accounts-avatar-icon-cart = Panier
 linked-accounts-avatar-icon-plane = Avion
 linked-accounts-avatar-icon-school = École
+linked-accounts-go-to = Accéder au compte : { $address }
+linked-accounts-go-to-short = Accéder au compte

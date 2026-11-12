@@ -142,3 +142,5 @@ linked-accounts-avatar-icon-bell = Колокольчик
 linked-accounts-avatar-icon-cart = Корзина покупок
 linked-accounts-avatar-icon-plane = Самолёт
 linked-accounts-avatar-icon-school = Школа
+linked-accounts-go-to = Перейти к аккаунту: { $address }
+linked-accounts-go-to-short = Перейти к аккаунту
