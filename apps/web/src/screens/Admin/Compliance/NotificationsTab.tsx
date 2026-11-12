@@ -22,7 +22,7 @@ export default function NotificationsTab():JSX.Element{
  return <div class={css.section} data-testid="compliance-notifications">
   <p class={css.note}>{t('governance-mail-help')}</p>
   <p>{t(status()?.passwordConfigured?'governance-mail-secret-ready':'governance-mail-secret-help')}</p>
-  <For each={settings.rows()}>{row=><InlineSettingEditor settingKey={row.key} setting={row} label={t(`governance-mail-${row.key}`)} onChanged={()=>settings.reload()}/>}</For>
+  <For each={settings.rows()}>{row=><InlineSettingEditor settingKey={row.key} setting={row} label={t(`governance-mail-${row.key.replace(/\./g,'-')}`)} onChanged={()=>settings.reload()}/>}</For>
   <div class={ccss.row}><button class="btn" disabled={busy()||!shell?.can.can('settings.write')} onClick={()=>void test()}>{t('governance-mail-test')}</button><button class="btn btn--ghost" onClick={()=>void refetch()}>{t('governance-mail-refresh')}</button></div>
   <Show when={queued()}><p role="status">{t('governance-mail-queued')}</p></Show>
   <Show when={failure()||status.error}><p role="alert">{describeAdminError(failure()||status.error)}</p></Show>

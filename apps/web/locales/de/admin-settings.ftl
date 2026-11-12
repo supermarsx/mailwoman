@@ -2562,3 +2562,16 @@ admin-settings-key-compliance-mail-requireProxy = Proxyroute verlangen
 admin-settings-help-compliance-mail-requireProxy = Proxyroute verlangen (system_mail).
 admin-settings-key-retention-complianceMail-days = Aufbewahrung abgeschlossener E-Mails (Tage)
 admin-settings-help-retention-complianceMail-days = Abgeschlossene Zustellungen werden so viele Tage aufbewahrt. Offene und ungewisse bleiben bis zur Klärung.
+
+admin-settings-key-incidents-auto-enabled = Vorfallkandidaten automatisch erkennen
+admin-settings-help-incidents-auto-enabled = Fehlgeschlagene Zustandsprüfungen und Sitzungssignale erzeugen Vorfallkandidaten. Erheblichkeit und Wiederherstellung müssen geprüft werden. Überwachungslücken beweisen keinen Ausfall.
+admin-settings-key-incidents-auto-failureSamples = Fehlerhafte Stichproben vor Erkennung
+admin-settings-help-incidents-auto-failureSamples = Fehlgeschlagene Zustandsprüfungen und Sitzungssignale erzeugen Vorfallkandidaten. Erheblichkeit und Wiederherstellung müssen geprüft werden. Überwachungslücken beweisen keinen Ausfall.
+admin-settings-key-incidents-nis2-trustService = Meldefrist für Vertrauensdienste verwenden
+admin-settings-help-incidents-nis2-trustService = Fehlgeschlagene Zustandsprüfungen und Sitzungssignale erzeugen Vorfallkandidaten. Erheblichkeit und Wiederherstellung müssen geprüft werden. Überwachungslücken beweisen keinen Ausfall.
+admin-settings-key-incidents-notify-email = Vorfallupdates und Erinnerungen per E-Mail
+admin-settings-help-incidents-notify-email = Fehlgeschlagene Zustandsprüfungen und Sitzungssignale erzeugen Vorfallkandidaten. Erheblichkeit und Wiederherstellung müssen geprüft werden. Überwachungslücken beweisen keinen Ausfall.
+admin-settings-key-incidents-notify-operatorAddresses = E-Mail-Empfänger im Betrieb
+admin-settings-help-incidents-notify-operatorAddresses = Fehlgeschlagene Zustandsprüfungen und Sitzungssignale erzeugen Vorfallkandidaten. Erheblichkeit und Wiederherstellung müssen geprüft werden. Überwachungslücken beweisen keinen Ausfall.
+admin-settings-key-incidents-retention-days = Aufbewahrung geschlossener Vorfälle (Tage)
+admin-settings-help-incidents-retention-days = Fehlgeschlagene Zustandsprüfungen und Sitzungssignale erzeugen Vorfallkandidaten. Erheblichkeit und Wiederherstellung müssen geprüft werden. Überwachungslücken beweisen keinen Ausfall.

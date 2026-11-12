@@ -27,8 +27,8 @@ pub(crate) const SECTIONS: [&str; 11] = [
 pub(crate) const COOKIE_SECTIONS: [&str; 3] = ["cookie-what", "cookies", "cookie-choices"];
 
 /// Setting keys whose value the generator reads.
-const PREFIXES: [&str; 9] = [
-    "compliance.mail.", "cookies.", "dsr.", "privacy.", "logging.redaction.", "assistant.", "policy.", "mail.openTracking", "mail.readReceipts",
+const PREFIXES: [&str; 10] = [
+    "incidents.", "compliance.mail.", "cookies.", "dsr.", "privacy.", "logging.redaction.", "assistant.", "policy.", "mail.openTracking", "mail.readReceipts",
 ];
 /// Keys that are read but do not describe the processing, so a change to them is not a policy change.
 const NOT_POLICY: [&str; 3] = ["cookies.policyVersion", "policy.autoVersion", "policy.reconsentOnChange"];

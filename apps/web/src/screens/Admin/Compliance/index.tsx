@@ -15,6 +15,7 @@ import * as ccss from './compliance.css.ts';
 import { COMPLIANCE_TABS, canOpenComplianceTab, type ComplianceTab } from './tabs.ts';
 
 void loadCatalog('admin-governance');
+void loadCatalog('resilience');
 
 const loaded = new Map<string, Component>();
 function tabComponent(tab: ComplianceTab): Component {

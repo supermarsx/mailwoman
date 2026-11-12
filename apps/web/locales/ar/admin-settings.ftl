@@ -2578,3 +2578,16 @@ admin-settings-key-compliance-mail-requireProxy = اشتراط مسار وكيل
 admin-settings-help-compliance-mail-requireProxy = اشتراط مسار وكيل (system_mail).
 admin-settings-key-retention-complianceMail-days = مدة حفظ سجل البريد المكتمل بالأيام
 admin-settings-help-retention-complianceMail-days = عدد أيام حفظ عمليات التسليم المكتملة. تبقى العمليات المعلقة وغير المؤكدة حتى حلها.
+
+admin-settings-key-incidents-auto-enabled = اكتشاف الحوادث المحتملة تلقائيًا
+admin-settings-help-incidents-auto-enabled = تنشئ إخفاقات الفحص ومؤشرات أمان الجلسات حوادث محتملة تلقائيًا. قيّم الأهمية وتحقق من التعافي. فجوات المراقبة لا تثبت انقطاع الخدمة.
+admin-settings-key-incidents-auto-failureSamples = عدد فحوصات الفشل قبل الاكتشاف
+admin-settings-help-incidents-auto-failureSamples = تنشئ إخفاقات الفحص ومؤشرات أمان الجلسات حوادث محتملة تلقائيًا. قيّم الأهمية وتحقق من التعافي. فجوات المراقبة لا تثبت انقطاع الخدمة.
+admin-settings-key-incidents-nis2-trustService = استخدام مهلة الإبلاغ لخدمات الثقة
+admin-settings-help-incidents-nis2-trustService = تنشئ إخفاقات الفحص ومؤشرات أمان الجلسات حوادث محتملة تلقائيًا. قيّم الأهمية وتحقق من التعافي. فجوات المراقبة لا تثبت انقطاع الخدمة.
+admin-settings-key-incidents-notify-email = إرسال تحديثات الحوادث والتذكيرات بالبريد
+admin-settings-help-incidents-notify-email = تنشئ إخفاقات الفحص ومؤشرات أمان الجلسات حوادث محتملة تلقائيًا. قيّم الأهمية وتحقق من التعافي. فجوات المراقبة لا تثبت انقطاع الخدمة.
+admin-settings-key-incidents-notify-operatorAddresses = مستلمو البريد من المشغلين
+admin-settings-help-incidents-notify-operatorAddresses = تنشئ إخفاقات الفحص ومؤشرات أمان الجلسات حوادث محتملة تلقائيًا. قيّم الأهمية وتحقق من التعافي. فجوات المراقبة لا تثبت انقطاع الخدمة.
+admin-settings-key-incidents-retention-days = الاحتفاظ بالحوادث المغلقة (أيام)
+admin-settings-help-incidents-retention-days = تنشئ إخفاقات الفحص ومؤشرات أمان الجلسات حوادث محتملة تلقائيًا. قيّم الأهمية وتحقق من التعافي. فجوات المراقبة لا تثبت انقطاع الخدمة.

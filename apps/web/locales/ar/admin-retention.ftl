@@ -196,3 +196,6 @@ admin-retention-unavailable = الاحتفاظ غير متوفر على هذا �
 
 admin-retention-store-complianceMail = إشعارات البريد الإلكتروني
 admin-retention-data-complianceMail = إشعارات البريد الإلكتروني
+
+admin-retention-store-operationalIncidents = الحوادث التشغيلية
+admin-retention-data-operationalIncidents = الحوادث التشغيلية

@@ -2574,3 +2574,16 @@ admin-settings-key-compliance-mail-requireProxy = Wymagaj trasy proxy
 admin-settings-help-compliance-mail-requireProxy = Wymagaj trasy proxy (system_mail).
 admin-settings-key-retention-complianceMail-days = Przechowywanie historii zakończonych wiadomości (dni)
 admin-settings-help-retention-complianceMail-days = Liczba dni przechowywania zakończonych dostarczeń. Oczekujące i niepewne pozostają do wyjaśnienia.
+
+admin-settings-key-incidents-auto-enabled = Automatycznie wykrywaj potencjalne incydenty
+admin-settings-help-incidents-auto-enabled = Nieudane kontrole i sygnały bezpieczeństwa sesji tworzą potencjalne incydenty. Oceń istotność i sprawdź odtworzenie. Brak monitoringu nie dowodzi awarii.
+admin-settings-key-incidents-auto-failureSamples = Nieudane próbki przed wykryciem
+admin-settings-help-incidents-auto-failureSamples = Nieudane kontrole i sygnały bezpieczeństwa sesji tworzą potencjalne incydenty. Oceń istotność i sprawdź odtworzenie. Brak monitoringu nie dowodzi awarii.
+admin-settings-key-incidents-nis2-trustService = Użyj terminu dla usług zaufania
+admin-settings-help-incidents-nis2-trustService = Nieudane kontrole i sygnały bezpieczeństwa sesji tworzą potencjalne incydenty. Oceń istotność i sprawdź odtworzenie. Brak monitoringu nie dowodzi awarii.
+admin-settings-key-incidents-notify-email = Wysyłaj aktualizacje i przypomnienia e-mailem
+admin-settings-help-incidents-notify-email = Nieudane kontrole i sygnały bezpieczeństwa sesji tworzą potencjalne incydenty. Oceń istotność i sprawdź odtworzenie. Brak monitoringu nie dowodzi awarii.
+admin-settings-key-incidents-notify-operatorAddresses = Adresaci powiadomień operatorów
+admin-settings-help-incidents-notify-operatorAddresses = Nieudane kontrole i sygnały bezpieczeństwa sesji tworzą potencjalne incydenty. Oceń istotność i sprawdź odtworzenie. Brak monitoringu nie dowodzi awarii.
+admin-settings-key-incidents-retention-days = Przechowywanie zamkniętych incydentów (dni)
+admin-settings-help-incidents-retention-days = Nieudane kontrole i sygnały bezpieczeństwa sesji tworzą potencjalne incydenty. Oceń istotność i sprawdź odtworzenie. Brak monitoringu nie dowodzi awarii.

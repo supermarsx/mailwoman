@@ -2354,3 +2354,16 @@ admin-settings-key-compliance-mail-requireProxy = Exigir rota proxy
 admin-settings-help-compliance-mail-requireProxy = Exigir rota proxy (system_mail).
 admin-settings-key-retention-complianceMail-days = Retenção do histórico de emails concluídos (dias)
 admin-settings-help-retention-complianceMail-days = Dias de retenção de entregas concluídas. Entregas pendentes e incertas mantêm-se até resolução.
+
+admin-settings-key-incidents-auto-enabled = Detetar candidatos a incidentes automaticamente
+admin-settings-help-incidents-auto-enabled = Falhas de saúde e sinais de segurança das sessões criam candidatos a incidentes. Avalie a relevância e verifique a recuperação. Lacunas de monitorização não provam indisponibilidade.
+admin-settings-key-incidents-auto-failureSamples = Amostras de falha antes da deteção
+admin-settings-help-incidents-auto-failureSamples = Falhas de saúde e sinais de segurança das sessões criam candidatos a incidentes. Avalie a relevância e verifique a recuperação. Lacunas de monitorização não provam indisponibilidade.
+admin-settings-key-incidents-nis2-trustService = Usar prazo de comunicação de serviços de confiança
+admin-settings-help-incidents-nis2-trustService = Falhas de saúde e sinais de segurança das sessões criam candidatos a incidentes. Avalie a relevância e verifique a recuperação. Lacunas de monitorização não provam indisponibilidade.
+admin-settings-key-incidents-notify-email = Enviar atualizações e lembretes de incidentes por email
+admin-settings-help-incidents-notify-email = Falhas de saúde e sinais de segurança das sessões criam candidatos a incidentes. Avalie a relevância e verifique a recuperação. Lacunas de monitorização não provam indisponibilidade.
+admin-settings-key-incidents-notify-operatorAddresses = Destinatários de email dos operadores
+admin-settings-help-incidents-notify-operatorAddresses = Falhas de saúde e sinais de segurança das sessões criam candidatos a incidentes. Avalie a relevância e verifique a recuperação. Lacunas de monitorização não provam indisponibilidade.
+admin-settings-key-incidents-retention-days = Retenção de incidentes encerrados (dias)
+admin-settings-help-incidents-retention-days = Falhas de saúde e sinais de segurança das sessões criam candidatos a incidentes. Avalie a relevância e verifique a recuperação. Lacunas de monitorização não provam indisponibilidade.

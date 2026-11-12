@@ -1222,7 +1222,8 @@ pub(crate) fn spawn_metrics_refresher(state: AppState, reg: PluginRegistry) {
         let mut tick = tokio::time::interval(METRICS_INTERVAL);
         loop {
             tick.tick().await;
-            let _ = health(&state, Some(&reg), false).await;
+            let snapshot = health(&state, Some(&reg), false).await;
+            crate::operational_incidents::observe_health(&state,&snapshot).await;
         }
     });
 }

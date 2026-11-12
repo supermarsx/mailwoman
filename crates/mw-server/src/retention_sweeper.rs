@@ -185,6 +185,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     existing("protectionEvents", None, Some(30), Some("request_protection_event")),
     existing("protectionSubjects", None, None, Some("request_protection_subject")),
     existing("sessionWatch", Some("security.theft.retentionDays"), None, None),
+    existing("operationalIncidents",Some("incidents.retention.days"),None,None),
     existing("complianceMail",Some("retention.complianceMail.days"),None,None),
     existing("dsrRequests", Some("dsr.retention.completedDays"), None, Some("dsr_request")),
     existing("openTracking", Some("privacy.openTracking.retentionDays"), None, Some("open_events")),

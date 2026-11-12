@@ -193,3 +193,6 @@ admin-retention-userrules-lastjob = Última tarefa
 
 admin-retention-store-complianceMail = Notificações por email
 admin-retention-data-complianceMail = Notificações por email
+
+admin-retention-store-operationalIncidents = Incidentes operacionais
+admin-retention-data-operationalIncidents = Incidentes operacionais

@@ -800,6 +800,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'dsr.download.linkMinutes',
   'dsr.download.singleUse',
   'dsr.retention.completedDays',
+  'incidents.auto.enabled','incidents.auto.failureSamples','incidents.nis2.trustService','incidents.notify.email','incidents.notify.operatorAddresses','incidents.retention.days',
   'compliance.mail.enabled', 'compliance.mail.host', 'compliance.mail.port', 'compliance.mail.security', 'compliance.mail.from', 'compliance.mail.username', 'compliance.mail.allowPrivate', 'compliance.mail.requireProxy', 'retention.complianceMail.days', 'dsr.notify.emailAdmins', 'dsr.notify.operatorAddresses', 'dsr.notify.emailRequester', 'breach.notify.email', 'breach.subjects.email',
   'dsr.notify.admins',
   'dsr.notify.requester',

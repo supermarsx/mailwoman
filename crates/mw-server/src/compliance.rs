@@ -32,6 +32,7 @@ pub(crate) fn router() -> Router<AppState> {
 
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
     crate::compliance_mail::register(r);
+    crate::operational_incidents::register(r);
     r.admin_endpoint(Method::GET,"/compliance/governance",C::SettingsRead,governance_view);
     r.admin_endpoint(Method::GET, "/compliance/summary", C::SettingsRead, summary);
     r.admin_endpoint(Method::GET, "/compliance/policy", C::SettingsRead, policy_view);
@@ -357,6 +358,8 @@ struct Builtin {
 
 // (name, purpose, categories of data and people, security measures)
 const BUILTINS: &[Builtin] = &[
+    Builtin{id:"operational-incidents",en:("Operational incident management","Detecting service disruptions and security signals, verifying recovery and preparing regulatory reports.","Service health states, audit event references, operator notes and reporting history.","Restricted administration, audited updates, bounded history and retention with legal-hold safeguards."),pt:("Gestão de incidentes operacionais","Detetar perturbações e sinais de segurança, verificar a recuperação e preparar comunicações regulamentares.","Estados de saúde, referências de auditoria, notas de operadores e histórico de comunicações.","Administração restrita, alterações auditadas, histórico limitado e retenção com salvaguardas de preservação legal."),when:"",retention:&["operationalIncidents"],recipients:""},
+
     Builtin{id:"compliance-mail",en:("Compliance email notifications","Notifying operators and requesters about data requests and personal-data breaches.","Recipient addresses, notification text and delivery outcomes.","TLS, encrypted queue, restricted administration, bounded retention and requester erasure."),pt:("Notificações de conformidade por email","Notificar operadores e requerentes de pedidos de dados e violações de dados pessoais.","Endereços dos destinatários, texto das notificações e resultados da entrega.","TLS, fila cifrada, administração restrita, retenção limitada e apagamento do requerente."),when:"compliance.mail.enabled",retention:&["complianceMail"],recipients:"system_mail"},
     Builtin {
         id: "mail-service",
@@ -589,6 +592,10 @@ async fn update_record(State(state): State<AppState>, ctx: AdminCtx, Path(id): P
 
 async fn delete_record(State(state): State<AppState>, ctx: AdminCtx, Path(id): Path<String>) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(C::SettingsWrite)?;
+    // Internal delivery and incident records have their own capabilities and
+    // lifecycle. A generic register mutation must not bypass those boundaries.
+    let row=state.store.get_compliance_record(&id).await.map_err(AdminApiError::internal)?.ok_or_else(||AdminApiError::not_found("No such record."))?;
+    if !matches!(row.kind.as_str(),"activity"|"processor") && crate::compliance_governance::fields(&row.kind).is_none(){return Err(AdminApiError::not_found("No such record."));}
     if !state.store.delete_compliance_record(&id).await.map_err(AdminApiError::internal)? {
         return Err(AdminApiError::not_found("No such record."));
     }

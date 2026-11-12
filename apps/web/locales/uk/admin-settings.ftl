@@ -2574,3 +2574,16 @@ admin-settings-key-compliance-mail-requireProxy = Вимагати маршру�
 admin-settings-help-compliance-mail-requireProxy = Вимагати маршрут проксі (system_mail).
 admin-settings-key-retention-complianceMail-days = Зберігання історії завершених листів (дні)
 admin-settings-help-retention-complianceMail-days = Строк зберігання завершених доставлень. Очікувані та невизначені залишаються до вирішення.
+
+admin-settings-key-incidents-auto-enabled = Автоматично виявляти можливі інциденти
+admin-settings-help-incidents-auto-enabled = Збої перевірок і сигнали безпеки сеансів створюють можливі інциденти. Оцініть значущість і перевірте відновлення. Прогалини моніторингу не доводять простою.
+admin-settings-key-incidents-auto-failureSamples = Невдалі перевірки до виявлення
+admin-settings-help-incidents-auto-failureSamples = Збої перевірок і сигнали безпеки сеансів створюють можливі інциденти. Оцініть значущість і перевірте відновлення. Прогалини моніторингу не доводять простою.
+admin-settings-key-incidents-nis2-trustService = Використовувати строк для довірчих послуг
+admin-settings-help-incidents-nis2-trustService = Збої перевірок і сигнали безпеки сеансів створюють можливі інциденти. Оцініть значущість і перевірте відновлення. Прогалини моніторингу не доводять простою.
+admin-settings-key-incidents-notify-email = Надсилати оновлення й нагадування поштою
+admin-settings-help-incidents-notify-email = Збої перевірок і сигнали безпеки сеансів створюють можливі інциденти. Оцініть значущість і перевірте відновлення. Прогалини моніторингу не доводять простою.
+admin-settings-key-incidents-notify-operatorAddresses = Адреси операторів
+admin-settings-help-incidents-notify-operatorAddresses = Збої перевірок і сигнали безпеки сеансів створюють можливі інциденти. Оцініть значущість і перевірте відновлення. Прогалини моніторингу не доводять простою.
+admin-settings-key-incidents-retention-days = Зберігання закритих інцидентів (дні)
+admin-settings-help-incidents-retention-days = Збої перевірок і сигнали безпеки сеансів створюють можливі інциденти. Оцініть значущість і перевірте відновлення. Прогалини моніторингу не доводять простою.

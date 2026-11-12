@@ -2548,3 +2548,16 @@ admin-settings-key-compliance-mail-requireProxy = プロキシ経路を必須に
 admin-settings-help-compliance-mail-requireProxy = プロキシ経路を必須にする (system_mail).
 admin-settings-key-retention-complianceMail-days = 完了したメール履歴の保存日数
 admin-settings-help-retention-complianceMail-days = 完了した配信を指定日数保存します。待機中と受理状況不明の配信は解決するまで保持します。
+
+admin-settings-key-incidents-auto-enabled = インシデント候補を自動検出
+admin-settings-help-incidents-auto-enabled = 正常性チェックの失敗とセッションの警告からインシデント候補を自動作成します。重大性を評価し、復旧を検証してください。監視の空白だけでは停止の証拠になりません。
+admin-settings-key-incidents-auto-failureSamples = 検出までの異常サンプル数
+admin-settings-help-incidents-auto-failureSamples = 正常性チェックの失敗とセッションの警告からインシデント候補を自動作成します。重大性を評価し、復旧を検証してください。監視の空白だけでは停止の証拠になりません。
+admin-settings-key-incidents-nis2-trustService = トラストサービスの報告期限を使用
+admin-settings-help-incidents-nis2-trustService = 正常性チェックの失敗とセッションの警告からインシデント候補を自動作成します。重大性を評価し、復旧を検証してください。監視の空白だけでは停止の証拠になりません。
+admin-settings-key-incidents-notify-email = インシデントの更新・リマインダーをメール送信
+admin-settings-help-incidents-notify-email = 正常性チェックの失敗とセッションの警告からインシデント候補を自動作成します。重大性を評価し、復旧を検証してください。監視の空白だけでは停止の証拠になりません。
+admin-settings-key-incidents-notify-operatorAddresses = 運用担当者のメール宛先
+admin-settings-help-incidents-notify-operatorAddresses = 正常性チェックの失敗とセッションの警告からインシデント候補を自動作成します。重大性を評価し、復旧を検証してください。監視の空白だけでは停止の証拠になりません。
+admin-settings-key-incidents-retention-days = 終了したインシデントの保持期間（日）
+admin-settings-help-incidents-retention-days = 正常性チェックの失敗とセッションの警告からインシデント候補を自動作成します。重大性を評価し、復旧を検証してください。監視の空白だけでは停止の証拠になりません。

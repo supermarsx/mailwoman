@@ -196,3 +196,6 @@ admin-retention-unavailable = このサーバーでは保持を利用できま�
 
 admin-retention-store-complianceMail = メール通知
 admin-retention-data-complianceMail = メール通知
+
+admin-retention-store-operationalIncidents = 運用インシデント
+admin-retention-data-operationalIncidents = 運用インシデント

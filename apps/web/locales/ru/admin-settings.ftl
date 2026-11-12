@@ -2574,3 +2574,16 @@ admin-settings-key-compliance-mail-requireProxy = Требовать маршр�
 admin-settings-help-compliance-mail-requireProxy = Требовать маршрут прокси (system_mail).
 admin-settings-key-retention-complianceMail-days = Хранение истории завершённых писем (дни)
 admin-settings-help-retention-complianceMail-days = Срок хранения завершённых доставок. Ожидающие и неопределённые остаются до разрешения.
+
+admin-settings-key-incidents-auto-enabled = Автоматически выявлять возможные инциденты
+admin-settings-help-incidents-auto-enabled = Сбои проверок и сигналы безопасности сеансов создают возможные инциденты. Оцените значимость и проверьте восстановление. Пробелы мониторинга не доказывают простой.
+admin-settings-key-incidents-auto-failureSamples = Неудачные проверки до обнаружения
+admin-settings-help-incidents-auto-failureSamples = Сбои проверок и сигналы безопасности сеансов создают возможные инциденты. Оцените значимость и проверьте восстановление. Пробелы мониторинга не доказывают простой.
+admin-settings-key-incidents-nis2-trustService = Использовать срок для доверительных услуг
+admin-settings-help-incidents-nis2-trustService = Сбои проверок и сигналы безопасности сеансов создают возможные инциденты. Оцените значимость и проверьте восстановление. Пробелы мониторинга не доказывают простой.
+admin-settings-key-incidents-notify-email = Отправлять обновления и напоминания по почте
+admin-settings-help-incidents-notify-email = Сбои проверок и сигналы безопасности сеансов создают возможные инциденты. Оцените значимость и проверьте восстановление. Пробелы мониторинга не доказывают простой.
+admin-settings-key-incidents-notify-operatorAddresses = Адреса операторов
+admin-settings-help-incidents-notify-operatorAddresses = Сбои проверок и сигналы безопасности сеансов создают возможные инциденты. Оцените значимость и проверьте восстановление. Пробелы мониторинга не доказывают простой.
+admin-settings-key-incidents-retention-days = Хранение закрытых инцидентов (дни)
+admin-settings-help-incidents-retention-days = Сбои проверок и сигналы безопасности сеансов создают возможные инциденты. Оцените значимость и проверьте восстановление. Пробелы мониторинга не доказывают простой.

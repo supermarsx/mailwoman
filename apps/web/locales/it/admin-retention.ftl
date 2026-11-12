@@ -190,3 +190,6 @@ admin-retention-userrules-lastjob = Ultimo job
 
 admin-retention-store-complianceMail = Notifiche email
 admin-retention-data-complianceMail = Notifiche email
+
+admin-retention-store-operationalIncidents = Incidenti operativi
+admin-retention-data-operationalIncidents = Incidenti operativi

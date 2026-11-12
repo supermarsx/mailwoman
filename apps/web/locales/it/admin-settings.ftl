@@ -2556,3 +2556,16 @@ admin-settings-key-compliance-mail-requireProxy = Richiedi percorso proxy
 admin-settings-help-compliance-mail-requireProxy = Richiedi percorso proxy (system_mail).
 admin-settings-key-retention-complianceMail-days = Conservazione delle email completate (giorni)
 admin-settings-help-retention-complianceMail-days = Giorni di conservazione delle consegne completate. Quelle in attesa o incerte rimangono fino alla risoluzione.
+
+admin-settings-key-incidents-auto-enabled = Rileva automaticamente potenziali incidenti
+admin-settings-help-incidents-auto-enabled = I controlli falliti e gli avvisi di sessione creano potenziali incidenti. Valuta la rilevanza e verifica il ripristino. Le lacune di monitoraggio non provano un'interruzione.
+admin-settings-key-incidents-auto-failureSamples = Controlli falliti prima del rilevamento
+admin-settings-help-incidents-auto-failureSamples = I controlli falliti e gli avvisi di sessione creano potenziali incidenti. Valuta la rilevanza e verifica il ripristino. Le lacune di monitoraggio non provano un'interruzione.
+admin-settings-key-incidents-nis2-trustService = Usa termine per servizi fiduciari
+admin-settings-help-incidents-nis2-trustService = I controlli falliti e gli avvisi di sessione creano potenziali incidenti. Valuta la rilevanza e verifica il ripristino. Le lacune di monitoraggio non provano un'interruzione.
+admin-settings-key-incidents-notify-email = Invia aggiornamenti e promemoria via email
+admin-settings-help-incidents-notify-email = I controlli falliti e gli avvisi di sessione creano potenziali incidenti. Valuta la rilevanza e verifica il ripristino. Le lacune di monitoraggio non provano un'interruzione.
+admin-settings-key-incidents-notify-operatorAddresses = Destinatari delle operazioni
+admin-settings-help-incidents-notify-operatorAddresses = I controlli falliti e gli avvisi di sessione creano potenziali incidenti. Valuta la rilevanza e verifica il ripristino. Le lacune di monitoraggio non provano un'interruzione.
+admin-settings-key-incidents-retention-days = Conservazione incidenti chiusi (giorni)
+admin-settings-help-incidents-retention-days = I controlli falliti e gli avvisi di sessione creano potenziali incidenti. Valuta la rilevanza e verifica il ripristino. Le lacune di monitoraggio non provano un'interruzione.

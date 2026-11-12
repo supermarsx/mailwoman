@@ -2562,3 +2562,16 @@ admin-settings-key-compliance-mail-requireProxy = Exigir ruta proxy
 admin-settings-help-compliance-mail-requireProxy = Exigir ruta proxy (system_mail).
 admin-settings-key-retention-complianceMail-days = Retención del historial de correos completados (días)
 admin-settings-help-retention-complianceMail-days = Días de conservación de entregas completadas. Las pendientes e inciertas se conservan hasta su resolución.
+
+admin-settings-key-incidents-auto-enabled = Detectar posibles incidentes automáticamente
+admin-settings-help-incidents-auto-enabled = Los fallos de salud y las alertas de sesión crean posibles incidentes. Evalúe su importancia y verifique la recuperación. Una falta de monitorización no demuestra una caída.
+admin-settings-key-incidents-auto-failureSamples = Muestras fallidas antes de detectar
+admin-settings-help-incidents-auto-failureSamples = Los fallos de salud y las alertas de sesión crean posibles incidentes. Evalúe su importancia y verifique la recuperación. Una falta de monitorización no demuestra una caída.
+admin-settings-key-incidents-nis2-trustService = Usar plazo de servicios de confianza
+admin-settings-help-incidents-nis2-trustService = Los fallos de salud y las alertas de sesión crean posibles incidentes. Evalúe su importancia y verifique la recuperación. Una falta de monitorización no demuestra una caída.
+admin-settings-key-incidents-notify-email = Enviar actualizaciones y recordatorios por correo
+admin-settings-help-incidents-notify-email = Los fallos de salud y las alertas de sesión crean posibles incidentes. Evalúe su importancia y verifique la recuperación. Una falta de monitorización no demuestra una caída.
+admin-settings-key-incidents-notify-operatorAddresses = Destinatarios de operaciones
+admin-settings-help-incidents-notify-operatorAddresses = Los fallos de salud y las alertas de sesión crean posibles incidentes. Evalúe su importancia y verifique la recuperación. Una falta de monitorización no demuestra una caída.
+admin-settings-key-incidents-retention-days = Retención de incidentes cerrados (días)
+admin-settings-help-incidents-retention-days = Los fallos de salud y las alertas de sesión crean posibles incidentes. Evalúe su importancia y verifique la recuperación. Una falta de monitorización no demuestra una caída.

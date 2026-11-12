@@ -6720,6 +6720,12 @@ pub static REGISTRY: &[SettingDef] = &[
         "privacy",
         "days a finished request is kept"
     ),
+    def!("incidents.auto.enabled",Kind::Bool,"true",G,"privacy","Automatically record operational incident candidates from existing health and session-security signals"),
+    def!("incidents.auto.failureSamples",int(2,30),"3",G,"privacy","Consecutive failed health samples before opening an incident"),
+    def!("incidents.nis2.trustService",Kind::Bool,"false",G,"privacy","Use the 24-hour incident notification deadline for relevant trust-service incidents"),
+    def!("incidents.notify.email",Kind::Bool,"false",G,"privacy","Email operational incident and reporting reminders using the compliance relay"),
+    def!("incidents.notify.operatorAddresses",Kind::StringList{max_len:20,max_item:254},"[]",G,"privacy","Operational incident email recipients"),
+    def!("incidents.retention.days",int(1,3650),"1095",G,"privacy","Days to keep closed operational incident records; open incidents are retained"),
     def!("retention.complianceMail.days",int(1,3650),"30",G,"privacy","Days to retain completed outbound compliance notifications"),
     def!("compliance.mail.enabled", Kind::Bool, "false", G, "privacy", "Send compliance notifications through the configured SMTP relay"),
     def!("compliance.mail.host", text(Text::Plain, 253), "\"\"", G, "privacy", "SMTP relay hostname"),

@@ -428,8 +428,16 @@ async fn governance_links_contracts_and_validates_international_transfers_and_ve
     let test=c.post(format!("{base}/admin/compliance/mail/test")).header("Cookie",&cookie).json(&json!({})).send().await.unwrap();assert_eq!(test.status(),422);
 }
 
+#[test]
+fn encrypted_file_migration_and_uncertain_delivery_resolution_require_admin_control(){
+    // Logging policy is process-wide; isolate this fixture from parallel servers.
+    let result=std::process::Command::new(std::env::current_exe().unwrap()).args(["--exact","isolated_file_migration_and_delivery_resolution","--ignored","--nocapture"]).output().unwrap();
+    assert!(result.status.success()&&String::from_utf8_lossy(&result.stdout).contains("1 passed"),"{}\n{}",String::from_utf8_lossy(&result.stdout),String::from_utf8_lossy(&result.stderr));
+}
+
 #[tokio::test]
-async fn encrypted_file_migration_and_uncertain_delivery_resolution_require_admin_control(){
+#[ignore = "exercised by the parent test in an isolated process"]
+async fn isolated_file_migration_and_delivery_resolution(){
     use base64::Engine as _;
     let dir=test_db::unique_dir("mw-compliance-encrypted-logs");std::fs::create_dir_all(&dir).unwrap();
     let log=dir.join("mailwoman.log");std::fs::write(&log,b"privateperson@example.org event\n").unwrap();
@@ -444,4 +452,49 @@ async fn encrypted_file_migration_and_uncertain_delivery_resolution_require_admi
     assert_eq!(c.post(&url).header("Cookie",&cookie).json(&json!({"action":"retry"})).send().await.unwrap().status(),422);
     assert_eq!(c.post(&url).header("Cookie",&cookie).json(&json!({"action":"retry","acceptDuplicateRisk":true})).send().await.unwrap().status(),200);
     assert_eq!(store.get_compliance_record("uncertain-notice").await.unwrap().unwrap().kind,"compliance-mail:pending");
+}
+
+
+#[tokio::test]
+async fn operational_incidents_debounce_health_verify_recovery_and_separate_nis2_reporting(){
+ let(base,store)=spawn_state(&[("incidents.auto.failureSamples",json!(2))]).await;let c=client();let cookie=admin(&c,&base).await;
+ assert_eq!(c.get(format!("{base}/admin/incidents")).send().await.unwrap().status(),401);
+ let post=|suffix:&str,body:Value|c.post(format!("{base}/admin/incidents{suffix}")).header("Cookie",&cookie).json(&body);
+ let at=chrono::Utc::now().timestamp();let monitor_id="operational-monitor:external-mail";
+ store.put_compliance_record(&mw_store::compliance::ComplianceRecord{id:monitor_id.into(),kind:"operational-monitor".into(),name:"external-mail".into(),body_json:json!({"lastAt":at-61,"failures":1,"healthy":0,"since":at-120}).to_string(),updated_by:"test".into(),updated_at:at-61}).await.unwrap();
+ assert_eq!(post("/observations",json!({"component":"mail","status":"fail"})).send().await.unwrap().status(),200);
+ assert_eq!(post("/observations",json!({"component":"mail","status":"fail"})).send().await.unwrap().status(),200);
+ let list=get_json(&c,format!("{base}/admin/incidents"),&cookie).await;
+ let rows=list["items"].as_array().unwrap();let rows:Vec<_>=rows.iter().filter(|r|r["incident"]["component"]=="external-mail").collect();assert_eq!(rows.len(),1,"{list}");let id=rows[0]["id"].as_str().unwrap();assert_eq!(c.delete(format!("{base}/admin/compliance/records/{id}")).header("Cookie",&cookie).send().await.unwrap().status(),404,"Internal incidents must not be deleted through generic settings-write routes");assert_eq!(rows[0]["incident"]["significance"],"unassessed");assert_eq!(rows[0]["deadlines"],json!({}));
+ let mut monitor=store.get_compliance_record(monitor_id).await.unwrap().unwrap();let mut payload:Value=serde_json::from_str(&monitor.body_json).unwrap();payload["lastAt"]=json!(at-61);payload["healthy"]=json!(1);payload["healthySince"]=json!(at-61);monitor.body_json=payload.to_string();store.put_compliance_record(&monitor).await.unwrap();
+ assert_eq!(post("/observations",json!({"component":"mail","status":"ok"})).send().await.unwrap().status(),200);
+ let list=get_json(&c,format!("{base}/admin/incidents"),&cookie).await;let row=list["items"].as_array().unwrap().iter().find(|r|r["id"]==id).unwrap();assert_eq!(row["incident"]["status"],"recovering");assert_eq!(row["recoveryVerified"],false);
+ let mut body=json!({"title":"Mail outage","category":"outage","status":"closed","significance":"significant","awareAt":at-120,"updatedAt":row["updatedAt"],"version":row["version"]});
+ let put=|body:Value|c.put(format!("{base}/admin/incidents/{id}")).header("Cookie",&cookie).json(&body);
+ assert_eq!(put(body.clone()).send().await.unwrap().status(),422);
+ body["rootCause"]=json!("Dependency outage");body["recoveryEvidence"]=json!("Delivery and login verified by operator");let stale=body.clone();assert_eq!(put(body).send().await.unwrap().status(),200);assert_eq!(put(stale).send().await.unwrap().status(),409);
+ let report=post(&format!("/{id}/reports"),json!({"phase":"notification","submittedAt":at,"reference":"Authority case 123"})).send().await.unwrap();let code=report.status();let detail=report.text().await.unwrap();assert_eq!(code,200,"{detail}");
+ let exported=get_json(&c,format!("{base}/admin/incidents/{id}/export"),&cookie).await;assert_eq!(exported["preparationOnly"],true);assert_eq!(exported["deadlines"]["final"],json!(chrono::DateTime::from_timestamp(at,0).unwrap().checked_add_months(chrono::Months::new(1)).unwrap().timestamp()));assert_eq!(exported["recoveryVerified"],true);
+}
+
+#[tokio::test]
+async fn security_signal_cursor_survives_equal_timestamp_pages_and_monitoring_gaps_are_explicit(){
+ let(base,store)=spawn_state(&[]).await;let c=client();let cookie=admin(&c,&base).await;let at=chrono::Utc::now();
+ for(id,name,payload,updated)in [
+  ("operational:audit-cursor","audit-cursor",json!({"ts":(at-chrono::Duration::seconds(60)).to_rfc3339_opts(chrono::SecondsFormat::Nanos,false),"id":""}),at.timestamp()),
+  ("operational:heartbeat","heartbeat",json!({"at":at.timestamp()-600}),at.timestamp()-600)
+ ]{store.put_compliance_record(&mw_store::compliance::ComplianceRecord{id:id.into(),kind:"operational-monitor".into(),name:name.into(),body_json:payload.to_string(),updated_by:"test".into(),updated_at:updated}).await.unwrap();}
+ let ts=(at-chrono::Duration::seconds(30)).to_rfc3339_opts(chrono::SecondsFormat::Nanos,false);
+ for n in 0..201{store.append_audit(&mw_store::AuditRow{id:format!("signal-{n:03}"),ts:ts.clone(),actor:"private-account@example.org".into(),actor_kind:"user".into(),action:if n==200{"session-security-alert"}else{"irrelevant-event"}.into(),target:Some("private-account@example.org".into()),detail_json:json!({"kind":"rotationReuse","reason":"private evidence"}).to_string(),ip:Some("192.0.2.1".into())}).await.unwrap();}
+ for _ in 0..3{assert_eq!(c.post(format!("{base}/admin/incidents/scan")).header("Cookie",&cookie).json(&json!({})).send().await.unwrap().status(),200);}
+ let list=get_json(&c,format!("{base}/admin/incidents"),&cookie).await;let items=list["items"].as_array().unwrap();let security:Vec<_>=items.iter().filter(|r|r["incident"]["source"]=="security-audit").collect();assert_eq!(security.len(),1,"{list}");assert_eq!(security[0]["incident"]["auditReference"],"signal-200");assert_eq!(security[0]["incident"]["significance"],"unassessed");assert!(!list.to_string().contains("private-account@example.org"));assert!(!list.to_string().contains("192.0.2.1"));let gaps:Vec<_>=items.iter().filter(|r|r["incident"]["source"]=="monitoring-gap").collect();assert_eq!(gaps.len(),1);assert!(gaps[0]["incident"]["impact"].as_str().unwrap().contains("unknown"));
+}
+
+
+#[tokio::test]
+async fn nis2_final_deadline_clamps_calendar_month_without_extending_prompt_recovery(){
+ let base=spawn(&[]).await;let c=client();let cookie=admin(&c,&base).await;
+ let created=c.post(format!("{base}/admin/incidents")).header("Cookie",&cookie).json(&json!({"title":"Historical recovery exercise","category":"outage","status":"resolved","significance":"significant","awareAt":1769731200_i64,"handledAt":1769904000_i64,"rootCause":"Dependency interruption","recoveryEvidence":"Operator recovery checks"})).send().await.unwrap();assert_eq!(created.status(),201);let created:Value=created.json().await.unwrap();let id=created["id"].as_str().unwrap();
+ let report=c.post(format!("{base}/admin/incidents/{id}/reports")).header("Cookie",&cookie).json(&json!({"phase":"notification","submittedAt":1769817600_i64,"reference":"Historical authority reference"})).send().await.unwrap();let code=report.status();let detail=report.text().await.unwrap();assert_eq!(code,200,"{detail}");
+ let export=get_json(&c,format!("{base}/admin/incidents/{id}/export"),&cookie).await;assert_eq!(export["deadlines"]["final"],1772236800_i64,"January 31 notification must be due February 28, even though recovery was February 1");assert!(export["deadlines"].get("progress").is_none());
 }

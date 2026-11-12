@@ -2562,3 +2562,16 @@ admin-settings-key-compliance-mail-requireProxy = Exiger une route proxy
 admin-settings-help-compliance-mail-requireProxy = Exiger une route proxy (system_mail).
 admin-settings-key-retention-complianceMail-days = Conservation des e-mails terminés (jours)
 admin-settings-help-retention-complianceMail-days = Durée de conservation des livraisons terminées. Les livraisons en attente ou incertaines restent jusqu’à résolution.
+
+admin-settings-key-incidents-auto-enabled = Détecter automatiquement les incidents potentiels
+admin-settings-help-incidents-auto-enabled = Les échecs des contrôles et les alertes de session créent des incidents potentiels. Vérifiez leur importance et la reprise. Une interruption de surveillance ne prouve pas une panne.
+admin-settings-key-incidents-auto-failureSamples = Échecs de contrôle avant détection
+admin-settings-help-incidents-auto-failureSamples = Les échecs des contrôles et les alertes de session créent des incidents potentiels. Vérifiez leur importance et la reprise. Une interruption de surveillance ne prouve pas une panne.
+admin-settings-key-incidents-nis2-trustService = Utiliser le délai des services de confiance
+admin-settings-help-incidents-nis2-trustService = Les échecs des contrôles et les alertes de session créent des incidents potentiels. Vérifiez leur importance et la reprise. Une interruption de surveillance ne prouve pas une panne.
+admin-settings-key-incidents-notify-email = Envoyer les mises à jour et rappels par courriel
+admin-settings-help-incidents-notify-email = Les échecs des contrôles et les alertes de session créent des incidents potentiels. Vérifiez leur importance et la reprise. Une interruption de surveillance ne prouve pas une panne.
+admin-settings-key-incidents-notify-operatorAddresses = Destinataires opérateurs
+admin-settings-help-incidents-notify-operatorAddresses = Les échecs des contrôles et les alertes de session créent des incidents potentiels. Vérifiez leur importance et la reprise. Une interruption de surveillance ne prouve pas une panne.
+admin-settings-key-incidents-retention-days = Conservation des incidents clos (jours)
+admin-settings-help-incidents-retention-days = Les échecs des contrôles et les alertes de session créent des incidents potentiels. Vérifiez leur importance et la reprise. Une interruption de surveillance ne prouve pas une panne.

@@ -18,6 +18,8 @@ notifications are described in [Governance registers and email](compliance-gover
 The Compliance hub also contains restrictions, consents, breaches, erasure coverage
 and encryption.
 
+Operational incidents and NIS2 preparation are described in [Operational incidents](operational-incidents.md).
+
 The tab registry lives in `apps/web/src/screens/Admin/Compliance/tabs.ts`.
 
 The older addresses keep working: `#/data-requests`, `#/retention` and `#/privacy/cookies` open the matching Compliance tab.

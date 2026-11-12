@@ -69,6 +69,7 @@ export const COMPLIANCE_TABS: readonly ComplianceTab[] = [
   {id:'transfers',label:'governance-transfer',description:'governance-transfer-help',icon:'transfer',capability:'settings.read',unscoped:true,load:()=>import('./GovernanceTab.tsx').then(m=>({default:m.TransfersTab}))},
   {id:'controls',label:'governance-control',description:'governance-control-help',icon:'shield',capability:'settings.read',unscoped:true,load:()=>import('./GovernanceTab.tsx').then(m=>({default:m.ControlsTab}))},
   {id:'notifications',label:'governance-notifications',description:'governance-mail-help',icon:'bell',capability:'settings.read',unscoped:true,load:()=>import('./NotificationsTab.tsx')},
+  {id:'incidents',label:'res-incidents',description:'res-help',icon:'alert',capability:'privacy.read',unscoped:true,load:()=>import('./IncidentsTab.tsx')},
   // Registry tail: other areas append one line each, above this comment.
 ];
 

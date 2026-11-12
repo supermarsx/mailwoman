@@ -2556,3 +2556,16 @@ admin-settings-key-compliance-mail-requireProxy = Proxyroute vereisen
 admin-settings-help-compliance-mail-requireProxy = Proxyroute vereisen (system_mail).
 admin-settings-key-retention-complianceMail-days = Bewaartermijn voltooide e-mails (dagen)
 admin-settings-help-retention-complianceMail-days = Bewaar voltooide afleveringen dit aantal dagen. Openstaande en onzekere afleveringen blijven tot afhandeling.
+
+admin-settings-key-incidents-auto-enabled = Mogelijke incidenten automatisch detecteren
+admin-settings-help-incidents-auto-enabled = Mislukte controles en sessiebeveiligingssignalen maken mogelijke incidenten aan. Beoordeel de ernst en verifieer herstel. Ontbrekende monitoring bewijst geen uitval.
+admin-settings-key-incidents-auto-failureSamples = Mislukte controles vóór detectie
+admin-settings-help-incidents-auto-failureSamples = Mislukte controles en sessiebeveiligingssignalen maken mogelijke incidenten aan. Beoordeel de ernst en verifieer herstel. Ontbrekende monitoring bewijst geen uitval.
+admin-settings-key-incidents-nis2-trustService = Meldingstermijn vertrouwensdiensten gebruiken
+admin-settings-help-incidents-nis2-trustService = Mislukte controles en sessiebeveiligingssignalen maken mogelijke incidenten aan. Beoordeel de ernst en verifieer herstel. Ontbrekende monitoring bewijst geen uitval.
+admin-settings-key-incidents-notify-email = Incidentupdates en herinneringen e-mailen
+admin-settings-help-incidents-notify-email = Mislukte controles en sessiebeveiligingssignalen maken mogelijke incidenten aan. Beoordeel de ernst en verifieer herstel. Ontbrekende monitoring bewijst geen uitval.
+admin-settings-key-incidents-notify-operatorAddresses = E-mailontvangers beheer
+admin-settings-help-incidents-notify-operatorAddresses = Mislukte controles en sessiebeveiligingssignalen maken mogelijke incidenten aan. Beoordeel de ernst en verifieer herstel. Ontbrekende monitoring bewijst geen uitval.
+admin-settings-key-incidents-retention-days = Bewaartermijn gesloten incidenten (dagen)
+admin-settings-help-incidents-retention-days = Mislukte controles en sessiebeveiligingssignalen maken mogelijke incidenten aan. Beoordeel de ernst en verifieer herstel. Ontbrekende monitoring bewijst geen uitval.

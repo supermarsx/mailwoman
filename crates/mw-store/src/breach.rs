@@ -200,6 +200,11 @@ impl Store {
         Ok(ids.len() as u64)
     }
 
+    /// Composite cursor avoids losing security signals with equal timestamps.
+    pub async fn operational_audit_after(&self,after:&str,id:&str,limit:i64)->Result<Vec<crate::AuditRow>,StoreError>{
+        Ok(q("SELECT id,ts,actor,actor_kind,action,target,detail_json,ip FROM audit_log WHERE ts>?1 OR (ts=?1 AND id>?2) ORDER BY ts,id LIMIT ?3").bind(after).bind(id).bind(limit.clamp(1,1000)).fetch_all(&self.backend).await?.iter().map(|r|crate::AuditRow{id:r.get_string("id"),ts:r.get_string("ts"),actor:r.get_string("actor"),actor_kind:r.get_string("actor_kind"),action:r.get_string("action"),target:r.get_opt_string("target"),detail_json:r.get_string("detail_json"),ip:r.get_opt_string("ip")}).collect())
+    }
+
     /// Audit rows newer than `after` (RFC 3339, exclusive), oldest first, for the
     /// breach automation's cursor.
     pub async fn breach_audit_after(&self, after: &str, limit: i64) -> Result<Vec<crate::AuditRow>, StoreError> {

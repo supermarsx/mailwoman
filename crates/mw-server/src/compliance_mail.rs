@@ -42,6 +42,7 @@ pub(crate) async fn config(
     };
     let rows = settings_registry::effective_all(&state.store, &subject, |d| {
         d.key.starts_with("compliance.mail.")
+            || d.key.starts_with("incidents.")
             || d.key.starts_with("dsr.notify.")
             || d.key == "breach.notify.email"
             || d.key == "breach.subjects.email"
@@ -197,6 +198,8 @@ async fn deliver(state: &AppState, mail: &Mail, id: &str, event: &str) -> Result
         Some("dsr.notify.emailAdmins")
     } else if event.starts_with("breach-operator:") {
         Some("breach.notify.email")
+    } else if event.starts_with("operational:") {
+        Some("incidents.notify.email")
     } else if event.starts_with("breach-subject:") {
         Some("breach.subjects.email")
     } else {

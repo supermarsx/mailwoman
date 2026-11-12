@@ -190,3 +190,6 @@ admin-retention-userrules-lastjob = Laatste taak
 
 admin-retention-store-complianceMail = E-mailmeldingen
 admin-retention-data-complianceMail = E-mailmeldingen
+
+admin-retention-store-operationalIncidents = Operationele incidenten
+admin-retention-data-operationalIncidents = Operationele incidenten

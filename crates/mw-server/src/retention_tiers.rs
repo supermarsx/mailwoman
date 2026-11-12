@@ -76,7 +76,7 @@ impl Class {
 /// The class of a store listed by the sweeper.
 pub(crate) fn class_of(id: &str) -> Option<Class> {
     Some(match id {
-        "passwordChangeAudit" | "ssoLoginAudit" | "dlpAudit" | "assistAudit" | "auditLog" | "dsrRequests" => Class::Long,
+        "passwordChangeAudit" | "ssoLoginAudit" | "dlpAudit" | "assistAudit" | "auditLog" | "dsrRequests" | "operationalIncidents" => Class::Long,
         "authHistory" | "authHistoryIp" | "auditLogIp" | "openTracking" | "securityNotices" | "usageCounters"
         | "accountGeo" | "protectionEvents" | "protectionSubjects" | "sessionWatch" => Class::Medium,
         "complianceMail" | "alertEvents" | "jobRuns" | "outbox" | "sessions" | "nativeSessions" | "rememberedDevices"

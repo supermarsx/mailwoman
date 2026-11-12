@@ -196,3 +196,6 @@ admin-retention-unavailable = 保留在此服务器上不可用。
 
 admin-retention-store-complianceMail = 电子邮件通知
 admin-retention-data-complianceMail = 电子邮件通知
+
+admin-retention-store-operationalIncidents = 运行事件
+admin-retention-data-operationalIncidents = 运行事件

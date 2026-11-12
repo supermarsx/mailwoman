@@ -2351,3 +2351,16 @@ admin-settings-key-compliance-mail-requireProxy = Require proxy route
 admin-settings-help-compliance-mail-requireProxy = Require proxy route (system_mail).
 admin-settings-key-retention-complianceMail-days = Completed email history retention (days)
 admin-settings-help-retention-complianceMail-days = Retain completed deliveries for this many days. Pending and uncertain deliveries remain until resolved.
+
+admin-settings-key-incidents-auto-enabled = Automatically detect incident candidates
+admin-settings-help-incidents-auto-enabled = Health failures and session-security signals create incident candidates automatically. Review significance and verify recovery. Monitoring gaps do not prove outages.
+admin-settings-key-incidents-auto-failureSamples = Failed health samples before detection
+admin-settings-help-incidents-auto-failureSamples = Health failures and session-security signals create incident candidates automatically. Review significance and verify recovery. Monitoring gaps do not prove outages.
+admin-settings-key-incidents-nis2-trustService = Use trust-service reporting deadline
+admin-settings-help-incidents-nis2-trustService = Health failures and session-security signals create incident candidates automatically. Review significance and verify recovery. Monitoring gaps do not prove outages.
+admin-settings-key-incidents-notify-email = Email incident updates and reminders
+admin-settings-help-incidents-notify-email = Health failures and session-security signals create incident candidates automatically. Review significance and verify recovery. Monitoring gaps do not prove outages.
+admin-settings-key-incidents-notify-operatorAddresses = Operator email recipients
+admin-settings-help-incidents-notify-operatorAddresses = Health failures and session-security signals create incident candidates automatically. Review significance and verify recovery. Monitoring gaps do not prove outages.
+admin-settings-key-incidents-retention-days = Closed incident retention (days)
+admin-settings-help-incidents-retention-days = Health failures and session-security signals create incident candidates automatically. Review significance and verify recovery. Monitoring gaps do not prove outages.

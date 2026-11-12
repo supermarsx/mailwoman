@@ -2548,3 +2548,16 @@ admin-settings-key-compliance-mail-requireProxy = 要求代理路由
 admin-settings-help-compliance-mail-requireProxy = 要求代理路由 (system_mail).
 admin-settings-key-retention-complianceMail-days = 已完成邮件历史保留天数
 admin-settings-help-retention-complianceMail-days = 已完成的投递保留指定天数。待处理和接受状态不明的投递会保留至解决。
+
+admin-settings-key-incidents-auto-enabled = 自动检测候选事件
+admin-settings-help-incidents-auto-enabled = 健康检查失败和会话安全信号会自动创建候选事件。请评估重大程度并验证恢复。监控空档不能证明发生了停机。
+admin-settings-key-incidents-auto-failureSamples = 检测前的失败采样数
+admin-settings-help-incidents-auto-failureSamples = 健康检查失败和会话安全信号会自动创建候选事件。请评估重大程度并验证恢复。监控空档不能证明发生了停机。
+admin-settings-key-incidents-nis2-trustService = 使用信任服务报告期限
+admin-settings-help-incidents-nis2-trustService = 健康检查失败和会话安全信号会自动创建候选事件。请评估重大程度并验证恢复。监控空档不能证明发生了停机。
+admin-settings-key-incidents-notify-email = 通过邮件发送事件更新与提醒
+admin-settings-help-incidents-notify-email = 健康检查失败和会话安全信号会自动创建候选事件。请评估重大程度并验证恢复。监控空档不能证明发生了停机。
+admin-settings-key-incidents-notify-operatorAddresses = 运维邮件收件人
+admin-settings-help-incidents-notify-operatorAddresses = 健康检查失败和会话安全信号会自动创建候选事件。请评估重大程度并验证恢复。监控空档不能证明发生了停机。
+admin-settings-key-incidents-retention-days = 已关闭事件保留期（天）
+admin-settings-help-incidents-retention-days = 健康检查失败和会话安全信号会自动创建候选事件。请评估重大程度并验证恢复。监控空档不能证明发生了停机。

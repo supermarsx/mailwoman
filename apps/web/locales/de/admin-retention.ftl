@@ -192,3 +192,6 @@ admin-retention-userrules-lastjob = Letzter Job
 
 admin-retention-store-complianceMail = E-Mail-Benachrichtigungen
 admin-retention-data-complianceMail = E-Mail-Benachrichtigungen
+
+admin-retention-store-operationalIncidents = Betriebsvorfälle
+admin-retention-data-operationalIncidents = Betriebsvorfälle

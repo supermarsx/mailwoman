@@ -190,3 +190,6 @@ admin-retention-never = Ніколи
 
 admin-retention-store-complianceMail = Сповіщення поштою
 admin-retention-data-complianceMail = Сповіщення поштою
+
+admin-retention-store-operationalIncidents = Операційні інциденти
+admin-retention-data-operationalIncidents = Операційні інциденти
