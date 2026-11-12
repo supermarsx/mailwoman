@@ -39,3 +39,5 @@ image-viewer-zoom = Niveau de zoom
 image-viewer-zoom-in = Zoomer
 
 image-viewer-zoom-out = Zoom arrière
+image-viewer-grayscale = Niveaux de gris (saturation nulle)
+image-viewer-invert = Inverser les couleurs

@@ -39,3 +39,5 @@ image-viewer-zoom = Poziom powiększenia
 image-viewer-zoom-in = Powiększ
 
 image-viewer-zoom-out = Pomniejsz
+image-viewer-grayscale = Skala szarości (zerowe nasycenie)
+image-viewer-invert = Odwróć kolory

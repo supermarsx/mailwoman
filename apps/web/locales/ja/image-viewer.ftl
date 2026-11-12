@@ -39,3 +39,5 @@ image-viewer-zoom = ズームレベル
 image-viewer-zoom-in = ズームイン
 
 image-viewer-zoom-out = ズームアウト
+image-viewer-grayscale = グレースケール（彩度ゼロ）
+image-viewer-invert = 色を反転

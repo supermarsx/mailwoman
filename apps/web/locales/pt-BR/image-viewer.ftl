@@ -39,3 +39,5 @@ image-viewer-zoom = Nível de zoom
 image-viewer-zoom-in = Ampliar
 
 image-viewer-zoom-out = Diminuir zoom
+image-viewer-grayscale = Escala de cinza (saturação zero)
+image-viewer-invert = Inverter cores

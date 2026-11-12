@@ -21,9 +21,11 @@ export function ImageViewer(props:ViewerProps):JSX.Element{
  const [bounds,setBounds]=createSignal<Size>({width:0,height:0});
  const [mode,setMode]=createSignal<Mode>('fit'),[zoom,setZoom]=createSignal(1),[rotation,setRotation]=createSignal(0),[flipH,setFlipH]=createSignal(false),[flipV,setFlipV]=createSignal(false);
  const [status,setStatus]=createSignal(''),[copying,setCopying]=createSignal(false),[fullscreen,setFullscreen]=createSignal(false);
+ const [grayscale,setGrayscale]=createSignal(false),[inverted,setInverted]=createSignal(false);
+ const colorFilter=()=>`saturate(${grayscale()?0:1}) invert(${inverted()?1:0})`;
  const [image,setImage]=createSignal<HTMLImageElement>(),[size,setSize]=createSignal<Size>({width:0,height:0});
  let generation=0;
- function reset():void{setMode('fit');setZoom(1);setRotation(0);setFlipH(false);setFlipV(false);if(viewport){viewport.scrollTop=0;viewport.scrollLeft=0;}}
+ function reset():void{setMode('fit');setZoom(1);setRotation(0);setFlipH(false);setFlipV(false);setGrayscale(false);setInverted(false);if(viewport){viewport.scrollTop=0;viewport.scrollLeft=0;}}
  const [source]=createResource(()=>({url:props.blobUrl,mime:props.mime}),async({url,mime})=>{
   const captured=++generation;
   setImage(undefined);setSize({width:0,height:0});reset();setStatus('');
@@ -49,7 +51,7 @@ export function ImageViewer(props:ViewerProps):JSX.Element{
   const captured=generation,angle=rotation(),horizontal=flipH(),vertical=flipV(),swapped=turned();
   const canvas=document.createElement('canvas');canvas.width=swapped?decoded.naturalHeight:decoded.naturalWidth;canvas.height=swapped?decoded.naturalWidth:decoded.naturalHeight;
   const context=canvas.getContext('2d');if(!context){setStatus(t('image-viewer-copy-failed'));return;}
-  context.translate(canvas.width/2,canvas.height/2);context.rotate(angle*Math.PI/180);context.scale(horizontal?-1:1,vertical?-1:1);context.drawImage(decoded,-decoded.naturalWidth/2,-decoded.naturalHeight/2);
+  context.filter=colorFilter();context.translate(canvas.width/2,canvas.height/2);context.rotate(angle*Math.PI/180);context.scale(horizontal?-1:1,vertical?-1:1);context.drawImage(decoded,-decoded.naturalWidth/2,-decoded.naturalHeight/2);
   setCopying(true);setStatus('');
   try{
    const png=new Promise<Blob>((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('Image conversion failed')),'image/png'));
@@ -78,6 +80,8 @@ export function ImageViewer(props:ViewerProps):JSX.Element{
   {id:'rotate-right',icon:'rotateCw',run:()=>setRotation(value=>(value+90)%360)},
   {id:'flip-horizontal',icon:'flipH',run:()=>setFlipH(value=>!value),pressed:flipH},
   {id:'flip-vertical',icon:'flipV',run:()=>setFlipV(value=>!value),pressed:flipV},
+  {id:'grayscale',icon:'grayscale',run:()=>setGrayscale(value=>!value),pressed:grayscale},
+  {id:'invert',icon:'invert',run:()=>setInverted(value=>!value),pressed:inverted},
   {id:'reset',icon:'restore',run:reset},
  ];
  return <div ref={root} class="image-preview">
@@ -93,7 +97,7 @@ export function ImageViewer(props:ViewerProps):JSX.Element{
    onPointerMove={event=>{if(pan?.id!==event.pointerId)return;event.currentTarget.scrollLeft=pan.left+pan.x-event.clientX;event.currentTarget.scrollTop=pan.top+pan.y-event.clientY;}}
    onPointerUp={()=>{pan=undefined;}} onPointerCancel={()=>{pan=undefined;}} onLostPointerCapture={()=>{pan=undefined;}}>
    <Show when={!source.error} fallback={<p role="alert">{t('image-viewer-failed')}</p>}>
-    <Show when={source()} fallback={<p class="mw-viewer__loading">{t('common-viewer-loading-image')}</p>}>{doc=><div class="image-preview__canvas" style={{width:`${canvasWidth()}px`,height:`${canvasHeight()}px`}}><iframe class="mw-viewer__frame mw-viewer__frame--image" title={props.name} sandbox={SANDBOX_TOKENS} scrolling="no" srcdoc={doc()} style={{width:`${width()*scale()}px`,height:`${height()*scale()}px`,transform:`translate(-50%, -50%) rotate(${rotation()}deg) scale(${flipH()?-1:1}, ${flipV()?-1:1})`}}/></div>}</Show>
+    <Show when={source()} fallback={<p class="mw-viewer__loading">{t('common-viewer-loading-image')}</p>}>{doc=><div class="image-preview__canvas" style={{width:`${canvasWidth()}px`,height:`${canvasHeight()}px`}}><iframe class="mw-viewer__frame mw-viewer__frame--image" title={props.name} sandbox={SANDBOX_TOKENS} scrolling="no" srcdoc={doc()} style={{filter:colorFilter(),width:`${width()*scale()}px`,height:`${height()*scale()}px`,transform:`translate(-50%, -50%) rotate(${rotation()}deg) scale(${flipH()?-1:1}, ${flipV()?-1:1})`}}/></div>}</Show>
    </Show>
   </div>
   <Show when={status()}><p class="image-preview__status" role="status">{status()}</p></Show>

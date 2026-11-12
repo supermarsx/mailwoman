@@ -18,3 +18,5 @@ image-viewer-copy-failed = Não foi possível copiar a imagem. Tente transferi-l
 image-viewer-fullscreen = Alternar ecrã inteiro
 image-viewer-fullscreen-failed = Não foi possível abrir o ecrã inteiro.
 image-viewer-failed = Não foi possível carregar a imagem.
+image-viewer-grayscale = Escala de cinzentos (saturação zero)
+image-viewer-invert = Inverter cores

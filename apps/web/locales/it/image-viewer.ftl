@@ -39,3 +39,5 @@ image-viewer-zoom = Livello di zoom
 image-viewer-zoom-in = Ingrandisci
 
 image-viewer-zoom-out = Rimpicciolisci
+image-viewer-grayscale = Scala di grigi (saturazione zero)
+image-viewer-invert = Inverti colori

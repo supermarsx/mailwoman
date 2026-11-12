@@ -39,3 +39,5 @@ image-viewer-zoom = Zoomniveau
 image-viewer-zoom-in = Zoom in
 
 image-viewer-zoom-out = Uitzoomen
+image-viewer-grayscale = Grijstinten (geen verzadiging)
+image-viewer-invert = Kleuren omkeren

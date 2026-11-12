@@ -39,3 +39,5 @@ image-viewer-zoom = Zoomstufe
 image-viewer-zoom-in = Vergrößern
 
 image-viewer-zoom-out = Herauszoomen
+image-viewer-grayscale = Graustufen (keine Sättigung)
+image-viewer-invert = Farben umkehren

@@ -17,3 +17,5 @@ image-viewer-copy-failed = The image could not be copied. Try downloading it ins
 image-viewer-fullscreen = Toggle full screen
 image-viewer-fullscreen-failed = Full screen could not be opened.
 image-viewer-failed = The image could not be loaded.
+image-viewer-grayscale = Grayscale (zero saturation)
+image-viewer-invert = Invert colors

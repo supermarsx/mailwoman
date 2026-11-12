@@ -39,3 +39,5 @@ image-viewer-zoom = مستوى التكبير
 image-viewer-zoom-in = تكبير
 
 image-viewer-zoom-out = تصغير
+image-viewer-grayscale = تدرج رمادي (تشبع صفري)
+image-viewer-invert = عكس الألوان

@@ -39,3 +39,5 @@ image-viewer-zoom = Рівень масштабування
 image-viewer-zoom-in = Збільшити
 
 image-viewer-zoom-out = Зменшити масштаб
+image-viewer-grayscale = Відтінки сірого (нульова насиченість)
+image-viewer-invert = Інвертувати кольори

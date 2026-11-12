@@ -39,3 +39,5 @@ image-viewer-zoom = 缩放级别
 image-viewer-zoom-in = 放大
 
 image-viewer-zoom-out = 缩小
+image-viewer-grayscale = 灰度（零饱和度）
+image-viewer-invert = 反转颜色

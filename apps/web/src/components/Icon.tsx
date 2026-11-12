@@ -12,7 +12,7 @@ import type { JSX } from 'solid-js';
 export type IconName =
   | 'paneRight' | 'paneBottom' | 'layoutTabs' | 'layoutColumns' | 'layoutRows' | 'layoutMasonryColumns' | 'layoutMasonryRows'
   | 'tableRowBefore' | 'tableRowAfter' | 'tableRowDelete' | 'tableColumnBefore' | 'tableColumnAfter' | 'tableColumnDelete' | 'tableMerge' | 'tableSplit' | 'tableHeader'
-  | 'undo' | 'redo' | 'imageFit' | 'imageWidth' | 'imageActual' | 'fullscreen'
+  | 'undo' | 'redo' | 'imageFit' | 'imageWidth' | 'imageActual' | 'fullscreen' | 'grayscale' | 'invert'
   | 'alignLeft' | 'alignCenter' | 'alignRight' | 'rotateCw' | 'rotateCcw' | 'flipH' | 'flipV' | 'crop'
   | 'cut' | 'paste' | 'table' | 'paragraph' | 'paint' | 'eyedropper'
   | 'mailboxes' | 'signature' | 'compose' | 'mailCheck' | 'transfer' | 'palette' | 'keyboard' | 'bell' | 'package' | 'key'
@@ -181,6 +181,8 @@ const S = { fill: 'none', stroke: 'currentColor', 'stroke-width': '2' } as const
 const F = { fill: 'currentColor' } as const;
 
 const PATHS: Record<IconName, () => JSX.Element> = {
+  grayscale: () => <><circle cx="8" cy="8" r="6" {...S}/><path d="M8 2a6 6 0 0 0 0 12Z" {...F}/></>,
+  invert: () => <><rect x="2" y="2" width="12" height="12" rx="2" {...S}/><path d="M8 2h4a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8Z" {...F}/><circle cx="8" cy="8" r="3" {...S}/></>,
   // A checked row and an empty row make selection mode distinct from confirmation.
   bulkSelect: () => <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 3.5 L3 5 L5.5 2 M8 3.5 H14.5 M8 11.5 H14.5" /><rect x="1.5" y="9" width="4.5" height="4.5" rx="1" /></g>,
   // t86: Settings section glyphs (same 16 px grid, 2 px stroke, currentColor).
