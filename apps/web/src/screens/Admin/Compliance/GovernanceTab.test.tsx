@@ -43,3 +43,7 @@ it('includes both internal and international transfers in the guided form',async
  expect(within(select).getByRole('option',{name:'Internal'})).toBeInTheDocument();
  expect(within(select).getByRole('option',{name:'International'})).toBeInTheDocument();
 });
+
+it('keeps ICT details collapsed and offers the ICT contract type',async()=>{
+ service();renderInShell(()=><ContractsTab/>);const add=await screen.findByRole('button',{name:'Add record'});await waitFor(()=>expect(add).toBeEnabled());fireEvent.click(add);const dialog=screen.getByTestId('governance-editor');fireEvent.input(within(dialog).getByLabelText('Name'),{target:{value:'ICT mail service'}});const type=within(dialog).getByRole('combobox',{name:/Contract type/});expect(within(type).getByRole('option',{name:'ICT service agreement'})).toBeInTheDocument();fireEvent.click(within(dialog).getByRole('button',{name:'Next'}));const details=within(dialog).getByText('ICT service and resilience details').closest('details')!;expect(details.open).toBe(false);fireEvent.click(within(dialog).getByText('ICT service and resilience details'));expect(within(dialog).getByLabelText('Service description')).toBeInTheDocument();expect(within(dialog).getByLabelText('Exit and transition plan')).toBeInTheDocument();
+});

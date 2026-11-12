@@ -15,6 +15,28 @@ pub(crate) const CONTRACT_FIELDS: &[&str] = &[
     "jurisdiction",
     "documentUrl",
     "clauses",
+    "serviceDescription",
+    "supportedFunctions",
+    "criticality",
+    "providerIdentifier",
+    "serviceLocations",
+    "dataLocations",
+    "subcontractors",
+    "subcontractingConditions",
+    "slaAvailability",
+    "recoveryTimeMinutes",
+    "recoveryPointMinutes",
+    "incidentNoticeHours",
+    "incidentAssistance",
+    "securityRequirements",
+    "auditRights",
+    "authorityCooperation",
+    "dataReturn",
+    "terminationNoticeDays",
+    "exitPlan",
+    "continuityTesting",
+    "concentrationRisk",
+
     "notes",
 ];
 pub(crate) const TRANSFER_FIELDS: &[&str] = &[
@@ -105,7 +127,7 @@ pub(crate) fn validate(
             ) {
                 return Err("Choose a valid contract status.");
             }
-            if !matches!(value("contractType"), "dpa" | "msa" | "scc" | "other") {
+            if !matches!(value("contractType"), "dpa" | "msa" | "scc" | "ict" | "other") {
                 return Err("Choose a valid contract type.");
             }
             if value("status") == "active"
@@ -114,6 +136,14 @@ pub(crate) fn validate(
                 return Err(
                     "Active contracts require an owner, counterparty, signing date and document link.",
                 );
+            }
+            if value("contractType") == "ict" && value("status") == "active" && !required(&["serviceDescription", "supportedFunctions", "criticality", "serviceLocations", "dataLocations", "securityRequirements", "dataReturn", "exitPlan"]) {
+                return Err("Active ICT contracts need service, function, criticality, location, security, data-return and exit-plan details.");
+            }
+            if value("contractType")=="ict" && value("status")=="active" && matches!(value("criticality"),"critical"|"important") && !required(&["recoveryTimeMinutes","recoveryPointMinutes","incidentNoticeHours","incidentAssistance","auditRights","authorityCooperation","subcontractingConditions","continuityTesting","terminationNoticeDays"]) {return Err("Critical or important ICT services also need recovery targets, incident assistance and notice periods, audit and authority rights, subcontracting terms, continuity testing and termination notice.");}
+            if !value("criticality").is_empty() && !matches!(value("criticality"), "noncritical" | "important" | "critical") { return Err("Choose a valid service criticality."); }
+            for key in ["recoveryTimeMinutes", "recoveryPointMinutes", "incidentNoticeHours", "terminationNoticeDays"] {
+                if !value(key).is_empty() && value(key).parse::<u32>().is_err() { return Err("Use a non-negative whole number for recovery and notice periods."); }
             }
             if !value("expiresAt").is_empty()
                 && !value("signedAt").is_empty()

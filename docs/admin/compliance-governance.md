@@ -18,6 +18,23 @@ Expiry cannot precede signing. A link records evidence; Mailwoman does not fetch
 the document or decide whether its clauses are legally sufficient. Keep signed
 documents and their version history in your controlled document repository.
 
+## ICT contracts
+
+The ICT service agreement type adds service description, supported business
+functions, criticality, provider identifier, service/data locations, subcontractors
+and their conditions, availability commitments, RTO/RPO, incident notice and
+assistance, security requirements, access/audit rights, authority cooperation,
+data access/return, termination notice, exit plans, resilience testing and supplier
+concentration risk. Optional details are collapsed for ordinary contracts; saved
+ICT detail is also readable by administrators without write permission.
+
+Active ICT contracts require core service, location, security, data-return and
+exit details. Critical/important services additionally require recovery targets,
+incident assistance and notice, audit/authority rights, subcontracting conditions,
+continuity testing and termination notice. These checks verify field presence and
+numeric types, not contractual adequacy. They do not generate the prescribed DORA
+register of information or replace a review of Article 30 terms.
+
 ## Internal and international transfers
 
 The same register covers internal sharing and international transfers. Record
