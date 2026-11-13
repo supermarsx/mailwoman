@@ -832,3 +832,7 @@ cache-help-durable = Halten Sie kürzlich besuchte Ordner und Nachrichten zum Ö
 cache-keepIndefinitely = Bewahren Sie zwischengespeicherte E-Mails auf unbestimmte Zeit auf
 
 cache-keepIndefinitely-help = Standardmäßig deaktiviert. Behalten Sie verschlüsselte Kopien in diesem Browser über Neuladevorgänge hinweg bei, ohne dass das Alter abläuft. Online-Nachrichten werden weiterhin aktualisiert. Die Eintrags- und Bytegrenzen gelten weiterhin. Durch Deaktivieren oder Löschen zwischengespeicherter E-Mails werden gespeicherte Kopien entfernt. Durch das Löschen von Browserdaten können sie ebenfalls entfernt werden. Anhänge werden nicht zur Offline-Verwendung heruntergeladen.
+
+settings-notif-view-enabled = Benachrichtigungsansicht aktivieren
+settings-notif-view-sidebar = Benachrichtigungen in der Seitenleiste anzeigen
+settings-notif-view-help = Steuert die Benachrichtigungszentrale. Sicherheitshinweise, E-Mail-Hinweise und Browserbenachrichtigungen behalten ihre eigenen Einstellungen.

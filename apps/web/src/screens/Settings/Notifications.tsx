@@ -20,7 +20,7 @@ import * as css from './styles.css.ts';
 
 /** Search-index entries (static; the rows render once the configuration loads). */
 export const NOTIFICATION_CARDS: readonly CardSpec[] = [
-  { id: 'notif-card-general', section: 'notifications', title: 'settings-notif-title', help: 'settings-notif-intro', rows: [{ id: 'notif-enabled', label: 'settings-notif-enabled-label' }] },
+  { id: 'notif-card-general', section: 'notifications', title: 'settings-notif-title', help: 'settings-notif-intro', rows: [{ id: 'notif-enabled', label: 'settings-notif-enabled-label' }, { id: 'notif-view-enabled', label: 'settings-notif-view-enabled' }, { id: 'notif-view-sidebar', label: 'settings-notif-view-sidebar' }] },
   { id: 'notif-card-device', section: 'notifications', title: 'settings-notif-device-title', help: 'settings-notif-device-help', rows: [{ id: 'notif-ask-permission', label: 'settings-notif-ask-permission', help: 'settings-notif-ask-permission-help' }] },
   { id: 'notif-card-quiet', section: 'notifications', title: 'settings-notif-quiet-title', rows: [{ id: 'notif-quiet-enabled', label: 'settings-notif-quiet-enabled-label' }, { id: 'notif-quiet-start', label: 'settings-notif-quiet-start' }, { id: 'notif-quiet-end', label: 'settings-notif-quiet-end' }, { id: 'notif-quiet-timezone', label: 'settings-notif-timezone' }] },
   { id: 'notif-card-background', section: 'notifications', title: 'settings-permissions-background-title', help: 'settings-permissions-background-help', rows: [] },
@@ -54,6 +54,8 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
   // t32 settings model C); the server refuses a held change, so offer none.
   const enabledHold = useSetting('notifications.enabled', false);
   const askPermission = useSetting('notifications.askPermission', true);
+  const viewEnabled = useSetting('notifications.view.enabled', true);
+  const viewSidebar = useSetting('notifications.view.showInSidebar', true);
 
   const [loaded] = createResource<NotificationConfig>(() => service.notifications());
   // Working copy; hydrated from the resource once it settles (exactly once).
@@ -125,6 +127,12 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
   return (
     <div data-testid="notifications-settings">
       <SettingsCard id="notif-card-general" title={t('settings-notif-title')} description={t('settings-notif-intro')}>
+        <For each={[
+          {id:'notif-view-enabled',label:'settings-notif-view-enabled',handle:viewEnabled},
+          {id:'notif-view-sidebar',label:'settings-notif-view-sidebar',handle:viewSidebar},
+        ]}>{item=><ControlRow controlId={item.id} label={t(item.label)} help={t('settings-notif-view-help')} note={<><LockNote id={`${item.id}-lock`} locked={item.handle.locked()}/><Show when={item.handle.error()}><p role="alert">{item.handle.error()}</p></Show></>}>{()=>
+          <input id={item.id} type="checkbox" checked={item.handle.value()} disabled={!item.handle.entry()||item.handle.locked()||item.handle.saving()||(item.id==='notif-view-sidebar'&&!viewEnabled.value())} onChange={event=>void item.handle.set(event.currentTarget.checked)}/>
+        }</ControlRow>}</For>
         <fieldset class={css.bareFieldset} disabled={locked()}>
           <ControlRow controlId="notif-enabled" label={t('settings-notif-enabled-label')} note={<LockNote id="settings-notif-enabled-lock" locked={enabledHold.locked()} />}>{() =>
             <input

@@ -1,3 +1,4 @@
+import {notificationViewEnabled,notificationViewInSidebar} from '../state/notificationVisibility.ts';
 import {messageOpenRequest,takeMessageOpenRequest} from '../state/messageOpenRequest.ts';
 import {mailboxOpenRequest,takeMailboxOpenRequest} from '../state/mailboxOpenRequest.ts';
 import {notificationUnread} from '../state/notificationCenter.ts';
@@ -135,7 +136,7 @@ void loadCatalog('folder-dnd');
 // module (plan §2.5, e8 mount). Keys is reachable at `#/keys` beside them.
 const APP_NAV_MODULES = [NOTIFICATIONS_MODULE,...APP_MODULES, KEYS_MODULE];
 /** t98: the nav modules the mailbox's feature profile allows (the server refuses the rest). */
-const shownModules = (): typeof APP_NAV_MODULES => APP_NAV_MODULES.filter((m) => featureOn(m.id));
+const shownModules = (): typeof APP_NAV_MODULES => APP_NAV_MODULES.filter((m) => featureOn(m.id)&&(m.id!=='notifications'||notificationViewInSidebar()));
 
 /** Refetch the open PIM module after a pushed change (plan §1.8 realtime). */
 function refetchPim(app: ReturnType<typeof useApp>, surface: ShellSurface): void {
@@ -551,7 +552,7 @@ export function MailboxScreen(): JSX.Element {
   createEffect(()=>{if(unifiedMailboxRequest()&&takeUnifiedMailboxRequest()&&unifiedEnabled())untrack(()=>{noteWorkspaceIntent();router.navigate('unified');});});
   const transfer=()=>{const request=pendingMessageTransfer();return request&&transfersEnabled()&&isTransferAccountCurrent(request.owner)?request:undefined;};
   createEffect(()=>{workspaceOwner();if(pendingMessageTransfer()&&!transfer())closeMessageTransfer();});
-  const surfaceAllowed = (d: ShellSurface): boolean => !((d==='unified'&&settingsLoadStatus()==='ready'&&!unifiedEnabled())||(d==='templates'&&settings()['mail.templates.enabled']?.value===false)||(d==='attachments'&&!featureOn('views.attachments'))||(isPimSurface(d)&&!featureOn(d))||(d==='keys'&&!featureOn('keys')));
+  const surfaceAllowed = (d: ShellSurface): boolean => !((d==='notifications'&&!notificationViewEnabled())||(d==='unified'&&settingsLoadStatus()==='ready'&&!unifiedEnabled())||(d==='templates'&&settings()['mail.templates.enabled']?.value===false)||(d==='attachments'&&!featureOn('views.attachments'))||(isPimSurface(d)&&!featureOn(d))||(d==='keys'&&!featureOn('keys')));
   createEffect(()=>{const d=surface();if(!surfaceAllowed(d))untrack(()=>router.navigate('mail'));});
   createEffect(()=>{const off=panes().filter(pane=>pane.surface!==undefined&&!surfaceAllowed(pane.surface)).map(pane=>pane.id);if(off.length>0)untrack(()=>void closePanes(off));});
   createEffect(()=>{const destination=surface(),accountId=app.accountId(),unified=unifiedEnabled();untrack(()=>{

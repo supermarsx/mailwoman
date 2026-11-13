@@ -841,3 +841,7 @@ cache-help-durable = 保持最近访问的文件夹和消息随时可以打开�
 cache-keepIndefinitely = 无限期保留缓存的邮件
 
 cache-keepIndefinitely-help = 默认关闭。在重新加载时在此浏览器中保留加密副本，且不会过期。网上消息还在刷新。条目和字节限制仍然适用。关闭此功能或清除缓存的邮件会删除保存的副本。浏览器数据清除也可以将其删除。不会下载附件供离线使用。
+
+settings-notif-view-enabled = 启用通知视图
+settings-notif-view-sidebar = 在侧边栏显示通知
+settings-notif-view-help = 控制通知中心视图。安全提示、邮件提示和浏览器通知仍使用各自的设置。

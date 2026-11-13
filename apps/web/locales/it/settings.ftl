@@ -828,3 +828,7 @@ cache-help-durable = Mantieni le cartelle e i messaggi visitati di recente pront
 cache-keepIndefinitely = Conserva la posta nella cache a tempo indeterminato
 
 cache-keepIndefinitely-help = Disattivato per impostazione predefinita. Conserva copie crittografate in questo browser durante i ricaricamenti senza scadenza. I messaggi in linea si aggiornano ancora. Si applicano ancora i limiti di immissione e di byte. La disattivazione o la cancellazione della posta memorizzata nella cache rimuove le copie salvate. Anche la cancellazione dei dati del browser può rimuoverli. Gli allegati non vengono scaricati per l'utilizzo offline.
+
+settings-notif-view-enabled = Abilita la vista Notifiche
+settings-notif-view-sidebar = Mostra Notifiche nella barra laterale
+settings-notif-view-help = Controlla il centro notifiche. Gli avvisi di sicurezza, di posta e del browser mantengono le proprie impostazioni.

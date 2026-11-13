@@ -851,3 +851,7 @@ cache-help-durable = Houd recent bezochte mappen en berichten gereed om te opene
 cache-keepIndefinitely = Bewaar e-mail in de cache voor onbepaalde tijd
 
 cache-keepIndefinitely-help = Standaard uitgeschakeld. Bewaar gecodeerde kopieën in deze browser tijdens herlaadbeurten zonder dat de leeftijd verstrijkt. Online berichten worden nog steeds vernieuwd. De invoer- en bytelimieten zijn nog steeds van toepassing. Als u dit uitschakelt of in de cache opgeslagen e-mail wist, worden opgeslagen kopieën verwijderd. Het wissen van browsergegevens kan ze ook verwijderen. Bijlagen worden niet gedownload voor offline gebruik.
+
+settings-notif-view-enabled = Meldingenweergave inschakelen
+settings-notif-view-sidebar = Meldingen in de zijbalk tonen
+settings-notif-view-help = Beheert het meldingencentrum. Beveiligingsmeldingen, e-mailmeldingen en browsermeldingen behouden hun eigen instellingen.

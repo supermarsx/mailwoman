@@ -2564,3 +2564,8 @@ admin-settings-help-incidents-retention-days = 健康检查失败和会话安全
 
 admin-settings-key-mail-snooze-presets = 稍后提醒选项
 admin-settings-help-mail-snooze-presets = 添加、重命名、排序、编辑或隐藏预设。菜单始终支持自定义日期和时间。
+
+admin-settings-key-notifications-view-enabled = 启用通知视图
+admin-settings-help-notifications-view-enabled = 控制通知中心视图。安全提示、邮件提示和浏览器通知仍使用各自的设置。
+admin-settings-key-notifications-view-show-in-sidebar = 在侧边栏显示通知
+admin-settings-help-notifications-view-show-in-sidebar = 控制通知中心视图。安全提示、邮件提示和浏览器通知仍使用各自的设置。

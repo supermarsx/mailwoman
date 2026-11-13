@@ -3900,3 +3900,9 @@ Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characte
 ### Expired image handle retention
 
 The sweeper keeps expired handles for 180 days by default. A value of 0 removes them after expiry. The grace period does not extend signed-link validity.
+
+<a id="notifications.view.enabled"></a>
+`notifications.view.enabled` defaults true. Users can disable the Notifications view; administrators can set or lock it globally, per domain or per user. Disabling it removes its sidebar entry, closes open Notifications tabs and prevents restoring or opening the view. It does not disable security notices, notification collection, mail toasts or browser notifications.
+
+<a id="notifications.view.showInSidebar"></a>
+`notifications.view.showInSidebar` defaults true. Users and administrators can hide the sidebar entry while keeping the enabled view available through its existing tabs or route. An administrator can lock this preference independently. Both preferences are under Notifications in user settings and the administration settings registry.

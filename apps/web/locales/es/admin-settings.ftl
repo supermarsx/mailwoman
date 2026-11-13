@@ -2578,3 +2578,8 @@ admin-settings-help-incidents-retention-days = Los fallos de salud y las alertas
 
 admin-settings-key-mail-snooze-presets = Opciones de posponer
 admin-settings-help-mail-snooze-presets = Añade, renombra, reordena, edita u oculta opciones. Siempre puedes elegir una fecha y hora en el menú.
+
+admin-settings-key-notifications-view-enabled = Activar la vista de notificaciones
+admin-settings-help-notifications-view-enabled = Controla el centro de notificaciones. Los avisos de seguridad, de correo y del navegador conservan sus propios ajustes.
+admin-settings-key-notifications-view-show-in-sidebar = Mostrar Notificaciones en la barra lateral
+admin-settings-help-notifications-view-show-in-sidebar = Controla el centro de notificaciones. Los avisos de seguridad, de correo y del navegador conservan sus propios ajustes.

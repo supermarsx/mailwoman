@@ -54,6 +54,17 @@ describe('retained mailbox workspace',()=>{
       fireEvent.click(screen.getByRole('button',{name:'Unified mail'}));await waitFor(()=>expect(container.querySelector('[data-unified-folders]')).toBeNull());expect(container.querySelector('[data-folder-region]')).not.toBeNull();
     }finally{setUnifiedVirtualMode(false);setUnifiedFolderCounts({});clearSettings();}
   });
+  it('hides the Notifications sidebar entry independently and closes the view when disabled by policy',async()=>{
+    const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    const config=async(enabled:boolean,sidebar:boolean)=>loadSettings({refresh:true,fetcher:async()=>Response.json({settings:{'notifications.view.enabled':{value:enabled,source:'global',locked:true},'notifications.view.showInSidebar':{value:sidebar,source:'user',locked:false}}})});
+    try{
+      await config(true,true);show();fireEvent.click(await screen.findByTestId('nav-notifications'));await waitFor(()=>expect(location.hash).toBe('#/notifications'));
+      await config(true,false);await waitFor(()=>expect(screen.queryByTestId('nav-notifications')).toBeNull());expect(location.hash).toBe('#/notifications');
+      await config(false,true);await waitFor(()=>expect(location.hash).toBe('#/mail'));expect(screen.queryByTestId('nav-notifications')).toBeNull();expect(screen.queryByRole('tab',{name:'Notifications'})).toBeNull();
+      history.replaceState(null,'','#/notifications');window.dispatchEvent(new HashChangeEvent('hashchange'));await waitFor(()=>expect(location.hash).toBe('#/mail'));
+      await config(true,true);await waitFor(()=>expect(screen.getByTestId('nav-notifications')).toBeVisible());
+    }finally{clearSettings();}
+  });
   it('hides empty sidebar folders, restores them on count changes, and honors per-folder overrides',async()=>{
     const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
     const extras=[{id:'spam-empty',name:'Spam empty',role:'junk',totalEmails:0},{id:'drafts-empty',name:'Drafts empty',role:'drafts',totalEmails:0},{id:'parent-empty',name:'Empty parent',role:null,totalEmails:0},{id:'child-read',name:'Read child',role:null,totalEmails:2}].map(folder=>({...folder,parentId:folder.id==='child-read'?'parent-empty':null,sortOrder:10,unreadEmails:0}));

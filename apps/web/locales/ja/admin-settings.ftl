@@ -2564,3 +2564,8 @@ admin-settings-help-incidents-retention-days = 正常性チェックの失敗と
 
 admin-settings-key-mail-snooze-presets = スヌーズの設定
 admin-settings-help-mail-snooze-presets = プリセットの追加、名前変更、並べ替え、編集、非表示ができます。メニューでは常に日時を指定できます。
+
+admin-settings-key-notifications-view-enabled = 通知ビューを有効にする
+admin-settings-help-notifications-view-enabled = 通知センターの表示を制御します。セキュリティ通知、メール通知、ブラウザー通知はそれぞれの設定に従います。
+admin-settings-key-notifications-view-show-in-sidebar = サイドバーに通知を表示する
+admin-settings-help-notifications-view-show-in-sidebar = 通知センターの表示を制御します。セキュリティ通知、メール通知、ブラウザー通知はそれぞれの設定に従います。

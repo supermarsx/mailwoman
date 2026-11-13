@@ -2572,3 +2572,8 @@ admin-settings-help-incidents-retention-days = Mislukte controles en sessiebevei
 
 admin-settings-key-mail-snooze-presets = Sluimeropties
 admin-settings-help-mail-snooze-presets = Voeg opties toe, hernoem, sorteer, bewerk of verberg ze. Een eigen datum en tijd blijven altijd beschikbaar in het menu.
+
+admin-settings-key-notifications-view-enabled = Meldingenweergave inschakelen
+admin-settings-help-notifications-view-enabled = Beheert het meldingencentrum. Beveiligingsmeldingen, e-mailmeldingen en browsermeldingen behouden hun eigen instellingen.
+admin-settings-key-notifications-view-show-in-sidebar = Meldingen in de zijbalk tonen
+admin-settings-help-notifications-view-show-in-sidebar = Beheert het meldingencentrum. Beveiligingsmeldingen, e-mailmeldingen en browsermeldingen behouden hun eigen instellingen.

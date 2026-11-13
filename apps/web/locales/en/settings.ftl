@@ -830,3 +830,7 @@ cache-help-durable = Keep recently visited folders and messages ready to open. B
 settings-folder-colour = Folder colour
 settings-folders-colour = Default folder colour
 settings-folders-colour-help = Colours folder icons and names. Edit a folder to give it its own colour.
+
+settings-notif-view-enabled = Enable the Notifications view
+settings-notif-view-sidebar = Show Notifications in the sidebar
+settings-notif-view-help = Controls the notification centre view. Security notices, mail toasts and browser alerts keep their own settings.

@@ -853,3 +853,7 @@ cache-help-durable = Przechowuj ostatnio odwiedzane foldery i wiadomości gotowe
 cache-keepIndefinitely = Przechowuj pocztę w pamięci podręcznej na czas nieokreślony
 
 cache-keepIndefinitely-help = Domyślnie wyłączone. Przechowuj zaszyfrowane kopie w tej przeglądarce podczas ponownego ładowania bez wygaśnięcia wieku. Wiadomości online są nadal odświeżane. Limity wpisów i bajtów nadal obowiązują. Wyłączenie tej opcji lub wyczyszczenie poczty w pamięci podręcznej powoduje usunięcie zapisanych kopii. Wyczyszczenie danych przeglądarki może również je usunąć. Załączniki nie są pobierane do użytku w trybie offline.
+
+settings-notif-view-enabled = Włącz widok powiadomień
+settings-notif-view-sidebar = Pokaż Powiadomienia na pasku bocznym
+settings-notif-view-help = Steruje centrum powiadomień. Alerty bezpieczeństwa, poczty i przeglądarki zachowują własne ustawienia.

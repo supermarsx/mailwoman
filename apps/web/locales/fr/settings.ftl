@@ -832,3 +832,7 @@ cache-help-durable = Gardez les dossiers et les messages récemment visités pr�
 cache-keepIndefinitely = Conserver indéfiniment le courrier en cache
 
 cache-keepIndefinitely-help = Désactivé par défaut. Conservez des copies cryptées dans ce navigateur lors des recharges sans expiration de l'âge. Les messages en ligne sont toujours actualisés. Les limites d'entrée et d'octets s'appliquent toujours. La désactivation de cette option ou la suppression du courrier en cache supprime les copies enregistrées. La suppression des données du navigateur peut également les supprimer. Les pièces jointes ne sont pas téléchargées pour une utilisation hors ligne.
+
+settings-notif-view-enabled = Activer la vue Notifications
+settings-notif-view-sidebar = Afficher Notifications dans la barre latérale
+settings-notif-view-help = Contrôle le centre de notifications. Les alertes de sécurité, de courrier et du navigateur conservent leurs propres réglages.

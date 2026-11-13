@@ -826,3 +826,7 @@ cache-help-durable = Mantém as pastas e mensagens visitadas recentemente pronta
 settings-folder-colour = Cor da pasta
 settings-folders-colour = Cor predefinida das pastas
 settings-folders-colour-help = Define a cor dos ícones e nomes das pastas. Edite uma pasta para lhe atribuir uma cor própria.
+
+settings-notif-view-enabled = Ativar a vista Notificações
+settings-notif-view-sidebar = Mostrar Notificações na barra lateral
+settings-notif-view-help = Controla a vista do centro de notificações. Os avisos de segurança, de correio e do navegador mantêm as suas próprias definições.

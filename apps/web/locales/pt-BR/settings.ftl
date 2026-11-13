@@ -851,3 +851,7 @@ cache-help-durable = Mantenha as pastas e mensagens visitadas recentemente pront
 cache-keepIndefinitely = Manter mensagens em cache indefinidamente
 
 cache-keepIndefinitely-help = Desativado por padrão. Mantenha cópias criptografadas neste navegador durante recarregamentos sem expiração. As mensagens online ainda são atualizadas. Os limites de entrada e bytes ainda se aplicam. Desativar isso ou limpar os e-mails em cache remove as cópias salvas. A limpeza dos dados do navegador também pode removê-los. Os anexos não são baixados para uso offline.
+
+settings-notif-view-enabled = Ativar a visualização Notificações
+settings-notif-view-sidebar = Mostrar Notificações na barra lateral
+settings-notif-view-help = Controla a central de notificações. Os avisos de segurança, de e-mail e do navegador mantêm suas próprias configurações.

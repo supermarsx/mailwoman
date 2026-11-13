@@ -3915,6 +3915,22 @@ pub static REGISTRY: &[SettingDef] = &[
         "offer the browser notification permission request to the user"
     ),
     def!(
+        "notifications.view.enabled",
+        Kind::Bool,
+        "true",
+        GDU,
+        "notifications",
+        "make the notifications centre view available without changing security alerts or mail notifications"
+    ),
+    def!(
+        "notifications.view.showInSidebar",
+        Kind::Bool,
+        "true",
+        GDU,
+        "notifications",
+        "show the enabled notifications centre in the sidebar"
+    ),
+    def!(
         "notifications.enabled",
         Kind::Bool,
         "false",

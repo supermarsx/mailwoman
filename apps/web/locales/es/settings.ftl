@@ -832,3 +832,7 @@ cache-help-durable = Mantenga las carpetas y los mensajes visitados recientement
 cache-keepIndefinitely = Mantener el correo en caché indefinidamente
 
 cache-keepIndefinitely-help = Desactivado de forma predeterminada. Mantenga copias cifradas en este navegador durante las recargas sin vencimiento. Los mensajes en línea aún se actualizan. Se siguen aplicando los límites de entrada y bytes. Desactivar esto o borrar el correo en caché elimina las copias guardadas. La limpieza de datos del navegador también puede eliminarlos. Los archivos adjuntos no se descargan para su uso sin conexión.
+
+settings-notif-view-enabled = Activar la vista de notificaciones
+settings-notif-view-sidebar = Mostrar Notificaciones en la barra lateral
+settings-notif-view-help = Controla el centro de notificaciones. Los avisos de seguridad, de correo y del navegador conservan sus propios ajustes.
