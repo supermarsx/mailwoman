@@ -33,7 +33,7 @@ export function SecurityCenter(props: { password?: JSX.Element; grants?: JSX.Ele
   createEffect(()=>{const card=navigation?.route().card;if(card?.startsWith('session')||card==='sessions-card')setTab('sessions');else if(card==='security-history-card')setTab('history');else if(card==='security-devices-card')setTab('devices');else if(card==='security-activity-card')setTab('activity');else if(card?.startsWith('twofa-'))setTab('signin');});
   const uid = createUniqueId();
   const sections = [['signin', 'security-center-signin'], ['sessions', 'security-center-sessions'], ['history', 'security-center-history'], ['devices', 'security-center-devices'], ['activity', 'security-center-activity'], ['encryption', 'security-center-encryption']] as const;
-  const panel = (name: string) => ({ id: `${uid}-${name}-panel`, 'aria-labelledby': `${uid}-${name}-tab`, hidden: tab() !== name, role: 'tabpanel' as const, tabindex: 0, class: tabs.panel });
+  const panel = (name: string) => ({ id: `${uid}-${name}-panel`, 'aria-labelledby': `${uid}-${name}-tab`, hidden: tab() !== name, role: 'tabpanel' as const, tabindex: 0, class: tabs.framedPanel });
   onMount(() => void loadCatalog('security'));
   const [filter, setFilter] = createSignal('');
   const [history, { refetch: refreshHistory }] = createResource(filter, (result) => request<{ events: History[] }>(`history?limit=100${result ? `&result=${result}` : ''}`));

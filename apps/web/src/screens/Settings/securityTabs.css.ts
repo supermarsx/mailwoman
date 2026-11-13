@@ -1,4 +1,5 @@
 import { globalStyle, style } from '@vanilla-extract/css';
+import {panelSurface} from './panelSurface.css.ts';
 import { vars } from '../../theme/contract.css.ts';
 
 // The six tabs wrap onto more lines in a narrow card: a horizontal scroller hid
@@ -8,3 +9,6 @@ globalStyle(`.${list} button`, { flex: '0 1 auto', maxInlineSize: '100%', paddin
 globalStyle(`.${list} button[aria-selected="true"]`, { background: vars.color.accent, color: vars.color.accentText, borderColor: vars.color.accent });
 globalStyle(`.${list} button:focus-visible`, { outline: `2px solid ${vars.a11y.focusRingColor}`, outlineOffset: 2 });
 export const panel = style({ minWidth: 0, selectors: { '&:not([hidden])': { display: 'flex', flexDirection: 'column', gap: vars.space[4] } } });
+
+/** Frame each Security centre panel, including sections without their own card. */
+export const framedPanel=style([panelSurface,panel]);
