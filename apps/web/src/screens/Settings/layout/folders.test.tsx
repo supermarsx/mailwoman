@@ -1,5 +1,5 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
-import {cleanup,render,screen} from '@solidjs/testing-library';
+import {cleanup,render,screen,fireEvent} from '@solidjs/testing-library';
 import {FolderPreferences} from '../FolderPreferences.tsx';
 import {FolderRoles} from '../FolderRoles.tsx';
 import {clearSettings} from '../../../api/settings.ts';
@@ -19,10 +19,11 @@ it('Folders: every previous preference label appears once, in registered cards',
   expect(document.querySelectorAll(`[id="${card.id}"]`),card.id).toHaveLength(1);
   for(const row of card.rows){
    expect(document.querySelectorAll(`[id="${row.id}"]`),row.id).toHaveLength(1);
-   expect(screen.getAllByText(t(row.label),{selector:'label'}),row.label).toHaveLength(1);
+   expect(screen.getAllByText(t(row.label),{selector:'label,span[id]'}),row.label).toHaveLength(1);
   }
  }
  // previous controls that are not rows: the create button is gated on admin rights; the table stays.
+ fireEvent.click(screen.getByRole('tab',{name:t('folder-dnd-arrange-title')}));
  expect(screen.getByRole('button',{name:t('folder-dnd-reset')})).toBeInTheDocument();
 });
 it('every kit card rendered in Folders is registered',async()=>{

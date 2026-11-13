@@ -141,6 +141,8 @@ it('clears selected rows and drag authority when the authenticated account chang
 
 it('creates folders from settings through the existing account-bound dialog and refreshes the list',async()=>{
  const {refresh,toast}=mount([{id:'i',name:'Inbox',role:'inbox'}],{},true);
+ expect(screen.getByRole('button',{name:'Create folder'}).closest('header')?.closest('section')?.id).toBe('folders-card-list');
+ expect(screen.getByLabelText('Hide empty folders in the sidebar')).not.toBeVisible();
  service.jmap.mockImplementation(async(request:JmapRequest)=>({methodResponses:[['Mailbox/set',{accountId:'acct1',created:{folder:{id:'new'}}},request.methodCalls[0]![2]]],sessionState:'s'}));
  click('Create folder');const dialog=await screen.findByRole('alertdialog',{name:'Create folder'});
  fireEvent.input(screen.getByLabelText('Folder name'),{target:{value:'Reports'}});
@@ -190,6 +192,7 @@ it('marks starred rows with a decorative star, separately from pins',()=>{
 
 it('resets the arrangement to the server order',()=>{
  const {update}=mount([{id:'a',name:'Projects'},{id:'b',name:'Receipts'}],{folderOrder:['b','a'],folderParent:{a:'b'}});
+ fireEvent.click(screen.getByRole('tab',{name:'Arrange folders'}));
  click('Reset order to default');
  expect(update).toHaveBeenLastCalledWith({folderOrder:[],folderParent:{}});
 });

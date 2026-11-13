@@ -1,3 +1,4 @@
+import {SettingsSubtabs} from './SettingsSubtabs.tsx';
 import {createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, useContext, type Accessor, type JSX} from 'solid-js';
 import {AppContext} from '../../state/context.ts';
 import {QuotaDetails} from '../../components/QuotaMeter.tsx';
@@ -103,7 +104,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
  const ability=!props.onChange&&app?useRenameContext():()=>null;
  const [ownerCurrent,setOwnerCurrent]=createSignal(!!owner&&preferenceAccountIsCurrent(owner));
  const current=()=>!!props.onChange||(ownerCurrent()&&app?.accountId()===owner?.id);
- onMount(()=>{void loadCatalog('settings');if(!props.onChange&&app)void loadCatalog('mail');});
+ onMount(()=>{void loadCatalog('settings');void loadCatalog('quota');if(!props.onChange&&app)void loadCatalog('mail');});
  const prefs=()=>props.preferences?.()??accountUiPreferences();
  const update=(patch:AccountUiPreferences):void=>{if(current())(props.onChange??setAccountUiPreferences)(patch);};
  // One arrangement model for the sidebar and this list (components/folderLayout.ts): order, visual parents, pins, admin policy.
@@ -196,6 +197,8 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    {id:'outdent',label:t('folder-dnd-outdent',{name:folder.name}),icon:'chevronUp',disabled:!keyOk(folder.id,'outdent'),run:()=>keyMove(folder.id,'outdent')},
    {id:'move-to',label:t('folder-dnd-arrange-menu'),icon:'folder',disabled:lockReason(folder.id)!==null,run:()=>{setMoveTo([folder.id]);}},
    {id:'star',label:t(starred(folder.id)?'folder-star-remove':'folder-star-add'),icon:starred(folder.id)?'starOutline':'star',run:()=>star(folder.id)},
+   {id:'pin',label:t('settings-folders-pin',{name:folder.name}),icon:'pin',checked:pinned(folder.id)||layout.forced().has(folder.id),disabled:layout.forced().has(folder.id),run:()=>pin(folder.id)},
+   {id:'visibility',label:t(folderIsHidden(folder,props.folders(),prefs())?'settings-folders-show':'settings-folders-hide',{name:folder.name}),icon:folderIsHidden(folder,props.folders(),prefs())?'eyeOff':'eye',disabled:folder.role==='inbox',run:()=>setVisibility([folder],folderIsHidden(folder,props.folders(),prefs()))},
   ];
   {const live=app?.mailboxes().find(box=>box.id===folder.id);if(live&&folderDialogEnabled())actions.push({id:'properties',label:t('props-menu-properties'),icon:'info',separatorBefore:true,run:()=>{openFolderProperties(live,lockReason(folder.id)===null?{onMove:()=>setMoveTo([folder.id])}:undefined);}});}
   if(ability()?.manages&&app?.mailboxes().find(box=>box.id===folder.id)?.myRights?.mayCreateChild===true)actions.push({id:'create',label:t('folder-create'),icon:'folder',separatorBefore:true,run:()=>{setCreating({parentId:folder.id});}});
@@ -215,26 +218,9 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   return typeof counts.totalEmails==='number'?t('settings-folders-counts',{unread:counts.unreadEmails??0,total:counts.totalEmails}):'';
  };
  return <Show when={editing()} keyed fallback={<div data-testid="folder-preferences">
-  <SettingsCard id="folders-card-display" title={t('settings-folders-title')} description={t('settings-folders-help')}>
-  <ControlRow controlId="folders-collapse-user" label={t('settings-folders-collapse-user')} help={t('settings-folders-hidden-help')} note={<p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>}>{describedBy=>
-   <input id="folders-collapse-user" type="checkbox" checked={prefs().userFoldersCollapsed===true} disabled={!current()} aria-describedby={describedBy()} onChange={event=>update({userFoldersCollapsed:event.currentTarget.checked})}/>
-  }</ControlRow>
-  <ControlRow controlId="folders-colour" group label={t('settings-folders-colour')} help={t('settings-folders-colour-help')} note={<LockNote id="folders-colour-lock" locked={defaultColour.locked()}/>}>{()=>
-   <><ColorField label={t('settings-folders-colour')} value={defaultColour.value()||null} fallback="#3366cc" emptyLabel={t('color-picker-default')} disabled={defaultColour.locked()||defaultColour.saving()} onChange={value=>void defaultColour.set(value??'')}/><Show when={defaultColour.error()}><span role="alert">{defaultColour.error()}</span></Show></>
-  }</ControlRow>
-  <ToggleRow id="folders-unified-inbox" label={t('unified-mail-title')} help={t('unified-mail-setting-help')} handle={unified}/>
-  <ToggleRow id="folders-cross-account-transfer" label={t('workspace-transfer-title')} help={t('workspace-transfer-setting-help')} handle={transfers}/>
-  <ToggleRow id="folders-hide-empty" label={t('settings-folders-hide-empty')} help={t('settings-folders-hide-empty-help')} handle={hideEmpty}/>
-  <Show when={!props.onChange&&app&&ability()?.manages&&current()}><button type="button" class="btn btn--ghost" onClick={()=>setCreating({})}><Icon name="folder"/>{t('folder-create')}</button></Show>
-  </SettingsCard>
-  <Show when={!props.onChange}><FocusedInboxPreference/></Show>
-  <Show when={!props.onChange?app:undefined}>{state=><FocusedSenders senders={state().focusedSenders} onRemove={email=>state().removeSenderFocus(email)}/>}</Show>
-  <Show when={!props.onChange}><FolderCountPreferences/></Show>
-  <Show when={!props.onChange}><PropertiesPreferences/></Show>
-  <Show when={!props.onChange&&app?.accountId()}>{accountId=><QuotaDetails accountId={accountId()} refresh={props.folders()}/>}</Show>
-  <Show when={!props.onChange}><FolderRoles folders={props.folders} {...(props.onRolesSaved?{onSaved:props.onRolesSaved}:{})}/></Show>
-  <FolderArrangeCard layout={layout} prefs={prefs} update={update} disabled={!current()}/>
-  <SettingsCard id="folders-card-list" wide title={t('settings-folders-list-card')}>
+  <SettingsSubtabs section="folders" label="settings-folders-title" navigation={navigation} tabs={[
+   {id:'manager',label:'settings-folders-list-card',cards:['folders-card-list'],content:<>
+  <SettingsCard id="folders-card-list" wide title={t('settings-folders-list-card')} actions={<Show when={!props.onChange&&app&&ability()?.manages&&current()}><button type="button" class={css.button} onClick={()=>setCreating({})}><Icon name="plus"/>{t('folder-create')}</button></Show>}>
   <div class={folderCss.tools}>
    <label class={folderCss.search}><Icon name="search"/><input class={css.input} type="search" aria-label={t('settings-folders-search')} placeholder={t('settings-folders-search')} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
    <button type="button" class="btn btn--ghost" disabled={!current()||!visible().length} onClick={()=>setSelected(value=>new Set([...value,...visible().map(folder=>folder.id)]))}>{t('settings-folders-select-visible')}</button>
@@ -253,9 +239,9 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
     <td class={folderCss.location}><span title={locationLabel(folder)}>{locationLabel(folder)||t('settings-folders-root')}</span></td>
     <td><div class={folderCss.actions}>
      <button type="button" class="btn btn--ghost" disabled={!current()} title={t('settings-folders-edit',{name:folder.name})} aria-label={t('settings-folders-edit',{name:folder.name})} onClick={()=>void navigation.navigate({section:'folders',editor:{kind:'edit',id:folder.id}})}><Icon name="edit"/></button>
-     <button type="button" class="btn btn--ghost" disabled={!current()||layout.forced().has(folder.id)} title={t('settings-folders-pin',{name:folder.name})} aria-label={t('settings-folders-pin',{name:folder.name})} aria-pressed={pinned(folder.id)||layout.forced().has(folder.id)} onClick={()=>pin(folder.id)}><Icon name="pin"/></button>
-     <button type="button" class="btn btn--ghost" disabled={!current()} title={t('folder-star-toggle',{name:folder.name})} aria-label={t('folder-star-toggle',{name:folder.name})} aria-pressed={starred(folder.id)} onClick={()=>star(folder.id)}><Icon name={starred(folder.id)?'star':'starOutline'}/></button>
-     <button type="button" class="btn btn--ghost" disabled={!current()||folder.role==='inbox'} title={t(hidden()?'settings-folders-show':'settings-folders-hide',{name:folder.name})} aria-label={t(hidden()?'settings-folders-show':'settings-folders-hide',{name:folder.name})} onClick={()=>setVisibility([folder],hidden())}><Icon name={hidden()?'eyeOff':'eye'}/></button>
+     <button type="button" class={`btn btn--ghost ${folderCss.secondaryAction}`} disabled={!current()||layout.forced().has(folder.id)} title={t('settings-folders-pin',{name:folder.name})} aria-label={t('settings-folders-pin',{name:folder.name})} aria-pressed={pinned(folder.id)||layout.forced().has(folder.id)} onClick={()=>pin(folder.id)}><Icon name="pin"/></button>
+     <button type="button" class={`btn btn--ghost ${folderCss.secondaryAction}`} disabled={!current()} title={t('folder-star-toggle',{name:folder.name})} aria-label={t('folder-star-toggle',{name:folder.name})} aria-pressed={starred(folder.id)} onClick={()=>star(folder.id)}><Icon name={starred(folder.id)?'star':'starOutline'}/></button>
+     <button type="button" class={`btn btn--ghost ${folderCss.secondaryAction}`} disabled={!current()||folder.role==='inbox'} title={t(hidden()?'settings-folders-show':'settings-folders-hide',{name:folder.name})} aria-label={t(hidden()?'settings-folders-show':'settings-folders-hide',{name:folder.name})} onClick={()=>setVisibility([folder],hidden())}><Icon name={hidden()?'eyeOff':'eye'}/></button>
      <button type="button" class="btn btn--ghost" disabled={!current()} aria-label={t('settings-folders-more',{name:folder.name})} title={t('settings-folders-more',{name:folder.name})} aria-haspopup="menu" aria-expanded={context.isOpen()&&menuFolder()===folder.id} onClick={event=>{setMenuFolder(folder.id);context.openBelow(event.currentTarget);}}><Icon name="more"/></button>
      <button type="button" class={`btn btn--ghost ${folderCss.keyboardAction}`} aria-label={t('settings-folders-up',{name:folder.name})} disabled={!keyOk(folder.id,'up')} onClick={()=>keyMove(folder.id,'up')}><Icon name="chevronUp"/></button>
      <button type="button" class={`btn btn--ghost ${folderCss.keyboardAction}`} aria-label={t('settings-folders-down',{name:folder.name})} disabled={!keyOk(folder.id,'down')} onClick={()=>keyMove(folder.id,'down')}><Icon name="chevronDown"/></button>
@@ -269,6 +255,26 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    <SelectionBar count={selectedFolders().length} countLabel={t('settings-folders-selected',{count:selectedFolders().length})} announcement={t('settings-folders-selected',{count:selectedFolders().length})} label={t('folder-bar-label')} testId="settings-folder-selection-bar" total={folders().length} selectAll={()=>setSelected(new Set(folders().map(folder=>folder.id)))} clear={()=>setSelected(new Set<string>())} scope={`${owner?.id}:${owner?.generation}`} actions={bulkActions()} returnFocus={()=>wrapEl?.focus()}/>
   </div>
   </SettingsCard>
+   </>},
+   {id:'sidebar',label:'settings-folders-title',cards:['folders-card-display','folders-card-counts'],content:<>
+  <SettingsCard id="folders-card-display" title={t('settings-folders-title')} description={t('settings-folders-help')}>
+  <ControlRow controlId="folders-collapse-user" label={t('settings-folders-collapse-user')} help={t('settings-folders-hidden-help')} note={<p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>}>{describedBy=>
+   <input id="folders-collapse-user" type="checkbox" checked={prefs().userFoldersCollapsed===true} disabled={!current()} aria-describedby={describedBy()} onChange={event=>update({userFoldersCollapsed:event.currentTarget.checked})}/>
+  }</ControlRow>
+  <ControlRow controlId="folders-colour" group label={t('settings-folders-colour')} help={t('settings-folders-colour-help')} note={<LockNote id="folders-colour-lock" locked={defaultColour.locked()}/>}>{()=>
+   <><ColorField label={t('settings-folders-colour')} value={defaultColour.value()||null} fallback="#3366cc" emptyLabel={t('color-picker-default')} disabled={defaultColour.locked()||defaultColour.saving()} onChange={value=>void defaultColour.set(value??'')}/><Show when={defaultColour.error()}><span role="alert">{defaultColour.error()}</span></Show></>
+  }</ControlRow>
+  <ToggleRow id="folders-unified-inbox" label={t('unified-mail-title')} help={t('unified-mail-setting-help')} handle={unified}/>
+  <ToggleRow id="folders-cross-account-transfer" label={t('workspace-transfer-title')} help={t('workspace-transfer-setting-help')} handle={transfers}/>
+  <ToggleRow id="folders-hide-empty" label={t('settings-folders-hide-empty')} help={t('settings-folders-hide-empty-help')} handle={hideEmpty}/>
+  </SettingsCard>
+<Show when={!props.onChange}><FolderCountPreferences/></Show></>},
+   {id:'arrangement',label:'folder-dnd-arrange-title',cards:['folders-arrange-card'],content:<FolderArrangeCard layout={layout} prefs={prefs} update={update} disabled={!current()}/>},
+   {id:'roles',label:'settings-folder-role-title',cards:['folders-card-roles'],content:<Show when={!props.onChange}><FolderRoles folders={props.folders} {...(props.onRolesSaved?{onSaved:props.onRolesSaved}:{})}/></Show>},
+   {id:'focus',label:'settings-focused-inbox',cards:['folders-card-focused','focused-inbox-preference','focused-senders'],content:<><Show when={!props.onChange}><FocusedInboxPreference/></Show><Show when={!props.onChange?app:undefined}>{state=><FocusedSenders senders={state().focusedSenders} onRemove={email=>state().removeSenderFocus(email)}/>}</Show></>},
+   {id:'properties',label:'properties-card',cards:['folders-card-properties'],content:<Show when={!props.onChange}><PropertiesPreferences/></Show>},
+   {id:'storage',label:'quota-details-title',cards:['folders-card-quota'],content:<Show when={!props.onChange&&app?.accountId()}>{accountId=><QuotaDetails accountId={accountId()} refresh={props.folders()}/>}</Show>},
+  ]}/>
   {context.menu()}
   <FolderNestDialog arranger={layout.arranger} nameOf={id=>props.folders().find(folder=>folder.id===id)?.name??''}/>
   <Show when={bulkDelete()&&serverOk()&&app?bulkDelete():null}>{ids=><BulkDeleteFoldersDialog ids={ids()} context={ability} onDone={deleted=>setSelected(value=>new Set([...value].filter(id=>!deleted.includes(id))))} onClose={()=>setBulkDelete(null)}/>}</Show>
