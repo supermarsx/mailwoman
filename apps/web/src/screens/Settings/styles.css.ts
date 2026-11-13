@@ -1,3 +1,4 @@
+import {panelSurface} from './panelSurface.css.ts';
 // Settings account-surface styles (t16 e15). Token-native — no new design tokens.
 // Layout uses logical properties (inline-start/end, margin-inline) so the surface
 // mirrors correctly under `dir="rtl"` (W20) with no per-direction overrides.
@@ -28,15 +29,12 @@ export const stack = style({
   color: vars.color.text,
 });
 
-export const section = style({
+export const section = style([panelSurface,{
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[3],
-  padding: less1(vars.space[5]),
-  borderRadius: vars.radius.lg,
-  background: vars.color.surface,
   border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
-});
+}]);
 
 export const heading = style({ fontSize: '1rem', fontWeight: vars.weight.heavy, margin: 0 });
 export const subheading = style({ fontSize: '0.9rem', fontWeight: vars.weight.heavy, margin: 0 });

@@ -1,3 +1,4 @@
+import {panelSurface} from '../../screens/Settings/panelSurface.css.ts';
 // API-key / MCP-key UI styles (plan §3 e8). Token-native — design tokens unchanged.
 //
 // t32 restyle (plan §2.4): square corners, 2px control and panel borders in
@@ -25,15 +26,13 @@ export const panel = style({
   color: vars.color.text,
 });
 
-export const section = style({
+
+export const section = style([panelSurface,{
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[3],
-  padding: less1(vars.space[5]),
-  borderRadius: vars.radius.lg,
-  background: vars.color.surface,
   border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
-});
+}]);
 
 export const heading = style({ fontSize: '1rem', fontWeight: vars.weight.heavy, margin: 0 });
 export const subHeading = style({

@@ -1,3 +1,4 @@
+import {panelSurface} from '../panelSurface.css.ts';
 // Settings layout kit: stacked cards and compact rows. Navigation is the section
 // list (SettingsNav) and, where a section has them, its own tab row.
 // Tokens only (vars.*), logical properties, forced-colours safe.
@@ -7,13 +8,12 @@ import { vars } from '../../../theme/contract.css.ts';
 const ring = { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' } as const;
 
 // ---- cards and rows (used by SettingsCard / SettingRow) ----
-export const card = style({
+export const card = style([panelSurface,{
   display: 'flex', flexDirection: 'column', gap: vars.space[2], minInlineSize: 0, containerType: 'inline-size',
-  paddingBlock: vars.space[3], scrollMarginBlockStart: vars.space[2],
-  borderBlockStart: `1px solid ${vars.color.border}`,
-  selectors: { '&:first-child': { borderBlockStart: 0, paddingBlockStart: 0 } },
-});
+  scrollMarginBlockStart: vars.space[2],
+}]);
 export const cardHead = style({ display: 'flex', flexDirection: 'column', gap: '2px', maxInlineSize: '52rem' });
+export const cardHeadWithActions = style({display:'flex',alignItems:'flex-start',justifyContent:'space-between',flexWrap:'wrap',gap:vars.space[3],maxInlineSize:'64rem'});
 export const cardTitle = style({ fontSize: '1rem', fontWeight: vars.weight.heavy, margin: 0 });
 export const cardDesc = style({ fontSize: '0.8rem', color: vars.color.textDim, margin: 0, maxInlineSize: '70ch', overflowWrap: 'anywhere' });
 // Collapsible card: the title row is the summary, with the browser's own marker.
