@@ -39,7 +39,7 @@ export function SearchBox(): JSX.Element {
   const cancelPending = (): void => { clearTimeout(pending); pending = undefined; };
   onCleanup(cancelPending);
   // A search started or refined elsewhere, or cleared, shows in the input.
-  createEffect(on(app.search, (value) => { cancelPending(); setQuery(value); if (value !== ownSearch) {setExplicitScope(value.trim() !== '');implicitScope=undefined;} ownSearch = undefined; }, { defer: true }));
+  createEffect(on(app.search, (value) => { if(value===ownSearch){ownSearch=undefined;return;} cancelPending();setQuery(value);setExplicitScope(value.trim()!=='');implicitScope=undefined; }, { defer: true }));
   // A delayed query belongs to the mailbox where it was typed. Never carry it
   // into a different account or folder while the user is navigating.
   const scope = createMemo(() => JSON.stringify([app.accountId(), app.linkedMailboxId?.(), app.me()?.username,
@@ -54,7 +54,7 @@ export function SearchBox(): JSX.Element {
     const request=normalSearchRequest(text,app.selectedMailboxId(),app.mailboxes(),explicitScope(),implicitScope,fromFilters&&!hasFolderScope(query()));
     implicitScope=request.scopeMailboxId;
     ownSearch = request.query;
-    setQuery(request.query);
+    setQuery(request.scopeMailboxId?request.baseQuery??text:text);
     void app.searchMessages(request.query, { semantic: semantic(),...(request.scopeMailboxId?{scopeMailboxId:request.scopeMailboxId,baseQuery:request.baseQuery??text}:{}) });
   };
   const clear = (): void => {
@@ -65,6 +65,8 @@ export function SearchBox(): JSX.Element {
   };
   const typed = (text: string): void => {
     cancelPending();
+    // Folder operators newly typed by the user are explicit, never inherited chips.
+    implicitScope=undefined;
     setQuery(text);
     if (composing || app.switchingMailbox?.()) return;
     if (!text.trim()) { if (app.searchActive()) clear(); return; }

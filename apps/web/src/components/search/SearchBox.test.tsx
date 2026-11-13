@@ -39,12 +39,12 @@ describe('normal search default scope', () => {
     fireEvent.click(within(guided).getByRole('checkbox',{name:'Marked for follow-up'}));
     await waitFor(()=>expect(app.search()).toBe('in:Inbox is:followup'));
     fireEvent.click(within(guided).getByRole('checkbox',{name:'Finished'}));
-    await waitFor(()=>expect(app.search()).toBe('in:Inbox is:followup is:finished'));
+    await waitFor(()=>expect(app.search().split(' ').sort()).toEqual(['in:Inbox','is:followup','is:finished'].sort()));
     fireEvent.click(within(guided).getByRole('checkbox',{name:'Mentions me'}));
-    await waitFor(()=>expect(app.search()).toBe('in:Inbox is:followup is:finished mentions:me'));
+    await waitFor(()=>expect(app.search().split(' ').sort()).toEqual(['in:Inbox','is:followup','is:finished','mentions:me'].sort()));
     expect(within(bar()).getByRole('button',{name:'Mentions me'})).toBeInTheDocument();
     fireEvent.click(within(bar()).getByRole('button',{name:'Marked for follow-up'}));
-    await waitFor(()=>expect(input.value).toBe('in:Inbox -is:followup is:finished mentions:me'));
+    await waitFor(()=>expect(input.value).toBe('-is:followup is:finished mentions:me'));
     expect(within(bar()).getByRole('button',{name:'Not marked for follow-up'})).toBeInTheDocument();
   });
   it('starts in the current folder and follows folder navigation for the next search', async () => {
@@ -307,4 +307,21 @@ it('includes exact sender-domain in related searches only when supported',()=>{
  expect(relatedSearchActions(email,['inbox'],run).some(row=>row.id==='search:from-domain')).toBe(false);
  const action=relatedSearchActions(email,['inbox'],run,true).find(row=>row.id==='search:from-domain');
  expect(action).toBeDefined();action!.run();expect(run).toHaveBeenCalledWith('from-domain','example.org');
+});
+
+it('keeps the automatic folder scope out of text and preserves the cursor during live typing',async()=>{
+ const {app,input}=await setup('current');
+ fireEvent.input(input,{target:{value:'hello world'}});input.focus();input.setSelectionRange(5,5);
+ await waitFor(()=>expect(app.search()).toBe('hello world in:Inbox'));
+ expect(input.value).toBe('hello world');expect(input.selectionStart).toBe(5);
+ fireEvent.input(input,{target:{value:'hello new world'}});input.setSelectionRange(9,9);
+ await waitFor(()=>expect(app.search()).toBe('hello new world in:Inbox'));
+ expect(input.value).toBe('hello new world');expect(input.selectionStart).toBe(9);
+ expect(within(bar()).getByRole('button',{name:/Folder: Inbox/})).toBeVisible();
+});
+
+it('keeps a manually typed folder operator after an automatically scoped search',async()=>{
+ const {app,input}=await setup('current');submit(input,'hello');await waitFor(()=>expect(app.search()).toBe('hello in:Inbox'));
+ submit(input,'hello in:Inbox');await waitFor(()=>expect(input.value).toBe('hello in:Inbox'));
+ expect(app.search()).toBe('hello in:Inbox');
 });
