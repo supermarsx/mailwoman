@@ -11,7 +11,9 @@ import type {SettingsNavigation} from './navigation.tsx';
 import {ControlRow} from './layout/SettingRow.tsx';
 import {SettingsCard} from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
-import * as table from './managementTable.css.ts';
+import * as manager from './managementTable.css.ts';
+import * as table from './linkedAccounts.css.ts';
+import * as entity from './entityTable.css.ts';
 import * as ux from '../Admin/shell/ux.css.ts';
 
 function LabelEditor(props:{value?:Tag;navigation:SettingsNavigation}):JSX.Element {
@@ -45,16 +47,22 @@ export function Labels(props:{navigation:SettingsNavigation}):JSX.Element {
   const shown=()=>app.tags().filter(tag=>`${tag.name} ${tag.id}`.toLocaleLowerCase().includes(query().trim().toLocaleLowerCase()));
   async function removeLabel(tag:Tag):Promise<void>{const owner=preferenceAccount();if(!owner||saving())return;const yes=await remove.ask({title:t('labels-remove-confirm',{name:tag.name}),confirmLabel:t('common-remove'),testId:'labels-remove-confirm'});if(yes&&preferenceAccountIsCurrent(owner))app.deleteTag(tag.id);}
   const route=()=>props.navigation.route().editor;const selected=()=>app.tags().find(tag=>tag.id===route()?.id);
-  return <SettingsCard id="labels-card" wide title={t('labels-title')} description={t('labels-help')}>
-    <Show when={accountUiPreferenceStatus()==='saving'}><p role="status">{t('labels-saving')}</p></Show>
-    <Show when={accountUiPreferenceStatus()==='error'}><p role="alert">{t('labels-sync-error')}</p><button class={css.ghost} onClick={()=>void retryAccountUiPreferences()}>{t('labels-retry')}</button></Show>
-    <Show when={route()} keyed fallback={<><div class={table.bar}><label class={table.search}>{t('common-search')}<input class={css.input} type="search" value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label><span class={css.meta}>{app.tags().length} / 100</span><button type="button" class={css.button} disabled={saving()||app.tags().length>=100} onClick={()=>void props.navigation.navigate({section:'labels',editor:{kind:'new'}})}><Icon name="plus"/>{t('labels-new')}</button></div>
-      <div class={table.scroll} role="region" aria-label={t('labels-title')} tabindex="0"><table class={table.table}><thead><tr><th class={table.heading}>{t('labels-name')}</th><th class={`${table.heading} ${table.previewColumn}`}>{t('labels-keyword-title')}</th><th class={`${table.heading} ${table.actionColumn}`}>{t('labels-actions')}</th></tr></thead><tbody><For each={shown()}>{tag=><tr class={table.row}>
-       <td class={table.cell}><div class={table.name}><span style={{color:tag.color}}><Icon name={tagIconName(tag.icon)}/></span><button type="button" class={table.title} disabled={saving()} onClick={()=>void props.navigation.navigate({section:'labels',editor:{kind:'edit',id:tag.id}})}>{tag.name}</button></div><span class={table.text}><span class={table.mobileKeyword}>{tag.id} · </span>{tag.color}</span></td><td class={`${table.cell} ${table.previewColumn}`}><code>{tag.id}</code></td>
-       <td class={table.cell}><div class={table.actions}><button type="button" class={`btn btn--ghost ${ux.iconAction}`} disabled={saving()} aria-label={t('labels-edit-name',{name:tag.name})} title={t('labels-edit-name',{name:tag.name})} onClick={()=>void props.navigation.navigate({section:'labels',editor:{kind:'edit',id:tag.id}})}><Icon name="edit"/></button><button type="button" class={`btn btn--danger ${ux.iconAction}`} disabled={saving()} aria-label={t('labels-remove-name',{name:tag.name})} title={t('labels-remove-name',{name:tag.name})} onClick={()=>void removeLabel(tag)}><Icon name="delete"/></button></div></td>
-      </tr>}</For></tbody></table></div></>}>
-      {editor=><Show when={editor.kind==='new'||selected()}><LabelEditor {...(selected()?{value:selected()!}:{})} navigation={props.navigation}/></Show>}
+  const syncStatus=():JSX.Element=><><Show when={accountUiPreferenceStatus()==='saving'}><p role="status">{t('labels-saving')}</p></Show><Show when={accountUiPreferenceStatus()==='error'}><p role="alert">{t('labels-sync-error')}</p><button type="button" class={css.ghost} onClick={()=>void retryAccountUiPreferences()}>{t('labels-retry')}</button></Show></>;
+  return <div class={css.stack}>
+    <Show when={route()} keyed fallback={<section id="labels-card" class={css.section} aria-labelledby="labels-card-title" aria-busy={saving()}>
+      <div class={table.header}><div class={table.headerText}><h2 id="labels-card-title" class={css.heading}>{t('labels-title')}</h2><p class={css.meta}>{t('labels-help')}</p></div>
+       <button type="button" class={`${css.button} ${table.addButton}`} disabled={saving()||app.tags().length>=100} onClick={()=>void props.navigation.navigate({section:'labels',editor:{kind:'new'}})}><Icon name="plus"/>{t('labels-new')}</button>
+      </div>
+      {syncStatus()}
+      <div class={manager.bar}><label class={manager.search}>{t('common-search')}<input class={css.input} type="search" value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label><span class={css.meta}>{app.tags().length} / 100</span></div>
+      <ul class={table.table} aria-label={t('labels-title')}><For each={shown()}>{tag=><li class={entity.row}>
+       <span class={entity.avatar} style={{color:tag.color}} aria-hidden="true"><Icon name={tagIconName(tag.icon)}/></span>
+       <div class={table.who}><button type="button" class={`${table.name} ${manager.title}`} disabled={saving()} onClick={()=>void props.navigation.navigate({section:'labels',editor:{kind:'edit',id:tag.id}})}>{tag.name}</button><span class={table.address}><span>{t('labels-keyword-title')}: </span><code>{tag.id}</code></span><span class={entity.detail}>{t('labels-color')}: {tag.color}</span></div>
+       <div class={table.actions}><button type="button" class={`btn btn--ghost ${ux.iconAction}`} disabled={saving()} aria-label={t('labels-edit-name',{name:tag.name})} title={t('labels-edit-name',{name:tag.name})} onClick={()=>void props.navigation.navigate({section:'labels',editor:{kind:'edit',id:tag.id}})}><Icon name="edit"/></button><button type="button" class={`btn btn--danger ${ux.iconAction}`} disabled={saving()} aria-label={t('labels-remove-name',{name:tag.name})} title={t('labels-remove-name',{name:tag.name})} onClick={()=>void removeLabel(tag)}><Icon name="delete"/></button></div>
+      </li>}</For></ul>
+    </section>}>
+      {editor=><>{syncStatus()}<Show when={editor.kind==='new'||selected()}><LabelEditor {...(selected()?{value:selected()!}:{})} navigation={props.navigation}/></Show></>}
     </Show>
     <remove.Dialog/>
-  </SettingsCard>;
+  </div>;
 }

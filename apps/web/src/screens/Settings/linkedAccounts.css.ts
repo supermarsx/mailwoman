@@ -106,7 +106,7 @@ export const actions = style({
   '@media': { [phone]: { justifyContent: 'flex-start' } },
 });
 /** The admin row-icon size (ux.iconAction), raised to 44px on phones and touch. */
-globalStyle(`${actions} > :is(button, span[role="img"])`, {
+globalStyle(`.${actions} > :is(button, span[role="img"])`, {
   '@media': { [`${phone}, ${coarse}`]: { inlineSize: '44px', blockSize: '44px', minInlineSize: '44px' } },
 });
 
