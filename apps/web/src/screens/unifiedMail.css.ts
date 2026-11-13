@@ -1,4 +1,4 @@
-import {style} from '@vanilla-extract/css';
+import {globalStyle,style} from '@vanilla-extract/css';
 import {vars} from '../theme/contract.css.ts';
 export const root=style({display:'flex',flexDirection:'column',height:'100%',minHeight:0,minWidth:0,position:'relative',background:vars.color.surface});
 export const bar=style({display:'flex',alignItems:'center',flexWrap:'wrap',gap:vars.space[2],padding:vars.space[2],borderBottom:`1px solid ${vars.color.border}`});
@@ -12,6 +12,9 @@ export const button=style({selectors:{'&&':{paddingInlineStart:'2.5rem',paddingI
 export const checkbox=style({position:'absolute',insetInlineStart:'.65rem',insetBlockStart:'.65rem',zIndex:2});
 export const menu=style({position:'absolute',insetInlineEnd:'.25rem',insetBlockStart:'.25rem',zIndex:2});
 export const provenance=style({position:'absolute',insetInlineStart:'2.5rem',insetInlineEnd:'2.5rem',insetBlockEnd:'4px',display:'flex',gap:vars.space[2],fontSize:'.7rem',overflow:'hidden',whiteSpace:'nowrap',color:vars.color.textDim,pointerEvents:'none'});
-export const badge=style({maxWidth:'50%',overflow:'hidden',textOverflow:'ellipsis',background:vars.color.bgAlt,padding:'0 4px',borderRadius:vars.radius.sm});
+export const badge=style({maxWidth:'25%',flex:'0 1 auto',minWidth:0,overflow:'hidden',textOverflow:'ellipsis',background:vars.color.bgAlt,padding:'0 4px',borderRadius:vars.radius.sm});
 export const heading=style({position:'absolute',insetInline:0,height:'32px',padding:'6px 10px',boxSizing:'border-box',fontSize:'.8rem',fontWeight:vars.weight.bold,background:vars.color.bgAlt});
 export const toggle=style({position:'absolute',insetInlineEnd:'2rem',insetBlockEnd:'2px',zIndex:2,fontSize:'.75rem',padding:'0 5px'});
+
+// Selection uses the same rows; reserve a checkbox gutter only in bulk mode.
+globalStyle(`.${root}[data-selecting] .list__row`,{paddingInlineStart:'2.5rem'});

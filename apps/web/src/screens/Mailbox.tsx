@@ -1,3 +1,4 @@
+import type {UnifiedRow} from '../api/workspaceMail.ts';
 import {notificationViewEnabled,notificationViewInSidebar} from '../state/notificationVisibility.ts';
 import {messageOpenRequest,takeMessageOpenRequest} from '../state/messageOpenRequest.ts';
 import {mailboxOpenRequest,takeMailboxOpenRequest} from '../state/mailboxOpenRequest.ts';
@@ -546,6 +547,17 @@ export function MailboxScreen(): JSX.Element {
     ];
   }});
   // t98: a surface the feature profile turns off (also when the profile loads or changes later) goes back to mail.
+  async function openUnifiedMessage(row:UnifiedRow):Promise<void>{
+    const owner=row.target.owner;if(!preferenceAccountIsCurrent(owner)||!await confirmShellNavigation()||!preferenceAccountIsCurrent(owner))return;
+    try{
+      if(app.linkedMailboxId()!==row.target.linkId)await app.switchLinkedMailbox(row.target.linkId,row.target.label);
+      const current=preferenceAccount();if(!current||current.storageAuthority!==row.target.storageAuthority||app.linkedMailboxId()!==row.target.linkId)return;
+      const folder=row.folderId??Object.keys(row.email.mailboxIds).find(id=>row.email.mailboxIds[id]);
+      if(folder&&app.mailboxes().some(box=>box.id===folder))await app.selectMailbox(folder);
+      if(!preferenceAccountIsCurrent(current))return;
+      router.navigate('mail');subTabs.activate('mail');await openDraftOrMessage(row.email.id);
+    }catch{toast.error(t('mail-context-failed'));}
+  }
   const unifiedEnabled=()=>settings()['mail.unifiedInbox']?.value===true;
   const unifiedAccountEnabled=()=>settings()['mail.unifiedAccount']?.value===true;
   const unifiedSurfaceEnabled=()=>unifiedVirtualMode()?unifiedAccountEnabled():unifiedEnabled();
@@ -1286,7 +1298,7 @@ export function MailboxScreen(): JSX.Element {
               <Show when={pane.kind==='attachments'}><Attachments accountId={app.accountId()} mailboxes={app.mailboxes()} loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onDownload={downloadAttachmentItem} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
               <Show when={pane.kind==='sharing'&&pane.reference&&pane.accountId}><SharingDialog embedded mailboxId={pane.reference!} accountId={pane.accountId!} mailboxName={pane.title} onClose={()=>void closePane(pane.id)}/></Show>
               <Show when={pane.surface==='unified'&&unifiedSurfaceEnabled()}>
-                <Suspense fallback={<AsyncPending/>}><UnifiedMail activeLink={app.linkedMailboxId?.()??null}/></Suspense>
+                <Suspense fallback={<AsyncPending/>}><UnifiedMail activeLink={app.linkedMailboxId?.()??null} onOpenMessage={row=>void openUnifiedMessage(row)}/></Suspense>
               </Show>
               <Show when={pane.surface === 'templates'}>
                 <AsyncBoundary><Suspense fallback={<AsyncPending message={t('mail-loading')}/>}>

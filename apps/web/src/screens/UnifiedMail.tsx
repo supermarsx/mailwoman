@@ -1,3 +1,7 @@
+import {settings} from '../api/settings.ts';
+import {classifyRowClick,dblClickOpensTab} from '../components/messageOpen.ts';
+import {modifierSelectionEnabled} from '../components/mailInteractions.ts';
+import * as threadCss from '../components/threadList.css.ts';
 import {createEffect,createMemo,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {loadCatalog,t,formatNumber,isolate} from '../i18n';
 import {withBase} from '../api/basePath.ts';
@@ -7,7 +11,7 @@ import type {Email,Mailbox} from '../api/jmap-types.ts';
 import {useApp} from '../state/context.ts';
 import {Icon} from '../components/Icon.tsx';
 import {InlineLoading} from '../components/InlineLoading.tsx';
-import {MessageRowContent} from '../components/MessageList.tsx';
+import {MessageRowContent,MessageRowFrame,messageRowHeight} from '../components/MessageList.tsx';
 import {MessageOrderMenu} from '../components/MessageOrderMenu.tsx';
 import {createMessageOrder} from '../components/messageOrder.ts';
 import {groupMessageRows,groupedWindow} from '../components/messageGrouping.ts';
@@ -33,10 +37,11 @@ export function unifiedMessageUrl(row:UnifiedRow):string {
  const folder=row.folderId??Object.keys(row.email.mailboxIds??{}).find(id=>row.email.mailboxIds[id]);if(folder)params.set('folder',folder);
  return withBase(`/?${params.toString()}#/mail`);
 }
-export default function UnifiedMail(props:{activeLink:string|null}):JSX.Element {
+export default function UnifiedMail(props:{activeLink:string|null;onOpenMessage?:(row:UnifiedRow)=>void}):JSX.Element {
  const app=useApp(),order=createMessageOrder(()=>toast.error(t('mail-context-failed')));
  const [role,setRole]=createSignal<UnifiedRole>('inbox'),[search,setSearch]=createSignal(''),[query,setQuery]=createSignal(''),[account,setAccount]=createSignal(''),[unreadOnly,setUnreadOnly]=createSignal(false);
  const [refresh,setRefresh]=createSignal(0),[targets,setTargets]=createSignal<WorkspaceMailbox[]>([]),[pages,setPages]=createSignal<MailboxPage[]>([]),[loading,setLoading]=createSignal(true),[error,setError]=createSignal(false),[busy,setBusy]=createSignal(false);
+ const [selecting,setSelecting]=createSignal(false),[cursor,setCursor]=createSignal(0);
  const [selected,setSelected]=createSignal(new Set<string>()),[expanded,setExpanded]=createSignal(new Set<string>()),[top,setTop]=createSignal(0),[height,setHeight]=createSignal(600);
  let controller:AbortController|undefined,scroller:HTMLDivElement|undefined;
  createEffect(()=>{if(unifiedVirtualMode())setRole(unifiedFolderRole());});
@@ -69,7 +74,8 @@ export default function UnifiedMail(props:{activeLink:string|null}):JSX.Element 
   return pages().flatMap(page=>page.rows).sort((a,b)=>{const av=value(a.email),bv=value(b.email),comparison=typeof av==='number'&&typeof bv==='number'?av-bv:collator.compare(String(av),String(bv));return (ascending?comparison:-comparison)||unifiedRowKey(a).localeCompare(unifiedRowKey(b));});
  });
  const byKey=createMemo(()=>new Map(rows().map(row=>[unifiedRowKey(row),row])));
- const rowHeight=()=>({compact:76,cozy:94,relaxed:110}[app.density()]);
+ const tableMode=()=>settings()['mail.messageListStyle']?.value==='table';
+ const rowHeight=()=>messageRowHeight(app.density(),tableMode());
  const layout=createMemo(()=>groupMessageRows(rows().map(row=>({...row.email,id:unifiedRowKey(row),...(row.email.threadId?{threadId:JSON.stringify([row.target.storageAuthority,row.email.threadId])}:{})})),expanded(),order.group(),rowHeight(),messageTimeZone(),conversationsEnabled()));
  const win=createMemo(()=>groupedWindow(layout(),top(),height(),rowHeight(),layout().rows.length));
  const visible=()=>layout().rows.slice(win().startIndex,win().endIndex);
@@ -92,13 +98,13 @@ export default function UnifiedMail(props:{activeLink:string|null}):JSX.Element 
  function toggleVisual(visual:ThreadVisualRow):void{anchor=visual.email.id;const items=members(visual),all=items.every(row=>selected().has(unifiedRowKey(row)));setSelected(old=>{const next=new Set(old);for(const row of items){const key=unifiedRowKey(row);if(all)next.delete(key);else next.add(key);}return next;});}
  function selectRange(visual:ThreadVisualRow,add=false):void{const all=rows(),start=all.findIndex(row=>unifiedRowKey(row)===anchor),end=all.findIndex(row=>unifiedRowKey(row)===visual.email.id);if(start<0||end<0){toggleVisual(visual);return;}setSelected(old=>new Set([...(add?old:[]),...all.slice(Math.min(start,end),Math.max(start,end)+1).map(unifiedRowKey)]));}
  function keyboard(event:KeyboardEvent):void{
-  if(event.key==='Escape'){setSelected(new Set<string>());menu.close();event.preventDefault();return;}
+  if(event.key==='Escape'){if(selected().size)setSelected(new Set<string>());else setSelecting(false);menu.close();event.preventDefault();return;}
   if((event.target as HTMLElement).matches('input'))return;
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='a'){event.preventDefault();setSelected(new Set(rows().map(unifiedRowKey)));return;}
   const current=(event.target as HTMLElement).closest<HTMLElement>('[data-unified-index]');if(!current)return;
   const index=Number(current.dataset['unifiedIndex']),last=layout().rows.length-1;
   const next=event.key==='Home'?0:event.key==='End'?last:event.key==='ArrowDown'?index+1:event.key==='ArrowUp'?index-1:event.key==='PageDown'?index+Math.max(1,Math.floor(height()/rowHeight())):event.key==='PageUp'?index-Math.max(1,Math.floor(height()/rowHeight())):null;
-  if(next===null)return;event.preventDefault();const target=Math.max(0,Math.min(last,next)),visual=layout().rows[target];if(!visual)return;if(event.shiftKey)selectRange(visual,event.ctrlKey||event.metaKey);else anchor=visual.email.id;
+  if(next===null)return;event.preventDefault();const target=Math.max(0,Math.min(last,next)),visual=layout().rows[target];if(!visual)return;setCursor(target);if(event.shiftKey)selectRange(visual,event.ctrlKey||event.metaKey);else anchor=visual.email.id;
   const offset=layout().tops[target]??0;if(scroller&&(offset<top()||offset+rowHeight()>top()+height())){scroller.scrollTop=Math.max(0,offset-height()/2);setTop(scroller.scrollTop);}
   queueMicrotask(()=>scroller?.querySelector<HTMLButtonElement>(`[data-unified-index="${target}"] .list__row`)?.focus());
  }
@@ -142,8 +148,8 @@ export default function UnifiedMail(props:{activeLink:string|null}):JSX.Element 
  };
  const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>JSON.stringify([props.activeLink,role(),account(),unreadOnly(),query(),order.value(),[...selected()].sort()]),actions:()=>actionsFor(actionRows()).map(action=>({...action,disabled:busy()||action.disabled===true})),onError:()=>toast.error(t('mail-context-failed'))});
  const bulkActions=():SelectionAction[]=>actionsFor(chosen()).filter(action=>action.id!=='open').map(action=>({id:action.id,label:action.label,icon:action.icon,disabled:action.disabled===true,...(action.children?.length?{menu:()=>action.children!}:{run:action.run})}));
- return <section class={css.root} aria-label={t('unified-mail-title')} data-mw-surface data-testid="unified-mail">
-  <header class={css.bar}><Icon name="mailboxes"/><h2 class={css.title}>{t('unified-mail-title')}</h2><div class={css.counts} role="status"><span>{t('unified-mail-total',{count:counter(total())})}</span><span>{t('unified-mail-unread',{count:counter(unread())})}</span><span>{t('unified-mail-loaded',{count:rows().length})}</span></div><MessageOrderMenu order={order} scope={()=>JSON.stringify([props.activeLink,role(),query()])} class="btn btn--ghost"/><button type="button" class="btn btn--ghost" disabled={loading()||busy()} title={t('unified-mail-refresh')} aria-label={t('unified-mail-refresh')} onClick={()=>setRefresh(value=>value+1)}><Icon name="refresh"/></button></header>
+ return <section class={`list ${css.root}`} aria-label={t('unified-mail-title')} data-mw-surface data-testid="unified-mail" data-list-style={tableMode()?'table':'cards'} data-selecting={selecting()?'true':undefined}>
+  <header class={css.bar}><Icon name="mailboxes"/><h2 class={css.title}>{t('unified-mail-title')}</h2><div class={css.counts} role="status"><span>{t('unified-mail-total',{count:counter(total())})}</span><span>{t('unified-mail-unread',{count:counter(unread())})}</span><span>{t('unified-mail-loaded',{count:rows().length})}</span></div><button type="button" class={threadCss.segBtn} aria-label={t('mail-select-messages')} aria-pressed={selecting()} onClick={()=>{setSelecting(value=>!value);setSelected(new Set<string>());}}><Icon name="bulkSelect"/></button><MessageOrderMenu order={order} scope={()=>JSON.stringify([props.activeLink,role(),query()])} class="btn btn--ghost"/><button type="button" class="btn btn--ghost" disabled={loading()||busy()} title={t('unified-mail-refresh')} aria-label={t('unified-mail-refresh')} onClick={()=>setRefresh(value=>value+1)}><Icon name="refresh"/></button></header>
   <form class={css.bar} onSubmit={event=>{event.preventDefault();setQuery(search().trim());}}>
    <label>{t('unified-mail-folder')}<select value={role()} onChange={event=>{const value=event.currentTarget.value as UnifiedRole;setRole(value);if(unifiedVirtualMode())setUnifiedFolderRole(value);}}><For each={roles}>{value=><option value={value}>{t(`unified-mail-role-${value}`)}</option>}</For></select></label>
    <label>{t('unified-mail-account')}<select value={account()} onChange={event=>setAccount(event.currentTarget.value)}><option value="">{t('unified-mail-all-accounts')}</option><For each={targets()}>{target=><option value={targetKey(target)}>{target.label}</option>}</For></select></label>
@@ -152,17 +158,24 @@ export default function UnifiedMail(props:{activeLink:string|null}):JSX.Element 
   </form>
   <div class={css.accounts}><For each={pages()}>{page=><button type="button" class="btn btn--ghost" aria-pressed={account()===targetKey(page.target)} onClick={()=>setAccount(account()===targetKey(page.target)?'':targetKey(page.target))}><Icon name="mail"/>{isolate(page.target.label)} <span>{counter(page.unread)} / {counter(page.total)}</span></button>}</For></div>
   <Show when={error()}><p role="alert">{t('unified-mail-load-failed')}</p></Show><For each={pages().filter(page=>page.failed)}>{page=><p role="alert">{t('unified-mail-account-failed',{account:page.target.label})}</p>}</For>
-  <div ref={scroller} class={css.scroller} aria-busy={loading()} onScroll={event=>{setTop(event.currentTarget.scrollTop);if(event.currentTarget.scrollHeight-event.currentTarget.scrollTop-event.currentTarget.clientHeight<rowHeight()*3&&!pages().some(page=>page.failed))void more();}} onKeyDown={keyboard}>
+  <div ref={scroller} class={`list__scroll ${css.scroller}`} aria-busy={loading()} onScroll={event=>{setTop(event.currentTarget.scrollTop);if(event.currentTarget.scrollHeight-event.currentTarget.scrollTop-event.currentTarget.clientHeight<rowHeight()*3&&!pages().some(page=>page.failed))void more();}} onKeyDown={keyboard}>
    <Show when={rows().length} fallback={<Show when={!loading()&&!error()&&pages().every(page=>!page.failed)}><p>{t('unified-mail-empty')}</p></Show>}>
-    <ul class={css.list} style={{height:`${layout().height}px`}} aria-label={t('unified-mail-title')}>
+    <ul class={`list__items ${css.list}`} style={{height:`${layout().height}px`}} aria-label={t('unified-mail-title')}>
      <For each={layout().headers.filter(header=>header.top>=top()-32&&header.top<top()+height()+32)}>{header=><li class={css.heading} role="presentation" style={{top:`${header.top}px`}}>{header.label} <span>{header.count}</span></li>}</For>
-     <For each={visible()}>{visual=>{const row=()=>byKey().get(visual.email.id)!,key=()=>unifiedRowKey(row()),index=()=>layout().rows.indexOf(visual);return <li class={css.slot} data-unified-index={index()} style={{top:`${layout().tops[index()]??0}px`,height:`${rowHeight()}px`}} aria-posinset={index()+1} aria-setsize={layout().rows.length}>
-      <input class={css.checkbox} type="checkbox" checked={members(visual).every(item=>selected().has(unifiedRowKey(item)))} aria-label={`${t('mail-selected')}: ${row().email.subject??t('mail-no-subject')}`} onChange={()=>toggleVisual(visual)}/>
-      <button type="button" class={`list__row ${rowCss.row} ${css.button}`} classList={{'list__row--unread':visual.unread,'list__row--selected':selected().has(key())}} onClick={event=>{if(event.shiftKey)selectRange(visual,event.ctrlKey||event.metaKey);else if(event.ctrlKey||event.metaKey)toggleVisual(visual);else open(row());}} onContextMenu={event=>{setContext(members(visual));menu.open(event);}} onKeyDown={event=>{if(event.key===' '){event.preventDefault();toggleVisual(visual);}else if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();setContext(members(visual));menu.openBelow(event.currentTarget);}}}><MessageRowContent email={row().email} selected={selected().has(key())} replyDraft={undefined} sourceMetadata={row().target.current}/></button>
-      <div class={css.provenance}><span class={css.badge}>{isolate(row().target.label)}</span><span class={css.badge}><Icon name="folder"/>{isolate(boxesFor(row()).find(box=>box.id===row().folderId)?.name??boxesFor(row()).filter(box=>row().email.mailboxIds[box.id]).map(box=>box.name).join(', '))}</span></div>
-      <button type="button" class={`btn btn--ghost ${css.menu}`} title={t('mail-more-actions')} aria-label={t('mail-more-actions')} onClick={event=>{setContext(members(visual));menu.openBelow(event.currentTarget);}}><Icon name="more"/></button>
-      <Show when={visual.kind==='head'}><button type="button" class={`btn btn--ghost ${css.toggle}`} aria-expanded={visual.expanded} onClick={()=>setExpanded(old=>{const next=new Set(old);if(next.has(visual.key))next.delete(visual.key);else next.add(visual.key);return next;})}><Icon name={visual.expanded?'chevronDown':'chevron'}/>{visual.count}</button></Show>
-     </li>;}}</For>
+     <For each={visible()}>{visual=>{const row=()=>byKey().get(visual.email.id)!,key=()=>unifiedRowKey(row()),index=()=>layout().rows.indexOf(visual);return <MessageRowFrame email={{...row().email,keywords:{...row().email.keywords,...(visual.unread?{'$seen':false}:{'$seen':true})}}} top={layout().tops[index()]??0} height={rowHeight()} index={index()} total={layout().rows.length} selected={members(visual).every(item=>selected().has(unifiedRowKey(item)))} focused={cursor()===index()} threadChild={visual.kind==='child'} slotProps={{'data-unified-index':index()}}
+       buttonProps={{onFocus:()=>setCursor(index()),onClick:event=>{const action=classifyRowClick(event,{modifierSelection:modifierSelectionEnabled(),selecting:selecting()});if(action==='range')selectRange(visual,event.ctrlKey||event.metaKey);else if(action==='toggle')toggleVisual(visual);else if(action==='activate'){setSelected(new Set<string>());if(props.onOpenMessage)props.onOpenMessage(row());else open(row());}},onDblClick:event=>{if(dblClickOpensTab(event,{selecting:selecting()}))open(row());},onContextMenu:event=>{setContext(members(visual));menu.open(event);},onKeyDown:event=>{if(event.key===' '){event.preventDefault();toggleVisual(visual);}else if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();setContext(members(visual));menu.openBelow(event.currentTarget);}}}}
+       actions={<>
+        <Show when={selecting()}><input class={css.checkbox} type="checkbox" checked={members(visual).every(item=>selected().has(unifiedRowKey(item)))} aria-label={`${t('mail-selected')}: ${row().email.subject??t('mail-no-subject')}`} onChange={()=>toggleVisual(visual)}/></Show>
+        <div class={rowCss.more}><div class={`msg-actions ${rowCss.actions} ${rowCss.actionsFade}`}>
+         <button type="button" class={rowCss.actionBtn} disabled={busy()} aria-label={t(row().email.keywords?.['$seen']?'mail-mark-unread':'mail-mark-read')} onClick={()=>void mutate(members(visual),row().email.keywords?.['$seen']?'unread':'read')}><Icon name={row().email.keywords?.['$seen']?'mail':'mailRead'}/></button>
+         <button type="button" class={rowCss.actionBtn} disabled={busy()} aria-label={t('mail-archive')} onClick={()=>void mutate(members(visual),'archive')}><Icon name="archive"/></button>
+         <button type="button" class={rowCss.actionBtn} disabled={busy()} aria-label={t('mail-delete')} onClick={()=>void mutate(members(visual),'trash')}><Icon name="delete"/></button>
+         <button type="button" class={rowCss.actionBtn} aria-label={t('mail-more-actions')} onClick={event=>{setContext(members(visual));menu.openBelow(event.currentTarget);}}><Icon name="more"/></button>
+        </div><button type="button" class={rowCss.moreToggle} title={t('mail-more-actions')} aria-label={t('mail-more-actions')} onClick={event=>{setContext(members(visual));menu.openBelow(event.currentTarget);}}><Icon name="more"/></button></div>
+        <Show when={visual.kind==='head'}><button type="button" class={`btn btn--ghost ${css.toggle}`} aria-expanded={visual.expanded} aria-label={t('mail-thread-count',{count:visual.count})} onClick={()=>setExpanded(old=>{const next=new Set(old);if(next.has(visual.key))next.delete(visual.key);else next.add(visual.key);return next;})}><Icon name={visual.expanded?'chevronDown':'chevron'}/>{visual.count}</button></Show>
+       </>}>
+       <MessageRowContent email={row().email} selected={selected().has(key())} replyDraft={undefined} sourceMetadata={row().target.current} metadata={<span class={css.badge} title={`${row().target.label} · ${boxesFor(row()).find(box=>box.id===row().folderId)?.name??''}`}>{isolate(row().target.label)}</span>}/>
+      </MessageRowFrame>;}}</For>
     </ul>
    </Show>
    <Show when={loading()}><InlineLoading message={t('common-loading')}/></Show><Show when={hasMore()}><button class="btn btn--ghost" type="button" disabled={loading()} onClick={()=>void more()}>{t('unified-mail-more')}</button></Show>

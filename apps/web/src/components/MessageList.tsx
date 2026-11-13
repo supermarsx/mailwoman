@@ -205,53 +205,32 @@ function MessageRow(props: {
   const app = useApp();
   const email = () => props.email;
   const prefetch=mailPrefetchEvents(trigger=>app.prefetchMessage?.(email().id,trigger)??(()=>undefined));
-  const unread = () => email().keywords?.['$seen'] !== true;
-  return (
-    <li
-      class={`list__slot ${rowCss.slot}`}
-      data-motion-row={`m:${email().id}`}
-      data-reply-draft={props.replyDraft?.id}
-      role="listitem"
-      aria-posinset={props.index + 1}
-      aria-setsize={props.total}
-      style={{ transform: `translateY(${props.top}px)`, height: `${props.height}px` }}
-    >
-      <button
-        type="button"
-        ref={(el) => props.setRef(el)}
-        aria-disabled={app.listLoading()}
-        class={`list__row ${rowCss.row} ${a11y.focusable}`}
-        classList={{
-          'list__row--active': app.openEmail()?.id === email().id,
-          'list__row--pinned': email().pinned === true,
-          'list__row--unread': unread(),
-          'list__row--selected': props.selected,
-          [bulk.selectedRow]: props.selected,
-          [thread.childRow]: props.threadChild === true,
-          [rowCss.expired]: rowExpired(email()),
-        }}
-        tabindex={props.focused ? 0 : -1}
-        aria-current={app.openEmail()?.id === email().id ? 'true' : undefined}
-        data-index={props.index}
-        onClick={(e) => props.onClick(e)}
-        onDblClick={(e) => props.onDblClick(e)}
-        draggable={dragToFolderEnabled()&&!app.listLoading()} onDragStart={props.onDragStart} onDragEnd={clearMessageDrag}
-        data-email-id={email().id} data-context-open={props.contextMenu.isOpen(email().id)?'true':undefined} {...prefetch} onContextMenu={e=>props.contextMenu.open(e,email())} onKeyDown={e=>props.contextMenu.keydown(e,email())}
-      >
-        <Show when={unread()}>
-          <span class={a11y.srOnly}>{t('mail-unread')}</span>
-        </Show>
-        <span class={a11y.srOnly}>{t('mail-row-position', { pos: props.index + 1, total: props.total })}</span>
-        <MessageRowContent email={email()} selected={props.selected} replyDraft={props.replyDraft}/>
-      </button>
-      <FolderChip email={email()}/>
-      <MessageActions email={email()} onMore={e=>props.contextMenu.open(e,email())} contextOpen={props.contextMenu.isOpen(email().id)}/>
-    </li>
-  );
+  return <MessageRowFrame email={email()} top={props.top} height={props.height} index={props.index} total={props.total} selected={props.selected} focused={props.focused}
+    active={app.openEmail()?.id===email().id} threadChild={props.threadChild} replyDraftId={props.replyDraft?.id}
+    buttonProps={{ref:el=>props.setRef(el), 'aria-disabled':app.listLoading(),onClick:props.onClick,onDblClick:props.onDblClick,
+      draggable:dragToFolderEnabled()&&!app.listLoading(),onDragStart:props.onDragStart,onDragEnd:clearMessageDrag,
+      'data-context-open':props.contextMenu.isOpen(email().id)?'true':undefined,...prefetch,
+      onContextMenu:event=>props.contextMenu.open(event,email()),onKeyDown:event=>props.contextMenu.keydown(event,email())}}
+    actions={<><FolderChip email={email()}/><MessageActions email={email()} onMore={event=>props.contextMenu.open(event,email())} contextOpen={props.contextMenu.isOpen(email().id)}/></>}>
+    <MessageRowContent email={email()} selected={props.selected} replyDraft={props.replyDraft}/>
+  </MessageRowFrame>;
 }
 
+/** Shared row geometry, state styling and accessible position for every mailbox list. */
+export function MessageRowFrame(props:{email:Email;top:number;height:number;index:number;total:number;selected:boolean;focused:boolean;active?:boolean;threadChild?:boolean|undefined;replyDraftId?:string|undefined;slotProps?:JSX.LiHTMLAttributes<HTMLLIElement>&{[key:`data-${string}`]:string|number|undefined};buttonProps?:JSX.ButtonHTMLAttributes<HTMLButtonElement>&{[key:`data-${string}`]:string|number|undefined};actions?:JSX.Element;children:JSX.Element}):JSX.Element {
+ return <li {...props.slotProps} class={`list__slot ${rowCss.slot}`} data-motion-row={`m:${props.email.id}`} data-reply-draft={props.replyDraftId} role="listitem" aria-posinset={props.index+1} aria-setsize={props.total} style={{transform:`translateY(${props.top}px)`,height:`${props.height}px`}}>
+  <button {...props.buttonProps} type="button" class={`list__row ${rowCss.row} ${a11y.focusable}`} classList={{'list__row--active':props.active===true,'list__row--pinned':props.email.pinned===true,'list__row--unread':props.email.keywords?.['$seen']!==true,'list__row--selected':props.selected,[bulk.selectedRow]:props.selected,[thread.childRow]:props.threadChild===true,[rowCss.expired]:rowExpired(props.email)}} tabindex={props.focused?0:-1} aria-current={props.active?'true':undefined} data-index={props.index} data-email-id={props.email.id}>
+   <Show when={props.email.keywords?.['$seen']!==true}><span class={a11y.srOnly}>{t('mail-unread')}</span></Show>
+   <span class={a11y.srOnly}>{t('mail-row-position',{pos:props.index+1,total:props.total})}</span>{props.children}
+  </button>{props.actions}
+ </li>;
+}
+
+/** Use identical density and table geometry across single and combined mailboxes. */
+export function messageRowHeight(density:Density,table:boolean):number{return table?({compact:36,cozy:44,relaxed:52}[density]):ROW_HEIGHTS[density];}
+
 /** Shared row presentation for the main list and independently opened folder tabs. */
-export function MessageRowContent(props:{email:Email;selected:boolean;replyDraft:ReplyDraft|undefined;sourceMetadata?:boolean}):JSX.Element {
+export function MessageRowContent(props:{email:Email;selected:boolean;replyDraft:ReplyDraft|undefined;sourceMetadata?:boolean;metadata?:JSX.Element}):JSX.Element {
   const app=useApp(),email=()=>props.email;
   return <>
         <span class={`list__line1 ${rowCss.line1}`}>
@@ -279,6 +258,7 @@ export function MessageRowContent(props:{email:Email;selected:boolean;replyDraft
             <span class="list__attach" data-testid="row-forwarded" role="img" aria-label={t('mail-forwarded')} title={t('mail-forwarded')}><Icon name="forward" /></span>
           </Show>
           <Show when={props.replyDraft}><ReplyDraftIndicator/></Show>
+          {props.metadata}
           <span class={`list__date ${rowCss.date}`}>{formatDate(email().receivedAt)}</span>
         </span>
         <span class="list__subject">{displayText(email().subject ?? t('mail-no-subject'))}</span>
@@ -505,7 +485,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   const [anchor, setAnchor] = createSignal<number | null>(null);
 
   const tableMode=()=>settings()['mail.messageListStyle']?.value==='table';
-  const rowHeight = (): number => tableMode() ? ({compact:36,cozy:44,relaxed:52}[app.density()]) : ROW_HEIGHTS[app.density()];
+  const rowHeight = (): number => messageRowHeight(app.density(),tableMode());
   // The FLAT list folded into visual rows (singletons + conversation heads/members).
   const grouping=createMemo(()=>groupMessageRows(visibleRows(app.listMessages()) as Email[],expanded(),order.group(),rowHeight(),messageTimeZone(),conversationsEnabled()));
   const rows=()=>grouping().rows;
