@@ -1,3 +1,4 @@
+import {Language} from './Language.tsx';
 import { createEffect, createMemo, createSignal, For, Show, type JSX } from 'solid-js';
 import { validTimeZone } from '../../i18n/timezones.ts';
 import {TimeZoneCombobox} from '../../components/TimeZoneCombobox.tsx';
@@ -34,7 +35,7 @@ function ZoneField(props:{kind:'displayZone'|'comparisonZone';navigation:Setting
 }
 export function TimeZones(props:{navigation:SettingsNavigation}):JSX.Element {
   const helpers=useSetting<boolean>('time.showHelpers',true);
-  return <><RegionalFormats navigation={props.navigation}/><SettingsCard id="time-card" wide title={t('settings-time-title')} description={t('settings-time-help')}>
+  return <><Language/><RegionalFormats navigation={props.navigation}/><SettingsCard id="time-card" wide title={t('settings-time-title')} description={t('settings-time-help')}>
     <ControlRow controlId="time-helpers" label={t('settings-time-helpers')} note={<><LockNote locked={helpers.locked()}/>
     <Show when={helpers.error()}><p role="alert">{helpers.error()}</p></Show></>}>{()=>
       <input id="time-helpers" type="checkbox" checked={helpers.value()} disabled={!helpers.entry()||helpers.locked()||helpers.saving()} onChange={event=>void helpers.set(event.currentTarget.checked)}/>

@@ -23,8 +23,8 @@ import { SettingsCard } from './layout/SettingsCard.tsx';
 import type { CardSpec } from './layout/rows.tsx';
 import * as css from './styles.css.ts';
 
-/** Search-index entry for the language picker (Appearance section). */
-export const LANGUAGE_CARD: CardSpec = { id: 'settings-language-card', section: 'appearance', title: 'settings-language-card', rows: [{ id: 'settings-language', label: 'settings-policy-language', help: 'settings-policy-language-help' }] };
+/** Search-index entry for the language picker (Regional settings section). */
+export const LANGUAGE_CARD: CardSpec = { id: 'settings-language-card', section: 'time', title: 'settings-language-card', rows: [{ id: 'settings-language', label: 'settings-policy-language', help: 'settings-policy-language-help' }] };
 
 export interface LanguageProps {
   /** Apply a locale (defaults to the LocaleProvider's `setLocale`). */

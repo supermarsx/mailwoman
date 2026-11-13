@@ -13,7 +13,7 @@ import {INTERFACE_CARD} from '../InterfacePreferences.tsx';
 beforeEach(()=>{clearSettings();localStorage.clear();});
 
 // Previous (HEAD) Appearance controls, by the Fluent key of their label.
-const PREVIOUS_LABELS=['appearance-mode','settings-theme','appearance-sync','settings-accent','appearance-custom-accent','settings-badge-color','settings-density','settings-font','settings-layout','settings-bars-mail-top-bar','settings-bars-workspace-tabs','settings-bars-mail-ribbon','settings-bars-composer-ribbon','settings-policy-language'];
+const PREVIOUS_LABELS=['appearance-mode','settings-theme','appearance-sync','settings-accent','appearance-custom-accent','settings-badge-color','settings-density','settings-font','settings-layout','settings-bars-mail-top-bar','settings-bars-workspace-tabs','settings-bars-mail-ribbon','settings-bars-composer-ribbon'];
 
 it('Appearance: every previous control appears exactly once as a compact row in a registered card',async()=>{
  const ctx={client:{},showToast:()=>undefined} as unknown as SliceContext;
@@ -28,6 +28,7 @@ it('Appearance: every previous control appears exactly once as a compact row in 
   expect(hits.filter(el=>el.tagName!=='H4').length,key).toBeLessThanOrEqual(1);
  }
  expect(screen.getAllByText(rawT('appearance-text-mode-label')).length).toBe(1);
+ expect(screen.queryByLabelText(t('settings-policy-language'))).toBeNull();
  const cards=SETTINGS_REGISTRY.filter(c=>c.section==='appearance');
  expect(cards.length).toBeGreaterThanOrEqual(5);
  for(const card of cards){

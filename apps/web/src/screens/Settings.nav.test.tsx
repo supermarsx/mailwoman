@@ -119,3 +119,8 @@ describe('Settings navigation categories (t66)', () => {
     fireEvent.click(screen.getByRole('button',{name:'Close settings'}));expect(onClose).toHaveBeenCalledOnce();
   });
 });
+
+it('searches Language under Regional settings rather than Appearance',()=>{
+ const groups=visibleCategories(()=>true,'language',id=>id);
+ expect(groups.flatMap(group=>group.sections.map(section=>section.id))).toEqual(['time']);
+});

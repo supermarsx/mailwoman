@@ -1,3 +1,4 @@
+import {LANGUAGE_CARD} from './Language.tsx';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { TimeZones } from './TimeZones.tsx';
@@ -55,4 +56,9 @@ it('keeps regional defaults automatic, validates patterns and saves explicit pre
 it('honours regional administrator locks',async()=>{
  data.values['time.dateFormat']!.locked=true;render(()=><TimeZones navigation={createSettingsNavigation({section:'time'})}/>);
  expect(await screen.findByLabelText('Date format')).toBeDisabled();expect(data.save).not.toHaveBeenCalled();
+});
+
+it('keeps language in Regional settings and indexes it under the same section',()=>{
+ render(()=><TimeZones navigation={createSettingsNavigation({section:'time'})}/>);
+ expect(screen.getByLabelText('Language')).toBeVisible();expect(LANGUAGE_CARD.section).toBe('time');
 });

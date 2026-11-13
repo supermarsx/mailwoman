@@ -29,10 +29,10 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
     { id: 'mail-transfer', label: 'mail-transfer-title', icon: 'transfer', terms: 'import export download eml mbox' },
   ] },
   { id: 'interface', label: 'settings-category-interface', sections: [
-    { id: 'appearance', label: 'settings-appearance', icon: 'palette', terms: 'theme dark light color accent badge unread counter css javascript font density branding toolbar ribbon actions import export backup restore preferences language leetspeak 1337 text texto normal' },
+    { id: 'appearance', label: 'settings-appearance', icon: 'palette', terms: 'theme dark light color accent badge unread counter css javascript font density branding toolbar ribbon actions import export backup restore preferences leetspeak 1337 text texto normal' },
     { id: 'shortcuts', label: 'settings-nav-keyboard-display', icon: 'keyboard', terms: 'keyboard display key hotkey drag selection' },
     { id: 'notifications', label: 'settings-notif-title', icon: 'bell', terms: 'push alerts sound browser' },
-    { id: 'time', label: 'settings-nav-regional', icon: 'clock', terms: 'regional region locale date time format timezone clock calendar week iana' },
+    { id: 'time', label: 'settings-nav-regional', icon: 'clock', terms: 'language idioma langue sprache regional region locale date time format timezone clock calendar week iana' },
   ] },
   { id: 'integrations', label: 'settings-category-integrations', sections: [
     { id: 'nextcloud', label: 'nextcloud-account-title', icon: 'nextcloud', terms: 'files contacts calendar cloud' },

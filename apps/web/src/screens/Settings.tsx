@@ -66,7 +66,6 @@ import { MetadataView } from '../modules/servermeta/index.ts';
 // folders, and device preferences. Self-contained; mounted for an authenticated
 // account alongside the existing feature modules.
 import { AccountSettings } from './Settings/index.ts';
-import { Language } from './Settings/Language.tsx';
 import { BarPreferences } from './Settings/BarPreferences.tsx';
 import { IdentityGrants } from './Settings/IdentityGrants.tsx';
 import { SecurityCenter } from './Settings/SecurityCenter.tsx';
@@ -338,8 +337,6 @@ export function Settings(props: SettingsProps): JSX.Element {
 
         <BarPreferences />
         <SettingsTransfer />
-
-        <Language />
 
         </div>}</RetainedSettingsSection>
 
