@@ -3463,6 +3463,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "most recent mail actions any user may keep in the Undo and Redo history"
     ),
     def!(
+        "mail.unifiedAccount",
+        Kind::Bool,
+        "false",
+        GDU,
+        "folders",
+        "offer a separate unified virtual account with combined folders in the account selector"
+    ),
+    def!(
         "mail.unifiedInbox",
         Kind::Bool,
         "false",

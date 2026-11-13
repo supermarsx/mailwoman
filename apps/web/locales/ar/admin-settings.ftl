@@ -2599,3 +2599,6 @@ admin-settings-key-notifications-view-enabled = تمكين عرض الإشعار
 admin-settings-help-notifications-view-enabled = يتحكم في عرض مركز الإشعارات. تحتفظ تنبيهات الأمان والبريد والمتصفح بإعداداتها الخاصة.
 admin-settings-key-notifications-view-show-in-sidebar = إظهار الإشعارات في الشريط الجانبي
 admin-settings-help-notifications-view-show-in-sidebar = يتحكم في عرض مركز الإشعارات. تحتفظ تنبيهات الأمان والبريد والمتصفح بإعداداتها الخاصة.
+
+admin-settings-key-mail-unified-account = الحساب الافتراضي الموحد
+admin-settings-help-mail-unified-account = إضافة حساب افتراضي منفصل إلى محدد الحسابات بمجلدات وعدادات مجمعة. مستقل عن عرض الرسائل الموحد.

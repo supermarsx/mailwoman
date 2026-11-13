@@ -2372,3 +2372,6 @@ admin-settings-key-notifications-view-enabled = Enable the Notifications view
 admin-settings-help-notifications-view-enabled = Controls the notification centre view. Security notices, mail toasts and browser alerts keep their own settings.
 admin-settings-key-notifications-view-show-in-sidebar = Show Notifications in the sidebar
 admin-settings-help-notifications-view-show-in-sidebar = Controls the notification centre view. Security notices, mail toasts and browser alerts keep their own settings.
+
+admin-settings-key-mail-unified-account = Unified virtual account
+admin-settings-help-mail-unified-account = Add a separate virtual account to the account selector, with combined folders and counters. Independent of the Unified message view.

@@ -2577,3 +2577,6 @@ admin-settings-key-notifications-view-enabled = Meldingenweergave inschakelen
 admin-settings-help-notifications-view-enabled = Beheert het meldingencentrum. Beveiligingsmeldingen, e-mailmeldingen en browsermeldingen behouden hun eigen instellingen.
 admin-settings-key-notifications-view-show-in-sidebar = Meldingen in de zijbalk tonen
 admin-settings-help-notifications-view-show-in-sidebar = Beheert het meldingencentrum. Beveiligingsmeldingen, e-mailmeldingen en browsermeldingen behouden hun eigen instellingen.
+
+admin-settings-key-mail-unified-account = Gecombineerd virtueel account
+admin-settings-help-mail-unified-account = Voeg een apart virtueel account toe aan de accountkiezer, met gecombineerde mappen en tellers. Onafhankelijk van de gecombineerde berichtenweergave.

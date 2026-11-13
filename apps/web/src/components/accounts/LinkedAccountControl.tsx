@@ -122,7 +122,7 @@ function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
   return <Show when={(listed()?.accounts.length??0)>0?listed():undefined} fallback={plain()}>{value=>
     <div class={css.control}>
       <MailboxPicker variant={props.variant??'full'} choices={mailboxChoices(value(),unreadFor)} activeLinkId={app.linkedMailboxId()}
-        unified={settings()['mail.unifiedInbox']?.value===true?{active:unifiedMailboxActive(),unread:unifiedUnread(),onSelect:()=>void selectUnified()}:undefined}
+        unified={settings()['mail.unifiedAccount']?.value===true?{active:unifiedMailboxActive(),unread:unifiedUnread(),onSelect:()=>void selectUnified()}:undefined}
         busy={app.switchingMailbox()} error={error()} onSelect={id=>void select(id)} onRenew={id=>setRenewing(id)}/>
       <Show when={renewAccount()}>{account=>
         <RenewAccessDialog account={account()} label={renewLabel(account().id)} api={api} onRenewed={renewed} onCancel={()=>setRenewing(undefined)}/>}</Show>

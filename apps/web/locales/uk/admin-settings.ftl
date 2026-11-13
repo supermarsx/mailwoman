@@ -2595,3 +2595,6 @@ admin-settings-key-notifications-view-enabled = Увімкнути розділ 
 admin-settings-help-notifications-view-enabled = Керує центром сповіщень. Попередження безпеки, пошти та браузера зберігають власні налаштування.
 admin-settings-key-notifications-view-show-in-sidebar = Показувати сповіщення на бічній панелі
 admin-settings-help-notifications-view-show-in-sidebar = Керує центром сповіщень. Попередження безпеки, пошти та браузера зберігають власні налаштування.
+
+admin-settings-key-mail-unified-account = Об’єднаний віртуальний обліковий запис
+admin-settings-help-mail-unified-account = Додати окремий віртуальний обліковий запис до перемикача зі спільними папками та лічильниками. Незалежно від об’єднаного перегляду повідомлень.

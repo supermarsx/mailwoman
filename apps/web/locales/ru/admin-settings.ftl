@@ -2595,3 +2595,6 @@ admin-settings-key-notifications-view-enabled = Включить раздел у
 admin-settings-help-notifications-view-enabled = Управляет центром уведомлений. Оповещения безопасности, почты и браузера сохраняют собственные настройки.
 admin-settings-key-notifications-view-show-in-sidebar = Показывать уведомления на боковой панели
 admin-settings-help-notifications-view-show-in-sidebar = Управляет центром уведомлений. Оповещения безопасности, почты и браузера сохраняют собственные настройки.
+
+admin-settings-key-mail-unified-account = Общая виртуальная учётная запись
+admin-settings-help-mail-unified-account = Добавить отдельную виртуальную учётную запись в список аккаунтов с общими папками и счётчиками. Независимо от общего вида сообщений.

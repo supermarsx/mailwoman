@@ -2569,3 +2569,6 @@ admin-settings-key-notifications-view-enabled = 通知ビューを有効にす�
 admin-settings-help-notifications-view-enabled = 通知センターの表示を制御します。セキュリティ通知、メール通知、ブラウザー通知はそれぞれの設定に従います。
 admin-settings-key-notifications-view-show-in-sidebar = サイドバーに通知を表示する
 admin-settings-help-notifications-view-show-in-sidebar = 通知センターの表示を制御します。セキュリティ通知、メール通知、ブラウザー通知はそれぞれの設定に従います。
+
+admin-settings-key-mail-unified-account = 統合仮想アカウント
+admin-settings-help-mail-unified-account = フォルダーと件数をまとめた仮想アカウントをアカウント選択欄に追加します。統合メッセージビューとは独立した設定です。

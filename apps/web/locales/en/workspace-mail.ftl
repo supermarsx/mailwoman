@@ -41,3 +41,7 @@ unified-mail-unread = Unread: { $count }
 unified-mail-loaded = Loaded: { $count }
 unified-mail-updated = Updated { $count } messages.
 unified-mail-action-failed = Could not update { $count } messages. They remain selected.
+
+unified-mail-view-setting = Unified message view
+unified-mail-virtual-account = Unified virtual account
+unified-mail-virtual-account-help = Add a separate virtual account to the account selector, with combined folders and counters. Independent of the Unified message view.

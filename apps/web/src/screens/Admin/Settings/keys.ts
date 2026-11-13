@@ -503,6 +503,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'ui.undoHistorySize',
   'ui.undoHistoryMax',
   'mail.unifiedInbox',
+  'mail.unifiedAccount',
   'mail.crossAccountTransfer',
   'folders.hideEmpty',
   'folders.colour',

@@ -45,7 +45,7 @@ function mount(attachment=false) {
 describe('retained mailbox workspace',()=>{
   it('keeps the Unified view separate from virtual-account folders and places Notifications above Calendar',async()=>{
     const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
-    await loadSettings({refresh:true,fetcher:async()=>Response.json({settings:{'mail.unifiedInbox':{value:true,source:'user',locked:false}}})});
+    await loadSettings({refresh:true,fetcher:async()=>Response.json({settings:{'mail.unifiedInbox':{value:true,source:'user',locked:false},'mail.unifiedAccount':{value:true,source:'user',locked:false}}})});
     try{
       const {container}=show();const nav=screen.getByRole('navigation',{name:'Apps'});const entries=Array.from(nav.querySelectorAll<HTMLElement>('[data-testid]')).map(node=>node.dataset['testid']);expect(entries.indexOf('nav-notifications')).toBeLessThan(entries.indexOf('nav-calendar'));
       requestUnifiedMailbox();await waitFor(()=>expect(container.querySelector('[data-unified-folders]')).not.toBeNull());expect(unifiedMailboxActive()).toBe(true);expect(container.querySelector('[data-folder-region]')).toBeNull();
@@ -53,6 +53,15 @@ describe('retained mailbox workspace',()=>{
       fireEvent.click(screen.getByTestId('unified-role-sent'));expect(unifiedFolderRole()).toBe('sent');
       fireEvent.click(screen.getByRole('button',{name:'Unified mail'}));await waitFor(()=>expect(container.querySelector('[data-unified-folders]')).toBeNull());expect(container.querySelector('[data-folder-region]')).not.toBeNull();
     }finally{setUnifiedVirtualMode(false);setUnifiedFolderCounts({});clearSettings();}
+  });
+  it.each([[true,false],[false,true]])('configures the Unified view (%s) separately from the virtual account (%s)',async(view,virtual)=>{
+    const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    await loadSettings({refresh:true,fetcher:async()=>Response.json({settings:{'mail.unifiedInbox':{value:view,source:'user',locked:false},'mail.unifiedAccount':{value:virtual,source:'user',locked:false}}})});
+    try{
+      setUnifiedVirtualMode(false);const {container}=show();const button=screen.queryByRole('button',{name:'Unified mail'});expect(!!button).toBe(view);
+      if(virtual){requestUnifiedMailbox();await waitFor(()=>expect(container.querySelector('[data-unified-folders]')).not.toBeNull());expect(location.hash).toBe('#/unified');}
+      else{fireEvent.click(button!);await waitFor(()=>expect(location.hash).toBe('#/unified'));expect(container.querySelector('[data-unified-folders]')).toBeNull();requestUnifiedMailbox();expect(unifiedMailboxActive()).toBe(false);}
+    }finally{setUnifiedVirtualMode(false);clearSettings();}
   });
   it('hides the Notifications sidebar entry independently and closes the view when disabled by policy',async()=>{
     const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});

@@ -2583,3 +2583,6 @@ admin-settings-key-notifications-view-enabled = Benachrichtigungsansicht aktivie
 admin-settings-help-notifications-view-enabled = Steuert die Benachrichtigungszentrale. Sicherheitshinweise, E-Mail-Hinweise und Browserbenachrichtigungen behalten ihre eigenen Einstellungen.
 admin-settings-key-notifications-view-show-in-sidebar = Benachrichtigungen in der Seitenleiste anzeigen
 admin-settings-help-notifications-view-show-in-sidebar = Steuert die Benachrichtigungszentrale. Sicherheitshinweise, E-Mail-Hinweise und Browserbenachrichtigungen behalten ihre eigenen Einstellungen.
+
+admin-settings-key-mail-unified-account = Einheitliches virtuelles Konto
+admin-settings-help-mail-unified-account = Ein separates virtuelles Konto mit gemeinsamen Ordnern und Zählern zur Kontoauswahl hinzufügen. Unabhängig von der einheitlichen Nachrichtenansicht.

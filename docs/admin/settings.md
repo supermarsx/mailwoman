@@ -3906,3 +3906,6 @@ The sweeper keeps expired handles for 180 days by default. A value of 0 removes 
 
 <a id="notifications.view.showInSidebar"></a>
 `notifications.view.showInSidebar` defaults true. Users and administrators can hide the sidebar entry while keeping the enabled view available through its existing tabs or route. An administrator can lock this preference independently. Both preferences are under Notifications in user settings and the administration settings registry.
+
+<a id="mail.unifiedAccount"></a>
+`mail.unifiedAccount` defaults false. Enables a unified virtual account in the account selector with combined Inbox, Sent, Drafts and other folders and their counters. It is independent of `mail.unifiedInbox`, which enables the separate Unified message view. Both settings support user overrides and administrator defaults or locks; neither enables the other.

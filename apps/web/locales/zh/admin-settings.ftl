@@ -2569,3 +2569,6 @@ admin-settings-key-notifications-view-enabled = 启用通知视图
 admin-settings-help-notifications-view-enabled = 控制通知中心视图。安全提示、邮件提示和浏览器通知仍使用各自的设置。
 admin-settings-key-notifications-view-show-in-sidebar = 在侧边栏显示通知
 admin-settings-help-notifications-view-show-in-sidebar = 控制通知中心视图。安全提示、邮件提示和浏览器通知仍使用各自的设置。
+
+admin-settings-key-mail-unified-account = 统一虚拟账户
+admin-settings-help-mail-unified-account = 在账户选择器中添加一个具有合并文件夹和计数的独立虚拟账户。此设置独立于统一邮件视图。

@@ -2375,3 +2375,6 @@ admin-settings-key-notifications-view-enabled = Ativar a vista Notificações
 admin-settings-help-notifications-view-enabled = Controla a vista do centro de notificações. Os avisos de segurança, de correio e do navegador mantêm as suas próprias definições.
 admin-settings-key-notifications-view-show-in-sidebar = Mostrar Notificações na barra lateral
 admin-settings-help-notifications-view-show-in-sidebar = Controla a vista do centro de notificações. Os avisos de segurança, de correio e do navegador mantêm as suas próprias definições.
+
+admin-settings-key-mail-unified-account = Conta virtual unificada
+admin-settings-help-mail-unified-account = Adicionar uma conta virtual ao seletor de contas, com pastas e contadores combinados. Independente da vista unificada de mensagens.

@@ -41,3 +41,7 @@ unified-mail-unread = Por ler: { $count }
 unified-mail-loaded = Carregadas: { $count }
 unified-mail-updated = { $count } mensagens atualizadas.
 unified-mail-action-failed = Não foi possível atualizar { $count } mensagens. Continuam selecionadas.
+
+unified-mail-view-setting = Vista unificada de mensagens
+unified-mail-virtual-account = Conta virtual unificada
+unified-mail-virtual-account-help = Adicionar uma conta virtual ao seletor de contas, com pastas e contadores combinados. Independente da vista unificada de mensagens.

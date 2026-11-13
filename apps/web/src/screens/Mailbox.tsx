@@ -547,15 +547,17 @@ export function MailboxScreen(): JSX.Element {
   }});
   // t98: a surface the feature profile turns off (also when the profile loads or changes later) goes back to mail.
   const unifiedEnabled=()=>settings()['mail.unifiedInbox']?.value===true;
-  createEffect(()=>{const active=surface()==='unified'&&unifiedEnabled()&&unifiedVirtualMode();setUnifiedMailboxActive(active);if(active)clearSelectedFolders();});
+  const unifiedAccountEnabled=()=>settings()['mail.unifiedAccount']?.value===true;
+  const unifiedSurfaceEnabled=()=>unifiedVirtualMode()?unifiedAccountEnabled():unifiedEnabled();
+  createEffect(()=>{const active=surface()==='unified'&&unifiedAccountEnabled()&&unifiedVirtualMode();setUnifiedMailboxActive(active);if(active)clearSelectedFolders();});
   onCleanup(()=>setUnifiedMailboxActive(false));
-  createEffect(()=>{if(unifiedMailboxRequest()&&takeUnifiedMailboxRequest()&&unifiedEnabled())untrack(()=>{noteWorkspaceIntent();router.navigate('unified');});});
+  createEffect(()=>{if(unifiedMailboxRequest()&&takeUnifiedMailboxRequest()&&unifiedAccountEnabled())untrack(()=>{noteWorkspaceIntent();router.navigate('unified');});});
   const transfer=()=>{const request=pendingMessageTransfer();return request&&transfersEnabled()&&isTransferAccountCurrent(request.owner)?request:undefined;};
   createEffect(()=>{workspaceOwner();if(pendingMessageTransfer()&&!transfer())closeMessageTransfer();});
-  const surfaceAllowed = (d: ShellSurface): boolean => !((d==='notifications'&&!notificationViewEnabled())||(d==='unified'&&settingsLoadStatus()==='ready'&&!unifiedEnabled())||(d==='templates'&&settings()['mail.templates.enabled']?.value===false)||(d==='attachments'&&!featureOn('views.attachments'))||(isPimSurface(d)&&!featureOn(d))||(d==='keys'&&!featureOn('keys')));
+  const surfaceAllowed = (d: ShellSurface): boolean => !((d==='notifications'&&!notificationViewEnabled())||(d==='unified'&&settingsLoadStatus()==='ready'&&!unifiedSurfaceEnabled())||(d==='templates'&&settings()['mail.templates.enabled']?.value===false)||(d==='attachments'&&!featureOn('views.attachments'))||(isPimSurface(d)&&!featureOn(d))||(d==='keys'&&!featureOn('keys')));
   createEffect(()=>{const d=surface();if(!surfaceAllowed(d))untrack(()=>router.navigate('mail'));});
   createEffect(()=>{const off=panes().filter(pane=>pane.surface!==undefined&&!surfaceAllowed(pane.surface)).map(pane=>pane.id);if(off.length>0)untrack(()=>void closePanes(off));});
-  createEffect(()=>{const destination=surface(),accountId=app.accountId(),unified=unifiedEnabled();untrack(()=>{
+  createEffect(()=>{const destination=surface(),accountId=app.accountId(),unified=unifiedSurfaceEnabled();untrack(()=>{
     if(destination==='mail'){if(activePane()?.surface)subTabs.activate('mail');return;}
     if(!surfaceAllowed(destination)||destination==='unified'&&!unified)return;
     if(!accountId)return;
@@ -1283,7 +1285,7 @@ export function MailboxScreen(): JSX.Element {
               <Show when={pane.kind==='outbox'}><Outbox/></Show>
               <Show when={pane.kind==='attachments'}><Attachments accountId={app.accountId()} mailboxes={app.mailboxes()} loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onDownload={downloadAttachmentItem} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
               <Show when={pane.kind==='sharing'&&pane.reference&&pane.accountId}><SharingDialog embedded mailboxId={pane.reference!} accountId={pane.accountId!} mailboxName={pane.title} onClose={()=>void closePane(pane.id)}/></Show>
-              <Show when={pane.surface==='unified'&&unifiedEnabled()}>
+              <Show when={pane.surface==='unified'&&unifiedSurfaceEnabled()}>
                 <Suspense fallback={<AsyncPending/>}><UnifiedMail activeLink={app.linkedMailboxId?.()??null}/></Suspense>
               </Show>
               <Show when={pane.surface === 'templates'}>

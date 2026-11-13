@@ -2595,3 +2595,6 @@ admin-settings-key-notifications-view-enabled = Włącz widok powiadomień
 admin-settings-help-notifications-view-enabled = Steruje centrum powiadomień. Alerty bezpieczeństwa, poczty i przeglądarki zachowują własne ustawienia.
 admin-settings-key-notifications-view-show-in-sidebar = Pokaż Powiadomienia na pasku bocznym
 admin-settings-help-notifications-view-show-in-sidebar = Steruje centrum powiadomień. Alerty bezpieczeństwa, poczty i przeglądarki zachowują własne ustawienia.
+
+admin-settings-key-mail-unified-account = Zbiorcze konto wirtualne
+admin-settings-help-mail-unified-account = Dodaj osobne konto wirtualne do selektora kont ze wspólnymi folderami i licznikami. Niezależne od zbiorczego widoku wiadomości.
