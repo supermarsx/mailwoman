@@ -48,6 +48,7 @@ describe('API keys — shown once', () => {
     });
 
     render(() => <ApiKeys accountId="acct-1" fetcher={fetcher} initialKeys={[]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create key' }));
     fireEvent.input(screen.getByLabelText('Key label'), { target: { value: 'backup script' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create key' }));
 
@@ -59,6 +60,11 @@ describe('API keys — shown once', () => {
     };
     expect(body.scope).toHaveProperty('ip_allowlist');
 
+    fireEvent.click(screen.getByRole('button',{name:'Back'}));
+    expect(screen.getByRole('alertdialog')).toBeVisible();
+    fireEvent.click(screen.getByRole('button',{name:t('settings-editor-keep')}));
+    expect(screen.getByTestId('minted-token')).toBeInTheDocument();
+
     // Dismiss the one-time reveal — it cannot be shown again.
     fireEvent.click(screen.getByRole('button', { name: 'I have saved it' }));
     expect(screen.queryByTestId('minted-token')).not.toBeInTheDocument();
@@ -67,6 +73,7 @@ describe('API keys — shown once', () => {
   it('requires a label before minting', async () => {
     const fetcher = vi.fn(async () => okJson([]));
     render(() => <ApiKeys accountId="acct-1" fetcher={fetcher} initialKeys={[]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create key' }));
     fireEvent.click(screen.getByRole('button', { name: 'Create key' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/label/));
   });
@@ -91,9 +98,9 @@ describe('API keys — accessibility (WCAG 2.2 AA)', () => {
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
 
+    fireEvent.click(screen.getByRole('button', { name: 'Create key' }));
     // The scope builder is a keyboard-navigable, named grouping.
     expect(screen.getByRole('group', { name: t('apikeys-scope-label') })).toBeInTheDocument();
-
     fireEvent.input(screen.getByLabelText(t('apikeys-label-aria')), { target: { value: 'k' } });
     fireEvent.click(screen.getByRole('button', { name: t('apikeys-create') }));
 
@@ -117,6 +124,7 @@ describe('API keys — accessibility (WCAG 2.2 AA)', () => {
         <ToastRegion />
       </>
     ));
+    fireEvent.click(screen.getByRole('button', { name: 'Create key' }));
     fireEvent.input(screen.getByLabelText(t('apikeys-label-aria')), { target: { value: 'k' } });
     fireEvent.click(screen.getByRole('button', { name: t('apikeys-create') }));
     const alert = await screen.findByRole('alert');
@@ -134,6 +142,7 @@ describe('scope builder', () => {
       return okJson([]);
     });
     render(() => <ApiKeys accountId="acct-1" fetcher={fetcher} initialKeys={[]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create key' }));
     fireEvent.input(screen.getByLabelText('Key label'), { target: { value: 'k' } });
     fireEvent.click(screen.getByLabelText('Send'));
     fireEvent.click(screen.getByLabelText('PIM (calendar / tasks / notes / contacts)'));
@@ -181,4 +190,39 @@ it('requires an explicit scripts grant and preserves it in consent wire data', (
   const legacy = scopeToWire(scope) as Omit<ReturnType<typeof scopeToWire>, 'scripts'> & { scripts?: boolean };
   delete legacy.scripts;
   expect(scopeFromWire(legacy as ReturnType<typeof scopeToWire>).scripts).toBe(false);
+});
+
+it('keeps creation on its own page and warns before discarding an unfinished key',async()=>{
+  const fetcher=vi.fn(async()=>okJson([]));
+  render(()=><ApiKeys accountId="acct-1" fetcher={fetcher} initialKeys={[]}/>);
+  expect(screen.queryByLabelText('Key label')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Create key'}));
+  expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+  fireEvent.input(screen.getByLabelText('Key label'),{target:{value:'Unfinished integration'}});
+  fireEvent.click(screen.getByRole('button',{name:'Back'}));
+  expect(screen.getByRole('alertdialog')).toBeVisible();
+  fireEvent.click(screen.getByRole('button',{name:t('settings-editor-keep')}));
+  expect(screen.getByLabelText('Key label')).toHaveValue('Unfinished integration');
+  fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+  fireEvent.click(screen.getByRole('button',{name:t('settings-editor-discard')}));
+  await waitFor(()=>expect(screen.queryByLabelText('Key label')).not.toBeInTheDocument());
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it('searches compact key rows and revokes only the chosen key before refreshing',async()=>{
+  const key={prefix:'backup',label:'Nightly backup',accountId:'acct-1',scope:readOnlyScope('acct-1'),createdAt:'2026-07-14T00:00:00Z',lastUsedAt:null,revokedAt:null,unattendedSendApproved:false};
+  let revoked=false;
+  const fetcher=vi.fn(async(input:string)=>{
+    if(input==='/api/keys/backup/revoke'){revoked=true;return okJson({ok:true});}
+    return okJson([{...key,revokedAt:revoked?'2026-11-13T10:00:00Z':null},{...key,prefix:'calendar',label:'Calendar sync',revokedAt:'2026-07-15T00:00:00Z'}]);
+  });
+  render(()=><ApiKeys accountId="acct-1" fetcher={fetcher}/>);
+  await screen.findByText(/Nightly backup/);
+  expect(screen.getAllByRole('button',{name:/^Revoke:/})).toHaveLength(1);
+  fireEvent.input(screen.getByRole('searchbox'),{target:{value:'Nightly'}});
+  expect(screen.queryByText(/Calendar sync/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Revoke: Nightly backup'}));
+  await waitFor(()=>expect(screen.queryByRole('button',{name:'Revoke: Nightly backup'})).not.toBeInTheDocument());
+  expect(fetcher).toHaveBeenCalledWith('/api/keys/backup/revoke',expect.objectContaining({method:'POST'}));
+  expect(screen.getByText('Revoked')).toBeInTheDocument();
 });

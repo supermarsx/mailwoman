@@ -364,7 +364,7 @@ export function Settings(props: SettingsProps): JSX.Element {
                 <ApiKeys accountId={accountId()} />
               </AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="access" active={visible('access')} retain={false}>{()=>              <AsyncBoundary>
-                <McpKeys accountId={accountId()} />
+                <Show when={!navigation.route().editor}><McpKeys accountId={accountId()} /></Show>
               </AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="product-security" active={visible('product-security')} accountBound={false}>{()=> <AsyncBoundary><ProductSecurity/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="metadata" active={visible('metadata')}>{()=>              <AsyncBoundary>

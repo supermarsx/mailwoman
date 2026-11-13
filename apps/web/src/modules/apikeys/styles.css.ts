@@ -26,6 +26,7 @@ export const panel = style({
   color: vars.color.text,
 });
 
+export const managementPanel = style([panel, {minInlineSize: 0, maxInlineSize: '64rem', inlineSize: '100%'}]);
 
 export const section = style([panelSurface,{
   display: 'flex',
