@@ -39,6 +39,7 @@
     { "path": "/api/security/watermark", "scope": "mailbox" },
     { "path": "/api/sanitize", "scope": "mailbox" },
     { "path": "/api/mail/delivery-status", "scope": "mailbox" },
+    { "path": "/api/mail/list-unsubscribe", "scope": "mailbox", "note": "RFC 8058 uses the selected mailbox session and server egress" },
     { "path": "/api/rc/policy", "scope": "mailbox" },
     { "path": "/api/rc/sign", "scope": "mailbox" },
     { "path": "/api/rc/batch", "scope": "mailbox", "note": "signed image tokens fetched together; authed as the linked child" },

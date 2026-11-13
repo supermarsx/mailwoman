@@ -34,6 +34,7 @@
   "/api/security/watermark",
   "/api/sanitize",
   "/api/mail/delivery-status",
+  "/api/mail/list-unsubscribe",
   "/api/rc/policy",
   "/api/rc/sign",
   "/api/rc/batch",

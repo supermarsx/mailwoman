@@ -118,8 +118,8 @@ export type OneClickResult={ok:true}|{ok:false;reason:string};
 export async function unsubscribeOneClick(url:string):Promise<OneClickResult> {
  try{
   const response=await apiFetch(withBase('/api/mail/list-unsubscribe'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url})});
-  if(response.ok)return {ok:true};
-  const body=await response.json().catch(()=>({})) as {reason?:unknown};
+  const body=await response.json().catch(()=>({})) as {ok?:unknown;reason?:unknown};
+  if(response.ok&&body.ok===true)return {ok:true};
   return {ok:false,reason:typeof body.reason==='string'?body.reason:'rejected'};
- }catch{return {ok:false,reason:'network'};}
+ }catch(error){return {ok:false,reason:error instanceof Error&&error.name==='LinkedContextUnsupportedError'?'refused':error instanceof Error&&error.name==='AbortError'?'cancelled':'network'};}
 }

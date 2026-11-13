@@ -88,3 +88,9 @@ it('addresses a verified workspace mailbox without switching the active selectio
  await expect(apiFetch('/jmap/api',{method:'POST',mailboxTarget:target})).rejects.toMatchObject({name:'AbortError'});
  expect(send).toHaveBeenCalledTimes(3);
 });
+
+it('sends one-click unsubscribe through the selected linked mailbox instead of rejecting locally as network',async()=>{
+ const send=vi.fn(async(_url:string,_init?:RequestInit)=>Response.json({ok:true}));vi.stubGlobal('fetch',send);
+ await apiFetch('/api/mail/list-unsubscribe',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url:'https://list.example.test/unsubscribe'})});
+ expect(send).toHaveBeenCalledOnce();expect(header(send.mock.calls[0]?.[1])).toBe(child.linkId);
+});

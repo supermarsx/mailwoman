@@ -1,5 +1,6 @@
 import {resourceValue} from './resourceValue.ts';
-import {createMemo, createResource, createSignal, createUniqueId, For, onMount, Show, type JSX} from 'solid-js';
+import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
+import {createEffect,onCleanup,createMemo, createResource, createSignal, createUniqueId, For, onMount, Show, type JSX} from 'solid-js';
 import {listMailDraft, mailingListCommands, mailingListId, mailingListName, safeListHref, unsubscribeMethods, unsubscribeOneClick, type ListLink} from '../api/mailingList.ts';
 import {settings} from '../api/settings.ts';
 import {inspectMessageLink, type MessageLink} from '../viewers/messageLinks.ts';
@@ -66,6 +67,8 @@ export function MailingListBadge(props: {
   const listId = createMemo(() => mailingListId(props.headers));
   const name = createMemo(() => mailingListName(props.headers));
   const methods = createMemo(() => unsubscribeMethods(props.headers));
+  let disposed=false,unsubscribeOperation=0;onCleanup(()=>{disposed=true;unsubscribeOperation++;});
+  createEffect(()=>{methods();void props.accountId;unsubscribeOperation++;setBusy(false);setConfirming(null);});
   const present = (): boolean => listId() !== null || methods().web !== null || methods().mail !== null;
   const key = (): string => listKey(props.accountId, listId() ?? props.sender);
   const record = (): ReturnType<typeof unsubscribedList> => unsubscribedList(key());
@@ -111,8 +114,11 @@ export function MailingListBadge(props: {
   async function sendOneClick(thenClean: boolean): Promise<void> {
     const link = methods().oneClick;
     if (!link) return;
-    setBusy(true); setConfirming(null);
-    const result = await unsubscribeOneClick(link.href);
+    if(busy())return;
+    const owner=preferenceAccount(),list=key(),account=props.accountId,operation=++unsubscribeOperation;
+    setBusy(true);setConfirming(null);
+    const result=await unsubscribeOneClick(link.href);
+    if(disposed||operation!==unsubscribeOperation||key()!==list||props.accountId!==account||(owner?!preferenceAccountIsCurrent(owner):preferenceAccount()!==null))return;
     setBusy(false);
     if (result.ok) {
       markUnsubscribed(key(), 'one-click');
