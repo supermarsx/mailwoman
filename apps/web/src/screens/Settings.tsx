@@ -356,7 +356,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               <RetainedSettingsSection name="time" active={visible('time')}>{()=><AsyncBoundary><TimeZones navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="packages" active={visible('packages')}>{()=><AsyncBoundary><Packages accountId={accountId()} navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="labels" active={visible('labels')}>{()=><AsyncBoundary><Labels navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>
-              <RetainedSettingsSection name="reader" active={visible('reader')}>{()=><AsyncBoundary><ReaderAppearanceSettings /><ContactAppearance /><CachePreferences /></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="reader" active={visible('reader')}>{()=><AsyncBoundary><ReaderAppearanceSettings senders={<ContactAppearance/>} cache={<CachePreferences/>}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="rules" active={visible('rules')}>{()=>              <AsyncBoundary>
                 <RulesSettings accountId={accountId()} />
               </AsyncBoundary>}</RetainedSettingsSection>

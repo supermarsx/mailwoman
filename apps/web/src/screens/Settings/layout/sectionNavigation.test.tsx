@@ -21,11 +21,12 @@ afterEach(()=>{vi.unstubAllGlobals();clearSettings();});
 const mount=()=>render(()=><RetainedSettingsSection name="reader" active accountBound={false}>{()=><ReaderAppearanceSettings/>}</RetainedSettingsSection>);
 const ALL_KEYS=['colorMode','fontSize','lineHeight','contentWidth','zoom','actionStyle','attachmentsDensity','attachmentsCollapsed','loading','loadingDelayMs','autoHideHeader'];
 
-it('shows every message display setting exactly once, as stacked cards with no extra navigation',async()=>{
+it('keeps every message display setting exactly once within its grouped subtabs',async()=>{
  mount();
  for(const key of ALL_KEYS)expect(await screen.findAllByText(t(`reader-${key}`),{selector:'label'})).toHaveLength(1);
  expect(READER_CARDS.flatMap(c=>[...c.keys,...(c.leading?[c.leading]:[])]).sort()).toEqual([...ALL_KEYS].sort());
- expect(screen.getAllByRole('heading',{level:4})).toHaveLength(READER_CARDS.length+4);
+ expect(screen.getAllByRole('heading',{level:4,hidden:true})).toHaveLength(READER_CARDS.length+4);
+ expect(screen.getAllByRole('tab')).toHaveLength(6);
  expect(screen.queryByRole('search')).toBeNull();
  expect(screen.queryByRole('textbox',{name:/search/i})).toBeNull();
  expect(document.querySelector('[data-kit-toggle],[data-kit-card],[data-kit-grid]')).toBeNull();
@@ -81,4 +82,8 @@ it('search targets scroll to and highlight the exact setting row, and repeat on 
  await nav.navigate({section:'reader',card:'reader-card-text',row:'reader-fontSize'});
  await waitFor(()=>expect(scroll.mock.calls.length).toBeGreaterThan(calls));
  expect(control.closest('[data-setting-row]')).toHaveAttribute('data-card-flash');
+ await nav.navigate({section:'reader',card:'reader-card-action-placement',row:'reader-action-delete'});
+ const action=screen.getByLabelText(t('reader-action-delete'));
+ await waitFor(()=>expect(action.closest('[data-setting-row]')).toHaveAttribute('data-card-flash'));
+ expect(action).toBeVisible();expect(control).not.toBeVisible();
 });

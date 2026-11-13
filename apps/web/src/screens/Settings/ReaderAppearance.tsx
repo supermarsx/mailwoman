@@ -1,3 +1,4 @@
+import {SettingsSubtabs} from './SettingsSubtabs.tsx';
 import {ReaderActionPreferences,READER_ACTIONS_CARD} from './ReaderActionPreferences.tsx';
 import { MessageBadges, MESSAGE_BADGES_CARD } from './MessageBadges.tsx';
 import { For, Show, onMount, type JSX } from 'solid-js';
@@ -54,20 +55,24 @@ function AttachmentsCollapsedRow(): JSX.Element {
   }</SettingRow>;
 }
 
-export function ReaderAppearanceSettings(): JSX.Element {
+export function ReaderAppearanceSettings(props:{senders?:JSX.Element;cache?:JSX.Element}): JSX.Element {
   const autoHideHeader=useSetting<boolean>('reader.autoHideHeader',false);
   onMount(() => { void loadCatalog('reader'); void loadCatalog('settings-policy'); });
   return <>
     <header><h3 class={css.heading}>{t('reader-settings-title')}</h3><p class={css.meta}>{t('reader-settings-help')}</p></header>
-    <For each={READER_CARDS}>{card => <SettingsCard id={card.id} title={t(card.title)} description={t(card.help)}>
+    <SettingsSubtabs section="reader" label="reader-settings-title" tabs={[
+      {id:'appearance',label:'reader-card-text',cards:['reader-card-text','reader-card-header','reader-card-loading'],content:<>{cardsFor(READER_CARDS.filter(card=>card.id!=='reader-card-actions'))}</>},
+      {id:'actions',label:'reader-actions-title',cards:['reader-card-actions',READER_ACTIONS_CARD.id],content:<>{cardsFor(READER_CARDS.filter(card=>card.id==='reader-card-actions'))}<ReaderActionPreferences/></>},
+      {id:'attachments',label:ATTACHMENTS_BAR_CARD_SPEC.title,cards:[ATTACHMENTS_BAR_CARD_SPEC.id,ATTACHMENT_PREVIEW_CARD.id],content:<><AttachmentsBarSettings/><AttachmentPreviewPreferences/></>},
+      {id:'badges',label:MESSAGE_BADGES_CARD.title,cards:[MESSAGE_BADGES_CARD.id],content:<MessageBadges/>},
+      {id:'senders',label:'avatars-title',cards:['avatars-card','save-contacts-card'],content:props.senders},
+      {id:'cache',label:'cache-card-store',cards:['cache-card-store','cache-card-prefetch'],content:props.cache},
+    ]}/>
+  </>;
+  function cardsFor(cards:typeof READER_CARDS):JSX.Element{return <For each={cards}>{card => <SettingsCard id={card.id} title={t(card.title)} description={t(card.help)}>
       <Show when={card.leading}><Show when={card.leading==='autoHideHeader'} fallback={<AttachmentsCollapsedRow/>}><ToggleRow id="reader-autoHideHeader" label={t('reader-autoHideHeader')} help={t('reader-autoHideHeader-help')} handle={autoHideHeader}/></Show></Show>
       <For each={card.keys}>{key => <FieldRow field={fields[key]!} />}</For>
-    </SettingsCard>}</For>
-    <ReaderActionPreferences />
-    <AttachmentsBarSettings />
-    <AttachmentPreviewPreferences />
-    <MessageBadges />
-  </>;
+    </SettingsCard>}</For>;}
 }
 
 export const READER_CARD_SPECS: readonly CardSpec[] = [...READER_CARDS.map(card => ({
