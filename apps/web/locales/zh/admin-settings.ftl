@@ -2572,3 +2572,6 @@ admin-settings-help-notifications-view-show-in-sidebar = 控制通知中心视�
 
 admin-settings-key-mail-unified-account = 统一虚拟账户
 admin-settings-help-mail-unified-account = 在账户选择器中添加一个具有合并文件夹和计数的独立虚拟账户。此设置独立于统一邮件视图。
+
+admin-settings-key-accounts-settings-inherit-groups = 继承主账户偏好设置
+admin-settings-help-accounts-settings-inherit-groups = 所选组在此邮箱没有单独覆盖时使用主账户的默认值。本地选择和管理员策略优先。不继承主题、签名、凭据或文件夹ID。

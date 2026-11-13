@@ -141,3 +141,10 @@ linked-accounts-avatar-icon-plane = 飞机
 linked-accounts-avatar-icon-school = 学校
 linked-accounts-go-to = 转到帐户：{ $address }
 linked-accounts-go-to-short = 转到帐户
+
+linked-settings-inheritance-title = 继承主账户偏好设置
+linked-settings-inheritance-help = 所选组在此邮箱没有单独覆盖时使用主账户的默认值。本地选择和管理员策略优先。不继承主题、签名、凭据或文件夹ID。
+linked-settings-inherited = 继承自主账户
+linked-settings-primary-title = 由登录账户管理
+linked-settings-primary-help = 此部分管理登录账户。请切换到主账户进行配置。各邮箱的偏好设置保持独立。
+linked-settings-primary-open = 打开主账户设置

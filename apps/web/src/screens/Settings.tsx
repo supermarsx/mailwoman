@@ -1,3 +1,5 @@
+import {requestSettings} from '../state/settingsRequest.ts';
+import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import ProductSecurity from '../about/ProductSecurity.tsx';
 import {SettingsTransfer} from './Settings/SettingsTransfer.tsx';
 import {InterfacePreferences} from './Settings/InterfacePreferences.tsx';
@@ -166,9 +168,16 @@ export function Settings(props: SettingsProps): JSX.Element {
   let settingsContent:HTMLDivElement|undefined;
   useSettingsScroll(navigation.route,()=>settingsContent);
   const [sectionQuery,setSectionQuery]=createSignal('');
-  const linkedSections=new Set(['product-security','linked-accounts','appearance','reader','compose','shortcuts','time','labels','signatures','identities','notifications','searches','folders','receipts','mail-transfer']);
+  const linkedSections=new Set(['product-security','linked-accounts','appearance','reader','compose','shortcuts','time','labels','signatures','identities','notifications','searches','folders','receipts','mail-transfer','packages','privacy','nextcloud','access']);
   const supportedSection=(section:string):boolean=>!app.linkedMailboxId?.()||linkedSections.has(section);
   const visible=(section:string):boolean=>supportedSection(section)&&(!props.embedded || navigation.route().section===section);
+
+  async function openPrimarySettings():Promise<void>{
+    const owner=preferenceAccount(),section=navigation.route().section;
+    if(!owner||!await navigation.canLeave()||!preferenceAccountIsCurrent(owner))return;
+    try{await app.switchLinkedMailbox(null);if(app.linkedMailboxId()===null)requestSettings(section);}
+    catch{app.showToast('error',t('linked-accounts-error'));}
+  }
 
   let panel!: HTMLElement;
   onMount(() => {
@@ -243,9 +252,10 @@ export function Settings(props: SettingsProps): JSX.Element {
         </header></Show>
 
         <div class={props.embedded ? workspace.body : workspace.legacy}>
-          <Show when={props.embedded}><SettingsNav current={()=>navigation.route().section} query={sectionQuery} onQueryChange={setSectionQuery} supported={supportedSection} onSelect={section=>void navigation.navigate({section})} onOpenCard={(section,card,row)=>{void navigation.navigate({section,card,...(row?{row}:{})}).then(opened=>{if(opened)setSectionQuery('');});}}/></Show>
+          <Show when={props.embedded}><SettingsNav current={()=>navigation.route().section} query={sectionQuery} onQueryChange={setSectionQuery} supported={()=>true} onSelect={section=>void navigation.navigate({section})} onOpenCard={(section,card,row)=>{void navigation.navigate({section,card,...(row?{row}:{})}).then(opened=>{if(opened)setSectionQuery('');});}}/></Show>
           <div class={workspace.content} ref={settingsContent}>
           <Show when={props.embedded}><Breadcrumbs class={workspace.crumb} testId="settings-breadcrumb" label={t('settings-breadcrumb')} loadingLabel={t('settings-crumb-loading')} items={settingsCrumbs(navigation.route()).map(c=>c.route?{label:c.label,onNavigate:()=>void navigation.navigate(c.route!)}:{label:c.label})}/></Show>
+          <Show when={app.linkedMailboxId?.()&&!supportedSection(navigation.route().section)}><SettingsCard id="linked-settings-account-scope" title={t('linked-settings-primary-title')} description={t('linked-settings-primary-help')}><button type="button" class="btn" onClick={()=>void openPrimarySettings()}>{t('linked-settings-primary-open')}</button></SettingsCard></Show>
           <RetainedSettingsSection name="appearance" active={visible('appearance')} accountBound={false}>{()=> <div class={workspace.appearance}>
         <SettingsCard id="settings-appearance-theme-card" title={t('settings-appearance-theme-card')} description={t('settings-appearance-theme-card-help')}>
         <ThemeMode locked={themeHold.locked()} />
@@ -324,12 +334,13 @@ export function Settings(props: SettingsProps): JSX.Element {
           </div>
         }</ControlRow>
         </SettingsCard>
-        <Show when={!app.linkedMailboxId?.()}><AppearanceCustomization owner={() => { const accountId = app.accountId(); return accountId ? {kind: 'mailbox', accountId} : null; }} /></Show>
+        <AppearanceCustomization owner={() => { const accountId = app.accountId(); return accountId ? {kind: 'mailbox', accountId} : null; }} />
 
         <BarPreferences />
         <SettingsTransfer />
 
         <Language />
+
         </div>}</RetainedSettingsSection>
 
         {/* V6 security & integrations — only for an authenticated account. The
@@ -344,7 +355,7 @@ export function Settings(props: SettingsProps): JSX.Element {
                 <AccountSettings hideSecurity onSearchFoldersChanged={() => app.refreshFolders()} {...(props.embedded ? {section:()=>navigation.route().section} : {})} />
               </AsyncBoundary>
               <RetainedSettingsSection name="security" active={visible('security')} retain={false}>{()=><AsyncBoundary><SecurityCenter password={<AsyncBoundary><PasswordChange accountId={accountId()} /></AsyncBoundary>} grants={<AsyncBoundary><IdentityGrants /></AsyncBoundary>} encryption={<AsyncBoundary><ZeroAccessBlock /></AsyncBoundary>} /></AsyncBoundary>}</RetainedSettingsSection>
-              <RetainedSettingsSection name="privacy" active={visible('privacy')}>{()=><AsyncBoundary><PrivacyCenter content={<Privacy/>} consent={<><AnalyticsConsent/><CookieSettings/></>} diagnostics={<><LoadTimePreferences/><ErrorReportPreferences/></>} data={<YourData/>} requests={<DataRequests/>}/></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="privacy" active={visible('privacy')}>{()=><AsyncBoundary><Show when={!app.linkedMailboxId?.()} fallback={<Privacy/>}><PrivacyCenter content={<Privacy/>} consent={<><AnalyticsConsent/><CookieSettings/></>} diagnostics={<><LoadTimePreferences/><ErrorReportPreferences/></>} data={<YourData/>} requests={<DataRequests/>}/></Show></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="nextcloud" active={visible('nextcloud')}>{()=><AsyncBoundary><NextcloudAccounts /></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="linked-accounts" active={visible('linked-accounts')} retain={false}>{()=><AsyncBoundary><LinkedAccounts/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="folders" active={visible('folders')}>{()=><AsyncBoundary><FolderPreferences folders={app.mailboxes} tags={app.tags} navigation={navigation} onRolesSaved={app.refreshFolders}/></AsyncBoundary>}</RetainedSettingsSection>

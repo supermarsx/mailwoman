@@ -2580,3 +2580,6 @@ admin-settings-help-notifications-view-show-in-sidebar = Beheert het meldingence
 
 admin-settings-key-mail-unified-account = Gecombineerd virtueel account
 admin-settings-help-mail-unified-account = Voeg een apart virtueel account toe aan de accountkiezer, met gecombineerde mappen en tellers. Onafhankelijk van de gecombineerde berichtenweergave.
+
+admin-settings-key-accounts-settings-inherit-groups = Voorkeuren van hoofdaccount overnemen
+admin-settings-help-accounts-settings-inherit-groups = Geselecteerde groepen gebruiken standaardwaarden van het hoofdaccount zonder lokale overschrijving. Lokale keuzes en beheerbeleid gaan voor. Thema’s, handtekeningen, inloggegevens en map-ID’s worden niet overgenomen.

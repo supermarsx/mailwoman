@@ -2586,3 +2586,6 @@ admin-settings-help-notifications-view-show-in-sidebar = Contrôle le centre de 
 
 admin-settings-key-mail-unified-account = Compte virtuel unifié
 admin-settings-help-mail-unified-account = Ajouter un compte virtuel au sélecteur de comptes, avec des dossiers et compteurs combinés. Indépendant de la vue unifiée des messages.
+
+admin-settings-key-accounts-settings-inherit-groups = Hériter des préférences du compte principal
+admin-settings-help-accounts-settings-inherit-groups = Les groupes sélectionnés utilisent les valeurs du compte principal sans remplacement local. Les choix locaux et les politiques administrateur sont prioritaires. Thèmes, signatures, identifiants et références de dossiers ne sont pas hérités.

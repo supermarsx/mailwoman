@@ -81,3 +81,12 @@ it('allows layout restoration when unrelated appearance settings are locked',()=
  const rows=reviewBackup(file([{kind:'appearance',key:'appearance',value:{...defaultAppearance(),layout:'ribbon'}}]),{'appearance.theme':{value:defaultAppearance().theme,source:'global',locked:true},'appearance.fontSize':{value:14,source:'global',locked:true}},{},defaultAppearance(),source);
  expect(rows[0]?.status).toBe('ready');
 });
+
+it('does not freeze inherited values into exported local choices',()=>{
+ const backup=buildBackup({'reader.zoom':{value:125,source:'default',locked:false,inherited:true}}, {},defaultAppearance(),source,TRANSFER_GROUPS);
+ expect(backup.items.some(item=>item.key==='reader.zoom')).toBe(false);
+});
+it('rejects folder IDs from a different verified authority even when the account id matches',()=>{
+ const backup={...file([{kind:'interface',key:'folderHidden',value:['f']}]),source:{...source,storageAuthority:'authority-one'}};
+ expect(reviewBackup(backup,map,{},defaultAppearance(),{...source,storageAuthority:'authority-two'})[0]?.status).toBe('account');
+});

@@ -2584,7 +2584,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "\"both\"",
         GDU,
         "mail",
-        "counts displayed beside mail folders (unreadIfAny: unread count, hidden at 0); account wide across linked mailboxes"
+        "counts displayed beside mail folders (unreadIfAny: unread count, hidden at 0); per mailbox; optional primary-account inheritance"
     ),
     def!(
         "mail.folderCountScope",
@@ -2592,7 +2592,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "\"all\"",
         GDU,
         "mail",
-        "which folders show counts: all, or only folders with a role (Inbox, Drafts, Sent, Archive, Junk, Trash, Outbox, other special-use); account wide"
+        "which folders show counts: all, or only folders with a role (Inbox, Drafts, Sent, Archive, Junk, Trash, Outbox, other special-use); per mailbox; optional primary-account inheritance"
     ),
     def!(
         "mail.compactFolderBadges",
@@ -2954,7 +2954,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "false",
         GDU,
         "mail",
-        "Inbox unread count beside the mailbox name in the sidebar head; the mailbox menu always shows per-mailbox counts; account wide"
+        "Inbox unread count beside the mailbox name in the sidebar head; the mailbox menu always shows per-mailbox counts; per mailbox; optional primary-account inheritance"
     ),
     def!(
         "contacts.avatarMode",
@@ -3461,6 +3461,14 @@ pub static REGISTRY: &[SettingDef] = &[
         G,
         "interface",
         "most recent mail actions any user may keep in the Undo and Redo history"
+    ),
+    def!(
+        "accounts.settings.inheritGroups",
+        Kind::StringList { max_len: 8, max_item: 16 },
+        "[]",
+        GDU,
+        "folders",
+        "linked mailbox preference groups inherited from the verified primary account when no local override or administrator policy applies"
     ),
     def!(
         "mail.unifiedAccount",
@@ -8849,6 +8857,10 @@ fn valid_shortcut(value: &str) -> bool {
 }
 
 pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, Refusal> {
+    if def.key=="accounts.settings.inheritGroups" && !value.as_array().is_some_and(|values|{
+        let allowed=["reader","compose","mail","folders","notifications","time","interface","privacy"];
+        values.len()<=allowed.len() && values.iter().enumerate().all(|(index,value)|value.as_str().is_some_and(|group|allowed.contains(&group))&&!values[..index].contains(value))
+    }) { return Err(Refusal::invalid(field,"must contain unique supported linked preference groups")); }
     if value.is_null() {
         return if def.nullable {
             Ok(Value::Null)
@@ -9405,6 +9417,7 @@ pub struct Effective {
     pub user_may_override: bool,
     /// The user's own stored value, even when it does not apply.
     pub user_value: Option<Value>,
+    pub inherited: bool,
 }
 
 impl Effective {
@@ -9420,6 +9433,7 @@ impl Effective {
             "source": self.source.as_str(),
             "locked": self.locked(),
         });
+        if self.inherited { v["inherited"] = Value::Bool(true); }
         if let Some(by) = self.locked_by {
             v["lockedBy"] = Value::String(by.as_str().to_string());
         }
@@ -9514,6 +9528,7 @@ pub fn resolve_loaded(
         locked_by: r.locked_by,
         user_may_override: r.user_may_override,
         user_value: r.user_value.as_deref().map(parse_json),
+        inherited: false,
     }
 }
 
@@ -10978,4 +10993,14 @@ mod folder_role_validation_tests {
             }
         }
     }
+}
+
+#[cfg(test)]mod linked_preference_group_tests{
+ use super::*;
+ #[test]fn validates_supported_unique_inheritance_groups(){
+  let def=lookup("accounts.settings.inheritGroups").unwrap();
+  assert!(validate(def,&serde_json::json!([]),"/value").is_ok());
+  assert!(validate(def,&serde_json::json!(["reader","mail","privacy"]),"/value").is_ok());
+  for value in [serde_json::json!(["security"]),serde_json::json!(["reader","reader"]),serde_json::json!([1])]{assert!(validate(def,&value,"/value").is_err());}
+ }
 }

@@ -2572,3 +2572,6 @@ admin-settings-help-notifications-view-show-in-sidebar = 通知センターの�
 
 admin-settings-key-mail-unified-account = 統合仮想アカウント
 admin-settings-help-mail-unified-account = フォルダーと件数をまとめた仮想アカウントをアカウント選択欄に追加します。統合メッセージビューとは独立した設定です。
+
+admin-settings-key-accounts-settings-inherit-groups = プライマリアカウントの設定を継承
+admin-settings-help-accounts-settings-inherit-groups = 選択したグループは、このメールボックスに個別設定がない場合にプライマリアカウントの値を使用します。個別設定と管理者ポリシーが優先されます。テーマ、署名、認証情報、フォルダーIDは継承されません。

@@ -2598,3 +2598,6 @@ admin-settings-help-notifications-view-show-in-sidebar = Управляет це
 
 admin-settings-key-mail-unified-account = Общая виртуальная учётная запись
 admin-settings-help-mail-unified-account = Добавить отдельную виртуальную учётную запись в список аккаунтов с общими папками и счётчиками. Независимо от общего вида сообщений.
+
+admin-settings-key-accounts-settings-inherit-groups = Наследовать настройки основного аккаунта
+admin-settings-help-accounts-settings-inherit-groups = Выбранные группы используют значения основного аккаунта при отсутствии локального переопределения. Локальные настройки и политика администратора приоритетны. Темы, подписи, учётные данные и идентификаторы папок не наследуются.

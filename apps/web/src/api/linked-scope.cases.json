@@ -3,6 +3,7 @@
  "mailbox": [
   "/api/me",
   "/api/policy",
+  "/api/rc/policy",
   "/jmap/session",
   "/.well-known/jmap",
   "/jmap/api",

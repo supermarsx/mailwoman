@@ -504,6 +504,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'ui.undoHistoryMax',
   'mail.unifiedInbox',
   'mail.unifiedAccount',
+  'accounts.settings.inheritGroups',
   'mail.crossAccountTransfer',
   'folders.hideEmpty',
   'folders.colour',

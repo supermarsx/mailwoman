@@ -338,6 +338,7 @@ fn exemption_prefixes_that_would_switch_the_guard_off_are_dropped() {
             locked_by: None,
             user_may_override: false,
             user_value: None,
+            inherited: false,
         }]
     };
     let cfg = Config::parse(rows(serde_json::json!(["/", "api", "/", "/ok", "/api/up/"])));

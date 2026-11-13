@@ -144,3 +144,10 @@ linked-accounts-avatar-icon-plane = Samolot
 linked-accounts-avatar-icon-school = Szkoła
 linked-accounts-go-to = Przejdź do konta: { $address }
 linked-accounts-go-to-short = Przejdź do konta
+
+linked-settings-inheritance-title = Dziedzicz preferencje konta głównego
+linked-settings-inheritance-help = Wybrane grupy używają wartości konta głównego bez lokalnego nadpisania. Lokalne wybory i zasady administratora mają pierwszeństwo. Motywy, podpisy, dane logowania i identyfikatory folderów nie są dziedziczone.
+linked-settings-inherited = Odziedziczone z konta głównego
+linked-settings-primary-title = Zarządzane przez konto logowania
+linked-settings-primary-help = Ta sekcja zarządza kontem logowania. Przełącz się na konto główne, aby ją skonfigurować. Preferencje skrzynek pozostają oddzielne.
+linked-settings-primary-open = Otwórz ustawienia konta głównego

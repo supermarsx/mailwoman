@@ -142,3 +142,10 @@ linked-accounts-avatar-icon-plane = Avion
 linked-accounts-avatar-icon-school = École
 linked-accounts-go-to = Accéder au compte : { $address }
 linked-accounts-go-to-short = Accéder au compte
+
+linked-settings-inheritance-title = Hériter des préférences du compte principal
+linked-settings-inheritance-help = Les groupes sélectionnés utilisent les valeurs du compte principal sans remplacement local. Les choix locaux et les politiques administrateur sont prioritaires. Thèmes, signatures, identifiants et références de dossiers ne sont pas hérités.
+linked-settings-inherited = Hérité du compte principal
+linked-settings-primary-title = Géré par le compte de connexion
+linked-settings-primary-help = Cette section gère le compte de connexion. Passez au compte principal pour la configurer. Les préférences de boîte restent distinctes.
+linked-settings-primary-open = Ouvrir les réglages du compte principal

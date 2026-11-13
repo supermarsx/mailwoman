@@ -52,6 +52,8 @@ export interface SettingEntry {
   lockedBy?: SettingSource;
   /** The user's own stored value, even when it does not apply. */
   userValue?: unknown;
+  /** Inherited from this linked mailbox's verified primary account. */
+  inherited?: boolean;
 }
 
 export type SettingsMap = Readonly<Record<string, SettingEntry>>;
@@ -105,6 +107,7 @@ export function parseEntry(raw: unknown): SettingEntry | null {
   const entry: SettingEntry = { value: r['value'], source: r['source'], locked: r['locked'] };
   if (isSource(r['lockedBy'])) entry.lockedBy = r['lockedBy'];
   if ('userValue' in r) entry.userValue = r['userValue'];
+  if(r['inherited']===true)entry.inherited=true;
   return entry;
 }
 

@@ -171,3 +171,9 @@ st-ui-workspaceSplitRatio = 工作区窗格比例
 st-unset = 未设置
 
 st-values = 比较值
+
+st-source-account = 从其他账户复制偏好设置
+st-source-choose = 选择来源账户
+st-source-help = 查看已验证账户的可迁移设置。点击应用前不会更改。排除文件夹ID和凭据。
+st-source-review = 查看账户偏好设置
+st-source-error = 无法加载来源账户。您仍可导入设置文件。

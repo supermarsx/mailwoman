@@ -2586,3 +2586,6 @@ admin-settings-help-notifications-view-show-in-sidebar = Steuert die Benachricht
 
 admin-settings-key-mail-unified-account = Einheitliches virtuelles Konto
 admin-settings-help-mail-unified-account = Ein separates virtuelles Konto mit gemeinsamen Ordnern und Zählern zur Kontoauswahl hinzufügen. Unabhängig von der einheitlichen Nachrichtenansicht.
+
+admin-settings-key-accounts-settings-inherit-groups = Einstellungen des Hauptkontos übernehmen
+admin-settings-help-accounts-settings-inherit-groups = Ausgewählte Gruppen übernehmen Standardwerte des Hauptkontos ohne lokale Überschreibung. Lokale Einstellungen und Administratorrichtlinien haben Vorrang. Designs, Signaturen, Zugangsdaten und Ordner-IDs werden nicht übernommen.

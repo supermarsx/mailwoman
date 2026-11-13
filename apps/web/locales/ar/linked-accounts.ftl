@@ -146,3 +146,10 @@ linked-accounts-avatar-icon-plane = طائرة
 linked-accounts-avatar-icon-school = مدرسة
 linked-accounts-go-to = الانتقال إلى الحساب: { $address }
 linked-accounts-go-to-short = الانتقال إلى الحساب
+
+linked-settings-inheritance-title = وراثة تفضيلات الحساب الأساسي
+linked-settings-inheritance-help = تستخدم المجموعات المحددة قيم الحساب الأساسي عند عدم وجود تجاوز محلي. تتقدم الخيارات المحلية وسياسة المسؤول. لا تتم وراثة السمات والتوقيعات وبيانات الاعتماد ومعرفات المجلدات.
+linked-settings-inherited = موروث من الحساب الأساسي
+linked-settings-primary-title = يديره حساب تسجيل الدخول
+linked-settings-primary-help = يدير هذا القسم حساب تسجيل الدخول. انتقل إلى الحساب الأساسي لإعداده. تبقى تفضيلات صناديق البريد منفصلة.
+linked-settings-primary-open = فتح إعدادات الحساب الأساسي

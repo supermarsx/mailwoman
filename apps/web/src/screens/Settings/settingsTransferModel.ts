@@ -7,7 +7,7 @@ export const TRANSFER_GROUPS=['appearance','reader','compose','mail','folders','
 export type TransferGroup=typeof TRANSFER_GROUPS[number];
 export type TransferKind='setting'|'interface'|'appearance';
 export interface TransferItem {kind:TransferKind;key:string;value:unknown}
-export interface SettingsBackup {format:'mailwoman-user-settings';version:1;createdAt:string;source:{accountId:string;origin:string};items:TransferItem[]}
+export interface SettingsBackup {format:'mailwoman-user-settings';version:1;createdAt:string;source:{accountId:string;origin:string;storageAuthority?:string};items:TransferItem[]}
 export type ReviewStatus='ready'|'unchanged'|'locked'|'unknown'|'invalid'|'account';
 export interface TransferReview extends TransferItem {id:string;group:TransferGroup;current:unknown;status:ReviewStatus}
 const portable=['keyboardPreset','direction','markRead','markReadDelayMs','offlineBudgetMb','offlineRetentionDays','eviction','folderSidebarMode','folderSidebarWidth','messageListWidth','messageListHeight','readingPane','messageListCollapsed','readerCollapsed','workspaceSplitRatio','userFoldersCollapsed','folderNestMode','folderGrabHandles'] as const;
@@ -33,7 +33,7 @@ export function transferGroup(item:TransferItem):TransferGroup {
 }
 export function buildBackup(map:SettingsMap,ui:AccountUiPreferences,appearance:AppearancePrefs,source:SettingsBackup['source'],groups:readonly TransferGroup[],includeFolders=false):SettingsBackup {
  const items:TransferItem[]=[];
- for(const [key,entry] of Object.entries(map))if(!dedicated.has(key)&&(entry.userValue!==undefined||entry.source==='user'))items.push({kind:'setting',key,value:entry.userValue!==undefined?entry.userValue:entry.value});
+ for(const [key,entry] of Object.entries(map))if(!entry.inherited&&!dedicated.has(key)&&(entry.userValue!==undefined||entry.source==='user'))items.push({kind:'setting',key,value:entry.userValue!==undefined?entry.userValue:entry.value});
  items.push({kind:'appearance',key:'appearance',value:appearance});
  for(const [key,value] of Object.entries(ui))if(uiKeys.has(key)&&(includeFolders||!accountSpecific.includes(key as typeof accountSpecific[number])))items.push({kind:'interface',key,value});
  return {format:'mailwoman-user-settings',version:1,createdAt:new Date().toISOString(),source,items:items.filter(item=>groups.includes(transferGroup(item))).sort((a,b)=>(a.kind+':'+a.key).localeCompare(b.kind+':'+b.key))};
@@ -78,7 +78,7 @@ export function reviewBackup(backup:SettingsBackup,map:SettingsMap,ui:AccountUiP
   }else {
    current=ui[item.key as keyof AccountUiPreferences];
    if(!uiKeys.has(item.key))status='unknown';
-   else if(accountSpecific.includes(item.key as typeof accountSpecific[number])&&(backup.source.accountId!==source.accountId||backup.source.origin!==source.origin))status='account';
+   else if(accountSpecific.includes(item.key as typeof accountSpecific[number])&&(backup.source.accountId!==source.accountId||backup.source.origin!==source.origin||backup.source.storageAuthority!==source.storageAuthority))status='account';
    else if(!validUi(item.key,item.value))status='invalid';
   }
   if(status==='ready'&&equal(current,item.value))status='unchanged';

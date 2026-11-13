@@ -171,3 +171,9 @@ st-ui-workspaceSplitRatio = Proportions du volet de l'espace de travail
 st-unset = Non défini
 
 st-values = Comparer les valeurs
+
+st-source-account = Copier les préférences d’un autre compte
+st-source-choose = Choisir le compte source
+st-source-help = Vérifiez les préférences transférables d’un compte vérifié. Aucun changement avant Appliquer. Les identifiants et références de dossiers sont exclus.
+st-source-review = Vérifier les préférences du compte
+st-source-error = Impossible de charger le compte source. Vous pouvez importer un fichier de réglages.

@@ -1,3 +1,4 @@
+import {LinkedSettingsInheritance} from './LinkedSettingsInheritance.tsx';
 import {toast} from '../../components/toast/toast.ts';
 import {requestMailboxOpen} from '../../state/mailboxOpenRequest.ts';
 import {createEffect,createResource,createSignal,onCleanup,onMount,Show,type JSX} from 'solid-js';
@@ -103,6 +104,7 @@ function OwnedLinkedAccounts():JSX.Element {
     finally{if(!disposed)setBusy(false);}
   }
   return <Show when={challenge()} keyed fallback={<Show when={editing()} fallback={<>
+    <Show when={app.linkedMailboxId()}><LinkedSettingsInheritance/></Show>
     <Show when={list.loading&&!list()}><InlineLoading /></Show>
     <Show when={list.error}><button class={css.button} onClick={()=>void refetch()}>{t('linked-accounts-retry')}</button></Show>
     <Show when={!list.error&&list()}>{value=><>

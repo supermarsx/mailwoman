@@ -171,3 +171,9 @@ st-ui-workspaceSplitRatio = ワークスペースペインの縦横比
 st-unset = 未設定
 
 st-values = 値を比較する
+
+st-source-account = 別のアカウントから設定をコピー
+st-source-choose = コピー元のアカウントを選択
+st-source-help = 確認済みアカウントの移行可能な設定を確認します。「適用」までは変更されません。フォルダーIDと認証情報は除外されます。
+st-source-review = アカウント設定を確認
+st-source-error = コピー元を読み込めませんでした。設定ファイルのインポートは可能です。

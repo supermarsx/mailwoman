@@ -1,4 +1,6 @@
-import {createMemo,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
+import {readSettingsSource} from './settingsTransferSource.ts';
+import {workspaceMailboxes} from '../../api/workspaceMail.ts';
+import {createResource,createMemo,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {useApp} from '../../state/context.ts';
 import {loadCatalog,t} from '../../i18n';
 import {loadSettings,settings,settingsLoadStatus,writeSetting} from '../../api/settings.ts';
@@ -25,7 +27,11 @@ export function SettingsTransfer():JSX.Element {
  const [error,setError]=createSignal('');const [busy,setBusy]=createSignal(false);const [fileName,setFileName]=createSignal('');
  const [results,setResults]=createSignal<Record<string,string>>({});const [query,setQuery]=createSignal('');
  let stopped=false,read=0,operation=0;let input:HTMLInputElement|undefined;
- const source=()=>({accountId:owner()?.id??'',origin:location.origin});
+ const source=()=>({accountId:owner()?.id??'',...(owner()?.storageAuthority?{storageAuthority:owner()!.storageAuthority!}:{}),origin:location.origin});
+ const [sourceAccount,setSourceAccount]=createSignal('');
+ const [sources]=createResource(()=>flow()==='import'?owner():null,async()=>workspaceMailboxes(app.linkedMailboxId()));
+ const availableSources=()=>sources.state==='ready'?sources().filter(target=>target.storageAuthority!==owner()?.storageAuthority):[];
+ let sourceRequest:AbortController|undefined;onCleanup(()=>sourceRequest?.abort());
  const appearance=()=>app.appearancePrefs();
  const rows=createMemo(()=>backup()?reviewBackup(backup()!,settings(),accountUiPreferences(),appearance(),source()):[]);
  const ready=()=>rows().filter(row=>row.status==='ready');
@@ -37,12 +43,20 @@ export function SettingsTransfer():JSX.Element {
  function begin(mode:'export'|'import'):void {operation++;read++;stopped=false;setFlow(mode);setStep(1);setBackup(undefined);setError('');setFileName('');setResults({});setQuery('');setSelected(new Set<string>());}
  onMount(()=>{
   void loadCatalog('settings-transfer');void loadCatalog('admin-settings');void loadSettings();
-  const stop=observePreferenceAccount(account=>{operation++;read++;stopped=true;setOwner(account);setFlow(undefined);setBackup(undefined);setBusy(false);setError('');});onCleanup(stop);
+  const stop=observePreferenceAccount(account=>{operation++;read++;stopped=true;sourceRequest?.abort();setOwner(account);setFlow(undefined);setBackup(undefined);setBusy(false);setError('');});onCleanup(stop);
  });
  onCleanup(()=>{operation++;read++;stopped=true;});
  function exportReview():void {
   if(!owner()||settingsLoadStatus()!=='ready')return;
   const value=buildBackup(settings(),accountUiPreferences(),appearance(),source(),groups(),folders());setBackup(value);setStep(2);
+ }
+ async function copySource():Promise<void>{
+  const target=availableSources().find(target=>(target.linkId??'primary')===sourceAccount()),account=owner();if(!target||!account)return;
+  sourceRequest?.abort();const request=new AbortController();sourceRequest=request;const sequence=++read;setBusy(true);setError('');
+  try{const value=await readSettingsSource(target,request.signal);if(request.signal.aborted||sequence!==read||!preferenceAccountIsCurrent(account))return;
+   setBackup(value);setFileName(target.label);setSelected(new Set(reviewBackup(value,settings(),accountUiPreferences(),appearance(),source()).filter(row=>row.status==='ready').map(row=>row.id)));setStep(2);
+  }catch{if(!request.signal.aborted&&sequence===read&&preferenceAccountIsCurrent(account))setError(t('st-source-error'));}
+  finally{if(sequence===read&&preferenceAccountIsCurrent(account))setBusy(false);}
  }
  async function choose(file:File|undefined):Promise<void> {
   if(!file)return;const sequence=++read;const account=owner();setError('');
@@ -89,7 +103,7 @@ export function SettingsTransfer():JSX.Element {
    <p>{t('st-scope')}</p>
    <Show when={error()}><p role="alert">{error()}</p></Show>
    <Show when={step()===1}>
-    <Show when={flow()==='export'} fallback={<><label class="st-file">{t('st-file-label')}<input ref={input} type="file" accept=".json,application/json" onChange={event=>void choose(event.currentTarget.files?.[0])}/></label><p>{t('st-import-help')}</p></>}>
+    <Show when={flow()==='export'} fallback={<><label class="st-file">{t('st-file-label')}<input ref={input} type="file" accept=".json,application/json" onChange={event=>void choose(event.currentTarget.files?.[0])}/></label><p>{t('st-import-help')}</p><Show when={availableSources().length}><label class="st-file">{t('st-source-account')}<select value={sourceAccount()} disabled={busy()} onChange={event=>setSourceAccount(event.currentTarget.value)}><option value="">{t('st-source-choose')}</option><For each={availableSources()}>{target=><option value={target.linkId??'primary'}>{target.label}</option>}</For></select></label><p>{t('st-source-help')}</p><button type="button" class="btn" disabled={busy()||!sourceAccount()} onClick={()=>void copySource()}>{t('st-source-review')}</button></Show><Show when={sources.error}><p role="status">{t('st-source-error')}</p></Show></>}>
      <fieldset class="st-categories"><legend>{t('st-categories')}</legend><For each={TRANSFER_GROUPS}>{group=><label><input type="checkbox" checked={groups().includes(group)} onChange={event=>setGroups(values=>event.currentTarget.checked?[...values,group]:values.filter(value=>value!==group))}/>{t(`st-group-${group}`)}</label>}</For></fieldset>
      <label class="st-choice"><input type="checkbox" checked={folders()} onChange={event=>setFolders(event.currentTarget.checked)}/>{t('st-folders')}</label><p>{t('st-folders-help')}</p>
      <button type="button" class="btn" disabled={!groups().length||settingsLoadStatus()!=='ready'} onClick={exportReview}>{t('st-review-export')}</button>

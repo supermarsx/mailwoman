@@ -83,3 +83,9 @@ st-ui-folderCollapsed = Collapsed folder branches
 st-ui-folderParent = Visual folder nesting
 st-ui-folderStarred = Starred folders
 st-ui-folderProps = Folder notes and display overrides
+
+st-source-account = Copy preferences from another account
+st-source-choose = Choose a source account
+st-source-help = Review portable preferences from a verified account. Nothing changes until you select Apply. Folder IDs and credentials are excluded.
+st-source-review = Review account preferences
+st-source-error = Could not load the source account. You can still import a settings file.

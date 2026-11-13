@@ -141,3 +141,10 @@ linked-accounts-avatar-icon-plane = 飛行機
 linked-accounts-avatar-icon-school = 学校
 linked-accounts-go-to = アカウントに移動：{ $address }
 linked-accounts-go-to-short = アカウントに移動
+
+linked-settings-inheritance-title = プライマリアカウントの設定を継承
+linked-settings-inheritance-help = 選択したグループは、このメールボックスに個別設定がない場合にプライマリアカウントの値を使用します。個別設定と管理者ポリシーが優先されます。テーマ、署名、認証情報、フォルダーIDは継承されません。
+linked-settings-inherited = プライマリアカウントから継承
+linked-settings-primary-title = サインインアカウントで管理
+linked-settings-primary-help = このセクションはサインインアカウントを管理します。設定するにはプライマリアカウントに切り替えてください。メールボックス設定は個別に保持されます。
+linked-settings-primary-open = プライマリアカウントの設定を開く

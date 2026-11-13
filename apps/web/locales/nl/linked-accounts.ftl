@@ -142,3 +142,10 @@ linked-accounts-avatar-icon-plane = Vliegtuig
 linked-accounts-avatar-icon-school = School
 linked-accounts-go-to = Ga naar account: { $address }
 linked-accounts-go-to-short = Ga naar account
+
+linked-settings-inheritance-title = Voorkeuren van hoofdaccount overnemen
+linked-settings-inheritance-help = Geselecteerde groepen gebruiken standaardwaarden van het hoofdaccount zonder lokale overschrijving. Lokale keuzes en beheerbeleid gaan voor. Thema’s, handtekeningen, inloggegevens en map-ID’s worden niet overgenomen.
+linked-settings-inherited = Overgenomen van hoofdaccount
+linked-settings-primary-title = Beheerd door het aanmeldaccount
+linked-settings-primary-help = Dit onderdeel beheert het aanmeldaccount. Schakel naar het hoofdaccount om het in te stellen. Postvakvoorkeuren blijven apart.
+linked-settings-primary-open = Instellingen van hoofdaccount openen

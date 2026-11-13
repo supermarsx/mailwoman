@@ -142,3 +142,10 @@ linked-accounts-avatar-icon-plane = Aereo
 linked-accounts-avatar-icon-school = Scuola
 linked-accounts-go-to = Vai al profilo: { $address }
 linked-accounts-go-to-short = Vai al profilo
+
+linked-settings-inheritance-title = Eredita preferenze dell’account principale
+linked-settings-inheritance-help = I gruppi selezionati usano i valori dell’account principale senza una modifica locale. Scelte locali e criteri amministrativi hanno priorità. Temi, firme, credenziali e ID delle cartelle non vengono ereditati.
+linked-settings-inherited = Ereditato dall’account principale
+linked-settings-primary-title = Gestito dall’account di accesso
+linked-settings-primary-help = Questa sezione gestisce l’account di accesso. Passa all’account principale per configurarla. Le preferenze della casella restano separate.
+linked-settings-primary-open = Apri impostazioni dell’account principale

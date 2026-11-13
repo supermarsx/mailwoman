@@ -171,3 +171,9 @@ st-ui-workspaceSplitRatio = Proportionen des Arbeitsbereichsbereichs
 st-unset = Nicht festgelegt
 
 st-values = Werte vergleichen
+
+st-source-account = Einstellungen aus anderem Konto kopieren
+st-source-choose = Quellkonto auswählen
+st-source-help = Übertragbare Einstellungen eines verifizierten Kontos prüfen. Änderungen erfolgen erst nach Anwenden. Ordner-IDs und Zugangsdaten sind ausgeschlossen.
+st-source-review = Kontoeinstellungen prüfen
+st-source-error = Quellkonto konnte nicht geladen werden. Eine Einstellungsdatei kann weiterhin importiert werden.

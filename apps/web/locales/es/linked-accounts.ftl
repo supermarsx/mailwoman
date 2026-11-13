@@ -142,3 +142,10 @@ linked-accounts-avatar-icon-plane = Avión
 linked-accounts-avatar-icon-school = Escuela
 linked-accounts-go-to = Ir a la cuenta: { $address }
 linked-accounts-go-to-short = Ir a la cuenta
+
+linked-settings-inheritance-title = Heredar preferencias de la cuenta principal
+linked-settings-inheritance-help = Los grupos seleccionados usan los valores de la cuenta principal sin una modificación local. Las preferencias locales y las políticas administrativas prevalecen. No se heredan temas, firmas, credenciales ni identificadores de carpetas.
+linked-settings-inherited = Heredado de la cuenta principal
+linked-settings-primary-title = Gestionado por la cuenta de inicio de sesión
+linked-settings-primary-help = Esta sección gestiona la cuenta de inicio de sesión. Cambie a la cuenta principal para configurarla. Las preferencias del buzón siguen separadas.
+linked-settings-primary-open = Abrir ajustes de la cuenta principal

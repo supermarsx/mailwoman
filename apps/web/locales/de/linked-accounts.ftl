@@ -142,3 +142,10 @@ linked-accounts-avatar-icon-plane = Flugzeug
 linked-accounts-avatar-icon-school = Schule
 linked-accounts-go-to = Zum Konto wechseln: { $address }
 linked-accounts-go-to-short = Zum Konto wechseln
+
+linked-settings-inheritance-title = Einstellungen des Hauptkontos übernehmen
+linked-settings-inheritance-help = Ausgewählte Gruppen übernehmen Standardwerte des Hauptkontos ohne lokale Überschreibung. Lokale Einstellungen und Administratorrichtlinien haben Vorrang. Designs, Signaturen, Zugangsdaten und Ordner-IDs werden nicht übernommen.
+linked-settings-inherited = Vom Hauptkonto übernommen
+linked-settings-primary-title = Vom Anmeldekonto verwaltet
+linked-settings-primary-help = Dieser Bereich verwaltet das Anmeldekonto. Wechseln Sie zum Hauptkonto, um ihn zu konfigurieren. Postfacheinstellungen bleiben getrennt.
+linked-settings-primary-open = Hauptkontoeinstellungen öffnen

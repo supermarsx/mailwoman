@@ -2375,3 +2375,6 @@ admin-settings-help-notifications-view-show-in-sidebar = Controls the notificati
 
 admin-settings-key-mail-unified-account = Unified virtual account
 admin-settings-help-mail-unified-account = Add a separate virtual account to the account selector, with combined folders and counters. Independent of the Unified message view.
+
+admin-settings-key-accounts-settings-inherit-groups = Inherit primary-account preferences
+admin-settings-help-accounts-settings-inherit-groups = Selected groups use primary-account defaults when this mailbox has no override. Local choices and administrator policy win. Themes, signatures, credentials and folder IDs are not inherited.

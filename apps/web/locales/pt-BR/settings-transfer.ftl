@@ -171,3 +171,9 @@ st-ui-workspaceSplitRatio = Proporções do painel do espaço de trabalho
 st-unset = Não definido
 
 st-values = Comparar valores
+
+st-source-account = Copiar preferências de outra conta
+st-source-choose = Escolher conta de origem
+st-source-help = Revise preferências portáteis de uma conta verificada. Nada muda até selecionar Aplicar. IDs de pastas e credenciais são excluídos.
+st-source-review = Revisar preferências da conta
+st-source-error = Não foi possível carregar a conta de origem. Você pode importar um arquivo de configurações.

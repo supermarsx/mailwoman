@@ -37,6 +37,9 @@
 //! them from there; `PUT`/`DELETE` answer `409 {code:"useDedicatedRoute", route}`
 //! naming the route that writes them, which applies the administrator's locks.
 
+#[path = "linked_settings_inheritance.rs"]
+mod linked_settings_inheritance;
+
 use axum::Json;
 use axum::Router;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -1448,7 +1451,9 @@ pub(crate) async fn effective_for_session(
         subject.proxy_policy_owner.as_deref(),
     )
     .await?;
-    registry::effective_for_with(&state.store, key, &subject.as_subject(), &extra).await
+    let mut entry=registry::effective_for_with(&state.store,key,&subject.as_subject(),&extra).await?;
+    if let Some(value)=entry.as_mut(){inherit_linked_settings(state,session,std::slice::from_mut(value)).await?;}
+    Ok(entry)
 }
 
 async fn user_list(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -1480,75 +1485,47 @@ async fn user_list(State(state): State<AppState>, headers: HeaderMap) -> Respons
     )
     .await
     {
-        Ok(all) => {
-            let mut map: Map<String, Value> = all
+        Ok(mut all) => {
+            if let Err(e)=inherit_linked_settings(&state,&session,&mut all).await{return server_error(e);}
+            let map: Map<String, Value> = all
                 .iter()
                 .map(|e| (e.key.clone(), e.to_user_json()))
                 .collect();
-            if headers.contains_key(crate::linked_accounts::SELECTOR) {
-                for key in ACCOUNT_WIDE {
-                    let subject = match subject_for(&state, &headers, &session, key).await {
-                        Ok(s) => s,
-                        Err(r) => return r,
-                    };
-                    match user_entry(&state, &subject, key).await {
-                        Ok(e) => {
-                            map.insert(key.to_string(), e.to_user_json());
-                        }
-                        Err(r) => return r,
-                    }
-                }
-            }
             Json(json!({ "settings": map })).into_response()
         }
         Err(e) => server_error(e),
     }
 }
 
-/// Counter-bubble settings (t39) and the Focused inbox (t73) are one choice
-/// for the whole sign-in: a linked mailbox reads and writes them for its
-/// parent, so every mailbox of the account shows the same bubbles and the same
-/// Inbox tabs. Defaults and locks are the parent's.
-const ACCOUNT_WIDE: [&str; 5] = [
-    "mail.folderCounts",
-    "mail.folderCountScope",
-    "mail.compactFolderBadges",
-    "mail.accountUnreadBadge",
-    "mail.focusedInbox",
-];
-
-/// The sign-in session behind `session`: itself, or the parent of a linked
-/// mailbox context.
-async fn sign_in_session(
-    state: &AppState,
-    headers: &HeaderMap,
-    session: &mw_store::Session,
-) -> Result<mw_store::Session, Response> {
-    if !headers.contains_key(crate::linked_accounts::SELECTOR) {
-        return Ok(session.clone());
-    }
-    match state.store.linked_context_authority(&session.id).await {
-        Ok(Some(authority)) => Ok(authority.parent),
-        Ok(None) => Err(StatusCode::SERVICE_UNAVAILABLE.into_response()),
-        Err(e) => Err(server_error(e)),
-    }
+/// Preferences always belong to the selected mailbox. Sharing is explicit through inheritance.
+async fn subject_for(state:&AppState,_headers:&HeaderMap,session:&mw_store::Session,_key:&str)->Result<UserSubject,Response>{
+    UserSubject::resolved(&state.store,session).await.map_err(server_error)
 }
 
-/// The subject a write or read of `key` applies to.
-async fn subject_for(
-    state: &AppState,
-    headers: &HeaderMap,
-    session: &mw_store::Session,
-    key: &str,
-) -> Result<UserSubject, Response> {
-    let session = if ACCOUNT_WIDE.contains(&key) {
-        sign_in_session(state, headers, session).await?
-    } else {
-        session.clone()
-    };
-    UserSubject::resolved(&state.store, &session)
-        .await
-        .map_err(server_error)
+const INHERIT_GROUPS_KEY:&str="accounts.settings.inheritGroups";
+fn inherit_group(key:&str)->Option<&'static str>{
+    let def=registry::lookup(key)?;
+    if !def.user_override || def.dedicated_route.is_some() || USER_LAYER_ELSEWHERE.iter().any(|(other,_)|*other==key){return None;}
+    match def.category {"appearance"|"reader"|"compose"|"folders"|"notifications"|"time"|"interface"|"privacy"=>Some(def.category),_ if key.starts_with("mail.")=>Some("mail"),_=>None}
+}
+fn inherit_value(child:&mut Effective,parent:&Effective,groups:&[Value]){
+    let selected:Vec<&str>=groups.iter().filter_map(Value::as_str).collect();
+    let fallback=matches!(child.source,mw_store::settings_policy::SettingSource::Default|mw_store::settings_policy::SettingSource::EnvFallback);
+    if linked_settings_inheritance::should_inherit(inherit_group(&child.key),&selected,child.user_value.is_some(),child.locked(),fallback){child.value=parent.value.clone();child.inherited=true;}
+}
+async fn inherit_linked_settings(state:&AppState,session:&mw_store::Session,entries:&mut [Effective])->Result<(),mw_store::StoreError>{
+    if session.id.is_empty(){return Ok(());}
+    let Some(authority)=state.store.linked_context_authority(&session.id).await? else{return Ok(());};
+    let subject=UserSubject::resolved(&state.store,session).await?;
+    let extra=user_layer_rows(state,&subject.account_id,subject.personal_owner.as_deref(),subject.record_owner.as_deref(),subject.proxy_policy_owner.as_deref()).await?;
+    let config=registry::effective_for_with(&state.store,INHERIT_GROUPS_KEY,&subject.as_subject(),&extra).await?;
+    let Some(groups)=config.as_ref().and_then(|entry|entry.value.as_array()).filter(|groups|!groups.is_empty()) else{return Ok(());};
+    if !entries.iter().any(|entry|inherit_group(&entry.key).is_some_and(|group|groups.iter().any(|value|value.as_str()==Some(group)))){return Ok(());}
+    let parent=UserSubject::resolved(&state.store,&authority.parent).await?;
+    let extra=user_layer_rows(state,&parent.account_id,parent.personal_owner.as_deref(),parent.record_owner.as_deref(),parent.proxy_policy_owner.as_deref()).await?;
+    let values=registry::effective_all_with(&state.store,&parent.as_subject(),SettingDef::user_visible,&extra).await?;
+    for entry in entries{if let Some(parent)=values.iter().find(|value|value.key==entry.key){inherit_value(entry,parent,groups);}}
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -1657,9 +1634,10 @@ async fn user_put(
     if let Err(e) = saved {
         return server_error(e);
     }
-    match user_entry(&state, &subject, &key).await {
-        Ok(e) => Json(e.to_user_json()).into_response(),
-        Err(r) => r,
+    match effective_for_session(&state,&session,&key).await {
+        Ok(Some(e)) => Json(e.to_user_json()).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => server_error(e),
     }
 }
 
@@ -1697,9 +1675,10 @@ async fn user_delete(
     if let Err(e) = deleted {
         return server_error(e);
     }
-    match user_entry(&state, &subject, &key).await {
-        Ok(e) => Json(e.to_user_json()).into_response(),
-        Err(r) => r,
+    match effective_for_session(&state,&session,&key).await {
+        Ok(Some(e)) => Json(e.to_user_json()).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => server_error(e),
     }
 }
 
@@ -1718,7 +1697,7 @@ mod account_wide_tests {
             ("mail.accountUnreadBadge", "false"),
             ("mail.focusedInbox", "false"),
         ] {
-            assert!(ACCOUNT_WIDE.contains(&key), "{key} is account wide");
+            assert!(inherit_group(key).is_some(), "{key} supports explicit inheritance");
             let def = registry::lookup(key).unwrap_or_else(|| panic!("{key} is registered"));
             assert!(def.user_visible(), "{key} reaches GET /api/settings");
             assert!(

@@ -171,3 +171,9 @@ st-ui-workspaceSplitRatio = Proporties van werkruimtevensters
 st-unset = Niet ingesteld
 
 st-values = Vergelijk waarden
+
+st-source-account = Voorkeuren uit ander account kopiëren
+st-source-choose = Bronaccount kiezen
+st-source-help = Controleer overdraagbare voorkeuren van een geverifieerd account. Niets verandert vóór Toepassen. Map-ID’s en inloggegevens zijn uitgesloten.
+st-source-review = Accountvoorkeuren controleren
+st-source-error = Bronaccount kon niet worden geladen. Een instellingenbestand importeren blijft mogelijk.

@@ -171,3 +171,9 @@ st-ui-workspaceSplitRatio = Proporcje panelu obszaru roboczego
 st-unset = Nie ustawiono
 
 st-values = Porównaj wartości
+
+st-source-account = Kopiuj preferencje z innego konta
+st-source-choose = Wybierz konto źródłowe
+st-source-help = Sprawdź przenośne preferencje zweryfikowanego konta. Nic nie zmieni się przed Zastosuj. Dane logowania i identyfikatory folderów są pomijane.
+st-source-review = Sprawdź preferencje konta
+st-source-error = Nie można wczytać konta źródłowego. Nadal można zaimportować plik ustawień.

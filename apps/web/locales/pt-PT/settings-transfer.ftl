@@ -86,3 +86,9 @@ st-ui-folderCollapsed = Ramos de pastas recolhidos
 st-ui-folderParent = Hierarquia visual das pastas
 st-ui-folderStarred = Pastas com estrela
 st-ui-folderProps = Notas e opções de apresentação de pastas
+
+st-source-account = Copiar preferências de outra conta
+st-source-choose = Escolher conta de origem
+st-source-help = Reveja preferências portáteis de uma conta verificada. Nada muda até selecionar Aplicar. IDs de pastas e credenciais são excluídos.
+st-source-review = Rever preferências da conta
+st-source-error = Não foi possível carregar a conta de origem. Pode importar um ficheiro de definições.

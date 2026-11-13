@@ -2602,3 +2602,6 @@ admin-settings-help-notifications-view-show-in-sidebar = يتحكم في عرض 
 
 admin-settings-key-mail-unified-account = الحساب الافتراضي الموحد
 admin-settings-help-mail-unified-account = إضافة حساب افتراضي منفصل إلى محدد الحسابات بمجلدات وعدادات مجمعة. مستقل عن عرض الرسائل الموحد.
+
+admin-settings-key-accounts-settings-inherit-groups = وراثة تفضيلات الحساب الأساسي
+admin-settings-help-accounts-settings-inherit-groups = تستخدم المجموعات المحددة قيم الحساب الأساسي عند عدم وجود تجاوز محلي. تتقدم الخيارات المحلية وسياسة المسؤول. لا تتم وراثة السمات والتوقيعات وبيانات الاعتماد ومعرفات المجلدات.

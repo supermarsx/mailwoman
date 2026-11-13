@@ -142,3 +142,10 @@ linked-accounts-show-selector = Show in account selector
 linked-accounts-hide-selector = Hide from account selector
 linked-accounts-go-to = Go to account: { $address }
 linked-accounts-go-to-short = Go to account
+
+linked-settings-inheritance-title = Inherit primary-account preferences
+linked-settings-inheritance-help = Selected groups use primary-account defaults when this mailbox has no override. Local choices and administrator policy win. Themes, signatures, credentials and folder IDs are not inherited.
+linked-settings-inherited = Inherited from the primary account
+linked-settings-primary-title = Managed by the sign-in account
+linked-settings-primary-help = This section manages the sign-in account rather than this linked mailbox. Switch accounts to configure it. Mailbox preferences remain separate.
+linked-settings-primary-open = Open primary-account settings

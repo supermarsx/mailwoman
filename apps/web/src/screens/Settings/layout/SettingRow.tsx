@@ -1,3 +1,4 @@
+import type {SettingEntry} from '../../../api/settings.ts';
 import { Show, untrack, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
 import { LockNote } from '../LockNote.tsx';
@@ -5,6 +6,7 @@ import * as css from './layout.css.ts';
 import { loadCatalog } from '../../../i18n/catalog.ts';
 // i18n: the ids this file shows live in these catalogs, which load with it.
 void loadCatalog('reader');
+void loadCatalog('linked-accounts');
 
 /** The slice of a useSetting handle a row needs. */
 export interface RowHandle {
@@ -38,6 +40,7 @@ export function SettingRow(props: {
       <button type="button" class={css.rowReset} disabled={disabled()} onClick={() => (props.onReset ? props.onReset() : void props.handle.reset())}>{props.resetLabel ?? t('reader-inherit')}</button>
     </div>
     <div class={css.rowNote}>
+      <Show when={(props.handle.entry() as SettingEntry|undefined)?.inherited}><span>{t('linked-settings-inherited')}</span></Show>
       <LockNote id={lockId()} locked={props.lockNote ?? props.handle.locked()} />
       <Show when={props.handle.error()}><p role="alert">{props.handle.error()}</p></Show>
     </div>

@@ -3,6 +3,7 @@
   "routes": [
     { "path": "/api/me", "scope": "mailbox" },
     { "path": "/api/policy", "scope": "mailbox" },
+    { "path": "/api/rc/policy", "scope": "mailbox", "note": "remote_policy::get resolves the selected mailbox through authed" },
     { "path": "/jmap/session", "scope": "mailbox" },
     { "path": "/.well-known/jmap", "scope": "mailbox" },
     { "path": "/.well-known/mailwoman", "scope": "public" },

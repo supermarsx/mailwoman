@@ -2598,3 +2598,6 @@ admin-settings-help-notifications-view-show-in-sidebar = Steruje centrum powiado
 
 admin-settings-key-mail-unified-account = Zbiorcze konto wirtualne
 admin-settings-help-mail-unified-account = Dodaj osobne konto wirtualne do selektora kont ze wspólnymi folderami i licznikami. Niezależne od zbiorczego widoku wiadomości.
+
+admin-settings-key-accounts-settings-inherit-groups = Dziedzicz preferencje konta głównego
+admin-settings-help-accounts-settings-inherit-groups = Wybrane grupy używają wartości konta głównego bez lokalnego nadpisania. Lokalne wybory i zasady administratora mają pierwszeństwo. Motywy, podpisy, dane logowania i identyfikatory folderów nie są dziedziczone.

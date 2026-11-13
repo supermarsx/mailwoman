@@ -144,3 +144,10 @@ linked-accounts-avatar-icon-plane = Самолёт
 linked-accounts-avatar-icon-school = Школа
 linked-accounts-go-to = Перейти к аккаунту: { $address }
 linked-accounts-go-to-short = Перейти к аккаунту
+
+linked-settings-inheritance-title = Наследовать настройки основного аккаунта
+linked-settings-inheritance-help = Выбранные группы используют значения основного аккаунта при отсутствии локального переопределения. Локальные настройки и политика администратора приоритетны. Темы, подписи, учётные данные и идентификаторы папок не наследуются.
+linked-settings-inherited = Унаследовано от основного аккаунта
+linked-settings-primary-title = Управляется аккаунтом входа
+linked-settings-primary-help = Этот раздел управляет аккаунтом входа. Для настройки переключитесь на основной аккаунт. Настройки почтовых ящиков остаются раздельными.
+linked-settings-primary-open = Открыть настройки основного аккаунта
