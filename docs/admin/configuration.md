@@ -663,7 +663,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="attachments.bar.showdownloadbuttons"></a>`attachments.bar.showDownloadButtons` | reader | global+domain+user | "hover" | plain |  | yes | when each attachment shows its download button |
 | <a id="attachments.bar.downloadall"></a>`attachments.bar.downloadAll` | reader | global+domain+user | true | plain |  | yes | offer a Download all button on the reader's attachments bar |
 | <a id="attachments.bar.zipinlineimages"></a>`attachments.bar.zipInlineImages` | reader | global+domain+user | false | plain |  | yes | include inline (cid) images in the attachments bar's Download all ZIP |
-| <a id="ui.language"></a>`ui.language` | interface | global+domain+user | "browser" | plain |  | yes | web client locale (cached in localStorage mw.locale) |
+| <a id="ui.language"></a>`ui.language` | time | global+domain+user | "browser" | plain |  | yes | web client locale (cached in localStorage mw.locale) |
 | <a id="ui.notifynewversion"></a>`ui.notifyNewVersion` | interface | global+domain+user | true | plain |  | yes | show a toast when a newer version of the web app has been deployed |
 | <a id="ui.undohistorysize"></a>`ui.undoHistorySize` | interface | global+domain+user | 50 | plain |  | yes | how many recent mail actions the Undo and Redo buttons remember (0 turns them off) |
 | <a id="ui.undohistorymax"></a>`ui.undoHistoryMax` | interface | global | 50 | plain |  | yes | most recent mail actions any user may keep in the Undo and Redo history |

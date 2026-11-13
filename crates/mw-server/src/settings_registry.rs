@@ -3435,7 +3435,7 @@ pub static REGISTRY: &[SettingDef] = &[
         Kind::Locale,
         "\"browser\"",
         GDU,
-        "interface",
+        "time",
         "web client locale (cached in localStorage mw.locale)"
     ),
     def!(
