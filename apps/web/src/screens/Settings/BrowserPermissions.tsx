@@ -1,3 +1,4 @@
+import {toast} from '../../components/toast/toast.ts';
 import { storageAuthorityHeaders } from '../../api/storageAuthority.ts';
 import { createSignal, onMount, onCleanup, Show, type JSX } from 'solid-js';
 import { apiFetch } from '../../api/http.ts';
@@ -9,7 +10,8 @@ import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 
 export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boolean; persistentStorageAllowed: boolean; disabled?: boolean }): JSX.Element {
-  const [busy, setBusy] = createSignal(false), [error, setError] = createSignal('');
+  const [busy, setBusy] = createSignal(false);
+  let disposed=false;onCleanup(()=>{disposed=true;});
   const [persistent, setPersistent] = createSignal(false), [subscribed, setSubscribed] = createSignal(false);
   const [browserSubscription,setBrowserSubscription]=createSignal(false);
   const [usage, setUsage] = createSignal<number | undefined>();
@@ -38,8 +40,8 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
     }catch{if(preferenceAccountIsCurrent(account))setSubscribed(false);}
   }
   async function run(action: () => Promise<void>): Promise<void> {
-    setBusy(true); setError('');
-    try { await action(); } catch { setError(t('settings-permissions-error')); } finally { setBusy(false); }
+    if(busy())return;const owner=preferenceAccount();setBusy(true);
+    try { await action(); } catch { if(!disposed&&(owner?preferenceAccountIsCurrent(owner):!preferenceAccount()))toast.error(t('settings-permissions-error')); } finally { if(!disposed)setBusy(false); }
   }
   async function registerPush(): Promise<void> {
     const account = preferenceAccount();
@@ -87,7 +89,6 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
       </div>
       <Show when={!props.persistentStorageAllowed}><p>{t('settings-permissions-storage-policy')}</p></Show>
     </Show>
-    <Show when={error()}><p role="alert" class={css.error}>{error()}</p></Show>
     </fieldset>
     </SettingsCard>
   </>;

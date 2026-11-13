@@ -5,9 +5,11 @@ import { activateAccountPreferences, suspendAccountPreferences } from '../../api
 import { t } from '../../test/i18n.ts';
 void t;
 const request=vi.hoisted(()=>vi.fn());
+const errorToast=vi.hoisted(()=>vi.fn());
+vi.mock('../../components/toast/toast.ts',()=>({toast:{error:errorToast}}));
 vi.mock('../../api/http.ts',()=>({apiFetch:request}));
 
-afterEach(() => { request.mockReset(); delete (navigator as unknown as {serviceWorker?:unknown}).serviceWorker; vi.unstubAllGlobals(); suspendAccountPreferences(); delete (navigator as unknown as { storage?: unknown }).storage; });
+afterEach(() => { request.mockReset();errorToast.mockReset(); delete (navigator as unknown as {serviceWorker?:unknown}).serviceWorker; vi.unstubAllGlobals(); suspendAccountPreferences(); delete (navigator as unknown as { storage?: unknown }).storage; });
 describe('explicit browser storage permissions', () => {
   it('reports real status and only requests persistence on an allowed click', async () => {
     const persist=vi.fn(async()=>true);
@@ -41,4 +43,12 @@ it('does not attribute a browser push endpoint or late old registration to anoth
  await waitFor(()=>expect(request).toHaveBeenCalledTimes(2));release(new Response('{"registered":true,"allowed":true}',{status:200}));
  await waitFor(()=>expect(screen.getByText(t('settings-permissions-push-unregistered'))).toBeInTheDocument());
  expect(new Headers(request.mock.calls[1]?.[1]?.headers).get('x-mailwoman-storage-authority')).toBe('msa1_second_verified_authority');
+});
+
+it('reports a browser action failure once as a toast without an inline alert',async()=>{
+ Object.defineProperty(navigator,'storage',{configurable:true,value:{persist:vi.fn(async()=>{throw new Error('blocked');}),persisted:async()=>false,estimate:async()=>({})}});
+ render(()=><BrowserPermissions enabled={true} pushAllowed={false} persistentStorageAllowed={true}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Request persistent storage'}));
+ await waitFor(()=>expect(errorToast).toHaveBeenCalledWith(t('settings-permissions-error')));
+ expect(errorToast).toHaveBeenCalledTimes(1);expect(screen.queryByRole('alert')).toBeNull();
 });
