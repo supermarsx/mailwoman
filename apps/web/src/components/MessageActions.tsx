@@ -1,7 +1,9 @@
+import {configuredSnoozePresets,resolveSnooze,snoozePresetLabel,snoozeZone,snoozeWeekStart,type SnoozePreset} from '../state/snooze.ts';
+import {requestCustomSnooze} from './SnoozeDialog.tsx';
 import { Icon, tagIconName } from './Icon.tsx';
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
-import { t } from '../i18n/index.ts';
+import {formatDateTime,t} from '../i18n/index.ts';
 import { rowActionsMode, type RowActionsMode } from '../state/mailFeatures.ts';
 import * as a11y from './mailA11y.css.ts';
 import * as css from './messageRow.css.ts';
@@ -31,19 +33,13 @@ import { ACTION_ICONS, snoozePresetIcon } from '../actionIcons.ts';
 /** Snooze presets → absolute ISO times, computed at click. The `labelId` is a
  *  mail catalog id resolved with `t()` at render (kept out of the pure time math
  *  so this stays trivially testable). */
-export function snoozePresets(now = new Date()): { labelId: string; at: string }[] {
-  const laterToday = new Date(now.getTime() + 3 * 3_600_000);
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(9, 0, 0, 0);
-  const nextWeek = new Date(now);
-  nextWeek.setDate(nextWeek.getDate() + 7);
-  nextWeek.setHours(9, 0, 0, 0);
-  return [
-    { labelId: 'mail-snooze-later', at: laterToday.toISOString() },
-    { labelId: 'mail-snooze-tomorrow', at: tomorrow.toISOString() },
-    { labelId: 'mail-snooze-next-week', at: nextWeek.toISOString() },
-  ];
+type SnoozeChoice=SnoozePreset&{labelId:string;at:string};
+let cachedChoices:{rules:SnoozePreset[];minute:number;zone:string;weekStart:number;rows:SnoozeChoice[]}|undefined;
+export function snoozePresets(now=new Date()):SnoozeChoice[]{
+  const rules=configuredSnoozePresets(),minute=Math.floor(now.getTime()/60000),zone=snoozeZone(),weekStart=snoozeWeekStart();
+  if(cachedChoices?.rules===rules&&cachedChoices.minute===minute&&cachedChoices.zone===zone&&cachedChoices.weekStart===weekStart)return cachedChoices.rows;
+  const rows=rules.flatMap(preset=>{if(!preset.enabled)return [];const at=resolveSnooze(preset,now,zone,weekStart);return at?[{...preset,labelId:preset.id==='later'?'mail-snooze-later':preset.kind==='hours'?'snooze-kind-hours':preset.kind==='days'?'snooze-kind-days':`mail-snooze-${preset.kind}`,at}]:[];});
+  cachedChoices={rules,minute,zone,weekStart,rows};return rows;
 }
 
 export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)=>void; contextOpen?:boolean }): JSX.Element {
@@ -217,18 +213,20 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
           </button>
           <Show when={menu() === 'snooze'}>
             <div class={`msg-menu ${css.menu}`} role="menu" aria-label={t('mail-snooze-menu')}>
+              <button type="button" role="menuitem" class={`msg-menu__item ${css.menuItem} ${a11y.focusable}`} onClick={()=>{const messageId=id();closeAll();requestCustomSnooze(until=>app.snoozeMessage(messageId,until));}}><Icon name="snoozePick"/>{t('snooze-custom')}</button>
               <For each={snoozePresets()}>
                 {(p) => (
                   <button
                     type="button"
                     role="menuitem"
+                    title={formatDateTime(p.at)}
                     class={`msg-menu__item ${css.menuItem} ${a11y.focusable}`}
                     onClick={() => {
                       closeAll();
-                      void app.snoozeMessage(id(), p.at);
+                      const at=resolveSnooze(p);if(at)void app.snoozeMessage(id(),at);
                     }}
                   >
-                    <Icon name={snoozePresetIcon(p.labelId)} />{t(p.labelId)}
+                    <Icon name={snoozePresetIcon(p.labelId)} />{snoozePresetLabel(p)}
                   </button>
                 )}
               </For>

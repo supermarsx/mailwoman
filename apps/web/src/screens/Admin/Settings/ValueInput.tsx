@@ -1,3 +1,5 @@
+import {SnoozePresetEditor} from '../../../components/SnoozePresetEditor.tsx';
+import type {SnoozePreset} from '../../../state/snooze.ts';
 // One editor for a setting value, chosen by the registry's declared kind
 // (worker f01): a checkbox for on/off, a number field with its bounds, a list
 // for a fixed set of words or a language, a text field with its length, and a
@@ -96,6 +98,9 @@ export function ValueInput(props: ValueInputProps): JSX.Element {
           {props.nullable ? <option value="">{t('admin-settings-value-empty')}</option> : null}
           <For each={options()}>{(v) => <option value={v}>{label(v)}</option>}</For>
         </select>
+      </Match>
+      <Match when={props.kind.type==='snoozePresets'}>
+        <SnoozePresetEditor value={(()=>{try{const rows:unknown=JSON.parse(text());return Array.isArray(rows)?rows as SnoozePreset[]:[];}catch{return [];}})()} onChange={rows=>props.onDraft(JSON.stringify(rows))} disabled={props.disabled} id={props.wiring.id} describedBy={props.wiring.describedBy}/>
       </Match>
       <Match when={props.kind.type==='messageTemplates'}>
         <TemplateLibraryEditor value={(()=>{try{return templateRows(JSON.parse(text()));}catch{return [];}})()} onChange={rows=>props.onDraft(JSON.stringify(rows))} disabled={props.disabled===true} id={props.wiring.id} describedBy={props.wiring.describedBy}/>

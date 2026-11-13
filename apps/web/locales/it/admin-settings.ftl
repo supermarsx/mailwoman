@@ -2569,3 +2569,6 @@ admin-settings-key-incidents-notify-operatorAddresses = Destinatari delle operaz
 admin-settings-help-incidents-notify-operatorAddresses = I controlli falliti e gli avvisi di sessione creano potenziali incidenti. Valuta la rilevanza e verifica il ripristino. Le lacune di monitoraggio non provano un'interruzione.
 admin-settings-key-incidents-retention-days = Conservazione incidenti chiusi (giorni)
 admin-settings-help-incidents-retention-days = I controlli falliti e gli avvisi di sessione creano potenziali incidenti. Valuta la rilevanza e verifica il ripristino. Le lacune di monitoraggio non provano un'interruzione.
+
+admin-settings-key-mail-snooze-presets = Opzioni di rinvio
+admin-settings-help-mail-snooze-presets = Aggiungi, rinomina, riordina, modifica o nascondi le opzioni. Il menu consente sempre di scegliere data e ora.

@@ -2569,3 +2569,6 @@ admin-settings-key-incidents-notify-operatorAddresses = E-mailontvangers beheer
 admin-settings-help-incidents-notify-operatorAddresses = Mislukte controles en sessiebeveiligingssignalen maken mogelijke incidenten aan. Beoordeel de ernst en verifieer herstel. Ontbrekende monitoring bewijst geen uitval.
 admin-settings-key-incidents-retention-days = Bewaartermijn gesloten incidenten (dagen)
 admin-settings-help-incidents-retention-days = Mislukte controles en sessiebeveiligingssignalen maken mogelijke incidenten aan. Beoordeel de ernst en verifieer herstel. Ontbrekende monitoring bewijst geen uitval.
+
+admin-settings-key-mail-snooze-presets = Sluimeropties
+admin-settings-help-mail-snooze-presets = Voeg opties toe, hernoem, sorteer, bewerk of verberg ze. Een eigen datum en tijd blijven altijd beschikbaar in het menu.

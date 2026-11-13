@@ -32,6 +32,8 @@
 use serde_json::{Value, json};
 
 pub mod link_trust;
+#[path = "snooze_presets.rs"]
+mod snooze_presets;
 
 #[path = "regional_format.rs"]
 mod regional_format;
@@ -147,6 +149,8 @@ pub enum Kind {
     FolderRole,
     /// Bounded plain-text response templates; never executable HTML.
     MessageTemplates,
+    /// Editable, bounded message snooze rules.
+    SnoozePresets,
     Bool,
     Int {
         min: i64,
@@ -193,6 +197,7 @@ impl Kind {
     /// The wire description the admin UI validates against (UX5).
     pub fn describe(&self) -> Value {
         match *self {
+            Kind::SnoozePresets => json!({"type":"snoozePresets","maxItems":32}),
             Kind::MessageTemplates => {
                 json!({"type":"messageTemplates","maxItems":20,"maxTitleLength":80,"maxBodyLength":8000,"maxBytes":65536})
             }
@@ -743,6 +748,14 @@ pub static REGISTRY: &[SettingDef] = &[
         GDA,
         "mail",
         "Plain-text response templates: shared"
+    ),
+    def!(
+        "mail.snooze.presets",
+        Kind::SnoozePresets,
+        snooze_presets::DEFAULT,
+        GDU,
+        "mail",
+        "Editable message snooze presets; custom date and time remains available"
     ),
     def!(
         "mail.templates.personal",
@@ -8911,6 +8924,12 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
         return bad("use id:<folder ID> or role:inbox/drafts/sent/trash/junk/archive".into());
     }
     match def.kind {
+        Kind::SnoozePresets => {
+            if !snooze_presets::valid(value) {
+                return bad("expected up to 32 unique snooze presets with a bounded interval or calendar rule and HH:MM time".into());
+            }
+            Ok(value.clone())
+        }
         Kind::MessageTemplates => {
             let Some(items) = value.as_array() else {
                 return bad("must be a template list".into());

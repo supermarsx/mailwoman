@@ -2575,3 +2575,6 @@ admin-settings-key-incidents-notify-operatorAddresses = E-Mail-Empfänger im Bet
 admin-settings-help-incidents-notify-operatorAddresses = Fehlgeschlagene Zustandsprüfungen und Sitzungssignale erzeugen Vorfallkandidaten. Erheblichkeit und Wiederherstellung müssen geprüft werden. Überwachungslücken beweisen keinen Ausfall.
 admin-settings-key-incidents-retention-days = Aufbewahrung geschlossener Vorfälle (Tage)
 admin-settings-help-incidents-retention-days = Fehlgeschlagene Zustandsprüfungen und Sitzungssignale erzeugen Vorfallkandidaten. Erheblichkeit und Wiederherstellung müssen geprüft werden. Überwachungslücken beweisen keinen Ausfall.
+
+admin-settings-key-mail-snooze-presets = Schlummeroptionen
+admin-settings-help-mail-snooze-presets = Vorgaben hinzufügen, umbenennen, sortieren, bearbeiten oder ausblenden. Ein eigenes Datum mit Uhrzeit bleibt im Menü verfügbar.

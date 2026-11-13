@@ -2591,3 +2591,6 @@ admin-settings-key-incidents-notify-operatorAddresses = مستلمو البري�
 admin-settings-help-incidents-notify-operatorAddresses = تنشئ إخفاقات الفحص ومؤشرات أمان الجلسات حوادث محتملة تلقائيًا. قيّم الأهمية وتحقق من التعافي. فجوات المراقبة لا تثبت انقطاع الخدمة.
 admin-settings-key-incidents-retention-days = الاحتفاظ بالحوادث المغلقة (أيام)
 admin-settings-help-incidents-retention-days = تنشئ إخفاقات الفحص ومؤشرات أمان الجلسات حوادث محتملة تلقائيًا. قيّم الأهمية وتحقق من التعافي. فجوات المراقبة لا تثبت انقطاع الخدمة.
+
+admin-settings-key-mail-snooze-presets = خيارات التأجيل
+admin-settings-help-mail-snooze-presets = أضف الخيارات أو أعد تسميتها وترتيبها وتحريرها أو أخفها. يظل اختيار تاريخ ووقت مخصص متاحًا في القائمة.

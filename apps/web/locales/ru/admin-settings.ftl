@@ -2587,3 +2587,6 @@ admin-settings-key-incidents-notify-operatorAddresses = Адреса опера�
 admin-settings-help-incidents-notify-operatorAddresses = Сбои проверок и сигналы безопасности сеансов создают возможные инциденты. Оцените значимость и проверьте восстановление. Пробелы мониторинга не доказывают простой.
 admin-settings-key-incidents-retention-days = Хранение закрытых инцидентов (дни)
 admin-settings-help-incidents-retention-days = Сбои проверок и сигналы безопасности сеансов создают возможные инциденты. Оцените значимость и проверьте восстановление. Пробелы мониторинга не доказывают простой.
+
+admin-settings-key-mail-snooze-presets = Настройки откладывания
+admin-settings-help-mail-snooze-presets = Добавляйте, переименовывайте, упорядочивайте, изменяйте или скрывайте варианты. В меню всегда доступен выбор даты и времени.

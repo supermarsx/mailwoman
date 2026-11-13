@@ -2575,3 +2575,6 @@ admin-settings-key-incidents-notify-operatorAddresses = Destinataires opérateur
 admin-settings-help-incidents-notify-operatorAddresses = Les échecs des contrôles et les alertes de session créent des incidents potentiels. Vérifiez leur importance et la reprise. Une interruption de surveillance ne prouve pas une panne.
 admin-settings-key-incidents-retention-days = Conservation des incidents clos (jours)
 admin-settings-help-incidents-retention-days = Les échecs des contrôles et les alertes de session créent des incidents potentiels. Vérifiez leur importance et la reprise. Une interruption de surveillance ne prouve pas une panne.
+
+admin-settings-key-mail-snooze-presets = Options de report
+admin-settings-help-mail-snooze-presets = Ajoutez, renommez, réordonnez, modifiez ou masquez les choix. Une date et heure personnalisées restent disponibles dans le menu.

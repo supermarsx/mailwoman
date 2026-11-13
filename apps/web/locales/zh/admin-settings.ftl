@@ -2561,3 +2561,6 @@ admin-settings-key-incidents-notify-operatorAddresses = 运维邮件收件人
 admin-settings-help-incidents-notify-operatorAddresses = 健康检查失败和会话安全信号会自动创建候选事件。请评估重大程度并验证恢复。监控空档不能证明发生了停机。
 admin-settings-key-incidents-retention-days = 已关闭事件保留期（天）
 admin-settings-help-incidents-retention-days = 健康检查失败和会话安全信号会自动创建候选事件。请评估重大程度并验证恢复。监控空档不能证明发生了停机。
+
+admin-settings-key-mail-snooze-presets = 稍后提醒选项
+admin-settings-help-mail-snooze-presets = 添加、重命名、排序、编辑或隐藏预设。菜单始终支持自定义日期和时间。

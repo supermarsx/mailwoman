@@ -2364,3 +2364,6 @@ admin-settings-key-incidents-notify-operatorAddresses = Operator email recipient
 admin-settings-help-incidents-notify-operatorAddresses = Health failures and session-security signals create incident candidates automatically. Review significance and verify recovery. Monitoring gaps do not prove outages.
 admin-settings-key-incidents-retention-days = Closed incident retention (days)
 admin-settings-help-incidents-retention-days = Health failures and session-security signals create incident candidates automatically. Review significance and verify recovery. Monitoring gaps do not prove outages.
+
+admin-settings-key-mail-snooze-presets = Snooze options
+admin-settings-help-mail-snooze-presets = Add, rename, reorder, edit or hide snooze presets. A custom date and time is always available in the snooze menu.

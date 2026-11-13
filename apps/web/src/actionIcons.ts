@@ -180,6 +180,11 @@ export const SNOOZE_PRESET_ICONS: Readonly<Record<string, IconName>> = {
   'mail-snooze-next-week': ACTION_ICONS.snoozeNextWeek,
   'mail-snooze-month': ACTION_ICONS.snoozeMonth,
   'mail-snooze-pick': ACTION_ICONS.snoozePick,
+  'snooze-kind-hours': ACTION_ICONS.snoozeLater,
+  'snooze-kind-days': ACTION_ICONS.snoozeTomorrow,
+  'mail-snooze-end-week': ACTION_ICONS.snoozeWeekend,
+  'mail-snooze-end-month': ACTION_ICONS.snoozeMonth,
+  'mail-snooze-next-month': ACTION_ICONS.snoozeMonth,
 };
 
 export function snoozePresetIcon(labelId: string): IconName {

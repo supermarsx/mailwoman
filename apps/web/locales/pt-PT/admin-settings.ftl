@@ -2367,3 +2367,6 @@ admin-settings-key-incidents-notify-operatorAddresses = Destinatários de email 
 admin-settings-help-incidents-notify-operatorAddresses = Falhas de saúde e sinais de segurança das sessões criam candidatos a incidentes. Avalie a relevância e verifique a recuperação. Lacunas de monitorização não provam indisponibilidade.
 admin-settings-key-incidents-retention-days = Retenção de incidentes encerrados (dias)
 admin-settings-help-incidents-retention-days = Falhas de saúde e sinais de segurança das sessões criam candidatos a incidentes. Avalie a relevância e verifique a recuperação. Lacunas de monitorização não provam indisponibilidade.
+
+admin-settings-key-mail-snooze-presets = Opções de adiamento
+admin-settings-help-mail-snooze-presets = Adicione, renomeie, reordene, edite ou oculte predefinições. O menu permite sempre escolher uma data e hora.

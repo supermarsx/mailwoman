@@ -1,3 +1,5 @@
+import {resolveSnooze,snoozePresetLabel} from '../state/snooze.ts';
+import {requestCustomSnooze} from './SnoozeDialog.tsx';
 import {hasFileAttachments} from './attachmentMetadata.ts';
 import {createEffect,createSignal,onCleanup,untrack,type Accessor} from 'solid-js';
 import {useApp} from '../state/context.ts';
@@ -171,7 +173,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
    const answered=all('$answered'),forwarded=all('$forwarded');
    rows.push({id:'mark-answered',label:t(answered?'mail-mark-unanswered':'mail-mark-answered'),icon:ACTION_ICONS.markAnswered,separatorBefore:true,run:()=>app.markReplyState(ids,'$answered',!answered)},
     {id:'mark-forwarded',label:t(forwarded?'mail-mark-not-forwarded':'mail-mark-forwarded'),icon:ACTION_ICONS.markForwarded,run:()=>app.markReplyState(ids,'$forwarded',!forwarded)});}
-  rows.push({id:'snooze',label:t('mail-snooze'),icon:ACTION_ICONS.snooze,separatorBefore:true,run:()=>{},children:snoozePresets().map(preset=>({id:`snooze:${preset.labelId}`,label:t(preset.labelId),icon:snoozePresetIcon(preset.labelId),run:()=>app.snoozeMessage(id,snoozePresets().find(value=>value.labelId===preset.labelId)!.at)}))});
+  rows.push({id:'snooze',label:t('mail-snooze'),icon:ACTION_ICONS.snooze,separatorBefore:true,run:()=>{},children:[{id:'snooze:custom',label:t('snooze-custom'),icon:ACTION_ICONS.snoozePick,run:()=>requestCustomSnooze(until=>app.snoozeMessage(id,until))},...snoozePresets().map(preset=>({id:`snooze:${preset.id}`,label:snoozePresetLabel(preset),icon:snoozePresetIcon(preset.labelId),run:()=>{const at=resolveSnooze(preset);if(at)return app.snoozeMessage(id,at);}}))]});
   if(message.snoozedUntil)rows.push({id:'unsnooze',label:t('mail-unsnooze'),icon:ACTION_ICONS.unsnooze,run:()=>app.unsnoozeMessage(id)});
   if((message.followUpAt||message.keywords?.['$flagged'])&&!message.keywords?.['mw-followup-completed'])rows.push({id:'finish-followup',label:t('mail-mark-finished'),icon:'check',run:()=>app.completeFollowUp(id)});
   rows.push({id:'followup',label:t(message.followUpAt?'mail-clear-flag':'mail-flag'),icon:ACTION_ICONS.followUp,run:()=>app.setFollowUp(id,message.followUpAt?null:new Date(Date.now()+86400000).toISOString())});

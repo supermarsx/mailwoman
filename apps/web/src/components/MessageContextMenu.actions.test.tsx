@@ -104,3 +104,16 @@ describe('message context menu: Mark as submenu',()=>{
   expect(screen.queryByRole('menu',{name:'Mark as'})).toBeNull();
  });
 });
+
+it('uses configured snooze choices and computes their delay when selected',async()=>{
+ const app=await open();
+ await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.snooze.presets':{value:[{id:'meeting',kind:'hours',amount:6,label:'After my meeting',enabled:true},{id:'hidden',kind:'hours',amount:2,label:'Hidden choice',enabled:false}],source:'user',locked:false}}}))});
+ const save=vi.spyOn(app,'snoozeMessage').mockResolvedValue();const now=Date.now();
+ fireEvent.click(screen.getByRole('menuitem',{name:'Snooze'}));
+ expect(screen.getByRole('menuitem',{name:'Choose date and time…'})).toBeVisible();
+ expect(screen.queryByRole('menuitem',{name:'Hidden choice'})).toBeNull();
+ fireEvent.click(screen.getByRole('menuitem',{name:'After my meeting'}));
+ expect(save).toHaveBeenCalledOnce();expect(save.mock.calls[0]?.[0]).toBe('m1');
+ expect(new Date(save.mock.calls[0]![1]).getTime()).toBeGreaterThanOrEqual(now+6*3600000);
+ expect(new Date(save.mock.calls[0]![1]).getTime()).toBeLessThan(now+6*3600000+10000);
+});

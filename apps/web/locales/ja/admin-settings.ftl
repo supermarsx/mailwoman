@@ -2561,3 +2561,6 @@ admin-settings-key-incidents-notify-operatorAddresses = 運用担当者のメー
 admin-settings-help-incidents-notify-operatorAddresses = 正常性チェックの失敗とセッションの警告からインシデント候補を自動作成します。重大性を評価し、復旧を検証してください。監視の空白だけでは停止の証拠になりません。
 admin-settings-key-incidents-retention-days = 終了したインシデントの保持期間（日）
 admin-settings-help-incidents-retention-days = 正常性チェックの失敗とセッションの警告からインシデント候補を自動作成します。重大性を評価し、復旧を検証してください。監視の空白だけでは停止の証拠になりません。
+
+admin-settings-key-mail-snooze-presets = スヌーズの設定
+admin-settings-help-mail-snooze-presets = プリセットの追加、名前変更、並べ替え、編集、非表示ができます。メニューでは常に日時を指定できます。

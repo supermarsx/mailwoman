@@ -2587,3 +2587,6 @@ admin-settings-key-incidents-notify-operatorAddresses = Adresaci powiadomień op
 admin-settings-help-incidents-notify-operatorAddresses = Nieudane kontrole i sygnały bezpieczeństwa sesji tworzą potencjalne incydenty. Oceń istotność i sprawdź odtworzenie. Brak monitoringu nie dowodzi awarii.
 admin-settings-key-incidents-retention-days = Przechowywanie zamkniętych incydentów (dni)
 admin-settings-help-incidents-retention-days = Nieudane kontrole i sygnały bezpieczeństwa sesji tworzą potencjalne incydenty. Oceń istotność i sprawdź odtworzenie. Brak monitoringu nie dowodzi awarii.
+
+admin-settings-key-mail-snooze-presets = Opcje odraczania
+admin-settings-help-mail-snooze-presets = Dodawaj, zmieniaj nazwy i kolejność, edytuj lub ukrywaj opcje. W menu zawsze można wybrać własną datę i godzinę.

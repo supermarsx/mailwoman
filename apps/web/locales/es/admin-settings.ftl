@@ -2575,3 +2575,6 @@ admin-settings-key-incidents-notify-operatorAddresses = Destinatarios de operaci
 admin-settings-help-incidents-notify-operatorAddresses = Los fallos de salud y las alertas de sesión crean posibles incidentes. Evalúe su importancia y verifique la recuperación. Una falta de monitorización no demuestra una caída.
 admin-settings-key-incidents-retention-days = Retención de incidentes cerrados (días)
 admin-settings-help-incidents-retention-days = Los fallos de salud y las alertas de sesión crean posibles incidentes. Evalúe su importancia y verifique la recuperación. Una falta de monitorización no demuestra una caída.
+
+admin-settings-key-mail-snooze-presets = Opciones de posponer
+admin-settings-help-mail-snooze-presets = Añade, renombra, reordena, edita u oculta opciones. Siempre puedes elegir una fecha y hora en el menú.
