@@ -2573,6 +2573,9 @@ admin-settings-help-incidents-retention-days = I controlli falliti e gli avvisi 
 admin-settings-key-mail-snooze-presets = Opzioni di rinvio
 admin-settings-help-mail-snooze-presets = Aggiungi, rinomina, riordina, modifica o nascondi le opzioni. Il menu consente sempre di scegliere data e ora.
 
+admin-settings-key-reader-actions-view-draft = Visualizza bozza di risposta
+admin-settings-help-reader-actions-view-draft = Visualizza bozza di risposta
+
 admin-settings-key-notifications-view-enabled = Abilita la vista Notifiche
 admin-settings-help-notifications-view-enabled = Controlla il centro notifiche. Gli avvisi di sicurezza, di posta e del browser mantengono le proprie impostazioni.
 admin-settings-key-notifications-view-show-in-sidebar = Mostra Notifiche nella barra laterale

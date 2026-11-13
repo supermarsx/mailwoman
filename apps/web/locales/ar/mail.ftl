@@ -1661,3 +1661,6 @@ reader-sanitized-short-blocked = HTML محظور
 reader-sanitized-short-clean = HTML نظيف
 
 reader-sanitized-trackers = تتبع العناصر
+
+mail-draft-view = عرض المسودة
+mail-reply-draft-view = عرض الرد

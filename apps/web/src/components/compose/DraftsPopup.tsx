@@ -35,6 +35,7 @@ export interface DraftsPopupProps {
   currentId: string | undefined;
   mount?: Node | undefined;
   onRetryLoad: () => void;
+  onView?: (id:string)=>void;
   onOpenAccount: (id: string) => void;
   onOpenLocal: (draft: StoredDraft) => void;
   /** Resolves true once the confirmed upstream copy is gone. */
@@ -296,6 +297,7 @@ function DraftsPopupOpen(props: DraftsPopupProps): JSX.Element {
                           onClick={() => void discardOne(r).then((ok) => setAnnounce(ok ? t('mail-drafts-popup-announce-done', { count: 1 }) : t('mail-drafts-popup-announce-failed', { done: 0, failed: 1 })))}
                         >{t('mail-drafts-popup-retry')}</button>
                       </Show>
+                      <Show when={props.onView}><button type="button" class="btn btn--ghost" aria-label={t('mail-draft-view')} title={t('mail-draft-view')} disabled={state()?.phase==='busy'} onClick={()=>props.onView?.(r.id)}><Icon name="eye"/></button></Show>
                       <button
                         type="button"
                         class="drafts-popup__more"
@@ -306,7 +308,7 @@ function DraftsPopupOpen(props: DraftsPopupProps): JSX.Element {
                         onClick={() => setMenuId(menuId() === r.id ? null : r.id)}
                       ><Icon name="more" /></button>
                       <Show when={menuId() === r.id}>
-                        <div class="drafts-popup__menu" role="menu">
+                        <div class="drafts-popup__menu" role="menu"><Show when={props.onView}><button type="button" role="menuitem" onClick={()=>props.onView?.(r.id)}>{t('mail-draft-view')}</button></Show>
                           <button type="button" role="menuitem" onClick={() => open(r)}>{t('mail-drafts-popup-open')}</button>
                           <button type="button" role="menuitem" class="drafts-popup__danger" disabled={r.protectedRow} onClick={() => askDiscard([r.id])}>{t('mail-drafts-popup-discard')}</button>
                         </div>

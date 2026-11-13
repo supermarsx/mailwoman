@@ -1431,3 +1431,6 @@ reader-sanitized-short-blocked = HTML 被阻止
 reader-sanitized-short-clean = HTML 干净
 
 reader-sanitized-trackers = 追踪物品
+
+mail-draft-view = 查看草稿
+mail-reply-draft-view = 查看回复

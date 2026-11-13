@@ -77,3 +77,5 @@ reader-actions-option-menu = المزيد من القائمة
 reader-actions-option-toolbar = شريط الأدوات
 
 reader-actions-title = إجراءات قارئ الرسالة
+
+reader-action-view-draft = عرض مسودة الرد

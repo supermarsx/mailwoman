@@ -2368,6 +2368,9 @@ admin-settings-help-incidents-retention-days = Health failures and session-secur
 admin-settings-key-mail-snooze-presets = Snooze options
 admin-settings-help-mail-snooze-presets = Add, rename, reorder, edit or hide snooze presets. A custom date and time is always available in the snooze menu.
 
+admin-settings-key-reader-actions-view-draft = View reply draft
+admin-settings-help-reader-actions-view-draft = View reply draft
+
 admin-settings-key-notifications-view-enabled = Enable the Notifications view
 admin-settings-help-notifications-view-enabled = Controls the notification centre view. Security notices, mail toasts and browser alerts keep their own settings.
 admin-settings-key-notifications-view-show-in-sidebar = Show Notifications in the sidebar

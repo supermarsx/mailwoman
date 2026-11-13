@@ -1554,3 +1554,6 @@ reader-sanitized-short-blocked = HTML zablokowane
 reader-sanitized-short-clean = HTML czyste
 
 reader-sanitized-trackers = Śledzenie przedmiotów
+
+mail-draft-view = Wyświetl szkic
+mail-reply-draft-view = Wyświetl odpowiedź

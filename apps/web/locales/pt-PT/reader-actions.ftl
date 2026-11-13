@@ -39,3 +39,5 @@ reader-action-not-spam = Não é spam
 reader-action-view-source = Ver fonte da mensagem
 reader-action-create-filter = Criar filtro
 reader-action-block-sender = Bloquear remetente
+
+reader-action-view-draft = Ver rascunho da resposta

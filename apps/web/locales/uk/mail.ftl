@@ -1589,3 +1589,6 @@ reader-sanitized-short-blocked = HTML заблоковано
 reader-sanitized-short-clean = HTML чистий
 
 reader-sanitized-trackers = Відстеження елементів
+
+mail-draft-view = Переглянути чернетку
+mail-reply-draft-view = Переглянути відповідь

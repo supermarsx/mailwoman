@@ -1452,3 +1452,6 @@ mail-toast-follow-up-finished = Seguimento marcado como concluído
 mail-mentions-me = Menciona-me
 
 mail-mentions-me-help = Pesquisar mensagens que mencionam um dos seus endereços de email
+
+mail-draft-view = Ver rascunho
+mail-reply-draft-view = Ver resposta

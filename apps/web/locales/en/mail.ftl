@@ -1463,3 +1463,6 @@ mail-toast-follow-up-finished = Follow-up marked as finished
 mail-mentions-me = Mentions me
 
 mail-mentions-me-help = Search messages that mention one of your email addresses
+
+mail-draft-view = View draft
+mail-reply-draft-view = View reply

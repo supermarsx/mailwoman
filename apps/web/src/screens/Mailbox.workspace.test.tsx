@@ -101,7 +101,13 @@ describe('retained mailbox workspace',()=>{
     const reply=await screen.findByTestId('reader-reply');await waitFor(()=>expect(reply).toBeEnabled());fireEvent.click(reply);
     await waitFor(()=>expect(realtime.subTabs.activeId()).not.toBe('mail'));const composer=await screen.findByRole('tabpanel',{name:/Re: Subject a/}),id=realtime.subTabs.activeId();
     fireEvent.input(within(composer).getByLabelText('Subject'),{target:{value:'Unsaved protected workspace'}});
-    realtime.subTabs.activate('mail');await waitFor(()=>expect(document.querySelector('[data-testid="reader-open-draft"]')).not.toBeNull());const control=document.querySelector<HTMLButtonElement>('[data-testid="reader-open-draft"]')!,before=realtime.subTabs.tabs().length;
+    realtime.subTabs.activate('mail');
+    const viewDraft=await screen.findByTestId('reader-view-draft');await waitFor(()=>expect(viewDraft).toBeEnabled());fireEvent.click(viewDraft);
+    const preview=await screen.findByTestId('draft-preview');expect(within(preview).getByRole('heading',{name:'Unsaved protected workspace'})).toBeVisible();
+    expect(realtime.subTabs.tabs().some(tab=>tab.id===id)).toBe(true);expect(localStorage.getItem('mw.compose.drafts.v2')??'').not.toContain('Unsaved protected workspace');
+    fireEvent.click(within(preview).getByTestId('draft-preview-edit'));await waitFor(()=>expect(realtime.subTabs.activeId()).toBe(id));
+    realtime.subTabs.activate('mail');fireEvent.click(within(screen.getByTestId('draft-preview')).getByRole('button',{name:'Close'}));fireEvent.click(screen.getByText('Subject a'));
+    await waitFor(()=>expect(document.querySelector('[data-testid="reader-open-draft"]')).not.toBeNull());const control=document.querySelector<HTMLButtonElement>('[data-testid="reader-open-draft"]')!,before=realtime.subTabs.tabs().length;
     expect(control).toHaveAccessibleName('Open draft');fireEvent.click(control);await waitFor(()=>expect(realtime.subTabs.activeId()).toBe(id));expect(realtime.subTabs.tabs()).toHaveLength(before);
     expect(within(screen.getByRole('tabpanel',{name:'Unsaved protected workspace'})).getByLabelText('Subject')).toHaveValue('Unsaved protected workspace');
   });

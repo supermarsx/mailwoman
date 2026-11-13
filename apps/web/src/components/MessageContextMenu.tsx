@@ -1,3 +1,5 @@
+import {requestDraftPreview,requestDraftMessagePreview} from './compose/draftPreview.ts';
+import {isDraftMessage} from './draftMessage.ts';
 import {resolveSnooze,snoozePresetLabel} from '../state/snooze.ts';
 import {requestCustomSnooze} from './SnoozeDialog.tsx';
 import {hasFileAttachments} from './attachmentMetadata.ts';
@@ -101,6 +103,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
    {id:'flag',label:t(message.keywords?.$flagged?'mail-unflag-message':'mail-flag-message'),icon:message.keywords?.$flagged?ACTION_ICONS.unflag:ACTION_ICONS.flag,run:()=>app.flagMessage(id,!message.keywords?.$flagged)},
    {id:'pin',label:t(message.pinned?'mail-unpin':'mail-pin'),icon:message.pinned?ACTION_ICONS.unpin:ACTION_ICONS.pin,run:()=>app.pinMessage(id,!message.pinned)},
   ];
+  if(isDraftMessage(message,app.mailboxes()))rows.splice(1,0,{id:'view-draft-message',label:t('mail-draft-view'),icon:'eye',run:()=>requestDraftMessagePreview(id)});
   // Reply, reply all and forward go through the reader (it owns decryption, quoting and threading); the feature switches disable them with the usual tooltip.
   rows.splice(1,0,
    {id:'reply',label:t('mail-context-reply'),icon:'reply',separatorBefore:true,...(mailFeature('allowReply')?{}:{disabled:true,title:mailFeatureOffTitle()}),run:()=>{void replyFromList(app,id,'reply');}},
@@ -108,7 +111,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
    {id:'forward',label:t('mail-context-forward'),icon:'forward',...(mailFeature('allowForward')?{}:{disabled:true,title:mailFeatureOffTitle()}),run:()=>{void replyFromList(app,id,'forward');}});
   if(opening?.onOpenMessageTab){const openTab=opening.onOpenMessageTab;rows.splice(1,0,{id:'open-tab',label:t('mail-context-open-new-tab'),icon:'openTab',run:()=>openTab(id)});}
   {const draft=drafts?.onOpenReplyDraft?drafts.replyDraft(id):undefined,openDraft=drafts?.onOpenReplyDraft;
-   if(draft&&openDraft){const at=rows.findIndex(row=>row.id==='forward');rows.splice(at+1,0,{id:'open-reply-draft',label:t('mail-reply-draft-open'),icon:'compose',run:()=>openDraft(draft.id)});}}
+   if(draft&&openDraft){const at=rows.findIndex(row=>row.id==='forward');rows.splice(at+1,0,{id:'view-reply-draft',label:t('mail-reply-draft-view'),icon:'eye',run:()=>requestDraftPreview(draft.id)},{id:'open-reply-draft',label:t('mail-reply-draft-open'),icon:'compose',run:()=>openDraft(draft.id)});}}
   const members=membersOf(message);
   if(members.length)threadRows(rows,members);
   else {const found=extras().get(`${app.accountId()}:${id}`);

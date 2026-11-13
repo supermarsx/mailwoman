@@ -77,3 +77,5 @@ reader-actions-option-menu = 更多菜单
 reader-actions-option-toolbar = 工具栏
 
 reader-actions-title = 消息阅读器操作
+
+reader-action-view-draft = 查看回复草稿

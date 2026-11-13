@@ -77,3 +77,5 @@ reader-actions-option-menu = Meer menukaart
 reader-actions-option-toolbar = Werkbalk
 
 reader-actions-title = Acties van berichtlezers
+
+reader-action-view-draft = Antwoordconcept bekijken

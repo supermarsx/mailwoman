@@ -2591,6 +2591,9 @@ admin-settings-help-incidents-retention-days = Nieudane kontrole i sygnały bezp
 admin-settings-key-mail-snooze-presets = Opcje odraczania
 admin-settings-help-mail-snooze-presets = Dodawaj, zmieniaj nazwy i kolejność, edytuj lub ukrywaj opcje. W menu zawsze można wybrać własną datę i godzinę.
 
+admin-settings-key-reader-actions-view-draft = Wyświetl szkic odpowiedzi
+admin-settings-help-reader-actions-view-draft = Wyświetl szkic odpowiedzi
+
 admin-settings-key-notifications-view-enabled = Włącz widok powiadomień
 admin-settings-help-notifications-view-enabled = Steruje centrum powiadomień. Alerty bezpieczeństwa, poczty i przeglądarki zachowują własne ustawienia.
 admin-settings-key-notifications-view-show-in-sidebar = Pokaż Powiadomienia na pasku bocznym

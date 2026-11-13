@@ -77,3 +77,5 @@ reader-actions-option-menu = Більше меню
 reader-actions-option-toolbar = Панель інструментів
 
 reader-actions-title = Дії читача повідомлень
+
+reader-action-view-draft = Переглянути чернетку відповіді

@@ -77,3 +77,5 @@ reader-actions-option-menu = Altro menù
 reader-actions-option-toolbar = Barra degli strumenti
 
 reader-actions-title = Azioni del lettore di messaggi
+
+reader-action-view-draft = Visualizza bozza di risposta

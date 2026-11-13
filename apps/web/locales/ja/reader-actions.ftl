@@ -77,3 +77,5 @@ reader-actions-option-menu = その他のメニュー
 reader-actions-option-toolbar = ツールバー
 
 reader-actions-title = メッセージリーダーのアクション
+
+reader-action-view-draft = 返信の下書きを表示

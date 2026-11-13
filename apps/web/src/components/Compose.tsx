@@ -1,3 +1,4 @@
+import {registerDraftPreview,requestDraftPreview} from './compose/draftPreview.ts';
 import {formatDateTime as regionalDateTime} from '../i18n/format.ts';
 import {attachPlainMentions} from '../modules/mentions/plainMentions.ts';
 import {toWithMention} from '../modules/mentions/mentions.ts';
@@ -1174,6 +1175,7 @@ export function Compose(props: {
     liveDraftVersion();const source=draftSource(),owner=composerAuthority(),account=app.accountId();
     if(sent||!owner||owner.id!==account||!ownsDraft())return;
     const release=registerLiveReplyDraft(owner,draftId,source,()=>discardCurrentDraft());releaseLiveReply=release;onCleanup(release);
+    onCleanup(registerDraftPreview(owner,draftId,currentDraftSnapshot));
   });
   let resumedWorkspaceDraft=false;
   createEffect(()=>{
@@ -1197,14 +1199,12 @@ export function Compose(props: {
       setInlineImages([]);setAttachments([]);setDrafts([]);props.onClose();
     }
   });
-  createEffect(() => {
-    const account = app.accountId();
-    composerAuthority();
-    if (protectedDraft() || account === null || account !== draftAccount || !draftAuthority?.storageAuthority) return;
-    const snapshot: StoredDraft = {
+  function currentDraftSnapshot():StoredDraft|null {
+    const account=app.accountId();if(!account||sent||!ownsDraft())return null;
+    return {
       id: draftId,
       accountId: account,
-      storageAuthority:draftAuthority.storageAuthority,
+      storageAuthority:draftAuthority?.storageAuthority??'',
       ...(draftSource()?{source:draftSource()!}:{}),
       ...(remoteRevision()?{serverRevision:remoteRevision()!}:{}),
       ...(remoteStatus()==='uncertain'?{serverStatus:'uncertain' as const}:{}),
@@ -1232,6 +1232,12 @@ export function Compose(props: {
       ...(trackOpens() ? { openTracking: true } : {}),
       ...(inlineImages().length > 0 ? { inline: inlineImages().map(storedImage) } : {}),
     };
+  }
+  createEffect(() => {
+    const account = app.accountId();
+    composerAuthority();
+    if (protectedDraft() || account === null || account !== draftAccount || !draftAuthority?.storageAuthority) return;
+    const snapshot=currentDraftSnapshot();if(!snapshot)return;
     clearTimeout(saveTimer);
     pendingDraft=snapshot;
     ensureRemoteWriter();
@@ -1972,6 +1978,7 @@ export function Compose(props: {
           confirmLabel={t('mail-draft-discard-action')} cancelLabel={t('mail-draft-keep-editing')}
           onCancel={()=>closePrompt()?.answer(false)} onConfirm={()=>closePrompt()?.answer(true)}/>
         <DraftsPopup
+          onView={id=>{setDraftsOpen(false);requestDraftPreview(id);}}
           open={draftsOpen()}
           accountDrafts={remoteDrafts}
           localDrafts={drafts}

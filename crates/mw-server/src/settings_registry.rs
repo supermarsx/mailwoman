@@ -3085,6 +3085,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "where the edit draft reader action appears: toolbar, More menu, or hidden; permissions still apply"
     ),
     def!(
+        "reader.actions.view-draft",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the view reply draft reader action appears: toolbar, More menu, or hidden"
+    ),
+    def!(
         "reader.actions.open-draft",
         Kind::Enum(&["toolbar", "menu", "hidden"]),
         "\"toolbar\"",

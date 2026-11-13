@@ -77,3 +77,5 @@ reader-actions-option-menu = Plus de menu
 reader-actions-option-toolbar = Barre d'outils
 
 reader-actions-title = Actions du lecteur de messages
+
+reader-action-view-draft = Voir le brouillon de réponse

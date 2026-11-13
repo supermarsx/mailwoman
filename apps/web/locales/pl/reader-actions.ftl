@@ -77,3 +77,5 @@ reader-actions-option-menu = Więcej menu
 reader-actions-option-toolbar = Pasek narzędzi
 
 reader-actions-title = Działania czytnika wiadomości
+
+reader-action-view-draft = Wyświetl szkic odpowiedzi

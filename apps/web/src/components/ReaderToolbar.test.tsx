@@ -134,7 +134,7 @@ describe('reader action row: overflow into More',()=>{
  });
  it('folds by PRIORITY: Delete, Archive and Move outlast the conversation, links and the rest',()=>{
   const order=Object.entries(PRIORITY).sort((a,b)=>a[1]-b[1]).map(([id])=>id);
-  expect(order.slice(0,10)).toEqual(['edit-draft','reply','reply-all','forward','open-draft','delete','archive','move','conversation','links'].slice(0,10));
+  expect(order.slice(0,10)).toEqual(['edit-draft','reply','reply-all','forward','view-draft','open-draft','delete','archive','move','conversation'].slice(0,10));
  });
  it('folds nothing when everything fits, and More stays because it holds the message-only actions',async()=>{
   state.jmap.mockResolvedValue(thread(['m1']));

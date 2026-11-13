@@ -77,3 +77,5 @@ reader-actions-option-menu = Больше меню
 reader-actions-option-toolbar = Панель инструментов
 
 reader-actions-title = Действия читателя сообщения
+
+reader-action-view-draft = Просмотреть черновик ответа

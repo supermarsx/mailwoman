@@ -2595,6 +2595,9 @@ admin-settings-help-incidents-retention-days = تنشئ إخفاقات الفح�
 admin-settings-key-mail-snooze-presets = خيارات التأجيل
 admin-settings-help-mail-snooze-presets = أضف الخيارات أو أعد تسميتها وترتيبها وتحريرها أو أخفها. يظل اختيار تاريخ ووقت مخصص متاحًا في القائمة.
 
+admin-settings-key-reader-actions-view-draft = عرض مسودة الرد
+admin-settings-help-reader-actions-view-draft = عرض مسودة الرد
+
 admin-settings-key-notifications-view-enabled = تمكين عرض الإشعارات
 admin-settings-help-notifications-view-enabled = يتحكم في عرض مركز الإشعارات. تحتفظ تنبيهات الأمان والبريد والمتصفح بإعداداتها الخاصة.
 admin-settings-key-notifications-view-show-in-sidebar = إظهار الإشعارات في الشريط الجانبي

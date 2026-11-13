@@ -2591,6 +2591,9 @@ admin-settings-help-incidents-retention-days = Збої перевірок і с
 admin-settings-key-mail-snooze-presets = Налаштування відкладання
 admin-settings-help-mail-snooze-presets = Додавайте, перейменовуйте, упорядковуйте, редагуйте або приховуйте варіанти. У меню завжди можна вибрати дату й час.
 
+admin-settings-key-reader-actions-view-draft = Переглянути чернетку відповіді
+admin-settings-help-reader-actions-view-draft = Переглянути чернетку відповіді
+
 admin-settings-key-notifications-view-enabled = Увімкнути розділ сповіщень
 admin-settings-help-notifications-view-enabled = Керує центром сповіщень. Попередження безпеки, пошти та браузера зберігають власні налаштування.
 admin-settings-key-notifications-view-show-in-sidebar = Показувати сповіщення на бічній панелі

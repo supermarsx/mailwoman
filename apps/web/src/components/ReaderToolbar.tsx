@@ -1,3 +1,4 @@
+import {requestDraftPreview} from './compose/draftPreview.ts';
 // The reader's action row (t57): every message action on ONE line, with the
 // actions that do not fit folded into a "More" menu instead of wrapping.
 //
@@ -56,7 +57,7 @@ void loadCatalog('properties'); void loadCatalog('search');
 
 /** Fold order: lower stays on the row longer. */
 export const PRIORITY: Record<string,number> = {
- reply:0,'reply-all':1,forward:2,'edit-draft':-1,'open-draft':2.5,delete:3,archive:4,move:4.5,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,headers:11.5,sweep:12,print:13,export:14,properties:15,zoom:10.5,search:6.5,colors:10.7,
+ reply:0,'reply-all':1,forward:2,'edit-draft':-1,'view-draft':2.4,'open-draft':2.5,delete:3,archive:4,move:4.5,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,headers:11.5,sweep:12,print:13,export:14,properties:15,zoom:10.5,search:6.5,colors:10.7,
 };
 
 interface RowAction {id:string;groupEnd?:boolean;inline:()=>JSX.Element;menu:()=>ContextAction[]}
@@ -156,6 +157,7 @@ export function ReaderToolbar(props:{
   'reply-all':plain({id:'reply-all',icon:icon(ACTION_ICONS.replyAll),label:()=>t('mail-reply-all'),help:()=>t('mail-action-help-reply-all'),testId:'reader-reply-all',disabled:()=>props.preparing,run:()=>props.onReply('reply-all')}),
   forward:plain({id:'forward',icon:icon(ACTION_ICONS.forward),label:()=>t('mail-forward'),help:()=>t('mail-action-help-forward'),testId:'reader-forward',disabled:()=>props.preparing,run:()=>props.onReply('forward'),groupEnd:true}),
   'edit-draft':plain({id:'edit-draft',icon:icon('compose'),label:()=>t('mail-draft-edit'),help:()=>t('mail-draft-edit-help'),testId:'reader-edit-draft',run:()=>props.onEditDraft?.(id())}),
+  'view-draft':plain({id:'view-draft',icon:icon('eye'),label:()=>t('mail-reply-draft-view'),help:()=>t('mail-reply-draft-view'),testId:'reader-view-draft',run:()=>{const draft=replyDraft();if(draft)requestDraftPreview(draft.id);}}),
   'open-draft':plain({id:'open-draft',icon:icon('compose'),label:()=>t('mail-reply-draft-open'),help:()=>t('mail-reply-draft'),testId:'reader-open-draft',run:()=>{const draft=replyDraft();if(draft)props.onOpenReplyDraft?.(draft.id);}}),
   conversation:{id:'conversation',
    inline:()=><ReaderAction icon="conversation" label={t('mail-conversation-title')} help={t('mail-conversation-title')} testId="reader-conversation" popup="dialog" expanded={conversation.open()} onClick={()=>conversation.toggle()}/>,
@@ -189,7 +191,7 @@ export function ReaderToolbar(props:{
    inline:()=><ReaderAction icon="serverMetadata" label={t('mail-headers-title')} help={t('mail-headers-action-help')} testId="reader-headers" popup="dialog" expanded={headersOpen()} onClick={()=>setHeadersOpen(true)}/>,
    menu:()=>[{id:'headers',label:t('mail-headers-title'),icon:'serverMetadata',run:()=>{setHeadersOpen(true);}}]},
  };
- const primaryIds=createMemo(()=>[...(sender()!==''&&canDeleteSender()?['delete-sender']:[]),...((props.email.followUpAt||props.email.keywords?.['$flagged'])&&!props.email.keywords?.['mw-followup-completed']?['finish-followup']:[]),...(isDraft()?['edit-draft']:[]),...(mailFeature('allowReply')&&!isDraft()?['reply','reply-all']:[]),...(mailFeature('allowForward')&&!isDraft()?['forward']:[]),...(replyDraft()?['open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
+ const primaryIds=createMemo(()=>[...(sender()!==''&&canDeleteSender()?['delete-sender']:[]),...((props.email.followUpAt||props.email.keywords?.['$flagged'])&&!props.email.keywords?.['mw-followup-completed']?['finish-followup']:[]),...(isDraft()?['edit-draft']:[]),...(mailFeature('allowReply')&&!isDraft()?['reply','reply-all']:[]),...(mailFeature('allowForward')&&!isDraft()?['forward']:[]),...(replyDraft()?['view-draft','open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
  const extraRows=createMemo(()=>[...saveRowsFor(app,[props.email]),...focusActions(app,props.email),...messageActionRows(app,props.email,new Set(['move-to']))]);
  const extraId=(value:ContextAction)=>readerMenuActionId(value.id)??value.id;
  const extraIds=createMemo(()=>[...new Set(extraRows().map(extraId))].filter(key=>!primaryIds().includes(key)));

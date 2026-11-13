@@ -1409,3 +1409,6 @@ reader-sanitized-short-blocked = HTML ブロックされました
 reader-sanitized-short-clean = HTML きれい
 
 reader-sanitized-trackers = アイテムの追跡
+
+mail-draft-view = 下書きを表示
+mail-reply-draft-view = 返信を表示

@@ -77,3 +77,5 @@ reader-actions-option-menu = Mehr Menü
 reader-actions-option-toolbar = Symbolleiste
 
 reader-actions-title = Aktionen des Nachrichtenlesers
+
+reader-action-view-draft = Antwortentwurf ansehen

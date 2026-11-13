@@ -1474,3 +1474,6 @@ reader-sanitized-short-blocked = HTML geblokkeerd
 reader-sanitized-short-clean = HTML schoon
 
 reader-sanitized-trackers = Artikelen volgen
+
+mail-draft-view = Concept bekijken
+mail-reply-draft-view = Antwoord bekijken

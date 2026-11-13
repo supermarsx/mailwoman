@@ -1,3 +1,4 @@
+import {requestDraftMessagePreview} from './compose/draftPreview.ts';
 import {configuredSnoozePresets,resolveSnooze,snoozePresetLabel,snoozeZone,snoozeWeekStart,type SnoozePreset} from '../state/snooze.ts';
 import {requestCustomSnooze} from './SnoozeDialog.tsx';
 import { Icon, tagIconName } from './Icon.tsx';
@@ -189,6 +190,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
             <Icon name="more" />
           </button>
         </Show>
+        <Show when={props.email.keywords?.['$draft']}><button type="button" class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`} aria-label={t('mail-draft-view')} title={t('mail-draft-view')} onClick={()=>requestDraftMessagePreview(id())}><Icon name="eye"/></button></Show>
         <button
           type="button"
           class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}

@@ -2579,6 +2579,9 @@ admin-settings-help-incidents-retention-days = Fehlgeschlagene Zustandsprüfunge
 admin-settings-key-mail-snooze-presets = Schlummeroptionen
 admin-settings-help-mail-snooze-presets = Vorgaben hinzufügen, umbenennen, sortieren, bearbeiten oder ausblenden. Ein eigenes Datum mit Uhrzeit bleibt im Menü verfügbar.
 
+admin-settings-key-reader-actions-view-draft = Antwortentwurf ansehen
+admin-settings-help-reader-actions-view-draft = Antwortentwurf ansehen
+
 admin-settings-key-notifications-view-enabled = Benachrichtigungsansicht aktivieren
 admin-settings-help-notifications-view-enabled = Steuert die Benachrichtigungszentrale. Sicherheitshinweise, E-Mail-Hinweise und Browserbenachrichtigungen behalten ihre eigenen Einstellungen.
 admin-settings-key-notifications-view-show-in-sidebar = Benachrichtigungen in der Seitenleiste anzeigen
