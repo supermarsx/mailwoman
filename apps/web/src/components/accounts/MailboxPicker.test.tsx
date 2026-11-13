@@ -1,6 +1,7 @@
 import {cleanup,fireEvent,render,screen,within} from '@solidjs/testing-library';
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {MailboxPicker,MailboxPlain,type MailboxChoice} from './MailboxPicker.tsx';
+import {createSignal} from 'solid-js';
 
 vi.mock('../../i18n/index.ts',()=>({
   t:(key:string,args?:Record<string,string|number>)=>args?.address!==undefined?`${key}:${args.address}`:args?.count!==undefined?`${key}:${args.count}`:key,
@@ -25,6 +26,15 @@ function mount(extra:Partial<Parameters<typeof MailboxPicker>[0]>={}){
 const tick=()=>Promise.resolve();
 
 describe('mailbox picker (a switcher only, t48 k)',()=>{
+  it('offers Unified mail as a virtual account and can return to the already-selected physical mailbox',()=>{
+    const [active,setActive]=createSignal(false);const select=vi.fn();
+    render(()=><MailboxPicker variant="full" choices={choices} activeLinkId={null} busy={false} onSelect={select} unified={{active:active(),unread:6,onSelect:()=>setActive(true)}}/>);
+    fireEvent.click(screen.getByRole('button',{name:'linked-accounts-select: Personal (me@example.org)'}));
+    const virtual=screen.getByRole('menuitemradio',{name:/unified-mail-title/});expect(virtual).toHaveTextContent('6');fireEvent.click(virtual);
+    expect(active()).toBe(true);fireEvent.click(screen.getByRole('button',{name:'linked-accounts-select: unified-mail-title'}));
+    expect(screen.getByRole('menuitemradio',{name:/unified-mail-title/})).toHaveAttribute('aria-checked','true');
+    fireEvent.click(screen.getByRole('menuitemradio',{name:/Personal/}));expect(select).toHaveBeenCalledWith(null);
+  });
   it('is a menu of radio items with avatar, name, address, unread count and active check, in the saved order',async()=>{
     const {trigger}=mount();
     expect(trigger).toHaveAttribute('aria-haspopup','menu');

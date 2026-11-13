@@ -1,4 +1,5 @@
 import {createSignal} from 'solid-js';
+import {requestUnifiedMailbox,unifiedMailboxActive,setUnifiedVirtualMode,setUnifiedFolderCounts,unifiedFolderRole} from '../state/unifiedMailbox.ts';
 import {setAdminLeetspeak} from '../i18n/presentation.ts';
 import * as workspaceAttachments from '../realtime/workspaceAttachment.ts';
 import {loadFeatures,clearFeatures} from '../state/features.ts';
@@ -42,6 +43,17 @@ function mount(attachment=false) {
   return {app,realtime,...show()};
 }
 describe('retained mailbox workspace',()=>{
+  it('keeps the Unified view separate from virtual-account folders and places Notifications above Calendar',async()=>{
+    const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    await loadSettings({refresh:true,fetcher:async()=>Response.json({settings:{'mail.unifiedInbox':{value:true,source:'user',locked:false}}})});
+    try{
+      const {container}=show();const nav=screen.getByRole('navigation',{name:'Apps'});const entries=Array.from(nav.querySelectorAll<HTMLElement>('[data-testid]')).map(node=>node.dataset['testid']);expect(entries.indexOf('nav-notifications')).toBeLessThan(entries.indexOf('nav-calendar'));
+      requestUnifiedMailbox();await waitFor(()=>expect(container.querySelector('[data-unified-folders]')).not.toBeNull());expect(unifiedMailboxActive()).toBe(true);expect(container.querySelector('[data-folder-region]')).toBeNull();
+      setUnifiedFolderCounts({inbox:{total:42,unread:7},sent:{total:4,unread:0}});expect(screen.getByTestId('unified-role-inbox')).toHaveTextContent('7');expect(screen.getByTestId('unified-role-inbox')).toHaveTextContent('42');
+      fireEvent.click(screen.getByTestId('unified-role-sent'));expect(unifiedFolderRole()).toBe('sent');
+      fireEvent.click(screen.getByRole('button',{name:'Unified mail'}));await waitFor(()=>expect(container.querySelector('[data-unified-folders]')).toBeNull());expect(container.querySelector('[data-folder-region]')).not.toBeNull();
+    }finally{setUnifiedVirtualMode(false);setUnifiedFolderCounts({});clearSettings();}
+  });
   it('hides empty sidebar folders, restores them on count changes, and honors per-folder overrides',async()=>{
     const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
     const extras=[{id:'spam-empty',name:'Spam empty',role:'junk',totalEmails:0},{id:'drafts-empty',name:'Drafts empty',role:'drafts',totalEmails:0},{id:'parent-empty',name:'Empty parent',role:null,totalEmails:0},{id:'child-read',name:'Read child',role:null,totalEmails:2}].map(folder=>({...folder,parentId:folder.id==='child-read'?'parent-empty':null,sortOrder:10,unreadEmails:0}));

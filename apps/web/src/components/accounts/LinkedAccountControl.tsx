@@ -1,7 +1,10 @@
 import {toast} from '../toast/toast.ts';
+import {settings} from '../../api/settings.ts';
+import {requestUnifiedMailbox,unifiedMailboxActive,unifiedFolderCounts} from '../../state/unifiedMailbox.ts';
+import {requestMailboxOpen} from '../../state/mailboxOpenRequest.ts';
 import {createEffect,createResource,createSignal,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {useApp} from '../../state/context.ts';
-import {observePreferenceAccount,preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
+import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../../api/accountPreferenceLifecycle.ts';
 import {createLinkedAccountsApi,type LinkedMailboxList} from '../../api/linkedAccounts.ts';
 import {loadCatalog,t} from '../../i18n/index.ts';
 import {confirmShellNavigation} from '../../shell/navigationGuard.ts';
@@ -53,7 +56,7 @@ export function mailboxChoices(list:LinkedMailboxList,unread:(linkId:string|null
 export function LinkedAccountControl(props:{variant?:AccountControlVariant}):JSX.Element {
   const [owner,setOwner]=createSignal(preferenceAccount());
   onCleanup(observePreferenceAccount(setOwner));
-  onMount(()=>void loadCatalog('linked-accounts'));
+  onMount(()=>{void loadCatalog('linked-accounts');void loadCatalog('workspace-mail');});
   return <Show when={owner()} keyed>{_owner=> <OwnedControl {...props}/>}</Show>;
 }
 function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
@@ -99,10 +102,12 @@ function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
     const choice=listed()?mailboxChoices(listed()!,unreadFor).find(item=>item.linkId===id):undefined;
     const label=choice?.nickname||choice?.address||choice?.name;
     // t91: the switch is retried by the transport; a final transient failure gets one toast with Retry.
-    try{await app.switchLinkedMailbox(id,label);dismissFailure('linked:switch');}
+    try{await app.switchLinkedMailbox(id,label);if(app.linkedMailboxId()===id&&unifiedMailboxActive())requestMailboxOpen();dismissFailure('linked:switch');}
     catch(cause){if(isTransientFailure(cause))showFailure({key:'linked:switch',error:cause,message:reason=>t('linked-accounts-switch-failed-reason',{reason}),retry:()=>app.switchLinkedMailbox(id,label)});else setError(linkedAccountError(cause));}
   }
   const renewAccount=()=>{const id=renewing();return id?listed()?.accounts.find(account=>account.id===id):undefined;};
+  async function selectUnified():Promise<void>{const owner=preferenceAccount();if(owner&&await confirmShellNavigation()&&preferenceAccountIsCurrent(owner))requestUnifiedMailbox();}
+  const unifiedUnread=():number|null=>{const known=unifiedFolderCounts().inbox?.unread;if(typeof known==='number')return known;const current=listed();if(!current)return null;const choices=mailboxChoices(current,unreadFor).filter(choice=>choice.available);return choices.every(choice=>choice.unread!==null)?choices.reduce((sum,choice)=>sum+(choice.unread??0),0):null;};
   const renewLabel=(id:string):string=>{const account=listed()?.accounts.find(item=>item.id===id);return mailboxNickname(id)||account?.address||account?.displayName||'';};
   // Choosing an expired mailbox renews its access in place, then opens it:
   // never a dead end (t48 k). Managing links stays in Settings.
@@ -117,6 +122,7 @@ function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
   return <Show when={(listed()?.accounts.length??0)>0?listed():undefined} fallback={plain()}>{value=>
     <div class={css.control}>
       <MailboxPicker variant={props.variant??'full'} choices={mailboxChoices(value(),unreadFor)} activeLinkId={app.linkedMailboxId()}
+        unified={settings()['mail.unifiedInbox']?.value===true?{active:unifiedMailboxActive(),unread:unifiedUnread(),onSelect:()=>void selectUnified()}:undefined}
         busy={app.switchingMailbox()} error={error()} onSelect={id=>void select(id)} onRenew={id=>setRenewing(id)}/>
       <Show when={renewAccount()}>{account=>
         <RenewAccessDialog account={account()} label={renewLabel(account().id)} api={api} onRenewed={renewed} onCancel={()=>setRenewing(undefined)}/>}</Show>

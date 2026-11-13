@@ -251,7 +251,7 @@ function MessageRow(props: {
 }
 
 /** Shared row presentation for the main list and independently opened folder tabs. */
-export function MessageRowContent(props:{email:Email;selected:boolean;replyDraft:ReplyDraft|undefined}):JSX.Element {
+export function MessageRowContent(props:{email:Email;selected:boolean;replyDraft:ReplyDraft|undefined;sourceMetadata?:boolean}):JSX.Element {
   const app=useApp(),email=()=>props.email;
   return <>
         <span class={`list__line1 ${rowCss.line1}`}>
@@ -267,7 +267,7 @@ export function MessageRowContent(props:{email:Email;selected:boolean;replyDraft
           <Show when={email().pinned === true}>
             <span class="list__pin" aria-label={t('mail-pinned')}><Icon name="pin" /></span>
           </Show>
-          <MentionMark mentioned={mentionsAny(email().mailwomanMentions,ownMentionAddresses(app))}/>
+          <Show when={props.sourceMetadata!==false}><MentionMark mentioned={mentionsAny(email().mailwomanMentions,ownMentionAddresses(app))}/></Show>
           <PriorityMark priority={priorityOf(email())}/>
           <Show when={hasFileAttachments(email())}>
             <span class="list__attach" aria-label={t('mail-has-attachment')}><Icon name="attachment" /></span>
@@ -283,7 +283,7 @@ export function MessageRowContent(props:{email:Email;selected:boolean;replyDraft
         </span>
         <span class="list__subject">{displayText(email().subject ?? t('mail-no-subject'))}</span>
         <Show when={settings()['mail.messageListPreview']?.value!==false}><span class={`list__preview ${rowCss.preview}`}><EventHint hint={email().mailwomanCalendar} />{displayText(email().preview)}</span></Show>
-        <TagChips email={email()} />
+        <Show when={props.sourceMetadata!==false}><TagChips email={email()} /></Show>
   </>;
 }
 

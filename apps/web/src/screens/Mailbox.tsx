@@ -1,6 +1,7 @@
 import {messageOpenRequest,takeMessageOpenRequest} from '../state/messageOpenRequest.ts';
 import {mailboxOpenRequest,takeMailboxOpenRequest} from '../state/mailboxOpenRequest.ts';
 import {notificationUnread} from '../state/notificationCenter.ts';
+import {unifiedMailboxRequest,takeUnifiedMailboxRequest,unifiedMailboxActive,setUnifiedMailboxActive,unifiedVirtualMode,setUnifiedVirtualMode,unifiedFolderRole,unifiedFolderCounts,setUnifiedFolderCounts,requestUnifiedMailbox} from '../state/unifiedMailbox.ts';
 import {recalledDraftId,takeRecalledDraft} from '../state/recalledDraft.ts';
 import {pendingCompose,takePendingCompose} from '../state/pendingCompose.ts';
 import {requestModuleAction,type ModuleAction} from '../state/moduleActions.ts';
@@ -500,7 +501,7 @@ export function MailboxScreen(): JSX.Element {
   }
   createEffect(()=>{app.setActiveReader(surface()!=='mail' ? null : readersVisible() ? activePane()?.view ?? null : previewVisible() ? preview() : null);});
   let workspaceGeneration:number|undefined;
-  onCleanup(observePreferenceAccount(owner=>{if(owner?.generation===workspaceGeneration)return;workspaceGeneration=owner?.generation;restoreIntent=0;setWorkspaceReady(false);for(const pane of untrack(panes)){pane.view?.dispose();subTabs.close(pane.id);}setPanes([]);closePreview();subTabs.activate('mail');setWorkspaceOwner(owner);}));
+  onCleanup(observePreferenceAccount(owner=>{if(owner?.generation===workspaceGeneration)return;workspaceGeneration=owner?.generation;restoreIntent=0;setWorkspaceReady(false);setUnifiedVirtualMode(false);setUnifiedFolderCounts({});for(const pane of untrack(panes)){pane.view?.dispose();subTabs.close(pane.id);}setPanes([]);closePreview();subTabs.activate('mail');setWorkspaceOwner(owner);}));
 
   onCleanup(()=>{for(const pane of panes()) {pane.view?.dispose();subTabs.close(pane.id);}preview()?.dispose();app.setActiveReader(null);});
   // t13 26.13 (E9 mount): the mailbox ACL editor, reachable from the mailbox
@@ -545,6 +546,9 @@ export function MailboxScreen(): JSX.Element {
   }});
   // t98: a surface the feature profile turns off (also when the profile loads or changes later) goes back to mail.
   const unifiedEnabled=()=>settings()['mail.unifiedInbox']?.value===true;
+  createEffect(()=>{const active=surface()==='unified'&&unifiedEnabled()&&unifiedVirtualMode();setUnifiedMailboxActive(active);if(active)clearSelectedFolders();});
+  onCleanup(()=>setUnifiedMailboxActive(false));
+  createEffect(()=>{if(unifiedMailboxRequest()&&takeUnifiedMailboxRequest()&&unifiedEnabled())untrack(()=>{noteWorkspaceIntent();router.navigate('unified');});});
   const transfer=()=>{const request=pendingMessageTransfer();return request&&transfersEnabled()&&isTransferAccountCurrent(request.owner)?request:undefined;};
   createEffect(()=>{workspaceOwner();if(pendingMessageTransfer()&&!transfer())closeMessageTransfer();});
   const surfaceAllowed = (d: ShellSurface): boolean => !((d==='unified'&&settingsLoadStatus()==='ready'&&!unifiedEnabled())||(d==='templates'&&settings()['mail.templates.enabled']?.value===false)||(d==='attachments'&&!featureOn('views.attachments'))||(isPimSurface(d)&&!featureOn(d))||(d==='keys'&&!featureOn('keys')));
@@ -1101,7 +1105,7 @@ export function MailboxScreen(): JSX.Element {
               expanded sidebar, a one-letter button when the folders are compact. */}
           <Show when={app.me()}><div class="sidebar__account" data-variant={accountIconInSidebar()?'icon':'full'}><LinkedAccountControl variant={accountIconInSidebar()?'icon':'full'}/></div></Show>
         </div>
-        <Show when={mailFeature('showCreateFolderButton')} fallback={composeButton()}>
+        <Show when={mailFeature('showCreateFolderButton')&&!unifiedMailboxActive()} fallback={composeButton()}>
           <div class="sidebar__compose-row" style={{display:'flex',gap:'0.4rem','align-items':'stretch'}}>
             <div style={{flex:'1 1 auto',display:'flex','min-width':0}}>{composeButton()}</div>
             <button type="button" class={`btn btn--ghost sidebar__create-folder ${a11y.focusable} ${a11y.iconButton}`} aria-label={t('folder-create')} title={createFolderAbility()?.manages===false?t('folder-create-unavailable'):t('folder-create')} aria-disabled={createFolderAbility()?.manages===false} onClick={()=>{if(createFolderAbility()?.manages!==false)setCreatingFolder(true);}}>
@@ -1113,10 +1117,11 @@ export function MailboxScreen(): JSX.Element {
         <Show when={arranging()}>{id=><FolderMoveToDialog moving={movingSet(folderLayout.arranger.visual(),selectedFolderIds(),id())} arranger={folderLayout.arranger} policy={folderLayout.policy} onClose={()=>setArranging(null)}/>}</Show>
         <FolderNestDialog arranger={folderLayout.arranger} nameOf={id=>app.mailboxes().find(value=>value.id===id)?.name??''}/>
         <p class={folderSrOnly} role="status" aria-live="polite" data-testid="folder-dnd-status">{folderDnd.announcement()}</p>
-        <Show when={(accountUiPreferences().folderStarred?.length??0)>0}><button type="button" class={`btn btn--ghost sidebar__starred-only ${a11y.focusable}`} aria-pressed={starredOnly()} title={t('folder-star-only-help')} onClick={()=>setStarredOnly(!starredOnly())}><Icon name={starredOnly()?'star':'starOutline'}/><span class="sidebar__box-name">{t('folder-star-only')}</span></button></Show>
+        <Show when={!unifiedMailboxActive()&&(accountUiPreferences().folderStarred?.length??0)>0}><button type="button" class={`btn btn--ghost sidebar__starred-only ${a11y.focusable}`} aria-pressed={starredOnly()} title={t('folder-star-only-help')} onClick={()=>setStarredOnly(!starredOnly())}><Icon name={starredOnly()?'star':'starOutline'}/><span class="sidebar__box-name">{t('folder-star-only')}</span></button></Show>
         <div class={folderBulkCss.paneBody}>
         <div class="sidebar__scroll" classList={{[folderBulkCss.listInset]:selectedFolderIds().size>0}} ref={folderMarquee.ref}>{folderMarquee.liveRegion()}
         <FolderCreationControl><nav class="sidebar__nav" {...pinDnd.unpinProps} aria-label={t('mail-nav-mailboxes')} aria-busy={!!app.me()&&app.mailboxes().length===0}>
+          <Show when={!unifiedMailboxActive()} fallback={<div class="sidebar__folder-rows" data-unified-folders onContextMenu={event=>{event.preventDefault();event.stopPropagation();}}><For each={['inbox','all','sent','drafts','archive','junk','trash'] as const}>{role=><button type="button" class={`sidebar__box ${a11y.focusable}`} classList={{'sidebar__box--active':unifiedFolderRole()===role}} data-testid={`unified-role-${role}`} onClick={()=>requestUnifiedMailbox(role)}><Icon name={role==='inbox'?'inbox':role==='sent'?'sent':role==='drafts'?'compose':role==='archive'?'archive':role==='junk'?'spam':role==='trash'?'delete':'mail'}/><span class="sidebar__box-name">{t(`unified-mail-role-${role}`)}</span><span class="sidebar__badge" title={t('unified-mail-unread',{count:unifiedFolderCounts()[role]?.unread??'—'})}>{unifiedFolderCounts()[role]?.unread??'—'}</span><span class="sidebar__badge" data-secondary="true" title={t('unified-mail-total',{count:unifiedFolderCounts()[role]?.total??'—'})}>{unifiedFolderCounts()[role]?.total??'—'}</span></button>}</For></div>}>
           <div class="sidebar__folder-rows" data-folder-region role={app.mailboxes().length>0?'tree':undefined} aria-label={app.mailboxes().length>0?t('mail-nav-mailboxes'):undefined} aria-multiselectable={app.mailboxes().length>0?'true':undefined} onKeyDown={onTreeKey} onFocusIn={onTreeFocus}>
           <Show when={app.me()&&app.mailboxes().length===0}><AsyncPending variant="folders" rows={folderRows()} quiet message={t('mail-folders-loading')} onRetry={()=>void app.refreshFolders()}/></Show>
           <Show when={pinnedIds().length>0}>
@@ -1135,7 +1140,7 @@ export function MailboxScreen(): JSX.Element {
           </For>
           </Show></div></>}</For>
           </div>
-          <Show when={sectionRows(true).length>0}><div role="separator" class="sidebar__divider-secondary" data-testid="sidebar-secondary-divider" aria-label={t('mail-nav-views-queues')}/></Show>
+          </Show><Show when={sectionRows(true).length>0}><div role="separator" class="sidebar__divider-secondary" data-testid="sidebar-secondary-divider" aria-label={t('mail-nav-views-queues')}/></Show>
           <Show when={featureOn('views.attachments')}><button
             type="button"
             class={`sidebar__box ${a11y.focusable}`}
@@ -1147,7 +1152,7 @@ export function MailboxScreen(): JSX.Element {
           </button></Show>
           <Show when={unifiedEnabled()}>
             <button type="button" class="sidebar__box" classList={{'sidebar__box--active':surface()==='unified'}}
-              title={t('unified-mail-title')} aria-label={t('unified-mail-title')} onClick={()=>router.navigate('unified')}>
+              title={t('unified-mail-title')} aria-label={t('unified-mail-title')} onClick={()=>{setUnifiedVirtualMode(false);router.navigate('unified');}}>
               <Icon name="mailboxes"/><span class="sidebar__box-name">{t('unified-mail-title')}</span>
             </button>
           </Show>

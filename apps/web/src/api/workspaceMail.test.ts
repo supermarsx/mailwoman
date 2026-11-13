@@ -1,10 +1,23 @@
 import {afterEach,expect,it,vi} from 'vitest';
 import {activateAccountPreferences,preferenceAccount,suspendAccountPreferences} from './accountPreferenceLifecycle.ts';
 import {apiFetch} from './http.ts';
-import {transferWorkspaceMessage,type WorkspaceMailbox} from './workspaceMail.ts';
+import {transferWorkspaceMessage,workspaceMessages,updateWorkspaceMessages,type WorkspaceMailbox} from './workspaceMail.ts';
+import type {Email,Mailbox} from './jmap-types.ts';
 
 vi.mock('./http.ts',()=>({apiFetch:vi.fn()}));
 const mock=vi.mocked(apiFetch);
+it('keeps query totals, unread totals and keyword writes bound to their source account',async()=>{
+ activateAccountPreferences('account','primary_authority_1234');const owner=preferenceAccount()!;
+ const source:WorkspaceMailbox={linkId:'linked-b',accountId:'b',storageAuthority:'linked_authority_12345',owner,label:'Other',current:false};
+ const boxes=[{id:'inbox',role:'inbox',myRights:{maySetKeywords:true,maySetSeen:true,mayRemoveItems:true}},{id:'trash',role:'trash',myRights:{mayAddItems:true}}] as unknown as Mailbox[];
+ mock.mockImplementation(async(_url,init)=>{expect(init?.mailboxTarget).toBe(source);const request=JSON.parse(String(init?.body));
+  if(request.methodCalls[0][0]==='Email/set'){expect(request.methodCalls[0][1]).toMatchObject({accountId:'b',update:{same:{'keywords/$seen':true}}});return Response.json({methodResponses:[['Email/set',{updated:{same:null},notUpdated:{refused:{type:'forbidden'}}},'update']]});}
+  expect(request.methodCalls[0][1]).toMatchObject({accountId:'b',calculateTotal:true,sort:[{property:'subject',isAscending:true},{property:'receivedAt',isAscending:false}]});
+  return Response.json({methodResponses:[['Email/query',{ids:['same'],position:0,total:7},'query'],['Email/get',{list:[{id:'same',mailboxIds:{inbox:true},keywords:{}}]},'rows'],['Email/query',{total:4},'unread']]});
+ });
+ const result=await workspaceMessages(source,boxes,'inbox','',0,new AbortController().signal,'subject');expect(result).toMatchObject({total:7,unread:4,next:1});
+ expect(await updateWorkspaceMessages(source,boxes,[{id:'same',mailboxIds:{inbox:true}} as unknown as Email],'read',new AbortController().signal)).toEqual(['same']);
+});
 afterEach(()=>{mock.mockReset();suspendAccountPreferences();});
 
 function scenario(receipt:object,moveConfirmed=true){
