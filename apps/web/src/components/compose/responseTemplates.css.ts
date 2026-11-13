@@ -1,6 +1,6 @@
 import {style} from '@vanilla-extract/css';
 import {vars} from '../../theme/contract.css.ts';
-export const library=style({display:'grid',gap:'.5rem',minWidth:0});
+export const library=style({display:'grid',gap:vars.space[4],minWidth:0});
 export const actions=style({display:'flex',gap:'.5rem',alignItems:'center',flexWrap:'wrap'});
 export const list=style({display:'flex',flexWrap:'wrap',gap:'.25rem',maxHeight:'12rem',overflow:'auto'});
 export const field=style({display:'grid',gap:'.25rem',minWidth:0});

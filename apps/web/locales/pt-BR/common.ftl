@@ -219,3 +219,4 @@ common-context-remove-my-day = Remover de Meu Dia
 common-notify-new-count = Novas mensagens: { $count }
 common-network-internal = Rede interna
 common-module-notifications = Notificações
+common-actions = Ações

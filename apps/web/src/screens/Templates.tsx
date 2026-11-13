@@ -7,6 +7,7 @@ import { loadCatalog, t } from '../i18n';
 import { escapeHtml } from '../viewers/sandbox.ts';
 import { ResponseTemplatePreferences } from './Settings/ResponseTemplatePreferences.tsx';
 import { SettingsCard } from './Settings/layout/SettingsCard.tsx';
+import * as table from './Settings/managementTable.css.ts';
 
 export default function Templates(props: { onCompose: (draft: ComposeInitial) => void }): JSX.Element {
   void loadCatalog('response-templates');
@@ -33,7 +34,7 @@ export default function Templates(props: { onCompose: (draft: ComposeInitial) =>
   }
 
   return (
-    <main class="module-pane" data-surface="templates" data-mw-surface>
+    <main class={`module-pane ${table.workspace}`} data-surface="templates" data-mw-surface>
       <h2>{t('response-templates-workspace')}</h2>
       <p>{t('response-templates-workspace-help')}</p>
       <Show when={enabled()}>
