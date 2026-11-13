@@ -216,6 +216,8 @@ export const menu = style({
   flexDirection: 'column',
   minWidth: '11rem',
   maxWidth: 'min(18rem, 80vw)',
+  maxBlockSize: 'min(60vh, 24rem)',
+  overflowY: 'auto',
   padding: 'calc(0.2rem - 1px)',
   background: vars.color.surface,
   border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
@@ -261,11 +263,11 @@ export const swatch = style({
 // above so that, at equal specificity, they win whatever the pointer or width.
 
 /** 'click' (and 'hover' on touch): the toggle shows on every pointer type. */
-export const moreToggleAlways = style({display: 'inline-flex', alignItems: 'center', justifyContent: 'center'});
+export const moreToggleAlways = style({alignItems: 'center', justifyContent: 'center',selectors:{'&&':{display:'inline-flex'}}});
 
 /** 'click': the cluster stays shut until the toggle opens it, then covers the row as a bar. */
 export const actionsOnClick = style({
-  display: 'none',
+  selectors:{'&&':{display:'none'}},
   opacity: 1,
   pointerEvents: 'auto',
   insetBlock: 0,
@@ -277,7 +279,7 @@ export const actionsOnClick = style({
   borderInlineStartWidth: 0,
   borderRadius: 0,
 });
-export const actionsOnClickOpen = style({display: 'flex'});
+export const actionsOnClickOpen = style({selectors:{'&&&':{display:'flex'}}});
 
 /** 'hover': the actions beyond the three primary ones stay hidden until More expands them. */
 export const actionSecondary = style({display: 'none'});
