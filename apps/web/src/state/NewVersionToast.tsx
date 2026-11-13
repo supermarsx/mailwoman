@@ -7,6 +7,7 @@ import { toast } from '../components/toast/index.ts';
 import { t } from '../i18n/index.ts';
 import { AppContext } from './context.ts';
 import { createNewVersionNotice } from './newVersionNotice.ts';
+import {publishAvailableUpdate} from './notificationCenter.ts';
 
 export const NEW_VERSION_TOAST_ID = 'new-version-available';
 /** Longer than the composer's 800 ms draft autosave debounce. */
@@ -27,7 +28,9 @@ export function NewVersionToast(): JSX.Element {
   const notice = createNewVersionNotice({
     fetchId: async () => {
       const v = await fetchWebVersion();
-      return v === null ? null : buildId(v);
+      const id=v===null?null:buildId(v);
+      if(id&&notice.booted()!==null&&id!==notice.booted())publishAvailableUpdate(id);
+      return id;
     },
     active: () => app?.me() != null && notifyNewVersionOn(),
     show: ({ reload, later }) => {

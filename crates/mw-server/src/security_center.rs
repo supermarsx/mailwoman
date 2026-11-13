@@ -170,9 +170,7 @@ pub(crate) fn device(
         client_type: bounded(client_type.unwrap_or("browser"), 32),
         device_label: String::new(),
         client_version: read("x-mailwoman-client", 128),
-        recognition_hash: ext
-            .get::<device_recognition::BrowserFingerprint>()
-            .map(|value| value.0.clone()),
+        recognition_hash: device_recognition::request_fingerprint(headers, ext),
     }
 }
 pub(crate) async fn record_login(
@@ -310,21 +308,44 @@ pub(crate) async fn record_login(
     )
     .await;
     crate::account_signin_geo::record_success(state, account, address, device).await;
+    let context = crate::security_alerts::evidence::Evidence::capture(
+        state,
+        id,
+        device,
+        device.recognition_hash.as_ref().map(|_| !new_device),
+        Some(method),
+    )
+    .await;
+    if device.client_type != "linked"
+        && let Some(owner) = &context.subject
+    {
+        crate::notification_center::emit(
+            state,
+            owner,
+            "login",
+            "success",
+            "info",
+            Some(context.clone()),
+        )
+        .await;
+    }
     if new_device {
-        crate::alerts::emit(
+        crate::alerts::emit_with_context(
             state,
             account,
             crate::alerts::AlertKind::NewDevice,
-            json!({}),
+            json!({"context":context}),
+            Some(context.clone()),
         )
         .await;
     }
     if new_country {
-        crate::alerts::emit(
+        crate::alerts::emit_with_context(
             state,
             account,
             crate::alerts::AlertKind::NewCountry,
-            json!({}),
+            json!({"context":context}),
+            Some(context),
         )
         .await;
     }
@@ -747,10 +768,9 @@ async fn linked_origin_mode(state: &AppState, row: &mw_store::SecuritySession) -
 /// `a***@example.com`: the first character and the domain are kept.
 fn mask_origin(email: &str) -> String {
     match email.rsplit_once('@') {
-        Some((local, domain)) => format!(
-            "{}***@{domain}",
-            local.chars().take(1).collect::<String>()
-        ),
+        Some((local, domain)) => {
+            format!("{}***@{domain}", local.chars().take(1).collect::<String>())
+        }
         None => email.chars().take(1).collect::<String>() + "***",
     }
 }

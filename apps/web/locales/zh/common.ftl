@@ -216,3 +216,5 @@ common-context-unpin = 取消固定
 common-context-my-day = 添加到我的一天
 common-context-remove-my-day = 从我的一天移除
 common-notify-new-count = 新邮件：{ $count }
+common-network-internal = 内部网络
+common-module-notifications = 通知

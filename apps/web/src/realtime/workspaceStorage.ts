@@ -7,7 +7,7 @@ export type WorkspaceKind='messages'|'composer'|'settings'|'attachment'|'module'
 export interface WorkspaceReference {id:string;kind:WorkspaceKind;pinned:boolean;reference?:string;messageId?:string}
 export interface WorkspaceSnapshot {version:2;accountId:string;storageAuthority:string;tabs:WorkspaceReference[];activeId:string;layout:WorkspaceLayout;viewAssignments?:WorkspaceViewAssignments}
 const kinds=new Set<WorkspaceKind>(['messages','composer','settings','attachment','module','attachments','outbox','sharing','folder']);
-const modules=new Set(['calendar','tasks','notes','contacts','keys']);
+const modules=new Set(['notifications','calendar','tasks','notes','contacts','keys']);
 const identifier=(value:unknown):value is string=>typeof value==='string'&&value.length>0&&value.length<=512&&![...value].some(character=>character.charCodeAt(0)<32||character.charCodeAt(0)===127);
 export function parseWorkspace(raw:string,accountId:string,storageAuthority:string):WorkspaceSnapshot|null {
  if(raw.length>65536||!identifier(accountId)||!/^[A-Za-z0-9_-]{16,256}$/.test(storageAuthority))return null;

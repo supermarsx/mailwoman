@@ -17,6 +17,7 @@ export type ShellSurface =
   | 'attachments'
   | 'unified'
   | 'templates'
+  | 'notifications'
   | 'calendar'
   | 'tasks'
   | 'notes'
@@ -32,6 +33,7 @@ const ALL_SURFACES = new Set<ShellSurface>([
   'attachments',
   'unified',
   'templates',
+  'notifications',
   'calendar',
   'tasks',
   'notes',

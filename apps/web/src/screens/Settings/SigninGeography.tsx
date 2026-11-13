@@ -1,3 +1,4 @@
+import {countryDisplay} from '../../i18n/network.ts';
 import {formatDate as regionalDate} from '../../i18n/format.ts';
 import { createResource, createSignal, Show, type JSX } from 'solid-js';
 import { apiFetch } from '../../api/http.ts';
@@ -119,7 +120,7 @@ export function SigninGeography(): JSX.Element {
           <textarea id="signin-geo-ips" class={css.input} rows={3} value={currentIps()} placeholder="203.0.113.0/24" onInput={(e) => setIps(e.currentTarget.value)} />
         }</ControlRow>
         <p class={css.meta}>
-          {data()?.context?.ip ? t('signin-geo-current', { ip: data()!.context!.ip!, country: data()!.context!.country ?? t('signin-geo-unknown-country') }) : t('signin-geo-no-context')}
+          {data()?.context?.ip ? t('signin-geo-current', { ip: data()!.context!.ip!, country: countryDisplay(data()!.context!.ip,data()!.context!.country,t('signin-geo-unknown-country')) }) : t('signin-geo-no-context')}
         </p>
         <div class={css.actions}>
           <button type="button" disabled={!data()?.context?.ip} onClick={() => addMine('ip')}>

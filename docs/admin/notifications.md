@@ -1,5 +1,19 @@
 # Notification delivery and browser permissions
 
+## Notification centre and security evidence
+
+The Notifications workspace appears above Calendar in the sidebar. It keeps real sign-ins, new-device/new-country alerts, session-security warnings, two-factor changes, delegation/forwarding/API-key alerts and detected web-app updates. Background linked-credential renewals do not create sign-in notifications. New events are recorded from this version onward; old raw-account activity is not automatically attributed to a verified personal owner.
+
+Active, Archived and Dismissed views share search, type filtering, Open related action, Dismiss, Archive and Restore. Opening an item marks it read and routes to its related security panel, rules or access settings. Updates offer the existing draft-aware Reload action. These presentation actions do not acknowledge a session warning or repair a security problem. The sidebar count reflects unread active items. The centre refreshes on focus, reconnect, push wake and a one-minute visible-window poll.
+
+`GET/POST /api/account/notification-center` stores the latest 500 records under the verified personal subject, in the existing personal-record table. Dismiss/archive state survives reloads and devices. Reads and writes carry the account and storage-authority fence; account transitions clear the visible list and discard stale replies. The existing personal-record export/erasure mapping covers these rows. The centre is separate from the incoming-mail delivery preference and browser permission.
+
+New session warnings and new-device/new-country security emails carry an event-time snapshot: trusted-proxy-derived IP, network classification, device class, browser family/major version/engine, OS, client type/version, available authentication method, browser recognition and a short device reference. Raw browser cookies, binding hashes and session credentials are never shown. The reference is keyed and scoped to the verified personal owner; it is not a hardware fingerprint. Browser/device attributes are client-reported, and recognition is informational, not a trust grant. Missing fields and older records are explicitly unavailable. Notices use the same personal ownership boundary as the centre.
+
+Private IPv4, loopback, link-local, CGNAT, IPv6 unique-local and mapped local IPv4 addresses display **Internal network** in security notices, sign-in geography and session listings. Public addresses without a country match remain unknown. Country codes and IP-based travel findings retain their accuracy caveat.
+
+## Incoming mail
+
 `notifications.enabled` follows the existing global/domain/user setting policy. The account notification editor saves ordered sender, mailbox and subject substring rules and an explicit IANA quiet-hours time zone. The first matching rule wins. Old quiet-hours records without a zone use UTC. Failed or malformed policy reads do not grant delivery.
 
 Incoming-mail alerts default to off. Enable them in Settings → Notifications; administrator policy can override availability. While the app is open, unread newly created messages in the active account produce a foreground toast with an Open action. Hidden or unfocused windows can show a system notification when browser permission is granted. Toasts do not require browser notification permission. Both paths obey the same enabled setting, rules and quiet hours, and discard results after account changes. Inactive linked accounts do not currently produce these detailed alerts.

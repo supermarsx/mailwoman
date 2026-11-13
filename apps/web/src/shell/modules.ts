@@ -25,6 +25,8 @@ const CalendarMount = lazy(() => import('./mounts.tsx'));
 const TasksMount = lazy(() => import('../modules/tasks/index.tsx').then((m) => ({ default: m.TasksModule })));
 const NotesMount = lazy(() => import('../modules/notes/index.tsx').then((m) => ({ default: m.NotesModule })));
 const ContactsMount = lazy(() => import('../modules/contacts/index.tsx').then((m) => ({ default: m.ContactsModule })));
+const NotificationsMount = lazy(() => import('../modules/notifications/index.tsx'));
+export const NOTIFICATIONS_MODULE:AppModule={id:'notifications',get label(){return t('common-module-notifications');},icon:'bell',route:'/notifications',mount:()=>NotificationsMount,ribbonTabs:[],commandPaletteEntries:[]};
 
 /** A module's root view component (a Solid component function). */
 export type ModuleComponent = () => JSX.Element;
@@ -143,5 +145,5 @@ export const KEYS_MODULE: AppModule = {
 
 /** Look up a module by id (nav/router helper for e10). */
 export function moduleById(id: string): AppModule | undefined {
-  return APP_MODULES.find((m) => m.id === id) ?? (id === KEYS_MODULE.id ? KEYS_MODULE : undefined);
+  return APP_MODULES.find((m) => m.id === id) ?? (id === KEYS_MODULE.id ? KEYS_MODULE : id===NOTIFICATIONS_MODULE.id?NOTIFICATIONS_MODULE:undefined);
 }

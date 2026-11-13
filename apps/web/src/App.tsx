@@ -1,4 +1,5 @@
 import {requestMessageOpen} from './state/messageOpenRequest.ts';
+import {startNotificationCenter} from './state/notificationCenter.ts';
 import {toast} from './components/toast/toast.ts';
 import type {IncomingMail} from './realtime/incomingMail.ts';
 import {useInterfacePreferences} from './theme/interfacePreferences.ts';
@@ -239,6 +240,7 @@ export function App(): JSX.Element {
     }catch{/* Missing/failed policy and account transitions never grant delivery. */}
   }
   onMount(()=>{
+    onCleanup(startNotificationCenter());
     onCleanup(observePreferenceAccount(owner=>{clearIncomingAlerts();genericPushUntil=0;setNotificationAccount(owner);}));
     const off=app.onIncomingMail?.(batch=>{void incoming(batch);});onCleanup(()=>off?.());
     const worker=navigator.serviceWorker;

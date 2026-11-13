@@ -101,7 +101,10 @@ fn classify(request: &Request) -> Option<Target> {
     if !webmail {
         return None;
     }
-    Some(Target { admin: false, token: crate::cookie_value(headers)? })
+    Some(Target {
+        admin: false,
+        token: crate::cookie_value(headers)?,
+    })
 }
 
 /// Routes a flagged session may still call: sign out and prove it is the holder.
@@ -165,7 +168,12 @@ async fn load(state: &AppState, hash: &str) -> Option<SessionSec> {
     if let Some(c) = cache_lock().get(hash) {
         return Some(c.sec.clone());
     }
-    let raw = state.store.get_setting(&state_key(hash)).await.ok().flatten()?;
+    let raw = state
+        .store
+        .get_setting(&state_key(hash))
+        .await
+        .ok()
+        .flatten()?;
     let sec: SessionSec = serde_json::from_str(&raw).ok()?;
     remember(hash, &sec, now());
     Some(sec)
@@ -179,11 +187,21 @@ fn remember(hash: &str, sec: &SessionSec, saved_at: i64) {
             c.remove(&key);
         }
     }
-    c.insert(hash.to_owned(), Cached { sec: sec.clone(), saved_at });
+    c.insert(
+        hash.to_owned(),
+        Cached {
+            sec: sec.clone(),
+            saved_at,
+        },
+    );
 }
 async fn save(state: &AppState, hash: &str, sec: &SessionSec) {
     if let Ok(raw) = serde_json::to_string(sec)
-        && state.store.set_setting(&state_key(hash), &raw).await.is_ok()
+        && state
+            .store
+            .set_setting(&state_key(hash), &raw)
+            .await
+            .is_ok()
     {
         remember(hash, sec, now());
     }
@@ -199,8 +217,10 @@ fn unauthorized_revoked() -> Response {
         axum::Json(json!({"error":"session revoked","code":"sessionRevoked"})),
     )
         .into_response();
-    r.headers_mut()
-        .insert(axum::http::header::CACHE_CONTROL, "no-store".parse().unwrap());
+    r.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        "no-store".parse().unwrap(),
+    );
     r
 }
 
@@ -246,7 +266,10 @@ pub(crate) async fn revoke_admin_family(state: &AppState, username: &str, family
     };
     let mut revoked = 0;
     for s in sessions.into_iter().filter(|s| s.admin_id == username) {
-        if load(state, &s.token_hash).await.is_some_and(|r| r.family == family) {
+        if load(state, &s.token_hash)
+            .await
+            .is_some_and(|r| r.family == family)
+        {
             let _ = state.store.delete_admin_session(&s.token_hash).await;
             forget(state, &s.token_hash).await;
             revoked += 1;
@@ -277,7 +300,10 @@ async fn inspect(
     let fp = session_binding::derive(&secret, &client, country.as_deref(), ip, cfg.binding.attrs);
 
     let Some(mut sec) = load(state, &hash).await else {
-        return create_or_reuse(state, target, &cfg, &hash, fp, country, &net, t).await;
+        return create_or_reuse(
+            state, target, &cfg, &hash, fp, country, &net, t, headers, ext,
+        )
+        .await;
     };
 
     // Compare against the stored fingerprint.
@@ -291,15 +317,22 @@ async fn inspect(
     }
     let admin = target.admin;
     let bind_action = cfg.binding.action(admin);
-    let theft_level = if admin { cfg.admin_action } else { cfg.webmail_action };
+    let theft_level = if admin {
+        cfg.admin_action
+    } else {
+        cfg.webmail_action
+    };
 
     // Preferences are read only when something could be reported.
-    let needs_prefs = !matches!(verdict, Verdict::Match)
-        || sec.location_event(country.as_deref(), &net);
+    let needs_prefs =
+        !matches!(verdict, Verdict::Match) || sec.location_event(country.as_deref(), &net);
     let prefs = if !needs_prefs {
         alerts::UserPrefs::default()
     } else if admin {
-        alerts::UserPrefs { channels: alerts::Channels::App, ..Default::default() }
+        alerts::UserPrefs {
+            channels: alerts::Channels::App,
+            ..Default::default()
+        }
     } else {
         alerts::user_prefs(state, &sec.account).await
     };
@@ -341,7 +374,10 @@ async fn inspect(
                 && bind_action != BindAction::Off
                 && sec.debounce("clientMissing", t, KIND_DEBOUNCE_SECS)
             {
-                tracing::info!("session {}: request without a User-Agent", mw_store::session_handle(&target.token));
+                tracing::info!(
+                    "session {}: request without a User-Agent",
+                    mw_store::session_handle(&target.token)
+                );
             }
         }
         Verdict::Match => {}
@@ -363,18 +399,30 @@ async fn inspect(
     let mut events: Vec<alerts::Alert> = Vec::new();
     for (f, _) in &raised {
         let (kind, reason, from, to) = match f {
-            Finding::CountryChange { from, to } => {
-                ("countryChange", "country-changed".to_owned(), from.clone(), Some(to.clone()))
-            }
+            Finding::CountryChange { from, to } => (
+                "countryChange",
+                "country-changed".to_owned(),
+                from.clone(),
+                Some(to.clone()),
+            ),
             Finding::ImpossibleTravel { from, to, secs } => (
                 "impossibleTravel",
                 format!("country-changed-in-{secs}s"),
                 Some(from.clone()),
                 Some(to.clone()),
             ),
-            Finding::Concurrent { from, to, cross_country } => (
+            Finding::Concurrent {
+                from,
+                to,
+                cross_country,
+            } => (
                 "concurrentUse",
-                if *cross_country { "alternating-countries" } else { "alternating-networks" }.to_owned(),
+                if *cross_country {
+                    "alternating-countries"
+                } else {
+                    "alternating-networks"
+                }
+                .to_owned(),
                 Some(from.clone()),
                 Some(to.clone()),
             ),
@@ -387,11 +435,16 @@ async fn inspect(
             reason,
             from,
             to,
-            action: if kind == "countryChange" { "alerted" } else { action_name },
+            action: if kind == "countryChange" {
+                "alerted"
+            } else {
+                action_name
+            },
             session: short.clone(),
             ts: t,
             admin,
             account: sec.account.clone(),
+            context: Some(alerts::evidence::request(state, &target.token, headers, ext).await),
         });
     }
     if let Some(why) = mismatch
@@ -402,11 +455,16 @@ async fn inspect(
             reason: why.join(","),
             from: sec.last_country.clone(),
             to: country.clone(),
-            action: if bind_action == BindAction::Detect { "alerted" } else { action_name },
+            action: if bind_action == BindAction::Detect {
+                "alerted"
+            } else {
+                action_name
+            },
             session: short.clone(),
             ts: t,
             admin,
             account: sec.account.clone(),
+            context: Some(alerts::evidence::request(state, &target.token, headers, ext).await),
         });
     }
     // A request whose country cannot be told (and is not a local network): with
@@ -435,6 +493,7 @@ async fn inspect(
                 ts: t,
                 admin,
                 account: sec.account.clone(),
+                context: Some(alerts::evidence::request(state, &target.token, headers, ext).await),
             },
             &user,
         )
@@ -449,7 +508,10 @@ async fn inspect(
         return Some(unauthorized_revoked());
     }
     if level == 1 && sec.flagged.is_none() {
-        sec.flagged = Some(theft::Flag { reason: "session-security".into(), ts: t });
+        sec.flagged = Some(theft::Flag {
+            reason: "session-security".into(),
+            ts: t,
+        });
     }
 
     // A flagged session needs a live step-up proof for anything but sign-out.
@@ -512,6 +574,8 @@ async fn create_or_reuse(
     country: Option<String>,
     net: &str,
     t: i64,
+    headers: &HeaderMap,
+    ext: &axum::http::Extensions,
 ) -> Option<Response> {
     let account = if target.admin {
         state.store.get_admin_session(hash).await.ok().flatten()
@@ -524,7 +588,7 @@ async fn create_or_reuse(
             .map(|s| s.account_id)
     };
     let Some(account) = account else {
-        return reuse_check(state, cfg, hash, &target.token, t).await;
+        return reuse_check(state, cfg, hash, &target.token, t, headers, ext).await;
     };
     let sec = SessionSec::new(
         if target.admin { "admin" } else { "webmail" },
@@ -540,12 +604,15 @@ async fn create_or_reuse(
 }
 
 /// A cookie that names no live session: is it a retired (rotated) id?
+#[allow(clippy::too_many_arguments)]
 async fn reuse_check(
     state: &AppState,
     cfg: &Config,
     hash: &str,
     token: &str,
     t: i64,
+    headers: &HeaderMap,
+    ext: &axum::http::Extensions,
 ) -> Option<Response> {
     if !cfg.rules.theft {
         return None;
@@ -561,13 +628,18 @@ async fn reuse_check(
                 let _ = state.store.set_setting(&key, &raw).await;
             }
             let admin = tomb.surface == "admin";
+            let mut context = alerts::evidence::request(state, token, headers, ext).await;
+            context.subject = crate::notification_center::account_owner(state, &tomb.account).await;
             let revoked = if admin {
                 revoke_admin_family(state, &tomb.account, &tomb.family).await
             } else {
                 revoke_family(state, &tomb.account, &tomb.family).await
             };
             let prefs = if admin {
-                alerts::UserPrefs { channels: alerts::Channels::App, ..Default::default() }
+                alerts::UserPrefs {
+                    channels: alerts::Channels::App,
+                    ..Default::default()
+                }
             } else {
                 alerts::user_prefs(state, &tomb.account).await
             };
@@ -583,6 +655,7 @@ async fn reuse_check(
                     ts: t,
                     admin,
                     account: tomb.account,
+                    context: Some(context),
                 },
                 &prefs,
             )
@@ -609,7 +682,10 @@ pub(crate) async fn on_rotate(state: &AppState, old_id: &str, new_id: &str) {
         reported: false,
     };
     if let Ok(raw) = serde_json::to_string(&tomb) {
-        let _ = state.store.set_setting(&format!("{TOMB_PREFIX}{old_hash}"), &raw).await;
+        let _ = state
+            .store
+            .set_setting(&format!("{TOMB_PREFIX}{old_hash}"), &raw)
+            .await;
     }
     sec.last_ts = t;
     save(state, &new_hash, &sec).await;
@@ -666,7 +742,14 @@ mod tests {
 
     #[test]
     fn flagged_sessions_may_still_sign_out_and_confirm() {
-        for p in ["/api/logout", "/api/security/step-up", "/api/security/step-up/passkey", "/admin/step-up", "/admin/logout", "/api/account/security/session-alerts"] {
+        for p in [
+            "/api/logout",
+            "/api/security/step-up",
+            "/api/security/step-up/passkey",
+            "/admin/step-up",
+            "/admin/logout",
+            "/api/account/security/session-alerts",
+        ] {
             assert!(flagged_exempt(p), "{p}");
         }
         for p in ["/api/me", "/jmap/api", "/admin/settings"] {
@@ -689,9 +772,21 @@ mod tests {
         assert!(classify(&req("/jmap/api", &[cookie])).is_some());
         assert!(classify(&req("/api/me", &[cookie, ("authorization", "Bearer x")])).is_none());
         assert!(classify(&req("/api/me", &[cookie, ("x-api-key", "k")])).is_none());
-        for p in ["/dav/calendars", "/oauth/token", "/mcp", "/api/login", "/api/login/2fa", "/api/logout", "/api/public-config", "/healthz"] {
+        for p in [
+            "/dav/calendars",
+            "/oauth/token",
+            "/mcp",
+            "/api/login",
+            "/api/login/2fa",
+            "/api/logout",
+            "/api/public-config",
+            "/healthz",
+        ] {
             assert!(classify(&req(p, &[cookie])).is_none(), "{p}");
         }
-        assert!(classify(&req("/api/me", &[])).is_none(), "no cookie, nothing to watch");
+        assert!(
+            classify(&req("/api/me", &[])).is_none(),
+            "no cookie, nothing to watch"
+        );
     }
 }

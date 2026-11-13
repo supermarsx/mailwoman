@@ -1,4 +1,4 @@
-import { createResource, createSignal, createUniqueId, For, onMount, Show, type JSX } from 'solid-js';
+import { createEffect,createResource, createSignal, createUniqueId, For, onMount, Show, type JSX } from 'solid-js';
 import { apiFetch } from '../../api/http.ts';
 import { basePath } from '../../api/basePath.ts';
 import { loadCatalog, t, formatDateTime, formatDate } from '../../i18n';
@@ -15,6 +15,8 @@ import { BreachNoticeBanner } from './BreachNoticeBanner.tsx';
 import * as tabs from './securityTabs.css.ts';
 import { AsyncBoundary } from '../../components/ErrorBoundary.tsx';
 import { AccountActivity } from './AccountActivity.tsx';
+import {isInternalIp} from '../../i18n/network.ts';
+import {useSettingsNavigation} from './navigation.tsx';
 
 type History = { id: string; ts: number; method: string; result: string; ip: string; userAgent: string };
 type Device = { id: string; label: string; expiresAt: number };
@@ -27,6 +29,8 @@ async function request<T>(path: string, body?: object): Promise<T> {
 }
 export function SecurityCenter(props: { password?: JSX.Element; grants?: JSX.Element; encryption?: JSX.Element }): JSX.Element {
   const [tab, setTab] = createSignal('signin');
+  const navigation=useSettingsNavigation();
+  createEffect(()=>{const card=navigation?.route().card;if(card?.startsWith('session')||card==='sessions-card')setTab('sessions');else if(card==='security-history-card')setTab('history');else if(card==='security-devices-card')setTab('devices');else if(card==='security-activity-card')setTab('activity');else if(card?.startsWith('twofa-'))setTab('signin');});
   const uid = createUniqueId();
   const sections = [['signin', 'security-center-signin'], ['sessions', 'security-center-sessions'], ['history', 'security-center-history'], ['devices', 'security-center-devices'], ['activity', 'security-center-activity'], ['encryption', 'security-center-encryption']] as const;
   const panel = (name: string) => ({ id: `${uid}-${name}-panel`, 'aria-labelledby': `${uid}-${name}-tab`, hidden: tab() !== name, role: 'tabpanel' as const, tabindex: 0, class: tabs.panel });
@@ -73,7 +77,7 @@ export function SecurityCenter(props: { password?: JSX.Element; grants?: JSX.Ele
     </select></label>
     <button type="button" disabled={busy()} onClick={() => void action(async () => { await refreshHistory(); })}>{t('security-center-refresh')}</button><button type="button" disabled={busy()} onClick={() => void action(exportHistory)}>{t('security-center-export')}</button>
     </div>
-    <ul class={css.list}><For each={history()?.events}>{(event) => <li class={css.item}><div><time>{formatDateTime(new Date(event.ts * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}</time> · {event.result} · {event.method}<p class={css.meta}>{event.ip} · {event.userAgent}</p></div></li>}</For></ul>
+    <ul class={css.list}><For each={history()?.events}>{(event) => <li class={css.item}><div><time>{formatDateTime(new Date(event.ts * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}</time> · {event.result} · {event.method}<p class={css.meta}>{event.ip}<Show when={isInternalIp(event.ip)}>{' · '}{t('common-network-internal')}</Show> · {event.userAgent}</p></div></li>}</For></ul>
     </SettingsCard>
     </div><div {...panel('devices')}>
     <SettingsCard id="security-devices-card" wide title={t('security-center-devices')} description={t('security-center-remember-help')}>

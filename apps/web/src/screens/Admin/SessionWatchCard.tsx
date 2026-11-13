@@ -13,6 +13,7 @@ import { StatusBadge, type StatusTone } from './shell/StatusBadge.tsx';
 import { adminDocsHref } from './shell/docsLink.ts';
 import * as css from './admin.css.ts';
 import * as pg from './protocolGuard.css.ts';
+import {SessionNoticeDetails} from '../Settings/SessionNoticeDetails.tsx';
 
 const iso = (ts: number): string => new Date(ts < 1e12 ? ts * 1000 : ts).toISOString();
 const when = (ts: number): string => formatDateTime(iso(ts));
@@ -207,7 +208,7 @@ export function SessionWatchCard(props: { api?: SessionWatchApi }): JSX.Element 
                             <time datetime={iso(a.ts)} title={when(a.ts)}>{formatRelative(iso(a.ts))}</time>
                           </td>
                           <td data-label={t('admin-session-watch-kind')}>{kindName(a.kind)}</td>
-                          <td data-label={t('admin-session-watch-countries')}>{a.fromCountry || a.toCountry ? `${a.fromCountry ?? '-'} > ${a.toCountry ?? '-'}` : '-'}</td>
+                          <td data-label={t('admin-session-watch-countries')}>{a.fromCountry || a.toCountry ? `${a.fromCountry ?? '-'} > ${a.toCountry ?? '-'}` : '-'}<Show when={a.context}><SessionNoticeDetails context={a.context}/></Show></td>
                           <td data-label={t('admin-session-watch-session')}>{a.session ?? '-'}</td>
                           <td data-label={t('admin-session-watch-action')}>{a.action}</td>
                           <td data-label={t('admin-session-watch-surface')}>{a.surface ?? '-'}</td>

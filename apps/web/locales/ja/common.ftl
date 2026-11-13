@@ -202,3 +202,5 @@ common-context-unpin = ピン留めを解除
 common-context-my-day = 今日の予定に追加
 common-context-remove-my-day = 今日の予定から削除
 common-notify-new-count = 新着メッセージ: { $count }
+common-network-internal = 内部ネットワーク
+common-module-notifications = 通知

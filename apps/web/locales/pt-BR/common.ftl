@@ -217,3 +217,5 @@ common-context-unpin = Desafixar
 common-context-my-day = Adicionar a Meu Dia
 common-context-remove-my-day = Remover de Meu Dia
 common-notify-new-count = Novas mensagens: { $count }
+common-network-internal = Rede interna
+common-module-notifications = Notificações

@@ -5,6 +5,27 @@ use crate::{
     settings_policy::{SettingScope, SettingValueRow},
 };
 impl Store {
+    pub async fn personal_records(
+        &self,
+        owner: &str,
+        prefix: &str,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        Ok(q("SELECT key,value FROM personal_setting_value WHERE owner_subject=?1 AND key LIKE ?2 ORDER BY key").bind(owner).bind(format!("{prefix}%")).fetch_all(&self.backend).await?.into_iter().map(|row|(row.get_string("key"),row.get_string("value"))).collect())
+    }
+    pub async fn personal_record(
+        &self,
+        owner: &str,
+        key: &str,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(
+            q("SELECT value FROM personal_setting_value WHERE owner_subject=?1 AND key=?2")
+                .bind(owner)
+                .bind(key)
+                .fetch_optional(&self.backend)
+                .await?
+                .map(|row| row.get_string("value")),
+        )
+    }
     pub async fn personal_setting_values(
         &self,
         owner: &str,

@@ -14,6 +14,9 @@ import {
 import { ControlRow } from './layout/SettingRow.tsx';
 import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
+import * as noticeCss from './sessionNotice.css.ts';
+import {SessionNoticeDetails} from './SessionNoticeDetails.tsx';
+import {PersonalAccountBoundary} from './PersonalAccountBoundary.tsx';
 
 
 const COUNTRY = 'security.alerts.countryChange';
@@ -32,6 +35,9 @@ export interface SessionAlertsProps {
  * as a LockNote with the control disabled.
  */
 export function SessionAlerts(props: SessionAlertsProps): JSX.Element {
+  return <PersonalAccountBoundary>{()=> <OwnedSessionAlerts {...props}/>}</PersonalAccountBoundary>;
+}
+function OwnedSessionAlerts(props:SessionAlertsProps):JSX.Element {
   const service = props.service ?? new SettingsService();
   onMount(() => void loadCatalog('security'));
   const [alerts, { refetch }] = createResource(() => fetchSessionAlerts().catch(() => null));
@@ -114,7 +120,7 @@ export function SessionAlerts(props: SessionAlertsProps): JSX.Element {
             {(notice) => {
               const kind = knownKind(notice.kind);
               return (
-                <li class={css.item} data-testid="session-alert-notice" data-unread={notice.acknowledged ? 'false' : 'true'}>
+                <li class={noticeCss.notice} data-testid="session-alert-notice" data-unread={notice.acknowledged ? 'false' : 'true'}>
                   <div>
                     <p class={css.prose}>
                       <time>{formatDateTime(noticeDate(notice.ts), { dateStyle: 'medium', timeStyle: 'short' })}</time>
@@ -132,6 +138,7 @@ export function SessionAlerts(props: SessionAlertsProps): JSX.Element {
                       </p>
                     </Show>
                   </div>
+                  <SessionNoticeDetails context={notice.context}/>
                   <div class={css.actions}>
                     <button type="button" disabled={busy()} onClick={() => void notMe(notice.id)}>
                       {t('session-alerts-not-me')}

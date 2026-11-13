@@ -69,6 +69,30 @@ pub(crate) async fn emit(
     kind: AlertKind,
     detail: Value,
 ) -> Option<String> {
+    emit_with_context(state, account_id, kind, detail, None).await
+}
+pub(crate) async fn emit_with_context(
+    state: &AppState,
+    account_id: &str,
+    kind: AlertKind,
+    detail: Value,
+    context: Option<crate::security_alerts::evidence::Evidence>,
+) -> Option<String> {
+    let owner = match context.as_ref().and_then(|context| context.subject.clone()) {
+        Some(owner) => Some(owner),
+        None => crate::notification_center::account_owner(state, account_id).await,
+    };
+    if let Some(owner) = owner {
+        crate::notification_center::emit(
+            state,
+            &owner,
+            "security",
+            kind.as_str(),
+            "warning",
+            context.clone(),
+        )
+        .await;
+    }
     let mut body = json!({ "alert": kind.as_str() });
     if let (Some(b), Value::Object(extra)) = (body.as_object_mut(), detail) {
         for (k, v) in extra {
@@ -90,7 +114,7 @@ pub(crate) async fn emit(
     tokio::spawn(async move {
         match tokio::time::timeout(
             std::time::Duration::from_secs(30),
-            deliver(&state, &account, kind),
+            deliver(&state, &account, kind, context.as_ref()),
         )
         .await
         {
@@ -172,9 +196,34 @@ fn message_text(locale: &str, subject: &str, description: &str, guidance: &str) 
     let subject = words.join("\r\n ");
     format!("From: Mailwoman Security <security@mailwoman.invalid>\r\nSubject: {subject}\r\nDate: {}\r\nMessage-ID: <{}@mailwoman.invalid>\r\nAuto-Submitted: auto-generated\r\nX-Auto-Response-Suppress: All\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\nContent-Language: {}\r\n\r\n{}\r\n\r\n{}\r\n",chrono::Utc::now().to_rfc2822(),uuid::Uuid::new_v4(),locale,description,guidance).into_bytes()
 }
-async fn deliver(state: &AppState, account: &str, kind: AlertKind) -> Result<(), String> {
+async fn deliver(
+    state: &AppState,
+    account: &str,
+    kind: AlertKind,
+    context: Option<&crate::security_alerts::evidence::Evidence>,
+) -> Result<(), String> {
     let notice = crate::server_text::account_notice(state, account, kind).await;
-    deliver_raw(state, account, message(&notice)).await
+    let raw = if let Some(context) = context {
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        let label = if notice.locale == "pt-PT" {
+            "Data e hora (UTC)"
+        } else {
+            "Date and time (UTC)"
+        };
+        message_text(
+            notice.locale,
+            notice.subject,
+            &format!(
+                "{}\n\n{label}: {timestamp}\n{}",
+                notice.description,
+                context.text(notice.locale == "pt-PT")
+            ),
+            notice.guidance,
+        )
+    } else {
+        message(&notice)
+    };
+    deliver_raw(state, account, raw).await
 }
 
 /// Put a plain-text security message into the account's own inbox, by the same

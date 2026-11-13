@@ -336,7 +336,11 @@ impl Store {
     /// Resolve the link behind a private linked session. The link keeps the
     /// session id sealed, bound to owner+link+subject, so the candidates (links
     /// to this account) are opened and compared rather than joined.
-    async fn linked_origin(&self, session: &str, account: &str) -> Result<LinkedOrigin, StoreError> {
+    async fn linked_origin(
+        &self,
+        session: &str,
+        account: &str,
+    ) -> Result<LinkedOrigin, StoreError> {
         let links = q("SELECT id,owner_principal_id,child_subject,sealed_session,created_at FROM linked_account WHERE account_id=?1 ORDER BY created_at,id")
             .bind(account).fetch_all(&self.backend).await?;
         for link in &links {
@@ -344,7 +348,11 @@ impl Store {
             let opened = self.key.open_bound(
                 &link.get_blob("sealed_session"),
                 "linked-source-v1",
-                &[&owner, &link.get_string("id"), &link.get_string("child_subject")],
+                &[
+                    &owner,
+                    &link.get_string("id"),
+                    &link.get_string("child_subject"),
+                ],
             );
             if opened.ok().as_deref() != Some(session.as_bytes()) {
                 continue;
@@ -361,7 +369,12 @@ impl Store {
                 link_created_at: Some(link.get_i64("created_at")),
             });
         }
-        Ok(LinkedOrigin { origin_email: None, origin_account_id: None, origin_device_label: None, link_created_at: None })
+        Ok(LinkedOrigin {
+            origin_email: None,
+            origin_account_id: None,
+            origin_device_label: None,
+            link_created_at: None,
+        })
     }
     pub async fn record_signin_event(&self, event: &SigninEvent) -> Result<(), StoreError> {
         self.record_auth_event(
@@ -435,6 +448,37 @@ impl Store {
                 .await?
                 == 1,
         )
+    }
+
+    /// Read recognition in this session's verified principal namespace. This does
+    /// not register a device or grant authentication/remembered-factor trust.
+    pub async fn browser_device_known(
+        &self,
+        session: &str,
+        fingerprint: &str,
+    ) -> Result<bool, StoreError> {
+        if fingerprint.len() != 64 || !fingerprint.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Ok(false);
+        }
+        let subject = self
+            .session_policy_subject(session)
+            .await?
+            .ok_or(StoreError::NotFound)?;
+        let mut digest = Sha256::new();
+        digest.update(b"mailwoman-browser-recognition-v1\0");
+        for part in [subject.personal_subject.as_bytes(), fingerprint.as_bytes()] {
+            digest.update((part.len() as u64).to_be_bytes());
+            digest.update(part);
+        }
+        let encoded = digest
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        Ok(self
+            .get_setting(&format!("recognized-browser:v1:{encoded}"))
+            .await?
+            .is_some())
     }
 
     pub async fn put_remembered_device(
@@ -944,31 +988,76 @@ mod linked_origin_tests {
     #[tokio::test]
     async fn a_linked_session_names_the_account_that_owns_the_link() {
         let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
-        let creds = Credentials { username: "x".into(), password: "synthetic".into() };
-        let owner = store.create_session("acct-alice", "alice@example.test", "j", "a", &creds).await.unwrap();
-        let child = store.create_session("acct-bob", "bob@other.test", "j", "a", &creds).await.unwrap();
-        let plain = store.create_session("acct-bob", "bob@other.test", "j", "a", &creds).await.unwrap();
-        sql(&store, "INSERT INTO identity_principal(id,state,created_at) VALUES('p-alice','active',1)", &[]).await;
+        let creds = Credentials {
+            username: "x".into(),
+            password: "synthetic".into(),
+        };
+        let owner = store
+            .create_session("acct-alice", "alice@example.test", "j", "a", &creds)
+            .await
+            .unwrap();
+        let child = store
+            .create_session("acct-bob", "bob@other.test", "j", "a", &creds)
+            .await
+            .unwrap();
+        let plain = store
+            .create_session("acct-bob", "bob@other.test", "j", "a", &creds)
+            .await
+            .unwrap();
+        sql(
+            &store,
+            "INSERT INTO identity_principal(id,state,created_at) VALUES('p-alice','active',1)",
+            &[],
+        )
+        .await;
         sql(&store, "INSERT INTO identity_binding(id,principal_id,kind,authority,subject,created_at) VALUES('b-alice','p-alice','k','a','alice',1)", &[]).await;
         sql(&store, "INSERT INTO session_principal(session_id,principal_id,binding_id,primary_account_id,auth_time,authentication_method) VALUES(?1,'p-alice','b-alice','acct-alice',1,'password')", &[&owner]).await;
         sql(&store, "UPDATE sessions SET linked_internal=1,client_type='linked',device_label='Linked mailbox access' WHERE id=?1", &[&child]).await;
-        let sealed = store.key.seal_bound(child.as_bytes(), "linked-source-v1", &["p-alice", "link-1", "bob-subject"]).unwrap();
+        let sealed = store
+            .key
+            .seal_bound(
+                child.as_bytes(),
+                "linked-source-v1",
+                &["p-alice", "link-1", "bob-subject"],
+            )
+            .unwrap();
         q("INSERT INTO linked_account(id,owner_principal_id,child_principal_id,child_subject,account_id,display_name,sealed_session,revision,created_at) VALUES('link-1','p-alice','p-alice','bob-subject','acct-bob','Bob',?1,'r',1700000000)")
             .bind(sealed).execute(&store.backend).await.unwrap();
-        let rows = store.list_security_sessions(Some("acct-bob"), 10).await.unwrap();
+        let rows = store
+            .list_security_sessions(Some("acct-bob"), 10)
+            .await
+            .unwrap();
         let linked: Vec<_> = rows.iter().filter(|r| r.linked.is_some()).collect();
         assert_eq!(linked.len(), 1, "only the private linked session is marked");
         let origin = linked[0].linked.as_ref().unwrap();
         assert_eq!(origin.origin_email.as_deref(), Some("alice@example.test"));
         assert_eq!(origin.origin_account_id.as_deref(), Some("acct-alice"));
         assert_eq!(origin.link_created_at, Some(1_700_000_000));
-        assert!(rows.iter().any(|r| r.handle == crate::session_handle(&plain) && r.linked.is_none()));
+        assert!(
+            rows.iter()
+                .any(|r| r.handle == crate::session_handle(&plain) && r.linked.is_none())
+        );
         // The origin account listing never carries the child's link rows.
-        assert!(store.list_security_sessions(Some("acct-alice"), 10).await.unwrap().iter().all(|r| r.linked.is_none()));
+        assert!(
+            store
+                .list_security_sessions(Some("acct-alice"), 10)
+                .await
+                .unwrap()
+                .iter()
+                .all(|r| r.linked.is_none())
+        );
         // The origin account goes away: unknown, not an error.
         store.delete_session(&owner).await.ok();
-        sql(&store, "DELETE FROM session_principal WHERE session_id=?1", &[&owner]).await;
-        let rows = store.list_security_sessions(Some("acct-bob"), 10).await.unwrap();
+        sql(
+            &store,
+            "DELETE FROM session_principal WHERE session_id=?1",
+            &[&owner],
+        )
+        .await;
+        let rows = store
+            .list_security_sessions(Some("acct-bob"), 10)
+            .await
+            .unwrap();
         let origin = rows.iter().find_map(|r| r.linked.as_ref()).unwrap();
         assert_eq!(origin.origin_email, None);
         assert_eq!(origin.link_created_at, Some(1_700_000_000));
@@ -1021,6 +1110,7 @@ mod browser_recognition_tests {
         let first = session(&store, "shared-upstream-id", "realm-a", "alice").await;
         let second = session(&store, "shared-upstream-id", "realm-a", "alice").await;
         let digest = "a".repeat(64);
+        assert!(!store.browser_device_known(&first, &digest).await.unwrap());
         let (one, two) = tokio::join!(
             store.register_browser_device(&first, &digest, 100),
             store.register_browser_device(&second, &digest, 100)
@@ -1038,6 +1128,19 @@ mod browser_recognition_tests {
         );
         let other_realm = session(&store, "shared-upstream-id", "realm-b", "alice").await;
         let other_user = session(&store, "shared-upstream-id", "realm-a", "bob").await;
+        assert!(store.browser_device_known(&second, &digest).await.unwrap());
+        assert!(
+            !store
+                .browser_device_known(&other_realm, &digest)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !store
+                .browser_device_known(&other_user, &digest)
+                .await
+                .unwrap()
+        );
         assert!(
             store
                 .register_browser_device(&other_realm, &digest, 101)

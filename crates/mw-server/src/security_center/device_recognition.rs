@@ -18,6 +18,23 @@ pub(crate) struct BrowserFingerprint(pub String);
 fn valid_token(token: &str) -> bool {
     token.len() == 64 && token.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
+pub(crate) fn request_fingerprint(
+    headers: &axum::http::HeaderMap,
+    ext: &axum::http::Extensions,
+) -> Option<String> {
+    ext.get::<BrowserFingerprint>()
+        .map(|value| value.0.clone())
+        .or_else(|| {
+            let token =
+                crate::hardening::cookie(headers, COOKIE).filter(|value| valid_token(value))?;
+            Some(
+                Sha256::digest(token.as_bytes())
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+            )
+        })
+}
 fn cookie(token: &str, secure: bool) -> HeaderValue {
     let mut value = HeaderValue::from_str(&format!(
         "{COOKIE}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={LIFETIME_SECS}{}",

@@ -40,6 +40,7 @@ use axum::{
 use mw_store::settings_policy::{SettingSource, SettingSubject};
 use serde::Deserialize;
 use serde_json::{Value, json};
+pub(crate) mod evidence;
 
 pub(crate) const CAVEAT: &str =
     "Country detection may be inaccurate; VPNs and mobile networks can cause false changes.";
@@ -61,16 +62,21 @@ pub(crate) struct Alert {
     pub ts: i64,
     pub admin: bool,
     pub account: String,
+    pub context: Option<evidence::Evidence>,
 }
 impl Alert {
     pub(crate) fn geo(&self) -> bool {
-        matches!(self.kind, "countryChange" | "impossibleTravel" | "concurrentUse" | "countryUnavailable")
+        matches!(
+            self.kind,
+            "countryChange" | "impossibleTravel" | "concurrentUse" | "countryUnavailable"
+        )
     }
     fn json(&self) -> Value {
         json!({
             "ts": self.ts, "kind": self.kind, "reason": self.reason,
             "fromCountry": self.from, "toCountry": self.to, "action": self.action,
             "session": self.session, "surface": if self.admin {"admin"} else {"webmail"},
+            "context": self.context,
         })
     }
 }
@@ -171,8 +177,33 @@ pub(crate) async fn raise(state: &AppState, alert: Alert, prefs: &UserPrefs) {
     if alert.admin {
         return;
     }
+    let owner = match alert
+        .context
+        .as_ref()
+        .and_then(|context| context.subject.clone())
+    {
+        Some(owner) => Some(owner),
+        None => crate::notification_center::account_owner(state, &alert.account).await,
+    };
+    if let Some(owner) = &owner {
+        crate::notification_center::emit(
+            state,
+            owner,
+            "session",
+            alert.kind,
+            if alert.action == "revoked" {
+                "critical"
+            } else {
+                "warning"
+            },
+            alert.context.clone(),
+        )
+        .await;
+    }
     if matches!(prefs.channels, Channels::App | Channels::Both) {
-        add_notice(state, &alert).await;
+        if let Some(owner) = &owner {
+            add_notice(state, &alert, owner).await;
+        }
     }
     if matches!(prefs.channels, Channels::Email | Channels::Both) && prefs.email_allowed {
         let state = state.clone();
@@ -181,7 +212,11 @@ pub(crate) async fn raise(state: &AppState, alert: Alert, prefs: &UserPrefs) {
             if let Err(error) = crate::alerts::deliver_text(
                 &state,
                 &alert.account,
-                if subject.starts_with("Aviso") { "pt-PT" } else { "en" },
+                if subject.starts_with("Aviso") {
+                    "pt-PT"
+                } else {
+                    "en"
+                },
                 &subject,
                 &body,
                 &guidance,
@@ -219,8 +254,8 @@ fn account_key(account: &str) -> String {
     crate::push_relay::hash_token(account)[..24].to_owned()
 }
 
-async fn add_notice(state: &AppState, alert: &Alert) {
-    let prefix = format!("{NOTICE_PREFIX}{}:", account_key(&alert.account));
+async fn add_notice(state: &AppState, alert: &Alert, owner: &str) {
+    let prefix = format!("{NOTICE_PREFIX}{}:", account_key(owner));
     let id = format!("{:012}-{:04x}", alert.ts, rand::random::<u16>());
     let mut row = alert.json();
     row["id"] = json!(id);
@@ -229,7 +264,12 @@ async fn add_notice(state: &AppState, alert: &Alert) {
     let Ok(raw) = serde_json::to_string(&row) else {
         return;
     };
-    if state.store.set_setting(&format!("{prefix}{id}"), &raw).await.is_err() {
+    if state
+        .store
+        .put_personal_setting(owner, &format!("{prefix}{id}"), &raw)
+        .await
+        .is_err()
+    {
         return;
     }
     let retention = sec_cfg::values(&state.store, "security.alerts.")
@@ -237,7 +277,7 @@ async fn add_notice(state: &AppState, alert: &Alert) {
         .num("security.alerts.noticeRetentionDays")
         .clamp(1, 365) as i64;
     let oldest_kept = alert.ts - retention * 86_400;
-    if let Ok(rows) = state.store.settings_with_prefix(&prefix).await {
+    if let Ok(rows) = state.store.personal_records(&owner, &prefix).await {
         let excess = rows.len().saturating_sub(MAX_NOTICES);
         for (index, (key, value)) in rows.iter().enumerate() {
             let ts = serde_json::from_str::<Value>(value)
@@ -245,7 +285,7 @@ async fn add_notice(state: &AppState, alert: &Alert) {
                 .and_then(|v| v["ts"].as_i64())
                 .unwrap_or(0);
             if index < excess || ts < oldest_kept {
-                let _ = state.store.delete_sec_state(key).await;
+                let _ = state.store.delete_personal_setting(owner, key).await;
             }
         }
     }
@@ -278,14 +318,40 @@ async fn email_text(state: &AppState, alert: &Alert) -> (String, String, String)
         }
         None => None,
     };
-    compose(ui.as_deref().is_some_and(|l| l.eq_ignore_ascii_case("pt-PT")), alert)
+    compose(
+        ui.as_deref()
+            .is_some_and(|l| l.eq_ignore_ascii_case("pt-PT")),
+        alert,
+    )
 }
 
 /// The email text. English, and European Portuguese for `pt-PT` accounts.
 pub(crate) fn compose(pt: bool, a: &Alert) -> (String, String, String) {
+    let (subject, mut body, guidance) = compose_summary(pt, a);
+    body.push_str(&format!(
+        "\n\n{}: {}\n",
+        if pt {
+            "Data e hora (UTC)"
+        } else {
+            "Date and time (UTC)"
+        },
+        chrono::DateTime::from_timestamp(a.ts, 0)
+            .map(|date| date.to_rfc3339())
+            .unwrap_or_default()
+    ));
+    if let Some(context) = &a.context {
+        body.push_str(&context.text(pt));
+    }
+    (subject, body, guidance)
+}
+fn compose_summary(pt: bool, a: &Alert) -> (String, String, String) {
     let from = a.from.as_deref().unwrap_or("?");
     let to = a.to.as_deref().unwrap_or("?");
-    let caveat_en = if a.geo() { format!(" {CAVEAT}") } else { String::new() };
+    let caveat_en = if a.geo() {
+        format!(" {CAVEAT}")
+    } else {
+        String::new()
+    };
     if pt {
         let what = match a.kind {
             "countryChange" => format!("A sua sessão foi usada a partir de um país novo ({to}), depois de {from}."),
@@ -300,11 +366,18 @@ pub(crate) fn compose(pt: bool, a: &Alert) -> (String, String, String) {
             "revoked" => "A sessão foi terminada.",
             _ => "Não foi tomada nenhuma ação.",
         };
-        let caveat = if a.geo() { " A deteção do país pode ser imprecisa; VPN e redes móveis podem causar mudanças falsas." } else { "" };
+        let caveat = if a.geo() {
+            " A deteção do país pode ser imprecisa; VPN e redes móveis podem causar mudanças falsas."
+        } else {
+            ""
+        };
         return (
             "Aviso de segurança do Mailwoman".into(),
             format!("{what} {did}"),
-            format!("Se não foi você, abra Definições, Segurança, e use «Não fui eu» para terminar todas as sessões; depois altere a palavra-passe. Sessão {}.{caveat}", a.session),
+            format!(
+                "Se não foi você, abra Definições, Segurança, e use «Não fui eu» para terminar todas as sessões; depois altere a palavra-passe. Sessão {}.{caveat}",
+                a.session
+            ),
         );
     }
     let what = match a.kind {
@@ -323,7 +396,10 @@ pub(crate) fn compose(pt: bool, a: &Alert) -> (String, String, String) {
     (
         "Mailwoman security notice".into(),
         format!("{what} {did}"),
-        format!("If this was not you, open Settings, Security, and use \"This wasn't me\" to end all sessions, then change your password. Session {}.{caveat_en}", a.session),
+        format!(
+            "If this was not you, open Settings, Security, and use \"This wasn't me\" to end all sessions, then change your password. Session {}.{caveat_en}",
+            a.session
+        ),
     )
 }
 
@@ -346,8 +422,16 @@ async fn list(State(state): State<AppState>, headers: HeaderMap) -> Response {
         Ok(s) => s,
         Err(r) => return r,
     };
-    let prefix = format!("{NOTICE_PREFIX}{}:", account_key(&session.account_id));
-    let Ok(rows) = state.store.settings_with_prefix(&prefix).await else {
+    let owner = match crate::prefs_routes::personal_storage::record_owner(
+        &state, &session, &headers, false,
+    )
+    .await
+    {
+        Ok(owner) => owner,
+        Err(response) => return response,
+    };
+    let prefix = format!("{NOTICE_PREFIX}{}:", account_key(&owner));
+    let Ok(rows) = state.store.personal_records(&owner, &prefix).await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let notices: Vec<Value> = rows
@@ -355,7 +439,10 @@ async fn list(State(state): State<AppState>, headers: HeaderMap) -> Response {
         .rev()
         .filter_map(|(_, v)| serde_json::from_str(v).ok())
         .collect();
-    let unread = notices.iter().filter(|n| n["acknowledged"] != json!(true)).count();
+    let unread = notices
+        .iter()
+        .filter(|n| n["acknowledged"] != json!(true))
+        .count();
     no_store(
         Json(json!({
             "notices": notices,
@@ -379,20 +466,35 @@ async fn ack(State(state): State<AppState>, headers: HeaderMap, Json(body): Json
         Ok(s) => s,
         Err(r) => return r,
     };
-    let prefix = format!("{NOTICE_PREFIX}{}:", account_key(&session.account_id));
-    let Ok(rows) = state.store.settings_with_prefix(&prefix).await else {
+    let owner =
+        match crate::prefs_routes::personal_storage::record_owner(&state, &session, &headers, true)
+            .await
+        {
+            Ok(owner) => owner,
+            Err(response) => return response,
+        };
+    let prefix = format!("{NOTICE_PREFIX}{}:", account_key(&owner));
+    let Ok(rows) = state.store.personal_records(&owner, &prefix).await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let mut changed = 0;
     for (key, value) in rows {
-        let wanted = body.all || body.id.as_deref().is_some_and(|id| key == format!("{prefix}{id}"));
+        let wanted = body.all
+            || body
+                .id
+                .as_deref()
+                .is_some_and(|id| key == format!("{prefix}{id}"));
         if !wanted {
             continue;
         }
         if let Ok(mut row) = serde_json::from_str::<Value>(&value) {
             row["acknowledged"] = json!(true);
             if let Ok(raw) = serde_json::to_string(&row)
-                && state.store.set_setting(&key, &raw).await.is_ok()
+                && state
+                    .store
+                    .put_personal_setting(&owner, &key, &raw)
+                    .await
+                    .is_ok()
             {
                 changed += 1;
             }
@@ -412,7 +514,10 @@ pub(crate) fn register_admin(r: &mut impl AdminRegistrar) {
     );
 }
 
-async fn admin_status(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response, AdminApiError> {
+async fn admin_status(
+    State(state): State<AppState>,
+    ctx: AdminCtx,
+) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::SecurityRead)?;
     let spray_cfg = crate::signin_spray::config(&state).await;
     let binding = sec_cfg::values(&state.store, crate::session_binding::PREFIX).await;
@@ -473,6 +578,7 @@ mod tests {
             ts: 1000,
             admin: false,
             account: "acct".into(),
+            context: None,
         }
     }
 
@@ -484,24 +590,38 @@ mod tests {
         assert!(guidance.contains("0123456789abcdef"));
         assert!(guidance.contains("inaccurate") && guidance.contains("VPNs"));
         let (_, _, g) = compose(false, &alert("rotationReuse"));
-        assert!(!g.contains("inaccurate"), "the geo caveat belongs to location alerts only");
+        assert!(
+            !g.contains("inaccurate"),
+            "the geo caveat belongs to location alerts only"
+        );
         let (ps, pb, pg) = compose(true, &alert("impossibleTravel"));
         assert!(ps.starts_with("Aviso") && pb.contains("JP") && pg.contains("imprecisa"));
     }
 
     #[test]
     fn notices_are_bounded_and_acknowledgeable_in_a_real_store() {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(async {
-            let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate()).await.unwrap();
+            let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate())
+                .await
+                .unwrap();
             let state_less_prefix = format!("{NOTICE_PREFIX}{}:", account_key("acct"));
             for i in 0..30 {
                 store
-                    .set_setting(&format!("{state_less_prefix}{:012}-0000", 1000 + i), &json!({"ts":1000+i}).to_string())
+                    .set_setting(
+                        &format!("{state_less_prefix}{:012}-0000", 1000 + i),
+                        &json!({"ts":1000+i}).to_string(),
+                    )
                     .await
                     .unwrap();
             }
-            let rows = store.settings_with_prefix(&state_less_prefix).await.unwrap();
+            let rows = store
+                .settings_with_prefix(&state_less_prefix)
+                .await
+                .unwrap();
             assert_eq!(rows.len(), 30);
             // The delete API refuses keys outside the session-security families.
             assert!(store.delete_sec_state("signin.antiBotMode").await.is_err());

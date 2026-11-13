@@ -8,6 +8,7 @@ const fixture = vi.hoisted(() => ({
   unread: 1,
   put: vi.fn(async (_k: string, _v: unknown) => ({})),
   ack: vi.fn(async (_t: unknown) => undefined),
+  context:undefined as import('./sessionAlertsModel.ts').SessionNoticeContext|undefined,
 }));
 vi.mock('../../api/settings.ts', () => ({
   fetchSettings: async () => ({
@@ -22,7 +23,7 @@ vi.mock('./sessionAlertsModel.ts', async (original) => ({
   ...(await original<typeof import('./sessionAlertsModel.ts')>()),
   fetchSessionAlerts: async () => ({
     unread: fixture.unread,
-    notices: [{ id: 'n1', ts: 1_800_000_000, kind: 'countryChange', fromCountry: 'PT', toCountry: 'BR', action: 'alerted', session: 'ab12cd', acknowledged: false }],
+    notices: [{ id: 'n1', ts: 1_800_000_000, kind: 'countryChange', fromCountry: 'PT', toCountry: 'BR', action: 'alerted', session: 'ab12cd', acknowledged: false,context:fixture.context }],
   }),
   acknowledgeSessionAlerts: (t: unknown) => fixture.ack(t),
 }));
@@ -33,6 +34,7 @@ afterEach(() => {
   fixture.unread = 1;
   fixture.put.mockClear();
   fixture.ack.mockClear();
+  fixture.context=undefined;
 });
 
 it('shows a notice with countries, session id and the accuracy caveat, and dismisses it', async () => {
@@ -42,6 +44,12 @@ it('shows a notice with countries, session id and the accuracy caveat, and dismi
   expect(screen.getAllByText(/Country detection may be inaccurate/).length).toBeGreaterThan(0);
   fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
   await waitFor(() => expect(fixture.ack).toHaveBeenCalledWith({ id: 'n1' }));
+});
+it('shows event-time device evidence with internal location and guarded technical details',async()=>{
+ fixture.context={ip:'192.168.2.3',country:null,deviceType:'desktop',browser:'chrome',browserMajor:142,browserEngine:'Blink',os:'windows',clientType:'browser',recognized:false,fingerprint:'1234567890abcdef',userAgent:'Reported browser agent'};
+ render(()=><SessionAlerts service={{} as never}/>);
+ expect(await screen.findByText(/192\.168\.2\.3/)).toBeInTheDocument();expect(screen.getByText(/Internal network/)).toBeInTheDocument();expect(screen.getByText(/Chrome 142/)).toBeInTheDocument();expect(screen.getByText(/Unrecognized device/)).toBeInTheDocument();
+ const details=screen.getByText('Technical details').closest('details')!;expect(details.open).toBe(false);fireEvent.click(screen.getByText('Technical details'));expect(screen.getByText('1234567890abcdef')).toBeInTheDocument();
 });
 
 it("'This wasn't me' signs the other sessions out and points to the password", async () => {

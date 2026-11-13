@@ -1,5 +1,6 @@
 import {messageOpenRequest,takeMessageOpenRequest} from '../state/messageOpenRequest.ts';
 import {mailboxOpenRequest,takeMailboxOpenRequest} from '../state/mailboxOpenRequest.ts';
+import {notificationUnread} from '../state/notificationCenter.ts';
 import {recalledDraftId,takeRecalledDraft} from '../state/recalledDraft.ts';
 import {pendingCompose,takePendingCompose} from '../state/pendingCompose.ts';
 import {requestModuleAction,type ModuleAction} from '../state/moduleActions.ts';
@@ -109,7 +110,7 @@ import {MessageTransferDialog} from './MessageTransferDialog.tsx';
 import { Attachments } from './Attachments.tsx';
 import { AsyncBoundary } from '../components/ErrorBoundary.tsx';
 import { AsyncPending } from '../components/AsyncState.tsx';
-import { APP_MODULES, KEYS_MODULE } from '../shell/modules.ts';
+import { APP_MODULES, KEYS_MODULE, NOTIFICATIONS_MODULE } from '../shell/modules.ts';
 import { featureOn } from '../state/features.ts';
 import { createShellRouter, isPimSurface, type ShellSurface } from '../shell/router.ts';
 import { shouldRefetchPim } from '../realtime/pimRefetch.ts';
@@ -131,7 +132,7 @@ void loadCatalog('folder-dnd');
 
 // The nav-rail app modules: the four V3 PIM modules + the V4 key-management
 // module (plan §2.5, e8 mount). Keys is reachable at `#/keys` beside them.
-const APP_NAV_MODULES = [...APP_MODULES, KEYS_MODULE];
+const APP_NAV_MODULES = [NOTIFICATIONS_MODULE,...APP_MODULES, KEYS_MODULE];
 /** t98: the nav modules the mailbox's feature profile allows (the server refuses the rest). */
 const shownModules = (): typeof APP_NAV_MODULES => APP_NAV_MODULES.filter((m) => featureOn(m.id));
 
@@ -332,7 +333,7 @@ export function MailboxScreen(): JSX.Element {
     subTabs.open({id,kind:'settings',title:rawT('mail-nav-settings')});
   }
   // A menu asked for a Settings section (Create filter, Mute this list): open the tab and go there.
-  createEffect(on(settingsRequest,request=>{if(!request)return;openSettings();queueMicrotask(()=>{const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:request.section});});},{defer:true}));
+  createEffect(on(settingsRequest,request=>{if(!request)return;openSettings();queueMicrotask(()=>{const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:request.section,...(request.card?{card:request.card}:{})});});},{defer:true}));
   async function openExport(messageId:string):Promise<void> {
     const owner=preferenceAccount(),account=app.accountId();
     if(!owner||owner.id!==account||!preferenceAccountIsCurrent(owner))return;
@@ -1204,6 +1205,7 @@ export function MailboxScreen(): JSX.Element {
               >
                 <span class="sidebar__box-icon" aria-hidden="true"><Icon name={m.icon} /></span>
                 <span class="sidebar__box-name">{m.label}</span>
+                <Show when={m.id==='notifications'&&notificationUnread()>0}><span class="sidebar__badge">{notificationUnread()}</span></Show>
               </button>
             )}
           </For>

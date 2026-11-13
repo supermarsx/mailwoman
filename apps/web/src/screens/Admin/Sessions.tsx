@@ -1,3 +1,4 @@
+import {isInternalIp} from '../../i18n/network.ts';
 import { createResource, createSignal, Show, useContext, onCleanup, type JSX } from 'solid-js';
 import { adminSessionGeneration } from '../../api/adminSession.ts';
 import { adminRequest } from './shell/adminApi.ts';
@@ -77,7 +78,7 @@ export function AdminSessions(props: { accountId?: string } = {}): JSX.Element {
     {id:'select',header:t('admin-session-select'),cell:row=><input type="checkbox" checked={selected().has(row.handle)} disabled={busy()||!canRevoke()} aria-label={t('admin-session-select-account',{account:row.username})} onChange={event=>setSelected(previous=>{const next=new Set(previous);if(event.currentTarget.checked)next.add(row.handle);else next.delete(row.handle);return next;})}/>},
     { id: 'account', header: t('admin-session-account'), cell: (row) => <span class={sessionCss.cell}><strong>{row.username}</strong><p>{row.accountId}</p><Show when={adminOriginView(row)}>{view => linkedBlock(view())}</Show></span> },
     { id: 'device', header: t('admin-session-device'), cell: (row) => <span class={sessionCss.cell}>{row.deviceLabel || row.clientType || '—'} {row.clientVersion}<p>{row.userAgent || '—'}</p></span> },
-    { id: 'ip', header: t('admin-session-ip'), cell: (row) => row.ip || '—' },
+    { id: 'ip', header: t('admin-session-ip'), cell: (row) => <span>{row.ip || '—'}<Show when={isInternalIp(row.ip)}><small>{t('common-network-internal')}</small></Show></span> },
     { id: 'activity', header: t('admin-session-activity'), cell: (row) => date(row.lastActivity ?? row.lastSeen) },
     { id: 'created', header: t('admin-session-created'), cell: (row) => date(row.createdAt) },
   ];

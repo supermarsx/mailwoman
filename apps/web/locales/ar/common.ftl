@@ -211,3 +211,5 @@ common-context-unpin = إلغاء التثبيت
 common-context-my-day = إضافة إلى يومي
 common-context-remove-my-day = إزالة من يومي
 common-notify-new-count = رسائل جديدة: { $count }
+common-network-internal = شبكة داخلية
+common-module-notifications = الإشعارات

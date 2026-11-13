@@ -195,6 +195,7 @@ pub async fn flush_trust_tiers() {
 }
 mod sec_cfg;
 mod security_alerts;
+mod notification_center;
 mod session_binding;
 mod session_persistence;
 mod session_theft;
@@ -1574,6 +1575,7 @@ fn router(
         .merge(step_up::user_router())
         .merge(security_center::router())
         .merge(security_alerts::router())
+        .merge(notification_center::router())
         // t16 (26.16, e10 chain link 3): the additive route modules e6/e18/e10 deliver.
         // All session-authed and ride the same CSRF/security-headers middleware below.
         //   * image_proxy (e6, S7/S8): the anonymizing `/api/image-proxy` + the

@@ -4,9 +4,12 @@
 
 import { apiFetch } from '../../api/http.ts';
 import { basePath } from '../../api/basePath.ts';
+import {preferenceAccount,preferenceAccountIsCurrent,observePreferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
+import {storageAuthorityHeaders} from '../../api/storageAuthority.ts';
 
-export type SessionAlertKind = 'countryChange' | 'impossibleTravel' | 'concurrentUse' | 'fingerprintMismatch' | 'rotationReuse';
+export type SessionAlertKind = 'countryChange' | 'countryUnavailable' | 'impossibleTravel' | 'concurrentUse' | 'fingerprintMismatch' | 'rotationReuse' | 'unknown';
 export type SessionAlertAction = 'alerted' | 'step-up' | 'revoked';
+export interface SessionNoticeContext {ip?:string|null;country?:string|null;network?:string;deviceType?:string;browser?:string|null;browserMajor?:number|null;browserEngine?:string|null;os?:string|null;clientType?:string;clientVersion?:string|null;userAgent?:string|null;recognized?:boolean|null;fingerprint?:string|null;authentication?:string|null}
 
 export interface SessionNotice {
   id: string;
@@ -20,6 +23,7 @@ export interface SessionNotice {
   surface?: string;
   acknowledged?: boolean;
   caveat?: string | undefined;
+  context?:SessionNoticeContext|null;
 }
 
 export interface SessionAlertsResponse {
@@ -29,22 +33,29 @@ export interface SessionAlertsResponse {
   caveat?: string | undefined;
 }
 
-const KINDS: readonly string[] = ['countryChange', 'impossibleTravel', 'concurrentUse', 'fingerprintMismatch', 'rotationReuse'];
+const KINDS: readonly string[] = ['countryChange', 'countryUnavailable', 'impossibleTravel', 'concurrentUse', 'fingerprintMismatch', 'rotationReuse'];
 const ACTIONS: readonly string[] = ['alerted', 'step-up', 'revoked'];
 
 /** Kinds whose evidence is an IP-derived country: they carry the accuracy caveat. */
 export const isLocationKind = (kind: string): boolean => kind === 'countryChange' || kind === 'impossibleTravel' || kind === 'concurrentUse';
 
-export const knownKind = (kind: string): SessionAlertKind => (KINDS.includes(kind) ? (kind as SessionAlertKind) : 'fingerprintMismatch');
+export const knownKind = (kind: string): SessionAlertKind => (KINDS.includes(kind) ? (kind as SessionAlertKind) : 'unknown');
 export const knownAction = (action: string): SessionAlertAction => (ACTIONS.includes(action) ? (action as SessionAlertAction) : 'alerted');
 
 /** Server timestamps are unix seconds; tolerate milliseconds. */
 export const noticeDate = (ts: number): Date => new Date(ts < 1e12 ? ts * 1000 : ts);
 
 const url = (suffix = ''): string => `${basePath()}/api/account/security/session-alerts${suffix}`;
+async function scopedFetch(input:string,init:RequestInit={}):Promise<Response>{
+ const owner=preferenceAccount(),controller=new AbortController(),headers=new Headers(init.headers);
+ if(owner)headers.set('X-Mailwoman-Account',owner.id);
+ for(const [key,value] of Object.entries(storageAuthorityHeaders(owner?.storageAuthority)))headers.set(key,value);
+ const off=observePreferenceAccount(next=>{if(next!==owner)controller.abort();});
+ try{const response=await apiFetch(input,{...init,headers,signal:controller.signal});if(controller.signal.aborted||owner&&!preferenceAccountIsCurrent(owner))throw new DOMException('Account changed','AbortError');return response;}finally{off();}
+}
 
 export async function fetchSessionAlerts(): Promise<SessionAlertsResponse> {
-  const response = await apiFetch(url(), { credentials: 'same-origin' });
+  const response = await scopedFetch(url(), { credentials: 'same-origin' });
   if (!response.ok) throw new Error(`session-alerts ${response.status}`);
   const body = (await response.json()) as Partial<SessionAlertsResponse>;
   return {
@@ -56,7 +67,7 @@ export async function fetchSessionAlerts(): Promise<SessionAlertsResponse> {
 }
 
 export async function acknowledgeSessionAlerts(target: { id: string } | { all: true }): Promise<void> {
-  const response = await apiFetch(url('/ack'), {
+  const response = await scopedFetch(url('/ack'), {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },

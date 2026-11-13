@@ -4,6 +4,7 @@
 //   GET {console}/security/session-watch → SessionWatch   (capability security.read)
 
 import { adminRequest } from '../../screens/Admin/shell/adminApi.ts';
+import type {SessionNoticeContext} from '../../screens/Settings/sessionAlertsModel.ts';
 
 export interface SpikeMetric {
   metric: string;
@@ -62,6 +63,7 @@ export interface SessionWatch {
     session?: string;
     surface?: string;
     account?: string;
+    context?:SessionNoticeContext|null;
   }[];
   caveat?: string;
 }
