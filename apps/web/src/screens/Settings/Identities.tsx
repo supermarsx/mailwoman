@@ -8,7 +8,6 @@ import { toast } from '../../components/toast/index.ts';
 import { IdentityEditor } from './IdentityEditor.tsx';
 import { useEntityNavigation } from './entityEditor.tsx';
 import { createConfirm } from '../../components/confirm.tsx';
-import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 import * as table from './linkedAccounts.css.ts';
 import * as entity from './entityTable.css.ts';
@@ -37,8 +36,9 @@ function OwnedIdentities(props:IdentitiesProps):JSX.Element {
   // A base with variants asks what happens to them (delete or keep) instead of confirming blindly.
   if(variantsOf(identity.id).length>0){setChoosing(identity.id);return;}
   if(!await removal.ask({title:t('settings-ident-delete-title',{email:identity.email}),body:t(identity.isDefault?'settings-ident-delete-default-body':'settings-ident-delete-body'),confirmLabel:t('settings-delete'),testId:'identity-delete-confirm'}))return;await perform(identity.id);}
- return <><RectificationBanner/><Show when={editor()} keyed fallback={<SettingsCard id="identities-card" wide title={t('settings-ident-title')} description={t('settings-ident-intro')}><Show when={identities.loading}><InlineLoading onRetry={()=>void refetch()}/></Show>
-      <div class={table.header}><button type="button" class={`${css.button} ${table.addButton}`} disabled={busy()} onClick={()=>void open()}><Icon name="plus"/>{t('settings-ident-new')}</button></div>
+ return <><RectificationBanner/><Show when={editor()} keyed fallback={<section id="identities-card" class={css.section} aria-labelledby="identities-card-title" aria-busy={busy()}>
+      <div class={table.header}><div class={table.headerText}><h2 id="identities-card-title" class={css.heading}>{t('settings-ident-title')}</h2><p class={css.meta}>{t('settings-ident-intro')}</p></div><button type="button" class={`${css.button} ${table.addButton}`} disabled={busy()} onClick={()=>void open()}><Icon name="plus"/>{t('settings-ident-new')}</button></div>
+      <Show when={identities.loading}><InlineLoading onRetry={()=>void refetch()}/></Show>
       <ul class={table.table} aria-label={t('settings-ident-title')} data-testid="identity-list">
         <For each={grouped()}>
           {(entry) => (
@@ -70,6 +70,6 @@ function OwnedIdentities(props:IdentitiesProps):JSX.Element {
           )}
         </For>
       </ul><Show when={!identities.loading&&(identities()?.length??0)===0}><p class={css.prose} data-testid="identity-empty">{t('settings-ident-empty')}</p></Show><removal.Dialog/>
-</SettingsCard>}>{route=> <Show when={route.kind==='new'} fallback={<Show when={identities()?.find(item=>item.id===route.id)} keyed fallback={<Show when={!identities.loading}><p>{t('settings-editor-missing')}</p><button class={css.ghost} onClick={()=>void back()}>{t('settings-editor-back')}</button></Show>}>{item=><IdentityEditor initial={item} others={identities() ?? []} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/>}</Show>}><IdentityEditor {...(variantBase()?{draftVariantOf:variantBase()!}:{})} others={identities() ?? []} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/></Show>}</Show></>;
+</section>}>{route=> <Show when={route.kind==='new'} fallback={<Show when={identities()?.find(item=>item.id===route.id)} keyed fallback={<Show when={!identities.loading}><p>{t('settings-editor-missing')}</p><button class={css.ghost} onClick={()=>void back()}>{t('settings-editor-back')}</button></Show>}>{item=><IdentityEditor initial={item} others={identities() ?? []} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/>}</Show>}><IdentityEditor {...(variantBase()?{draftVariantOf:variantBase()!}:{})} others={identities() ?? []} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/></Show>}</Show></>;
 }
 export default Identities;

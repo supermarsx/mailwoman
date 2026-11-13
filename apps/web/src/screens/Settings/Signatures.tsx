@@ -7,7 +7,6 @@ import { toast } from '../../components/toast/index.ts';
 import { SignatureEditor } from './SignatureEditor.tsx';
 import { useEntityNavigation } from './entityEditor.tsx';
 import type {Signature} from './types.ts';
-import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 import * as table from './linkedAccounts.css.ts';
 import * as entity from './entityTable.css.ts';
@@ -24,8 +23,9 @@ function OwnedSignatures(props:SignaturesProps):JSX.Element {
  const open=(id?:string,source?:Signature)=>{if(source){const {rule:_rule,...content}=source;setVariant({...structuredClone(content),name:'',isDefault:false});}else setVariant(undefined);return navigation.navigate({section:'signatures',editor:id===undefined?{kind:'new'}:{kind:'edit',id}});};
  const back=async():Promise<void>=>{await navigation.navigate({section:'signatures'});};
  async function remove(id:string):Promise<void>{setBusy(true);try{await service.deleteSignature(id);await refetch();}catch{toast.error(t('settings-sig-error-generic'));}finally{setBusy(false);}}
- return <Show when={editor()} keyed fallback={<SettingsCard id="signatures-card" wide title={t('settings-sig-title')} description={t('settings-sig-intro')}><Show when={signatures.loading}><InlineLoading onRetry={()=>void refetch()}/></Show>
-      <div class={table.header}><button type="button" class={`${css.button} ${table.addButton}`} disabled={busy()} onClick={()=>void open()}><Icon name="plus"/>{t('settings-sig-new')}</button></div>
+ return <Show when={editor()} keyed fallback={<section id="signatures-card" class={css.section} aria-labelledby="signatures-card-title" aria-busy={busy()}>
+      <div class={table.header}><div class={table.headerText}><h2 id="signatures-card-title" class={css.heading}>{t('settings-sig-title')}</h2><p class={css.meta}>{t('settings-sig-intro')}</p></div><button type="button" class={`${css.button} ${table.addButton}`} disabled={busy()} onClick={()=>void open()}><Icon name="plus"/>{t('settings-sig-new')}</button></div>
+      <Show when={signatures.loading}><InlineLoading onRetry={()=>void refetch()}/></Show>
       <ul class={table.table} aria-label={t('settings-sig-title')} data-testid="signature-list">
         <For each={signatures() ?? []}>
           {(sig) => (
@@ -50,6 +50,6 @@ function OwnedSignatures(props:SignaturesProps):JSX.Element {
           )}
         </For>
       </ul>
-</SettingsCard>}>{route=> <Show when={route.kind==='new'} fallback={<Show when={signatures()?.find(item=>item.name===route.id)} keyed fallback={<Show when={!signatures.loading}><p>{t('settings-editor-missing')}</p><button class={css.ghost} onClick={()=>void back()}>{t('settings-editor-back')}</button></Show>}>{item=><SignatureEditor initial={item} reservedNames={(signatures()??[]).map(x=>x.name)} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/>}</Show>}><SignatureEditor {...(variant()?{seed:variant()!}:{})} reservedNames={signatures()?.map(item=>item.name)??[]} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/></Show>}</Show>;
+</section>}>{route=> <Show when={route.kind==='new'} fallback={<Show when={signatures()?.find(item=>item.name===route.id)} keyed fallback={<Show when={!signatures.loading}><p>{t('settings-editor-missing')}</p><button class={css.ghost} onClick={()=>void back()}>{t('settings-editor-back')}</button></Show>}>{item=><SignatureEditor initial={item} reservedNames={(signatures()??[]).map(x=>x.name)} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/>}</Show>}><SignatureEditor {...(variant()?{seed:variant()!}:{})} reservedNames={signatures()?.map(item=>item.name)??[]} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/></Show>}</Show>;
 }
 export default Signatures;
