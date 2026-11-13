@@ -1,4 +1,5 @@
-import { createEffect, createMemo, createSignal, For, Show, type JSX } from 'solid-js';
+import {SettingsSubtabs} from './SettingsSubtabs.tsx';
+import { createEffect, createMemo, createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { normalizeTrustedDomain } from '../../components/compose/recipientTrust.ts';
 import { isReplyImagePolicy, type ReplyImagePolicy } from '../../components/compose/replyImagePolicy.ts';
 import { isCheckPolicy, type CheckPolicy } from '../../components/compose/sendChecks.ts';
@@ -9,7 +10,7 @@ import { useSetting } from './useSetting.ts';
 import { SelectRow, type CardSpec, ToggleRow } from './layout/rows.tsx';
 import { SettingRow } from './layout/SettingRow.tsx';
 import { SettingsCard } from './layout/SettingsCard.tsx';
-import { t } from '../../i18n';
+import {loadCatalog,t} from '../../i18n';
 import * as css from './styles.css.ts';
 import {ResponseTemplatePreferences} from './ResponseTemplatePreferences.tsx';
 import {ComposeDefaults} from './ComposeDefaults.tsx';
@@ -52,7 +53,8 @@ export const COMPOSE_CARDS: readonly CardSpec[] = [
   ] },
 ];
 
-export function ComposePreferences(): JSX.Element {
+export function ComposePreferences(props:{drafts?:JSX.Element}): JSX.Element {
+  onMount(()=>{void loadCatalog('settings');void loadCatalog('settings-policy');void loadCatalog('mentions');});
   const quote = useSetting<'classic'|'outlook'>('mail.quoteStyle', 'classic', (v): v is 'classic'|'outlook' => v === 'classic' || v === 'outlook');
   const showFrom = useSetting<boolean>('mail.showFrom', false);
   const replyFrom = useSetting<ReplyFromMode>('mail.replyFromMode', 'match', isReplyFromMode);
@@ -105,7 +107,8 @@ export function ComposePreferences(): JSX.Element {
   }
   return <>
     <header><h3 class={css.heading}>{t('settings-compose-title')}</h3></header>
-    <SettingsCard id="compose-card-addressing" title={t('settings-compose-card-addressing')} description={t('settings-compose-card-addressing-help')}>
+    <SettingsSubtabs section="compose" label="settings-compose-title" tabs={[
+      {id:'addressing',label:'settings-compose-card-addressing',cards:['compose-card-addressing'],content:<SettingsCard id="compose-card-addressing" title={t('settings-compose-card-addressing')} description={t('settings-compose-card-addressing-help')}>
       <ToggleRow id="show-from" label={t('settings-show-from')} help={t('settings-show-from-help')} handle={showFrom} />
       <SelectRow id="reply-from-mode" label={t('settings-reply-from')} help={t('settings-reply-from-help')} handle={replyFrom} accept={isReplyFromMode} options={(['match', 'default', 'ask', 'keep'] as const).map(v => ({ value: v, label: t(`settings-reply-from-${v}`) }))} />
       <SettingRow stacked controlId="reply-from-headers" label={t('settings-reply-from-headers')} help={t('settings-reply-from-headers-help')} handle={headerOrder} onReset={() => void headerOrder.reset()} resetDisabled={headerDisabled()}>{describedBy => <>
@@ -120,8 +123,8 @@ export function ComposePreferences(): JSX.Element {
       <SelectRow id="header-collapse" label={t('settings-header-collapse')} help={t('settings-header-collapse-help')} handle={headerCollapse} accept={isHeaderCollapseMode} options={HEADER_COLLAPSE_MODES.map(v => ({ value: v, label: t(`settings-header-collapse-${v}`) }))} />
       <SettingRow controlId="header-auto-collapse" label={t('settings-header-auto-collapse')} help={t('settings-header-auto-collapse-help')} handle={headerAutoCollapse}>{d => <input id="header-auto-collapse" class={css.input} type="number" min="0" max="60" value={headerAutoCollapse.value()} disabled={!headerAutoCollapse.entry() || headerAutoCollapse.locked() || headerAutoCollapse.saving()} aria-describedby={d()} onChange={e => { const n = e.currentTarget.valueAsNumber; if (Number.isInteger(n) && n >= 0 && n <= 60) void headerAutoCollapse.set(n); }} />}</SettingRow>
       <SelectRow id="quote-style" label={t('settings-quote-style')} help={t('settings-quote-help')} handle={quote} accept={(v): v is 'classic' | 'outlook' => v === 'classic' || v === 'outlook'} options={[{ value: 'classic', label: t('settings-quote-classic') }, { value: 'outlook', label: t('settings-quote-outlook') }]} />
-    </SettingsCard>
-    <SettingsCard id="compose-card-checks" title={t('settings-compose-card-checks')} description={t('settings-check-help')}>
+    </SettingsCard>},
+      {id:'checks',label:'settings-compose-card-checks',cards:['compose-card-checks'],content:<SettingsCard id="compose-card-checks" title={t('settings-compose-card-checks')} description={t('settings-check-help')}>
       <For each={CHECK_ROWS}>{row => <CheckPolicyField settingKey={row.key} id={row.id} label={row.label} />}</For>
       <SelectRow id="external-warning" label={t('settings-external-warning')} help={t('settings-external-help')} handle={warning}
         accept={(v): v is 'off' | 'warn' | 'confirm' | 'warn-remember' | 'deny' => ['off', 'warn', 'confirm', 'warn-remember', 'deny'].includes(v)}
@@ -131,18 +134,18 @@ export function ComposePreferences(): JSX.Element {
         <Show when={domainError() || domains.error()}><p role="alert">{domainError() || domains.error()}</p></Show>
         <button type="button" class={css.button} disabled={domainsDisabled()} onClick={() => void saveDomains()}>{t('settings-trusted-domains-save')}</button>
       </>}</SettingRow>
-    </SettingsCard>
-    <SettingsCard id="compose-card-images" title={t('settings-compose-card-images')} description={t('settings-compose-card-images-help')}>
+    </SettingsCard>},
+      {id:'images',label:'settings-compose-card-images',cards:['compose-card-images'],content:<SettingsCard id="compose-card-images" title={t('settings-compose-card-images')} description={t('settings-compose-card-images-help')}>
       <SelectRow id="reply-images" label={t('settings-reply-images')} help={t('settings-reply-images-help')} handle={imagePolicy} accept={isReplyImagePolicy} options={(['ask', 'allow', 'trusted', 'deny'] as const).map(v => ({ value: v, label: t(`settings-reply-images-${v}`) }))} />
       <SettingRow stacked controlId="reply-image-domains" label={t('settings-reply-image-domains')} help={t('settings-reply-image-domains-help')} handle={imageDomains} onReset={() => void imageDomains.reset()} resetDisabled={imageDomainsDisabled()}>{describedBy => <>
         <textarea id="reply-image-domains" class={css.textarea} value={imageDomainText()} disabled={imageDomainsDisabled()} onInput={event => setImageDomainText(event.currentTarget.value)} aria-describedby={describedBy()} />
         <Show when={imageDomainError() || imageDomains.error()}><p role="alert">{imageDomainError() || imageDomains.error()}</p></Show>
         <button type="button" class={css.button} disabled={imageDomainsDisabled()} onClick={() => void saveImageDomains()}>{t('settings-reply-image-domains-save')}</button>
       </>}</SettingRow>
-    </SettingsCard>
-    <ComposeDefaults />
-    <ComposeDelivery />
-    <ComposerFeatures />
-    <ResponseTemplatePreferences />
+    </SettingsCard>},
+      {id:'editor',label:'cf-card-title',cards:['compose-card-defaults','compose-card-features'],content:<><ComposeDefaults/><ComposerFeatures/></>},
+      {id:'delivery',label:'cd-title',cards:['compose-card-delivery','compose-card-send-delay','compose-card-drafts'],content:<><ComposeDelivery/>{props.drafts}</>},
+      {id:'templates',label:'response-templates-title',cards:['compose-card-templates'],content:<ResponseTemplatePreferences/>},
+    ]}/>
   </>;
 }

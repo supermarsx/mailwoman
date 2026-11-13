@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@solidjs/testing-library';
+import { fireEvent, render, screen, within } from '@solidjs/testing-library';
+import {t} from '../../i18n';
 import { ComposePreferences } from './ComposePreferences.tsx';
 
 const handles = vi.hoisted(() => ({ locked: false, save: vi.fn<(key: string, value: unknown) => Promise<boolean>>(async () => true) }));
@@ -13,6 +14,7 @@ beforeEach(() => { handles.locked = false; handles.save.mockClear(); });
 
 it('normalizes and deduplicates domains before saving to account settings', () => {
   render(() => <ComposePreferences />);
+  fireEvent.click(screen.getByRole('tab',{name:t('settings-compose-card-checks')}));
   fireEvent.input(screen.getByLabelText('Trusted recipient domains'), { target: { value: 'BÜCHER.example\nPARTNER.test\npartner.test' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save trusted domains' }));
   expect(handles.save).toHaveBeenCalledWith('mail.trustedRecipientDomains', ['xn--bcher-kva.example', 'partner.test']);
@@ -20,6 +22,7 @@ it('normalizes and deduplicates domains before saving to account settings', () =
 
 it('rejects wildcard or URL entries without silently changing the saved policy', () => {
   render(() => <ComposePreferences />);
+  fireEvent.click(screen.getByRole('tab',{name:t('settings-compose-card-checks')}));
   fireEvent.input(screen.getByLabelText('Trusted recipient domains'), { target: { value: '*.example.org' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save trusted domains' }));
   expect(screen.getByRole('alert')).toHaveTextContent('valid domain names');
@@ -29,6 +32,7 @@ it('rejects wildcard or URL entries without silently changing the saved policy',
 it('disables both controls when an administrator locks them', () => {
   handles.locked = true;
   render(() => <ComposePreferences />);
+  fireEvent.click(screen.getByRole('tab',{name:t('settings-compose-card-checks')}));
   expect(screen.getByLabelText('External recipient warnings')).toBeDisabled();
   expect(screen.getByLabelText('Trusted recipient domains')).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Save trusted domains' })).toBeDisabled();
@@ -72,8 +76,10 @@ it('preserves the administrator lock on the default From visibility', () => {
 
 it('offers the four policies for each pre-send check and saves the choice', () => {
   render(() => <ComposePreferences />);
+  fireEvent.click(screen.getByRole('tab',{name:t('settings-compose-card-checks')}));
+  const panel=within(screen.getByRole('tabpanel'));
   for (const [label, key] of [['Invalid recipient addresses', 'mail.compose.checkInvalidRecipients'], ['Attachment mentioned but missing', 'mail.compose.checkMissingAttachment'], ['Empty subject', 'mail.compose.checkEmptySubject']] as const) {
-    const select = screen.getByLabelText(label) as HTMLSelectElement;
+    const select = panel.getByLabelText(label) as HTMLSelectElement;
     expect(Array.from(select.options).map(option => option.value)).toEqual(['allow', 'warn', 'warn-remember', 'deny']);
     expect(select.value).toBe('warn');
     fireEvent.change(select, { target: { value: 'warn-remember' } });

@@ -351,7 +351,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               <RetainedSettingsSection name="retention" active={visible('retention')}>{()=><AsyncBoundary><RetentionRules folders={app.mailboxes}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="mail-transfer" active={visible('mail-transfer')}>{()=><AsyncBoundary><MailTransfer accountId={accountId()} mailboxes={app.mailboxes()} onImported={()=>void app.refreshFolders()}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="receipts" active={visible('receipts')}>{()=><AsyncBoundary><Receipts accountId={accountId()}/></AsyncBoundary>}</RetainedSettingsSection>
-              <RetainedSettingsSection name="compose" active={visible('compose')}>{()=><AsyncBoundary><ComposePreferences /><DraftSavePreferences/></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="compose" active={visible('compose')}>{()=><AsyncBoundary><ComposePreferences drafts={<DraftSavePreferences/>}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="shortcuts" active={visible('shortcuts')}>{()=><AsyncBoundary><KeyboardShortcuts navigation={navigation}/><MailInteractionPreferences/><MailFeaturePreferences/><UndoRedoPreferences/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="time" active={visible('time')}>{()=><AsyncBoundary><TimeZones navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="packages" active={visible('packages')}>{()=><AsyncBoundary><Packages accountId={accountId()} navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>
