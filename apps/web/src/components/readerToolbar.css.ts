@@ -25,15 +25,15 @@ export const row = style({
 
 // One shared row size also governs dropdowns and zoom controls. Fine pointers
 // keep compact chrome at narrow widths; touch keeps an unclipped 44px target.
-globalStyle(`${row} .btn`, {blockSize:'32px',minBlockSize:'32px',paddingBlock:'3px',fontSize:'0.8125rem','@media':{'(pointer: coarse)':{blockSize:'44px',minBlockSize:'44px'}}});
-globalStyle(`${row} .reader-action--compact`, {minInlineSize:'32px',paddingInline:'5px','@media':{'(pointer: coarse)':{minInlineSize:'44px'}}});
+globalStyle(`.${row} .btn`, {blockSize:'32px',minBlockSize:'32px',paddingBlock:'3px',fontSize:'0.8125rem','@media':{'(pointer: coarse)':{blockSize:'44px',minBlockSize:'44px'}}});
+globalStyle(`.${row} .reader-action--compact`, {minInlineSize:'32px',paddingInline:'5px','@media':{'(pointer: coarse)':{minInlineSize:'44px'}}});
 
 export const item = style({
   display: 'inline-flex',
   alignItems: 'center',
   flex: '0 0 auto',
 });
-globalStyle(`${item}[hidden]`, { display: 'none' });
+globalStyle(`.${item}[hidden]`, { display: 'none' });
 
 export const groupEnd = style({
   marginInlineEnd: '0.25rem',

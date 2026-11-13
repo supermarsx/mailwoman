@@ -1,6 +1,7 @@
 // Presentation preferences never grant a message feature or bypass its policy.
 // Toolbar choices still use responsive overflow; menu choices go straight to More.
 import {settings} from '../api/settings.ts';
+import type {IconName} from './Icon.tsx';
 export const READER_ACTION_PLACEMENTS=['toolbar','menu','hidden'] as const;
 export type ReaderActionPlacement=typeof READER_ACTION_PLACEMENTS[number];
 export const READER_ACTIONS=[
@@ -40,6 +41,7 @@ export const READER_ACTIONS=[
  {id:'block-sender',labelKey:'reader-action-block-sender',defaultPlacement:'menu'},
  ] as const;
 export type ReaderActionId=typeof READER_ACTIONS[number]['id'];
+export const READER_ACTION_ICONS:Record<ReaderActionId,IconName>={reply:'reply','reply-all':'replyAll',forward:'forward','edit-draft':'compose','open-draft':'compose',delete:'delete','delete-sender':'delete','finish-followup':'check',archive:'archive',move:'moveTo',conversation:'conversation',links:'link',read:'mailCheck',flag:'flag',pin:'pin',spam:'spam',security:'shield',headers:'file',sweep:'sweep',print:'print',export:'download',properties:'info',zoom:'imageActual',search:'search',colors:'palette','save-sender':'personAdd','save-contacts':'users','focus-focused':'inbox','focus-other':'mail','not-spam':'shield','view-source':'fileCode','create-filter':'filter','create-task':'check','block-sender':'block'};
 export const readerActionKey=(id:ReaderActionId):`reader.actions.${ReaderActionId}`=>`reader.actions.${id}`;
 export function isReaderActionPlacement(value:unknown):value is ReaderActionPlacement {return READER_ACTION_PLACEMENTS.some(item=>item===value);}
 export function readerActionPlacement(id:string,map:Record<string,{value:unknown}|undefined>=settings()):ReaderActionPlacement {
