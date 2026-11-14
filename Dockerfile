@@ -46,7 +46,6 @@ COPY crates /src/crates
 COPY plugins /src/plugins
 COPY apps/desktop/src-tauri /src/apps/desktop/src-tauri
 COPY apps/mobile/src-tauri /src/apps/mobile/src-tauri
-COPY apps/web/dist/.gitkeep /src/apps/web/dist/.gitkeep
 COPY apps/web/pnpm-lock.yaml /src/apps/web/pnpm-lock.yaml
 # The server embeds this inert shell independently of optional SPA assets.
 COPY apps/web/public/workspace-popup.html /src/apps/web/public/workspace-popup.html
@@ -56,6 +55,8 @@ COPY apps/web/public/pdfjs /src/apps/web/public/pdfjs
 COPY apps/web/public/pdf.worker.mjs /src/apps/web/public/pdf.worker.mjs
 # The linked-mailbox scope is one list shared with the web client (t87).
 COPY apps/web/src/api/linked-scope.json /src/apps/web/src/api/linked-scope.json
+# File preview validation shares the client tool manifest.
+COPY apps/web/src/viewers/previewTools.json /src/apps/web/src/viewers/previewTools.json
 
 # ---------------------------------------------------------------------------
 # Stage 2 — build: compile the Rust workspace independently of the web build.
@@ -84,6 +85,8 @@ ENV MW_PRODUCT_SUPPORT_UNTIL=${MW_PRODUCT_SUPPORT_UNTIL}
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,id=mailwoman-target-gnu-ni-${TARGETPLATFORM},target=/src/target,sharing=locked \
     if [ -n "$MW_BUILD_JOBS" ]; then export CARGO_BUILD_JOBS="$MW_BUILD_JOBS"; fi \
+    && mkdir -p /src/apps/web/dist \
+    && touch /src/apps/web/dist/.gitkeep \
     && cargo build --locked --release --bin mailwoman --bin mw-render --bin mw-mock-jmap \
     && mkdir -p /out /data-empty \
     && cp target/release/mailwoman target/release/mw-render target/release/mw-mock-jmap /out/
@@ -165,6 +168,8 @@ RUN printf 'nonroot:x:65532:65532:nonroot:/data:/sbin/nologin\n' > /etc/mw-passw
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,id=mailwoman-target-musl-ni,target=/src/target,sharing=locked \
     if [ -n "$MW_BUILD_JOBS" ]; then export CARGO_BUILD_JOBS="$MW_BUILD_JOBS"; fi \
+    && mkdir -p /src/apps/web/dist \
+    && touch /src/apps/web/dist/.gitkeep \
     && cargo build --locked --release --target x86_64-unknown-linux-musl \
         --bin mailwoman --bin mw-render \
     && mkdir -p /out-musl \
