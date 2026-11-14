@@ -198,7 +198,7 @@ export function MailboxScreen(): JSX.Element {
   const [tileSize,setTileSize]=createSignal({width:window.innerWidth-520,height:window.innerHeight-100});
   let shellElement:HTMLDivElement|undefined;let bodyElement:HTMLDivElement|undefined;let tilesElement:HTMLDivElement|undefined;
   const folderMax=()=>Math.max(160,Math.min(600,viewport().width-560));
-  const folderWidth=()=>folderMode()==='hidden' ? 0 : folderMode()==='compact' ? 64 : Math.max(160,Math.min(folderMax(),folderDrag() ?? accountUiPreferences().folderSidebarWidth ?? 220));
+  const folderWidth=()=>folderMode()==='hidden' ? 0 : folderMode()==='compact' ? (mailFeature('showCreateFolderButton')&&!unifiedMailboxActive()?104:64) : Math.max(160,Math.min(folderMax(),folderDrag() ?? accountUiPreferences().folderSidebarWidth ?? 220));
   const listBounds=createMemo(()=>{
     const bottom=readingPane()==='bottom';
     return readingPaneSplit(bottom?bodySize().height:bodySize().width,listDrag() ?? (bottom?accountUiPreferences().messageListHeight??320:accountUiPreferences().messageListWidth??340),bottom);
@@ -244,7 +244,7 @@ export function MailboxScreen(): JSX.Element {
   });
   const composing=()=>activePane()?.kind==='composer';
   const [creatingFolder,setCreatingFolder]=createSignal(false);const createFolderAbility=useRenameContext();
-  const composeButton=()=><button type="button" class={`btn btn--primary sidebar__compose ${a11y.focusable}`} aria-label={t('mail-compose')} title={t('mail-compose')} onClick={openNewMessage} style={mailFeature('showCreateFolderButton')?{flex:'1 1 auto','min-width':0}:undefined}>
+  const composeButton=()=><button type="button" class={`btn btn--primary sidebar__compose ${a11y.focusable}`} aria-label={t('mail-compose')} title={t('mail-compose')} onClick={openNewMessage}>
           <Icon name="edit"/><span class="sidebar__box-name">{t('mail-compose')}</span>
         </button>;
   // t74: the reading pane. With it on (Right or Bottom, and not at phone width) a
@@ -1180,8 +1180,8 @@ export function MailboxScreen(): JSX.Element {
           <Show when={app.me()}><div class="sidebar__account" data-variant={accountIconInSidebar()?'icon':'full'}><LinkedAccountControl variant={accountIconInSidebar()?'icon':'full'}/></div></Show>
         </div>
         <Show when={app.layout()!=='ribbon'}><Show when={mailFeature('showCreateFolderButton')&&!unifiedMailboxActive()} fallback={composeButton()}>
-          <div class="sidebar__compose-row" style={{display:'flex',gap:'0.4rem','align-items':'stretch'}}>
-            <div style={{flex:'1 1 auto',display:'flex','min-width':0}}>{composeButton()}</div>
+          <div class="sidebar__compose-row">
+            {composeButton()}
             <button type="button" class={`btn btn--ghost sidebar__create-folder ${a11y.focusable} ${a11y.iconButton}`} aria-label={t('folder-create')} title={createFolderAbility()?.manages===false?t('folder-create-unavailable'):t('folder-create')} aria-disabled={createFolderAbility()?.manages===false} onClick={()=>{if(createFolderAbility()?.manages!==false)setCreatingFolder(true);}}>
               <Icon name="folderPlus"/>
             </button>

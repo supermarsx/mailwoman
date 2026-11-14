@@ -133,3 +133,10 @@ globalStyle('.list[data-list-style="table"] .list__date',{gridArea:'auto',positi
 globalStyle('.list[data-list-style="table"] .list__preview',{gridColumn:'2',gridRow:'1',marginInlineStart:'45%',overflow:'hidden',whiteSpace:'nowrap',background:vars.color.bg});
 globalStyle('.list[data-list-style="table"] .list__subject:has(+ .list__preview)',{maxWidth:'45%'});
 globalStyle('.list[data-list-style="table"] .tag-chips',{gridArea:'auto',gridColumn:'2',gridRow:'2',minWidth:0,maxHeight:'14px',overflow:'hidden',whiteSpace:'nowrap',fontSize:'10px',lineHeight:'14px'});
+
+// Structural layout belongs in the stylesheet so strict CSP cannot separate these controls.
+globalStyle('.workspace-shell .sidebar__compose-row',{display:'grid',gridTemplateColumns:'minmax(0, 1fr) auto',gap:vars.space[2],alignItems:'stretch',minWidth:0,width:'100%'});
+globalStyle('.workspace-shell .sidebar__compose-row > .sidebar__compose',{width:'100%',minWidth:0,overflow:'hidden'});
+globalStyle('.workspace-shell .sidebar__create-folder',{flex:'none',paddingInline:vars.space[2]});
+globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__compose-row',{'@media':{[desktop]:{gridTemplateColumns:'minmax(0, 1fr) minmax(0, 1fr)',gap:'2px'}}});
+globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__compose-row > .btn',{'@media':{[desktop]:{paddingInline:'2px',width:'100%'}}});

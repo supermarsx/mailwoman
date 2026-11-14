@@ -42,7 +42,9 @@ describe('Create folder button next to Compose',()=>{
   const button=await waitFor(()=>{const node=sidebar().querySelector<HTMLButtonElement>('.sidebar__create-folder');expect(node).not.toBeNull();return node!;});
   expect(button).toHaveAttribute('aria-label','Create folder');expect(button).toHaveAttribute('title','Create folder');
   expect(button.textContent?.trim()).toBe('');
-  expect(button.previousElementSibling?.querySelector('.sidebar__compose')??button.parentElement?.querySelector('.sidebar__compose')).not.toBeNull();
+  expect(button.previousElementSibling).toHaveClass('sidebar__compose');
+  expect(button.parentElement).toHaveClass('sidebar__compose-row');
+  expect(button.parentElement).not.toHaveAttribute('style');
  });
 });
 
