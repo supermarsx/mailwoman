@@ -1553,8 +1553,10 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 </div>
               </div>
               <div class="reader__metadata-line" data-badge-density={badgeDensity()} data-badge-labels={badgeLabels()}>
-              <MessageTimes sent={email().sentAt} received={email().receivedAt}/>
-              <PriorityMark priority={priorityOf(email())} badge/>
+              <Show when={badgeVisible('dates',!!email().sentAt&&email().sentAt!==email().receivedAt)}><MessageTimes sent={email().sentAt} received={email().receivedAt}/></Show>
+              <Show when={badgeVisible('importance',priorityOf(email())!=='normal')}><BadgeContextMenu badge="importance"><PriorityMark priority={priorityOf(email())} badge/></BadgeContextMenu></Show>
+              <Show when={email().followUpAt&&badgeVisible('follow-up',true)}><BadgeContextMenu badge="follow-up"><span class="mw-badge"><Icon name="flag"/>{t('mail-flag')}: {formatDateTime(email().followUpAt!)}</span></BadgeContextMenu></Show>
+              <Show when={email().snoozedUntil&&badgeVisible('snooze',true)}><BadgeContextMenu badge="snooze"><span class="mw-badge"><Icon name="clock"/>{t('mail-snooze')}: {formatDateTime(email().snoozedUntil!)}</span></BadgeContextMenu></Show>
               <Show when={folderNames().length>0&&badgeVisible('folder',folderNotable())}><BadgeContextMenu badge="folder"><FolderBadge names={folderNames()} role={folderRole()} onGo={goToFolder}/></BadgeContextMenu></Show>
               {/* Security chip → expandable panel: server verdict merged
                   with the client decrypt/verify result. */}
@@ -1579,11 +1581,11 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <Show when={sanitizedBadge()}>{badge=><BadgeContextMenu badge="sanitized"><SanitizedBadge state={badge().state} report={badge().report} action={badge().action}/></BadgeContextMenu>}</Show>
               <HeaderFactsBadges email={email()} messageId={email().messageId?.[0] ?? undefined} supersededLookup={id=>isSuperseded(jmapClient,app.accountId()!,id)}/>
               </div>
-              <Show when={props.active !== false && app.accountId() && app.mailboxes().some(box => box.role === 'sent' && email().mailboxIds?.[box.id]) ? JSON.stringify([app.accountId(), email().id, policy().inlineParts]) : undefined} keyed>
+              <Show when={badgeVisible('receipts',true)&&props.active !== false && app.accountId() && app.mailboxes().some(box => box.role === 'sent' && email().mailboxIds?.[box.id]) ? JSON.stringify([app.accountId(), email().id, policy().inlineParts]) : undefined} keyed>
                 {(_scope: string) => <SentReceiptBadge accountId={app.accountId()!} emailId={email().id}
                   engine={policy().inlineParts === true} downloadUrl={app.downloadUrl()}/>}
               </Show>
-              <Show when={app.accountId()}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true} proxyUrl={privacy.state === 'ready' && policy().inlineParts !== true && email().blobId && app.downloadUrl() ? buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'}) : undefined}/></Show>
+              <Show when={app.accountId()&&badgeVisible('delivery',true)}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true} proxyUrl={privacy.state === 'ready' && policy().inlineParts !== true && email().blobId && app.downloadUrl() ? buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'}) : undefined}/></Show>
               </div>
               <Show when={app.accountId()&&policy().inlineParts===true}><ReadReceipt accountId={app.accountId()!} emailId={email().id} active={props.active!==false} fullView={props.view!==undefined} displayed={receiptDisplayed()?.key===receiptDocumentKey()&&receiptDisplayed()?.html===bodySrcdoc()&&!showDecrypt()}/></Show>
 

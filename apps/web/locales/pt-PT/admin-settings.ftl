@@ -2384,3 +2384,24 @@ admin-settings-help-mail-unified-account = Adicionar uma conta virtual ao seleto
 
 admin-settings-key-accounts-settings-inherit-groups = Herdar preferências da conta principal
 admin-settings-help-accounts-settings-inherit-groups = Os grupos selecionados usam valores da conta principal quando não há uma substituição nesta caixa. As escolhas locais e as políticas do administrador prevalecem. Temas, assinaturas, credenciais e IDs de pastas não são herdados.
+
+admin-settings-key-mail-badge-importance = Importância
+admin-settings-help-mail-badge-importance = Escolha sempre, apenas quando relevante ou nunca. Realça valores invulgares, lembretes ativos, recibos, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.
+admin-settings-key-mail-badge-follow-up = Seguimento
+admin-settings-help-mail-badge-follow-up = Escolha sempre, apenas quando relevante ou nunca. Realça valores invulgares, lembretes ativos, recibos, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.
+admin-settings-key-mail-badge-snooze = Adiar
+admin-settings-help-mail-badge-snooze = Escolha sempre, apenas quando relevante ou nunca. Realça valores invulgares, lembretes ativos, recibos, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.
+admin-settings-key-mail-badge-receipts = Recibos de leitura
+admin-settings-help-mail-badge-receipts = Escolha sempre, apenas quando relevante ou nunca. Realça valores invulgares, lembretes ativos, recibos, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.
+admin-settings-key-mail-badge-delivery = Estado de entrega
+admin-settings-help-mail-badge-delivery = Escolha sempre, apenas quando relevante ou nunca. Realça valores invulgares, lembretes ativos, recibos, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.
+admin-settings-key-mail-badge-dates = Datas da mensagem
+admin-settings-help-mail-badge-dates = Escolha sempre, apenas quando relevante ou nunca. Realça valores invulgares, lembretes ativos, recibos, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.
+admin-settings-key-mail-badge-sensitivity = Sensibilidade
+admin-settings-help-mail-badge-sensitivity = Escolha sempre, apenas quando relevante ou nunca. Realça valores invulgares, lembretes ativos, recibos, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.
+admin-settings-key-mail-badge-reply-by = Prazo de resposta
+admin-settings-help-mail-badge-reply-by = Escolha sempre, apenas quando relevante ou nunca. Realça valores invulgares, lembretes ativos, recibos, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.
+admin-settings-key-mail-badge-expires = Validade
+admin-settings-help-mail-badge-expires = Escolha sempre, apenas quando relevante ou nunca. Realça valores invulgares, lembretes ativos, recibos, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.
+admin-settings-key-mail-badge-supersedes = Mensagens substituídas
+admin-settings-help-mail-badge-supersedes = Escolha sempre, apenas quando relevante ou nunca. Realça valores invulgares, lembretes ativos, recibos, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.

@@ -2592,3 +2592,24 @@ admin-settings-help-mail-unified-account = Ein separates virtuelles Konto mit ge
 
 admin-settings-key-accounts-settings-inherit-groups = Einstellungen des Hauptkontos übernehmen
 admin-settings-help-accounts-settings-inherit-groups = Ausgewählte Gruppen übernehmen Standardwerte des Hauptkontos ohne lokale Überschreibung. Lokale Einstellungen und Administratorrichtlinien haben Vorrang. Designs, Signaturen, Zugangsdaten und Ordner-IDs werden nicht übernommen.
+
+admin-settings-key-mail-badge-importance = Wichtigkeit
+admin-settings-help-mail-badge-importance = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.
+admin-settings-key-mail-badge-follow-up = Nachverfolgung
+admin-settings-help-mail-badge-follow-up = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.
+admin-settings-key-mail-badge-snooze = Zurückstellen
+admin-settings-help-mail-badge-snooze = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.
+admin-settings-key-mail-badge-receipts = Lesebestätigungen
+admin-settings-help-mail-badge-receipts = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.
+admin-settings-key-mail-badge-delivery = Zustellstatus
+admin-settings-help-mail-badge-delivery = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.
+admin-settings-key-mail-badge-dates = Nachrichtendaten
+admin-settings-help-mail-badge-dates = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.
+admin-settings-key-mail-badge-sensitivity = Vertraulichkeit
+admin-settings-help-mail-badge-sensitivity = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.
+admin-settings-key-mail-badge-reply-by = Antwortfrist
+admin-settings-help-mail-badge-reply-by = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.
+admin-settings-key-mail-badge-expires = Ablauf
+admin-settings-help-mail-badge-expires = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.
+admin-settings-key-mail-badge-supersedes = Ersetzte Nachrichten
+admin-settings-help-mail-badge-supersedes = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.

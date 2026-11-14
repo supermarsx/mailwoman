@@ -141,3 +141,10 @@ describe('spam score badge visibility',()=>{
   await waitFor(()=>expect(screen.queryAllByTestId('spam-score-item')).toHaveLength(chips));
  },20000);
 });
+
+it('allows user and administrator visibility choices for every newly configurable badge',async()=>{
+ for(const id of ['importance','follow-up','snooze','receipts','delivery','dates','sensitivity','reply-by','expires','supersedes'] as const){
+  await load({['mail.badge.'+id]:'never'},true);expect(badgeLocked(id)).toBe(true);expect(badgeVisible(id,true)).toBe(false);
+  await load({['mail.badge.'+id]:'notable'});expect(badgeVisible(id,false)).toBe(false);expect(badgeVisible(id,true)).toBe(true);
+ }
+});

@@ -2592,3 +2592,24 @@ admin-settings-help-mail-unified-account = Ajouter un compte virtuel au sélecte
 
 admin-settings-key-accounts-settings-inherit-groups = Hériter des préférences du compte principal
 admin-settings-help-accounts-settings-inherit-groups = Les groupes sélectionnés utilisent les valeurs du compte principal sans remplacement local. Les choix locaux et les politiques administrateur sont prioritaires. Thèmes, signatures, identifiants et références de dossiers ne sont pas hérités.
+
+admin-settings-key-mail-badge-importance = Importance
+admin-settings-help-mail-badge-importance = Choisissez toujours, uniquement si notable ou jamais. Met en évidence les valeurs inhabituelles, rappels actifs, accusés, livraisons ou échéances proches. Les données du message sont conservées.
+admin-settings-key-mail-badge-follow-up = Suivi
+admin-settings-help-mail-badge-follow-up = Choisissez toujours, uniquement si notable ou jamais. Met en évidence les valeurs inhabituelles, rappels actifs, accusés, livraisons ou échéances proches. Les données du message sont conservées.
+admin-settings-key-mail-badge-snooze = Reporter
+admin-settings-help-mail-badge-snooze = Choisissez toujours, uniquement si notable ou jamais. Met en évidence les valeurs inhabituelles, rappels actifs, accusés, livraisons ou échéances proches. Les données du message sont conservées.
+admin-settings-key-mail-badge-receipts = Accusés de lecture
+admin-settings-help-mail-badge-receipts = Choisissez toujours, uniquement si notable ou jamais. Met en évidence les valeurs inhabituelles, rappels actifs, accusés, livraisons ou échéances proches. Les données du message sont conservées.
+admin-settings-key-mail-badge-delivery = État de livraison
+admin-settings-help-mail-badge-delivery = Choisissez toujours, uniquement si notable ou jamais. Met en évidence les valeurs inhabituelles, rappels actifs, accusés, livraisons ou échéances proches. Les données du message sont conservées.
+admin-settings-key-mail-badge-dates = Dates du message
+admin-settings-help-mail-badge-dates = Choisissez toujours, uniquement si notable ou jamais. Met en évidence les valeurs inhabituelles, rappels actifs, accusés, livraisons ou échéances proches. Les données du message sont conservées.
+admin-settings-key-mail-badge-sensitivity = Confidentialité
+admin-settings-help-mail-badge-sensitivity = Choisissez toujours, uniquement si notable ou jamais. Met en évidence les valeurs inhabituelles, rappels actifs, accusés, livraisons ou échéances proches. Les données du message sont conservées.
+admin-settings-key-mail-badge-reply-by = Date limite de réponse
+admin-settings-help-mail-badge-reply-by = Choisissez toujours, uniquement si notable ou jamais. Met en évidence les valeurs inhabituelles, rappels actifs, accusés, livraisons ou échéances proches. Les données du message sont conservées.
+admin-settings-key-mail-badge-expires = Expiration
+admin-settings-help-mail-badge-expires = Choisissez toujours, uniquement si notable ou jamais. Met en évidence les valeurs inhabituelles, rappels actifs, accusés, livraisons ou échéances proches. Les données du message sont conservées.
+admin-settings-key-mail-badge-supersedes = Messages remplacés
+admin-settings-help-mail-badge-supersedes = Choisissez toujours, uniquement si notable ou jamais. Met en évidence les valeurs inhabituelles, rappels actifs, accusés, livraisons ou échéances proches. Les données du message sont conservées.

@@ -2608,3 +2608,24 @@ admin-settings-help-mail-unified-account = إضافة حساب افتراضي م
 
 admin-settings-key-accounts-settings-inherit-groups = وراثة تفضيلات الحساب الأساسي
 admin-settings-help-accounts-settings-inherit-groups = تستخدم المجموعات المحددة قيم الحساب الأساسي عند عدم وجود تجاوز محلي. تتقدم الخيارات المحلية وسياسة المسؤول. لا تتم وراثة السمات والتوقيعات وبيانات الاعتماد ومعرفات المجلدات.
+
+admin-settings-key-mail-badge-importance = الأهمية
+admin-settings-help-mail-badge-importance = اختر دائمًا أو عند الأهمية فقط أو أبدًا. يبرز القيم غير المعتادة والتذكيرات النشطة والإيصالات وأحداث التسليم والمواعيد القريبة. تُحفظ بيانات الرسالة.
+admin-settings-key-mail-badge-follow-up = المتابعة
+admin-settings-help-mail-badge-follow-up = اختر دائمًا أو عند الأهمية فقط أو أبدًا. يبرز القيم غير المعتادة والتذكيرات النشطة والإيصالات وأحداث التسليم والمواعيد القريبة. تُحفظ بيانات الرسالة.
+admin-settings-key-mail-badge-snooze = التأجيل
+admin-settings-help-mail-badge-snooze = اختر دائمًا أو عند الأهمية فقط أو أبدًا. يبرز القيم غير المعتادة والتذكيرات النشطة والإيصالات وأحداث التسليم والمواعيد القريبة. تُحفظ بيانات الرسالة.
+admin-settings-key-mail-badge-receipts = إيصالات القراءة
+admin-settings-help-mail-badge-receipts = اختر دائمًا أو عند الأهمية فقط أو أبدًا. يبرز القيم غير المعتادة والتذكيرات النشطة والإيصالات وأحداث التسليم والمواعيد القريبة. تُحفظ بيانات الرسالة.
+admin-settings-key-mail-badge-delivery = حالة التسليم
+admin-settings-help-mail-badge-delivery = اختر دائمًا أو عند الأهمية فقط أو أبدًا. يبرز القيم غير المعتادة والتذكيرات النشطة والإيصالات وأحداث التسليم والمواعيد القريبة. تُحفظ بيانات الرسالة.
+admin-settings-key-mail-badge-dates = تواريخ الرسالة
+admin-settings-help-mail-badge-dates = اختر دائمًا أو عند الأهمية فقط أو أبدًا. يبرز القيم غير المعتادة والتذكيرات النشطة والإيصالات وأحداث التسليم والمواعيد القريبة. تُحفظ بيانات الرسالة.
+admin-settings-key-mail-badge-sensitivity = السرية
+admin-settings-help-mail-badge-sensitivity = اختر دائمًا أو عند الأهمية فقط أو أبدًا. يبرز القيم غير المعتادة والتذكيرات النشطة والإيصالات وأحداث التسليم والمواعيد القريبة. تُحفظ بيانات الرسالة.
+admin-settings-key-mail-badge-reply-by = موعد الرد
+admin-settings-help-mail-badge-reply-by = اختر دائمًا أو عند الأهمية فقط أو أبدًا. يبرز القيم غير المعتادة والتذكيرات النشطة والإيصالات وأحداث التسليم والمواعيد القريبة. تُحفظ بيانات الرسالة.
+admin-settings-key-mail-badge-expires = انتهاء الصلاحية
+admin-settings-help-mail-badge-expires = اختر دائمًا أو عند الأهمية فقط أو أبدًا. يبرز القيم غير المعتادة والتذكيرات النشطة والإيصالات وأحداث التسليم والمواعيد القريبة. تُحفظ بيانات الرسالة.
+admin-settings-key-mail-badge-supersedes = الرسائل المستبدلة
+admin-settings-help-mail-badge-supersedes = اختر دائمًا أو عند الأهمية فقط أو أبدًا. يبرز القيم غير المعتادة والتذكيرات النشطة والإيصالات وأحداث التسليم والمواعيد القريبة. تُحفظ بيانات الرسالة.

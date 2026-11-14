@@ -2627,6 +2627,86 @@ pub static REGISTRY: &[SettingDef] = &[
         "Priority mark style: icon, icon with text, or bar"
     ),
     def!(
+        "mail.badge.importance",
+        Kind::Enum(&["always", "notable", "never"]),
+        "\"notable\"",
+        GDU,
+        "reader",
+        "Visibility of importance message badges; always, only when notable, or never"
+    ),
+    def!(
+        "mail.badge.follow-up",
+        Kind::Enum(&["always", "notable", "never"]),
+        "\"notable\"",
+        GDU,
+        "reader",
+        "Visibility of follow-up message badges; always, only when notable, or never"
+    ),
+    def!(
+        "mail.badge.snooze",
+        Kind::Enum(&["always", "notable", "never"]),
+        "\"notable\"",
+        GDU,
+        "reader",
+        "Visibility of snooze message badges; always, only when notable, or never"
+    ),
+    def!(
+        "mail.badge.receipts",
+        Kind::Enum(&["always", "notable", "never"]),
+        "\"always\"",
+        GDU,
+        "reader",
+        "Visibility of receipts message badges; always, only when notable, or never"
+    ),
+    def!(
+        "mail.badge.delivery",
+        Kind::Enum(&["always", "notable", "never"]),
+        "\"always\"",
+        GDU,
+        "reader",
+        "Visibility of delivery message badges; always, only when notable, or never"
+    ),
+    def!(
+        "mail.badge.dates",
+        Kind::Enum(&["always", "notable", "never"]),
+        "\"always\"",
+        GDU,
+        "reader",
+        "Visibility of dates message badges; always, only when notable, or never"
+    ),
+    def!(
+        "mail.badge.sensitivity",
+        Kind::Enum(&["always", "notable", "never"]),
+        "\"always\"",
+        GDU,
+        "reader",
+        "Visibility of sensitivity message badges; always, only when notable, or never"
+    ),
+    def!(
+        "mail.badge.reply-by",
+        Kind::Enum(&["always", "notable", "never"]),
+        "\"always\"",
+        GDU,
+        "reader",
+        "Visibility of reply-by message badges; always, only when notable, or never"
+    ),
+    def!(
+        "mail.badge.expires",
+        Kind::Enum(&["always", "notable", "never"]),
+        "\"always\"",
+        GDU,
+        "reader",
+        "Visibility of expires message badges; always, only when notable, or never"
+    ),
+    def!(
+        "mail.badge.supersedes",
+        Kind::Enum(&["always", "notable", "never"]),
+        "\"always\"",
+        GDU,
+        "reader",
+        "Visibility of supersedes message badges; always, only when notable, or never"
+    ),
+    def!(
         "mail.badge.auth",
         Kind::Enum(&["always", "notable", "never"]),
         r#""always""#,

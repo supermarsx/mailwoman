@@ -2586,3 +2586,24 @@ admin-settings-help-mail-unified-account = Voeg een apart virtueel account toe a
 
 admin-settings-key-accounts-settings-inherit-groups = Voorkeuren van hoofdaccount overnemen
 admin-settings-help-accounts-settings-inherit-groups = Geselecteerde groepen gebruiken standaardwaarden van het hoofdaccount zonder lokale overschrijving. Lokale keuzes en beheerbeleid gaan voor. Thema’s, handtekeningen, inloggegevens en map-ID’s worden niet overgenomen.
+
+admin-settings-key-mail-badge-importance = Urgentie
+admin-settings-help-mail-badge-importance = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.
+admin-settings-key-mail-badge-follow-up = Opvolgen
+admin-settings-help-mail-badge-follow-up = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.
+admin-settings-key-mail-badge-snooze = Snoozen
+admin-settings-help-mail-badge-snooze = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.
+admin-settings-key-mail-badge-receipts = Leesbevestigingen
+admin-settings-help-mail-badge-receipts = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.
+admin-settings-key-mail-badge-delivery = Bezorgstatus
+admin-settings-help-mail-badge-delivery = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.
+admin-settings-key-mail-badge-dates = Berichtdatums
+admin-settings-help-mail-badge-dates = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.
+admin-settings-key-mail-badge-sensitivity = Vertrouwelijkheid
+admin-settings-help-mail-badge-sensitivity = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.
+admin-settings-key-mail-badge-reply-by = Antwoordtermijn
+admin-settings-help-mail-badge-reply-by = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.
+admin-settings-key-mail-badge-expires = Vervaldatum
+admin-settings-help-mail-badge-expires = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.
+admin-settings-key-mail-badge-supersedes = Vervangen berichten
+admin-settings-help-mail-badge-supersedes = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.

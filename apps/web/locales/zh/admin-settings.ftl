@@ -2578,3 +2578,24 @@ admin-settings-help-mail-unified-account = 在账户选择器中添加一个具�
 
 admin-settings-key-accounts-settings-inherit-groups = 继承主账户偏好设置
 admin-settings-help-accounts-settings-inherit-groups = 所选组在此邮箱没有单独覆盖时使用主账户的默认值。本地选择和管理员策略优先。不继承主题、签名、凭据或文件夹ID。
+
+admin-settings-key-mail-badge-importance = 重要性
+admin-settings-help-mail-badge-importance = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。
+admin-settings-key-mail-badge-follow-up = 跟进
+admin-settings-help-mail-badge-follow-up = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。
+admin-settings-key-mail-badge-snooze = 稍后提醒
+admin-settings-help-mail-badge-snooze = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。
+admin-settings-key-mail-badge-receipts = 已读回执
+admin-settings-help-mail-badge-receipts = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。
+admin-settings-key-mail-badge-delivery = 投递状态
+admin-settings-help-mail-badge-delivery = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。
+admin-settings-key-mail-badge-dates = 邮件日期
+admin-settings-help-mail-badge-dates = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。
+admin-settings-key-mail-badge-sensitivity = 敏感程度
+admin-settings-help-mail-badge-sensitivity = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。
+admin-settings-key-mail-badge-reply-by = 回复期限
+admin-settings-help-mail-badge-reply-by = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。
+admin-settings-key-mail-badge-expires = 到期时间
+admin-settings-help-mail-badge-expires = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。
+admin-settings-key-mail-badge-supersedes = 已替换的邮件
+admin-settings-help-mail-badge-supersedes = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。

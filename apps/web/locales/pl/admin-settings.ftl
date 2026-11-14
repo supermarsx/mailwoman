@@ -2604,3 +2604,24 @@ admin-settings-help-mail-unified-account = Dodaj osobne konto wirtualne do selek
 
 admin-settings-key-accounts-settings-inherit-groups = Dziedzicz preferencje konta głównego
 admin-settings-help-accounts-settings-inherit-groups = Wybrane grupy używają wartości konta głównego bez lokalnego nadpisania. Lokalne wybory i zasady administratora mają pierwszeństwo. Motywy, podpisy, dane logowania i identyfikatory folderów nie są dziedziczone.
+
+admin-settings-key-mail-badge-importance = Ważność
+admin-settings-help-mail-badge-importance = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.
+admin-settings-key-mail-badge-follow-up = Monit
+admin-settings-help-mail-badge-follow-up = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.
+admin-settings-key-mail-badge-snooze = Odłożenie
+admin-settings-help-mail-badge-snooze = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.
+admin-settings-key-mail-badge-receipts = Potwierdzenia odczytu
+admin-settings-help-mail-badge-receipts = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.
+admin-settings-key-mail-badge-delivery = Stan dostarczenia
+admin-settings-help-mail-badge-delivery = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.
+admin-settings-key-mail-badge-dates = Daty wiadomości
+admin-settings-help-mail-badge-dates = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.
+admin-settings-key-mail-badge-sensitivity = Poufność
+admin-settings-help-mail-badge-sensitivity = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.
+admin-settings-key-mail-badge-reply-by = Termin odpowiedzi
+admin-settings-help-mail-badge-reply-by = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.
+admin-settings-key-mail-badge-expires = Wygaśnięcie
+admin-settings-help-mail-badge-expires = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.
+admin-settings-key-mail-badge-supersedes = Zastąpione wiadomości
+admin-settings-help-mail-badge-supersedes = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.

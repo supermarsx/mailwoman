@@ -2578,3 +2578,24 @@ admin-settings-help-mail-unified-account = フォルダーと件数をまとめ�
 
 admin-settings-key-accounts-settings-inherit-groups = プライマリアカウントの設定を継承
 admin-settings-help-accounts-settings-inherit-groups = 選択したグループは、このメールボックスに個別設定がない場合にプライマリアカウントの値を使用します。個別設定と管理者ポリシーが優先されます。テーマ、署名、認証情報、フォルダーIDは継承されません。
+
+admin-settings-key-mail-badge-importance = 重要度
+admin-settings-help-mail-badge-importance = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。
+admin-settings-key-mail-badge-follow-up = フォローアップ
+admin-settings-help-mail-badge-follow-up = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。
+admin-settings-key-mail-badge-snooze = スヌーズ
+admin-settings-help-mail-badge-snooze = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。
+admin-settings-key-mail-badge-receipts = 開封確認
+admin-settings-help-mail-badge-receipts = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。
+admin-settings-key-mail-badge-delivery = 配信状態
+admin-settings-help-mail-badge-delivery = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。
+admin-settings-key-mail-badge-dates = メッセージの日付
+admin-settings-help-mail-badge-dates = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。
+admin-settings-key-mail-badge-sensitivity = 機密度
+admin-settings-help-mail-badge-sensitivity = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。
+admin-settings-key-mail-badge-reply-by = 返信期限
+admin-settings-help-mail-badge-reply-by = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。
+admin-settings-key-mail-badge-expires = 有効期限
+admin-settings-help-mail-badge-expires = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。
+admin-settings-key-mail-badge-supersedes = 置き換えられたメッセージ
+admin-settings-help-mail-badge-supersedes = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。

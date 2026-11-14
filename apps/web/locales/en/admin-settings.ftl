@@ -2381,3 +2381,24 @@ admin-settings-help-mail-unified-account = Add a separate virtual account to the
 
 admin-settings-key-accounts-settings-inherit-groups = Inherit primary-account preferences
 admin-settings-help-accounts-settings-inherit-groups = Selected groups use primary-account defaults when this mailbox has no override. Local choices and administrator policy win. Themes, signatures, credentials and folder IDs are not inherited.
+
+admin-settings-key-mail-badge-importance = Importance
+admin-settings-help-mail-badge-importance = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
+admin-settings-key-mail-badge-follow-up = Follow-up
+admin-settings-help-mail-badge-follow-up = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
+admin-settings-key-mail-badge-snooze = Snooze
+admin-settings-help-mail-badge-snooze = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
+admin-settings-key-mail-badge-receipts = Read receipts
+admin-settings-help-mail-badge-receipts = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
+admin-settings-key-mail-badge-delivery = Delivery status
+admin-settings-help-mail-badge-delivery = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
+admin-settings-key-mail-badge-dates = Message dates
+admin-settings-help-mail-badge-dates = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
+admin-settings-key-mail-badge-sensitivity = Sensitivity
+admin-settings-help-mail-badge-sensitivity = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
+admin-settings-key-mail-badge-reply-by = Reply deadline
+admin-settings-help-mail-badge-reply-by = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
+admin-settings-key-mail-badge-expires = Expiry
+admin-settings-help-mail-badge-expires = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
+admin-settings-key-mail-badge-supersedes = Replaced messages
+admin-settings-help-mail-badge-supersedes = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
