@@ -22,7 +22,7 @@ export const LIVE_SEARCH_DELAY_MS = 250;
 
 /** Submits an `Email/query` (engine → mw-search online, reduced cached search
  *  offline). */
-export function SearchBox(): JSX.Element {
+export function SearchBox(props:{onSearch?:()=>void}={}): JSX.Element {
   const app = useApp();
   onMount(() => void loadCatalog('search'));
   const [query, setQuery] = createSignal(app.search());
@@ -53,6 +53,7 @@ export function SearchBox(): JSX.Element {
     cancelPending();
     const request=normalSearchRequest(text,app.selectedMailboxId(),app.mailboxes(),explicitScope(),implicitScope,fromFilters&&!hasFolderScope(query()));
     implicitScope=request.scopeMailboxId;
+    props.onSearch?.();
     ownSearch = request.query;
     setQuery(request.scopeMailboxId?request.baseQuery??text:text);
     void app.searchMessages(request.query, { semantic: semantic(),...(request.scopeMailboxId?{scopeMailboxId:request.scopeMailboxId,baseQuery:request.baseQuery??text}:{}) });

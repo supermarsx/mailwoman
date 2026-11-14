@@ -43,7 +43,7 @@ export function focusActions(app:Partial<Pick<ReturnType<typeof useApp>,'focused
 /** Always targets the indicated message, not an unrelated existing selection. */
 /** A conversation head's menu acts on the conversation: `threadMode` says the menu was opened on a head, `threadMembers` lists the loaded messages of its thread. */
 export interface ThreadMenuOptions {threadMode:Accessor<boolean>;threadMembers:(email:Email)=>Email[]}
-export interface MessageOpeningOptions {onOpenMessage?:(id:string)=>void;onOpenMessageTab?:(id:string)=>void}
+export interface MessageOpeningOptions {actionFilter?:(action:ContextAction)=>boolean;allowRetainedMessage?:boolean;onOpenMessage?:(id:string)=>void;onOpenMessageTab?:(id:string)=>void}
 export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?:{replyDraft:(emailId:string)=>{id:string}|undefined;onOpenReplyDraft?:(id:string)=>void},fetchExtras?:typeof fetchMessageExtras,threads?:ThreadMenuOptions,opening?:MessageOpeningOptions) {
   void loadCatalog('properties');
   void loadCatalog('search'); // t112: its ids show wherever it is mounted
@@ -96,9 +96,9 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
    {id:'attachments:all',label:t('mail-context-download-thread-attachments',{count:groups.reduce((sum,group)=>sum+group.items.length,0)}),icon:ACTION_ICONS.downloadAll,separatorBefore:true,run:()=>downloadZip(app,groups,policy())}]});
  };
  const membersOf=(message:Email):Email[]=>{const list=threads?.threadMode()?threads.threadMembers(message):[];return list.length>1?[...list].sort((a,b)=>(a.sentAt??a.receivedAt).localeCompare(b.sentAt??b.receivedAt)):[];};
- const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}:${email()?.id}:${JSON.stringify([...app.selectedIds()].sort())}`,actions:()=>{
+ const actions=():ContextAction[]=>{
   const owner=preferenceAccount();if(!owner||owner.id!==app.accountId())return [];
-  const message=app.messages().find(value=>value.id===email()?.id);if(!message)return [];const id=message.id;const busy=app.listLoading();
+  const message=app.messages().find(value=>value.id===email()?.id)??(opening?.allowRetainedMessage?email():undefined);if(!message)return [];const id=message.id;const busy=app.listLoading();
   const rows:ContextAction[]=[
    {id:'open',label:t('mail-context-open-message'),icon:ACTION_ICONS.open,run:()=>opening?.onOpenMessage?opening.onOpenMessage(id):app.openMessage(id)},
    {id:'read',label:t(message.keywords?.$seen?'mail-mark-unread':'mail-mark-read'),icon:message.keywords?.$seen?ACTION_ICONS.markUnread:ACTION_ICONS.markRead,run:()=>app.markRead(id,!message.keywords?.$seen)},
@@ -194,9 +194,16 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   const marks=rows.filter(row=>markIds.has(row.id));
   const actions=rows.filter(row=>!markIds.has(row.id));
   if(marks.length)actions.splice(firstMark,0,{id:'mark-as',label:t('mail-mark-as'),icon:'check',separatorBefore:true,run:()=>{},children:marks.map(row=>({...row,separatorBefore:false}))});
-  return actions.map(row=>({...row,disabled:busy||row.disabled===true}));
- },restoreFocus:trigger=>{const row=Array.from(document.querySelectorAll<HTMLElement>('.list__row')).find(value=>value.dataset['emailId']===email()?.id);const more=trigger?.classList.contains('msg-more__toggle')?row?.closest('.list__slot')?.querySelector<HTMLElement>('.msg-more__toggle'):undefined;(more??row)?.focus();},onError:()=>app.showToast('error',t('mail-context-failed'))});
+  const admitted=(row:ContextAction):ContextAction|undefined=>{
+   if(opening?.actionFilter?.(row)===false)return;
+   const children=row.children?.map(admitted).filter((value):value is ContextAction=>value!==undefined);
+   if(row.children&&children?.length===0)return;
+   return {...row,...(children?{children}:{}),disabled:busy||row.disabled===true};
+  };
+  return actions.map(admitted).filter((value):value is ContextAction=>value!==undefined);
+ };
+ const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}:${email()?.id}:${JSON.stringify([...app.selectedIds()].sort())}`,actions,restoreFocus:trigger=>{const row=Array.from(document.querySelectorAll<HTMLElement>('.list__row')).find(value=>value.dataset['emailId']===email()?.id);const more=trigger?.classList.contains('msg-more__toggle')?row?.closest('.list__slot')?.querySelector<HTMLElement>('.msg-more__toggle'):undefined;(more??row)?.focus();},onError:()=>app.showToast('error',t('mail-context-failed'))});
  createEffect(()=>{const message=email();if(menu.isOpen()&&message)untrack(()=>{const current=app.messages().find(value=>value.id===message.id)??message;prefetch(current);for(const member of membersOf(current))prefetch(member);});});
  onCleanup(observePreferenceAccount(()=>menu.close(false)));
- return menu;
+ return {...menu,actions};
 }

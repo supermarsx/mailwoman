@@ -143,3 +143,25 @@ describe('after moving a message',()=>{
   if(mode==='next')await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:b'));
  });
 });
+
+it('binds search, sorting and workspace actions to the ribbon without duplicate side controls',async()=>{
+ const {app}=await mount({});app.setLayout('ribbon');
+ const ribbon=document.querySelector<HTMLElement>('[data-bar=mailRibbon]')!;await waitFor(()=>expect(ribbon).toBeInTheDocument());
+ expect(document.querySelector('[data-bar=mailTopBar]')).toBeNull();expect(document.querySelector('.sidebar__compose')).toBeNull();expect(document.querySelector('.sidebar__logout')).toBeNull();
+ expect(ribbon.querySelector('[role=search]')).toBeInTheDocument();expect(ribbon.querySelector('[data-testid=search-guided-toggle]')).toBeInTheDocument();
+ expect(ribbon.querySelector('[data-testid=list-order-menu]')).toBeInTheDocument();
+ expect(within(ribbon).getByRole('button',{name:'Compose'})).toBeInTheDocument();expect(within(ribbon).getByRole('button',{name:'Log out'})).toBeInTheDocument();
+ fireEvent.dblClick(screen.getByText('Subject a',{selector:'.list__subject'}));
+ await waitFor(()=>expect(within(ribbon).getByRole('button',{name:'Reply'})).toBeInTheDocument());
+ const move=within(ribbon).getByRole('button',{name:'Move to…'});expect(move).toHaveAttribute('aria-haspopup','menu');
+ fireEvent.click(move);fireEvent.click(await screen.findByRole('menuitem',{name:'Archive'}));
+ await waitFor(()=>expect(app.messages().some(message=>message.id==='a')).toBe(false));
+});
+
+it('honours hidden and menu-only action preferences inside Command Ribbon',async()=>{
+ const {app,realtime}=await mount({'reader.actions.forward':'hidden','reader.actions.reply':'menu'});app.setLayout('ribbon');await openTab(realtime);
+ const ribbon=document.querySelector<HTMLElement>('[data-bar=mailRibbon]')!;
+ expect(within(ribbon).queryByRole('button',{name:'Reply'})).toBeNull();expect(within(ribbon).queryByRole('button',{name:'Forward'})).toBeNull();
+ fireEvent.click(within(ribbon).getByRole('button',{name:'More actions'}));
+ expect(await screen.findByRole('menuitem',{name:'Reply'})).toBeVisible();expect(screen.queryByRole('menuitem',{name:'Forward'})).toBeNull();
+});

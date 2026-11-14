@@ -132,3 +132,9 @@ export const label = style({
 // 1px in Chromium (17 > 16), which reads as vertical overflow. A 18px line
 // still fits the 88px button.
 globalStyle(`${ribbon} [data-ribbon-more] > span`, { blockSize: '18px', lineHeight: '18px' });
+
+export const search=style({minInlineSize:0,paddingInline:vars.space[3],paddingBlock:vars.space[2]});
+export const commands=style({display:'flex',alignItems:'center',flexWrap:'wrap',alignContent:'center',gap:vars.space[1],blockSize:'100%',minInlineSize:0});
+globalStyle(`.${commands} > .workspace-bar`,{display:'contents'});
+
+globalStyle(`.${search} .mail-search-area > div`,{maxBlockSize:'min(40dvh, 22rem)',overflow:'auto'});

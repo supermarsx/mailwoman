@@ -3944,3 +3944,8 @@ The saved `default` layout is displayed as **Focus**; `ribbon` is **Command Ribb
 ### Reader after moving messages
 
 `mail.afterMove` is a global/domain/user enum: `keep` (default), `next`, `previous`, or `close`. Users find it in Settings > Appearance beside the after-delete setting; administrators can set defaults and lock it. The setting is portable through preference export/import. It applies to successful explicit folder moves and source-account moves between accounts; copies, archive, spam and delete retain their existing behavior. A refused move keeps its reader open. Next/previous follow the pre-move display order, skip the successfully moved messages, fall back to a remaining neighbour at the end of the list and close if none remains. The active reading pane or message tab advances; other affected message tabs close when a non-keep option is selected. If the source list is no longer current, no unrelated next message is opened.
+
+
+### Command Ribbon controls
+
+In Command Ribbon, the main toolbar moves into the Home ribbon, with compose, logout, sorting/grouping, undo/redo, refresh, workspace and sidebar controls. Search, guided filters and inbox filtering live in the ribbon header. Home also exposes contextual message commands from the shared message action registry; permission restrictions and configured hidden/menu placements still apply. View retains appearance controls and Folder provides folder navigation and creation.
