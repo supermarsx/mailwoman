@@ -20,8 +20,8 @@ settings-font-system = System
 settings-font-serif = Serifen
 settings-font-mono = Monospace
 
-settings-layout-default = Standard
-settings-layout-ribbon = Menüband
+settings-layout-default = Focus
+settings-layout-ribbon = Command Ribbon
 
 settings-cancel = Abbrechen
 settings-edit = Bearbeiten

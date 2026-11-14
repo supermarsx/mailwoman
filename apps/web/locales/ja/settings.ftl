@@ -20,8 +20,8 @@ settings-font-system = システム
 settings-font-serif = セリフ
 settings-font-mono = 等幅
 
-settings-layout-default = 既定
-settings-layout-ribbon = リボン
+settings-layout-default = Focus
+settings-layout-ribbon = Command Ribbon
 
 settings-cancel = キャンセル
 settings-edit = 編集

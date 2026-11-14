@@ -20,8 +20,8 @@ settings-font-system = النظام
 settings-font-serif = مذيّل
 settings-font-mono = أحادي المسافة
 
-settings-layout-default = الافتراضي
-settings-layout-ribbon = شريط
+settings-layout-default = Focus
+settings-layout-ribbon = Command Ribbon
 
 settings-cancel = إلغاء
 settings-edit = تحرير

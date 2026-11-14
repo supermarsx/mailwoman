@@ -20,8 +20,8 @@ settings-font-system = Sistema
 settings-font-serif = Serif
 settings-font-mono = Monoespaciada
 
-settings-layout-default = Predeterminado
-settings-layout-ribbon = Cinta
+settings-layout-default = Focus
+settings-layout-ribbon = Command Ribbon
 
 settings-cancel = Cancelar
 settings-edit = Editar

@@ -23,8 +23,8 @@ settings-font-serif = Serifada
 settings-font-mono = Monoespaçada
 
 # Layout options
-settings-layout-default = Padrão
-settings-layout-ribbon = Faixa de opções
+settings-layout-default = Focus
+settings-layout-ribbon = Command Ribbon
 
 ## Account settings surface (t16 e15) — 2FA, sessions, signatures, identities,
 ## notification rules, saved searches, device preferences. Shared action labels

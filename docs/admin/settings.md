@@ -3933,3 +3933,8 @@ Only Later today (3 hours), Tomorrow (09:00) and Next week (09:00) start enabled
 The editor controls preview enablement, a 1–256 MiB size limit (64 MiB by default), individual file categories, allowed image extensions and allowed text/source extensions. An empty text-extension list allows all recognized text formats; `*` allows every recognized image format. Each tool can appear on the toolbar, in the More actions menu, or be hidden. PDF tools remain available by default. Hiding a tool is a presentation preference, not an access-control boundary.
 
 Recognized categories include PDF, images, plain text, HTML, source code, audio, video, attached messages and calendar files. HTML is sanitized inside a script-free isolated frame with remote resources blocked; source code is displayed as text. Image decoding first uses the browser. An optional bounded WASM conversion worker additionally supports BMP, ICO, TIFF, PNM, TGA, DDS, farbfeld, QOI, HDR and EXR, alongside PNG/JPEG/GIF/WebP. Conversion accepts at most 4 MiB and returns at most 8 MiB of PNG data. HEIC/HEIF, JPEG XL, JPEG 2000 and camera RAW require browser support; unsupported files can still be downloaded when policy permits. Image support depends on the codec and file variant.
+
+
+### Layout names
+
+The saved `default` layout is displayed as **Focus**; `ribbon` is **Command Ribbon**. Saved preferences keep the same values.
