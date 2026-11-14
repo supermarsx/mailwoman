@@ -7,12 +7,13 @@ import {snoozeWallInput,snoozeZone} from '../state/snooze.ts';
 import {createFocusTrap} from './a11y';
 import * as css from '../screens/Settings/styles.css.ts';
 import * as layout from '../screens/Settings/editor.css.ts';
-interface Request {owner:PreferenceAccount;save:(until:string)=>Promise<void>;trigger:HTMLElement|null}
+interface Request {kind:'snooze'|'followUp';owner:PreferenceAccount;save:(until:string)=>Promise<void>;trigger:HTMLElement|null}
 const [request,setRequest]=createSignal<Request>();
-export function requestCustomSnooze(save:(until:string)=>Promise<void>):void{
+export function requestCustomSnooze(save:(until:string)=>Promise<void>,kind:'snooze'|'followUp'='snooze'):void{
  const owner=preferenceAccount();if(!owner)return;
- setRequest({owner,save,trigger:document.activeElement instanceof HTMLElement?document.activeElement:null});
+ setRequest({kind,owner,save,trigger:document.activeElement instanceof HTMLElement?document.activeElement:null});
 }
+export function requestCustomFollowUp(save:(until:string)=>Promise<void>):void{requestCustomSnooze(save,'followUp');}
 export function SnoozeDialog():JSX.Element{
  onCleanup(observePreferenceAccount(()=>{if(request()&&!preferenceAccountIsCurrent(request()!.owner))setRequest(undefined);}));
  return <Show when={request()} keyed>{value=><Picker request={value}/>}</Show>;
@@ -42,7 +43,7 @@ function Picker(props:{request:Request}):JSX.Element{
    <p class={css.meta}>{t('snooze-zone',{zone})}</p>
    <Show when={candidates().length>1}><label class={css.field}>{t('snooze-ambiguous')}<select class={css.select} value={choice()} disabled={busy()} onChange={event=>setChoice(event.currentTarget.value)}><option value="">{t('snooze-choose')}</option><For each={candidates()}>{at=><option value={at.toISOString()}>{formatDateWith(at,{timeZone:zone,dateStyle:'medium',timeStyle:'long'})}</option>}</For></select></label></Show>
    <Show when={error()}><p role="alert" class={css.error}>{error()}</p></Show>
-   <div class={css.actions}><button type="submit" class={css.button} disabled={busy()}>{t('mail-snooze')}</button><button type="button" class={css.ghost} disabled={busy()} onClick={close}>{t('common-cancel')}</button></div>
+   <div class={css.actions}><button type="submit" class={css.button} disabled={busy()}>{t(props.request.kind==='followUp'?'mail-flag':'mail-snooze')}</button><button type="button" class={css.ghost} disabled={busy()} onClick={close}>{t('common-cancel')}</button></div>
   </form>
  </div></Portal>;
 }

@@ -1,3 +1,4 @@
+import {followUpActions} from './followUpActions.ts';
 import {requestDraftPreview} from './compose/draftPreview.ts';
 // The reader's action row (t57): every message action on ONE line, with the
 // actions that do not fit folded into a "More" menu instead of wrapping.
@@ -134,7 +135,6 @@ export function ReaderToolbar(props:{
  }
  const pinned=()=>props.email.pinned===true;
  const unread=()=>props.email.keywords?.['$seen']!==true;
- const flagged=()=>props.email.keywords?.['$flagged']===true;
  const conversation=createConversation({threadId:()=>props.email.threadId??undefined,messageId:id,active:()=>props.active});
  const linkReview=createLinkReview({links:()=>props.links,truncated:()=>props.linksTruncated,scope:()=>props.linkScope,active:()=>props.active,...(props.onCompose?{onCompose:props.onCompose}:{})});
  createEffect(()=>{void props.headersUrl;void props.headersScope;void app.accountId();void id();void props.active;setHeadersOpen(false);});
@@ -168,7 +168,7 @@ export function ReaderToolbar(props:{
   search:{id:'search',inline:()=><ReaderSearchMenu email={props.email}/>,menu:()=>[{id:'search-related',label:t('search-refine-menu'),icon:'search',children:relatedSearchActions(props.email,app.mailboxes().map(m=>m.id),(field,value)=>{if(realtime.subTabs.tabs().some(tab=>tab.id==='mail'))realtime.subTabs.activate('mail');void app.searchMessageField(field,value);},app.supportsFromDomainSearch()),run:()=>{}}]},
   pin:plain({id:'pin',icon:icon('pin'),label:()=>pinned()?t('mail-unpin'):t('mail-pin'),help:()=>t('mail-action-help-pin'),pressed:pinned,run:()=>void app.pinMessage(id(),!pinned()),local:true}),
   read:plain({id:'read',icon:()=>unread()?ACTION_ICONS.markRead:ACTION_ICONS.markUnread,label:()=>unread()?t('mail-mark-read'):t('mail-mark-unread'),help:()=>t('mail-action-help-read'),testId:'reader-toggle-read',run:()=>void app.markRead(id(),unread()),local:true}),
-  flag:plain({id:'flag',icon:icon('flag'),label:()=>flagged()?t('mail-unflag-message'):t('mail-flag-message'),help:()=>t('mail-action-help-flag'),testId:'reader-flag',pressed:flagged,run:()=>void app.flagMessage(id(),!flagged()),local:true}),
+  flag:{id:'flag',inline:()=><ReaderMenuAction id="flag" scope={()=>id()} onError={()=>app.showToast('error',t('mail-context-failed'))} action={()=>({id:'flag',label:t('mail-flag-message'),icon:ACTION_ICONS.flag,children:followUpActions(until=>app.setFollowUp(id(),until),!!props.email.followUpAt,()=>app.completeFollowUp(id())),run:()=>{}})}/>,menu:()=>[{id:'flag',label:t('mail-flag-message'),icon:ACTION_ICONS.flag,children:followUpActions(until=>app.setFollowUp(id(),until),!!props.email.followUpAt,()=>app.completeFollowUp(id())),run:()=>{}}]},
   archive:plain({id:'archive',icon:icon(ACTION_ICONS.archive),label:()=>t('mail-archive'),help:()=>t('mail-action-help-archive'),run:()=>void app.archiveMessage(id())}),
   move:{id:'move',inline:()=><ReaderMoveMenu email={props.email}/>,menu:()=>[{id:'move',searchLabel:t('mail-move-search'),label:t('mail-reader-move-to'),icon:ACTION_ICONS.moveTo,children:moveActions(props.email,app),run:()=>{}}]},
   delete:plain({id:'delete',icon:icon('delete'),label:()=>t('mail-delete'),help:()=>t('mail-action-help-delete'),run:()=>void app.trashMessage(id())}),

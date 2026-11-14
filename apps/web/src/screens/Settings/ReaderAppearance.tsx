@@ -1,4 +1,4 @@
-import {SnoozePreferences,SNOOZE_CARD} from './SnoozePreferences.tsx';
+import {SnoozePreferences,SNOOZE_CARD,FOLLOW_UP_CARD} from './SnoozePreferences.tsx';
 import {SettingsSubtabs} from './SettingsSubtabs.tsx';
 import {ReaderActionPreferences,READER_ACTIONS_CARD} from './ReaderActionPreferences.tsx';
 import { MessageBadges, MESSAGE_BADGES_CARD } from './MessageBadges.tsx';
@@ -64,6 +64,7 @@ export function ReaderAppearanceSettings(props:{senders?:JSX.Element;cache?:JSX.
     <SettingsSubtabs section="reader" label="reader-settings-title" tabs={[
       {id:'appearance',label:'reader-card-text',cards:['reader-card-text','reader-card-header','reader-card-loading'],content:<>{cardsFor(READER_CARDS.filter(card=>card.id!=='reader-card-actions'))}</>},
       {id:'actions',label:'reader-actions-title',cards:['reader-card-actions',READER_ACTIONS_CARD.id],content:<>{cardsFor(READER_CARDS.filter(card=>card.id==='reader-card-actions'))}<ReaderActionPreferences/></>},
+      {id:'follow-up',label:'follow-up-title',cards:[FOLLOW_UP_CARD.id],content:<SnoozePreferences followUp/>},
       {id:'snooze',label:'mail-snooze',cards:[SNOOZE_CARD.id],content:<SnoozePreferences/>},
       {id:'attachments',label:ATTACHMENTS_BAR_CARD_SPEC.title,cards:[ATTACHMENTS_BAR_CARD_SPEC.id,ATTACHMENT_PREVIEW_CARD.id],content:<><AttachmentsBarSettings/><AttachmentPreviewPreferences/></>},
       {id:'badges',label:MESSAGE_BADGES_CARD.title,cards:[MESSAGE_BADGES_CARD.id],content:<MessageBadges/>},
@@ -80,4 +81,4 @@ export function ReaderAppearanceSettings(props:{senders?:JSX.Element;cache?:JSX.
 export const READER_CARD_SPECS: readonly CardSpec[] = [...READER_CARDS.map(card => ({
   id: card.id, section: 'reader', title: card.title, help: card.help,
   rows: [...(card.leading ? [card.leading] : []), ...card.keys].map(key => ({ id: `reader-${key}`, label: `reader-${key}`, help: `reader-${key}-help` })),
-})), READER_ACTIONS_CARD, ATTACHMENTS_BAR_CARD_SPEC, ATTACHMENT_PREVIEW_CARD, MESSAGE_BADGES_CARD,SNOOZE_CARD];
+})), READER_ACTIONS_CARD, ATTACHMENTS_BAR_CARD_SPEC, ATTACHMENT_PREVIEW_CARD, MESSAGE_BADGES_CARD,SNOOZE_CARD,FOLLOW_UP_CARD];

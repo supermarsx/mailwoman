@@ -2599,3 +2599,6 @@ admin-settings-key-mail-badge-expires = 有効期限
 admin-settings-help-mail-badge-expires = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。
 admin-settings-key-mail-badge-supersedes = 置き換えられたメッセージ
 admin-settings-help-mail-badge-supersedes = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。
+
+admin-settings-key-mail-follow-up-presets = フォローアップのフラグ
+admin-settings-help-mail-follow-up-presets = フォローアップ通知はスヌーズとは別に設定できます。フォローアップではメールを表示したままにし、スヌーズでは指定時刻まで非表示にします。管理者ポリシーが許可する場合、個別設定で継承値を変更できます。 既定で有効なのは「今日の後で」「明日」「来週」のみです。ほかのプリセットも有効化・編集できます。

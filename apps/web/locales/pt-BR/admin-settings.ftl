@@ -2607,3 +2607,6 @@ admin-settings-key-mail-badge-expires = Validade
 admin-settings-help-mail-badge-expires = Escolha sempre, apenas quando relevante ou nunca. Destaca valores incomuns, lembretes ativos, confirmações, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.
 admin-settings-key-mail-badge-supersedes = Mensagens substituídas
 admin-settings-help-mail-badge-supersedes = Escolha sempre, apenas quando relevante ou nunca. Destaca valores incomuns, lembretes ativos, confirmações, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.
+
+admin-settings-key-mail-follow-up-presets = Marcar para acompanhamento
+admin-settings-help-mail-follow-up-presets = Escolha horários de acompanhamento separados do adiamento. O acompanhamento mantém as mensagens visíveis; o adiamento oculta até a data escolhida. As escolhas locais podem substituir padrões herdados quando a política do administrador permitir. Apenas Mais tarde hoje, Amanhã e Próxima semana são ativados por padrão. As outras opções estão disponíveis para ativar ou personalizar.

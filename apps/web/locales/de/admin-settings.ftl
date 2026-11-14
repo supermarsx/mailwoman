@@ -2613,3 +2613,6 @@ admin-settings-key-mail-badge-expires = Ablauf
 admin-settings-help-mail-badge-expires = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.
 admin-settings-key-mail-badge-supersedes = Ersetzte Nachrichten
 admin-settings-help-mail-badge-supersedes = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.
+
+admin-settings-key-mail-follow-up-presets = Zur Nachverfolgung markieren
+admin-settings-help-mail-follow-up-presets = Wählen Sie Nachverfolgungserinnerungen unabhängig vom Zurückstellen. Nachverfolgung lässt Nachrichten sichtbar; Zurückstellen verbirgt sie bis zum gewählten Zeitpunkt. Lokale Werte können geerbte Vorgaben überschreiben, wenn Administratorrichtlinien es erlauben. Nur Später heute, Morgen und Nächste Woche sind standardmäßig aktiviert. Weitere Vorgaben können bereits aktiviert oder angepasst werden.

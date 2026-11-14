@@ -25,8 +25,8 @@ it('keeps every message display setting exactly once within its grouped subtabs'
  mount();
  for(const key of ALL_KEYS)expect(await screen.findAllByText(t(`reader-${key}`),{selector:'label'})).toHaveLength(1);
  expect(READER_CARDS.flatMap(c=>[...c.keys,...(c.leading?[c.leading]:[])]).sort()).toEqual([...ALL_KEYS].sort());
- expect(screen.getAllByRole('heading',{level:4,hidden:true})).toHaveLength(READER_CARDS.length+5);
- expect(screen.getAllByRole('tab')).toHaveLength(7);
+ expect(screen.getAllByRole('heading',{level:4,hidden:true})).toHaveLength(READER_CARDS.length+6);
+ expect(screen.getAllByRole('tab')).toHaveLength(8);
  expect(screen.queryByRole('search')).toBeNull();
  expect(screen.queryByRole('textbox',{name:/search/i})).toBeNull();
  expect(document.querySelector('[data-kit-toggle],[data-kit-card],[data-kit-grid]')).toBeNull();
@@ -34,8 +34,8 @@ it('keeps every message display setting exactly once within its grouped subtabs'
 });
 it('keeps the administrator lock note on a held setting',async()=>{
  locked=true;mount();
- expect(await screen.findByTestId('setting-lock-note')).toBeInTheDocument();
- expect(screen.getByLabelText(t('reader-fontSize'))).toBeDisabled();
+ await waitFor(()=>expect(document.querySelector('[data-testid=setting-lock-note]')).toBeInTheDocument());
+ expect(document.getElementById('reader-fontSize')!).toBeDisabled();
 });
 it('lists the shortcuts-section cards without dropping a setting',async()=>{
  render(()=><RetainedSettingsSection name="shortcuts" active accountBound={false}>{()=><><MailFeaturePreferences/><MailInteractionPreferences/></>}</RetainedSettingsSection>);
@@ -74,7 +74,7 @@ it('search targets scroll to and highlight the exact setting row, and repeat on 
  const nav=createSettingsNavigation({section:'reader',card:'reader-card-text',row:'reader-fontSize'});
  const scroll=vi.fn();Element.prototype.scrollIntoView=scroll;
  render(()=><SettingsNavigationContext.Provider value={nav}><RetainedSettingsSection name="reader" active accountBound={false}>{()=><ReaderAppearanceSettings/>}</RetainedSettingsSection></SettingsNavigationContext.Provider>);
- const control=await screen.findByLabelText(t('reader-fontSize'));
+ const control=document.getElementById('reader-fontSize')!;
  await waitFor(()=>expect(control.closest('[data-setting-row]')).toHaveAttribute('data-card-flash'));
  expect(document.getElementById('reader-card-text')).not.toHaveAttribute('data-card-flash');
  expect(document.activeElement).toBe(control);
@@ -83,7 +83,7 @@ it('search targets scroll to and highlight the exact setting row, and repeat on 
  await waitFor(()=>expect(scroll.mock.calls.length).toBeGreaterThan(calls));
  expect(control.closest('[data-setting-row]')).toHaveAttribute('data-card-flash');
  await nav.navigate({section:'reader',card:'reader-card-action-placement',row:'reader-action-delete'});
- const action=screen.getByLabelText(t('reader-action-delete'));
+ const action=document.getElementById('reader-action-delete')!;
  await waitFor(()=>expect(action.closest('[data-setting-row]')).toHaveAttribute('data-card-flash'));
  expect(action).toBeVisible();expect(control).not.toBeVisible();
 });

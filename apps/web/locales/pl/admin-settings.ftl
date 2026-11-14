@@ -2625,3 +2625,6 @@ admin-settings-key-mail-badge-expires = Wygaśnięcie
 admin-settings-help-mail-badge-expires = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.
 admin-settings-key-mail-badge-supersedes = Zastąpione wiadomości
 admin-settings-help-mail-badge-supersedes = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.
+
+admin-settings-key-mail-follow-up-presets = Oznacz do wykonania
+admin-settings-help-mail-follow-up-presets = Wybierz przypomnienia niezależnie od odraczania. Flagi zachowują widoczność wiadomości; odroczenie ukrywa je do wybranego czasu. Lokalne wybory mogą zastąpić dziedziczone wartości, jeśli administrator na to pozwala. Domyślnie włączone są tylko Później dzisiaj, Jutro i Następny tydzień. Pozostałe opcje można już włączyć lub dostosować.

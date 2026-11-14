@@ -1,3 +1,4 @@
+import {followUpActions} from './followUpActions.ts';
 import {requestDraftPreview,requestDraftMessagePreview} from './compose/draftPreview.ts';
 import {isDraftMessage} from './draftMessage.ts';
 import {resolveSnooze,snoozePresetLabel} from '../state/snooze.ts';
@@ -179,7 +180,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   rows.push({id:'snooze',label:t('mail-snooze'),icon:ACTION_ICONS.snooze,separatorBefore:true,run:()=>{},children:[{id:'snooze:custom',label:t('snooze-custom'),icon:ACTION_ICONS.snoozePick,run:()=>requestCustomSnooze(until=>app.snoozeMessage(id,until))},...snoozePresets().map(preset=>({id:`snooze:${preset.id}`,label:snoozePresetLabel(preset),icon:snoozePresetIcon(preset.labelId),run:()=>{const at=resolveSnooze(preset);if(at)return app.snoozeMessage(id,at);}}))]});
   if(message.snoozedUntil)rows.push({id:'unsnooze',label:t('mail-unsnooze'),icon:ACTION_ICONS.unsnooze,run:()=>app.unsnoozeMessage(id)});
   if((message.followUpAt||message.keywords?.['$flagged'])&&!message.keywords?.['mw-followup-completed'])rows.push({id:'finish-followup',label:t('mail-mark-finished'),icon:'check',run:()=>app.completeFollowUp(id)});
-  rows.push({id:'followup',label:t(message.followUpAt?'mail-clear-flag':'mail-flag'),icon:ACTION_ICONS.followUp,run:()=>app.setFollowUp(id,message.followUpAt?null:new Date(Date.now()+86400000).toISOString())});
+  rows.push({id:'followup',label:t('mail-flag'),icon:ACTION_ICONS.followUp,run:()=>{},children:followUpActions(until=>app.setFollowUp(id,until),!!message.followUpAt,()=>app.completeFollowUp(id))});
   if(app.tags().length)rows.push({id:'labels',label:t('mail-label'),icon:'tag',run:()=>{},children:app.tags().map(tag=>({id:`tag:${tag.id}`,label:tag.name,icon:message.keywords?.[tag.id]?'check':'tag',checked:message.keywords?.[tag.id]===true,run:()=>message.keywords?.[tag.id]?app.removeTag(id,tag.id):app.applyTag(id,tag.id)}))});
   if(mailFeature('allowDownload'))rows.push({id:'download' ,label:t('mail-context-download'),icon:ACTION_ICONS.export,run:()=>{if(!exportFromMenu(app,id,message))void app.exportMessage(id);}});
   {const more=messageActionRows(app,message);if(more.length)rows.push({...more[0]!,separatorBefore:true},...more.slice(1));}

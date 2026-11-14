@@ -1,3 +1,5 @@
+import {followUpActions} from './followUpActions.ts';
+import {createContextMenu} from './ContextMenu.tsx';
 import {requestDraftMessagePreview} from './compose/draftPreview.ts';
 import {configuredSnoozePresets,resolveSnooze,snoozePresetLabel,snoozeZone,snoozeWeekStart,type SnoozePreset} from '../state/snooze.ts';
 import {requestCustomSnooze} from './SnoozeDialog.tsx';
@@ -27,8 +29,7 @@ import { ACTION_ICONS, snoozePresetIcon } from '../actionIcons.ts';
 // that expands pin, snooze and label; on touch it behaves like 'click'),
 // 'click' (the toggle on every pointer type, cluster or context menu opens on
 // click) and 'off' (no row controls; only the follow-up mark stays).
-// The "follow-up" button sets a reminder for 24 hours from now (`followUpAt`);
-// it does not set `$flagged`. A message with a follow-up carries a small mark
+// The follow-up menu uses its own configurable reminder presets. A message with a follow-up carries a small mark
 // on its row, outside the cluster, so the state shows while the cluster is shut.
 
 /** Snooze presets → absolute ISO times, computed at click. The `labelId` is a
@@ -69,6 +70,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
   const id = () => props.email.id;
   const pinned = () => props.email.pinned === true;
   const hasFollowUp = () => props.email.followUpAt != null;
+  const followUp=createContextMenu({label:()=>t('mail-flag'),scope:id,actions:()=>followUpActions(async until=>{await app.setFollowUp(id(),until);closeAll();toggleEl?.focus();},hasFollowUp(),()=>app.completeFollowUp(id())),onError:()=>app.showToast('error',t('mail-context-failed'))});
   const hasKeyword = (kw: string) => props.email.keywords?.[kw] === true;
 
   function toggleMenu(which: 'snooze' | 'tag'): void {
@@ -89,14 +91,6 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
   function openFromToggle(): void {
     setOpen(true);
     clusterEl?.querySelector<HTMLElement>('button')?.focus();
-  }
-
-  /** After an action taken from the toggled cluster: close it and hand focus
-   *  back to the toggle. Does nothing when the cluster was shown by hover. */
-  function closeToToggle(): void {
-    if (!open()) return;
-    closeAll();
-    toggleEl?.focus();
   }
 
   /** Escape closes an open menu first, then the cluster, and puts focus back on
@@ -293,11 +287,8 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
           class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}
           aria-label={hasFollowUp() ? t('mail-clear-flag') : t('mail-flag')}
           aria-pressed={hasFollowUp()}
-          onClick={() => {
-            const at = hasFollowUp() ? null : new Date(Date.now() + 86_400_000).toISOString();
-            closeToToggle();
-            void app.setFollowUp(id(), at);
-          }}
+          aria-haspopup="menu" aria-expanded={followUp.isOpen()}
+          onClick={event=>followUp.openBelow(event.currentTarget)}
         >
           <Icon name={ACTION_ICONS.followUp} />
         </button>
@@ -320,6 +311,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
         </button>
       </div>
       </Show>
+      {followUp.menu()}
     </div>
   );
 }

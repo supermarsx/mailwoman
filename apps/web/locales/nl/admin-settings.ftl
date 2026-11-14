@@ -2607,3 +2607,6 @@ admin-settings-key-mail-badge-expires = Vervaldatum
 admin-settings-help-mail-badge-expires = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.
 admin-settings-key-mail-badge-supersedes = Vervangen berichten
 admin-settings-help-mail-badge-supersedes = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.
+
+admin-settings-key-mail-follow-up-presets = Markeren voor opvolging
+admin-settings-help-mail-follow-up-presets = Kies opvolgherinneringen onafhankelijk van sluimeren. Opvolgen houdt berichten zichtbaar; sluimeren verbergt ze tot het gekozen tijdstip. Lokale keuzes kunnen overgenomen waarden vervangen als beheerbeleid dit toestaat. Alleen Later vandaag, Morgen en Volgende week zijn standaard ingeschakeld. De andere opties staan klaar om in te schakelen of aan te passen.

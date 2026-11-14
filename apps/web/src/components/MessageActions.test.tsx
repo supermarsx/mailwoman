@@ -125,6 +125,8 @@ describe('MessageActions', () => {
     await app.login({ username: 'me@example.org', password: 'p' });
     fireEvent.click(toggle);
     fireEvent.click(within(cluster).getByRole('button', { name: 'Flag for follow-up' }));
+    fireEvent.click(screen.getByRole('menuitem', {name:'Tomorrow'}));
+    await waitFor(()=>expect(document.activeElement).toBe(toggle));
     expect(cluster).not.toHaveClass(css.actionsOpen);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(document.activeElement).toBe(toggle);

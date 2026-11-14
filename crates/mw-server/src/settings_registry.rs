@@ -750,6 +750,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "Plain-text response templates: shared"
     ),
     def!(
+        "mail.followUp.presets",
+        Kind::SnoozePresets,
+        snooze_presets::DEFAULT,
+        GDU,
+        "mail",
+        "Editable follow-up presets with elapsed intervals and zoned weekday, month and year rules"
+    ),
+    def!(
         "mail.snooze.presets",
         Kind::SnoozePresets,
         snooze_presets::DEFAULT,

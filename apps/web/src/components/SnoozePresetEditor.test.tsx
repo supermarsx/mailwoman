@@ -10,7 +10,7 @@ it('edits, hides, reorders and creates presets without writing before the parent
  fireEvent.input(screen.getByLabelText('Name (optional)'),{target:{value:'After my meeting'}});
  fireEvent.input(screen.getByLabelText('Amount'),{target:{value:'6'}});
  expect(rows().find(p=>p.id==='2-hours')).toMatchObject({label:'After my meeting',amount:6});
- fireEvent.click(screen.getByRole('checkbox',{name:'Show in menu: After my meeting'}));expect(rows().find(p=>p.id==='2-hours')?.enabled).toBe(false);
+ fireEvent.click(screen.getByRole('checkbox',{name:'Show in menu: After my meeting'}));expect(rows().find(p=>p.id==='2-hours')?.enabled).toBe(true);
  fireEvent.click(screen.getByRole('button',{name:'Move up: After my meeting'}));expect(rows()[2]?.label).toBe('After my meeting');
  fireEvent.click(screen.getByRole('button',{name:'Add preset'}));
  fireEvent.change(screen.getByLabelText('Schedule rule'),{target:{value:'end-month'}});

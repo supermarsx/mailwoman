@@ -2402,3 +2402,6 @@ admin-settings-key-mail-badge-expires = Expiry
 admin-settings-help-mail-badge-expires = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
 admin-settings-key-mail-badge-supersedes = Replaced messages
 admin-settings-help-mail-badge-supersedes = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
+
+admin-settings-key-mail-follow-up-presets = Flag for follow-up
+admin-settings-help-mail-follow-up-presets = Choose follow-up reminder times independently of snooze. Follow-up flags keep messages visible; snoozing hides them until the selected time. Local choices can override inherited defaults when administrator policy allows. Only Later today, Tomorrow and Next week are enabled by default. Other presets are already available to enable or customize.

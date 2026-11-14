@@ -2599,3 +2599,6 @@ admin-settings-key-mail-badge-expires = 到期时间
 admin-settings-help-mail-badge-expires = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。
 admin-settings-key-mail-badge-supersedes = 已替换的邮件
 admin-settings-help-mail-badge-supersedes = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。
+
+admin-settings-key-mail-follow-up-presets = 标记为待跟进
+admin-settings-help-mail-follow-up-presets = 后续跟进提醒与稍后处理可分别设置。跟进标记保留邮件可见；稍后处理会隐藏邮件直到指定时间。管理员策略允许时，个人选择可以覆盖继承的默认值。 默认仅启用今天晚些时候、明天和下周。其他预设已提供，可自行启用或修改。

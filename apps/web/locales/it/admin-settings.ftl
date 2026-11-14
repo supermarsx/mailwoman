@@ -2607,3 +2607,6 @@ admin-settings-key-mail-badge-expires = Scadenza
 admin-settings-help-mail-badge-expires = Scegli sempre, solo se rilevante o mai. Evidenzia valori insoliti, promemoria attivi, conferme, consegne o scadenze vicine. I dati del messaggio vengono conservati.
 admin-settings-key-mail-badge-supersedes = Messaggi sostituiti
 admin-settings-help-mail-badge-supersedes = Scegli sempre, solo se rilevante o mai. Evidenzia valori insoliti, promemoria attivi, conferme, consegne o scadenze vicine. I dati del messaggio vengono conservati.
+
+admin-settings-key-mail-follow-up-presets = Contrassegna per completamento
+admin-settings-help-mail-follow-up-presets = Scegli i promemoria di completamento indipendentemente dal rinvio. I contrassegni mantengono visibili i messaggi; il rinvio li nasconde fino all’ora scelta. I valori locali possono sostituire quelli ereditati se consentito dall’amministratore. Solo Più tardi oggi, Domani e Settimana prossima sono attivi per impostazione predefinita. Le altre opzioni sono già disponibili da attivare o personalizzare.

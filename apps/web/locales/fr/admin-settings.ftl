@@ -2613,3 +2613,6 @@ admin-settings-key-mail-badge-expires = Expiration
 admin-settings-help-mail-badge-expires = Choisissez toujours, uniquement si notable ou jamais. Met en évidence les valeurs inhabituelles, rappels actifs, accusés, livraisons ou échéances proches. Les données du message sont conservées.
 admin-settings-key-mail-badge-supersedes = Messages remplacés
 admin-settings-help-mail-badge-supersedes = Choisissez toujours, uniquement si notable ou jamais. Met en évidence les valeurs inhabituelles, rappels actifs, accusés, livraisons ou échéances proches. Les données du message sont conservées.
+
+admin-settings-key-mail-follow-up-presets = Marquer pour suivi
+admin-settings-help-mail-follow-up-presets = Choisissez les rappels de suivi indépendamment du report. Le suivi garde les messages visibles ; le report les masque jusqu’à l’heure choisie. Les choix locaux peuvent remplacer les valeurs héritées si la politique administrateur l’autorise. Seuls Plus tard aujourd’hui, Demain et Semaine prochaine sont activés par défaut. Les autres choix sont prêts à être activés ou personnalisés.

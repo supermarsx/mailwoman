@@ -1,6 +1,6 @@
 import {createSignal,For,Show,type JSX} from 'solid-js';
 import {formatDateTime,loadCatalog,t} from '../i18n';
-import {DEFAULT_SNOOZE_PRESETS,SNOOZE_KINDS,resolveSnooze,snoozePresetLabel,snoozeZone,type SnoozeKind,type SnoozePreset} from '../state/snooze.ts';
+import {DEFAULT_SNOOZE_PRESETS,SNOOZE_KINDS,resolveSnooze,snoozePresetLabel,snoozeZone,scheduleWeekday,type SnoozeKind,type SnoozePreset} from '../state/snooze.ts';
 import {Icon} from './Icon.tsx';
 import * as table from '../screens/Settings/managementTable.css.ts';
 import * as css from '../screens/Settings/styles.css.ts';
@@ -12,8 +12,8 @@ export function SnoozePresetEditor(props:{value:readonly SnoozePreset[];onChange
  const patch=(value:Partial<SnoozePreset>):void=>props.onChange(props.value.map(preset=>preset.id===selected()?{...preset,...value}:preset));
  function kind(value:SnoozeKind):void{
   const preset=current();if(!preset)return;
-  const {amount:_amount,time:_time,...base}=preset;
-  props.onChange(props.value.map(p=>p.id!==preset.id?p:{...base,kind:value,...(value==='hours'||value==='days'?{amount:preset.amount??2}:{}),...(value!=='hours'?{time:preset.time??'09:00'}:{})}));
+  const {amount:_amount,time:_time,weekday:_weekday,ordinal:_ordinal,day:_day,...base}=preset;
+  props.onChange(props.value.map(p=>p.id!==preset.id?p:{...base,kind:value,...(value==='weekday'||value==='nth-weekday'?{weekday:preset.weekday??1}:{}),...(value==='nth-weekday'?{ordinal:preset.ordinal??1}:{}),...(value==='day-of-month'?{day:preset.day??1}:{}),...(value==='hours'||value==='days'?{amount:preset.amount??2}:{}),...(value!=='hours'?{time:preset.time??'09:00'}:{})}));
  }
  function add():void{
   const id=crypto.randomUUID();props.onChange([...props.value,{id,kind:'hours',amount:2,enabled:true}]);setSelected(id);
@@ -32,8 +32,11 @@ export function SnoozePresetEditor(props:{value:readonly SnoozePreset[];onChange
     <label class={css.field}>{t('snooze-name')}<input class={css.input} maxlength={80} value={preset().label??''} onInput={event=>{const label=event.currentTarget.value;props.onChange(props.value.map(p=>{if(p.id!==selected())return p;const {label:_label,...rest}=p;return label?{...rest,label}:rest;}));}}/></label>
     <label class={css.field}>{t('snooze-rule')}<select class={css.select} value={preset().kind} onChange={event=>kind(event.currentTarget.value as SnoozeKind)}><For each={SNOOZE_KINDS}>{value=><option value={value}>{t(`snooze-rule-${value}`)}</option>}</For></select></label>
     <Show when={preset().kind==='hours'||preset().kind==='days'}><label class={css.field}>{t('snooze-amount')}<input class={css.input} type="number" min={1} max={preset().kind==='hours'?87600:3650} step={1} value={preset().amount??0} onInput={event=>patch({amount:Number(event.currentTarget.value)})}/></label></Show>
+    <Show when={preset().kind==='weekday'||preset().kind==='nth-weekday'}><label class={css.field}>{t('snooze-weekday')}<select class={css.select} value={preset().weekday??1} onChange={event=>patch({weekday:Number(event.currentTarget.value)})}><For each={[0,1,2,3,4,5,6]}>{day=><option value={day}>{scheduleWeekday(day)}</option>}</For></select></label></Show>
+    <Show when={preset().kind==='nth-weekday'}><label class={css.field}>{t('snooze-occurrence')}<select class={css.select} value={preset().ordinal??1} onChange={event=>patch({ordinal:Number(event.currentTarget.value)})}><For each={[1,2,3,4,5,-1]}>{ordinal=><option value={ordinal}>{ordinal===-1?t('snooze-last'):String(ordinal)}</option>}</For></select></label></Show>
+    <Show when={preset().kind==='day-of-month'}><label class={css.field}>{t('snooze-month-day')}<input class={css.input} type="number" min={1} max={31} step={1} value={preset().day??1} onInput={event=>patch({day:Number(event.currentTarget.value)})}/></label></Show>
     <Show when={preset().kind!=='hours'}><label class={css.field}>{t('snooze-time')}<input class={css.input} type="time" required value={preset().time??'09:00'} onInput={event=>patch({time:event.currentTarget.value})}/></label></Show>
-   </div><p class={css.meta}>{t('snooze-calendar-help')}</p>
+   </div><p class={css.meta}>{t('snooze-calendar-help')}</p><p class={css.meta}>{t('snooze-calendar-advanced-help')}</p>
   </fieldset>}</Show>
  </div>;
 }
