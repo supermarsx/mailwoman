@@ -1,3 +1,5 @@
+import {loadCatalog} from '../i18n/catalog.ts';
+void loadCatalog('reader');
 import {filePreviews,previewToolEnabled} from './filePreviewPreferences.ts';
 // PDF.js's complete, pinned generic viewer is fetched only for a PDF preview.
 // The iframe receives authorized attachment bytes, never account credentials or

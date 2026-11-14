@@ -1,3 +1,4 @@
+void loadCatalog('mail');
 import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {createEntityContextMenu} from '../../components/entityContextMenu.ts';
 import {handleModuleActions} from '../../state/moduleActions.ts';

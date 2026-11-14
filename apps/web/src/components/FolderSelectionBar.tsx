@@ -1,3 +1,4 @@
+void loadCatalog('selection-bar');
 import {createMemo,createSignal,Show,type JSX} from 'solid-js';
 import {useApp} from '../state/context.ts';
 import {createConfiguredClient} from '../api/transport.ts';

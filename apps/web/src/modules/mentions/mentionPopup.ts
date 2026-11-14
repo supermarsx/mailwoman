@@ -1,3 +1,5 @@
+import {loadCatalog} from '../../i18n/catalog.ts';
+void loadCatalog('mentions');
 import type {ContactSuggestion} from '../contacts/autocomplete.ts';
 import {t} from '../../i18n/index.ts';
 import * as css from './mentionPopup.css.ts';

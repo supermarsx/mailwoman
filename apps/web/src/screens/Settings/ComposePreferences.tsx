@@ -1,3 +1,5 @@
+void loadCatalog('compose-features');
+void loadCatalog('compose-layout');
 import {SettingsSubtabs} from './SettingsSubtabs.tsx';
 import { createEffect, createMemo, createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { normalizeTrustedDomain } from '../../components/compose/recipientTrust.ts';

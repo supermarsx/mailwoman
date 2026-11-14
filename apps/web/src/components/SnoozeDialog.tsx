@@ -1,3 +1,4 @@
+void loadCatalog('mail');
 import {createEffect,createSignal,createUniqueId,For,onCleanup,Show,type JSX} from 'solid-js';
 import {Portal} from 'solid-js/web';
 import {preferenceAccount,preferenceAccountIsCurrent,observePreferenceAccount,type PreferenceAccount} from '../api/accountPreferenceLifecycle.ts';

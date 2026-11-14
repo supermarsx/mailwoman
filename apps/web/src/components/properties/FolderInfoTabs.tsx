@@ -1,3 +1,4 @@
+void loadCatalog('color-picker');
 // The General, Appearance and Remote location tabs of the folder dialog.
 import {For,Show,createMemo,type JSX} from 'solid-js';
 import {useApp} from '../../state/context.ts';

@@ -1,3 +1,5 @@
+import {loadCatalog} from '../i18n/catalog.ts';
+void loadCatalog('appearance');
 // One effective message-order preference drives the list bar and context menus.
 import {createSignal} from 'solid-js';
 import {settings,writeSetting} from '../api/settings.ts';

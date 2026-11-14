@@ -1,3 +1,4 @@
+void loadCatalog('message-task');
 // The message actions no other menu offered: Not spam, View source, Create filter
 // from this message and Block sender. One list feeds the message context menu,
 // the reader's More menu and the Properties dialog, so they always agree.

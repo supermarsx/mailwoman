@@ -1,3 +1,5 @@
+import {loadCatalog} from '../../i18n/catalog.ts';
+void loadCatalog('file-previews');
 import {createEffect,createMemo,createSignal,Show,type JSX} from 'solid-js';
 import {FilePreviewEditor} from '../../components/FilePreviewEditor.tsx';
 import {DEFAULT_FILE_PREVIEWS,FILE_PREVIEWS_KEY,validFilePreviews,type FilePreviewConfig} from '../../viewers/filePreviewPreferences.ts';

@@ -1,3 +1,5 @@
+import {loadCatalog} from './i18n/catalog.ts';
+void loadCatalog('snooze');
 // Which icon each action wears. The menus, toolbars and bars import ACTION_ICONS
 // instead of naming an icon inline, so one action reads the same everywhere and
 // icons.actions.test.ts can check that no two different actions in one menu share

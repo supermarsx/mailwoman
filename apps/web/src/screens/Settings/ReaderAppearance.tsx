@@ -1,3 +1,6 @@
+void loadCatalog('avatars');
+void loadCatalog('reader-actions');
+void loadCatalog('snooze');
 import {FilePreviewPreferences,FILE_PREVIEWS_CARD} from './FilePreviewPreferences.tsx';
 import {SnoozePreferences,SNOOZE_CARD,FOLLOW_UP_CARD} from './SnoozePreferences.tsx';
 import {SettingsSubtabs} from './SettingsSubtabs.tsx';

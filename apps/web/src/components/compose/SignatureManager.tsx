@@ -1,3 +1,5 @@
+import {loadCatalog} from '../../i18n/catalog.ts';
+void loadCatalog('compose-signature');
 import {createSignal,lazy,Suspense,type JSX} from 'solid-js';
 import {Portal} from 'solid-js/web';
 import {createFocusTrap} from '../a11y';

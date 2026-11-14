@@ -1,3 +1,4 @@
+void loadCatalog('mail');
 import {settings} from '../api/settings.ts';
 import {loadCatalog,t,formatLocale} from '../i18n';
 import {calendarDateInZone,displayTimeZone,wallTimeCandidates} from '../i18n/timezones.ts';

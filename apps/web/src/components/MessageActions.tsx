@@ -1,3 +1,5 @@
+import {loadCatalog} from '../i18n/catalog.ts';
+void loadCatalog('snooze');
 import {followUpActions} from './followUpActions.ts';
 import {createContextMenu} from './ContextMenu.tsx';
 import {requestDraftMessagePreview} from './compose/draftPreview.ts';

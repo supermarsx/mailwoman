@@ -1,3 +1,4 @@
+void loadCatalog('snooze');
 import {followUpActions} from './followUpActions.ts';
 import {requestDraftPreview,requestDraftMessagePreview} from './compose/draftPreview.ts';
 import {isDraftMessage} from './draftMessage.ts';

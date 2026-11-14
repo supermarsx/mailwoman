@@ -1,3 +1,5 @@
+import {loadCatalog} from '../i18n/catalog.ts';
+void loadCatalog('snooze');
 import {configuredSnoozePresets,FOLLOW_UP_PRESETS_KEY,resolveSnooze,snoozePresetLabel,snoozeZone,snoozeWeekStart,type SnoozePreset} from '../state/snooze.ts';
 import {t} from '../i18n';
 import {requestCustomFollowUp} from './SnoozeDialog.tsx';

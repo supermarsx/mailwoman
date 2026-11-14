@@ -1,3 +1,5 @@
+import {loadCatalog} from '../i18n/catalog.ts';
+void loadCatalog('message-task');
 // Presentation preferences never grant a message feature or bypass its policy.
 // Toolbar choices still use responsive overflow; menu choices go straight to More.
 import {settings} from '../api/settings.ts';

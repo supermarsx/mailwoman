@@ -1,3 +1,5 @@
+import {loadCatalog} from '../i18n/catalog.ts';
+void loadCatalog('mail');
 import {createSignal,onCleanup,type Accessor} from 'solid-js';
 import {observePreferenceAccount,preferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import {t} from '../i18n';
