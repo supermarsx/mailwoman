@@ -204,6 +204,8 @@ fn attachment_text_is_full_text_searchable() {
         subject: "Invoice".into(),
         body: "see attached".into(),
         date: 0,
+        sent_at: None,
+        from_address: Some("biller@example.com".into()),
         has_attachment: true,
         keywords: Vec::new(),
         size: 100,
