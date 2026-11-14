@@ -228,3 +228,7 @@ appearance-preference-option-subject-desc = Betreff, Z bis A
 appearance-preference-conversations-help = Standardmäßig deaktiviert. Falten Sie verwandte Antworten unabhängig von „Gruppieren nach“ in erweiterbare Konversationen. Es werden nur Nachrichten berücksichtigt, die im aktuellen Ordner oder in der Suche geladen sind. Ihr Administrator kann diese Funktion deaktivieren oder diese Einstellung sperren.
 
 appearance-preference-mail-conversations-enabled = Gruppieren Sie Nachrichten in Konversationen
+
+appearance-preference-mail-afterMove = Nach dem Verschieben einer Nachricht
+appearance-preference-mail-afterMove-help = Nach erfolgreichem Verschieben geöffnet lassen, nächste oder vorherige Nachricht öffnen oder schließen. Bei Fehlern bleibt die Ansicht erhalten. Die Navigation folgt der Listenreihenfolge und überspringt verschobene Nachrichten.
+appearance-preference-option-keep = Nachricht geöffnet lassen

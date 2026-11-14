@@ -1,3 +1,4 @@
+import {onMessagesMoved} from '../moveEvents.ts';
 import {onMessagesTrashed} from '../trashEvents.ts';
 import { clearSanitizeCache } from '../../sanitize/index.ts';
 import {resolveSender} from '../../api/senderResolution.ts';
@@ -899,6 +900,26 @@ describe('mail slice — a refused send', () => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('mail slice — archive / trash / spam / move', () => {
+  it.each(['keep','next','previous','close'] as const)('applies the %s reader setting after a successful explicit move',async mode=>{
+    await withInbox([email('a'),email('b'),email('c')],async(mail,{jmap})=>{
+      const original=jmap.getMockImplementation()!;jmap.mockImplementation(async(request:JmapRequest)=>{const result=await original(request);if(!request.methodCalls.some(([method])=>method==='Email/query'))for(const [method,args] of request.methodCalls)if(method==='Email/get'&&Array.isArray(args['ids']))for(const row of result.methodResponses)if(row[0]==='Email/get')(row[1] as {list:Email[]}).list=(row[1] as {list:Email[]}).list.filter(email=>(args['ids'] as string[]).includes(email.id));return result;});
+      await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.afterMove':{value:mode,source:'global',locked:true}}}))});
+      await mail.openMessage('b');const events:unknown[]=[];const stop=onMessagesMoved(event=>events.push(event));
+      try{await mail.moveMessage('b','archive');await vi.waitFor(()=>expect(mail.openEmail()?.id??null).toBe(mode==='keep'?'b':mode==='next'?'c':mode==='previous'?'a':null));
+       if(mode==='keep')expect(mail.openEmail()?.mailboxIds).toEqual({archive:true});
+       expect(events).toEqual([expect.objectContaining({ids:['b'],mode,order:['a','b','c']})]);
+      }finally{stop();clearSettings();}
+    });
+  });
+  it('keeps the reader open and emits no navigation event when a move is refused',async()=>{
+    await withInbox([email('a'),email('b')],async(mail,{jmap})=>{
+      await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.afterMove':{value:'close',source:'user',locked:false}}}))});
+      await mail.openMessage('a');const events:unknown[]=[];const stop=onMessagesMoved(event=>events.push(event));const original=jmap.getMockImplementation()!;
+      jmap.mockImplementation(request=>request.methodCalls.some(([method]:[string])=>method==='Email/set')?Promise.resolve({methodResponses:[['Email/set',{notUpdated:{a:{type:'forbidden'}}},'set']],sessionState:'s'}):original(request));
+      try{await mail.moveMessage('a','archive');expect(mail.openEmail()?.id).toBe('a');expect(events).toEqual([]);}finally{stop();clearSettings();}
+    });
+  });
+
   beforeEach(()=>toastStore.clear());
   it('moves the open message to Trash when the list no longer holds it, instead of silently doing nothing',async()=>{
     await withInbox([email('a'),email('b')],async(mail,{jmap})=>{

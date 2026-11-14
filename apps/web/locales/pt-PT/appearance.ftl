@@ -220,3 +220,7 @@ appearance-preference-message-group-help = Mantenha mensagens relacionadas junta
 
 appearance-preference-mail-conversations-enabled = Agrupar mensagens em conversas
 appearance-preference-conversations-help = Desativado por predefinição. Reúne respostas relacionadas em conversas expansíveis, independentemente de Agrupar por. Inclui apenas mensagens carregadas na pasta ou pesquisa atual. O administrador pode tornar esta funcionalidade indisponível ou bloquear esta preferência.
+
+appearance-preference-mail-afterMove = Após mover uma mensagem
+appearance-preference-mail-afterMove-help = Escolha o que acontece após mover: manter aberta, abrir a mensagem seguinte ou anterior, ou fechar. As falhas não alteram o leitor. A navegação segue a ordem da lista e ignora as mensagens movidas.
+appearance-preference-option-keep = Manter a mensagem aberta

@@ -54,3 +54,12 @@ it('keeps conversation threading opt-in, saves its separate key, and honors admi
  entries['mail.conversations.allowed']={value:false,source:'global',locked:true};await loadSettings({refresh:true,fetcher});expect(checkbox).toBeDisabled();expect(checkbox).not.toBeChecked();
  entries['mail.conversations.allowed']={value:true,source:'global',locked:false};entries['mail.conversations.enabled']={value:true,source:'global',locked:true};await loadSettings({refresh:true,fetcher});expect(checkbox).toBeDisabled();expect(checkbox).toBeChecked();
 });
+
+it('saves the after-move choice and respects an administrator lock',async()=>{
+ const fetcher=vi.fn(async(_url:unknown,init?:RequestInit)=>new Response(JSON.stringify(init?.method==='PUT'?{value:JSON.parse(String(init.body)).value,source:'user',locked:false}:{settings:{'mail.afterMove':{value:'keep',source:'default',locked:false}}})));
+ await loadSettings({fetcher});render(()=><InterfacePreferences/>);
+ const select=await screen.findByRole('combobox',{name:'After moving a message'});expect(select).toHaveValue('keep');fireEvent.change(select,{target:{value:'next'}});
+ await waitFor(()=>expect(fetcher).toHaveBeenCalledWith('/api/settings/mail.afterMove',expect.objectContaining({method:'PUT',body:JSON.stringify({value:'next'})})));
+ await waitFor(()=>expect(select).toBeEnabled());
+ await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.afterMove':{value:'close',source:'global',locked:true}}}))});expect(select).toHaveValue('close');expect(select).toBeDisabled();
+});

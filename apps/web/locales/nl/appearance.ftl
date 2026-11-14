@@ -228,3 +228,7 @@ appearance-preference-option-subject-desc = Onderwerp, Z tot A
 appearance-preference-conversations-help = Standaard uitgeschakeld. Vouw gerelateerde antwoorden samen in uitbreidbare gesprekken, onafhankelijk van Groeperen op. Alleen berichten die in de huidige map of zoekopdracht zijn geladen, worden opgenomen. Uw beheerder kan deze functie niet beschikbaar maken of deze voorkeur vergrendelen.
 
 appearance-preference-mail-conversations-enabled = Groepeer berichten in gesprekken
+
+appearance-preference-mail-afterMove = Na het verplaatsen van een bericht
+appearance-preference-mail-afterMove-help = Kies na een geslaagde verplaatsing: openhouden, volgend of vorig bericht openen, of sluiten. Bij fouten blijft de lezer ongewijzigd. Navigatie volgt de lijstvolgorde en slaat verplaatste berichten over.
+appearance-preference-option-keep = Bericht openhouden

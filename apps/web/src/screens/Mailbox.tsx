@@ -1,3 +1,4 @@
+import {onMessagesMoved,messagesMoved,afterMoveMode,moveNeighbour,type MovedMessages} from '../state/moveEvents.ts';
 import type {UnifiedRow} from '../api/workspaceMail.ts';
 import {notificationViewEnabled,notificationViewInSidebar} from '../state/notificationVisibility.ts';
 import {DraftPreview} from '../components/DraftPreview.tsx';
@@ -423,6 +424,25 @@ export function MailboxScreen(): JSX.Element {
     if(closing.preview)closePreview();
     for(const id of closing.paneIds)void closePane(id,true);
   }
+  function followMoved(event:MovedMessages):void {
+    if(event.accountId!==app.accountId()||event.mode==='keep')return;
+    const removed=new Set(event.ids),active=activePane();
+    const sameList=event.mailboxId===app.selectedMailboxId()&&event.sort===(settings()['mail.messageListOrder']?.value??'newest');
+    const available=new Set(app.listMessages().map(message=>message.id));
+    const affected=panes().filter(pane=>pane.kind==='messages'&&pane.reference&&removed.has(pane.reference));
+    const previewAffected=previewId!==null&&removed.has(previewId);
+    const currentId=previewVisible()&&previewAffected?previewId:active?.kind==='messages'&&active.reference&&removed.has(active.reference)?active.reference:undefined;
+    const sourceMatches=currentId===previewId?previewSourceMailboxId===event.mailboxId:active?.sourceMailboxId===event.mailboxId;
+    const next=currentId&&sameList&&sourceMatches?moveNeighbour(currentId,event,available):undefined;
+    if(next&&currentId===previewId)openPreview(next);else if(previewAffected)closePreview();
+    if(next&&active&&active.reference===currentId){
+      const owner=preferenceAccount();
+      const closing=closePane(active.id,true),intent=restoreIntent;
+      void closing.then(()=>{if(owner&&preferenceAccountIsCurrent(owner)&&restoreIntent===intent&&!panes().some(pane=>pane.id===active.id))openMessageTab(next,false,active.opener);});
+    }
+    for(const pane of affected)if(!(next&&pane===active))void closePane(pane.id,true);
+  }
+  onCleanup(onMessagesMoved(followMoved));
   onCleanup(onMessagesTrashed(event=>{
     if(event.accountId!==app.accountId())return;
     // The reading pane moves to the neighbouring message (`mail.afterDelete`) when it can; every other open view of a deleted message closes.
@@ -1346,7 +1366,10 @@ export function MailboxScreen(): JSX.Element {
         <Show when={transfer()} keyed>{request=>
           <MessageTransferDialog request={request} activeLink={app.linkedMailboxId?.()??null} onClose={closeMessageTransfer} onSuccess={result=>{
             app.showToast('success',t(`workspace-transfer-${result}`));
-            if(result==='moved'&&request.sourceLink===(app.linkedMailboxId?.()??null))void app.refreshFolders().catch(()=>undefined);
+            if(result==='moved'&&request.sourceLink===(app.linkedMailboxId?.()??null)){
+              messagesMoved({accountId:request.owner.id,mailboxId:app.selectedMailboxId(),sort:settings()['mail.messageListOrder']?.value??'newest',ids:[request.email.id],order:app.listMessages().map(email=>email.id),mode:afterMoveMode()});
+              void app.refreshFolders().catch(()=>undefined);
+            }
           }}/>
         }</Show>
         <ConfirmDialog open={dirtyClose()!==null} testId="workspace-tabs-close-dirty"

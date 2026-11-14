@@ -2631,3 +2631,6 @@ admin-settings-help-mail-follow-up-presets = Wybierz przypomnienia niezależnie 
 
 admin-settings-key-reader-file-previews = Podgląd plików
 admin-settings-help-reader-file-previews = Wybierz pliki otwierane w aplikacji i widoczne narzędzia. Ograniczenia załączników i uprawnienia pobierania administratora nadal obowiązują. Pasek narzędzi pokazuje narzędzie przy podglądzie; menu Więcej przenosi je do trzech kropek; Ukryte usuwa je. Grupy PDF zachowują pierwotny układ do jego nadpisania. Uprawnienia pobierania i drukowania mają pierwszeństwo.
+
+admin-settings-key-mail-after-move = Po przeniesieniu wiadomości
+admin-settings-help-mail-after-move = Po udanym przeniesieniu pozostaw otwartą, otwórz następną lub poprzednią wiadomość albo zamknij. Błąd nie zmienia czytnika. Nawigacja zachowuje kolejność listy i pomija przeniesione wiadomości.

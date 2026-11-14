@@ -1,3 +1,4 @@
+import {afterMoveMode,messagesMoved,moveNeighbour,type MovedMessages} from '../moveEvents.ts';
 import {messagesTrashed} from '../trashEvents.ts';
 import {resolveSender} from '../../api/senderResolution.ts';
 import {newIdempotencyKey} from '../../api/recovery.ts';
@@ -807,7 +808,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   /** Remove messages from the current list, returning each with its index for undo. */
-  function takeFromList(ids: readonly Id[]): Taken[] {
+  function takeFromList(ids: readonly Id[], keepOpen=false): Taken[] {
     const want = new Set(ids);
     const msgs = messages();
     const taken: Taken[] = [];
@@ -817,7 +818,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (taken.length === 0) return taken;
     setMessages(msgs.filter((m) => !want.has(m.id)));
     const open = openEmail();
-    if (open !== null && want.has(open.id)) closeMessage();
+    if (!keepOpen && open !== null && want.has(open.id)) closeMessage();
     return taken;
   }
   /** Put taken messages back at their original indices (lowest first, so each
@@ -1336,6 +1337,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     progress = false,
     onMoved?: (ids:readonly Id[])=>void,
     knownEmails: readonly Email[] = [],
+    keepOpen = false,
   ): Promise<void> {
     const acct = accountId();
     const current = captureMailAuthority();
@@ -1345,14 +1347,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // The message open in the reader, when the list does not hold it (opened from search, a thread, a link, or
     // while the list reloads) is still moved: it joins the move as an off-list
     // item (index -1) that undo gives back to the server but not to the list.
-    let taken = takeFromList(ids);
+    let taken = takeFromList(ids,keepOpen);
     const offList = ids.filter((id) => !taken.some((item) => item.email.id === id));
     if (offList.length > 0) {
       const open = openEmail();
       for (const id of offList) {
-        const known = open !== null && open.id === id ? open : knownEmails.find(email=>email.id===id)??null;
+        const known = open !== null && open.id === id ? open : knownEmails.find(email=>email.id===id)??(keepOpen?findEmail(id):null);
         if (known !== null) taken = [...taken, { email: known, index: -1 }];
-        if (known !== null && open !== null && open.id === id) closeMessage();
+        if (!keepOpen && known !== null && open !== null && open.id === id) closeMessage();
       }
     }
     if (taken.length === 0) return;
@@ -1557,12 +1559,23 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     );
   }
   async function moveMessage(ids: Id | readonly Id[], mailboxId: Id): Promise<void> {
+    const event:MovedMessages={accountId:accountId()??'',mailboxId:selectedMailboxId(),sort:settings()['mail.messageListOrder']?.value??'newest',ids:[],order:listMessages().map(email=>email.id),mode:afterMoveMode()};
+    const legacyId=activeReader()===null?legacyOpenEmail()?.id:undefined;
     const box = mailboxes().find((m) => m.id === mailboxId);
     await relocateWithUndo(asIds(ids), mailboxId, (count) => {
       if (box === undefined) return count === 1 ? t('mail-toast-moved') : t('mail-toast-moved-count', { count });
       const folder = isolate(box.name);
       return count === 1 ? t('mail-toast-moved-to', { folder }) : t('mail-toast-moved-to-count', { folder, count });
-    },true);
+    },true,moved=>{
+      event.ids=moved;
+      for(const id of moved)patchMessage(id,{mailboxIds:{[mailboxId]:true}});
+      if(event.mode!=='keep'&&legacyId&&moved.includes(legacyId)&&activeReader()===null&&legacyOpenEmail()?.id===legacyId){
+        const sameFolder=event.mailboxId===selectedMailboxId()&&event.sort===(settings()['mail.messageListOrder']?.value??'newest');
+        const next=sameFolder?moveNeighbour(legacyId,event,new Set(listMessages().map(email=>email.id))):undefined;
+        if(next)void openMessage(next);else closeMessage();
+      }
+      messagesMoved(event);
+    },[],true);
   }
 
   // ── sweep ─────────────────────────────────────────────────────────────────

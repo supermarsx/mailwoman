@@ -533,7 +533,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'appearance.density',
   'appearance.font',
   'appearance.fontSize', 'appearance.fontWeight', 'appearance.fontColor', 'appearance.lowContrast',
-  'mail.search.defaultScope', 'mail.list.pageSize', 'mail.messageListOrder', 'mail.messageListGroup', 'mail.messageListStyle', 'mail.messageListPreview', 'mail.afterDelete', 'reader.attachmentsAtEnd',
+  'mail.search.defaultScope', 'mail.list.pageSize', 'mail.messageListOrder', 'mail.messageListGroup', 'mail.messageListStyle', 'mail.messageListPreview', 'mail.afterMove', 'mail.afterDelete', 'reader.attachmentsAtEnd',
   'appearance.leetspeak',
   'packages.allowed',
   'appearance.brandName',

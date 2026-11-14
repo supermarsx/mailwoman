@@ -2605,3 +2605,6 @@ admin-settings-help-mail-follow-up-presets = 后续跟进提醒与稍后处理�
 
 admin-settings-key-reader-file-previews = 文件预览
 admin-settings-help-reader-file-previews = 选择在应用中打开的文件和显示的工具。管理员设置的附件限制及下载权限仍然有效。 工具栏会在预览旁显示工具；更多菜单会将其移到三点菜单；隐藏会移除工具。PDF工具组在被覆盖前保留原有布局。下载和打印权限优先。
+
+admin-settings-key-mail-after-move = 移动邮件后的操作
+admin-settings-help-mail-after-move = 移动成功后，可保持打开、打开下一封或上一封邮件，或关闭邮件。移动失败时不更改阅读器。导航遵循当前列表顺序并跳过已移动的邮件。

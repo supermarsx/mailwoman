@@ -2605,3 +2605,6 @@ admin-settings-help-mail-follow-up-presets = フォローアップ通知はス�
 
 admin-settings-key-reader-file-previews = ファイルプレビュー
 admin-settings-help-reader-file-previews = アプリ内で開くファイルと表示するツールを選択します。管理者による添付ファイルの制限とダウンロード権限は引き続き適用されます。 ツールバーはプレビューの横に表示し、その他メニューは三点メニューへ移し、非表示はツールを隠します。PDFのグループは変更するまで元の配置を維持します。ダウンロードと印刷の権限が優先されます。
+
+admin-settings-key-mail-after-move = メッセージ移動後の動作
+admin-settings-help-mail-after-move = 移動成功後に開いたままにする、次または前のメッセージを開く、閉じるから選択します。失敗時は表示を変更しません。リストの順序に従い、移動したメッセージは飛ばします。

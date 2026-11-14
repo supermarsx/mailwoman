@@ -228,3 +228,7 @@ appearance-preference-option-subject-desc = 主题，Z 到 A
 appearance-preference-conversations-help = 默认关闭。将相关回复折叠到可扩展的对话中，独立于分组依据。仅包含当前文件夹或搜索中加载的消息。您的管理员可以使此功能不可用或锁定此首选项。
 
 appearance-preference-mail-conversations-enabled = 将消息分组到对话中
+
+appearance-preference-mail-afterMove = 移动邮件后的操作
+appearance-preference-mail-afterMove-help = 移动成功后，可保持打开、打开下一封或上一封邮件，或关闭邮件。移动失败时不更改阅读器。导航遵循当前列表顺序并跳过已移动的邮件。
+appearance-preference-option-keep = 保持邮件打开

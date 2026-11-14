@@ -3938,3 +3938,9 @@ Recognized categories include PDF, images, plain text, HTML, source code, audio,
 ### Layout names
 
 The saved `default` layout is displayed as **Focus**; `ribbon` is **Command Ribbon**. Saved preferences keep the same values.
+
+
+<a id="mail.afterMove"></a>
+### Reader after moving messages
+
+`mail.afterMove` is a global/domain/user enum: `keep` (default), `next`, `previous`, or `close`. Users find it in Settings > Appearance beside the after-delete setting; administrators can set defaults and lock it. The setting is portable through preference export/import. It applies to successful explicit folder moves and source-account moves between accounts; copies, archive, spam and delete retain their existing behavior. A refused move keeps its reader open. Next/previous follow the pre-move display order, skip the successfully moved messages, fall back to a remaining neighbour at the end of the list and close if none remains. The active reading pane or message tab advances; other affected message tabs close when a non-keep option is selected. If the source list is no longer current, no unrelated next message is opened.

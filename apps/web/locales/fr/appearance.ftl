@@ -212,3 +212,7 @@ appearance-preference-option-subject-desc = Sujet, Z à A
 appearance-preference-conversations-help = Désactivé par défaut. Regroupez les réponses associées dans des conversations extensibles, indépendamment de Regrouper par. Seuls les messages chargés dans le dossier ou la recherche en cours sont inclus. Votre administrateur peut rendre cette fonctionnalité indisponible ou verrouiller cette préférence.
 
 appearance-preference-mail-conversations-enabled = Regrouper les messages en conversations
+
+appearance-preference-mail-afterMove = Après le déplacement d’un message
+appearance-preference-mail-afterMove-help = Choisissez de garder ouvert, ouvrir le message suivant ou précédent, ou fermer après un déplacement réussi. Un échec ne modifie pas le lecteur. La navigation suit l’ordre de la liste et ignore les messages déplacés.
+appearance-preference-option-keep = Garder le message ouvert

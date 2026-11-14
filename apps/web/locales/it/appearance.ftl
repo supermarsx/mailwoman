@@ -228,3 +228,7 @@ appearance-preference-option-subject-desc = Soggetto, dalla Z alla A
 appearance-preference-conversations-help = Disattivato per impostazione predefinita. Raggruppa le risposte correlate in conversazioni espandibili, indipendentemente da Raggruppa per. Vengono inclusi solo i messaggi caricati nella cartella o nella ricerca corrente. L'amministratore può rendere questa funzionalità non disponibile o bloccare questa preferenza.
 
 appearance-preference-mail-conversations-enabled = Raggruppare i messaggi in conversazioni
+
+appearance-preference-mail-afterMove = Dopo lo spostamento di un messaggio
+appearance-preference-mail-afterMove-help = Scegli se mantenere aperto, aprire il messaggio successivo o precedente, oppure chiudere dopo lo spostamento. Gli errori non cambiano il lettore. La navigazione segue la lista e salta i messaggi spostati.
+appearance-preference-option-keep = Mantieni il messaggio aperto

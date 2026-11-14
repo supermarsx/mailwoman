@@ -228,3 +228,7 @@ appearance-preference-option-subject-desc = الموضوع، Z إلى A
 appearance-preference-conversations-help = إيقاف بشكل افتراضي. قم بطي الردود ذات الصلة في محادثات قابلة للتوسيع، بشكل مستقل عن التجميع حسب. يتم تضمين الرسائل التي تم تحميلها في المجلد الحالي أو البحث فقط. يمكن للمسؤول الخاص بك جعل هذه الميزة غير متاحة أو قفل هذا التفضيل.
 
 appearance-preference-mail-conversations-enabled = تجميع الرسائل في المحادثات
+
+appearance-preference-mail-afterMove = بعد نقل رسالة
+appearance-preference-mail-afterMove-help = اختر إبقاء الرسالة مفتوحة أو فتح التالية أو السابقة أو إغلاقها بعد نجاح النقل. لا يتغير القارئ عند الفشل. يتبع التنقل ترتيب القائمة ويتجاوز الرسائل المنقولة.
+appearance-preference-option-keep = إبقاء الرسالة مفتوحة

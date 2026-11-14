@@ -16,12 +16,12 @@ import type {JmapRequest,Mailbox} from '../api/jmap-types.ts';
 // closes (or stays) when it is deleted.
 
 const MAILBOXES_WITH_JUNK:Mailbox[]=[...MAILBOXES,{id:'junk',name:'Junk',parentId:null,role:'junk',sortOrder:3,totalEmails:0,unreadEmails:0}];
-const apply=(values:Record<string,boolean>)=>loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:Object.fromEntries(Object.entries(values).map(([key,value])=>[key,{value,source:'global',locked:true}]))}),{headers:{'content-type':'application/json'}})});
+const apply=(values:Record<string,boolean|string>)=>loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:Object.fromEntries(Object.entries(values).map(([key,value])=>[key,{value,source:'global',locked:true}]))}),{headers:{'content-type':'application/json'}})});
 
 beforeEach(async()=>{suspendAccountPreferences();clearSettings();localStorage.removeItem(WORKSPACE_STORAGE_KEY);history.replaceState(null,'','#/mail');await new Promise(resolve=>setTimeout(resolve,0));});
 afterEach(()=>{cleanup();clearSettings();});
 
-async function mount(values:Record<string,boolean>){
+async function mount(values:Record<string,boolean|string>){
   const client=makeClient({emails:[mkEmail('a'),mkEmail('b')],mailboxes:MAILBOXES_WITH_JUNK});
   const app=createAppState(client);const realtime=createRealtimeController();
   await apply(values);
@@ -60,7 +60,7 @@ describe('Mailbox and mail.showSpam',()=>{
 });
 
 describe('Mailbox move targets and mail.showSpam',()=>{
-  let values:Record<string,boolean>={};
+  let values:Record<string,boolean|string>={};
   const selectOne=()=>mount(values);
   const moveTargets=async()=>{
     fireEvent.click(await screen.findByRole('button',{name:'Select messages'}));
@@ -134,4 +134,12 @@ it('provides contextual sidebar actions for every PIM view, Attachments and Outb
   if(['Calendar','Tasks','Notes','Contacts','Keys'].includes(label))expect(screen.getByRole('menuitem',{name:'New item'})).toBeVisible();
   fireEvent.keyDown(screen.getByRole('menu'),{key:'Escape'});
  }
+});
+
+describe('after moving a message',()=>{
+ it.each(['keep','close','next'] as const)('applies %s to a real message tab',async mode=>{
+  const {app,realtime}=await mount({'mail.afterMove':mode});await openTab(realtime);await app.moveMessage('a','archive');
+  await waitFor(()=>expect(messageTab(realtime)!==undefined).toBe(mode==='keep'));
+  if(mode==='next')await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:b'));
+ });
 });

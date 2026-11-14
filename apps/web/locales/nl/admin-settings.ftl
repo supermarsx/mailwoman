@@ -2613,3 +2613,6 @@ admin-settings-help-mail-follow-up-presets = Kies opvolgherinneringen onafhankel
 
 admin-settings-key-reader-file-previews = Bestandsvoorbeelden
 admin-settings-help-reader-file-previews = Kies welke bestanden in de app openen en welke gereedschappen zichtbaar zijn. Beperkingen voor bijlagen en downloadrechten van de beheerder blijven gelden. Werkbalk toont het gereedschap naast het voorbeeld; Meer-menu verplaatst het naar de drie puntjes; Verborgen verwijdert het. PDF-groepen behouden hun oorspronkelijke indeling tot deze wordt overschreven. Download- en afdrukrechten gaan voor.
+
+admin-settings-key-mail-after-move = Na het verplaatsen van een bericht
+admin-settings-help-mail-after-move = Kies na een geslaagde verplaatsing: openhouden, volgend of vorig bericht openen, of sluiten. Bij fouten blijft de lezer ongewijzigd. Navigatie volgt de lijstvolgorde en slaat verplaatste berichten over.

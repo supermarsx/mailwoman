@@ -2408,3 +2408,6 @@ admin-settings-help-mail-follow-up-presets = Choose follow-up reminder times ind
 
 admin-settings-key-reader-file-previews = File previews
 admin-settings-help-reader-file-previews = Choose which files can open in the app and which tools appear. Administrator attachment restrictions and download permissions still apply. Toolbar shows the tool beside the preview; More menu moves it into the three-dot menu; Hidden removes it. PDF groups keep their native layout until you override them. Download and print permissions always take precedence.
+
+admin-settings-key-mail-after-move = After moving a message
+admin-settings-help-mail-after-move = Choose what happens after a successful move: keep the message open, open the next or previous message, or close it. Failed moves leave the reader unchanged. Next and previous follow the current list order and skip moved messages.

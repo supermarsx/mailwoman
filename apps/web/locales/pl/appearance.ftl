@@ -228,3 +228,7 @@ appearance-preference-option-subject-desc = Temat, Z do A
 appearance-preference-conversations-help = Domyślnie wyłączone. Złóż powiązane odpowiedzi w rozwijalne wątki, niezależnie od opcji Grupuj według. Uwzględniane są tylko wiadomości załadowane w bieżącym folderze lub wyszukiwaniu. Administrator może wyłączyć tę funkcję lub zablokować tę preferencję.
 
 appearance-preference-mail-conversations-enabled = Grupuj wiadomości w rozmowy
+
+appearance-preference-mail-afterMove = Po przeniesieniu wiadomości
+appearance-preference-mail-afterMove-help = Po udanym przeniesieniu pozostaw otwartą, otwórz następną lub poprzednią wiadomość albo zamknij. Błąd nie zmienia czytnika. Nawigacja zachowuje kolejność listy i pomija przeniesione wiadomości.
+appearance-preference-option-keep = Pozostaw wiadomość otwartą

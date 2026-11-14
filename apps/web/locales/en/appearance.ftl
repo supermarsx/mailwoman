@@ -226,3 +226,7 @@ appearance-preference-message-group-help = Keep related messages together under 
 
 appearance-preference-mail-conversations-enabled = Group messages into conversations
 appearance-preference-conversations-help = Off by default. Fold related replies into expandable conversations, independently of Group by. Only messages loaded in the current folder or search are included. Your administrator can make this feature unavailable or lock this preference.
+
+appearance-preference-mail-afterMove = After moving a message
+appearance-preference-mail-afterMove-help = Choose what happens after a successful move: keep the message open, open the next or previous message, or close it. Failed moves leave the reader unchanged. Next and previous follow the current list order and skip moved messages.
+appearance-preference-option-keep = Keep message open

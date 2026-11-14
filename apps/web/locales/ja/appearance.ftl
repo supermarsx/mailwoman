@@ -212,3 +212,7 @@ appearance-preference-option-subject-desc = 主題、Z から A
 appearance-preference-conversations-help = デフォルトではオフです。グループ化とは別に、関連する返信を展開可能な会話にまとめます。現在のフォルダーまたは検索にロードされたメッセージのみが含まれます。管理者は、この機能を使用不可にしたり、この設定をロックしたりできます。
 
 appearance-preference-mail-conversations-enabled = メッセージを会話にグループ化する
+
+appearance-preference-mail-afterMove = メッセージ移動後の動作
+appearance-preference-mail-afterMove-help = 移動成功後に開いたままにする、次または前のメッセージを開く、閉じるから選択します。失敗時は表示を変更しません。リストの順序に従い、移動したメッセージは飛ばします。
+appearance-preference-option-keep = メッセージを開いたままにする

@@ -212,3 +212,7 @@ appearance-preference-option-subject-desc = Asunto, Z a A
 appearance-preference-conversations-help = Desactivado de forma predeterminada. Combine las respuestas relacionadas en conversaciones ampliables, independientemente de Agrupar por. Solo se incluyen los mensajes cargados en la carpeta o búsqueda actual. Su administrador puede hacer que esta función no esté disponible o bloquear esta preferencia.
 
 appearance-preference-mail-conversations-enabled = Agrupar mensajes en conversaciones
+
+appearance-preference-mail-afterMove = Después de mover un mensaje
+appearance-preference-mail-afterMove-help = Elija mantener abierto, abrir el mensaje siguiente o anterior, o cerrar tras mover correctamente. Los errores no cambian el lector. La navegación sigue el orden de la lista y omite los mensajes movidos.
+appearance-preference-option-keep = Mantener el mensaje abierto

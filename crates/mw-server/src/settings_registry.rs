@@ -3904,6 +3904,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "show body snippets in message list"
     ),
     def!(
+        "mail.afterMove",
+        Kind::Enum(&["keep", "next", "previous", "close"]),
+        "\"keep\"",
+        GDU,
+        "mail",
+        "reader behavior after a successful move: keep, next, previous, or close"
+    ),
+    def!(
         "mail.afterDelete",
         Kind::Enum(&["next", "previous", "close"]),
         "\"next\"",

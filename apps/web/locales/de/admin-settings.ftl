@@ -2619,3 +2619,6 @@ admin-settings-help-mail-follow-up-presets = Wählen Sie Nachverfolgungserinneru
 
 admin-settings-key-reader-file-previews = Dateivorschau
 admin-settings-help-reader-file-previews = Wählen Sie die in der App geöffneten Dateien und angezeigten Werkzeuge. Anhangsbeschränkungen und Downloadberechtigungen des Administrators gelten weiterhin. Werkzeugleiste zeigt das Werkzeug an der Vorschau; Mehr-Menü verschiebt es in das Dreipunktmenü; Ausgeblendet entfernt es. PDF-Gruppen behalten ihre ursprüngliche Anordnung bis zur Überschreibung. Download- und Druckberechtigungen haben Vorrang.
+
+admin-settings-key-mail-after-move = Nach dem Verschieben einer Nachricht
+admin-settings-help-mail-after-move = Nach erfolgreichem Verschieben geöffnet lassen, nächste oder vorherige Nachricht öffnen oder schließen. Bei Fehlern bleibt die Ansicht erhalten. Die Navigation folgt der Listenreihenfolge und überspringt verschobene Nachrichten.

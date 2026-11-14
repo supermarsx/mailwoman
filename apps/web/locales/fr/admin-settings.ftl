@@ -2619,3 +2619,6 @@ admin-settings-help-mail-follow-up-presets = Choisissez les rappels de suivi ind
 
 admin-settings-key-reader-file-previews = Aperçus de fichiers
 admin-settings-help-reader-file-previews = Choisissez les fichiers ouvrables dans l’application et les outils visibles. Les restrictions de pièces jointes et les autorisations de téléchargement administrateur restent applicables. Barre d’outils affiche l’outil près de l’aperçu ; Menu Plus le déplace dans les trois points ; Masqué le retire. Les groupes PDF conservent leur disposition tant qu’elle n’est pas remplacée. Les autorisations de téléchargement et d’impression sont prioritaires.
+
+admin-settings-key-mail-after-move = Après le déplacement d’un message
+admin-settings-help-mail-after-move = Choisissez de garder ouvert, ouvrir le message suivant ou précédent, ou fermer après un déplacement réussi. Un échec ne modifie pas le lecteur. La navigation suit l’ordre de la liste et ignore les messages déplacés.
