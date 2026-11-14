@@ -21,10 +21,10 @@ import {loadCatalog,t} from '../i18n/index.ts';
 
 export const UNDO_HISTORY_SIZE_KEY = 'ui.undoHistorySize';
 export const UNDO_HISTORY_CAP_KEY = 'ui.undoHistoryMax';
-export const UNDO_HISTORY_LIMIT = 50;
+export const UNDO_HISTORY_LIMIT = 200;
 export const UNDO_HISTORY_DEFAULT = 50;
 /** The sizes the Settings selector offers (0 = off), before the administrator's cap. */
-export const UNDO_HISTORY_CHOICES = [0, 10, 25, 50] as const;
+export const UNDO_HISTORY_CHOICES = [0, 10, 25, 50, 100, 150, 200] as const;
 
 /** Thrown by an undo/redo closure when its target changed or vanished; `reason` is shown to the user. */
 export class UndoUnavailable extends Error {
@@ -58,7 +58,7 @@ function intSetting(key: string, fallback: number): number {
   return typeof value === 'number' && Number.isInteger(value) ? Math.min(UNDO_HISTORY_LIMIT, Math.max(0, value)) : fallback;
 }
 
-/** Reactive: the administrator's ceiling (default 50). */
+/** Reactive: the administrator's ceiling (default 200). */
 export function undoHistoryCap(): number {
   return intSetting(UNDO_HISTORY_CAP_KEY, UNDO_HISTORY_LIMIT);
 }

@@ -100,12 +100,12 @@ The language of the mail client for users who have not chosen one. "Same as the 
 <a id="ui.undoHistorySize"></a>
 ### Undo and redo history size (`ui.undoHistorySize`)
 
-An integer from 0 to 50, default 50. The number of recent mail actions the **Undo** and **Redo** buttons in the mailbox toolbar remember: archive, delete, move, mark as spam, mark read or unread, flag, label, pin, snooze, follow-up and the whole-folder "mark all read" and "move all" jobs. Each user gesture is one entry, however many messages it covered. The same history answers Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y outside text fields. `0` removes the buttons and the shortcuts. Recording a new action empties the Redo list. An action that cannot be reversed any more (for example the message was moved or deleted elsewhere) is reported in a toast and dropped. The history is kept in the browser tab only, is never stored, and is cleared on sign-out and account switch. Global/domain/user policy: users choose their own size in Settings unless an administrator locks it, and a user's size is lowered to `ui.undoHistoryMax`. Enforced in the web client only.
+An integer from 0 to 200, default 50. The number of recent mail actions the **Undo** and **Redo** buttons in the mailbox toolbar remember: archive, delete, move, mark as spam, mark read or unread, flag, label, pin, snooze, follow-up and the whole-folder "mark all read" and "move all" jobs. Each user gesture is one entry, however many messages it covered. The same history answers Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y outside text fields. `0` removes the buttons and the shortcuts. Recording a new action empties the Redo list. An action that cannot be reversed any more (for example the message was moved or deleted elsewhere) is reported in a toast and dropped. The history is kept in the browser tab only, is never stored, and is cleared on sign-out and account switch. Global/domain/user policy: users choose their own size in Settings unless an administrator locks it, and a user's size is lowered to `ui.undoHistoryMax`. Enforced in the web client only.
 
 <a id="ui.undoHistoryMax"></a>
 ### Undo and redo history maximum (`ui.undoHistoryMax`)
 
-An integer from 0 to 50, default 50. The most actions any user may keep in the Undo and Redo history, whatever `ui.undoHistorySize` says for them. `0` turns the history off for everyone. Global only; enforced in the web client only.
+An integer from 0 to 200, default 200. The most actions any user may keep in the Undo and Redo history, whatever `ui.undoHistorySize` says for them. `0` turns the history off for everyone. Global only; enforced in the web client only.
 
 <a id="receipts.scheduleAllowed"></a>
 ### Scheduled read receipts

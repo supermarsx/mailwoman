@@ -32,7 +32,7 @@ describe('history stack',()=>{
   await configure({size:40,max:25});
   expect(undoCapacity()).toBe(25);
   await configure({size:99});
-  expect(undoCapacity()).toBe(50);
+  expect(undoCapacity()).toBe(99);
  });
  it('records nothing when off',async()=>{
   await configure({size:0});
@@ -159,4 +159,12 @@ describe('keyboard shortcut',()=>{
   await configure({size:0});
   expect(key({key:'z',ctrlKey:true}).handled).toBe(false);
  });
+});
+
+it('retains and replays up to 200 actions while enforcing a smaller administrator cap',async()=>{
+ await configure({size:200});for(let i=0;i<205;i++)recordUndoable(action(`a${i}`));
+ expect(undoEntries()).toHaveLength(200);expect(undoEntries().at(-1)?.label).toBe('a5');
+ const oldest=undoEntries().at(-1)!;expect(await undoThrough(oldest.id)).toBe(200);expect(redoEntries()).toHaveLength(200);
+ expect(await redoThrough(redoEntries().at(-1)!.id)).toBe(200);expect(undoEntries()).toHaveLength(200);
+ await configure({size:200,max:100});expect(undoCapacity()).toBe(100);expect(undoEntries()).toHaveLength(100);
 });

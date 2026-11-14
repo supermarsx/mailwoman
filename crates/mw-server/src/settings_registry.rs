@@ -3556,7 +3556,7 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "ui.undoHistorySize",
-        int(0, 50),
+        int(0, 200),
         "50",
         GDU,
         "interface",
@@ -3564,8 +3564,8 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "ui.undoHistoryMax",
-        int(0, 50),
-        "50",
+        int(0, 200),
+        "200",
         G,
         "interface",
         "most recent mail actions any user may keep in the Undo and Redo history"

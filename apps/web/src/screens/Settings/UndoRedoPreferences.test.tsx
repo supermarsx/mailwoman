@@ -13,12 +13,12 @@ async function load(size:number,opts:{locked?:boolean;max?:number}={}):Promise<v
 afterEach(()=>{cleanup();clearSettings();});
 
 describe('undo history setting',()=>{
- it('offers Off, 10, 25 and 50 and reflects the stored size',async()=>{
+ it('offers choices up to 200 and reflects the stored size',async()=>{
   await load(25);
   render(()=><UndoRedoPreferences/>);
   const select=await screen.findByLabelText('Actions remembered') as HTMLSelectElement;
   await waitFor(()=>expect(select.disabled).toBe(false));
-  expect([...select.options].map(o=>o.text)).toEqual(['Off','10 actions','25 actions','50 actions']);
+  expect([...select.options].map(o=>o.text)).toEqual(['Off','10 actions','25 actions','50 actions','100 actions','150 actions','200 actions']);
   expect(select.value).toBe('25');
   expect((screen.getByTestId('undo-enabled') as HTMLInputElement).checked).toBe(true);
   expect(screen.queryByTestId('setting-lock-note')).toBeNull();
