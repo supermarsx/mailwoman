@@ -2610,3 +2610,6 @@ admin-settings-help-mail-badge-supersedes = Escolha sempre, apenas quando releva
 
 admin-settings-key-mail-follow-up-presets = Marcar para acompanhamento
 admin-settings-help-mail-follow-up-presets = Escolha horários de acompanhamento separados do adiamento. O acompanhamento mantém as mensagens visíveis; o adiamento oculta até a data escolhida. As escolhas locais podem substituir padrões herdados quando a política do administrador permitir. Apenas Mais tarde hoje, Amanhã e Próxima semana são ativados por padrão. As outras opções estão disponíveis para ativar ou personalizar.
+
+admin-settings-key-reader-file-previews = Visualizações de arquivos
+admin-settings-help-reader-file-previews = Escolha os arquivos que podem abrir no aplicativo e as ferramentas exibidas. As restrições de anexos e as permissões de download do administrador continuam valendo. Barra de ferramentas exibe a ferramenta junto à visualização; Menu Mais move para os três pontos; Oculto remove. Os grupos PDF mantêm a disposição original até serem alterados. As permissões de download e impressão prevalecem.

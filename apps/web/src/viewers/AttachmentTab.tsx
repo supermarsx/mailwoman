@@ -3,7 +3,7 @@ import { apiFetch } from '../api/http.ts';
 import { attachmentDecision, attachmentPolicyUrl, loadAttachmentPolicy } from '../api/attachmentPolicy.ts';
 import { Icon } from '../components/Icon.tsx';
 import { AttachmentViewer } from './AttachmentViewer.tsx';
-import { AttachmentDetailsButton } from './AttachmentDetails.tsx';
+import {AttachmentPreviewActions} from './AttachmentPreviewActions.tsx';
 import type { ViewerDetails } from '../contracts/viewer.ts';
 import { inspectFile } from './fileInfo.ts';
 import type { StripItem } from './ThumbnailStrip.tsx';
@@ -43,8 +43,7 @@ export function AttachmentTab(props: { item: AttachmentTabItem }): JSX.Element {
   const [extra, setExtra] = createSignal<ViewerDetails>();
   return <section class="attachment-tab" aria-label={props.item.name}>
     <header class="attachment-tab__header"><Icon name={declared().icon}/><h2 title={props.item.name}>{props.item.name}</h2>
-      <div class="attachment-tab__actions" data-action-style={attachmentActionStyle()}><Show when={permitted()&&mailFeature('allowDownload')}><a class="btn btn--ghost attachment-tab__download" rel="noopener" href={ready()?.url??download()} download={props.item.name.replace(/[\\/]/g,'_')} aria-label={t('common-message-preview-download')} title={t('common-message-preview-download')}><Show when={attachmentActionStyle()!=='labels'}><Icon name="download"/></Show><Show when={attachmentActionStyle()!=='icons'}><span>{t('common-message-preview-download')}</span></Show></a></Show>
-      <Show when={ready()}>{loaded => <AttachmentDetailsButton details={{ name: props.item.name, mime: props.item.mime || 'application/octet-stream', size: loaded().size, digest: loaded().digest, type: loaded().info.description, extension: loaded().info.extension, detected: loaded().info.detected, extra: extra() }}/>}</Show></div>
+      <div class="attachment-tab__actions" data-action-style={attachmentActionStyle()}><AttachmentPreviewActions url={ready()?.url??download()} name={props.item.name} canDownload={!!permitted()&&mailFeature('allowDownload')} details={ready()?{name:props.item.name,mime:props.item.mime||'application/octet-stream',size:ready()!.size,digest:ready()!.digest,type:ready()!.info.description,extension:ready()!.info.extension,detected:ready()!.info.detected,extra:extra()}:undefined}/></div>
     </header>
     <Show when={policy.loading}><p role="status">{t('mail-attachment-policy-loading')}</p></Show>
     <Show when={policy.error}><p role="alert">{t('mail-attachment-policy-unavailable')}</p></Show>

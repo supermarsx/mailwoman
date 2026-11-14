@@ -1,3 +1,4 @@
+import {viewerKindFor} from '../contracts/viewer.ts';
 import type { IconName } from '../components/Icon.tsx';
 
 const EXECUTABLE = new Set('exe dll com scr msi msp bat cmd ps1 psm1 vbs vbe js jse wsf wsh hta lnk url desktop app dmg pkg deb rpm sh bash jar apk iso img reg chm'.split(' '));
@@ -30,5 +31,5 @@ export function inspectFile(name: string, mime: string, header = new Uint8Array(
   if (detected && normalized && normalized !== 'application/octet-stream' && detected !== normalized && !(detected === 'application/zip' && zipDocument)) warnings.push('typeMismatch');
   if (['html', 'htm', 'svg'].includes(extension)) warnings.push('activeDocument');
   const icon: IconName = normalized.startsWith('image/') ? 'image' : normalized.startsWith('audio/') ? 'fileAudio' : normalized.startsWith('video/') ? 'fileVideo' : extension === 'pdf' ? 'filePdf' : /^(?:zip|7z|rar|tar|gz|bz2|xz)$/.test(extension) ? 'archive' : /^(?:json|xml|html|htm|md|js|css|yaml|yml)$/.test(extension) ? 'fileCode' : ['eml', 'msg'].includes(extension) ? 'mail' : 'file';
-  return { extension, description: EXTENSIONS[extension] ?? (EXECUTABLE.has(extension) ? 'Executable or system file' : MACRO.has(extension) ? 'Macro-enabled document' : 'File'), detected, icon, warnings, blockPreview: warnings.includes('executable') || warnings.includes('typeMismatch') };
+  return { extension, description: EXTENSIONS[extension] ?? (EXECUTABLE.has(extension) ? 'Executable or system file' : MACRO.has(extension) ? 'Macro-enabled document' : 'File'), detected, icon, warnings, blockPreview: (warnings.includes('executable')&&viewerKindFor(mime,name)!=='code'||detected==='application/x-executable') || warnings.includes('typeMismatch') };
 }

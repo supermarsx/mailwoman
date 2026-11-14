@@ -15,16 +15,16 @@ import {attachmentActionStyle} from './previewPreferences.ts';
 
 export type { AttachmentDetails } from './attachmentDetails.ts';
 
-export function AttachmentDetailsButton(props: { details: AttachmentDetails }): JSX.Element {
+export function AttachmentDetailsButton(props: { details: AttachmentDetails;renderTrigger?:(open:()=>void)=>JSX.Element }): JSX.Element {
   const [open, setOpen] = createSignal(false);
   const id = createUniqueId();
   let button: HTMLButtonElement | undefined;
   const close = (): void => { setOpen(false); button?.focus(); };
   return <>
-    <button type="button" ref={button} class="btn btn--ghost attachment-details__button" aria-haspopup="dialog" aria-expanded={open()} aria-controls={open() ? id : undefined}
+    <Show when={props.renderTrigger} fallback={<button type="button" ref={button} class="btn btn--ghost attachment-details__button" aria-haspopup="dialog" aria-expanded={open()} aria-controls={open() ? id : undefined}
       title={t('mail-file-details-tooltip')} aria-label={t('mail-file-details-button')} data-testid="attachment-details-button" onClick={() => setOpen(true)}>
       <Show when={attachmentActionStyle()!=='labels'}><Icon name="info"/></Show><Show when={attachmentActionStyle()!=='icons'}><span>{t('mail-file-details-button')}</span></Show>
-    </button>
+    </button>}>{render=>render()(()=>setOpen(true))}</Show>
     <Show when={open()}><DetailsDialog id={id} details={props.details} onClose={close}/></Show>
   </>;
 }

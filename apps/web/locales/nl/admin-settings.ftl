@@ -2610,3 +2610,6 @@ admin-settings-help-mail-badge-supersedes = Kies altijd, alleen indien relevant 
 
 admin-settings-key-mail-follow-up-presets = Markeren voor opvolging
 admin-settings-help-mail-follow-up-presets = Kies opvolgherinneringen onafhankelijk van sluimeren. Opvolgen houdt berichten zichtbaar; sluimeren verbergt ze tot het gekozen tijdstip. Lokale keuzes kunnen overgenomen waarden vervangen als beheerbeleid dit toestaat. Alleen Later vandaag, Morgen en Volgende week zijn standaard ingeschakeld. De andere opties staan klaar om in te schakelen of aan te passen.
+
+admin-settings-key-reader-file-previews = Bestandsvoorbeelden
+admin-settings-help-reader-file-previews = Kies welke bestanden in de app openen en welke gereedschappen zichtbaar zijn. Beperkingen voor bijlagen en downloadrechten van de beheerder blijven gelden. Werkbalk toont het gereedschap naast het voorbeeld; Meer-menu verplaatst het naar de drie puntjes; Verborgen verwijdert het. PDF-groepen behouden hun oorspronkelijke indeling tot deze wordt overschreven. Download- en afdrukrechten gaan voor.

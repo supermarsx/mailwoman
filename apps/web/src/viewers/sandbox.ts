@@ -50,14 +50,14 @@ function frameDoc(csp: string, body: string): string {
 }
 
 /** `srcdoc` for an image/audio/video frame; `dataUrl` is a self-contained `data:`. */
-export function mediaFrameDoc(kind: 'image' | 'audio' | 'video', dataUrl: string): string {
+export function mediaFrameDoc(kind: 'image' | 'audio' | 'video', dataUrl: string, controls=true): string {
   const dir = kind === 'image' ? 'img-src' : 'media-src';
   const el =
     kind === 'image'
       ? `<img alt="attachment" width="100%" src="${dataUrl}">`
       : kind === 'audio'
-        ? `<audio controls src="${dataUrl}"></audio>`
-        : `<video controls playsinline src="${dataUrl}"></video>`;
+        ? `<audio ${controls?'controls':''} src="${dataUrl}"></audio>`
+        : `<video ${controls?'controls':''} playsinline src="${dataUrl}"></video>`;
   return frameDoc(mediaCsp(dir), el);
 }
 
@@ -403,7 +403,7 @@ export async function blobUrlToDataUrl(blobUrl: string, declaredMime?: string): 
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = () => reject(reader.error ?? new Error('failed to read attachment'));
     // Downloads stay octet-stream; only the image renderer opts into SVG bytes.
-    const image = declaredMime?.split(';')[0]?.trim().toLowerCase() === 'image/svg+xml' ? new Blob([blob], { type: 'image/svg+xml' }) : blob;
+    const image = declaredMime?.toLowerCase().startsWith('image/') ? new Blob([blob], { type: declaredMime.split(';')[0]!.toLowerCase() }) : blob;
     reader.readAsDataURL(image);
   });
 }

@@ -41,10 +41,10 @@ import { createNarrowViewport, focusIsLost } from './narrowViewport.ts';
 import { readingPane } from './readingPane.ts';
 import { accountUiPreferences } from '../api/accountPreferences.ts';
 import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
-import {AttachmentDetailsButton} from '../viewers/AttachmentDetails.tsx';
+import {AttachmentPreviewActions} from '../viewers/AttachmentPreviewActions.tsx';
 import {inspectFile} from '../viewers/fileInfo.ts';
 import '../viewers/attachment-tab.css';
-import {attachmentThumbnailsEnabled,attachmentActionStyle} from '../viewers/previewPreferences.ts';
+import {attachmentThumbnailsEnabled} from '../viewers/previewPreferences.ts';
 import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
 import { attachmentBarReason, isInlineResourcePart } from './attachmentBarReason.ts';
 import { attachmentDecision, attachmentPolicyUrl, loadAttachmentPolicy } from '../api/attachmentPolicy.ts';
@@ -479,8 +479,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
               <div class="attachment-modal__bar">
                 <span class="attachment-modal__name" title={item().name}>{item().name}</span>
                 <div class="attachment-tab__actions">
-                 <Show when={allowDownload()&&decision(item())?.allowed&&(!decision(item())?.warning||acknowledged())}><a class="btn btn--ghost" href={attachmentPolicyUrl(buildDownloadUrl(app.downloadUrl()!,{accountId:app.accountId()!,blobId:item().blobId,name:item().name,mime:item().mime}),props.email.id,false,acknowledged(),true)} download={item().name.replace(/[\\/]/g,'_')} rel="noopener" aria-label={t('common-message-preview-download')} title={t('common-message-preview-download')}><Show when={attachmentActionStyle()!=='labels'}><Icon name="download"/></Show><Show when={attachmentActionStyle()!=='icons'}><span>{t('common-message-preview-download')}</span></Show></a></Show>
-                 <AttachmentDetailsButton details={{name:item().name,mime:item().mime,size:item().size,digest:null,type:inspectFile(item().name,item().mime).description,extension:inspectFile(item().name,item().mime).extension,detected:null}}/>
+                 <AttachmentPreviewActions url={attachmentPolicyUrl(buildDownloadUrl(app.downloadUrl()!,{accountId:app.accountId()!,blobId:item().blobId,name:item().name,mime:item().mime}),props.email.id,false,acknowledged(),true)} name={item().name} canDownload={!!(allowDownload()&&decision(item())?.allowed&&(!decision(item())?.warning||acknowledged()))} details={{name:item().name,mime:item().mime,size:item().size,digest:null,type:inspectFile(item().name,item().mime).description,extension:inspectFile(item().name,item().mime).extension,detected:null}}/>
                 </div>
                 <button
                   type="button"

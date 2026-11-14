@@ -1,3 +1,6 @@
+import {ViewerToolbar,downloadPreview} from './ViewerToolbar.tsx';
+import {previewToolEnabled,previewToolPlacement} from './filePreviewPreferences.ts';
+import {viewerKindFor} from '../contracts/viewer.ts';
 import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import type { ViewerProps } from '../contracts/viewer.ts';
 import { apiFetch } from '../api/http.ts';
@@ -31,8 +34,9 @@ export function TextViewer(props: ViewerProps): JSX.Element {
     () => [props.blobUrl, props.mime] as const,
     ([url, mime]) => loadText(url, mime),
   );
-  const [numbers, setNumbers] = createSignal(false);
-  const [wrap, setWrap] = createSignal(true);
+  const [numbers, setNumbers] = createSignal(viewerKindFor(props.mime,props.name)==='code');
+  const [wrap, setWrap] = createSignal(viewerKindFor(props.mime,props.name)!=='code');
+  const [searchOpen,setSearchOpen]=createSignal(false);
   const [query, setQuery] = createSignal('');
   const [current, setCurrent] = createSignal(0);
   const [copied, setCopied] = createSignal<'idle' | 'ok' | 'failed'>('idle');
@@ -96,7 +100,7 @@ export function TextViewer(props: ViewerProps): JSX.Element {
   }
   async function copy(): Promise<void> {
     const doc = text();
-    if (!doc) return;
+    if (!doc||!previewToolEnabled('text.copy')||!mailFeature('allowDownload')) return;
     try {
       await navigator.clipboard.writeText(doc.text);
       setCopied('ok');
@@ -107,7 +111,7 @@ export function TextViewer(props: ViewerProps): JSX.Element {
     resetTimer = setTimeout(() => setCopied('idle'), 2000);
   }
   const download = (): JSX.Element => (
-    <Show when={mailFeature('allowDownload')}>
+    <Show when={mailFeature('allowDownload')&&previewToolPlacement('download')==='toolbar'}>
       <a class="btn" href={props.blobUrl} download={props.name.replace(/[\\/]/g, '_')}>{t('text-viewer-download')}</a>
     </Show>
   );
@@ -139,8 +143,13 @@ export function TextViewer(props: ViewerProps): JSX.Element {
             {(doc) => (
               <div class="mw-text" data-text-state="text" data-wrap={wrap() ? 'true' : 'false'}>
                 <div class="mw-text__bar">
-                  <label><input type="checkbox" checked={numbers() && !wrap()} disabled={wrap()} data-testid="text-numbers" onChange={(e) => setNumbers(e.currentTarget.checked)} /> {t('text-viewer-line-numbers')}</label>
-                  <label><input type="checkbox" checked={wrap()} data-testid="text-wrap" onChange={(e) => setWrap(e.currentTarget.checked)} /> {t('text-viewer-wrap')}</label>
+                  <ViewerToolbar scope={props.blobUrl} actions={[
+                    {id:'text.numbers',label:t('text-viewer-line-numbers'),icon:'fileCode',disabled:wrap(),pressed:numbers()&&!wrap(),run:()=>{setNumbers(value=>!value);},render:()=> <label><input type="checkbox" checked={numbers()&&!wrap()} disabled={wrap()} data-testid="text-numbers" onChange={event=>setNumbers(event.currentTarget.checked)}/>{t('text-viewer-line-numbers')}</label>},
+                    {id:'text.wrap',label:t('text-viewer-wrap'),icon:'file',pressed:wrap(),run:()=>{setWrap(value=>!value);},render:()=> <label><input type="checkbox" checked={wrap()} data-testid="text-wrap" onChange={event=>setWrap(event.currentTarget.checked)}/>{t('text-viewer-wrap')}</label>},
+                    {id:'text.search',label:t('text-viewer-search'),icon:'search',render:()=>null,run:()=>{setSearchOpen(value=>!value);}},
+                    ...(mailFeature('allowDownload')?[{id:'text.copy',label:copied()==='ok'?t('text-viewer-copied'):copied()==='failed'?t('text-viewer-copy-failed'):t('text-viewer-copy'),icon:'copy' as const,testId:'text-copy',run:copy},{id:'download',label:t('text-viewer-download'),icon:'download' as const,run:()=>downloadPreview(props.blobUrl,props.name)}]:[])
+                  ]}/>
+                  <Show when={previewToolEnabled('text.search')&&(previewToolPlacement('text.search')==='toolbar'||searchOpen())}>
                   <input
                     type="search"
                     value={query()}
@@ -164,13 +173,11 @@ export function TextViewer(props: ViewerProps): JSX.Element {
                         : t('text-viewer-search-count', { current: formatNumber(current() + 1), total: formatNumber(matches().length) })}
                     </span>
                   </Show>
-                  <button type="button" class="btn btn--ghost" data-testid="text-copy" onClick={() => void copy()}>
-                    {copied() === 'ok' ? t('text-viewer-copied') : copied() === 'failed' ? t('text-viewer-copy-failed') : t('text-viewer-copy')}
-                  </button>
+                  </Show>
                   <span class="mw-text__meta">{t('text-viewer-lines', { count: formatNumber(doc().lines) })} · {doc().encoding}</span>
                 </div>
                 <div class="mw-text__scroll" ref={scroller} tabindex="0" aria-label={props.name}>
-                  <Show when={numbers() && !wrap()}><pre class="mw-text__gutter" aria-hidden="true">{gutter()}</pre></Show>
+                  <Show when={previewToolEnabled('text.numbers')&&numbers() && !wrap()}><pre class="mw-text__gutter" aria-hidden="true">{gutter()}</pre></Show>
                   <pre class="mw-text__code" ref={code} data-testid="text-content" />
                 </div>
                 <Show when={doc().truncated}>

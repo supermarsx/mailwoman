@@ -38,6 +38,7 @@ image = { version = "0.25", default-features = false, features = [
     "jpeg",
     "gif",
     "webp",
+    "bmp", "ico", "tiff", "pnm", "tga", "dds", "ff", "qoi", "hdr", "exr",
 ] }
 
 [profile.release]

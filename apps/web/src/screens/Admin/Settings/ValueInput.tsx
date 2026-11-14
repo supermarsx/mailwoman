@@ -1,3 +1,5 @@
+import {FilePreviewEditor} from '../../../components/FilePreviewEditor.tsx';
+import {DEFAULT_FILE_PREVIEWS,validFilePreviews} from '../../../viewers/filePreviewPreferences.ts';
 import {SnoozePresetEditor} from '../../../components/SnoozePresetEditor.tsx';
 import type {SnoozePreset} from '../../../state/snooze.ts';
 // One editor for a setting value, chosen by the registry's declared kind
@@ -56,6 +58,7 @@ export function ValueInput(props: ValueInputProps): JSX.Element {
         />
       }
     >
+      <Match when={props.kind.type==='filePreviews'}><FilePreviewEditor id={props.wiring.id} describedBy={props.wiring.describedBy} disabled={props.disabled} value={(()=>{try{const value:unknown=JSON.parse(text());return validFilePreviews(value)?value:DEFAULT_FILE_PREVIEWS;}catch{return DEFAULT_FILE_PREVIEWS;}})()} onChange={value=>props.onDraft(JSON.stringify(value))}/></Match>
       <Match when={props.kind.type === 'bool'}>
         <span class={ux.checkboxRow}>
           <input

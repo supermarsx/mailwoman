@@ -2602,3 +2602,6 @@ admin-settings-help-mail-badge-supersedes = 常に表示、重要な場合のみ
 
 admin-settings-key-mail-follow-up-presets = フォローアップのフラグ
 admin-settings-help-mail-follow-up-presets = フォローアップ通知はスヌーズとは別に設定できます。フォローアップではメールを表示したままにし、スヌーズでは指定時刻まで非表示にします。管理者ポリシーが許可する場合、個別設定で継承値を変更できます。 既定で有効なのは「今日の後で」「明日」「来週」のみです。ほかのプリセットも有効化・編集できます。
+
+admin-settings-key-reader-file-previews = ファイルプレビュー
+admin-settings-help-reader-file-previews = アプリ内で開くファイルと表示するツールを選択します。管理者による添付ファイルの制限とダウンロード権限は引き続き適用されます。 ツールバーはプレビューの横に表示し、その他メニューは三点メニューへ移し、非表示はツールを隠します。PDFのグループは変更するまで元の配置を維持します。ダウンロードと印刷の権限が優先されます。

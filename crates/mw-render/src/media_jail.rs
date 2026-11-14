@@ -312,6 +312,7 @@ pub(crate) fn preview_payload(
 ) -> Result<Vec<u8>, String> {
     call(
         match format {
+            crate::attachment::PreviewFormat::Image => "mw_reencode_image",
             crate::attachment::PreviewFormat::Tnef => "mw_preview_tnef",
             crate::attachment::PreviewFormat::Eml => "mw_preview_eml",
         },

@@ -1,3 +1,4 @@
+import {filePreviews,previewToolEnabled} from './filePreviewPreferences.ts';
 // PDF.js's complete, pinned generic viewer is fetched only for a PDF preview.
 // The iframe receives authorized attachment bytes, never account credentials or
 // an arbitrary PDF URL. Its own CSP and bootstrap disable PDF scripting/network.
@@ -82,7 +83,7 @@ function PdfDocument(props: { url: string; name: string; onDetails: ((details: V
   function open(): void {
     if (!ready || !bytes || sent || disposed || failed) return;
     sent = true;
-    post('open', { bytes, name: props.name, locale: frame.ownerDocument.documentElement.lang || 'en', theme: theme(),downloadAllowed:mailFeature('allowDownload') }, [bytes]);
+    post('open', { bytes, name: props.name, locale: frame.ownerDocument.documentElement.lang || 'en', theme: theme(),downloadAllowed:mailFeature('allowDownload')&&previewToolEnabled('pdf.download')&&previewToolEnabled('download'),printAllowed:mailFeature('allowPrint')&&previewToolEnabled('pdf.print'),tools:filePreviews().tools }, [bytes]);
     bytes = undefined;
   }
   function receive(event: MessageEvent): void {
@@ -100,7 +101,7 @@ function PdfDocument(props: { url: string; name: string; onDetails: ((details: V
     }
     if (failed || event.data.instance !== instance || event.data.nonce !== nonce || !sent) return;
     if(event.data.type==='download'){
-      if(!mailFeature('allowDownload')){toast.error(t('reader-attachments-download-off'));return;}
+      if(!mailFeature('allowDownload')||!previewToolEnabled('pdf.download')||!previewToolEnabled('download')){toast.error(t('reader-attachments-download-off'));return;}
       const file=pdfDownload(event.data);if(!file)return;
       try{
         const url=host.URL.createObjectURL(new Blob([file.bytes],{type:file.mime}));
@@ -138,7 +139,7 @@ function PdfDocument(props: { url: string; name: string; onDetails: ((details: V
     observer.observe(frame.ownerDocument.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-accent', 'data-appearance', 'style', 'class','dir'] });
     observer.observe(frame.ownerDocument.body,{attributes:true,attributeFilter:['style','class','dir']});
   }
-  createEffect(()=>{const allowed=mailFeature('allowDownload');if(sent&&!disposed)post('permissions',{downloadAllowed:allowed});});
+  createEffect(()=>{const allowed=mailFeature('allowDownload')&&previewToolEnabled('pdf.download')&&previewToolEnabled('download'),printAllowed=mailFeature('allowPrint')&&previewToolEnabled('pdf.print'),tools=filePreviews().tools;if(sent&&!disposed)post('permissions',{downloadAllowed:allowed,printAllowed,tools});});
   onMount(() => {
     bindHost();
     deadline = setTimeout(timedOut, 45_000);

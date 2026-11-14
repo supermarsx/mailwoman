@@ -2610,3 +2610,6 @@ admin-settings-help-mail-badge-supersedes = Scegli sempre, solo se rilevante o m
 
 admin-settings-key-mail-follow-up-presets = Contrassegna per completamento
 admin-settings-help-mail-follow-up-presets = Scegli i promemoria di completamento indipendentemente dal rinvio. I contrassegni mantengono visibili i messaggi; il rinvio li nasconde fino all’ora scelta. I valori locali possono sostituire quelli ereditati se consentito dall’amministratore. Solo Più tardi oggi, Domani e Settimana prossima sono attivi per impostazione predefinita. Le altre opzioni sono già disponibili da attivare o personalizzare.
+
+admin-settings-key-reader-file-previews = Anteprime dei file
+admin-settings-help-reader-file-previews = Scegli i file apribili nell’app e gli strumenti visibili. Restano validi i limiti sugli allegati e le autorizzazioni di download dell’amministratore. Barra strumenti mostra lo strumento accanto all’anteprima; Menu Altro lo sposta nei tre punti; Nascosto lo rimuove. I gruppi PDF mantengono la disposizione originale finché non viene modificata. Le autorizzazioni di download e stampa hanno priorità.

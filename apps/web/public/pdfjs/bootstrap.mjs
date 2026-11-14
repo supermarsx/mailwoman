@@ -85,6 +85,33 @@ function applyTheme(theme) {
   document.documentElement.style.colorScheme = theme.dark ? 'dark' : 'light';
   document.documentElement.dir=theme.direction==='rtl'?'rtl':'ltr';
 }
+const toolHomes = new Map();
+const pdfTools = {
+ 'pdf.download':['downloadButton','secondaryDownload'],
+ 'pdf.print':['printButton','secondaryPrint'],
+ 'pdf.find':['viewFindButton'],
+ 'pdf.zoom':['zoomInButton','zoomOutButton','scaleSelectContainer'],
+ 'pdf.navigation':['previous','next','pageNumber','numPages','firstPage','lastPage'],
+ 'pdf.sidebar':['viewsManagerToggleButton'],
+ 'pdf.presentation':['presentationMode'],
+ 'pdf.annotations':['editorModeButtons','editorModeSeparator'],
+};
+function toolEnabled(key){return configuration?.tools?.[key]!=='hidden';}
+function applyTooling(){
+ const tools=configuration?.tools??{},menu=document.getElementById('secondaryToolbarButtonContainer'),toolbar=document.getElementById('toolbarViewerRight');
+ if(!menu||!toolbar)return;
+ for(const [key,ids] of Object.entries(pdfTools))for(const id of ids){const node=document.getElementById(id);if(!node)continue;
+  if(!toolHomes.has(node)){const marker=document.createComment(`Tool ${id}`);node.before(marker);toolHomes.set(node,{marker,display:node.style.display,hidden:node.hidden});}
+  const home=toolHomes.get(node),placement=tools[key];node.style.display=placement==='hidden'?'none':home.display;node.hidden=home.hidden||placement==='hidden';
+  if(placement==='menu')menu.append(node);else if(placement==='toolbar')toolbar.append(node);else home.marker.after(node);
+ }
+ for(const id of ['printButton','secondaryPrint']){const node=document.getElementById(id);if(node)node.disabled=configuration?.printAllowed===false;}
+ if(configuration?.printAllowed===false)document.documentElement.dataset.mwPrintDisabled='true';else delete document.documentElement.dataset.mwPrintDisabled;
+}
+document.addEventListener('keydown',event=>{
+ const mod=event.ctrlKey||event.metaKey,key=event.key.toLowerCase();
+ if(mod&&(key==='p'&&configuration?.printAllowed===false||key==='s'&&configuration?.downloadAllowed===false||key==='f'&&!toolEnabled('pdf.find')||['+','-','='].includes(key)&&!toolEnabled('pdf.zoom'))){event.preventDefault();event.stopImmediatePropagation();}
+},true);
 function applyDownloadPermission() {
   for(const id of ['downloadButton','secondaryDownload']){const button=document.getElementById(id);if(button)button.disabled=configuration?.downloadAllowed===false;}
 }
@@ -126,7 +153,7 @@ const initialization = new Promise(resolve => {
       resolve(message);
     } else if (message.nonce === nonce && nonce !== null) {
       if (message.type === 'theme') applyTheme(message.theme);
-      if (message.type === 'permissions') { configuration.downloadAllowed=message.downloadAllowed!==false;applyDownloadPermission(); }
+      if (message.type === 'permissions') { configuration.downloadAllowed=message.downloadAllowed!==false;configuration.printAllowed=message.printAllowed!==false;configuration.tools=message.tools??{};applyDownloadPermission();applyTooling(); }
       else if (message.type === 'destroy') void application?.close();
     }
   }
@@ -231,13 +258,14 @@ async function start() {
   const position = document.createComment('PDF zoom placement');
   scale.before(position);
   const compact = matchMedia('(max-width: 690px)');
-  const placeScale = () => { if (compact.matches) menu.prepend(scale); else position.after(scale); };
+  const placeScale = () => { if(configuration?.tools?.['pdf.zoom']){applyTooling();return;} if (compact.matches) menu.prepend(scale); else position.after(scale); };
   compact.addEventListener('change', placeScale);
   window.addEventListener('pagehide', () => compact.removeEventListener('change', placeScale), { once: true });
   placeScale();
   // A PDF's OpenAction/JavaScript Print action must never trigger a dialog.
   // The toolbar/keyboard print command remains available after a user gesture.
   application._initializeAutoPrint = async () => {};
+  if(application.triggerPrinting){const print=application.triggerPrinting.bind(application);application.triggerPrinting=(...args)=>{if(configuration?.printAllowed!==false)return print(...args);};}
   const passwordPrompt = application.passwordPrompt;
   const openPasswordPrompt = passwordPrompt.open.bind(passwordPrompt);
   passwordPrompt.open = (...args) => { send('password'); return openPasswordPrompt(...args); };
@@ -246,6 +274,7 @@ async function start() {
   stage = 'loaded';
   application._contentDispositionFilename = [...String(message.name || 'document.pdf')].map(char => char === '/' || char === '\\' || char.charCodeAt(0) < 32 ? '_' : char).join('');
   applyDownloadPermission();
+  applyTooling();
   document.title = application._contentDispositionFilename;
   opened = true;
   send('loaded', { pages: application.pdfDocument.numPages, ...(await documentMeta()) });

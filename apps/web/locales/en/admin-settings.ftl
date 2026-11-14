@@ -2405,3 +2405,6 @@ admin-settings-help-mail-badge-supersedes = Choose always, only when notable, or
 
 admin-settings-key-mail-follow-up-presets = Flag for follow-up
 admin-settings-help-mail-follow-up-presets = Choose follow-up reminder times independently of snooze. Follow-up flags keep messages visible; snoozing hides them until the selected time. Local choices can override inherited defaults when administrator policy allows. Only Later today, Tomorrow and Next week are enabled by default. Other presets are already available to enable or customize.
+
+admin-settings-key-reader-file-previews = File previews
+admin-settings-help-reader-file-previews = Choose which files can open in the app and which tools appear. Administrator attachment restrictions and download permissions still apply. Toolbar shows the tool beside the preview; More menu moves it into the three-dot menu; Hidden removes it. PDF groups keep their native layout until you override them. Download and print permissions always take precedence.

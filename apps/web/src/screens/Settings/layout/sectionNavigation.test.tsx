@@ -25,7 +25,7 @@ it('keeps every message display setting exactly once within its grouped subtabs'
  mount();
  for(const key of ALL_KEYS)expect(await screen.findAllByText(t(`reader-${key}`),{selector:'label'})).toHaveLength(1);
  expect(READER_CARDS.flatMap(c=>[...c.keys,...(c.leading?[c.leading]:[])]).sort()).toEqual([...ALL_KEYS].sort());
- expect(screen.getAllByRole('heading',{level:4,hidden:true})).toHaveLength(READER_CARDS.length+6);
+ expect(screen.getAllByRole('heading',{level:4,hidden:true})).toHaveLength(READER_CARDS.length+7);
  expect(screen.getAllByRole('tab')).toHaveLength(8);
  expect(screen.queryByRole('search')).toBeNull();
  expect(screen.queryByRole('textbox',{name:/search/i})).toBeNull();

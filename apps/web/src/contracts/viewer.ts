@@ -31,7 +31,7 @@ export interface ViewerDetails {
 }
 
 /** The viewer variants `<AttachmentViewer>` dispatches to (plan §2.4). */
-export type ViewerKind = 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'message' | 'calendar' | 'unsupported';
+export type ViewerKind = 'image' | 'pdf' | 'text' | 'audio' | 'video' | 'message' | 'calendar' | 'html' | 'code' | 'unsupported';
 
 /** Frozen mime→viewer routing helper so dispatch is identical everywhere. */
 export function viewerKindFor(mime: string, name = ''): ViewerKind {
@@ -39,7 +39,12 @@ export function viewerKindFor(mime: string, name = ''): ViewerKind {
   if (['message/rfc822', 'message/global', 'application/ms-tnef', 'application/vnd.ms-tnef'].includes(mime) || ((!mime || mime === 'application/octet-stream') && /(?:\.eml|winmail\.dat)$/i.test(name))) return 'message';
   // t53: calendar data renders as the event card (with the raw text as its fallback).
   if (['text/calendar', 'application/ics', 'text/x-vcalendar'].includes(mime) || ((!mime || mime === 'application/octet-stream' || mime === 'text/plain') && /\.(?:ics|ical|ifb)$/i.test(name))) return 'calendar';
-  if (mime === 'application/pdf') return 'pdf';
+  const generic=!mime||mime==='application/octet-stream'||mime==='binary/octet-stream';
+  if (mime==='text/html'||mime==='application/xhtml+xml'||generic&&/\.html?$/i.test(name)) return 'html';
+  if (['application/json','application/ld+json','application/xml','application/javascript','application/ecmascript','application/x-javascript','application/yaml','application/x-yaml','text/yaml'].includes(mime)||(generic||mime==='text/plain')&&/\.(?:c|h|cpp|hpp|cc|cs|rs|go|py|pyw|js|jsx|ts|tsx|mjs|cjs|java|kt|kts|swift|rb|php|pl|pm|r|sql|sh|bash|zsh|fish|ps1|psm1|bat|cmd|vbs|lua|scala|vue|svelte|css|scss|sass|less|json|jsonc|json5|xml|xsd|xsl|yaml|yml|toml|ini|cfg|conf|env|properties|dockerfile|makefile)$/i.test(name)||generic&&/^(?:Dockerfile|Makefile|\.gitignore|\.env)$/i.test(name)) return 'code';
+  if (generic&&/\.(?:txt|text|log|md|markdown|csv|tsv|rst|nfo)$/i.test(name)) return 'text';
+  if (mime === 'application/pdf'||generic&&/\.pdf$/i.test(name)) return 'pdf';
+  if(generic&&/\.(?:png|apng|jpe?g|jfif|gif|webp|avif|svg|bmp|ico|cur|tiff?|heic|heif|jxl|jp2|j2k|psd|dds|tga|pnm|ppm|pgm|pbm|qoi|exr|hdr|ff)$/i.test(name))return 'image';
   if (mime.startsWith('image/')) return 'image';
   if (mime.startsWith('audio/')) return 'audio';
   if (mime.startsWith('video/')) return 'video';

@@ -1,3 +1,4 @@
+import {filePreviewAllowed} from '../viewers/filePreviewPreferences.ts';
 import { apiFetch } from './http.ts';
 import { transportBase } from './transport.ts';
 
@@ -22,7 +23,7 @@ export function attachmentDecision(policy:AttachmentPolicy,item:{name:string;mim
   const ext=(rules:string[]):boolean=>rules.some(rule=>name.endsWith(`.${rule}`));
   const type=(rules:string[]):boolean=>rules.some(rule=>rule===mime||(rule.endsWith('/*')&&mime.startsWith(rule.slice(0,-1))));
   const allowed=policy.downloadAllowed && (!policy.maxBytes||item.size<=policy.maxBytes) && !ext(policy.blockedExtensions)&&!type(policy.blockedMimeTypes)&&(!policy.allowedExtensions.length||ext(policy.allowedExtensions))&&(!policy.allowedMimeTypes.length||type(policy.allowedMimeTypes));
-  return {allowed,preview:allowed&&policy.previewAllowed,warning:allowed&&(ext(policy.warnExtensions)||type(policy.warnMimeTypes))};
+  return {allowed,preview:allowed&&policy.previewAllowed&&filePreviewAllowed(item),warning:allowed&&(ext(policy.warnExtensions)||type(policy.warnMimeTypes))};
 }
 /** `download` marks a save-to-disk request, the only `/jmap/download` use the server refuses when `mail.allowDownload` is off. */
 export function attachmentPolicyUrl(url:string,emailId?:string,preview=false,acknowledge=false,download=false):string {

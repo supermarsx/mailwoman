@@ -2616,3 +2616,6 @@ admin-settings-help-mail-badge-supersedes = Choisissez toujours, uniquement si n
 
 admin-settings-key-mail-follow-up-presets = Marquer pour suivi
 admin-settings-help-mail-follow-up-presets = Choisissez les rappels de suivi indépendamment du report. Le suivi garde les messages visibles ; le report les masque jusqu’à l’heure choisie. Les choix locaux peuvent remplacer les valeurs héritées si la politique administrateur l’autorise. Seuls Plus tard aujourd’hui, Demain et Semaine prochaine sont activés par défaut. Les autres choix sont prêts à être activés ou personnalisés.
+
+admin-settings-key-reader-file-previews = Aperçus de fichiers
+admin-settings-help-reader-file-previews = Choisissez les fichiers ouvrables dans l’application et les outils visibles. Les restrictions de pièces jointes et les autorisations de téléchargement administrateur restent applicables. Barre d’outils affiche l’outil près de l’aperçu ; Menu Plus le déplace dans les trois points ; Masqué le retire. Les groupes PDF conservent leur disposition tant qu’elle n’est pas remplacée. Les autorisations de téléchargement et d’impression sont prioritaires.

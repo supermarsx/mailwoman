@@ -1,3 +1,5 @@
+import {previewToolPlacement} from './filePreviewPreferences.ts';
+import {previewKindEnabled} from './filePreviewPreferences.ts';
 // `<AttachmentViewer>` — dispatches by MIME to a per-type viewer (plan §2.4).
 //
 // EVERY concrete viewer is loaded via `lazy(() => import(...))`, so each is a
@@ -18,14 +20,15 @@ const MessageAttachmentViewer = lazy(() => import('./MessageAttachmentViewer.tsx
 const CalendarAttachmentViewer = lazy(() => import('./CalendarAttachmentViewer.tsx'));
 const ImageViewer = lazy(() => import('./ImageViewer.tsx'));
 const PdfViewer = lazy(() => import('./PdfViewer.tsx'));
+const HtmlViewer = lazy(() => import('./HtmlViewer.tsx'));
 const TextViewer = lazy(() => import('./TextViewer.tsx'));
 const AudioViewer = lazy(() => import('./AudioViewer.tsx'));
 const VideoViewer = lazy(() => import('./VideoViewer.tsx'));
 const UnsupportedViewer = lazy(() => import('./UnsupportedViewer.tsx'));
 
 export function AttachmentViewer(props: ViewerProps): JSX.Element {
-  void loadCatalog('text-viewer');
-  const kind = (): ReturnType<typeof viewerKindFor> => viewerKindFor(props.mime, props.name);
+  void loadCatalog('text-viewer'); void loadCatalog('file-previews');
+  const kind = (): ReturnType<typeof viewerKindFor> => previewKindEnabled(viewerKindFor(props.mime,props.name))?viewerKindFor(props.mime,props.name):'unsupported';
   return (
     <div class="mw-viewer" data-viewer-kind={kind()}>
       {/* A viewer that throws stays in its own panel: Retry re-renders only the preview. */}
@@ -39,7 +42,7 @@ export function AttachmentViewer(props: ViewerProps): JSX.Element {
             <Show when={!linked}><p>{t('text-viewer-failed-help')}</p></Show>
             <div class="mw-text__actions">
               <Show when={!linked}><button type="button" class="btn" onClick={reset}>{t('text-viewer-retry')}</button></Show>
-              <Show when={mailFeature('allowDownload')}><a class="btn" href={props.blobUrl} download={props.name.replace(/[\\/]/g, '_')}>{t('text-viewer-download')}</a></Show>
+              <Show when={mailFeature('allowDownload')&&previewToolPlacement('download')!=='hidden'}><a class="btn" href={props.blobUrl} download={props.name.replace(/[\\/]/g, '_')}>{t('text-viewer-download')}</a></Show>
             </div>
             <Show when={report}><ErrorReference report={report!} /></Show>
           </div>
@@ -55,7 +58,8 @@ export function AttachmentViewer(props: ViewerProps): JSX.Element {
           <Match when={kind() === 'pdf'}>
             <PdfViewer {...props} />
           </Match>
-          <Match when={kind() === 'text'}>
+          <Match when={kind() === 'html'}><HtmlViewer {...props}/></Match>
+          <Match when={kind() === 'text'||kind()==='code'}>
             <TextViewer {...props} />
           </Match>
           <Match when={kind() === 'audio'}>

@@ -32,6 +32,8 @@
 use serde_json::{Value, json};
 
 pub mod link_trust;
+#[path = "file_preview_preferences.rs"]
+mod file_preview_preferences;
 #[path = "snooze_presets.rs"]
 mod snooze_presets;
 
@@ -151,6 +153,7 @@ pub enum Kind {
     MessageTemplates,
     /// Editable, bounded message snooze rules.
     SnoozePresets,
+    FilePreviews,
     Bool,
     Int {
         min: i64,
@@ -197,6 +200,7 @@ impl Kind {
     /// The wire description the admin UI validates against (UX5).
     pub fn describe(&self) -> Value {
         match *self {
+            Kind::FilePreviews => json!({"type":"filePreviews"}),
             Kind::SnoozePresets => json!({"type":"snoozePresets","maxItems":32}),
             Kind::MessageTemplates => {
                 json!({"type":"messageTemplates","maxItems":20,"maxTitleLength":80,"maxBodyLength":8000,"maxBytes":65536})
@@ -748,6 +752,14 @@ pub static REGISTRY: &[SettingDef] = &[
         GDA,
         "mail",
         "Plain-text response templates: shared"
+    ),
+    def!(
+        "reader.filePreviews",
+        Kind::FilePreviews,
+        file_preview_preferences::DEFAULT,
+        GDU,
+        "reader",
+        "File preview types, size limits, image and text extensions, and toolbar, More-menu or hidden tools"
     ),
     def!(
         "mail.followUp.presets",
@@ -9056,6 +9068,7 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
         return bad("use id:<folder ID> or role:inbox/drafts/sent/trash/junk/archive".into());
     }
     match def.kind {
+        Kind::FilePreviews => { if !file_preview_preferences::valid(value){return bad("expected bounded file preview preferences and known tool placements".into());} Ok(value.clone()) },
         Kind::SnoozePresets => {
             if !snooze_presets::valid(value) {
                 return bad("expected up to 32 unique snooze presets with a bounded interval or calendar rule and HH:MM time".into());

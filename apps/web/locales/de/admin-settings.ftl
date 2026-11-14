@@ -2616,3 +2616,6 @@ admin-settings-help-mail-badge-supersedes = Wählen Sie immer, nur bei Besonderh
 
 admin-settings-key-mail-follow-up-presets = Zur Nachverfolgung markieren
 admin-settings-help-mail-follow-up-presets = Wählen Sie Nachverfolgungserinnerungen unabhängig vom Zurückstellen. Nachverfolgung lässt Nachrichten sichtbar; Zurückstellen verbirgt sie bis zum gewählten Zeitpunkt. Lokale Werte können geerbte Vorgaben überschreiben, wenn Administratorrichtlinien es erlauben. Nur Später heute, Morgen und Nächste Woche sind standardmäßig aktiviert. Weitere Vorgaben können bereits aktiviert oder angepasst werden.
+
+admin-settings-key-reader-file-previews = Dateivorschau
+admin-settings-help-reader-file-previews = Wählen Sie die in der App geöffneten Dateien und angezeigten Werkzeuge. Anhangsbeschränkungen und Downloadberechtigungen des Administrators gelten weiterhin. Werkzeugleiste zeigt das Werkzeug an der Vorschau; Mehr-Menü verschiebt es in das Dreipunktmenü; Ausgeblendet entfernt es. PDF-Gruppen behalten ihre ursprüngliche Anordnung bis zur Überschreibung. Download- und Druckberechtigungen haben Vorrang.

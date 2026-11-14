@@ -2602,3 +2602,6 @@ admin-settings-help-mail-badge-supersedes = 选择始终显示、仅重要时显
 
 admin-settings-key-mail-follow-up-presets = 标记为待跟进
 admin-settings-help-mail-follow-up-presets = 后续跟进提醒与稍后处理可分别设置。跟进标记保留邮件可见；稍后处理会隐藏邮件直到指定时间。管理员策略允许时，个人选择可以覆盖继承的默认值。 默认仅启用今天晚些时候、明天和下周。其他预设已提供，可自行启用或修改。
+
+admin-settings-key-reader-file-previews = 文件预览
+admin-settings-help-reader-file-previews = 选择在应用中打开的文件和显示的工具。管理员设置的附件限制及下载权限仍然有效。 工具栏会在预览旁显示工具；更多菜单会将其移到三点菜单；隐藏会移除工具。PDF工具组在被覆盖前保留原有布局。下载和打印权限优先。

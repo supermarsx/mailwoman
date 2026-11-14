@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub enum PreviewFormat {
     Tnef,
     Eml,
+    Image,
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -43,6 +44,11 @@ pub enum AttachmentKind {
 pub fn preview(format: PreviewFormat, bytes: &[u8]) -> Result<AttachmentPreview, String> {
     if bytes.len() > crate::MAX_INPUT_BYTES {
         return Err("attachment exceeds size limit".into());
+    }
+    if format==PreviewFormat::Image{
+        let png=crate::media_jail::reencode_image(bytes)?;
+        if png.len()>8*1024*1024{return Err("converted image exceeds preview output limit".into());}
+        return Ok(AttachmentPreview{format,subject:None,from:None,to:None,date:None,text:String::new(),html:String::new(),attachments:vec![PreviewAttachment{name:"preview.png".into(),mime:"image/png".into(),size:png.len(),data_base64:base64::engine::general_purpose::STANDARD.encode(png),content_id:None,kind:AttachmentKind::File}],warnings:vec![]});
     }
     let raw = crate::media_jail::preview_payload(format, bytes)?;
     let mut result: AttachmentPreview =
@@ -120,6 +126,13 @@ mod tests {
         assert!(p.warnings.iter().any(|w| w.contains("plain text")));
     }
 
+    #[test]
+    fn bitmap_preview_runs_through_actual_media_wasm() {
+        let mut bmp=vec![0u8;58];bmp[..2].copy_from_slice(b"BM");bmp[2..6].copy_from_slice(&58u32.to_le_bytes());bmp[10..14].copy_from_slice(&54u32.to_le_bytes());bmp[14..18].copy_from_slice(&40u32.to_le_bytes());bmp[18..22].copy_from_slice(&1u32.to_le_bytes());bmp[22..26].copy_from_slice(&1u32.to_le_bytes());bmp[26..28].copy_from_slice(&1u16.to_le_bytes());bmp[28..30].copy_from_slice(&24u16.to_le_bytes());bmp[34..38].copy_from_slice(&4u32.to_le_bytes());bmp[56]=255;
+        let result=preview(PreviewFormat::Image,&bmp).unwrap();assert_eq!(result.attachments.len(),1);assert_eq!(result.attachments[0].mime,"image/png");
+        let bytes=base64::engine::general_purpose::STANDARD.decode(&result.attachments[0].data_base64).unwrap();assert_eq!(&bytes[..8],b"\x89PNG\r\n\x1a\n");
+        assert!(preview(PreviewFormat::Image,b"not an image").is_err());
+    }
     #[test]
     fn invalid_and_oversize_inputs_fail_closed() {
         assert!(preview(PreviewFormat::Tnef, b"corrupt").is_err());

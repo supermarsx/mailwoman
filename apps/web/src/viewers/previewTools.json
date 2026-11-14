@@ -1,0 +1,157 @@
+[
+  {
+    "id": "download",
+    "label": "common-message-preview-download",
+    "catalog": "common"
+  },
+  {
+    "id": "details",
+    "label": "mail-file-details-button",
+    "catalog": "mail"
+  },
+  {
+    "id": "image.zoom-out",
+    "label": "image-viewer-zoom-out",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "image.zoom-in",
+    "label": "image-viewer-zoom-in",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "image.fit",
+    "label": "image-viewer-fit",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "image.width",
+    "label": "image-viewer-width",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "image.actual",
+    "label": "image-viewer-actual",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "image.rotate-left",
+    "label": "image-viewer-rotate-left",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "image.rotate-right",
+    "label": "image-viewer-rotate-right",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "image.flip-horizontal",
+    "label": "image-viewer-flip-horizontal",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "image.flip-vertical",
+    "label": "image-viewer-flip-vertical",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "image.grayscale",
+    "label": "image-viewer-grayscale",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "image.invert",
+    "label": "image-viewer-invert",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "image.reset",
+    "label": "image-viewer-reset",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "image.copy",
+    "label": "image-viewer-copy",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "image.fullscreen",
+    "label": "image-viewer-fullscreen",
+    "catalog": "image-viewer"
+  },
+  {
+    "id": "text.numbers",
+    "label": "text-viewer-line-numbers",
+    "catalog": "text-viewer"
+  },
+  {
+    "id": "text.wrap",
+    "label": "text-viewer-wrap",
+    "catalog": "text-viewer"
+  },
+  {
+    "id": "text.search",
+    "label": "text-viewer-search",
+    "catalog": "text-viewer"
+  },
+  {
+    "id": "text.copy",
+    "label": "text-viewer-copy",
+    "catalog": "text-viewer"
+  },
+  {
+    "id": "pdf.download",
+    "label": "preview-tool-pdf-download",
+    "catalog": "file-previews"
+  },
+  {
+    "id": "pdf.print",
+    "label": "preview-tool-pdf-print",
+    "catalog": "file-previews"
+  },
+  {
+    "id": "pdf.find",
+    "label": "preview-tool-pdf-find",
+    "catalog": "file-previews"
+  },
+  {
+    "id": "pdf.zoom",
+    "label": "preview-tool-pdf-zoom",
+    "catalog": "file-previews"
+  },
+  {
+    "id": "pdf.navigation",
+    "label": "preview-tool-pdf-navigation",
+    "catalog": "file-previews"
+  },
+  {
+    "id": "pdf.sidebar",
+    "label": "preview-tool-pdf-sidebar",
+    "catalog": "file-previews"
+  },
+  {
+    "id": "pdf.presentation",
+    "label": "preview-tool-pdf-presentation",
+    "catalog": "file-previews"
+  },
+  {
+    "id": "pdf.annotations",
+    "label": "preview-tool-pdf-annotations",
+    "catalog": "file-previews"
+  },
+  {
+    "id": "html.render",
+    "label": "preview-tool-html-render",
+    "catalog": "file-previews"
+  },
+  {
+    "id": "html.source",
+    "label": "preview-tool-html-source",
+    "catalog": "file-previews"
+  },
+  {
+    "id": "media.controls",
+    "label": "preview-tool-media-controls",
+    "catalog": "file-previews"
+  }
+]

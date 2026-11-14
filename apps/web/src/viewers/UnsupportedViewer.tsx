@@ -1,5 +1,6 @@
 import { Show, type JSX } from 'solid-js';
 import type { ViewerProps } from '../contracts/viewer.ts';
+import {ViewerToolbar,downloadPreview} from './ViewerToolbar.tsx';
 import { t } from '../i18n/index.ts';
 import { mailFeature } from '../state/mailFeatures.ts';
 
@@ -12,9 +13,7 @@ export function UnsupportedViewer(props: ViewerProps): JSX.Element {
         {props.name} · {props.mime || t('common-viewer-unknown-type')}
       </p>
       <Show when={mailFeature('allowDownload')}>
-        <a class="btn btn--primary" href={props.blobUrl} download={props.name}>
-          {t('common-viewer-download')}
-        </a>
+        <ViewerToolbar scope={props.blobUrl} actions={[{id:'download',label:t('common-viewer-download'),icon:'download',run:()=>downloadPreview(props.blobUrl,props.name)}]}/>
       </Show>
     </div>
   );

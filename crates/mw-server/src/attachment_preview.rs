@@ -46,8 +46,12 @@ async fn preview(
     if !policy.preview_allowed || !policy.download_allowed {
         return crate::attachment_policy::refusal("attachmentPreviewDisabled");
     }
-    if !matches!(body.format.as_str(), "eml" | "tnef") {
+    if !matches!(body.format.as_str(), "eml" | "tnef" | "image") {
         return error(StatusCode::BAD_REQUEST, "unsupported preview format");
+    }
+    if body.format=="image" {
+        let allowed=crate::settings_routes::effective_for_session(&state,&session,"reader.filePreviews").await.ok().flatten().is_some_and(|entry|entry.value["enabled"]==true&&entry.value["convertImages"]==true&&entry.value["types"]["image"]!=false);
+        if !allowed{return crate::attachment_policy::refusal("attachmentPreviewDisabled");}
     }
     let bytes = match base64::engine::general_purpose::STANDARD.decode(&body.bytes_base64) {
         Ok(bytes) if !bytes.is_empty() && bytes.len() <= MAX_BYTES => bytes,

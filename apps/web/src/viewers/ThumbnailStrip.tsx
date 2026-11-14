@@ -1,4 +1,5 @@
 import { createComputed,createMemo,createResource,createSignal,onCleanup,onMount, For, Show, type JSX } from 'solid-js';
+import {filePreviewAllowed} from './filePreviewPreferences.ts';
 import {attachmentThumbnailsEnabled} from './previewPreferences.ts';
 import './viewers.css';
 import { categoryOf, type TypeCategory } from './attachments.ts';
@@ -68,7 +69,7 @@ function Thumb(props: {
   const urls = createObjectUrlOwner();
   let button:HTMLButtonElement|undefined,currentUrl:string|undefined,pending:AbortController|undefined,generation=0;
   const [visible,setVisible]=createSignal(typeof IntersectionObserver==='undefined'),[broken,setBroken]=createSignal(false);
-  const enabled=()=>attachmentThumbnailsEnabled()&&category()==='image'&&props.resolveThumb!==undefined;
+  const enabled=()=>attachmentThumbnailsEnabled()&&filePreviewAllowed(props.item)&&category()==='image'&&props.resolveThumb!==undefined;
   const source=createMemo(()=>enabled()&&visible()?props.item:undefined);
   createComputed(()=>{source();generation++;pending?.abort();urls.release(currentUrl);currentUrl=undefined;setBroken(false);});
   onMount(()=>{if(typeof IntersectionObserver==='undefined'||!button)return;const observer=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){setVisible(true);observer.disconnect();}},{rootMargin:'128px'});observer.observe(button);onCleanup(()=>observer.disconnect());});

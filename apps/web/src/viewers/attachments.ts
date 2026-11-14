@@ -243,7 +243,7 @@ export function categoryOf(mime: string, name = ''): TypeCategory {
     if (archive.test(normalized) || /\.(?:zip|7z|rar|tar|gz|bz2?|xz|zst)$/i.test(name)) return 'archive';
   }
   // A calendar file is grouped with text, as before it had its own viewer (t53).
-  return kind === 'unsupported' ? 'other' : kind === 'calendar' ? 'text' : kind;
+  return kind === 'unsupported' ? 'other' : ['calendar','code','html'].includes(kind) ? 'text' : kind as TypeCategory;
 }
 
 export interface AttachmentFilters {

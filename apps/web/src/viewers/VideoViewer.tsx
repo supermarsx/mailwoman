@@ -1,4 +1,6 @@
-import { createResource, Show, type JSX } from 'solid-js';
+import {ViewerToolbar} from './ViewerToolbar.tsx';
+import {previewToolPlacement} from './filePreviewPreferences.ts';
+import { createResource,createSignal, Show, type JSX } from 'solid-js';
 import type { ViewerProps } from '../contracts/viewer.ts';
 import { blobUrlToDataUrl, mediaFrameDoc, SANDBOX_TOKENS } from './sandbox.ts';
 import { t } from '../i18n/index.ts';
@@ -6,12 +8,14 @@ import { t } from '../i18n/index.ts';
 /** Native <video controls> inside an opaque-origin sandboxed frame — NO transcode
  *  in V2 (plan §0.10 / §1.7); the browser plays what it natively supports. */
 export function VideoViewer(props: ViewerProps): JSX.Element {
+  const [controls,setControls]=createSignal(false);
+  const showControls=()=>previewToolPlacement('media.controls')==='toolbar'||previewToolPlacement('media.controls')==='menu'&&controls();
   const [doc] = createResource(
-    () => props.blobUrl,
-    async (url) => mediaFrameDoc('video', await blobUrlToDataUrl(url)),
+    () => ({url:props.blobUrl,controls:showControls()}),
+    async ({url,controls}) => mediaFrameDoc('video', await blobUrlToDataUrl(url),controls),
   );
   return (
-    <Show when={doc()} fallback={<p class="mw-viewer__loading">{t('common-viewer-loading-video')}</p>}>
+    <><div class="mw-text__bar"><ViewerToolbar scope={props.blobUrl} actions={[{id:'media.controls',label:t('preview-tool-media-controls'),icon:'settings',pressed:showControls(),render:()=>null,run:()=>{setControls(value=>!value);}}]}/></div><Show when={doc()} fallback={<p class="mw-viewer__loading">{t('common-viewer-loading-video')}</p>}>
       {(srcdoc) => (
         <iframe
           class="mw-viewer__frame mw-viewer__frame--video"
@@ -20,7 +24,7 @@ export function VideoViewer(props: ViewerProps): JSX.Element {
           srcdoc={srcdoc()}
         />
       )}
-    </Show>
+    </Show></>
   );
 }
 

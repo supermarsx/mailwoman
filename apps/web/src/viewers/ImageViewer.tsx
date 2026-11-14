@@ -1,7 +1,10 @@
-import {createMemo,createResource,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
+import {convertImageData} from './imageConversion.ts';
+import {ViewerToolbar} from './ViewerToolbar.tsx';
+import {previewToolEnabled} from './filePreviewPreferences.ts';
+import {createMemo,createResource,createSignal,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import type {ViewerProps} from '../contracts/viewer.ts';
 import {blobUrlToDataUrl,mediaFrameDoc,SANDBOX_TOKENS} from './sandbox.ts';
-import {Icon,type IconName} from '../components/Icon.tsx';
+import {type IconName} from '../components/Icon.tsx';
 import {mailFeature} from '../state/mailFeatures.ts';
 import {loadCatalog,t} from '../i18n/index.ts';
 import './image-viewer.css';
@@ -15,6 +18,7 @@ export function imageScale(size:Size,viewport:Size,rotation:number,mode:Mode,zoo
  return mode==='width'?Math.min(1,viewport.width/w):Math.min(1,viewport.width/w,viewport.height/h);
 }
 /** Image bytes stay inside an opaque, script-free frame; controls belong to the app. */
+export function imageMime(mime:string,name:string):string{if(mime.startsWith('image/'))return mime;const ext=name.split('.').pop()?.toLowerCase()??'';return ({jpg:'image/jpeg',jpeg:'image/jpeg',jfif:'image/jpeg',svg:'image/svg+xml',tif:'image/tiff',tiff:'image/tiff',ico:'image/x-icon',cur:'image/x-icon'} as Record<string,string>)[ext]??`image/${ext}`;}
 export function ImageViewer(props:ViewerProps):JSX.Element{
  void loadCatalog('image-viewer');
  let root:HTMLDivElement|undefined,viewport:HTMLDivElement|undefined;
@@ -23,18 +27,23 @@ export function ImageViewer(props:ViewerProps):JSX.Element{
  const [status,setStatus]=createSignal(''),[copying,setCopying]=createSignal(false),[fullscreen,setFullscreen]=createSignal(false);
  const [grayscale,setGrayscale]=createSignal(false),[inverted,setInverted]=createSignal(false);
  const colorFilter=()=>`saturate(${grayscale()?0:1}) invert(${inverted()?1:0})`;
+ const [converted,setConverted]=createSignal('');
  const [image,setImage]=createSignal<HTMLImageElement>(),[size,setSize]=createSignal<Size>({width:0,height:0});
  let generation=0;
  function reset():void{setMode('fit');setZoom(1);setRotation(0);setFlipH(false);setFlipV(false);setGrayscale(false);setInverted(false);if(viewport){viewport.scrollTop=0;viewport.scrollLeft=0;}}
  const [source]=createResource(()=>({url:props.blobUrl,mime:props.mime}),async({url,mime})=>{
   const captured=++generation;
-  setImage(undefined);setSize({width:0,height:0});reset();setStatus('');
-  const data=await blobUrlToDataUrl(url,mime);
+  setImage(undefined);setConverted('');setSize({width:0,height:0});reset();setStatus('');
+  const data=await blobUrlToDataUrl(url,imageMime(mime,props.name));
   if(captured!==generation)return;
   // An image decoding context never executes SVG scripts or exposes its DOM.
   const decoded=new Image();
   decoded.onload=()=>{if(captured===generation){setImage(decoded);setSize({width:decoded.naturalWidth,height:decoded.naturalHeight});}};
-  decoded.onerror=()=>{if(captured===generation)setStatus(t('image-viewer-failed'));};
+  decoded.onerror=async()=>{
+   if(captured!==generation)return;setStatus(t('common-loading'));
+   try{const png=await convertImageData(data);if(captured!==generation)return;const converted=new Image();converted.onload=()=>{if(captured===generation){setImage(converted);setSize({width:converted.naturalWidth,height:converted.naturalHeight});setConverted(mediaFrameDoc('image',png));setStatus('');}};converted.onerror=()=>{if(captured===generation)setStatus(t('preview-image-unsupported'));};converted.src=png;}
+   catch{if(captured===generation)setStatus(t('preview-image-unsupported'));}
+  };
   decoded.src=data;
   return mediaFrameDoc('image',data);
  });
@@ -45,7 +54,7 @@ export function ImageViewer(props:ViewerProps):JSX.Element{
  const canvasWidth=()=>Math.max(bounds().width,(turned()?height():width())*scale());
  const canvasHeight=()=>Math.max(bounds().height,(turned()?width():height())*scale());
  function changeZoom(factor:number):void{setZoom(Math.max(.05,Math.min(8,scale()*factor)));setMode('custom');}
- const canCopy=()=>!!image()&&mailFeature('allowDownload')&&typeof ClipboardItem!=='undefined'&&typeof navigator.clipboard?.write==='function'&&width()*height()<=64_000_000&&Math.max(width(),height())<=16384;
+ const canCopy=()=>previewToolEnabled('image.copy')&&!!image()&&mailFeature('allowDownload')&&typeof ClipboardItem!=='undefined'&&typeof navigator.clipboard?.write==='function'&&width()*height()<=64_000_000&&Math.max(width(),height())<=16384;
  async function copy():Promise<void>{
   const decoded=image();if(!decoded||!canCopy()||copying())return;
   const captured=generation,angle=rotation(),horizontal=flipH(),vertical=flipV(),swapped=turned();
@@ -65,7 +74,7 @@ export function ImageViewer(props:ViewerProps):JSX.Element{
   if(!viewport||!root)return;
   const measure=()=>{if(viewport)setBounds({width:viewport.clientWidth,height:viewport.clientHeight});};measure();
   if(typeof ResizeObserver!=='undefined'){const observer=new ResizeObserver(measure);observer.observe(viewport);onCleanup(()=>observer.disconnect());}
-  const wheel=(event:WheelEvent)=>{if(event.ctrlKey||event.metaKey){event.preventDefault();changeZoom(event.deltaY<0?1.2:1/1.2);}};
+  const wheel=(event:WheelEvent)=>{if((event.ctrlKey||event.metaKey)&&previewToolEnabled(event.deltaY<0?'image.zoom-in':'image.zoom-out')){event.preventDefault();changeZoom(event.deltaY<0?1.2:1/1.2);}};
   viewport.addEventListener('wheel',wheel,{passive:false});onCleanup(()=>viewport?.removeEventListener('wheel',wheel));
   const doc=root.ownerDocument,changed=()=>setFullscreen(doc.fullscreenElement===root);doc.addEventListener('fullscreenchange',changed);onCleanup(()=>doc.removeEventListener('fullscreenchange',changed));
  });
@@ -86,18 +95,16 @@ export function ImageViewer(props:ViewerProps):JSX.Element{
  ];
  return <div ref={root} class="image-preview">
   <div class="image-preview__toolbar" role="group" aria-label={t('image-viewer-controls')}>
-   <For each={controls}>{control=><button type="button" class="btn btn--ghost" title={t(`image-viewer-${control.id}`)} aria-label={t(`image-viewer-${control.id}`)} aria-pressed={control.pressed?.()} disabled={control.disabled?.()||!image()} onClick={control.run}><Icon name={control.icon}/></button>}</For>
+   <ViewerToolbar scope={props.blobUrl} actions={[...controls.map(control=>({id:`image.${control.id}`,label:t(`image-viewer-${control.id}`),icon:control.icon,pressed:control.pressed?.(),disabled:control.disabled?.()||!image(),run:control.run})),...(mailFeature('allowDownload')?[{id:'image.copy',label:t('image-viewer-copy'),icon:'copy' as const,disabled:!canCopy()||copying(),run:copy}]:[]),...(typeof document.documentElement.requestFullscreen==='function'?[{id:'image.fullscreen',label:t('image-viewer-fullscreen'),icon:'fullscreen' as const,pressed:fullscreen(),run:toggleFullscreen}]:[])]}/>
    <output aria-label={t('image-viewer-zoom')}>{Math.round(scale()*100)}%</output>
-   <Show when={mailFeature('allowDownload')}><button type="button" class="btn btn--ghost" aria-label={t('image-viewer-copy')} title={t(canCopy()?'image-viewer-copy':'image-viewer-copy-unavailable')} disabled={!canCopy()||copying()} onClick={()=>void copy()}><Icon name="copy"/></button></Show>
-   <Show when={typeof document.documentElement.requestFullscreen==='function'}><button type="button" class="btn btn--ghost" aria-label={t('image-viewer-fullscreen')} title={t('image-viewer-fullscreen')} aria-pressed={fullscreen()} onClick={()=>void toggleFullscreen()}><Icon name="fullscreen"/></button></Show>
   </div>
   <div ref={viewport} class="image-preview__viewport" tabindex="0" aria-label={props.name}
-   onKeyDown={event=>{if(event.ctrlKey||event.metaKey||event.altKey)return;const key=event.key;if(key==='+'||key==='=')changeZoom(1.25);else if(key==='-')changeZoom(1/1.25);else if(key==='0')setMode('fit');else if(key==='1')setMode('actual');else if(key.toLowerCase()==='r')setRotation(value=>(value+90)%360);else return;event.preventDefault();}}
+   onKeyDown={event=>{if(event.ctrlKey||event.metaKey||event.altKey)return;const key=event.key;const tool=key==='+'||key==='='?'image.zoom-in':key==='-'?'image.zoom-out':key==='0'?'image.fit':key==='1'?'image.actual':key.toLowerCase()==='r'?'image.rotate-right':undefined;if(tool&&!previewToolEnabled(tool))return;if(key==='+'||key==='=')changeZoom(1.25);else if(key==='-')changeZoom(1/1.25);else if(key==='0')setMode('fit');else if(key==='1')setMode('actual');else if(key.toLowerCase()==='r')setRotation(value=>(value+90)%360);else return;event.preventDefault();}}
    onPointerDown={event=>{if(event.pointerType!=='mouse'||event.button!==0)return;const node=event.currentTarget;pan={id:event.pointerId,x:event.clientX,y:event.clientY,left:node.scrollLeft,top:node.scrollTop};node.setPointerCapture?.(event.pointerId);}}
    onPointerMove={event=>{if(pan?.id!==event.pointerId)return;event.currentTarget.scrollLeft=pan.left+pan.x-event.clientX;event.currentTarget.scrollTop=pan.top+pan.y-event.clientY;}}
    onPointerUp={()=>{pan=undefined;}} onPointerCancel={()=>{pan=undefined;}} onLostPointerCapture={()=>{pan=undefined;}}>
    <Show when={!source.error} fallback={<p role="alert">{t('image-viewer-failed')}</p>}>
-    <Show when={source()} fallback={<p class="mw-viewer__loading">{t('common-viewer-loading-image')}</p>}>{doc=><div class="image-preview__canvas" style={{width:`${canvasWidth()}px`,height:`${canvasHeight()}px`}}><iframe class="mw-viewer__frame mw-viewer__frame--image" title={props.name} sandbox={SANDBOX_TOKENS} scrolling="no" srcdoc={doc()} style={{filter:colorFilter(),width:`${width()*scale()}px`,height:`${height()*scale()}px`,transform:`translate(-50%, -50%) rotate(${rotation()}deg) scale(${flipH()?-1:1}, ${flipV()?-1:1})`}}/></div>}</Show>
+    <Show when={source()} fallback={<p class="mw-viewer__loading">{t('common-viewer-loading-image')}</p>}>{doc=><div class="image-preview__canvas" style={{width:`${canvasWidth()}px`,height:`${canvasHeight()}px`}}><iframe class="mw-viewer__frame mw-viewer__frame--image" title={props.name} sandbox={SANDBOX_TOKENS} scrolling="no" srcdoc={converted()||doc()} style={{filter:colorFilter(),width:`${width()*scale()}px`,height:`${height()*scale()}px`,transform:`translate(-50%, -50%) rotate(${rotation()}deg) scale(${flipH()?-1:1}, ${flipV()?-1:1})`}}/></div>}</Show>
    </Show>
   </div>
   <Show when={status()}><p class="image-preview__status" role="status">{status()}</p></Show>

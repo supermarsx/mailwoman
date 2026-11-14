@@ -2628,3 +2628,6 @@ admin-settings-help-mail-badge-supersedes = Wybierz zawsze, tylko gdy istotne lu
 
 admin-settings-key-mail-follow-up-presets = Oznacz do wykonania
 admin-settings-help-mail-follow-up-presets = Wybierz przypomnienia niezależnie od odraczania. Flagi zachowują widoczność wiadomości; odroczenie ukrywa je do wybranego czasu. Lokalne wybory mogą zastąpić dziedziczone wartości, jeśli administrator na to pozwala. Domyślnie włączone są tylko Później dzisiaj, Jutro i Następny tydzień. Pozostałe opcje można już włączyć lub dostosować.
+
+admin-settings-key-reader-file-previews = Podgląd plików
+admin-settings-help-reader-file-previews = Wybierz pliki otwierane w aplikacji i widoczne narzędzia. Ograniczenia załączników i uprawnienia pobierania administratora nadal obowiązują. Pasek narzędzi pokazuje narzędzie przy podglądzie; menu Więcej przenosi je do trzech kropek; Ukryte usuwa je. Grupy PDF zachowują pierwotny układ do jego nadpisania. Uprawnienia pobierania i drukowania mają pierwszeństwo.
