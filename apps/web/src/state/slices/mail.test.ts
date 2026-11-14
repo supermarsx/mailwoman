@@ -1817,7 +1817,7 @@ describe('mail slice — receipt, inline images and open tracking (t29-e12)', ()
       expect(req!.methodCalls[0]![1]['create']).toEqual({
         draft: {
           mailboxIds: { inbox: true },
-          keywords: { $draft: true, $seen: true },
+          keywords: { $draft: true, $seen: true, $mailwomanReadReceiptRequested: true },
           from: [{ name: null, email: 'me@example.org' }],
           to: [{ name: null, email: 'you@example.org' }],
           subject: 'Hi',
