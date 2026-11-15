@@ -1,3 +1,5 @@
+import {toast} from '../../components/toast/toast.ts';
+import {container} from './notificationSettings.css.ts';
 import { preferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 import { PersonalAccountBoundary } from './PersonalAccountBoundary.tsx';
 // Notification rules + quiet hours use verified-owner personal_notification_rules.
@@ -5,7 +7,7 @@ import { PersonalAccountBoundary } from './PersonalAccountBoundary.tsx';
 // substring on sender/mailbox/subject and either surface or mute a notification;
 // quiet hours suppress all notifications within a local time window.
 
-import { createEffect, createResource, createSignal, For, Show, onMount, type JSX } from 'solid-js';
+import { createEffect, createResource, createSignal, For, Show, onMount, onCleanup, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import { SettingsService } from './service.ts';
 import { useSetting } from './useSetting.ts';
@@ -64,11 +66,15 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
   const [saved, setSaved] = createSignal(false);
+  const [unsaved,setUnsaved]=createSignal(false);
+  let revision=0,saving=false,disposed=false,timer:ReturnType<typeof setTimeout>|undefined;
+  onCleanup(()=>{clearTimeout(timer);if(unsaved()&&owner===preferenceAccount())void save();disposed=true;});
+  onMount(()=>{const changed=(event:Event)=>{const value=(event as CustomEvent<unknown>).detail;if(value==='granted'||value==='denied'||value==='default')setPermission(value);};window.addEventListener('mw:notification-permission-changed',changed);onCleanup(()=>window.removeEventListener('mw:notification-permission-changed',changed));});
   const [permission, setPermission] = createSignal<NotificationPermission | 'unsupported'>(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
   async function requestNotifications(): Promise<void> {
     if (!hydrated() || !view().enabled || typeof Notification === 'undefined') return;
     try { const result=await Notification.requestPermission();if(owner!==preferenceAccount())return;setPermission(result);if(result==='granted')window.dispatchEvent(new Event('mw:notifications-changed')); }
-    catch { setError(t('settings-notif-permission-error')); }
+    catch { if(owner===preferenceAccount())toast.error(t('settings-notif-permission-error')); }
   }
 
 
@@ -81,14 +87,15 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
     }
   });
 
-  const locked = (): boolean => !hydrated() || busy();
+  const locked = (): boolean => !hydrated();
 
   const view = (): NotificationConfig =>
     enabledHold.locked() ? { ...config(), enabled: enabledHold.value() } : config();
 
   function patch(next: Partial<NotificationConfig>): void {
     setConfig({ ...config(), ...next });
-    setSaved(false);
+    setSaved(false);setUnsaved(true);revision++;
+    clearTimeout(timer);timer=setTimeout(()=>void save(),350);
   }
 
   function patchQuiet(next: Partial<NotificationConfig['quietHours']>): void {
@@ -109,23 +116,24 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
   }
 
   async function save(): Promise<void> {
-    if(owner!==preferenceAccount())return;
-    setError('');
-    setBusy(true);
+    if(owner!==preferenceAccount()||saving||!unsaved()||!hydrated())return;
+    clearTimeout(timer);saving=true;const sent=revision,payload=view();
+    if(!disposed){setError('');setBusy(true);}
     try {
-      await service.saveNotifications(view());
+      await service.saveNotifications(payload);
       if(owner!==preferenceAccount())return;
       window.dispatchEvent(new Event('mw:notifications-changed'));
-      setSaved(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t('settings-notif-error'));
+      if(!disposed&&sent===revision){setUnsaved(false);setSaved(true);}
+    } catch {
+      if(!disposed&&owner===preferenceAccount())setError(t('settings-notif-error'));
     } finally {
-      setBusy(false);
+      saving=false;if(!disposed)setBusy(false);
+      if(owner===preferenceAccount()&&revision>sent)void save();
     }
   }
 
   return (
-    <div data-testid="notifications-settings">
+    <div class={container} data-testid="notifications-settings">
       <SettingsCard id="notif-card-general" title={t('settings-notif-title')} description={t('settings-notif-intro')}>
         <For each={[
           {id:'notif-view-enabled',label:'settings-notif-view-enabled',handle:viewEnabled},
@@ -133,7 +141,7 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
         ]}>{item=><ControlRow controlId={item.id} label={t(item.label)} help={t('settings-notif-view-help')} note={<><LockNote id={`${item.id}-lock`} locked={item.handle.locked()}/><Show when={item.handle.error()}><p role="alert">{item.handle.error()}</p></Show></>}>{()=>
           <input id={item.id} type="checkbox" checked={item.handle.value()} disabled={!item.handle.entry()||item.handle.locked()||item.handle.saving()||(item.id==='notif-view-sidebar'&&!viewEnabled.value())} onChange={event=>void item.handle.set(event.currentTarget.checked)}/>
         }</ControlRow>}</For>
-        <fieldset class={css.bareFieldset} disabled={locked()}>
+        <fieldset class={`${css.bareFieldset} ${css.stack}`} disabled={locked()}>
           <ControlRow controlId="notif-enabled" label={t('settings-notif-enabled-label')} note={<LockNote id="settings-notif-enabled-lock" locked={enabledHold.locked()} />}>{() =>
             <input
               id="notif-enabled"
@@ -148,7 +156,7 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
       </SettingsCard>
 
       <SettingsCard id="notif-card-device" title={t('settings-notif-device-title')} description={t('settings-notif-device-help')}>
-        <fieldset class={css.bareFieldset} disabled={locked()}>
+        <fieldset class={`${css.bareFieldset} ${css.stack}`} disabled={locked()}>
           <ControlRow controlId="notif-ask-permission" label={t('settings-notif-ask-permission')} help={t('settings-notif-ask-permission-help')}
             note={<>
               <LockNote id="settings-notif-ask-lock" locked={askPermission.locked()}/>
@@ -165,10 +173,10 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
         </fieldset>
       </SettingsCard>
 
-      <BrowserPermissions disabled={locked()} enabled={config().enabled} pushAllowed={config().pushAllowed === true} persistentStorageAllowed={config().persistentStorageAllowed === true} />
+      <BrowserPermissions disabled={locked()||busy()||unsaved()} enabled={view().enabled} pushAllowed={config().pushAllowed === true} persistentStorageAllowed={config().persistentStorageAllowed === true} />
 
       <SettingsCard id="notif-card-quiet" title={t('settings-notif-quiet-title')}>
-        <fieldset class={css.bareFieldset} disabled={locked()}>
+        <fieldset class={`${css.bareFieldset} ${css.stack}`} disabled={locked()}>
           <ControlRow controlId="notif-quiet-enabled" label={t('settings-notif-quiet-enabled-label')}>{() =>
             <input
               id="notif-quiet-enabled"
@@ -193,7 +201,7 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
       </SettingsCard>
 
       <SettingsCard id="notif-card-rules" title={t('settings-notif-rules-title')} wide>
-        <fieldset class={css.bareFieldset} disabled={locked()}>
+        <fieldset class={`${css.bareFieldset} ${css.stack}`} disabled={locked()}>
           <Show when={view().rules.length > 0}><p class={css.meta}>{t('settings-notif-background-rules')}</p></Show>
           <ul class={css.list} data-testid="notif-rule-list">
             <For each={view().rules}>
@@ -230,20 +238,10 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
         </fieldset>
       </SettingsCard>
 
-      {/* Save applies to every card above. */}
-      <fieldset class={`${css.bareFieldset} ${css.actions}`} disabled={locked()}>
-        <button type="button" class={css.button} disabled={busy()} onClick={() => void save()} data-testid="notif-save">
-          {t('settings-save')}
-        </button>
-        <Show when={saved()}>
-          <span class={css.success} role="status" data-testid="notif-saved">
-            {t('settings-saved')}
-          </span>
-        </Show>
-      </fieldset>
+      <Show when={busy()||saved()}><p class={css.meta} role="status" data-testid={busy()?'notif-saving':'notif-saved'}>{t(busy()?'common-saving':'settings-saved')}</p></Show>
       <Show when={error() !== ''}>
         <p class={css.error} role="alert">
-          {error()}
+          {error()} <Show when={hydrated()}><button type="button" class={css.ghost} disabled={busy()} onClick={()=>void save()}>{t('common-retry')}</button></Show>
         </p>
       </Show>
     </div>

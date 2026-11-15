@@ -149,13 +149,13 @@ describe('pushSubscribe() — Web Push (VAPID)', () => {
     });
   });
 
-  it('returns null when no service worker is registered (e7 wires it)', async () => {
+  it('reports an unavailable worker when it cannot register one', async () => {
     g.PushManager = function PushManager() {};
     Object.defineProperty(navigator, 'serviceWorker', {
       value: { getRegistration: async () => undefined },
       configurable: true,
     });
-    expect(await createBrowserPlatform().pushSubscribe()).toBeNull();
+    await expect(createBrowserPlatform().pushSubscribe()).rejects.toMatchObject({reason:'worker'});
   });
 });
 
@@ -225,4 +225,26 @@ it('uses the service-worker notification API when the page constructor is unavai
  class MobileNotification {static permission='granted';constructor(){throw new TypeError('Use ServiceWorkerRegistration.showNotification');}}
  g.Notification=MobileNotification;const showNotification=vi.fn(async()=>{});const worker=new EventTarget() as EventTarget&{getRegistration:()=>Promise<unknown>};worker.getRegistration=async()=>({showNotification});Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:worker});
  const platform=createBrowserPlatform(),action=vi.fn();const off=platform.onNotificationAction(action);await platform.notify({id:'mobile-message',title:'New message',body:'Subject'});expect(showNotification).toHaveBeenCalledWith('New message',{body:'Subject',tag:'mobile-message',data:{mwNotificationId:'mobile-message'}});worker.dispatchEvent(new MessageEvent('message',{data:{type:'mw-notification-action',notificationId:'mobile-message'}}));expect(action).toHaveBeenCalledWith({notificationId:'mobile-message',actionId:'default'});off();worker.dispatchEvent(new MessageEvent('message',{data:{type:'mw-notification-action',notificationId:'mobile-message'}}));expect(action).toHaveBeenCalledOnce();
+});
+
+it('registers a missing service worker and waits for activation before subscribing',async()=>{
+ g.PushManager=class {};const subscribe=vi.fn(async()=>({endpoint:'https://push.example/new',expirationTime:null,toJSON:()=>({keys:{p256dh:'P',auth:'A'}}),getKey:()=>null}));
+ const register=vi.fn(async()=>({active:null}));const ready={active:{},pushManager:{subscribe}};
+ Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:{getRegistration:async()=>undefined,register,ready:Promise.resolve(ready)}});
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({publicKey:'dGVzdA'}))));
+ expect(await createBrowserPlatform().pushSubscribe()).toMatchObject({endpoint:'https://push.example/new'});
+ expect(register).toHaveBeenCalledWith('/sw.js',{type:'classic',scope:'/'});expect(subscribe).toHaveBeenCalledOnce();
+});
+it('reports the server-key stage instead of swallowing a refused VAPID request',async()=>{
+ g.PushManager=class {};const subscribe=vi.fn();Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:{getRegistration:async()=>({pushManager:{subscribe}})}});
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response('',{status:503})));
+ await expect(createBrowserPlatform().pushSubscribe()).rejects.toMatchObject({reason:'server'});expect(subscribe).not.toHaveBeenCalled();
+});
+
+it('registers the app worker instead of reusing an unrelated broader-scope worker',async()=>{
+ g.PushManager=class {};const foreign=vi.fn(),subscribe=vi.fn(async()=>({endpoint:'https://push.example/app',expirationTime:null,toJSON:()=>({keys:{p256dh:'P',auth:'A'}}),getKey:()=>null}));
+ const scope=new URL('/',location.href).href,register=vi.fn(async()=>({scope,active:{},pushManager:{subscribe}}));
+ Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:{getRegistration:async()=>({scope:scope+'other/',active:{},pushManager:{subscribe:foreign}}),register}});
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({publicKey:'dGVzdA'}))));
+ await createBrowserPlatform().pushSubscribe();expect(register).toHaveBeenCalledOnce();expect(foreign).not.toHaveBeenCalled();expect(subscribe).toHaveBeenCalledOnce();
 });

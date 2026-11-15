@@ -3955,3 +3955,9 @@ In Command Ribbon, the main toolbar moves into the Home ribbon, with compose, lo
 ### Shortcut feedback
 
 `shortcuts.activationToast` defaults false and supports global/domain/user defaults and locks. In Settings > Keyboard and display > Keyboard shortcuts, users can enable a brief toast naming the action and pressed keys. It acknowledges an accepted keyboard activation, not completion of an asynchronous operation. Typing, declined actions, menu-driven execution and held-key repeats do not emit it. Feedback replaces its previous toast and also covers the app-level Undo/Redo keys.
+
+### Notification preferences and browser registration
+
+Notification rules and quiet hours save automatically after a short typing pause. Writes are serialized, newer edits are retained during a request, and leaving the section flushes a pending change while the verified account remains current. Save failures offer Retry. Browser registration stays disabled until the related preferences have saved.
+
+Register background notifications requests browser permission on the user's click, ensures the scoped service worker exists and waits at most ten seconds for activation. Errors distinguish permission refusal, worker startup, VAPID/server registration and browser subscription failure. Existing browser subscriptions can be reused; the server still refuses endpoints bound to an unrelated account. Registration status is separate from the existence of a browser subscription. Actual delivery also requires supported browser/OS push services and the deployed server's outbound connectivity.

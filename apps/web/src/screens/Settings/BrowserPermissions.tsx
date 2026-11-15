@@ -1,8 +1,10 @@
+import {permissionBody} from './notificationSettings.css.ts';
+import {PushRegistrationError} from '../../platform/pushRegistrationError.ts';
 import {toast} from '../../components/toast/toast.ts';
 import { storageAuthorityHeaders } from '../../api/storageAuthority.ts';
 import { createSignal, onMount, onCleanup, Show, type JSX } from 'solid-js';
 import { apiFetch } from '../../api/http.ts';
-import { withBase } from '../../api/basePath.ts';
+import { withBase,shellBase } from '../../api/basePath.ts';
 import { preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 import { getPlatform } from '../../platform/index.ts';
 import { t } from '../../i18n';
@@ -13,12 +15,15 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
   const [busy, setBusy] = createSignal(false);
   let disposed=false;onCleanup(()=>{disposed=true;});
   const [persistent, setPersistent] = createSignal(false), [subscribed, setSubscribed] = createSignal(false);
-  const [browserSubscription,setBrowserSubscription]=createSignal(false);
+  const [browserSubscription,setBrowserSubscription]=createSignal(false),[bindingConflict,setBindingConflict]=createSignal(false);
   const [usage, setUsage] = createSignal<number | undefined>();
   const storageSupported = typeof navigator !== 'undefined' && typeof navigator.storage?.persist === 'function';
   const pushSupported = typeof navigator !== 'undefined' && 'serviceWorker' in navigator && typeof PushManager !== 'undefined';
   async function currentSubscription(): Promise<PushSubscription | null> {
-    return pushSupported ? (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription() ?? null : null;
+    if(!pushSupported)return null;
+    const registration=await navigator.serviceWorker.getRegistration();
+    if(registration&&typeof registration.scope==='string'&&registration.scope!==new URL(shellBase(),location.href).href)return null;
+    return registration?.pushManager.getSubscription()??null;
   }
   onMount(() => {
     if (storageSupported) {
@@ -28,7 +33,7 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
     onCleanup(observePreferenceAccount(()=>{void refreshPushRegistration();}));
   });
   async function refreshPushRegistration():Promise<void>{
-    const account=preferenceAccount();setSubscribed(false);setBrowserSubscription(false);
+    const account=preferenceAccount();setSubscribed(false);setBrowserSubscription(false);setBindingConflict(false);
     if(!account?.storageAuthority)return;
     try{
       const subscription=await currentSubscription();if(!subscription||!preferenceAccountIsCurrent(account))return;setBrowserSubscription(true);
@@ -41,15 +46,21 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
   }
   async function run(action: () => Promise<void>): Promise<void> {
     if(busy())return;const owner=preferenceAccount();setBusy(true);
-    try { await action(); } catch { if(!disposed&&(owner?preferenceAccountIsCurrent(owner):!preferenceAccount()))toast.error(t('settings-permissions-error')); } finally { if(!disposed)setBusy(false); }
+    try { await action(); } catch(error) { if(!disposed&&(owner?preferenceAccountIsCurrent(owner):!preferenceAccount())){if(error instanceof PushRegistrationError&&error.reason==='bound')setBindingConflict(true);toast.error(t(error instanceof PushRegistrationError?error.reason==='bound'?'settings-permissions-push-other-registration':error.reason==='permission'?'settings-notif-permission-denied':error.reason==='worker'?'settings-permissions-push-worker-error':error.reason==='server'?'settings-permissions-push-server-error':'settings-permissions-push-browser-error':'settings-permissions-error'));} } finally { if(!disposed)setBusy(false); }
   }
   async function registerPush(): Promise<void> {
     const account = preferenceAccount();
-    if (!account || !props.enabled || !props.pushAllowed || typeof Notification === 'undefined' || Notification.permission !== 'granted') throw new Error('Permission required');
+    if (!account || !props.enabled || !props.pushAllowed || typeof Notification === 'undefined') throw new PushRegistrationError('permission');
+    const permission=Notification.permission==='default'?await Notification.requestPermission():Notification.permission;
+    window.dispatchEvent(new CustomEvent('mw:notification-permission-changed',{detail:permission}));
+    if(!preferenceAccountIsCurrent(account))return;
+    if(permission!=='granted')throw new PushRegistrationError('permission');
     const subscription = await getPlatform().pushSubscribe();
-    if (!subscription || !preferenceAccountIsCurrent(account)) throw new Error('Account changed');
+    if(!preferenceAccountIsCurrent(account))return;
+    if (!subscription) throw new PushRegistrationError('browser');
+    setBrowserSubscription(true);
     const response = await apiFetch(withBase('/api/push/subscribe'), { method: 'POST', headers: { 'content-type': 'application/json', ...storageAuthorityHeaders(account.storageAuthority) }, body: JSON.stringify(subscription) });
-    if (!response.ok) throw new Error('Registration refused');
+    if (!response.ok) throw new PushRegistrationError(response.status===409?'bound':'server');
     if (preferenceAccountIsCurrent(account)) {setSubscribed(true);setBrowserSubscription(true);}
   }
   async function unregisterPush(): Promise<void> {
@@ -61,18 +72,18 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
       if (!response.ok) throw new Error('Removal refused');
       await subscription.unsubscribe();
     }
-    if (preferenceAccountIsCurrent(account)) {setSubscribed(false);setBrowserSubscription(false);}
+    if (preferenceAccountIsCurrent(account)) {setSubscribed(false);setBrowserSubscription(false);setBindingConflict(false);}
   }
   // Two groups (background notifications, browser storage) so the Settings
   // card rules each off like its other subgroups.
   return <>
     <SettingsCard id="notif-card-background" title={t('settings-permissions-background-title')} description={t('settings-permissions-background-help')}>
-    <fieldset class={css.bareFieldset} disabled={props.disabled}>
+    <fieldset class={`${css.bareFieldset} ${permissionBody}`} disabled={props.disabled}>
     <Show when={pushSupported} fallback={<p>{t('settings-permissions-push-unsupported')}</p>}>
-      <p>{t(subscribed() ? 'settings-permissions-push-registered' : 'settings-permissions-push-unregistered')}</p>
-      <Show when={browserSubscription()&&!subscribed()}><p>{t('settings-permissions-push-other-registration')}</p></Show>
+      <p role="status">{t(subscribed() ? 'settings-permissions-push-registered' : browserSubscription()?'settings-permissions-push-unlinked':'settings-permissions-push-unregistered')}</p>
+      <Show when={bindingConflict()}><p>{t('settings-permissions-push-other-registration')}</p></Show>
       <div class={css.actions}>
-        <button type="button" class={css.button} disabled={busy() || !props.enabled || !props.pushAllowed || (browserSubscription()&&!subscribed())} onClick={() => void run(registerPush)}>{t('settings-permissions-push-register')}</button>
+        <button type="button" class={css.button} disabled={busy() || subscribed() || !props.enabled || !props.pushAllowed || bindingConflict()} onClick={() => void run(registerPush)}>{t('settings-permissions-push-register')}</button>
         <button type="button" class={css.ghost} disabled={busy() || !browserSubscription()} onClick={() => void run(unregisterPush)}>{t('settings-permissions-push-remove')}</button>
       </div>
       <Show when={!props.pushAllowed}><p>{t('settings-permissions-push-policy')}</p></Show>
@@ -80,7 +91,7 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
     </fieldset>
     </SettingsCard>
     <SettingsCard id="notif-card-storage" title={t('settings-permissions-storage-title')} description={t('settings-permissions-storage-help')}>
-    <fieldset class={css.bareFieldset} disabled={props.disabled}>
+    <fieldset class={`${css.bareFieldset} ${permissionBody}`} disabled={props.disabled}>
     <Show when={storageSupported} fallback={<p>{t('settings-permissions-storage-unsupported')}</p>}>
       <p role="status">{t(persistent() ? 'settings-permissions-storage-persistent' : 'settings-permissions-storage-evictable')}</p>
       <Show when={usage() !== undefined}><p>{t('settings-permissions-storage-usage', { mib: ((usage() ?? 0) / 1048576).toFixed(1) })}</p></Show>

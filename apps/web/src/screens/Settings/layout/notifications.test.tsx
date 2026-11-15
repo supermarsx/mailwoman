@@ -28,7 +28,7 @@ it('Notifications: every previous control appears once, inside registered cards'
  for(const name of [t('settings-notif-rule-match-placeholder')])expect(screen.getAllByLabelText(name)).toHaveLength(1);
  expect(screen.getByRole('combobox',{name:t('settings-notif-rule-action-label')})).toBeInTheDocument();
  expect(screen.getByTestId('notif-add-rule')).toBeInTheDocument();
- expect(screen.getByTestId('notif-save')).toBeInTheDocument();
+ expect(screen.queryByTestId('notif-save')).toBeNull();
  fireEvent.click(screen.getByTestId('notif-add-rule'));
  expect(screen.getAllByLabelText(t('settings-notif-rule-match-placeholder'))).toHaveLength(2);
  for(const el of document.querySelectorAll('section[id][aria-labelledby]'))expect(SETTINGS_REGISTRY.some(c=>c.id===el.id),el.id).toBe(true);

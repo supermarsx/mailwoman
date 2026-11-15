@@ -340,9 +340,9 @@ settings-notif-timezone = Fuso horário das horas de silêncio (IANA)
 settings-notif-timezone-device = Utilizar o fuso horário deste dispositivo
 
 settings-permissions-background-title = Notificações em segundo plano neste navegador
-settings-permissions-background-help = Guarde primeiro as preferências de notificação e permita as notificações do navegador. Registe este navegador para receber a atividade da conta quando a aplicação estiver fechada.
+settings-permissions-background-help = Ative as notificações de novas mensagens e registe este navegador. Pode ser pedida permissão para notificações.
 settings-permissions-push-unsupported = O Web Push em segundo plano não está disponível neste navegador.
-settings-permissions-push-registered = Este navegador tem uma subscrição push. Registe-a para a associar à conta atual.
+settings-permissions-push-registered = Este navegador está registado para notificações em segundo plano desta conta.
 settings-permissions-push-unregistered = Este navegador não tem nenhuma subscrição push.
 settings-permissions-push-register = Registar notificações em segundo plano
 settings-permissions-push-remove = Remover subscrição do navegador
@@ -855,3 +855,8 @@ settings-badge-supersedes-help = Escolha sempre, apenas quando relevante ou nunc
 settings-shortcuts-activation-toast = Mostrar avisos de atalhos de teclado
 settings-shortcuts-activation-toast-help = Mostra brevemente a ação e as teclas do atalho utilizado. Confirma a ativação, não a conclusão. Escrever, clicar em menus e manter teclas premidas não produz avisos. Desativado por predefinição.
 settings-shortcut-activated = Atalho: { $action } ({ $keys })
+
+settings-permissions-push-worker-error = Não foi possível iniciar o serviço em segundo plano. Recarregue a aplicação e tente novamente.
+settings-permissions-push-server-error = O servidor não conseguiu registar as notificações em segundo plano. Verifique as definições da conta e tente novamente.
+settings-permissions-push-browser-error = O navegador não conseguiu criar a subscrição push. Verifique as permissões do site, a compatibilidade e o acesso à rede.
+settings-permissions-push-unlinked = Este navegador tem uma subscrição push ainda não associada a esta conta.

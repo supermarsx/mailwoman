@@ -1,3 +1,4 @@
+import {PushRegistrationError} from './pushRegistrationError.ts';
 // Browser implementation of the `Platform` capability layer (plan §2.1, §3 e6).
 //
 // This is the DEFAULT everywhere and the honest web fallback: it never touches a
@@ -264,15 +265,29 @@ export function createBrowserPlatform(): Platform {
       ) {
         return null; // no Web Push here (jsdom / unsupported): degrade to none.
       }
+      let phase:'worker'|'server'|'browser'='worker';
       try {
-        const reg = await navigator_.serviceWorker.getRegistration();
-        if (reg?.pushManager === undefined) return null; // e7 registers the SW.
+        const worker=navigator_.serviceWorker;
+        let reg = await worker.getRegistration();
+        const scope=new URL(shellBase(),location.href).href;
+        if((!reg||typeof reg.scope==='string'&&reg.scope!==scope)&&typeof worker.register==='function')reg=await worker.register(`${serverBase()}/sw.js`,{type:'classic',scope:shellBase()});
+        if(!reg||typeof reg.scope==='string'&&reg.scope!==scope)throw new PushRegistrationError('worker');
+        if(reg.active===null){
+          let timer:ReturnType<typeof setTimeout>|undefined;
+          try{reg=await Promise.race([worker.ready,new Promise<never>((_resolve,reject)=>{timer=setTimeout(()=>reject(new PushRegistrationError('worker')),10000);})]);}
+          finally{clearTimeout(timer);}
+        }
+        if(reg.pushManager===undefined)throw new PushRegistrationError('worker');
+        phase='server';
         const res = await apiFetch(`${serverBase()}/api/push/vapid`);
-        if (!res.ok) return null;
+        if (!res.ok) throw new PushRegistrationError('server');
         const { publicKey } = (await res.json()) as { publicKey: string };
-        const sub = await reg.pushManager.subscribe({
+        if(typeof publicKey!=='string'||!publicKey)throw new PushRegistrationError('server');
+        const applicationServerKey=urlBase64ToUint8Array(publicKey) as BufferSource;
+        phase='browser';
+        const sub = await reg.pushManager.getSubscription?.()??await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
+          applicationServerKey,
         });
         const json = sub.toJSON() as { keys?: { p256dh?: string; auth?: string } };
         return {
@@ -283,10 +298,12 @@ export function createBrowserPlatform(): Platform {
             auth: json.keys?.auth ?? bufToBase64(sub.getKey('auth')),
           },
           appId: null,
-          expiresAt: sub.expirationTime !== null ? new Date(sub.expirationTime).toISOString() : null,
+          expiresAt: typeof sub.expirationTime==='number'&&Number.isFinite(sub.expirationTime) ? new Date(sub.expirationTime).toISOString() : null,
         };
-      } catch {
-        return null; // any failure → no subscription (caller stays on foreground poll).
+      } catch(error) {
+        if(error instanceof PushRegistrationError)throw error;
+        if(error instanceof Error&&error.name==='NotAllowedError')throw new PushRegistrationError('permission');
+        throw new PushRegistrationError(phase);
       }
     },
     async pushUnsubscribe() {

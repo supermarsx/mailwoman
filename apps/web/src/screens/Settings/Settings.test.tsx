@@ -200,7 +200,8 @@ describe('Notifications — rules + quiet hours', () => {
     const save = vi.fn();
     render(() => <Notifications service={fakeService({ notifications: vi.fn(async () => { throw new Error('offline'); }), saveNotifications: save })} />);
     expect(await screen.findByRole('alert')).toBeInTheDocument();
-    expect(screen.getByTestId('notif-save')).toBeDisabled();
+    expect(screen.queryByTestId('notif-save')).toBeNull();
+    expect(screen.getByRole('checkbox',{name:'Show notifications for new mail'})).toBeDisabled();
     expect(save).not.toHaveBeenCalled();
   });
 
@@ -217,7 +218,7 @@ describe('Notifications — rules + quiet hours', () => {
     } finally { vi.unstubAllGlobals(); }
   });
 
-  it('adds a rule and saves the config', async () => {
+  it('adds a rule and automatically saves the config', async () => {
     const save = vi.fn(async (_c: NotificationConfig) => undefined);
     const service = fakeService({
       notifications: vi.fn(async () => ({
@@ -232,7 +233,7 @@ describe('Notifications — rules + quiet hours', () => {
     fireEvent.click(await screen.findByTestId('notif-add-rule'));
     const list = screen.getByTestId('notif-rule-list');
     fireEvent.input(list.querySelector('input')!, { target: { value: 'boss@ex.com' } });
-    fireEvent.click(screen.getByTestId('notif-save'));
+    expect(screen.queryByTestId('notif-save')).toBeNull();
 
     await waitFor(() => expect(save).toHaveBeenCalled());
     const cfg = save.mock.calls[0]![0];

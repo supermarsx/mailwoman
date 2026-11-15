@@ -344,9 +344,9 @@ settings-notif-timezone = Quiet-hours time zone (IANA)
 settings-notif-timezone-device = Use this device's time zone
 
 settings-permissions-background-title = Background notifications on this browser
-settings-permissions-background-help = Save notification preferences and allow browser notifications first. Register this browser to receive account activity when the app is closed.
+settings-permissions-background-help = Enable notifications for new mail, then register this browser. It may ask for notification permission.
 settings-permissions-push-unsupported = Background Web Push is unavailable in this browser.
-settings-permissions-push-registered = This browser has a push subscription. Register it to bind it to the current account.
+settings-permissions-push-registered = This browser is registered for background notifications for this account.
 settings-permissions-push-unregistered = This browser has no push subscription.
 settings-permissions-push-register = Register background notifications
 settings-permissions-push-remove = Remove browser subscription
@@ -859,3 +859,8 @@ settings-badge-supersedes-help = Choose always, only when notable, or never. Not
 settings-shortcuts-activation-toast = Show keyboard shortcut toasts
 settings-shortcuts-activation-toast-help = Briefly show the action and keys when a shortcut is used. This confirms activation, not completion. Typing, menu clicks and held-key repeats do not trigger it. Off by default.
 settings-shortcut-activated = Shortcut: { $action } ({ $keys })
+
+settings-permissions-push-worker-error = The background worker could not start. Reload the app and try again.
+settings-permissions-push-server-error = The server could not register background notifications. Check the account settings and try again.
+settings-permissions-push-browser-error = The browser could not create a push subscription. Check site permissions, browser support and network access.
+settings-permissions-push-unlinked = This browser has a push subscription that is not yet linked to this account.
