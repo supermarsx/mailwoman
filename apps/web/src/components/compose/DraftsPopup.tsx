@@ -1,3 +1,4 @@
+import {SearchInput} from '../SearchInput.tsx';
 import { For, Show, createEffect, createMemo, createSignal, createUniqueId, type JSX } from 'solid-js';
 import type { AccountDraftDocument } from '../../api/accountDrafts.ts';
 import { t, isolate } from '../../i18n/index.ts';
@@ -197,9 +198,9 @@ function DraftsPopupOpen(props: DraftsPopupProps): JSX.Element {
           <button type="button" class="btn btn--ghost" aria-label={t('mail-compose-close')} onClick={() => props.onClose()}><Icon name="close" /></button>
         </header>
         <div class="drafts-popup__tools">
-          <input
+          <SearchInput
             ref={searchInput}
-            type="search"
+            
             class="drafts-popup__search"
             aria-label={t('mail-drafts-popup-search')}
             placeholder={t('mail-drafts-popup-search')}

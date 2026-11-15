@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 // The location choice of a holiday-pack import. A `.hol` file with more than
 // one `[Location]` section is not imported whole: this modal lists the
 // locations, none ticked, and hands back the ones the user ticks. Cancelling
@@ -93,9 +94,9 @@ export function HolLocationPicker(props: HolLocationPickerProps): JSX.Element {
         <h2 class={own.heading}>{t('calendar-import-locations-title')}</h2>
         <p class={css.dimText}>{t('calendar-import-locations-intro', { count: props.locations.length })}</p>
 
-        <input
+        <SearchInput
           class={css.input}
-          type="search"
+          
           value={filter()}
           onInput={(e) => setFilter(e.currentTarget.value)}
           placeholder={t('calendar-import-locations-filter')}

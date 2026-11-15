@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 import './settingsTransfer.css';
 import {createSignal,For,onMount,Show,type JSX} from 'solid-js';
 import {settings} from '../../api/settings.ts';
@@ -41,7 +42,7 @@ export function ReaderActionPreferences():JSX.Element {
  const [query,setQuery]=createSignal('');
  onMount(()=>{void loadCatalog('reader-actions');void loadCatalog('settings-transfer');});
  return <SettingsCard id={READER_ACTIONS_CARD.id} title={t(READER_ACTIONS_CARD.title)} description={t('reader-actions-help')} testId="reader-action-preferences">
-  <label for="reader-actions-search">{t('st-ribbon-search')}</label><input id="reader-actions-search" type="search" value={query()} onInput={event=>setQuery(event.currentTarget.value)} style={{'max-inline-size':'28rem','inline-size':'100%','box-sizing':'border-box'}}/>
+  <label for="reader-actions-search">{t('st-ribbon-search')}</label><SearchInput id="reader-actions-search"  value={query()} onInput={event=>setQuery(event.currentTarget.value)} style={{'max-inline-size':'28rem','inline-size':'100%','box-sizing':'border-box'}}/>
   <details><summary>{t('st-ribbon-preview')}</summary><div class="st-buttons" role="list" aria-label={t('st-ribbon-preview')}><For each={READER_ACTIONS.filter(action=>readerActionPlacement(action.id,settings())==='toolbar')}>{action=><span role="listitem" class="st-status"><Icon name={READER_ACTION_ICONS[action.id]}/>{t(action.labelKey)}</span>}</For><Show when={READER_ACTIONS.some(action=>readerActionPlacement(action.id,settings())==='menu')}><span role="listitem"><Icon name="more"/>{t('reader-actions-option-menu')}</span></Show></div><p>{t('st-ribbon-preview-help')}</p></details>
   <div class={compact.list}><For each={READER_ACTIONS}>{action=><Show when={t(action.labelKey).toLocaleLowerCase().includes(query().trim().toLocaleLowerCase())}><ActionChoice action={action}/></Show>}</For></div>
  </SettingsCard>;

@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {createEntityContextMenu} from '../../components/entityContextMenu.ts';
 import {handleModuleActions} from '../../state/moduleActions.ts';
@@ -168,8 +169,8 @@ export function ContactsModule(): JSX.Element {
 
       <div class={css.listPane}>
         <div class={css.toolbar}>
-          <input
-            type="search"
+          <SearchInput
+            
             class={css.input}
             aria-label={t('contacts-search')}
             placeholder={t('contacts-search')}

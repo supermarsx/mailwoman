@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 import {SHORTCUT_TOAST_KEY} from '../../keymap/activationToast.ts';
 import { createEffect, createMemo, createSignal, For, Show, type JSX } from 'solid-js';
 import { settings } from '../../api/settings.ts';
@@ -64,7 +65,7 @@ export function KeyboardShortcuts(props: { navigation: SettingsNavigation }): JS
     <Show when={loadPrefs().keyboardPreset === 'off'}><p role="status">{t('settings-shortcuts-off')}</p></Show>
     <Show when={resolved().conflicts.length}><p role="alert">{t('settings-shortcuts-conflict')}</p></Show>
     <div class={kit.toolRow}>
-      <label class={kit.inlineField}>{t('settings-shortcuts-search')}<input class={css.input} type="search" value={query()} onInput={event => setQuery(event.currentTarget.value)}/></label>
+      <label class={kit.inlineField}>{t('settings-shortcuts-search')}<SearchInput class={css.input}  value={query()} onInput={event => setQuery(event.currentTarget.value)}/></label>
     </div>
     <table class="settings-shortcut-table"><thead><tr><th>{t('settings-shortcuts-action')}</th><th>{t('settings-shortcuts-binding')}</th><th>{t('settings-shortcuts-edit')}</th></tr></thead><tbody><For each={shown()}>{id => <tr><td>{t(`settings-kbd-action-${id}`)}<LockNote locked={settings()[`shortcuts.${id}`]?.locked === true}/></td><td><code>{String(binding(id))}</code></td><td><button type="button" class={css.ghost} aria-label={t('settings-shortcuts-edit-action', { action: t(`settings-kbd-action-${id}`) })} onClick={() => void props.navigation.navigate({ section: 'shortcuts', editor: { kind: 'edit', id } })}><Icon name="edit"/></button></td></tr>}</For></tbody></table>
   </SettingsCard>}>{id => <BindingEditor action={id} navigation={props.navigation}/>}</Show>;

@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {createEntityContextMenu} from '../../components/entityContextMenu.ts';
 import {handleModuleActions} from '../../state/moduleActions.ts';
@@ -102,9 +103,9 @@ function NotesList(props: {
         <button type="button" class="notes__new" onClick={props.onNew}>
           {t('notes-new')}
         </button>
-        <input
+        <SearchInput
           class="notes__search"
-          type="search"
+          
           placeholder={t('notes-search-placeholder')}
           aria-label={t('notes-search')}
           value={app.noteSearch()}

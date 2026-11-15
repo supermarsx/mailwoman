@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 import {createEffect,createSignal,For,onMount,Show,type JSX} from 'solid-js';
 import {useApp} from '../../state/context.ts';
 import {keywordFor,type Tag} from '../../state/slices/tags.ts';
@@ -54,7 +55,7 @@ export function Labels(props:{navigation:SettingsNavigation}):JSX.Element {
        <button type="button" class={`${css.button} ${table.addButton}`} disabled={saving()||app.tags().length>=100} onClick={()=>void props.navigation.navigate({section:'labels',editor:{kind:'new'}})}><Icon name="plus"/>{t('labels-new')}</button>
       </div>
       {syncStatus()}
-      <div class={manager.bar}><label class={manager.search}>{t('common-search')}<input class={css.input} type="search" value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label><span class={css.meta}>{app.tags().length} / 100</span></div>
+      <div class={manager.bar}><label class={manager.search}>{t('common-search')}<SearchInput class={css.input}  value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label><span class={css.meta}>{app.tags().length} / 100</span></div>
       <ul class={table.table} aria-label={t('labels-title')}><For each={shown()}>{tag=><li class={entity.row}>
        <span class={entity.avatar} style={{color:tag.color}} aria-hidden="true"><Icon name={tagIconName(tag.icon)}/></span>
        <div class={table.who}><button type="button" class={`${table.name} ${manager.title}`} disabled={saving()} onClick={()=>void props.navigation.navigate({section:'labels',editor:{kind:'edit',id:tag.id}})}>{tag.name}</button><span class={table.address}><span>{t('labels-keyword-title')}: </span><code>{tag.id}</code></span><span class={entity.detail}>{t('labels-color')}: {tag.color}</span></div>

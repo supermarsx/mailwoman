@@ -1,3 +1,4 @@
+import {SearchInput} from '../../../../components/SearchInput.tsx';
 // Stream page template (t32-cfg UX3): log lines, job runs, live diagnostics.
 //
 // Entries arrive through `connect` (an SSE stream, a WebSocket or a poll; the
@@ -104,7 +105,7 @@ export function StreamPage<E>(props: StreamPageProps<E>): JSX.Element {
         <Show when={props.entryText}>
           <div class="field">
             <label for={`${id}-filter`}>{t('admin-ux-stream-filter')}</label>
-            <input id={`${id}-filter`} type="search" value={filter()} onInput={(e) => setFilter(e.currentTarget.value)} />
+            <SearchInput id={`${id}-filter`}  value={filter()} onInput={(e) => setFilter(e.currentTarget.value)} />
           </div>
         </Show>
         <div class={css.rowActions}>

@@ -1,3 +1,4 @@
+import {SearchInput} from '../SearchInput.tsx';
 import {createSignal,For,Show,onCleanup,createUniqueId,onMount,type JSX} from 'solid-js';
 import {Portal} from 'solid-js/web';
 import {accountInsertService,type AccountInsertService,type AccountItem,type AccountItemKind} from './accountInsert.ts';
@@ -79,7 +80,7 @@ export function InsertAccountItem(props:InsertAccountItemProps){
       <div class={css.header}><strong>{t('mail-insert-account-title')}</strong><button type="button" class="btn btn--ghost" aria-label={t('mail-insert-account-close')} onClick={close}><Icon name="close"/></button></div>
       <Show when={kinds().length>0} fallback={<Show when={!busy()&&!error()}><p>{t('mail-insert-account-unavailable')}</p></Show>}>
         <label>{t('mail-insert-account-kind')}<select value={kind()} disabled={busy()||props.disabled} onChange={event=>change(event.currentTarget.value as AccountItemKind)}><For each={kinds()}>{value=><option value={value}>{t(`mail-insert-account-${value}`)}</option>}</For></select></label>
-        <label>{t('mail-insert-account-search')}<input type="search" value={search()} disabled={busy()} onInput={event=>setSearch(event.currentTarget.value)}/></label>
+        <label>{t('mail-insert-account-search')}<SearchInput  value={search()} disabled={busy()} onInput={event=>setSearch(event.currentTarget.value)}/></label>
         <p class={css.help}>{t('mail-insert-account-scope')}</p>
         <Show when={limited()}><p role="status">{t('mail-insert-account-limited')}</p></Show>
         <label>{t('mail-insert-account-selection')}<select size={6} value={selected()} disabled={busy()||props.disabled} onChange={event=>setSelected(event.currentTarget.value)}><For each={filtered()}>{item=><option value={item.id}>{item.label}</option>}</For></select></label>

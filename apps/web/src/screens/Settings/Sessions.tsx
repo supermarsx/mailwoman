@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 import {formatDateTime as regionalDateTime} from '../../i18n/format.ts';
 import {countryDisplay} from '../../i18n/network.ts';
 // Active-session listing + revocation (t16 e15, SPEC §19 — S11).
@@ -128,7 +129,7 @@ export function Sessions(props: SessionsProps): JSX.Element {
         </select>
       }</SettingRow>
       <div class={kit.toolRow}>
-      <label class={kit.inlineField}>{t('settings-sessions-search')}<input class={css.input} type="search" value={query()} onInput={(event) => {setQuery(event.currentTarget.value);setSelected(new Set<string>());}} /></label>
+      <label class={kit.inlineField}>{t('settings-sessions-search')}<SearchInput class={css.input}  value={query()} onInput={(event) => {setQuery(event.currentTarget.value);setSelected(new Set<string>());}} /></label>
       <label><input type="checkbox" aria-label={t('settings-sessions-select-visible')} checked={eligible().length>0&&chosen().length===eligible().length} disabled={busy()||eligible().length===0} onChange={event=>setSelected(event.currentTarget.checked?new Set(eligible().map(row=>row.handle)):new Set<string>())}/>{t('settings-sessions-select-visible')}</label><button class={css.danger} disabled={busy()||chosen().length===0} onClick={()=>setBatch(chosen())}>{t('settings-sessions-selected-title',{count:chosen().length})}</button></div>
       <p class={css.meta}>{t('settings-sessions-current-protected')}</p>
       <Show when={result()}>{value=><p role={value().problem?'alert':'status'}>{value().text}</p>}</Show>

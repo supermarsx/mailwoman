@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 import { createSignal, onMount, Show, For, useContext, type JSX } from 'solid-js';
 import { adminRequest } from './shell/adminApi.ts';
 import { describeAdminError } from './shell/Feedback.tsx';
@@ -28,7 +29,7 @@ export function DeploymentSecurity(props: { load?: () => Promise<DeploymentAsses
     <div class={ux.pageHead}><h2 class={css.heading}>{t('admin-deployment-title')}</h2><div class={ux.pageActions}><a class="btn btn--ghost" href="#/diagnostics">{t('admin-deployment-back')}</a><button class="btn" disabled={busy()} onClick={()=>void reload()}>{t('admin-deployment-refresh')}</button></div></div>
     <p class={css.note}>{t('admin-deployment-help')}</p>
     <div class={css.card}><div class={css.grid}>
-      <label class="field">{t('admin-deployment-search')}<input type="search" value={query()} onInput={e=>setQuery(e.currentTarget.value)}/></label>
+      <label class="field">{t('admin-deployment-search')}<SearchInput  value={query()} onInput={e=>setQuery(e.currentTarget.value)}/></label>
       <label class="field">{t('admin-deployment-status')}<select value={status()} onChange={e=>setStatus(e.currentTarget.value)}><For each={['all','pass','warning','info']}>{value=><option value={value}>{t(`admin-deployment-status-${value}`)}</option>}</For></select></label>
     </div>
     <DataTable caption={t('admin-deployment-title')} rows={rows()} rowKey={r=>r.id} state={busy()?'loading':error()?'error':'ready'} errorText={error()} onRetry={()=>void reload()} emptyText={t('admin-deployment-empty')} columns={[

@@ -1,3 +1,4 @@
+import {SearchInput} from '../../../components/SearchInput.tsx';
 // t105: the tabs made of check cards: Server, Connectivity, Mail backends,
 // Security posture and Tools.
 
@@ -163,7 +164,7 @@ export function BackendsTab(props: { store: DiagnosticsStore; api: DiagnosticsAp
       <Show when={run()} fallback={<p class={css.intro}>{t('admin-diagx-backends-not-run')}</p>}>{(r) => <>
         <p class={css.intro}>{t('admin-diagx-backends-run-at', { date: when(r().startedAt), count: r().results.length })}</p>
         <div class={css.filters}>
-          <label>{t('admin-diag-filter')}<input type="search" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} /></label>
+          <label>{t('admin-diag-filter')}<SearchInput  value={query()} onInput={(e) => setQuery(e.currentTarget.value)} /></label>
           <label>{t('admin-diag-status')}<select value={status()} onChange={(e) => setStatus(e.currentTarget.value)}><option value="">{t('admin-diag-all')}</option><For each={['ok', 'warn', 'fail', 'skipped']}>{(value) => <option value={value}>{t(`admin-diagx-status-${value}`)}</option>}</For></select></label>
         </div>
         <CheckTable caption={t('admin-diagx-backend-results')}><For each={results().map((c) => c.id)} fallback={<tr><td colSpan={5}>{t(r().results.length ? 'admin-diag-no-match' : 'admin-diag-no-checks')}</td></tr>}>{(id) => <Show when={results().find((c) => c.id === id)}>{(check) => <BackendCard store={props.store} check={check()} />}</Show>}</For></CheckTable>

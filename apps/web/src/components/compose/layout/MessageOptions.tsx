@@ -1,3 +1,4 @@
+import {SearchInput} from '../../SearchInput.tsx';
 import {formatDate as regionalDate} from '../../../i18n/format.ts';
 // "Message options...": the optional headers of one message (Sensitivity,
 // Reply-By, Expires, Supersedes, legacy Return-Receipt-To) and an Advanced panel
@@ -143,7 +144,7 @@ export function MessageOptions(props: MessageOptionsProps): JSX.Element {
                   <button type="button" class="compose-rt__btn" data-testid="mo-supersedes-pick" aria-expanded={picking()} onClick={() => { const next = !picking(); setPicking(next); if (next && choices() === null) void search(''); }}>{t('mo-supersedes-pick')}</button>
                   <Show when={picking()}>
                     <div class="mo-picker" data-testid="mo-supersedes-picker">
-                      <input type="search" value={pickQuery()} placeholder={t('mo-supersedes-search')} aria-label={t('mo-supersedes-search')} data-testid="mo-supersedes-search" onInput={(e) => void search(e.currentTarget.value)} />
+                      <SearchInput  value={pickQuery()} placeholder={t('mo-supersedes-search')} aria-label={t('mo-supersedes-search')} data-testid="mo-supersedes-search" onInput={(e) => void search(e.currentTarget.value)} />
                       <Show when={!pickFailed()} fallback={<small role="alert">{t('mo-supersedes-failed')}</small>}>
                         <Show when={(choices() ?? []).length > 0} fallback={<small>{choices() === null ? t('mo-supersedes-loading') : t('mo-supersedes-none')}</small>}>
                           <ul role="listbox" aria-label={t('mo-supersedes-pick')}>

@@ -1,3 +1,4 @@
+import {SearchInput} from '../../../components/SearchInput.tsx';
 import { For, Show, createMemo, createSignal, type JSX } from 'solid-js';
 import type { AdminRole } from '../../../api/admin/admins.ts';
 import { t } from '../../../i18n';
@@ -64,7 +65,7 @@ export function RoleEditor(props: {
         <Show when={step() === 1}>
           <p class={css.note}>{t('admin-roles-permissions-help')}</p>
           <p class={css.note}>{t('admin-role-purpose-selection')}</p>
-          <label class="field">{t('admin-roles-search')}<input type="search" value={query()} onInput={e => setQuery(e.currentTarget.value)} /></label>
+          <label class="field">{t('admin-roles-search')}<SearchInput  value={query()} onInput={e => setQuery(e.currentTarget.value)} /></label>
           <p role="status">{t('admin-roles-selected', { count: caps().length })}</p>
           <For each={groups()}>{group => <details class={layout.group} open={query().length > 0 || caps().some(cap => category(cap) === group)}>
             <summary>{t(`admin-roles-category-${group}`)} ({matching().filter(cap => category(cap) === group).length})</summary>

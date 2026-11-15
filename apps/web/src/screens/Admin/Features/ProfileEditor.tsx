@@ -1,3 +1,4 @@
+import {SearchInput} from '../../../components/SearchInput.tsx';
 // One feature profile (t39 N9, extended in t98): its name, every feature it can
 // switch or limit grouped by category, and every other setting a profile may hold.
 //
@@ -299,7 +300,7 @@ export function ProfileEditor(props: ProfileEditorProps): JSX.Element {
       <div class={fx.toolbar}>
         <label class={`${ux.fieldBlock} ${fx.search}`}>
           <span>{t('admin-features-filter')}</span>
-          <input type="search" class={ux.control} value={query()} onInput={(e) => setQuery(e.currentTarget.value)} placeholder={t('admin-features-filter-placeholder')} />
+          <SearchInput  class={ux.control} value={query()} onInput={(e) => setQuery(e.currentTarget.value)} placeholder={t('admin-features-filter-placeholder')} />
         </label>
         <p class={fx.summary} data-testid="feature-diff-summary" aria-live="polite">
           {t('admin-features-diff-summary', { differs: diff().differs.length, same: diff().same.length })}

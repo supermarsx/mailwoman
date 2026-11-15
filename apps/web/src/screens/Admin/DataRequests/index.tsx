@@ -1,3 +1,4 @@
+import {SearchInput} from '../../../components/SearchInput.tsx';
 // Admin > Data requests: the queue of data subject requests with a countdown to
 // each due date, filters, stats, and per-request actions (assign, identity check,
 // approve, reject, extend, complete, legal hold, run now) with the request's
@@ -181,7 +182,7 @@ export function AdminDataRequests(): JSX.Element {
       <label>{t('admin-dr-col-type')}<select value={filter().kind ?? ''} onChange={e => patch({ kind: e.currentTarget.value })}><option value="">{t('admin-dr-any')}</option><For each={REQUEST_KINDS}>{k => <option value={k}>{t(`dr-kind-${k}`)}</option>}</For></select></label>
       <label>{t('admin-dr-col-due')}<select value={filter().due ?? ''} onChange={e => patch({ due: e.currentTarget.value })}><option value="">{t('admin-dr-any')}</option><option value="overdue">{t('admin-dr-due-overdue')}</option><option value="soon">{t('admin-dr-due-soon')}</option></select></label>
       <label>{t('admin-dr-assignee')}<input value={filter().assignee ?? ''} placeholder={t('admin-dr-assignee-hint')} onChange={e => patch({ assignee: e.currentTarget.value })} /></label>
-      <label>{t('admin-dr-search')}<input type="search" value={filter().q ?? ''} onChange={e => patch({ q: e.currentTarget.value })} /></label>
+      <label>{t('admin-dr-search')}<SearchInput  value={filter().q ?? ''} onChange={e => patch({ q: e.currentTarget.value })} /></label>
       <button type="button" class="btn" onClick={() => void exportLog()}>{t('admin-dr-export')}</button>
     </div>
     <Show when={error()}><p role="alert" class={css.error}>{error()}</p></Show>

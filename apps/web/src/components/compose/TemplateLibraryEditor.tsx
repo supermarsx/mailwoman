@@ -1,3 +1,4 @@
+import {SearchInput} from '../SearchInput.tsx';
 import {createMemo,createSignal,createUniqueId,For,Show,type JSX} from 'solid-js';
 import {loadCatalog,rawT,t} from '../../i18n';
 import {newIdempotencyKey} from '../../api/recovery.ts';
@@ -15,7 +16,7 @@ export function TemplateLibraryEditor(props:{value:readonly ResponseTemplate[];o
  const update=(patch:Partial<ResponseTemplate>):void=>{if(props.disabled)return;const id=selected();props.onChange(props.value.map(row=>row.id===id?{...row,...patch}:row));};
  function add():void{if(props.disabled||props.value.length>=TEMPLATE_LIMIT)return;const row={id:newIdempotencyKey(),title:rawT('response-templates-untitled'),body:''};props.onChange([...props.value,row]);setSelected(row.id);setQuery('');}
  return <div class={css.library} id={props.id??fallbackId} aria-describedby={props.describedBy}>
-  <div class={table.bar}><label class={table.search}>{t('response-templates-search')}<input class={css.control} type="search" value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
+  <div class={table.bar}><label class={table.search}>{t('response-templates-search')}<SearchInput class={css.control}  value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
   <div class={css.actions}><span>{t('response-templates-count',{count:props.value.length,max:TEMPLATE_LIMIT})}</span><button type="button" class="btn" disabled={props.disabled||props.value.length>=TEMPLATE_LIMIT} onClick={add}><Icon name="plus"/>{t('response-templates-add')}</button></div></div>
   <Show when={rows().length>0}><div class={table.scroll} role="region" aria-label={t('response-templates-library')} tabindex="0"><table class={table.table}><thead><tr><th class={table.heading}>{t('response-templates-name')}</th><th class={`${table.heading} ${table.previewColumn}`}>{t('response-templates-body')}</th><th class={`${table.heading} ${table.actionColumn}`}><span>{t('common-actions')}</span></th></tr></thead><tbody><For each={rows()}>{row=><tr class={table.row} data-current={selected()===row.id?'true':undefined}>
    <td class={table.cell}><div class={table.name}><Icon name={row.subject||row.to?'mail':'file'}/><button type="button" class={table.title} aria-pressed={selected()===row.id} title={row.title} onClick={()=>setSelected(row.id)}>{row.title||t('response-templates-untitled')}</button></div><Show when={row.subject}><span class={table.text}>{row.subject}</span></Show></td>

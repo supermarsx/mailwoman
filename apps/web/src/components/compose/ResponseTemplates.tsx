@@ -1,3 +1,4 @@
+import {SearchInput} from '../SearchInput.tsx';
 import {createMemo,createSignal,For,Show,onCleanup,type JSX} from 'solid-js';
 import {observePreferenceAccount,preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
 import {loadCatalog,t} from '../../i18n';
@@ -28,7 +29,7 @@ export function ResponseTemplates(props:{disabled?:boolean;onInsert:(text:string
  }
  return <><RibbonPopover label={t('response-templates-title')} icon="book" keepSelection disabled={props.disabled||!enabled()} open={open()} onOpenChange={setOpen}>
   <div class={css.panel}>
-   <label class={css.field}>{t('response-templates-search')}<input class={css.control} type="search" value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
+   <label class={css.field}>{t('response-templates-search')}<SearchInput class={css.control}  value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
    <div class={css.list} role="group" aria-label={t('response-templates-library')}><For each={matches()}>{row=><button type="button" class="btn btn--ghost" aria-pressed={selected()===row.key} onClick={()=>setSelected(row.key)}>{row.title} · {t(row.shared?'response-templates-shared':'response-templates-personal')}</button>}</For></div>
    <Show when={choices().length===0}><p>{t('response-templates-empty-picker')}</p></Show>
    <Show when={choice()}>{row=><><pre class={css.preview}>{row().body}</pre><div class={css.actions}><button type="button" class="btn" disabled={props.disabled||!enabled()} onClick={()=>void insert(false)}>{t('response-templates-insert')}</button><button type="button" class="btn btn--ghost" disabled={props.disabled||!enabled()} onClick={()=>void insert(true)}>{t('response-templates-replace')}</button></div></>}</Show>

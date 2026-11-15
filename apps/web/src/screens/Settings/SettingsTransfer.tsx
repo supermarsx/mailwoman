@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 import {readSettingsSource} from './settingsTransferSource.ts';
 import {workspaceMailboxes} from '../../api/workspaceMail.ts';
 import {createResource,createMemo,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
@@ -111,7 +112,7 @@ export function SettingsTransfer():JSX.Element {
    </Show>
    <Show when={step()===2}>
     <Show when={flow()==='import'}><p>{fileName()}</p><p>{t('st-import-summary',{count:rows().length,ready:ready().length})}</p><label class="st-choice"><input type="checkbox" checked={ready().length>0&&ready().every(row=>selected().has(row.id))} onChange={event=>setSelected(event.currentTarget.checked?new Set(ready().map(row=>row.id)):new Set<string>())}/>{t('st-select-ready')}</label></Show>
-    <label>{t('st-search')}<input type="search" class="st-search" value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
+    <label>{t('st-search')}<SearchInput  class="st-search" value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
     <div class="st-review"><For each={visible()}>{row=><article class="st-review-row">
      <Show when={flow()==='import'}><input type="checkbox" aria-label={label(row)} checked={selected().has(row.id)} disabled={row.status!=='ready'} onChange={event=>setSelected(previous=>{const next=new Set(previous);if(event.currentTarget.checked)next.add(row.id);else next.delete(row.id);return next;})}/></Show>
      <div><strong>{label(row)}</strong><small>{t(`st-group-${row.group}`)}</small><Show when={flow()==='import'}><span class="st-status">{t(`st-status-${row.status}`)}</span></Show><details><summary>{t('st-values')}</summary><Show when={flow()==='import'}><p>{t('st-current')}</p><pre>{summary(row.current)}</pre></Show><p>{t('st-incoming')}</p><pre>{summary(row.value)}</pre></details></div>

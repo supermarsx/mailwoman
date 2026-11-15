@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import { loadCatalog, t } from '../../i18n';
 import { loadEffectiveConfig, type AdminReadResult, type EffectiveEntry } from './shell/adminApi.ts';
@@ -67,7 +68,7 @@ export function Configuration(props: ConfigurationProps): JSX.Element {
     <Feedback kind="error" message={error()} />
     <Show when={unavailable()}><p role="status">{t('admin-config-unavailable')}</p></Show>
     <AdminSubsection title={t('admin-config-filters')}><div class={css.grid}>
-      <label class="field"><span>{t('admin-config-search')}</span><input type="search" value={query()} onInput={(e) => { setQuery(e.currentTarget.value); setLimit(50); }} /></label>
+      <label class="field"><span>{t('admin-config-search')}</span><SearchInput  value={query()} onInput={(e) => { setQuery(e.currentTarget.value); setLimit(50); }} /></label>
       <label class="field"><span>{t('admin-config-group')}</span><select value={group()} onChange={(e) => { setGroup(e.currentTarget.value); setLimit(50); }}><option value="">{t('admin-config-all')}</option><For each={groups()}>{(g) => <option value={g}>{categoryLabel(g)}</option>}</For></select></label>
       <label class="field"><span>{t('admin-config-source')}</span><select value={source()} onChange={e => { setSource(e.currentTarget.value); setLimit(50); }}><option value="">{t('admin-config-all-sources')}</option><For each={[...new Set(rows().map(row => row.source))].sort()}>{value => <option value={value}>{t(`admin-config-source-${value}`)}</option>}</For></select></label>
       <Show when={query() || group() || source()}><button type="button" class="btn btn--ghost" onClick={() => { setQuery(''); setGroup(''); setSource(''); setLimit(50); }}>{t('admin-config-clear')}</button></Show>

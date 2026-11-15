@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 // t66: the Settings section navigation, one labelled group per category. The
 // headings are labels, not entries: arrow keys move between section buttons
 // only, and each group is announced by its heading (`role="group"` +
@@ -59,7 +60,7 @@ export function SettingsNav(props: SettingsNavProps): JSX.Element {
   };
   return (
     <nav ref={nav} class={workspace.navRoot} aria-label={t('settings-sections')} onKeyDown={onKeyDown}>
-      <div class={workspace.navHeader}><span class={workspace.navTitle}>{t('settings-title')}</span><input class={workspace.search} type="search" aria-label={t('settings-search-sections')} placeholder={t('settings-search-sections')} value={props.query()} onInput={event=>props.onQueryChange?.(event.currentTarget.value)}/></div>
+      <div class={workspace.navHeader}><span class={workspace.navTitle}>{t('settings-title')}</span><SearchInput class={workspace.search}  aria-label={t('settings-search-sections')} placeholder={t('settings-search-sections')} value={props.query()} onInput={event=>props.onQueryChange?.(event.currentTarget.value)}/></div>
       <button type="button" class={`btn btn--ghost ${workspace.sectionPicker}`} data-settings-picker aria-label={t('settings-sections')} aria-describedby={labelId} title={current()?t(current()!.label):t('settings-sections')} aria-haspopup="menu" aria-expanded={menu.isOpen()} disabled={!groups().length} onClick={event=>{if(menu.isOpen())menu.close();else openPicker(event.currentTarget);}} onKeyDown={event=>{if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();openPicker(event.currentTarget);}}}><Icon name={current()?.icon??'preferences'}/><span id={labelId}>{current()?t(current()!.label):t('settings-sections')}</span><Icon name="chevronDown"/></button>
       <Show when={groups().length||rowHits().length} fallback={<p role="status" class={workspace.navEmpty}>{t('settings-search-no-sections')}</p>}><div class={workspace.nav}>
       <For each={groups()}>{group => {

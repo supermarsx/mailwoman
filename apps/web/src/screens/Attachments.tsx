@@ -1,3 +1,4 @@
+import {SearchInput} from '../components/SearchInput.tsx';
 // Paged account attachment table with local filters and an explicit cancellable
 // account-wide metadata scan. Attachment bytes are fetched only by the viewer.
 
@@ -230,19 +231,19 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
       </header>
       <form class={table.filters} aria-label={t('attach-filters-title')} onSubmit={event=>{event.preventDefault();clearTimeout(searchTimer);if(props.loadPage&&searchScope()==='all'&&!pinnedOnly())void searchAccount();}}>
         <div class={table.searchRow}>
-          <label class={table.searchField}><span><Icon name="search"/>{t('common-attach-search')}</span><input class={table.control} type="search" placeholder={t('attach-filters-placeholder')} aria-label={t('common-attach-search')} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
+          <label class={table.searchField}><span><Icon name="search"/>{t('common-attach-search')}</span><SearchInput class={table.control}  placeholder={t('attach-filters-placeholder')} aria-label={t('common-attach-search')} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
           <button class="btn" type="submit" disabled={searching()||!!invalid()}><Icon name="search"/>{t(props.loadPage&&searchScope()==='all'?'common-attach-search-account':'attach-filters-apply')}</button>
           <button class="btn btn--ghost" type="button" disabled={!active()&&!pinnedOnly()} onClick={clearFilters}>{t('attach-filters-clear')}</button>
         </div>
         <details class={table.more}><summary><Icon name="filter"/>{t('attach-filters-more')}</summary><div class={table.filterGrid}>
           <label class={table.field}><span><Icon name="file"/>{t('common-attach-filter-type')}</span><select class={table.control} value={cat()} onChange={event=>setCat(event.currentTarget.value as TypeCategory|'all')}><For each={CATEGORIES}>{value=><option value={value}>{catLabel(value)}</option>}</For></select></label>
-          <label class={table.field}><span><Icon name="person"/>{t('attach-filters-from')}</span><input class={table.control} type="search" value={fields().from} placeholder={t('attach-filters-from-placeholder')} onInput={event=>change('from',event.currentTarget.value)}/></label>
-          <label class={table.field}><span><Icon name="mail"/>{t('attach-filters-subject')}</span><input class={table.control} type="search" value={fields().subject} onInput={event=>change('subject',event.currentTarget.value)}/></label>
+          <label class={table.field}><span><Icon name="person"/>{t('attach-filters-from')}</span><SearchInput class={table.control}  value={fields().from} placeholder={t('attach-filters-from-placeholder')} onInput={event=>change('from',event.currentTarget.value)}/></label>
+          <label class={table.field}><span><Icon name="mail"/>{t('attach-filters-subject')}</span><SearchInput class={table.control}  value={fields().subject} onInput={event=>change('subject',event.currentTarget.value)}/></label>
           <Show when={folderOptions().length}><label class={table.field}><span><Icon name="folder"/>{t('attach-filters-mailboxId')}</span><select class={table.control} value={fields().mailboxId} onChange={event=>change('mailboxId',event.currentTarget.value)}><option value="">{t('attach-filters-all-folders')}</option><For each={folderOptions()}>{box=><option value={box.id}>{box.name}</option>}</For></select></label></Show>
           <label class={table.field}><span><Icon name="calendar"/>{t('attach-filters-date')}</span><select class={table.control} value={fields().date} onChange={event=>setFields(previous=>({...previous,date:event.currentTarget.value,after:'',before:''}))}><For each={['any','7','30','year','custom']}>{value=><option value={value}>{t(`attach-filters-date-${value}`)}</option>}</For></select></label>
           <label class={table.field}><span><Icon name="package"/>{t('attach-filters-size')}</span><select class={table.control} value={fields().size} onChange={event=>setFields(previous=>({...previous,size:event.currentTarget.value,min:'',max:''}))}><For each={['any','small','medium','large','custom']}>{value=><option value={value}>{t(`attach-filters-size-${value}`)}</option>}</For></select></label>
           <Show when={props.loadPage}><label class={table.field}><span><Icon name="globe"/>{t('attach-filters-scope')}</span><select class={table.control} value={searchScope()} onChange={event=>setSearchScope(event.currentTarget.value as 'all'|'page')}><option value="all">{t('attach-filters-scope-all')}</option><option value="page">{t('attach-filters-scope-page')}</option></select></label></Show>
-          <label class={table.field}><span>{t('attach-filters-filename')}</span><input class={table.control} type="search" value={fields().filename} onInput={event=>change('filename',event.currentTarget.value)}/></label>
+          <label class={table.field}><span>{t('attach-filters-filename')}</span><SearchInput class={table.control}  value={fields().filename} onInput={event=>change('filename',event.currentTarget.value)}/></label>
           <label class={table.field}><span>{t('attach-filters-extensions')}</span><input class={table.control} type="text" value={fields().extensions} placeholder={t('attach-filters-extensions-placeholder')} onInput={event=>change('extensions',event.currentTarget.value)}/></label>
         </div><p class={table.help}>{t('attach-filters-operators')}</p>
         <Show when={fields().date==='custom'}><div class={table.filterGrid}>

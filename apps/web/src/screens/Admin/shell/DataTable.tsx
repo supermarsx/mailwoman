@@ -1,3 +1,4 @@
+import {SearchInput} from '../../../components/SearchInput.tsx';
 import { Icon } from '../../../components/Icon.tsx';
 // Admin list table (t32-admin.md §2.1).
 //
@@ -110,7 +111,7 @@ export function DataTable<R>(props: DataTableProps<R>): JSX.Element {
                 }}
               >
                 <label for={`${id}-q`}>{search().label}</label>
-                <input id={`${id}-q`} type="search" value={query()} onInput={(e) => onSearchInput(e.currentTarget.value)} />
+                <SearchInput id={`${id}-q`}  value={query()} onInput={(e) => onSearchInput(e.currentTarget.value)} />
               </form>
             )}
           </Show>

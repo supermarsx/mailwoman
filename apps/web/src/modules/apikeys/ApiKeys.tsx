@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 import {createResource,createSignal,For,Show,onCleanup,onMount,type JSX} from 'solid-js';
 import {t,isolate,loadCatalog} from '../../i18n';
 import {formatDateTime} from '../../i18n/format.ts';
@@ -44,7 +45,7 @@ function OwnedApiKeys(props:ApiKeysProps):JSX.Element {
       <Show when={keys.error}><p class={css.error} role="alert">{t('common-error-retry-help')}</p><button type="button" class={css.ghost} onClick={()=>void refetch()}>{t('common-retry')}</button></Show>
       <Show when={keys.loading&&!keys()}><p role="status">{t('common-loading')}</p></Show>
       <Show when={!keys.error&&!!keys()}>
-        <div class={table.bar}><label class={table.search}>{t('common-search')}<input type="search" class={css.input} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label><span class={css.meta}>{shown().length} / {keys()!.length}</span></div>
+        <div class={table.bar}><label class={table.search}>{t('common-search')}<SearchInput  class={css.input} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label><span class={css.meta}>{shown().length} / {keys()!.length}</span></div>
         <ul class={linked.table}><For each={shown()} fallback={<li class={linked.empty}>{t('apikeys-none')}</li>}>{key=><li class={entity.row}>
           <span class={entity.avatar} aria-hidden="true"><Icon name="key"/></span>
           <div class={linked.who}><div class={entity.name}><strong class={entity.label}>{isolate(key.label)}</strong><span class={key.revokedAt?css.statusRevoked:css.statusActive}>{t(key.revokedAt?'apikeys-status-revoked':'apikeys-status-active')}</span></div>

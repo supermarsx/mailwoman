@@ -1,3 +1,4 @@
+import {SearchInput} from '../../../components/SearchInput.tsx';
 // Admin › Users list (t107). The server searches, filters, sorts and pages
 // (`GET /admin/users/table`); the view lives in the URL fragment
 // (`#/users?q=…&status=blocked&sort=lastSignin&dir=desc`), so a view is
@@ -462,8 +463,8 @@ export function UsersTable(props: { actions?: Partial<UsersTableActions> } = {})
       <div class={css.toolbar}>
         <form role="search" class={css.search} onSubmit={(e) => { e.preventDefault(); clearTimeout(timer); setFilters({ ...view().filters, q: text() }); }}>
           <label for="users-search">{t('admin-userlist-search')}</label>
-          <input
-            ref={searchBox} id="users-search" class={css.searchInput} type="search" value={text()} autocomplete="off" spellcheck={false}
+          <SearchInput
+            ref={searchBox} id="users-search" class={css.searchInput}  value={text()} autocomplete="off" spellcheck={false}
             placeholder={t('admin-userlist-search-placeholder')} aria-describedby="users-count" onInput={(e) => onSearch(e.currentTarget.value)}
           />
         </form>

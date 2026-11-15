@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 import {createMemo, createSignal, For, Show, type JSX} from 'solid-js';
 import {Icon,type IconName} from '../../components/Icon.tsx';
 import {t} from '../../i18n';
@@ -21,7 +22,7 @@ export function FolderIconPicker(props:{label:string;value:FolderIcon|'';disable
  };
  const button=(id:FolderIcon|''):JSX.Element=><button type="button" role="radio" aria-checked={props.value===id} disabled={props.disabled} class={css.ghost} title={id?label(id):t('settings-folders-automatic')} aria-label={id?label(id):t('settings-folders-automatic')} data-icon-id={id} tabIndex={stop()===id?0:-1} onKeyDown={key} onClick={()=>props.onChange(id)}><Icon name={id||props.automaticIcon}/></button>;
  return <div>
-  <input type="search" class={css.input} value={query()} aria-label={t('settings-folder-icon-search-label')} placeholder={t('settings-folder-icon-search-label')} onInput={event=>setQuery(event.currentTarget.value)}/>
+  <SearchInput  class={css.input} value={query()} aria-label={t('settings-folder-icon-search-label')} placeholder={t('settings-folder-icon-search-label')} onInput={event=>setQuery(event.currentTarget.value)}/>
   <div role="radiogroup" aria-label={props.label}>
    <Show when={showAutomatic()}><div class={folderCss.iconGrid}>{button('')}</div></Show>
    <For each={groups()}>{group=><div role="group" aria-label={t(`settings-folder-icon-group-${group.id}`)}>

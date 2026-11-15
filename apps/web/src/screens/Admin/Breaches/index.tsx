@@ -1,3 +1,4 @@
+import {SearchInput} from '../../../components/SearchInput.tsx';
 // Admin > Compliance > Breach register: personal-data breach incidents with the
 // notice clock, risk questionnaire, authority notice and data subject
 // communication, automations and playbooks. These are record-keeping and
@@ -132,7 +133,7 @@ export default function Breaches(props: { api?: BreachApi }): JSX.Element {
             <option value="">{t('admin-breach-any')}</option><option value="overdue">{t('admin-breach-due-overdue')}</option><option value="soon">{t('admin-breach-due-soon')}</option>
           </select>
         </label>
-        <label>{t('admin-breach-search')}<input type="search" value={filter().q ?? ''} onChange={(e) => patch({ q: e.currentTarget.value })} /></label>
+        <label>{t('admin-breach-search')}<SearchInput  value={filter().q ?? ''} onChange={(e) => patch({ q: e.currentTarget.value })} /></label>
         <button type="button" class="btn btn--ghost" onClick={() => void checkNow()} data-testid="breach-check-now">{t('admin-breach-check-now')}</button>
       </div>
 

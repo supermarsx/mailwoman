@@ -1,3 +1,4 @@
+import {SearchInput} from '../components/SearchInput.tsx';
 import {ViewerToolbar,downloadPreview} from './ViewerToolbar.tsx';
 import {previewToolEnabled,previewToolPlacement} from './filePreviewPreferences.ts';
 import {viewerKindFor} from '../contracts/viewer.ts';
@@ -150,8 +151,8 @@ export function TextViewer(props: ViewerProps): JSX.Element {
                     ...(mailFeature('allowDownload')?[{id:'text.copy',label:copied()==='ok'?t('text-viewer-copied'):copied()==='failed'?t('text-viewer-copy-failed'):t('text-viewer-copy'),icon:'copy' as const,testId:'text-copy',run:copy},{id:'download',label:t('text-viewer-download'),icon:'download' as const,run:()=>downloadPreview(props.blobUrl,props.name)}]:[])
                   ]}/>
                   <Show when={previewToolEnabled('text.search')&&(previewToolPlacement('text.search')==='toolbar'||searchOpen())}>
-                  <input
-                    type="search"
+                  <SearchInput
+                    
                     value={query()}
                     placeholder={t('text-viewer-search')}
                     aria-label={t('text-viewer-search')}

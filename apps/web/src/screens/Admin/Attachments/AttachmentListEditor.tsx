@@ -1,3 +1,4 @@
+import {SearchInput} from '../../../components/SearchInput.tsx';
 // Chip-style editor of one attachment rule list (extensions or MIME patterns).
 // The registry draft stays JSON text; this editor reads and writes that text.
 // Entries are normalised and checked with the server's own rule shape; repeats,
@@ -120,7 +121,7 @@ export function AttachmentListEditor(props: AttachmentListEditorProps): JSX.Elem
         <For each={conflicts()}>{(c) => <p class={css.warning} data-testid="attachment-conflict">{t(`admin-attachments-conflict-${c.kind}`, { rule: c.rule, other: c.other })}</p>}</For>
       </div>
       <Show when={rules().length > 8}>
-        <input type="search" value={filter()} aria-label={t('admin-attachments-filter')} placeholder={t('admin-attachments-filter')} onInput={(e) => setFilter(e.currentTarget.value)} />
+        <SearchInput  value={filter()} aria-label={t('admin-attachments-filter')} placeholder={t('admin-attachments-filter')} onInput={(e) => setFilter(e.currentTarget.value)} />
       </Show>
       <Show when={rules().length > 0} fallback={<p class={css.muted}>{t('admin-attachments-empty-list')}</p>}>
         <ul class={css.chips} aria-label={t('admin-attachments-list-label')}>

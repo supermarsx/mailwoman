@@ -1,3 +1,4 @@
+import {SearchInput} from '../../../components/SearchInput.tsx';
 import {For,Show,createMemo,createResource,createSignal,useContext,type JSX} from 'solid-js';
 import {formatDateWith} from '../../../i18n/format.ts';
 import {loadCatalog,t} from '../../../i18n';
@@ -80,7 +81,7 @@ function GovernanceTab(props:{kind:GovernanceKind}):JSX.Element{
  }
  return <div class={css.section} data-testid={`governance-${props.kind}`}>
   <p class={css.note}>{t('governance-intro')}</p>
-  <div class={ccss.row}><label>{t('governance-search')}<input type="search" class={ccss.field} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
+  <div class={ccss.row}><label>{t('governance-search')}<SearchInput  class={ccss.field} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
    <label>{t('governance-field-status')}<select class={ccss.field} value={filter()} onChange={event=>setFilter(event.currentTarget.value)}><option value="">{t('governance-all')}</option><For each={STATUSES[props.kind]}>{status=><option value={status}>{t(`governance-option-${status}`)}</option>}</For></select></label>
    <button class="btn" disabled={!canWrite()||data.loading||!!data.error} onClick={()=>setEditing({row:null})}>{t('governance-add')}</button>
    <For each={['json','csv','html'] as const}>{format=><button class="btn btn--ghost" onClick={()=>void exportRows(format)}>{t(`compliance-records-export-${format}`)}</button>}</For>

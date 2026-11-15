@@ -1,3 +1,4 @@
+import {SearchInput} from '../components/SearchInput.tsx';
 // Third-party libraries, fonts, icons and image files with their licences (t32-e75;
 // t32-cfg.md §4.11, DC9 with full licence texts).
 //
@@ -184,9 +185,9 @@ export function ThirdPartyList(props: ThirdPartyListProps): JSX.Element {
       <div class={css.toolbar}>
         <form role="search" class={['field', css.search].join(' ')} onSubmit={(e) => e.preventDefault()}>
           <label for={`${id}-q`}>{t('about-tp-search')}</label>
-          <input
+          <SearchInput
             id={`${id}-q`}
-            type="search"
+            
             autocomplete="off"
             value={query()}
             onInput={(e) => {

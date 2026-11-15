@@ -1,3 +1,4 @@
+import {SearchInput} from '../SearchInput.tsx';
 import {formatDateTime as regionalDateTime} from '../../i18n/format.ts';
 // The message Properties dialog: summary and server location, scoring and
 // authentication, the raw headers with the Received chain, attachments, and
@@ -186,7 +187,7 @@ function Headers(props:{raw:string|null;loading:boolean;hops:SecurityVerdict['re
  async function copy():Promise<void> {try{await navigator.clipboard.writeText(shown().map(h=>`${h.name}: ${h.value}`).join('\r\n'));toast.success(t('mail-headers-copy'));}catch{toast.error(t('props-act-copy-failed'));}}
  return <div data-testid="props-headers" aria-busy={props.loading}>
   <Show when={props.raw!==null} fallback={<p class={css.note} role="status">{props.loading?t('props-loading'):t('mail-headers-failed')}</p>}>
-   <div class={css.row}><label>{t('props-headers-filter')} <input type="search" value={filter()} onInput={event=>setFilter(event.currentTarget.value)}/></label>
+   <div class={css.row}><label>{t('props-headers-filter')} <SearchInput  value={filter()} onInput={event=>setFilter(event.currentTarget.value)}/></label>
     <button type="button" class="btn btn--ghost" onClick={()=>void copy()}><Icon name="clone"/>{t('mail-headers-copy')}</button>
     <Show when={hops().length>0}><button type="button" class="btn btn--ghost" aria-expanded={showHops()} onClick={()=>setShowHops(value=>!value)}>{t('props-received-chain',{count:hops().length})}</button></Show></div>
    <Show when={showHops()}><ol class={css.note} data-testid="props-hops">{/* oldest hop first */}<For each={[...hops()].reverse()}>{(hop,index)=><li class={css.hop}><span>{index()+1}</span><span class={css.mono}>{hop}</span><span data-testid="props-hop-delay"><Show when={hopDelayText(props.hops[index()]?.delayMs??null)}>{text=><><span class={css.bar} style={{width:`${bars()[index()]??0}%`}}/>{text()}</>}</Show></span></li>}</For></ol></Show>

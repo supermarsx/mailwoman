@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 import {SettingsSubtabs} from './SettingsSubtabs.tsx';
 import {createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, useContext, type Accessor, type JSX} from 'solid-js';
 import {AppContext} from '../../state/context.ts';
@@ -223,7 +224,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    {id:'manager',label:'settings-folders-list-card',cards:['folders-card-list'],content:<>
   <SettingsCard id="folders-card-list" wide title={t('settings-folders-list-card')} actions={<Show when={!props.onChange&&app&&ability()?.manages&&current()}><button type="button" class={css.button} onClick={()=>setCreating({})}><Icon name="plus"/>{t('folder-create')}</button></Show>}>
   <div class={folderCss.tools}>
-   <label class={folderCss.search}><Icon name="search"/><input class={css.input} type="search" aria-label={t('settings-folders-search')} placeholder={t('settings-folders-search')} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
+   <label class={folderCss.search}><Icon name="search"/><SearchInput class={css.input}  aria-label={t('settings-folders-search')} placeholder={t('settings-folders-search')} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
    <button type="button" class="btn btn--ghost" disabled={!current()||!visible().length} onClick={()=>setSelected(value=>new Set([...value,...visible().map(folder=>folder.id)]))}>{t('settings-folders-select-visible')}</button>
    <button type="button" class="btn btn--ghost" disabled={!current()||!folders().length} onClick={()=>setSelected(new Set(folders().map(folder=>folder.id)))}>{t('settings-folders-select-all')}</button>
    <button type="button" class="btn btn--ghost" data-testid="select-user-folders" disabled={!current()||!userFolders().length} onClick={()=>{setSelected(new Set(userFolders().map(folder=>folder.id)));setAnchor(null);}}>{t('settings-folders-select-user')}</button>

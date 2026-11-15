@@ -1,3 +1,4 @@
+import {SearchInput} from '../components/SearchInput.tsx';
 import {settings} from '../api/settings.ts';
 import {classifyRowClick,dblClickOpensTab} from '../components/messageOpen.ts';
 import {modifierSelectionEnabled} from '../components/mailInteractions.ts';
@@ -153,7 +154,7 @@ export default function UnifiedMail(props:{activeLink:string|null;onOpenMessage?
   <form class={css.bar} onSubmit={event=>{event.preventDefault();setQuery(search().trim());}}>
    <label>{t('unified-mail-folder')}<select value={role()} onChange={event=>{const value=event.currentTarget.value as UnifiedRole;setRole(value);if(unifiedVirtualMode())setUnifiedFolderRole(value);}}><For each={roles}>{value=><option value={value}>{t(`unified-mail-role-${value}`)}</option>}</For></select></label>
    <label>{t('unified-mail-account')}<select value={account()} onChange={event=>setAccount(event.currentTarget.value)}><option value="">{t('unified-mail-all-accounts')}</option><For each={targets()}>{target=><option value={targetKey(target)}>{target.label}</option>}</For></select></label>
-   <label>{t('unified-mail-search')}<input type="search" value={search()} onInput={event=>{setSearch(event.currentTarget.value);if(!event.currentTarget.value)setQuery('');}}/></label><button type="submit" class="btn btn--ghost" aria-label={t('unified-mail-search')}><Icon name="search"/></button>
+   <label>{t('unified-mail-search')}<SearchInput  value={search()} onInput={event=>{setSearch(event.currentTarget.value);if(!event.currentTarget.value)setQuery('');}}/></label><button type="submit" class="btn btn--ghost" aria-label={t('unified-mail-search')}><Icon name="search"/></button>
    <label><input type="checkbox" checked={unreadOnly()} onChange={event=>setUnreadOnly(event.currentTarget.checked)}/>{t('mail-unread')}</label>
   </form>
   <div class={css.accounts}><For each={pages()}>{page=><button type="button" class="btn btn--ghost" aria-pressed={account()===targetKey(page.target)} onClick={()=>setAccount(account()===targetKey(page.target)?'':targetKey(page.target))}><Icon name="mail"/>{isolate(page.target.label)} <span>{counter(page.unread)} / {counter(page.total)}</span></button>}</For></div>

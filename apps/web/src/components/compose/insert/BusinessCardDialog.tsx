@@ -1,3 +1,4 @@
+import {SearchInput} from '../../SearchInput.tsx';
 // Insert business card: "My card" (from the identity, editable here) or a contact.
 // Inserts a mail-safe card, the vCard 4.0 as an attachment, or both.
 
@@ -39,7 +40,7 @@ export function BusinessCardDialog(props: {
   return (
     <InsertDialog title={t(props.source.kind === 'self' ? 'ins-card-mine' : 'ins-card-contact')} testId="insert-card-dialog" returnTo={props.returnTo} onClose={props.onClose} onSubmit={insert} submitDisabled={!ready()}>
       <Show when={props.source.kind === 'contact'}>
-        <label>{t('ins-card-search')}<input type="search" data-testid="insert-card-search" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} /></label>
+        <label>{t('ins-card-search')}<SearchInput  data-testid="insert-card-search" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} /></label>
         <ul role="listbox" aria-label={t('ins-card-contact')} class="mw-insert-list">
           <For each={matches()} fallback={<li class="mw-insert-note">{t('ins-card-no-contacts')}</li>}>{(c) => (
             <li><button type="button" role="option" class="btn btn--ghost mw-insert-option" data-testid="insert-card-pick" aria-selected={fields().email === (c.emails[0]?.value ?? '') && fields().name === c.name.full} onClick={() => setFields(fieldsFromContact(c))}>{c.name.full || c.emails[0]?.value}</button></li>

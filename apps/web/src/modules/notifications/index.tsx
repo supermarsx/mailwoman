@@ -1,3 +1,4 @@
+import {SearchInput} from '../../components/SearchInput.tsx';
 import {iconLabel} from './style.css.ts';
 import {createSignal,For,Show,onMount,type JSX} from 'solid-js';
 import {notificationNotices,notificationLoading,notificationFailed,refreshNotificationCenter,changeCenterNotice,type CenterNotice,type CenterAction} from '../../state/notificationCenter.ts';
@@ -32,7 +33,7 @@ export default function Notifications():JSX.Element{
  return <section class={css.section} style={{'max-inline-size':'64rem','inline-size':'100%','box-sizing':'border-box'}} aria-label={t('common-module-notifications')} data-testid="notification-center">
   <h2 class={`${css.heading} ${iconLabel}`}><Icon name="bell"/>{t('common-module-notifications')}</h2><p class={css.prose}>{t('notification-center-help')}</p>
   <div class={css.actions}><For each={['active','archived','dismissed']}>{value=><button type="button" class={`${css.ghost} ${iconLabel}`} aria-pressed={state()===value} onClick={()=>setState(value)}>{t(`notification-center-${value}`)}</button>}</For><button type="button" class={`${css.ghost} ${iconLabel}`} disabled={notificationLoading()} onClick={()=>void refreshNotificationCenter()}><Icon name="refresh"/>{t('common-refresh')}</button></div>
-  <div class={css.actions}><label>{t('common-search')}<input class={css.input} type="search" value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label><label>{t('notification-center-type')}<select class={css.input} value={kind()} onChange={event=>setKind(event.currentTarget.value)}><For each={['all','security','session','login','update']}>{value=><option value={value}>{t(`notification-center-type-${value}`)}</option>}</For></select></label></div>
+  <div class={css.actions}><label>{t('common-search')}<SearchInput class={css.input}  value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label><label>{t('notification-center-type')}<select class={css.input} value={kind()} onChange={event=>setKind(event.currentTarget.value)}><For each={['all','security','session','login','update']}>{value=><option value={value}>{t(`notification-center-type-${value}`)}</option>}</For></select></label></div>
   <Show when={notificationFailed()}><p role="alert">{t('notification-center-error')}</p></Show>
   <Show when={shown().length} fallback={<p class={css.meta} role="status">{t(notificationLoading()?'common-loading':'notification-center-empty')}</p>}>
    <ul class={css.list}><For each={shown()}>{notice=><li class={card.notice} data-unread={notice.read?'false':'true'}>

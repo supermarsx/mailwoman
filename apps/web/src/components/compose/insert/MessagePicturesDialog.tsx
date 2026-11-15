@@ -1,3 +1,4 @@
+import {SearchInput} from '../../SearchInput.tsx';
 // Picture / attachment picker over recent messages: image attachments with
 // thumbnails, a search by sender or subject, one or many. Bytes come through the
 // host's policy-checked download.
@@ -80,7 +81,7 @@ export function MessagePicturesDialog(props: {
   };
   return (
     <InsertDialog title={t(imagesOnly ? 'ins-picture-messages' : 'ins-attach-messages')} testId="insert-messages-dialog" returnTo={props.returnTo} busy={loading()} onClose={props.onClose} onSubmit={choose} submitLabel={t('ins-pick-count', { count: selected().size })} submitDisabled={selected().size === 0}>
-      <label>{t('ins-pick-search')}<input type="search" data-testid="insert-messages-search" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} /></label>
+      <label>{t('ins-pick-search')}<SearchInput  data-testid="insert-messages-search" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} /></label>
       <div class="mw-insert-grid" role="listbox" aria-multiselectable="true" aria-label={t('ins-pick-list')}>
         <For each={shown()} fallback={<p class="mw-insert-note">{loading() ? t('ins-loading') : t('ins-pick-none')}</p>}>{(item) => (
           <button type="button" role="option" class="mw-insert-thumb" data-testid="insert-messages-item" aria-selected={selected().has(key(item))} aria-pressed={selected().has(key(item))} title={`${item.name} — ${item.from} — ${item.subject}`} onClick={() => toggle(item)}>
