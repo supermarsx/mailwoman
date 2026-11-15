@@ -1,3 +1,4 @@
+import {ThemedSelects} from './components/ThemedSelects.tsx';
 import {SnoozeDialog} from './components/SnoozeDialog.tsx';
 import {requestMessageOpen} from './state/messageOpenRequest.ts';
 import {startNotificationCenter} from './state/notificationCenter.ts';
@@ -328,6 +329,7 @@ export function App(): JSX.Element {
         </Switch>
       </Show>
       <SnoozeDialog/>
+      <ThemedSelects/>
       <ToastRegion />
       <ConnectionToast />
       <NewVersionToast />
