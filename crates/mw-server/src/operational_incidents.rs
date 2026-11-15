@@ -1,5 +1,6 @@
 //! Operational incidents and NIS2 preparation. Detection never determines legal
-//! significance, declares recovery verified, or submits a regulatory report.
+//! significance or submits a regulatory report. Brief health failures may be
+//! resolved automatically after consecutive healthy observations.
 use crate::{
     AppState,
     admin_ctx::{AdminApiError, AdminCtx},
@@ -552,6 +553,17 @@ pub(crate) async fn observe_health(state: &AppState, snapshot: &Value) {
         tracing::warn!("Operational incident observation failed: {}", error.detail);
     }
 }
+fn resolve_transient(body:&mut Incident,config:&std::collections::BTreeMap<String,Value>,at:i64)->bool {
+    let automatic=config.get("incidents.auto.resolveTransient").and_then(Value::as_bool).unwrap_or(true);
+    let minutes=config.get("incidents.auto.transientMinutes").and_then(Value::as_i64).unwrap_or(15);
+    let samples=config.get("incidents.auto.recoverySamples").and_then(Value::as_u64).unwrap_or(2);
+    let Some(recovered)=body.first_healthy_at else{return false;};
+    if !automatic||body.source!="health"||body.category!="service-disruption"||body.significance!="unassessed"||!body.reports.is_empty()||!body.owner.is_empty()||u64::from(body.healthy_samples)<samples||recovered.saturating_sub(body.detected_at)>minutes*60{return false;}
+    body.status="resolved".into();body.resolved_at=Some(recovered);body.verified_at=Some(at);body.owner="Automated health monitor".into();
+    body.recovery_evidence=format!("{} consecutive healthy samples; first healthy at {}; confirmed at {}",body.healthy_samples,recovered,at);
+    body.event("recovery-verified","Transient disruption automatically resolved after consecutive healthy checks.","system:health",at);
+    true
+}
 async fn health_pass(state: &AppState, snapshot: &Value) -> Result<(), AdminApiError> {
     let config = cfg(state).await;
     if !enabled(&config, "incidents.auto.enabled") {
@@ -682,12 +694,13 @@ async fn health_pass(state: &AppState, snapshot: &Value) -> Result<(), AdminApiE
                         body.first_healthy_at =
                             Some(monitor["healthySince"].as_i64().unwrap_or(at));
                         body.status = "recovering".into();
-                        body.event("recovery-observed","Two healthy samples observed; operator verification is still required.","system",at);
+                        body.event("recovery-observed","Consecutive healthy samples observed. Brief disruptions are resolved automatically; persistent incidents require operator verification.","system",at);
                     }
                     if status == "fail" && body.first_healthy_at.take().is_some() {
                         body.status = "active".into();
                         body.event("recovery-interrupted", "Health failed again.", "system", at);
                     }
+                    if status=="ok" {resolve_transient(&mut body,&config,at);}
                     let _ = update(state, &row, &body, "system", at).await;
                 } else if monitor["failures"].as_u64().unwrap_or(0) >= fail_limit {
                     // New sustained failures after closure start a new episode next cycle.
@@ -855,7 +868,9 @@ async fn pass(state: &AppState) -> Result<(), AdminApiError> {
             body.event("report-due", phase, "system", at);
             changed = true;
         }
+        let transient_health=config.get("incidents.auto.resolveTransient").and_then(Value::as_bool).unwrap_or(true)&&body.source=="health"&&body.significance=="unassessed"&&body.reports.is_empty()&&body.first_healthy_at.unwrap_or(at).saturating_sub(body.detected_at)<=config.get("incidents.auto.transientMinutes").and_then(Value::as_i64).unwrap_or(15)*60;
         if enabled(&config, "incidents.notify.email")
+            && !transient_health
             && !(body.status == "closed" && row.updated_at < at - 86400)
         {
             let mut notifications = body.reminded.clone();
