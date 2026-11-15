@@ -105,3 +105,6 @@ rules-vacation-unavailable = 此账户无法使用休假回复：其邮件服务
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 rules-cond-list-id = 邮件列表（列表 ID）
+
+rules-raw-help = 在此编辑服务器端过滤脚本。保存前请验证；激活已保存的脚本以处理新收到的邮件。
+rules-raw-preview = 语法预览

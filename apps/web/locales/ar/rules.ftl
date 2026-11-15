@@ -98,3 +98,6 @@ rules-vacation-unavailable = ردود الإجازة غير متاحة لهذا 
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 rules-cond-list-id = القائمة البريدية (معرف القائمة)
+
+rules-raw-help = حرر برنامج تصفية الخادم هنا. تحقق قبل الحفظ؛ فعّل برنامجًا محفوظًا لتطبيقه على البريد الوارد.
+rules-raw-preview = معاينة بناء الجملة

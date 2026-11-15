@@ -105,3 +105,6 @@ rules-vacation-unavailable = Abwesenheitsantworten sind für dieses Konto nicht 
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 rules-cond-list-id = Mailingliste (Listen-ID)
+
+rules-raw-help = Bearbeiten Sie hier das serverseitige Filterskript. Vor dem Speichern prüfen; ein gespeichertes Skript aktivieren, um es auf eingehende Nachrichten anzuwenden.
+rules-raw-preview = Syntaxvorschau

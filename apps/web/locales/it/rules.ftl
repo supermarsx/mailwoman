@@ -98,3 +98,6 @@ rules-vacation-unavailable = Le risposte di assenza non sono disponibili per que
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 rules-cond-list-id = Mailing list (ID elenco)
+
+rules-raw-help = Modifica qui lo script di filtro del server. Verifica prima di salvare; attiva uno script salvato per filtrare la posta in arrivo.
+rules-raw-preview = Anteprima della sintassi

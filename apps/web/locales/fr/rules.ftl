@@ -98,3 +98,6 @@ rules-vacation-unavailable = Les réponses d’absence ne sont pas disponibles p
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 rules-cond-list-id = Liste de diffusion (List-Id)
+
+rules-raw-help = Modifiez ici le script de filtrage du serveur. Validez avant d’enregistrer ; activez un script enregistré pour filtrer les messages entrants.
+rules-raw-preview = Aperçu de la syntaxe

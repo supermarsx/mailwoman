@@ -222,7 +222,8 @@ export const iconBtn = style([btn, { minWidth: vars.a11y.touchTarget, padding: l
 export const editorWrap = style({ position: 'relative', display: 'flex', flexDirection: 'column', gap: vars.space[2] });
 
 export const textarea = style({
-  font: vars.font.mono,
+  boxSizing: 'border-box',
+  fontFamily: vars.font.mono,
   fontSize: '0.85rem',
   lineHeight: 1.5,
   color: vars.color.text,
@@ -230,7 +231,8 @@ export const textarea = style({
   border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.md,
   padding: less1(vars.space[3]),
-  minHeight: '10rem',
+  minHeight: '18rem',
+  maxHeight: '65vh',
   width: '100%',
   resize: 'vertical',
   whiteSpace: 'pre',
@@ -242,7 +244,7 @@ export const textarea = style({
 });
 
 export const highlight = style({
-  font: vars.font.mono,
+  fontFamily: vars.font.mono,
   fontSize: '0.85rem',
   lineHeight: 1.5,
   margin: 0,
@@ -299,3 +301,8 @@ export const matchDot = style({
 
 export const matchYes = style([matchDot, { background: vars.color.success }]);
 export const matchNo = style([matchDot, { background: vars.color.border }]);
+
+export const scriptSection=style({display:'flex',flexDirection:'column',gap:vars.space[4],minInlineSize:0,padding:vars.space[4],border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:vars.radius.md});
+export const scriptField=style({display:'flex',flexDirection:'column',gap:vars.space[2],fontSize:'.85rem',maxInlineSize:'32rem',minInlineSize:0});
+export const scriptActions=style({display:'flex',justifyContent:'flex-end',alignItems:'center',gap:vars.space[2],flexWrap:'wrap',paddingBlockStart:vars.space[3],borderBlockStart:`${vars.border.hair} solid ${vars.color.border}`});
+export const syntaxPreview=style({minInlineSize:0,padding:vars.space[2]});

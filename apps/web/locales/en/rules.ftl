@@ -100,3 +100,6 @@ rules-forward-title = Forwarding
 rules-forward-address = Forward to
 rules-forward-copy = Keep a copy in this account
 rules-forward-refused = Your administrator does not allow forwarding to this domain.
+
+rules-raw-help = Edit your server-side filtering script here. Validate before saving; activate a saved script to apply it to incoming mail.
+rules-raw-preview = Syntax preview

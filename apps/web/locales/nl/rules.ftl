@@ -105,3 +105,6 @@ rules-vacation-unavailable = Afwezigheidsantwoorden zijn niet beschikbaar voor d
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 rules-cond-list-id = Mailinglijst (Lijst-ID)
+
+rules-raw-help = Bewerk hier het filterscript van de server. Valideer vóór opslaan; activeer een opgeslagen script om inkomende berichten te filteren.
+rules-raw-preview = Syntaxisvoorbeeld

@@ -101,3 +101,6 @@ rules-forward-title = Reencaminhamento
 rules-forward-address = Reencaminhar para
 rules-forward-copy = Manter uma cópia nesta conta
 rules-forward-refused = O seu administrador não permite o reencaminhamento para este domínio.
+
+rules-raw-help = Edite aqui o script de filtragem do servidor. Valide antes de guardar; ative um script guardado para o aplicar às mensagens recebidas.
+rules-raw-preview = Pré-visualização da sintaxe

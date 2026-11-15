@@ -98,3 +98,6 @@ rules-vacation-unavailable = Las respuestas de vacaciones no están disponibles 
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 rules-cond-list-id = Lista de correo (List-Id)
+
+rules-raw-help = Edita aquí el script de filtrado del servidor. Valida antes de guardar; activa un script guardado para aplicarlo al correo entrante.
+rules-raw-preview = Vista previa de sintaxis

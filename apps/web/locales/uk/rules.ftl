@@ -105,3 +105,6 @@ rules-vacation-unavailable = Відповіді на час відпустки �
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 rules-cond-list-id = Список розсилки (List-Id)
+
+rules-raw-help = Редагуйте серверний скрипт фільтрації тут. Перевірте перед збереженням; активуйте збережений скрипт для вхідної пошти.
+rules-raw-preview = Перегляд синтаксису

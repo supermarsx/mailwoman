@@ -68,7 +68,8 @@ export function ScriptsPanel(props: { api: SieveApi }): JSX.Element {
     <Show when={!loading() && cap() === null && !failure()}><p>{t('rules-unavailable')}</p></Show>
     <Show when={cap()}>{(capability) => <>
       <WhereItRuns runsAt={capability()['urn:mailwoman:policy']?.runsAt ?? 'server-sieve'} />
-      <Show when={mayEdit()}><label class={css.label}>{t('rules-script-template')}
+      <section class={css.scriptSection}><h3 class={css.heading}>{t('rules-scripts-label')}</h3>
+      <Show when={mayEdit()}><label class={css.scriptField}>{t('rules-script-template')}
         <select class={css.input} disabled={busy()} value="" onChange={(event) => {
           const kind = event.currentTarget.value; if (!kind) return;
           void choose(null); setName(kind);
@@ -91,7 +92,7 @@ export function ScriptsPanel(props: { api: SieveApi }): JSX.Element {
       <div class={css.row}>
         <button type="button" class={css.btn} disabled={!mayEdit() || busy()} onClick={() => void choose(null)}>{t('rules-script-new')}</button>
         <button type="button" class={css.btn} disabled={busy()} onClick={exportScript}>{t('rules-script-export')}</button>
-        <Show when={mayEdit()}><label class={css.label}>{t('rules-script-import')}
+        <Show when={mayEdit()}><label class={css.scriptField}>{t('rules-script-import')}
           <input type="file" accept=".sieve,application/sieve" disabled={busy()} onChange={(event) => {
             const file = event.currentTarget.files?.[0]; if (!file) return;
             void action(async () => {
@@ -101,12 +102,14 @@ export function ScriptsPanel(props: { api: SieveApi }): JSX.Element {
           }} />
         </label></Show>
       </div>
-      <label class={css.label}>{t('rules-name-label')}
+      </section>
+      <section class={css.scriptSection}><label class={css.scriptField}>{t('rules-name-label')}
         <input class={css.input} value={name()} disabled={!mayEdit() || busy()} onInput={(event) => setName(event.currentTarget.value)} />
       </label>
       <Show when={!mayEdit()}><p class={css.prose}>{t('rules-script-read-only')}</p></Show>
+      <p class={css.prose}>{t('rules-raw-help')}</p>
       <RawEditor source={source()} onInput={setSource} readOnly={!mayEdit() || busy()} />
-      <div class={css.row}>
+      <div class={css.scriptActions}>
         <button type="button" class={css.btn} disabled={!mayEdit() || busy()} onClick={() => void action(async () => {
           const error = await props.api.validate(source()); if (error) setFailure(error.description ?? error.type); else setMessage(t('rules-lint-clean'));
         })}>{t('rules-script-validate')}</button>
@@ -118,6 +121,7 @@ export function ScriptsPanel(props: { api: SieveApi }): JSX.Element {
           const id = selected(); if (id) { await props.api.remove(id, state()); await refresh(null); }
         })}>{t('common-delete')}</button>
       </div>
+      </section>
     </>}</Show>
   </div>;
 }

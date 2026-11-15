@@ -98,3 +98,6 @@ rules-vacation-unavailable = このアカウントでは不在時の返信を利
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 rules-cond-list-id = メーリングリスト (リスト ID)
+
+rules-raw-help = サーバー側のフィルタースクリプトを編集します。保存前に検証し、保存済みスクリプトを有効にして受信メールに適用します。
+rules-raw-preview = 構文プレビュー

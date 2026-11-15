@@ -57,7 +57,7 @@ export function RawEditor(props: RawEditorProps): JSX.Element {
           aria-describedby="rules-raw-diagnostics"
           onInput={(e) => props.onInput?.(e.currentTarget.value)}
         />
-        <Highlighted source={props.source} />
+        <details class={css.syntaxPreview}><summary>{t('rules-raw-preview')}</summary><Highlighted source={props.source}/></details>
 
       <div id="rules-raw-diagnostics" role="status" aria-live="polite">
         <Show

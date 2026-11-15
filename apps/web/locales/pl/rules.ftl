@@ -105,3 +105,6 @@ rules-vacation-unavailable = Odpowiedzi urlopowe nie są dostępne dla tego kont
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 rules-cond-list-id = Lista mailingowa (List-Id)
+
+rules-raw-help = Edytuj skrypt filtrowania serwera. Sprawdź przed zapisaniem; aktywuj zapisany skrypt, aby filtrować pocztę przychodzącą.
+rules-raw-preview = Podgląd składni
