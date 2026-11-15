@@ -1,3 +1,4 @@
+import {reconcileLinkedHealth} from '../realtime/accountHealth.ts';
 import {apiFetch} from './http.ts';
 import {keyedAttempt,keyedWrite,newIdempotencyKey,type RecoveryOptions} from './recovery.ts';
 import {withBase} from './basePath.ts';
@@ -113,6 +114,7 @@ export function createLinkedAccountsApi() {
         ||(value.layout!==undefined&&!validLayout(value.layout)))throw new ApiError(502,'Linked mailbox response was invalid');
       if(value.layout)value.layout=cleanLayout(value.layout);
       rememberLinkedList(value);
+      reconcileLinkedHealth(authority,value.accounts);
       return value;
     },
     link:(input:LinkMailboxInput)=>request<LinkMailboxResult>('/link','POST',input,undefined,'keyed'),

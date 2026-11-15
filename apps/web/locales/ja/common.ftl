@@ -229,3 +229,16 @@ workspace-view-notable-keys = 保存済みの鍵がある場合に表示しま�
 workspace-view-notable-attachments = 添付ファイルがある場合に表示します。
 workspace-view-notable-outbox = 送信待ちのメッセージがある場合に表示します。
 workspace-view-notable-templates = 保存済みテンプレートがある場合に表示します。
+
+common-conn-accounts = メールボックスの接続
+common-conn-account-online = 最新
+common-conn-account-syncing = 同期中
+common-conn-account-offline = オフライン
+common-conn-account-degraded = 一時的に利用できません
+common-conn-account-auth-expired = サインインが必要です
+common-conn-account-retry = { $seconds } 秒後に再試行
+common-conn-account-recovered = { $account }：接続が復元されました
+common-conn-offline-queued = オフライン — { $count } 件の変更が待機中
+common-conn-account-problem = { $account }: { $status }
+
+common-conn-background-unavailable = この端末の保留中の変更を同期するには、Mailwoman を開いたままにしてください。

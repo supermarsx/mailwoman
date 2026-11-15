@@ -230,3 +230,16 @@ workspace-view-notable-keys = Visibile con chiavi salvate.
 workspace-view-notable-attachments = Visibile con allegati.
 workspace-view-notable-outbox = Visibile con messaggi in uscita.
 workspace-view-notable-templates = Visibile con modelli salvati.
+
+common-conn-accounts = Connessioni delle caselle
+common-conn-account-online = Aggiornato
+common-conn-account-syncing = Sincronizzazione
+common-conn-account-offline = Offline
+common-conn-account-degraded = Temporaneamente non disponibile
+common-conn-account-auth-expired = Accesso richiesto
+common-conn-account-retry = Nuovo tentativo tra { $seconds } s
+common-conn-account-recovered = { $account }: connessione ripristinata
+common-conn-offline-queued = Offline — { $count } modifiche in coda
+common-conn-account-problem = { $account }: { $status }
+
+common-conn-background-unavailable = Tieni Mailwoman aperto per sincronizzare le modifiche in coda su questo dispositivo.

@@ -238,3 +238,16 @@ workspace-view-notable-keys = يظهر عند وجود مفاتيح محفوظة
 workspace-view-notable-attachments = يظهر عند وجود مرفقات.
 workspace-view-notable-outbox = يظهر عند وجود رسائل صادرة منتظرة.
 workspace-view-notable-templates = يظهر عند وجود قوالب محفوظة.
+
+common-conn-accounts = اتصالات صناديق البريد
+common-conn-account-online = محدّث
+common-conn-account-syncing = جارٍ المزامنة
+common-conn-account-offline = دون اتصال
+common-conn-account-degraded = غير متاح مؤقتًا
+common-conn-account-auth-expired = يلزم تسجيل الدخول
+common-conn-account-retry = إعادة المحاولة خلال { $seconds } ث
+common-conn-account-recovered = { $account }: تمت استعادة الاتصال
+common-conn-offline-queued = العمل دون اتصال — { $count } تغييرات في الانتظار
+common-conn-account-problem = { $account }: { $status }
+
+common-conn-background-unavailable = أبقِ Mailwoman مفتوحًا لمزامنة التغييرات المعلقة على هذا الجهاز.

@@ -249,3 +249,16 @@ workspace-view-notable-keys = Mostra quando há chaves guardadas.
 workspace-view-notable-attachments = Mostra quando há anexos.
 workspace-view-notable-outbox = Mostra quando há mensagens por enviar.
 workspace-view-notable-templates = Mostra quando há modelos guardados.
+
+common-conn-accounts = Ligações às caixas de correio
+common-conn-account-online = Atualizado
+common-conn-account-syncing = A sincronizar
+common-conn-account-offline = Offline
+common-conn-account-degraded = Temporariamente indisponível
+common-conn-account-auth-expired = Início de sessão necessário
+common-conn-account-retry = Nova tentativa em { $seconds } s
+common-conn-account-recovered = { $account }: ligação restabelecida
+common-conn-offline-queued = Offline — { $count } alterações em espera
+common-conn-account-problem = { $account }: { $status }
+
+common-conn-background-unavailable = Mantenha o Mailwoman aberto para sincronizar as alterações pendentes neste dispositivo.

@@ -262,3 +262,16 @@ workspace-view-notable-keys = Shown when there are stored keys.
 workspace-view-notable-attachments = Shown when there are attachments.
 workspace-view-notable-outbox = Shown when there are pending outgoing messages.
 workspace-view-notable-templates = Shown when there are saved templates.
+
+common-conn-accounts = Mailbox connections
+common-conn-account-online = Up to date
+common-conn-account-syncing = Syncing
+common-conn-account-offline = Offline
+common-conn-account-degraded = Temporarily unavailable
+common-conn-account-auth-expired = Sign-in required
+common-conn-account-retry = Retry in { $seconds } s
+common-conn-account-recovered = { $account }: connection restored
+common-conn-offline-queued = Working offline — { $count } changes queued
+common-conn-account-problem = { $account }: { $status }
+
+common-conn-background-unavailable = Keep Mailwoman open to sync queued changes on this device.

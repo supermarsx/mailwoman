@@ -244,3 +244,16 @@ workspace-view-notable-keys = Zichtbaar bij opgeslagen sleutels.
 workspace-view-notable-attachments = Zichtbaar bij bijlagen.
 workspace-view-notable-outbox = Zichtbaar bij wachtende uitgaande berichten.
 workspace-view-notable-templates = Zichtbaar bij opgeslagen sjablonen.
+
+common-conn-accounts = Postvakverbindingen
+common-conn-account-online = Bijgewerkt
+common-conn-account-syncing = Synchroniseren
+common-conn-account-offline = Offline
+common-conn-account-degraded = Tijdelijk niet beschikbaar
+common-conn-account-auth-expired = Aanmelden vereist
+common-conn-account-retry = Nieuwe poging over { $seconds } s
+common-conn-account-recovered = { $account }: verbinding hersteld
+common-conn-offline-queued = Offline — { $count } wijzigingen in wachtrij
+common-conn-account-problem = { $account }: { $status }
+
+common-conn-background-unavailable = Houd Mailwoman open om wijzigingen in de wachtrij op dit apparaat te synchroniseren.

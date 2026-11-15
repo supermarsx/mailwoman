@@ -234,3 +234,16 @@ workspace-view-notable-keys = Bei gespeicherten Schlüsseln sichtbar.
 workspace-view-notable-attachments = Bei vorhandenen Anhängen sichtbar.
 workspace-view-notable-outbox = Bei ausstehenden Nachrichten sichtbar.
 workspace-view-notable-templates = Bei gespeicherten Vorlagen sichtbar.
+
+common-conn-accounts = Postfachverbindungen
+common-conn-account-online = Aktuell
+common-conn-account-syncing = Wird synchronisiert
+common-conn-account-offline = Offline
+common-conn-account-degraded = Vorübergehend nicht verfügbar
+common-conn-account-auth-expired = Anmeldung erforderlich
+common-conn-account-retry = Erneuter Versuch in { $seconds } s
+common-conn-account-recovered = { $account }: Verbindung wiederhergestellt
+common-conn-offline-queued = Offline — { $count } Änderungen vorgemerkt
+common-conn-account-problem = { $account }: { $status }
+
+common-conn-background-unavailable = Mailwoman geöffnet lassen, um ausstehende Änderungen auf diesem Gerät zu synchronisieren.

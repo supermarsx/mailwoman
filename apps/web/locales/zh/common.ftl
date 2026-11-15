@@ -243,3 +243,16 @@ workspace-view-notable-keys = 有已存储密钥时显示。
 workspace-view-notable-attachments = 有附件时显示。
 workspace-view-notable-outbox = 有待发送邮件时显示。
 workspace-view-notable-templates = 有已保存模板时显示。
+
+common-conn-accounts = 邮箱连接
+common-conn-account-online = 已更新
+common-conn-account-syncing = 正在同步
+common-conn-account-offline = 离线
+common-conn-account-degraded = 暂时不可用
+common-conn-account-auth-expired = 需要登录
+common-conn-account-retry = { $seconds } 秒后重试
+common-conn-account-recovered = { $account }：连接已恢复
+common-conn-offline-queued = 正在离线工作 — { $count } 项更改待同步
+common-conn-account-problem = { $account }: { $status }
+
+common-conn-background-unavailable = 请保持 Mailwoman 打开，以同步此设备上排队的更改。

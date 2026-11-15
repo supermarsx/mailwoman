@@ -249,3 +249,16 @@ workspace-view-notable-keys = Видиме за наявності збереж�
 workspace-view-notable-attachments = Видиме за наявності вкладень.
 workspace-view-notable-outbox = Видиме за наявності вихідних повідомлень в очікуванні.
 workspace-view-notable-templates = Видиме за наявності збережених шаблонів.
+
+common-conn-accounts = З’єднання поштових скриньок
+common-conn-account-online = Оновлено
+common-conn-account-syncing = Синхронізація
+common-conn-account-offline = Офлайн
+common-conn-account-degraded = Тимчасово недоступно
+common-conn-account-auth-expired = Потрібен вхід
+common-conn-account-retry = Повтор через { $seconds } с
+common-conn-account-recovered = { $account }: з’єднання відновлено
+common-conn-offline-queued = Офлайн — змін у черзі: { $count }
+common-conn-account-problem = { $account }: { $status }
+
+common-conn-background-unavailable = Залиште Mailwoman відкритим, щоб синхронізувати зміни в черзі на цьому пристрої.

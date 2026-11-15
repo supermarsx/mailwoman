@@ -1,3 +1,4 @@
+import {configureNotificationRuntime} from '../../api/notificationRuntime.ts';
 import { storageAuthorityHeaders } from '../../api/storageAuthority.ts';
 import { preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 // Settings-surface server I/O (t16 e15). One service over an injectable `Fetcher`
@@ -317,7 +318,7 @@ export class SettingsService {
   // ── Notification rules + quiet hours (W15) ───────────────────────────────
 
   async notifications(): Promise<NotificationConfig> {
-    return jsonOrThrow<NotificationConfig>(await this.personalRecordFetch.bind(this)(withBase('/api/account/notifications')));
+    const value=await jsonOrThrow<NotificationConfig>(await this.personalRecordFetch.bind(this)(withBase('/api/account/notifications')));configureNotificationRuntime(value);return value;
   }
 
   async saveNotifications(config: NotificationConfig): Promise<void> {
@@ -328,6 +329,7 @@ export class SettingsService {
         body: JSON.stringify(config),
       }),
     );
+    configureNotificationRuntime(config);
   }
 
   // ── Saved searches → search folders (W13) ────────────────────────────────
