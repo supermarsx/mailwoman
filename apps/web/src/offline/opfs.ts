@@ -25,6 +25,19 @@ export class EncryptedCache {
     private readonly key: CryptoKey,
   ) {}
 
+  /** Opaque, hashed record names let the shared offline vault store snapshots,
+   * drafts and PIM data without exposing subjects or addresses in file names. */
+  putRecord(id: string, value: unknown): Promise<void> {
+    if(!/^[a-f0-9]{64}$/.test(id))throw new Error('Invalid encrypted record identifier');
+    return this.writeJson(`vault/${id}.enc`, {id, value});
+  }
+  async getRecord<T>(id: string): Promise<T | undefined> {
+    if(!/^[a-f0-9]{64}$/.test(id))return;
+    const record = await this.readJson<{id: string; value: T}>(`vault/${id}.enc`);
+    return record?.id === id ? record.value : undefined;
+  }
+  removeRecord(id: string): Promise<void> { if(!/^[a-f0-9]{64}$/.test(id))throw new Error('Invalid encrypted record identifier');return this.backend.remove(`vault/${id}.enc`); }
+
   private async readJson<T>(path: string): Promise<T | null> {
     const blob = await this.backend.read(path);
     if (blob === null) return null;
@@ -112,8 +125,8 @@ export function opfsBackend(): BlobBackend {
         const root = await rootP;
         const { dir, file } = await resolveDir(root, path, false);
         await dir.removeEntry(file);
-      } catch {
-        // Already absent — nothing to remove.
+      } catch (error) {
+        if (!(typeof error === 'object' && error !== null && 'name' in error && error.name === 'NotFoundError')) throw error;
       }
     },
   };
