@@ -56,7 +56,10 @@ export async function registerServiceWorker(): Promise<void> {
 const [backgroundReplayState,setBackgroundReplayState]=createSignal<'unknown'|'available'|'unavailable'>('unknown');
 export {backgroundReplayState};
 export async function requestBackgroundReplay():Promise<boolean>{
-  if(typeof navigator==='undefined'||!('serviceWorker' in navigator)||isTauri()){setBackgroundReplayState('unavailable');return false;}
+  if(isTauri()){
+    try{const available=await (await import('../offline/nativeBackground.ts')).requestNativeBackgroundReplay();setBackgroundReplayState(available?'available':'unavailable');return available;}catch{setBackgroundReplayState('unavailable');return false;}
+  }
+  if(typeof navigator==='undefined'||!('serviceWorker' in navigator)){setBackgroundReplayState('unavailable');return false;}
   try{
     const registration=await navigator.serviceWorker.getRegistration(shellBase());
     const worker=registration?.active??registration?.waiting??registration?.installing;

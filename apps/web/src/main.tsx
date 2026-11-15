@@ -14,6 +14,7 @@ import './styles/app.css';
 import './styles/checks.css.ts';
 import './styles/controls.css.ts';
 import './styles/motion.css.ts';
+import {nativeBackgroundStartup,startNativeBackgroundReplay} from './offline/nativeBackground.ts';
 
 // Trusted Types default policy (SPEC §7.4, 26.17; script-URL half added in 26.20
 // t24-e13). MUST run before `render()` — Solid's first `template().innerHTML` boot
@@ -36,7 +37,7 @@ if (root === null) {
 
 // Cookie consent: load the configuration and apply the stored decision (block and
 // purge) as early as the server answers; the control itself is `ConsentLayer`.
-void bootConsent();
+if(!nativeBackgroundStartup())void bootConsent();
 
 // One quiet toast when the server stays busy past the client's retries (`api/rateAware.ts`).
 installRateLimitNotice();
@@ -47,7 +48,8 @@ installRateLimitNotice();
 // Settings (`ui.language`, kept in localStorage `mw.locale`) wins over the
 // browser's languages from the first paint, before sign-in.
 const startLocale = bootLocale();
-render(
+if(nativeBackgroundStartup())void startNativeBackgroundReplay().catch(()=>undefined);
+else render(
   () => (
     <LocaleProvider {...(startLocale !== null ? { locale: startLocale } : {})}>
       <App />

@@ -22,6 +22,7 @@
 //!     injection + the quit-time server shutdown.
 
 pub mod badge;
+pub mod background;
 pub mod biometric;
 pub mod capture;
 pub mod deeplink;
@@ -296,6 +297,8 @@ pub fn run() {
             // e7 — desktop push (honest degrade; Web Push subscribes in the WebView).
             push::mw_push_subscribe,
             push::mw_push_unsubscribe,
+            background::mw_background_replay_schedule,
+            background::mw_background_replay_complete,
         ])
         .setup(move |app| {
             // §7.4 tamper gate BEFORE any window loads the SPA or points at a server.
@@ -332,6 +335,8 @@ pub fn run() {
             // Read once at start: a provisioning file changed while the app runs
             // applies at the next start.
             let server = serverconfig::server_url();
+            let background=background::is_background();
+            let script=if background {format!("{}globalThis.__MW_CONFIG__.backgroundReplay=true;",bootstrap_config_script(server.url.as_deref(),updater))} else {bootstrap_config_script(server.url.as_deref(),updater)};
 
             // The main window is created in code (not tauri.conf.json) so the
             // `__MW_CONFIG__` handshake runs as an initialization script BEFORE the
@@ -343,10 +348,15 @@ pub fn run() {
                     .inner_size(1200.0, 800.0)
                     .min_inner_size(720.0, 560.0)
                     .content_protected(false)
-                    .initialization_script(bootstrap_config_script(server.url.as_deref(), updater))
+                    .visible(!background)
+                    .initialization_script(script)
                     .build()
             {
                 fatal(&format!("the main window could not be opened: {e}"));
+            }
+            if background {
+                let handle=app.handle().clone();
+                std::thread::spawn(move||{std::thread::sleep(std::time::Duration::from_secs(140));handle.exit(0);});
             }
             Ok(())
         })

@@ -29,6 +29,25 @@ app says it has not been set up (`docs/deploy/shells.md`).
 Prereqs (verified by the e0 probe on this machine): Rust (MSVC), WebView2 (Win11),
 Tauri CLI 2.x.
 
+## Background queue replay
+
+Queuing work registers a current-user OS job: Task Scheduler on Windows,
+`systemd --user` on Linux, or a LaunchAgent on macOS. It launches the installed
+executable with `--background-replay` about every five minutes while work remains.
+The process opens a hidden WebView using the ordinary app profile, verifies the
+live account and discovery, and drains the same encrypted queue and staged files
+as the foreground app. It exits after completion or a bounded 140-second attempt.
+The job is removed after the queue has no pending work for the configured server.
+
+Job files contain only the executable and fixed argument. The bearer stays in the
+OS keychain; the non-extractable queue key stays in IndexedDB. Changed account
+authority, expired authentication or a network outage leaves unsent work queued.
+OS policy may refuse registration or defer execution; the UI reports unavailable
+registration instead of promising background delivery. A logged-in graphical user
+session is required. Android/iOS do not expose this desktop scheduler and continue
+to report background replay unavailable. Native OS wake behavior still requires
+device qualification on each target; Rust and browser tests alone do not prove it.
+
 ## Who fills what (plan §3)
 - **e1** desktop capabilities (notifications+actions, OS keychain via `keyring`,
   deep-link/mailto, badge, biometric, drag-out, multi-server).

@@ -51,6 +51,11 @@ async function invoke<T = void>(cmd: string, args?: Record<string, unknown>): Pr
   return internals().invoke<T>(cmd, args);
 }
 
+/** Optional desktop scheduler commands. Older/mobile shells report unsupported. */
+export async function invokeBackground(command:'mw_background_replay_schedule'|'mw_background_replay_complete',args:Record<string,unknown>):Promise<CapabilityResult>{
+  try{return await invoke<CapabilityResult>(command,args);}catch{return {supported:false};}
+}
+
 /**
  * Bridge a Tauri event to the interface's synchronous `Unsubscribe` shape. This is
  * what `@tauri-apps/api/event`'s `listen` does: register the handler as a
