@@ -17,3 +17,5 @@ quota-resource-storage = 容量
 quota-resource-messages = メッセージ
 quota-source-server = メールサーバー
 quota-source-admin = 管理者
+
+quota-details-unavailable = このメールボックスは現在、ストレージ使用量や上限を提供していません。更新して再確認してください。

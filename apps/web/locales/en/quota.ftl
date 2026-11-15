@@ -16,3 +16,5 @@ quota-resource-storage = Storage
 quota-resource-messages = Messages
 quota-source-server = Your mail server
 quota-source-admin = Your administrator
+
+quota-details-unavailable = This mailbox does not currently provide storage usage or a quota limit. Refresh to check again.

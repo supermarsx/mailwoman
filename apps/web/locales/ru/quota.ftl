@@ -17,3 +17,5 @@ quota-resource-storage = Хранилище
 quota-resource-messages = Сообщения
 quota-source-server = Почтовым сервером
 quota-source-admin = Администратором
+
+quota-details-unavailable = Этот ящик сейчас не сообщает объём занятого места или квоту. Обновите для повторной проверки.

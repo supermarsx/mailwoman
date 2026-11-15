@@ -3,7 +3,7 @@
 // no quota. Warnings follow the administrator's `quota.warn*` settings.
 
 import { createResource, For, onMount, Show, type JSX } from 'solid-js';
-import { createClient } from '../api/client.ts';
+import { createConfiguredClient } from '../api/transport.ts';
 import { settings } from '../api/settings.ts';
 import { loadQuotas, ratio, storageQuota, warnLevel, warnPolicy, type Quota } from '../api/quota.ts';
 import { formatBytes, formatNumber, formatPercent, loadCatalog, t } from '../i18n';
@@ -12,8 +12,8 @@ import { resourceValue } from './resourceValue.ts';
 
 export type QuotaLoader = (accountId: string) => Promise<Quota[]>;
 
-let sharedClient: ReturnType<typeof createClient> | null = null;
-const defaultLoader: QuotaLoader = (accountId) => loadQuotas((sharedClient ??= createClient()), accountId);
+let sharedClient: ReturnType<typeof createConfiguredClient> | null = null;
+const defaultLoader: QuotaLoader = (accountId) => loadQuotas((sharedClient ??= createConfiguredClient()), accountId);
 
 export interface QuotaProps {
   accountId: string | null;
@@ -60,7 +60,7 @@ export function QuotaMeter(props: QuotaProps): JSX.Element {
 export function QuotaDetails(props: QuotaProps): JSX.Element {
   const quotas = useQuotas(props);
   const list = () => resourceValue(quotas) ?? [];
-  return <Show when={list().length > 0}>
+  return <Show when={list().length > 0} fallback={<section aria-label={t('quota-details-title')} data-testid="quota-details"><p role="status">{quotas.loading?t('common-loading'):t('quota-details-unavailable')}</p></section>}>
     <section aria-labelledby="quota-details-heading" data-testid="quota-details">
       <h3 id="quota-details-heading">{t('quota-details-title')}</h3>
       <p>{t('quota-details-help')}</p>

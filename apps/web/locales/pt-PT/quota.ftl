@@ -15,3 +15,5 @@ quota-resource-storage = Armazenamento
 quota-resource-messages = Mensagens
 quota-source-server = O seu servidor de correio
 quota-source-admin = O seu administrador
+
+quota-details-unavailable = Esta caixa de correio não disponibiliza atualmente o espaço utilizado ou o limite de armazenamento. Atualize para verificar novamente.

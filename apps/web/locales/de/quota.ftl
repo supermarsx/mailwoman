@@ -17,3 +17,5 @@ quota-resource-storage = Speicher
 quota-resource-messages = Nachrichten
 quota-source-server = Ihr Mailserver
 quota-source-admin = Ihre Administration
+
+quota-details-unavailable = Dieses Postfach meldet derzeit keine Speichernutzung oder Speichergrenze. Aktualisieren Sie, um erneut zu prüfen.

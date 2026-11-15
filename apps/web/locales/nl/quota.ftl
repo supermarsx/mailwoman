@@ -17,3 +17,5 @@ quota-resource-storage = Opslag
 quota-resource-messages = Berichten
 quota-source-server = Uw mailserver
 quota-source-admin = Uw beheerder
+
+quota-details-unavailable = Dit postvak meldt momenteel geen opslaggebruik of opslaglimiet. Vernieuw om opnieuw te controleren.

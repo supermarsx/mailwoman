@@ -17,3 +17,5 @@ quota-resource-storage = 存储空间
 quota-resource-messages = 邮件
 quota-source-server = 你的邮件服务器
 quota-source-admin = 你的管理员
+
+quota-details-unavailable = 此邮箱目前未提供存储用量或配额上限。请刷新以重新检查。

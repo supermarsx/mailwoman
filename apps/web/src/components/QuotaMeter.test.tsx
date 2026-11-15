@@ -120,10 +120,10 @@ describe('QuotaDetails', () => {
     expect(table).toHaveTextContent('Your mail server');
     expect(table).toHaveTextContent('Your administrator');
   });
-  it('renders nothing without a quota', async () => {
+  it('explains unavailable quota data in settings', async () => {
     const load = vi.fn(async () => [] as Quota[]);
-    const { container } = render(() => <QuotaDetails accountId="a" load={load} />);
+    render(() => <QuotaDetails accountId="a" load={load} />);
     await waitFor(() => expect(load).toHaveBeenCalled());
-    expect(container).toBeEmptyDOMElement();
+    await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('does not currently provide storage usage'));
   });
 });

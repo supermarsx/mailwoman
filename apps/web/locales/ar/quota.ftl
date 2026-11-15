@@ -17,3 +17,5 @@ quota-resource-storage = التخزين
 quota-resource-messages = الرسائل
 quota-source-server = خادم بريدك
 quota-source-admin = المسؤول
+
+quota-details-unavailable = لا يوفر صندوق البريد حاليًا استخدام التخزين أو حده. حدّث للتحقق مجددًا.

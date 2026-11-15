@@ -17,3 +17,5 @@ quota-resource-storage = Spazio
 quota-resource-messages = Messaggi
 quota-source-server = Il suo server di posta
 quota-source-admin = Il suo amministratore
+
+quota-details-unavailable = Questa casella non fornisce al momento dati sull’utilizzo o sul limite di spazio. Aggiorna per ricontrollare.

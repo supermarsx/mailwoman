@@ -17,3 +17,5 @@ quota-resource-storage = Almacenamiento
 quota-resource-messages = Mensajes
 quota-source-server = Su servidor de correo
 quota-source-admin = Su administrador
+
+quota-details-unavailable = Este buzón no proporciona actualmente el uso ni el límite de almacenamiento. Actualiza para comprobarlo de nuevo.

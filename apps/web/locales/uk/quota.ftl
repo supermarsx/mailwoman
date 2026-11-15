@@ -17,3 +17,5 @@ quota-resource-storage = Сховище
 quota-resource-messages = Повідомлення
 quota-source-server = Поштовим сервером
 quota-source-admin = Адміністратором
+
+quota-details-unavailable = Ця скринька зараз не повідомляє використаний простір або ліміт. Оновіть для повторної перевірки.

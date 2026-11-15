@@ -17,3 +17,5 @@ quota-resource-storage = Pamięć
 quota-resource-messages = Wiadomości
 quota-source-server = Twój serwer poczty
 quota-source-admin = Twój administrator
+
+quota-details-unavailable = Ta skrzynka nie podaje obecnie wykorzystania ani limitu pamięci. Odśwież, aby sprawdzić ponownie.

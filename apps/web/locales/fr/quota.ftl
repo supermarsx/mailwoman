@@ -17,3 +17,5 @@ quota-resource-storage = Stockage
 quota-resource-messages = Messages
 quota-source-server = Votre serveur de messagerie
 quota-source-admin = Votre administrateur
+
+quota-details-unavailable = Cette boîte ne fournit actuellement ni utilisation ni limite de stockage. Actualisez pour vérifier à nouveau.
