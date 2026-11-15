@@ -27,6 +27,7 @@ import {
 import { t, loadCatalog } from '../../i18n';
 import { Feedback } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
+import * as settingsCss from '../Settings/styles.css.ts';
 
 export interface TwoFactorPolicyProps {
   /** The 2FA-policy client. Defaults to the same-origin admin client; tests mock it. */
@@ -51,14 +52,13 @@ export function TwoFactorPolicy(props: TwoFactorPolicyProps): JSX.Element {
   // Managed domains for the add-form datalist (best-effort; empty on error).
   const [domains] = createResource(async () => {
     try {
-      return (await adminApi.listDomains()).map((d) => d.name);
+      return [...new Set((await adminApi.listDomains()).flatMap(d=>[d.name,...(d.aliases??[])]).map(name=>name.trim().toLowerCase()).filter(Boolean))].sort();
     } catch {
       return [] as string[];
     }
   });
 
-  const [newDomain, setNewDomain] = createSignal('');
-  const [newRequire, setNewRequire] = createSignal(true);
+  const [saving,setSaving]=createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [saved, setSaved] = createSignal(false);
 
@@ -68,12 +68,10 @@ export function TwoFactorPolicy(props: TwoFactorPolicyProps): JSX.Element {
     return found ?? { scopeKind: 'global', scopeValue: '', require2fa: false };
   };
   /** The per-domain rows, sorted by domain for a stable list. */
-  const domainRows = (): TwofaPolicyRow[] =>
-    (rows() ?? [])
-      .filter((r) => r.scopeKind === 'domain')
-      .sort((a, b) => a.scopeValue.localeCompare(b.scopeValue));
+  const domainRows = (): TwofaPolicyRow[] => [...new Set([...(domains.latest??[]),...(rows()??[]).filter(row=>row.scopeKind==='domain').map(row=>row.scopeValue)])].sort().map(domain=>(rows()??[]).find(row=>row.scopeKind==='domain'&&row.scopeValue===domain)??{scopeKind:'domain',scopeValue:domain,require2fa:false});
 
   async function upsert(scopeKind: 'global' | 'domain', scopeValue: string, require2fa: boolean): Promise<void> {
+    if(saving())return;setSaving(true);
     setError(null);
     setSaved(false);
     try {
@@ -82,16 +80,7 @@ export function TwoFactorPolicy(props: TwoFactorPolicyProps): JSX.Element {
       await refetch();
     } catch {
       setError(t('admin-2fa-save-error'));
-    }
-  }
-
-  async function onAddDomain(e: Event): Promise<void> {
-    e.preventDefault();
-    const domain = newDomain().trim().toLowerCase();
-    if (domain === '') return;
-    await upsert('domain', domain, newRequire());
-    setNewDomain('');
-    setNewRequire(true);
+    } finally {setSaving(false);}
   }
 
   return (
@@ -106,9 +95,11 @@ export function TwoFactorPolicy(props: TwoFactorPolicyProps): JSX.Element {
 
       {/* ── Global requirement ── */}
       <div class={css.card}>
-        <label class="field">
+        <label class={settingsCss.check}>
           <input
+            class={settingsCss.checkbox}
             type="checkbox"
+            disabled={saving()||rowsResource.loading}
             checked={globalRow().require2fa}
             data-testid="admin-2fa-global"
             aria-label={t('admin-2fa-global-label')}
@@ -142,7 +133,9 @@ export function TwoFactorPolicy(props: TwoFactorPolicyProps): JSX.Element {
                       <td>
                         <input
                           type="checkbox"
-                          checked={row.require2fa}
+                          class={settingsCss.checkbox}
+                          disabled={saving()||globalRow().require2fa}
+                          checked={row.require2fa||globalRow().require2fa}
                           aria-label={t('admin-2fa-require-for', { domain: row.scopeValue })}
                           onChange={(e) => void upsert('domain', row.scopeValue, e.currentTarget.checked)}
                         />
@@ -155,34 +148,7 @@ export function TwoFactorPolicy(props: TwoFactorPolicyProps): JSX.Element {
           </div>
         </Show>
 
-        <form class="field" onSubmit={(e) => void onAddDomain(e)}>
-          <label class="field">
-            <span>{t('admin-2fa-add-domain')}</span>
-            <input
-              type="text"
-              list="admin-2fa-domain-options"
-              placeholder={t('admin-2fa-add-domain-placeholder')}
-              value={newDomain()}
-              data-testid="admin-2fa-add-domain"
-              onInput={(e) => setNewDomain(e.currentTarget.value)}
-            />
-            <datalist id="admin-2fa-domain-options">
-              <For each={domains() ?? []}>{(d) => <option value={d} />}</For>
-            </datalist>
-          </label>
-          <label class="field">
-            <input
-              type="checkbox"
-              checked={newRequire()}
-              aria-label={t('admin-2fa-add-require-label')}
-              onChange={(e) => setNewRequire(e.currentTarget.checked)}
-            />{' '}
-            {t('admin-2fa-add-require')}
-          </label>
-          <button type="submit" class="btn btn--primary" data-testid="admin-2fa-add-submit">
-            {t('admin-2fa-add-save')}
-          </button>
-        </form>
+
       </div>
 
       <Feedback kind="success" message={saved() ? t('admin-saved') : null} />

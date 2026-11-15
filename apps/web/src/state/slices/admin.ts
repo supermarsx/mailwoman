@@ -30,6 +30,7 @@ export interface AdminSession {
  *  not part of the wire shape. */
 export interface Domain {
   name: string;
+  aliases?: string[];
 }
 
 /** A per-account quota (`quotas`, 0007). A non-positive limit means "no limit". */

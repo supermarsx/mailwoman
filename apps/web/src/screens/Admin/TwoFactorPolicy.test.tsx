@@ -29,7 +29,7 @@ function makePolicy(
 }
 
 // `DomainDto` (crates/mw-server/src/admin.rs:856): a domain is its name.
-const DOMAINS: Domain[] = [{ name: 'example.com' }, { name: 'example.org' }];
+const DOMAINS: Domain[] = [{ name: 'example.com',aliases:['alias.example.com'] }, { name: 'example.org' }];
 
 describe('admin require-two-factor policy (DQ2)', () => {
   it('reflects the loaded global + per-domain rows', async () => {
@@ -40,7 +40,7 @@ describe('admin require-two-factor policy (DQ2)', () => {
     render(() => <TwoFactorPolicy policy={api} api={makeAdminApi(DOMAINS)} />);
 
     await waitFor(() => expect(screen.getByTestId('admin-2fa-global')).toBeChecked());
-    await waitFor(() => expect(screen.getAllByTestId('admin-2fa-domain-row')).toHaveLength(1));
+    await waitFor(() => expect(screen.getAllByTestId('admin-2fa-domain-row')).toHaveLength(3));
     expect(screen.getByText('example.com')).toBeInTheDocument();
   });
 
@@ -65,18 +65,11 @@ describe('admin require-two-factor policy (DQ2)', () => {
     await waitFor(() => expect(screen.getByTestId('admin-2fa-global')).toBeChecked());
   });
 
-  it('adds a per-domain rule (lower-cased) and shows it after refetch', async () => {
-    const { api, set } = makePolicy([]);
-    render(() => <TwoFactorPolicy policy={api} api={makeAdminApi(DOMAINS)} />);
-    await waitFor(() => expect(screen.getByTestId('admin-2fa-add-domain')).toBeInTheDocument());
-
-    fireEvent.input(screen.getByTestId('admin-2fa-add-domain'), { target: { value: 'Example.ORG' } });
-    fireEvent.click(screen.getByTestId('admin-2fa-add-submit'));
-
-    await waitFor(() =>
-      expect(set).toHaveBeenCalledWith({ scopeKind: 'domain', scopeValue: 'example.org', require2fa: true }),
-    );
-    await waitFor(() => expect(screen.getByText('example.org')).toBeInTheDocument());
+  it('lists configured domains and aliases without a manual add form',async()=>{
+    const {api,set}=makePolicy([]);render(()=><TwoFactorPolicy policy={api} api={makeAdminApi(DOMAINS)}/>);
+    const require=await screen.findByLabelText('Require two-factor for example.org');
+    expect(await screen.findByText('alias.example.com')).toBeInTheDocument();expect(screen.queryByTestId('admin-2fa-add-domain')).not.toBeInTheDocument();
+    fireEvent.change(require,{target:{checked:true}});await waitFor(()=>expect(set).toHaveBeenCalledWith({scopeKind:'domain',scopeValue:'example.org',require2fa:true}));
   });
 
   it('toggling an existing domain row upserts that domain', async () => {
