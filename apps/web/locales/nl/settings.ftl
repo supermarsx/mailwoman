@@ -885,3 +885,13 @@ settings-permissions-push-worker-error = De achtergrondservice kon niet starten.
 settings-permissions-push-server-error = De server kon achtergrondmeldingen niet registreren. Controleer de accountinstellingen en probeer opnieuw.
 settings-permissions-push-browser-error = De browser kon geen pushabonnement maken. Controleer sitemachtigingen, browserondersteuning en netwerktoegang.
 settings-permissions-push-unlinked = Deze browser heeft een pushabonnement dat nog niet aan dit account is gekoppeld.
+
+cache-prefetchEnabled-help = Laadt waarschijnlijke volgende mappen vooraf. Standaard uit; vereist sessiecache.
+cache-hoverEnabled-help = Laadt een map vooraf na de ingestelde aanwijzerwachttijd. Vereist vooraf laden.
+cache-focusEnabled-help = Laadt een map vooraf na de ingestelde toetsenbordfocuswachttijd. Vereist vooraf laden.
+cache-dwellMs-help = Wachttijd voor aanwijzer of toetsenbordfocus voordat vooraf laden begint.
+cache-idleEnabled-help = Laadt nabije mappen tijdens inactiviteit vooraf. Vereist vooraf laden.
+cache-idleDelayMs-help = Wachttijd na de laatste interactie voordat vooraf laden bij inactiviteit begint.
+cache-maxConcurrency-help = Maximaal gelijktijdige achtergrondverzoeken. Lagere waarden besparen bandbreedte en servercapaciteit.
+cache-maxQueued-help = Maximaal wachtende laadopdrachten. Extra opdrachten vervallen; lopende gaan door.
+cache-preloadMessages-help = Laadt ook berichtinhoud vooraf. Standaard uit; gebruikt meer data en cache. Uitsluitingen en limieten blijven gelden.

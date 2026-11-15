@@ -866,3 +866,13 @@ settings-permissions-push-worker-error = Le service en arrière-plan n’a pas p
 settings-permissions-push-server-error = Le serveur n’a pas pu enregistrer les notifications en arrière-plan. Vérifiez les paramètres du compte et réessayez.
 settings-permissions-push-browser-error = Le navigateur n’a pas pu créer l’abonnement push. Vérifiez les autorisations du site, la compatibilité et le réseau.
 settings-permissions-push-unlinked = Ce navigateur possède un abonnement push qui n’est pas encore lié à ce compte.
+
+cache-prefetchEnabled-help = Précharge les dossiers probables avant leur ouverture. Désactivé par défaut ; nécessite le cache de session.
+cache-hoverEnabled-help = Précharge un dossier après le survol pendant le délai ci-dessous. Nécessite le préchargement.
+cache-focusEnabled-help = Précharge un dossier après le focus clavier pendant le délai ci-dessous. Nécessite le préchargement.
+cache-dwellMs-help = Durée de survol ou de focus clavier avant le début du préchargement.
+cache-idleEnabled-help = Précharge les dossiers proches pendant votre inactivité. Nécessite le préchargement.
+cache-idleDelayMs-help = Délai après la dernière interaction avant le préchargement en veille.
+cache-maxConcurrency-help = Nombre maximal de requêtes simultanées en arrière-plan. Une valeur basse économise le réseau et le serveur.
+cache-maxQueued-help = Nombre maximal de préchargements en attente. Les demandes supplémentaires sont abandonnées ; les demandes en cours continuent.
+cache-preloadMessages-help = Précharge aussi le contenu des messages. Désactivé par défaut ; consomme davantage de données et de cache. Les exclusions et limites restent applicables.

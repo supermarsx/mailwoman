@@ -866,3 +866,13 @@ settings-permissions-push-worker-error = Der Hintergrunddienst konnte nicht star
 settings-permissions-push-server-error = Der Server konnte Hintergrundbenachrichtigungen nicht registrieren. Prüfen Sie die Kontoeinstellungen und versuchen Sie es erneut.
 settings-permissions-push-browser-error = Der Browser konnte kein Push-Abonnement erstellen. Prüfen Sie Websiteberechtigungen, Browserunterstützung und Netzwerk.
 settings-permissions-push-unlinked = Dieser Browser hat ein Push-Abonnement, das noch nicht mit diesem Konto verknüpft ist.
+
+cache-prefetchEnabled-help = Lädt wahrscheinliche nächste Ordner vorab. Standardmäßig aus; benötigt den Sitzungscache.
+cache-hoverEnabled-help = Lädt einen Ordner nach der unten eingestellten Zeigerverweildauer vor. Benötigt Vorladen.
+cache-focusEnabled-help = Lädt einen Ordner nach der unten eingestellten Tastaturfokusdauer vor. Benötigt Vorladen.
+cache-dwellMs-help = Verweildauer von Zeiger oder Tastaturfokus vor dem Vorladen.
+cache-idleEnabled-help = Lädt benachbarte Ordner während Inaktivität vor. Benötigt Vorladen.
+cache-idleDelayMs-help = Wartezeit nach der letzten Interaktion bis zum Vorladen bei Inaktivität.
+cache-maxConcurrency-help = Maximal gleichzeitig laufende Hintergrundanfragen. Kleinere Werte sparen Bandbreite und Serverleistung.
+cache-maxQueued-help = Maximal wartende Vorladeaufträge. Weitere Aufträge entfallen; laufende werden fortgesetzt.
+cache-preloadMessages-help = Lädt auch Nachrichteninhalte vorab. Standardmäßig aus; benötigt mehr Daten und Cache. Ausschlüsse und Größenlimits gelten weiterhin.

@@ -887,3 +887,13 @@ settings-permissions-push-worker-error = Nie można uruchomić usługi w tle. Od
 settings-permissions-push-server-error = Serwer nie mógł zarejestrować powiadomień w tle. Sprawdź ustawienia konta i spróbuj ponownie.
 settings-permissions-push-browser-error = Przeglądarka nie mogła utworzyć subskrypcji push. Sprawdź uprawnienia witryny, obsługę przeglądarki i sieć.
 settings-permissions-push-unlinked = Ta przeglądarka ma subskrypcję push, która nie jest jeszcze powiązana z tym kontem.
+
+cache-prefetchEnabled-help = Pobiera przewidywane kolejne foldery przed otwarciem. Domyślnie wyłączone; wymaga pamięci podręcznej sesji.
+cache-hoverEnabled-help = Wstępnie pobiera folder po zatrzymaniu wskaźnika na podany czas. Wymaga wstępnego pobierania.
+cache-focusEnabled-help = Wstępnie pobiera folder po ustawieniu fokusu klawiatury na podany czas. Wymaga wstępnego pobierania.
+cache-dwellMs-help = Czas zatrzymania wskaźnika lub fokusu przed rozpoczęciem pobierania.
+cache-idleEnabled-help = Pobiera pobliskie foldery podczas bezczynności. Wymaga wstępnego pobierania.
+cache-idleDelayMs-help = Czas oczekiwania od ostatniej interakcji do pobierania podczas bezczynności.
+cache-maxConcurrency-help = Maksymalna liczba równoległych żądań w tle. Niższe wartości oszczędzają łącze i serwer.
+cache-maxQueued-help = Maksymalna liczba oczekujących zadań. Nadmiarowe są odrzucane; uruchomione trwają dalej.
+cache-preloadMessages-help = Pobiera też treść wiadomości. Domyślnie wyłączone; zużywa więcej danych i pamięci. Wykluczenia i limity nadal obowiązują.

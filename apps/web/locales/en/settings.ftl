@@ -864,3 +864,13 @@ settings-permissions-push-worker-error = The background worker could not start. 
 settings-permissions-push-server-error = The server could not register background notifications. Check the account settings and try again.
 settings-permissions-push-browser-error = The browser could not create a push subscription. Check site permissions, browser support and network access.
 settings-permissions-push-unlinked = This browser has a push subscription that is not yet linked to this account.
+
+cache-prefetchEnabled-help = Fetch likely next folders before you open them. Off by default; requires the session cache.
+cache-hoverEnabled-help = Prepare a folder when the pointer rests on it, after the delay below. Requires speculative preloading.
+cache-focusEnabled-help = Prepare a folder when you focus it with the keyboard, after the delay below. Requires speculative preloading.
+cache-dwellMs-help = How long the pointer or keyboard focus must stay on a folder before preloading starts.
+cache-idleEnabled-help = Prepare nearby folders when you are not interacting with the app. Requires speculative preloading.
+cache-idleDelayMs-help = How long to wait after your last interaction before idle preloading starts.
+cache-maxConcurrency-help = Maximum background requests running together. Lower values use less bandwidth and server capacity.
+cache-maxQueued-help = Maximum waiting preload jobs. Requests beyond this limit are dropped; already running jobs continue.
+cache-preloadMessages-help = Also fetch message content in advance. Off by default; uses more data and cache space. Folder exclusions and size limits still apply.

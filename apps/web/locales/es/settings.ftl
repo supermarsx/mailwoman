@@ -866,3 +866,13 @@ settings-permissions-push-worker-error = No se pudo iniciar el servicio en segun
 settings-permissions-push-server-error = El servidor no pudo registrar las notificaciones en segundo plano. Revise la configuración de la cuenta e inténtelo de nuevo.
 settings-permissions-push-browser-error = El navegador no pudo crear la suscripción push. Revise los permisos del sitio, la compatibilidad y la conexión.
 settings-permissions-push-unlinked = Este navegador tiene una suscripción push aún no vinculada a esta cuenta.
+
+cache-prefetchEnabled-help = Precarga las carpetas probables antes de abrirlas. Desactivado por defecto; requiere la caché de sesión.
+cache-hoverEnabled-help = Precarga una carpeta al mantener el puntero sobre ella durante el tiempo indicado. Requiere precarga.
+cache-focusEnabled-help = Precarga una carpeta al mantener el foco del teclado durante el tiempo indicado. Requiere precarga.
+cache-dwellMs-help = Tiempo que el puntero o el foco debe permanecer en una carpeta antes de precargar.
+cache-idleEnabled-help = Precarga carpetas cercanas mientras no interactúas con la aplicación. Requiere precarga.
+cache-idleDelayMs-help = Espera tras la última interacción antes de precargar por inactividad.
+cache-maxConcurrency-help = Máximo de solicitudes simultáneas en segundo plano. Un valor menor reduce tráfico y carga del servidor.
+cache-maxQueued-help = Máximo de tareas de precarga pendientes. Las adicionales se descartan; las iniciadas continúan.
+cache-preloadMessages-help = Precarga también el contenido de los mensajes. Desactivado por defecto; consume más datos y caché. Se mantienen las exclusiones y límites.

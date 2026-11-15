@@ -862,3 +862,13 @@ settings-permissions-push-worker-error = Impossibile avviare il servizio in back
 settings-permissions-push-server-error = Il server non ha potuto registrare le notifiche in background. Controlla le impostazioni dell’account e riprova.
 settings-permissions-push-browser-error = Il browser non ha potuto creare la sottoscrizione push. Controlla autorizzazioni del sito, compatibilità e rete.
 settings-permissions-push-unlinked = Questo browser ha una sottoscrizione push non ancora collegata a questo account.
+
+cache-prefetchEnabled-help = Precarica le cartelle probabili prima di aprirle. Disattivato per impostazione predefinita; richiede la cache di sessione.
+cache-hoverEnabled-help = Precarica una cartella dopo la permanenza del puntatore per il ritardo indicato. Richiede il precaricamento.
+cache-focusEnabled-help = Precarica una cartella dopo il focus da tastiera per il ritardo indicato. Richiede il precaricamento.
+cache-dwellMs-help = Tempo di permanenza del puntatore o del focus prima del precaricamento.
+cache-idleEnabled-help = Precarica cartelle vicine durante inattività. Richiede il precaricamento.
+cache-idleDelayMs-help = Attesa dopo l’ultima interazione prima del precaricamento in inattività.
+cache-maxConcurrency-help = Numero massimo di richieste simultanee in background. Valori inferiori riducono traffico e carico del server.
+cache-maxQueued-help = Numero massimo di precaricamenti in attesa. Quelli in eccesso vengono scartati; quelli avviati continuano.
+cache-preloadMessages-help = Precarica anche i contenuti dei messaggi. Disattivato per impostazione predefinita; usa più dati e cache. Esclusioni e limiti restano attivi.

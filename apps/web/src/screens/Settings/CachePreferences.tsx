@@ -14,7 +14,7 @@ const PREFETCH_KEYS=MAIL_CACHE_FIELDS.map(f=>f[0]).filter(k=>!STORE_KEYS.include
 /** Search-index entries (offline / cache section). */
 export const CACHE_CARDS:readonly CardSpec[]=[
  {id:'cache-card-store',section:'reader',title:'cache-card-store',help:'cache-help-durable',rows:[...STORE_KEYS.map(k=>({id:`cache-${k}`,label:`cache-${k}`})),{id:'cache-excludedFolders',label:'cache-excludedFolders',help:'cache-exclusions-help'}]},
- {id:'cache-card-prefetch',section:'reader',title:'cache-card-prefetch',help:'cache-card-prefetch-help',rows:PREFETCH_KEYS.map(k=>({id:`cache-${k}`,label:`cache-${k}`}))},
+ {id:'cache-card-prefetch',section:'reader',title:'cache-card-prefetch',help:'cache-card-prefetch-help',rows:PREFETCH_KEYS.map(k=>({id:`cache-${k}`,label:`cache-${k}`,help:`cache-${k}-help`}))},
 ];
 
 function CacheRow(props:{field:Field}):JSX.Element{
@@ -22,7 +22,7 @@ function CacheRow(props:{field:Field}):JSX.Element{
  const setting=useSetting<boolean|number>(`mail.cache.${field[0]}`,field[1],(value):value is boolean|number=>typeof value===typeof field[1]);
  const disabled=()=>!setting.entry()||setting.locked()||setting.saving();
  const id=`cache-${field[0]}`;
- return <SettingRow controlId={id} label={t(id)} {...(field[0]==='keepIndefinitely'?{help:t('cache-keepIndefinitely-help')}:{})} handle={setting}>{d=>
+ return <SettingRow controlId={id} label={t(id)} {...(field[0]==='keepIndefinitely'||PREFETCH_KEYS.includes(field[0])?{help:t(`cache-${field[0]}-help`)}:{})} handle={setting}>{d=>
   <Show when={typeof field[1]==='boolean'} fallback={<input id={id} class={css.input} type="number" min={field.length>2?field[2]:undefined} max={field.length>2?field[3]:undefined} aria-describedby={d()} value={Number(setting.value())} disabled={disabled()} onChange={event=>{const value=event.currentTarget.valueAsNumber;if(typeof field[2]==='number'&&typeof field[3]==='number'&&Number.isInteger(value)&&value>=field[2]&&value<=field[3])void setting.set(value);}}/>}>
    <input id={id} type="checkbox" checked={setting.value()===true} disabled={disabled()} aria-describedby={d()} onChange={event=>void setting.set(event.currentTarget.checked)}/>
   </Show>}</SettingRow>;

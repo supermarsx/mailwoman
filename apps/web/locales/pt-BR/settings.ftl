@@ -885,3 +885,13 @@ settings-permissions-push-worker-error = Não foi possível iniciar o serviço e
 settings-permissions-push-server-error = O servidor não conseguiu registrar as notificações em segundo plano. Verifique as configurações da conta e tente novamente.
 settings-permissions-push-browser-error = O navegador não conseguiu criar a assinatura push. Verifique as permissões do site, a compatibilidade e o acesso à rede.
 settings-permissions-push-unlinked = Este navegador tem uma assinatura push ainda não vinculada a esta conta.
+
+cache-prefetchEnabled-help = Prepara as próximas pastas antes de abri-las. Desativado por padrão; requer o cache de sessão.
+cache-hoverEnabled-help = Prepara uma pasta quando o ponteiro permanece sobre ela, após o atraso abaixo. Requer pré-carregamento.
+cache-focusEnabled-help = Prepara uma pasta quando recebe foco pelo teclado, após o atraso abaixo. Requer pré-carregamento.
+cache-dwellMs-help = Tempo que o ponteiro ou foco deve permanecer numa pasta antes de iniciar o pré-carregamento.
+cache-idleEnabled-help = Prepara pastas próximas quando você não interage com o aplicativo. Requer pré-carregamento.
+cache-idleDelayMs-help = Tempo de espera após a última interação antes do pré-carregamento por inatividade.
+cache-maxConcurrency-help = Máximo de solicitações simultâneas em segundo plano. Valores menores reduzem o tráfego e a carga do servidor.
+cache-maxQueued-help = Máximo de tarefas de pré-carregamento em espera. As excedentes são descartadas; as já iniciadas continuam.
+cache-preloadMessages-help = Busca também o conteúdo das mensagens antecipadamente. Desativado por padrão; usa mais dados e cache. As exclusões e limites continuam a valer.

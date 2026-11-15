@@ -875,3 +875,13 @@ settings-permissions-push-worker-error = 无法启动后台服务。请重新加
 settings-permissions-push-server-error = 服务器无法注册后台通知。请检查账户设置后重试。
 settings-permissions-push-browser-error = 浏览器无法创建推送订阅。请检查网站权限、浏览器支持情况和网络连接。
 settings-permissions-push-unlinked = 此浏览器的推送订阅尚未关联到此账户。
+
+cache-prefetchEnabled-help = 在打开之前预加载可能接下来使用的文件夹。默认关闭，需要会话缓存。
+cache-hoverEnabled-help = 指针停留指定时间后预加载该文件夹。需要启用预加载。
+cache-focusEnabled-help = 键盘焦点停留指定时间后预加载该文件夹。需要启用预加载。
+cache-dwellMs-help = 预加载开始前，指针或键盘焦点在文件夹上停留的时间。
+cache-idleEnabled-help = 没有操作时预加载附近的文件夹。需要启用预加载。
+cache-idleDelayMs-help = 最后一次操作后，开始空闲预加载前的等待时间。
+cache-maxConcurrency-help = 同时运行的后台请求上限。较低值可节省带宽和服务器资源。
+cache-maxQueued-help = 等待中的预加载任务上限。超出的任务会被丢弃，运行中的任务继续。
+cache-preloadMessages-help = 还提前加载邮件正文。默认关闭，会使用更多流量和缓存。文件夹排除规则和大小限制仍适用。

@@ -856,3 +856,13 @@ settings-permissions-push-worker-error = バックグラウンドサービスを
 settings-permissions-push-server-error = サーバーでバックグラウンド通知を登録できませんでした。アカウント設定を確認して再試行してください。
 settings-permissions-push-browser-error = ブラウザーでプッシュ購読を作成できませんでした。サイトの権限、ブラウザーの対応状況、ネットワークを確認してください。
 settings-permissions-push-unlinked = このブラウザーには、このアカウントにまだ関連付けられていないプッシュ購読があります。
+
+cache-prefetchEnabled-help = 開く前に次に使う可能性の高いフォルダーを読み込みます。既定は無効で、セッションキャッシュが必要です。
+cache-hoverEnabled-help = 指定時間ポインターを置いたフォルダーを先読みします。先読みの有効化が必要です。
+cache-focusEnabled-help = 指定時間キーボードフォーカスを置いたフォルダーを先読みします。先読みの有効化が必要です。
+cache-dwellMs-help = 先読み開始までポインターやフォーカスをフォルダーに置く時間です。
+cache-idleEnabled-help = 操作していない間に近くのフォルダーを先読みします。先読みの有効化が必要です。
+cache-idleDelayMs-help = 最後の操作からアイドル時の先読みまでの待ち時間です。
+cache-maxConcurrency-help = 同時に実行するバックグラウンド要求の上限です。少ないほど通信量とサーバー負荷を抑えます。
+cache-maxQueued-help = 待機する先読みジョブの上限です。超過分は破棄し、実行中の処理は続けます。
+cache-preloadMessages-help = メッセージ本文も先読みします。既定は無効で、通信量とキャッシュ使用量が増えます。除外設定とサイズ制限は引き続き適用されます。
