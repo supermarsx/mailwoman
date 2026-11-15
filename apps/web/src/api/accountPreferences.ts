@@ -62,6 +62,7 @@ export function normalizeAccountUiPreferences(preferences:AccountUiPreferences):
   const folderProps=Object.fromEntries(Object.entries(preferences.folderProps).map(([id,value])=>{
     const props={...value};
     if(typeof props.hideWhenEmpty!=='boolean')delete props.hideWhenEmpty;
+    if(typeof props.markMovedRead!=='boolean')delete props.markMovedRead;
     return [id,props];
   }));
   return {...preferences,folderProps};

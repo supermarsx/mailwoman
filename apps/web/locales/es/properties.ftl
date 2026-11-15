@@ -671,3 +671,6 @@ props-unnamed = Sin nombre
 props-unread = No leído
 
 props-yes = si
+
+props-ovr-markMovedRead = Marcar mensajes movidos como leídos
+props-ovr-markMovedRead-help = Los mensajes movidos a esta carpeta en Mailwoman se marcan como leídos. Deshacer restaura el estado de lectura anterior. Desactivado por defecto.

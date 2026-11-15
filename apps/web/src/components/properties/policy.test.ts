@@ -11,7 +11,7 @@ describe('policy readers',()=>{
  it('default to everything on when nothing is set',()=>{
   expect(folderSections(reader({}))).toHaveLength(7);
   expect(messageSections(reader({}))).toHaveLength(5);
-  expect(allowedOverrides(reader({}))).toHaveLength(11);
+  expect(allowedOverrides(reader({}))).toHaveLength(13);
   expect(allowedOverrides(reader({}))).toContain('hideWhenEmpty');
   expect(permanentDeletePolicy(reader({}))).toBe('allow');
   expect(remoteVisibility(reader({}))).toBe('masked-host');

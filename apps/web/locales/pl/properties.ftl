@@ -675,3 +675,6 @@ props-unnamed = Bezimienny
 props-unread = Nieprzeczytane
 
 props-yes = Tak
+
+props-ovr-markMovedRead = Oznacz przeniesione wiadomości jako przeczytane
+props-ovr-markMovedRead-help = Wiadomości przeniesione do tego folderu w Mailwoman są oznaczane jako przeczytane. Cofnij przywraca poprzedni stan odczytu. Domyślnie wyłączone.

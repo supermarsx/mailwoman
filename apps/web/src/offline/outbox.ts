@@ -76,6 +76,7 @@ export interface MovePayload {
   accountId: Id;
   emailId: Id;
   mailboxIds: Record<Id, boolean>;
+  seen?: boolean;
 }
 export interface SendPayload {
   accountId: Id;
@@ -159,7 +160,7 @@ export function outboundToRequest(item: OutboundItem): JmapRequest {
     case 'move': {
       const p = item.payload as MovePayload;
       return request(MAIL_USING, [
-        ['Email/set', { accountId: p.accountId, update: { [p.emailId]: { mailboxIds: p.mailboxIds } } }, 'set'],
+        ['Email/set', { accountId: p.accountId, update: { [p.emailId]: { mailboxIds: p.mailboxIds, ...(p.seen===undefined?{}:{'keywords/$seen':p.seen?true:null}) } } }, 'set'],
       ]);
     }
     case 'draft': {

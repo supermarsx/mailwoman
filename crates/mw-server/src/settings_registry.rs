@@ -2914,10 +2914,10 @@ pub static REGISTRY: &[SettingDef] = &[
             max_len: 12,
             max_item: 24
         },
-        r#"["counters","badgeColour","compactBadge","notifications","sort","threading","previewLines","markReadDelay","replyIdentity","unifiedInbox","hideWhenEmpty","folderColour"]"#,
+        r#"["counters","badgeColour","compactBadge","notifications","sort","threading","previewLines","markReadDelay","replyIdentity","unifiedInbox","hideWhenEmpty","folderColour","markMovedRead"]"#,
         GD,
         "mail",
-        "Per-folder overrides users may set: counters, badgeColour, compactBadge, notifications, sort, threading, previewLines, markReadDelay, replyIdentity, unifiedInbox, hideWhenEmpty, folderColour"
+        "Per-folder overrides users may set: counters, badgeColour, compactBadge, notifications, sort, threading, previewLines, markReadDelay, replyIdentity, unifiedInbox, hideWhenEmpty, folderColour, markMovedRead"
     ),
     def!(
         "properties.folder.notes.enabled",

@@ -667,3 +667,6 @@ props-unnamed = Unbenannt
 props-unread = Ungelesen
 
 props-yes = Ja
+
+props-ovr-markMovedRead = Verschobene Nachrichten als gelesen markieren
+props-ovr-markMovedRead-help = In Mailwoman in diesen Ordner verschobene Nachrichten werden als gelesen markiert. Rückgängig stellt den vorherigen Lesestatus wieder her. Standardmäßig deaktiviert.

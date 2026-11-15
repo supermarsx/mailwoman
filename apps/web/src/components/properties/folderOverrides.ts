@@ -9,7 +9,7 @@ import {allowedOverrides,type OverrideKey} from './policy.ts';
 export interface FolderProps {
  notes?:string;hideWhenEmpty?:boolean;counters?:'none'|'unread'|'total'|'both';badgeColour?:string;folderColour?:string;compactBadge?:boolean;
  notifications?:'on'|'off'|'vips';sort?:'date'|'from'|'subject'|'size';threading?:boolean;
- previewLines?:number;markReadDelayMs?:number;replyIdentity?:string;unifiedInbox?:boolean;
+ markMovedRead?:boolean;previewLines?:number;markReadDelayMs?:number;replyIdentity?:string;unifiedInbox?:boolean;
 }
 export type OverrideSource='folder'|'user'|'admin-default'|'admin-locked';
 export interface Effective<T=unknown> {value:T|undefined;source:OverrideSource;locked:boolean;overridden:boolean}
@@ -32,6 +32,7 @@ export function folderColour(folderId:string,preferences:Readonly<Record<string,
 }
 
 export const OVERRIDE_DEFS:readonly OverrideDef[]=[
+ {key:'markMovedRead',prop:'markMovedRead',setting:null,type:{kind:'bool'},defaultValue:false},
  {key:'hideWhenEmpty',prop:'hideWhenEmpty',setting:'folders.hideEmpty',type:{kind:'bool'},defaultValue:false},
  {key:'counters',prop:'counters',setting:'mail.folderCounts',type:{kind:'enum',options:['none','unread','total','both']},fromSetting:v=>v==='unreadIfAny'?'unread':v},
  {key:'badgeColour',prop:'badgeColour',setting:null,type:{kind:'colour'}},

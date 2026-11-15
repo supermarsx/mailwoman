@@ -675,3 +675,6 @@ props-unnamed = Sem nome
 props-unread = Não lido
 
 props-yes = Sim
+
+props-ovr-markMovedRead = Marcar mensagens movidas como lidas
+props-ovr-markMovedRead-help = As mensagens movidas para esta pasta no Mailwoman são marcadas como lidas. Desfazer restaura o estado de leitura anterior. Desativado por padrão.

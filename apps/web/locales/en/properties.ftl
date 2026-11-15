@@ -345,3 +345,6 @@ props-group-visibility = Folder visibility
 props-group-visibility-help = Choose when this folder appears in the folder list.
 props-ovr-hideWhenEmpty = Hide when empty
 props-ovr-hideWhenEmpty-help = Hide this folder when it has no messages. Off keeps it visible; Same as default follows your folder preference. Inbox, search folders, unknown counts and parents needed to reach visible folders stay shown.
+
+props-ovr-markMovedRead = Mark moved messages as read
+props-ovr-markMovedRead-help = Messages moved to this folder in Mailwoman are marked as read. Undo restores their previous read status. Disabled by default.

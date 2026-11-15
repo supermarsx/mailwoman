@@ -671,3 +671,6 @@ props-unnamed = Senza nome
 props-unread = Non letto
 
 props-yes = Sì
+
+props-ovr-markMovedRead = Segna come letti i messaggi spostati
+props-ovr-markMovedRead-help = I messaggi spostati in questa cartella in Mailwoman vengono segnati come letti. Annulla ripristina lo stato precedente. Disattivato per impostazione predefinita.

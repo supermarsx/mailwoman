@@ -1,3 +1,5 @@
+import {accountUiPreferences} from '../../api/accountPreferences.ts';
+import {appliedOverride} from '../../components/properties/folderOverrides.ts';
 import {afterMoveMode,messagesMoved,moveNeighbour,type MovedMessages} from '../moveEvents.ts';
 import {messagesTrashed} from '../trashEvents.ts';
 import {resolveSender} from '../../api/senderResolution.ts';
@@ -1358,6 +1360,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       }
     }
     if (taken.length === 0) return;
+    const markMovedRead=appliedOverride('markMovedRead',targetMailboxId,accountUiPreferences().folderProps)===true;
     const originallyTaken=taken;
     const restore = (items: readonly Taken[]) => {
       if(!current()||sourceKey(pageSource())!==origin)return;
@@ -1397,19 +1400,20 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
           accountId: acct,
           emailId: email.id,
           mailboxIds: { [targetMailboxId]: true },
+          ...(markMovedRead?{seen:true}:{}),
         });
         queuedOffline.add(email.id);
         if (typeof queued === 'string') queuedIds.set(email.id, queued);
       }
     } else {
       const patches: Record<Id, Record<string, unknown>> = {};
-      for (const { email } of taken) patches[email.id] = { mailboxIds: { [targetMailboxId]: true } };
+      for (const { email } of taken) patches[email.id] = { mailboxIds: { [targetMailboxId]: true },...(markMovedRead?{'keywords/$seen':true}:{}) };
       // An open reader follows its own window's move at once (t39 L8): the
       // push that comes back must not read as a change from elsewhere.
       const followReaders = (items: readonly Taken[], back: boolean): void => {
         for (const { email } of items) {
           if(back&&relocations.has(email.id)&&relocations.get(email.id)?.token!==token)continue;
-          for (const view of readerViews) view.patch(email.id, { mailboxIds: back ? email.mailboxIds : { [targetMailboxId]: true } });
+          for (const view of readerViews) view.patch(email.id, { mailboxIds: back ? email.mailboxIds : { [targetMailboxId]: true },...(markMovedRead?{keywords:back?email.keywords:{...email.keywords,$seen:true}}:{}) });
         }
       };
       followReaders(taken, false);
@@ -1471,12 +1475,12 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         if (isOffline() && queue.enqueueOffline) {
           for (const { email } of reverse) {
             if (!current()) return;
-            await queue.enqueueOffline('move', { accountId: acct, emailId: email.id, mailboxIds: email.mailboxIds });
+            await queue.enqueueOffline('move', { accountId: acct, emailId: email.id, mailboxIds: email.mailboxIds,...(markMovedRead?{seen:email.keywords?.['$seen']===true}:{}) });
           }
         } else {
           const patches: Record<Id, Record<string, unknown>> = {};
-          for (const { email } of reverse) patches[email.id] = { mailboxIds: email.mailboxIds };
-          for (const { email } of reverse) for (const view of readerViews) view.patch(email.id, { mailboxIds: email.mailboxIds });
+          for (const { email } of reverse) patches[email.id] = { mailboxIds: email.mailboxIds,...(markMovedRead?{'keywords/$seen':email.keywords?.['$seen']===true?true:null}:{}) };
+          for (const { email } of reverse) for (const view of readerViews) view.patch(email.id, { mailboxIds: email.mailboxIds,...(markMovedRead?{keywords:email.keywords}:{}) });
           const finishCounts = beginCountWrite();
           let response: JmapResponse;
           try { response = await jmapCall(updateEmails(acct, patches)); }
@@ -1494,7 +1498,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       }
       clearProjection([...back,...reverse]);
       restore([...back, ...reverse]);
-    },10_000,t('mail-undo-action'),false,progressId?{id:progressId,tone:refusedCount>0?'warning':'info'}:{},async()=>{if(!current())throw new UndoUnavailable();await moveIdsAgain(moved.map(item=>item.email.id),targetMailboxId);});
+    },10_000,t('mail-undo-action'),false,progressId?{id:progressId,tone:refusedCount>0?'warning':'info'}:{},async()=>{if(!current())throw new UndoUnavailable();await moveIdsAgain(moved.map(item=>item.email.id),targetMailboxId,markMovedRead);});
     } catch(error) {
       if(!progressId)throw error;
       if(current()){if(offline)restore(taken.filter(item=>!queuedOffline.has(item.email.id)));fail(t('mail-toast-move-failed'));}
@@ -1504,16 +1508,16 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
   }
   /** Repeat a move for the undo history's Redo: straight to the server (the messages may be in another folder's list now), leaving the rows of the current list. */
-  async function moveIdsAgain(ids: readonly Id[], targetMailboxId: Id): Promise<void> {
+  async function moveIdsAgain(ids: readonly Id[], targetMailboxId: Id,markMovedRead=false): Promise<void> {
     const acct = accountId();
     if (acct === null) throw new UndoUnavailable();
     if (isOffline() && ctx.enqueueOffline) {
-      for (const id of ids) await ctx.enqueueOffline('move', { accountId: acct, emailId: id, mailboxIds: { [targetMailboxId]: true } });
+      for (const id of ids) await ctx.enqueueOffline('move', { accountId: acct, emailId: id, mailboxIds: { [targetMailboxId]: true },...(markMovedRead?{seen:true}:{}) });
       takeFromList(ids);
       return;
     }
     const patches: Record<Id, Record<string, unknown>> = {};
-    for (const id of ids) patches[id] = { mailboxIds: { [targetMailboxId]: true } };
+    for (const id of ids) patches[id] = { mailboxIds: { [targetMailboxId]: true },...(markMovedRead?{'keywords/$seen':true}:{}) };
     const finishCounts = beginCountWrite();
     let res: JmapResponse;
     try { res = await jmapCall(updateEmails(acct, patches)); } catch (error) { await finishCounts(); throw error; }
@@ -1521,7 +1525,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     await finishCounts(res);
     if (refused.size === ids.length) throw new UndoUnavailable(t('undo-reason-moved'));
     takeFromList(ids.filter((id) => !refused.has(id)));
-    for (const id of ids) for (const view of readerViews) if (!refused.has(id)) view.patch(id, { mailboxIds: { [targetMailboxId]: true } });
+    for (const id of ids) for (const view of readerViews) if (!refused.has(id)) view.patch(id, { mailboxIds: { [targetMailboxId]: true },...(markMovedRead?{keywords:{...(view.openEmail()?.keywords??{}),$seen:true}}:{}) });
     ctx.broadcastChange?.();
   }
   async function archiveMessage(ids: Id | readonly Id[]): Promise<void> {

@@ -667,3 +667,6 @@ props-unnamed = Naamloos
 props-unread = Ongelezen
 
 props-yes = Ja
+
+props-ovr-markMovedRead = Verplaatste berichten als gelezen markeren
+props-ovr-markMovedRead-help = Berichten die in Mailwoman naar deze map worden verplaatst, worden als gelezen gemarkeerd. Ongedaan maken herstelt de vorige leesstatus. Standaard uitgeschakeld.

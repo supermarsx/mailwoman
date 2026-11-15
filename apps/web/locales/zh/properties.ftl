@@ -663,3 +663,6 @@ props-unnamed = 未命名
 props-unread = 未读
 
 props-yes = 是的
+
+props-ovr-markMovedRead = 将移入的邮件标为已读
+props-ovr-markMovedRead-help = 在 Mailwoman 中移入此文件夹的邮件会标为已读。撤销会恢复之前的阅读状态。默认禁用。

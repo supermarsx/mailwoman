@@ -17,7 +17,7 @@ type Patch={[K in keyof FolderProps]?:FolderProps[K]|undefined};
 
 /** The overrides the app applies today. */
 const COUNTER_OVERRIDES:readonly OverrideKey[]=['counters','compactBadge','badgeColour'];
-export const APPLIED_OVERRIDES:readonly OverrideKey[]=[...COUNTER_OVERRIDES,'hideWhenEmpty'];
+export const APPLIED_OVERRIDES:readonly OverrideKey[]=[...COUNTER_OVERRIDES,'hideWhenEmpty','markMovedRead'];
 const MORE_GROUPS:readonly {id:string;keys:readonly OverrideKey[]}[]=[
  {id:'notifications',keys:['notifications']},
  {id:'reading',keys:['sort','threading','previewLines','markReadDelay']},
@@ -41,6 +41,7 @@ export function Overrides(props:{box:Mailbox;onRetention:(()=>void)|undefined}):
     <OverrideRow def={OVERRIDE_DEFS.find(def=>def.key==='hideWhenEmpty')!} props={own()} onSet={set}/>
    </section>
   </Show>
+  <Show when={allowed().includes('markMovedRead')}><section class={css.card}><OverrideRow def={OVERRIDE_DEFS.find(def=>def.key==='markMovedRead')!} props={own()} onSet={set}/></section></Show>
   <Show when={applied().length>0}>
    <section class={css.card} aria-labelledby="props-ovr-g-counters">
     <h3 id="props-ovr-g-counters" class={css.cardTitle}>{t('props-group-counters')}</h3>

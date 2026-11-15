@@ -683,3 +683,6 @@ props-unnamed = لم يذكر اسمه
 props-unread = غير مقروءة
 
 props-yes = نعم
+
+props-ovr-markMovedRead = وضع علامة مقروء على الرسائل المنقولة
+props-ovr-markMovedRead-help = تُعلّم الرسائل المنقولة إلى هذا المجلد في Mailwoman كمقروءة. يعيد التراجع حالة القراءة السابقة. معطل افتراضيًا.

@@ -663,3 +663,6 @@ props-unnamed = 無名
 props-unread = 未読
 
 props-yes = はい
+
+props-ovr-markMovedRead = 移動したメッセージを既読にする
+props-ovr-markMovedRead-help = Mailwomanでこのフォルダーに移動したメッセージを既読にします。元に戻すと以前の既読状態に戻ります。既定では無効です。

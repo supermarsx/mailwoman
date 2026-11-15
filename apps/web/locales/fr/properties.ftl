@@ -675,3 +675,6 @@ props-unnamed = Sans nom
 props-unread = Non lu
 
 props-yes = Oui
+
+props-ovr-markMovedRead = Marquer les messages déplacés comme lus
+props-ovr-markMovedRead-help = Les messages déplacés vers ce dossier dans Mailwoman sont marqués comme lus. Annuler rétablit leur état de lecture précédent. Désactivé par défaut.

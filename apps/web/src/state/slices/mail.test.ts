@@ -24,6 +24,9 @@ import {
   type EmailBodyPart,
 } from '../../api/jmap-types.ts';
 
+const folderPreferences=vi.hoisted(()=>({value:{} as Record<string,unknown>}));
+vi.mock('../../api/accountPreferences.ts',async importOriginal=>({...await importOriginal<typeof import('../../api/accountPreferences.ts')>(),accountUiPreferences:()=>folderPreferences.value}));
+beforeEach(()=>{folderPreferences.value={};});
 vi.mock('../../api/senderResolution.ts',()=>({resolveSender:vi.fn()}));
 // t94: the per-sender overrides live on the server; these tests stub that API.
 vi.mock('../../api/focusedSenders.ts',()=>({loadFocusedSenders:vi.fn(async()=>[]),saveFocusedSender:vi.fn(async()=>undefined),importFocusedSenders:vi.fn(async()=>[])}));
@@ -1509,6 +1512,26 @@ describe('mail slice — offline mutation queue', () => {
       jmap.mockClear();await mail.refreshCurrentMailbox();
       const query=jmap.mock.calls.flatMap(([request])=>(request as JmapRequest).methodCalls).find(call=>call[0]==='Email/query');
       expect(query?.[1]['sort']).toEqual([{property:'from',isAscending:true},{property:'receivedAt',isAscending:false}]);
+    });
+  });
+  it('marks messages read in the same move and restores each original read status on undo',async()=>{
+    await withDeps([email('a'),email('b',{keywords:{$seen:true,custom:true}})],{online:()=>true},async(mail,{jmap})=>{
+      folderPreferences.value={folderProps:{archive:{markMovedRead:true}}};
+      await mail.archiveMessage(['a','b']);
+      const sets=()=>jmap.mock.calls.flatMap(([request])=>(request as JmapRequest).methodCalls).filter(call=>call[0]==='Email/set');
+      expect(sets().at(-1)?.[1]['update']).toEqual({a:{mailboxIds:{archive:true},'keywords/$seen':true},b:{mailboxIds:{archive:true},'keywords/$seen':true}});
+      jmap.mockClear();await mail.undoNow();
+      expect(sets().at(-1)?.[1]['update']).toEqual({a:{mailboxIds:{inbox:true},'keywords/$seen':null},b:{mailboxIds:{inbox:true},'keywords/$seen':true}});
+      expect(mail.messages().find(row=>row.id==='a')?.keywords).toEqual({});
+      expect(mail.messages().find(row=>row.id==='b')?.keywords).toEqual({$seen:true,custom:true});
+    });
+  });
+  it('queues the read change with an offline move and restores it in the reverse move',async()=>{
+    const enqueueOffline=vi.fn(async()=>undefined);
+    await withDeps([email('a')],{online:()=>false,enqueueOffline},async mail=>{
+      folderPreferences.value={folderProps:{archive:{markMovedRead:true}}};
+      await mail.archiveMessage('a');expect(enqueueOffline).toHaveBeenLastCalledWith('move',{accountId:'acct1',emailId:'a',mailboxIds:{archive:true},seen:true});
+      await mail.undoNow();expect(enqueueOffline).toHaveBeenLastCalledWith('move',{accountId:'acct1',emailId:'a',mailboxIds:{inbox:true},seen:false});
     });
   });
   it('online, undo moves the message back on the server and tells peer tabs', async () => {

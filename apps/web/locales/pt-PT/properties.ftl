@@ -346,3 +346,6 @@ props-group-visibility = Visibilidade da pasta
 props-group-visibility-help = Escolha quando esta pasta aparece na lista de pastas.
 props-ovr-hideWhenEmpty = Ocultar quando estiver vazia
 props-ovr-hideWhenEmpty-help = Ocultar esta pasta quando não contém mensagens. Desativado mantém-na visível; A predefinição segue a sua preferência. A Caixa de entrada, as pastas de pesquisa, as contagens desconhecidas e as pastas necessárias para chegar a pastas visíveis continuam disponíveis.
+
+props-ovr-markMovedRead = Marcar mensagens movidas como lidas
+props-ovr-markMovedRead-help = As mensagens movidas para esta pasta no Mailwoman são marcadas como lidas. Anular repõe o estado de leitura anterior. Desativado por predefinição.
