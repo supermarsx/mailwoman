@@ -50,3 +50,7 @@ preview-supported-audio = MP3, WAV, OGG, FLAC, AAC, M4A
 preview-supported-video = MP4, WebM, OGG, MOV
 preview-supported-message = EML, RFC 822, TNEF / winmail.dat
 preview-supported-calendar = ICS, ICAL, IFB
+
+preview-formats-title = Typy plików
+preview-advanced = Zaawansowane opcje formatów
+preview-default-layout = Układ domyślny

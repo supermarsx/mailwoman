@@ -1,0 +1,12 @@
+import {style,globalStyle} from '@vanilla-extract/css';
+import {vars} from '../theme/contract.css.ts';
+export const editor=style({display:'flex',flexDirection:'column',gap:vars.space[4],maxInlineSize:'60rem',minInlineSize:0});
+export const group=style({display:'flex',flexDirection:'column',gap:vars.space[3],padding:vars.space[4],border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:vars.radius.md,minInlineSize:0});
+export const heading=style({display:'flex',alignItems:'center',gap:vars.space[2],fontSize:'.95rem',fontWeight:vars.weight.bold,margin:0});
+export const formats=style({display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,17rem),1fr))',gap:vars.space[4]});
+export const format=style({display:'flex',flexDirection:'column',gap:vars.space[2]});
+export const tool=style({display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(10rem,14rem)',alignItems:'center',gap:vars.space[3],paddingBlock:vars.space[2],borderBlockStart:`${vars.border.hair} solid ${vars.color.border}`,'@media':{'(max-width:560px)':{gridTemplateColumns:'minmax(0,1fr)'}}});
+export const advanced=style({cursor:'pointer',color:vars.color.textDim,fontSize:'.85rem',paddingBlock:vars.space[2]});
+export const advancedBody=style({paddingBlock:vars.space[3]});
+globalStyle(`${group} p`,{margin:0,maxInlineSize:'70ch'});
+globalStyle(`${group} input:not([type="checkbox"])`,{maxInlineSize:'28rem'});

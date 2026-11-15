@@ -50,3 +50,7 @@ preview-supported-audio = MP3, WAV, OGG, FLAC, AAC, M4A
 preview-supported-video = MP4, WebM, OGG, MOV
 preview-supported-message = EML, RFC 822, TNEF / winmail.dat
 preview-supported-calendar = ICS, ICAL, IFB
+
+preview-formats-title = 文件类型
+preview-advanced = 高级格式选项
+preview-default-layout = 默认布局

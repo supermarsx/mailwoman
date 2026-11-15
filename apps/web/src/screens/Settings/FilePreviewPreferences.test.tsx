@@ -26,3 +26,16 @@ it('shows administrator defaults and disables every edit when locked',async()=>{
  await waitFor(()=>expect(screen.getByTestId('setting-lock-note')).toBeInTheDocument());
  expect(screen.getByRole('checkbox',{name:'PDF documents'})).toBeDisabled();expect(screen.getByRole('button',{name:'Save preview settings'})).toBeDisabled();expect(writes).toEqual([]);
 });
+
+it('separates image and PDF tooling and restores native placement without a forced toolbar override',async()=>{
+ render(()=><FilePreviewPreferences/>);
+ const zoom=await screen.findByRole('combobox',{name:'PDF zoom'});await waitFor(()=>expect(zoom).toBeEnabled());
+ expect(screen.getByRole('heading',{name:'PDF documents (PDF.js)'})).toBeInTheDocument();
+ expect(screen.getByRole('heading',{name:'Images'})).toBeInTheDocument();
+ expect(zoom).toHaveValue('default');
+ fireEvent.change(zoom,{target:{value:'hidden'}});expect(zoom).toHaveValue('hidden');
+ fireEvent.change(zoom,{target:{value:'default'}});expect(zoom).toHaveValue('default');
+ fireEvent.click(screen.getByRole('checkbox',{name:'PDF documents'}));
+ fireEvent.click(screen.getByRole('button',{name:'Save preview settings'}));
+ await waitFor(()=>expect(writes).toHaveLength(1));expect((writes[0]?.value as typeof DEFAULT_FILE_PREVIEWS).tools).not.toHaveProperty('pdf.zoom');
+});
