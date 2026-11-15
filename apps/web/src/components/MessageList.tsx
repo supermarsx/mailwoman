@@ -483,6 +483,8 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   // Where a Shift+click or Shift+Arrow range starts: the row last clicked or
   // toggled (a visual-row index), or `null` before any.
   const [anchor, setAnchor] = createSignal<number | null>(null);
+  let rangeAdded:Id[]=[];
+  createEffect(on(()=>JSON.stringify([orderScope(),app.searchActive(),app.search?.(),order.value(),order.group()]),()=>{setAnchor(null);rangeAdded=[];}));
 
   const tableMode=()=>settings()['mail.messageListStyle']?.value==='table';
   const rowHeight = (): number => messageRowHeight(app.density(),tableMode());
@@ -531,13 +533,15 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     if (sel.size === 0) return false;
     return idsOf(row).every((id) => sel.has(id));
   }
-  /** Select the rows from `from` to `to` (inclusive); `add` keeps what was selected. */
-  function selectRange(from: number, to: number, add: boolean): void {
+  /** Replace the previous Shift range while preserving independently picked rows. */
+  function selectRange(from: number, to: number): void {
     const all = rows();
     const lo = Math.max(0, Math.min(from, to));
     const hi = Math.min(all.length - 1, Math.max(from, to));
     const ids = all.slice(lo, hi + 1).flatMap(idsOf);
-    app.setSelection(add ? [...app.selectedIds(), ...ids] : ids);
+    const base=new Set([...app.selectedIds()].filter(id=>!rangeAdded.includes(id)));
+    rangeAdded=ids.filter(id=>!base.has(id));
+    app.setSelection([...base,...ids]);
   }
   const open = (id: Id): void => void (props.onOpenMessage ? props.onOpenMessage(id) : app.openMessage(id));
   const openTab = (id: Id): void => { if (props.onOpenMessageTab) props.onOpenMessageTab(id); else open(id); };
@@ -546,10 +550,12 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     setCursor(index);
     const action = classifyRowClick(e, { modifierSelection: modifierSelectionEnabled(), selecting: selecting() });
     if (action === 'range') {
-      selectRange(anchor() ?? index, index, e.ctrlKey || e.metaKey);
+      if(anchor()===null)setAnchor(index);
+      selectRange(anchor() ?? index, index);
       return;
     }
     setAnchor(index);
+    rangeAdded=[];
     if (action === 'toggle') {
       app.toggleSelection(idsOf(row));
       return;
@@ -837,7 +843,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     const from = anchor() ?? cursor();
     if (anchor() === null) setAnchor(from);
     moveCursor(next);
-    selectRange(from, next, false);
+    selectRange(from, next);
   }
 
   function onKeyDown(e: KeyboardEvent): void {
@@ -866,9 +872,10 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
       const row = rows()[cursor()];
       if (row === undefined) return;
       setAnchor(cursor());
+      rangeAdded=[];
       app.toggleSelection(idsOf(row));
-    } else if ((e.key === 'a' || e.key === 'A') && mod && onRow && modifierSelectionEnabled()) app.selectAllInView();
-    else if (e.key === 'Escape' && app.selectedIds().size > 0) app.clearSelection();
+    } else if ((e.key === 'a' || e.key === 'A') && mod && onRow && modifierSelectionEnabled()) {rangeAdded=[];app.selectAllInView();}
+    else if (e.key === 'Escape' && app.selectedIds().size > 0) {rangeAdded=[];app.clearSelection();}
     else return;
     e.preventDefault();
   }

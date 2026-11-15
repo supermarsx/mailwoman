@@ -42,6 +42,13 @@ afterEach(() => {
 });
 
 describe('MessageList selection', () => {
+  it('keeps separate picks while extending and shrinking a range',async()=>{
+    await setup();
+    fireEvent.click(row('Subject e'),{ctrlKey:true});fireEvent.click(row('Subject a'),{ctrlKey:true});fireEvent.click(row('Subject d'),{shiftKey:true});
+    expect(selectedSubjects()).toEqual(['Subject a','Subject b','Subject c','Subject d','Subject e']);
+    fireEvent.click(row('Subject b'),{shiftKey:true});expect(selectedSubjects()).toEqual(['Subject a','Subject b','Subject e']);
+    fireEvent.click(row('Subject a'),{metaKey:true});expect(selectedSubjects()).toEqual(['Subject b','Subject e']);
+  });
   it('keeps the bulk bar open while selection mode is active, including after selecting none', async () => {
     const { app } = await setup();
     const toggle = screen.getByRole('button', { name: 'Select messages' });
@@ -192,8 +199,11 @@ describe('MessageList selection', () => {
     fireEvent.click(row('Subject a'), { ctrlKey: true });
     expect(selectedSubjects()).toEqual(['Subject b', 'Subject e']);
     fireEvent.click(row('Subject d'), { shiftKey: true });
-    expect(selectedSubjects()).toEqual(['Subject a', 'Subject b', 'Subject c', 'Subject d']);
+    // The independent pick of e survives the new Shift range.
+    expect(selectedSubjects()).toEqual(['Subject a', 'Subject b', 'Subject c', 'Subject d','Subject e']);
     // Select all / Select none from the bar.
+    fireEvent.click(screen.getByRole('button', { name: 'Select none' }));
+    fireEvent.click(row('Subject b'),{ctrlKey:true});
     fireEvent.click(screen.getByRole('button', { name: 'Select all' }));
     expect(app.selectedIds().size).toBe(5);
     fireEvent.click(screen.getByRole('button', { name: 'Select none' }));
