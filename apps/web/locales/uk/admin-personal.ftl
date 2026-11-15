@@ -82,3 +82,6 @@ admin-personal-session-bar-always = Завжди показувати
 admin-personal-session-bar-warn-only = Лише коли сеанс скоро завершиться
 admin-personal-session-bar-hidden = Прихована
 admin-personal-session-bar-hint = Відображається внизу консолі. Показує лише обмеження сеансу на сервері; подовжити їх вона не може.
+
+admin-personal-avatar = Аватар консолі
+admin-personal-avatar-hint = Виберіть літери або піктограму та кольори. Аватар відображається в консолі адміністратора; скидання повертає ініціали.

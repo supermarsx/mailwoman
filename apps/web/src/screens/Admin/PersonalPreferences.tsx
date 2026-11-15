@@ -1,3 +1,6 @@
+import {MailboxAvatarEditor} from '../Settings/MailboxAvatarEditor.tsx';
+import {validAvatar} from '../../api/mailboxAvatar.ts';
+import * as accountCss from './shell/accountButtons.css.ts';
 import {TextModePreference} from '../Settings/TextModePreference.tsx';
 import { AppearanceCustomization } from '../../components/AppearanceCustomization.tsx';
 import { AdminTotp } from './AdminTotp.tsx';
@@ -38,7 +41,7 @@ function previewAccent(value: string | null): void {
 export function PersonalPreferences(): JSX.Element {
   const prefs = usePersonalPreferences();
   const shell = useShell();
-  onMount(() => void loadCatalog('admin-personal'));
+  onMount(() => { void loadCatalog('admin-personal'); void loadCatalog('linked-accounts'); });
   onMount(() => { void loadCatalog('appearance'); void loadCatalog('color-picker'); }); // t112: the accent picker labels
   const me = () => { const grants = shell.can.grants(); return grants.kind === 'listed' ? grants.me : null; };
   const blocked = () => prefs.loading() || !!prefs.error();
@@ -63,6 +66,14 @@ export function PersonalPreferences(): JSX.Element {
     <div class={tabsCss.tabs} ref={horizontalWheel}><div class={tabsCss.strip} role="tablist" aria-label={t('admin-personal-title')}><For each={tabs}>{tab=><button type="button" class={tabsCss.tab} role="tab" id={`${panelId}-${tab}-tab`} aria-controls={`${panelId}-${tab}-panel`} aria-selected={active()===tab} tabindex={active()===tab?0:-1} ref={el=>{tabButtons[tab]=el;}} onClick={()=>select(tab)} onKeyDown={event=>tabKey(event,tab)}>{t(`admin-personal-${tab}`)}</button>}</For></div></div>
     <Show when={prefs.error()}><div role="alert" class={css.section}><p class={css.prose}>{t('admin-personal-reload-warning')}</p><div class={css.actions}><button class={css.button} onClick={() => void prefs.retry()}>{t('admin-personal-retry')}</button><button class={css.button} onClick={() => void prefs.reload()}>{t('admin-personal-reload')}</button></div></div></Show>
     <div role="tabpanel" id={`${panelId}-appearance-panel`} aria-labelledby={`${panelId}-appearance-tab`} hidden={active()!=='appearance'}>
+    <section class={css.section} aria-labelledby={`${panelId}-avatar-title`}>
+      <h3 class={css.heading} id={`${panelId}-avatar-title`}>{t('admin-personal-avatar')}</h3>
+      <div class={accountCss.editorRow}>
+        <MailboxAvatarEditor mailboxKey="admin-personal" label={me()?.displayName || shell.username()} address={shell.username()} avatar={validAvatar(prefs.data()['avatar'])} disabled={blocked() || prefs.saving()}
+          onSave={async avatar => { if(blocked() || prefs.saving())return false; await prefs.patch({avatar: avatar ?? null}); return !prefs.error(); }} />
+        <p class={css.prose}>{t('admin-personal-avatar-hint')}</p>
+      </div>
+    </section>
     <AppearanceCustomization owner={() => ({kind: 'admin', username: shell.username()})} />
     <fieldset disabled={blocked()} class={css.section}><legend class={css.heading}>{t('admin-personal-appearance')}</legend><AdminAppearanceFields controller={prefs.appearance} />
       <div {...fieldAnchorAttrs('personal.leetspeak')}><TextModePreference enabled={prefs.data()['leetspeak']===true} disabled={blocked()} busy={prefs.saving()} onChange={leetspeak=>prefs.patch({leetspeak})}/></div>

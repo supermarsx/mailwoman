@@ -82,3 +82,6 @@ admin-personal-session-bar-always = 始终显示
 admin-personal-session-bar-warn-only = 仅在会话即将结束时
 admin-personal-session-bar-hidden = 隐藏
 admin-personal-session-bar-hint = 显示在控制台底部。它只反映服务器的会话限制，无法延长这些限制。
+
+admin-personal-avatar = 控制台头像
+admin-personal-avatar-hint = 选择字母或图标及颜色。此头像显示在整个管理控制台中；重置可恢复姓名首字母。

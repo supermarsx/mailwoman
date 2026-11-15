@@ -15,7 +15,8 @@ export const square = style({
   flex: 'none',
   inlineSize: SIZE,
   blockSize: SIZE,
-  padding: 0,
+  padding: '.375rem',
+  boxSizing: 'border-box',
   font: 'inherit',
   color: vars.color.text,
   background: 'transparent',
@@ -34,6 +35,8 @@ export const square = style({
   },
 });
 
-export const avatar = style({ margin: 0, flex: '0 0 auto', inlineSize: '1.75rem', blockSize: '1.75rem', fontSize: '.75rem' });
+export const avatar = style({ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, margin: 0, flex: '0 0 auto', inlineSize: '1.75rem', blockSize: '1.75rem', fontSize: '.75rem' });
 
 export const picker = style({ display: 'flex', flexDirection: 'column', gap: vars.space[1] });
+
+export const editorRow = style({display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: vars.space[4], padding: vars.space[2]});

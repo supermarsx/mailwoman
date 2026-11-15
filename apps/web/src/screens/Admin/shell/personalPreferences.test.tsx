@@ -145,3 +145,25 @@ it('uses personal security endpoints without writing secrets to preferences', as
   await waitFor(() => expect(screen.getByLabelText('New password')).toHaveValue(''));
   expect(save).not.toHaveBeenCalled();
 });
+
+
+it('edits the console avatar and resets it to generated initials', async () => {
+  history.replaceState(null, '', '/admin#/preferences');
+  const save = vi.fn<AdminPreferencesApi['save']>().mockImplementation(async data => ({data, etag: 'v2'}));
+  render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} loadMe={holding([])} preferencesApi={{load: async () => ({data: {}, etag: 'v1'}), save}} sections={[{id: 'preferences', group: 'personal', icon: 'preferences', label: () => 'My preferences', component: Page}]} />);
+  await screen.findByRole('heading', {name: 'Console avatar'});
+  const editor = () => document.querySelector<HTMLElement>('[data-avatar-editor="admin-personal"]')!;
+  const trigger = () => editor().parentElement!.querySelector<HTMLButtonElement>('[data-linked-avatar]')!;
+  await waitFor(() => expect(trigger()).not.toBeDisabled());
+  fireEvent.click(trigger());
+  fireEvent.input(editor().querySelector('[data-avatar-letter]')!, {target: {value: 'XY'}});
+  fireEvent.click(editor().querySelector('[data-avatar-save]')!);
+  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({avatar: {kind: 'letter', text: 'XY'}}), 'v1'));
+  await waitFor(() => expect(editor()).toHaveAttribute('hidden'));
+  expect(document.querySelector('[data-admin-account] .person-avatar')?.textContent).toBe('XY');
+  fireEvent.click(trigger());
+  fireEvent.click(editor().querySelector('[data-avatar-reset]')!);
+  await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({avatar: null}), 'v2'));
+  await waitFor(() => expect(editor()).toHaveAttribute('hidden'));
+  expect(document.querySelector('[data-admin-account] .person-avatar')?.textContent).not.toBe('XY');
+});

@@ -76,10 +76,10 @@ function createPreferences(username: () => string, api: AdminPreferencesApi) {
       }
     } finally { if (mine === generation) setSaving(false); }
   }
-  function patch(values: Record<string, unknown>): void {
-    if (loading() || error()) return;
+  function patch(values: Record<string, unknown>): Promise<void> {
+    if (loading() || error()) return Promise.resolve();
     setData((current) => ({ ...current, ...values })); revision++;
-    void flush();
+    return flush();
   }
   createEffect(on(username, () => { void load(); }));
   createEffect(()=>setAdminLeetspeak(data()['leetspeak']===true));

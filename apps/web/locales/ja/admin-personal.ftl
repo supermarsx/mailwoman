@@ -82,3 +82,6 @@ admin-personal-session-bar-always = 常に表示
 admin-personal-session-bar-warn-only = セッションが終了間近のときのみ
 admin-personal-session-bar-hidden = 非表示
 admin-personal-session-bar-hint = コンソールの下部に表示されます。サーバーのセッション制限を表示するだけで、延長することはできません。
+
+admin-personal-avatar = コンソールのアバター
+admin-personal-avatar-hint = 文字またはアイコンと色を選択します。管理コンソール全体に表示され、リセットするとイニシャルに戻ります。

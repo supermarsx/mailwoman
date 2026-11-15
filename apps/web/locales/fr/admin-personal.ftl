@@ -82,3 +82,6 @@ admin-personal-session-bar-always = Toujours afficher
 admin-personal-session-bar-warn-only = Uniquement lorsque la session est sur le point de se terminer
 admin-personal-session-bar-hidden = Masquée
 admin-personal-session-bar-hint = Affichée en bas de la console. Elle ne fait que signaler les limites de session du serveur ; elle ne peut pas les prolonger.
+
+admin-personal-avatar = Avatar de la console
+admin-personal-avatar-hint = Choisissez des lettres ou une icône et des couleurs. Cet avatar apparaît dans votre console ; la réinitialisation rétablit vos initiales.

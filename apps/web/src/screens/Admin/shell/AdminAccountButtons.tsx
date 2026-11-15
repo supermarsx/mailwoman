@@ -6,7 +6,9 @@
 
 import { Show, type JSX } from 'solid-js';
 import { isolate, t } from '../../../i18n';
-import { avatarPresentation } from '../../../components/avatarPresentation.ts';
+import { avatarLook, validAvatar } from '../../../api/mailboxAvatar.ts';
+import { Icon as AvatarIcon } from '../../../components/Icon.tsx';
+import { useOptionalPersonalPreferences } from './personalPreferences.tsx';
 import { Icon } from './icons.tsx';
 import '../../../components/person-avatar.css';
 import '../../../components/senderIcons/palette.css';
@@ -22,11 +24,13 @@ export interface AdminAccountButtonsProps {
 }
 
 export function AdminAccountButtons(props: AdminAccountButtonsProps): JSX.Element {
-  const look = () => avatarPresentation(props.username, props.username);
+  const preferences = useOptionalPersonalPreferences();
+  const look = () => avatarLook(validAvatar(preferences?.data()['avatar']), props.username, props.username);
   const label = () => t('admin-shell-signed-in-as', { name: isolate(props.username) });
   const avatar = (): JSX.Element => (
-    <span class={`person-avatar ${css.avatar}`} data-avatar-color={look().palette} aria-hidden="true">
-      {look().initials}
+    <span class={`person-avatar ${css.avatar}`} data-avatar-color={look().palette} data-avatar-kind={look().custom ? look().kind : undefined} data-avatar-icon={look().icon}
+      style={look().custom ? {'background-color': look().bg, color: look().fg} : {}} aria-hidden="true">
+      <Show when={look().glyph} fallback={look().text}>{glyph => <AvatarIcon name={glyph()} />}</Show>
     </span>
   );
 

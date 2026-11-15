@@ -82,3 +82,6 @@ admin-personal-session-bar-always = إظهار دائمًا
 admin-personal-session-bar-warn-only = فقط عندما توشك الجلسة على الانتهاء
 admin-personal-session-bar-hidden = مخفي
 admin-personal-session-bar-hint = يظهر على طول أسفل وحدة التحكم. يعرض حدود جلسة الخادم فقط؛ ولا يمكنه إطالتها.
+
+admin-personal-avatar = الصورة الرمزية لوحدة التحكم
+admin-personal-avatar-hint = اختر حروفًا أو أيقونة وألوانًا. تظهر في وحدة تحكم الإدارة؛ تعيد إعادة الضبط الأحرف الأولى لاسمك.

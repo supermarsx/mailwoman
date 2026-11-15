@@ -82,3 +82,6 @@ admin-personal-session-bar-always = Altijd tonen
 admin-personal-session-bar-warn-only = Alleen wanneer de sessie bijna afloopt
 admin-personal-session-bar-hidden = Verborgen
 admin-personal-session-bar-hint = Wordt onderaan de console getoond. Het meldt alleen de sessielimieten van de server; het kan ze niet verlengen.
+
+admin-personal-avatar = Console-avatar
+admin-personal-avatar-hint = Kies letters of een pictogram en kleuren. Deze avatar verschijnt in je beheerconsole; herstellen toont weer je initialen.

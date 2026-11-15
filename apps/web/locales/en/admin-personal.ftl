@@ -79,3 +79,6 @@ admin-personal-session-bar-always = Always show
 admin-personal-session-bar-warn-only = Only when the session is about to end
 admin-personal-session-bar-hidden = Hidden
 admin-personal-session-bar-hint = Shown along the bottom of the console. It only reports the server's session limits; it cannot lengthen them.
+
+admin-personal-avatar = Console avatar
+admin-personal-avatar-hint = Choose letters or an icon and colours. This avatar appears throughout your admin console; reset restores your initials.
