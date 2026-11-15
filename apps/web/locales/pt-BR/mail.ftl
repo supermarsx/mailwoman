@@ -1499,3 +1499,5 @@ mail-reply-draft-view = Ver resposta
 
 mail-attachment-warning-title = Avisos de segurança dos anexos
 mail-attachment-warning-help = Estes arquivos podem executar código ou disfarçar seu tipo. Verifique o remetente e o nome antes de abri-los.
+
+mail-compose-encrypted-storage-unavailable = A recuperação local criptografada está indisponível. Mantenha o editor aberto ou salve o rascunho no servidor antes de fechar.

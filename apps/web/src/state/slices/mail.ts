@@ -77,7 +77,7 @@ import {
 } from '../../api/jmap-types.ts';
 import { t, isolate, loadCatalog } from '../../i18n/index.ts';
 import { EMPTY_QUERY, excludedSearchMailboxes, offlineQueryOf, parseQuery, serializeQuery, serverQueryText, setField, setScope } from '../../search/searchQuery.ts';
-import { clearDrafts } from '../../components/compose/drafts-store.ts';
+import { clearDrafts,hydrateDrafts } from '../../components/compose/drafts-store.ts';
 import { purgeShellCaches } from '../../sw/purge.ts';
 import { toast } from '../../components/toast/index.ts';
 import { reportBoundaryError } from '../../observability/clientErrors.ts';
@@ -2509,6 +2509,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function init(): Promise<void> {
+    await hydrateDrafts();
     installLinkedMailbox(null);
     setPrimaryMailboxAuthority(undefined);
     suspendAccountPreferences();

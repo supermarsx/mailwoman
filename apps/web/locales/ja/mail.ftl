@@ -1415,3 +1415,5 @@ mail-reply-draft-view = 返信を表示
 
 mail-attachment-warning-title = 添付ファイルのセキュリティ警告
 mail-attachment-warning-help = これらのファイルはコードを実行したり、種類を偽装したりする可能性があります。開く前に送信者とファイル名を確認してください。
+
+mail-compose-encrypted-storage-unavailable = 暗号化されたローカル復元を利用できません。エディターを開いたままにするか、閉じる前に下書きをサーバーに保存してください。

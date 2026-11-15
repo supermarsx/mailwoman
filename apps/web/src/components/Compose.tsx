@@ -82,6 +82,7 @@ import {
   type ComposeSignature,
 } from './compose/ComposerExtras.tsx';
 import {
+  draftPersistenceState,
   draftHasContent,
   listDrafts,
   saveDraft,
@@ -1897,6 +1898,7 @@ export function Compose(props: {
     if(held>0)items.push({id:'recall',severity:'neutral',icon:'clock',label:t('mail-status-held',{count:held}),onClick:()=>openRecall()});
     if(!localDraftAuthority())items.push({id:'storage',severity:'warning',icon:'alert',label:t('mail-status-storage'),detail:t('mail-compose-private-storage-unavailable')});
     const status=remoteStatus();
+    if(pendingDraft&&draftPersistenceState()==='unavailable'&&status!=='saved')items.push({id:'local-storage',severity:'warning',icon:'alert',label:t('mail-status-storage'),detail:t('mail-compose-encrypted-storage-unavailable')});
     const draftBase={id:'draft',testId:'account-draft-status'};
     if(protectedDraft())items.push({...draftBase,severity:'neutral',icon:'lock',label:t('mail-status-protected'),detail:t('mail-draft-protected')});
     else if(status==='saving')items.push({...draftBase,severity:'busy',icon:'refresh',label:t('mail-status-saving')});

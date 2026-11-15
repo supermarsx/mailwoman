@@ -1437,3 +1437,5 @@ mail-reply-draft-view = 查看回复
 
 mail-attachment-warning-title = 附件安全警告
 mail-attachment-warning-help = 这些文件可能执行代码或伪装文件类型。打开之前请核实发件人和文件名。
+
+mail-compose-encrypted-storage-unavailable = 加密本地恢复不可用。关闭前请保持编辑器打开或将草稿保存到服务器。

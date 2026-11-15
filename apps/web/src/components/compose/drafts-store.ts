@@ -1,10 +1,12 @@
+import {createSignal} from 'solid-js';
+import {offlineVault} from '../../offline/vault.ts';
 // Local draft persistence for the universal Drafts drawer (W9).
 //
-// Composer drafts are auto-saved to `localStorage` under a single JSON array so a
+// Composer drafts are sealed into the encrypted offline vault so a
 // closed/refreshed composer can be resumed without a round-trip. These copies
 // are account-bound saved state of an unsent composition: the composer does not
-// write drafts to the server's Drafts mailbox. They are plaintext (recipients,
-// subject, body) and belong to whoever is signed in, so `clearDrafts()` is
+// write recovery copies to the server's Drafts mailbox. Recovery bytes are
+// encrypted at rest and belong to the signed-in account, so `clearDrafts()` is
 // called on logout. The drawer is written prop-first so a server list can back
 // it later without a component change.
 
@@ -79,16 +81,50 @@ export interface StoredDraft {
   attachments?: StoredAttachment[];
 }
 
+let draftGeneration=0;
+let memory:StoredDraft[]=[],seenLegacy:string|undefined;
+let writes:Promise<void>=Promise.resolve(),hydrating:Promise<void>|undefined;
+const [draftPersistenceState,setPersistence]=createSignal<'loading'|'saving'|'saved'|'unavailable'>('loading');
+export {draftPersistenceState};
+const draftKey=(draft:Pick<StoredDraft,'storageAuthority'|'accountId'|'id'>)=>JSON.stringify([draft.storageAuthority,draft.accountId,draft.id]);
+function schedule(run:()=>Promise<void>):void {
+ setPersistence('saving');
+ writes=writes.then(run,run).then(()=>{setPersistence('saved');},()=>{setPersistence('unavailable');});
+}
+export function flushDrafts():Promise<void>{return writes;}
+function notify(change:DraftChange):void {if(typeof window!=='undefined')window.dispatchEvent(new CustomEvent<DraftChange>(DRAFTS_CHANGED,{detail:change}));}
+async function migratePlaintext(raw:string):Promise<void>{
+ const parsed:unknown=JSON.parse(raw),vault=await offlineVault();
+ for(const draft of Array.isArray(parsed)?parsed.filter(isDraft):[]){
+  const existing=await vault.get<StoredDraft>('composer-drafts',draftKey(draft));
+  if(!existing||existing.savedAt<draft.savedAt)await vault.put('composer-drafts',draftKey(draft),draft);
+ }
+ if(localStorage.getItem(KEY)===raw)localStorage.removeItem(KEY);
+}
 function read(): StoredDraft[] {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw === null) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((d): d is StoredDraft => isDraft(d));
-  } catch {
-    return [];
+ try {
+  const raw=localStorage.getItem(KEY);
+  if(raw!==null&&raw!==seenLegacy){
+   seenLegacy=raw;memory=[];const parsed:unknown=JSON.parse(raw);memory=Array.isArray(parsed)?parsed.filter(isDraft):[];
+   schedule(()=>migratePlaintext(raw));
   }
+ }catch{/* Storage disabled: continue with this session's in-memory drafts. */}
+ return memory;
+}
+/** Hydrate before the authenticated shell opens. Never persist plaintext when
+ * encrypted storage is unavailable; the editor remains usable in memory. */
+export function hydrateDrafts():Promise<void>{
+ return hydrating??=(async()=>{
+  read();const generation=draftGeneration;
+  try{
+   const rows=await (await offlineVault()).list<StoredDraft>('composer-drafts');
+   if(generation!==draftGeneration)return;
+   const merged=new Map(rows.filter(row=>isDraft(row.value)).map(row=>[draftKey(row.value),row.value]));
+   for(const draft of memory)merged.set(draftKey(draft),draft);
+   memory=[...merged.values()];
+   await writes;if(draftPersistenceState()!=='unavailable')setPersistence('saved');notify({kind:'save'});
+  }catch{setPersistence('unavailable');}
+ })();
 }
 
 const isString = (v: unknown): boolean => typeof v === 'string';
@@ -149,17 +185,16 @@ function isDraft(d: unknown): d is StoredDraft {
 }
 
 function write(drafts: StoredDraft[],change:DraftChange): void {
-  try {
-    const counts = new Map<string, number>();
-    localStorage.setItem(KEY, JSON.stringify(drafts.filter(draft => {
-      const count = counts.get(draft.storageAuthority) ?? 0;
-      counts.set(draft.storageAuthority, count + 1);
-      return count < MAX_DRAFTS;
-    })));
-  } catch {
-    // Storage full / disabled (private mode): drafts degrade to in-session only.
-  }
-  window.dispatchEvent(new CustomEvent<DraftChange>(DRAFTS_CHANGED,{detail:change}));
+ const counts=new Map<string,number>();
+ memory=drafts.filter(draft=>{const count=counts.get(draft.storageAuthority)??0;counts.set(draft.storageAuthority,count+1);return count<MAX_DRAFTS;});
+ const saved=memory.find(draft=>draft.id===change.id&&draft.accountId===change.accountId&&draft.storageAuthority===change.storageAuthority);
+ schedule(async()=>{
+  const legacy=localStorage.getItem(KEY);if(legacy!==null)await migratePlaintext(legacy);
+  const vault=await offlineVault();
+  if(saved)await vault.put('composer-drafts',draftKey(saved),saved);
+  else if(change.id&&change.accountId&&change.storageAuthority)await vault.remove('composer-drafts',JSON.stringify([change.storageAuthority,change.accountId,change.id]));
+ });
+ notify(change);
 }
 
 /** Only this authenticated account drafts, newest first. Legacy unowned rows
@@ -190,6 +225,8 @@ export function deleteDraft(id: string, accountId: string | null,storageAuthorit
 /** Remove every stored draft (logout: the next person at this browser must not
  *  be offered the previous account's unsent mail). */
 export function clearDrafts(): void {
+  draftGeneration++;memory=[];seenLegacy=undefined;hydrating=undefined;
+  schedule(async()=>{await (await offlineVault()).clear('composer-drafts');});
   try {
     localStorage.removeItem(KEY);
     localStorage.removeItem(LEGACY_KEY);

@@ -1480,3 +1480,5 @@ mail-reply-draft-view = Antwoord bekijken
 
 mail-attachment-warning-title = Beveiligingswaarschuwingen voor bijlagen
 mail-attachment-warning-help = Deze bestanden kunnen code uitvoeren of hun type verhullen. Controleer afzender en bestandsnaam vóór openen.
+
+mail-compose-encrypted-storage-unavailable = Versleuteld lokaal herstel is niet beschikbaar. Houd de editor open of sla het concept op de server op voordat je sluit.

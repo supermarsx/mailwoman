@@ -1,3 +1,4 @@
+import {encryptedOutboxStore} from '../../offline/encryptedOutbox.ts';
 // Offline slice (plan §3 e5). Wires the offline surface into `AppState`: the
 // offline-queue pending count, the items the queue has given up on, queue
 // actions (replayed on reconnect), a cached header slice, and the reduced
@@ -72,7 +73,7 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
   const [cachedHeaders, setCachedHeaders] = createSignal<Email[]>([]);
 
   // IndexedDB in the browser; an in-memory queue under jsdom / unsupported envs.
-  const store: OutboxStore = deps.store ?? (idbAvailable() ? idbOutboxStore() : memoryOutboxStore());
+  const store: OutboxStore = deps.store ?? (idbAvailable() ? encryptedOutboxStore(idbOutboxStore()) : memoryOutboxStore());
 
   const accountStores = new Map<string, OutboxStore>();
   function scoped(account: PreferenceAccount): OutboxStore {

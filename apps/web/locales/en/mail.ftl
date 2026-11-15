@@ -1469,3 +1469,5 @@ mail-reply-draft-view = View reply
 
 mail-attachment-warning-title = Attachment security warnings
 mail-attachment-warning-help = These files may run code or disguise their type. Verify the sender and filename before opening them.
+
+mail-compose-encrypted-storage-unavailable = Encrypted local recovery is unavailable. Keep this editor open or save the draft to the server before closing.

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
+  clearDrafts,
   deleteDraft,
   draftHasContent,
   listDrafts,
@@ -13,8 +14,8 @@ function draft(id: string, over: Partial<StoredDraft> = {}): StoredDraft {
   return { id, accountId:'account-a', storageAuthority:'test-storage-authority-a', to: 'a@b.c', subject: 's', bodyHtml: '<p>h</p>', bodyText: 'h', savedAt: 1, ...over };
 }
 
+beforeEach(()=>{clearDrafts();localStorage.clear();});
 describe('drafts-store (W9)', () => {
-  beforeEach(() => localStorage.clear());
 
   it('saves and lists a draft', () => {
     saveDraft(draft('d1'));
