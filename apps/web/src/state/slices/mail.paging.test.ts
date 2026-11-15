@@ -78,6 +78,8 @@ interface ListCall {
 }
 
 interface ServerOptions {
+  /** Advertise real delta cursors; expired simulates cannotCalculateChanges. */
+  readonly delta?: 'unchanged'|'expired';
   /** Answer a `calculateTotal` request with NO total, as a truncated search
    *  index legitimately must (t22 V9). */
   readonly omitTotal?: boolean;
@@ -92,6 +94,9 @@ function makeServer(folders: Record<string, Email[]>, opts: ServerOptions = {}) 
 
   const jmap = vi.fn((body: JmapRequest, callOpts?: { signal?: AbortSignal }): Promise<JmapResponse> => {
     const names = body.methodCalls.map((c) => c[0]);
+    if(names.includes('Email/queryChanges')){
+      return Promise.resolve({sessionState:'s',methodResponses:body.methodCalls.map(([name,args,id])=>name==='Email/queryChanges'?(opts.delta==='expired'?['error',{type:'cannotCalculateChanges'},id]:[name,{accountId:'acct1',oldQueryState:args['sinceQueryState'],newQueryState:'q0',removed:[],added:[],total:(folders[(args['filter'] as {inMailbox?:string}|undefined)?.inMailbox??'search']??[]).length},id]):[name,{accountId:'acct1',oldState:args['sinceState'],newState:'s',hasMoreChanges:false,created:[],updated:[],destroyed:[]},id]) as JmapResponse['methodResponses']});
+    }
     if (names.includes('Mailbox/get')) {
       return Promise.resolve({
         methodResponses: [['Mailbox/get', { accountId: 'acct1', state: 's', list: MAILBOXES, notFound: [] }, 'c0']],
@@ -124,6 +129,7 @@ function makeServer(folders: Record<string, Email[]>, opts: ServerOptions = {}) 
           {
             accountId: 'acct1',
             queryState: 'q0',
+            ...(opts.delta?{canCalculateChanges:true}:{}),
             ids: page.map((e) => e.id),
             position,
             ...(calculateTotal && opts.omitTotal !== true ? { total: all.length } : {}),
@@ -674,16 +680,16 @@ describe('paging — in-place refresh', () => {
 
       await mail.refreshCurrentMailbox();
 
-      const last = server.listCalls('inbox').at(-1);
-      expect(last?.position).toBe(0);
-      expect(last?.limit).toBe(100); // not 50 — a push tick must not un-scroll the reader
+      // A backend without delta support resets in bounded chunks while retaining
+      // the whole loaded window, never a single large Email/get.
+      expect(server.listCalls('inbox').slice(2).map(call=>({position:call.position,limit:call.limit}))).toEqual([{position:0,limit:50},{position:50,limit:50}]);
       expect(mail.messages()).toHaveLength(100);
       expect(mail.messages()[50]?.id).toBe('inbox-51');
     });
   });
 
-  it('declines rather than refetching a very deep extent', async () => {
-    const server = makeServer({ inbox: corpus('inbox', 700) });
+  it('uses deltas without refetching a very deep unchanged extent', async () => {
+    const server = makeServer({ inbox: corpus('inbox', 700) },{delta:'unchanged'});
     await withServer(server, async (mail) => {
       for (let i = 0; i < 11; i += 1) await mail.loadMore();
       expect(mail.messages()).toHaveLength(600);
@@ -693,7 +699,19 @@ describe('paging — in-place refresh', () => {
 
       // A 600-row Email/get on every push tick is the cost this tag removes.
       expect(server.listCalls('inbox')).toHaveLength(before);
+      expect(server.client.jmap).toHaveBeenCalledWith(expect.objectContaining({methodCalls:expect.arrayContaining([['Email/queryChanges',expect.objectContaining({sinceQueryState:'q0',upToId:'inbox-600'}),'delta-query']])}),expect.anything());
       expect(mail.messages()).toHaveLength(600);
+    });
+  });
+  it('resets an expired deep cursor in bounded chunks and replaces stale rows',async()=>{
+    const inbox=corpus('inbox',700),server=makeServer({inbox},{delta:'expired'});
+    await withServer(server,async mail=>{
+      for(let index=0;index<11;index++)await mail.loadMore();expect(mail.messages()).toHaveLength(600);
+      const before=server.listCalls('inbox').length;inbox[20]={...inbox[20]!,subject:'Changed after cursor expiry'};
+      await mail.refreshCurrentMailbox();
+      const resets=server.listCalls('inbox').slice(before);expect(resets).toHaveLength(12);
+      expect(resets.map(call=>call.position)).toEqual(Array.from({length:12},(_,index)=>index*50));expect(resets.every(call=>call.limit===50)).toBe(true);
+      expect(mail.messages()).toHaveLength(600);expect(mail.messages()[20]!.subject).toBe('Changed after cursor expiry');expect(mail.loadedRange()).toEqual({start:0,end:600});
     });
   });
 });

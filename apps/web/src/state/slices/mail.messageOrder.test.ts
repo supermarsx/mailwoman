@@ -52,6 +52,7 @@ it('refreshes the loaded search window with its exact semantic filter and new or
   const client=makeClient({emails});
   const original=client.jmap;
   client.jmap=vi.fn(async(request:JmapRequest)=>{
+    if(request.methodCalls.some(call=>call[0]==='Email/queryChanges'))return {sessionState:'s',methodResponses:request.methodCalls.map(([method,,id])=>[method,method==='Email/queryChanges'?{accountId:'acct1',oldQueryState:'q0',newQueryState:'q0',removed:[],added:[],total:emails.length}:{accountId:'acct1',oldState:'s',newState:'s',hasMoreChanges:false,created:[],updated:[],destroyed:[]},id])} as Awaited<ReturnType<typeof client.jmap>>;
     const response=await original(request);
     const query=request.methodCalls.find(call=>call[0]==='Email/query');
     if(!query)return response;
@@ -60,7 +61,7 @@ it('refreshes the loaded search window with its exact semantic filter and new or
     const ordered=descending?emails:[...emails].reverse();
     const page=ordered.slice(position,position+limit);
     for(const call of response.methodResponses){
-      if(call[0]==='Email/query')Object.assign(call[1],{ids:page.map(email=>email.id),position,total:emails.length});
+      if(call[0]==='Email/query')Object.assign(call[1],{ids:page.map(email=>email.id),position,total:emails.length,queryState:'q0',canCalculateChanges:true});
       if(call[0]==='Email/get')Object.assign(call[1],{list:page});
     }
     return response;
@@ -79,11 +80,12 @@ it('refreshes the loaded search window with its exact semantic filter and new or
       const before=queries().length;
       await mail.refreshCurrentMailbox();
       expect(queries()).toHaveLength(before);
+      expect(vi.mocked(client.jmap).mock.calls.flatMap(([request])=>request.methodCalls).some(call=>call[0]==='Email/queryChanges'&&call[1]['sinceQueryState']==='q0')).toBe(true);
       await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.messageListOrder':{value:'oldest',source:'user',locked:false}}}),{headers:{'content-type':'application/json'}})});
       await mail.refreshMessageOrder();
-      expect(queries()).toHaveLength(before+1);
-      expect(queries().at(-1)).toMatchObject({filter,limit:100,sort:[{property:'receivedAt',isAscending:true}]});
-      expect(queries().at(-1)!['position']??0).toBe(0);
+      const refreshed=queries().slice(before);expect(refreshed).toHaveLength(2);
+      expect(refreshed.map(args=>({position:args['position']??0,limit:args['limit']}))).toEqual([{position:0,limit:50},{position:50,limit:50}]);
+      for(const args of refreshed)expect(args).toMatchObject({filter,sort:[{property:'receivedAt',isAscending:true}]});
       expect(mail.messages()[0]?.id).toBe('result-119');
       expect(mail.loadedRange()).toEqual({start:0,end:100});
       expect(mail.selectedIds()).toEqual(new Set(['result-50']));

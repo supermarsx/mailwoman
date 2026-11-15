@@ -9,9 +9,11 @@ import { clearUndoHistory } from '../undoHistory.ts';
 const DONE='mw-followup-completed',OLD='2026-11-20T12:00:00Z',NEXT='2026-12-01T09:00:00Z';
 const disposals:(()=>void)[]=[];
 afterEach(()=>{for(const dispose of disposals.splice(0))dispose();toast.clear();clearUndoHistory();});
-async function fixture(emails:Email[],options:{held?:boolean;failId?:string;queueFailure?:boolean}={}){
+async function fixture(emails:Email[],options:{held?:boolean;failId?:string;queueFailure?:boolean;missingBaseline?:boolean}={}){
   const client=makeClient({emails}),base=client.jmap,writes:{update:Record<string,Record<string,unknown>>;settle:(fail?:boolean)=>void}[]=[];
   client.jmap=vi.fn(async(request:JmapRequest):Promise<JmapResponse>=>{
+    const baseline=request.methodCalls.find(([name,,id])=>name==='Email/get'&&id==='followup-baseline');
+    if(baseline)return {sessionState:'s',methodResponses:[['Email/get',{accountId:'acct1',...(options.missingBaseline?{}:{state:'s'}),list:emails.filter(email=>(baseline[1]['ids'] as string[]).includes(email.id)),notFound:[]},baseline[2]]]};
     const set=request.methodCalls.find(([name])=>name==='Email/set');if(!set)return base(request);
     const update=(set[1]as{update:Record<string,Record<string,unknown>>}).update;
     return new Promise(resolve=>{const settle=(fail=false)=>resolve({methodResponses:[['Email/set',{accountId:'acct1',...(fail?{notUpdated:Object.fromEntries(Object.keys(update).map(id=>[id,{type:'forbidden'}]))}:{updated:Object.fromEntries(Object.keys(update).map(id=>[id,null]))})},set[2]]],sessionState:'s'});
@@ -37,12 +39,19 @@ it('does not continue a bulk restart across logout/login when message IDs are re
   await mail.logout();await mail.login({username:'me@example.org',password:'p'});writes[0]!.settle();await pending;
   expect(writes).toHaveLength(1);expect(mail.messages().every(email=>email.keywords?.[DONE]===true)).toBe(true);expect(mail.pendingUndo()).toBeNull();
 });
-it('queues both durable keyword changes for offline restart and keeps completion refusal unchanged',async()=>{
+it('queues atomic restart and completion intents with the durable keyword changes and verified baseline',async()=>{
   const {mail,writes,setOnline,enqueueOffline}=await fixture([mkEmail('a',{keywords:{[DONE]:true}})]);setOnline(false);
   await mail.flagMessage('a',true);expect(writes).toHaveLength(0);
-  expect(enqueueOffline).toHaveBeenNthCalledWith(1,'flag',{accountId:'acct1',emailId:'a',keyword:DONE,value:false});
-  expect(enqueueOffline).toHaveBeenNthCalledWith(2,'flag',{accountId:'acct1',emailId:'a',keyword:'$flagged',value:true});
-  await expect(mail.completeFollowUp('a')).rejects.toThrow();expect(mail.messages()[0]!.keywords?.[DONE]).not.toBe(true);expect(mail.messages()[0]!.keywords?.['$flagged']).toBe(true);
+  expect(enqueueOffline).toHaveBeenCalledOnce();
+  expect(enqueueOffline).toHaveBeenNthCalledWith(1,'pim',{callId:'set',request:expect.objectContaining({methodCalls:[['Email/set',{accountId:'acct1',ifInState:'s',update:{a:{followUpAt:null,'keywords/mw-followup-completed':null,'keywords/$flagged':true}}},'set'],['Mailbox/get',{accountId:'acct1',ids:null},'mb']]})});
+  await mail.completeFollowUp('a');expect(writes).toHaveLength(0);
+  expect(enqueueOffline).toHaveBeenNthCalledWith(2,'pim',{callId:'set',request:expect.objectContaining({methodCalls:[['Email/set',{accountId:'acct1',ifInState:'s',update:{a:{followUpAt:null,'keywords/mw-followup-completed':true,'keywords/$flagged':null}}},'set'],['Mailbox/get',{accountId:'acct1',ids:null},'mb']]})});
+  expect(mail.messages()[0]!.keywords?.[DONE]).toBe(true);expect(mail.messages()[0]!.keywords?.['$flagged']).not.toBe(true);
+});
+it('refuses an offline completion without a verified baseline and restores its optimistic flags',async()=>{
+  const {mail,setOnline,enqueueOffline}=await fixture([mkEmail('a',{keywords:{$flagged:true},followUpAt:OLD})],{missingBaseline:true});setOnline(false);
+  await expect(mail.completeFollowUp('a')).rejects.toThrow();expect(enqueueOffline).not.toHaveBeenCalled();
+  expect(mail.messages()[0]!.keywords?.[DONE]).not.toBe(true);expect(mail.messages()[0]!.keywords?.['$flagged']).toBe(true);expect(mail.messages()[0]!.followUpAt).toBe(OLD);
 });
 it('retains Undo for successful bulk restarts when another message refuses the update',async()=>{
   const {mail,writes,showToast}=await fixture([mkEmail('a',{keywords:{[DONE]:true}}),mkEmail('b',{keywords:{[DONE]:true}})],{failId:'b'});
