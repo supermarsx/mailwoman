@@ -880,3 +880,6 @@ cache-preloadMessages-help = Précharge aussi le contenu des messages. Désactiv
 settings-badge-auth-sent = Authentification des messages envoyés
 settings-badge-spam-sent = Scores de spam des messages envoyés
 settings-badge-sent-help = Les messages envoyés ne contiennent généralement pas les résultats d’authentification ou de spam du destinataire. Choisissez leur affichage dans Envoyés.
+
+settings-offline-enabled = Accès hors ligne
+settings-offline-enabled-help = Conservez sur cet appareil des copies chiffrées des messages, calendriers, tâches, notes et contacts en cache. Seul le contenu en cache est disponible hors ligne ; les modifications attendent une connexion vérifiée.

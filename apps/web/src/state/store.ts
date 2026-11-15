@@ -1,3 +1,8 @@
+import {configureOfflinePolicy} from '../offline/runtime.ts';
+import {seedOfflineHttp} from '../offline/httpCache.ts';
+import {settings,settingsLoadStatus} from '../api/settings.ts';
+import {accountUiPreferences} from '../api/accountPreferences.ts';
+import {preferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import {createIncomingMail,type IncomingMail} from '../realtime/incomingMail.ts';
 import { startMailboxSessionActivity } from '../api/sessionActivity.ts';
 import {accountScopedSlice,accountScopedFetcher} from './accountScopedSlice.ts';
@@ -11,7 +16,7 @@ import { startAccountUiPreferences } from '../api/accountPreferences.ts';
 // web executors fill. This module wires the store "core" (network status +
 // toasts) and composes every slice into `AppState`.
 
-import { createSignal, type Accessor } from 'solid-js';
+import { createEffect, createSignal, type Accessor } from 'solid-js';
 import type { Client } from '../api/client.ts';
 import { t, loadCatalog } from '../i18n/index.ts';
 import type { SliceContext } from './slices/context.ts';
@@ -159,6 +164,13 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
   // account. Both transports suspend before any cookie-changing request.
   bindAppearanceToAccount(theme);
   startAccountUiPreferences();
+  createEffect(()=>{
+    const owner=preferenceAccount(),map=settings(),ui=accountUiPreferences();
+    if(!owner||settingsLoadStatus()!=='ready')return;
+    const value=(key:string,local:number|undefined,fallback:number)=>Number(map[key]?.locked?map[key]?.value:local??map[key]?.value??fallback);
+    configureOfflinePolicy({enabled:map['offline.enabled']?.value===true,budgetMb:value('offline.budgetMb',ui.offlineBudgetMb,250),retentionDays:value('offline.retentionDays',ui.offlineRetentionDays,30),eviction:ui.eviction??'lru'},owner);
+    void seedOfflineHttp(owner,'/api/settings',{settings:map}).catch(()=>undefined);
+  });
   startMailboxSessionActivity();
   const offline = createOfflineSlice(ctx);
   const outbox = accountScopedSlice(ctx,createOutboxSlice);

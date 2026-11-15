@@ -880,3 +880,6 @@ cache-preloadMessages-help = Lädt auch Nachrichteninhalte vorab. Standardmäßi
 settings-badge-auth-sent = Authentifizierung gesendeter Nachrichten
 settings-badge-spam-sent = Spamwerte gesendeter Nachrichten
 settings-badge-sent-help = Gesendete Nachrichten enthalten meist keine Authentifizierungs- oder Spamergebnisse des Empfängers. Wähle die Anzeige im Ordner Gesendet.
+
+settings-offline-enabled = Offline-Zugriff
+settings-offline-enabled-help = Bewahre verschlüsselte Kopien zwischengespeicherter E-Mails, Kalender, Aufgaben, Notizen und Kontakte auf diesem Gerät auf. Offline sind nur gespeicherte Inhalte verfügbar; Änderungen warten auf eine bestätigte Verbindung.

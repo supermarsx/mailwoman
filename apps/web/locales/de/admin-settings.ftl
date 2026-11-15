@@ -2712,3 +2712,6 @@ admin-settings-key-mail-badge-auth-sent = Authentifizierung gesendeter Nachricht
 admin-settings-help-mail-badge-auth-sent = Gesendete Nachrichten enthalten meist keine Authentifizierungs- oder Spamergebnisse des Empfängers. Wähle die Anzeige im Ordner Gesendet.
 admin-settings-key-mail-badge-spam-sent = Spamwerte gesendeter Nachrichten
 admin-settings-help-mail-badge-spam-sent = Gesendete Nachrichten enthalten meist keine Authentifizierungs- oder Spamergebnisse des Empfängers. Wähle die Anzeige im Ordner Gesendet.
+
+admin-settings-key-offline-enabled = Offline-Zugriff
+admin-settings-help-offline-enabled = Bewahre verschlüsselte Kopien zwischengespeicherter E-Mails, Kalender, Aufgaben, Notizen und Kontakte auf diesem Gerät auf. Offline sind nur gespeicherte Inhalte verfügbar; Änderungen warten auf eine bestätigte Verbindung.

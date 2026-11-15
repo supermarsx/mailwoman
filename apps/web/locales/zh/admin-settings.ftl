@@ -2698,3 +2698,6 @@ admin-settings-key-mail-badge-auth-sent = 已发送邮件的身份验证
 admin-settings-help-mail-badge-auth-sent = 已发送邮件通常不包含收件方的身份验证或垃圾邮件结果。选择是否在已发送邮件中显示这些分类。
 admin-settings-key-mail-badge-spam-sent = 已发送邮件的垃圾邮件评分
 admin-settings-help-mail-badge-spam-sent = 已发送邮件通常不包含收件方的身份验证或垃圾邮件结果。选择是否在已发送邮件中显示这些分类。
+
+admin-settings-key-offline-enabled = 离线访问
+admin-settings-help-offline-enabled = 在此设备上保存已缓存邮件、日历、任务、笔记和联系人的加密副本。离线时仅可访问已缓存内容；排队的更改会等待连接验证通过。

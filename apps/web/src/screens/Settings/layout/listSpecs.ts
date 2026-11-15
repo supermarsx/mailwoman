@@ -27,7 +27,7 @@ export const SECURITY_SECTION_CARDS: readonly CardSpec[] = [
 /** Device preferences shown in the Keyboard and display section (presets, offline cache, direction). */
 export const DEVICE_PREFERENCE_CARDS: readonly CardSpec[] = [
   { id: 'prefs-card-keyboard', section: 'shortcuts', title: 'settings-kbd-preset-title', help: 'settings-kbd-intro', rows: [{ id: 'prefs-keyboard-preset', label: 'settings-kbd-preset-title' }] },
-  { id: 'prefs-card-offline', section: 'shortcuts', title: 'settings-offline-title', help: 'settings-offline-intro', rows: [{ id: 'prefs-offline-budget', label: 'settings-offline-budget-label' }, { id: 'prefs-offline-retention', label: 'settings-offline-retention-label' }, { id: 'prefs-offline-strategy', label: 'settings-offline-strategy-label' }] },
+  { id: 'prefs-card-offline', section: 'shortcuts', title: 'settings-offline-title', help: 'settings-offline-intro', rows: [{id:'prefs-offline-enabled',label:'settings-offline-enabled',help:'settings-offline-enabled-help'}, { id: 'prefs-offline-budget', label: 'settings-offline-budget-label' }, { id: 'prefs-offline-retention', label: 'settings-offline-retention-label' }, { id: 'prefs-offline-strategy', label: 'settings-offline-strategy-label' }] },
   { id: 'prefs-card-direction', section: 'shortcuts', title: 'settings-dir-title', help: 'settings-dir-intro', rows: [{ id: 'prefs-direction', label: 'settings-dir-title' }] },
 ];
 

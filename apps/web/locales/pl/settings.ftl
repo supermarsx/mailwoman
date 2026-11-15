@@ -901,3 +901,6 @@ cache-preloadMessages-help = Pobiera też treść wiadomości. Domyślnie wyłą
 settings-badge-auth-sent = Uwierzytelnianie wysłanych wiadomości
 settings-badge-spam-sent = Oceny spamu wysłanych wiadomości
 settings-badge-sent-help = Wysłane wiadomości zwykle nie mają wyników uwierzytelniania ani spamu odbiorcy. Wybierz ich widoczność w Wysłanych.
+
+settings-offline-enabled = Dostęp offline
+settings-offline-enabled-help = Przechowuj na urządzeniu zaszyfrowane kopie poczty, kalendarzy, zadań, notatek i kontaktów z pamięci podręcznej. Offline dostępne są tylko zapisane treści; zmiany czekają na zweryfikowane połączenie.

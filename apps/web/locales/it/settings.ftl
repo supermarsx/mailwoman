@@ -876,3 +876,6 @@ cache-preloadMessages-help = Precarica anche i contenuti dei messaggi. Disattiva
 settings-badge-auth-sent = Autenticazione dei messaggi inviati
 settings-badge-spam-sent = Punteggi spam dei messaggi inviati
 settings-badge-sent-help = I messaggi inviati normalmente non contengono risultati di autenticazione o spam del destinatario. Scegli se mostrarli nella posta inviata.
+
+settings-offline-enabled = Accesso offline
+settings-offline-enabled-help = Conserva sul dispositivo copie cifrate di posta, calendari, attività, note e contatti memorizzati. Solo i contenuti in cache sono disponibili offline; le modifiche attendono una connessione verificata.

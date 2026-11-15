@@ -2698,3 +2698,6 @@ admin-settings-key-mail-badge-auth-sent = 送信済みメールの認証
 admin-settings-help-mail-badge-auth-sent = 送信済みメールには通常、受信側の認証や迷惑メールの判定結果がありません。送信済みでの表示を選択します。
 admin-settings-key-mail-badge-spam-sent = 送信済みメールの迷惑メールスコア
 admin-settings-help-mail-badge-spam-sent = 送信済みメールには通常、受信側の認証や迷惑メールの判定結果がありません。送信済みでの表示を選択します。
+
+admin-settings-key-offline-enabled = オフラインアクセス
+admin-settings-help-offline-enabled = キャッシュ済みのメール、カレンダー、タスク、メモ、連絡先の暗号化コピーをこの端末に保存します。オフラインでは保存済みの内容のみ利用でき、変更は接続の確認後に送信されます。

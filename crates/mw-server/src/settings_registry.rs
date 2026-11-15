@@ -4082,6 +4082,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "notifications",
         "account-authorized push registration and delivery"
     ),
+    def!("offline.enabled",Kind::Bool,"false",GDU,"privacy","Keep encrypted mail and PIM snapshots on this device for offline startup, reading and queued work"),
     def!(
         "offline.persistentStorageAllowed",
         Kind::Bool,

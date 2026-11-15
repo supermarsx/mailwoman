@@ -2712,3 +2712,6 @@ admin-settings-key-mail-badge-auth-sent = Autenticación de mensajes enviados
 admin-settings-help-mail-badge-auth-sent = Los mensajes enviados suelen carecer de resultados de autenticación o spam del destinatario. Elige su visibilidad en Enviados.
 admin-settings-key-mail-badge-spam-sent = Puntuaciones de spam de mensajes enviados
 admin-settings-help-mail-badge-spam-sent = Los mensajes enviados suelen carecer de resultados de autenticación o spam del destinatario. Elige su visibilidad en Enviados.
+
+admin-settings-key-offline-enabled = Acceso sin conexión
+admin-settings-help-offline-enabled = Guarda copias cifradas del correo, calendarios, tareas, notas y contactos en caché en este dispositivo. Solo el contenido guardado está disponible sin conexión; los cambios esperan una conexión verificada.

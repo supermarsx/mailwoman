@@ -1,3 +1,4 @@
+import {withOfflineClient} from '../offline/client.ts';
 // Transport configuration (plan §2.2, §3 e6) — the ONE place the SPA decides
 // whether it talks to its own origin over cookies (browser) or to a configured
 // Mailwoman server over a bearer token (the V5 native shell).
@@ -118,7 +119,7 @@ if (isNativeAuth()) {
  */
 export function createConfiguredClient(): Client {
   // t99: every client shares one kept JMAP session per mailbox (`sessionCache.ts`).
-  if (isNativeAuth()) return withSessionCache(createClient(nativeServerBase, platformAuth()), `native:${nativeServerBase() ?? ''}`);
+  if (isNativeAuth()) return withOfflineClient(withSessionCache(createClient(nativeServerBase, platformAuth()), `native:${nativeServerBase() ?? ''}`),()=>`native:${nativeServerBase()??''}`);
   const base = transportBase();
-  return withSessionCache(base === '' ? createClient() : createClient(base), base);
+  return withOfflineClient(withSessionCache(base === '' ? createClient() : createClient(base), base),()=>`${globalThis.location?.origin??''}${base}`);
 }

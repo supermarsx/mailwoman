@@ -899,3 +899,6 @@ cache-preloadMessages-help = Busca também o conteúdo das mensagens antecipadam
 settings-badge-auth-sent = Autenticação nas mensagens enviadas
 settings-badge-spam-sent = Pontuações de spam nas mensagens enviadas
 settings-badge-sent-help = As mensagens enviadas normalmente não têm resultados de autenticação ou spam do destinatário. Escolha sua visibilidade em Enviados.
+
+settings-offline-enabled = Acesso offline
+settings-offline-enabled-help = Guarde neste dispositivo cópias criptografadas de mensagens, calendários, tarefas, notas e contatos em cache. Apenas o conteúdo salvo está disponível offline; as alterações aguardam uma conexão verificada.

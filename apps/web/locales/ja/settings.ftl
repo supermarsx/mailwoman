@@ -870,3 +870,6 @@ cache-preloadMessages-help = メッセージ本文も先読みします。既定
 settings-badge-auth-sent = 送信済みメールの認証
 settings-badge-spam-sent = 送信済みメールの迷惑メールスコア
 settings-badge-sent-help = 送信済みメールには通常、受信側の認証や迷惑メールの判定結果がありません。送信済みでの表示を選択します。
+
+settings-offline-enabled = オフラインアクセス
+settings-offline-enabled-help = キャッシュ済みのメール、カレンダー、タスク、メモ、連絡先の暗号化コピーをこの端末に保存します。オフラインでは保存済みの内容のみ利用でき、変更は接続の確認後に送信されます。

@@ -2706,3 +2706,6 @@ admin-settings-key-mail-badge-auth-sent = Authenticatie bij verzonden berichten
 admin-settings-help-mail-badge-auth-sent = Verzonden berichten hebben meestal geen authenticatie- of spamresultaten van de ontvanger. Kies de zichtbaarheid in Verzonden.
 admin-settings-key-mail-badge-spam-sent = Spamscores bij verzonden berichten
 admin-settings-help-mail-badge-spam-sent = Verzonden berichten hebben meestal geen authenticatie- of spamresultaten van de ontvanger. Kies de zichtbaarheid in Verzonden.
+
+admin-settings-key-offline-enabled = Offline toegang
+admin-settings-help-offline-enabled = Bewaar versleutelde kopieën van gecachte e-mail, agenda’s, taken, notities en contacten op dit apparaat. Alleen opgeslagen inhoud is offline beschikbaar; wijzigingen wachten op een gecontroleerde verbinding.

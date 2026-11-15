@@ -899,3 +899,6 @@ cache-preloadMessages-help = Laadt ook berichtinhoud vooraf. Standaard uit; gebr
 settings-badge-auth-sent = Authenticatie bij verzonden berichten
 settings-badge-spam-sent = Spamscores bij verzonden berichten
 settings-badge-sent-help = Verzonden berichten hebben meestal geen authenticatie- of spamresultaten van de ontvanger. Kies de zichtbaarheid in Verzonden.
+
+settings-offline-enabled = Offline toegang
+settings-offline-enabled-help = Bewaar versleutelde kopieën van gecachte e-mail, agenda’s, taken, notities en contacten op dit apparaat. Alleen opgeslagen inhoud is offline beschikbaar; wijzigingen wachten op een gecontroleerde verbinding.

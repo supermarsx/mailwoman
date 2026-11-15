@@ -627,6 +627,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'notifications.askPermission',
   'notifications.view.enabled',
   'notifications.view.showInSidebar',
+  'offline.enabled',
   'offline.retentionDays',
   'offline.budgetMb',
   'assistant.enabled',

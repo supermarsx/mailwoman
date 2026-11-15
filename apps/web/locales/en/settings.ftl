@@ -878,3 +878,6 @@ cache-preloadMessages-help = Also fetch message content in advance. Off by defau
 settings-badge-auth-sent = Authentication on sent messages
 settings-badge-spam-sent = Spam scores on sent messages
 settings-badge-sent-help = Sent messages usually have no recipient authentication or spam results. Choose whether to show these classifications in Sent.
+
+settings-offline-enabled = Offline access
+settings-offline-enabled-help = Keep encrypted copies of cached mail, calendars, tasks, notes and contacts on this device. Only cached content is available offline; queued changes wait for a verified connection.

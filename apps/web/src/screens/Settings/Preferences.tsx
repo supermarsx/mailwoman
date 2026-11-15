@@ -1,3 +1,4 @@
+import {SettingRow} from './layout/SettingRow.tsx';
 // Device preferences (t16 e15): keyboard presets (W14), offline eviction policy
 // (W16), and interface direction (W20). These are per-device, not account state —
 // persisted to localStorage via `prefs.ts` and consumed by the shell keymap, the
@@ -53,6 +54,7 @@ export function Preferences(props: PreferencesProps): JSX.Element {
   onMount(() => void loadCatalog('settings-policy'));
 
   const patch = (next: Partial<SettingsPrefs>): void => props.onChange({ ...props.prefs(), ...next });
+  const enabled=useSetting<boolean>('offline.enabled',false);
   const budgetHold = useSetting('offline.budgetMb', props.prefs().offlineBudgetMb);
   const retentionHold = useSetting('offline.retentionDays', props.prefs().offlineRetentionDays);
   // A held value is the device's value too.
@@ -111,6 +113,7 @@ export function Preferences(props: PreferencesProps): JSX.Element {
 
       {/* W16 — offline cache eviction policy */}
       <SettingsCard id="prefs-card-offline" title={t('settings-offline-title')} description={t('settings-offline-intro')}>
+        <SettingRow controlId="prefs-offline-enabled" label={t('settings-offline-enabled')} help={t('settings-offline-enabled-help')} handle={enabled}>{describedBy=><input id="prefs-offline-enabled" type="checkbox" class={css.checkbox} checked={enabled.value()} disabled={!enabled.entry()||enabled.locked()||enabled.saving()} aria-describedby={describedBy()} onChange={event=>void enabled.set(event.currentTarget.checked)}/>}</SettingRow>
         <ControlRow controlId="prefs-offline-budget" label={t('settings-offline-budget-label')} note={<LockNote id="settings-offline-budget-lock" locked={budgetHold.locked()} />}>{() =>
           <input
             id="prefs-offline-budget"

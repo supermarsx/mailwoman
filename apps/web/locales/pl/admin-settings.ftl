@@ -2724,3 +2724,6 @@ admin-settings-key-mail-badge-auth-sent = Uwierzytelnianie wysłanych wiadomośc
 admin-settings-help-mail-badge-auth-sent = Wysłane wiadomości zwykle nie mają wyników uwierzytelniania ani spamu odbiorcy. Wybierz ich widoczność w Wysłanych.
 admin-settings-key-mail-badge-spam-sent = Oceny spamu wysłanych wiadomości
 admin-settings-help-mail-badge-spam-sent = Wysłane wiadomości zwykle nie mają wyników uwierzytelniania ani spamu odbiorcy. Wybierz ich widoczność w Wysłanych.
+
+admin-settings-key-offline-enabled = Dostęp offline
+admin-settings-help-offline-enabled = Przechowuj na urządzeniu zaszyfrowane kopie poczty, kalendarzy, zadań, notatek i kontaktów z pamięci podręcznej. Offline dostępne są tylko zapisane treści; zmiany czekają na zweryfikowane połączenie.

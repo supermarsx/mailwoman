@@ -1,3 +1,5 @@
+import {verifyOfflineAuthority,revokeOfflineAuthorization} from '../offline/runtime.ts';
+import {offlineHttpRead} from '../offline/httpCache.ts';
 // The one place the web client calls `fetch` (enforced by the `mw/no-global-fetch`
 // lint rule in `eslint.config.js`; the service worker and tests are outside it).
 //
@@ -351,8 +353,10 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
   const originalNative = native;
   const originalToken = originalNative === null ? null : await originalNative.token();
   assertAuthority();
-  const response = await rawApiFetch(input, given,assertAuthority,pace);
+  const dispatch=async():Promise<Response>=>{if(!admin&&ownServer&&account&&(routePath.startsWith('/api/')||routePath.startsWith('/jmap/'))&&!/^\/api\/(?:me|login|logout|twofa|sso)(?:\/|$)/.test(routePath))await verifyOfflineAuthority();return rawApiFetch(input,given,assertAuthority,pace);};
+  const response = await (!admin&&ownServer?offlineHttpRead(routePath,given,account,dispatch):dispatch());
   if(!admin)assertAuthority();
+  if(!admin&&ownServer&&response.status===401)await revokeOfflineAuthorization();
   if (response.status !== 403 || typeof response.clone !== 'function' || typeof document === 'undefined'
     || new Headers(given?.headers).has('authorization') || given?.credentials === 'omit'
     || (typeof ReadableStream !== 'undefined' && given?.body instanceof ReadableStream)
