@@ -684,3 +684,9 @@ admin-secdash-sessions-reason-setting-off = تم إيقاف session.persistAcros
 admin-secdash-sessions-survive-no = جلسات البقاء على قيد الحياة عند إعادة التشغيل: لا ({ $reason })
 
 admin-secdash-sessions-survive-yes = تستمر الجلسات في إعادة التشغيل: نعم ({ $reason })
+
+admin-console-path-copy = نسخ عنوان وحدة التحكم
+admin-console-path-share = مشاركة عنوان وحدة التحكم
+admin-console-path-email = إرسال العنوان بالبريد
+admin-console-path-copied = تم نسخ عنوان وحدة التحكم.
+admin-console-path-share-failed = تعذرت مشاركة العنوان. حدده وانسخه يدويًا.

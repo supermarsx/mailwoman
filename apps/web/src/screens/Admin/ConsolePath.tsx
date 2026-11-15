@@ -1,3 +1,5 @@
+import {Icon} from '../../components/Icon.tsx';
+import {toast} from '../../components/toast/toast.ts';
 // Admin › Security › Console address (t76).
 //
 // The console answers at one path only. This page shows that path, says where it
@@ -49,6 +51,9 @@ export function ConsolePath(props:{readOnly:boolean;api?:ConsolePathApi}):JSX.El
     }catch(cause){setError(describeAdminError(cause));}
     finally{setBusy(false);setConfirm(null);}
   }
+  async function copyAddress(path:string):Promise<void>{try{await navigator.clipboard.writeText(address(path));toast.success(t('admin-console-path-copied'));}catch{toast.error(t('admin-console-path-share-failed'));}}
+  async function shareAddress(path:string):Promise<void>{if(!navigator.share){await copyAddress(path);return;}try{await navigator.share({title:t('admin-console-path-title'),url:address(path)});}catch(error){if(!(error instanceof DOMException&&error.name==='AbortError'))toast.error(t('admin-console-path-share-failed'));}}
+  const shareActions=(path:string)=><div class={ux.pageActions}><button type="button" class="btn btn--ghost" aria-label={t('admin-console-path-copy')} title={t('admin-console-path-copy')} onClick={()=>void copyAddress(path)}><Icon name="copy"/></button><button type="button" class="btn btn--ghost" aria-label={t('admin-console-path-share')} title={t('admin-console-path-share')} onClick={()=>void shareAddress(path)}><Icon name="share"/></button><a class="btn btn--ghost" aria-label={t('admin-console-path-email')} title={t('admin-console-path-email')} href={`mailto:?subject=${encodeURIComponent(t('admin-console-path-title'))}&body=${encodeURIComponent(address(path))}`}><Icon name="mail"/></a></div>;
   return <section class={css.section} aria-label={t('admin-console-path-title')}>
     <h2 class={css.heading}>{t('admin-console-path-title')}</h2>
     <p class={css.note}>{t('admin-console-path-help')}</p>
@@ -57,10 +62,10 @@ export function ConsolePath(props:{readOnly:boolean;api?:ConsolePathApi}):JSX.El
     <Show when={busy()&&!view()}><InlineLoading/></Show>
     <Show when={error()&&!view()}><button class="btn" onClick={()=>void load()}>{t('common-retry')}</button></Show>
     <Show when={view()}>{v=><div class={css.subsectionBody}>
-      <p><strong>{t('admin-console-path-current')}</strong> <code data-testid="console-path-current">{address(v().path)}</code></p>
+      <p><strong>{t('admin-console-path-current')}</strong> <code data-testid="console-path-current">{address(v().path)}</code></p>{shareActions(v().path)}
       <p class={css.note}>{t(`admin-console-path-source-${v().source}`)}</p>
       <Show when={v().legacyDefault}><p role="alert" class={css.error}>{t('admin-console-path-legacy')}</p></Show>
-      <Show when={v().pending}>{p=><p role="status" data-testid="console-path-pending">{t('admin-console-path-pending',{address:address(p())})}</p>}</Show>
+      <Show when={v().pending}>{p=><div><p role="status" data-testid="console-path-pending">{t('admin-console-path-pending',{address:address(p())})}</p>{shareActions(p())}</div>}</Show>
       <Show when={!pinned()&&!props.readOnly}>
         <form class={css.subsectionBody} onSubmit={event=>{event.preventDefault();if(draftValid())setConfirm({path:draft()});}}>
           <label class="field"><span>{t('admin-console-path-new')}</span>

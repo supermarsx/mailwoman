@@ -656,3 +656,9 @@ admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts ist de
 admin-secdash-sessions-survive-no = Sitzungen überleben Neustarts: nein ({ $reason })
 
 admin-secdash-sessions-survive-yes = Sitzungen überleben Neustarts: ja ({ $reason })
+
+admin-console-path-copy = Konsolenadresse kopieren
+admin-console-path-share = Konsolenadresse teilen
+admin-console-path-email = Konsolenadresse per E-Mail senden
+admin-console-path-copied = Konsolenadresse kopiert.
+admin-console-path-share-failed = Adresse konnte nicht geteilt werden. Bitte manuell auswählen und kopieren.

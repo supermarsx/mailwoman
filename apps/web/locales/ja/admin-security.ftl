@@ -652,3 +652,9 @@ admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts がオ
 admin-secdash-sessions-survive-no = セッションは再起動後も存続します: いいえ ({ $reason })
 
 admin-secdash-sessions-survive-yes = セッションは再起動後も存続します: はい ({ $reason })
+
+admin-console-path-copy = コンソールのアドレスをコピー
+admin-console-path-share = コンソールのアドレスを共有
+admin-console-path-email = アドレスをメールで送信
+admin-console-path-copied = コンソールのアドレスをコピーしました。
+admin-console-path-share-failed = アドレスを共有できませんでした。選択して手動でコピーしてください。

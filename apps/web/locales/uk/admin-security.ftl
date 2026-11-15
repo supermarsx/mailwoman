@@ -672,3 +672,9 @@ admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts вим
 admin-secdash-sessions-survive-no = Сеанси виживають після перезапусків: ні ({ $reason })
 
 admin-secdash-sessions-survive-yes = Сеанси виживають після перезапусків: так ({ $reason })
+
+admin-console-path-copy = Копіювати адресу консолі
+admin-console-path-share = Поділитися адресою консолі
+admin-console-path-email = Надіслати адресу поштою
+admin-console-path-copied = Адресу консолі скопійовано.
+admin-console-path-share-failed = Не вдалося поділитися адресою. Виділіть і скопіюйте її вручну.

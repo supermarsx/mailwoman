@@ -660,3 +660,9 @@ admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts is uit
 admin-secdash-sessions-survive-no = Sessies overleven opnieuw opstarten: nee ({ $reason })
 
 admin-secdash-sessions-survive-yes = Sessies overleven opnieuw opstarten: ja ({ $reason })
+
+admin-console-path-copy = Consoleadres kopiëren
+admin-console-path-share = Consoleadres delen
+admin-console-path-email = Consoleadres e-mailen
+admin-console-path-copied = Consoleadres gekopieerd.
+admin-console-path-share-failed = Het adres kon niet worden gedeeld. Selecteer en kopieer het handmatig.

@@ -660,3 +660,9 @@ admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts está 
 admin-secdash-sessions-survive-no = As sessões sobrevivem às reinicializações: não ({ $reason })
 
 admin-secdash-sessions-survive-yes = As sessões sobrevivem às reinicializações: sim ({ $reason })
+
+admin-console-path-copy = Copiar endereço do console
+admin-console-path-share = Compartilhar endereço do console
+admin-console-path-email = Enviar endereço por email
+admin-console-path-copied = Endereço do console copiado.
+admin-console-path-share-failed = Não foi possível compartilhar o endereço. Selecione e copie manualmente.

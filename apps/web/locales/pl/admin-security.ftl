@@ -672,3 +672,9 @@ admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts jest w
 admin-secdash-sessions-survive-no = Sesje przetrwają ponowne uruchomienie: nie ({ $reason })
 
 admin-secdash-sessions-survive-yes = Sesje przetrwają ponowne uruchomienie: tak ({ $reason })
+
+admin-console-path-copy = Kopiuj adres konsoli
+admin-console-path-share = Udostępnij adres konsoli
+admin-console-path-email = Wyślij adres e-mailem
+admin-console-path-copied = Adres konsoli skopiowany.
+admin-console-path-share-failed = Nie udało się udostępnić adresu. Zaznacz go i skopiuj ręcznie.

@@ -646,3 +646,9 @@ admin-secdash-sessions-reason-server-key-changed = stored sessions do not open w
 admin-secdash-sessions-mailbox = Mailbox sessions
 admin-secdash-sessions-native = App sessions
 admin-secdash-sessions-admin = Console sessions
+
+admin-console-path-copy = Copy console address
+admin-console-path-share = Share console address
+admin-console-path-email = Email console address
+admin-console-path-copied = Console address copied.
+admin-console-path-share-failed = Could not share the address. Select and copy it manually.

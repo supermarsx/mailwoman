@@ -649,3 +649,9 @@ admin-secdash-sessions-reason-server-key-changed = as sessões guardadas não ab
 admin-secdash-sessions-mailbox = Sessões de correio
 admin-secdash-sessions-native = Sessões de aplicação
 admin-secdash-sessions-admin = Sessões da consola
+
+admin-console-path-copy = Copiar endereço da consola
+admin-console-path-share = Partilhar endereço da consola
+admin-console-path-email = Enviar endereço por email
+admin-console-path-copied = Endereço da consola copiado.
+admin-console-path-share-failed = Não foi possível partilhar o endereço. Selecione-o e copie-o manualmente.

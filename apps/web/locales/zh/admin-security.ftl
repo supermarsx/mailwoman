@@ -650,3 +650,9 @@ admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts 已关
 admin-secdash-sessions-survive-no = 会话在重新启动后仍然有效：否 ({ $reason })
 
 admin-secdash-sessions-survive-yes = 会话在重新启动后仍然有效：是 ({ $reason })
+
+admin-console-path-copy = 复制控制台地址
+admin-console-path-share = 分享控制台地址
+admin-console-path-email = 通过邮件发送地址
+admin-console-path-copied = 已复制控制台地址。
+admin-console-path-share-failed = 无法分享地址。请选择并手动复制。
