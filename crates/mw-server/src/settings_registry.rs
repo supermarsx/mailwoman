@@ -2299,6 +2299,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "show message and event time zone comparisons"
     ),
     def!(
+        "shortcuts.activationToast",
+        Kind::Bool,
+        "false",
+        GDU,
+        "shortcuts",
+        "show brief feedback when an application keyboard shortcut is activated"
+    ),
+    def!(
         "shortcuts.enabled",
         Kind::Bool,
         "true",

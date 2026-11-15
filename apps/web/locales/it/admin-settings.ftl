@@ -2616,3 +2616,6 @@ admin-settings-help-reader-file-previews = Scegli i file apribili nell’app e g
 
 admin-settings-key-mail-after-move = Dopo lo spostamento di un messaggio
 admin-settings-help-mail-after-move = Scegli se mantenere aperto, aprire il messaggio successivo o precedente, oppure chiudere dopo lo spostamento. Gli errori non cambiano il lettore. La navigazione segue la lista e salta i messaggi spostati.
+
+admin-settings-key-shortcuts-activation-toast = Mostra avvisi delle scorciatoie da tastiera
+admin-settings-help-shortcuts-activation-toast = Mostra brevemente l’azione e i tasti utilizzati. Conferma l’attivazione, non il completamento. Digitazione, clic nei menu e tasti tenuti premuti non generano avvisi. Disattivato per impostazione predefinita.

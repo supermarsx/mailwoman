@@ -2622,3 +2622,6 @@ admin-settings-help-reader-file-previews = Wählen Sie die in der App geöffnete
 
 admin-settings-key-mail-after-move = Nach dem Verschieben einer Nachricht
 admin-settings-help-mail-after-move = Nach erfolgreichem Verschieben geöffnet lassen, nächste oder vorherige Nachricht öffnen oder schließen. Bei Fehlern bleibt die Ansicht erhalten. Die Navigation folgt der Listenreihenfolge und überspringt verschobene Nachrichten.
+
+admin-settings-key-shortcuts-activation-toast = Hinweise zu Tastenkürzeln anzeigen
+admin-settings-help-shortcuts-activation-toast = Zeigt kurz die Aktion und die verwendeten Tasten. Bestätigt die Auslösung, nicht den Abschluss. Texteingabe, Menüklicks und gedrückt gehaltene Tasten erzeugen keine Hinweise. Standardmäßig deaktiviert.

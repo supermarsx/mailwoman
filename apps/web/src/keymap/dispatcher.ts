@@ -1,3 +1,4 @@
+import {notifyShortcutActivation} from './activationToast.ts';
 // The app's one keyboard-shortcut dispatcher (t28-e16).
 //
 // One `keydown` listener on the document resolves a key press to an ACTION ID
@@ -109,6 +110,7 @@ export function createKeymap(opts: KeymapOptions = {}): Keymap {
     for (const handler of [...(stack ?? [])].reverse()) {
       if (handler(e) === false) continue;
       e.preventDefault();
+      notifyShortcutActivation(action,e);
       return true;
     }
     return false;

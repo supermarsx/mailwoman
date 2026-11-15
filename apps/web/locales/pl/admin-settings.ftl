@@ -2634,3 +2634,6 @@ admin-settings-help-reader-file-previews = Wybierz pliki otwierane w aplikacji i
 
 admin-settings-key-mail-after-move = Po przeniesieniu wiadomości
 admin-settings-help-mail-after-move = Po udanym przeniesieniu pozostaw otwartą, otwórz następną lub poprzednią wiadomość albo zamknij. Błąd nie zmienia czytnika. Nawigacja zachowuje kolejność listy i pomija przeniesione wiadomości.
+
+admin-settings-key-shortcuts-activation-toast = Pokazuj powiadomienia o skrótach klawiaturowych
+admin-settings-help-shortcuts-activation-toast = Krótko pokazuje działanie i użyte klawisze. Potwierdza uruchomienie, nie zakończenie. Pisanie, kliknięcia menu i przytrzymane klawisze nie wywołują powiadomień. Domyślnie wyłączone.

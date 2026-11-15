@@ -2608,3 +2608,6 @@ admin-settings-help-reader-file-previews = アプリ内で開くファイルと�
 
 admin-settings-key-mail-after-move = メッセージ移動後の動作
 admin-settings-help-mail-after-move = 移動成功後に開いたままにする、次または前のメッセージを開く、閉じるから選択します。失敗時は表示を変更しません。リストの順序に従い、移動したメッセージは飛ばします。
+
+admin-settings-key-shortcuts-activation-toast = キーボードショートカットの通知を表示
+admin-settings-help-shortcuts-activation-toast = 使用した操作とキーを短時間表示します。操作の完了ではなく起動を確認します。文字入力、メニューのクリック、キーの長押しでは通知しません。初期設定では無効です。

@@ -876,3 +876,7 @@ settings-badge-expires = Vervaldatum
 settings-badge-expires-help = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.
 settings-badge-supersedes = Vervangen berichten
 settings-badge-supersedes-help = Kies altijd, alleen indien relevant of nooit. Markeert ongebruikelijke waarden, actieve herinneringen, bevestigingen, bezorgingen of naderende termijnen. Berichtgegevens blijven bewaard.
+
+settings-shortcuts-activation-toast = Meldingen voor sneltoetsen tonen
+settings-shortcuts-activation-toast-help = Toont kort de actie en gebruikte toetsen. Bevestigt de activering, niet de voltooiing. Typen, menuklikken en ingedrukte toetsen geven geen melding. Standaard uitgeschakeld.
+settings-shortcut-activated = Sneltoets: { $action } ({ $keys })

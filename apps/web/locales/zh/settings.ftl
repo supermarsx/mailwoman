@@ -866,3 +866,7 @@ settings-badge-expires = 到期时间
 settings-badge-expires-help = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。
 settings-badge-supersedes = 已替换的邮件
 settings-badge-supersedes-help = 选择始终显示、仅重要时显示或不显示。突出显示异常值、有效提醒、回执、投递事件或临近的期限。邮件数据将保留。
+
+settings-shortcuts-activation-toast = 显示键盘快捷键提示
+settings-shortcuts-activation-toast-help = 短暂显示使用的操作和按键。这仅确认快捷键已触发，不代表操作已完成。文字输入、菜单点击和长按重复不会触发提示。默认关闭。
+settings-shortcut-activated = 快捷键：{ $action }（{ $keys }）

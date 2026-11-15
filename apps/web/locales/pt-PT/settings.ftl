@@ -851,3 +851,7 @@ settings-badge-expires = Validade
 settings-badge-expires-help = Escolha sempre, apenas quando relevante ou nunca. Realça valores invulgares, lembretes ativos, recibos, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.
 settings-badge-supersedes = Mensagens substituídas
 settings-badge-supersedes-help = Escolha sempre, apenas quando relevante ou nunca. Realça valores invulgares, lembretes ativos, recibos, eventos de entrega ou prazos próximos. Os dados da mensagem são mantidos.
+
+settings-shortcuts-activation-toast = Mostrar avisos de atalhos de teclado
+settings-shortcuts-activation-toast-help = Mostra brevemente a ação e as teclas do atalho utilizado. Confirma a ativação, não a conclusão. Escrever, clicar em menus e manter teclas premidas não produz avisos. Desativado por predefinição.
+settings-shortcut-activated = Atalho: { $action } ({ $keys })

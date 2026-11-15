@@ -1,3 +1,4 @@
+import {notifyShortcutActivation} from '../keymap/activationToast.ts';
 // The app-level action history behind the Undo and Redo buttons.
 //
 // Every reversible mail action (archive, delete, move, spam, mark read, flag,
@@ -224,6 +225,7 @@ export function handleUndoKey(event: KeyboardEvent): boolean {
   if (target instanceof Element && target.closest('[aria-modal="true"], dialog[open]') !== null) return false;
   if (running() || (redo ? redoList() : undoList()).length === 0) return false;
   event.preventDefault();
+  notifyShortcutActivation(redo?'redo':'undo',event);
   void (redo ? redoLast() : undoLast());
   return true;
 }

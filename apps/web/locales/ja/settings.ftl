@@ -847,3 +847,7 @@ settings-badge-expires = 有効期限
 settings-badge-expires-help = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。
 settings-badge-supersedes = 置き換えられたメッセージ
 settings-badge-supersedes-help = 常に表示、重要な場合のみ、非表示から選択します。通常と異なる値、有効なリマインダー、確認、配信イベント、近い期限を強調表示します。メッセージのデータは保持されます。
+
+settings-shortcuts-activation-toast = キーボードショートカットの通知を表示
+settings-shortcuts-activation-toast-help = 使用した操作とキーを短時間表示します。操作の完了ではなく起動を確認します。文字入力、メニューのクリック、キーの長押しでは通知しません。初期設定では無効です。
+settings-shortcut-activated = ショートカット: { $action } ({ $keys })

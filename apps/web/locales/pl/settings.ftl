@@ -878,3 +878,7 @@ settings-badge-expires = Wygaśnięcie
 settings-badge-expires-help = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.
 settings-badge-supersedes = Zastąpione wiadomości
 settings-badge-supersedes-help = Wybierz zawsze, tylko gdy istotne lub nigdy. Wyróżnia nietypowe wartości, aktywne przypomnienia, potwierdzenia, dostarczenia lub bliskie terminy. Dane wiadomości zostają zachowane.
+
+settings-shortcuts-activation-toast = Pokazuj powiadomienia o skrótach klawiaturowych
+settings-shortcuts-activation-toast-help = Krótko pokazuje działanie i użyte klawisze. Potwierdza uruchomienie, nie zakończenie. Pisanie, kliknięcia menu i przytrzymane klawisze nie wywołują powiadomień. Domyślnie wyłączone.
+settings-shortcut-activated = Skrót: { $action } ({ $keys })

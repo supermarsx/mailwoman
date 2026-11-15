@@ -855,3 +855,7 @@ settings-badge-expires = Expiry
 settings-badge-expires-help = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
 settings-badge-supersedes = Replaced messages
 settings-badge-supersedes-help = Choose always, only when notable, or never. Notable highlights unusual values, active reminders, receipts, delivery events or approaching deadlines. Existing message data is kept.
+
+settings-shortcuts-activation-toast = Show keyboard shortcut toasts
+settings-shortcuts-activation-toast-help = Briefly show the action and keys when a shortcut is used. This confirms activation, not completion. Typing, menu clicks and held-key repeats do not trigger it. Off by default.
+settings-shortcut-activated = Shortcut: { $action } ({ $keys })

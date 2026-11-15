@@ -3949,3 +3949,9 @@ The saved `default` layout is displayed as **Focus**; `ribbon` is **Command Ribb
 ### Command Ribbon controls
 
 In Command Ribbon, the main toolbar moves into the Home ribbon, with compose, logout, sorting/grouping, undo/redo, refresh, workspace and sidebar controls. Search, guided filters and inbox filtering live in the ribbon header. Home also exposes contextual message commands from the shared message action registry; permission restrictions and configured hidden/menu placements still apply. View retains appearance controls and Folder provides folder navigation and creation.
+
+
+<a id="shortcuts.activationToast"></a>
+### Shortcut feedback
+
+`shortcuts.activationToast` defaults false and supports global/domain/user defaults and locks. In Settings > Keyboard and display > Keyboard shortcuts, users can enable a brief toast naming the action and pressed keys. It acknowledges an accepted keyboard activation, not completion of an asynchronous operation. Typing, declined actions, menu-driven execution and held-key repeats do not emit it. Feedback replaces its previous toast and also covers the app-level Undo/Redo keys.

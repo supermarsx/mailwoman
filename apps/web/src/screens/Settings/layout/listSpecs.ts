@@ -33,7 +33,7 @@ export const DEVICE_PREFERENCE_CARDS: readonly CardSpec[] = [
 
 /** Keyboard shortcuts table card (the rows are data: one per action). */
 export const SHORTCUT_CARDS: readonly CardSpec[] = [
-  { id: 'shortcuts-card-table', section: 'shortcuts', title: 'settings-kbd-title', help: 'settings-shortcuts-help', rows: [{ id: 'shortcuts-enabled', label: 'settings-shortcuts-enabled' }] },
+  { id: 'shortcuts-card-table', section: 'shortcuts', title: 'settings-kbd-title', help: 'settings-shortcuts-help', rows: [{ id: 'shortcuts-enabled', label: 'settings-shortcuts-enabled' },{id:'shortcuts-activation-toast',label:'settings-shortcuts-activation-toast',help:'settings-shortcuts-activation-toast-help'}] },
 ];
 
 /** Privacy & data section: remote content, trusted links, analytics, load timing, cookies, Your data and requests. */

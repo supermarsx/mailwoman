@@ -2638,3 +2638,6 @@ admin-settings-help-reader-file-previews = اختر الملفات التي تف
 
 admin-settings-key-mail-after-move = بعد نقل رسالة
 admin-settings-help-mail-after-move = اختر إبقاء الرسالة مفتوحة أو فتح التالية أو السابقة أو إغلاقها بعد نجاح النقل. لا يتغير القارئ عند الفشل. يتبع التنقل ترتيب القائمة ويتجاوز الرسائل المنقولة.
+
+admin-settings-key-shortcuts-activation-toast = عرض تنبيهات اختصارات لوحة المفاتيح
+admin-settings-help-shortcuts-activation-toast = يعرض الإجراء والمفاتيح المستخدمة لفترة وجيزة. يؤكد التفعيل وليس اكتمال الإجراء. لا تُظهر الكتابة أو نقرات القوائم أو تكرار الضغط المستمر تنبيهات. معطل افتراضيًا.

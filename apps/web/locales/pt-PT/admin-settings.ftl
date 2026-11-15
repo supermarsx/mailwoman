@@ -2414,3 +2414,6 @@ admin-settings-help-reader-file-previews = Escolha os ficheiros que podem abrir 
 
 admin-settings-key-mail-after-move = Após mover uma mensagem
 admin-settings-help-mail-after-move = Escolha o que acontece após mover: manter aberta, abrir a mensagem seguinte ou anterior, ou fechar. As falhas não alteram o leitor. A navegação segue a ordem da lista e ignora as mensagens movidas.
+
+admin-settings-key-shortcuts-activation-toast = Mostrar avisos de atalhos de teclado
+admin-settings-help-shortcuts-activation-toast = Mostra brevemente a ação e as teclas do atalho utilizado. Confirma a ativação, não a conclusão. Escrever, clicar em menus e manter teclas premidas não produz avisos. Desativado por predefinição.

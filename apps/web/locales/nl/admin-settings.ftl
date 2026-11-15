@@ -2616,3 +2616,6 @@ admin-settings-help-reader-file-previews = Kies welke bestanden in de app openen
 
 admin-settings-key-mail-after-move = Na het verplaatsen van een bericht
 admin-settings-help-mail-after-move = Kies na een geslaagde verplaatsing: openhouden, volgend of vorig bericht openen, of sluiten. Bij fouten blijft de lezer ongewijzigd. Navigatie volgt de lijstvolgorde en slaat verplaatste berichten over.
+
+admin-settings-key-shortcuts-activation-toast = Meldingen voor sneltoetsen tonen
+admin-settings-help-shortcuts-activation-toast = Toont kort de actie en gebruikte toetsen. Bevestigt de activering, niet de voltooiing. Typen, menuklikken en ingedrukte toetsen geven geen melding. Standaard uitgeschakeld.

@@ -177,6 +177,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'attachments.warnMimeTypes',
 
   'shortcuts.enabled',
+  'shortcuts.activationToast',
   'shortcuts.compose',
   'shortcuts.archive',
   'shortcuts.reply',

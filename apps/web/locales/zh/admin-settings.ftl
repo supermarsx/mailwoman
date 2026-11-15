@@ -2608,3 +2608,6 @@ admin-settings-help-reader-file-previews = 选择在应用中打开的文件和�
 
 admin-settings-key-mail-after-move = 移动邮件后的操作
 admin-settings-help-mail-after-move = 移动成功后，可保持打开、打开下一封或上一封邮件，或关闭邮件。移动失败时不更改阅读器。导航遵循当前列表顺序并跳过已移动的邮件。
+
+admin-settings-key-shortcuts-activation-toast = 显示键盘快捷键提示
+admin-settings-help-shortcuts-activation-toast = 短暂显示使用的操作和按键。这仅确认快捷键已触发，不代表操作已完成。文字输入、菜单点击和长按重复不会触发提示。默认关闭。

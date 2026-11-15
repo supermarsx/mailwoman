@@ -1,3 +1,4 @@
+import {SHORTCUT_TOAST_KEY} from '../../keymap/activationToast.ts';
 import { createEffect, createMemo, createSignal, For, Show, type JSX } from 'solid-js';
 import { settings } from '../../api/settings.ts';
 import { bindingsFor } from '../../keymap/dispatcher.ts';
@@ -43,6 +44,7 @@ function BindingEditor(props: { action: ShortcutAction; navigation: SettingsNavi
 
 export function KeyboardShortcuts(props: { navigation: SettingsNavigation }): JSX.Element {
   const enabled = useSetting<boolean>('shortcuts.enabled', true);
+  const activationToast=useSetting<boolean>(SHORTCUT_TOAST_KEY,false);
   const action = () => {
     const id = props.navigation.route().editor?.id;
     return SHORTCUT_ACTIONS.find(value => value === id);
@@ -55,6 +57,9 @@ export function KeyboardShortcuts(props: { navigation: SettingsNavigation }): JS
     <ControlRow controlId="shortcuts-enabled" label={t('settings-shortcuts-enabled')} note={<><LockNote locked={enabled.locked()}/>
     <Show when={enabled.error()}><p role="alert">{enabled.error()}</p></Show></>}>{() =>
       <input id="shortcuts-enabled" type="checkbox" checked={enabled.value()} disabled={!enabled.entry() || enabled.locked() || enabled.saving()} onChange={event => void enabled.set(event.currentTarget.checked)}/>
+    }</ControlRow>
+    <ControlRow controlId="shortcuts-activation-toast" label={t('settings-shortcuts-activation-toast')} help={t('settings-shortcuts-activation-toast-help')} note={<><LockNote locked={activationToast.locked()}/><Show when={activationToast.error()}><p role="alert">{activationToast.error()}</p></Show></>}>{describedBy=>
+      <input id="shortcuts-activation-toast" type="checkbox" checked={activationToast.value()} disabled={!activationToast.entry()||activationToast.locked()||activationToast.saving()} aria-describedby={describedBy()} onChange={event=>void activationToast.set(event.currentTarget.checked)}/>
     }</ControlRow>
     <Show when={loadPrefs().keyboardPreset === 'off'}><p role="status">{t('settings-shortcuts-off')}</p></Show>
     <Show when={resolved().conflicts.length}><p role="alert">{t('settings-shortcuts-conflict')}</p></Show>

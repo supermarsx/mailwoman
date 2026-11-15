@@ -9,7 +9,7 @@ vi.mock('../../api/settings.ts', () => ({ settings: () => data.values }));
 vi.mock('./useSetting.ts', () => ({ useSetting: (key:string, fallback:unknown) => ({ value:()=>data.values[key]?.value??fallback,entry:()=>data.values[key],locked:()=>data.values[key]?.locked===true,saving:()=>false,error:()=>'',set:(value:unknown)=>data.save(key,value) }) }));
 beforeEach(() => {
   localStorage.clear();
-  data.values={'shortcuts.enabled':{value:true,source:'user',locked:false},'shortcuts.compose':{value:'inherit',source:'user',locked:false}} satisfies SettingsMap;
+  data.values={'shortcuts.activationToast':{value:false,source:'user',locked:false},'shortcuts.enabled':{value:true,source:'user',locked:false},'shortcuts.compose':{value:'inherit',source:'user',locked:false}} satisfies SettingsMap;
   data.save.mockReset().mockImplementation(async(key,value)=>{data.values[key]={value,source:'user',locked:false};return true;});
 });
 
@@ -36,4 +36,15 @@ it('shows a locked binding without offering a writable control',()=>{
   const navigation=createSettingsNavigation({section:'shortcuts',editor:{kind:'edit',id:'compose'}});
   render(()=><KeyboardShortcuts navigation={navigation}/>);
   expect(screen.getByLabelText('Binding')).toBeDisabled();expect(screen.getByRole('button',{name:'Save shortcut'})).toBeDisabled();
+});
+
+it('offers optional shortcut feedback off by default and saves it through user settings',async()=>{
+ render(()=><KeyboardShortcuts navigation={createSettingsNavigation({section:'shortcuts'})}/>);
+ const checkbox=screen.getByRole('checkbox',{name:'Show keyboard shortcut toasts'});expect(checkbox).not.toBeChecked();fireEvent.click(checkbox);
+ await waitFor(()=>expect(data.save).toHaveBeenCalledWith('shortcuts.activationToast',true));
+});
+it('keeps administrator-held shortcut feedback read-only',()=>{
+ data.values['shortcuts.activationToast']={value:true,source:'user',locked:true};
+ render(()=><KeyboardShortcuts navigation={createSettingsNavigation({section:'shortcuts'})}/>);
+ const checkbox=screen.getByRole('checkbox',{name:'Show keyboard shortcut toasts'});expect(checkbox).toBeChecked();expect(checkbox).toBeDisabled();
 });

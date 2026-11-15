@@ -2411,3 +2411,6 @@ admin-settings-help-reader-file-previews = Choose which files can open in the ap
 
 admin-settings-key-mail-after-move = After moving a message
 admin-settings-help-mail-after-move = Choose what happens after a successful move: keep the message open, open the next or previous message, or close it. Failed moves leave the reader unchanged. Next and previous follow the current list order and skip moved messages.
+
+admin-settings-key-shortcuts-activation-toast = Show keyboard shortcut toasts
+admin-settings-help-shortcuts-activation-toast = Briefly show the action and keys when a shortcut is used. This confirms activation, not completion. Typing, menu clicks and held-key repeats do not trigger it. Off by default.

@@ -853,3 +853,7 @@ settings-badge-expires = Scadenza
 settings-badge-expires-help = Scegli sempre, solo se rilevante o mai. Evidenzia valori insoliti, promemoria attivi, conferme, consegne o scadenze vicine. I dati del messaggio vengono conservati.
 settings-badge-supersedes = Messaggi sostituiti
 settings-badge-supersedes-help = Scegli sempre, solo se rilevante o mai. Evidenzia valori insoliti, promemoria attivi, conferme, consegne o scadenze vicine. I dati del messaggio vengono conservati.
+
+settings-shortcuts-activation-toast = Mostra avvisi delle scorciatoie da tastiera
+settings-shortcuts-activation-toast-help = Mostra brevemente l’azione e i tasti utilizzati. Conferma l’attivazione, non il completamento. Digitazione, clic nei menu e tasti tenuti premuti non generano avvisi. Disattivato per impostazione predefinita.
+settings-shortcut-activated = Scorciatoia: { $action } ({ $keys })

@@ -857,3 +857,7 @@ settings-badge-expires = Ablauf
 settings-badge-expires-help = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.
 settings-badge-supersedes = Ersetzte Nachrichten
 settings-badge-supersedes-help = Wählen Sie immer, nur bei Besonderheiten oder nie. Hebt ungewöhnliche Werte, aktive Erinnerungen, Bestätigungen, Zustellungen oder nahe Fristen hervor. Nachrichtendaten bleiben erhalten.
+
+settings-shortcuts-activation-toast = Hinweise zu Tastenkürzeln anzeigen
+settings-shortcuts-activation-toast-help = Zeigt kurz die Aktion und die verwendeten Tasten. Bestätigt die Auslösung, nicht den Abschluss. Texteingabe, Menüklicks und gedrückt gehaltene Tasten erzeugen keine Hinweise. Standardmäßig deaktiviert.
+settings-shortcut-activated = Tastenkürzel: { $action } ({ $keys })
