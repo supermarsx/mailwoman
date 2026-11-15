@@ -1,3 +1,4 @@
+import {UnifiedAccountManager} from './UnifiedAccountManager.tsx';
 import {LinkedSettingsInheritance} from './LinkedSettingsInheritance.tsx';
 import {toast} from '../../components/toast/toast.ts';
 import {requestMailboxOpen} from '../../state/mailboxOpenRequest.ts';
@@ -63,7 +64,7 @@ function OwnedLinkedAccounts():JSX.Element {
   async function setFirst(id:string|null):Promise<void>{
     if(busy())return;
     setBusy(true);setError('');
-    try{await api.setPrimary(id);if(disposed)return;invalidateLinkedAccounts();await refetch();}
+    try{if(list()?.virtualPrimary)await api.setVirtualPrimary(false);await api.setPrimary(id);if(disposed)return;invalidateLinkedAccounts();await refetch();}
     catch(cause){if(!disposed)setError(linkedAccountError(cause));}
     finally{if(!disposed)setBusy(false);}
   }
@@ -109,7 +110,7 @@ function OwnedLinkedAccounts():JSX.Element {
     <Show when={!list.error&&list()}>{value=><>
       <Show when={app.linkedMailboxId()===null} fallback={<p class={css.meta}>{t('linked-accounts-primary-preference')}</p>}><LinkedPreference onChanged={()=>{invalidateLinkedAccounts();void refetch();}}/></Show>
       <Show when={value().policy.reason==='linkedBackendUnsupported'}><p class={css.meta}>{t('linked-accounts-backend-unsupported')}</p></Show>
-      <LinkedAccountList value={value()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename} onRenew={setRenewing} onAvatar={setAvatar} onVisibility={setVisibility} onLoginPolicy={(id,value)=>void layoutAction(()=>api.setLoginPolicy(id,value))} onOpen={id=>void openAccount(id)}/>
+      <LinkedAccountList special={<Show when={app.linkedMailboxId()===null}><UnifiedAccountManager list={value()} onChanged={()=>{invalidateLinkedAccounts();void refetch();}}/></Show>} value={value()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename} onRenew={setRenewing} onAvatar={setAvatar} onVisibility={setVisibility} onLoginPolicy={(id,value)=>void layoutAction(()=>api.setLoginPolicy(id,value))} onOpen={id=>void openAccount(id)}/>
       <Show when={app.linkedMailboxId()}><LinkedSettingsInheritance/></Show>
       <Show when={renewing()}>{account=><RenewAccessDialog account={account()} label={mailboxNickname(account().id)||account().address||account().displayName} api={api}
         onRenewed={()=>{setRenewing(undefined);invalidateLinkedAccounts();void refetch();}} onCancel={()=>setRenewing(undefined)} onGone={()=>{setRenewing(undefined);void refetch();}}/>}</Show>

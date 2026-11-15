@@ -14,6 +14,7 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/api/accounts", get(list))
         .route("/api/accounts/link", post(link))
         .route("/api/accounts/primary", axum::routing::put(set_primary))
+        .route("/api/accounts/unified-primary",axum::routing::put(set_unified_primary))
         .route("/api/accounts/layout", axum::routing::put(set_layout))
         .route("/api/accounts/challenges/{id}/confirm", post(confirm))
         .route("/api/accounts/{id}/renew", post(renew))
@@ -125,7 +126,13 @@ async fn list(State(state): State<AppState>, headers: HeaderMap) -> Result<Respo
             .map_err(unavailable)?,
         &keys,
     );
+    let mut unified_config=serde_json::Map::new();
+    for suffix in ["accounts","folders","allowedAccounts","allowedFolders","name","avatar","openFirst"] {
+        if let Some(entry)=crate::settings_routes::effective_for_session(&state,&parent,&format!("mail.unifiedAccount.{suffix}")).await.map_err(unavailable)? {unified_config.insert(suffix.into(),entry.value);}
+    }
     Ok(([(axum::http::header::CACHE_CONTROL,"private, no-store")],Json(json!({
+        "unifiedConfig":unified_config,
+        "virtualPrimary":enabled(&state,&parent).await?&&accounts.iter().any(|account|account["status"]=="ready")&&effective(&state,&parent,"mail.unifiedAccount").await?&&effective(&state,&parent,"mail.unifiedAccount.openFirst").await?,
         "primaryMailbox":primary_mailbox,"primaryFallback":primary_fallback,"layout":layout,
         "primary":{"accountId":parent.account_id,"address":parent.username,"storageAuthority":state.store.session_storage_authority(&parent.id).await.map_err(unavailable)?},
         "accounts":accounts,"policy":{"enabled":enabled(&state,&parent).await?,"maxAccounts":maximum(&state).await?,
@@ -690,6 +697,10 @@ struct PrimaryRequest {
 /// `PUT /api/accounts/primary` — which mailbox opens first: one of the owner's
 /// ready links, or `null` for the primary account. A preference only; opening
 /// the link still needs `/switch` and every check behind it.
+async fn set_unified_primary(State(state):State<AppState>,headers:HeaderMap,ext:Extensions,body:Result<Json<crate::settings_routes::UserValue>,axum::extract::rejection::JsonRejection>)->Response {
+    if let Err(response)=parent(&state,&headers,true).await{return response;}
+    crate::settings_routes::user_put(State(state),headers,ext,Path("mail.unifiedAccount.openFirst".into()),body).await
+}
 async fn set_primary(
     State(state): State<AppState>,
     headers: HeaderMap,

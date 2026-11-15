@@ -7,3 +7,10 @@ unified-mail-action-failed = Не вдалося оновити { $count } по�
 unified-mail-view-setting = Об’єднаний перегляд повідомлень
 unified-mail-virtual-account = Об’єднаний віртуальний обліковий запис
 unified-mail-virtual-account-help = Додати окремий віртуальний обліковий запис до перемикача зі спільними папками та лічильниками. Незалежно від об’єднаного перегляду повідомлень.
+
+unified-config-open-first = Відкривати першим
+unified-config-edit = Налаштувати
+unified-config-name = Відображуване ім’я
+unified-config-accounts = Включені облікові записи
+unified-config-folders = Включені папки
+unified-config-help = Виберіть облікові записи та папки віртуальної скриньки. Обмеження адміністратора діють завжди.

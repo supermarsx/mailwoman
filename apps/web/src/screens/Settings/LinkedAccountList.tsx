@@ -26,6 +26,7 @@ import '../../components/senderIcons/palette.css';
  *  letter or icon, colours). The sidebar picker only switches. */
 export function LinkedAccountList(props:{
   value:LinkedMailboxList;
+  special?:JSX.Element;
   busy:boolean;
   error?:string;
   onAdd:()=>void;
@@ -98,13 +99,14 @@ export function LinkedAccountList(props:{
     <Show when={props.value.policy.enabled&&full()}><p role="status" class={css.meta}>{t('linked-accounts-limit')}</p></Show>
     <Show when={props.error}><p role="alert" class={css.error}>{props.error}</p></Show>
     <span class={a11y.srOnly} role="status" aria-live="polite">{announcement()}</span>
+    {props.special}
     <Show when={props.value.accounts.length>0} fallback={<p class={table.empty} data-linked-empty>{t('linked-accounts-empty')}</p>}>
       <ul class={table.table} ref={listEl} aria-label={t('linked-accounts-title')}>
         <For each={keys()}>{(key,index)=>{
           const linkId=linkOf(key),child=()=>account(key);
           const ready=():boolean=>linkId===null||(child()?.status==='ready'&&props.value.policy.enabled);
           const expired=():boolean=>linkId!==null&&child()?.status==='reauthRequired';
-          const primary=():boolean=>first()===linkId;
+          const primary=():boolean=>!props.value.virtualPrimary&&first()===linkId;
           const nicknameId=`linked-nickname-${key}`;
           return <li class={table.row} data-linked-row data-key={key} data-drop={drop(index())}
             onPointerDown={event=>{

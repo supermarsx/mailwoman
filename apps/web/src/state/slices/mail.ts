@@ -1,3 +1,4 @@
+import {setUnifiedStartup} from '../unifiedMailbox.ts';
 import {accountUiPreferences} from '../../api/accountPreferences.ts';
 import {appliedOverride} from '../../components/properties/folderOverrides.ts';
 import {afterMoveMode,messagesMoved,moveNeighbour,type MovedMessages} from '../moveEvents.ts';
@@ -2434,6 +2435,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         return {linkId: null, fallback: false};
       }
       api.dispose();
+      if(value.virtualPrimary){setUnifiedStartup(true);return {linkId:null,fallback:false};}
       return {linkId: value.policy.enabled ? value.primaryMailbox ?? null : null, fallback: value.primaryFallback === true};
     } catch {
       api.dispose();

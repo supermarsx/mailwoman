@@ -295,6 +295,8 @@ impl SettingDef {
             || matches!(
                 self.key,
                 "mail.attachmentWarningsRequired"
+                    | "mail.unifiedAccount.allowedAccounts"
+                    | "mail.unifiedAccount.allowedFolders"
                     | "mail.templates.shared"
                     | "mail.conversations.allowed"
                     | "mail.templates.allowPersonal"
@@ -797,6 +799,33 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("mail.attachmentWarnings",Kind::Bool,"true",GDU,"reader","Show a warning bar for suspicious attachment filenames and risky extensions"),
     def!("mail.attachmentWarningsRequired",Kind::Bool,"false",GDA,"reader","Require all attachment warning categories regardless of user visibility choices; download and preview policies remain authoritative"),
     def!("mail.attachmentWarningTypes",Kind::StringList{max_len:5,max_item:32},r#"["executable","macro","disguisedName","typeMismatch","activeDocument"]"#,GDU,"reader","Attachment warning categories shown to this user unless warnings are required by administrator policy"),
+    def!("views.notifications.visibility",Kind::Enum(&["visible","hidden","notable"]),"\"visible\"",GDU,"folders","Sidebar visibility for notifications: visible, hidden, or only when notable; feature policy remains a ceiling"),
+    def!("views.notifications.name",text(Text::Plain,128),r#""""#,GDU,"folders","Custom sidebar name for notifications; empty uses the translated default"),
+    def!("views.notifications.showCount",Kind::Bool,"true",GDU,"folders","Show the notable-item count beside notifications"),
+    def!("views.calendar.visibility",Kind::Enum(&["visible","hidden","notable"]),"\"visible\"",GDU,"folders","Sidebar visibility for calendar: visible, hidden, or only when notable; feature policy remains a ceiling"),
+    def!("views.calendar.name",text(Text::Plain,128),r#""""#,GDU,"folders","Custom sidebar name for calendar; empty uses the translated default"),
+    def!("views.calendar.showCount",Kind::Bool,"true",GDU,"folders","Show the notable-item count beside calendar"),
+    def!("views.tasks.visibility",Kind::Enum(&["visible","hidden","notable"]),"\"visible\"",GDU,"folders","Sidebar visibility for tasks: visible, hidden, or only when notable; feature policy remains a ceiling"),
+    def!("views.tasks.name",text(Text::Plain,128),r#""""#,GDU,"folders","Custom sidebar name for tasks; empty uses the translated default"),
+    def!("views.tasks.showCount",Kind::Bool,"true",GDU,"folders","Show the notable-item count beside tasks"),
+    def!("views.notes.visibility",Kind::Enum(&["visible","hidden","notable"]),"\"visible\"",GDU,"folders","Sidebar visibility for notes: visible, hidden, or only when notable; feature policy remains a ceiling"),
+    def!("views.notes.name",text(Text::Plain,128),r#""""#,GDU,"folders","Custom sidebar name for notes; empty uses the translated default"),
+    def!("views.notes.showCount",Kind::Bool,"true",GDU,"folders","Show the notable-item count beside notes"),
+    def!("views.contacts.visibility",Kind::Enum(&["visible","hidden","notable"]),"\"visible\"",GDU,"folders","Sidebar visibility for contacts: visible, hidden, or only when notable; feature policy remains a ceiling"),
+    def!("views.contacts.name",text(Text::Plain,128),r#""""#,GDU,"folders","Custom sidebar name for contacts; empty uses the translated default"),
+    def!("views.contacts.showCount",Kind::Bool,"true",GDU,"folders","Show the notable-item count beside contacts"),
+    def!("views.keys.visibility",Kind::Enum(&["visible","hidden","notable"]),"\"visible\"",GDU,"folders","Sidebar visibility for keys: visible, hidden, or only when notable; feature policy remains a ceiling"),
+    def!("views.keys.name",text(Text::Plain,128),r#""""#,GDU,"folders","Custom sidebar name for keys; empty uses the translated default"),
+    def!("views.keys.showCount",Kind::Bool,"true",GDU,"folders","Show the notable-item count beside keys"),
+    def!("views.attachments.visibility",Kind::Enum(&["visible","hidden","notable"]),"\"visible\"",GDU,"folders","Sidebar visibility for attachments: visible, hidden, or only when notable; feature policy remains a ceiling"),
+    def!("views.attachments.name",text(Text::Plain,128),r#""""#,GDU,"folders","Custom sidebar name for attachments; empty uses the translated default"),
+    def!("views.attachments.showCount",Kind::Bool,"true",GDU,"folders","Show the notable-item count beside attachments"),
+    def!("views.outbox.visibility",Kind::Enum(&["visible","hidden","notable"]),"\"visible\"",GDU,"folders","Sidebar visibility for outbox: visible, hidden, or only when notable; feature policy remains a ceiling"),
+    def!("views.outbox.name",text(Text::Plain,128),r#""""#,GDU,"folders","Custom sidebar name for outbox; empty uses the translated default"),
+    def!("views.outbox.showCount",Kind::Bool,"true",GDU,"folders","Show the notable-item count beside outbox"),
+    def!("views.templates.visibility",Kind::Enum(&["visible","hidden","notable"]),"\"visible\"",GDU,"folders","Sidebar visibility for templates: visible, hidden, or only when notable; feature policy remains a ceiling"),
+    def!("views.templates.name",text(Text::Plain,128),r#""""#,GDU,"folders","Custom sidebar name for templates; empty uses the translated default"),
+    def!("views.templates.showCount",Kind::Bool,"true",GDU,"folders","Show the notable-item count beside templates"),
     def!(
         "accounts.useLinked",
         Kind::Bool,
@@ -3584,6 +3613,13 @@ pub static REGISTRY: &[SettingDef] = &[
         "interface",
         "most recent mail actions any user may keep in the Undo and Redo history"
     ),
+    def!("mail.unifiedAccount.accounts",Kind::StringList{max_len:32,max_item:128},r#"["*"]"#,GDU,"mail","Included virtual-account keys: primary or verified link IDs; * includes all accounts within administrator bounds"),
+    def!("mail.unifiedAccount.folders",Kind::StringList{max_len:512,max_item:512},r#"["*"]"#,GDU,"mail","Included folders as JSON [account key, folder ID], or role:inbox etc; * includes all folders within administrator bounds"),
+    def!("mail.unifiedAccount.allowedAccounts",Kind::StringList{max_len:32,max_item:128},r#"["*"]"#,GDA,"mail","Administrator bound for unified accounts: primary or verified link IDs; * allows all; empty allows none"),
+    def!("mail.unifiedAccount.allowedFolders",Kind::StringList{max_len:512,max_item:512},r#"["*"]"#,GDA,"mail","Administrator bound for unified folders: JSON [account key,folder ID] or role:inbox etc; * allows all; empty allows none"),
+    def!("mail.unifiedAccount.openFirst",Kind::Bool,"false",GDU,"mail","Open the unified virtual account first when linked mailboxes are available and more than one account is usable"),
+    def!("mail.unifiedAccount.name",text(Text::Plain,128),r#""""#,GDU,"mail","Display name of the unified virtual account; empty uses the translated default"),
+    def!("mail.unifiedAccount.avatar",text(Text::Plain,512),r#""""#,GDU,"mail","Unified virtual-account avatar as a bounded JSON letter or icon specification; empty uses the default"),
     def!(
         "accounts.settings.inheritGroups",
         Kind::StringList { max_len: 8, max_item: 16 },

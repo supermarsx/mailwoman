@@ -1,12 +1,12 @@
 import {createSignal} from 'solid-js';
-import {requestUnifiedMailbox,unifiedMailboxActive,setUnifiedVirtualMode,setUnifiedFolderCounts,unifiedFolderRole} from '../state/unifiedMailbox.ts';
+import {requestUnifiedMailbox,unifiedAvailable,unifiedMailboxActive,setUnifiedVirtualMode,setUnifiedFolderCounts,unifiedFolderRole} from '../state/unifiedMailbox.ts';
 import {setAdminLeetspeak} from '../i18n/presentation.ts';
 import * as workspaceAttachments from '../realtime/workspaceAttachment.ts';
 import {loadFeatures,clearFeatures} from '../state/features.ts';
 import {loadSettings,clearSettings} from '../api/settings.ts';
 import * as folderExport from '../components/properties/folderExport.ts';
 import {WORKSPACE_STORAGE_KEY} from '../realtime/workspaceStorage.ts';
-import {suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
+import {preferenceAccount,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -42,12 +42,20 @@ function mount(attachment=false) {
   const {app,realtime,show}=setup(attachment);
   return {app,realtime,...show()};
 }
+function supplyLinkedAccount():void {
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{
+  const url=new URL(input instanceof Request?input.url:String(input),location.href);
+  if(url.pathname==='/api/accounts')return Response.json({primary:{accountId:'acct1',address:'me@example.org',storageAuthority:preferenceAccount()?.storageAuthority??'test-storage-authority-acct1'},accounts:[{id:'child',accountId:'acct2',address:'child@example.org',displayName:'Child',storageAuthority:'child-storage-authority-acct2',status:'ready',revision:'1'}],policy:{enabled:true,maxAccounts:4,supportedAuthentication:['password']}});
+  return Response.json({}, {status:404});
+ }));
+}
+
 describe('retained mailbox workspace',()=>{
   it('keeps the Unified view separate from virtual-account folders and places Notifications above Calendar',async()=>{
-    const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    supplyLinkedAccount();const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
     await loadSettings({refresh:true,fetcher:async()=>Response.json({settings:{'mail.unifiedInbox':{value:true,source:'user',locked:false},'mail.unifiedAccount':{value:true,source:'user',locked:false}}})});
     try{
-      const {container}=show();const nav=screen.getByRole('navigation',{name:'Apps'});const entries=Array.from(nav.querySelectorAll<HTMLElement>('[data-testid]')).map(node=>node.dataset['testid']);expect(entries.indexOf('nav-notifications')).toBeLessThan(entries.indexOf('nav-calendar'));
+      const {container}=show();await waitFor(()=>expect(unifiedAvailable()).toBe(true));const nav=screen.getByRole('navigation',{name:'Apps'});const entries=Array.from(nav.querySelectorAll<HTMLElement>('[data-testid]')).map(node=>node.dataset['testid']);expect(entries.indexOf('nav-notifications')).toBeLessThan(entries.indexOf('nav-calendar'));
       requestUnifiedMailbox();await waitFor(()=>expect(container.querySelector('[data-unified-folders]')).not.toBeNull());expect(unifiedMailboxActive()).toBe(true);expect(container.querySelector('[data-folder-region]')).toBeNull();
       setUnifiedFolderCounts({inbox:{total:42,unread:7},sent:{total:4,unread:0}});expect(screen.getByTestId('unified-role-inbox')).toHaveTextContent('7');expect(screen.getByTestId('unified-role-inbox')).toHaveTextContent('42');
       fireEvent.click(screen.getByTestId('unified-role-sent'));expect(unifiedFolderRole()).toBe('sent');
@@ -55,10 +63,10 @@ describe('retained mailbox workspace',()=>{
     }finally{setUnifiedVirtualMode(false);setUnifiedFolderCounts({});clearSettings();}
   });
   it.each([[true,false],[false,true]])('configures the Unified view (%s) separately from the virtual account (%s)',async(view,virtual)=>{
-    const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    supplyLinkedAccount();const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
     await loadSettings({refresh:true,fetcher:async()=>Response.json({settings:{'mail.unifiedInbox':{value:view,source:'user',locked:false},'mail.unifiedAccount':{value:virtual,source:'user',locked:false}}})});
     try{
-      setUnifiedVirtualMode(false);const {container}=show();const button=screen.queryByRole('button',{name:'Unified mail'});expect(!!button).toBe(view);
+      setUnifiedVirtualMode(false);const {container}=show();await waitFor(()=>expect(unifiedAvailable()).toBe(true));const button=screen.queryByRole('button',{name:'Unified mail'});expect(!!button).toBe(view);
       if(virtual){requestUnifiedMailbox();await waitFor(()=>expect(container.querySelector('[data-unified-folders]')).not.toBeNull());expect(location.hash).toBe('#/unified');}
       else{fireEvent.click(button!);await waitFor(()=>expect(location.hash).toBe('#/unified'));expect(container.querySelector('[data-unified-folders]')).toBeNull();requestUnifiedMailbox();expect(unifiedMailboxActive()).toBe(false);}
     }finally{setUnifiedVirtualMode(false);clearSettings();}

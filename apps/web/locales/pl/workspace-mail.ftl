@@ -7,3 +7,10 @@ unified-mail-action-failed = Nie udało się zaktualizować { $count } wiadomoś
 unified-mail-view-setting = Zbiorczy widok wiadomości
 unified-mail-virtual-account = Zbiorcze konto wirtualne
 unified-mail-virtual-account-help = Dodaj osobne konto wirtualne do selektora kont ze wspólnymi folderami i licznikami. Niezależne od zbiorczego widoku wiadomości.
+
+unified-config-open-first = Otwieraj najpierw
+unified-config-edit = Konfiguruj
+unified-config-name = Wyświetlana nazwa
+unified-config-accounts = Uwzględnione konta
+unified-config-folders = Uwzględnione foldery
+unified-config-help = Wybierz konta i foldery tej wirtualnej skrzynki. Ograniczenia administratora zawsze obowiązują.

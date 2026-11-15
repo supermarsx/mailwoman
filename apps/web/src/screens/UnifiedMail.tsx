@@ -1,3 +1,4 @@
+import {unifiedAccountAllowed,unifiedFolderAllowed,unifiedPreference} from '../state/unifiedAccountPreferences.ts';
 import {SearchInput} from '../components/SearchInput.tsx';
 import {settings} from '../api/settings.ts';
 import {classifyRowClick,dblClickOpensTab} from '../components/messageOpen.ts';
@@ -56,15 +57,16 @@ export default function UnifiedMail(props:{activeLink:string|null;onOpenMessage?
   void workspaceMailboxes(active).then(rows=>{if(!request.signal.aborted){if(account()&&!rows.some(row=>targetKey(row)===account()))setAccount('');setTargets(rows);}}).catch(()=>{if(!request.signal.aborted){setError(true);setLoading(false);}});onCleanup(()=>request.abort());
  });
  createEffect(()=>{
-  const accounts=targets().filter(target=>!account()||targetKey(target)===account());const currentRole=role(),currentQuery=query(),currentOrder=order.value(),onlyUnread=unreadOnly();
+  void unifiedPreference('folders');void unifiedPreference('allowedFolders');
+  const virtual=unifiedVirtualMode();const accounts=targets().filter(target=>unifiedAccountAllowed(target,virtual)&&(!account()||targetKey(target)===account()));const currentRole=role(),currentQuery=query(),currentOrder=order.value(),onlyUnread=unreadOnly();
   controller?.abort();const request=new AbortController();controller=request;setPages([]);setSelected(new Set<string>());setExpanded(new Set<string>());setTop(0);if(scroller)scroller.scrollTop=0;
-  if(!accounts.length){setLoading(!error());return;}setLoading(true);
+  if(!accounts.length){setLoading(targets().length===0&&!error());return;}setLoading(true);
   void Promise.all(accounts.map(target=>load({target,rows:[],next:0,total:null,unread:null,failed:false},currentRole,currentQuery,request.signal,currentOrder,onlyUnread))).then(result=>{if(!request.signal.aborted){setPages(result);setLoading(false);}});
   onCleanup(()=>request.abort());
  });
  async function load(page:MailboxPage,folder:UnifiedRole,text:string,signal:AbortSignal,sort=order.value(),onlyUnread=unreadOnly()):Promise<MailboxPage>{
   if(page.next===null)return page;
-  try{const boxes=page.boxes??await workspaceFolders(page.target,signal),result=await workspaceMessages(page.target,boxes,folder,text,page.next,signal,sort,onlyUnread);if(result.next!==null&&result.next<=page.next)throw new Error('Mailbox pagination did not advance');const known=new Set(page.rows.map(unifiedRowKey));return {...page,boxes,rows:[...page.rows,...result.rows.filter(row=>!known.has(unifiedRowKey(row)))],next:result.next,total:result.total,unread:result.unread,failed:false};}
+  try{const boxes=(page.boxes??await workspaceFolders(page.target,signal)).filter(box=>unifiedFolderAllowed(page.target,box,unifiedVirtualMode())),result=await workspaceMessages(page.target,boxes,folder,text,page.next,signal,sort,onlyUnread,boxes.map(box=>box.id));if(result.next!==null&&result.next<=page.next)throw new Error('Mailbox pagination did not advance');const known=new Set(page.rows.map(unifiedRowKey));return {...page,boxes,rows:[...page.rows,...result.rows.filter(row=>!known.has(unifiedRowKey(row)))],next:result.next,total:result.total,unread:result.unread,failed:false};}
   catch{return {...page,failed:true};}
  }
  async function more():Promise<void>{if(loading()||!controller)return;const request=controller;setLoading(true);const result=await Promise.all(pages().map(page=>load(page,role(),query(),request.signal)));if(!request.signal.aborted){setPages(result);setLoading(false);}}

@@ -1,6 +1,7 @@
+import {unifiedAvatar,unifiedName,setUnifiedConfig} from '../../state/unifiedAccountPreferences.ts';
 import {toast} from '../toast/toast.ts';
 import {settings} from '../../api/settings.ts';
-import {requestUnifiedMailbox,unifiedMailboxActive,unifiedFolderCounts} from '../../state/unifiedMailbox.ts';
+import {requestUnifiedMailbox,unifiedMailboxActive,unifiedFolderCounts,unifiedAvailable,setUnifiedAvailable,unifiedStartup,setUnifiedStartup} from '../../state/unifiedMailbox.ts';
 import {requestMailboxOpen} from '../../state/mailboxOpenRequest.ts';
 import {createEffect,createResource,createSignal,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {useApp} from '../../state/context.ts';
@@ -78,6 +79,8 @@ function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
     const authority=primaryMailboxAuthority()??preferenceAccount()?.storageAuthority;
     return lastList.authority===authority?lastList.value:undefined;
   };
+  createEffect(()=>{const value=listed();setUnifiedConfig(value?.unifiedConfig??{});setUnifiedAvailable(value?.policy.enabled===true&&value.accounts.some(account=>account.status==='ready'));if(value&&settings()['mail.unifiedAccount']){if(unifiedStartup()&&unifiedAvailable()){setUnifiedStartup(false);requestUnifiedMailbox();}}});
+  onCleanup(()=>{setUnifiedAvailable(false);setUnifiedConfig({});});
   const error=()=>'';const setError=(message:string):void=>{if(message)toast.error(message);};
   // t48: the expired link being renewed from the picker (its dialog is open).
   const [renewing,setRenewing]=createSignal<string>();
@@ -122,7 +125,7 @@ function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
   return <Show when={(listed()?.accounts.length??0)>0?listed():undefined} fallback={plain()}>{value=>
     <div class={css.control}>
       <MailboxPicker variant={props.variant??'full'} choices={mailboxChoices(value(),unreadFor)} activeLinkId={app.linkedMailboxId()}
-        unified={settings()['mail.unifiedAccount']?.value===true?{active:unifiedMailboxActive(),unread:unifiedUnread(),onSelect:()=>void selectUnified()}:undefined}
+        unified={unifiedAvailable()&&settings()['mail.unifiedAccount']?.value===true?{avatar:unifiedAvatar(),name:unifiedName(),active:unifiedMailboxActive(),unread:unifiedUnread(),onSelect:()=>void selectUnified()}:undefined}
         busy={app.switchingMailbox()} error={error()} onSelect={id=>void select(id)} onRenew={id=>setRenewing(id)}/>
       <Show when={renewAccount()}>{account=>
         <RenewAccessDialog account={account()} label={renewLabel(account().id)} api={api} onRenewed={renewed} onCancel={()=>setRenewing(undefined)}/>}</Show>

@@ -1,3 +1,5 @@
+import {WORKSPACE_VIEWS,viewMode,viewShown,viewName,viewCountsShown,type WorkspaceViewId} from '../state/workspaceViews.ts';
+import {WorkspaceViewProperties} from './Settings/WorkspaceViewPreferences.tsx';
 import {forwardMessages,BULK_MESSAGE_LIMIT,BULK_BYTE_LIMIT} from '../api/mailBulk.ts';
 import {HEADER_PROPERTIES,responseFor} from '../api/jmap.ts';
 import {CAP_CORE,CAP_MAIL,type Email} from '../api/jmap-types.ts';
@@ -12,7 +14,7 @@ import type {StoredDraft} from '../components/compose/drafts-store.ts';
 import {messageOpenRequest,takeMessageOpenRequest} from '../state/messageOpenRequest.ts';
 import {mailboxOpenRequest,takeMailboxOpenRequest} from '../state/mailboxOpenRequest.ts';
 import {notificationUnread} from '../state/notificationCenter.ts';
-import {unifiedMailboxRequest,takeUnifiedMailboxRequest,unifiedMailboxActive,setUnifiedMailboxActive,unifiedVirtualMode,setUnifiedVirtualMode,unifiedFolderRole,unifiedFolderCounts,setUnifiedFolderCounts,requestUnifiedMailbox} from '../state/unifiedMailbox.ts';
+import {unifiedMailboxRequest,takeUnifiedMailboxRequest,unifiedAvailable,unifiedMailboxActive,setUnifiedMailboxActive,unifiedVirtualMode,setUnifiedVirtualMode,unifiedFolderRole,unifiedFolderCounts,setUnifiedFolderCounts,requestUnifiedMailbox} from '../state/unifiedMailbox.ts';
 import {recalledDraftId,takeRecalledDraft} from '../state/recalledDraft.ts';
 import {pendingCompose,takePendingCompose} from '../state/pendingCompose.ts';
 import {requestModuleAction,type ModuleAction} from '../state/moduleActions.ts';
@@ -146,7 +148,6 @@ void loadCatalog('folder-dnd');
 // module (plan §2.5, e8 mount). Keys is reachable at `#/keys` beside them.
 const APP_NAV_MODULES = [NOTIFICATIONS_MODULE,...APP_MODULES, KEYS_MODULE];
 /** t98: the nav modules the mailbox's feature profile allows (the server refuses the rest). */
-const shownModules = (): typeof APP_NAV_MODULES => APP_NAV_MODULES.filter((m) => featureOn(m.id)&&(m.id!=='notifications'||notificationViewInSidebar()));
 
 /** Refetch the open PIM module after a pushed change (plan §1.8 realtime). */
 function refetchPim(app: ReturnType<typeof useApp>, surface: ShellSurface): void {
@@ -159,6 +160,29 @@ function refetchPim(app: ReturnType<typeof useApp>, surface: ShellSurface): void
 export function MailboxScreen(): JSX.Element {
   const branding=useBranding();
   const app = useApp();
+  const [viewProperties,setViewProperties]=createSignal<WorkspaceViewId>();
+  const [loadedViews,setLoadedViews]=createSignal<Set<string>>(new Set()),[attachmentNotable,setAttachmentNotable]=createSignal<number|null>(null);
+  function notableCount(id:string):number|null {
+    if(viewMode(id)==='notable'&&!loadedViews().has(id)&&!['notifications','templates'].includes(id))return null;
+    if(id==='notifications')return notificationUnread();
+    if(id==='tasks')return app.tasks().filter(task=>!['completed','cancelled'].includes(task.status)).length;
+    if(id==='notes')return app.notes().length;
+    if(id==='contacts')return app.contacts().length;
+    if(id==='keys')return app.keys().length;
+    if(id==='outbox')return app.outbox().length;
+    if(id==='calendar'){const start=new Date();start.setHours(0,0,0,0);const end=start.valueOf()+7*86400000;return app.calendarController().instances().filter(event=>event.end>=start&&event.start.valueOf()<end).length;}
+    if(id==='attachments')return attachmentNotable();
+    if(id==='templates')return ['mail.templates.personal','mail.templates.shared'].reduce((count,key)=>count+(Array.isArray(settings()[key]?.value)?(settings()[key]!.value as unknown[]).length:0),0);
+    return null;
+  }
+  const shownModules=()=>APP_NAV_MODULES.filter(module=>featureOn(module.id)&&(module.id!=='notifications'||notificationViewInSidebar())&&viewShown(module.id,notableCount(module.id),surface()===module.id)).map(module=>({...module,label:viewName(module.id,module.label)}));
+  const viewLoads=new Map<string,string>();
+  createEffect(()=>{const owner=preferenceAccount(),account=app.accountId();const modes=WORKSPACE_VIEWS.map(view=>({id:view.id,mode:viewMode(view.id)}));if(!owner||!account)return;
+    untrack(()=>{for(const {id,mode} of modes){const cap=id==='attachments'?'views.attachments':id;if(mode!=='notable'||!featureOn(cap)||viewLoads.get(id)===`${owner.generation}`)continue;viewLoads.set(id,`${owner.generation}`);
+      const load=id==='tasks'?app.loadTasks:id==='notes'?app.loadNotes:id==='contacts'?app.loadContacts:id==='calendar'?app.loadCalendars:id==='keys'?app.loadKeys:id==='outbox'?app.refreshOutbox:id==='attachments'?async()=>{const page=await app.listAttachmentsPage(0);if(preferenceAccountIsCurrent(owner))setAttachmentNotable(page.items.length);}:undefined;
+      if(load)void load().then(()=>{if(preferenceAccountIsCurrent(owner))setLoadedViews(old=>new Set([...old,id]));}).catch(()=>viewLoads.delete(id));
+    }});
+  });
   const messageOrder=createMessageOrder(()=>app.showToast('error',t('mail-list-order-error')));
   const { subTabs } = useRealtime();
   /** The Mail tab is the strip's first tab. Seeded here, before any effect,
@@ -637,7 +661,7 @@ export function MailboxScreen(): JSX.Element {
   const surface = (): ShellSurface => router.route().surface;
   createEffect(()=>{if(mailboxOpenRequest()&&takeMailboxOpenRequest())untrack(()=>{noteWorkspaceIntent();router.navigate('mail');subTabs.activate('mail');});});
   const launch=(id:string,action:ModuleAction)=>{requestModuleAction(id,action);router.navigate(id as ShellSurface);};
-  const sidebarMenu=createEntityContextMenu({items:()=>[...shownModules(),...(featureOn('views.attachments')?[{id:'attachments',label:t('mail-nav-attachments'),icon:'attachment' as const}]:[]),{id:'outbox',label:t('mail-nav-outbox'),icon:'clock' as const}],id:item=>item.id,name:item=>item.label,scope:app.accountId,actions:item=>{
+  const sidebarMenu=createEntityContextMenu({items:()=>[...shownModules(),...(featureOn('views.attachments')?[{id:'attachments',label:t('mail-nav-attachments'),icon:'attachment' as const}]:[]),{id:'outbox',label:t('mail-nav-outbox'),icon:'clock' as const},{id:'templates',label:t('response-templates-workspace'),icon:'book' as const}],id:item=>item.id,name:item=>item.label,scope:app.accountId,actions:item=>{
     const id=item.id as ShellSurface;
     return [
       {id:'open',label:t('common-open'),icon:item.icon,run:()=>router.navigate(id)},
@@ -646,6 +670,7 @@ export function MailboxScreen(): JSX.Element {
       ...(['calendar','contacts','keys'].includes(id)?[{id:'import',label:t('common-context-import'),icon:'folder' as const,run:()=>launch(id,'import')}]:[]),
       ...(id==='tasks'?[{id:'my-day',label:t('common-context-my-day'),icon:'calendar' as const,run:()=>launch(id,'my-day')}]:[]),
       ...(id==='attachments'?[{id:'pinned',label:t('common-context-pinned'),icon:'pin' as const,run:()=>launch(id,'pinned')}]:[]),
+      {id:'properties',label:t('workspace-view-properties'),icon:'settings',separatorBefore:true,run:()=>{setViewProperties(id as WorkspaceViewId);}},
       {id:'refresh',label:t('common-refresh'),icon:'sync',separatorBefore:true,run:async()=>{if(id==='attachments')launch(id,'refresh');else if(id==='outbox')await app.refreshOutbox();else if(id==='keys')await app.loadKeys();else if(id==='calendar')await app.calendarController().load();else if(id==='tasks')await app.loadTasks();else if(id==='notes')await app.loadNotes();else if(id==='contacts')await app.loadContacts();}},
     ];
   }});
@@ -661,15 +686,15 @@ export function MailboxScreen(): JSX.Element {
       router.navigate('mail');subTabs.activate('mail');await openDraftOrMessage(row.email.id);
     }catch{toast.error(t('mail-context-failed'));}
   }
-  const unifiedEnabled=()=>settings()['mail.unifiedInbox']?.value===true;
-  const unifiedAccountEnabled=()=>settings()['mail.unifiedAccount']?.value===true;
+  const unifiedEnabled=()=>unifiedAvailable()&&settings()['mail.unifiedInbox']?.value===true;
+  const unifiedAccountEnabled=()=>unifiedAvailable()&&settings()['mail.unifiedAccount']?.value===true;
   const unifiedSurfaceEnabled=()=>unifiedVirtualMode()?unifiedAccountEnabled():unifiedEnabled();
   createEffect(()=>{const active=surface()==='unified'&&unifiedAccountEnabled()&&unifiedVirtualMode();setUnifiedMailboxActive(active);if(active)clearSelectedFolders();});
   onCleanup(()=>setUnifiedMailboxActive(false));
   createEffect(()=>{if(unifiedMailboxRequest()&&takeUnifiedMailboxRequest()&&unifiedAccountEnabled())untrack(()=>{noteWorkspaceIntent();router.navigate('unified');});});
   const transfer=()=>{const request=pendingMessageTransfer();return request&&transfersEnabled()&&isTransferAccountCurrent(request.owner)?request:undefined;};
   createEffect(()=>{workspaceOwner();if(pendingMessageTransfer()&&!transfer())closeMessageTransfer();});
-  const surfaceAllowed = (d: ShellSurface): boolean => !((d==='notifications'&&!notificationViewEnabled())||(d==='unified'&&settingsLoadStatus()==='ready'&&!unifiedSurfaceEnabled())||(d==='templates'&&settings()['mail.templates.enabled']?.value===false)||(d==='attachments'&&!featureOn('views.attachments'))||(isPimSurface(d)&&!featureOn(d))||(d==='keys'&&!featureOn('keys')));
+  const surfaceAllowed = (d: ShellSurface): boolean => viewMode(d)!=='hidden'&&!((d==='notifications'&&!notificationViewEnabled())||(d==='unified'&&settingsLoadStatus()==='ready'&&!unifiedSurfaceEnabled())||(d==='templates'&&settings()['mail.templates.enabled']?.value===false)||(d==='attachments'&&!featureOn('views.attachments'))||(isPimSurface(d)&&!featureOn(d))||(d==='keys'&&!featureOn('keys')));
   createEffect(()=>{const d=surface();if(!surfaceAllowed(d))untrack(()=>router.navigate('mail'));});
   createEffect(()=>{const off=panes().filter(pane=>pane.surface!==undefined&&!surfaceAllowed(pane.surface)).map(pane=>pane.id);if(off.length>0)untrack(()=>void closePanes(off));});
   createEffect(()=>{const destination=surface(),accountId=app.accountId(),unified=unifiedSurfaceEnabled();untrack(()=>{
@@ -1259,7 +1284,7 @@ export function MailboxScreen(): JSX.Element {
           </Show></div></>}</For>
           </div>
           </Show><Show when={sectionRows(true).length>0}><div role="separator" class="sidebar__divider-secondary" data-testid="sidebar-secondary-divider" aria-label={t('mail-nav-views-queues')}/></Show>
-          <Show when={featureOn('views.attachments')}><button
+          <Show when={featureOn('views.attachments')&&viewShown('attachments',notableCount('attachments'),surface()==='attachments')}><button
             type="button"
             class={`sidebar__box ${a11y.focusable}`}
             classList={{ 'sidebar__box--active': surface() === 'attachments' }} aria-label={t('mail-nav-attachments')} title={t('mail-nav-attachments')}
@@ -1274,15 +1299,15 @@ export function MailboxScreen(): JSX.Element {
               <Icon name="mailboxes"/><span class="sidebar__box-name">{t('unified-mail-title')}</span>
             </button>
           </Show>
-          <Show when={settings()['mail.templates.enabled']?.value === true && settings()['mail.templates.showInSidebar']?.value !== false}>
+          <Show when={settings()['mail.templates.enabled']?.value === true && settings()['mail.templates.showInSidebar']?.value !== false&&viewShown('templates',notableCount('templates'),surface()==='templates')}>
             <button type="button" class={`sidebar__box ${a11y.focusable}`}
               classList={{'sidebar__box--active': surface() === 'templates'}} aria-label={t('response-templates-workspace')}
-              title={t('response-templates-workspace')} onClick={() => router.navigate('templates')}>
-              <Icon name="book"/><span class="sidebar__box-name">{t('response-templates-workspace')}</span>
+              {...sidebarMenu.bind('templates')} title={viewName('templates',t('response-templates-workspace'))} onClick={() => router.navigate('templates')}>
+              <Icon name="book"/><span class="sidebar__box-name">{viewName('templates',t('response-templates-workspace'))}</span>
             </button>
           </Show>
           <Show when={featureOn('views.events')}><EventsNavEntry onOpenTab={()=>openFolderTab(EVENTS_VIEW_ID)} active={surface() === 'mail' && app.selectedMailboxId() === EVENTS_VIEW_ID} onSelect={() => { router.navigate('mail'); subTabs.activate('mail'); void app.selectMailbox(EVENTS_VIEW_ID); }}/></Show>
-          <button
+          <Show when={viewShown('outbox',notableCount('outbox'),surface()==='outbox')}><button
             type="button"
             class={`sidebar__box ${a11y.focusable}`}
             classList={{ 'sidebar__box--active': surface() === 'outbox' }} aria-label={t('mail-nav-outbox')} title={t('mail-nav-outbox')}
@@ -1297,6 +1322,7 @@ export function MailboxScreen(): JSX.Element {
               <span class="sidebar__badge" data-secondary="true" title={t('mail-badge-outbox',{count:app.cancelableOutbox().length})} aria-label={t('mail-badge-outbox',{count:app.cancelableOutbox().length})}>{app.cancelableOutbox().length}</span>
             </Show>
           </button>
+          </Show>
           {/* Share the selected folder (t13 ACL editor). Only offered once a
               mailbox + account are resolved; the editor self-gates writes on the
               caller's administer right. */}
@@ -1328,7 +1354,7 @@ export function MailboxScreen(): JSX.Element {
               >
                 <span class="sidebar__box-icon" aria-hidden="true"><Icon name={m.icon} /></span>
                 <span class="sidebar__box-name">{m.label}</span>
-                <Show when={m.id==='notifications'&&notificationUnread()>0}><span class="sidebar__badge">{notificationUnread()}</span></Show>
+                <Show when={viewCountsShown(m.id)&&(notableCount(m.id)??0)>0}><span class="sidebar__badge">{notableCount(m.id)}</span></Show>
               </button>
             )}
           </For>
@@ -1337,6 +1363,7 @@ export function MailboxScreen(): JSX.Element {
         <Show when={selectedFolderIds().size>0}><FolderSelectionBar ids={selectedFolderIds()} total={visibleFolderIds().length} selectAll={()=>selectAllFolders(visibleFolderIds())} returnFocus={()=>{const id=visibleFolderIds().find(id=>selectedFolderIds().has(id))??app.selectedMailboxId()??visibleFolderIds()[0];if(id)focusFolder(id);}} onMove={ids=>setArranging(ids[0]??null)}/></Show>
         </div>
         {sidebarMenu.menu()}
+      <Show when={viewProperties()} keyed>{id=><WorkspaceViewProperties id={id} onClose={()=>setViewProperties(undefined)}/>}</Show>
         <div class="sidebar__footer">
         <Show when={folderMode()!=='compact'||narrow()}><QuotaMeter accountId={app.accountId()} refresh={app.mailboxes()}/></Show>
         <div class={sidebarFooterActions}>

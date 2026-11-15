@@ -45,3 +45,10 @@ unified-mail-action-failed = Could not update { $count } messages. They remain s
 unified-mail-view-setting = Unified message view
 unified-mail-virtual-account = Unified virtual account
 unified-mail-virtual-account-help = Add a separate virtual account to the account selector, with combined folders and counters. Independent of the Unified message view.
+
+unified-config-open-first = Open first
+unified-config-edit = Configure
+unified-config-name = Display name
+unified-config-accounts = Included accounts
+unified-config-folders = Included folders
+unified-config-help = Choose the accounts and folders shown in this virtual mailbox. Administrator restrictions always apply.

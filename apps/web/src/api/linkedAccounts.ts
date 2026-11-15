@@ -24,6 +24,8 @@ export interface LinkedMailboxList {
   accounts:LinkedMailbox[];
   /** The ready link that opens first; null/absent = the sign-in account (t40). */
   primaryMailbox?:string|null;
+  virtualPrimary?:boolean;
+  unifiedConfig?:Record<string,unknown>;
   /** The stored first mailbox is no longer one of the ready links. */
   primaryFallback?:boolean;
   /** Order and display-only nicknames, per owner (t40 f/g). */
@@ -122,6 +124,7 @@ export function createLinkedAccountsApi() {
     authorize:(id:string)=>request<{context:LinkedAccountContext}>(`/${encodeURIComponent(id)}/switch`,'POST',undefined,undefined,'idempotent'),
     /** Which mailbox opens first. A preference only: opening it still switches through `authorize`. */
     setLoginPolicy:(id:string,allowed:boolean|null)=>request<unknown>(`/${encodeURIComponent(id)}/login-policy`,allowed===null?'DELETE':'PUT',allowed===null?undefined:{value:allowed}),
+    setVirtualPrimary:(value:boolean)=>request<unknown>('/unified-primary','PUT',{value}),
     setPrimary:(linkId:string|null)=>request<{primaryMailbox:string|null}>('/primary','PUT',{linkId}),
     /** Order, nicknames and avatars (t86); 409 when another device saved first (re-read, then retry). */
     setLayout:async(layout:MailboxLayout)=>{const saved=await request<{layout:MailboxLayout}>('/layout','PUT',layout);if(!validLayout(saved?.layout))throw new ApiError(502,'Linked mailbox response was invalid');return cleanLayout(saved.layout);},

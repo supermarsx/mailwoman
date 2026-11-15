@@ -42,16 +42,18 @@ export async function workspaceFolders(target:WorkspaceMailbox,signal:AbortSigna
 
 export type UnifiedRole='all'|'inbox'|'sent'|'drafts'|'archive'|'junk'|'trash';
 export interface UnifiedRow {target:WorkspaceMailbox;email:Email;folderId?:string}
-export async function workspaceMessages(target:WorkspaceMailbox,boxes:Mailbox[],role:UnifiedRole,search:string,position:number,signal:AbortSignal,order:MessageListOrder='newest',unreadOnly=false):Promise<{rows:UnifiedRow[];next:number|null;total:number|null;unread:number|null}>{
+export async function workspaceMessages(target:WorkspaceMailbox,boxes:Mailbox[],role:UnifiedRole,search:string,position:number,signal:AbortSignal,order:MessageListOrder='newest',unreadOnly=false,allowedFolderIds?:readonly string[]):Promise<{rows:UnifiedRow[];next:number|null;total:number|null;unread:number|null}>{
   const accountId=target.accountId;
   const folder=role==='all'?undefined:boxes.find(box=>box.role===role);
   if(role!=='all'&&!folder)return {rows:[],next:null,total:0,unread:0};
+  if(allowedFolderIds?.length===0)return {rows:[],next:null,total:0,unread:0};
   const limit=30;
-  const filter={...(folder?{inMailbox:folder.id}:{}),...(search?{text:search}:{}),...(unreadOnly?{notKeyword:'$seen'}:{})};
+  const baseFilter={...(folder?{inMailbox:folder.id}:{}),...(search?{text:search}:{}),...(unreadOnly?{notKeyword:'$seen'}:{})};
+  const filter=allowedFolderIds?{operator:'AND',conditions:[baseFilter,{operator:'OR',conditions:allowedFolderIds.map(inMailbox=>({inMailbox}))}]}:baseFilter;
   const response=await jmap(target,[
     ['Email/query',{accountId,filter,position,limit,calculateTotal:true,sort:messageSort(order,'none')},'query'],
     ['Email/get',{accountId,'#ids':{resultOf:'query',name:'Email/query',path:'/ids'},properties:[...HEADER_PROPERTIES,'sentAt']},'rows'],
-    ['Email/query',{accountId,filter:{...filter,notKeyword:'$seen'},limit:1,calculateTotal:true},'unread'],
+    ['Email/query',{accountId,filter:{operator:'AND',conditions:[filter,{notKeyword:'$seen'}]},limit:1,calculateTotal:true},'unread'],
   ],signal);
   const query=responseFor<{ids:string[];position:number;total?:number}>(response,'query');
   const count=response.methodResponses.find(part=>part[2]==='unread'&&part[0]==='Email/query')?.[1] as {total?:number}|undefined;

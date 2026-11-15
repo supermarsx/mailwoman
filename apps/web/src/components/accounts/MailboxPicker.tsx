@@ -25,6 +25,7 @@ import * as css from './accountIndicator.css.ts';
 import { accountUnreadBadge } from '../../api/countBadges.ts';
 import '../person-avatar.css';
 import '../senderIcons/palette.css';
+void loadCatalog('workspace-mail');
 
 /**
  * One picker entry. Also the shape other lanes feed (t46: live unread counts):
@@ -137,7 +138,7 @@ export function MailboxPicker(props: {
   onSelect: (linkId: string | null) => void;
   /** t48: choosing a link whose access expired opens this (the renew flow). */
   onRenew?: (linkId: string) => void;
-  unified?:{active:boolean;unread:number|null;onSelect:()=>void}|undefined;
+  unified?:{active:boolean;unread:number|null;onSelect:()=>void;avatar?:MailboxAvatarSpec|undefined;name?:string}|undefined;
 }): JSX.Element {
   onMount(() => {
     void loadCatalog('bars');
@@ -154,7 +155,7 @@ export function MailboxPicker(props: {
   let typedAt = 0;
 
   const active = (): MailboxChoice | undefined =>
-    props.unified?.active?{linkId:'@unified',address:t('unified-mail-title'),available:true,unread:props.unified.unread,avatar:{kind:'icon',icon:'inbox'}}:props.choices.find((choice) => choice.linkId === props.activeLinkId) ?? props.choices[0];
+    props.unified?.active?{linkId:'@unified',address:props.unified.name||t('unified-mail-title'),available:true,unread:props.unified.unread,avatar:props.unified.avatar??{kind:'icon',icon:'inbox'}}:props.choices.find((choice) => choice.linkId === props.activeLinkId) ?? props.choices[0];
   const linked = (): boolean => props.activeLinkId !== null;
   const label = (): string => accountIndicatorLabel(active()?.address ?? '', linked(), active()?.nickname);
   const fullTitle = (choice: MailboxChoice): string => (choiceLabel(choice) === choice.address ? choice.address : `${choiceLabel(choice)}\n${choice.address}`);
@@ -343,7 +344,7 @@ export function MailboxPicker(props: {
               if (next instanceof Node) close();
             }}
           >
-            <Show when={props.unified}><div class={css.row} role="none"><button type="button" role="menuitemradio" tabIndex={-1} class={css.item} aria-checked={props.unified!.active} aria-disabled={props.busy} data-mailbox-item data-link="@unified" data-label={t('unified-mail-title')} onClick={()=>{if(!props.busy){close(true);props.unified!.onSelect();}}}><Icon name="mailboxes"/><span class={css.itemText}>{t('unified-mail-title')}</span><UnreadBadge count={props.unified!.unread}/><span class={css.check} aria-hidden="true"><Show when={props.unified!.active}><Icon name="check"/></Show></span></button></div></Show>
+            <Show when={props.unified}><div class={css.row} role="none"><button type="button" role="menuitemradio" tabIndex={-1} class={css.item} aria-checked={props.unified!.active} aria-disabled={props.busy} data-mailbox-item data-link="@unified" data-label={t('unified-mail-title')} onClick={()=>{if(!props.busy){close(true);props.unified!.onSelect();}}}><MailboxAvatar label={props.unified!.name||t('unified-mail-title')} address="@unified" avatar={props.unified!.avatar??{kind:'icon',icon:'inbox'}}/><span class={css.itemText}>{props.unified!.name||t('unified-mail-title')}</span><UnreadBadge count={props.unified!.unread}/><span class={css.check} aria-hidden="true"><Show when={props.unified!.active}><Icon name="check"/></Show></span></button></div></Show>
             <For each={props.choices.filter(choice=>!choice.hidden)}>
               {(choice) => {
                 const isActive = (): boolean => !props.unified?.active&&choice.linkId === props.activeLinkId;
