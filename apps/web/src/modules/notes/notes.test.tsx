@@ -115,15 +115,24 @@ async function selectFirst(): Promise<void> {
 }
 
 describe('NotesModule', () => {
+  it('selects ranges and separate rows without opening the editor and pins the selection',async()=>{
+    const {slice}=setup([mkNote('a'),mkNote('b'),mkNote('c'),mkNote('d')]);
+    const rows=await screen.findAllByRole('option');
+    fireEvent.click(rows[0]!,{ctrlKey:true});fireEvent.click(rows[2]!,{shiftKey:true});fireEvent.click(rows[1]!,{metaKey:true});fireEvent.click(rows[3]!,{ctrlKey:true});
+    expect(rows.map(row=>row.getAttribute('aria-selected'))).toEqual(['true','false','true','true']);
+    expect(screen.queryByLabelText('Note editor')).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'Pin note'}));
+    await waitFor(()=>expect(slice.notes().filter(note=>note.pinned).map(note=>note.id).sort()).toEqual(['a','c','d']));
+  });
   it('loads notes inline and lists pinned first', async () => {
     setup([mkNote('a', { title: 'Alpha' }), mkNote('b', { title: 'Bravo', pinned: true })]);
-    expect(screen.getByRole('status')).toHaveTextContent(t('common-loading'));
+    expect(screen.getByTestId('inline-loading')).toHaveTextContent(t('common-loading'));
     expect(document.querySelector('[data-skeleton="list"]')).toBeNull();
     const options = await screen.findAllByRole('option');
     // Bravo is pinned, so it sorts ahead of Alpha.
     expect(options[0]).toHaveTextContent('Bravo');
     expect(options[1]).toHaveTextContent('Alpha');
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByTestId('inline-loading')).toBeNull();
   });
 
   it('keeps newly stored note defaults unchanged while interface leetspeak is enabled',async()=>{

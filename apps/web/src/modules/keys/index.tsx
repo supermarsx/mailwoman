@@ -1,3 +1,5 @@
+import {createRangeSelection,type RangeSelection} from '../../components/rangeSelection.ts';
+import {RangeSelectionBar,RangeSelectionToggle} from '../../components/RangeSelectionBar.tsx';
 import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {createEntityContextMenu} from '../../components/entityContextMenu.ts';
 import {handleModuleActions} from '../../state/moduleActions.ts';
@@ -52,6 +54,7 @@ function keyTitle(key: CryptoKey): string {
 
 export function KeysModule(): JSX.Element {
   const app = useApp();
+  const bulk=createRangeSelection({ids:()=>[...app.ownKeys(),...app.contactKeys()].map(key=>key.id),scope:()=>JSON.stringify([app.accountId(),app.keysEpoch()]),onError:()=>app.showToast('error',t('common-error'))});
   const [selectedId, setSelectedId] = createSignal<Id | null>(null);
   const [showGenerate, setShowGenerate] = createSignal(false);
   const [showImport, setShowImport] = createSignal(false);
@@ -78,14 +81,14 @@ export function KeysModule(): JSX.Element {
   }
 
   return (
-    <section aria-label={t('keys-panel-label')} data-module="keys" class={css.layout}>
+    <section aria-label={t('keys-panel-label')} data-module="keys" data-range-selection-root class={css.layout}>
       <div class={css.listPane}>
         <header class={css.head}>
           <h1 class={css.title}>{t('keys-title')}</h1>
           <p class={css.subtitle}>{t('keys-subtitle')}</p>
         </header>
 
-        <div class={css.toolbar}>
+        <div class={css.toolbar}><RangeSelectionToggle selection={bulk}/>
           <button type="button" class={css.button} onClick={() => setShowGenerate(true)}>
             {t('keys-generate')}
           </button>
@@ -101,6 +104,7 @@ export function KeysModule(): JSX.Element {
           emptyText={t('keys-empty-own')}
           selectedId={selectedId()}
           onSelect={select}
+          selection={bulk}
         />
 
         <KeyGroup
@@ -110,6 +114,7 @@ export function KeysModule(): JSX.Element {
           emptyText={t('keys-empty-contact')}
           selectedId={selectedId()}
           onSelect={select}
+          selection={bulk}
         />
 
         <LookupForm />
@@ -121,6 +126,10 @@ export function KeysModule(): JSX.Element {
         </Show>
       </div>
 
+      <RangeSelectionBar selection={bulk} total={[...app.ownKeys(),...app.contactKeys()].length} actions={[
+       {id:'copy',label:t('common-copy-fingerprint'),icon:'copy',run:()=>navigator.clipboard.writeText(app.keys().filter(key=>bulk.selected().has(key.id)).map(key=>key.fingerprint).join('\n'))},
+       {id:'export',label:t('common-export-public-key'),icon:'download',run:()=>{const keys=app.keys().filter(key=>bulk.selected().has(key.id));download('public-keys.txt',keys.map(key=>key.publicKeyArmored??key.certPem??'').join('\n'),'text/plain');}},
+      ]}/>
       <Show when={showGenerate()}>
         <GenerateDialog
           onClose={() => setShowGenerate(false)}
@@ -212,6 +221,7 @@ function Dialog(props: { label: string; onClose: () => void; children: JSX.Eleme
 // ── Key list group ────────────────────────────────────────────────────────────
 
 function KeyGroup(props: {
+  selection:RangeSelection;
   heading: string;
   keys: CryptoKey[];
   loading: boolean;
@@ -241,8 +251,12 @@ function KeyGroup(props: {
                   type="button"
                   class={css.keyRow}
                   aria-current={props.selectedId === key.id ? 'true' : undefined}
-                  onClick={() => props.onSelect(key.id)}
+                  data-selection-id={key.id}
+                  data-bulk-selected={props.selection.selected().has(key.id)}
+                  aria-pressed={props.selection.selected().has(key.id)}
+                  onClick={event=>props.selection.click(key.id,event,()=>props.onSelect(key.id))}
                   {...rowMenu.bind(key.id)}
+                  onKeyDown={event=>{if(!props.selection.keydown(key.id,event))rowMenu.bind(key.id).onKeyDown(event);}}
                 >
                   <span class={css.rowBody}>
                     <span class={css.rowName}>{keyTitle(key)}</span>

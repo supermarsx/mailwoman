@@ -24,6 +24,15 @@ beforeEach(()=>{
  activateAccountPreferences('account','notification_test_authority');stop=startNotificationCenter();
 });
 afterEach(()=>{cleanup();stop?.();stop=undefined;suspendAccountPreferences();});
+it('ranges and toggles notices and archives only the selection',async()=>{
+ render(()=><Notifications/>);await screen.findByText('Successful sign-in');
+ const rows=[...document.querySelectorAll<HTMLElement>('[data-selection-id]')];
+ fireEvent.click(rows[0]!,{ctrlKey:true});fireEvent.click(rows[1]!,{shiftKey:true});fireEvent.click(rows[0]!,{metaKey:true});
+ expect(rows.map(row=>row.dataset.bulkSelected)).toEqual(['false','true']);
+ fireEvent.click(within(screen.getByRole('toolbar',{name:'Selection actions'})).getByRole('button',{name:'Archive'}));
+ await waitFor(()=>expect(notificationNotices().find(row=>row.id==='login-one')?.state).toBe('archived'));
+ expect(notificationNotices().find(row=>row.id==='security-one')?.state).toBe('active');
+});
 it('dismisses, archives and restores notifications across a refresh and opens the relevant security panel',async()=>{
  render(()=><Notifications/>);await screen.findByText('Successful sign-in');expect(notificationUnread()).toBe(2);
  const warning=screen.getByText(/does not match the one that signed in/).closest('li')!;

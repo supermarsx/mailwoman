@@ -47,6 +47,16 @@ function renderModule(seed: KeysSeed = defaultKeysSeed()): { app: AppState; clie
 }
 
 describe('KeysModule', () => {
+  it('extends a selection across own and contact keys and permits independent toggles',async()=>{
+    renderModule({keys:[ownPgpKey(),contactPgpKey()],contacts:[]});
+    const own=await screen.findByRole('button',{name:/me@example\.org/}),contact=screen.getByRole('button',{name:/alan@example\.org/});
+    fireEvent.click(own,{ctrlKey:true});fireEvent.click(contact,{shiftKey:true});
+    expect(own).toHaveAttribute('aria-pressed','true');expect(contact).toHaveAttribute('aria-pressed','true');
+    fireEvent.click(own,{metaKey:true});expect(own).toHaveAttribute('aria-pressed','false');expect(contact).toHaveAttribute('aria-pressed','true');
+    expect(screen.queryByRole('article')).toBeNull();
+    fireEvent.keyDown(contact,{key:'Escape'});expect(contact).toHaveAttribute('aria-pressed','false');
+    fireEvent.keyDown(contact,{key:'Escape'});expect(screen.queryByRole('toolbar',{name:'Selection actions'})).toBeNull();
+  });
   beforeEach(() => {
     localStorage.clear();
     __resetCryptoWorker();

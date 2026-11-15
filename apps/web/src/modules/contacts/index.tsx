@@ -1,3 +1,5 @@
+import {createRangeSelection} from '../../components/rangeSelection.ts';
+import {RangeSelectionBar,RangeSelectionToggle} from '../../components/RangeSelectionBar.tsx';
 import {SearchInput} from '../../components/SearchInput.tsx';
 import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {createEntityContextMenu} from '../../components/entityContextMenu.ts';
@@ -78,17 +80,16 @@ export function ContactsModule(): JSX.Element {
 
   // ── selection + bulk favorites ──
   const [selected, setSelected] = createSignal<ReadonlySet<Id>>(new Set<Id>());
-  const selectedVisible = createMemo(() => app.filteredContacts().filter((card) => selected().has(card.id)));
-  function toggleSelected(id: Id, on: boolean): void {
-    setSelected((current) => { const next = new Set(current); if (on) next.add(id); else next.delete(id); return next; });
-  }
+  const bulk=createRangeSelection({ids:rowIds,scope:()=>JSON.stringify([app.accountId(),app.selectedAddressBookId(),app.selectedGroupId(),app.contactSearch(),app.favoritesOnly()]),selected,setSelected:ids=>setSelected(ids)});
   async function bulkFavorite(value: boolean): Promise<void> {
-    const ids = selectedVisible().map((card) => card.id);
-    const pending = ids.filter((id) => app.contactById(id)?.isFavorite !== value);
-    const done = await app.setFavorite(ids, value);
-    if (done.length > 0) app.showToast('success', t(value ? 'contacts-bulk-favorites-added' : 'contacts-bulk-favorites-removed', { count: done.length }));
-    if (done.length < pending.length) app.showToast('error', t('contacts-favorite-failed'));
-    setSelected(new Set<Id>());
+    await bulk.runAll(async(ids,isCurrent)=>{
+      const pending = ids.filter((id) => app.contactById(id)?.isFavorite !== value);
+      const done = await app.setFavorite(ids, value);
+      if(!isCurrent())return;
+      if (done.length > 0) app.showToast('success', t(value ? 'contacts-bulk-favorites-added' : 'contacts-bulk-favorites-removed', { count: done.length }));
+      if (done.length < pending.length) app.showToast('error', t('contacts-favorite-failed'));
+      bulk.clear();
+    });
   }
 
   // ── row context menu: favorite, send email, share ──
@@ -128,7 +129,7 @@ export function ContactsModule(): JSX.Element {
   }
 
   return (
-    <section aria-label={t('contacts-title')} data-module="contacts" class={panel() === 'view' ? css.layout : panel() === 'membership' || panel() === 'import' || panel() === 'merge' ? css.pageHost : css.editorPage}>
+    <section aria-label={t('contacts-title')} data-module="contacts" data-range-selection-root class={panel() === 'view' ? css.layout : panel() === 'membership' || panel() === 'import' || panel() === 'merge' ? css.pageHost : css.editorPage}>
         <Show when={panel() === 'group'}><GroupEditor books={app.addressBooks()} editing={editingGroup()!==null} initialName={app.contactGroups().find(group=>group.id===editingGroup())?.name??''} initialBook={app.contactGroups().find(group=>group.id===editingGroup())?.addressBookId??app.selectedAddressBookId()??app.addressBooks()[0]?.id??''} onSave={async(name,book)=>{const id=editingGroup();return id?(await app.updateGroup(id,{name})?id:null):app.createGroup(name,book);}} onSaved={()=>setPanel('view')} onCancel={()=>setPanel('view')}/></Show>
         {/* t39 R6: membership, import and merge are pages of their own (pages.tsx). */}
         <Show when={panel() === 'membership'}><MembershipPage initialGroup={membershipGroup()} onBack={back} onNewGroup={() => { setEditingGroup(null); setPanel('group'); }} /></Show>
@@ -169,6 +170,7 @@ export function ContactsModule(): JSX.Element {
 
       <div class={css.listPane}>
         <div class={css.toolbar}>
+          <RangeSelectionToggle selection={bulk}/>
           <SearchInput
             
             class={css.input}
@@ -185,14 +187,10 @@ export function ContactsModule(): JSX.Element {
           </button>
         </div>
 
-        <Show when={selectedVisible().length > 0}>
-          <div class={css.bulkBar} role="group" aria-label={t('contacts-bulk-actions')}>
-            <span role="status">{t('contacts-selected-count', { count: selectedVisible().length })}</span>
-            <button type="button" class={css.buttonGhost} onClick={() => void bulkFavorite(true)}><Icon name="star" /> {t('contacts-favorite-add')}</button>
-            <button type="button" class={css.buttonGhost} onClick={() => void bulkFavorite(false)}><Icon name="starOutline" /> {t('contacts-favorite-remove')}</button>
-            <button type="button" class={css.buttonGhost} onClick={() => setSelected(new Set<Id>())}>{t('contacts-select-clear')}</button>
-          </div>
-        </Show>
+        <RangeSelectionBar selection={bulk} total={rowIds().length} actions={[
+         {id:'favorite',label:t('contacts-favorite-add'),icon:'star',run:()=>bulkFavorite(true)},
+         {id:'unfavorite',label:t('contacts-favorite-remove'),icon:'starOutline',run:()=>bulkFavorite(false)},
+        ]}/>
 
         <Show
           when={app.filteredContacts().length > 0}
@@ -207,8 +205,9 @@ export function ContactsModule(): JSX.Element {
                     role="button"
                     tabindex={0}
                     aria-current={app.selectedContactId() === card().id}
-                    onClick={() => openContact(card().id)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openContact(card().id); } else { setMenuCard(card()); rowMenu.keydown(e); } }}
+                    onClick={event=>bulk.click(card().id,event,()=>openContact(card().id))}
+                    data-selection-id={card().id} data-bulk-selected={selected().has(card().id)}
+                    onKeyDown={(e) => { if(bulk.keydown(card().id,e))return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openContact(card().id); } else { setMenuCard(card()); rowMenu.keydown(e); } }}
                     onContextMenu={(e) => { setMenuCard(card()); rowMenu.open(e); }}
                   >
                     <input
@@ -216,9 +215,8 @@ export function ContactsModule(): JSX.Element {
                       class={css.rowCheck}
                       aria-label={t('contacts-select-row', { name: contactDisplayName(card()) })}
                       checked={selected().has(card().id)}
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={event=>bulk.checkbox(card().id,event)}
                       onKeyDown={(e) => e.stopPropagation()}
-                      onChange={(e) => toggleSelected(card().id, e.currentTarget.checked)}
                     />
                     <button
                       type="button"

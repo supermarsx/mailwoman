@@ -1,3 +1,5 @@
+import {createRangeSelection} from './rangeSelection.ts';
+import {RangeSelectionBar,RangeSelectionToggle} from './RangeSelectionBar.tsx';
 import { InlineLoading } from './InlineLoading.tsx';
 import { For, Show, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent,type PreferenceAccount} from '../api/accountPreferenceLifecycle.ts';
@@ -88,6 +90,7 @@ export function Outbox(): JSX.Element {
   onCleanup(()=>clearInterval(ticker));
   void loadCatalog('send-delay');
   // The row whose message is open in the reader, and the row whose send time is being edited.
+  const bulk=createRangeSelection({ids:()=>app.outbox().map(sub=>sub.id),scope:()=>app.accountId?.(),onError:()=>app.showToast('error',t('common-error'))});
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
   const [editTimeId, setEditTimeId] = createSignal<string | null>(null);
   const [menuId, setMenuId] = createSignal<string | null>(null);
@@ -124,9 +127,9 @@ export function Outbox(): JSX.Element {
   onMount(()=>onCleanup(observePreferenceAccount(owner=>{setFailed(false);if(owner)refresh(owner);})));
 
   return (
-    <section class={`outbox ${css.root}`} data-mw-surface aria-label={t('mail-outbox-label')}>
+    <section class={`outbox ${css.root}`} data-mw-surface data-range-selection-root aria-label={t('mail-outbox-label')}>
       <header class={`outbox__header ${css.header}`}>
-        <h2 class={css.title}>{t('mail-outbox-label')}</h2>
+        <h2 class={css.title}>{t('mail-outbox-label')}</h2><RangeSelectionToggle selection={bulk}/>
         <button type="button" class={`btn btn--ghost ${a11y.focusable}`} disabled={app.outboxLoading()} onClick={() => refresh()}>
           {t('mail-outbox-refresh')}
         </button>
@@ -147,11 +150,13 @@ export function Outbox(): JSX.Element {
                   class={`outbox__row ${css.row}`}
                   data-state={state()}
                   data-selected={selectedId() === sub.id ? 'true' : undefined}
+                  data-bulk-selected={bulk.selected().has(sub.id)} data-selection-id={sub.id}
                   tabIndex={0}
                   aria-current={selectedId() === sub.id ? 'true' : undefined}
-                  onClick={(event) => { if (!(event.target as Element).closest('button')) setSelectedId(sub.id); }}
+                  onClick={(event) => { if (!(event.target as Element).closest('button,input,a')) bulk.click(sub.id,event,()=>setSelectedId(sub.id)); }}
                   onKeyDown={(event) => {
                     if (event.target !== event.currentTarget) return;
+                    if(bulk.keydown(sub.id,event))return;
                     if (event.key === 'Enter') setSelectedId(sub.id);
                     else { setMenuId(sub.id); rowMenu.keydown(event); }
                   }}
@@ -240,6 +245,10 @@ export function Outbox(): JSX.Element {
       </Show>
       <Show when={selected()}>{(sub) => <aside class="outbox__reader"><OutboxDetail sub={sub()} now={now()} onClose={() => setSelectedId(null)} /></aside>}</Show>
       </div>
+      <RangeSelectionBar selection={bulk} total={app.outbox().length} actions={[
+       {id:'recall',label:t('outbox-recall-to-drafts'),icon:'edit',run:()=>bulk.run(async id=>{const sub=app.outbox().find(row=>row.id===id);if(sub){const state=outboxStatus(sub,now());if(state.waiting&&state.kind!=='held')await app.cancelOutbox(id);}})},
+       {id:'delete',label:t('outbox-delete'),icon:'delete',run:()=>bulk.run(async id=>{const sub=app.outbox().find(row=>row.id===id);if(sub){const state=outboxStatus(sub,now());if(state.waiting||state.kind==='failed')await app.deleteOutbox(id);}})},
+      ]}/>
       {rowMenu.menu()}
       <Show when={editTimeId()}>
         {(id) => <OutboxEditTime current={app.outbox().find((s) => s.id === id())?.sendAt ?? null} save={(iso) => app.rescheduleOutbox(id(), iso)} onClose={() => setEditTimeId(null)} />}

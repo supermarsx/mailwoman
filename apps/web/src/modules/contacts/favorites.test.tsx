@@ -38,7 +38,7 @@ function withSlice(seed: ContactsSeed, run: (slice: ContactsSlice, client: Clien
 function renderModule(seed: ContactsSeed = defaultSeed()): { app: AppState; client: Client } {
   const client = makeContactsClient(seed);
   const app = createAppState(client);
-  render(() => <AppContext.Provider value={app}>{ContactsModule()}</AppContext.Provider>);
+  render(() => <AppContext.Provider value={app}><ContactsModule/></AppContext.Provider>);
   return { app, client };
 }
 
@@ -102,6 +102,15 @@ describe('favorites in the store', () => {
 });
 
 describe('favorites in the contacts module', () => {
+  it('supports Shift ranges and Ctrl/Cmd toggles without opening a contact',async()=>{
+    const {app}=renderModule();await screen.findByText('Alan Turing');
+    const ada=screen.getByRole('checkbox',{name:'Select Ada Lovelace'}).closest('[data-selection-id]')!,alan=screen.getByRole('checkbox',{name:'Select Alan Turing'}).closest('[data-selection-id]')!;
+    fireEvent.click(ada,{ctrlKey:true});fireEvent.click(alan,{shiftKey:true});
+    expect(screen.getByRole('checkbox',{name:'Select Ada Lovelace'})).toBeChecked();expect(screen.getByRole('checkbox',{name:'Select Alan Turing'})).toBeChecked();
+    fireEvent.click(ada,{metaKey:true});expect(screen.getByRole('checkbox',{name:'Select Ada Lovelace'})).not.toBeChecked();
+    expect(app.selectedContactId()).toBeNull();
+    fireEvent.keyDown(alan,{key:'Escape'});fireEvent.keyDown(alan,{key:'Escape'});expect(screen.queryByRole('toolbar',{name:'Selection actions'})).toBeNull();
+  });
   it('shows the Favorites entry with its count and filters the list to favorites', async () => {
     renderModule();
     await screen.findByText('Alan Turing');
@@ -140,18 +149,18 @@ describe('favorites in the contacts module', () => {
   it('adds and removes favorites for the selected rows in one action', async () => {
     const { app } = renderModule();
     await screen.findByText('Alan Turing');
-    expect(screen.queryByRole('group', { name: 'Actions for the selected contacts' })).toBeNull();
+    expect(screen.queryByRole('toolbar', { name: 'Selection actions' })).toBeNull();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Alan Turing' }));
     expect(screen.getByRole('checkbox', { name: 'Select Alan Turing' })).toBeChecked();
     expect(app.selectedContactId()).toBeNull(); // selecting a row does not open it
-    const bar = screen.getByRole('group', { name: 'Actions for the selected contacts' });
-    expect(within(bar).getByRole('status')).toHaveTextContent('1 selected');
+    const bar = screen.getByRole('toolbar', { name: 'Selection actions' });
+    expect(within(bar).getByTestId('bulk-count')).toHaveTextContent('1 selected');
     fireEvent.click(within(bar).getByRole('button', { name: 'Add to favorites' }));
     await waitFor(() => expect(app.contactById('c2')!.isFavorite).toBe(true));
-    await waitFor(() => expect(screen.queryByRole('group', { name: 'Actions for the selected contacts' })).toBeNull());
+    await waitFor(() => expect(within(bar).getByTestId('bulk-count')).toHaveTextContent('0 selected'));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Alan Turing' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Ada Lovelace' }));
-    fireEvent.click(within(screen.getByRole('group', { name: 'Actions for the selected contacts' })).getByRole('button', { name: 'Remove from favorites' }));
+    fireEvent.click(within(screen.getByRole('toolbar', { name: 'Selection actions' })).getByRole('button', { name: 'Remove from favorites' }));
     await waitFor(() => expect(app.favoriteCount()).toBe(0));
   });
   it('clears the selection', async () => {
@@ -167,7 +176,7 @@ describe('favorites in the contacts module', () => {
     fireEvent.contextMenu(row);
     const menu = await screen.findByRole('menu');
     const names = within(menu).getAllByRole('menuitem').map((item) => item.textContent!.trim());
-    expect(names).toEqual(['Add to favorites', 'Send email', 'Share contact']);
+    expect(names).toEqual(['Open', 'Edit', 'Add to favorites', 'Send email', 'Share contact', 'Group membership', 'Delete']);
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Add to favorites' }));
     await waitFor(() => expect(app.contactById('c2')!.isFavorite).toBe(true));
   });

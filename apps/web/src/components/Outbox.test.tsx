@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@solidjs/testing-library';
+import { render, screen, fireEvent, within,waitFor } from '@solidjs/testing-library';
 import { Outbox } from './Outbox.tsx';
 import { AppContext } from '../state/context.ts';
 import { stripIsolates } from '../i18n/index.ts';
@@ -39,6 +39,14 @@ function row(state: string): HTMLElement {
 const text = (el: HTMLElement): string => stripIsolates(el.textContent ?? '');
 
 describe('Outbox', () => {
+  it('ranges and toggles scheduled rows and recalls only the selected messages',async()=>{
+    const calls=renderOutbox(['a','b','c','d'].map(id=>sub(id,{sendAt:new Date(Date.now()+3_600_000).toISOString()})));
+    const rows=[...document.querySelectorAll<HTMLElement>('[data-selection-id]')];
+    fireEvent.click(rows[0]!,{ctrlKey:true});fireEvent.click(rows[2]!,{shiftKey:true});fireEvent.click(rows[1]!,{metaKey:true});fireEvent.click(rows[3]!,{ctrlKey:true});
+    expect(screen.queryByTestId('outbox-reader')).toBeNull();
+    fireEvent.click(within(screen.getByRole('toolbar',{name:'Selection actions'})).getByRole('button',{name:'Recall to drafts'}));
+    await waitFor(()=>expect(calls.cancelOutbox.mock.calls.map(call=>call[0])).toEqual(['a','c','d']));
+  });
   it('shows pending instead of false empty during initial load', () => {
     renderOutbox([],{},true);expect(screen.getByTestId('inline-loading')).toBeInTheDocument();expect(screen.getByRole('button',{name:'Refresh'})).toBeDisabled();
   });

@@ -1,3 +1,5 @@
+import {createRangeSelection,type RangeSelection} from '../../components/rangeSelection.ts';
+import {RangeSelectionBar,RangeSelectionToggle} from '../../components/RangeSelectionBar.tsx';
 import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {createEntityContextMenu} from '../../components/entityContextMenu.ts';
 import {handleModuleActions} from '../../state/moduleActions.ts';
@@ -34,6 +36,7 @@ import * as css from './tasks.css.ts';
 type View = 'list' | 'myDay';
 
 /** Reports a notice for the module to show (a task being edited was deleted elsewhere). */
+const TaskSelectionContext=createContext<RangeSelection>();
 const NoticeContext = createContext<(message: string) => void>(() => undefined);
 
 /**
@@ -74,6 +77,8 @@ function scheduleLabel(task: Task): string {
 export function TasksModule(): JSX.Element {
   const app = useApp();
   const [view, setView] = createSignal<View>('list');
+  const taskIds=()=>view()==='myDay'?app.myDayTasks().map(task=>task.id):app.rootTasks().flatMap(task=>[task.id,...app.subtasksOf(task.id).map(child=>child.id)]);
+  const bulk=createRangeSelection({ids:taskIds,scope:()=>JSON.stringify([app.accountId(),app.selectedListId(),view()]),onError:()=>app.showToast('error',t('common-error'))});
   const [newTitle, setNewTitle] = createSignal('');
   const [mailId, setMailId] = createSignal('');
   const [eventId, setEventId] = createSignal('');
@@ -155,7 +160,7 @@ export function TasksModule(): JSX.Element {
 
   return (
     <NoticeContext.Provider value={setNotice}>
-      <section class={css.layout} aria-label={t('tasks-title')} data-module="tasks">
+      <TaskSelectionContext.Provider value={bulk}><section data-range-selection-root class={css.layout} aria-label={t('tasks-title')} data-module="tasks">
         <nav class={css.sidebar} aria-label={t('tasks-lists')}>
           <button
             type="button"
@@ -194,7 +199,7 @@ export function TasksModule(): JSX.Element {
         </nav>
 
         <div class={css.main}>
-          <form class={css.addForm} onSubmit={addTask}>
+          <form class={css.addForm} onSubmit={addTask}><RangeSelectionToggle selection={bulk}/>
             <input
               class={css.input}
               type="text"
@@ -268,7 +273,11 @@ export function TasksModule(): JSX.Element {
             </button>
           </div>
         </div>
-      </section>
+        <RangeSelectionBar selection={bulk} total={taskIds().length} actions={[
+       {id:'complete',label:t('tasks-complete',{title:''}),icon:'check',run:()=>bulk.run(async id=>{const task=app.tasks().find(row=>row.id===id);if(task&&!isDone(task))await app.toggleComplete(id);})},
+       {id:'reopen',label:t('tasks-reopen',{title:''}),icon:'restore',run:()=>bulk.run(async id=>{const task=app.tasks().find(row=>row.id===id);if(task&&isDone(task))await app.toggleComplete(id);})},
+      ]}/>
+    </section></TaskSelectionContext.Provider>
       {listMenu.menu()}
     </NoticeContext.Provider>
   );
@@ -347,6 +356,7 @@ type EditBase = Pick<Task, 'title' | 'due' | 'priority'>;
 
 /** One task row: complete toggle + title + schedule/priority meta + edit. */
 function TaskItem(props: { task: Task }): JSX.Element {
+  const bulk=useContext(TaskSelectionContext);
   const app = useApp();
   const notify = useContext(NoticeContext);
   const done = (): boolean => isDone(props.task);
@@ -419,7 +429,7 @@ function TaskItem(props: { task: Task }): JSX.Element {
     <>{rowMenu.menu()}<Show
       when={editing()}
       fallback={
-        <div class={`${css.row} ${done() ? css.rowDone : ''}`} tabIndex={0} {...rowMenu.bind(props.task.id)}>
+        <div class={`${css.row} ${done() ? css.rowDone : ''}`} data-selection-id={props.task.id} data-bulk-selected={bulk?.selected().has(props.task.id)} tabIndex={0} {...rowMenu.bind(props.task.id)} onClick={event=>{if(!(event.target as Element).closest('button,input,a'))bulk?.click(props.task.id,event);}} onKeyDown={event=>{if(!bulk?.keydown(props.task.id,event))rowMenu.bind(props.task.id).onKeyDown(event);}}>
           <input
             type="checkbox"
             class={css.checkbox}
@@ -448,7 +458,7 @@ function TaskItem(props: { task: Task }): JSX.Element {
             type="button"
             class={css.button}
             aria-label={t('tasks-edit', { title: props.task.title })}
-            onClick={startEdit}
+            onClick={event=>bulk?bulk.click(props.task.id,event,startEdit):startEdit()}
           >
             {t('common-edit')}
           </button>

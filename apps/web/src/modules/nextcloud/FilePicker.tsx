@@ -1,4 +1,5 @@
 import {InstanceSelector} from './InstanceSelector.tsx';
+import {applyClick,extendByKey,EMPTY_SELECTION,type SelectionState} from '../../components/folderSelectionModel.ts';
 import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { Icon } from '../../components/Icon.tsx';
 // A minimal WebDAV directory picker (SPEC §18.4, plan §3 e7). Browses Nextcloud
@@ -33,8 +34,21 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
   const [entries] = createResource(()=>instance()?{path:dir(),instance:instance()}:undefined, ({path}) => props.service.list(path));
 
   const loaded=():WebDavEntry[]=>entries.loading||entries.error?[]:entries()??[];
+  let geometry:SelectionState={...EMPTY_SELECTION};
+  const fileIds=()=>loaded().filter(entry=>!entry.isDir).map(entry=>entry.path);
+  function pick(next:SelectionState):void{
+    const before=new Set(props.selected??[]);geometry=next;
+    for(const entry of loaded())if(!entry.isDir&&before.has(entry.path)!==next.selected.has(entry.path))props.onToggleFile?.(entry);
+  }
+  function keydown(entry:WebDavEntry,event:KeyboardEvent):void{
+    if(props.disabled||props.mode!=='files'||entry.isDir)return;
+    const state={...geometry,selected:props.selected??new Set<string>()};
+    if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='a'){event.preventDefault();event.stopPropagation();pick({...state,selected:new Set([...state.selected,...fileIds()]),rangeAdded:[]});}
+    else if(event.shiftKey&&(event.key==='ArrowDown'||event.key==='ArrowUp')){const next=extendByKey(state,fileIds(),entry.path,event.key==='ArrowDown'?1:-1);if(next){event.preventDefault();event.stopPropagation();pick(next.state);const root=event.currentTarget instanceof Element?event.currentTarget.closest('ul'):null;[...root?.querySelectorAll<HTMLButtonElement>('[data-file-path]')??[]].find(row=>row.dataset.filePath===next.focus)?.focus();}}
+  }
 
   function navigate(path: string): void {
+    geometry={...EMPTY_SELECTION};
     setDir(path);
     props.onDirChange?.(path);
   }
@@ -47,7 +61,7 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
 
   return (
     <div class={css.panel} data-testid="nc-picker">
-      <InstanceSelector disabled={props.disabled} service={props.service} onChange={id=>{setDir('/');setInstance(id);props.onDirChange?.('/');props.onInstanceChange?.();}}/>
+      <InstanceSelector disabled={props.disabled} service={props.service} onChange={id=>{geometry={...EMPTY_SELECTION};setDir('/');setInstance(id);props.onDirChange?.('/');props.onInstanceChange?.();}}/>
       <div class={css.bar}>
         <button
           type="button"
@@ -112,9 +126,12 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
                           : t('nextcloud-select-file', { name: isolate(entry.name) })
                       }
                       aria-pressed={selectable() ? isSelected() : undefined}
-                      onClick={() => {
+                      data-file-path={entry.path}
+                      onKeyDown={event=>keydown(entry,event)}
+                      onClick={event => {
+                        if(props.disabled)return;
                         if (entry.isDir) navigate(entry.path);
-                        else props.onToggleFile?.(entry);
+                        else pick(applyClick({...geometry,selected:props.selected??new Set<string>()},fileIds(),entry.path,{shift:event.shiftKey,toggle:true}));
                       }}
                     >
                       {content()}

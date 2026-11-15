@@ -91,6 +91,15 @@ function renderTasks(tasks: Task[], onJmap?: (body: JmapRequest) => void): AppSt
 // ── tests ───────────────────────────────────────────────────────────────────
 
 describe('TasksModule', () => {
+  it('ranges and toggles task rows and completes only the selected tasks',async()=>{
+    const app=renderTasks(['a','b','c','d'].map(id=>mkTask({id,title:`Task ${id}`})));
+    await screen.findByText('Task d');
+    const rows=[...document.querySelectorAll<HTMLElement>('[data-selection-id]')];
+    fireEvent.click(rows[0]!,{ctrlKey:true});fireEvent.click(rows[2]!,{shiftKey:true});fireEvent.click(rows[1]!,{metaKey:true});fireEvent.click(rows[3]!,{ctrlKey:true});
+    expect(rows.filter(row=>row.dataset.bulkSelected==='true').map(row=>row.dataset.selectionId)).toEqual(['a','c','d']);
+    fireEvent.click(within(screen.getByRole('toolbar',{name:'Selection actions'})).getByRole('button',{name:/Complete/}));
+    await waitFor(()=>expect(app.tasks().filter(task=>task.percentComplete===100).map(task=>task.id).sort()).toEqual(['a','c','d']));
+  });
   it('shows initial list loading rather than an empty task result',()=>{const app={...createAppState(mockClient([])),tasksLoading:()=>true,loadTasks:async()=>undefined};render(()=><AppContext.Provider value={app}><TasksModule/></AppContext.Provider>);expect(document.querySelector('[data-testid="inline-loading"]')).not.toBeNull();});
   it('renders the loaded task list and its lists in the sidebar', async () => {
     renderTasks([mkTask({ id: 't1', title: 'Write the report' }), mkTask({ id: 't2', title: 'Book the room' })]);

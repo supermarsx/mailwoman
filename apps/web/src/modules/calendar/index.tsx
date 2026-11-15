@@ -1,3 +1,5 @@
+import {createRangeSelection} from '../../components/rangeSelection.ts';
+import {RangeSelectionBar,RangeSelectionToggle} from '../../components/RangeSelectionBar.tsx';
 void loadCatalog('mail');
 import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {createEntityContextMenu} from '../../components/entityContextMenu.ts';
@@ -15,7 +17,7 @@ import {MiniCalendar} from './MiniCalendar.tsx';
 // engine-backed controller from `state/slices/calendar.ts`; `CalendarModule`
 // below is the mock-backed variant.
 
-import { For, Index, Show, createSignal, createUniqueId, onMount, type JSX } from 'solid-js';
+import { For, Index, Show, createSignal, createUniqueId, createEffect, onCleanup, onMount, type JSX } from 'solid-js';
 import { rawT, t, loadCatalog } from '../../i18n';
 import { toast } from '../../components/toast/index.ts';
 import type { Calendar, CalendarEvent } from '../../api/pim-types.ts';
@@ -75,6 +77,21 @@ export interface CalendarAppProps {
 
 export function CalendarApp(props: CalendarAppProps): JSX.Element {
   const c = props.controller;
+  let selectionRoot:HTMLElement|undefined;
+  const [selectionIds,setSelectionIds]=createSignal<string[]>([]);
+  const bulk=createRangeSelection({ids:selectionIds,scope:()=>JSON.stringify([c.identity(),c.view(),c.focusDate().toISOString(),c.categoryFilter()]),onError:()=>toast.error(t('common-error'))});
+  onMount(()=>{
+   const syncRows=()=>{const ids=[...new Set([...selectionRoot?.querySelectorAll<HTMLElement>('[data-calendar-event-id]')??[]].map(row=>row.dataset.calendarEventId!))];setSelectionIds(old=>ids.length===old.length&&ids.every((id,index)=>id===old[index])?old:ids);};
+   syncRows();
+   // View rendering can lag the controller's signal by one computation. Observe
+   // the actual rendered rows so hidden or collapsed events never enter a range.
+   const observer=new MutationObserver(syncRows);if(selectionRoot)observer.observe(selectionRoot,{childList:true,subtree:true});
+   const click=(event:MouseEvent)=>{const id=(event.target as Element).closest<HTMLElement>('[data-calendar-event-id]')?.dataset.calendarEventId;if(id&&bulk.pick(id,event)){event.preventDefault();event.stopImmediatePropagation();}};
+   const key=(event:KeyboardEvent)=>{const row=(event.target as Element).closest<HTMLElement>('[data-calendar-event-id]');if(row)bulk.keydown(row.dataset.calendarEventId!,event,id=>[...selectionRoot?.querySelectorAll<HTMLElement>('[data-calendar-event-id]')??[]].find(row=>row.dataset.calendarEventId===id)?.focus());else if(event.key==='Escape')bulk.keydown('',event);};
+   selectionRoot?.addEventListener('click',click,true);selectionRoot?.addEventListener('keydown',key,true);
+   onCleanup(()=>{observer.disconnect();selectionRoot?.removeEventListener('click',click,true);selectionRoot?.removeEventListener('keydown',key,true);});
+  });
+  createEffect(()=>{const selected=bulk.selected();selectionIds();queueMicrotask(()=>{for(const row of selectionRoot?.querySelectorAll<HTMLElement>('[data-calendar-event-id]')??[]){const on=selected.has(row.dataset.calendarEventId!);row.dataset.bulkSelected=String(on);row.setAttribute('aria-pressed',String(on));}});});
   const [mobileCalendars,setMobileCalendars]=createSignal(false);
   const calendarSidebarId=createUniqueId();
   const [editorOpen, setEditorOpen] = createSignal(false);
@@ -267,9 +284,12 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
   };
 
   return (
-    <section class={css.module} aria-label={t('calendar-title')} data-module="calendar" onContextMenu={eventContext} onKeyDown={eventContext}>
+    <section ref={selectionRoot} data-range-selection-root class={css.module} aria-label={t('calendar-title')} data-module="calendar" onContextMenu={eventContext} onKeyDown={eventContext}>
+      <RangeSelectionBar selection={bulk} total={selectionIds().length} actions={[
+       {id:'export',label:t('common-context-export'),icon:'download',run:async()=>triggerDownload('selected-events.ics',await c.exportIcs({eventIds:[...bulk.selected()]}))},
+      ]}/>
       <div class={css.toolbar}>
-        <span class={css.title} aria-live="polite">{headerLabel(c)}</span>
+        <span class={css.title} aria-live="polite">{headerLabel(c)}</span><RangeSelectionToggle selection={bulk}/>
         <button type="button" class={css.button} onClick={() => c.goPrev()} aria-label={t('calendar-prev')}><Icon name="chevronLeft" /></button>
         <button type="button" class={css.button} onClick={() => c.goToday()}>{t('calendar-today')}</button>
         <button type="button" class={css.button} onClick={() => c.goNext()} aria-label={t('calendar-next')}><Icon name="chevron" /></button>

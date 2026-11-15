@@ -1,9 +1,18 @@
 import {afterEach,expect,it} from 'vitest';
 import {createSignal} from 'solid-js';
-import {cleanup,fireEvent,render,screen} from '@solidjs/testing-library';
+import {cleanup,fireEvent,render,screen,within} from '@solidjs/testing-library';
 import {TemplateLibraryEditor} from './TemplateLibraryEditor.tsx';
 import type {ResponseTemplate} from './responseTemplateModel.ts';
 afterEach(cleanup);
+it('ranges and toggles templates and removes only the selection',()=>{
+ const [rows,setRows]=createSignal<ResponseTemplate[]>(['a','b','c','d'].map(id=>({id,title:`Template ${id}`,body:id})));
+ render(()=><TemplateLibraryEditor value={rows()} onChange={setRows}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Template a'}),{ctrlKey:true});fireEvent.click(screen.getByRole('button',{name:'Template c'}),{shiftKey:true});fireEvent.click(screen.getByRole('button',{name:'Template b'}),{metaKey:true});fireEvent.click(screen.getByRole('button',{name:'Template d'}),{ctrlKey:true});
+ expect(screen.queryByLabelText('Message text')).toBeNull();
+ expect([...document.querySelectorAll<HTMLElement>('[data-bulk-selected="true"]')].map(row=>row.dataset.selectionId)).toEqual(['a','c','d']);
+ fireEvent.click(within(screen.getByRole('toolbar',{name:'Selection actions'})).getByRole('button',{name:'Remove template'}));
+ expect(rows().map(row=>row.id)).toEqual(['b']);
+});
 it('adds, edits, searches and removes plain text without interpreting HTML',()=>{
  const [rows,setRows]=createSignal<ResponseTemplate[]>([]);render(()=><TemplateLibraryEditor value={rows()} onChange={setRows}/>);
  fireEvent.click(screen.getByRole('button',{name:'Add template'}));

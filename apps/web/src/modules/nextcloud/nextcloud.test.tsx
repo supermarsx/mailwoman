@@ -23,6 +23,18 @@ const rootEntries: WebDavEntry[] = [
 ];
 
 describe('attach-from-Nextcloud (WebDAV picker)', () => {
+  it('ranges across files while skipping directories and toggles separate paths before attaching',async()=>{
+    const entries=[rootEntries[0]!,...['a','b','c'].map(name=>({...rootEntries[1]!,name,path:`/${name}`}))];
+    const fetcher=vi.fn(async(input:string)=>input.startsWith('/api/nextcloud/list')?okJson({entries}):okJson({attachments:[]}));
+    render(()=><NextcloudAttach fetcher={withLinks(fetcher)} onAttached={()=>undefined}/>);
+    const first=await screen.findByText('a');fireEvent.click(first);fireEvent.click(screen.getByText('c'),{shiftKey:true});fireEvent.click(screen.getByText('b'),{metaKey:true});
+    expect(screen.getAllByTestId('nc-selected')).toHaveLength(2);
+    expect(screen.getByText('Docs').closest('button')).not.toHaveAttribute('aria-pressed');
+    fireEvent.click(screen.getByRole('button',{name:/Attach 2 files/}));
+    await waitFor(()=>expect(fetcher.mock.calls.some(call=>call[0]==='/api/nextcloud/attach')).toBe(true));
+    const request=fetcher.mock.calls.find(call=>call[0]==='/api/nextcloud/attach') as unknown as [string,RequestInit];
+    expect(JSON.parse(String(request[1].body))).toMatchObject({paths:['/a','/c']});
+  });
   it('lists files, selects one, and hands the materialised attachment to the composer', async () => {
     const attached: AttachedFile[] = [{ name: 'report.pdf', blobId: 'blob-1', size: 2048, contentType: 'application/pdf' }];
     const fetcher = vi.fn(async (input: string, init?: RequestInit) => {

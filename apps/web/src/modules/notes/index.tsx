@@ -1,3 +1,5 @@
+import {createRangeSelection} from '../../components/rangeSelection.ts';
+import {RangeSelectionBar,RangeSelectionToggle} from '../../components/RangeSelectionBar.tsx';
 import {SearchInput} from '../../components/SearchInput.tsx';
 import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {createEntityContextMenu} from '../../components/entityContextMenu.ts';
@@ -69,7 +71,7 @@ export function NotesModule(): JSX.Element {
 
   handleModuleActions('notes',action=>{if(action==='new')void newNote();});
   return (
-    <section class="notes" aria-label={t('notes-title')} data-module="notes">
+    <section class="notes" aria-label={t('notes-title')} data-module="notes" data-range-selection-root>
       <NotesList
         selectedId={selectedId()}
         onSelect={select}
@@ -90,6 +92,7 @@ function NotesList(props: {
   onNew: () => void;
 }): JSX.Element {
   const app = useApp();
+  const bulk=createRangeSelection({ids:()=>app.filteredNotes().map(note=>note.id),scope:()=>JSON.stringify([app.accountId?.(),app.noteSearch(),app.noteTagFilter()]),onError:()=>app.showToast('error',t('common-error'))});
   const rowMenu=createEntityContextMenu({items:app.filteredNotes,id:note=>note.id,name:note=>note.title||t('notes-untitled'),scope:app.accountId,onError:()=>app.showToast('error',t('mail-context-failed')),actions:note=>[
     {id:'open',label:t('common-open'),icon:'edit',run:()=>props.onSelect(note.id)},
     {id:'pin',label:t(note.pinned?'notes-unpin':'notes-pin'),icon:'pin',run:()=>app.toggleNotePin(note.id)},
@@ -103,6 +106,7 @@ function NotesList(props: {
         <button type="button" class="notes__new" onClick={props.onNew}>
           {t('notes-new')}
         </button>
+        <RangeSelectionToggle selection={bulk}/>
         <SearchInput
           class="notes__search"
           
@@ -138,7 +142,7 @@ function NotesList(props: {
         </div>
       </Show>
 
-      <ul class="notes__items" role="listbox" aria-label={t('notes-listbox')}>
+      <ul class="notes__items" role="listbox" aria-multiselectable="true" aria-label={t('notes-listbox')}>
         <For each={app.filteredNotes()} fallback={<li class="notes__none"><Show when={app.notesLoading()} fallback={t('notes-none')}><InlineLoading /></Show></li>}>
           {(note) => (
             <li>
@@ -147,9 +151,12 @@ function NotesList(props: {
                 class="notes__item"
                 classList={{ 'notes__item--selected': note.id === props.selectedId }}
                 role="option"
-                aria-selected={note.id === props.selectedId}
-                onClick={() => props.onSelect(note.id)}
+                aria-selected={bulk.mode()?bulk.selected().has(note.id):note.id === props.selectedId}
+                data-bulk-selected={bulk.selected().has(note.id)}
+                onClick={event => bulk.click(note.id,event,()=>props.onSelect(note.id))}
                 {...rowMenu.bind(note.id)}
+                onKeyDown={event=>{if(!bulk.keydown(note.id,event))rowMenu.bind(note.id).onKeyDown(event);}}
+                data-selection-id={note.id}
               >
                 <span class="notes__swatch" style={{ background: note.color }} aria-hidden="true" />
                 <span class="notes__item-main">
@@ -171,6 +178,11 @@ function NotesList(props: {
           )}
         </For>
       </ul>
+      <RangeSelectionBar selection={bulk} total={app.filteredNotes().length} actions={[
+       {id:'pin',label:t('notes-pin'),icon:'pin',run:()=>bulk.run(async id=>{if(!app.notes().find(note=>note.id===id)?.pinned)await app.toggleNotePin(id);})},
+       {id:'unpin',label:t('notes-unpin'),icon:'pin',run:()=>bulk.run(async id=>{if(app.notes().find(note=>note.id===id)?.pinned)await app.toggleNotePin(id);})},
+       {id:'copy',label:t('common-copy'),icon:'copy',run:()=>navigator.clipboard.writeText(app.filteredNotes().filter(note=>bulk.selected().has(note.id)).map(note=>noteBodyText(note)).join('\n\n'))},
+      ]}/>
       {rowMenu.menu()}
     </div>
   );

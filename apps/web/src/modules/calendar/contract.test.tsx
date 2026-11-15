@@ -15,7 +15,7 @@
 // If a handler changes, change the fixture from the Rust; do not copy the
 // client's types into it.
 
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import type { Invocation, JmapRequest, JmapResponse } from '../../api/jmap-types.ts';
 import type { CalendarEvent } from '../../api/pim-types.ts';
@@ -40,6 +40,11 @@ import { createCalendarFeeds, FeedError, type CalendarFeeds } from './feeds.ts';
 import { CalendarApp } from './index.tsx';
 import { ToastRegion } from '../../components/toast/index.ts';
 import { MOCK_IDENTITY, createMockFeeds, createMockJmap, createMockStore, type MockStore } from './mock.ts';
+
+// The seeded birthday is on the 15th. A real clock made the free/busy
+// assertions turn all-day busy on that day; hold the fixture date constant.
+beforeEach(() => vi.useFakeTimers({toFake:['Date'],now:new Date(2026,6,13,8)}));
+afterEach(() => vi.useRealTimers());
 
 // ── fixtures transcribed from the server ─────────────────────────────────────
 
@@ -708,6 +713,21 @@ describe('conflict resolver free/busy grid', () => {
 // ── 6. the shell reports a failed action ────────────────────────────────────
 
 describe('calendar shell feedback', () => {
+  it('ranges only rendered event rows and toggles separate picks without opening an editor',async()=>{
+    const store=createMockStore(),controller=createCalendarController({jmap:createMockJmap(store),resolveAccount:()=>Promise.resolve('acct-mock'),feeds:createMockFeeds(store)});
+    render(()=><CalendarApp controller={controller}/>);
+    await screen.findByTitle('Design review');
+    const root=document.querySelector<HTMLElement>('[data-module="calendar"]')!;
+    const eventRows=()=>[...new Map([...root.querySelectorAll<HTMLElement>('[data-calendar-event-id]')].map(row=>[row.dataset.calendarEventId!,row])).values()];
+    await waitFor(()=>expect(eventRows().length).toBeGreaterThanOrEqual(3));
+    const rows=eventRows();fireEvent.click(rows[0]!,{ctrlKey:true});fireEvent.click(rows[2]!,{shiftKey:true});fireEvent.click(rows[1]!,{metaKey:true});
+    await waitFor(()=>expect(rows.slice(0,3).map(row=>row.dataset.bulkSelected)).toEqual(['true','false','true']));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.keyDown(rows[2]!,{key:'a',ctrlKey:true});
+    await waitFor(()=>expect(eventRows().every(row=>row.dataset.bulkSelected==='true')).toBe(true));
+    fireEvent.keyDown(rows[2]!,{key:'Escape'});fireEvent.keyDown(rows[2]!,{key:'Escape'});
+    expect(screen.queryByRole('toolbar',{name:'Selection actions'})).toBeNull();
+  });
   it('a feed the server cannot fetch is reported and adds no calendar', async () => {
     const store = createMockStore();
     const controller = createCalendarController({

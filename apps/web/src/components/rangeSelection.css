@@ -1,0 +1,4 @@
+.range-selection-toggle {flex:0 0 auto;inline-size:2rem;min-inline-size:2rem;padding:.35rem;display:inline-flex;align-items:center;justify-content:center;}
+.range-selection-toggle[aria-pressed="true"] {background:var(--selected-bg,var(--surface));color:var(--accent);}
+[data-bulk-selected="true"] {outline:1px solid var(--accent);outline-offset:-1px;background:color-mix(in srgb,var(--accent) 12%,var(--surface));}
+.bulk-selection-check {flex:0 0 auto;inline-size:1rem;block-size:1rem;margin-inline:.4rem;accent-color:var(--accent);}

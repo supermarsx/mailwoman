@@ -30,7 +30,7 @@ function setup(subs: OutboxSubmission[], opts: { reschedule?: RescheduleResult; 
     outboxBody: vi.fn(async (_emailId: string) => BODY),
     showToast: vi.fn(),
   };
-  const app = { outbox: () => subs, outboxLoading: () => false, outboxMessages: () => opts.messages ?? {}, cancelableOutbox: () => subs, ...calls } as unknown as AppState;
+  const app = { accountId:()=> 'outbox-test',outbox: () => subs, outboxLoading: () => false, outboxMessages: () => opts.messages ?? {}, cancelableOutbox: () => subs, ...calls } as unknown as AppState;
   return { app, calls };
 }
 function renderOutbox(subs: OutboxSubmission[], opts?: Parameters<typeof setup>[1]) {
