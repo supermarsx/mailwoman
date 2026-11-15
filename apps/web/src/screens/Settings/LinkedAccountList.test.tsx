@@ -193,6 +193,14 @@ it('keeps a hidden linked mailbox manageable and allows showing it again',()=>{
 it('exposes editable per-mailbox login policy and honors administrator bounds',()=>{
  const onLoginPolicy=vi.fn();const data={...value,accounts:[{...value.accounts[0]!,directLogin:{allowed:false,editable:true,overridden:true,source:'user'}}]};
  render(()=><LinkedAccountList value={data} busy={false} onAdd={()=>{}} onUnlink={()=>{}} onSetFirst={()=>{}} onMove={()=>{}} onRename={async()=>true} onLoginPolicy={onLoginPolicy}/>);
- const select=screen.getByRole('combobox',{name:'linked-login-title: Child (child@example.org)'});
- expect(select).toHaveValue('block');fireEvent.change(select,{target:{value:'inherit'}});expect(onLoginPolicy).toHaveBeenCalledWith('child',null);
+ expect(screen.queryByRole('combobox')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'linked-login-title: Child (child@example.org)'}));
+ const dialog=screen.getByRole('alertdialog'),select=within(dialog).getByRole('combobox',{name:'linked-login-title'});
+ expect(select).toHaveValue('block');fireEvent.change(select,{target:{value:'inherit'}});expect(onLoginPolicy).not.toHaveBeenCalled();
+ fireEvent.click(within(dialog).getByRole('button',{name:'common-save'}));expect(onLoginPolicy).toHaveBeenCalledWith('child',null);
+});
+
+it('shows an enforced login policy through its icon without allowing changes',()=>{
+ const onLoginPolicy=vi.fn();render(()=><LinkedAccountList value={{...value,accounts:[{...value.accounts[0]!,directLogin:{allowed:false,editable:false,overridden:false,source:'global'}}]}} busy={false} onAdd={()=>{}} onUnlink={()=>{}} onSetFirst={()=>{}} onMove={()=>{}} onRename={async()=>true} onLoginPolicy={onLoginPolicy}/>);
+ fireEvent.click(screen.getByRole('button',{name:'linked-login-title: Child (child@example.org)'}));const dialog=screen.getByRole('alertdialog');expect(within(dialog).getByRole('combobox')).toBeDisabled();expect(dialog).toHaveTextContent('linked-login-enforced');fireEvent.click(within(dialog).getByRole('button',{name:'common-close'}));expect(onLoginPolicy).not.toHaveBeenCalled();
 });

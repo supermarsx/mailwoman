@@ -46,6 +46,8 @@ export function LinkedAccountList(props:{
   onAvatar?:(id:string|null,avatar:MailboxAvatarSpec|undefined)=>Promise<boolean>;
 }):JSX.Element {
   const [confirm,setConfirm]=createSignal<string>();
+  const [loginPolicyId,setLoginPolicyId]=createSignal<string>(),[loginChoice,setLoginChoice]=createSignal('inherit');
+  const loginPolicy=()=>props.value.accounts.find(account=>account.id===loginPolicyId());
   const [renaming,setRenaming]=createSignal<string>();
   const [announcement,setAnnouncement]=createSignal('');
   const [nicknameError,setNicknameError]=createSignal<{key:string;text:string}>();
@@ -145,9 +147,8 @@ export function LinkedAccountList(props:{
                 <Show when={nicknameError()?.key===key}><span id={`${nicknameId}-error`} role="alert" class={css.error}>{nicknameError()!.text}</span></Show>
               </div>
             </Show>
-            <Show when={linkId!==null&&props.onLoginPolicy&&account(key)?.directLogin}>{policy=><label class={css.field}><span class={css.meta}>{t('linked-login-title')}</span><select class={css.select} aria-label={`${t('linked-login-title')}: ${nameFor(key)}`} disabled={props.busy||!policy().editable} value={policy().overridden?(policy().allowed?'allow':'block'):'inherit'} onChange={event=>props.onLoginPolicy?.(linkId!,event.currentTarget.value==='inherit'?null:event.currentTarget.value==='allow')}><option value="inherit">{t('linked-login-inherit')}</option><option value="allow">{t('linked-login-allow')}</option><option value="block">{t('linked-login-block')}</option></select><span class={css.meta}>{t(policy().allowed?'linked-login-allow':'linked-login-block')}{!policy().editable?` · ${t('linked-login-enforced')}`:''}</span></label>
-            }</Show>
             <div class={table.actions} data-linked-actions>
+              <Show when={linkId!==null&&props.onLoginPolicy&&account(key)?.directLogin}>{policy=><button type="button" class={icon} data-linked-login-policy aria-label={`${t('linked-login-title')}: ${nameFor(key)}`} title={t('linked-login-title')} disabled={props.busy} onClick={()=>{setLoginChoice(policy().overridden?(policy().allowed?'allow':'block'):'inherit');setLoginPolicyId(linkId!);}}><Icon name="shield"/></button>}</Show>
               <Show when={props.onOpen}><button type="button" class={icon} data-linked-open disabled={props.busy||!ready()}
                 aria-label={t('linked-accounts-go-to',{address:nameFor(key)})} data-tooltip={t('linked-accounts-go-to-short')}
                 onClick={()=>props.onOpen?.(linkId)}><Icon name="mail"/></button></Show>
@@ -185,6 +186,9 @@ export function LinkedAccountList(props:{
       <Show when={keys().length>1}><p class={css.meta}>{t('linked-accounts-reorder-help')}</p></Show>
     </Show>
     <p id="linked-accounts-reorder-keys" class={a11y.srOnly}>{t('linked-accounts-reorder-keys')}</p>
+    <ConfirmDialog open={!!loginPolicyId()} title={t('linked-login-title')} danger={false} confirmLabel={t(loginPolicy()?.directLogin?.editable?'common-save':'common-close')} cancelLabel={t('common-cancel')} onCancel={()=>setLoginPolicyId(undefined)} onConfirm={()=>{const id=loginPolicyId();if(id&&loginPolicy()?.directLogin?.editable)props.onLoginPolicy?.(id,loginChoice()==='inherit'?null:loginChoice()==='allow');setLoginPolicyId(undefined);}} testId="linked-login-policy-dialog">
+     <p class={css.meta}>{loginPolicy()?.displayName}</p><label class={css.field}>{t('linked-login-title')}<select class={css.select} aria-label={t('linked-login-title')} disabled={props.busy||!loginPolicy()?.directLogin?.editable} value={loginChoice()} onChange={event=>setLoginChoice(event.currentTarget.value)}><option value="inherit">{t('linked-login-inherit')}</option><option value="allow">{t('linked-login-allow')}</option><option value="block">{t('linked-login-block')}</option></select></label><p class={css.meta}>{t(loginPolicy()?.directLogin?.allowed?'linked-login-allow':'linked-login-block')}<Show when={!loginPolicy()?.directLogin?.editable}> · {t('linked-login-enforced')}</Show></p>
+    </ConfirmDialog>
     <ConfirmDialog open={confirming()!==undefined} title={t('linked-accounts-unlink-title',{address:isolate(confirming()?.address??confirming()?.displayName??'')})}
       body={t('linked-accounts-unlink-help')} confirmLabel={t('linked-accounts-unlink-confirm')} cancelLabel={t('linked-accounts-cancel')} testId="linked-unlink-confirm"
       onConfirm={()=>{const target=confirming();setConfirm(undefined);if(target)props.onUnlink(target);}} onCancel={()=>setConfirm(undefined)}/>
