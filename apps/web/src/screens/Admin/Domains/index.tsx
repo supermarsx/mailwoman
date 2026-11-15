@@ -14,6 +14,7 @@ import * as ux from '../shell/ux.css.ts';
 import { DataTable } from '../shell/DataTable.tsx';
 import { GuidedDomain } from './GuidedDomain.tsx';
 import { BackendEditor } from './BackendEditor.tsx';
+import {DomainOverview} from './DomainOverview.tsx';
 import { BackendList } from './BackendList.tsx';
 import {AliasEditor} from './AliasEditor.tsx';
 import {AliasTable} from './AliasTable.tsx';
@@ -164,7 +165,7 @@ export function Domains(props: { service?: DomainsApi }): JSX.Element {
       <Show when={selected()}>{d => <>
         <h3>{d().name}</h3><p>{t('domain-editor-mode', { mode: d().mode })}</p>
         <SectionTabs label={t('domain-editor-pages')} items={['overview', 'connections', 'policy', 'aliases', 'hosts', 'diagnostics'].map(page=>({id:page,label:t(`domain-page-${page}`),path:sectionPath('domains',[d().name,page])}))} selected={domainPage()} navigate={path=>void shell.router.navigate(path)}/>
-        <AdminSubtabPanel><Show when={domainPage() === 'overview'}><section class={css.card}><h4>{t('domain-page-overview')}</h4><p>{t('domain-editor-overview-help')}</p><p>{summary('upstream', d())}</p></section></Show>
+        <AdminSubtabPanel><Show when={domainPage() === 'overview'}><DomainOverview domain={d()}/></Show>
         <div class={css.listRow}>
           <button type="button" class="btn" disabled={busy()} onClick={() => dirty() ? setConfirmation('reload') : void run(refresh)}>{t('domain-editor-reload')}</button>
           <Show when={domainPage() === 'overview' && canWrite()}><button class="btn" disabled={busy() || dirty()} onClick={() => d().enabled ? setConfirmation('disable') : void run(async () => { await api.enable(d().name, true, d().etag); await refresh(); }, true)}>{d().enabled ? t('domain-editor-disable') : t('domain-editor-enable')}</button><button class="btn" disabled={busy() || dirty()} onClick={() => void run(async () => { if (d().preferred) await api.clearPreferred(d().preferenceEtag); else await api.prefer(d().name, d().preferenceEtag); await refresh(); }, true)}>{d().preferred ? t('domain-editor-clear-preferred') : t('domain-editor-set-preferred')}</button></Show>

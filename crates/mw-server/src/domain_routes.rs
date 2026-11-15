@@ -252,6 +252,7 @@ async fn get(
     let row = read(&state, &ctx, &value).await?;
     let mut body = dto(&row);
     body["aliases"] = json!(state.store.domain_aliases(&row.name).await?);
+    body["overview"] = json!({"connectedAccounts":if state.engine.is_some(){Some(domain_account_ids(&state,&row.name).await?.len())}else{None}});
     body["hosts"] = json!(state.store.domain_hosts(&row.name).await?);
     body["mappingEtag"] = json!(mapping_etag(&row, &body["aliases"], &body["hosts"]));
     body["preferenceEtag"] = json!(preference_etag(

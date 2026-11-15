@@ -129,3 +129,5 @@ domain-alias-clone = エイリアスを複製
 domain-alias-name = エイリアスドメイン
 domain-alias-editor-help = エイリアスは親ドメインの設定を継承します。エイリアスのドメイン名をフルで入力してください。編集するとエイリアス名がアトミックに変更され、複製すると同じ親に別のエイリアスが作成されます。
 domain-alias-forbidden = ドメインエイリアスを変更する権限がありません。
+
+domain-overview-accounts = 接続済みアカウント

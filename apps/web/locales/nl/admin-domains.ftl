@@ -129,3 +129,5 @@ domain-alias-clone = Alias klonen
 domain-alias-name = Aliasdomein
 domain-alias-editor-help = Aliassen erven de configuratie van het bovenliggende domein. Voer de volledige aliasdomeinnaam in. Bij bewerken wordt de alias atomair hernoemd; bij klonen wordt een extra alias voor hetzelfde bovenliggende domein gemaakt.
 domain-alias-forbidden = U hebt geen toestemming om domeinaliassen te wijzigen.
+
+domain-overview-accounts = Verbonden accounts

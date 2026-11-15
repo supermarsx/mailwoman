@@ -8,7 +8,7 @@ export interface DomainBackend { id: string; role: 'mail' | 'submission' | 'rule
 export interface DomainEndpoint { authentication?: PasswordAuthentication; security?: ConnectionSecurity; host: string; port: number; tls: 'implicit' | 'starttls' | 'none'; auth: 'password'; allowPrivate?: boolean }
 export interface DomainUpstream { ews?: NonNullable<DomainBackend['ews']> | null; version?: 2; backends?: DomainBackend[]; failover?: boolean; imap?: DomainEndpoint | null; pop3?: DomainEndpoint | null; smtp?: DomainEndpoint | null; sieve?: DomainEndpoint | null; jmap?: { sessionUrl: string } | null; dav?: { caldavUrl?: string; carddavUrl?: string } | null }
 export interface ManagedDomain { aliases?: string[]; selection?: { mail?: DomainBackend | null; submission?: DomainBackend | null; rules?: DomainBackend | null } | null; name: string; enabled: boolean; preferred: boolean; upstream: DomainUpstream; settings: Record<string, unknown>; allowlist: string[]; blocklist: string[]; updatedAt: number }
-export interface DomainDetail extends ManagedDomain { mode: 'engine' | 'proxy'; aliases: string[]; hosts: string[]; etag: string | null; mappingEtag: string; preferenceEtag: string }
+export interface DomainDetail extends ManagedDomain { overview?:{connectedAccounts:number|null}; mode: 'engine' | 'proxy'; aliases: string[]; hosts: string[]; etag: string | null; mappingEtag: string; preferenceEtag: string }
 export interface DomainChange { upstream?: DomainUpstream; settings?: Record<string, unknown>; enabled?: boolean; allowlist?: string[]; blocklist?: string[]; dryRun?: boolean }
 export interface DomainPreview { dryRun: boolean; before: ManagedDomain | null; after: ManagedDomain }
 const path = (name: string) => `/domains/${encodeURIComponent(name)}`;

@@ -130,3 +130,5 @@ domain-alias-clone = Clone alias
 domain-alias-name = Alias domain
 domain-alias-editor-help = Aliases inherit the parent domain configuration. Enter the full alias domain name. Editing renames the alias atomically; cloning creates another alias for the same parent.
 domain-alias-forbidden = You do not have permission to change domain aliases.
+
+domain-overview-accounts = Connected accounts

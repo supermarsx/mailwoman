@@ -129,3 +129,5 @@ domain-alias-clone = Sklonuj alias
 domain-alias-name = Domena aliasu
 domain-alias-editor-help = Aliasy dziedziczą konfigurację domeny nadrzędnej. Wpisz pełną nazwę domeny aliasu. Edycja zmienia nazwę aliasu atomowo; klonowanie tworzy kolejny alias tej samej domeny nadrzędnej.
 domain-alias-forbidden = Nie masz uprawnień do zmiany aliasów domen.
+
+domain-overview-accounts = Połączone konta

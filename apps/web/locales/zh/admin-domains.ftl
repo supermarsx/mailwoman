@@ -129,3 +129,5 @@ domain-alias-clone = 克隆别名
 domain-alias-name = 别名域名
 domain-alias-editor-help = 别名继承父域名的配置。请输入完整的别名域名。编辑会以原子方式重命名别名;克隆会为同一父域名创建另一个别名。
 domain-alias-forbidden = 你没有更改域名别名的权限。
+
+domain-overview-accounts = 已连接账户

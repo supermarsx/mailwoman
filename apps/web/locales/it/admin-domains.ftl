@@ -129,3 +129,5 @@ domain-alias-clone = Clona alias
 domain-alias-name = Dominio alias
 domain-alias-editor-help = Gli alias ereditano la configurazione del dominio principale. Inserire il nome completo del dominio alias. La modifica rinomina l'alias in modo atomico; la clonazione crea un altro alias per lo stesso dominio principale.
 domain-alias-forbidden = Non si dispone dell'autorizzazione per modificare gli alias di dominio.
+
+domain-overview-accounts = Account connessi

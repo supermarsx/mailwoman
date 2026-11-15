@@ -9,6 +9,9 @@ import { sectionPath } from '../shell/router.ts';
 import { RoleEditor } from './RoleEditor.tsx';
 import { rolePurpose, permissionPurpose } from './purpose.ts';
 import * as css from '../admin.css.ts';
+import * as table from '../../Settings/managementTable.css.ts';
+import * as header from '../../Settings/linkedAccounts.css.ts';
+import {Icon} from '../../../components/Icon.tsx';
 import * as ux from '../shell/ux.css.ts';
 
 export function AdminRoles(props: { service?: AdminAccountsApi }): JSX.Element {
@@ -42,13 +45,8 @@ export function AdminRoles(props: { service?: AdminAccountsApi }): JSX.Element {
     <Feedback kind="error" message={error()} /><Show when={loaded() && busy()}><InlineLoading /></Show>
     <Show when={loaded()} fallback={<Show when={busy()} fallback={<button class="btn" type="button" onClick={()=>void reload()}>{t('common-retry')}</button>}><InlineLoading /></Show>}>
       <Show when={creating() || editing()} fallback={<section class={css.section} aria-label={t('admin-accounts-roles')}>
-        <h2 class={css.heading}>{t('admin-accounts-roles')}</h2>
-        <p class={css.note}>{t('admin-roles-list-help')}</p>
-        <div class={ux.pageActions}>
-          <button class="btn" type="button" disabled={busy()} onClick={() => void reload()}>{t('admin-accounts-refresh')}</button>
-          <button class="btn btn--primary" type="button" disabled={!canManage() || busy()} onClick={() => go(['new'])}>{t('admin-roles-create')}</button>
-        </div>
-        <ul><For each={roles()}>{role => <li><button class="btn" type="button" onClick={() => go([role.id, 'edit'])}>{role.name}</button> {role.builtin ? t('admin-roles-builtin') : ''} — {t('admin-roles-holders', { count: role.holders })}<p class={css.note}>{rolePurpose(role)}</p></li>}</For></ul>
+        <div class={header.header}><div class={header.headerText}><h2 class={css.heading}>{t('admin-accounts-roles')}</h2><p class={css.note}>{t('admin-roles-list-help')}</p></div><div class={ux.pageActions}><button class="btn btn--ghost" type="button" aria-label={t('admin-accounts-refresh')} title={t('admin-accounts-refresh')} disabled={busy()} onClick={()=>void reload()}><Icon name="refresh"/></button><button class={`btn btn--primary ${header.addButton}`} type="button" disabled={!canManage()||busy()} onClick={()=>go(['new'])}><Icon name="plus"/>{t('admin-roles-create')}</button></div></div>
+        <div class={table.scroll}><table class={table.table}><thead><tr><th class={table.heading}>{t('admin-accounts-roles')}</th><th class={table.heading}>{t('admin-roles-list-help')}</th><th class={table.heading}>{t('admin-roles-holders',{count:roles().reduce((total,role)=>total+role.holders,0)})}</th><th class={table.heading}>{t('admin-roles-clone')}</th></tr></thead><tbody><For each={roles()}>{role=><tr class={table.row}><td class={table.cell}><button class={table.title} type="button" onClick={()=>go([role.id,'edit'])}>{role.name}</button><Show when={role.builtin}><span class={table.text}>{t('admin-roles-builtin')}</span></Show></td><td class={table.cell}>{rolePurpose(role)}</td><td class={table.cell}>{t('admin-roles-holders',{count:role.holders})}</td><td class={table.cell}><Show when={canManage()}><button type="button" class="btn btn--ghost" aria-label={`${t('admin-roles-clone')} ${role.name}`} title={t('admin-roles-clone')} onClick={()=>go(['new'],{from:role.id})}><Icon name="copy"/></button></Show></td></tr>}</For></tbody></table></div>
         <p class={css.note}>{t('admin-role-purpose-scope')}</p>
       </section>}>
         <Show when={creating()} fallback={<Show when={selected()} keyed fallback={<section class={css.section}><h2>{t('admin-roles-not-found')}</h2><button class="btn" type="button" onClick={() => go()}>{t('admin-roles-back')}</button></section>}>{role => <>

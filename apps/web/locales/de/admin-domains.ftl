@@ -129,3 +129,5 @@ domain-alias-clone = Alias klonen
 domain-alias-name = Alias-Domain
 domain-alias-editor-help = Aliase erben die Konfiguration der übergeordneten Domain. Geben Sie den vollständigen Namen der Alias-Domain ein. Beim Bearbeiten wird der Alias atomar umbenannt; beim Klonen entsteht ein weiterer Alias für dieselbe übergeordnete Domain.
 domain-alias-forbidden = Sie haben keine Berechtigung, Domain-Aliase zu ändern.
+
+domain-overview-accounts = Verbundene Konten
