@@ -2611,3 +2611,8 @@ admin-settings-help-mail-after-move = 移动成功后，可保持打开、打开
 
 admin-settings-key-shortcuts-activation-toast = 显示键盘快捷键提示
 admin-settings-help-shortcuts-activation-toast = 短暂显示使用的操作和按键。这仅确认快捷键已触发，不代表操作已完成。文字输入、菜单点击和长按重复不会触发提示。默认关闭。
+
+admin-settings-key-accounts-linked-direct-login = 允许直接登录
+admin-settings-help-accounts-linked-direct-login = 允许直接登录 / 仅允许关联访问. 由管理员控制.
+admin-settings-key-accounts-linked-allow-user-login-policy = 允许用户修改关联邮箱的登录策略
+admin-settings-help-accounts-linked-allow-user-login-policy = 允许用户修改关联邮箱的登录策略. 由管理员控制.

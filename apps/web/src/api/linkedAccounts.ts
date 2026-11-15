@@ -10,6 +10,7 @@ import {validAvatar,type MailboxAvatarSpec} from './mailboxAvatar.ts';
 
 export interface LinkedMailbox {
   id:string;accountId:string;address?:string;displayName:string;
+  directLogin?:{allowed:boolean;editable:boolean;overridden:boolean;source:string};
   storageAuthority?:string;status:'ready'|'reauthRequired'|'disabled';
   revision:string;expiresAt?:number;createdAt?:number;
   /** t48: 'automatic' = access renews by itself from the server-sealed credential;
@@ -120,6 +121,7 @@ export function createLinkedAccountsApi() {
     /** Mints a context for the link; sending it twice only mints another: retried (t91). */
     authorize:(id:string)=>request<{context:LinkedAccountContext}>(`/${encodeURIComponent(id)}/switch`,'POST',undefined,undefined,'idempotent'),
     /** Which mailbox opens first. A preference only: opening it still switches through `authorize`. */
+    setLoginPolicy:(id:string,allowed:boolean|null)=>request<unknown>(`/${encodeURIComponent(id)}/login-policy`,allowed===null?'DELETE':'PUT',allowed===null?undefined:{value:allowed}),
     setPrimary:(linkId:string|null)=>request<{primaryMailbox:string|null}>('/primary','PUT',{linkId}),
     /** Order, nicknames and avatars (t86); 409 when another device saved first (re-read, then retry). */
     setLayout:async(layout:MailboxLayout)=>{const saved=await request<{layout:MailboxLayout}>('/layout','PUT',layout);if(!validLayout(saved?.layout))throw new ApiError(502,'Linked mailbox response was invalid');return cleanLayout(saved.layout);},

@@ -111,6 +111,11 @@ pub struct LinkedSessionAuthority {
 }
 
 impl Store {
+    /// Whether this mailbox is a target of a verified primary-account link.
+    pub async fn is_linked_mailbox(&self, account: &str) -> Result<bool, StoreError> {
+        Ok(q("SELECT id FROM linked_account WHERE account_id=?1 LIMIT 1").bind(account).fetch_optional(&self.backend).await?.is_some())
+    }
+
     /// Bound retained private sessions during active use. A logout may cascade
     /// the context association before a background janitor sees its Session.
     /// Each creation removes up to 128 such orphans or absolute-expired sources.

@@ -216,6 +216,7 @@ mod account_drafts;
 pub mod image_proxy;
 pub mod import_routes;
 mod linked_accounts;
+mod linked_login;
 mod maintenance_mode;
 pub mod prefs_routes;
 // 26.20 t32-e10b (f01): the settings model C — the registry (keys, types,
@@ -2661,6 +2662,7 @@ async fn login(
             &headers,
             &ext,
             twofa_routes::SessionArgs {
+                linked_access:false,
                 authentication_method: "password",
                 primary_identity,
                 account_id,
@@ -2809,6 +2811,7 @@ async fn header_auth_login(
             headers,
             ext,
             twofa_routes::SessionArgs {
+                linked_access:false,
                 authentication_method: "header-auth",
                 primary_identity,
                 account_id,
@@ -2931,7 +2934,7 @@ pub(crate) async fn finish_login(
     username: &str,
     client_type: Option<&str>,
 ) -> Response {
-    finish_login_ext(state, id, account_id, username, client_type, json!({})).await
+    finish_login_ext(state, id, account_id, username, client_type, json!({}), false).await
 }
 
 /// Like [`finish_login`] but merges the object `extra` into the success body. The
@@ -2944,7 +2947,18 @@ pub(crate) async fn finish_login_ext(
     username: &str,
     client_type: Option<&str>,
     extra: serde_json::Value,
+    linked_access: bool,
 ) -> Response {
+    if !linked_access {
+        match state.store.get_session(id).await {
+            Ok(session) => match linked_login::blocked(state, &session).await {
+                Ok(true) => { let _=state.store.delete_session(id).await;state.sessions.forget(id);return unauthorized(); },
+                Ok(false) => {},
+                Err(error) => {let _=state.store.delete_session(id).await;return account_gate::unavailable("linked login policy",error);}
+            },
+            Err(error) => return account_gate::unavailable("linked login session",error),
+        }
+    }
     let storage_authority = match state.store.session_storage_authority(id).await {
         Ok(value) => value,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -3106,6 +3120,7 @@ async fn engine_login(
         headers,
         ext,
         twofa_routes::SessionArgs {
+                linked_access:false,
             authentication_method: "password",
             primary_identity,
             account_id,
@@ -6064,6 +6079,7 @@ pub(crate) async fn authed_with_gate(
         Some(token) => authed_native(state, token).await?,
         None => authed_cookie(state, headers).await?,
     };
+    if linked_login::blocked(state,&session).await.map_err(|error|account_gate::unavailable("linked login policy",error))? {return Err(unauthorized());}
     if let Err(response) = domain_upgrade::refresh_session(state, &mut session).await {
         let _ = state.store.delete_session(&session.id).await;
         state.sessions.forget(&session.id);

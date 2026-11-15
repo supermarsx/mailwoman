@@ -149,3 +149,9 @@ linked-settings-inherited = Heredado de la cuenta principal
 linked-settings-primary-title = Gestionado por la cuenta de inicio de sesión
 linked-settings-primary-help = Esta sección gestiona la cuenta de inicio de sesión. Cambie a la cuenta principal para configurarla. Las preferencias del buzón siguen separadas.
 linked-settings-primary-open = Abrir ajustes de la cuenta principal
+
+linked-login-title = Inicio de sesión directo
+linked-login-inherit = Usar valor del administrador
+linked-login-allow = Permitir inicio de sesión directo
+linked-login-block = Solo acceso vinculado
+linked-login-enforced = Controlado por el administrador

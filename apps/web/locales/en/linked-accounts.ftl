@@ -149,3 +149,9 @@ linked-settings-inherited = Inherited from the primary account
 linked-settings-primary-title = Managed by the sign-in account
 linked-settings-primary-help = This section manages the sign-in account rather than this linked mailbox. Switch accounts to configure it. Mailbox preferences remain separate.
 linked-settings-primary-open = Open primary-account settings
+
+linked-login-title = Direct sign-in
+linked-login-inherit = Use administrator default
+linked-login-allow = Allow direct sign-in
+linked-login-block = Linked access only
+linked-login-enforced = Controlled by your administrator

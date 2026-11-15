@@ -104,6 +104,8 @@ export const KNOWN_KEYS: readonly string[] = [
 
   'accounts.linkingEnabled',
   'accounts.useLinked',
+  'accounts.linked.directLogin',
+  'accounts.linked.allowUserLoginPolicy',
   'accounts.maxLinked',
   'accounts.storeLinkedCredentials',
   'mail.folderRole.inbox',
@@ -508,6 +510,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'ui.undoHistoryMax',
   'mail.unifiedInbox',
   'mail.unifiedAccount',
+
   'accounts.settings.inheritGroups',
   'mail.crossAccountTransfer',
   'folders.hideEmpty',

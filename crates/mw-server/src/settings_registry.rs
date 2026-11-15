@@ -801,6 +801,8 @@ pub static REGISTRY: &[SettingDef] = &[
         "accounts",
         "Use linked mailboxes when permitted by the administrator"
     ),
+    def!("accounts.linked.directLogin",Kind::Bool,"true",GDU,"accounts","Allow this linked mailbox to sign in to Mailwoman directly; false requires a verified primary-account link; administrator locks override user choices"),
+    def!("accounts.linked.allowUserLoginPolicy",Kind::Bool,"false",GDA,"accounts","Allow users to change direct-login policy for verified linked mailboxes; disabled by default; administrator locks on the direct-login setting always win"),
     def!(
         "accounts.maxLinked",
         int(1, 16),

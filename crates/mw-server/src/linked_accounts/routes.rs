@@ -22,6 +22,7 @@ pub(crate) fn router() -> Router<AppState> {
             post(confirm_renew),
         )
         .route("/api/accounts/{id}/switch", post(switch))
+        .route("/api/accounts/{id}/login-policy",axum::routing::put(login_policy).delete(reset_login_policy))
         .route("/api/accounts/{id}", axum::routing::delete(unlink))
 }
 async fn parent(
@@ -56,6 +57,10 @@ async fn entry(
         Err(response) => return Err(response),
     };
     if let Some((_, source)) = found {
+        if let Some(policy)=crate::settings_routes::effective_for_session(state,&source,crate::linked_login::KEY).await.map_err(unavailable)? {
+            let may_change=crate::linked_login::user_control(state,&source).await.map_err(unavailable)?;
+            value["directLogin"]=json!({"allowed":policy.value.as_bool().unwrap_or(true),"editable":may_change&&policy.user_may_override,"source":policy.source.as_str(),"overridden":policy.user_value.is_some()});
+        }
         value["address"] = json!(source.username);
         {
             let gate = crate::account_gate::for_session(&state.store, &source)
@@ -1048,6 +1053,31 @@ async fn set_layout(
         .into_response())
 }
 
+fn headers_for_parent(headers:&HeaderMap)->HeaderMap {let mut value=headers.clone();value.remove(SELECTOR);value}
+async fn reset_login_policy(State(state):State<AppState>,headers:HeaderMap,Path(id):Path<String>)->Response {
+    if let Err(response)=parent(&state,&headers,true).await{return response;}
+    let mut selected=headers;
+    let Ok(value)=id.parse() else{return failure(StatusCode::BAD_REQUEST,"invalidLinkedContext");};
+    selected.insert(SELECTOR,value);
+    let parent=match parent(&state,&headers_for_parent(&selected),false).await {Ok(value)=>value,Err(response)=>return response};
+    let child=match resolve(&state,&selected,&parent).await {Ok(Some(value))=>value,Ok(None)=>return crate::unauthorized(),Err(response)=>return response};
+    let authority=match state.store.session_storage_authority(&child.id).await {Ok(Some(value))=>value,_=>return unavailable("linked authority")};
+    let Ok(authority)=authority.parse() else{return unavailable("linked authority");};
+    selected.insert("x-mailwoman-storage-authority",authority);
+    crate::settings_routes::user_delete(State(state),selected,Path(crate::linked_login::KEY.into())).await
+}
+async fn login_policy(State(state):State<AppState>,headers:HeaderMap,ext:Extensions,Path(id):Path<String>,body:Result<Json<crate::settings_routes::UserValue>,axum::extract::rejection::JsonRejection>)->Response {
+    if let Err(response)=parent(&state,&headers,true).await{return response;}
+    let mut selected=headers;
+    let Ok(value)=id.parse() else{return failure(StatusCode::BAD_REQUEST,"invalidLinkedContext");};
+    selected.insert(SELECTOR,value);
+    let parent=match parent(&state,&headers_for_parent(&selected),false).await {Ok(value)=>value,Err(response)=>return response};
+    let child=match resolve(&state,&selected,&parent).await {Ok(Some(value))=>value,Ok(None)=>return crate::unauthorized(),Err(response)=>return response};
+    let authority=match state.store.session_storage_authority(&child.id).await {Ok(Some(value))=>value,_=>return unavailable("linked authority")};
+    let Ok(authority)=authority.parse() else{return unavailable("linked authority");};
+    selected.insert("x-mailwoman-storage-authority",authority);
+    crate::settings_routes::user_put(State(state),selected,ext,Path(crate::linked_login::KEY.into()),body).await
+}
 async fn switch(
     State(state): State<AppState>,
     headers: HeaderMap,

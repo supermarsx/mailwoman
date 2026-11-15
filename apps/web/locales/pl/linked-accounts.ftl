@@ -151,3 +151,9 @@ linked-settings-inherited = Odziedziczone z konta głównego
 linked-settings-primary-title = Zarządzane przez konto logowania
 linked-settings-primary-help = Ta sekcja zarządza kontem logowania. Przełącz się na konto główne, aby ją skonfigurować. Preferencje skrzynek pozostają oddzielne.
 linked-settings-primary-open = Otwórz ustawienia konta głównego
+
+linked-login-title = Logowanie bezpośrednie
+linked-login-inherit = Użyj ustawienia administratora
+linked-login-allow = Zezwalaj na logowanie bezpośrednie
+linked-login-block = Tylko dostęp przez powiązanie
+linked-login-enforced = Kontrolowane przez administratora

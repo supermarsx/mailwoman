@@ -2619,3 +2619,8 @@ admin-settings-help-mail-after-move = Scegli se mantenere aperto, aprire il mess
 
 admin-settings-key-shortcuts-activation-toast = Mostra avvisi delle scorciatoie da tastiera
 admin-settings-help-shortcuts-activation-toast = Mostra brevemente l’azione e i tasti utilizzati. Conferma l’attivazione, non il completamento. Digitazione, clic nei menu e tasti tenuti premuti non generano avvisi. Disattivato per impostazione predefinita.
+
+admin-settings-key-accounts-linked-direct-login = Consenti accesso diretto
+admin-settings-help-accounts-linked-direct-login = Consenti accesso diretto / Solo accesso collegato. Gestito dall’amministratore.
+admin-settings-key-accounts-linked-allow-user-login-policy = Consenti agli utenti di modificare l’accesso delle caselle collegate
+admin-settings-help-accounts-linked-allow-user-login-policy = Consenti agli utenti di modificare l’accesso delle caselle collegate. Gestito dall’amministratore.

@@ -2625,3 +2625,8 @@ admin-settings-help-mail-after-move = Elija mantener abierto, abrir el mensaje s
 
 admin-settings-key-shortcuts-activation-toast = Mostrar avisos de atajos de teclado
 admin-settings-help-shortcuts-activation-toast = Muestra brevemente la acción y las teclas del atajo utilizado. Confirma la activación, no la finalización. Escribir, pulsar menús y mantener teclas pulsadas no genera avisos. Desactivado por defecto.
+
+admin-settings-key-accounts-linked-direct-login = Permitir inicio de sesión directo
+admin-settings-help-accounts-linked-direct-login = Permitir inicio de sesión directo / Solo acceso vinculado. Controlado por el administrador.
+admin-settings-key-accounts-linked-allow-user-login-policy = Permitir cambiar la política de acceso de buzones vinculados
+admin-settings-help-accounts-linked-allow-user-login-policy = Permitir cambiar la política de acceso de buzones vinculados. Controlado por el administrador.

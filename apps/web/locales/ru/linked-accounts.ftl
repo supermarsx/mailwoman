@@ -151,3 +151,9 @@ linked-settings-inherited = Унаследовано от основного а�
 linked-settings-primary-title = Управляется аккаунтом входа
 linked-settings-primary-help = Этот раздел управляет аккаунтом входа. Для настройки переключитесь на основной аккаунт. Настройки почтовых ящиков остаются раздельными.
 linked-settings-primary-open = Открыть настройки основного аккаунта
+
+linked-login-title = Прямой вход
+linked-login-inherit = Использовать настройку администратора
+linked-login-allow = Разрешить прямой вход
+linked-login-block = Только связанный доступ
+linked-login-enforced = Управляется администратором

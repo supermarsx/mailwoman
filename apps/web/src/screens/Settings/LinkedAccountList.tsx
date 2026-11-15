@@ -40,6 +40,7 @@ export function LinkedAccountList(props:{
   onRenew?:(account:LinkedMailbox)=>void;
   onOpen?:(id:string|null)=>void;
   /** t86: save a mailbox's avatar (`undefined` = the generated one); resolves false when refused. */
+  onLoginPolicy?:(id:string,allowed:boolean|null)=>void;
   onVisibility?:(id:string,visible:boolean)=>void;
   onAvatar?:(id:string|null,avatar:MailboxAvatarSpec|undefined)=>Promise<boolean>;
 }):JSX.Element {
@@ -142,6 +143,8 @@ export function LinkedAccountList(props:{
                 <Show when={nicknameError()?.key===key}><span id={`${nicknameId}-error`} role="alert" class={css.error}>{nicknameError()!.text}</span></Show>
               </div>
             </Show>
+            <Show when={linkId!==null&&props.onLoginPolicy&&account(key)?.directLogin}>{policy=><label class={css.field}><span class={css.meta}>{t('linked-login-title')}</span><select class={css.select} aria-label={`${t('linked-login-title')}: ${nameFor(key)}`} disabled={props.busy||!policy().editable} value={policy().overridden?(policy().allowed?'allow':'block'):'inherit'} onChange={event=>props.onLoginPolicy?.(linkId!,event.currentTarget.value==='inherit'?null:event.currentTarget.value==='allow')}><option value="inherit">{t('linked-login-inherit')}</option><option value="allow">{t('linked-login-allow')}</option><option value="block">{t('linked-login-block')}</option></select><span class={css.meta}>{t(policy().allowed?'linked-login-allow':'linked-login-block')}{!policy().editable?` · ${t('linked-login-enforced')}`:''}</span></label>
+            }</Show>
             <div class={table.actions} data-linked-actions>
               <Show when={props.onOpen}><button type="button" class={icon} data-linked-open disabled={props.busy||!ready()}
                 aria-label={t('linked-accounts-go-to',{address:nameFor(key)})} data-tooltip={t('linked-accounts-go-to-short')}

@@ -189,3 +189,10 @@ it('keeps a hidden linked mailbox manageable and allows showing it again',()=>{
  expect(onVisibility).toHaveBeenCalledWith('child',true);
  expect(row('main').querySelector('[title="linked-accounts-hide-selector"]')).toBeNull();
 });
+
+it('exposes editable per-mailbox login policy and honors administrator bounds',()=>{
+ const onLoginPolicy=vi.fn();const data={...value,accounts:[{...value.accounts[0]!,directLogin:{allowed:false,editable:true,overridden:true,source:'user'}}]};
+ render(()=><LinkedAccountList value={data} busy={false} onAdd={()=>{}} onUnlink={()=>{}} onSetFirst={()=>{}} onMove={()=>{}} onRename={async()=>true} onLoginPolicy={onLoginPolicy}/>);
+ const select=screen.getByRole('combobox',{name:'linked-login-title: Child (child@example.org)'});
+ expect(select).toHaveValue('block');fireEvent.change(select,{target:{value:'inherit'}});expect(onLoginPolicy).toHaveBeenCalledWith('child',null);
+});

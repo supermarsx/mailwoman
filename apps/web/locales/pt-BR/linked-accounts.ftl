@@ -149,3 +149,9 @@ linked-settings-inherited = Herdado da conta principal
 linked-settings-primary-title = Gerenciado pela conta de login
 linked-settings-primary-help = Esta seção gerencia a conta de login. Mude para a conta principal para configurá-la. As preferências da caixa permanecem separadas.
 linked-settings-primary-open = Abrir configurações da conta principal
+
+linked-login-title = Login direto
+linked-login-inherit = Usar padrão do administrador
+linked-login-allow = Permitir login direto
+linked-login-block = Somente acesso vinculado
+linked-login-enforced = Controlado pelo administrador

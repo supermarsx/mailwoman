@@ -2414,3 +2414,8 @@ admin-settings-help-mail-after-move = Choose what happens after a successful mov
 
 admin-settings-key-shortcuts-activation-toast = Show keyboard shortcut toasts
 admin-settings-help-shortcuts-activation-toast = Briefly show the action and keys when a shortcut is used. This confirms activation, not completion. Typing, menu clicks and held-key repeats do not trigger it. Off by default.
+
+admin-settings-key-accounts-linked-direct-login = Allow direct sign-in
+admin-settings-help-accounts-linked-direct-login = Allow direct sign-in / Linked access only. Controlled by your administrator.
+admin-settings-key-accounts-linked-allow-user-login-policy = Allow users to change linked-mailbox login policy
+admin-settings-help-accounts-linked-allow-user-login-policy = Allow users to change linked-mailbox login policy. Controlled by your administrator.

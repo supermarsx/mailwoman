@@ -153,3 +153,9 @@ linked-settings-inherited = موروث من الحساب الأساسي
 linked-settings-primary-title = يديره حساب تسجيل الدخول
 linked-settings-primary-help = يدير هذا القسم حساب تسجيل الدخول. انتقل إلى الحساب الأساسي لإعداده. تبقى تفضيلات صناديق البريد منفصلة.
 linked-settings-primary-open = فتح إعدادات الحساب الأساسي
+
+linked-login-title = تسجيل الدخول المباشر
+linked-login-inherit = استخدام إعداد المسؤول
+linked-login-allow = السماح بتسجيل الدخول المباشر
+linked-login-block = الوصول المرتبط فقط
+linked-login-enforced = يتحكم فيه المسؤول

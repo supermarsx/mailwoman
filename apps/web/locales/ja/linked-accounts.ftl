@@ -148,3 +148,9 @@ linked-settings-inherited = プライマリアカウントから継承
 linked-settings-primary-title = サインインアカウントで管理
 linked-settings-primary-help = このセクションはサインインアカウントを管理します。設定するにはプライマリアカウントに切り替えてください。メールボックス設定は個別に保持されます。
 linked-settings-primary-open = プライマリアカウントの設定を開く
+
+linked-login-title = 直接サインイン
+linked-login-inherit = 管理者の既定値を使う
+linked-login-allow = 直接サインインを許可
+linked-login-block = リンク経由のアクセスのみ
+linked-login-enforced = 管理者が管理

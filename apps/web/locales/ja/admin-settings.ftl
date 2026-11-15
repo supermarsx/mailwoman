@@ -2611,3 +2611,8 @@ admin-settings-help-mail-after-move = 移動成功後に開いたままにする
 
 admin-settings-key-shortcuts-activation-toast = キーボードショートカットの通知を表示
 admin-settings-help-shortcuts-activation-toast = 使用した操作とキーを短時間表示します。操作の完了ではなく起動を確認します。文字入力、メニューのクリック、キーの長押しでは通知しません。初期設定では無効です。
+
+admin-settings-key-accounts-linked-direct-login = 直接サインインを許可
+admin-settings-help-accounts-linked-direct-login = 直接サインインを許可 / リンク経由のアクセスのみ. 管理者が管理.
+admin-settings-key-accounts-linked-allow-user-login-policy = リンクしたメールボックスのログイン設定変更をユーザーに許可
+admin-settings-help-accounts-linked-allow-user-login-policy = リンクしたメールボックスのログイン設定変更をユーザーに許可. 管理者が管理.

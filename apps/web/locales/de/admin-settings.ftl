@@ -2625,3 +2625,8 @@ admin-settings-help-mail-after-move = Nach erfolgreichem Verschieben geöffnet l
 
 admin-settings-key-shortcuts-activation-toast = Hinweise zu Tastenkürzeln anzeigen
 admin-settings-help-shortcuts-activation-toast = Zeigt kurz die Aktion und die verwendeten Tasten. Bestätigt die Auslösung, nicht den Abschluss. Texteingabe, Menüklicks und gedrückt gehaltene Tasten erzeugen keine Hinweise. Standardmäßig deaktiviert.
+
+admin-settings-key-accounts-linked-direct-login = Direkte Anmeldung erlauben
+admin-settings-help-accounts-linked-direct-login = Direkte Anmeldung erlauben / Nur verknüpfter Zugriff. Vom Administrator vorgegeben.
+admin-settings-key-accounts-linked-allow-user-login-policy = Benutzern Änderungen an der Anmelderichtlinie verknüpfter Postfächer erlauben
+admin-settings-help-accounts-linked-allow-user-login-policy = Benutzern Änderungen an der Anmelderichtlinie verknüpfter Postfächer erlauben. Vom Administrator vorgegeben.

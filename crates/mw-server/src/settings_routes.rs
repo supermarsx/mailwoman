@@ -1529,11 +1529,11 @@ async fn inherit_linked_settings(state:&AppState,session:&mw_store::Session,entr
 }
 
 #[derive(Debug, Deserialize)]
-struct UserValue {
+pub(crate) struct UserValue {
     value: Value,
 }
 
-async fn user_put(
+pub(crate) async fn user_put(
     State(state): State<AppState>,
     headers: HeaderMap,
     ext: axum::http::Extensions,
@@ -1544,6 +1544,13 @@ async fn user_put(
         Ok(s) => s,
         Err(r) => return r,
     };
+    if key==crate::linked_login::KEY {
+        match crate::linked_login::user_control(&state,&session).await {
+            Ok(true)=>{},Ok(false)=>return user_error(StatusCode::FORBIDDEN,"setting_locked","Linked mailbox login policy is controlled by your administrator".into(),None),
+            Err(error)=>return server_error(error),
+        }
+    }
+
     if let Err(response) =
         crate::prefs_routes::personal_storage::owner(&state, &session, &headers, true).await
     {
@@ -1641,7 +1648,7 @@ async fn user_put(
     }
 }
 
-async fn user_delete(
+pub(crate) async fn user_delete(
     State(state): State<AppState>,
     headers: HeaderMap,
     UrlPath(key): UrlPath<String>,
@@ -1650,6 +1657,13 @@ async fn user_delete(
         Ok(s) => s,
         Err(r) => return r,
     };
+    if key==crate::linked_login::KEY {
+        match crate::linked_login::user_control(&state,&session).await {
+            Ok(true)=>{},Ok(false)=>return user_error(StatusCode::FORBIDDEN,"setting_locked","Linked mailbox login policy is controlled by your administrator".into(),None),
+            Err(error)=>return server_error(error),
+        }
+    }
+
     if let Err(response) =
         crate::prefs_routes::personal_storage::owner(&state, &session, &headers, true).await
     {

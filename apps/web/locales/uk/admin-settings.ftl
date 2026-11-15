@@ -2637,3 +2637,8 @@ admin-settings-help-mail-after-move = Після успішного перемі
 
 admin-settings-key-shortcuts-activation-toast = Показувати сповіщення про клавіатурні скорочення
 admin-settings-help-shortcuts-activation-toast = Коротко показує дію й натиснуті клавіші. Підтверджує запуск, а не завершення. Введення тексту, натискання в меню й утримання клавіш не викликають сповіщень. Типово вимкнено.
+
+admin-settings-key-accounts-linked-direct-login = Дозволити прямий вхід
+admin-settings-help-accounts-linked-direct-login = Дозволити прямий вхід / Лише пов’язаний доступ. Керує адміністратор.
+admin-settings-key-accounts-linked-allow-user-login-policy = Дозволити користувачам змінювати правила входу пов’язаних скриньок
+admin-settings-help-accounts-linked-allow-user-login-policy = Дозволити користувачам змінювати правила входу пов’язаних скриньок. Керує адміністратор.

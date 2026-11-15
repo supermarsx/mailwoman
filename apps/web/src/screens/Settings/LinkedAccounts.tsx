@@ -109,7 +109,7 @@ function OwnedLinkedAccounts():JSX.Element {
     <Show when={!list.error&&list()}>{value=><>
       <Show when={app.linkedMailboxId()===null} fallback={<p class={css.meta}>{t('linked-accounts-primary-preference')}</p>}><LinkedPreference onChanged={()=>{invalidateLinkedAccounts();void refetch();}}/></Show>
       <Show when={value().policy.reason==='linkedBackendUnsupported'}><p class={css.meta}>{t('linked-accounts-backend-unsupported')}</p></Show>
-      <LinkedAccountList value={value()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename} onRenew={setRenewing} onAvatar={setAvatar} onVisibility={setVisibility} onOpen={id=>void openAccount(id)}/>
+      <LinkedAccountList value={value()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename} onRenew={setRenewing} onAvatar={setAvatar} onVisibility={setVisibility} onLoginPolicy={(id,value)=>void layoutAction(()=>api.setLoginPolicy(id,value))} onOpen={id=>void openAccount(id)}/>
       <Show when={app.linkedMailboxId()}><LinkedSettingsInheritance/></Show>
       <Show when={renewing()}>{account=><RenewAccessDialog account={account()} label={mailboxNickname(account().id)||account().address||account().displayName} api={api}
         onRenewed={()=>{setRenewing(undefined);invalidateLinkedAccounts();void refetch();}} onCancel={()=>setRenewing(undefined)} onGone={()=>{setRenewing(undefined);void refetch();}}/>}</Show>

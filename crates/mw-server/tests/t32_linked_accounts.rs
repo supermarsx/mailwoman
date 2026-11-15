@@ -262,6 +262,19 @@ async fn linked_password_mfa_context_personal_data_and_revocation_are_real() {
     let link = linked["account"]["id"].as_str().unwrap();
     let revision = linked["account"]["revision"].as_str().unwrap();
     assert_eq!(linked["account"]["storageAuthority"], ca);
+    // Direct-login policy is server-enforced and cannot be changed when the admin disables user control.
+    let policy_url=format!("{base}/api/accounts/{link}/login-policy");
+    assert_eq!(parent.put(&policy_url).header("x-mailwoman-storage-authority",pa).json(&json!({"value":false})).send().await.unwrap().status(),403);
+    policy(&store,"accounts.linked.allowUserLoginPolicy","true").await;
+    store.put_setting_policy(&SettingPolicyRow{key:"accounts.linked.directLogin".into(),global_value:Some("true".into()),allow_user_override:true,global_locked:false,updated_by:"linked-fixture".into(),updated_at:0}).await.unwrap();
+    value(parent.put(&policy_url).header("x-mailwoman-storage-authority",pa).json(&json!({"value":false})).send().await.unwrap(),200).await;
+    assert_eq!(child.get(format!("{base}/api/me")).send().await.unwrap().status(),401);
+    value(parent.get(format!("{base}/api/me")).header("x-mailwoman-link",link).send().await.unwrap(),200).await;
+    // A global administrator lock defeats an attempted per-mailbox user override.
+    policy(&store,"accounts.linked.directLogin","false").await;
+    assert_eq!(parent.put(&policy_url).header("x-mailwoman-storage-authority",pa).json(&json!({"value":true})).send().await.unwrap().status(),403);
+    store.put_setting_policy(&SettingPolicyRow{key:"accounts.linked.directLogin".into(),global_value:Some("true".into()),allow_user_override:true,global_locked:false,updated_by:"linked-fixture".into(),updated_at:0}).await.unwrap();
+    value(parent.delete(&policy_url).header("x-mailwoman-storage-authority",pa).send().await.unwrap(),200).await;
     // The first-opened mailbox: stored per owner, only one of the owner's own
     // ready links, and never a grant (switching still authorizes).
     let primary_url = format!("{base}/api/accounts/primary");

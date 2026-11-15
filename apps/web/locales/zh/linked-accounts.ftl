@@ -148,3 +148,9 @@ linked-settings-inherited = 继承自主账户
 linked-settings-primary-title = 由登录账户管理
 linked-settings-primary-help = 此部分管理登录账户。请切换到主账户进行配置。各邮箱的偏好设置保持独立。
 linked-settings-primary-open = 打开主账户设置
+
+linked-login-title = 直接登录
+linked-login-inherit = 使用管理员默认值
+linked-login-allow = 允许直接登录
+linked-login-block = 仅允许关联访问
+linked-login-enforced = 由管理员控制

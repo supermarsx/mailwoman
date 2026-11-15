@@ -2641,3 +2641,8 @@ admin-settings-help-mail-after-move = اختر إبقاء الرسالة مفت�
 
 admin-settings-key-shortcuts-activation-toast = عرض تنبيهات اختصارات لوحة المفاتيح
 admin-settings-help-shortcuts-activation-toast = يعرض الإجراء والمفاتيح المستخدمة لفترة وجيزة. يؤكد التفعيل وليس اكتمال الإجراء. لا تُظهر الكتابة أو نقرات القوائم أو تكرار الضغط المستمر تنبيهات. معطل افتراضيًا.
+
+admin-settings-key-accounts-linked-direct-login = السماح بتسجيل الدخول المباشر
+admin-settings-help-accounts-linked-direct-login = السماح بتسجيل الدخول المباشر / الوصول المرتبط فقط. يتحكم فيه المسؤول.
+admin-settings-key-accounts-linked-allow-user-login-policy = السماح للمستخدمين بتغيير سياسة دخول صناديق البريد المرتبطة
+admin-settings-help-accounts-linked-allow-user-login-policy = السماح للمستخدمين بتغيير سياسة دخول صناديق البريد المرتبطة. يتحكم فيه المسؤول.

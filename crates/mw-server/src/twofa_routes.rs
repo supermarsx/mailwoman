@@ -194,6 +194,7 @@ impl TwofaState {
 /// second-factor round-trip unchanged (so the password is checked exactly once).
 #[derive(Clone)]
 pub(crate) struct SessionArgs {
+    pub linked_access: bool,
     pub authentication_method: &'static str,
     pub primary_identity: crate::primary_identity::VerifiedLoginIdentity,
     pub account_id: String,
@@ -227,8 +228,9 @@ pub(crate) async fn gate_login(
     state: &AppState,
     headers: &HeaderMap,
     ext: &axum::http::Extensions,
-    args: SessionArgs,
+    mut args: SessionArgs,
 ) -> Response {
+    args.linked_access=ext.get::<crate::linked_accounts::PasswordProof>().is_some();
     let device = crate::security_center::device(headers, ext, args.client_type.as_deref());
     let policy = match crate::security_center::policy(state, &args.account_id, &args.username).await
     {
@@ -615,6 +617,7 @@ async fn complete_login(
         &args.username,
         args.client_type.as_deref(),
         extra,
+        args.linked_access,
     )
     .await
 }
@@ -842,6 +845,7 @@ async fn passwordless_finish(
             Err(error) => return server_error("resolve primary identity", error),
         };
     let args = SessionArgs {
+        linked_access:false,
         authentication_method: "passkey",
         primary_identity,
         account_id: account.id.clone(),
@@ -2727,6 +2731,7 @@ mod tests {
 
     fn args() -> SessionArgs {
         SessionArgs {
+            linked_access:false,
             authentication_method: "password",
             primary_identity: crate::primary_identity::VerifiedLoginIdentity::proxy(
                 "https://fixture.example",

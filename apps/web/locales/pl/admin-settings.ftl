@@ -2637,3 +2637,8 @@ admin-settings-help-mail-after-move = Po udanym przeniesieniu pozostaw otwartą,
 
 admin-settings-key-shortcuts-activation-toast = Pokazuj powiadomienia o skrótach klawiaturowych
 admin-settings-help-shortcuts-activation-toast = Krótko pokazuje działanie i użyte klawisze. Potwierdza uruchomienie, nie zakończenie. Pisanie, kliknięcia menu i przytrzymane klawisze nie wywołują powiadomień. Domyślnie wyłączone.
+
+admin-settings-key-accounts-linked-direct-login = Zezwalaj na logowanie bezpośrednie
+admin-settings-help-accounts-linked-direct-login = Zezwalaj na logowanie bezpośrednie / Tylko dostęp przez powiązanie. Kontrolowane przez administratora.
+admin-settings-key-accounts-linked-allow-user-login-policy = Zezwalaj użytkownikom zmieniać zasady logowania powiązanych skrzynek
+admin-settings-help-accounts-linked-allow-user-login-policy = Zezwalaj użytkownikom zmieniać zasady logowania powiązanych skrzynek. Kontrolowane przez administratora.

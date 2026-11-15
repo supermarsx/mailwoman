@@ -151,3 +151,9 @@ linked-settings-inherited = Успадковано від основного о�
 linked-settings-primary-title = Керується обліковим записом входу
 linked-settings-primary-help = Цей розділ керує обліковим записом входу. Перейдіть до основного облікового запису для налаштування. Налаштування скриньок залишаються окремими.
 linked-settings-primary-open = Відкрити налаштування основного облікового запису
+
+linked-login-title = Прямий вхід
+linked-login-inherit = Використовувати налаштування адміністратора
+linked-login-allow = Дозволити прямий вхід
+linked-login-block = Лише пов’язаний доступ
+linked-login-enforced = Керує адміністратор

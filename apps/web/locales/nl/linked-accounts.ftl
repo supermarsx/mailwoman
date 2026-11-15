@@ -149,3 +149,9 @@ linked-settings-inherited = Overgenomen van hoofdaccount
 linked-settings-primary-title = Beheerd door het aanmeldaccount
 linked-settings-primary-help = Dit onderdeel beheert het aanmeldaccount. Schakel naar het hoofdaccount om het in te stellen. Postvakvoorkeuren blijven apart.
 linked-settings-primary-open = Instellingen van hoofdaccount openen
+
+linked-login-title = Rechtstreeks aanmelden
+linked-login-inherit = Beheerdersstandaard gebruiken
+linked-login-allow = Rechtstreeks aanmelden toestaan
+linked-login-block = Alleen gekoppelde toegang
+linked-login-enforced = Beheerd door de beheerder

@@ -149,3 +149,9 @@ linked-settings-inherited = Vom Hauptkonto übernommen
 linked-settings-primary-title = Vom Anmeldekonto verwaltet
 linked-settings-primary-help = Dieser Bereich verwaltet das Anmeldekonto. Wechseln Sie zum Hauptkonto, um ihn zu konfigurieren. Postfacheinstellungen bleiben getrennt.
 linked-settings-primary-open = Hauptkontoeinstellungen öffnen
+
+linked-login-title = Direkte Anmeldung
+linked-login-inherit = Administratorstandard verwenden
+linked-login-allow = Direkte Anmeldung erlauben
+linked-login-block = Nur verknüpfter Zugriff
+linked-login-enforced = Vom Administrator vorgegeben

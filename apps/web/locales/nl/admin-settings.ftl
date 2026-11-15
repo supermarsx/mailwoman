@@ -2619,3 +2619,8 @@ admin-settings-help-mail-after-move = Kies na een geslaagde verplaatsing: openho
 
 admin-settings-key-shortcuts-activation-toast = Meldingen voor sneltoetsen tonen
 admin-settings-help-shortcuts-activation-toast = Toont kort de actie en gebruikte toetsen. Bevestigt de activering, niet de voltooiing. Typen, menuklikken en ingedrukte toetsen geven geen melding. Standaard uitgeschakeld.
+
+admin-settings-key-accounts-linked-direct-login = Rechtstreeks aanmelden toestaan
+admin-settings-help-accounts-linked-direct-login = Rechtstreeks aanmelden toestaan / Alleen gekoppelde toegang. Beheerd door de beheerder.
+admin-settings-key-accounts-linked-allow-user-login-policy = Gebruikers toestaan het aanmeldbeleid van gekoppelde postvakken te wijzigen
+admin-settings-help-accounts-linked-allow-user-login-policy = Gebruikers toestaan het aanmeldbeleid van gekoppelde postvakken te wijzigen. Beheerd door de beheerder.
