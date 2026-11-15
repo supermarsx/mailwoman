@@ -13,6 +13,13 @@ it('treats reordered server JSON and absent optional MIME types as the same save
 const state=(subject='draft'):DraftEditorState=>({version:1,identityId:'',to:'unfinished',cc:'',bcc:'',subject,bodyFormat:'plain',bodyHtml:'',bodyText:'unsent',insertedSignatures:[],inReplyTo:[],references:[],attachments:[],inline:[],requestReceipt:false,requestDeliveryReceipt:false,openTracking:false,protectedContent:false});
 const saved=(value:DraftEditorState,revision='r1'):AccountDraftDocument=>({id:'draft',accountId:'a',storageAuthority:'authority',revision,emailId:'email',savedAt:1,status:'saved',cleanupPending:false,summary:{subject:value.subject},state:value});
 afterEach(()=>vi.useRealTimers());
+it('rebases one explicit revision conflict while keeping the client draft contents',async()=>{
+ const save=vi.fn().mockRejectedValueOnce(new DraftSaveError('draftConflict')).mockImplementationOnce(async(_id,_operation,_revision,value)=>saved(value,'r3'));
+ const load=vi.fn(async()=>saved(state('Other device text'),'r2'));
+ const controller=createDraftAutosave({id:'draft',transport:{save,load},current:()=>true,status:vi.fn(),failure:vi.fn(),saved:vi.fn()});
+ controller.seedRevision('r1');controller.update(state('My offline edits'));expect(await controller.flush()).toBe(true);
+ expect(load).toHaveBeenCalledWith('draft');expect(save.mock.calls[1]?.[2]).toBe('r2');expect(save.mock.calls[1]?.[3].subject).toBe('My offline edits');controller.dispose();
+});
 it('debounces edits and serializes a newer edit behind confirmed revision',async()=>{
  vi.useFakeTimers();let resolve!:(value:AccountDraftDocument)=>void;
  const save=vi.fn().mockImplementationOnce(()=>new Promise<AccountDraftDocument>(done=>resolve=done)).mockImplementation(async(_id,_op,_rev,value)=>saved(value,'r2'));

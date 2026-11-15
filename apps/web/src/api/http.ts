@@ -1,3 +1,4 @@
+import {offlineBlobRead} from '../offline/blobCache.ts';
 import {verifyOfflineAuthority,revokeOfflineAuthorization} from '../offline/runtime.ts';
 import {offlineHttpRead} from '../offline/httpCache.ts';
 // The one place the web client calls `fetch` (enforced by the `mw/no-global-fetch`
@@ -354,7 +355,7 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
   const originalToken = originalNative === null ? null : await originalNative.token();
   assertAuthority();
   const dispatch=async():Promise<Response>=>{if(!admin&&ownServer&&account&&(routePath.startsWith('/api/')||routePath.startsWith('/jmap/'))&&!/^\/api\/(?:me|login|logout|twofa|sso)(?:\/|$)/.test(routePath))await verifyOfflineAuthority();return rawApiFetch(input,given,assertAuthority,pace);};
-  const response = await (!admin&&ownServer?offlineHttpRead(routePath,given,account,dispatch):dispatch());
+  const response = await (!admin&&ownServer?offlineHttpRead(routePath,given,account,()=>offlineBlobRead(input,routePath,given,account,dispatch)):dispatch());
   if(!admin)assertAuthority();
   if(!admin&&ownServer&&response.status===401)await revokeOfflineAuthorization();
   if (response.status !== 403 || typeof response.clone !== 'function' || typeof document === 'undefined'

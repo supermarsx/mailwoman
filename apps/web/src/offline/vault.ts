@@ -6,10 +6,11 @@ export interface VaultLimits {
  maxBytes: number; maxEntries?: number; retentionDays?: number;
  budgetGroup?: string; eviction?: 'lru'|'oldest'|'manual'; pinned?: boolean; flagged?: boolean;
 }
-export interface VaultEntry {id:string; namespace:string; group?:string; bytes:number; created:number; accessed:number; protected:boolean; expires?:number|null}
+export interface VaultEntry {id:string; namespace:string; group?:string; pool?:string; bytes:number; created:number; accessed:number; protected:boolean; expires?:number|null}
 export interface VaultIndex {
  all(namespace:string):Promise<VaultEntry[]>;
  group?(group:string):Promise<VaultEntry[]>;
+ pool?(pool:string):Promise<VaultEntry[]>;
  put(entry:VaultEntry):Promise<void>;
  remove(id:string):Promise<void>;
 }
@@ -49,8 +50,10 @@ export function createOfflineVault(cache:EncryptedCache,index:VaultIndex,now=Dat
    const identity=await identifiers(namespace,key),timestamp=now();
    // Measure the complete encrypted envelope, including its IV and GCM tag.
    const bytes=new TextEncoder().encode(JSON.stringify({id:identity.id,value:{namespace,key,value}})).length+28;
-   const group=await hash(limits?.budgetGroup??namespace);
-   const rows=index.group?await index.group(group):await index.all(identity.namespace),old=rows.find(row=>row.id===identity.id);
+   const groupName=limits?.budgetGroup??namespace;
+   let poolName=groupName;try{const parsed=JSON.parse(groupName) as unknown[];if(Array.isArray(parsed)&&parsed[0]==='offline-account')poolName=JSON.stringify(['offline-device',parsed[1]]);}catch{/* Standalone encrypted stores have their own budget. */}
+   const group=await hash(groupName),pool=await hash(poolName);
+   const rows=index.pool?await index.pool(pool):index.group?await index.group(group):await index.all(identity.namespace),old=rows.find(row=>row.id===identity.id);
    const protectedRecord=limits?.pinned===true||limits?.flagged===true;
    const remaining=rows.filter(row=>row.id!==identity.id);let total=remaining.reduce((sum,row)=>sum+row.bytes,bytes);
    const remove:VaultEntry[]=[];
@@ -63,7 +66,7 @@ export function createOfflineVault(cache:EncryptedCache,index:VaultIndex,now=Dat
    }
    if(limits&&(total>limits.maxBytes||remaining.length-remove.length>=(limits.maxEntries??Infinity)))return false;
    await cache.putRecord(identity.id,{namespace,key,value});
-   await index.put({...identity,group,bytes,created:old?.created??timestamp,accessed:timestamp,protected:protectedRecord,expires:limits?.retentionDays?timestamp+limits.retentionDays*86400000:null});
+   await index.put({...identity,group,pool,bytes,created:old?.created??timestamp,accessed:timestamp,protected:protectedRecord,expires:limits?.retentionDays?timestamp+limits.retentionDays*86400000:null});
    for(const row of remove){await cache.removeRecord(row.id);await index.remove(row.id);}
    return true;
   });},
@@ -74,7 +77,7 @@ export function createOfflineVault(cache:EncryptedCache,index:VaultIndex,now=Dat
   });},
   remove(namespace,key){return serial(async()=>{const {id}=await identifiers(namespace,key);await cache.removeRecord(id);await index.remove(id);});},
   clear(namespace){return serial(async()=>{const scope=await hash(namespace),rows=[...await index.all(scope),...(index.group?await index.group(scope):[])];for(const entry of new Map(rows.map(row=>[row.id,row])).values()){await cache.removeRecord(entry.id);await index.remove(entry.id);}});},
-  usage(namespace){return serial(async()=>{const scope=await hash(namespace),all=[...await index.all(scope),...(index.group?await index.group(scope):[])],rows=[...new Map(all.map(row=>[row.id,row])).values()];return {entries:rows.length,bytes:rows.reduce((n,row)=>n+row.bytes,0),protectedBytes:rows.filter(row=>row.protected).reduce((n,row)=>n+row.bytes,0)};});},
+  usage(namespace){return serial(async()=>{const scope=await hash(namespace),all=[...await index.all(scope),...(index.group?await index.group(scope):[]),...(index.pool?await index.pool(scope):[])],rows=[...new Map(all.map(row=>[row.id,row])).values()];return {entries:rows.length,bytes:rows.reduce((n,row)=>n+row.bytes,0),protectedBytes:rows.filter(row=>row.protected).reduce((n,row)=>n+row.bytes,0)};});},
  };
 }
 
@@ -85,7 +88,7 @@ export function offlineVault(mode:'auto'|'indexeddb'='auto'):Promise<OfflineVaul
  const existing=openings.get(mode);if(existing)return existing;
  const opening=(async()=>{
   if(typeof indexedDB==='undefined'||!crypto.subtle)throw new Error('Encrypted offline storage is unavailable');
-  const database:IDBPDatabase=await openDB(mode==='auto'?'mailwoman-offline-vault':'mailwoman-offline-vault-idb',2,{upgrade(db,_old,_new,transaction){if(!db.objectStoreNames.contains('key'))db.createObjectStore('key');if(!db.objectStoreNames.contains('blobs'))db.createObjectStore('blobs');const store=db.objectStoreNames.contains('index')?transaction.objectStore('index'):db.createObjectStore('index',{keyPath:'id'});if(!store.indexNames.contains('namespace'))store.createIndex('namespace','namespace');if(!store.indexNames.contains('group'))store.createIndex('group','group');}});
+  const database:IDBPDatabase=await openDB(mode==='auto'?'mailwoman-offline-vault':'mailwoman-offline-vault-idb',3,{upgrade(db,_old,_new,transaction){if(!db.objectStoreNames.contains('key'))db.createObjectStore('key');if(!db.objectStoreNames.contains('blobs'))db.createObjectStore('blobs');const store=db.objectStoreNames.contains('index')?transaction.objectStore('index'):db.createObjectStore('index',{keyPath:'id'});if(!store.indexNames.contains('namespace'))store.createIndex('namespace','namespace');if(!store.indexNames.contains('group'))store.createIndex('group','group');if(!store.indexNames.contains('pool'))store.createIndex('pool','pool');}});
   const candidate=await generateProfileKey(),tx=database.transaction('key','readwrite');
   const stored=await tx.store.get('profile') as CryptoKey|undefined;
   if(!stored)await tx.store.put(candidate,'profile');await tx.done;
@@ -97,7 +100,7 @@ export function offlineVault(mode:'auto'|'indexeddb'='auto'):Promise<OfflineVaul
    async remove(path){await database.delete('blobs',path);},
   };
   return createOfflineVault(new EncryptedCache(backend,stored??candidate),{
-   all:namespace=>database.getAllFromIndex('index','namespace',namespace),group:group=>database.getAllFromIndex('index','group',group),
+   all:namespace=>database.getAllFromIndex('index','namespace',namespace),group:group=>database.getAllFromIndex('index','group',group),pool:pool=>database.getAllFromIndex('index','pool',pool),
    async put(row){await database.put('index',row);},async remove(id){await database.delete('index',id);},
   });
  })().catch(error=>{openings.delete(mode);throw error;});

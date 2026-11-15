@@ -1,3 +1,4 @@
+/* @mw-offline-background */
 // Mailwoman app-shell Service Worker (plan §2.5, owned by e5). Hand-rolled — no
 // Workbox. Ships copied verbatim into dist/ (no bundling), so it cannot import
 // from src/. This file is the only implementation of its routing: the unit tests
@@ -45,6 +46,10 @@ const CACHE_NAME = 'mw-shell-v1';
 //   - a stored timestamp from the future is treated as no timestamp;
 //   - the two cached public API answers must parse as JSON.
 const ASSET_DIGESTS = /* @mw-asset-digests */ null;
+const OFFLINE_ASSETS = /* @mw-offline-assets */ [];
+const PDF_DOCUMENT = '/pdfjs/web/mailwoman.html';
+const OFFLINE_PDF_CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' data:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' blob: data:; connect-src 'self' blob: data:; media-src blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; require-trusted-types-for 'script'; trusted-types default";
+const isPdfAsset = (path) => path.startsWith('/pdfjs/') && ASSET_DIGESTS !== null && typeof ASSET_DIGESTS[path] === 'string';
 // Must equal `CSP` in crates/mw-server/src/lib.rs (sw.test.ts checks it).
 const OFFLINE_SHELL_CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; manifest-src 'self'; connect-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'";
 
@@ -89,7 +94,7 @@ function fromStore(path, res, extra = {}) {
   const ext = (/\.([a-z0-9]+)$/i.exec(path)?.[1] ?? '').toLowerCase();
   return new Response(res.body, {
     status: 200,
-    headers: { 'content-type': CONTENT_TYPES[ext] ?? 'application/octet-stream', 'x-content-type-options': 'nosniff', ...extra },
+    headers: { 'content-type': CONTENT_TYPES[ext] ?? 'application/octet-stream', 'x-content-type-options': 'nosniff', ...(path===PDF_DOCUMENT?{'content-security-policy':OFFLINE_PDF_CSP}:{}), ...extra },
   });
 }
 
@@ -109,10 +114,10 @@ async function fromShellClient(event) {
     // through the cache offline. Only a worker running a manifest-listed
     // script of this build qualifies; a blob: worker never does.
     if (client.type === 'worker' || client.type === 'sharedworker') {
-      return ASSET_DIGESTS !== null && /^\/assets\/[^/]+\.m?js$/.test(path) && typeof ASSET_DIGESTS[path] === 'string';
+      return ASSET_DIGESTS !== null && (/^[\/]assets\/[^/]+\.m?js$/.test(path)||/^\/pdfjs\/[^?]*\.m?js$/.test(path)) && typeof ASSET_DIGESTS[path] === 'string';
     }
     if (client.type !== undefined && client.type !== 'window') return false;
-    return isShellNavigation(path);
+    return isShellNavigation(path)||path===PDF_DOCUMENT;
   } catch {
     return false;
   }
@@ -239,6 +244,7 @@ function chooseStrategy(request) {
   if (isApiPath(pathname)) {
     return isCacheableApi(pathname, url.search) ? 'network-first' : 'passthrough';
   }
+  if(isPdfAsset(pathname)&&(request.mode!=='navigate'||pathname===PDF_DOCUMENT))return 'cache-first';
   if (request.mode === 'navigate') return isShellNavigation(pathname) ? 'shell-fallback' : 'passthrough';
   if (isAnalyticsAsset(pathname)) return 'passthrough';
   if (isStaticAsset(pathname)) return 'cache-first';
@@ -280,7 +286,7 @@ function isFresh(res, strategy) {
 // Only a complete 200 is stored. `res.ok` would also admit a 206 partial, which
 // `cache.put` rejects with a TypeError.
 function isStorable(request, res) {
-  return res.status === 200 && !isSpaFallbackForSubresource(request, res);
+  return res.status === 200 && (!isSpaFallbackForSubresource(request, res)||stripBase(new URL(request.url).pathname)===PDF_DOCUMENT);
 }
 
 /**
@@ -403,7 +409,7 @@ async function cacheFirst(request) {
   // Everything the build emitted (/assets/) must match the manifest. Fonts
   // that `mailwoman fonts pull` installs under /fonts/ are not in it; they are
   // served only as fonts (type from the extension, nosniff), which cannot run.
-  const hashed = path.startsWith('/assets/');
+  const hashed = path.startsWith('/assets/')||isPdfAsset(path);
   const cached = await matchCache(cache, request);
   if (cached && isStorable(request, cached)) {
     if (!hashed || await matchesManifest(path, cached)) return fromStore(path, cached);
@@ -480,6 +486,18 @@ self.addEventListener('install', (event) => {
           }
         }),
       );
+      // Cache the application modules before reporting the shell ready. This
+      // includes workers and PIM views that the first window has not opened yet.
+      // A bounded pool avoids flooding the server with parallel asset requests.
+      if(cache){
+        let next=0;
+        await Promise.all(Array.from({length:4},async()=>{
+          while(next<OFFLINE_ASSETS.length){
+            const path=OFFLINE_ASSETS[next++],url=BASE+path;
+            try{const response=await fetch(url);if(response.status===200&&!isAnalyticsTagged(response)&&await matchesManifest(path,response))await store(cache,url,response);}catch{/* Installation can finish with a partial shell when the connection drops. */}
+          }
+        }));
+      }
       await self.skipWaiting();
     })(),
   );

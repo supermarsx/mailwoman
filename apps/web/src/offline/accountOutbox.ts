@@ -1,5 +1,5 @@
 import type { OutboundItem } from '../contracts/offline.ts';
-import { outboundToRequest, type OutboxStore } from './outbox.ts';
+import { outboundToRequest, type OutboxStore } from './outboxCore.ts';
 
 /** Ownership comes from every captured JMAP call, never from the current login.
  * Unknown legacy/mixed-account rows remain on disk but cannot be replayed. */

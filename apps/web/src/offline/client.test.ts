@@ -1,3 +1,4 @@
+import {memoryOutboxStore} from './outboxCore.ts';
 import {webcrypto} from 'node:crypto';
 import {beforeEach,expect,it,vi} from 'vitest';
 import {ApiError,NetworkError,type Client,type Me} from '../api/client.ts';
@@ -60,4 +61,24 @@ it('keeps separate JMAP accounts with colliding message ids isolated',async()=>{
  vi.mocked(api.me).mockRejectedValue(new NetworkError('offline'));await client.me();
  const cached=await client.jmap(request);
  expect(cached.methodResponses[1]?.[1]['list']).toEqual([expect.objectContaining({subject:'Saved offline'})]);
+});
+
+it('queues real PIM writes and exposes pending creates and edits through offline reads',async()=>{
+ const vault=await storage(),api=raw(),queue=memoryOutboxStore(),client=withOfflineClient(api,()=>'/pim-producer',async()=>vault,()=>queue);
+ await client.me();vi.mocked(api.me).mockRejectedValue(new NetworkError('offline'));await client.me();
+ const created=await client.jmap({using:[],methodCalls:[['Note/set',{accountId:'a',create:{note:{title:'Created offline'}}},'set']]});
+ const local=(created.methodResponses[0]![1]['created'] as Record<string,{id:string}>)['note']!.id;
+ expect(local).toMatch(/^mw-pending:/);expect(created.methodResponses[0]![1]['mailwomanQueued']).toBe(true);
+ await client.jmap({using:[],methodCalls:[['Note/set',{accountId:'a',update:{[local]:{title:'Edited offline'}}},'set']]});
+ const rows=await client.jmap({using:[],methodCalls:[['Note/get',{accountId:'a',ids:[local]},'get']]});
+ expect(rows.methodResponses[0]![1]['list']).toEqual([expect.objectContaining({id:local,title:'Edited offline',mailwomanQueued:true})]);
+ await expect(client.jmap({using:[],methodCalls:[['Note/set',{accountId:'a',create:{note:{title:'Replay'}}},'set']]},{offlineReplay:true})).rejects.toBeInstanceOf(NetworkError);
+ expect((await queue.all())).toHaveLength(2);expect(api.jmap).not.toHaveBeenCalled();
+});
+
+it('revokes the encrypted bootstrap after a coordinator reports a changed account',async()=>{
+ const vault=await storage(),api=raw(),client=withOfflineClient(api,()=>'/coordinator-revoked',async()=>vault);await client.me();await client.jmap(request);
+ vi.mocked(api.jmap).mockRejectedValue(new ApiError(409,'Account changed',{code:'accountChanged'}));
+ await expect(client.jmap(request)).rejects.toMatchObject({status:409});
+ vi.mocked(api.me).mockRejectedValue(new NetworkError('offline'));await expect(client.me()).rejects.toBeInstanceOf(NetworkError);
 });

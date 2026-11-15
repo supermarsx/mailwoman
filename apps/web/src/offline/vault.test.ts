@@ -8,6 +8,8 @@ async function fixture(){
  const records=new Map<string,VaultEntry>(),backend=memoryBackend();let now=1;
  const vault=createOfflineVault(new EncryptedCache(backend,await generateProfileKey()),{
   async all(namespace){return [...records.values()].filter(row=>row.namespace===namespace);},
+  async group(group){return [...records.values()].filter(row=>row.group===group);},
+  async pool(pool){return [...records.values()].filter(row=>row.pool===pool);},
   async put(row){records.set(row.id,row);},async remove(id){records.delete(id);},
  },()=>now);
  return {vault,records,backend,time(value:number){now=value;}};
@@ -46,4 +48,15 @@ it('manual eviction refuses overflow rather than discarding existing records',as
  await vault.put('a','saved','keep',limits);
  expect(await vault.put('a','other','refuse',limits)).toBe(false);
  expect(await vault.get('a','saved')).toBe('keep');
+});
+
+it('enforces one device pool across linked accounts while keeping account purges separate',async()=>{
+ const {vault}=await fixture();const a=JSON.stringify(['offline-account','https://mail.test','alice','a']),b=JSON.stringify(['offline-account','https://mail.test','bob','b']);
+ const limits={maxBytes:20000,maxEntries:2};
+ await vault.put(a+':headers','old','first',{...limits,budgetGroup:a});
+ await vault.put(b+':headers','pin','second',{...limits,budgetGroup:b,pinned:true});
+ await vault.put(a+':bodies','new','third',{...limits,budgetGroup:a});
+ expect(await vault.get(a+':headers','old')).toBeUndefined();
+ expect((await vault.usage(JSON.stringify(['offline-device','https://mail.test']))).entries).toBe(2);
+ await vault.clear(a);expect(await vault.get(b+':headers','pin')).toBe('second');
 });

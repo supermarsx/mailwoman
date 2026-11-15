@@ -3,7 +3,7 @@ import { accountOutbox, outboundAccount } from './accountOutbox.ts';
 import { drainOutbox, memoryOutboxStore } from './outbox.ts';
 import type { OutboundItem } from '../contracts/offline.ts';
 import type { Client } from '../api/client.ts';
-const move = (id: string, accountId: string): OutboundItem => ({ id, type: 'move', payload: { accountId, emailId: id, mailboxIds: { archive: true } }, createdAt: 1, state: 'queued',storageAuthority:'test-storage-authority-a' });
+const move = (id: string, accountId: string): OutboundItem => ({ id, type: 'move', payload: { accountId, emailId: id, mailboxIds: { archive: true },previousMailboxIds:{inbox:true} }, createdAt: 1, state: 'queued',storageAuthority:'test-storage-authority-a' });
 describe('offline account isolation', () => {
   it('quarantines unknown/mixed legacy rows without deleting their bytes', async () => {
     const mixed: OutboundItem = { ...move('mixed', 'a'), type: 'pim', payload: { request: { methodCalls: [['Note/set', { accountId: 'a' }, 'a'], ['Note/set', { accountId: 'b' }, 'b']] }, callId: 'a' } };
@@ -20,13 +20,14 @@ describe('offline account isolation', () => {
   it('stops later dispatches after an account boundary but acknowledges the original successful mutation', async () => {
     const store = memoryOutboxStore([move('one', 'a'), move('two', 'a'), move('other', 'b')]);
     let active = true;
-    const jmap = vi.fn(async () => {
+    const jmap = vi.fn(async (request) => {
+      if(request.methodCalls[0]?.[2]==='baseline')return {methodResponses:[['Email/get',{accountId:'a',state:'s',list:[{id:'one',mailboxIds:{inbox:true}}]},'baseline']],sessionState:'s'};
       active = false;
       return { methodResponses: [['Email/set', { updated: { one: null }, notUpdated: null }, 'set']], sessionState: 's' };
     });
     const result = await drainOutbox(accountOutbox(store, 'a','test-storage-authority-a'), { jmap } as unknown as Client, undefined, () => active);
     expect(result).toEqual({ sent: 1, failed: 0 });
-    expect(jmap).toHaveBeenCalledOnce();
+    expect(jmap).toHaveBeenCalledTimes(2);
     expect((await store.all()).map(row => row.id)).toEqual(['two', 'other']);
   });
   it('does not spend retry attempts or dispatch when authority expired before draining', async () => {

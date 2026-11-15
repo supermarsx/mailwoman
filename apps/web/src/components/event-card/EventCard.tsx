@@ -294,6 +294,7 @@ export function EventCard(props: EventCardProps): JSX.Element {
         ...(counter ? { counter: { start: counter, duration: v.event.duration || 'PT1H' } } : {}),
       });
       setProposing(false);
+      if(res.mailwomanQueued)return t('common-conn-offline-queued',{count:1});
       if (action === 'counter') return res.sent ? t('calendar-card-proposal-sent', { organizer: isolate(res.to) }) : t('calendar-card-not-sent');
       const what = statusWord(STATUS_OF[action]);
       if (!res.sendResponse) return t('calendar-card-answered-silently', { answer: what });

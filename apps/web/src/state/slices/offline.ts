@@ -1,3 +1,8 @@
+import {offlineServerBase} from '../../offline/cacheScope.ts';
+import {publishOfflineChange,observeOfflineChanges} from '../../offline/events.ts';
+import {activeLinkedMailbox} from '../../api/linkedMailboxSession.ts';
+import {basePath} from '../../api/basePath.ts';
+import {isOffline} from '../../offline/runtime.ts';
 import {encryptedOutboxStore} from '../../offline/encryptedOutbox.ts';
 // Offline slice (plan §3 e5). Wires the offline surface into `AppState`: the
 // offline-queue pending count, the items the queue has given up on, queue
@@ -30,7 +35,7 @@ import {
   type QueuedItem,
 } from '../../offline/outbox.ts';
 import { offlineSearch, type OfflineQuery } from '../../offline/search.ts';
-import { registerServiceWorker } from '../../sw/register.ts';
+import { registerServiceWorker,requestBackgroundReplay } from '../../sw/register.ts';
 import type { SliceContext } from './context.ts';
 
 export interface OfflineSlice {
@@ -98,27 +103,31 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
   }
 
   async function enqueueOffline(type: OutboundType, payload: unknown): Promise<string> {
-    const item = await enqueueOutbound(scoped(authority()), { type, payload });
+    const owner=authority();
+    const item = await enqueueOutbound(scoped(owner), { type, payload,context:{linkId:activeLinkedMailbox()?.linkId??null,serverBase:basePath(),cacheBase:offlineServerBase()} });
     await refresh();
+    publishOfflineChange('queue');void requestBackgroundReplay();
     return item.id;
   }
 
   async function dequeueOffline(id: string): Promise<boolean> {
     const removed = await removeQueued(scoped(authority()), id);
-    await refresh();
+    await refresh();publishOfflineChange('queue');
     return removed;
   }
 
   async function replayOffline(): Promise<DrainResult> {
     const account = preferenceAccount();
     if (!account?.storageAuthority) return { sent: 0, failed: 0 };
+    const live=await client.me();
+    if((client.offlineReads===true&&isOffline())||!preferenceAccountIsCurrent(account)||live.accountId!==account.id||live.storageAuthority!==account.storageAuthority)return {sent:0,failed:0};
     const controller=new AbortController();
     const stop=observePreferenceAccount(()=>{if(!preferenceAccountIsCurrent(account))controller.abort();});
     let result:DrainResult;
     try {result=await drainOutbox(scoped(account), client, undefined, () => preferenceAccountIsCurrent(account),controller.signal);}
     finally {stop();}
     if (!preferenceAccountIsCurrent(account)) return result;
-    await refresh();
+    await refresh();publishOfflineChange('queue');
     if (result.sent > 0) showToast('success', t('mail-queue-sent', { count: result.sent }));
     if (result.failed > 0) showToast('error', t('mail-queue-failed', { count: result.failed }));
     return result;
@@ -153,13 +162,13 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
     }
     if (wasOffline) {
       wasOffline = false;
-      void replayOffline();
+      void replayOffline().catch(()=>undefined);
     }
   });
   // The browser's own reconnect signal, independent of in-flight requests. It
   // usually fires together with the edge above; `drainOutbox` runs one drain at
   // a time, so the two do not replay the queue twice.
-  const online = (): void => { void replayOffline(); };
+  const online = (): void => { void replayOffline().catch(()=>undefined); };
   if (typeof window !== 'undefined') window.addEventListener('online', online);
   const stopAccount = observePreferenceAccount(account => {
     setPending(0); setFailed([]); setCachedHeaders([]);
@@ -170,9 +179,13 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
     if (typeof window !== 'undefined') window.removeEventListener('online', online);
   });
 
+  const stopChanges=observeOfflineChanges(kind=>{if(kind==='queue')void refresh().catch(()=>undefined);});
+  const background=(event:MessageEvent)=>{if(event.data?.type==='mw-outbox-updated')void refresh().catch(()=>undefined);};
+  if(typeof navigator!=='undefined'&&'serviceWorker' in navigator)navigator.serviceWorker.addEventListener?.('message',background);
+  if(getOwner())onCleanup(()=>{stopChanges();if(typeof navigator!=='undefined'&&'serviceWorker' in navigator)navigator.serviceWorker.removeEventListener?.('message',background);});
   // Hydrate the counts + register the SW; both no-op under jsdom tests.
 
-  void registerServiceWorker();
+  void registerServiceWorker().then(()=>requestBackgroundReplay());
 
   return {
     offlineQueuePending,

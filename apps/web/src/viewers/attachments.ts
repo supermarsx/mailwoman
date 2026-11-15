@@ -1,3 +1,6 @@
+import {readLocalFile} from '../offline/localFiles.ts';
+import {offlineServerBase} from '../offline/cacheScope.ts';
+import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 // Data layer for the Attachments module (plan §2.4) + the thumbnail strip.
 //
 // The global grid is `Email/query{filter:{hasAttachment:true}}` + an `Email/get`
@@ -219,6 +222,12 @@ export function buildDownloadUrl(template: string, ref: BlobRef): string {
 
 /** Fetch a blob (cookie-authed, same-origin) and wrap it in an object URL. */
 export async function fetchObjectUrl(url: string,signal?:AbortSignal): Promise<string> {
+  const local=/mw-local(?::|%3A)[a-z0-9-]+/i.exec(url)?.[0];
+  if(local){
+    const owner=preferenceAccount();if(!owner?.storageAuthority)throw new Error('Attachment account is unavailable');
+    const file=await readLocalFile({accountId:owner.id,storageAuthority:owner.storageAuthority,base:offlineServerBase()},decodeURIComponent(local));
+    signal?.throwIfAborted();if(!file||!preferenceAccountIsCurrent(owner))throw new Error('Local attachment is unavailable');return URL.createObjectURL(file);
+  }
   const res = await apiFetch(url, { credentials: 'same-origin',...(signal?{signal}:{}) });
   if (!res.ok) throw new Error(`attachment download failed: ${res.status}`);
   const blob=await res.blob();signal?.throwIfAborted();return URL.createObjectURL(blob);

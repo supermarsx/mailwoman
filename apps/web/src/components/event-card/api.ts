@@ -50,6 +50,7 @@ export interface ItipView {
 export type ResponseAction = 'accept' | 'tentative' | 'decline' | 'counter';
 
 export interface RespondResult {
+  mailwomanQueued?:boolean;
   accountId: string;
   emailId: string;
   action: ResponseAction;

@@ -1,3 +1,4 @@
+import {createSignal} from 'solid-js';
 // Service-Worker registration, called from the app on startup (via the offline
 // slice). Best-effort + feature-detected: absent under jsdom / older browsers,
 // where the app simply runs online without a SW.
@@ -48,4 +49,20 @@ export async function registerServiceWorker(): Promise<void> {
   } catch {
     // Registration is best-effort; the app is fully functional online without it.
   }
+}
+
+/** Browsers without one-shot Background Sync replay when a tab is online.
+ * Registration failures never pretend that closed-tab sending is available. */
+const [backgroundReplayState,setBackgroundReplayState]=createSignal<'unknown'|'available'|'unavailable'>('unknown');
+export {backgroundReplayState};
+export async function requestBackgroundReplay():Promise<boolean>{
+  if(typeof navigator==='undefined'||!('serviceWorker' in navigator)||isTauri()){setBackgroundReplayState('unavailable');return false;}
+  try{
+    const registration=await navigator.serviceWorker.getRegistration(shellBase());
+    const worker=registration?.active??registration?.waiting??registration?.installing;
+    if(worker&&worker.state!=='activated')await new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>{worker.removeEventListener('statechange',changed);reject(new Error('Service worker activation timed out'));},10000);const changed=()=>{if(worker.state==='activated'){clearTimeout(timer);worker.removeEventListener('statechange',changed);resolve();}else if(worker.state==='redundant'){clearTimeout(timer);worker.removeEventListener('statechange',changed);reject(new Error('Service worker activation failed'));}};worker.addEventListener('statechange',changed);changed();});
+    const sync=(registration as (ServiceWorkerRegistration&{sync?:{register(tag:string):Promise<void>}})|undefined)?.sync;
+    if(!sync){setBackgroundReplayState('unavailable');return false;}
+    await sync.register('mw-outbox');setBackgroundReplayState('available');return true;
+  }catch{setBackgroundReplayState('unavailable');return false;}
 }

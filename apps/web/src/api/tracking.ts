@@ -17,7 +17,9 @@
 
 import { withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
-import { parseRecipients, type DraftInput } from './jmap.ts';
+import type {DraftInput} from './jmapCompose.ts';
+import {TrackingUnavailable,withTrackingPixel as buildTrackingPixel} from './trackingPixel.ts';
+export {TrackingUnavailable,trackingPixel} from './trackingPixel.ts';
 
 /** A minted token and the absolute image URL that records an open. */
 export interface TrackingToken {
@@ -33,13 +35,6 @@ export interface OpenCount {
 }
 
 /** Thrown when a token could not be minted; the send must not go out untracked. */
-export class TrackingUnavailable extends Error {
-  constructor(readonly reason: string) {
-    super(`open tracking unavailable: ${reason}`);
-    this.name = 'TrackingUnavailable';
-  }
-}
-
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
 const ENDPOINT = '/api/track/open';
@@ -104,26 +99,4 @@ export async function openCount(emailId: string, fetcher: Fetcher = apiFetch): P
 
 /** The image that records an open, appended after the body. The URL comes from
  *  this server and is checked to be http(s); it is escaped as an attribute. */
-export function trackingPixel(url: string): string {
-  const safe = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return `<img src="${safe}" width="1" height="1" alt="">`;
-}
-
-/** The draft with the image appended and the token to bind once it is sent.
- *  The token is minted for the draft's subject and every recipient address
- *  (To, Cc and Bcc: the sender's own record of who was sent the message). */
-export async function withTrackingPixel(
-  draft: DraftInput,
-  mint: (subject: string, to: string[]) => Promise<TrackingToken> = mintTrackingToken,
-): Promise<{ draft: DraftInput; token: string }> {
-  const to = [draft.to, draft.cc ?? '', draft.bcc ?? ''].flatMap((f) => parseRecipients(f).map((r) => r.email));
-  const minted = await mint(draft.subject, to);
-  const pixel = trackingPixel(minted.url);
-  // Complete composer documents keep the pixel inside the body. Legacy
-  // fragments remain fragments; avoid reparsing or altering authored markup.
-  const closingBody = /<\/body>\s*<\/html>\s*$/i;
-  const htmlBody = closingBody.test(draft.htmlBody)
-    ? draft.htmlBody.replace(closingBody, closing => pixel + closing)
-    : draft.htmlBody + pixel;
-  return { draft: { ...draft, htmlBody }, token: minted.token };
-}
+export function withTrackingPixel(draft:DraftInput,mint:(subject:string,to:string[])=>Promise<TrackingToken>=mintTrackingToken):Promise<{draft:DraftInput;token:string}>{return buildTrackingPixel(draft,mint);}

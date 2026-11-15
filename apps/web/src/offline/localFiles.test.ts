@@ -1,0 +1,21 @@
+import {Blob as NodeBlob} from 'node:buffer';
+import {webcrypto} from 'node:crypto';
+import {beforeEach,afterEach,expect,it,vi} from 'vitest';
+import {stageLocalFile,prepareLocalFiles,readLocalFile} from './localFiles.ts';
+import type {JmapRequest} from '../api/jmap-types.ts';
+const rows=vi.hoisted(()=>new Map<string,unknown>());
+vi.mock('./vault.ts',()=>({offlineVault:async()=>({put:async(namespace:string,key:string,value:unknown)=>{rows.set(namespace+key,value);return true;},get:async(namespace:string,key:string)=>rows.get(namespace+key)})}));
+afterEach(()=>vi.unstubAllGlobals());
+const owner={accountId:'a',storageAuthority:'verified_owner_123456',base:'https://mail.example.test'};
+beforeEach(()=>{rows.clear();vi.stubGlobal('crypto',webcrypto);vi.stubGlobal('Blob',NodeBlob);});
+it('stages files for offline composition, resolves them once and reuses the uploaded reference',async()=>{
+ const file=Object.assign(new Blob(['private file'],{type:'text/plain'}),{name:'draft.txt'});
+ const staged=await stageLocalFile(owner,file);expect(staged.blobId).toMatch(/^mw-local:/);
+ expect(await (await readLocalFile(owner,staged.blobId))?.text()).toBe('private file');
+ const request={using:[],methodCalls:[['Email/set',{accountId:'a',create:{draft:{attachments:[{blobId:staged.blobId,size:12}]}}},'set']]} as JmapRequest;
+ const upload=vi.fn(async()=>({blobId:'server-file',size:12,type:'text/plain'}));
+ const first=await prepareLocalFiles(request,owner,upload),again=await prepareLocalFiles(request,owner,upload);
+ expect(JSON.stringify(first)).toContain('server-file');expect(again).toEqual(first);expect(upload).toHaveBeenCalledTimes(1);
+ expect(JSON.stringify(request)).toContain('mw-local:');
+ await expect(prepareLocalFiles(request,{...owner,storageAuthority:'different_owner_123456'},upload)).rejects.toThrow('unavailable');
+});

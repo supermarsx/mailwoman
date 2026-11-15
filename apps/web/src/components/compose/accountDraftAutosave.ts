@@ -2,7 +2,7 @@ import {DraftSaveError,type AccountDraftDocument,type DraftEditorState} from '..
 export type DraftSaveMode='realtime'|'periodic'|'manual';
 export type DraftSaveStatus='idle'|'pending'|'saving'|'saved'|'error'|'uncertain'|'conflict'|'unsupported';
 export interface DraftSavePolicy {mode:DraftSaveMode;debounceMs:number;intervalSecs:number}
-export interface DraftSaveTransport {save(id:string,operation:string,revision:string|null,state:DraftEditorState):Promise<AccountDraftDocument>}
+export interface DraftSaveTransport {load?(id:string):Promise<AccountDraftDocument>;save(id:string,operation:string,revision:string|null,state:DraftEditorState):Promise<AccountDraftDocument>}
 /** One serial writer per composer. Ambiguous transport outcomes never retry. */
 export function createDraftAutosave(options:{id:string;transport:DraftSaveTransport;current:()=>boolean;status:(value:DraftSaveStatus)=>void;failure:(code:string)=>void;saved:(before:DraftEditorState,document:AccountDraftDocument)=>void;operation?:()=>string}){
  let id=options.id,revision:string|null=null,latest:DraftEditorState|undefined,lastSaved='',busy=false,halted=false,disposed=false,suspended=false;
@@ -23,7 +23,17 @@ export function createDraftAutosave(options:{id:string;transport:DraftSaveTransp
   if(fingerprint===lastSaved)return true;
   busy=true;let accepted=false;emit('saving');
   try{
-   const document=await options.transport.save(id,(options.operation??(()=>crypto.randomUUID()))(),revision,snapshot);
+   let document:AccountDraftDocument;
+   try{document=await options.transport.save(id,(options.operation??(()=>crypto.randomUUID()))(),revision,snapshot);}
+   catch(error){
+    if(!(error instanceof DraftSaveError)||error.code!=='draftConflict'||!options.transport.load)throw error;
+    // An explicit revision conflict is safe to rebase once. The editor's
+    // snapshot wins; an uncertain network outcome still requires review.
+    const current=await options.transport.load(id);
+    if(!active()||current.id!==id||current.status!=='saved'||!current.revision||current.cleanupPending)throw error;
+    revision=current.revision;
+    document=await options.transport.save(id,(options.operation??(()=>crypto.randomUUID()))(),revision,snapshot);
+   }
    if(!active())return false;
    if(document.status!=='saved'||!document.revision||!document.state)throw new DraftSaveError('draftSaveUncertain');
    revision=document.revision;

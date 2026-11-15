@@ -1,3 +1,4 @@
+import {isOffline} from '../offline/runtime.ts';
 import {registerDraftPreview,requestDraftPreview} from './compose/draftPreview.ts';
 import {formatDateTime as regionalDateTime} from '../i18n/format.ts';
 import {attachPlainMentions} from '../modules/mentions/plainMentions.ts';
@@ -1124,6 +1125,7 @@ export function Compose(props: {
       setAttachments(files=>files.map(file=>{const saved=rebound.get(file.blobId);return saved?{...file,blobId:saved.blobId,size:saved.size}:file;}));
       setInlineImages(files=>files.map(file=>{const saved=rebound.get(file.blobId);return saved?{...file,blobId:saved.blobId,size:saved.size}:file;}));
     }});
+    remoteWriter.suspend(isOffline());
     remoteWriter.seedRevision(remoteRevision());
     if(resumedUncertain)remoteWriter.seedUncertain();
   }
@@ -1246,7 +1248,7 @@ export function Compose(props: {
     saveTimer = setTimeout(() => {if(!sent && ownsDraft() && app.accountId()===snapshot.accountId && app.me()!==null) saveDraft(snapshot);}, 800);
   });
   createEffect(()=>{
-    const protectedNow=protectedDraft();remoteWriter?.suspend(protectedNow);
+    const protectedNow=protectedDraft(),offline=isOffline();remoteWriter?.suspend(protectedNow||offline);
     if(protectedNow){clearTimeout(saveTimer);pendingDraft=undefined;}
   });
   let remoteOwnerStarted=false;
@@ -1817,7 +1819,7 @@ export function Compose(props: {
     } finally {
       setBusy(false);
     }
-    } finally {setBusy(false);if(!sent)remoteWriter?.suspend(protectedDraft());else remoteWriter?.dispose();}
+    } finally {setBusy(false);if(!sent)remoteWriter?.suspend(protectedDraft()||isOffline());else remoteWriter?.dispose();}
   }
 
   // ── Composer chrome: the bottom status bar and the collapsible header ──

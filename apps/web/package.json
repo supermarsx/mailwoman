@@ -47,6 +47,7 @@
     "prosemirror-tables": "1.8.5",
     "prosemirror-transform": "^1.12.0",
     "prosemirror-view": "^1.42.1",
+    "rrule": "2.8.1",
     "solid-js": "^1.9.3"
   },
   "devDependencies": {
@@ -61,6 +62,7 @@
     "@vanilla-extract/vite-plugin": "^5.2.4",
     "@vitest/coverage-v8": "^3.2.7",
     "axe-core": "^4.10.2",
+    "esbuild": "0.25.12",
     "eslint": "^9.17.0",
     "eslint-plugin-solid": "^0.14.5",
     "jsdom": "^25.0.1",

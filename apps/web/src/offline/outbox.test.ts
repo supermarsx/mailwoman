@@ -414,7 +414,7 @@ describe('queue management', () => {
     expect(client.jmap).not.toHaveBeenCalled();
 
     expect(await retryOutbound(store, 'f1')).toBe(true);
-    expect(await store.all()).toEqual([{ ...item('flag', flag, 1), id: 'f1', state: 'queued', attempts: 0 }]);
+    expect(await store.all()).toEqual([{ ...item('flag', flag, 1), id: 'f1', state: 'queued', attempts: 0,replayVersion:1 }]);
     expect(await drainOutbox(store, client)).toEqual({ sent: 1, failed: 0 });
     expect(await store.all()).toEqual([]);
   });

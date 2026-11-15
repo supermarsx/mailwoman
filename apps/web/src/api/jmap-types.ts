@@ -34,6 +34,10 @@ export interface EmailAddress {
 }
 
 export interface EmailBodyPart {
+  name?:string|null;
+  cid?:string|null;
+  disposition?:string|null;
+  subParts?:EmailBodyPart[];
   partId: string | null;
   blobId: string | null;
   size: number;

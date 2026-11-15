@@ -11,7 +11,7 @@ import { memoryOutboxStore, type MovePayload, type OutboxStore, type SendPayload
 import { createAppState } from '../store.ts';
 import { makeClient, mkEmail } from '../../components/appHarness.tsx';
 
-const move: MovePayload = { accountId: 'acct1', emailId: 'm1', mailboxIds: { archive: true } };
+const move: MovePayload = { accountId: 'acct1', emailId: 'm1', mailboxIds: { archive: true },previousMailboxIds:{inbox:true} };
 const send: SendPayload = {
   accountId: 'acct1',
   draft: {
@@ -54,7 +54,8 @@ async function withSlice(run: (rig: Rig) => Promise<void>): Promise<void> {
   const listeners: ((up: boolean) => void)[] = [];
   const jmap = vi.fn<Client['jmap']>(async () => applied());
   const client = {
-    jmap,
+    me:async()=>({accountId:'acct1',storageAuthority:'test-storage-authority-acct1',username:'test'}),
+    jmap:(request:JmapRequest,options:Parameters<Client['jmap']>[1])=>request.methodCalls[0]?.[2]==='baseline'?Promise.resolve({sessionState:'s',methodResponses:[['Email/get',{accountId:'acct1',state:'e1',list:[{id:'m1',mailboxIds:{inbox:true},keywords:{}}]},'baseline']]} as JmapResponse):jmap(request,options),
     onNetwork: (l: (up: boolean) => void) => {
       listeners.push(l);
       return () => undefined;

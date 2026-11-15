@@ -1,3 +1,4 @@
+import {reportOffline} from '../offline/runtime.ts';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import type { JSX } from 'solid-js';
@@ -11,7 +12,7 @@ import type { JmapRequest, JmapResponse } from '../api/jmap-types.ts';
 import type { AppState } from '../state/store.ts';
 import type { Client } from '../api/client.ts';
 
-const move = { accountId: 'acct1', emailId: 'm1', mailboxIds: { archive: true } };
+const move = { accountId: 'acct1', emailId: 'm1', mailboxIds: { archive: true }, previousMailboxIds: { inbox: true } };
 const send = {
   accountId: 'acct1',
   draft: {
@@ -41,6 +42,7 @@ function refuseReplays(client: Client): { accept(): void; replays(): number } {
   let accepting = false;
   let count = 0;
   vi.mocked(client.jmap).mockImplementation(async (body, opts): Promise<JmapResponse> => {
+    if(body.methodCalls[0]?.[2]==='baseline')return {sessionState:'s',methodResponses:[['Email/get',{accountId:'acct1',state:'e1',list:[{id:'m1',mailboxIds:{inbox:true},keywords:{}}]},'baseline']]};
     if (!isReplay(body)) return answer(body, opts);
     count += 1;
     if (body.methodCalls.length === 2) {
@@ -67,6 +69,7 @@ function refuseReplays(client: Client): { accept(): void; replays(): number } {
 
 /** Queue a move and a send, and replay them against a server that refuses both. */
 async function twoFailures(app: AppState, client: Client) {
+  reportOffline(false);
   const server = refuseReplays(client);
   await app.enqueueOffline('move', move);
   await app.enqueueOffline('send', send);

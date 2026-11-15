@@ -31,5 +31,15 @@ export function accountDraftApi(owner:PreferenceAccount,signal?:AbortSignal){
   if(value.accountId!==owner.id||value.storageAuthority!==owner.storageAuthority)throw new DraftSaveError('accountChanged');
   return value as T;
  }
- return {resolve:(emailId:string)=>request<{draft:AccountDraftDocument|null}>(`/resolve?emailId=${encodeURIComponent(emailId)}`),discard:(id:string,expectedRevision:string|null)=>request<{deleted:boolean}>(`/${encodeURIComponent(id)}`,'DELETE',{expectedRevision}),list:()=>request<AccountDraftList>(''),load:(id:string)=>request<AccountDraftDocument>(`/${encodeURIComponent(id)}`),save:(id:string,operationId:string,expectedRevision:string|null,state:DraftEditorState)=>request<AccountDraftDocument>(`/${encodeURIComponent(id)}`,'PUT',{operationId,expectedRevision,state}),cleanup:(id:string)=>request<AccountDraftDocument>(`/${encodeURIComponent(id)}/cleanup`,'POST')};
+ return {resolve:(emailId:string)=>request<{draft:AccountDraftDocument|null}>(`/resolve?emailId=${encodeURIComponent(emailId)}`),discard:(id:string,expectedRevision:string|null)=>request<{deleted:boolean}>(`/${encodeURIComponent(id)}`,'DELETE',{expectedRevision}),list:()=>request<AccountDraftList>(''),load:(id:string)=>request<AccountDraftDocument>(`/${encodeURIComponent(id)}`),save:async(id:string,operationId:string,expectedRevision:string|null,state:DraftEditorState)=>{
+  let outgoing=state;
+  if(JSON.stringify(state).includes('mw-local:')){
+   const [{prepareLocalFiles},{createConfiguredClient},{uploadBlob},{offlineServerBase}]=await Promise.all([import('../offline/localFiles.ts'),import('./transport.ts'),import('./jmap.ts'),import('../offline/cacheScope.ts')]);
+   if(!owner.storageAuthority||!preferenceAccountIsCurrent(owner))throw new DraftSaveError('accountChanged');
+   const session=await createConfiguredClient().session();
+   const resolved=await prepareLocalFiles({using:[],methodCalls:[['Draft/set',{accountId:owner.id,state},'draft']]},{accountId:owner.id,storageAuthority:owner.storageAuthority,base:offlineServerBase()},file=>uploadBlob(session.uploadUrl,owner.id,file));
+   outgoing=resolved.methodCalls[0]![1]['state'] as DraftEditorState;
+  }
+  return request<AccountDraftDocument>(`/${encodeURIComponent(id)}`,'PUT',{operationId,expectedRevision,state:outgoing});
+ },cleanup:(id:string)=>request<AccountDraftDocument>(`/${encodeURIComponent(id)}/cleanup`,'POST')};
 }

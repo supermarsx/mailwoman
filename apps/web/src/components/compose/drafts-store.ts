@@ -1,3 +1,4 @@
+import {publishOfflineChange,observeOfflineChanges} from '../../offline/events.ts';
 import {createSignal} from 'solid-js';
 import {offlineVault} from '../../offline/vault.ts';
 // Local draft persistence for the universal Drafts drawer (W9).
@@ -81,7 +82,7 @@ export interface StoredDraft {
   attachments?: StoredAttachment[];
 }
 
-let draftGeneration=0;
+let draftGeneration=0,localRevision=0;
 let memory:StoredDraft[]=[],seenLegacy:string|undefined;
 let writes:Promise<void>=Promise.resolve(),hydrating:Promise<void>|undefined;
 const [draftPersistenceState,setPersistence]=createSignal<'loading'|'saving'|'saved'|'unavailable'>('loading');
@@ -89,7 +90,7 @@ export {draftPersistenceState};
 const draftKey=(draft:Pick<StoredDraft,'storageAuthority'|'accountId'|'id'>)=>JSON.stringify([draft.storageAuthority,draft.accountId,draft.id]);
 function schedule(run:()=>Promise<void>):void {
  setPersistence('saving');
- writes=writes.then(run,run).then(()=>{setPersistence('saved');},()=>{setPersistence('unavailable');});
+ writes=writes.then(run,run).then(()=>{setPersistence('saved');publishOfflineChange('drafts');},()=>{setPersistence('unavailable');});
 }
 export function flushDrafts():Promise<void>{return writes;}
 function notify(change:DraftChange):void {if(typeof window!=='undefined')window.dispatchEvent(new CustomEvent<DraftChange>(DRAFTS_CHANGED,{detail:change}));}
@@ -185,6 +186,7 @@ function isDraft(d: unknown): d is StoredDraft {
 }
 
 function write(drafts: StoredDraft[],change:DraftChange): void {
+ localRevision++;
  const counts=new Map<string,number>();
  memory=drafts.filter(draft=>{const count=counts.get(draft.storageAuthority)??0;counts.set(draft.storageAuthority,count+1);return count<MAX_DRAFTS;});
  const saved=memory.find(draft=>draft.id===change.id&&draft.accountId===change.accountId&&draft.storageAuthority===change.storageAuthority);
@@ -225,7 +227,7 @@ export function deleteDraft(id: string, accountId: string | null,storageAuthorit
 /** Remove every stored draft (logout: the next person at this browser must not
  *  be offered the previous account's unsent mail). */
 export function clearDrafts(): void {
-  draftGeneration++;memory=[];seenLegacy=undefined;hydrating=undefined;
+  draftGeneration++;localRevision++;memory=[];seenLegacy=undefined;hydrating=undefined;
   schedule(async()=>{await (await offlineVault()).clear('composer-drafts');});
   try {
     localStorage.removeItem(KEY);
@@ -240,3 +242,15 @@ export function clearDrafts(): void {
 export function newDraftId(): string {
   return `d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
+
+// Disk is authoritative for the recovery drawer in other windows. Active
+// composers retain their own editor state and still use server revisions.
+observeOfflineChanges(kind=>{
+ if(kind!=='drafts')return;
+ const generation=draftGeneration,revision=localRevision;
+ void writes.then(async()=>{
+  const rows=await (await offlineVault()).list<StoredDraft>('composer-drafts');
+  if(generation!==draftGeneration||revision!==localRevision)return;
+  memory=rows.map(row=>row.value).filter(isDraft);notify({kind:'save'});
+ }).catch(()=>undefined);
+});

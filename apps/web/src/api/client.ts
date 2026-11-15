@@ -1,3 +1,5 @@
+import {ApiError,NetworkError,type ApiErrorDetails} from './errors.ts';
+export {ApiError,NetworkError,type ApiErrorDetails} from './errors.ts';
 import { withLoginTimeout } from './loginTimeout.ts';
 // HTTP client for the mw-server contract (plan §2).
 //
@@ -18,31 +20,7 @@ import { basePath } from './basePath.ts';
 import { apiFetch,type ApiRequestInit } from './http.ts';
 import {linkedMailboxEpoch,activeLinkedMailbox,LinkedContextUnsupportedError} from './linkedMailboxSession.ts';
 import {jmapApiPath} from './jmapDiscovery.ts';
-import { keyedWrite, newIdempotencyKey, RecoveryError, type FailureReason, type RecoveryOptions } from './recovery.ts';
-
-/** What a refused answer says about itself, besides its status. */
-export interface ApiErrorDetails {
-  /** The server's machine code (`accountDisabled`, `signinNotAllowed`, …). */
-  code?: string;
-  /** The answer's `X-Request-Id`, shown as "Reference: …" for a support request. */
-  requestId?: string;
-  retryAfterSecs?: number;
-}
-
-export class ApiError extends Error {
-  readonly status: number;
-  readonly code: string | undefined;
-  readonly requestId: string | undefined;
-  readonly retryAfterSecs: number | undefined;
-  constructor(status: number, message: string, details: ApiErrorDetails = {}) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.code = details.code;
-    this.requestId = details.requestId;
-    this.retryAfterSecs = details.retryAfterSecs;
-  }
-}
+import { keyedWrite, newIdempotencyKey, RecoveryError, type RecoveryOptions } from './recovery.ts';
 
 /**
  * The machine code and request id of a refused answer. Reads a clone, so the
@@ -65,17 +43,6 @@ export async function errorDetails(res: Response): Promise<ApiErrorDetails> {
     /* not JSON */
   }
   return out;
-}
-
-/** Raised when the request never reached the server (offline / dropped). */
-export class NetworkError extends Error {
-  /** t91: why the recovery layer gave up, when it was the one that did. */
-  readonly reason: FailureReason | undefined;
-  constructor(message: string, reason?: FailureReason) {
-    super(message);
-    this.name = 'NetworkError';
-    this.reason = reason;
-  }
 }
 
 /**
@@ -247,6 +214,8 @@ function pause(ms: number, signal?: AbortSignal): Promise<void> {
 
 /** Options of one {@link Client.jmap} call. */
 export interface JmapCallOptions {
+  /** Queue replay requires a server acknowledgement, never a cached or queued answer. */
+  offlineReplay?:boolean;
   signal?: AbortSignal;
   keepalive?: boolean;
   /**
@@ -293,6 +262,8 @@ export function isKeyedCreate(body: JmapRequest): boolean {
 }
 
 export interface Client {
+  /** Reads can be evaluated against the durable encrypted local store. */
+  readonly offlineReads?:boolean;
   login(input: LoginInput): Promise<Me>;
   logout(): Promise<void>;
   me(context?:{linkId:string|null}): Promise<Me>;

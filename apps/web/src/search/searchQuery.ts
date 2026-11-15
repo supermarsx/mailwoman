@@ -508,3 +508,6 @@ export function offlineQueryOf(input: string, all?:readonly ScopeMailbox[]): Off
   if (texts.length > 0) out.text = texts.join(' ');
   return out;
 }
+
+/** Shared lexer for cached-mail search; operators stay identical to the UI. */
+export function tokenizeSearch(input:string):readonly Tok[]{return lex(input);}

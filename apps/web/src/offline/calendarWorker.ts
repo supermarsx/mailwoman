@@ -1,0 +1,2 @@
+import {expandCachedCalendar} from './calendarExpansion.ts';
+globalThis.onmessage=(message:MessageEvent<{events:Parameters<typeof expandCachedCalendar>[0];start:string;end:string}>)=>{try{globalThis.postMessage({list:expandCachedCalendar(message.data.events,message.data.start,message.data.end)});}catch(error){globalThis.postMessage({error:error instanceof Error?error.message:'Offline calendar unavailable'});}};

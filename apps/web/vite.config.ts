@@ -1,3 +1,4 @@
+import {build as bundleWorker} from 'esbuild';
 import { defineConfig } from 'vitest/config';
 import solid from 'vite-plugin-solid';
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
@@ -58,6 +59,19 @@ function bootScript(): Plugin {
  * stylesheet does not: under a deploy prefix the server rewrites its font URLs,
  * which would change its bytes.
  */
+let offlineBackgroundFile='';
+/** Bundle the closed-tab replay worker into a classic, self-contained script.
+ * The importing SW is never cache-served and pins this content-addressed file. */
+function offlineBackground():Plugin {
+
+ return {name:'mw-offline-background',apply:'build',async buildStart(){
+  const result=await bundleWorker({entryPoints:[resolve('src/sw/background.ts')],bundle:true,write:false,format:'iife',platform:'browser',target:'es2022',minify:true,define:{__MW_VERSION__:JSON.stringify(VERSION),'process.env.NODE_ENV':'"production"'}});
+  const code=result.outputFiles[0]!.text;
+  offlineBackgroundFile=`assets/offline-background-${createHash('sha256').update(code).digest('hex').slice(0,16)}.js`;
+  this.emitFile({type:'asset',fileName:offlineBackgroundFile,source:code});
+ }};
+}
+
 export function assetIntegrity(): Plugin {
   let outDir = '';
   let build = false;
@@ -86,6 +100,12 @@ export function assetIntegrity(): Plugin {
         if (rel.endsWith('.map')) continue;
         digests[rel] = createHash('sha256').update(readFileSync(file)).digest('hex');
       }
+      const pdf = join(outDir,'pdfjs');
+      if(existsSync(pdf))for(const file of walk(pdf)){
+        const rel=`/pdfjs/${relative(pdf,file).split(sep).join('/')}`;
+        if(rel.endsWith('.html')&&rel!=='/pdfjs/web/mailwoman.html')continue;
+        digests[rel]=createHash('sha256').update(readFileSync(file)).digest('hex');
+      }
       const htmlPath = join(outDir, 'index.html');
       const html = readFileSync(htmlPath, 'utf8').replace(
         /<(script|link)\b([^>]*?)\s(src|href)="\.\/(assets\/[^"]+\.js)"([^>]*)>/g,
@@ -105,7 +125,7 @@ export function assetIntegrity(): Plugin {
       const sw = readFileSync(swPath, 'utf8');
       const marker = '/* @mw-asset-digests */ null';
       if (!sw.includes(marker)) throw new Error('mw-asset-integrity: dist/sw.js has no asset-digest placeholder');
-      writeFileSync(swPath, sw.replace(marker, JSON.stringify(digests)));
+      writeFileSync(swPath, sw.replace(marker, JSON.stringify(digests)).replace('/* @mw-offline-assets */ []',JSON.stringify(Object.keys(digests).filter(path=>(path.startsWith('/pdfjs/')||/\.(?:js|mjs|css|wasm)$/.test(path))&&!/^\/assets\/(?:admin|offline-background)/.test(path)))).replace('/* @mw-offline-background */',offlineBackgroundFile?`importScripts('./${offlineBackgroundFile}');`:''));
     },
   };
 }
@@ -137,7 +157,7 @@ export default defineConfig({
   // Top-level await in the wasm modules is native (target es2022) and the workers are built as
   // ES modules (`worker.format`), so there is no `vite-plugin-top-level-await`: it re-printed each
   // chunk after its source map was written and misaligned every hidden map (docs/admin/observability.md).
-  plugins: [solid(), vanillaExtractPlugin(), wasm(), bundledPackages({ main: true }), bootScript(), assetIntegrity()],
+  plugins: [solid(), vanillaExtractPlugin(), wasm(), bundledPackages({ main: true }), bootScript(), offlineBackground(), assetIntegrity()],
   // t32-e75: the bundle recorder also sees the worker builds; the main instance writes
   // node_modules/.cache/mailwoman-about/bundled-packages.json for the third-party list.
   worker: { format: 'es', plugins: () => [bundledPackages()] },
