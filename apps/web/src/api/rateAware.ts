@@ -1,3 +1,5 @@
+import {jmapReadsOnly} from './jmapReadOnly.ts';
+import type {JmapRequest} from './jmap-types.ts';
 // Pacing for requests the server may answer with 429 or 503 (t106).
 //
 // `apiFetch` (`http.ts`) sends every request through `rateAwareSend`. It adds:
@@ -131,7 +133,6 @@ function releaseBackground(): void {
 
 // ─── what may be sent again ───────────────────────────────────────────────────
 
-const READ_METHOD = /\/(get|query|changes|queryChanges)$/;
 
 /** True when every call of a JMAP batch only reads. */
 export function isReadOnlyJmap(body: BodyInit | null | undefined): boolean {
@@ -139,7 +140,8 @@ export function isReadOnlyJmap(body: BodyInit | null | undefined): boolean {
   try {
     const calls = (JSON.parse(body) as { methodCalls?: unknown }).methodCalls;
     if (!Array.isArray(calls) || calls.length === 0) return false;
-    return calls.every((call) => Array.isArray(call) && typeof call[0] === 'string' && (call[0] === 'Core/echo' || READ_METHOD.test(call[0])));
+    if(!calls.every(call=>Array.isArray(call)&&typeof call[0]==='string'&&call[1]!==null&&typeof call[1]==='object'))return false;
+    return jmapReadsOnly({using:[],methodCalls:calls} as JmapRequest);
   } catch {
     return false;
   }

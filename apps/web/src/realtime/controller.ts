@@ -1,3 +1,4 @@
+import {createSharedPushClient} from '../worker/networkProxy.ts';
 // Realtime controller (plan §3 e6): the single object the UI reads for push
 // connection status and sub-tabs. It owns the push client, the connection-state
 // model, the change reconciler, and the sub-tab strip, and wires the push
@@ -5,7 +6,7 @@
 // `RealtimeContext` (context.ts); the realtime store slice constructs the app's
 // singleton and starts/stops it around the session.
 
-import { createPushClient, type PushClientImpl, type PushClientOptions } from './pushClient.ts';
+import { type PushClientImpl, type PushClientOptions } from './pushClient.ts';
 import { createConnection, type ConnectionModel } from './connection.ts';
 import { createSubTabs, type SubTabsModel, type SubTabsOptions } from './subTabs.ts';
 import {
@@ -53,7 +54,7 @@ export function createRealtimeController(
   let wasDown = false;
   const push =
     opts.pushClient ??
-    createPushClient({
+    createSharedPushClient({
       ...opts.push,
       onStatus: (status, transport) => {
         connection.report(status, transport);

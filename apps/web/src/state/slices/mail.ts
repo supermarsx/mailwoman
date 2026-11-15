@@ -1,3 +1,4 @@
+import {publishSharedView,readSharedView,observeSharedViews} from '../../worker/networkProxy.ts';
 import {collectionDelta} from '../../realtime/collectionDelta.ts';
 import {captureQuery,queryIdentity,reconcileQuery,queryResponse,type QuerySnapshot} from '../../realtime/queryDelta.ts';
 import {setUnifiedStartup} from '../unifiedMailbox.ts';
@@ -1019,8 +1020,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     for (const m of messages()) if (raw.has(m.id)) present.add(m.id);
     return present;
   });
+  const selectionTopic=()=>`selection:${JSON.stringify(pageSource())}`;
+  const stopSelectionSync=observeSharedViews(view=>{if(view.topic===selectionTopic()&&Array.isArray(view.value)&&view.value.length<=10000&&view.value.every(id=>typeof id==='string'))setSelectionRaw(new Set(view.value));});
+  if(getOwner())onCleanup(stopSelectionSync);
+  let selectionRevision=0;
+  createEffect(()=>{const owner=preferenceAccount(),topic=selectionTopic(),revision=++selectionRevision;if(!owner?.storageAuthority)return;void readSharedView(topic).then(value=>{if(selectionRevision===revision&&preferenceAccountIsCurrent(owner)&&topic===selectionTopic()&&Array.isArray(value)&&value.length<=10000&&value.every(id=>typeof id==='string'))setSelectionRaw(new Set(value));});});
+  function shareSelection():void{selectionRevision++;void publishSharedView(selectionTopic(),[...selection()]);}
   function setSelection(ids: Iterable<Id>): void {
-    setSelectionRaw(new Set(ids));
+    setSelectionRaw(new Set(ids));shareSelection();
   }
   function toggleSelection(ids: readonly Id[]): void {
     if (listLoading()) return;
@@ -1029,10 +1036,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const next = new Set(current);
     if (ids.every((id) => current.has(id))) for (const id of ids) next.delete(id);
     else for (const id of ids) next.add(id);
-    setSelectionRaw(next);
+    setSelectionRaw(next);shareSelection();
   }
   function clearSelection(): void {
-    if (selection().size > 0) setSelectionRaw(new Set<Id>());
+    if (selection().size > 0) {setSelectionRaw(new Set<Id>());shareSelection();}
   }
   function selectAllInView(): void {
     if (listLoading()) return;
@@ -1259,9 +1266,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const acct = accountId();
     if (acct === null) return;
     patchMessage(id, patch);
-    // Engine-local meta (pin/snooze/follow-up) has no offline-replay opcode in
-    // the frozen mw-outbox contract, so offline it stays an optimistic local patch.
-    if (isOffline()) return;
+    if(isOffline()){
+      if(!ctx.enqueueOffline)throw new Error(t('mail-offline'));
+      await ctx.enqueueOffline('pim',{request:setEmailMeta(acct,id,patch),callId:'set'});return;
+    }
     await jmapCall(setEmailMeta(acct, id, patch));
     ctx.broadcastChange?.();
   }
@@ -1309,17 +1317,17 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if(completed)keywords['mw-followup-completed']=true;else delete keywords['mw-followup-completed'];
     if(flagged)keywords['$flagged']=true;else delete keywords['$flagged'];
     patchMessage(id,{followUpAt:at,keywords});
-    // Metadata reminders retain the existing offline behavior. Keyword changes
-    // have the standard replay opcode; do not claim completion while offline.
     if(isOffline()){
-      const queued:string[]=[];
       try{
-        if(completed)throw new Error(t('mail-offline'));
-        if(ctx.enqueueOffline)for(const [keyword,value] of [['mw-followup-completed',false],['$flagged',flagged]] as const){
-          if(!current())throw new UndoUnavailable();
-          const queuedId=await ctx.enqueueOffline('flag',{accountId:acct,emailId:id,keyword,value,previousValue:previous.keywords?.[keyword]===true});if(typeof queuedId==='string')queued.push(queuedId);
-        }
-      }catch(error){for(const queuedId of queued)try{await ctx.dequeueOffline?.(queuedId);}catch{/* Preserve the original queue failure. */}restore();throw error;}
+        if(!ctx.enqueueOffline)throw new Error(t('mail-offline'));
+        const baseline=await client.jmap({using:[CAP_CORE,CAP_MAIL],methodCalls:[['Email/get',{accountId:acct,ids:[id],properties:['id','keywords']},'followup-baseline']]});
+        if(!current())throw new UndoUnavailable();
+        const state=responseFor<EmailGetResponse>(baseline,'followup-baseline').state;
+        if(!state)throw new Error(t('mail-offline'));
+        const request=updateEmails(acct,{[id]:{followUpAt:at,'keywords/mw-followup-completed':completed?true:null,'keywords/$flagged':flagged?true:null}});
+        request.methodCalls[0]![1]['ifInState']=state;
+        await ctx.enqueueOffline('pim',{request,callId:'set'});
+      }catch(error){restore();throw error;}
       return;
     }
     try{
@@ -1892,6 +1900,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     } finally {
       if (isCurrent(req)) setListLoading(false);
       endListRequest(req);
+      finishPendingRefresh();
     }
   }
 
@@ -1971,6 +1980,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       clearTimeout(watchdog);
       if (isCurrent(req)) setLoadingMore(false);
       endListRequest(req);
+      finishPendingRefresh();
     }
   }
 
@@ -2027,7 +2037,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // Load-time measurement (perf/clientTiming.ts): this intent to the painted body.
     const probe=beginMessageLoad();if(cached?.email)probe.done(true);
     try{
-      if(isOffline()){if(!cached)await readFromCache(id,()=>generation===legacyReadGeneration&&current()&&!controller.signal.aborted);return;}
+      if(isOffline()&&client.offlineReads!==true){if(!cached)await readFromCache(id,()=>generation===legacyReadGeneration&&current()&&!controller.signal.aborted);return;}
       const value=await loadFullMessage(acct,id,controller.signal);
       if(generation!==legacyReadGeneration||!current())return;
       setOpenEmail(value.email);setSanitizedHtml(value.html);if(value.email){probe.done(false);scheduleMarkRead(value.email);}
@@ -2088,6 +2098,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     return refreshCurrentList(true);
   }
 
+  let pendingListRefresh=false;
+  function finishPendingRefresh():void{if(!pendingListRefresh||listLoading()||loadingMore())return;pendingListRefresh=false;queueMicrotask(()=>void refreshCurrentList(false));}
+
   async function refreshCurrentList(includeSearch: boolean,countsCurrent=false): Promise<void> {
     readCache.invalidate(undefined,{abort:false});
     const current = captureMailAuthority();
@@ -2101,7 +2114,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // Push refreshes can wait for current work. An explicit order/group change
     // supersedes the old query, including an append, so it cannot mix pages
     // from two different arrangements or silently lose the user's choice.
-    if (listLoading() || loadingMore()) {if(includeSearch)await loadFirstPage(acct,src);return;}
+    if (listLoading() || loadingMore()) {if(includeSearch)await loadFirstPage(acct,src);else pendingListRefresh=true;return;}
     const range = loadedRange();
     const loaded = Math.max(pageSize(), range.end - range.start + hiddenRows);
     const req = beginListRequest();
@@ -2149,6 +2162,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // Transient/offline refetch — keep the current list.
     } finally {
       endListRequest(req);
+      finishPendingRefresh();
     }
   }
 

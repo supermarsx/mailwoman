@@ -1,3 +1,5 @@
+import {networkCoordinationMode} from '../worker/networkProxy.ts';
+import {syncPolicy} from '../offline/syncPolicy.ts';
 import {configureOfflinePolicy} from '../offline/runtime.ts';
 import {seedOfflineHttp} from '../offline/httpCache.ts';
 import {settings,settingsLoadStatus} from '../api/settings.ts';
@@ -16,7 +18,7 @@ import { startAccountUiPreferences } from '../api/accountPreferences.ts';
 // web executors fill. This module wires the store "core" (network status +
 // toasts) and composes every slice into `AppState`.
 
-import { createEffect, createSignal, type Accessor } from 'solid-js';
+import { createEffect, createSignal, onCleanup, type Accessor } from 'solid-js';
 import type { Client } from '../api/client.ts';
 import { t, loadCatalog } from '../i18n/index.ts';
 import type { SliceContext } from './slices/context.ts';
@@ -141,7 +143,7 @@ function createStoreCore(client: Client): StoreCoreApi {
  *  tabs don't loop. Absent the API (jsdom / private windows) this is inert. The
  *  full SharedWorker store proxy (worker/proxy.ts) is a deliberate follow-up. */
 function createPeerSync(onRemote: () => void): { publish(): void } {
-  if (!broadcastChannelAvailable()) return { publish: () => undefined };
+  if (networkCoordinationMode()!=='local'||!broadcastChannelAvailable()) return { publish: () => undefined };
   const port = openStoreChannel();
   if (port === null) return { publish: () => undefined };
   port.onmessage = (ev: { data: unknown }): void => {
@@ -168,8 +170,14 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
     const owner=preferenceAccount(),map=settings(),ui=accountUiPreferences();
     if(!owner||settingsLoadStatus()!=='ready')return;
     const value=(key:string,local:number|undefined,fallback:number)=>Number(map[key]?.locked?map[key]?.value:local??map[key]?.value??fallback);
-    configureOfflinePolicy({enabled:map['offline.enabled']?.value===true,budgetMb:value('offline.budgetMb',ui.offlineBudgetMb,250),retentionDays:value('offline.retentionDays',ui.offlineRetentionDays,30),eviction:ui.eviction??'lru'},owner);
+    configureOfflinePolicy({enabled:map['offline.enabled']?.value===true,budgetMb:value('offline.budgetMb',ui.offlineBudgetMb,250),retentionDays:value('offline.retentionDays',ui.offlineRetentionDays,30),eviction:(map['offline.eviction']?.locked?map['offline.eviction']?.value:ui.eviction??map['offline.eviction']?.value??'lru') as 'lru'|'oldest'|'manual'},owner);
     void seedOfflineHttp(owner,'/api/settings',{settings:map}).catch(()=>undefined);
+  });
+  createEffect(()=>{
+    const owner=preferenceAccount(),map=settings(),ready=settingsLoadStatus()==='ready',online=core.online();
+    if(!owner?.storageAuthority||!ready||!online||map['offline.enabled']?.value!==true)return;
+    const policy=syncPolicy(map),controller=new AbortController();onCleanup(()=>controller.abort());
+    void import('../offline/synchronize.ts').then(({synchronizeOffline})=>synchronizeOffline(client,owner,policy,controller.signal)).catch(()=>undefined);
   });
   startMailboxSessionActivity();
   const offline = createOfflineSlice(ctx);

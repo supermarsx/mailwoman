@@ -95,7 +95,7 @@ export default tseslint.config(
     // the rule: `src/api/http.ts` itself, the service-worker code under `src/sw`
     // (it runs where there is no `document.cookie`), and tests, which stub `fetch`.
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/api/http.ts', 'src/sw/**', 'src/**/*.{test,spec}.{ts,tsx}', 'src/test/**'],
+    ignores: ['src/api/http.ts', 'src/api/workerHttp.ts', 'src/sw/**', 'src/**/*.{test,spec}.{ts,tsx}', 'src/test/**'],
     plugins: { mw: { rules: { 'no-global-fetch': noGlobalFetch } } },
     rules: {
       'mw/no-global-fetch': 'error',

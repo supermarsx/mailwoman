@@ -1,3 +1,4 @@
+import {withSharedNetwork} from '../worker/networkProxy.ts';
 import {withOfflineClient} from '../offline/client.ts';
 // Transport configuration (plan §2.2, §3 e6) — the ONE place the SPA decides
 // whether it talks to its own origin over cookies (browser) or to a configured
@@ -121,5 +122,5 @@ export function createConfiguredClient(): Client {
   // t99: every client shares one kept JMAP session per mailbox (`sessionCache.ts`).
   if (isNativeAuth()) return withOfflineClient(withSessionCache(createClient(nativeServerBase, platformAuth()), `native:${nativeServerBase() ?? ''}`),()=>`native:${nativeServerBase()??''}`);
   const base = transportBase();
-  return withOfflineClient(withSessionCache(base === '' ? createClient() : createClient(base), base),()=>`${globalThis.location?.origin??''}${base}`);
+  return withOfflineClient(withSessionCache(withSharedNetwork(base === '' ? createClient() : createClient(base)), base),()=>`${globalThis.location?.origin??''}${base}`);
 }

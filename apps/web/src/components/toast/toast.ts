@@ -104,6 +104,11 @@ const pauses = new Set<PauseReason>();
 const [paused, setPaused] = createSignal(false);
 const [regions, setRegions] = createSignal(0);
 let seq = 0;
+export type ToastEvent={kind:'show';item:ToastItem;options:ToastOptions}|{kind:'dismiss';id:string;reason:ToastCloseReason}|{kind:'clear'};
+const observers=new Set<(event:ToastEvent)=>void>();
+export function observeToastEvents(listener:(event:ToastEvent)=>void):()=>void{observers.add(listener);return()=>observers.delete(listener);}
+const emit=(event:ToastEvent)=>{for(const listener of observers)listener(event);};
+
 
 function defaultDuration(tone: ToastTone, opts: ToastOptions): number {
   if (opts.duration !== undefined) return opts.duration;
@@ -166,6 +171,7 @@ function show(tone: ToastTone, message: string, opts: ToastOptions = {}): string
   }
   if (!item.pausable || pauses.size === 0) startClock(id);
   for (const e of evicted) close(e.id, 'evicted');
+  emit({kind:'show',item,options:opts});
   return id;
 }
 
@@ -182,6 +188,7 @@ function dismiss(id: string, reason: ToastCloseReason = 'dismiss'): void {
   if (!items().some((i) => i.id === id)) return;
   setItems(items().filter((i) => i.id !== id));
   close(id, reason);
+  emit({kind:'dismiss',id,reason});
 }
 
 /** The shared toast API. Each call returns the toast's id. */
@@ -205,6 +212,7 @@ export const toast = {
     const ids = items().map((i) => i.id);
     setItems([]);
     for (const id of ids) close(id, 'cleared');
+    emit({kind:'clear'});
   },
 };
 

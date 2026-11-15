@@ -1,3 +1,4 @@
+import {startSharedToasts} from './components/toast/shared.ts';
 import {ThemedSelects} from './components/ThemedSelects.tsx';
 import {SnoozeDialog} from './components/SnoozeDialog.tsx';
 import {requestMessageOpen} from './state/messageOpenRequest.ts';
@@ -243,6 +244,7 @@ export function App(): JSX.Element {
   }
   onMount(()=>{
     onCleanup(startNotificationCenter());
+    onCleanup(startSharedToasts());
     onCleanup(observePreferenceAccount(owner=>{clearIncomingAlerts();genericPushUntil=0;setNotificationAccount(owner);}));
     const off=app.onIncomingMail?.(batch=>{void incoming(batch);});onCleanup(()=>off?.());
     const worker=navigator.serviceWorker;
