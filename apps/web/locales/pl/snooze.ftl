@@ -34,7 +34,7 @@ snooze-amount = Liczba
 snooze-time = Pora dnia
 snooze-calendar-help = Godziny oznaczają czas, który upłynął. Reguły kalendarza używają strefy wyświetlania i wybranej godziny; tygodnie zależą od regionu. Jeśli koniec okresu minął, używany jest następny okres.
 snooze-invalid-presets = Użyj maksymalnie 32 unikatowych opcji, dodatnich całkowitych odstępów, prawidłowych godzin i nazw do 80 znaków.
-snooze-save = Zapisz opcje odraczania
+snooze-save = Zapisz
 
 snooze-rule-weekday = Następny dzień tygodnia
 snooze-rule-nth-weekday = Wybrany dzień tygodnia w następnym miesiącu

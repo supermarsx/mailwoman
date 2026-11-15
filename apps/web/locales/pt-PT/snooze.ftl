@@ -40,7 +40,7 @@ snooze-amount = Quantidade
 snooze-time = Hora do dia
 snooze-calendar-help = As horas representam tempo decorrido. As regras de calendário usam o fuso de apresentação e a hora escolhida; a semana segue a região. Se o fim do período já passou, usa-se o período seguinte.
 snooze-invalid-presets = Use até 32 predefinições únicas, intervalos inteiros positivos, horas válidas e nomes até 80 caracteres.
-snooze-save = Guardar opções de adiamento
+snooze-save = Guardar
 
 snooze-rule-weekday = Próximo dia da semana
 snooze-rule-nth-weekday = Ocorrência de dia da semana no próximo mês

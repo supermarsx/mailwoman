@@ -34,7 +34,7 @@ snooze-amount = Aantal
 snooze-time = Tijdstip
 snooze-calendar-help = Uren zijn verstreken tijd. Kalenderregels gebruiken de weergavetijdzone en gekozen tijd; weken volgen de regio. Als het periode-einde voorbij is, wordt de volgende periode gebruikt.
 snooze-invalid-presets = Gebruik maximaal 32 unieke opties, positieve gehele intervallen, geldige tijden en namen tot 80 tekens.
-snooze-save = Sluimeropties opslaan
+snooze-save = Opslaan
 
 snooze-rule-weekday = Volgende weekdag
 snooze-rule-nth-weekday = Bepaalde weekdag volgende maand

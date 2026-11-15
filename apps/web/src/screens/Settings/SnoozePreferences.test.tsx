@@ -21,14 +21,14 @@ it('saves a custom menu only after the user saves the edited presets',async()=>{
  const add=screen.getByRole('button',{name:'Add preset'});await waitFor(()=>expect(add).toBeEnabled());fireEvent.click(add);
  fireEvent.input(screen.getByLabelText('Name (optional)'),{target:{value:'After lunch'}});
  fireEvent.input(screen.getByLabelText('Amount'),{target:{value:'6'}});
- expect(writes).toEqual([]);fireEvent.click(screen.getByRole('button',{name:'Save snooze options'}));
+ expect(writes).toEqual([]);fireEvent.click(screen.getByRole('button',{name:'Save'}));
  await waitFor(()=>expect(writes).toHaveLength(1));
  expect((writes[0] as unknown[]).at(-1)).toMatchObject({kind:'hours',label:'After lunch',amount:6});
 });
 it('disables preset editing when an administrator locks the effective setting',async()=>{
  locked=true;render(()=><SnoozePreferences/>);
  await waitFor(()=>expect(screen.getByTestId('setting-lock-note')).toBeInTheDocument());
- expect(screen.getByRole('button',{name:'Add preset'})).toBeDisabled();expect(screen.getByRole('button',{name:'Save snooze options'})).toBeDisabled();
+ expect(screen.getByRole('button',{name:'Add preset'})).toBeDisabled();expect(screen.getByRole('button',{name:'Save'})).toBeDisabled();
  expect(screen.getByRole('checkbox',{name:'Show in menu: Tomorrow'})).toBeDisabled();
 });
 

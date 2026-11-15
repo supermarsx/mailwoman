@@ -34,7 +34,7 @@ snooze-amount = 数量
 snooze-time = 每日时间
 snooze-calendar-help = 小时按实际经过时间计算。日历规则使用显示时区和所选时间，周边界遵循区域设置。如果本周期结束时间已过，则使用下个周期。
 snooze-invalid-presets = 最多使用 32 个唯一预设、正整数间隔、有效时间及不超过 80 个字符的名称。
-snooze-save = 保存稍后提醒选项
+snooze-save = 保存
 
 snooze-rule-weekday = 下一个星期几
 snooze-rule-nth-weekday = 下个月第几个星期几

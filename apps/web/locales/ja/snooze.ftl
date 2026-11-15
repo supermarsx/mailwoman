@@ -34,7 +34,7 @@ snooze-amount = 数値
 snooze-time = 時刻
 snooze-calendar-help = 時間数は実際の経過時間です。暦のルールでは表示タイムゾーンと選択時刻を使用し、週の区切りは地域設定に従います。期間の終了時刻を過ぎている場合は次の期間を使用します。
 snooze-invalid-presets = 32件までの固有プリセット、正の整数の間隔、有効な時刻、80文字以内の名前を使用してください。
-snooze-save = スヌーズ設定を保存
+snooze-save = 保存
 
 snooze-rule-weekday = 次の曜日
 snooze-rule-nth-weekday = 翌月の指定回目の曜日

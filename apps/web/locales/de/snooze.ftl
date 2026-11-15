@@ -40,7 +40,7 @@ snooze-amount = Anzahl
 snooze-time = Uhrzeit
 snooze-calendar-help = Stunden sind verstrichene Zeit. Kalenderregeln nutzen die Anzeigezeitzone und gewählte Uhrzeit; die Woche richtet sich nach der Region. Ist das Periodenende vorbei, gilt die folgende Periode.
 snooze-invalid-presets = Bis zu 32 eindeutige Vorgaben mit positiven ganzen Intervallen, gültigen Uhrzeiten und Namen bis 80 Zeichen.
-snooze-save = Schlummeroptionen speichern
+snooze-save = Speichern
 
 snooze-rule-weekday = Nächster Wochentag
 snooze-rule-nth-weekday = Bestimmter Wochentag nächsten Monat

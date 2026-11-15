@@ -40,7 +40,7 @@ snooze-amount = Amount
 snooze-time = Time of day
 snooze-calendar-help = Hours are elapsed time. Calendar rules use the display timezone and selected time of day; week boundaries follow regional settings. If an end-of-period time has passed, the following period is used.
 snooze-invalid-presets = Use up to 32 unique presets, positive whole intervals, valid times and names of up to 80 characters.
-snooze-save = Save snooze options
+snooze-save = Save
 
 snooze-rule-weekday = Next weekday
 snooze-rule-nth-weekday = Ordinal weekday next month

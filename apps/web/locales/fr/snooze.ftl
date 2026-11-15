@@ -40,7 +40,7 @@ snooze-amount = Nombre
 snooze-time = Heure de la journée
 snooze-calendar-help = Les heures sont une durée écoulée. Les règles calendaires utilisent le fuseau d’affichage et l’heure choisie ; les semaines suivent la région. Si la fin de période est passée, la suivante est utilisée.
 snooze-invalid-presets = Utilisez au plus 32 choix uniques, des intervalles entiers positifs, des heures valides et des noms de 80 caractères au plus.
-snooze-save = Enregistrer les options de report
+snooze-save = Enregistrer
 
 snooze-rule-weekday = Prochain jour de la semaine
 snooze-rule-nth-weekday = Occurrence d’un jour le mois prochain
