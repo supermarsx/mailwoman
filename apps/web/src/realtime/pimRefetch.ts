@@ -59,6 +59,6 @@ export function shouldRefetchPim(surface: ShellSurface, change: StateChange): bo
   const relevant = MODULE_PIM_TYPES[surface];
   if (relevant === undefined) return false;
   const named = pimTypesInChange(change);
-  if (named.length === 0) return true; // coarse ping → refetch the open module
+  if (named.length === 0) return Object.values(change.changed).some(states=>Object.keys(states).length===0||Object.keys(states).some(key=>!['Session','Notification'].includes(key)));  // coarse ping → refetch the open module
   return named.some((t) => relevant.includes(t));
 }

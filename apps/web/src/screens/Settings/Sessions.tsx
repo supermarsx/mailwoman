@@ -1,3 +1,5 @@
+import {useRealtime} from '../../realtime/context.ts';
+import {preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
 import {SearchInput} from '../../components/SearchInput.tsx';
 import {formatDateTime as regionalDateTime} from '../../i18n/format.ts';
 import {countryDisplay} from '../../i18n/network.ts';
@@ -38,6 +40,7 @@ export function Sessions(props: SessionsProps): JSX.Element {
 
   const [authority,setAuthority]=createSignal(0);let alive=true;
   const [sessions, { refetch }] = createResource(authority,() => service.sessions());
+  onCleanup(useRealtime().onStateChange(change=>{const account=preferenceAccount();if(account&&change.changed[account.id]?.Session!==undefined)void refetch();}));
   const originMode = useSetting<string>('privacy.sessions.showLinkedOrigin', 'full', (v): v is string => typeof v === 'string' && ['full', 'masked-local-part', 'hidden'].includes(v));
   const [query, setQuery] = createSignal('');
   const [busy, setBusy] = createSignal(false);

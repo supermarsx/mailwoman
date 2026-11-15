@@ -1,3 +1,4 @@
+import {useRealtime} from '../realtime/context.ts';
 import {createSignal} from 'solid-js';
 import {apiFetch} from '../api/http.ts';
 import {withBase} from '../api/basePath.ts';
@@ -31,10 +32,11 @@ export async function changeCenterNotice(id:string,action:CenterAction):Promise<
 }
 export function publishAvailableUpdate(build:string):void{if(build.length<=240&&preferenceAccount())void changeCenterNotice(`update:${build}`,'publish-update').catch(()=>undefined);}
 export function startNotificationCenter():()=>void{
+ const realtimeOff=useRealtime().onStateChange(change=>{if(activeOwner&&change.changed[activeOwner.id]?.Notification!==undefined)void refreshNotificationCenter();});
  const off=observePreferenceAccount(owner=>{controller?.abort();epoch++;activeOwner=owner;setNotices([]);setFailed(false);setLoading(false);if(owner)void refreshNotificationCenter();});
  const refresh=()=>{if(document.visibilityState==='visible'&&activeOwner)void refreshNotificationCenter();};
  const wake=(event:MessageEvent)=>{if(event.data?.type==='mw-push-wake')refresh();};
  window.addEventListener('focus',refresh);window.addEventListener('online',refresh);document.addEventListener('visibilitychange',refresh);navigator.serviceWorker?.addEventListener?.('message',wake);
  const timer=setInterval(refresh,60_000);
- return ()=>{off();clearInterval(timer);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);document.removeEventListener('visibilitychange',refresh);navigator.serviceWorker?.removeEventListener?.('message',wake);controller?.abort();epoch++;activeOwner=null;setNotices([]);setLoading(false);};
+ return ()=>{realtimeOff();off();clearInterval(timer);window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);document.removeEventListener('visibilitychange',refresh);navigator.serviceWorker?.removeEventListener?.('message',wake);controller?.abort();epoch++;activeOwner=null;setNotices([]);setLoading(false);};
 }

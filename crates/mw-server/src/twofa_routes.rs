@@ -2054,6 +2054,7 @@ async fn sessions_revoke_route(
             {
                 Ok(Some(id)) => {
                     state.sessions.forget(&id);
+                    crate::linked_accounts::links_changed();
                     Json(json!({ "ok": true, "revoked": 1 })).into_response()
                 }
                 Ok(None) => (
@@ -2073,6 +2074,7 @@ async fn sessions_revoke_route(
                 for id in &ids {
                     state.sessions.forget(id);
                 }
+                crate::linked_accounts::links_changed();
                 Json(json!({ "ok": true, "revoked": ids.len() })).into_response()
             }
             Err(e) => server_error("revoke sessions", e),

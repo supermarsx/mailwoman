@@ -746,3 +746,55 @@ async fn recent_request_telemetry_cannot_extend_persisted_idle_deadline_of_strea
             .await;
     }
 }
+
+/// Account metadata uses the authenticated stream, never another user's rows.
+#[tokio::test]
+async fn session_and_notification_changes_are_live_and_account_scoped() {
+    let _serial = serial().await;
+    let srv = spawn(HardeningConfig::default()).await;
+    let alice = cookie_login(&srv, A_USER, A_PASS).await;
+    let bob = cookie_login(&srv, B_USER, B_PASS).await;
+    let mut a = open_both(&srv, &alice).await;
+    let mut b = open_both(&srv, &bob).await;
+    let another = cookie_login(&srv, A_USER, A_PASS).await;
+    for stream in &mut a {
+        loop {
+            match stream.next(Duration::from_secs(6)).await {
+                Next::Change(value) => {
+                    assert!(value["changed"].as_object().unwrap().keys().all(|id| id == &alice.account_id));
+                    if value["changed"][&alice.account_id]["Session"].is_string() { break; }
+                }
+                other => panic!("session metadata did not arrive: {other:?}"),
+            }
+        }
+    }
+    let (name, value) = alice.auth.header();
+    let me: Value = client().get(format!("{}/api/me", srv.base)).header(name, &value).send().await.unwrap().json().await.unwrap();
+    let response = client().post(format!("{}/api/account/notification-center", srv.base))
+        .header(name, value).header("x-mailwoman-account", &alice.account_id).header("x-mailwoman-storage-authority", me["storageAuthority"].as_str().unwrap()).json(&json!({"id":"update:sync-integration", "action":"publish-update"})).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    for stream in &mut a {
+        loop {
+            match stream.next(Duration::from_secs(6)).await {
+                Next::Change(value) if value["changed"][&alice.account_id]["Notification"].is_string() => break,
+                Next::Change(_) => {},
+                other => panic!("notification metadata did not arrive: {other:?}"),
+            }
+        }
+    }
+    for stream in &mut b {
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+        loop {
+            match stream.next(deadline.saturating_duration_since(tokio::time::Instant::now())).await {
+                Next::Change(value) => {
+                    assert!(value["changed"].as_object().unwrap().keys().all(|id| id == &bob.account_id));
+                    assert!(value["changed"][&bob.account_id]["Notification"].is_null());
+                    assert!(value["changed"][&bob.account_id]["Session"].is_null());
+                }
+                Next::TimedOut => break,
+                other => panic!("unrelated account stream ended: {other:?}"),
+            }
+        }
+    }
+    logout(&srv, &another).await;
+}

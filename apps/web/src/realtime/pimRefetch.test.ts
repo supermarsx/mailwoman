@@ -43,3 +43,5 @@ describe('pimRefetch', () => {
     expect(shouldRefetchPim('tasks', calChange)).toBe(true);
   });
 });
+
+it('ignores session and notification metadata changes when the PIM store did not change',()=>{expect(shouldRefetchPim('calendar',{'@type':'StateChange',changed:{acct1:{Session:'s2',Notification:'n2'}}})).toBe(false);});

@@ -102,6 +102,7 @@ async fn save(
             store.delete_personal_setting(owner, &key).await?;
         }
     }
+    crate::linked_accounts::links_changed();
     Ok(())
 }
 pub(crate) fn router() -> Router<AppState> {

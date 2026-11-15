@@ -215,6 +215,8 @@ struct LinkedScope {
     /// The parent's own storage authority, for its `"link":null` frames.
     parent_authority: Option<String>,
     links: Vec<LiveLink>,
+    metadata: std::collections::BTreeMap<String, String>,
+    personal_owner: Option<String>,
 }
 
 /// A change taken off the broadcast for this stream, not yet written.
@@ -256,11 +258,14 @@ impl ScopedChanges {
             .await
             .ok()
             .flatten();
+        let personal_owner = state.store.session_personal_subject(&parent.id).await.ok().flatten();
         changes.linked = Some(LinkedScope {
             state,
             parent,
             parent_authority,
             links: Vec::new(),
+            metadata: Default::default(),
+            personal_owner,
         });
         changes.refresh_links().await;
         changes
@@ -331,6 +336,33 @@ impl ScopedChanges {
         let Some(scope) = self.linked.as_mut() else {
             return;
         };
+        // Only opaque state tokens leave this authenticated account's stream.
+        // Seed the initial baseline without emitting spurious changes.
+        let mut changed = serde_json::Map::new();
+        if let Ok(mut rows) = scope.state.store.list_security_sessions(Some(&scope.parent.account_id), 100).await {
+            rows.sort_by(|a,b| a.handle.cmp(&b.handle));
+            let snapshot: Vec<_> = rows.iter().map(|row| (&row.handle, &row.device)).collect();
+            if let Ok(json) = serde_json::to_string(&snapshot) {
+                let token = crate::push_relay::hash_token(&json);
+                if scope.metadata.insert("Session".into(), token.clone()).is_some_and(|old| old != token) {
+                    changed.insert("Session".into(), token.into());
+                }
+            }
+        }
+        if let Some(owner) = &scope.personal_owner {
+            if let Ok(mut rows) = scope.state.store.personal_records(owner, "notification-center:v1:").await {
+                rows.sort();
+                if let Ok(json) = serde_json::to_string(&rows) {
+                    let token = crate::push_relay::hash_token(&json);
+                    if scope.metadata.insert("Notification".into(), token.clone()).is_some_and(|old| old != token) {
+                        changed.insert("Notification".into(), token.into());
+                    }
+                }
+            }
+        }
+        if !changed.is_empty() {
+            self.pending.push_back(serde_json::json!({"@type":"StateChange", "changed":{scope.parent.account_id.clone():changed}}).to_string());
+        }
         let next = linked_accounts::live_links(&scope.state, &scope.parent).await;
         let had_none = scope.links.is_empty();
         if had_none

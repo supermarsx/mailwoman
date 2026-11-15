@@ -3137,6 +3137,7 @@ async fn engine_login(
 /// Build a login/rotate success response: set the session cookie, mint a fresh
 /// double-submit CSRF token (cookie + body), and return the JSON payload.
 fn authenticated_response(state: &AppState, id: &str, mut body: serde_json::Value) -> Response {
+    linked_accounts::links_changed();
     let token = state.store.session_csrf_token(id);
     if let Some(obj) = body.as_object_mut() {
         obj.insert("csrfToken".into(), json!(token));
@@ -3183,6 +3184,7 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
         let _ = state.store.delete_session(&id).await;
         state.sessions.forget(&id);
     }
+    linked_accounts::links_changed();
     let mut resp = StatusCode::NO_CONTENT.into_response();
     resp.headers_mut()
         .append(header::SET_COOKIE, clear_cookie(state.cookie_secure));
