@@ -19,6 +19,7 @@ import { describeAdminError } from '../shell/Feedback.tsx';
 import { hrefFor, sectionPath } from '../shell/router.ts';
 import { BULK_ACTIONS, actionsFor, bulkField, bulkReady, daysLeft, logFileName, onTimePercent, type BulkKind } from './model.ts';
 import * as css from '../admin.css.ts';
+import * as layout from '../signinPolicyLayout.css.ts';
 
 const when = (s: number): string => formatDateTime(s * 1000);
 const STATUSES = ['open', 'awaiting_confirmation', 'awaiting_verification', 'awaiting_approval', 'queued', 'processing', 'scheduled', 'in_progress', 'blocked', 'failed', 'ready', 'downloaded', 'expired', 'completed', 'rejected', 'cancelled'] as const;
@@ -46,7 +47,7 @@ function Detail(props: { id: string; onChange: () => void; onClose: () => void }
   return <Show when={data()} fallback={<p role="status">{t('admin-dr-loading')}</p>}>{d => {
     const r = (): AdminDataRequest => d().request;
     const a = (): ReturnType<typeof actionsFor> => actionsFor(r());
-    return <section class={css.card} aria-label={t('admin-dr-detail')} data-testid="dr-detail">
+    return <section class={`${css.card} ${layout.group}`} aria-label={t('admin-dr-detail')} data-testid="dr-detail">
       <div class={css.headingRow}>
         <h3 class={css.subHeading}>{t(`dr-kind-${r().kind}`)} · {r().address}</h3>
         <button type="button" class="btn btn--ghost" onClick={props.onClose}>{t('admin-dr-close')}</button>
@@ -224,7 +225,7 @@ export function AdminDataRequests(): JSX.Element {
       <Show when={cursor()}><button type="button" class="btn btn--ghost" disabled={paging()} onClick={() => void loadMore()} data-testid="dr-more">{t('admin-dr-more')}</button></Show>
     </Show>
     <Show when={selected()}>{id => <Detail id={id()} onChange={() => void refetch()} onClose={() => setSelected(null)} />}</Show>
-    <section class={css.card} aria-label={t('admin-dr-behalf')}>
+    <section class={`${css.card} ${layout.group}`} aria-label={t('admin-dr-behalf')}>
       <h3 class={css.subHeading}>{t('admin-dr-behalf')}</h3>
       <p class={css.note}>{t('admin-dr-behalf-help')}</p>
       <label>{t('admin-dr-col-person')}<input type="email" value={behalfAddress()} onInput={e => setBehalfAddress(e.currentTarget.value)} /></label>

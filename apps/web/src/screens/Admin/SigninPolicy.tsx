@@ -4,6 +4,7 @@ import { loadCatalog, t } from '../../i18n';
 import { formatDateTime } from '../../i18n/format.ts';
 import { Feedback, describeAdminError } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
+import * as layout from './signinPolicyLayout.css.ts';
 
 /** The rows of the matrix: the base rule, then each type of sign-in. */
 const ROWS = ['signin.newUsers', 'signin.newUsers.mail', 'signin.newUsers.sso', 'signin.newUsers.linked', 'signin.newUsers.linked.imap', 'signin.newUsers.linked.pop3', 'signin.newUsers.linked.ews'] as const;
@@ -86,7 +87,7 @@ export function SigninPolicy(props: { api?: SigninPolicyApi; readOnly?: boolean 
     setBusy(true); setError('');
     try { await action(); setPending(await api.pending()); } catch (c) { setError(describeAdminError(c)); } finally { setBusy(false); }
   }
-  return <section class={css.section} aria-label={t('admin-signin-title')} data-testid="signin-policy">
+  return <section class={`${css.section} ${layout.root}`} aria-label={t('admin-signin-title')} data-testid="signin-policy">
     <h2 class={css.heading}>{t('admin-signin-title')}</h2>
     <p class={css.note}>{t('admin-signin-intro')}</p>
     <p class={css.note} data-testid="signin-existing-note">{t('admin-signin-existing-unaffected')}</p>
@@ -96,7 +97,7 @@ export function SigninPolicy(props: { api?: SigninPolicyApi; readOnly?: boolean 
       <Show when={ROWS.some(k => ['preprovisioned', 'provisioned'].includes(globalOf(k)))}>
         <p class={css.note} data-testid="signin-preprovision-hint">{t('admin-signin-preprovision-hint')}</p>
       </Show>
-      <table><caption>{t('admin-signin-matrix')}</caption>
+      <section class={layout.group}><table><caption>{t('admin-signin-matrix')}</caption>
         <thead><tr><th scope="col">{t('admin-signin-type')}</th><th scope="col">{t('admin-signin-global')}</th></tr></thead>
         <tbody><For each={ROWS}>{key => <tr><th scope="row">{t(`admin-settings-key-${slug(key)}`)}</th><td>
           <select aria-label={t(`admin-settings-key-${slug(key)}`)} disabled={disabled()} onChange={e => void save([{ key, value: e.currentTarget.value }])}>
@@ -104,7 +105,7 @@ export function SigninPolicy(props: { api?: SigninPolicyApi; readOnly?: boolean 
           </select></td></tr>}</For></tbody></table>
       <ul class={css.note}><For each={['inherit', ...VALUES]}>{v => <li><strong>{t(`admin-signin-value-${v}`)}</strong>: {t(`admin-signin-value-help-${v}`)}</li>}</For></ul>
 
-      <h3 class={css.heading}>{t('admin-signin-domain-overrides')}</h3>
+      </section><section class={layout.group}><h3 class={css.heading}>{t('admin-signin-domain-overrides')}</h3>
       <Show when={overrides().length > 0} fallback={<p class={css.note}>{t('admin-signin-no-overrides')}</p>}>
         <table><thead><tr><th>{t('admin-signin-type')}</th><th>{t('admin-signin-domain')}</th><th>{t('admin-signin-value')}</th><th /></tr></thead>
           <tbody><For each={overrides()}>{o => <tr><td>{t(`admin-settings-key-${slug(o.key)}`)}</td><td>{o.domain}</td><td>{t(`admin-signin-value-${o.value}`)}</td>
@@ -117,7 +118,7 @@ export function SigninPolicy(props: { api?: SigninPolicyApi; readOnly?: boolean 
         <button type="submit" class="btn" disabled={disabled() || !domain().trim()}>{t('admin-signin-add-override')}</button>
       </form>
 
-      <h3 class={css.heading}>{t('admin-signin-other')}</h3>
+      </section><section class={layout.group}><h3 class={css.heading}>{t('admin-signin-other')}</h3>
       <label>{t('admin-settings-key-signin-refusal-detail')}
         <select disabled={disabled()} onChange={e => void save([{ key: 'signin.refusalDetail', value: e.currentTarget.value }])}>
           <option value="explain" selected={String(current().global['signin.refusalDetail'] ?? 'explain') === 'explain'}>{t('admin-signin-refusal-explain')}</option>
@@ -127,7 +128,7 @@ export function SigninPolicy(props: { api?: SigninPolicyApi; readOnly?: boolean 
       <For each={['signin.preprovision.ttlDays', 'signin.preprovision.maxTtlDays', 'signin.preprovision.retentionDays']}>{key =>
         <label>{t(`admin-settings-key-${slug(key)}`)}<input type="number" min="0" value={String(current().global[key] ?? current().defaults[key] ?? '')} disabled={disabled()} onChange={e => void save([{ key, value: e.currentTarget.valueAsNumber }])} /></label>}</For>
 
-      <h3 class={css.heading}>{t('admin-signin-simulator')}</h3>
+      </section><section class={layout.group}><h3 class={css.heading}>{t('admin-signin-simulator')}</h3>
       <p class={css.note}>{t('admin-signin-simulator-help')}</p>
       <form onSubmit={e => { e.preventDefault(); void api.preview(simAddress().trim(), simType()).then(setSim).catch(c => setError(describeAdminError(c))); }}>
         <label>{t('admin-signin-address')}<input value={simAddress()} onInput={e => setSimAddress(e.currentTarget.value)} /></label>
@@ -135,9 +136,10 @@ export function SigninPolicy(props: { api?: SigninPolicyApi; readOnly?: boolean 
         <button type="submit" class="btn" disabled={!simAddress().trim()}>{t('admin-signin-simulate')}</button>
       </form>
       <Show when={sim()}>{r => <p role="status" data-testid="signin-sim">{t(r().wouldBeRefused ? 'admin-signin-sim-refused' : 'admin-signin-sim-admitted', { rule: t(`admin-signin-value-${r().rule}`) })}</p>}</Show>
+      </section>
     </>}</Show>
 
-    <h3 class={css.heading}>{t('admin-signin-pending-title')}</h3>
+    <section class={layout.group}><h3 class={css.heading}>{t('admin-signin-pending-title')}</h3>
     <p class={css.note}>{t('admin-signin-pending-help')}</p>
     <Show when={!props.readOnly}>
       <label>{t('admin-signin-pending-addresses')}<textarea rows="4" value={list()} onInput={e => setList(e.currentTarget.value)} /></label>
@@ -153,5 +155,6 @@ export function SigninPolicy(props: { api?: SigninPolicyApi; readOnly?: boolean 
             <button type="button" class="btn btn--ghost" disabled={busy()} onClick={() => void row(() => api.extend(e.address, ttl()))}>{t('admin-signin-pending-extend')}</button>
             <button type="button" class="btn btn--ghost" disabled={busy()} onClick={() => void row(() => api.revoke(e.address))}>{t('admin-signin-pending-revoke')}</button></Show></td></tr>}</For></tbody></table>
     </Show>
+    </section>
   </section>;
 }

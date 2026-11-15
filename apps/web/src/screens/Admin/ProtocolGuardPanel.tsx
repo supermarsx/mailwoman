@@ -78,7 +78,7 @@ export function ProtocolGuardPanel(props: { load?: typeof listAdminSettings; api
   };
 
   return (
-    <section aria-label={t('admin-protocol-panel-title')} data-testid="protocol-guard-panel">
+    <section class={admin.section} aria-label={t('admin-protocol-panel-title')} data-testid="protocol-guard-panel">
       <p class={admin.note}>{t('admin-protocol-panel-help')} <a href={adminDocsHref('protocol-guard')} target="_blank" rel="noopener noreferrer">{t('admin-ux-learn-more')}</a></p>
       <Feedback kind="success" as="toast" message={toast()} />
       <Show when={!canRead()}><p role="alert">{t('admin-protocol-panel-denied')}</p></Show>

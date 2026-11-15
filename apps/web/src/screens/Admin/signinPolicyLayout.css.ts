@@ -1,0 +1,13 @@
+import {style,globalStyle} from '@vanilla-extract/css';
+import {vars} from '../../theme/contract.css.ts';
+export const root=style({minInlineSize:0});
+export const group=style({display:'flex',flexDirection:'column',gap:vars.space[4],padding:vars.space[5],border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:vars.radius.md,minInlineSize:0,overflowX:'auto'});
+globalStyle(`${group} p, ${group} h3`,{margin:0,maxInlineSize:'75ch'});
+globalStyle(`${group} table`,{inlineSize:'100%',borderCollapse:'collapse'});
+globalStyle(`${group} td,${group} th`,{padding:`${vars.space[3]} ${vars.space[4]}`,textAlign:'start',verticalAlign:'middle',borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`});
+globalStyle(`${group} caption`,{fontWeight:vars.weight.bold,textAlign:'start',paddingBlockEnd:vars.space[4]});
+globalStyle(`${group} form`,{display:'flex',alignItems:'end',flexWrap:'wrap',gap:vars.space[4]});
+globalStyle(`${group} label`,{display:'flex',flexDirection:'column',gap:vars.space[2],maxInlineSize:'32rem',minInlineSize:0,lineHeight:1.5});
+globalStyle(`${group} label:has(input[type="checkbox"])`,{flexDirection:'row',alignItems:'center',gap:vars.space[3]});
+globalStyle(`${group} input[type="number"]`,{maxInlineSize:'12rem'});
+globalStyle(`${group} button`,{alignSelf:'flex-start'});

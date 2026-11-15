@@ -1,6 +1,7 @@
 import {MailboxAvatarEditor} from '../Settings/MailboxAvatarEditor.tsx';
 import {validAvatar} from '../../api/mailboxAvatar.ts';
 import * as accountCss from './shell/accountButtons.css.ts';
+import * as policyLayout from './signinPolicyLayout.css.ts';
 import {TextModePreference} from '../Settings/TextModePreference.tsx';
 import { AppearanceCustomization } from '../../components/AppearanceCustomization.tsx';
 import { AdminTotp } from './AdminTotp.tsx';
@@ -108,10 +109,10 @@ function PersonalSecurity(props: { manageTotp: () => void }): JSX.Element {
   const shell=useShell();let alive=true;
   onCleanup(()=>{alive=false;toast.dismiss(saveToast);});
   async function run(action: () => Promise<void>): Promise<void> { const owner=shell.username();const current=()=>alive&&shell.username()===owner;setBusy(true); toast.info(t('admin-personal-saving'),{id:saveToast,busy:true,persistent:true,duration:Infinity}); try { await action(); if(current())toast.success(t('admin-personal-security-saved'),{id:saveToast}); } catch (cause) { if(current())toast.error(cause instanceof Error ? cause.message : String(cause),{id:saveToast}); } finally { if(alive)setBusy(false); } }
-  return <div class={css.stack}>
+  return <div class={css.field}>
     <AdminPasskeys />
     <section class={css.section}><h3 class={css.heading}>{t('admin-personal-totp')}</h3><p class={css.prose}>{t('admin-totp-description')}</p><div class={css.actions}><button class={css.button} onClick={props.manageTotp}>{t('admin-totp-manage')}</button></div></section>
-    <form class={css.stack} onSubmit={e => { e.preventDefault(); void run(async () => { await adminRequest('/me/password', { method: 'PUT', body: { currentPassword: currentPassword(), newPassword: newPassword() } }); setCurrentPassword(''); setNewPassword(''); setPasswordChanged(true); }); }}><h4 class={css.subheading}>{t('admin-personal-password')}</h4><label class={css.field}>{t('admin-personal-password-current')}<input class={css.input} type="password" autocomplete="current-password" required disabled={busy()} value={currentPassword()} onInput={e => setCurrentPassword(e.currentTarget.value)} /></label><label class={css.field}>{t('admin-personal-password-new')}<input class={css.input} type="password" autocomplete="new-password" required disabled={busy()} value={newPassword()} onInput={e => setNewPassword(e.currentTarget.value)} /></label><div class={css.actions}><button class={css.button} type="submit" disabled={busy()}>{t('admin-personal-password-save')}</button></div></form>
+    <form class={policyLayout.group} onSubmit={e => { e.preventDefault(); void run(async () => { await adminRequest('/me/password', { method: 'PUT', body: { currentPassword: currentPassword(), newPassword: newPassword() } }); setCurrentPassword(''); setNewPassword(''); setPasswordChanged(true); }); }}><h4 class={css.subheading}>{t('admin-personal-password')}</h4><label class={css.field}>{t('admin-personal-password-current')}<input class={css.input} type="password" autocomplete="current-password" required disabled={busy()} value={currentPassword()} onInput={e => setCurrentPassword(e.currentTarget.value)} /></label><label class={css.field}>{t('admin-personal-password-new')}<input class={css.input} type="password" autocomplete="new-password" required disabled={busy()} value={newPassword()} onInput={e => setNewPassword(e.currentTarget.value)} /></label><div class={css.actions}><button class={css.button} type="submit" disabled={busy()}>{t('admin-personal-password-save')}</button></div></form>
     <Show when={passwordChanged()}><p role="alert" class={css.prose}>{t('admin-personal-password-signin')}</p></Show>
   </div>;
 }

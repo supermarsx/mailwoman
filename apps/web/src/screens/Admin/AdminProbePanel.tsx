@@ -183,7 +183,7 @@ export function AdminProbePanel(props: { api?: AdminProbeApi | undefined; load?:
       onSave={(v) => void save(key, v)} onReset={() => void save(key, null)} />;
   };
   return (
-    <section aria-label={t('admin-probe-title')} data-testid="admin-probe-panel">
+    <section class={admin.section} aria-label={t('admin-probe-title')} data-testid="admin-probe-panel">
       <div class={admin.card} data-testid="admin-probe-card">
         <h3 class={admin.heading}>{t('admin-probe-title')}</h3>
         <p class={admin.note}>{t('admin-probe-intro')} <a href={adminDocsHref('security-center')} target="_blank" rel="noopener noreferrer">{t('admin-ux-learn-more')}</a></p>

@@ -1,3 +1,4 @@
+import * as layout from './signinPolicyLayout.css.ts';
 import {createSignal,createUniqueId,onMount,onCleanup,Show,type JSX} from 'solid-js';
 import {clientAccessApi,validClientPsk,validClientSlug,type ClientAccessApi,type ClientAccessChange,type ClientAccessView} from '../../api/admin/clientAccess.ts';
 import {loadCatalog,t} from '../../i18n';
@@ -31,7 +32,7 @@ export function ClientAccess(props:{readOnly:boolean;api?:ClientAccessApi}):JSX.
   <h2 class={css.heading}>{t('admin-client-access-title')}</h2><p class={css.note}>{t('admin-client-access-help')}</p><p class={css.note}>{t('admin-client-access-scope')}</p>
   <Feedback kind="error" message={loadError()}/><Feedback kind="error" as="toast" message={error()}/><Feedback kind="success" as="toast" message={saved()}/>
   <Show when={loading()}><InlineLoading/></Show><Show when={loadError()}><button class="btn" onClick={()=>void load()}>{t('common-retry')}</button></Show>
-  <Show when={view()}>{current=><form class={css.subsectionBody} onSubmit={event=>void save(event)}>
+  <Show when={view()}>{current=><form class={layout.group} onSubmit={event=>void save(event)}>
    <p><strong>{t('admin-client-access-entry')}</strong> <code data-testid="client-entry-path">{current().clientEntryPath}</code></p>
    <label><input type="checkbox" checked={slugEnabled()} disabled={disabled()} onChange={event=>setSlugEnabled(event.currentTarget.checked)}/>{t('admin-client-access-slug-enable')}</label>
    <label class="field">{t('admin-client-access-slug')}<input aria-label={t('admin-client-access-slug')} aria-describedby={`${id}-slug-help`} value={slug()} autocomplete="off" spellcheck={false} disabled={disabled()} aria-invalid={slug()!==''&&!validClientSlug(slug())} onInput={event=>setSlug(event.currentTarget.value)}/><small id={`${id}-slug-help`}>{t('admin-client-access-slug-help')}</small></label>
