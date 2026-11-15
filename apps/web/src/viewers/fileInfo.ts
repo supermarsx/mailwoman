@@ -1,7 +1,7 @@
 import {viewerKindFor} from '../contracts/viewer.ts';
 import type { IconName } from '../components/Icon.tsx';
 
-const EXECUTABLE = new Set('exe dll com scr msi msp bat cmd ps1 psm1 vbs vbe js jse wsf wsh hta lnk url desktop app dmg pkg deb rpm sh bash jar apk iso img reg chm'.split(' '));
+const EXECUTABLE = new Set('exe dll com scr msi msp bat cmd ps1 psm1 vbs vbe js jse wsf wsh hta lnk url desktop app dmg pkg deb rpm sh bash jar apk iso img reg chm cpl pif gadget msc msix msixbundle appx appxbundle vb sct ocx sys drv inf scf iqy slk xll'.split(' '));
 const MACRO = new Set('docm dotm xlsm xltm xlam xlsb pptm potm ppam ppsm sldm'.split(' '));
 const EXTENSIONS: Record<string, string> = {
   pdf: 'PDF document', txt: 'Plain text', csv: 'CSV table', tsv: 'Tab-separated table', json: 'JSON data', xml: 'XML document', html: 'HTML document', htm: 'HTML document', md: 'Markdown text', log: 'Log text',

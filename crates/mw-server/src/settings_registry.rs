@@ -294,7 +294,8 @@ impl SettingDef {
             || self.key == "receipts.dsnAllowed"
             || matches!(
                 self.key,
-                "mail.templates.shared"
+                "mail.attachmentWarningsRequired"
+                    | "mail.templates.shared"
                     | "mail.conversations.allowed"
                     | "mail.templates.allowPersonal"
                     | "mail.send.recallDelayMaxSeconds"
@@ -793,6 +794,9 @@ pub static REGISTRY: &[SettingDef] = &[
         "accounts",
         "Allow verified linked mailbox accounts; global false is a hard ceiling"
     ),
+    def!("mail.attachmentWarnings",Kind::Bool,"true",GDU,"reader","Show a warning bar for suspicious attachment filenames and risky extensions"),
+    def!("mail.attachmentWarningsRequired",Kind::Bool,"false",GDA,"reader","Require all attachment warning categories regardless of user visibility choices; download and preview policies remain authoritative"),
+    def!("mail.attachmentWarningTypes",Kind::StringList{max_len:5,max_item:32},r#"["executable","macro","disguisedName","typeMismatch","activeDocument"]"#,GDU,"reader","Attachment warning categories shown to this user unless warnings are required by administrator policy"),
     def!(
         "accounts.useLinked",
         Kind::Bool,
@@ -8983,6 +8987,8 @@ fn valid_shortcut(value: &str) -> bool {
 }
 
 pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, Refusal> {
+    if def.key=="mail.attachmentWarningTypes" && !value.as_array().is_some_and(|values|values.iter().all(|value|value.as_str().is_some_and(|kind|["executable","macro","disguisedName","typeMismatch","activeDocument"].contains(&kind)))) {return Err(Refusal::invalid(field,"unsupported attachment warning category"));}
+
     if def.key=="accounts.settings.inheritGroups" && !value.as_array().is_some_and(|values|{
         let allowed=["reader","compose","mail","folders","notifications","time","interface","privacy"];
         values.len()<=allowed.len() && values.iter().enumerate().all(|(index,value)|value.as_str().is_some_and(|group|allowed.contains(&group))&&!values[..index].contains(value))

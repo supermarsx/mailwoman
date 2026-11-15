@@ -1412,3 +1412,6 @@ reader-sanitized-trackers = アイテムの追跡
 
 mail-draft-view = 下書きを表示
 mail-reply-draft-view = 返信を表示
+
+mail-attachment-warning-title = 添付ファイルのセキュリティ警告
+mail-attachment-warning-help = これらのファイルはコードを実行したり、種類を偽装したりする可能性があります。開く前に送信者とファイル名を確認してください。

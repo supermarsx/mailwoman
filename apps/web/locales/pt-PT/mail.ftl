@@ -1455,3 +1455,6 @@ mail-mentions-me-help = Pesquisar mensagens que mencionam um dos seus endereços
 
 mail-draft-view = Ver rascunho
 mail-reply-draft-view = Ver resposta
+
+mail-attachment-warning-title = Avisos de segurança dos anexos
+mail-attachment-warning-help = Estes ficheiros podem executar código ou disfarçar o seu tipo. Verifique o remetente e o nome antes de os abrir.

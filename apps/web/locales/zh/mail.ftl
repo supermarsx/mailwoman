@@ -1434,3 +1434,6 @@ reader-sanitized-trackers = 追踪物品
 
 mail-draft-view = 查看草稿
 mail-reply-draft-view = 查看回复
+
+mail-attachment-warning-title = 附件安全警告
+mail-attachment-warning-help = 这些文件可能执行代码或伪装文件类型。打开之前请核实发件人和文件名。

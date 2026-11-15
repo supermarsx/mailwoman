@@ -1664,3 +1664,6 @@ reader-sanitized-trackers = تتبع العناصر
 
 mail-draft-view = عرض المسودة
 mail-reply-draft-view = عرض الرد
+
+mail-attachment-warning-title = تحذيرات أمان المرفقات
+mail-attachment-warning-help = قد تشغل هذه الملفات تعليمات برمجية أو تخفي نوعها. تحقق من المرسل واسم الملف قبل فتحها.

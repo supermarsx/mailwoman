@@ -509,6 +509,9 @@ export const KNOWN_KEYS: readonly string[] = [
   'ui.undoHistorySize',
   'ui.undoHistoryMax',
   'mail.unifiedInbox',
+  'mail.attachmentWarnings',
+  'mail.attachmentWarningsRequired',
+  'mail.attachmentWarningTypes',
   'mail.unifiedAccount',
 
   'accounts.settings.inheritGroups',

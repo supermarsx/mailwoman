@@ -1,0 +1,11 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+import {render,screen} from '@solidjs/testing-library';
+import {AttachmentWarningBar} from './AttachmentWarningBar.tsx';
+const fixture=vi.hoisted(()=>({settings:{} as Record<string,{value:unknown}>}));
+vi.mock('../api/settings.ts',()=>({settings:()=>fixture.settings}));
+vi.mock('../api/attachmentPolicy.ts',()=>({loadAttachmentPolicy:async()=>({}),attachmentDecision:()=>({allowed:true,warning:false})}));
+beforeEach(()=>{fixture.settings={};});
+const parts=[{name:'invoice.pdf.exe',type:'application/octet-stream',size:100,partId:'1',blobId:'file'}];
+it('shows risky filenames and double-extension explanations without fetching attachment bytes',()=>{render(()=><AttachmentWarningBar parts={parts}/>);expect(screen.getByRole('note')).toHaveTextContent('invoice.pdf.exe');expect(screen.getByRole('note')).toHaveTextContent('Attachment security warnings');});
+it('honors a user hiding the warning bar',()=>{fixture.settings={'mail.attachmentWarnings':{value:false}};render(()=><AttachmentWarningBar parts={parts}/>);expect(screen.queryByRole('note')).not.toBeInTheDocument();});
+it('administrator enforcement restores warning categories hidden by user choices',()=>{fixture.settings={'mail.attachmentWarnings':{value:false},'mail.attachmentWarningTypes':{value:[]},'mail.attachmentWarningsRequired':{value:true}};render(()=><AttachmentWarningBar parts={parts}/>);expect(screen.getByRole('note')).toHaveTextContent('invoice.pdf.exe');});

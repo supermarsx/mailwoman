@@ -1466,3 +1466,6 @@ mail-mentions-me-help = Search messages that mention one of your email addresses
 
 mail-draft-view = View draft
 mail-reply-draft-view = View reply
+
+mail-attachment-warning-title = Attachment security warnings
+mail-attachment-warning-help = These files may run code or disguise their type. Verify the sender and filename before opening them.

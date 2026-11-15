@@ -1495,3 +1495,6 @@ reader-sanitized-trackers = Suivi des articles
 
 mail-draft-view = Voir le brouillon
 mail-reply-draft-view = Voir la réponse
+
+mail-attachment-warning-title = Alertes de sécurité des pièces jointes
+mail-attachment-warning-help = Ces fichiers peuvent exécuter du code ou masquer leur type. Vérifiez l’expéditeur et le nom avant de les ouvrir.

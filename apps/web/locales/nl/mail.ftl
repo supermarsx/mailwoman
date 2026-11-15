@@ -1477,3 +1477,6 @@ reader-sanitized-trackers = Artikelen volgen
 
 mail-draft-view = Concept bekijken
 mail-reply-draft-view = Antwoord bekijken
+
+mail-attachment-warning-title = Beveiligingswaarschuwingen voor bijlagen
+mail-attachment-warning-help = Deze bestanden kunnen code uitvoeren of hun type verhullen. Controleer afzender en bestandsnaam vóór openen.

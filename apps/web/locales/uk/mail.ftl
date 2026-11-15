@@ -1592,3 +1592,6 @@ reader-sanitized-trackers = Відстеження елементів
 
 mail-draft-view = Переглянути чернетку
 mail-reply-draft-view = Переглянути відповідь
+
+mail-attachment-warning-title = Попередження щодо безпеки вкладень
+mail-attachment-warning-help = Ці файли можуть виконувати код або приховувати свій тип. Перевірте відправника та ім’я файла перед відкриттям.

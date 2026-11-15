@@ -1,3 +1,4 @@
+import {AttachmentWarningBar} from './AttachmentWarningBar.tsx';
 import {AsyncError} from './AsyncState.tsx';
 import {ReaderReplyState} from './ReplyState.tsx';
 import {createReplyDraftIndex} from './compose/replyDrafts.ts';
@@ -1613,6 +1614,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 the body down after it is shown. */}
             <Show when={stackMounted()}>
               <div class={noticeCss.stack} data-testid="reader-notice-stack" style={noticesReady() ? undefined : {display:'none'}}>
+                <AttachmentWarningBar parts={(email() as {attachments?:AttachmentPart[]}).attachments??[]}/>
                 <MessagePrivacyBar images={showRemoteBar()?{
                   emailId:email().id,sender:sender(),report:blockedReport(),activeGrant:activeGrant(),mode:bannerMode(),
                   decodedTrackers:remoteLoad.trackers(),imageFailures:remoteLoad.failures(),imageProgress:currentImageProgress(),
