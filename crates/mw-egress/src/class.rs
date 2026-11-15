@@ -211,6 +211,7 @@ mod tests {
                 "update_check",
                 "sieve",
                 "geoip",
+                "system_mail",
             ]
         );
     }
