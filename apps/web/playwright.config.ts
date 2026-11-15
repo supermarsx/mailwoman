@@ -87,6 +87,7 @@ export default defineConfig({
     navigationTimeout: 15_000,
   },
   projects: [
+    {name:'sync-browser',testMatch:['sync-offline.spec.ts'],use:{...devices['Desktop Chrome'],launchOptions:{ignoreDefaultArgs:['--disable-background-networking']}}},
     {
       name: 'mock',
       testMatch: ['happy-path.spec.ts', 'sanitizer.spec.ts', 'settings-optional-methods.spec.ts', 'csrf-strict.spec.ts', 't32-h10-errors.spec.ts', 'pdf-attachment.spec.ts', 'folder-dnd.spec.ts'],
