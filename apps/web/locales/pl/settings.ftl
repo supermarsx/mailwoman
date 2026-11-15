@@ -904,3 +904,21 @@ settings-badge-sent-help = Wysłane wiadomości zwykle nie mają wyników uwierz
 
 settings-offline-enabled = Dostęp offline
 settings-offline-enabled-help = Przechowuj na urządzeniu zaszyfrowane kopie poczty, kalendarzy, zadań, notatek i kontaktów z pamięci podręcznej. Offline dostępne są tylko zapisane treści; zmiany czekają na zweryfikowane połączenie.
+
+settings-offline-usage = W pamięci: { $size } w { $count } elementach · Chronione: { $protected }
+settings-offline-storage-error = Nie można uzyskać dostępu do zaszyfrowanej pamięci. Sprawdź uprawnienia pamięci przeglądarki.
+
+settings-sync-headers-window = Okres nagłówków offline
+settings-sync-headers-window-help = Synchronizuje ostatnie nagłówki w limicie zaszyfrowanej pamięci. Starsza poczta pozostaje dostępna online.
+settings-sync-bodies = Treść wiadomości
+settings-sync-bodies-help = Pobiera treść przy otwieraniu lub z wyprzedzeniem do czytania offline.
+settings-sync-attachments = Załączniki
+settings-sync-attachments-help = Zapisuje otwarte pliki lub pobiera osadzone obrazy albo dozwolone załączniki do 10 MiB każdy. Ostrzeżenia nigdy nie są akceptowane automatycznie.
+settings-sync-option-30 = 30 dni
+settings-sync-option-90 = 90 dni
+settings-sync-option-365 = 365 dni
+settings-sync-option-all = Cała dostępna poczta
+settings-sync-option-on-demand = Przy otwieraniu
+settings-sync-option-prefetch = Pobierz do użytku offline
+settings-sync-option-inline = Osadzone obrazy
+settings-sync-option-all-attachments = Wszystkie dozwolone załączniki

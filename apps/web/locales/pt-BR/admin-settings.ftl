@@ -2709,3 +2709,13 @@ admin-settings-help-mail-badge-spam-sent = As mensagens enviadas normalmente nã
 
 admin-settings-key-offline-enabled = Acesso offline
 admin-settings-help-offline-enabled = Guarde neste dispositivo cópias criptografadas de mensagens, calendários, tarefas, notas e contatos em cache. Apenas o conteúdo salvo está disponível offline; as alterações aguardam uma conexão verificada.
+
+admin-settings-key-sync-headers-window = Período de cabeçalhos offline
+admin-settings-help-sync-headers-window = Sincroniza cabeçalhos recentes dentro do limite de armazenamento criptografado. O correio antigo continua disponível online.
+admin-settings-key-sync-bodies = Conteúdo das mensagens
+admin-settings-help-sync-bodies = Busca o conteúdo ao abrir ou antecipadamente para leitura offline.
+admin-settings-key-sync-attachments = Anexos
+admin-settings-help-sync-attachments = Salva arquivos abertos ou pré-carrega imagens incorporadas ou anexos permitidos de até 10 MiB cada. Nunca aceita avisos automaticamente.
+
+admin-settings-key-offline-eviction = Quando o limite for atingido
+admin-settings-help-offline-eviction = Quando o limite for atingido: lru, oldest, manual.

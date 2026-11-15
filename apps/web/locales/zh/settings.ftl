@@ -892,3 +892,21 @@ settings-badge-sent-help = 已发送邮件通常不包含收件方的身份验�
 
 settings-offline-enabled = 离线访问
 settings-offline-enabled-help = 在此设备上保存已缓存邮件、日历、任务、笔记和联系人的加密副本。离线时仅可访问已缓存内容；排队的更改会等待连接验证通过。
+
+settings-offline-usage = 已缓存：{ $size }，共 { $count } 项 · 受保护：{ $protected }
+settings-offline-storage-error = 无法访问加密存储。请检查浏览器存储权限后重试。
+
+settings-sync-headers-window = 离线邮件头时间范围
+settings-sync-headers-window-help = 在加密存储预算内同步近期邮件头。较早的邮件仍可在线查看。
+settings-sync-bodies = 邮件正文
+settings-sync-bodies-help = 打开时获取正文，或提前下载以便离线阅读。
+settings-sync-attachments = 附件
+settings-sync-attachments-help = 缓存已打开的文件，或预取内嵌图片及允许的附件，每个不超过 10 MiB。不会自动接受风险警告。
+settings-sync-option-30 = 30 天
+settings-sync-option-90 = 90 天
+settings-sync-option-365 = 365 天
+settings-sync-option-all = 所有可用邮件
+settings-sync-option-on-demand = 打开时
+settings-sync-option-prefetch = 预取以供离线使用
+settings-sync-option-inline = 内嵌图片
+settings-sync-option-all-attachments = 所有允许的附件

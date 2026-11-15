@@ -2727,3 +2727,13 @@ admin-settings-help-mail-badge-spam-sent = Отправленные сообще
 
 admin-settings-key-offline-enabled = Доступ без сети
 admin-settings-help-offline-enabled = Храните на устройстве зашифрованные копии кешированной почты, календарей, задач, заметок и контактов. Без сети доступно только сохранённое содержимое; изменения ждут проверенного подключения.
+
+admin-settings-key-sync-headers-window = Период заголовков офлайн
+admin-settings-help-sync-headers-window = Синхронизирует недавние заголовки в пределах зашифрованного хранилища. Старая почта остаётся доступна онлайн.
+admin-settings-key-sync-bodies = Содержимое сообщений
+admin-settings-help-sync-bodies = Загружает содержимое при открытии или заранее для чтения офлайн.
+admin-settings-key-sync-attachments = Вложения
+admin-settings-help-sync-attachments = Сохраняет открытые файлы или заранее загружает встроенные изображения либо разрешённые вложения до 10 МиБ каждое. Предупреждения никогда не принимаются автоматически.
+
+admin-settings-key-offline-eviction = При достижении лимита
+admin-settings-help-offline-eviction = При достижении лимита: lru, oldest, manual.

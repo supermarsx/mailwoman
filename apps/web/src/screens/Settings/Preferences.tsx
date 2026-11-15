@@ -1,3 +1,5 @@
+import {offlineCacheUsage,purgeOfflineReadCache} from '../../offline/cacheManagement.ts';
+import {formatBytes} from '../../i18n/format.ts';
 import {SettingRow} from './layout/SettingRow.tsx';
 // Device preferences (t16 e15): keyboard presets (W14), offline eviction policy
 // (W16), and interface direction (W20). These are per-device, not account state —
@@ -9,7 +11,7 @@ import {SettingRow} from './layout/SettingRow.tsx';
 // budget and retention (`offline.budgetMb`, `offline.retentionDays`). A held
 // value replaces the device value, and its input is disabled with a LockNote.
 
-import { createEffect, For, onMount, type Accessor, type JSX } from 'solid-js';
+import { createEffect, createSignal, Show, For, onMount, type Accessor, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import { useSetting } from './useSetting.ts';
 import { LockNote } from './LockNote.tsx';
@@ -55,6 +57,8 @@ export function Preferences(props: PreferencesProps): JSX.Element {
 
   const patch = (next: Partial<SettingsPrefs>): void => props.onChange({ ...props.prefs(), ...next });
   const enabled=useSetting<boolean>('offline.enabled',false);
+  const headersWindow=useSetting<string>('sync.headersWindow','90'),bodies=useSetting<string>('sync.bodies','on-demand'),attachments=useSetting<string>('sync.attachments','on-demand');
+  const evictionHold=useSetting<EvictionStrategy>('offline.eviction',props.prefs().eviction);
   const budgetHold = useSetting('offline.budgetMb', props.prefs().offlineBudgetMb);
   const retentionHold = useSetting('offline.retentionDays', props.prefs().offlineRetentionDays);
   // A held value is the device's value too.
@@ -69,11 +73,14 @@ export function Preferences(props: PreferencesProps): JSX.Element {
     if (Object.keys(next).length > 0) patch(next);
   });
 
-  function purgeOfflineCache(): void {
-    // Decoupled seam: the OPFS offline cache listens for this and drops its store.
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('mw:offline-purge'));
-    }
+  const [usage,setUsage]=createSignal<Awaited<ReturnType<typeof offlineCacheUsage>>>();
+  const [purging,setPurging]=createSignal(false),[cacheError,setCacheError]=createSignal(false);
+  const refreshUsage=()=>offlineCacheUsage().then(value=>setUsage(value)).catch(()=>setCacheError(true));
+  onMount(()=>void refreshUsage());
+  async function purgeOfflineCache():Promise<void>{
+    if(purging())return;setPurging(true);setCacheError(false);
+    try{await purgeOfflineReadCache();await refreshUsage();window.dispatchEvent(new CustomEvent('mw:offline-purge'));}
+    catch{setCacheError(true);}finally{setPurging(false);}
   }
 
   const previewDir = (): 'ltr' | 'rtl' => (props.prefs().direction === 'rtl' ? 'rtl' : 'ltr');
@@ -114,6 +121,11 @@ export function Preferences(props: PreferencesProps): JSX.Element {
       {/* W16 — offline cache eviction policy */}
       <SettingsCard id="prefs-card-offline" title={t('settings-offline-title')} description={t('settings-offline-intro')}>
         <SettingRow controlId="prefs-offline-enabled" label={t('settings-offline-enabled')} help={t('settings-offline-enabled-help')} handle={enabled}>{describedBy=><input id="prefs-offline-enabled" type="checkbox" class={css.checkbox} checked={enabled.value()} disabled={!enabled.entry()||enabled.locked()||enabled.saving()} aria-describedby={describedBy()} onChange={event=>void enabled.set(event.currentTarget.checked)}/>}</SettingRow>
+        <For each={[
+          {id:'headers-window',handle:headersWindow,options:['30','90','365','all']},
+          {id:'bodies',handle:bodies,options:['on-demand','prefetch']},
+          {id:'attachments',handle:attachments,options:['on-demand','inline','all']},
+        ]}>{field=><SettingRow controlId={`prefs-sync-${field.id}`} label={t(`settings-sync-${field.id}`)} help={t(`settings-sync-${field.id}-help`)} handle={field.handle}>{description=><select id={`prefs-sync-${field.id}`} class={css.input} aria-describedby={description()} value={field.handle.value()} disabled={!field.handle.entry()||field.handle.locked()||field.handle.saving()} onChange={event=>void field.handle.set(event.currentTarget.value)}><For each={field.options}>{option=><option value={option}>{t(`settings-sync-option-${field.id==='attachments'&&option==='all'?'all-attachments':option}`)}</option>}</For></select>}</SettingRow>}</For>
         <ControlRow controlId="prefs-offline-budget" label={t('settings-offline-budget-label')} note={<LockNote id="settings-offline-budget-lock" locked={budgetHold.locked()} />}>{() =>
           <input
             id="prefs-offline-budget"
@@ -138,15 +150,16 @@ export function Preferences(props: PreferencesProps): JSX.Element {
             onInput={(e) => patch({ offlineRetentionDays: Math.max(0, Number(e.currentTarget.value) || 0) })}
           />
         }</ControlRow>
-        <ControlRow controlId="prefs-offline-strategy" group label={t('settings-offline-strategy-label')}>{() =>
+        <ControlRow controlId="prefs-offline-strategy" group label={t('settings-offline-strategy-label')} note={<LockNote id="settings-offline-strategy-lock" locked={evictionHold.locked()} />}>{() =>
           <div class={css.options} role="group" aria-labelledby="prefs-offline-strategy">
             <For each={EVICTION_OPTIONS}>
               {(o) => (
                 <button
                   type="button"
                   class={css.option}
-                  aria-pressed={props.prefs().eviction === o.value}
-                  onClick={() => patch({ eviction: o.value })}
+                  aria-pressed={(evictionHold.locked()?evictionHold.value():props.prefs().eviction) === o.value}
+                  disabled={evictionHold.locked()||evictionHold.saving()}
+                  onClick={() => {patch({ eviction: o.value });if(evictionHold.entry())void evictionHold.set(o.value);}}
                 >
                   {t(o.label)}
                 </button>
@@ -154,8 +167,10 @@ export function Preferences(props: PreferencesProps): JSX.Element {
             </For>
           </div>
         }</ControlRow>
+        <Show when={usage()}>{value=><p role="status">{t('settings-offline-usage',{size:formatBytes(value().bytes),count:value().entries,protected:formatBytes(value().protectedBytes)})}</p>}</Show>
+        <Show when={cacheError()}><p role="alert">{t('settings-offline-storage-error')}</p></Show>
         <div class={css.dangerZone}>
-          <button type="button" class={css.danger} onClick={purgeOfflineCache} data-testid="offline-purge">
+          <button type="button" class={css.danger} onClick={()=>void purgeOfflineCache()} disabled={purging()} data-testid="offline-purge">
             {t('settings-offline-purge')}
           </button>
         </div>

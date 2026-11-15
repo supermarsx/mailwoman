@@ -2701,3 +2701,13 @@ admin-settings-help-mail-badge-spam-sent = 已发送邮件通常不包含收件�
 
 admin-settings-key-offline-enabled = 离线访问
 admin-settings-help-offline-enabled = 在此设备上保存已缓存邮件、日历、任务、笔记和联系人的加密副本。离线时仅可访问已缓存内容；排队的更改会等待连接验证通过。
+
+admin-settings-key-sync-headers-window = 离线邮件头时间范围
+admin-settings-help-sync-headers-window = 在加密存储预算内同步近期邮件头。较早的邮件仍可在线查看。
+admin-settings-key-sync-bodies = 邮件正文
+admin-settings-help-sync-bodies = 打开时获取正文，或提前下载以便离线阅读。
+admin-settings-key-sync-attachments = 附件
+admin-settings-help-sync-attachments = 缓存已打开的文件，或预取内嵌图片及允许的附件，每个不超过 10 MiB。不会自动接受风险警告。
+
+admin-settings-key-offline-eviction = 达到上限时
+admin-settings-help-offline-eviction = 达到上限时: lru, oldest, manual.

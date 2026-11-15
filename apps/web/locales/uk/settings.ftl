@@ -904,3 +904,21 @@ settings-badge-sent-help = Надіслані повідомлення зазв�
 
 settings-offline-enabled = Доступ без мережі
 settings-offline-enabled-help = Зберігайте на пристрої зашифровані копії кешованої пошти, календарів, завдань, нотаток і контактів. Без мережі доступний лише збережений вміст; зміни чекають на перевірене підключення.
+
+settings-offline-usage = У кеші: { $size }, елементів: { $count } · Захищено: { $protected }
+settings-offline-storage-error = Не вдалося отримати доступ до зашифрованого сховища. Перевірте дозволи браузера.
+
+settings-sync-headers-window = Період заголовків офлайн
+settings-sync-headers-window-help = Синхронізує нещодавні заголовки в межах зашифрованого сховища. Старіша пошта залишається доступною онлайн.
+settings-sync-bodies = Вміст повідомлень
+settings-sync-bodies-help = Завантажує вміст під час відкриття або заздалегідь для читання офлайн.
+settings-sync-attachments = Вкладення
+settings-sync-attachments-help = Зберігає відкриті файли або завантажує вбудовані зображення чи дозволені вкладення до 10 МіБ кожне. Попередження ніколи не приймаються автоматично.
+settings-sync-option-30 = 30 днів
+settings-sync-option-90 = 90 днів
+settings-sync-option-365 = 365 днів
+settings-sync-option-all = Уся доступна пошта
+settings-sync-option-on-demand = Під час відкриття
+settings-sync-option-prefetch = Завантажувати заздалегідь для офлайн
+settings-sync-option-inline = Вбудовані зображення
+settings-sync-option-all-attachments = Усі дозволені вкладення

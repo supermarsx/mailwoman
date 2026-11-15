@@ -2504,3 +2504,13 @@ admin-settings-help-mail-badge-spam-sent = Sent messages usually have no recipie
 
 admin-settings-key-offline-enabled = Offline access
 admin-settings-help-offline-enabled = Keep encrypted copies of cached mail, calendars, tasks, notes and contacts on this device. Only cached content is available offline; queued changes wait for a verified connection.
+
+admin-settings-key-sync-headers-window = Offline header window
+admin-settings-help-sync-headers-window = Synchronize recent message headers, within the encrypted storage budget. Older mail remains available online.
+admin-settings-key-sync-bodies = Message bodies
+admin-settings-help-sync-bodies = Fetch bodies when opened, or download them in advance for offline reading.
+admin-settings-key-sync-attachments = Attachments
+admin-settings-help-sync-attachments = Cache opened files, prefetch inline images, or prefetch permitted attachments up to 10 MiB each. Risk warnings are never accepted automatically.
+
+admin-settings-key-offline-eviction = When the budget is reached
+admin-settings-help-offline-eviction = When the budget is reached: lru, oldest, manual.

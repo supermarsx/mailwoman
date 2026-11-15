@@ -2715,3 +2715,13 @@ admin-settings-help-mail-badge-spam-sent = Los mensajes enviados suelen carecer 
 
 admin-settings-key-offline-enabled = Acceso sin conexión
 admin-settings-help-offline-enabled = Guarda copias cifradas del correo, calendarios, tareas, notas y contactos en caché en este dispositivo. Solo el contenido guardado está disponible sin conexión; los cambios esperan una conexión verificada.
+
+admin-settings-key-sync-headers-window = Período de cabeceras sin conexión
+admin-settings-help-sync-headers-window = Sincroniza cabeceras recientes dentro del límite de almacenamiento cifrado. El correo antiguo sigue disponible en línea.
+admin-settings-key-sync-bodies = Contenido de los mensajes
+admin-settings-help-sync-bodies = Carga el contenido al abrirlo o por adelantado para leer sin conexión.
+admin-settings-key-sync-attachments = Archivos adjuntos
+admin-settings-help-sync-attachments = Guarda archivos abiertos o precarga imágenes en línea o adjuntos permitidos de hasta 10 MiB cada uno. Nunca acepta advertencias automáticamente.
+
+admin-settings-key-offline-eviction = Al alcanzar el límite
+admin-settings-help-offline-eviction = Al alcanzar el límite: lru, oldest, manual.

@@ -902,3 +902,21 @@ settings-badge-sent-help = Verzonden berichten hebben meestal geen authenticatie
 
 settings-offline-enabled = Offline toegang
 settings-offline-enabled-help = Bewaar versleutelde kopieën van gecachte e-mail, agenda’s, taken, notities en contacten op dit apparaat. Alleen opgeslagen inhoud is offline beschikbaar; wijzigingen wachten op een gecontroleerde verbinding.
+
+settings-offline-usage = In cache: { $size } in { $count } items · Beschermd: { $protected }
+settings-offline-storage-error = De versleutelde opslag is niet toegankelijk. Controleer de opslagmachtigingen van de browser.
+
+settings-sync-headers-window = Periode voor offline kopteksten
+settings-sync-headers-window-help = Synchroniseert recente kopteksten binnen de versleutelde opslaglimiet. Oudere e-mail blijft online beschikbaar.
+settings-sync-bodies = Berichtinhoud
+settings-sync-bodies-help = Laad inhoud bij het openen of vooraf om offline te lezen.
+settings-sync-attachments = Bijlagen
+settings-sync-attachments-help = Bewaar geopende bestanden of laad ingesloten afbeeldingen of toegestane bijlagen tot 10 MiB per stuk vooraf. Waarschuwingen worden nooit automatisch geaccepteerd.
+settings-sync-option-30 = 30 dagen
+settings-sync-option-90 = 90 dagen
+settings-sync-option-365 = 365 dagen
+settings-sync-option-all = Alle beschikbare e-mail
+settings-sync-option-on-demand = Bij openen
+settings-sync-option-prefetch = Vooraf laden voor offline gebruik
+settings-sync-option-inline = Ingesloten afbeeldingen
+settings-sync-option-all-attachments = Alle toegestane bijlagen

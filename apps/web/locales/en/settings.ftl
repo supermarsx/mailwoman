@@ -881,3 +881,21 @@ settings-badge-sent-help = Sent messages usually have no recipient authenticatio
 
 settings-offline-enabled = Offline access
 settings-offline-enabled-help = Keep encrypted copies of cached mail, calendars, tasks, notes and contacts on this device. Only cached content is available offline; queued changes wait for a verified connection.
+
+settings-offline-usage = Cached: { $size } in { $count } items · Protected: { $protected }
+settings-offline-storage-error = Encrypted storage could not be accessed. Try again after checking browser storage permissions.
+
+settings-sync-headers-window = Offline header window
+settings-sync-headers-window-help = Synchronize recent message headers, within the encrypted storage budget. Older mail remains available online.
+settings-sync-bodies = Message bodies
+settings-sync-bodies-help = Fetch bodies when opened, or download them in advance for offline reading.
+settings-sync-attachments = Attachments
+settings-sync-attachments-help = Cache opened files, prefetch inline images, or prefetch permitted attachments up to 10 MiB each. Risk warnings are never accepted automatically.
+settings-sync-option-30 = 30 days
+settings-sync-option-90 = 90 days
+settings-sync-option-365 = 365 days
+settings-sync-option-all = All available mail
+settings-sync-option-on-demand = When opened
+settings-sync-option-prefetch = Prefetch for offline use
+settings-sync-option-inline = Inline images
+settings-sync-option-all-attachments = All permitted attachments

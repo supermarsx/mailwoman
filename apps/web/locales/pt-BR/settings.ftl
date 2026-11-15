@@ -902,3 +902,21 @@ settings-badge-sent-help = As mensagens enviadas normalmente não têm resultado
 
 settings-offline-enabled = Acesso offline
 settings-offline-enabled-help = Guarde neste dispositivo cópias criptografadas de mensagens, calendários, tarefas, notas e contatos em cache. Apenas o conteúdo salvo está disponível offline; as alterações aguardam uma conexão verificada.
+
+settings-offline-usage = Em cache: { $size } em { $count } itens · Protegido: { $protected }
+settings-offline-storage-error = Não foi possível acessar o armazenamento criptografado. Verifique as permissões de armazenamento do navegador.
+
+settings-sync-headers-window = Período de cabeçalhos offline
+settings-sync-headers-window-help = Sincroniza cabeçalhos recentes dentro do limite de armazenamento criptografado. O correio antigo continua disponível online.
+settings-sync-bodies = Conteúdo das mensagens
+settings-sync-bodies-help = Busca o conteúdo ao abrir ou antecipadamente para leitura offline.
+settings-sync-attachments = Anexos
+settings-sync-attachments-help = Salva arquivos abertos ou pré-carrega imagens incorporadas ou anexos permitidos de até 10 MiB cada. Nunca aceita avisos automaticamente.
+settings-sync-option-30 = 30 dias
+settings-sync-option-90 = 90 dias
+settings-sync-option-365 = 365 dias
+settings-sync-option-all = Todo o correio disponível
+settings-sync-option-on-demand = Ao abrir
+settings-sync-option-prefetch = Pré-carregar para uso offline
+settings-sync-option-inline = Imagens incorporadas
+settings-sync-option-all-attachments = Todos os anexos permitidos

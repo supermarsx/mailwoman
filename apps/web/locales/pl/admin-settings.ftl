@@ -2727,3 +2727,13 @@ admin-settings-help-mail-badge-spam-sent = Wysłane wiadomości zwykle nie mają
 
 admin-settings-key-offline-enabled = Dostęp offline
 admin-settings-help-offline-enabled = Przechowuj na urządzeniu zaszyfrowane kopie poczty, kalendarzy, zadań, notatek i kontaktów z pamięci podręcznej. Offline dostępne są tylko zapisane treści; zmiany czekają na zweryfikowane połączenie.
+
+admin-settings-key-sync-headers-window = Okres nagłówków offline
+admin-settings-help-sync-headers-window = Synchronizuje ostatnie nagłówki w limicie zaszyfrowanej pamięci. Starsza poczta pozostaje dostępna online.
+admin-settings-key-sync-bodies = Treść wiadomości
+admin-settings-help-sync-bodies = Pobiera treść przy otwieraniu lub z wyprzedzeniem do czytania offline.
+admin-settings-key-sync-attachments = Załączniki
+admin-settings-help-sync-attachments = Zapisuje otwarte pliki lub pobiera osadzone obrazy albo dozwolone załączniki do 10 MiB każdy. Ostrzeżenia nigdy nie są akceptowane automatycznie.
+
+admin-settings-key-offline-eviction = Po osiągnięciu limitu
+admin-settings-help-offline-eviction = Po osiągnięciu limitu: lru, oldest, manual.

@@ -883,3 +883,21 @@ settings-badge-sent-help = Les messages envoyés ne contiennent généralement p
 
 settings-offline-enabled = Accès hors ligne
 settings-offline-enabled-help = Conservez sur cet appareil des copies chiffrées des messages, calendriers, tâches, notes et contacts en cache. Seul le contenu en cache est disponible hors ligne ; les modifications attendent une connexion vérifiée.
+
+settings-offline-usage = En cache : { $size } dans { $count } éléments · Protégé : { $protected }
+settings-offline-storage-error = Le stockage chiffré est inaccessible. Vérifiez les autorisations de stockage du navigateur.
+
+settings-sync-headers-window = Période des en-têtes hors ligne
+settings-sync-headers-window-help = Synchronise les en-têtes récents dans la limite du stockage chiffré. Les anciens messages restent disponibles en ligne.
+settings-sync-bodies = Contenu des messages
+settings-sync-bodies-help = Charge le contenu à l’ouverture ou à l’avance pour une lecture hors ligne.
+settings-sync-attachments = Pièces jointes
+settings-sync-attachments-help = Conserve les fichiers ouverts ou précharge les images intégrées ou les pièces autorisées jusqu’à 10 Mio chacune. Les avertissements ne sont jamais acceptés automatiquement.
+settings-sync-option-30 = 30 jours
+settings-sync-option-90 = 90 jours
+settings-sync-option-365 = 365 jours
+settings-sync-option-all = Tous les messages disponibles
+settings-sync-option-on-demand = À l’ouverture
+settings-sync-option-prefetch = Précharger pour le mode hors ligne
+settings-sync-option-inline = Images intégrées
+settings-sync-option-all-attachments = Toutes les pièces autorisées

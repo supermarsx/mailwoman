@@ -2731,3 +2731,13 @@ admin-settings-help-mail-badge-spam-sent = لا تحتوي الرسائل الم
 
 admin-settings-key-offline-enabled = الوصول دون اتصال
 admin-settings-help-offline-enabled = احتفظ بنسخ مشفرة من البريد والتقويمات والمهام والملاحظات وجهات الاتصال المخزنة مؤقتًا على هذا الجهاز. يتاح دون اتصال المحتوى المحفوظ فقط، وتنتظر التغييرات اتصالًا تم التحقق منه.
+
+admin-settings-key-sync-headers-window = مدة رؤوس الرسائل دون اتصال
+admin-settings-help-sync-headers-window = تتم مزامنة الرؤوس الحديثة ضمن حد التخزين المشفّر. يبقى البريد الأقدم متاحًا عبر الإنترنت.
+admin-settings-key-sync-bodies = محتوى الرسائل
+admin-settings-help-sync-bodies = جلب المحتوى عند فتحه أو تنزيله مسبقًا للقراءة دون اتصال.
+admin-settings-key-sync-attachments = المرفقات
+admin-settings-help-sync-attachments = حفظ الملفات المفتوحة أو جلب الصور المضمّنة أو المرفقات المسموحة مسبقًا حتى 10 ميبيبايت لكل ملف. لا يتم قبول التحذيرات تلقائيًا.
+
+admin-settings-key-offline-eviction = عند بلوغ الحد
+admin-settings-help-offline-eviction = عند بلوغ الحد: lru, oldest, manual.

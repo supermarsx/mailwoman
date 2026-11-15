@@ -9,7 +9,7 @@ import { PersonalAccountBoundary } from './PersonalAccountBoundary.tsx';
 
 import { createEffect, createResource, createSignal, For, Show, onMount, onCleanup, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
-import { SettingsService } from './service.ts';
+import { SettingsService,SettingsError } from './service.ts';
 import { useSetting } from './useSetting.ts';
 import { LockNote } from './LockNote.tsx';
 import { BrowserPermissions } from './BrowserPermissions.tsx';
@@ -124,8 +124,8 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
       if(owner!==preferenceAccount())return;
       window.dispatchEvent(new Event('mw:notifications-changed'));
       if(!disposed&&sent===revision){setUnsaved(false);setSaved(true);}
-    } catch {
-      if(!disposed&&owner===preferenceAccount())setError(t('settings-notif-error'));
+    } catch(error) {
+      if(!disposed&&owner===preferenceAccount())setError(error instanceof SettingsError?error.message:t('settings-notif-error'));
     } finally {
       saving=false;if(!disposed)setBusy(false);
       if(owner===preferenceAccount()&&revision>sent)void save();

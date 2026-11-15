@@ -879,3 +879,21 @@ settings-badge-sent-help = I messaggi inviati normalmente non contengono risulta
 
 settings-offline-enabled = Accesso offline
 settings-offline-enabled-help = Conserva sul dispositivo copie cifrate di posta, calendari, attività, note e contatti memorizzati. Solo i contenuti in cache sono disponibili offline; le modifiche attendono una connessione verificata.
+
+settings-offline-usage = In cache: { $size } in { $count } elementi · Protetto: { $protected }
+settings-offline-storage-error = Impossibile accedere allo spazio cifrato. Controlla le autorizzazioni di archiviazione del browser.
+
+settings-sync-headers-window = Periodo delle intestazioni offline
+settings-sync-headers-window-help = Sincronizza le intestazioni recenti entro il limite di archiviazione cifrata. La posta precedente resta disponibile online.
+settings-sync-bodies = Contenuto dei messaggi
+settings-sync-bodies-help = Carica il contenuto all’apertura o in anticipo per la lettura offline.
+settings-sync-attachments = Allegati
+settings-sync-attachments-help = Conserva i file aperti o precarica immagini incorporate o allegati consentiti fino a 10 MiB ciascuno. Gli avvisi non vengono mai accettati automaticamente.
+settings-sync-option-30 = 30 giorni
+settings-sync-option-90 = 90 giorni
+settings-sync-option-365 = 365 giorni
+settings-sync-option-all = Tutta la posta disponibile
+settings-sync-option-on-demand = All’apertura
+settings-sync-option-prefetch = Precarica per uso offline
+settings-sync-option-inline = Immagini incorporate
+settings-sync-option-all-attachments = Tutti gli allegati consentiti

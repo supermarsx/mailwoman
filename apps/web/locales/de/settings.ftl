@@ -883,3 +883,21 @@ settings-badge-sent-help = Gesendete Nachrichten enthalten meist keine Authentif
 
 settings-offline-enabled = Offline-Zugriff
 settings-offline-enabled-help = Bewahre verschlüsselte Kopien zwischengespeicherter E-Mails, Kalender, Aufgaben, Notizen und Kontakte auf diesem Gerät auf. Offline sind nur gespeicherte Inhalte verfügbar; Änderungen warten auf eine bestätigte Verbindung.
+
+settings-offline-usage = Gespeichert: { $size } in { $count } Einträgen · Geschützt: { $protected }
+settings-offline-storage-error = Auf den verschlüsselten Speicher konnte nicht zugegriffen werden. Prüfen Sie die Speicherberechtigungen des Browsers.
+
+settings-sync-headers-window = Offline-Zeitraum für Kopfzeilen
+settings-sync-headers-window-help = Synchronisiert neuere Kopfzeilen innerhalb des Speicherlimits. Ältere Nachrichten bleiben online verfügbar.
+settings-sync-bodies = Nachrichteninhalt
+settings-sync-bodies-help = Inhalte beim Öffnen oder im Voraus zum Offline-Lesen laden.
+settings-sync-attachments = Anhänge
+settings-sync-attachments-help = Geöffnete Dateien speichern, eingebettete Bilder oder erlaubte Anhänge bis jeweils 10 MiB vorladen. Warnungen werden nie automatisch bestätigt.
+settings-sync-option-30 = 30 Tage
+settings-sync-option-90 = 90 Tage
+settings-sync-option-365 = 365 Tage
+settings-sync-option-all = Alle verfügbaren Nachrichten
+settings-sync-option-on-demand = Beim Öffnen
+settings-sync-option-prefetch = Für Offline-Nutzung vorladen
+settings-sync-option-inline = Eingebettete Bilder
+settings-sync-option-all-attachments = Alle erlaubten Anhänge

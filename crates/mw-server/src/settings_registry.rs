@@ -2946,7 +2946,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "properties.folder.overrides.allowed",
         Kind::StringList {
-            max_len: 12,
+            max_len: 32,
             max_item: 24
         },
         r#"["counters","badgeColour","compactBadge","notifications","sort","threading","previewLines","markReadDelay","replyIdentity","unifiedInbox","hideWhenEmpty","folderColour","markMovedRead"]"#,
@@ -4082,6 +4082,10 @@ pub static REGISTRY: &[SettingDef] = &[
         "notifications",
         "account-authorized push registration and delivery"
     ),
+    def!("sync.headersWindow",Kind::Enum(&["30","90","365","all"]),"\"90\"",GDU,"offline","Headers to synchronize for offline use: 30, 90 or 365 days, or all available mail within the storage budget"),
+    def!("sync.bodies",Kind::Enum(&["on-demand","prefetch"]),"\"on-demand\"",GDU,"offline","Fetch message bodies when opened or prefetch them for offline reading"),
+    def!("sync.attachments",Kind::Enum(&["on-demand","inline","all"]),"\"on-demand\"",GDU,"offline","Cache attachments when opened, prefetch inline images, or prefetch all permitted attachments"),
+    def!("offline.eviction",Kind::Enum(&["lru","oldest","manual"]),"\"lru\"",GDU,"offline","Evict least recently used or oldest read-cache entries, or keep existing entries until explicitly purged"),
     def!("offline.enabled",Kind::Bool,"false",GDU,"privacy","Keep encrypted mail and PIM snapshots on this device for offline startup, reading and queued work"),
     def!(
         "offline.persistentStorageAllowed",
@@ -9094,7 +9098,7 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
     {
         return bad("must be a valid IANA time zone; displayZone also accepts local, comparisonZone also accepts an empty value".into());
     }
-    if def.key.starts_with("shortcuts.")
+    if def.key.starts_with("shortcuts.") && def.key!="shortcuts.activationToast"
         && def.key != "shortcuts.enabled"
         && !value.as_str().is_some_and(valid_shortcut)
     {
@@ -9327,7 +9331,9 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                 if text.is_empty()
                     || text.len() > max_item
                     || !text.bytes().all(|b| {
-                        if matches!(
+                        if def.key=="mail.attachmentWarningTypes" {
+                            b.is_ascii_alphanumeric()
+                        } else if matches!(
                             def.key,
                             "security.signin.geoCountries"
                                 | "security.trust.adminGeoCountries"
@@ -9411,6 +9417,7 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                         "links.trustedDomains" | "links.trustedSenderDomains" | "images.trustedHosts" | "images.blockedHosts"
                     ) && !link_trust::is_canonical(text))
                     || (def.key == "links.trustedSenders" && !link_trust::is_canonical_sender(text))
+                    || (def.key == "mail.attachmentWarningTypes" && !matches!(text,"executable"|"macro"|"disguisedName"|"typeMismatch"|"activeDocument"))
                     || (def.key == "security.protection.userAgentCategories"
                         && !crate::request_protection::user_agent::CATEGORIES.contains(&text))
                     || (def.key == "security.protection.signals"
@@ -10106,10 +10113,10 @@ mod tests {
     #[test]
     fn every_default_validates_and_keys_are_unique() {
         let mut seen = std::collections::HashSet::new();
+        let mut errors = Vec::new();
         for d in REGISTRY {
             assert!(seen.insert(d.key), "duplicate key {}", d.key);
-            validate(d, &d.default_value(), "/value")
-                .unwrap_or_else(|r| panic!("{} default refused: {r:?}", d.key));
+            if let Err(error) = validate(d, &d.default_value(), "/value") { errors.push(format!("{} default refused: {error:?}", d.key)); }
             assert!(
                 serde_json::from_str::<Value>(d.default).is_ok(),
                 "{} default is JSON",

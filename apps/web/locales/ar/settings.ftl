@@ -905,3 +905,21 @@ settings-badge-sent-help = لا تحتوي الرسائل المرسلة عاد�
 
 settings-offline-enabled = الوصول دون اتصال
 settings-offline-enabled-help = احتفظ بنسخ مشفرة من البريد والتقويمات والمهام والملاحظات وجهات الاتصال المخزنة مؤقتًا على هذا الجهاز. يتاح دون اتصال المحتوى المحفوظ فقط، وتنتظر التغييرات اتصالًا تم التحقق منه.
+
+settings-offline-usage = المخزّن مؤقتًا: { $size } في { $count } عناصر · المحمي: { $protected }
+settings-offline-storage-error = تعذّر الوصول إلى التخزين المشفّر. تحقّق من أذونات التخزين في المتصفح وحاول مجددًا.
+
+settings-sync-headers-window = مدة رؤوس الرسائل دون اتصال
+settings-sync-headers-window-help = تتم مزامنة الرؤوس الحديثة ضمن حد التخزين المشفّر. يبقى البريد الأقدم متاحًا عبر الإنترنت.
+settings-sync-bodies = محتوى الرسائل
+settings-sync-bodies-help = جلب المحتوى عند فتحه أو تنزيله مسبقًا للقراءة دون اتصال.
+settings-sync-attachments = المرفقات
+settings-sync-attachments-help = حفظ الملفات المفتوحة أو جلب الصور المضمّنة أو المرفقات المسموحة مسبقًا حتى 10 ميبيبايت لكل ملف. لا يتم قبول التحذيرات تلقائيًا.
+settings-sync-option-30 = 30 يومًا
+settings-sync-option-90 = 90 يومًا
+settings-sync-option-365 = 365 يومًا
+settings-sync-option-all = كل البريد المتاح
+settings-sync-option-on-demand = عند الفتح
+settings-sync-option-prefetch = جلب مسبق للاستخدام دون اتصال
+settings-sync-option-inline = الصور المضمّنة
+settings-sync-option-all-attachments = كل المرفقات المسموحة

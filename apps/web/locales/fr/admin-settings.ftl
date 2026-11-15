@@ -2715,3 +2715,13 @@ admin-settings-help-mail-badge-spam-sent = Les messages envoyés ne contiennent 
 
 admin-settings-key-offline-enabled = Accès hors ligne
 admin-settings-help-offline-enabled = Conservez sur cet appareil des copies chiffrées des messages, calendriers, tâches, notes et contacts en cache. Seul le contenu en cache est disponible hors ligne ; les modifications attendent une connexion vérifiée.
+
+admin-settings-key-sync-headers-window = Période des en-têtes hors ligne
+admin-settings-help-sync-headers-window = Synchronise les en-têtes récents dans la limite du stockage chiffré. Les anciens messages restent disponibles en ligne.
+admin-settings-key-sync-bodies = Contenu des messages
+admin-settings-help-sync-bodies = Charge le contenu à l’ouverture ou à l’avance pour une lecture hors ligne.
+admin-settings-key-sync-attachments = Pièces jointes
+admin-settings-help-sync-attachments = Conserve les fichiers ouverts ou précharge les images intégrées ou les pièces autorisées jusqu’à 10 Mio chacune. Les avertissements ne sont jamais acceptés automatiquement.
+
+admin-settings-key-offline-eviction = Lorsque la taille est atteinte
+admin-settings-help-offline-eviction = Lorsque la taille est atteinte: lru, oldest, manual.

@@ -46,7 +46,7 @@ describe('held account settings', () => {
     await waitFor(() => expect(box).not.toBeChecked());
     expect(box).toBeDisabled();
     expect(screen.getByTestId('setting-lock-note')).toHaveAttribute('id', 'settings-notif-enabled-lock');
-    fireEvent.click(screen.getByRole('button', { name: t('settings-save') }));
+    fireEvent.click(screen.getByLabelText(t('settings-notif-quiet-enabled-label')));
     await waitFor(() => expect(saved).toHaveLength(1));
     expect((saved[0] as { enabled: boolean }).enabled).toBe(false);
   });
@@ -60,8 +60,8 @@ describe('held account settings', () => {
       ),
     );
     render(() => <Notifications service={service} />);
-    await screen.findByLabelText(t('settings-notif-enabled-label'));
-    fireEvent.click(screen.getByRole('button', { name: t('settings-save') }));
+    const enabled=await screen.findByLabelText(t('settings-notif-enabled-label'));
+    fireEvent.click(enabled);
     const alert = await screen.findByText(t('settings-policy-error-locked'));
     expect(alert.textContent).not.toContain('notifications.enabled');
   });

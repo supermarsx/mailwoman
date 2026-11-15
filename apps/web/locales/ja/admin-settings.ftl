@@ -2701,3 +2701,13 @@ admin-settings-help-mail-badge-spam-sent = 送信済みメールには通常、�
 
 admin-settings-key-offline-enabled = オフラインアクセス
 admin-settings-help-offline-enabled = キャッシュ済みのメール、カレンダー、タスク、メモ、連絡先の暗号化コピーをこの端末に保存します。オフラインでは保存済みの内容のみ利用でき、変更は接続の確認後に送信されます。
+
+admin-settings-key-sync-headers-window = オフラインのヘッダー期間
+admin-settings-help-sync-headers-window = 暗号化ストレージの上限内で最近のヘッダーを同期します。古いメールはオンラインで閲覧できます。
+admin-settings-key-sync-bodies = メッセージ本文
+admin-settings-help-sync-bodies = 開くときに本文を取得するか、オフライン閲覧用に事前取得します。
+admin-settings-key-sync-attachments = 添付ファイル
+admin-settings-help-sync-attachments = 開いたファイルを保存するか、埋め込み画像または許可された添付を事前取得します。各ファイルは最大10 MiBで、警告を自動承認しません。
+
+admin-settings-key-offline-eviction = 容量の上限に達したとき
+admin-settings-help-offline-eviction = 容量の上限に達したとき: lru, oldest, manual.

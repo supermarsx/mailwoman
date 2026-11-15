@@ -2709,3 +2709,13 @@ admin-settings-help-mail-badge-spam-sent = Verzonden berichten hebben meestal ge
 
 admin-settings-key-offline-enabled = Offline toegang
 admin-settings-help-offline-enabled = Bewaar versleutelde kopieën van gecachte e-mail, agenda’s, taken, notities en contacten op dit apparaat. Alleen opgeslagen inhoud is offline beschikbaar; wijzigingen wachten op een gecontroleerde verbinding.
+
+admin-settings-key-sync-headers-window = Periode voor offline kopteksten
+admin-settings-help-sync-headers-window = Synchroniseert recente kopteksten binnen de versleutelde opslaglimiet. Oudere e-mail blijft online beschikbaar.
+admin-settings-key-sync-bodies = Berichtinhoud
+admin-settings-help-sync-bodies = Laad inhoud bij het openen of vooraf om offline te lezen.
+admin-settings-key-sync-attachments = Bijlagen
+admin-settings-help-sync-attachments = Bewaar geopende bestanden of laad ingesloten afbeeldingen of toegestane bijlagen tot 10 MiB per stuk vooraf. Waarschuwingen worden nooit automatisch geaccepteerd.
+
+admin-settings-key-offline-eviction = Wanneer de limiet is bereikt
+admin-settings-help-offline-eviction = Wanneer de limiet is bereikt: lru, oldest, manual.

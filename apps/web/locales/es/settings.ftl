@@ -883,3 +883,21 @@ settings-badge-sent-help = Los mensajes enviados suelen carecer de resultados de
 
 settings-offline-enabled = Acceso sin conexión
 settings-offline-enabled-help = Guarda copias cifradas del correo, calendarios, tareas, notas y contactos en caché en este dispositivo. Solo el contenido guardado está disponible sin conexión; los cambios esperan una conexión verificada.
+
+settings-offline-usage = En caché: { $size } en { $count } elementos · Protegido: { $protected }
+settings-offline-storage-error = No se pudo acceder al almacenamiento cifrado. Comprueba los permisos de almacenamiento del navegador.
+
+settings-sync-headers-window = Período de cabeceras sin conexión
+settings-sync-headers-window-help = Sincroniza cabeceras recientes dentro del límite de almacenamiento cifrado. El correo antiguo sigue disponible en línea.
+settings-sync-bodies = Contenido de los mensajes
+settings-sync-bodies-help = Carga el contenido al abrirlo o por adelantado para leer sin conexión.
+settings-sync-attachments = Archivos adjuntos
+settings-sync-attachments-help = Guarda archivos abiertos o precarga imágenes en línea o adjuntos permitidos de hasta 10 MiB cada uno. Nunca acepta advertencias automáticamente.
+settings-sync-option-30 = 30 días
+settings-sync-option-90 = 90 días
+settings-sync-option-365 = 365 días
+settings-sync-option-all = Todo el correo disponible
+settings-sync-option-on-demand = Al abrir
+settings-sync-option-prefetch = Precargar para usar sin conexión
+settings-sync-option-inline = Imágenes en línea
+settings-sync-option-all-attachments = Todos los adjuntos permitidos

@@ -3961,3 +3961,99 @@ In Command Ribbon, the main toolbar moves into the Home ribbon, with compose, lo
 Notification rules and quiet hours save automatically after a short typing pause. Writes are serialized, newer edits are retained during a request, and leaving the section flushes a pending change while the verified account remains current. Save failures offer Retry. Browser registration stays disabled until the related preferences have saved.
 
 Register background notifications requests browser permission on the user's click, ensures the scoped service worker exists and waits at most ten seconds for activation. Errors distinguish permission refusal, worker startup, VAPID/server registration and browser subscription failure. Existing browser subscriptions can be reused; the server still refuses endpoints bound to an unrelated account. Registration status is separate from the existence of a browser subscription. Actual delivery also requires supported browser/OS push services and the deployed server's outbound connectivity.
+
+
+## Reader, workspace, synchronization and operational policies
+
+These settings use the same global, domain, group, profile and account policy resolution as the sections above. User overrides apply only where the registry permits them; administrator locks take precedence. The console shows the effective value and its source.
+
+Setting | Purpose |
+--- | --- |
+<a id="mail.attachmentWarnings"></a>`mail.attachmentWarnings` | Show a warning bar for suspicious attachment filenames and risky extensions |
+<a id="mail.attachmentWarningsRequired"></a>`mail.attachmentWarningsRequired` | Mars/Olympus |
+<a id="mail.attachmentWarningTypes"></a>`mail.attachmentWarningTypes` | Attachment warning categories shown to this user unless warnings are required by administrator policy |
+<a id="views.notifications.visibility"></a>`views.notifications.visibility` | Sidebar visibility for notifications: visible, hidden, or only when notable; feature policy remains a ceiling |
+<a id="views.notifications.name"></a>`views.notifications.name` | Custom sidebar name for notifications; empty uses the translated default |
+<a id="views.notifications.showCount"></a>`views.notifications.showCount` | Show the notable-item count beside notifications |
+<a id="views.calendar.visibility"></a>`views.calendar.visibility` | Sidebar visibility for calendar: visible, hidden, or only when notable; feature policy remains a ceiling |
+<a id="views.calendar.name"></a>`views.calendar.name` | Custom sidebar name for calendar; empty uses the translated default |
+<a id="views.calendar.showCount"></a>`views.calendar.showCount` | Show the notable-item count beside calendar |
+<a id="views.tasks.visibility"></a>`views.tasks.visibility` | Sidebar visibility for tasks: visible, hidden, or only when notable; feature policy remains a ceiling |
+<a id="views.tasks.name"></a>`views.tasks.name` | Custom sidebar name for tasks; empty uses the translated default |
+<a id="views.tasks.showCount"></a>`views.tasks.showCount` | Show the notable-item count beside tasks |
+<a id="views.notes.visibility"></a>`views.notes.visibility` | Sidebar visibility for notes: visible, hidden, or only when notable; feature policy remains a ceiling |
+<a id="views.notes.name"></a>`views.notes.name` | Custom sidebar name for notes; empty uses the translated default |
+<a id="views.notes.showCount"></a>`views.notes.showCount` | Show the notable-item count beside notes |
+<a id="views.contacts.visibility"></a>`views.contacts.visibility` | Sidebar visibility for contacts: visible, hidden, or only when notable; feature policy remains a ceiling |
+<a id="views.contacts.name"></a>`views.contacts.name` | Custom sidebar name for contacts; empty uses the translated default |
+<a id="views.contacts.showCount"></a>`views.contacts.showCount` | Show the notable-item count beside contacts |
+<a id="views.keys.visibility"></a>`views.keys.visibility` | Sidebar visibility for keys: visible, hidden, or only when notable; feature policy remains a ceiling |
+<a id="views.keys.name"></a>`views.keys.name` | Custom sidebar name for keys; empty uses the translated default |
+<a id="views.keys.showCount"></a>`views.keys.showCount` | Show the notable-item count beside keys |
+<a id="views.attachments.visibility"></a>`views.attachments.visibility` | Sidebar visibility for attachments: visible, hidden, or only when notable; feature policy remains a ceiling |
+<a id="views.attachments.name"></a>`views.attachments.name` | Custom sidebar name for attachments; empty uses the translated default |
+<a id="views.attachments.showCount"></a>`views.attachments.showCount` | Show the notable-item count beside attachments |
+<a id="views.outbox.visibility"></a>`views.outbox.visibility` | Sidebar visibility for outbox: visible, hidden, or only when notable; feature policy remains a ceiling |
+<a id="views.outbox.name"></a>`views.outbox.name` | Custom sidebar name for outbox; empty uses the translated default |
+<a id="views.outbox.showCount"></a>`views.outbox.showCount` | Show the notable-item count beside outbox |
+<a id="views.templates.visibility"></a>`views.templates.visibility` | Sidebar visibility for templates: visible, hidden, or only when notable; feature policy remains a ceiling |
+<a id="views.templates.name"></a>`views.templates.name` | Custom sidebar name for templates; empty uses the translated default |
+<a id="views.templates.showCount"></a>`views.templates.showCount` | Show the notable-item count beside templates |
+<a id="accounts.linked.directLogin"></a>`accounts.linked.directLogin` | Allow this linked mailbox to sign in to Mailwoman directly; false requires a verified primary-account link; administrator locks override user choices |
+<a id="accounts.linked.allowUserLoginPolicy"></a>`accounts.linked.allowUserLoginPolicy` | Allow users to change direct-login policy for verified linked mailboxes; disabled by default; administrator locks on the direct-login setting always win |
+<a id="mail.badge.importance"></a>`mail.badge.importance` | Visibility of importance message badges; always, only when notable, or never |
+<a id="mail.badge.follow-up"></a>`mail.badge.follow-up` | Visibility of follow-up message badges; always, only when notable, or never |
+<a id="mail.badge.snooze"></a>`mail.badge.snooze` | Visibility of snooze message badges; always, only when notable, or never |
+<a id="mail.badge.receipts"></a>`mail.badge.receipts` | Visibility of receipts message badges; always, only when notable, or never |
+<a id="mail.badge.delivery"></a>`mail.badge.delivery` | Visibility of delivery message badges; always, only when notable, or never |
+<a id="mail.badge.dates"></a>`mail.badge.dates` | Visibility of dates message badges; always, only when notable, or never |
+<a id="mail.badge.sensitivity"></a>`mail.badge.sensitivity` | Visibility of sensitivity message badges; always, only when notable, or never |
+<a id="mail.badge.reply-by"></a>`mail.badge.reply-by` | Visibility of reply-by message badges; always, only when notable, or never |
+<a id="mail.badge.expires"></a>`mail.badge.expires` | Visibility of expires message badges; always, only when notable, or never |
+<a id="mail.badge.supersedes"></a>`mail.badge.supersedes` | Visibility of supersedes message badges; always, only when notable, or never |
+<a id="mail.badge.auth.sent"></a>`mail.badge.auth.sent` | Authentication classifications on messages in Sent; hidden by default because recipient authentication results are usually unavailable |
+<a id="mail.badge.spam.sent"></a>`mail.badge.spam.sent` | Spam classifications on messages in Sent; hidden by default because recipient spam scores are usually unavailable |
+<a id="reader.actions.view-draft"></a>`reader.actions.view-draft` | where the view reply draft reader action appears: toolbar, More menu, or hidden |
+<a id="mail.unifiedAccount.accounts"></a>`mail.unifiedAccount.accounts` | Included virtual-account keys: primary or verified link IDs; * includes all accounts within administrator bounds |
+<a id="mail.unifiedAccount.folders"></a>`mail.unifiedAccount.folders` | Included folders as JSON [account key, folder ID], or role:inbox etc; * includes all folders within administrator bounds |
+<a id="mail.unifiedAccount.allowedAccounts"></a>`mail.unifiedAccount.allowedAccounts` | Mars/Olympus |
+<a id="mail.unifiedAccount.allowedFolders"></a>`mail.unifiedAccount.allowedFolders` | Mars/Olympus |
+<a id="mail.unifiedAccount.openFirst"></a>`mail.unifiedAccount.openFirst` | Open the unified virtual account first when linked mailboxes are available and more than one account is usable |
+<a id="mail.unifiedAccount.name"></a>`mail.unifiedAccount.name` | Display name of the unified virtual account; empty uses the translated default |
+<a id="mail.unifiedAccount.avatar"></a>`mail.unifiedAccount.avatar` | Unified virtual-account avatar as a bounded JSON letter or icon specification; empty uses the default |
+<a id="sync.headersWindow"></a>`sync.headersWindow` | Headers to synchronize for offline use: 30, 90 or 365 days, or all available mail within the storage budget |
+<a id="sync.bodies"></a>`sync.bodies` | Fetch message bodies when opened or prefetch them for offline reading |
+<a id="sync.attachments"></a>`sync.attachments` | Cache attachments when opened, prefetch inline images, or prefetch all permitted attachments |
+<a id="offline.enabled"></a>`offline.enabled` | Keep encrypted mail and PIM snapshots on this device for offline startup, reading and queued work |
+<a id="incidents.auto.enabled"></a>`incidents.auto.enabled` | Automatically record operational incident candidates from existing health and session-security signals |
+<a id="incidents.auto.failureSamples"></a>`incidents.auto.failureSamples` | Consecutive failed health samples before opening an incident |
+<a id="incidents.nis2.trustService"></a>`incidents.nis2.trustService` | Use the 24-hour incident notification deadline for relevant trust-service incidents |
+<a id="incidents.notify.email"></a>`incidents.notify.email` | Email operational incident and reporting reminders using the compliance relay |
+<a id="incidents.notify.operatorAddresses"></a>`incidents.notify.operatorAddresses` | Operational incident email recipients |
+<a id="incidents.auto.resolveTransient"></a>`incidents.auto.resolveTransient` | Automatically verify recovery and resolve brief health-generated service disruptions; never submits a regulatory report or classifies legal significance |
+<a id="incidents.auto.transientMinutes"></a>`incidents.auto.transientMinutes` | Failures lasting longer than this threshold remain open for operator review; brief automatic episodes do not send escalation email |
+<a id="incidents.auto.recoverySamples"></a>`incidents.auto.recoverySamples` | Consecutive healthy samples required for automatic recovery verification |
+<a id="incidents.retention.days"></a>`incidents.retention.days` | Days to keep closed operational incident records; open incidents are retained |
+<a id="retention.complianceMail.days"></a>`retention.complianceMail.days` | Days to retain completed outbound compliance notifications |
+<a id="compliance.mail.enabled"></a>`compliance.mail.enabled` | Send compliance notifications through the configured SMTP relay |
+<a id="compliance.mail.host"></a>`compliance.mail.host` | SMTP relay hostname |
+<a id="compliance.mail.port"></a>`compliance.mail.port` | SMTP relay port |
+<a id="compliance.mail.security"></a>`compliance.mail.security` | Verified TLS is required |
+<a id="compliance.mail.from"></a>`compliance.mail.from` | Sender mailbox address |
+<a id="compliance.mail.username"></a>`compliance.mail.username` | SMTP username; password comes from MW_COMPLIANCE_SMTP_PASSWORD or MW_COMPLIANCE_SMTP_PASSWORD_FILE |
+<a id="compliance.mail.requireProxy"></a>`compliance.mail.requireProxy` | Require an explicit system_mail proxy route; disable only to allow direct relay connections |
+<a id="compliance.mail.allowPrivate"></a>`compliance.mail.allowPrivate` | Allow an operator-owned private SMTP relay; metadata and reserved addresses remain blocked |
+<a id="dsr.notify.emailAdmins"></a>`dsr.notify.emailAdmins` | Email operators about incoming requests and deadlines |
+<a id="dsr.notify.operatorAddresses"></a>`dsr.notify.operatorAddresses` | Operator email recipients |
+<a id="dsr.notify.emailRequester"></a>`dsr.notify.emailRequester` | Email requester progress notices |
+<a id="breach.notify.email"></a>`breach.notify.email` | Email configured breach operator addresses |
+<a id="breach.subjects.email"></a>`breach.subjects.email` | Email explicitly selected breach notice recipients |
+<a id="retention.rememberedDevices.graceDays"></a>`retention.rememberedDevices.graceDays` | Days to keep remembered-device records after expiry |
+<a id="retention.sourceFailures.graceDays"></a>`retention.sourceFailures.graceDays` | Days to keep per-source authentication failure records after expiry |
+
+Offline access is opt-in (`offline.enabled`). `sync.headersWindow` selects 30, 90 or 365 days, or all available headers, constrained by the encrypted storage budget. It does not hide older mail when online. `sync.bodies` selects on-demand loading or prefetching. `sync.attachments` selects on-demand loading, inline images or permitted attachments. Prefetch never acknowledges an attachment risk warning and limits each file to 10 MiB. Offline composition can stage individual attachments up to 50 MiB in the encrypted pending-file store.
+
+Queued changes and unsent drafts do not participate in read-cache eviction. Removing read caches preserves this work. Background replay requires a browser with one-shot Background Sync; other browsers replay while a Mailwoman window is open. A live server identity and storage authority must match before replay can start.
+
+<a id="offline.eviction"></a>
+`offline.eviction` controls read-cache eviction: `lru` (default), `oldest` or `manual`. Users can change it unless an administrator locks it. Pins, follow-up flags, unsent drafts and pending outbound work are protected from read-cache eviction. Manual mode refuses new cache entries when the budget is full.

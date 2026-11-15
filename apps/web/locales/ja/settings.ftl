@@ -873,3 +873,21 @@ settings-badge-sent-help = 送信済みメールには通常、受信側の認�
 
 settings-offline-enabled = オフラインアクセス
 settings-offline-enabled-help = キャッシュ済みのメール、カレンダー、タスク、メモ、連絡先の暗号化コピーをこの端末に保存します。オフラインでは保存済みの内容のみ利用でき、変更は接続の確認後に送信されます。
+
+settings-offline-usage = キャッシュ：{ $size }、{ $count } 件 · 保護：{ $protected }
+settings-offline-storage-error = 暗号化ストレージにアクセスできません。ブラウザーのストレージ権限を確認してください。
+
+settings-sync-headers-window = オフラインのヘッダー期間
+settings-sync-headers-window-help = 暗号化ストレージの上限内で最近のヘッダーを同期します。古いメールはオンラインで閲覧できます。
+settings-sync-bodies = メッセージ本文
+settings-sync-bodies-help = 開くときに本文を取得するか、オフライン閲覧用に事前取得します。
+settings-sync-attachments = 添付ファイル
+settings-sync-attachments-help = 開いたファイルを保存するか、埋め込み画像または許可された添付を事前取得します。各ファイルは最大10 MiBで、警告を自動承認しません。
+settings-sync-option-30 = 30日
+settings-sync-option-90 = 90日
+settings-sync-option-365 = 365日
+settings-sync-option-all = 利用可能なすべてのメール
+settings-sync-option-on-demand = 開くとき
+settings-sync-option-prefetch = オフライン用に事前取得
+settings-sync-option-inline = 埋め込み画像
+settings-sync-option-all-attachments = 許可されたすべての添付
