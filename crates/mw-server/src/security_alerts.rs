@@ -275,7 +275,7 @@ async fn add_notice(state: &AppState, alert: &Alert, owner: &str) {
     let retention = sec_cfg::values(&state.store, "security.alerts.")
         .await
         .num("security.alerts.noticeRetentionDays")
-        .clamp(1, 365) as i64;
+        .clamp(1, 3650) as i64;
     let oldest_kept = alert.ts - retention * 86_400;
     if let Ok(rows) = state.store.personal_records(&owner, &prefix).await {
         let excess = rows.len().saturating_sub(MAX_NOTICES);

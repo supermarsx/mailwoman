@@ -258,7 +258,7 @@ async fn prune_history(store: &mw_store::Store) -> Result<(), mw_store::StoreErr
         crate::settings_registry::effective_for(store, "diagnostics.retentionDays", &subject)
             .await?
             .and_then(|v| v.value.as_i64())
-            .unwrap_or(30)
+            .unwrap_or(180)
             .clamp(1, 365);
     store
         .prune_diagnostic_runs(chrono::Utc::now().timestamp() - days * 86400)

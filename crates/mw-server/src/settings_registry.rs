@@ -4451,8 +4451,8 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "security.theft.retentionDays",
-        int(1, 60),
-        "15",
+        int(1, 3650),
+        "365",
         G,
         "security",
         "How long rotated-session markers and per-session security state are kept; at least the longest session lifetime."
@@ -4515,8 +4515,8 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "security.alerts.noticeRetentionDays",
-        int(1, 365),
-        "30",
+        int(1, 3650),
+        "730",
         G,
         "security",
         "How long in-app security notices are kept per account (at most 20 per account)."
@@ -6071,7 +6071,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "usage.retentionDays",
         int(31, 3650),
-        "400",
+        "730",
         G,
         "limits",
         "usage counter pruning"
@@ -6630,7 +6630,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "diagnostics.retentionDays",
         int(1, 365),
-        "30",
+        "180",
         G,
         "diagnostics",
         "diagnostic runs kept"
@@ -6936,8 +6936,8 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("incidents.nis2.trustService",Kind::Bool,"false",G,"privacy","Use the 24-hour incident notification deadline for relevant trust-service incidents"),
     def!("incidents.notify.email",Kind::Bool,"false",G,"privacy","Email operational incident and reporting reminders using the compliance relay"),
     def!("incidents.notify.operatorAddresses",Kind::StringList{max_len:20,max_item:254},"[]",G,"privacy","Operational incident email recipients"),
-    def!("incidents.retention.days",int(1,3650),"1095",G,"privacy","Days to keep closed operational incident records; open incidents are retained"),
-    def!("retention.complianceMail.days",int(1,3650),"30",G,"privacy","Days to retain completed outbound compliance notifications"),
+    def!("incidents.retention.days",int(1,3650),"2555",G,"privacy","Days to keep closed operational incident records; open incidents are retained"),
+    def!("retention.complianceMail.days",int(1,3650),"730",G,"privacy","Days to retain completed outbound compliance notifications"),
     def!("compliance.mail.enabled", Kind::Bool, "false", G, "privacy", "Send compliance notifications through the configured SMTP relay"),
     def!("compliance.mail.host", text(Text::Plain, 253), "\"\"", G, "privacy", "SMTP relay hostname"),
     def!("compliance.mail.port", int(1, 65535), "587", G, "privacy", "SMTP relay port"),
@@ -7834,7 +7834,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "retention.ssoLoginAudit.days",
         int(0, 3650),
-        "90",
+        "365",
         G,
         "privacy",
         "Days single sign-on login records are kept; 0 keeps them forever"
@@ -7842,7 +7842,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "retention.dlpAudit.days",
         int(0, 3650),
-        "365",
+        "1825",
         G,
         "privacy",
         "Days data-loss-prevention match records are kept; 0 keeps them forever"
@@ -7887,10 +7887,12 @@ pub static REGISTRY: &[SettingDef] = &[
         "privacy",
         "Days an expired token, remembered device, sign-in challenge or image link is kept after it expired; 0 removes it at once"
     ),
+    def!("retention.rememberedDevices.graceDays",int(0,3650),"365",G,"privacy","Days to keep remembered-device records after expiry"),
+    def!("retention.sourceFailures.graceDays",int(0,3650),"365",G,"privacy","Days to keep per-source authentication failure records after expiry"),
     def!(
         "retention.imageHandles.graceDays",
         int(0, 3650),
-        "180",
+        "365",
         G,
         "privacy",
         "Days expired image handles are retained before cleanup"
@@ -8243,7 +8245,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "logging.file.maxAgeDays",
         int(1, 3650),
-        "14",
+        "365",
         G,
         "observability",
         "Days rotated log files are kept"

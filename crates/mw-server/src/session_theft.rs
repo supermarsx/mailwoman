@@ -81,7 +81,7 @@ impl Rules {
             grace_secs: theft.num("security.theft.rotationGraceSecs").min(600) as i64,
             min_travel_secs: (theft.num("security.theft.minTravelSecs") as i64).clamp(60, 172_800),
             concurrent: Concurrent::parse(&theft.text("security.theft.concurrentUse")),
-            retention_days: (theft.num("security.theft.retentionDays") as i64).clamp(1, 60),
+            retention_days: (theft.num("security.theft.retentionDays") as i64).clamp(1, 3650),
             country_alert: alerts.flag("security.alerts.countryChangeEnabled"),
             country_cooldown_secs: (alerts.num("security.alerts.countryChangeCooldownSecs") as i64)
                 .clamp(0, 86_400),
