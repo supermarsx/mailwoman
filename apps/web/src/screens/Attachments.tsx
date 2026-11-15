@@ -77,6 +77,7 @@ const SEARCH_DELAY=400;
 
 export function Attachments(props: AttachmentsProps): JSX.Element {
   void loadCatalog('attachments-filters');
+  void loadCatalog('selection-bar');
   const [pinnedOnly,setPinnedOnly]=createSignal(false);
   handleModuleActions('attachments',action=>{if(action==='pinned')setPinnedOnly(true);else if(action==='refresh')queueMicrotask(()=>refreshAttachments());});
   const pins=()=>accountUiPreferences().pinnedAttachments??[];
