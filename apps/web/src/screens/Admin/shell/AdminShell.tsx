@@ -105,11 +105,12 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   // the rest load on hover or focus of their link (preloadSection above).
   onMount(() => {
     if (import.meta.env.MODE === 'test') return;
+    const controller=new AbortController();
     const timer = setTimeout(() => {
       const open = new Set(groups().flatMap((g) => g.items.map((s) => s.id)));
-      prefetchSectionsWhenIdle(COMMON_SECTIONS.filter((id) => open.has(id)), props.sections);
-    }, 2500);
-    onCleanup(() => clearTimeout(timer));
+      prefetchSectionsWhenIdle([...new Set([...COMMON_SECTIONS,...open])].filter(id=>open.has(id)), props.sections,controller.signal,id=>groups().some(group=>group.items.some(section=>section.id===id)));
+    }, 300);
+    onCleanup(() => {controller.abort();clearTimeout(timer);});
   });
   onMount(() => void loadCatalog('admin-branding'));
 

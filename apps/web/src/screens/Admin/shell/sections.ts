@@ -281,7 +281,7 @@ export function preloadSection(id: string, sections: readonly SectionDef[] = SEC
  * first open of Settings, Users, Security and the rest does not wait for its
  * chunk. Skipped when the user asked to save data.
  */
-export function prefetchSectionsWhenIdle(ids: readonly string[], sections: readonly SectionDef[] = SECTIONS): void {
+export function prefetchSectionsWhenIdle(ids: readonly string[], sections: readonly SectionDef[] = SECTIONS, signal?:AbortSignal, allowed?:(id:string)=>boolean): void {
   const nav = (globalThis as { navigator?: { connection?: { saveData?: boolean } } }).navigator;
   if (nav?.connection?.saveData === true || ids.length === 0) return;
   const idle = (fn: () => void): void => {
@@ -291,8 +291,10 @@ export function prefetchSectionsWhenIdle(ids: readonly string[], sections: reado
   };
   const run = (index: number): void => {
     const id = ids[index];
-    if (id === undefined) return;
+    if (id === undefined||signal?.aborted) return;
     idle(() => {
+      if(signal?.aborted)return;
+      if(allowed&&!allowed(id)){run(index+1);return;}
       const component = findSection(id, sections)?.component as { preload?: () => Promise<unknown> } | undefined;
       let done: Promise<unknown> = Promise.resolve();
       try { done = component?.preload?.() ?? done; } catch { /* not lazy */ }
