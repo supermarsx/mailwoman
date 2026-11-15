@@ -1,3 +1,4 @@
+import {createRangeSelection} from '../components/rangeSelection.ts';
 import {SearchInput} from '../components/SearchInput.tsx';
 // Paged account attachment table with local filters and an explicit cancellable
 // account-wide metadata scan. Attachment bytes are fetched only by the viewer.
@@ -195,12 +196,14 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
 
   function refreshAttachments():void {if(pinnedOnly())void retryPins();else if(search())void searchAccount();else void refetch();}
   const key=(item:AttachmentItem)=>JSON.stringify([item.emailId,item.blobId]);
-  const [selectionMode,setSelectionMode]=createSignal(false),[selected,setSelected]=createSignal<Set<string>>(new Set<string>()),[working,setWorking]=createSignal(false);
+  const [selected,setSelected]=createSignal<Set<string>>(new Set<string>()),[working,setWorking]=createSignal(false);
+  const bulk=createRangeSelection({ids:()=>filtered().map(key),scope:()=>JSON.stringify([props.accountId,pinOwner()?.storageAuthority]),selected,setSelected:ids=>setSelected(new Set(ids))});
+  const selectionMode=bulk.mode,setSelectionMode=bulk.setMode;
   let region:HTMLDivElement|undefined;
   const picked=()=>filtered().filter(item=>selected().has(key(item)));
   createEffect(()=>{const visible=new Set(filtered().map(key));setSelected(old=>new Set([...old].filter(id=>visible.has(id))));});
   createEffect(()=>{void props.accountId;pinOwner();setSelectionMode(false);setSelected(new Set<string>());});
-  function toggle(item:AttachmentItem):void {if(working())return;setSelected(old=>{const next=new Set(old);if(next.has(key(item)))next.delete(key(item));else next.add(key(item));return next;});}
+  function toggle(item:AttachmentItem):void {if(!working())bulk.pick(key(item),{shiftKey:false,ctrlKey:false,metaKey:false},true);}
   async function run(callback:((items:AttachmentItem[])=>void|Promise<void>)|undefined,rows:AttachmentItem[],refresh=false):Promise<void>{
     if(!callback||!rows.length||working())return;
     const account=props.accountId,owner=preferenceAccount();setWorking(true);
@@ -224,11 +227,11 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
     {id:'copy',label:t('common-copy'),icon:'copy',run:()=>navigator.clipboard.writeText(item.name)},
   ]});
   return (
-    <section class={`mw-attach ${table.selectionHost}`} data-selection-active={selectionMode()} onKeyDown={event=>{if(event.key==='Escape'&&selectionMode()&&!working()){event.preventDefault();event.stopPropagation();if(selected().size)setSelected(new Set<string>());else setSelectionMode(false);}}} data-mw-surface aria-label={t('common-attach-title')}>
+    <section class={`mw-attach ${table.selectionHost}`} data-selection-active={selectionMode()} data-range-selection-root onKeyDown={event=>{if(event.key==='Escape'&&selectionMode()&&!working()){event.preventDefault();event.stopPropagation();if(selected().size)setSelected(new Set<string>());else setSelectionMode(false);}}} data-mw-surface aria-label={t('common-attach-title')}>
       <header class="mw-attach__bar">
         <h2 class="mw-attach__title">{t('common-attach-title')}</h2>
         <span class={table.resultCount}>{t('attach-filters-results',{count:filtered().length})}</span>
-        <button type="button" class="btn btn--ghost" aria-pressed={selectionMode()} disabled={working()} onClick={()=>{setSelectionMode(old=>!old);setSelected(new Set<string>());}}><Icon name="check"/>{t('attach-action-select')}</button>
+        <button type="button" class={`btn btn--ghost ${table.selectToggle}`} title={t('attach-action-select')} aria-label={t('attach-action-select')} aria-pressed={selectionMode()} disabled={working()} onClick={()=>{setSelectionMode(old=>!old);setSelected(new Set<string>());}}><Icon name="check"/></button>
       </header>
       <form class={table.filters} aria-label={t('attach-filters-title')} onSubmit={event=>{event.preventDefault();clearTimeout(searchTimer);if(props.loadPage&&searchScope()==='all'&&!pinnedOnly())void searchAccount();}}>
         <div class={table.searchRow}>
@@ -273,17 +276,17 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
           when={filtered().length > 0}
           fallback={<Show when={pinnedOnly()&&pinnedRows.error} fallback={<Show when={searching()||(pinnedOnly()&&pinnedRows.loading)} fallback={<p class="mw-attach__status">{t('common-attach-empty')}</p>}><InlineLoading message={t('common-attach-loading')}/></Show>}><p role="alert">{t('attach-pins-error')} <button type="button" onClick={()=>void retryPins()}>{t('common-retry')}</button></p></Show>}
         >
-          <div ref={region} class={table.wrap} role="region" aria-label={t('common-attach-title')} tabIndex={0}><table class={table.table} aria-label={t('common-attach-title')} aria-busy={data.loading||searching()}><thead><tr><Show when={selectionMode()}><th scope="col"><input type="checkbox" aria-label={t('selection-bar-select-all')} disabled={working()} checked={picked().length===filtered().length&&filtered().length>0} onChange={event=>setSelected(event.currentTarget.checked?new Set(filtered().map(key)):new Set<string>())}/></th></Show><For each={COLUMNS}>{key=><th scope="col" aria-sort={sort().column===key?(sort().ascending?'ascending':'descending'):'none'}><button type="button" class={table.name} onClick={()=>setSort(old=>({column:key,ascending:old.column===key?!old.ascending:true}))}>{t(`common-attach-column-${key}`)}<Show when={sort().column===key}><Icon name={sort().ascending?'chevronUp':'chevronDown'}/></Show></button></th>}</For></tr></thead><tbody>
+          <div ref={region} class={table.wrap} role="region" aria-label={t('common-attach-title')} tabIndex={0}><table class={table.table} aria-label={t('common-attach-title')} aria-busy={data.loading||searching()}><thead><tr><For each={COLUMNS}>{key=><th scope="col" aria-sort={sort().column===key?(sort().ascending?'ascending':'descending'):'none'}><Show when={selectionMode()&&key==='name'}><input type="checkbox" class={table.selectionCheck} aria-label={t('selection-bar-select-all')} disabled={working()} checked={picked().length===filtered().length&&filtered().length>0} onChange={event=>event.currentTarget.checked?bulk.all():bulk.clear()}/></Show><button type="button" class={table.name} onClick={()=>setSort(old=>({column:key,ascending:old.column===key?!old.ascending:true}))}>{t(`common-attach-column-${key}`)}<Show when={sort().column===key}><Icon name={sort().ascending?'chevronUp':'chevronDown'}/></Show></button></th>}</For></tr></thead><tbody>
             <For each={filtered()}>
               {(item) => (
-                <tr tabIndex={0} aria-selected={selectionMode()?selected().has(key(item)):undefined} {...rowMenu.bind(key(item))}>
-                  <Show when={selectionMode()}><td><input type="checkbox" aria-label={item.name} checked={selected().has(key(item))} disabled={working()} onChange={()=>toggle(item)}/></td></Show>
+                <tr data-selection-id={key(item)} tabIndex={0} aria-selected={selectionMode()?selected().has(key(item)):undefined} {...rowMenu.bind(key(item))} onClick={event=>{if(!(event.target as Element).closest('button,input,a')&&!working())bulk.click(key(item),event);}} onKeyDown={event=>{if(!bulk.keydown(key(item),event))rowMenu.bind(key(item)).onKeyDown(event);}}>
                   <td>
+                  <Show when={selectionMode()}><input type="checkbox" class={table.selectionCheck} aria-label={item.name} checked={selected().has(key(item))} disabled={working()} onClick={event=>bulk.checkbox(key(item),event)}/></Show>
                   <button
                     type="button"
                     class={table.name}
                     data-category={categoryOf(item.mime,item.name)}
-                    onClick={() => selectionMode()?toggle(item):props.onOpen?.(item)}
+                    onClick={event => {if(!working())bulk.click(key(item),event,()=>props.onOpen?.(item));}}
                   >
                     <Icon name={inspectFile(item.name,item.mime).icon}/><span>{item.name}</span>
                   </button>

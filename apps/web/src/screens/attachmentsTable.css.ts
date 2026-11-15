@@ -48,3 +48,6 @@ globalStyle('.mw-attach',{overflowY:'auto'});
 
 export const selectionHost=style({position:'relative',selectors:{'&[data-selection-active="true"]':{paddingBlockEnd:'4rem'}}});
 globalStyle(`${table} tr[aria-selected="true"]`,{background:`color-mix(in srgb, ${vars.color.accent} 18%, ${vars.color.surface})`});
+
+export const selectionCheck=style({inlineSize:'1rem',blockSize:'1rem',marginInlineEnd:vars.space[2],verticalAlign:'middle',accentColor:vars.color.accent});
+export const selectToggle=style({display:'inline-flex',alignItems:'center',justifyContent:'center',inlineSize:'2rem',minInlineSize:'2rem',padding:vars.space[1],flexShrink:0});

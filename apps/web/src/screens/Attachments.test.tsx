@@ -13,6 +13,20 @@ const items: AttachmentItem[] = [
 ];
 
 describe('Attachments module', () => {
+  it('ranges and toggles rows without opening files or adding a selection column',async()=>{
+    const open=vi.fn(),zip=vi.fn();render(()=><Attachments items={items} onOpen={open} onDownloadZip={zip}/>);
+    const first=await screen.findByRole('button',{name:'Q3-report.pdf'}),last=screen.getByRole('button',{name:'logo.png'});
+    const columns=screen.getAllByRole('columnheader').length;
+    fireEvent.click(first,{ctrlKey:true});fireEvent.click(last,{shiftKey:true});
+    expect(screen.getAllByRole('checkbox').filter(input=>(input as HTMLInputElement).checked)).toHaveLength(4);
+    expect(screen.getAllByRole('columnheader')).toHaveLength(columns);
+    fireEvent.click(screen.getByRole('button',{name:'demo.mp4'}),{metaKey:true});
+    expect(open).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button',{name:'Download attachments as ZIP'}));
+    await waitFor(()=>expect(zip).toHaveBeenCalledOnce());
+    expect(zip.mock.calls[0]![0].map((item:AttachmentItem)=>item.emailId)).toEqual(['e1','e2']);
+    expect(screen.getByRole('checkbox',{name:'Q3-report.pdf'}).closest('td')?.cellIndex).toBe(0);
+  });
   it('offers locate independently from opening the associated message',async()=>{
     const locate=vi.fn();render(()=><Attachments items={items} onLocateMessage={locate}/>);
     const name=await screen.findByRole('button',{name:'Q3-report.pdf'});
