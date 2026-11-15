@@ -225,3 +225,9 @@ common-notify-new-count = Нові повідомлення: { $count }
 common-network-internal = Внутрішня мережа
 common-module-notifications = Сповіщення
 common-actions = Дії
+
+attach-action-forward-files = Переслати файли
+attach-action-forward-messages = Переслати пов’язані повідомлення
+attach-action-delete-messages = Видалити пов’язані повідомлення
+attach-action-locate = Знайти повідомлення
+attach-action-select = Вибрати вкладення

@@ -45,3 +45,6 @@ globalStyle(`${chip} > span`,{overflow:'hidden',textOverflow:'ellipsis',whiteSpa
 globalStyle(`${chip} svg`,{flexShrink:0});
 
 globalStyle('.mw-attach',{overflowY:'auto'});
+
+export const selectionHost=style({position:'relative',selectors:{'&[data-selection-active="true"]':{paddingBlockEnd:'4rem'}}});
+globalStyle(`${table} tr[aria-selected="true"]`,{background:`color-mix(in srgb, ${vars.color.accent} 18%, ${vars.color.surface})`});

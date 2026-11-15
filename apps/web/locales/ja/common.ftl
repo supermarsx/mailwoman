@@ -205,3 +205,9 @@ common-notify-new-count = 新着メッセージ: { $count }
 common-network-internal = 内部ネットワーク
 common-module-notifications = 通知
 common-actions = 操作
+
+attach-action-forward-files = ファイルを転送
+attach-action-forward-messages = 関連するメッセージを転送
+attach-action-delete-messages = 関連するメッセージを削除
+attach-action-locate = メッセージの場所を開く
+attach-action-select = 添付ファイルを選択

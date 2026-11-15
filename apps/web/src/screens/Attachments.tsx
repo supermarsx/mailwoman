@@ -9,6 +9,8 @@ import {mailFeature} from '../state/mailFeatures.ts';
 import {accountUiPreferences,setAccountUiPreferences} from '../api/accountPreferences.ts';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import {createConfiguredClient} from '../api/transport.ts';
+import {SelectionBar,type SelectionAction} from '../components/SelectionBar.tsx';
+import {toast} from '../components/toast/toast.ts';
 import {Icon} from '../components/Icon.tsx';
 import {inspectFile} from '../viewers/fileInfo.ts';
 import { AsyncError } from '../components/AsyncState.tsx';
@@ -39,6 +41,11 @@ export interface AttachmentsProps {
   mailboxes?: readonly {id:string;name:string;parentId?:string|null;mailwomanSearchQuery?:string}[];
   onOpen?: (item: AttachmentItem) => void;
   onOpenMessage?: (item: AttachmentItem) => void;
+  onLocateMessage?: (item:AttachmentItem)=>void|Promise<void>;
+  onForwardFiles?: (items:AttachmentItem[])=>void|Promise<void>;
+  onForwardMessages?: (items:AttachmentItem[])=>void|Promise<void>;
+  onDownloadZip?: (items:AttachmentItem[])=>void|Promise<void>;
+  onDeleteMessages?: (items:AttachmentItem[])=>void|Promise<void>;
   onDownload?: (item:AttachmentItem)=>void|Promise<void>;
 }
 
@@ -70,7 +77,7 @@ const SEARCH_DELAY=400;
 export function Attachments(props: AttachmentsProps): JSX.Element {
   void loadCatalog('attachments-filters');
   const [pinnedOnly,setPinnedOnly]=createSignal(false);
-  handleModuleActions('attachments',action=>{if(action==='pinned')setPinnedOnly(true);else if(action==='refresh')queueMicrotask(()=>void refetch());});
+  handleModuleActions('attachments',action=>{if(action==='pinned')setPinnedOnly(true);else if(action==='refresh')queueMicrotask(()=>refreshAttachments());});
   const pins=()=>accountUiPreferences().pinnedAttachments??[];
   const isPinned=(item:AttachmentItem)=>pins().some(pin=>pin.emailId===item.emailId&&pin.blobId===item.blobId);
   const [pinOwner,setPinOwner]=createSignal(preferenceAccount());
@@ -125,7 +132,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
     if(props.loadPage&&searchScope()==='all'&&active()&&!invalid()&&!pinnedOnly())searchTimer=setTimeout(()=>void searchAccount(),SEARCH_DELAY);
   });
   onCleanup(()=>{clearTimeout(searchTimer);searchController?.abort();});
-  function clearFilters():void {batch(()=>{setQuery('');setCat('all');setFields(emptyFields());});}
+  function clearFilters():void {batch(()=>{setQuery('');setCat('all');setFields(emptyFields());setPinnedOnly(false);});}
   const folderOptions=createMemo(()=>{
     const boxes=(props.mailboxes??[]).filter(box=>box.mailwomanSearchQuery===undefined),byId=new Map(boxes.map(box=>[box.id,box]));
     return boxes.map(box=>{const names=[box.name],seen=new Set([box.id]);let parent=box.parentId;while(parent&&!seen.has(parent)){seen.add(parent);const value=byId.get(parent);if(!value)break;names.unshift(value.name);parent=value.parentId;}return{id:box.id,name:names.join(' / ')};});
@@ -145,6 +152,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
   };
   const chips=()=>{
     const f=fields(),out:{key:string;label:string;clear:()=>void}[]=[];
+    if(pinnedOnly())out.push({key:'pinned',label:t('attach-pins-only'),clear:()=>setPinnedOnly(false)});
     if(query().trim())out.push({key:'query',label:query(),clear:()=>setQuery('')});
     if(cat()!=='all')out.push({key:'type',label:catLabel(cat()),clear:()=>setCat('all')});
     for(const key of ['from','subject','filename','extensions','mailboxId'] as const)if(f[key])out.push({key,label:`${t(`attach-filters-${key}`)}: ${key==='mailboxId'?folderOptions().find(box=>box.id===f[key])?.name??f[key]:f[key]}`,clear:()=>change(key,'')});
@@ -183,26 +191,48 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
     return [...rows].sort((a,b)=>{const av=value(a),bv=value(b);return (typeof av==='number'&&typeof bv==='number'?av-bv:String(av).localeCompare(String(bv),undefined,{numeric:true,sensitivity:'base'}))*(ascending?1:-1);});
   });
 
-  const rowMenu=createEntityContextMenu({items:filtered,id:item=>JSON.stringify([item.emailId,item.blobId]),name:item=>item.name,scope:()=>props.accountId,actions:item=>[
+  function refreshAttachments():void {if(pinnedOnly())void retryPins();else if(search())void searchAccount();else void refetch();}
+  const key=(item:AttachmentItem)=>JSON.stringify([item.emailId,item.blobId]);
+  const [selectionMode,setSelectionMode]=createSignal(false),[selected,setSelected]=createSignal<Set<string>>(new Set<string>()),[working,setWorking]=createSignal(false);
+  let region:HTMLDivElement|undefined;
+  const picked=()=>filtered().filter(item=>selected().has(key(item)));
+  createEffect(()=>{const visible=new Set(filtered().map(key));setSelected(old=>new Set([...old].filter(id=>visible.has(id))));});
+  createEffect(()=>{void props.accountId;pinOwner();setSelectionMode(false);setSelected(new Set<string>());});
+  function toggle(item:AttachmentItem):void {if(working())return;setSelected(old=>{const next=new Set(old);if(next.has(key(item)))next.delete(key(item));else next.add(key(item));return next;});}
+  async function run(callback:((items:AttachmentItem[])=>void|Promise<void>)|undefined,rows:AttachmentItem[],refresh=false):Promise<void>{
+    if(!callback||!rows.length||working())return;
+    const account=props.accountId,owner=preferenceAccount();setWorking(true);
+    try{await callback(rows);if(account===props.accountId&&(!owner||preferenceAccountIsCurrent(owner))&&refresh){setSelected(new Set<string>());refreshAttachments();}}
+    catch{toast.error(t('mail-context-failed'));}finally{setWorking(false);}
+  }
+  const actions=(rows:AttachmentItem[])=>[
+    {id:'forward-files',label:t('attach-action-forward-files'),icon:'forward',disabled:working()||!rows.length||!props.onForwardFiles||!mailFeature('allowForward'),run:()=>run(props.onForwardFiles,rows)},
+    {id:'forward-messages',label:t('attach-action-forward-messages'),icon:'mail',disabled:working()||!rows.length||!props.onForwardMessages||!mailFeature('allowForward'),run:()=>run(props.onForwardMessages,rows)},
+    {id:'zip',label:t('mail-bulk-download-attachments'),icon:'download',disabled:working()||!rows.length||!props.onDownloadZip||!mailFeature('allowDownload'),run:()=>run(props.onDownloadZip,rows)},
+    {id:'delete-messages',label:t('attach-action-delete-messages'),icon:'delete',disabled:working()||!rows.length||!props.onDeleteMessages,run:()=>run(props.onDeleteMessages,rows,true)},
+  ] satisfies SelectionAction[];
+  const rowMenu=createEntityContextMenu({items:filtered,id:key,name:item=>item.name,scope:()=>props.accountId,actions:item=>[
     {id:'open',label:t('common-open'),icon:'file',disabled:!props.onOpen,run:()=>props.onOpen?.(item)},
     {id:'download',label:t('common-viewer-download'),icon:'download',disabled:!props.onDownload||!mailFeature('allowDownload'),run:()=>props.onDownload?.(item)},
     {id:'message',label:t('common-attach-open-message'),icon:'mail',disabled:!props.onOpenMessage,run:()=>props.onOpenMessage?.(item)},
+    {id:'locate',label:t('attach-action-locate'),icon:'folder',disabled:!props.onLocateMessage,run:()=>props.onLocateMessage?.(item)},
+    ...actions(selected().has(key(item))?picked():[item]),
+    {id:'select',label:t('attach-action-select'),icon:'check',run:()=>{setSelectionMode(true);toggle(item);}},
     {id:'pin',label:t(isPinned(item)?'common-context-unpin':'attach-pin'),icon:'pin',disabled:!ownsPins()||!isPinned(item)&&pins().length>=100,separatorBefore:true,run:()=>togglePin(item)},
     {id:'copy',label:t('common-copy'),icon:'copy',run:()=>navigator.clipboard.writeText(item.name)},
   ]});
   return (
-    <section class="mw-attach" data-mw-surface aria-label={t('common-attach-title')}>
+    <section class={`mw-attach ${table.selectionHost}`} data-selection-active={selectionMode()} onKeyDown={event=>{if(event.key==='Escape'&&selectionMode()&&!working()){event.preventDefault();event.stopPropagation();if(selected().size)setSelected(new Set<string>());else setSelectionMode(false);}}} data-mw-surface aria-label={t('common-attach-title')}>
       <header class="mw-attach__bar">
         <h2 class="mw-attach__title">{t('common-attach-title')}</h2>
-        <Show when={ownsPins()}><button type="button" class="btn btn--ghost" aria-pressed={pinnedOnly()} onClick={()=>setPinnedOnly(value=>!value)}><Icon name="pin"/>{t('attach-pins-only')}</button></Show>
         <span class={table.resultCount}>{t('attach-filters-results',{count:filtered().length})}</span>
-        <button type="button" class={table.name} aria-label={t('common-attach-refresh')} title={t('common-attach-refresh')} disabled={data.loading||searching()} onClick={()=>{if(pinnedOnly())void retryPins();else if(search())void searchAccount();else void refetch();}}><Icon name="refresh"/></button>
+        <button type="button" class="btn btn--ghost" aria-pressed={selectionMode()} disabled={working()} onClick={()=>{setSelectionMode(old=>!old);setSelected(new Set<string>());}}><Icon name="check"/>{t('attach-action-select')}</button>
       </header>
       <form class={table.filters} aria-label={t('attach-filters-title')} onSubmit={event=>{event.preventDefault();clearTimeout(searchTimer);if(props.loadPage&&searchScope()==='all'&&!pinnedOnly())void searchAccount();}}>
         <div class={table.searchRow}>
           <label class={table.searchField}><span><Icon name="search"/>{t('common-attach-search')}</span><input class={table.control} type="search" placeholder={t('attach-filters-placeholder')} aria-label={t('common-attach-search')} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
           <button class="btn" type="submit" disabled={searching()||!!invalid()}><Icon name="search"/>{t(props.loadPage&&searchScope()==='all'?'common-attach-search-account':'attach-filters-apply')}</button>
-          <button class="btn btn--ghost" type="button" disabled={!active()} onClick={clearFilters}>{t('attach-filters-clear')}</button>
+          <button class="btn btn--ghost" type="button" disabled={!active()&&!pinnedOnly()} onClick={clearFilters}>{t('attach-filters-clear')}</button>
         </div>
         <details class={table.more}><summary><Icon name="filter"/>{t('attach-filters-more')}</summary><div class={table.filterGrid}>
           <label class={table.field}><span><Icon name="file"/>{t('common-attach-filter-type')}</span><select class={table.control} value={cat()} onChange={event=>setCat(event.currentTarget.value as TypeCategory|'all')}><For each={CATEGORIES}>{value=><option value={value}>{catLabel(value)}</option>}</For></select></label>
@@ -241,20 +271,20 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
           when={filtered().length > 0}
           fallback={<Show when={pinnedOnly()&&pinnedRows.error} fallback={<Show when={searching()||(pinnedOnly()&&pinnedRows.loading)} fallback={<p class="mw-attach__status">{t('common-attach-empty')}</p>}><InlineLoading message={t('common-attach-loading')}/></Show>}><p role="alert">{t('attach-pins-error')} <button type="button" onClick={()=>void retryPins()}>{t('common-retry')}</button></p></Show>}
         >
-          <div class={table.wrap} role="region" aria-label={t('common-attach-title')} tabIndex={0}><table class={table.table} aria-label={t('common-attach-title')} aria-busy={data.loading||searching()}><thead><tr><For each={COLUMNS}>{key=><th scope="col" aria-sort={sort().column===key?(sort().ascending?'ascending':'descending'):'none'}><button type="button" class={table.name} onClick={()=>setSort(old=>({column:key,ascending:old.column===key?!old.ascending:true}))}>{t(`common-attach-column-${key}`)}<Show when={sort().column===key}><Icon name={sort().ascending?'chevronUp':'chevronDown'}/></Show></button></th>}</For></tr></thead><tbody>
+          <div ref={region} class={table.wrap} role="region" aria-label={t('common-attach-title')} tabIndex={0}><table class={table.table} aria-label={t('common-attach-title')} aria-busy={data.loading||searching()}><thead><tr><Show when={selectionMode()}><th scope="col"><input type="checkbox" aria-label={t('selection-bar-select-all')} disabled={working()} checked={picked().length===filtered().length&&filtered().length>0} onChange={event=>setSelected(event.currentTarget.checked?new Set(filtered().map(key)):new Set<string>())}/></th></Show><For each={COLUMNS}>{key=><th scope="col" aria-sort={sort().column===key?(sort().ascending?'ascending':'descending'):'none'}><button type="button" class={table.name} onClick={()=>setSort(old=>({column:key,ascending:old.column===key?!old.ascending:true}))}>{t(`common-attach-column-${key}`)}<Show when={sort().column===key}><Icon name={sort().ascending?'chevronUp':'chevronDown'}/></Show></button></th>}</For></tr></thead><tbody>
             <For each={filtered()}>
               {(item) => (
-                <tr tabIndex={0} {...rowMenu.bind(JSON.stringify([item.emailId,item.blobId]))}>
+                <tr tabIndex={0} aria-selected={selectionMode()?selected().has(key(item)):undefined} {...rowMenu.bind(key(item))}>
+                  <Show when={selectionMode()}><td><input type="checkbox" aria-label={item.name} checked={selected().has(key(item))} disabled={working()} onChange={()=>toggle(item)}/></td></Show>
                   <td>
                   <button
                     type="button"
                     class={table.name}
                     data-category={categoryOf(item.mime,item.name)}
-                    onClick={() => props.onOpen?.(item)}
+                    onClick={() => selectionMode()?toggle(item):props.onOpen?.(item)}
                   >
                     <Icon name={inspectFile(item.name,item.mime).icon}/><span>{item.name}</span>
                   </button>
-                  <Show when={ownsPins()}><button type="button" class="btn btn--ghost" aria-pressed={isPinned(item)} title={t('attach-pin')} aria-label={t('attach-pin')} disabled={!isPinned(item)&&pins().length>=100} onClick={()=>togglePin(item)}><Icon name="pin"/></button></Show>
                   <For each={inspectFile(item.name,item.mime).warnings}>{warning=><span class={table.warning} title={t(`mail-file-warning-${warning}`)} aria-label={t(`mail-file-warning-${warning}`)}><Icon name="alert"/></span>}</For>
                   </td><td title={item.mime}>{catLabel(categoryOf(item.mime,item.name))}</td><td>{formatSize(item.size)}</td><td>{item.from}</td><td><Show when={props.onOpenMessage} fallback={item.subject}><button type="button" class={table.name} onClick={()=>props.onOpenMessage?.(item)} title={t('common-attach-open-message')}>{item.subject}</button></Show></td><td>{Number.isNaN(Date.parse(item.receivedAt))?'—':formatDate(new Date(item.receivedAt))}</td>
                 </tr>
@@ -268,6 +298,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
         <span>{t('common-attach-page',{page:positions().length})}</span>
         <button type="button" disabled={data.loading || current()?.nextPosition == null} onClick={()=>{const next=current()?.nextPosition;if(next!=null)setPositions(old=>[...old,next]);}}>{t('common-attach-next')}</button>
       </nav></Show>
+      <SelectionBar count={picked().length} countLabel={t('selection-bar-count',{count:picked().length})} announcement={t('selection-bar-count',{count:picked().length})} active={selectionMode()} total={filtered().length} selectAll={()=>setSelected(new Set(filtered().map(key)))} clear={()=>setSelected(new Set<string>())} dismiss={()=>{if(!working()){setSelected(new Set<string>());setSelectionMode(false);}}} actions={actions(picked())} returnFocus={()=>region?.focus()} scope={props.accountId??''} busy={working()}/>
       {rowMenu.menu()}
     </section>
   );

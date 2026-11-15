@@ -1,3 +1,8 @@
+import {forwardMessages,BULK_MESSAGE_LIMIT,BULK_BYTE_LIMIT} from '../api/mailBulk.ts';
+import {HEADER_PROPERTIES,responseFor} from '../api/jmap.ts';
+import {CAP_CORE,CAP_MAIL,type Email} from '../api/jmap-types.ts';
+import {downloadZip,describe} from '../components/messageAttachmentDownload.ts';
+import type {AttachmentItem} from '../viewers/attachments.ts';
 import {onMessagesMoved,messagesMoved,afterMoveMode,moveNeighbour,type MovedMessages} from '../state/moveEvents.ts';
 import type {UnifiedRow} from '../api/workspaceMail.ts';
 import {notificationViewEnabled,notificationViewInSidebar} from '../state/notificationVisibility.ts';
@@ -351,6 +356,45 @@ export function MailboxScreen(): JSX.Element {
     if(!decision.allowed||decision.warning){openAttachmentTab(item);return;}
     const a=document.createElement('a');a.href=attachmentPolicyUrl(buildDownloadUrl(template,{accountId,blobId:item.blobId,name:item.name,mime:item.mime}),item.emailId,false,false,true);a.download=item.name.replace(/[\\/]/g,'_');a.rel='noopener';a.click();
   }
+  async function attachmentMessages(items:AttachmentItem[]):Promise<Email[]> {
+    const owner=preferenceAccount(),account=app.accountId(),ids=[...new Set(items.map(item=>item.emailId))];
+    if(!owner||!account||ids.length===0||ids.length>BULK_MESSAGE_LIMIT)throw new Error('selection');
+    const result=await createConfiguredClient().jmap({using:[CAP_CORE,CAP_MAIL],methodCalls:[['Email/get',{accountId:account,ids,properties:[...HEADER_PROPERTIES]},'attachments']]});
+    if(!preferenceAccountIsCurrent(owner)||app.accountId()!==account)throw new Error('account');
+    const {list}=responseFor<{list:Email[]}>(result,'attachments');
+    if(ids.some(id=>!list.some(message=>message.id===id)))throw new Error('missing message');
+    return ids.map(id=>list.find(message=>message.id===id)!);
+  }
+  async function locateAttachmentMessage(item:AttachmentItem):Promise<void>{
+    const owner=preferenceAccount(),[message]=await attachmentMessages([item]);
+    if(!owner||!message||!preferenceAccountIsCurrent(owner))return;
+    const folder=Object.keys(message.mailboxIds).find(id=>message.mailboxIds[id]&&app.mailboxes().some(box=>box.id===id));
+    if(!folder)throw new Error('folder unavailable');
+    await app.selectMailbox(folder);
+    if(!preferenceAccountIsCurrent(owner))return;
+    router.navigate('mail');subTabs.activate('mail');await openDraftOrMessage(message.id);
+  }
+  async function forwardAttachmentFiles(items:AttachmentItem[]):Promise<void>{
+    const owner=preferenceAccount();if(!owner||!mailFeature('allowForward'))return;
+    if(!items.length||items.length>BULK_MESSAGE_LIMIT||items.reduce((total,item)=>total+item.size,0)>BULK_BYTE_LIMIT)throw new Error('selection');
+    const policy=await loadAttachmentPolicy();
+    if(!preferenceAccountIsCurrent(owner)||!mailFeature('allowForward'))return;
+    if(items.some(item=>!attachmentDecision(policy,item).allowed||attachmentDecision(policy,item).warning))throw new Error('attachment policy');
+    openComposer({mode:'forward',to:'',cc:'',subject:items.length===1?items[0]!.name:t('mail-bulk-forward-subject',{count:items.length}),bodyHtml:'',bodyText:'',inReplyTo:[],references:[],quotesDecrypted:false,attachments:items.map(item=>({blobId:item.blobId,name:item.name,size:item.size,contentType:item.mime}))});
+  }
+  async function forwardAttachmentMessages(items:AttachmentItem[]):Promise<void>{
+    if(!mailFeature('allowForward'))return;const messages=await attachmentMessages(items);
+    if(mailFeature('allowForward'))openComposer(forwardMessages(messages,t('mail-bulk-forward-subject',{count:messages.length})));
+  }
+  async function zipAttachmentItems(items:AttachmentItem[]):Promise<void>{
+    const owner=preferenceAccount(),account=app.accountId(),template=app.downloadUrl();
+    if(!owner||!account||!template||!mailFeature('allowDownload'))return;
+    const policy=await loadAttachmentPolicy();if(!preferenceAccountIsCurrent(owner))return;
+    const groups=new Map<string,{emailId:string;label:string;items:ReturnType<typeof describe>[]}>();
+    for(const item of items){const group=groups.get(item.emailId)??{emailId:item.emailId,label:item.subject,items:[]};group.items.push(describe({blobId:item.blobId,name:item.name,type:item.mime,size:item.size,partId:null}));groups.set(item.emailId,group);}
+    await downloadZip({accountId:()=>preferenceAccountIsCurrent(owner)&&mailFeature('allowDownload')?account:null,downloadUrl:()=>template,showToast:(tone,message)=>{if(preferenceAccountIsCurrent(owner))app.showToast(tone,message);}},[...groups.values()],policy);
+  }
+  async function deleteAttachmentMessages(items:AttachmentItem[]):Promise<void>{const messages=await attachmentMessages(items);await app.trashMessage(messages.map(message=>message.id),messages);}
   function openReply(initial:ComposeInitial,sourceMailboxId?:string):void {openComposer(sourceMailboxId?{...initial,sourceMailboxId}:initial);}
   function openSettings(restoring=false):void {
     if(!restoring)noteWorkspaceIntent();
@@ -428,7 +472,7 @@ export function MailboxScreen(): JSX.Element {
           <Show when={listVisible()}><MessageOrderMenu order={messageOrder} scope={()=>`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}`} class={`btn btn--ghost ${a11y.iconButton}`}/></Show>
           <UndoRedoControl/>
           <OutboxChip onOpenOutbox={()=>router.navigate('outbox')}/>
-          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>{if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox();}}><Icon name="refresh" /></button>
+          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>{if(activePane()?.kind==='attachments')requestModuleAction('attachments','refresh');else if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox();}}><Icon name="refresh" /></button>
         </div>);
   const compactBadges=()=>settings()['mail.compactFolderBadges']?.value!==false;
   const folderCountShown=(box:{role?:string|null;unreadEmails:number;totalEmails:number})=>showsFolderCount(box,folderCountMode(),folderCountScope());
@@ -1062,7 +1106,7 @@ export function MailboxScreen(): JSX.Element {
   }
   useActions({
     settings: () => { openSettings(); return true; },
-    refresh: () => { if (surface() !== 'mail') return false; if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox(); return true; },
+    refresh: () => { if (surface() !== 'mail') return false; if(activePane()?.kind==='attachments')requestModuleAction('attachments','refresh');else if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox(); return true; },
     trash: () => shortcutMailAction(ids => app.trashMessage(ids)),
     markRead: () => shortcutMailAction(ids => app.markRead(ids, true)),
     markUnread: () => shortcutMailAction(ids => app.markRead(ids, false)),
@@ -1340,7 +1384,7 @@ export function MailboxScreen(): JSX.Element {
               <Show when={pane.kind==='composer'}><Compose embedded registerBeforeClose={(handler,dirty)=>{pane.beforeClose=handler;pane.dirty=dirty;}} onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||rawT('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
               <Show when={pane.kind==='folder'&&pane.reference}><FolderPane onOpenReplyDraft={id=>void openReplyDraft(id)} onSelectionModeChange={enabled=>setFolderSelecting(modes=>({...modes,[pane.id]:enabled}))} selecting={folderSelecting()[pane.id]===true} mailboxId={pane.reference!} beforeGlobalAction={()=>pane.detach?.reattach()} registerRefresh={refresh=>{pane.refresh=refresh;}} active={subTabs.activeId()===pane.id} companion={companion()===pane.id} onOpen={id=>void openDraftOrMessage(id,pane.id)}/></Show>
               <Show when={pane.kind==='outbox'}><Outbox/></Show>
-              <Show when={pane.kind==='attachments'}><Attachments accountId={app.accountId()} mailboxes={app.mailboxes()} loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onDownload={downloadAttachmentItem} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
+              <Show when={pane.kind==='attachments'}><Attachments accountId={app.accountId()} mailboxes={app.mailboxes()} loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onDownload={downloadAttachmentItem} onLocateMessage={locateAttachmentMessage} onForwardFiles={forwardAttachmentFiles} onForwardMessages={forwardAttachmentMessages} onDownloadZip={zipAttachmentItems} onDeleteMessages={deleteAttachmentMessages} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
               <Show when={pane.kind==='sharing'&&pane.reference&&pane.accountId}><SharingDialog embedded mailboxId={pane.reference!} accountId={pane.accountId!} mailboxName={pane.title} onClose={()=>void closePane(pane.id)}/></Show>
               <Show when={pane.surface==='unified'&&unifiedSurfaceEnabled()}>
                 <Suspense fallback={<AsyncPending/>}><UnifiedMail activeLink={app.linkedMailboxId?.()??null} onOpenMessage={row=>void openUnifiedMessage(row)}/></Suspense>

@@ -3,6 +3,8 @@ import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { Attachments } from './Attachments.tsx';
 import type { AttachmentItem } from '../viewers/attachments.ts';
 import { Suspense } from 'solid-js';
+import {requestModuleAction} from '../state/moduleActions.ts';
+import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 
 const items: AttachmentItem[] = [
   { emailId: 'e1', blobId: 'b1', name: 'Q3-report.pdf', mime: 'application/pdf', size: 2_000_000, from: 'Alice <alice@example.org>', subject: 'Q3', receivedAt: '2026-03-01T00:00:00Z' },
@@ -11,6 +13,39 @@ const items: AttachmentItem[] = [
 ];
 
 describe('Attachments module', () => {
+  it('offers locate independently from opening the associated message',async()=>{
+    const locate=vi.fn();render(()=><Attachments items={items} onLocateMessage={locate}/>);
+    const name=await screen.findByRole('button',{name:'Q3-report.pdf'});
+    fireEvent.contextMenu(name,{clientX:20,clientY:20});
+    fireEvent.click(await screen.findByRole('menuitem',{name:'Locate message'}));
+    expect(locate).toHaveBeenCalledWith(items[0]);
+  });
+  it('forwards, zips and deletes the selected attachments through the floating toolbar',async()=>{
+    const files=vi.fn(),messages=vi.fn(),zip=vi.fn(),remove=vi.fn();
+    render(()=><Attachments items={items} onForwardFiles={files} onForwardMessages={messages} onDownloadZip={zip} onDeleteMessages={remove}/>);
+    await screen.findByText('Q3-report.pdf');
+    fireEvent.click(screen.getByRole('button',{name:'Select attachments'}));
+    fireEvent.click(screen.getByRole('checkbox',{name:'Q3-report.pdf'}));
+    fireEvent.click(screen.getByRole('checkbox',{name:'logo.png'}));
+    for(const [label,callback] of [['Forward files',files],['Forward associated messages',messages],['Download attachments as ZIP',zip],['Delete associated messages',remove]] as const){
+      fireEvent.click(screen.getByRole('button',{name:label}));
+      await waitFor(()=>expect(callback).toHaveBeenCalledTimes(1));
+      expect(callback.mock.calls[0]![0].map((item:AttachmentItem)=>item.emailId).sort()).toEqual(['e1','e2']);
+      await waitFor(()=>expect(screen.getByRole('button',{name:'Select attachments'})).not.toBeDisabled());
+    }
+  });
+  it('clears selection before leaving selection mode with Escape',async()=>{
+    render(()=><Attachments items={items}/>);await screen.findByText('Q3-report.pdf');
+    fireEvent.click(screen.getByRole('button',{name:'Select attachments'}));
+    fireEvent.click(screen.getByRole('checkbox',{name:'Q3-report.pdf'}));
+    fireEvent.keyDown(screen.getByRole('checkbox',{name:'Q3-report.pdf'}),{key:'Escape'});
+    expect(screen.getByRole('checkbox',{name:'Q3-report.pdf'})).not.toBeChecked();
+    fireEvent.keyDown(screen.getByRole('checkbox',{name:'Q3-report.pdf'}),{key:'Escape'});
+    expect(screen.queryByRole('checkbox',{name:'Q3-report.pdf'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Refresh attachments'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Pin attachment'})).not.toBeInTheDocument();
+  });
+
   it('sorts numeric sizes and exposes filename warnings without downloading files', async () => {
     render(()=><Attachments items={[...items,{...items[0]!,name:'invoice.pdf.exe',blobId:'exe'}]}/>);
     await screen.findByText('invoice.pdf.exe');
@@ -31,9 +66,11 @@ describe('Attachments module', () => {
     await screen.findByText(/Search complete/);
     expect(screen.queryByRole('navigation',{name:'Attachment pages'})).not.toBeInTheDocument();
     load.mockClear();
-    fireEvent.click(screen.getByRole('button',{name:'Refresh attachments'}));
+    activateAccountPreferences('attachment-test','attachment-test');
+    requestModuleAction('attachments','refresh');
+    await waitFor(()=>expect(load.mock.calls.map(call=>call[0])).toEqual([0,50]));
     await screen.findByText(/Search complete/);
-    expect(load.mock.calls.map(call=>call[0])).toEqual([0,50]);
+    suspendAccountPreferences();
     fireEvent.input(screen.getByLabelText('Search attachments'),{target:{value:'report'}});
     await screen.findByText('Q3-report.pdf');
     expect(screen.queryByText(/Search complete/)).not.toBeInTheDocument();

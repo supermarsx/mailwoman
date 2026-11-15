@@ -220,3 +220,9 @@ common-notify-new-count = Nieuwe berichten: { $count }
 common-network-internal = Intern netwerk
 common-module-notifications = Meldingen
 common-actions = Acties
+
+attach-action-forward-files = Bestanden doorsturen
+attach-action-forward-messages = Bijbehorende berichten doorsturen
+attach-action-delete-messages = Bijbehorende berichten verwijderen
+attach-action-locate = Bericht opzoeken
+attach-action-select = Bijlagen selecteren

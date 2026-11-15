@@ -219,3 +219,9 @@ common-notify-new-count = 新邮件：{ $count }
 common-network-internal = 内部网络
 common-module-notifications = 通知
 common-actions = 操作
+
+attach-action-forward-files = 转发文件
+attach-action-forward-messages = 转发关联邮件
+attach-action-delete-messages = 删除关联邮件
+attach-action-locate = 定位邮件
+attach-action-select = 选择附件

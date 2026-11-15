@@ -214,3 +214,9 @@ common-notify-new-count = رسائل جديدة: { $count }
 common-network-internal = شبكة داخلية
 common-module-notifications = الإشعارات
 common-actions = الإجراءات
+
+attach-action-forward-files = إعادة توجيه الملفات
+attach-action-forward-messages = إعادة توجيه الرسائل المرتبطة
+attach-action-delete-messages = حذف الرسائل المرتبطة
+attach-action-locate = تحديد موقع الرسالة
+attach-action-select = تحديد المرفقات
