@@ -40,6 +40,22 @@ Request TLS to the database with the standard libpq DSN parameter:
 postgres://mailwoman:secret@db.internal:5432/mailwoman?sslmode=require
 ```
 
+## Moving the same installation with deploy.sh
+
+`bash deploy.sh deploy --full-stack` automates the SQLite-to-PostgreSQL move for
+an installation already managed by the deployment script. It preserves all
+application tables and uses an offline working copy, verified backup and health
+checks. See [the full-stack deployment guide](script.md#full-stack-and-one-step-sqlite-migration).
+
+The CLI's `migrate-store --complete` mode requires an empty PostgreSQL destination
+and copies configuration and grants as well as account data. It verifies source
+and destination schema coverage and row content in the destination transaction.
+`--upgrade-source` upgrades the SQLite schema first and must only be used on an
+offline working copy. The destination can be supplied through `MW_DB_PATH` so its
+credentials need not appear in process arguments. This mode is for moving the
+same installation; the default cross-installation mode below retains its
+existing exclusions. Migration summaries do not print connection credentials.
+
 ## Migrating an existing SQLite store to Postgres
 
 `mailwoman migrate-store` copies a populated SQLite database into a Postgres backend and

@@ -95,6 +95,7 @@ mod v5;
 mod backend;
 mod dialect;
 mod migrate;
+mod migrate_complete;
 // V6 (0007) additive repo methods (t6-e11 MOUNT). New `Store` methods + row
 // structs over the 0007 tables, reusing the frozen dual-backend query layer;
 // no existing query or public item is touched.

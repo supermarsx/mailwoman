@@ -29,6 +29,7 @@ url = { workspace = true }
 # is net-zero new dependency-graph nodes (no C/-sys/openssl).
 async-trait = { workspace = true }
 sha2 = { workspace = true }
+futures-util = { workspace = true }
 # t48: linked-mailbox credentials are opened into `Zeroizing` buffers.
 zeroize = { workspace = true }
 # retention archive tier: sealed segments are gzip-compressed JSON lines.

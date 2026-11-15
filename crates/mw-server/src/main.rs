@@ -173,9 +173,15 @@ struct MigrateStoreArgs {
     /// Source SQLite DSN/path (env: MW_MIGRATE_FROM).
     #[arg(long, env = "MW_MIGRATE_FROM")]
     from: Option<String>,
-    /// Destination Postgres DSN, e.g. `postgres://…` (env: MW_MIGRATE_TO).
+    /// Destination Postgres DSN (MW_MIGRATE_TO, otherwise MW_DB_PATH).
     #[arg(long, env = "MW_MIGRATE_TO")]
     to: Option<String>,
+    /// Preserve every application table, including deployment configuration and grants.
+    #[arg(long)]
+    complete: bool,
+    /// Upgrade the source schema first; use only with an offline working copy.
+    #[arg(long, requires = "complete")]
+    upgrade_source: bool,
 }
 
 /// `mailwoman admin …` (V6 §19). The full `mw_admin` noun/verb tree, backed by the
@@ -661,6 +667,7 @@ async fn migrate_store(args: MigrateStoreArgs) -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("--from (MW_MIGRATE_FROM) is required"))?;
     let to = args
         .to
+        .or_else(|| std::env::var("MW_DB_PATH").ok())
         .ok_or_else(|| anyhow::anyhow!("--to (MW_MIGRATE_TO) is required"))?;
     let hex = std::env::var("MW_SERVER_KEY")
         .ok()
@@ -668,10 +675,21 @@ async fn migrate_store(args: MigrateStoreArgs) -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("MW_SERVER_KEY must be set (src + dst share the key)"))?;
     let key = mw_store::ServerKey::from_hex(&hex)
         .map_err(|_| anyhow::anyhow!("MW_SERVER_KEY is not valid hex"))?;
+    if !to.starts_with("postgres://") && !to.starts_with("postgresql://") {
+        anyhow::bail!("The migration destination must be PostgreSQL");
+    }
+    if args.upgrade_source {
+        let source = mw_store::Store::open(&from, key.clone()).await?;
+        drop(source);
+    }
     let dst = mw_store::Store::open(&to, key).await?;
-    let report = dst.migrate_from_sqlite(&from).await?;
+    let report = if args.complete {
+        dst.migrate_complete_from_sqlite(&from).await?
+    } else {
+        dst.migrate_from_sqlite(&from).await?
+    };
     println!(
-        "migrated {} rows across {} tables from {from} → {to}",
+        "migrated {} rows across {} tables; destination committed",
         report.total_rows(),
         report.tables.len()
     );
