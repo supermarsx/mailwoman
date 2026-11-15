@@ -1,3 +1,5 @@
+import {collectionDelta} from '../../realtime/collectionDelta.ts';
+import {captureQuery,queryIdentity,reconcileQuery,queryResponse,type QuerySnapshot} from '../../realtime/queryDelta.ts';
 import {setUnifiedStartup} from '../unifiedMailbox.ts';
 import {accountUiPreferences} from '../../api/accountPreferences.ts';
 import {appliedOverride} from '../../components/properties/folderOverrides.ts';
@@ -59,7 +61,7 @@ import {
   type AttachmentItem,
 } from '../../viewers/attachments.ts';
 import {
-  CAP_MAIL,
+  CAP_MAIL, CAP_CORE,
   type Email,
   type EmailGetResponse,
   type EmailQueryResponse,
@@ -114,7 +116,6 @@ const pageSize = (): number => { const v = Number(settings()['mail.list.pageSize
  * — leaving the list exactly as it was rather than shrinking it. Refresh is
  * already best-effort here (it swallows transient failures for the same reason).
  */
-const REFRESH_MAX_ROWS = 500;
 
 /** Which query the list is currently showing, so a page N can repeat it. */
 type PageSource =
@@ -444,6 +445,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const [switchingMailbox,setSwitchingMailbox]=createSignal(false);
   const [switchingMailboxName,setSwitchingMailboxName]=createSignal<string|null>(null);
   let primaryIdentity:Me|null=null;
+  let querySnapshot:QuerySnapshot|undefined;
   const [authChecked, setAuthChecked] = createSignal(false);
   const [accountId, setAccountId] = createSignal<string | null>(null);
   const [mailboxes, setMailboxes] = createSignal<Mailbox[]>([]);
@@ -858,12 +860,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   let countGeneration = -1;
   let countWrites = 0;
   let countVersion = 0;
+  let mailboxState:string|undefined;
   let countsDirty = false;
   let countRead: Promise<void> | null = null;
   function countScope(): void {
     const generation = preferenceAccount()?.generation ?? -1;
     if (generation !== countGeneration) {
       countGeneration = generation;
+      mailboxState=undefined;
       countWrites = 0;
       countVersion++;
       countsDirty = false;
@@ -911,10 +915,27 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         countsDirty = false;
         const version = countVersion;
         try {
-          const response = await jmapCall(mailboxGet(acct));
+          const delta=mailboxState?await collectionDelta('Mailbox',acct,mailboxState,[CAP_CORE,CAP_MAIL],jmapCall):undefined;
+          if(!current())return;
+          const request=mailboxGet(acct);
+          if(delta)request.methodCalls[0]![1]['ids']=delta.changed;
+          const response=await jmapCall(request);
           if (!current()) return;
-          if (version === countVersion && countWrites === 0) applyCounts(response, 'c0');
-          else countsDirty = true;
+          if (version === countVersion && countWrites === 0) {
+            const value=responseFor<MailboxGetResponse>(response,'c0');
+            if(value.accountId!==acct||!Array.isArray(value.list))return;
+            if(applyCounts(response,'c0')){
+              const removed=new Set(delta?.destroyed??[]),fresh=new Map(value.list.map(box=>[box.id,box]));
+              setMailboxes(boxes=>sortMailboxes(delta?[...boxes.filter(box=>!removed.has(box.id)).map(box=>fresh.get(box.id)??box),...value.list.filter(box=>!boxes.some(old=>old.id===box.id))]:value.list));
+              mailboxState=delta?.state??value.state;
+              const selected=selectedMailboxId();
+              if(selected&&selected!==EVENTS_VIEW_ID&&!mailboxes().some(box=>box.id===selected)){
+                const fallback=mailboxes().find(box=>box.role==='inbox')??mailboxes()[0];
+                if(fallback)await selectMailbox(fallback.id);
+                else{setSelectedMailboxId(null);setMessages([]);setPageSource(null);}
+              }
+            }
+          } else countsDirty = true;
         } catch { return; } // Retain visible counts during transient failures.
       }
     })();
@@ -1072,7 +1093,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (isOffline() && ctx.enqueueOffline) {
       for (const { before, on } of touched) {
         if (!current()) return 0;
-        await ctx.enqueueOffline('flag', { accountId: acct, emailId: before.id, keyword, value: on });
+        await ctx.enqueueOffline('flag', { accountId: acct, emailId: before.id, keyword, value: on, previousValue:before.keywords?.[keyword]===true });
       }
       return current() ? touched.length : 0;
     }
@@ -1228,7 +1249,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     else delete keywords[keyword];
     patchMessage(id, { keywords });
     if (isOffline() && ctx.enqueueOffline) {
-      await ctx.enqueueOffline('flag', { accountId: acct, emailId: id, keyword, value: on });
+      await ctx.enqueueOffline('flag', { accountId: acct, emailId: id, keyword, value: on,previousValue:current?.keywords?.[keyword]===true });
       return;
     }
     await jmapCall(setEmailKeyword(acct, id, keyword, on));
@@ -1296,7 +1317,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         if(completed)throw new Error(t('mail-offline'));
         if(ctx.enqueueOffline)for(const [keyword,value] of [['mw-followup-completed',false],['$flagged',flagged]] as const){
           if(!current())throw new UndoUnavailable();
-          const queuedId=await ctx.enqueueOffline('flag',{accountId:acct,emailId:id,keyword,value});if(typeof queuedId==='string')queued.push(queuedId);
+          const queuedId=await ctx.enqueueOffline('flag',{accountId:acct,emailId:id,keyword,value,previousValue:previous.keywords?.[keyword]===true});if(typeof queuedId==='string')queued.push(queuedId);
         }
       }catch(error){for(const queuedId of queued)try{await ctx.dequeueOffline?.(queuedId);}catch{/* Preserve the original queue failure. */}restore();throw error;}
       return;
@@ -1400,6 +1421,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         const queued = await queue.enqueueOffline('move', {
           accountId: acct,
           emailId: email.id,
+          previousMailboxIds:email.mailboxIds,
           mailboxIds: { [targetMailboxId]: true },
           ...(markMovedRead?{seen:true}:{}),
         });
@@ -1476,7 +1498,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         if (isOffline() && queue.enqueueOffline) {
           for (const { email } of reverse) {
             if (!current()) return;
-            await queue.enqueueOffline('move', { accountId: acct, emailId: email.id, mailboxIds: email.mailboxIds,...(markMovedRead?{seen:email.keywords?.['$seen']===true}:{}) });
+            await queue.enqueueOffline('move', { accountId: acct, emailId: email.id, previousMailboxIds:{[targetMailboxId]:true}, mailboxIds: email.mailboxIds,...(markMovedRead?{seen:email.keywords?.['$seen']===true}:{}) });
           }
         } else {
           const patches: Record<Id, Record<string, unknown>> = {};
@@ -1513,7 +1535,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const acct = accountId();
     if (acct === null) throw new UndoUnavailable();
     if (isOffline() && ctx.enqueueOffline) {
-      for (const id of ids) await ctx.enqueueOffline('move', { accountId: acct, emailId: id, mailboxIds: { [targetMailboxId]: true },...(markMovedRead?{seen:true}:{}) });
+      for (const id of ids) await ctx.enqueueOffline('move', { accountId: acct, emailId: id, previousMailboxIds:findEmail(id)?.mailboxIds,mailboxIds: { [targetMailboxId]: true },...(markMovedRead?{seen:true}:{}) });
       takeFromList(ids);
       return;
     }
@@ -1723,6 +1745,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (acct === null || !current()) return;
     const res = await jmapCall(mailboxGet(acct));
     if (!current()) return;
+    countScope();
+    mailboxState=responseFor<MailboxGetResponse>(res,'c0').state;
     const boxes = sortMailboxes(responseFor<MailboxGetResponse>(res, 'c0').list);
     setMailboxes(boxes);
     const selected = selectedMailboxId();
@@ -1730,7 +1754,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (selected && selected !== EVENTS_VIEW_ID && !boxes.some(box => box.id === selected)) {
       const fallback = boxes.find(box => box.role === 'inbox') ?? boxes[0];
       if (fallback) await selectMailbox(fallback.id);
-    } else if (selected) await refreshCurrentMailbox();
+    } else if (selected) await refreshCurrentList(false,true);
   }
 
   async function loadMailboxes(verifiedSession?:JmapSession): Promise<void> {
@@ -1750,6 +1774,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
     const res = await jmapCall(mailboxGet(acct));
     if (!current()) return;
+    countScope();
+    mailboxState=responseFor<MailboxGetResponse>(res,'c0').state;
     const boxes = sortMailboxes(responseFor<MailboxGetResponse>(res, 'c0').list);
     setMailboxes(boxes);
     // t109: the folder (and search) this mailbox had before a reload, when it
@@ -1835,7 +1861,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const key=JSON.stringify(request);
     const hit=src.kind==='mailbox'&&owner?readCache.peek(owner,key,'mailbox')?.value:undefined;
     const cached=hit?.kind==='mailbox'?hit.response:undefined;
-    const apply=(res:JmapResponse)=>{const {page,serverLen,hidden,relocated}=ingestPage(res,src,req);setMessages(page);setLoadedStart(0);nextServerPosition=serverLen;hiddenRows=hidden;const t=pageTotal(res);setTotal(relocated>0?null:t===null?null:Math.max(0,t-hidden));setExhausted(serverLen<pageSize());};
+    const apply=(res:JmapResponse)=>{querySnapshot=captureQuery(request,res);const {page,serverLen,hidden,relocated}=ingestPage(res,src,req);setMessages(page);setLoadedStart(0);nextServerPosition=serverLen;hiddenRows=hidden;const t=pageTotal(res);setTotal(relocated>0?null:t===null?null:Math.max(0,t-hidden));setExhausted(serverLen<pageSize());};
     if(cached)apply(cached);
     setListLoading(!cached);
     try {
@@ -1890,6 +1916,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       if (!isCurrent(req)) return;
       res = await fillMissing(res, pageReq, req.signal);
       if (!isCurrent(req)) return;
+      querySnapshot=captureQuery(pageReq,res,querySnapshot);
       const { page, serverLen, hidden: newHidden, relocated } = ingestPage(res, src, req);
       const before = messages();
       const next = appendPage(before, page);
@@ -2061,37 +2088,62 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     return refreshCurrentList(true);
   }
 
-  async function refreshCurrentList(includeSearch: boolean): Promise<void> {
+  async function refreshCurrentList(includeSearch: boolean,countsCurrent=false): Promise<void> {
     readCache.invalidate(undefined,{abort:false});
     const current = captureMailAuthority();
     void syncOpenMessages();
-    await reconcileCounts();
+    if(!countsCurrent)await reconcileCounts();
     if (!current()) return;
     const acct = accountId();
     const src = pageSource();
-    if (acct === null || (!includeSearch && searchActive())) return;
-    if (src === null || (!includeSearch && src.kind !== 'mailbox')) return;
+    if (acct === null) return;
+    if (src === null) return;
     // Push refreshes can wait for current work. An explicit order/group change
     // supersedes the old query, including an append, so it cannot mix pages
     // from two different arrangements or silently lose the user's choice.
     if (listLoading() || loadingMore()) {if(includeSearch)await loadFirstPage(acct,src);return;}
     const range = loadedRange();
     const loaded = Math.max(pageSize(), range.end - range.start + hiddenRows);
-    if (loaded > REFRESH_MAX_ROWS) {if(includeSearch)await loadFirstPage(acct,src);return;} // see REFRESH_MAX_ROWS
     const req = beginListRequest();
     try {
       const refreshReq = pageRequest(acct, src, range.start, loaded, true);
-      let res = await jmapCall(refreshReq, { signal: req.signal });
-      if (!isCurrent(req)) return;
-      res = await fillMissing(res, refreshReq, req.signal);
+      const query=refreshReq.methodCalls.find(call=>call[0]==='Email/query')?.[1];
+      let delta:QuerySnapshot|undefined;
+      if(!includeSearch&&range.start===0&&querySnapshot&&query&&queryIdentity(querySnapshot.query)===queryIdentity(query)){
+        delta=await reconcileQuery(querySnapshot,jmapCall,req.signal);
+        if(!isCurrent(req))return;
+      }
+      let res:JmapResponse;
+      if(delta){querySnapshot=delta;res=queryResponse(delta);}
+      else {
+        // Invalid/expired cursors and unsupported delta methods reset the
+        // baseline. Fetch bounded chunks rather than one enormous Email/get.
+        querySnapshot=undefined;
+        let merged:QuerySnapshot|undefined;
+        const rows:Email[]=[],ids:Id[]=[];let first:JmapResponse|undefined,position=range.start,finished=false;
+        for(let step=0;step<1024;step++){
+          const request=pageRequest(acct,src,position,Math.min(pageSize(),loaded-ids.length),true);
+          let page=await jmapCall(request,{signal:req.signal});if(!isCurrent(req))return;
+          page=await fillMissing(page,request,req.signal);if(!isCurrent(req))return;
+          const q=responseFor<EmailQueryResponse>(page,'q'),got=responseFor<EmailGetResponse>(page,'g');
+          if(first&&q.canCalculateChanges&&responseFor<EmailQueryResponse>(first,'q').queryState!==q.queryState)throw new Error(t('mail-toast-load-more-failed'));
+          first??=page;merged=captureQuery(request,page,merged);
+          const held=new Set(ids);const fresh=q.ids.filter(id=>!held.has(id));
+          ids.push(...fresh);rows.push(...got.list.filter(row=>!held.has(row.id)));position+=q.ids.length;
+          if(ids.length>=loaded||q.ids.length<Number(request.methodCalls.find(call=>call[0]==='Email/query')?.[1]['limit'])||fresh.length===0||(q.total!==undefined&&position>=q.total)){finished=true;break;}
+        }
+        if(!first||!finished)throw new Error(t('mail-toast-load-more-failed'));
+        querySnapshot=merged;
+        res={...first,methodResponses:first.methodResponses.map(row=>row[2]==='q'?[row[0],{...row[1],ids},row[2]]:row[2]==='g'?[row[0],{...row[1],list:rows},row[2]]:row)};
+      }
       if (!isCurrent(req)) return;
       const { page, serverLen, hidden, relocated } = ingestPage(res, src, req);
       setMessages(page);
       nextServerPosition=range.start+serverLen;
       hiddenRows=hidden;
       setLoadedStart(range.start);
-      const t = pageTotal(res);
-      setTotal(relocated>0||t===null?null:Math.max(0,t-hidden));
+      const reportedTotal = pageTotal(res);
+      setTotal(relocated>0||reportedTotal===null?null:Math.max(0,reportedTotal-hidden));
       setExhausted(serverLen < loaded);
     } catch {
       // Transient/offline refetch — keep the current list.
@@ -2126,7 +2178,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // not a server query, so there is nothing to page: the cached slice IS the
     // whole result, which is why `total` may honestly be the row count here and
     // nowhere else.
-    if (isOffline() && ctx.searchOffline) {
+    if (isOffline() && ctx.searchOffline && !client.offlineReads) {
       const req=beginListRequest();
       const hits = ctx.searchOffline({...offlineQueryOf(baseQuery,mailboxes()),...(scopeMailboxId?{inMailbox:scopeMailboxId}:{}),...(excluded.length?{inMailboxOtherThan:excluded}:{}),...(spamHidden?{notKeyword:'$junk'}:{})});
       const projected=projectRows(hits,{kind:'search',filter:{text:serverQueryText(baseQuery,mailboxes()),...(scopeMailboxId?{inMailbox:scopeMailboxId}:{}),...(excluded.length?{inMailboxOtherThan:excluded}:{})}},req);

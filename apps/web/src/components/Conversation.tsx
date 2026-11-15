@@ -3,7 +3,7 @@ import {Portal} from 'solid-js/web';
 import {wireDialogFocus} from '../modules/contacts/dialogFocus.ts';
 import {useApp} from '../state/context.ts';
 import {createConfiguredClient} from '../api/transport.ts';
-import {conversationSnapshot,conversationPage,CONVERSATION_LIMIT,type ConversationSnapshot} from '../api/conversation.ts';
+import {conversationSnapshot,conversationPage,refreshConversation,CONVERSATION_LIMIT,type ConversationSnapshot} from '../api/conversation.ts';
 import {preferenceAccount,preferenceAccountIsCurrent,observePreferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {Icon} from './Icon.tsx';
@@ -42,6 +42,19 @@ export function createConversation(props:{threadId:()=>string|undefined;messageI
   const current=()=>!controller.signal.aborted&&preferenceAccountIsCurrent(account)&&scope()===heldScope;
   try{const held=snapshot()??await conversationSnapshot(client,account.id,threadId,controller.signal);if(!current())return;const result=await conversationPage(client,held,next(),controller.signal);if(!current())return;setSnapshot(held);setMessages(previous=>[...previous,...result.messages]);setNext(result.next);setMissing(previous=>previous+result.missing);}catch{if(current())setError(true);}finally{if(current())setBusy(false);}
  }
+ onCleanup(app.onRealtimeChange(change=>{
+  const account=app.accountId(),types=account?change.changed[account]:undefined;
+  if(!props.active()||!types||(!types['Thread']&&!types['Email']))return;
+  const held=snapshot(),authority=preferenceAccount();if(!held||!authority||probe)return;
+  const controller=new AbortController(),heldScope=scope();probe=controller;
+  void refreshConversation(client,held,controller.signal).then(async fresh=>{
+   if(controller.signal.aborted||!preferenceAccountIsCurrent(authority)||scope()!==heldScope)return;
+   sizeCache.set(heldScope,fresh);setSnapshot(fresh);
+   if(open()){
+    abort?.abort();setMessages([]);setNext(0);setMissing(0);setBusy(false);await load();
+   }
+  }).catch(()=>undefined).finally(()=>{if(probe===controller)probe=undefined;});
+ }));
  const available=():boolean=>props.threadId()!==undefined&&(snapshot()?.total??0)>1;
  function toggle():void{const opening=!open();setOpen(opening);if(opening&&messages().length===0&&!busy())void load();}
  const dialog=():JSX.Element=><Show when={open()&&props.active()}><ConversationDialog onClose={()=>setOpen(false)}><p>{t('mail-conversation-help')}</p><Show when={next()>0?snapshot():undefined}>{value=><p>{t('mail-conversation-count',{loaded:messages().length,total:value().total})}</p>}</Show><ol class="conversation__members"><For each={messages()}>{message=><li><button type="button" class="btn btn--ghost" aria-current={message.id===props.messageId()?'true':undefined} onClick={()=>{setOpen(false);void app.openMessage(message.id);}}><span><bdi>{message.subject||t('mail-no-subject')}</bdi></span><small><bdi>{message.from?.map(sender=>sender.name||sender.email).join(', ')}</bdi></small><small><For each={Object.keys(message.mailboxIds??{})}>{id=><span>{app.mailboxes().find(box=>box.id===id)?.name??t('mail-conversation-other-folder')} </span>}</For></small></button></li>}</For></ol><Show when={busy()}><p role="status">{t('mail-conversation-loading')}</p></Show><Show when={missing()}><p role="status">{t('mail-conversation-missing',{count:missing()})}</p></Show><Show when={error()}><p role="alert">{t('mail-conversation-error')}</p><button class="btn" onClick={()=>void load()}>{t('common-retry')}</button></Show><Show when={!error()&&next()>0&&snapshot()&&next()<snapshot()!.ids.length}><button class="btn" disabled={busy()} onClick={()=>void load()}>{t('mail-conversation-more')}</button></Show><Show when={snapshot()&&snapshot()!.total>CONVERSATION_LIMIT}><p>{t('mail-conversation-limit',{count:CONVERSATION_LIMIT})}</p></Show></ConversationDialog></Show>;

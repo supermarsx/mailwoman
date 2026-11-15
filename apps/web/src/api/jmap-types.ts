@@ -254,6 +254,7 @@ export interface EmailQueryArgs {
   calculateTotal?: boolean;
 }
 export interface EmailQueryResponse {
+  canCalculateChanges?: boolean;
   accountId: Id;
   queryState: string;
   ids: Id[];

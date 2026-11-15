@@ -1429,6 +1429,7 @@ describe('mail slice — offline mutation queue', () => {
         expect(enqueueOffline).toHaveBeenCalledWith('move', {
           accountId: 'acct1',
           emailId: 'a',
+          previousMailboxIds:{inbox:true},
           mailboxIds: { archive: true },
         });
         // The row leaves the list immediately — the queue is a transport detail,
@@ -1473,8 +1474,8 @@ describe('mail slice — offline mutation queue', () => {
         await mail.archiveMessage('a');
         await mail.undoNow();
         expect(enqueueOffline.mock.calls).toEqual([
-          ['move', { accountId: 'acct1', emailId: 'a', mailboxIds: { archive: true } }],
-          ['move', { accountId: 'acct1', emailId: 'a', mailboxIds: { inbox: true } }],
+          ['move', { accountId: 'acct1', emailId: 'a', previousMailboxIds:{inbox:true}, mailboxIds: { archive: true } }],
+          ['move', { accountId: 'acct1', emailId: 'a', previousMailboxIds:{archive:true}, mailboxIds: { inbox: true } }],
         ]);
         expect(jmap).not.toHaveBeenCalled();
         expect(mail.messages().map((m) => m.id)).toEqual(['a', 'b']);
@@ -1490,8 +1491,8 @@ describe('mail slice — offline mutation queue', () => {
       await mail.trashMessage('a');
       await mail.undoNow();
       expect(enqueueOffline.mock.calls).toEqual([
-        ['move', { accountId: 'acct1', emailId: 'a', mailboxIds: { trash: true } }],
-        ['move', { accountId: 'acct1', emailId: 'a', mailboxIds: { inbox: true } }],
+        ['move', { accountId: 'acct1', emailId: 'a', previousMailboxIds:{inbox:true}, mailboxIds: { trash: true } }],
+        ['move', { accountId: 'acct1', emailId: 'a', previousMailboxIds:{trash:true}, mailboxIds: { inbox: true } }],
       ]);
       expect(jmap).not.toHaveBeenCalled();
       expect(mail.messages().map((m) => m.id)).toEqual(['a', 'b']);
@@ -1530,8 +1531,8 @@ describe('mail slice — offline mutation queue', () => {
     const enqueueOffline=vi.fn(async()=>undefined);
     await withDeps([email('a')],{online:()=>false,enqueueOffline},async mail=>{
       folderPreferences.value={folderProps:{archive:{markMovedRead:true}}};
-      await mail.archiveMessage('a');expect(enqueueOffline).toHaveBeenLastCalledWith('move',{accountId:'acct1',emailId:'a',mailboxIds:{archive:true},seen:true});
-      await mail.undoNow();expect(enqueueOffline).toHaveBeenLastCalledWith('move',{accountId:'acct1',emailId:'a',mailboxIds:{inbox:true},seen:false});
+      await mail.archiveMessage('a');expect(enqueueOffline).toHaveBeenLastCalledWith('move',{accountId:'acct1',emailId:'a',previousMailboxIds:{inbox:true},mailboxIds:{archive:true},seen:true});
+      await mail.undoNow();expect(enqueueOffline).toHaveBeenLastCalledWith('move',{accountId:'acct1',emailId:'a',previousMailboxIds:{archive:true},mailboxIds:{inbox:true},seen:false});
     });
   });
   it('online, undo moves the message back on the server and tells peer tabs', async () => {
@@ -1600,9 +1601,9 @@ describe('mail slice — session lifecycle', () => {
     localStorage.clear();
     await withInbox([email('a')], async (mail) => {
       saveDraft({ id: 'd1', accountId: 'account-a',storageAuthority:'test-storage-authority-a', to: 'you@example.org', subject: 'Unsent', bodyHtml: '<p>x</p>', bodyText: 'x', savedAt: 1 });
-      // Precondition: the draft is really in storage under the key the composer reads.
+      // Draft recovery is immediately visible through the composer facade, never plaintext localStorage.
       expect(listDrafts('account-a','test-storage-authority-a').map((d) => d.id)).toEqual(['d1']);
-      expect(localStorage.getItem('mw.compose.drafts.v2')).not.toBeNull();
+      expect(localStorage.getItem('mw.compose.drafts.v2')).toBeNull();
 
       await mail.logout();
 

@@ -7,7 +7,7 @@ function Conversation(props:{threadId:string;messageId:string;active:boolean}){c
 import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 const state=vi.hoisted(()=>({jmap:vi.fn(),open:vi.fn()}));
 vi.mock('../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:state.jmap})}));
-vi.mock('../state/context.ts',()=>({useApp:()=>({accountId:()=> 'a',mailboxes:()=>[{id:'archive',name:'Archive'}],openMessage:state.open})}));
+vi.mock('../state/context.ts',()=>({useApp:()=>({onRealtimeChange:()=>()=>undefined,accountId:()=> 'a',mailboxes:()=>[{id:'archive',name:'Archive'}],openMessage:state.open})}));
 afterEach(()=>{suspendAccountPreferences();vi.clearAllMocks();});
 describe('reader conversation',()=>{
  it('sizes the thread on open and offers the conversation only for more than one message',async()=>{
