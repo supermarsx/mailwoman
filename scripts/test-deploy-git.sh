@@ -14,6 +14,8 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 git init -q --bare "$FIXTURE/remote.git"
 git init -q -b main "$FIXTURE/author"
 AUTHOR="$FIXTURE/author"
+mkdir -p "$AUTHOR/scripts"
+cp "$ROOT/scripts/deploy-stack.sh" "$AUTHOR/scripts/deploy-stack.sh"
 awk '{ print } $0 == "update_checkout" { print "printf '\''%s\\n'\'' \"$STATE\" > \"$ROOT/reached\"; exit 0" }' "$ROOT/deploy.sh" > "$AUTHOR/deploy.sh"
 printf 'old\n' > "$AUTHOR/version"
 printf 'local defaults\n' > "$AUTHOR/local-settings"
@@ -114,6 +116,8 @@ if grep -q $'\033' "$FIXTURE/subjects.log"; then fail 'Git metadata injected ter
 grep -Eq 'subject-7.*0{250}' "$FIXTURE/subjects.log" || fail 'long subject truncated'
 mkdir "$FIXTURE/archive"
 cp "$ROOT/deploy.sh" "$FIXTURE/archive/deploy.sh"
+mkdir -p "$FIXTURE/archive/scripts"
+cp "$ROOT/scripts/deploy-stack.sh" "$FIXTURE/archive/scripts/deploy-stack.sh"
 bash "$FIXTURE/archive/deploy.sh" --no-pull --dry-run > "$FIXTURE/plain.out" 2> "$FIXTURE/plain.log"
 [[ ! -s $FIXTURE/plain.out ]] || fail 'progress changed stdout'
 grep -q 'Source archive:' "$FIXTURE/plain.log" || fail 'archive source information missing'

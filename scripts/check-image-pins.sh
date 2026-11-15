@@ -10,7 +10,7 @@
 #     the pinned toolchain are bumped together;
 #   - an explicit RUSTUP_TOOLCHAIN in a Docker build stage selects that same
 #     compiler, without re-installing developer components from the checkout;
-#   - the `CADDY_IMAGE=` default in deploy.sh carries a digest.
+#   - the Caddy, PostgreSQL and Valkey image defaults in deploy.sh carry digests.
 #
 # The digests are refreshed by Dependabot (.github/dependabot.yml, `docker` ecosystem).
 #
@@ -97,10 +97,10 @@ check_script() {
   while IFS= read -r line || [[ -n "$line" ]]; do
     n=$((n + 1))
     line="${line%$'\r'}"
-    [[ "$line" =~ ^[[:space:]]*CADDY_IMAGE=(.*)$ ]] || continue
+    [[ "$line" =~ ^[[:space:]]*(CADDY_IMAGE|POSTGRES_IMAGE|VALKEY_IMAGE)=(.*)$ ]] || continue
     # `CADDY_IMAGE=$CADDY_IMAGE` (writing the state file) copies the value; it sets no default.
-    [[ "${BASH_REMATCH[1]}" =~ ^\"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\"?$ ]] && continue
-    found=1
+    [[ "${BASH_REMATCH[2]}" =~ ^\"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\"?$ ]] && continue
+    [[ "$line" != *CADDY_IMAGE=* ]] || found=1
     if ! [[ "$line" =~ @sha256:[0-9a-f]{64} ]]; then
       fail "$file:$n: ${line#"${line%%[![:space:]]*}"} has no @sha256: digest"
     fi

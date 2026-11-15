@@ -23,6 +23,11 @@ PUBLIC_URL=
 PORT=8080
 PORT_SET=false
 MODE=proxy
+STACK=single
+POSTGRES_IMAGE=postgres:16@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
+VALKEY_IMAGE=valkey/valkey:8@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2
+POSTGRES_VOLUME=
+MIGRATE_STACK=false
 PROXY_PREFIX=172.30.70
 PROXY_NETWORK=
 PROXY_SUBNETS=
@@ -118,6 +123,8 @@ Options:
                     Nginx Proxy Manager, reaches http://<project>:8080 (init only)
   --port NUMBER     Localhost HTTP port (init only; default: the first free
                     port from 8080 to 8099)
+  --full-stack      Include PostgreSQL and Valkey; migrate an existing SQLite
+                    installation automatically (offline backup, verify, cut over)
   --mode MODE       proxy for JMAP; engine for IMAP/POP3 + SMTP (init only)
   --http-protocols LIST  Caddy protocols: 'h1', 'h1 h2', or 'h1 h2 h3' (default)
   --proxy-prefix IP First 3 octets of a private /24 for Caddy, e.g. 172.30.71
@@ -149,7 +156,7 @@ Options:
   -h, --help        Show this help
 
 Examples:
-  bash deploy.sh --domain mail.example.org --mode engine
+  bash deploy.sh --full-stack --domain mail.example.org --mode engine
   bash deploy.sh --public-url https://mail.example.org --proxy-network proxy
   bash deploy.sh init --public-url https://mail.example.org
   # Edit .deploy.local/app.env and deploy.env, then:
@@ -168,6 +175,9 @@ The replaced volume is retained. Backups contain secrets: store them privately.
 See docs/deploy/script.md for operations, recovery, and optional integrations.
 HELP
 }
+
+# shellcheck source=scripts/deploy-stack.sh
+source "$ROOT/scripts/deploy-stack.sh"
 
 LOG_ACCENT='' LOG_RESET='' LOG_BOLD='' LOG_SUCCESS='' LOG_ERROR='' LOG_WARNING='' LOG_DETAIL=''
 PHASE_COLORS=("" "" "" "" "" "")
@@ -239,6 +249,7 @@ while (($#)); do
         --public-url) need_value "$@"; PUBLIC_URL=$2; REQUESTED[PUBLIC_URL]=$2; INIT_OPTIONS=true; shift ;;
         --port) need_value "$@"; PORT=$2; REQUESTED[PORT]=$2; PORT_SET=true; INIT_OPTIONS=true; shift ;;
         --proxy-network) need_value "$@"; PROXY_NETWORK=$2; REQUESTED[PROXY_NETWORK]=$2; INIT_OPTIONS=true; shift ;;
+        --full-stack) STACK=full; REQUESTED[STACK]=full; INIT_OPTIONS=true ;;
         --mode) need_value "$@"; MODE=$2; REQUESTED[MODE]=$2; INIT_OPTIONS=true; shift ;;
         --http-protocols) need_value "$@"; CADDY_PROTOCOLS=$2; REQUESTED[CADDY_PROTOCOLS]=$2; INIT_OPTIONS=true; shift ;;
         --proxy-prefix) need_value "$@"; PROXY_PREFIX=$2; REQUESTED[PROXY_PREFIX]=$2; INIT_OPTIONS=true; shift ;;
@@ -354,11 +365,11 @@ read_config() {
     # Settings a deploy.env may leave out (older files, or ones edited by hand) are
     # empty unless this file sets them, never left over from a file read earlier.
     if [[ ${file##*/} == deploy.env ]]; then
-        PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; SIGNATURE_IDENTITY=; SIGNATURE_ISSUER=; UPSTREAM_DEFAULT=; IMAGE_REPOSITORY=
+        STACK=single; POSTGRES_IMAGE=postgres:16@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97; VALKEY_IMAGE=valkey/valkey:8@sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2; PROXY_NETWORK=; ACME_CA=; ACME_CA_ROOT=; MEMORY_LIMIT=; CPU_LIMIT=; SIGNATURE_IDENTITY=; SIGNATURE_ISSUER=; UPSTREAM_DEFAULT=; IMAGE_REPOSITORY=
         BACKUP_KEEP=; BACKUP_KEEP_DAYS=; BACKUP_RECIPIENT=; BACKUP_HOOK=; BACKUP_TARGETS_FILE=; ALERT_HOOK=
     elif [[ ${file##*/} == release.env ]]; then
         # Written before the image digest was recorded: render falls back to IMAGE_ID.
-        IMAGE_DIGEST=
+        IMAGE_DIGEST=; POSTGRES_VOLUME=
     fi
     while IFS= read -r line || [[ -n $line ]]; do
         [[ -z $line || $line == \#* ]] && continue
@@ -367,7 +378,7 @@ read_config() {
         [[ $seen != *"|$key|"* ]] || die "Duplicate $key in $file"
         seen+="$key|"
         case "$key" in
-            PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|CADDY_PROTOCOLS|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|UPSTREAM_DEFAULT|IMAGE_REPOSITORY|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|BACKUP_HOOK|BACKUP_TARGETS_FILE|ALERT_HOOK|IMAGE_ID|IMAGE_DIGEST|DATA_VOLUME|CADDY_ID)
+            STACK|POSTGRES_IMAGE|VALKEY_IMAGE|POSTGRES_VOLUME|PROJECT|EXPOSURE|DOMAIN|PUBLIC_URL|PORT|MODE|PROXY_PREFIX|PROXY_NETWORK|CADDY_IMAGE|CADDY_PROTOCOLS|ACME_CA|ACME_CA_ROOT|MEMORY_LIMIT|CPU_LIMIT|SIGNATURE_IDENTITY|SIGNATURE_ISSUER|UPSTREAM_DEFAULT|IMAGE_REPOSITORY|BACKUP_KEEP|BACKUP_KEEP_DAYS|BACKUP_RECIPIENT|BACKUP_HOOK|BACKUP_TARGETS_FILE|ALERT_HOOK|IMAGE_ID|IMAGE_DIGEST|DATA_VOLUME|CADDY_ID)
                 printf -v "$key" '%s' "$value" ;;
             *) die "Unknown setting $key in $file" ;;
         esac
@@ -377,6 +388,8 @@ read_config() {
 validate_config() {
     local a b c
     [[ $PROJECT =~ ^[a-z][a-z0-9_-]{0,39}$ ]] || die "Invalid project name"
+    [[ $STACK == single || $STACK == full ]] || die "STACK must be single or full"
+    [[ $POSTGRES_IMAGE =~ ^[a-zA-Z0-9][a-zA-Z0-9./_:@-]+$ && $VALKEY_IMAGE =~ ^[a-zA-Z0-9][a-zA-Z0-9./_:@-]+$ ]] || die "Invalid stack image reference"
     [[ $MODE == proxy || $MODE == engine ]] || die "Mode must be proxy or engine"
     if [[ ! $PORT =~ ^[0-9]{1,5}$ ]] || ((10#$PORT < 1 || 10#$PORT > 65535)); then die "Invalid port"; fi
     PORT=$((10#$PORT))
@@ -440,6 +453,9 @@ DOMAIN=$DOMAIN
 PUBLIC_URL=$PUBLIC_URL
 PORT=$PORT
 MODE=$MODE
+STACK=$STACK
+POSTGRES_IMAGE=$POSTGRES_IMAGE
+VALKEY_IMAGE=$VALKEY_IMAGE
 PROXY_PREFIX=$PROXY_PREFIX
 PROXY_NETWORK=$PROXY_NETWORK
 CADDY_IMAGE=$CADDY_IMAGE
@@ -476,6 +492,8 @@ validate_app_env() {
                 die "$key is managed by deploy.sh; see docs/deploy/script.md" ;;
             MW_TRUSTED_PROXIES|MW_FORWARDED_MODE)
                 [[ $EXPOSURE != caddy ]] || die "$key is managed for Caddy; remove it from app.env" ;;
+            MW_REDIS_URL)
+                [[ $STACK != full ]] || die "MW_REDIS_URL is managed by --full-stack; remove the external cache URL from app.env" ;;
             MW_UPSTREAM_DEFAULT)
                 [[ -z $UPSTREAM_DEFAULT ]] || die "The mail server is set twice: UPSTREAM_DEFAULT in deploy.env and MW_UPSTREAM_DEFAULT in app.env; keep one" ;;
             MW_ADMIN_PATH)
@@ -518,6 +536,10 @@ if [[ -f $STATE/deploy.env ]]; then
     # Repeating the original setup command is an update. A different value is
     # never applied from the command line; deploy.env is the one place to change it.
     for key in "${!REQUESTED[@]}"; do
+        if [[ $key == STACK && ${REQUESTED[$key]} == full && $STACK == single && $ACTION == deploy ]]; then
+            STACK=full
+            continue
+        fi
         [[ ${REQUESTED[$key]} == "${!key}" ]] || die "$key is '${!key}' in $STATE/deploy.env, not '${REQUESTED[$key]}'; edit that file to change it"
     done
 else
@@ -546,8 +568,9 @@ if [[ -n $IMAGE_TAG ]]; then
     PULL=true
 fi
 if $DRY_RUN; then
-    log "Dry run: $ACTION; project=$PROJECT; mode=$MODE; exposure=$EXPOSURE"
+    log "Dry run: $ACTION; project=$PROJECT; mode=$MODE; stack=$STACK; exposure=$EXPOSURE"
     log "State: $STATE; URL: $PUBLIC_URL"
+    if [[ $STACK == full ]]; then log "Full stack: PostgreSQL and Valkey on an internal network; an existing SQLite deployment is backed up and copied completely before cutover."; fi
     case "$ACTION" in
         deploy) log "Prepare runtime image (${IMAGE:-$($NO_BUILD && printf 'last applied image' || printf 'build Dockerfile --target runtime-static')}${IMAGE:+; signature checked when it is fetched from its registry and cosign is installed}); snapshot existing data; apply Compose; verify app and public HTTP(S)$($AUTO_ROLLBACK && printf '; if an update fails that check, restore the previous release and its data')." ;;
         restore|rollback) log "Validate snapshot checksums; save current installation; restore snapshot to a new volume; apply and verify. Post-snapshot writes will not be in the restored app." ;;
@@ -669,6 +692,10 @@ fetch_geoip() {
 if [[ ! -f $STATE/deploy.env ]]; then
     [[ $ACTION == init || $ACTION == deploy ]] || die "Run init first"
     initialize
+fi
+if [[ $STACK == full && ($ACTION == init || $ACTION == deploy) ]]; then
+    stack_secrets "$STATE/app.env"
+    write_config > "$STATE/deploy.env"
 fi
 if [[ $ACTION == init || $ACTION == deploy || $ACTION == doctor ]]; then validate_app_env "$STATE/app.env"; fi
 if $GEOIP || [[ $ACTION == geoip ]]; then fetch_geoip; fi
@@ -833,7 +860,7 @@ render() {
     [[ -z $IMAGE_DIGEST || $IMAGE_DIGEST =~ ^([a-zA-Z0-9][a-zA-Z0-9._/:-]*@)?sha256:[0-9a-f]{64}$ ]] || die "Invalid image digest"
     [[ $DATA_VOLUME =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]+$ ]] || die "Invalid volume name"
     write_config > "$directory/deploy.env"
-    printf 'IMAGE_ID=%s\nIMAGE_DIGEST=%s\nDATA_VOLUME=%s\nCADDY_ID=%s\n' "$IMAGE_ID" "$IMAGE_DIGEST" "$DATA_VOLUME" "$CADDY_ID" > "$directory/release.env"
+    printf 'IMAGE_ID=%s\nIMAGE_DIGEST=%s\nDATA_VOLUME=%s\nCADDY_ID=%s\nPOSTGRES_VOLUME=%s\n' "$IMAGE_ID" "$IMAGE_DIGEST" "$DATA_VOLUME" "$CADDY_ID" "$POSTGRES_VOLUME" > "$directory/release.env"
     cat > "$directory/compose.yaml" <<EOF
 # Generated by deploy.sh. Edit the parent deploy.env / app.env, then deploy.
 services:
@@ -950,6 +977,7 @@ volumes:
   caddy_config:
     name: ${PROJECT}_caddy_config
 EOF
+    [[ $STACK != full ]] || stack_render "$directory"
 }
 
 verify() {
@@ -1098,6 +1126,7 @@ snapshot() {
     fi
     log "Snapshotting /data to $destination"
     docker cp -a "$cid:/data/." - > "$destination/data.tar"
+    if grep -qx 'STACK=full' "$ACTIVE/deploy.env"; then stack_dump "$destination"; fi
     tar -tf "$destination/data.tar" >/dev/null
     (cd "$destination" && sha256sum data.tar compose.yaml app.env deploy.env release.env > SHA256SUMS)
     # A snapshot is usable only once COMPLETE exists; partial backups remain for diagnosis.
@@ -1159,6 +1188,7 @@ restore_snapshot() {
         mv "$WORK/app.clean" "$WORK/app.env"
     fi
     validate_app_env "$WORK/app.env"
+    if [[ $STACK == full ]]; then POSTGRES_VOLUME="${PROJECT}_postgres_restore_$(date -u +%Y%m%dT%H%M%SZ)_$$_$RANDOM"; stack_prepare; fi
     DATA_VOLUME="${PROJECT}_restore_$(date -u +%Y%m%dT%H%M%SZ)_$$_${RANDOM}"
     ensure_proxy_network
     render "$WORK"
@@ -1182,6 +1212,7 @@ restore_snapshot() {
             mv "$WORK/app.clean" "$STATE/app.env"
         fi
     fi
+    stack_restore_database "$WORK"
     activate "$WORK"
 }
 
@@ -1268,7 +1299,7 @@ prune_replaced() {
     local volume ref id size sizes='' protected="|$IMAGE_ID|" file line
     local -a volumes=() images=()
     while IFS= read -r volume; do
-        [[ -n $volume && $volume != "$DATA_VOLUME" ]] || continue
+        [[ -n $volume && $volume != "$DATA_VOLUME" && $volume != "$POSTGRES_VOLUME" ]] || continue
         if [[ -n $(docker ps -aq --filter "volume=$volume") ]]; then
             log "Data volume $volume is used by a container; not listed"
             continue
@@ -1312,7 +1343,7 @@ prune_replaced() {
         return 0
     fi
     for volume in "${volumes[@]}"; do
-        if [[ $volume == "$DATA_VOLUME" || -n $(docker ps -aq --filter "volume=$volume") ]] ||
+        if [[ $volume == "$DATA_VOLUME" || $volume == "$POSTGRES_VOLUME" || -n $(docker ps -aq --filter "volume=$volume") ]] ||
            [[ $(docker volume inspect --format '{{index .Labels "mailwoman.deploy.project"}}' "$volume" 2>/dev/null) != "$PROJECT" ]]; then
             log "Not deleting $volume: it changed since it was listed"
             continue
@@ -1396,6 +1427,16 @@ check_failed() {
 # public URL, or by name on the proxy network for network exposure (whose public
 # URL is served by a proxy this script does not manage).
 run_check() {
+    local service
+    if [[ $STACK == full ]]; then
+        for service in postgres valkey; do
+            local sidecar sidecar_health
+            sidecar=$(compose "$ACTIVE" ps -q "$service" 2>/dev/null) || sidecar=
+            [[ -n $sidecar ]] || check_failed "$service" "$service is not running"
+            sidecar_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}unknown{{end}}' "$sidecar" 2>/dev/null) || sidecar_health=unknown
+            [[ $sidecar_health == healthy ]] || check_failed "$service" "$service is $sidecar_health, not healthy"
+        done
+    fi
     local cid health
     cid=$(compose "$ACTIVE" ps -q mailwoman 2>/dev/null) || cid=
     [[ -n $cid ]] || check_failed container "the app container of $PROJECT is not running"
@@ -1436,6 +1477,7 @@ case "$ACTION" in
         IMAGE_ID=${IMAGE_ID:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
         CADDY_ID=${CADDY_ID:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
         DATA_VOLUME=${DATA_VOLUME:-${PROJECT}_data}
+        POSTGRES_VOLUME=${POSTGRES_VOLUME:-${PROJECT}_postgres}
         WORK=$(mktemp -d "$STATE/.work.XXXXXX")
         cp "$STATE/app.env" "$WORK/app.env"
         render "$WORK"
@@ -1511,6 +1553,7 @@ case "$ACTION" in
             # only in its ports, networks and environment, so those three may change.
             configured_project=$PROJECT; configured_exposure=$EXPOSURE; configured_prefix=$PROXY_PREFIX
             read_config "$ACTIVE/deploy.env"
+            applied_stack=$STACK
             applied_exposure=$EXPOSURE
             [[ $PROJECT == "$configured_project" && $PROXY_PREFIX == "$configured_prefix" ]] || die "Project and proxy subnet are fixed after the first deployment; use a new state directory"
             if [[ $applied_exposure != "$configured_exposure" && ($applied_exposure == caddy || $configured_exposure == caddy) ]]; then
@@ -1518,6 +1561,11 @@ case "$ACTION" in
             fi
             read_config "$STATE/deploy.env"
             validate_config
+            [[ $applied_stack != full || $STACK == full ]] || die "Changing full-stack PostgreSQL back to SQLite requires a separate export"
+            if [[ $applied_stack == single && $STACK == full ]]; then
+                MIGRATE_STACK=true
+                POSTGRES_VOLUME="${PROJECT}_postgres_migrate_$(date -u +%Y%m%dT%H%M%SZ)_$$_$RANDOM"
+            fi
             [[ $EXPOSURE == "$applied_exposure" ]] || log "Changing exposure from $applied_exposure to $EXPOSURE"
             old_key=$(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$ACTIVE/app.env")
             new_key=$(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$STATE/app.env")
@@ -1536,6 +1584,10 @@ case "$ACTION" in
         [[ -n $MEMORY_LIMIT ]] || unlimited=memory
         [[ -n $CPU_LIMIT ]] || unlimited+="${unlimited:+ or }CPU"
         [[ -z $unlimited ]] || log "No $unlimited limit for the app: MEMORY_LIMIT and CPU_LIMIT in $STATE/deploy.env set them (new installations get 1g and 2)"
+        POSTGRES_VOLUME=${POSTGRES_VOLUME:-${PROJECT}_postgres}
+        if [[ $STACK == full && ! -f $ACTIVE/release.env ]] && docker volume inspect "$POSTGRES_VOLUME" >/dev/null 2>&1; then
+            die "PostgreSQL volume $POSTGRES_VOLUME already exists without this deployment's state; recover its original state or choose another project"
+        fi
         require_free_ports
         phase "Prepare runtime image"
         built=false
@@ -1568,6 +1620,10 @@ case "$ACTION" in
             if ! docker image inspect "$CADDY_IMAGE" >/dev/null 2>&1; then docker pull "$CADDY_IMAGE"; fi
             CADDY_ID=$(docker image inspect --format '{{.Id}}' "$CADDY_IMAGE")
         fi
+        if $MIGRATE_STACK; then
+            docker run --rm "$IMAGE_ID" migrate-store --help | grep -q -- --complete || die "This image cannot perform complete migration; rebuild it first"
+        fi
+        stack_prepare
         ensure_proxy_network
         cp "$STATE/app.env" "$WORK/app.env"
         render "$WORK"
@@ -1576,13 +1632,14 @@ case "$ACTION" in
         if [[ -f $STATE/rollback.path ]]; then IFS= read -r previous_rollback < "$STATE/rollback.path"; fi
         phase "Protect installation data"
         if [[ -f $ACTIVE/release.env ]]; then
-            snapshot
+            if $MIGRATE_STACK; then snapshot keep-stopped; stack_migrate_sqlite; else snapshot; fi
             printf '%s\n' "$LAST_BACKUP" > "$STATE/rollback.path"
         else
             log "First installation: creating the data volume; no previous snapshot needed"
             docker volume create --label "mailwoman.deploy.project=$PROJECT" "$DATA_VOLUME" >/dev/null
             AUTO_ROLLBACK=false
         fi
+        RESUME_CONTAINER=
         phase "Start services and verify health"
         if $AUTO_ROLLBACK; then
             # activate runs in a subshell so that a failed start or check returns

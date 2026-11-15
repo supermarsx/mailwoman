@@ -27,3 +27,19 @@ cp "$work/first/app.env" "$work/explicit.env"
 init "$work/first" > "$work/existing.log" 2>&1
 cmp -s "$work/explicit.env" "$work/first/app.env" || fail 'explicit existing username was renamed'
 printf 'PASS: new random identity, private credentials, safe guidance, stable repeat init, independent installs, existing identity preserved\n'
+
+# Full-stack bootstrap keeps database/cache credentials stable and private too.
+bash "$ROOT/deploy.sh" init --full-stack --no-pull --state-dir "$work/full" --port 18183 > "$work/full.log" 2>&1
+grep -qx 'STACK=full' "$work/full/deploy.env" || fail 'full stack was not saved'
+for key in MW_STACK_DB_PASSWORD MW_STACK_CACHE_PASSWORD; do
+    [[ $(value "$work/full" "$key") =~ ^[0-9a-f]{64}$ ]] || fail "invalid $key"
+done
+cp "$work/full/app.env" "$work/full-original.env"
+bash "$ROOT/deploy.sh" init --full-stack --no-pull --state-dir "$work/full" --port 18183 > "$work/full-repeat.log" 2>&1
+cmp "$work/full/app.env" "$work/full-original.env" || fail 'full-stack credentials changed on repeat init'
+# A migration dry-run must neither change the source mode nor generate secrets.
+cp "$work/first/deploy.env" "$work/single-original.env"
+bash "$ROOT/deploy.sh" deploy --full-stack --dry-run --no-pull --state-dir "$work/first" > "$work/migration-dry.log" 2>&1
+cmp "$work/first/deploy.env" "$work/single-original.env" || fail 'dry-run changed the SQLite configuration'
+cmp "$work/first/app.env" "$work/explicit.env" || fail 'dry-run changed credentials'
+printf 'PASS: full-stack bootstrap, stable private credentials, and migration dry-run without writes\n'

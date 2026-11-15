@@ -2055,6 +2055,14 @@ jobs:
           MW_REQUIRE_LIVE: "DATABASE_URL_PG"
           MW_TEST_SKIP_LOG: ${{ github.workspace }}/skip-log.txt
         run: cargo test -p mw-store --test backend_parity migrate_store_sqlite_to_postgres -- --include-ignored --nocapture
+      - name: complete installation migration and transactional verification
+        env:
+          MW_STACK_TEST_PG: "postgres://mailwoman:mailwoman@127.0.0.1:5432/postgres"
+        run: cargo test -p mw-store --test full_install_migration -- --ignored --nocapture
+      - name: full-stack sidecars and PostgreSQL snapshot restore
+        run: |
+          bash scripts/test-deploy-stack-migrate.sh
+          bash scripts/test-deploy-full-stack.sh
       # MARKER ONLY — never fails the job. See the note on the same step in
       # `store-dual-backend`. EXPECT 0 here: this job runs one narrowly gated test
       # whose only skip cites DATABASE_URL_PG, which the list names, so there is

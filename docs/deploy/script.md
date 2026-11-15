@@ -2,7 +2,8 @@
 
 [`deploy.sh`](../../deploy.sh) manages a single-host Docker deployment of the
 Mailwoman web app: packaged SPA, Rust server, render worker, first-party plugins,
-SQLite database and filesystem upload storage. It does not install a mail server.
+SQLite database and filesystem upload storage, or a full stack with PostgreSQL
+and Valkey. It does not install a mail server.
 Users connect their existing JMAP accounts, or IMAP/POP3 + SMTP in engine mode.
 
 ## First deployment
@@ -165,6 +166,69 @@ stderr terminal. Set
 data stays on stdout. Snapshot resume and restart use Compose's
 `up -d --no-recreate --wait --wait-timeout` to wait for the existing containers;
 Compose 2.30 does not support `start --wait`.
+
+## Full stack and one-step SQLite migration
+
+Use the same command for a new full stack or an existing deployment managed by
+this script:
+
+```sh
+bash deploy.sh deploy --full-stack
+```
+
+For a new public instance, combine it with your usual setup options:
+
+```sh
+bash deploy.sh deploy --full-stack --domain mail.example.org --mode engine
+```
+
+This starts Mailwoman, PostgreSQL 16 and Valkey 8, plus Caddy when `--domain` is
+used. Mail servers remain external. PostgreSQL holds the authoritative store;
+Valkey is an optional accelerator, with the existing per-cache-class policy
+still controlling what may enter it. PostgreSQL and Valkey publish no host ports
+and share an internal service network with Mailwoman. Mailwoman also retains its
+normal network for upstream mail and reverse-proxy access. Each service waits
+for its health check before the app starts.
+
+`STACK=full`, `POSTGRES_IMAGE` and `VALKEY_IMAGE` are saved in `deploy.env`.
+The generated image defaults are pinned by digest; version changes are explicit.
+Database and cache passwords are generated once in the private `app.env`; do not
+change them on an existing PostgreSQL volume. Keep this file and
+`MW_SERVER_KEY`. Remove any external `MW_REDIS_URL` before selecting the managed
+stack. The cache is disposable and memory-limited; PostgreSQL and uploads use
+persistent volumes. Host disk encryption is still an operator responsibility;
+selecting PostgreSQL does not encrypt its disk automatically.
+
+On an existing **script-managed SQLite installation**, `--full-stack` performs
+these steps automatically:
+
+1. Prepare images and check that the app image supports complete migration.
+2. Stop the app writer and take a checksummed backup of SQLite, uploads and
+   deployment configuration.
+3. Copy `/data` into a fresh volume, upgrade that offline copy's schema, and
+   migrate every application table into a fresh PostgreSQL volume. Admin
+   identities, domains, configuration, OAuth registrations and plugin grants
+   remain part of the same installation. The original SQLite volume is retained;
+   the unused SQLite copy is removed from the new live volume after verification.
+4. Compare table/column coverage and every copied value before the destination
+   transaction commits. A nonempty destination or unsupported schema is refused.
+5. Start the app against PostgreSQL and verify health. Migration errors resume
+   the previous app; activation errors use the normal automatic rollback unless
+   `--no-auto-rollback` was explicitly selected.
+
+The app is unavailable while the offline copy and migration run. The one-step
+path uses the existing `.deploy.local` state (or `--state-dir`); it does not
+adopt an unrelated container without its original configuration. Ensure enough
+space for the backup, original volume, working copy and PostgreSQL data. Built
+images include the new migrator; an older `--image` or `--no-build` image must
+support `migrate-store --complete` or the script refuses before stopping the app.
+
+Full-stack backups include a PostgreSQL custom-format dump inside `data.tar`,
+covered by the existing checksum and optional archive encryption. Restore and
+rollback create fresh application **and PostgreSQL** volumes, restore the dump,
+then start the app. Valkey is recreated empty. Replaced volumes remain available
+until explicitly pruned. Returning to `STACK=single` is refused; restoring a
+pre-migration snapshot is the supported rollback path.
 
 ## Configuration and exposure
 
