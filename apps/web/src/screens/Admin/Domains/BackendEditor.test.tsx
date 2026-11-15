@@ -4,6 +4,7 @@ import { BackendEditor } from './BackendEditor.tsx';
 import { domainBackends, domainsApi, type DomainDetail } from '../../../api/admin/domains.ts';
 import { renderInShell } from '../shell/testkit.tsx';
 import { expectNoAxeViolations, expectNoInlineStyle } from '../shell/uxTestkit.ts';
+import {toasts} from '../../../components/toast/toast.ts';
 
 const domain: DomainDetail = { name: 'example.org', enabled: true, preferred: false, upstream: { imap: { host: 'mail.example.org', port: 993, tls: 'implicit', auth: 'password' }, smtp: { host: 'mail.example.org', port: 465, tls: 'implicit', auth: 'password' } }, settings: {}, allowlist: [], blocklist: [], updatedAt: 1, mode: 'engine', aliases: [], hosts: [], etag: 'v1', mappingEtag: 'm1', preferenceEtag: 'p1' };
 
@@ -103,6 +104,31 @@ it('roundtrips EWS endpoint, Basic authentication, origin CA and username withou
   fireEvent.submit(screen.getByRole('button',{name:'Save backend'}).closest('form')!);
   await waitFor(()=>expect(save).toHaveBeenCalledTimes(2));
   expect(save.mock.calls[1]![1].upstream?.backends?.[0]).not.toHaveProperty('ews');
+});
+
+it('selects NTLM explicitly, requires its domain and saves the exact handshake configuration without Basic fallback',async()=>{
+ const ews={id:'exchange',role:'mail' as const,protocol:'ews' as const,enabled:true,ews:{endpointUrl:'https://exchange.example.org/EWS/Exchange.asmx',authentication:'basic' as const},username:{format:'domainUser' as const,domain:'LOGIN'}};
+ const source={...domain,upstream:{version:2 as const,backends:[ews]}},save=vi.fn<typeof domainsApi.save>(async()=>source);
+ const {container}=renderInShell(()=><BackendEditor domain={source} backend={ews} api={{...domainsApi,save}} advancedReady={true} onSaved={async()=>{}} onBack={()=>{}}/>);
+ const authentication=await screen.findByLabelText(/^EWS authentication/) as HTMLSelectElement;
+ expect([...authentication.options].map(option=>option.value)).toEqual(['basic','ntlm']);
+ expect(screen.queryByLabelText(/^Windows domain \(NTLM\)/)).toBeNull();
+ fireEvent.change(authentication,{target:{value:'ntlm'}});
+ const ntlmDomain=screen.getByLabelText(/^Windows domain \(NTLM\)/),workstation=screen.getByLabelText(/^Workstation \(optional\)/);
+ expect(ntlmDomain).toBeRequired();expect(ntlmDomain).toHaveAttribute('maxlength','128');expect(workstation).toHaveAttribute('maxlength','64');
+ // This distinct label remains unambiguous when username formatting also has a domain.
+ expect(screen.getByLabelText(/^Authentication domain/)).toHaveValue('LOGIN');
+ const form=screen.getByRole('button',{name:'Save backend'}).closest('form')!;
+ fireEvent.submit(form);
+ await waitFor(()=>expect(toasts().some(row=>row.message.includes('NTLMv2 requires its domain'))).toBe(true));
+ expect(save).not.toHaveBeenCalled();expect(authentication).toHaveValue('ntlm');
+ fireEvent.input(ntlmDomain,{target:{value:'CORP DOMAIN'}});fireEvent.submit(form);
+ expect(save).not.toHaveBeenCalled();expect(authentication).toHaveValue('ntlm');
+ fireEvent.input(ntlmDomain,{target:{value:'CORP'}});fireEvent.input(workstation,{target:{value:'MWCLIENT'}});fireEvent.submit(form);
+ await waitFor(()=>expect(save).toHaveBeenCalledOnce());
+ expect(save.mock.calls[0]![1].upstream?.backends).toEqual([expect.objectContaining({protocol:'ews',ews:{endpointUrl:ews.ews.endpointUrl,authentication:'ntlm',ntlmDomain:'CORP',workstation:'MWCLIENT'},username:{format:'domainUser',domain:'LOGIN'}})]);
+ expect(save.mock.calls[0]![1].upstream?.backends?.[0]).not.toHaveProperty('endpoint');
+ await expectNoAxeViolations(container);expectNoInlineStyle(container);
 });
 
 it('refuses selected EWS with active SMTP before any save', async()=>{

@@ -2,7 +2,9 @@ import type { DomainBackend } from '../../../api/admin/domains.ts';
 
 export function ewsBackendProblem(row: DomainBackend): string | null {
   const config = row.ews;
-  if (!config || config.authentication !== 'basic' || row.endpoint || row.sessionUrl || row.role !== 'mail') return 'backend-ews-invalid';
+  if (!config || !['basic','ntlm'].includes(config.authentication) || row.endpoint || row.sessionUrl || row.role !== 'mail') return 'backend-ews-invalid';
+  const identifier=(value:string,max:number)=>value.length<=max&&/^[A-Za-z0-9._-]*$/u.test(value);
+  if(config.authentication==='ntlm'&&!config.ntlmDomain||config.ntlmDomain!==undefined&&!identifier(config.ntlmDomain,128)||config.workstation!==undefined&&!identifier(config.workstation,64))return 'backend-ews-invalid';
   try {
     const value = config.endpointUrl;
     const url = new URL(value);

@@ -26,11 +26,17 @@ it('accepts IPv6 host fields but refuses embedded credentials, paths and ports',
  for(const host of ['mail.test:443','secret@mail.test','mail.test/path',' mail.test'])expect(guidedHost(host)).toBe(false);
 });
 
-it('validates the actual EWS HTTPS Basic contract and selected service conflicts',()=>{
+it('validates explicit EWS HTTPS Basic or NTLM contracts and selected service conflicts',()=>{
  const ews={...newGuidedBackend('ews','exchange'),priority:1,ews:{endpointUrl:'https://exchange.example.test/EWS/Exchange.asmx',authentication:'basic' as const}};
  expect(guidedBackendProblem([ews],status)).toBeNull();
  for(const endpointUrl of ['http://exchange.test/EWS','https://user:secret@exchange.test/EWS','https://exchange.test/EWS?token=x','https://exchange.test/EWS#x','https://exchange.test/EWS?','https://exchange.test/\nEWS'])expect(guidedBackendProblem([{...ews,ews:{...ews.ews,endpointUrl}}],status)).toBe('backend-ews-invalid');
- expect(guidedBackendProblem([{...ews,ews:{...ews.ews,authentication:'ntlm' as 'basic'}}],status)).toBe('backend-ews-invalid');
+ expect(guidedBackendProblem([{...ews,ews:{...ews.ews,authentication:'ntlm'}}],status)).toBe('backend-ews-invalid');
+ expect(guidedBackendProblem([{...ews,ews:{...ews.ews,authentication:'negotiate' as 'basic'}}],status)).toBe('backend-ews-invalid');
+ expect(guidedBackendProblem([{...ews,ews:{...ews.ews,authentication:'ntlm',ntlmDomain:'CORP',workstation:'MAILWOMAN'}}],status)).toBeNull();
+ expect(guidedBackendProblem([{...ews,ews:{...ews.ews,authentication:'ntlm',ntlmDomain:'bad'+String.fromCharCode(10)}}],status)).toBe('backend-ews-invalid');
+ for(const ntlmDomain of [' CORP','CORP DOMAIN','CORP\\alice','córp','x'.repeat(129),'bad'+String.fromCharCode(0x85)])expect(guidedBackendProblem([{...ews,ews:{...ews.ews,authentication:'ntlm',ntlmDomain}}],status)).toBe('backend-ews-invalid');
+ for(const workstation of ['PC 1','PC/1','PC\\1','x'.repeat(65),'bad'+String.fromCharCode(10)])expect(guidedBackendProblem([{...ews,ews:{...ews.ews,authentication:'ntlm',ntlmDomain:'CORP',workstation}}],status)).toBe('backend-ews-invalid');
+ expect(guidedBackendProblem([{...ews,ews:{...ews.ews,authentication:'ntlm',ntlmDomain:'corp.example-test_1',workstation:'PC-01'}}],status)).toBeNull();
  expect(guidedBackendProblem([{...ews,ews:{...ews.ews,caPem:'-----BEGIN PRIVATE KEY-----'}}],status)).toBe('backend-ews-invalid-ca');
  const smtp={...newGuidedBackend('smtp','sender'),endpoint:{host:'smtp.test',port:465,tls:'implicit' as const,auth:'password' as const}};
  expect(guidedBackendProblem([ews,smtp],status)).toBe('backend-ews-service-conflict');
