@@ -57,9 +57,11 @@ export function LinkMailboxEditor(props:{
         <label class={css.field}><span class={css.label}>{t('linked-accounts-password')}</span><input class={css.input} type="password" autocomplete="current-password" required value={password()} onInput={event=>setPassword(event.currentTarget.value)}/></label>
         <label class={css.field}><span class={css.label}>{t('linked-accounts-name')}</span><input class={css.input} maxlength={128} value={name()} onInput={event=>setName(event.currentTarget.value)}/></label>
         {props.verification}
-        <div class={css.actions}><button type="submit" class={css.button} disabled={!!props.verificationRequired&&!props.verificationProof}>{t('linked-accounts-submit')}</button></div>
       </fieldset>
-      <button type="button" class={css.ghost} disabled={busy()} onClick={()=>void guard.leave(props.onCancel)}>{t('linked-accounts-cancel')}</button>
+      <div class={layout.linkActions}>
+        <button type="submit" class={css.button} disabled={busy()||!props.enabled||!!props.verificationRequired&&!props.verificationProof}>{t('linked-accounts-submit')}</button>
+        <button type="button" class={css.ghost} disabled={busy()} onClick={()=>void guard.leave(props.onCancel)}>{t('linked-accounts-cancel')}</button>
+      </div>
     </form>
     <Show when={error()}><p class={css.error} role="alert">{error()}</p></Show>
     {guard.dialog()}
