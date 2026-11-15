@@ -2785,6 +2785,8 @@ pub static REGISTRY: &[SettingDef] = &[
         "mail",
         "Reader header: when the spam score badge shows (always, only when notable, never)"
     ),
+    def!("mail.badge.auth.sent",Kind::Enum(&["always","notable","never"]),r#""never""#,GDU,"mail","Authentication classifications on messages in Sent; hidden by default because recipient authentication results are usually unavailable"),
+    def!("mail.badge.spam.sent",Kind::Enum(&["always","notable","never"]),r#""never""#,GDU,"mail","Spam classifications on messages in Sent; hidden by default because recipient spam scores are usually unavailable"),
     def!(
         "mail.badge.sanitized",
         Kind::Enum(&["always", "notable", "never"]),

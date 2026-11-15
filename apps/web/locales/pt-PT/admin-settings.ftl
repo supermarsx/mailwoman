@@ -2499,3 +2499,8 @@ admin-settings-key-views-templates-name = Nome apresentado
 admin-settings-help-views-templates-name = Escolha a visibilidade, os nomes e os contadores da barra lateral. As restrições do administrador aplicam-se sempre.
 admin-settings-key-views-templates-show-count = Mostrar contador
 admin-settings-help-views-templates-show-count = Escolha a visibilidade, os nomes e os contadores da barra lateral. As restrições do administrador aplicam-se sempre.
+
+admin-settings-key-mail-badge-auth-sent = Autenticação nas mensagens enviadas
+admin-settings-help-mail-badge-auth-sent = As mensagens enviadas normalmente não têm resultados de autenticação ou spam do destinatário. Escolha a sua visibilidade em Enviados.
+admin-settings-key-mail-badge-spam-sent = Pontuações de spam nas mensagens enviadas
+admin-settings-help-mail-badge-spam-sent = As mensagens enviadas normalmente não têm resultados de autenticação ou spam do destinatário. Escolha a sua visibilidade em Enviados.

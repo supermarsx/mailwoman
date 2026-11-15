@@ -2719,3 +2719,8 @@ admin-settings-key-views-templates-name = Відображуване ім’я
 admin-settings-help-views-templates-name = Виберіть видимість, назви й лічильники бічної панелі. Обмеження адміністратора діють завжди.
 admin-settings-key-views-templates-show-count = Показувати лічильник
 admin-settings-help-views-templates-show-count = Виберіть видимість, назви й лічильники бічної панелі. Обмеження адміністратора діють завжди.
+
+admin-settings-key-mail-badge-auth-sent = Автентифікація надісланих повідомлень
+admin-settings-help-mail-badge-auth-sent = Надіслані повідомлення зазвичай не мають результатів автентифікації чи спаму одержувача. Виберіть їх відображення в Надісланих.
+admin-settings-key-mail-badge-spam-sent = Оцінки спаму надісланих повідомлень
+admin-settings-help-mail-badge-spam-sent = Надіслані повідомлення зазвичай не мають результатів автентифікації чи спаму одержувача. Виберіть їх відображення в Надісланих.

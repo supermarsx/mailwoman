@@ -897,3 +897,7 @@ cache-idleDelayMs-help = Czas oczekiwania od ostatniej interakcji do pobierania 
 cache-maxConcurrency-help = Maksymalna liczba równoległych żądań w tle. Niższe wartości oszczędzają łącze i serwer.
 cache-maxQueued-help = Maksymalna liczba oczekujących zadań. Nadmiarowe są odrzucane; uruchomione trwają dalej.
 cache-preloadMessages-help = Pobiera też treść wiadomości. Domyślnie wyłączone; zużywa więcej danych i pamięci. Wykluczenia i limity nadal obowiązują.
+
+settings-badge-auth-sent = Uwierzytelnianie wysłanych wiadomości
+settings-badge-spam-sent = Oceny spamu wysłanych wiadomości
+settings-badge-sent-help = Wysłane wiadomości zwykle nie mają wyników uwierzytelniania ani spamu odbiorcy. Wybierz ich widoczność w Wysłanych.

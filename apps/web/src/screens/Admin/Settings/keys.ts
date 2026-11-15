@@ -383,6 +383,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'mail.badge.importance', 'mail.badge.follow-up', 'mail.badge.snooze', 'mail.badge.receipts', 'mail.badge.delivery', 'mail.badge.dates', 'mail.badge.sensitivity', 'mail.badge.reply-by', 'mail.badge.expires', 'mail.badge.supersedes',
   'reader.filePreviews',
   'mail.snooze.presets', 'mail.followUp.presets',
+  'mail.badge.auth.sent', 'mail.badge.spam.sent',
   'mail.badge.auth', 'mail.badge.spam', 'mail.badge.sanitized', 'mail.badge.folder', 'mail.badge.list', 'mail.list.unsubscribeMode', 'mail.list.keep', 'mail.badge.density', 'mail.badge.labels',
   'mail.reader.unsafeHtmlMode',
   'reader.attachmentsDensity',

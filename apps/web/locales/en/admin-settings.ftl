@@ -2496,3 +2496,8 @@ admin-settings-key-views-templates-name = Display name
 admin-settings-help-views-templates-name = Choose sidebar visibility, labels and counts. Administrator locks and feature restrictions always apply.
 admin-settings-key-views-templates-show-count = Show item count
 admin-settings-help-views-templates-show-count = Choose sidebar visibility, labels and counts. Administrator locks and feature restrictions always apply.
+
+admin-settings-key-mail-badge-auth-sent = Authentication on sent messages
+admin-settings-help-mail-badge-auth-sent = Sent messages usually have no recipient authentication or spam results. Choose whether to show these classifications in Sent.
+admin-settings-key-mail-badge-spam-sent = Spam scores on sent messages
+admin-settings-help-mail-badge-spam-sent = Sent messages usually have no recipient authentication or spam results. Choose whether to show these classifications in Sent.

@@ -2723,3 +2723,8 @@ admin-settings-key-views-templates-name = اسم العرض
 admin-settings-help-views-templates-name = اختر ظهور الشريط الجانبي وأسماءه وعدّاداته. تُطبق قيود المسؤول دائمًا.
 admin-settings-key-views-templates-show-count = إظهار العدد
 admin-settings-help-views-templates-show-count = اختر ظهور الشريط الجانبي وأسماءه وعدّاداته. تُطبق قيود المسؤول دائمًا.
+
+admin-settings-key-mail-badge-auth-sent = المصادقة على الرسائل المرسلة
+admin-settings-help-mail-badge-auth-sent = لا تحتوي الرسائل المرسلة عادةً على نتائج مصادقة أو بريد مزعج من المستلم. اختر إظهار هذه التصنيفات في المرسلة.
+admin-settings-key-mail-badge-spam-sent = درجات البريد المزعج للرسائل المرسلة
+admin-settings-help-mail-badge-spam-sent = لا تحتوي الرسائل المرسلة عادةً على نتائج مصادقة أو بريد مزعج من المستلم. اختر إظهار هذه التصنيفات في المرسلة.

@@ -2693,3 +2693,8 @@ admin-settings-key-views-templates-name = 表示名
 admin-settings-help-views-templates-name = サイドバーの表示、名前、件数を選択します。管理者の制限は常に適用されます。
 admin-settings-key-views-templates-show-count = 件数を表示
 admin-settings-help-views-templates-show-count = サイドバーの表示、名前、件数を選択します。管理者の制限は常に適用されます。
+
+admin-settings-key-mail-badge-auth-sent = 送信済みメールの認証
+admin-settings-help-mail-badge-auth-sent = 送信済みメールには通常、受信側の認証や迷惑メールの判定結果がありません。送信済みでの表示を選択します。
+admin-settings-key-mail-badge-spam-sent = 送信済みメールの迷惑メールスコア
+admin-settings-help-mail-badge-spam-sent = 送信済みメールには通常、受信側の認証や迷惑メールの判定結果がありません。送信済みでの表示を選択します。

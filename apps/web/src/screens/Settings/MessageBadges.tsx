@@ -8,7 +8,7 @@ import {t} from '../../i18n';
 import * as css from './styles.css.ts';
 // Which badges the reader's header row shows (state/readerBadges.ts), in Settings > Message display.
 export const MESSAGE_BADGES_CARD:CardSpec={id:'settings-card-message-badges',section:'reader',title:'settings-message-badges',help:'settings-message-badges-help',
- rows:[...BADGE_IDS.map(id=>({id:badgeKey(id),label:`settings-badge-${id}`,help:`settings-badge-${id}-help`})),{id:BADGE_DENSITY_KEY,label:'settings-badge-density',help:'settings-badge-density-help'},{id:BADGE_LABELS_KEY,label:'settings-badge-labels',help:'settings-badge-labels-help'}]};
+ rows:[{id:'mail.badge.auth.sent',label:'settings-badge-auth-sent',help:'settings-badge-sent-help'},{id:'mail.badge.spam.sent',label:'settings-badge-spam-sent',help:'settings-badge-sent-help'},...BADGE_IDS.map(id=>({id:badgeKey(id),label:`settings-badge-${id}`,help:`settings-badge-${id}-help`})),{id:BADGE_DENSITY_KEY,label:'settings-badge-density',help:'settings-badge-density-help'},{id:BADGE_LABELS_KEY,label:'settings-badge-labels',help:'settings-badge-labels-help'}]};
 function Choice<T extends string>(props:{id:string;label:string;help:string;values:readonly T[];name:(v:T)=>string;handle:ReturnType<typeof useSetting<T>>}):JSX.Element {
  const disabled=()=>!props.handle.entry()||props.handle.locked()||props.handle.saving();
  return <SettingRow controlId={props.id} label={props.label} help={props.help} handle={props.handle}>{describedBy=>
@@ -19,10 +19,14 @@ function BadgeRow(props:{id:BadgeId}):JSX.Element {
  return <Choice id={badgeKey(props.id)} label={t(`settings-badge-${props.id}`)} help={t(`settings-badge-${props.id}-help`)} values={BADGE_MODES} name={v=>t(`settings-badge-mode-${v}`)} handle={handle}/>;
 }
 export function MessageBadges():JSX.Element {
+ const sentAuth=useSetting<BadgeMode>('mail.badge.auth.sent','never',isBadgeMode);
+ const sentSpam=useSetting<BadgeMode>('mail.badge.spam.sent','never',isBadgeMode);
  const density=useSetting<BadgeDensity>(BADGE_DENSITY_KEY,'compact',isBadgeDensity);
  const labels=useSetting<BadgeLabels>(BADGE_LABELS_KEY,'text',isBadgeLabels);
  return <SettingsCard id="settings-card-message-badges" title={t('settings-message-badges')} description={t('settings-message-badges-help')}>
   <For each={BADGE_IDS}>{id=><BadgeRow id={id}/>}</For>
+  <Choice id="mail.badge.auth.sent" label={t('settings-badge-auth-sent')} help={t('settings-badge-sent-help')} values={BADGE_MODES} name={v=>t(`settings-badge-mode-${v}`)} handle={sentAuth}/>
+  <Choice id="mail.badge.spam.sent" label={t('settings-badge-spam-sent')} help={t('settings-badge-sent-help')} values={BADGE_MODES} name={v=>t(`settings-badge-mode-${v}`)} handle={sentSpam}/>
   <Choice id={BADGE_DENSITY_KEY} label={t('settings-badge-density')} help={t('settings-badge-density-help')} values={BADGE_DENSITIES} name={v=>t(`settings-badge-density-${v}`)} handle={density}/>
   <Choice id={BADGE_LABELS_KEY} label={t('settings-badge-labels')} help={t('settings-badge-labels-help')} values={BADGE_LABELS} name={v=>t(`settings-badge-labels-${v}`)} handle={labels}/>
  </SettingsCard>;

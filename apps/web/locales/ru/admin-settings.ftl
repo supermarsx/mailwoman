@@ -2719,3 +2719,8 @@ admin-settings-key-views-templates-name = Отображаемое имя
 admin-settings-help-views-templates-name = Выберите видимость, названия и счётчики боковой панели. Ограничения администратора действуют всегда.
 admin-settings-key-views-templates-show-count = Показывать счётчик
 admin-settings-help-views-templates-show-count = Выберите видимость, названия и счётчики боковой панели. Ограничения администратора действуют всегда.
+
+admin-settings-key-mail-badge-auth-sent = Аутентификация отправленных сообщений
+admin-settings-help-mail-badge-auth-sent = Отправленные сообщения обычно не содержат результатов аутентификации или спама получателя. Выберите их отображение в Отправленных.
+admin-settings-key-mail-badge-spam-sent = Оценки спама отправленных сообщений
+admin-settings-help-mail-badge-spam-sent = Отправленные сообщения обычно не содержат результатов аутентификации или спама получателя. Выберите их отображение в Отправленных.

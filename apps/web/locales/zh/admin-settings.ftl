@@ -2693,3 +2693,8 @@ admin-settings-key-views-templates-name = 显示名称
 admin-settings-help-views-templates-name = 选择侧边栏的可见性、名称和计数。管理员限制始终适用。
 admin-settings-key-views-templates-show-count = 显示计数
 admin-settings-help-views-templates-show-count = 选择侧边栏的可见性、名称和计数。管理员限制始终适用。
+
+admin-settings-key-mail-badge-auth-sent = 已发送邮件的身份验证
+admin-settings-help-mail-badge-auth-sent = 已发送邮件通常不包含收件方的身份验证或垃圾邮件结果。选择是否在已发送邮件中显示这些分类。
+admin-settings-key-mail-badge-spam-sent = 已发送邮件的垃圾邮件评分
+admin-settings-help-mail-badge-spam-sent = 已发送邮件通常不包含收件方的身份验证或垃圾邮件结果。选择是否在已发送邮件中显示这些分类。

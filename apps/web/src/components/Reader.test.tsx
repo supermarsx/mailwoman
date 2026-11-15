@@ -6,7 +6,7 @@ import { makeClient, mkEmail } from './appHarness.tsx';
 import { createAppState, type AppState } from '../state/store.ts';
 import { AppContext } from '../state/context.ts';
 import type { ComposeInitial } from './compose/reply.ts';
-import type { Email, Identity, JmapRequest, JmapResponse } from '../api/jmap-types.ts';
+import type { Email, Mailbox, Identity, JmapRequest, JmapResponse } from '../api/jmap-types.ts';
 import { formatDateTime } from '../i18n/format.ts';
 import { clearSettings, loadSettings } from '../api/settings.ts';
 import {saveDraft,deleteDraft} from './compose/drafts-store.ts';
@@ -66,9 +66,9 @@ let downloadStatus = 200;
 
 async function openReader(
   email: Email,
-  opts: { identities?: Identity[]; ownKey?: boolean; contactKeys?: Record<string, unknown>[];onOpenReplyDraft?:(id:string)=>void } = {},
+  opts: { mailboxes?: Mailbox[]; identities?: Identity[]; ownKey?: boolean; contactKeys?: Record<string, unknown>[];onOpenReplyDraft?:(id:string)=>void } = {},
 ): Promise<{ app: AppState; onCompose: ReturnType<typeof vi.fn<(i: ComposeInitial) => void>> }> {
-  const client = makeClient({ emails: [email], identities: opts.identities ?? IDENTITIES });
+  const client = makeClient({ emails: [email], identities: opts.identities ?? IDENTITIES, ...(opts.mailboxes?{mailboxes:opts.mailboxes}:{}) });
   if (opts.ownKey === true) {
     const base = client.jmap;
     client.jmap = vi.fn(async (body: JmapRequest, o?: { signal?: AbortSignal }): Promise<JmapResponse> => {
@@ -153,6 +153,10 @@ describe('Reader: opening a message suspends nothing around it', () => {
 });
 
 describe('Reader: Reply, Reply all, Forward', () => {
+  it('places receipts in the shared badge row and hides sent classifications by default',async()=>{
+    clearSettings();await openReader({...ORIGINAL,mailboxIds:{sent:true}},{mailboxes:[{id:'sent',name:'Sent',parentId:null,role:'sent',sortOrder:0,totalEmails:1,unreadEmails:0}]});
+    const receipt=await screen.findByRole('button',{name:'Receipts'});expect(receipt.closest('.reader__metadata-line')).not.toBeNull();expect(screen.queryByTestId('reader-auth-skeleton')).toBeNull();expect(screen.queryByTestId('reader-auth-badge')).toBeNull();
+  });
   it('shows a pending reply and opens its saved draft without claiming it was already replied to',async()=>{
     const open=vi.fn();await openReader(ORIGINAL,{onOpenReplyDraft:open});
     saveDraft({id:'pending-reply',accountId:'acct1',storageAuthority:'test-storage-authority-acct1',to:'alice@example.org',subject:'Reply',bodyHtml:'<p>Draft</p>',bodyText:'Draft',savedAt:1,source:{emailId:ORIGINAL.id,keyword:'$answered'}});

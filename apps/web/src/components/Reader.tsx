@@ -56,7 +56,7 @@ import { FolderBadge, folderBadgeKind } from './FolderBadge.tsx';
 import { SanitizedBadge } from './SanitizedBadge.tsx';
 import { HeaderFactsBadges } from './HeaderFactsBadges.tsx';
 import { focusMessageInFolder } from './messageFocus.ts';
-import { badgeDensity, badgeLabels, badgeMode, badgeVisible } from '../state/readerBadges.ts';
+import { badgeDensity, badgeLabels, badgeVisible, classificationBadgeMode, classificationBadgeVisible } from '../state/readerBadges.ts';
 import { overallTone } from './security/model.ts';
 import { mailFeature } from '../state/mailFeatures.ts';
 import { SpamScore } from './security/SpamScore.tsx';
@@ -810,6 +810,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
 
   const folderRole = (): string | null => app.mailboxes().find((m) => m.id === Object.keys(chromeEmail()?.mailboxIds ?? {})[0])?.role ?? null;
   const folderNotable = (): boolean => folderBadgeKind(folderRole()) === 'junk' || folderBadgeKind(folderRole()) === 'trash';
+  const sentMessage = (): boolean => app.mailboxes().some(box => box.role === 'sent' && !!chromeEmail()?.mailboxIds?.[box.id]);
   const authNotable = (): boolean => { const v = verdict(); return v !== null && overallTone(v, mailFeature('showAuthStatus')) !== 'good'; };
   const goToFolder = (): void => { const id = Object.keys(app.openEmail()?.mailboxIds ?? {})[0], mail = app.openEmail(); if (id && mail) void focusMessageInFolder(app, id, mail.id, {open: true}); };
 
@@ -1560,12 +1561,12 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <Show when={folderNames().length>0&&badgeVisible('folder',folderNotable())}><BadgeContextMenu badge="folder"><FolderBadge names={folderNames()} role={folderRole()} onGo={goToFolder}/></BadgeContextMenu></Show>
               {/* Security chip → expandable panel: server verdict merged
                   with the client decrypt/verify result. */}
-              <Show when={!verdict()&&serverVerdict.loading&&badgeMode('auth')!=='never'}><span class="mw-badge mw-badge--skeleton" data-testid="reader-auth-skeleton" aria-hidden="true"/></Show>
-              <Show when={badgeVisible('auth',authNotable())?verdict():null}>
+              <Show when={!verdict()&&serverVerdict.loading&&classificationBadgeMode('auth',sentMessage())!=='never'}><span class="mw-badge mw-badge--skeleton" data-testid="reader-auth-skeleton" aria-hidden="true"/></Show>
+              <Show when={classificationBadgeVisible('auth',sentMessage(),authNotable())?verdict():null}>
                 {(v) => {
                   const tid = threadId();
                   return (
-                    <BadgeContextMenu badge="auth"><SecurityPanel
+                    <BadgeContextMenu badge="auth" sent={sentMessage()}><SecurityPanel
                       inline
                       hideAuth={!mailFeature('showAuthStatus')}
                       verdict={v()}
@@ -1576,15 +1577,15 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   );
                 }}
               </Show>
-              <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore menu={(chips)=><BadgeContextMenu badge="spam">{chips}</BadgeContextMenu>} url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})} onHeaders={collectListHeaders}/></Show>
+              <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore sent={sentMessage()} menu={(chips)=><BadgeContextMenu badge="spam" sent={sentMessage()}>{chips}</BadgeContextMenu>} url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})} onHeaders={collectListHeaders}/></Show>
               <Show when={app.accountId()&&email().id}><MailingListBadge headers={currentListHeaders()} accountId={app.accountId()} sender={sender()} receivedAt={email().receivedAt} stats={listStats()} listCount={id=>listMessageCount(jmapClient,app.accountId()!,id)} onMuteList={muteList} {...(props.onCompose?{onCompose:props.onCompose}:{})} onCleanup={()=>setCleanupOpen(true)} onSenderControl={async action=>(await onSenderControl({action,address:sender()})).updated} {...(props.onOpenSettings?{onOpenRules:()=>props.onOpenSettings?.('rules')}:{})}/></Show>
               <Show when={sanitizedBadge()}>{badge=><BadgeContextMenu badge="sanitized"><SanitizedBadge state={badge().state} report={badge().report} action={badge().action}/></BadgeContextMenu>}</Show>
               <HeaderFactsBadges email={email()} messageId={email().messageId?.[0] ?? undefined} supersededLookup={id=>isSuperseded(jmapClient,app.accountId()!,id)}/>
-              </div>
-              <Show when={badgeVisible('receipts',true)&&props.active !== false && app.accountId() && app.mailboxes().some(box => box.role === 'sent' && email().mailboxIds?.[box.id]) ? JSON.stringify([app.accountId(), email().id, policy().inlineParts]) : undefined} keyed>
+              <Show when={badgeVisible('receipts',true)&&props.active !== false && app.accountId() && sentMessage() ? JSON.stringify([app.accountId(), email().id, policy().inlineParts]) : undefined} keyed>
                 {(_scope: string) => <SentReceiptBadge accountId={app.accountId()!} emailId={email().id}
                   engine={policy().inlineParts === true} downloadUrl={app.downloadUrl()}/>}
               </Show>
+              </div>
               <Show when={app.accountId()&&badgeVisible('delivery',true)}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true} proxyUrl={privacy.state === 'ready' && policy().inlineParts !== true && email().blobId && app.downloadUrl() ? buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'}) : undefined}/></Show>
               </div>
               <Show when={app.accountId()&&policy().inlineParts===true}><ReadReceipt accountId={app.accountId()!} emailId={email().id} active={props.active!==false} fullView={props.view!==undefined} displayed={receiptDisplayed()?.key===receiptDocumentKey()&&receiptDisplayed()?.html===bodySrcdoc()&&!showDecrypt()}/></Show>

@@ -2,7 +2,7 @@ import {afterEach,describe,expect,it,vi} from 'vitest';
 import {fireEvent,render,screen,waitFor} from '@solidjs/testing-library';
 import {readFileSync} from 'node:fs';
 import {clearSettings,loadSettings,type Fetcher} from '../api/settings.ts';
-import {badgeLocked,badgeMode,badgeVisible,badgeDensity,badgeLabels} from '../state/readerBadges.ts';
+import {badgeLocked,badgeMode,badgeVisible,classificationBadgeMode,classificationBadgeVisible,badgeDensity,badgeLabels} from '../state/readerBadges.ts';
 import {SecurityPanel} from './SecurityPanel.tsx';
 import {FolderBadge,folderBadgeKind} from './FolderBadge.tsx';
 import {SanitizedBadge} from './SanitizedBadge.tsx';
@@ -147,4 +147,31 @@ it('allows user and administrator visibility choices for every newly configurabl
   await load({['mail.badge.'+id]:'never'},true);expect(badgeLocked(id)).toBe(true);expect(badgeVisible(id,true)).toBe(false);
   await load({['mail.badge.'+id]:'notable'});expect(badgeVisible(id,false)).toBe(false);expect(badgeVisible(id,true)).toBe(true);
  }
+});
+
+
+describe('sent-message classifications',()=>{
+ it('defaults sent authentication and spam to hidden while retaining received defaults',async()=>{
+  await load({});
+  for(const badge of ['auth','spam'] as const){expect(classificationBadgeMode(badge,true)).toBe('never');expect(classificationBadgeVisible(badge,true,true)).toBe(false);expect(classificationBadgeVisible(badge,false,false)).toBe(true);}
+ });
+ it.each(['always','notable','never'] as const)('applies the separate sent choice %s',async mode=>{
+  await load({'mail.badge.auth':'never','mail.badge.auth.sent':mode});
+  expect(classificationBadgeVisible('auth',true,true)).toBe(mode!=='never');expect(classificationBadgeVisible('auth',true,false)).toBe(mode==='always');expect(classificationBadgeVisible('auth',false,true)).toBe(false);
+ });
+ it('writes the sent-only setting from its context menu',async()=>{
+  const calls:string[]=[];await load({'mail.badge.auth.sent':'always'},false,calls);
+  render(()=><BadgeContextMenu badge="auth" sent><span data-testid="sent-host">badge</span></BadgeContextMenu>);
+  fireEvent.contextMenu(screen.getByTestId('sent-host'));fireEvent.click(await screen.findByRole('menuitem',{name:/Hide this badge/}));
+  await waitFor(()=>expect(calls.some(call=>call.includes('mail.badge.auth.sent')&&call.includes('never'))).toBe(true));
+ });
+ it('honours the administrator sent-only lock',async()=>{
+  await load({'mail.badge.auth.sent':'always'},true);
+  render(()=><BadgeContextMenu badge="auth" sent><span data-testid="sent-host">badge</span></BadgeContextMenu>);
+  fireEvent.contextMenu(screen.getByTestId('sent-host'));expect(await screen.findByRole('menuitem',{name:/Hide this badge/})).toHaveAttribute('aria-disabled','true');
+ });
+ it('continues fetching headers with sent spam badges hidden',async()=>{
+  await load({});const onHeaders=vi.fn();render(()=><SpamScore url="/raw" sent onHeaders={onHeaders}/>);
+  await waitFor(()=>expect(onHeaders).toHaveBeenCalledWith(expect.any(String),'/raw'));expect(screen.queryAllByTestId('spam-score-item')).toHaveLength(0);
+ });
 });

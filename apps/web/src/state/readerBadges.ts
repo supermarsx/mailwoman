@@ -44,3 +44,14 @@ export function badgeVisible(id: BadgeId, notable: boolean): boolean {
   const mode = badgeMode(id);
   return mode === 'always' || (mode === 'notable' && notable);
 }
+
+/** Sent mail has its own defaults: receiver-side classifications are usually absent. */
+export function classificationBadgeMode(id: 'auth' | 'spam', sent: boolean): BadgeMode {
+  if (!sent) return badgeMode(id);
+  const value = settings()[`mail.badge.${id}.sent`]?.value;
+  return isBadgeMode(value) ? value : 'never';
+}
+export function classificationBadgeVisible(id: 'auth' | 'spam', sent: boolean, notable: boolean): boolean {
+  const mode = classificationBadgeMode(id, sent);
+  return mode === 'always' || (mode === 'notable' && notable);
+}

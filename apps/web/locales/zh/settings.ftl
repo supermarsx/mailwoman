@@ -885,3 +885,7 @@ cache-idleDelayMs-help = 最后一次操作后，开始空闲预加载前的等�
 cache-maxConcurrency-help = 同时运行的后台请求上限。较低值可节省带宽和服务器资源。
 cache-maxQueued-help = 等待中的预加载任务上限。超出的任务会被丢弃，运行中的任务继续。
 cache-preloadMessages-help = 还提前加载邮件正文。默认关闭，会使用更多流量和缓存。文件夹排除规则和大小限制仍适用。
+
+settings-badge-auth-sent = 已发送邮件的身份验证
+settings-badge-spam-sent = 已发送邮件的垃圾邮件评分
+settings-badge-sent-help = 已发送邮件通常不包含收件方的身份验证或垃圾邮件结果。选择是否在已发送邮件中显示这些分类。

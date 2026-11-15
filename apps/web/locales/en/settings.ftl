@@ -874,3 +874,7 @@ cache-idleDelayMs-help = How long to wait after your last interaction before idl
 cache-maxConcurrency-help = Maximum background requests running together. Lower values use less bandwidth and server capacity.
 cache-maxQueued-help = Maximum waiting preload jobs. Requests beyond this limit are dropped; already running jobs continue.
 cache-preloadMessages-help = Also fetch message content in advance. Off by default; uses more data and cache space. Folder exclusions and size limits still apply.
+
+settings-badge-auth-sent = Authentication on sent messages
+settings-badge-spam-sent = Spam scores on sent messages
+settings-badge-sent-help = Sent messages usually have no recipient authentication or spam results. Choose whether to show these classifications in Sent.

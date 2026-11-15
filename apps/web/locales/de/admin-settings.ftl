@@ -2707,3 +2707,8 @@ admin-settings-key-views-templates-name = Anzeigename
 admin-settings-help-views-templates-name = Wählen Sie Sichtbarkeit, Namen und Zähler der Seitenleiste. Administratorvorgaben gelten immer.
 admin-settings-key-views-templates-show-count = Anzahl anzeigen
 admin-settings-help-views-templates-show-count = Wählen Sie Sichtbarkeit, Namen und Zähler der Seitenleiste. Administratorvorgaben gelten immer.
+
+admin-settings-key-mail-badge-auth-sent = Authentifizierung gesendeter Nachrichten
+admin-settings-help-mail-badge-auth-sent = Gesendete Nachrichten enthalten meist keine Authentifizierungs- oder Spamergebnisse des Empfängers. Wähle die Anzeige im Ordner Gesendet.
+admin-settings-key-mail-badge-spam-sent = Spamwerte gesendeter Nachrichten
+admin-settings-help-mail-badge-spam-sent = Gesendete Nachrichten enthalten meist keine Authentifizierungs- oder Spamergebnisse des Empfängers. Wähle die Anzeige im Ordner Gesendet.

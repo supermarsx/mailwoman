@@ -876,3 +876,7 @@ cache-idleDelayMs-help = Wartezeit nach der letzten Interaktion bis zum Vorladen
 cache-maxConcurrency-help = Maximal gleichzeitig laufende Hintergrundanfragen. Kleinere Werte sparen Bandbreite und Serverleistung.
 cache-maxQueued-help = Maximal wartende Vorladeaufträge. Weitere Aufträge entfallen; laufende werden fortgesetzt.
 cache-preloadMessages-help = Lädt auch Nachrichteninhalte vorab. Standardmäßig aus; benötigt mehr Daten und Cache. Ausschlüsse und Größenlimits gelten weiterhin.
+
+settings-badge-auth-sent = Authentifizierung gesendeter Nachrichten
+settings-badge-spam-sent = Spamwerte gesendeter Nachrichten
+settings-badge-sent-help = Gesendete Nachrichten enthalten meist keine Authentifizierungs- oder Spamergebnisse des Empfängers. Wähle die Anzeige im Ordner Gesendet.

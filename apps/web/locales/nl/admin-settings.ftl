@@ -2701,3 +2701,8 @@ admin-settings-key-views-templates-name = Weergavenaam
 admin-settings-help-views-templates-name = Kies zichtbaarheid, namen en tellers voor de zijbalk. Beheerdersbeperkingen gelden altijd.
 admin-settings-key-views-templates-show-count = Aantal tonen
 admin-settings-help-views-templates-show-count = Kies zichtbaarheid, namen en tellers voor de zijbalk. Beheerdersbeperkingen gelden altijd.
+
+admin-settings-key-mail-badge-auth-sent = Authenticatie bij verzonden berichten
+admin-settings-help-mail-badge-auth-sent = Verzonden berichten hebben meestal geen authenticatie- of spamresultaten van de ontvanger. Kies de zichtbaarheid in Verzonden.
+admin-settings-key-mail-badge-spam-sent = Spamscores bij verzonden berichten
+admin-settings-help-mail-badge-spam-sent = Verzonden berichten hebben meestal geen authenticatie- of spamresultaten van de ontvanger. Kies de zichtbaarheid in Verzonden.

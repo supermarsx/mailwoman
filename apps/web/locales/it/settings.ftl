@@ -872,3 +872,7 @@ cache-idleDelayMs-help = Attesa dopo l’ultima interazione prima del precaricam
 cache-maxConcurrency-help = Numero massimo di richieste simultanee in background. Valori inferiori riducono traffico e carico del server.
 cache-maxQueued-help = Numero massimo di precaricamenti in attesa. Quelli in eccesso vengono scartati; quelli avviati continuano.
 cache-preloadMessages-help = Precarica anche i contenuti dei messaggi. Disattivato per impostazione predefinita; usa più dati e cache. Esclusioni e limiti restano attivi.
+
+settings-badge-auth-sent = Autenticazione dei messaggi inviati
+settings-badge-spam-sent = Punteggi spam dei messaggi inviati
+settings-badge-sent-help = I messaggi inviati normalmente non contengono risultati di autenticazione o spam del destinatario. Scegli se mostrarli nella posta inviata.
