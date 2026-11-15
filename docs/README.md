@@ -2,6 +2,10 @@
 
 Start here.
 
+## For users
+
+- [Sync, offline access and multiple windows](./user/sync-offline.md).
+
 ## For operators
 
 - [`deploy/`](./deploy/README.md) — installing, reverse proxies, TLS, Postgres,

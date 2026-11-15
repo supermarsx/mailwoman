@@ -1324,14 +1324,13 @@ endpoint is configured, and every capability is individually permission-gated.
   cut for 1.0.**
 - Conflict rules: server wins on flags, client wins on drafts, moves
   idempotent by stable ID.
-- **Status — none of the three bullets above is implemented client-side.** The
-  web client never issues `Email/changes`, `Mailbox/changes`, `Thread/changes`
-  or `Email/queryChanges`; every pushed change triggers a full re-query of the
-  50-row window, and `cannotCalculateChanges` is handled nowhere, so there is
-  no resync fallback because there is nothing to fall back from. None of the
-  four sync-policy knobs exists — one hardcoded 50-row window, bodies always
-  fetched on open. No client code implements the conflict rules: a queued move
-  or flag is replayed with no `ifInState` and no concurrency token.
+- **Browser implementation:** the mail list reconciles `Email/queryChanges`
+  and `Email/changes`; folders and conversations consume collection changes.
+  Expired or unsupported cursors cause a bounded reset. Account settings drive
+  actual header/body/attachment prefetch. Queued flags and moves compare their
+  captured baseline against a fresh server read and use `ifInState`; drafts
+  rebase a refused revision once. See [sync and offline operation](docs/user/sync-offline.md)
+  for availability and verification limits.
 
 ### 15.3 Connection status UX
 
@@ -1349,47 +1348,46 @@ endpoint is configured, and every capability is individually permission-gated.
   holds the outbound queue (sends, edits, RSVP, task changes) — everything
   replayable. Read, search, compose, file, flag, manage calendar/tasks/notes
   offline; the Outbox (§10.3) shows queued state honestly.
-- Background Sync API where available; the thin shells get the same behavior
-  via the same code plus OS background-fetch privileges. **Not implemented** —
-  there is no `sync` event handler in the service worker and no
-  `registration.sync.register` in the tree, so a queued send only replays while
-  a tab is open.
-- **Status — offline is not built, and the gap is bigger than it reads.**
-  `EncryptedCache` is fully implemented and fully tested with **zero production
-  callers**; the cached header slice is an in-memory signal that does not
-  survive a reload; the service worker caches GET only while JMAP is POST, so
-  no mail data is ever cached; and reloading while offline calls `client.me()`,
-  which throws, so **you land on the login screen**. OPFS holds secrets, not
-  messages. Whether to build real offline or narrow this section to
-  session-scoped offline is an open product decision — but nothing in it
-  describes today's behaviour, and the cold-start path is the part users hit
-  first.
-- Storage budgets configurable (per device: "keep 90 days + pinned + flagged
-  offline"), with an explicit eviction policy screen. **The screen exists and
-  nothing reads what it writes** — `offlineBudgetMb`, `offlineRetentionDays`
-  and `eviction` are persisted to `localStorage` and have no consumer anywhere.
-  It is a settings panel that does nothing, and it should either gain a
-  consumer or be removed; leaving it as-is is the worst of the three options.
+- **Browser Background Sync:** the service worker drains the encrypted queue
+  after verifying the live account, storage authority and CSRF token. Staged
+  attachments upload before sending. An acknowledgement ledger preserves PIM
+  creations when replay happens without an open window. Browsers without
+  Background Sync require an open online window; the connection notice says so.
+  **Native OS background-fetch execution remains unimplemented.** Native shells
+  use the same foreground cache/queue, but this browser change does not add an
+  Android/iOS scheduler or a closed-process desktop service.
+- **Durable offline reads:** the configured client stores authenticated JMAP
+  snapshots and cached attachments in an encrypted vault, preferring OPFS with
+  encrypted IndexedDB fallback. Opt-in identity/session snapshots allow an
+  offline cold start. Cached bodies are sanitized locally; mail and PIM search,
+  calendar recurrence, composition and queued edits use the actual cache.
+  Missing content still needs an online fetch. A cached identity never
+  authorizes a network mutation; explicit session/account refusals revoke the
+  bootstrap.
+- Storage budget, retention and eviction settings are consumed by the vault.
+  Mail/PIM records share a device budget across linked accounts, with pinned
+  and flagged records protected from automatic eviction. Pending outbound
+  work and draft recovery are stored separately and are not evicted for mail.
+  Offline access is disabled by default and can be controlled by administrators.
 
 ### 15.5 Multi-window & sub-tabs
 
-- **One session, many windows:** a SharedWorker owns the JMAP client store per
-  browser profile; all windows/tabs subscribe — state (reads, selections,
-  drafts, toasts) is consistent across windows in real time; BroadcastChannel
-  fallback where SharedWorker is unavailable. **`worker/proxy.ts` implements
-  exactly this ladder and nothing imports it.** Production is a per-tab store
-  plus a BroadcastChannel "refetch" ping, so N tabs mean N push connections and
-  N independent full refetches per change. The code says so in a comment; this
-  document did not. Anything built on top of per-tab state — paging, focus
-  refresh — should be sequenced against the decision on whether the
-  SharedWorker gets wired.
+- **One browser session, many windows:** `worker/networkProxy.ts` connects the
+  production client to a SharedWorker that owns JMAP request coordination,
+  bounded snapshots and one push connection. BroadcastChannel plus Web Locks
+  elects an owner where SharedWorker is unavailable. Selections and actionable
+  toast snapshots travel through that coordinator; encrypted draft and queue
+  invalidations synchronize recovery across windows. DOM and scroll state stay
+  local. Browsers lacking both coordination mechanisms use per-window clients.
 - **Sub-tabs:** an in-app tab strip (messages, composers, events, contacts,
   notes, settings pages) with pinnable tabs, restorable sessions, and
   keyboard cycling; any sub-tab tears off into a real OS window (`window.open`
   → same SharedWorker session; in shells, a real second window).
 - Compose windows survive: crash/close recovery from the autosaved draft.
-  The autosave is **not encrypted** today (§10.3) — the recovery works, the
-  "encrypted, always" part is a requirement that is not met.
+  Recovery drafts and the outbound queue are encrypted before persistence;
+  validated legacy plaintext drafts are removed only after encrypted migration
+  succeeds. Storage failure leaves a visible unsaved state and memory recovery,
+  never a plaintext persistence fallback.
 
 ### 15.6 Caching (layered, fully scope-configurable)
 
