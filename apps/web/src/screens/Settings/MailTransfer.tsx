@@ -1,5 +1,6 @@
 import {createEffect,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {mailTransferApi,MailTransferError,type MailTransferApi,type MailImportFormat,type MailExportFormat,type MailImportFormats,type MailImportResult} from '../../api/mailTransfer.ts';
+import {formatBytes} from '../../i18n/format.ts';
 import {loadCatalog,t} from '../../i18n';
 import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {useEditorGuard,useEntityNavigation} from './entityEditor.tsx';
@@ -93,7 +94,7 @@ export function MailImportEditor(props:{accountId:string;mailboxes:readonly Tran
             <option value="">{t('mail-transfer-folder-placeholder')}</option><For each={props.mailboxes}>{item=><option value={item.id}>{item.name}</option>}</For>
           </select></label>
           <label class={layout.label}>{t('mail-transfer-file')}<input ref={input} class={css.input} type="file" required onChange={event=>{setFile(event.currentTarget.files?.[0]);setResult(undefined);setError('');}}/></label>
-          <p class={css.meta}>{t('mail-transfer-limits',{bytes:limits().maxBytes,messages:limits().maxMessages})}</p>
+          <p class={css.meta}>{t('mail-transfer-limits',{bytes:formatBytes(limits().maxBytes),messages:limits().maxMessages})}</p>
         </fieldset>
           {/* Submit and back share the form's actions row. */}
           <div class={css.actions}>
