@@ -1,8 +1,8 @@
 import {onCleanup,onMount} from 'solid-js';
 
-/** Modal dialogs make nodes outside their subtree inert, regardless of z-index. */
+/** Keep floating controls inside their dialog so inertness, focus traps and outside-click handlers agree on ownership. */
 export function floatingMount(trigger:HTMLElement):HTMLElement {
-  return trigger.closest<HTMLDialogElement>('dialog[open]') ?? trigger.ownerDocument.body;
+  return trigger.closest<HTMLElement>('dialog[open], [role="dialog"], [data-floating-owner]') ?? trigger.ownerDocument.body;
 }
 
 /** Manual popovers escape clipping and stacking contexts while preserving the

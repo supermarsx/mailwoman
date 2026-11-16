@@ -49,6 +49,13 @@ test.describe('floating controls above native dialogs and popovers',()=>{
   const option=page.getByRole('menuitemradio',{name:'Choice 0',exact:true});await above(option);await option.click();
   await expect(menu).toHaveCount(0);
  });
+ test('folder search selection stays inside its editor and applies the selected scope',async({page})=>{
+  await page.goto(origin);await page.locator('[data-kind="scope"] button').first().click();
+  const editor=page.getByTestId('search-chip-editor');await editor.getByRole('combobox').click();
+  const option=page.getByRole('menuitemradio',{name:'Projects',exact:true});await option.hover();await page.mouse.down();await expect(editor).toBeVisible();await page.mouse.up();
+  await expect(editor.getByRole('combobox')).toHaveValue('projects');await editor.getByRole('button',{name:'Apply',exact:true}).click();
+  await expect(page.getByTestId('folder-search-query')).toContainText('budget');await expect(page.getByTestId('folder-search-query')).toContainText('in:');
+ });
  test('optional mailbox icons show live status with readable hover help inside the picker',async({page})=>{
   await page.goto(origin);await expect(page.locator('[data-mailbox-connection]')).toHaveCount(0);
   await page.getByRole('button',{name:'Show connection icons',exact:true}).click();

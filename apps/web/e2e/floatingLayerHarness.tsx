@@ -1,3 +1,6 @@
+import {SearchFilterBar} from '../src/components/search/SearchFilterBar.tsx';
+import {loadCatalog} from '../src/i18n/index.ts';
+void loadCatalog('search');
 import {createSignal} from 'solid-js';
 import {render} from 'solid-js/web';
 import {TooltipLayer} from '../src/components/TooltipLayer.tsx';
@@ -13,6 +16,7 @@ import '../src/theme/themes.css.ts';
 
 function Harness(){
  let dialog!:HTMLDialogElement,popover!:HTMLDivElement;
+ const [query,setQuery]=createSignal('budget');
  const [longChoice,setLongChoice]=createSignal('0');
  const [value,setValue]=createSignal('One'),[region,setRegion]=createSignal(''),[selected,setSelected]=createSignal<string[]>([]);
  const [action,setAction]=createSignal('');
@@ -42,6 +46,7 @@ function Harness(){
   </dialog>
   <div ref={popover} popover="manual" style={{position:'fixed',inset:'100px auto auto 100px',margin:0,padding:'24px',background:'#222',color:'white'}}>{fields()}<button onClick={()=>popover.hidePopover()}>Close popover</button></div>
   <label>Long choices<select aria-label="Long choices" value={longChoice()} onChange={event=>setLongChoice(event.currentTarget.value)}>{Array.from({length:80},(_,index)=><option value={String(index)}>Choice {index}</option>)}</select></label>
+  <SearchFilterBar text={query} onChange={setQuery} currentMailboxId={()=>'inbox'} mailboxes={()=>[{id:'inbox',name:'Inbox',role:'inbox'},{id:'projects',name:'Projects',role:null}]}/><output data-testid="folder-search-query">{query()}</output>
   {menu.menu()}
  </>;
 }
