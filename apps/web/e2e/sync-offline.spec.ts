@@ -106,12 +106,27 @@ test.describe('encrypted sync and multi-window browser integration, loopback fix
   await expect.poll(()=>sockets.size,{timeout:10000}).toBe(1);
   await expect(right.evaluate(()=>window.syncHarness.query())).resolves.toBeDefined();
  });
+ test('an open tab can replay through the worker without the Background Sync API',async({page,context})=>{
+  await page.addInitScript(()=>{Object.defineProperty(ServiceWorkerRegistration.prototype,'sync',{configurable:true,get:()=>undefined});});
+  await page.goto(origin);await page.waitForFunction(()=>!!window.syncHarness);await page.evaluate(()=>window.syncHarness.start());
+  await page.evaluate(async()=>{await navigator.serviceWorker.ready;});
+  offline=true;await context.setOffline(true);
+  expect(await page.evaluate(()=>window.syncHarness.queueSend())).toBe(false);expect(submissions).toBe(0);
+  offline=false;await context.setOffline(false);
+  // The production startup/reconnect path makes this same request. It must
+  // execute the worker's fresh-identity replay, without invoking a tab drain.
+  expect(await page.evaluate(()=>window.syncHarness.requestReplay())).toBe(false);
+  await expect.poll(()=>submissions,{timeout:15000}).toBe(1);expect(uploads).toBe(1);
+  await expect.poll(async()=>(await page.evaluate(()=>window.syncHarness.debug())).queued.length).toBe(0);
+ });
  test('replays a queued send with every Mailwoman tab closed using browser Background Sync',async()=>{
   test.setTimeout(60000);
   const profile=await mkdtemp(resolve('.orchestration/sync-profile-'));
   const context=await chromium.launchPersistentContext(profile,{channel:'chromium',headless:true,ignoreDefaultArgs:['--disable-background-networking']});
   try{
-  const page=await context.newPage();await page.goto(origin);await page.waitForFunction(()=>!!window.syncHarness);await page.evaluate(()=>window.syncHarness.start());
+  // Readiness is the initialized production transport below; unrelated load
+  // events (fonts/assets in a cold persistent profile) are not its prerequisite.
+  const page=await context.newPage();await page.goto(origin,{waitUntil:'domcontentloaded'});await page.waitForFunction(()=>!!window.syncHarness);await page.evaluate(()=>window.syncHarness.start());
   await page.evaluate(async()=>{await navigator.serviceWorker.ready;});
   offline=true;await context.setOffline(true);
   await page.evaluate(()=>window.syncHarness.createNote());

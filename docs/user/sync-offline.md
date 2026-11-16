@@ -53,12 +53,19 @@ running with permission inside that browser profile.
 Where the browser supports one-shot Background Sync, queued work can replay
 with all Mailwoman windows closed, while the browser is running and its scheduler
 permits execution. Unsupported or refused registration is reported honestly:
-keep an online Mailwoman window open. Background execution is not guaranteed
+keep an online Mailwoman window open. With an active service worker, startup
+and reconnect request a foreground replay across the verified queued mailboxes;
+an open online window retries once per minute when Background Sync is absent
+or refused. An expired link keeps its own work pending without blocking healthy
+accounts. Without a service worker, the selected mailbox still resumes its queue
+after online startup. Background execution is not guaranteed
 at a particular time. Desktop shells register an operating-system wake job when
 work is queued: Windows Task Scheduler, a Linux user systemd timer, or a macOS
 LaunchAgent. The job opens a hidden WebView using the same encrypted queue and
 fresh account checks. It stores no credentials in the job definition. OS policy,
-a signed-in desktop session and an accessible saved native session are required;
+a signed-in desktop session, an accessible saved native session and Web Locks
+support for cross-window job coordination are required. Older WebViews report
+background scheduling as unsupported;
 execution at a particular time is not guaranteed. Android/iOS background replay
 remains unavailable; keep an online shell open on those platforms.
 
