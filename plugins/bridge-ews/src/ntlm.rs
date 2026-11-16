@@ -9,7 +9,7 @@
 //! runs it over the host `http-fetch` import; these functions are the pure,
 //! host-testable core.
 
-use crate::md::{hmac_md5, md4, utf16le};
+use crate::md::{hmac_md5, md4, md5, utf16le};
 
 const SIGNATURE: &[u8; 8] = b"NTLMSSP\0";
 
@@ -113,11 +113,20 @@ pub fn filetime_from_unix_millis(unix_millis: u64) -> u64 {
 
 /// The NTLMv2 response pair: `NtChallengeResponse` (NTProofStr ++ blob) and
 /// `LmChallengeResponse`, per MS-NLMP §3.3.2.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Ntlmv2Response {
     pub nt_challenge_response: Vec<u8>,
     pub lm_challenge_response: Vec<u8>,
     pub session_base_key: [u8; 16],
+}
+impl std::fmt::Debug for Ntlmv2Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Ntlmv2Response")
+            .field("nt_response_bytes", &self.nt_challenge_response.len())
+            .field("lm_response_bytes", &self.lm_challenge_response.len())
+            .field("session_base_key", &"[redacted]")
+            .finish()
+    }
 }
 
 /// Compute the NTLMv2 response (deterministic given the client challenge +
@@ -168,8 +177,8 @@ pub fn ntlmv2_response(
     }
 }
 
-/// Build the AUTHENTICATE (Type 3) message (MS-NLMP §2.2.1.3). No Version/MIC block
-/// (extended-session-security auth without signing is what EWS-over-TLS needs).
+/// Build the legacy fixed-header AUTHENTICATE (Type 3) shape. The production EWS
+/// path uses [`protected_authenticate`] to add Version padding, MIC and binding.
 #[must_use]
 #[allow(clippy::too_many_arguments)]
 pub fn type3_message(
@@ -222,10 +231,324 @@ pub fn type3_message(
     m
 }
 
+/// RFC 4121 channel-bindings serialization for absent initiator/acceptor
+/// addresses and the RFC 5929 tls-server-end-point application binding.
+pub fn channel_binding_hash(certificate_digest: &[u8]) -> Result<[u8; 16], String> {
+    if !matches!(certificate_digest.len(), 28 | 32 | 48 | 64) {
+        return Err("verified TLS certificate binding is required".into());
+    }
+    let mut application = b"tls-server-end-point:".to_vec();
+    application.extend_from_slice(certificate_digest);
+    let mut bindings = vec![0; 16];
+    bindings.extend_from_slice(&(application.len() as u32).to_le_bytes());
+    bindings.extend_from_slice(&application);
+    Ok(md5(&bindings))
+}
+
+fn protected_target_info(
+    raw: &[u8],
+    binding: [u8; 16],
+    target_name: &str,
+    fallback_time: u64,
+) -> Result<(Vec<u8>, u64), String> {
+    if raw.len() > 8192
+        || target_name.len() > 255
+        || !target_name.starts_with("HTTP/")
+        || target_name.len() <= 5
+        || !target_name.bytes().all(|b| (0x21..0x7f).contains(&b))
+    {
+        return Err("invalid NTLM target information".into());
+    }
+    let mut offset = 0;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut pairs = Vec::new();
+    let mut flags = 0u32;
+    let mut timestamp = fallback_time;
+    let mut ended = raw.is_empty();
+    while offset < raw.len() {
+        let head = raw
+            .get(offset..offset + 4)
+            .ok_or("truncated NTLM target information")?;
+        let id = u16::from_le_bytes([head[0], head[1]]);
+        let len = u16::from_le_bytes([head[2], head[3]]) as usize;
+        offset += 4;
+        let value = raw
+            .get(offset..offset + len)
+            .ok_or("truncated NTLM target information")?;
+        offset += len;
+        if id == 0 {
+            if len != 0 || raw[offset..].iter().any(|byte| *byte != 0) {
+                return Err("invalid NTLM target terminator".into());
+            }
+            ended = true;
+            break;
+        }
+        if seen.len() >= 128 || !seen.insert(id) {
+            return Err("duplicate NTLM target information".into());
+        }
+        match id {
+            6 => {
+                if len != 4 {
+                    return Err("invalid NTLM target flags".into());
+                }
+                flags = u32::from_le_bytes(value.try_into().unwrap());
+            }
+            7 => {
+                if len != 8 {
+                    return Err("invalid NTLM server timestamp".into());
+                }
+                timestamp = u64::from_le_bytes(value.try_into().unwrap());
+                pairs.push((id, value.to_vec()));
+            }
+            9 => {}
+            10 => {
+                if len != 16 {
+                    return Err("invalid NTLM channel binding".into());
+                }
+            }
+            _ => pairs.push((id, value.to_vec())),
+        }
+    }
+    if !ended {
+        return Err("unterminated NTLM target information".into());
+    }
+    pairs.push((6, (flags | 2).to_le_bytes().to_vec()));
+    pairs.push((9, utf16le(target_name)));
+    pairs.push((10, binding.to_vec()));
+    let mut result = Vec::new();
+    for (id, value) in pairs {
+        result.extend_from_slice(&id.to_le_bytes());
+        result.extend_from_slice(&(value.len() as u16).to_le_bytes());
+        result.extend_from_slice(&value);
+    }
+    result.extend_from_slice(&[0; 4]);
+    Ok((result, timestamp))
+}
+
+/// NTLMv2 with transcript MIC, TLS channel binding and service binding. There is
+/// no weaker retry: malformed challenges or unavailable verified TLS bindings
+/// are authentication failures. No KEY_EXCH was offered, so the exported key
+/// is the NTLMv2 session base key (MS-NLMP 3.4.5.1 / 3.1.5.1.2).
+#[allow(clippy::too_many_arguments)]
+pub fn protected_authenticate(
+    user: &str,
+    domain: &str,
+    workstation: &str,
+    password: &str,
+    type1: &[u8],
+    type2: &[u8],
+    client_challenge: &[u8; 8],
+    fallback_filetime: u64,
+    tls_certificate_digest: &[u8],
+    target_name: &str,
+) -> Result<Vec<u8>, String> {
+    if [user, domain, workstation]
+        .iter()
+        .any(|value| value.len() > 320 || value.chars().any(char::is_control))
+        || type1.len() < 32
+        || type1.len() > 1024
+        || &type1[..8] != SIGNATURE
+        || type1[8..12] != 1u32.to_le_bytes()
+    {
+        return Err("invalid NTLM negotiate message or identity".into());
+    }
+    let offered = u32::from_le_bytes(type1[12..16].try_into().unwrap());
+    let challenge = parse_challenge(type2)?;
+    let flags = offered & challenge.flags;
+    let required = NTLMSSP_NEGOTIATE_UNICODE
+        | NTLMSSP_NEGOTIATE_NTLM
+        | NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY;
+    if flags & required != required || offered & 0x40000000 != 0 {
+        return Err("NTLMv2 extended session security is required".into());
+    }
+    let (target_info, timestamp) = protected_target_info(
+        &challenge.target_info,
+        channel_binding_hash(tls_certificate_digest)?,
+        target_name,
+        fallback_filetime,
+    )?;
+    let mut response = ntlmv2_response(
+        &ntowf_v2(user, domain, password),
+        &challenge.server_challenge,
+        client_challenge,
+        timestamp,
+        &target_info,
+    );
+    response.lm_challenge_response.clear();
+    let original = type3_message(user, domain, workstation, &response);
+    let mut message = original[..64].to_vec();
+    message.extend_from_slice(&[0; 24]);
+    message.extend_from_slice(&original[64..]);
+    for offset in [16, 24, 32, 40, 48, 56] {
+        let previous = u32::from_le_bytes(message[offset..offset + 4].try_into().unwrap());
+        message[offset..offset + 4].copy_from_slice(&(previous + 24).to_le_bytes());
+    }
+    // VERSION is not offered by the minimal Type1, so its 8 bytes remain zero.
+    message[60..64].copy_from_slice(&flags.to_le_bytes());
+    let mut transcript = Vec::with_capacity(type1.len() + type2.len() + message.len());
+    transcript.extend_from_slice(type1);
+    transcript.extend_from_slice(type2);
+    transcript.extend_from_slice(&message);
+    message[72..88].copy_from_slice(&hmac_md5(&response.session_base_key, &transcript));
+    Ok(message)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::md::hex;
+
+    fn protected_challenge() -> Vec<u8> {
+        let mut target = Vec::new();
+        target.extend_from_slice(&7u16.to_le_bytes());
+        target.extend_from_slice(&8u16.to_le_bytes());
+        target.extend_from_slice(&12345678u64.to_le_bytes());
+        target.extend_from_slice(&[0; 4]);
+        let mut result = vec![0; 48];
+        result[..8].copy_from_slice(SIGNATURE);
+        result[8..12].copy_from_slice(&2u32.to_le_bytes());
+        result[20..24].copy_from_slice(&TYPE1_FLAGS.to_le_bytes());
+        result[24..32].copy_from_slice(&[0x42; 8]);
+        result[40..42].copy_from_slice(&(target.len() as u16).to_le_bytes());
+        result[42..44].copy_from_slice(&(target.len() as u16).to_le_bytes());
+        result[44..48].copy_from_slice(&48u32.to_le_bytes());
+        result.extend_from_slice(&target);
+        result
+    }
+    #[test]
+    fn extended_protection_contains_verified_tls_service_binding_timestamp_and_transcript_mic() {
+        let type1 = type1_message();
+        let type2 = protected_challenge();
+        let certificate = (0..32).collect::<Vec<u8>>();
+        assert_eq!(
+            hex(&channel_binding_hash(&certificate).unwrap()),
+            "8f1214c9c9cab8dc3bf866da9aba57a7"
+        );
+        let message = protected_authenticate(
+            "User",
+            "Domain",
+            "WS",
+            "Password",
+            &type1,
+            &type2,
+            &[0x24; 8],
+            999,
+            &certificate,
+            "HTTP/exchange.test",
+        )
+        .unwrap();
+        assert_eq!(&message[64..72], &[0; 8]);
+        assert_eq!(&message[12..16], &[0; 4], "LM response omitted");
+        let offset = u32::from_le_bytes(message[24..28].try_into().unwrap()) as usize;
+        let length = u16::from_le_bytes(message[20..22].try_into().unwrap()) as usize;
+        let response = &message[offset..offset + length];
+        let ntowf = ntowf_v2("User", "Domain", "Password");
+        let mut proof_input = vec![0x42; 8];
+        proof_input.extend_from_slice(&response[16..]);
+        assert_eq!(&response[..16], &hmac_md5(&ntowf, &proof_input));
+        assert_eq!(
+            u64::from_le_bytes(response[24..32].try_into().unwrap()),
+            12345678,
+            "use server timestamp"
+        );
+        let mut av = std::collections::BTreeMap::new();
+        let mut at = 44;
+        while at + 4 <= response.len() {
+            let id = u16::from_le_bytes(response[at..at + 2].try_into().unwrap());
+            let size = u16::from_le_bytes(response[at + 2..at + 4].try_into().unwrap()) as usize;
+            at += 4;
+            if id == 0 {
+                break;
+            }
+            av.insert(id, response[at..at + size].to_vec());
+            at += size;
+        }
+        assert_eq!(
+            av.get(&10),
+            Some(&channel_binding_hash(&certificate).unwrap().to_vec())
+        );
+        assert_eq!(av.get(&9), Some(&utf16le("HTTP/exchange.test")));
+        assert_eq!(av.get(&6), Some(&2u32.to_le_bytes().to_vec()));
+        let key = hmac_md5(&ntowf, &response[..16]);
+        let mut unsigned = message.clone();
+        unsigned[72..88].fill(0);
+        let mut transcript = type1.clone();
+        transcript.extend_from_slice(&type2);
+        transcript.extend_from_slice(&unsigned);
+        assert_eq!(&message[72..88], &hmac_md5(&key, &transcript));
+        transcript[16] ^= 1;
+        assert_ne!(
+            &message[72..88],
+            &hmac_md5(&key, &transcript),
+            "transcript tampering must be observable"
+        );
+        let changed = protected_authenticate(
+            "User",
+            "Domain",
+            "WS",
+            "Password",
+            &type1,
+            &type2,
+            &[0x24; 8],
+            999,
+            &[0xff; 32],
+            "HTTP/exchange.test",
+        )
+        .unwrap();
+        assert_ne!(
+            message, changed,
+            "a different TLS peer changes the proof and MIC"
+        );
+    }
+    #[test]
+    fn extended_protection_refuses_missing_bindings_downgrades_and_ambiguous_target_information() {
+        let type1 = type1_message();
+        let mut type2 = protected_challenge();
+        assert!(
+            protected_authenticate(
+                "u",
+                "d",
+                "",
+                "p",
+                &type1,
+                &type2,
+                &[1; 8],
+                1,
+                &[],
+                "HTTP/exchange.test"
+            )
+            .is_err()
+        );
+        type2[20..24].copy_from_slice(&0u32.to_le_bytes());
+        assert!(
+            protected_authenticate(
+                "u",
+                "d",
+                "",
+                "p",
+                &type1,
+                &type2,
+                &[1; 8],
+                1,
+                &[2; 32],
+                "HTTP/exchange.test"
+            )
+            .is_err()
+        );
+        assert!(
+            protected_target_info(
+                &[6, 0, 4, 0, 0, 0, 0, 0, 6, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0; 16],
+                "HTTP/exchange.test",
+                1
+            )
+            .is_err()
+        );
+        assert!(
+            protected_target_info(&[6, 0, 4, 0, 0, 0], [0; 16], "HTTP/exchange.test", 1).is_err()
+        );
+        assert!(protected_target_info(&[0, 0, 0, 0], [0; 16], "HTTP/evil\r\nHost", 1).is_err());
+    }
 
     #[test]
     fn ntowf_v2_ms_nlmp_4_2_4_vector() {
