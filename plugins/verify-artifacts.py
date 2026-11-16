@@ -93,7 +93,7 @@ EXPECTED_HOST_IMPORTS = {
 # has the docker one-liner for other platforms), commit the artifact, and update
 # this digest in the same commit.
 MEDIA_WASM = "crates/mw-media-wasm/media.wasm"
-MEDIA_WASM_SHA256 = "c5c3fee71dd5224f050c84b4e8997fe5dc54b4f37f88dedc940f38ee37285309"
+MEDIA_WASM_SHA256 = "1f17976f7322246eb22219c5b57d0d289af5860fa2b90b19aadfa72e202d919e"
 MEDIA_WASM_EXPORTS = {"memory (memory)", "mw_alloc (func)", "mw_parse_cfb (func)",
                       "mw_reencode_image (func)", "mw_preview_eml (func)", "mw_preview_tnef (func)"}
 
