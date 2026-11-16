@@ -44,6 +44,8 @@ struct FakeBackend {
     draft_cleanup_supported: AtomicBool,
     draft_uidplus: AtomicBool,
     held_draft_append: Mutex<Option<Arc<HeldDraftAppend>>>,
+    held_sync:Mutex<Option<(String,Arc<HeldDraftAppend>)>>,
+    watch_sink:Mutex<Option<ChangeSink>>,
 }
 struct HeldDraftAppend {
     entered: tokio::sync::Notify,
@@ -84,6 +86,7 @@ impl FakeBackend {
             draft_cleanup_supported: AtomicBool::new(false),
             draft_uidplus: AtomicBool::new(true),
             held_draft_append: Mutex::new(None),
+            held_sync:Mutex::new(None),watch_sink:Mutex::new(None),
         }
     }
 }
@@ -128,6 +131,8 @@ impl AccountBackend for FakeBackend {
         mbox: &RawMailboxRef,
         cursor: &SyncCursor,
     ) -> Result<MailboxDelta> {
+        let held={self.held_sync.lock().unwrap().clone()};
+        if let Some((name,gate))=held {if name==mbox.name{gate.entered.notify_one();gate.release.notified().await;}}
         let uidnext_from = match cursor {
             SyncCursor::UidWindow { uidnext, .. } => *uidnext,
             _ => 1,
@@ -296,7 +301,8 @@ impl AccountBackend for FakeBackend {
         }
         Ok(())
     }
-    async fn watch(&self, _sink: ChangeSink) -> Result<WatchHandle> {
+    async fn watch(&self, sink: ChangeSink) -> Result<WatchHandle> {
+        *self.watch_sink.lock().unwrap()=Some(sink);
         let (tx, _rx) = tokio::sync::watch::channel(false);
         Ok(WatchHandle::new(tx))
     }
@@ -1997,4 +2003,30 @@ async fn strip_attachments_imports_a_stripped_copy_with_flags_and_date() {
     let again = jmap(&h, json!([["Email/mailwomanStrip", {"ids":[new_id], "minAttachmentBytes": 0}, "s"]])).await;
     assert_eq!(method_result(&again, "s")["skipped"][&new_id], "alreadyStripped");
     assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn inbox_watch_publishes_before_a_slow_archive_finishes() {
+ let backend=Arc::new(FakeBackend::with_inbox(vec![]));
+ backend.state.lock().unwrap().mailboxes.swap(0,3);
+ let h=setup_with(backend.clone()).await;h.engine.resync(&h.account_id).await.unwrap();
+ let gate=Arc::new(HeldDraftAppend{entered:tokio::sync::Notify::new(),release:tokio::sync::Notify::new()});
+ *backend.held_sync.lock().unwrap()=Some(("Archive".into(),gate.clone()));
+ backend.state.lock().unwrap().messages.insert("INBOX".into(),vec![(1,plain_msg("new@x","sender@example.org","Arrived","Body"),vec![],"2026-07-04T09:00:00Z".into())]);
+ let mut changes=h.engine.subscribe();h.engine.start_watch(&h.account_id).await.unwrap();
+ backend.watch_sink.lock().unwrap().as_ref().unwrap().emit(ChangeEvent::MailboxChanged{mailbox:RawMailboxRef{name:"INBOX".into(),uidvalidity:UIDVALIDITY}}).unwrap();
+ tokio::time::timeout(std::time::Duration::from_secs(3),gate.entered.notified()).await.unwrap();
+ let pushed=tokio::time::timeout(std::time::Duration::from_millis(500),changes.recv()).await;
+ gate.release.notify_one();assert!(pushed.is_ok(),"new inbox mail waited for the archive before push");
+ h.engine.unregister(&h.account_id);
+}
+#[tokio::test]
+async fn explicit_folder_refresh_reaches_upstream_and_rejects_foreign_folder_ids(){
+ let h=setup().await;h.engine.resync(&h.account_id).await.unwrap();
+ let inbox=h.engine.store().list_mailboxes(&h.account_id).await.unwrap().into_iter().find(|folder|folder.name=="INBOX").unwrap();
+ h.backend.state.lock().unwrap().messages.get_mut("INBOX").unwrap().push((4,plain_msg("manual@x","sender@example.org","Manual refresh","Body"),vec![],"2026-07-05T09:00:00Z".into()));
+ h.engine.refresh_mailbox(&h.account_id,Some(&inbox.id)).await.unwrap();
+ let response=h.engine.handle_jmap(&h.account_id,&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/query",{"accountId":h.account_id,"filter":{"inMailbox":inbox.id}},"q"]]})).await;
+ assert_eq!(response["methodResponses"][0][1]["ids"].as_array().unwrap().len(),4);
+ assert!(h.engine.refresh_mailbox(&h.account_id,Some("foreign-folder")).await.is_err());
 }

@@ -248,7 +248,7 @@ export interface MailSlice {
   clearSearch(): Promise<void>;
   /** Refetch the current mailbox list in place (push/peer-sync), preserving the
    *  open message + selection (unlike `selectMailbox`). No-op during search. */
-  refreshCurrentMailbox(): Promise<void>;
+  refreshCurrentMailbox(options?:{upstream?:boolean}): Promise<void>;
   /** Reapply message ordering to the current mailbox or search result window. */
   refreshMessageOrder(): Promise<void>;
   refreshFolders(): Promise<void>;
@@ -2084,8 +2084,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
   }
 
-  function refreshCurrentMailbox(): Promise<void> {
-    return refreshCurrentList(false);
+  async function refreshCurrentMailbox(options:{upstream?:boolean}={}): Promise<void> {
+    if(options.upstream){
+      const account=accountId(),current=captureMailAuthority();if(!account)return;
+      const source=pageSource(),mailbox=source?.kind==='mailbox'&&source.mailboxId!==EVENTS_VIEW_ID&&mailboxes().find(box=>box.id===source.mailboxId)?.mailwomanSearchQuery===undefined?source.mailboxId:null;
+      try{await client.refreshMailbox?.(account,mailbox);}catch{if(current())ctx.showToast('error',t('mail-context-failed'));return;}
+      if(!current())return;querySnapshot=undefined;mailboxState=undefined;
+    }
+    return refreshCurrentList(options.upstream===true);
   }
 
   function refreshMessageOrder(): Promise<void> {
@@ -2099,7 +2105,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     readCache.invalidate(undefined,{abort:false});
     const current = captureMailAuthority();
     void syncOpenMessages();
-    if(!countsCurrent)await reconcileCounts();
+    if(!countsCurrent)void reconcileCounts();
     if (!current()) return;
     const acct = accountId();
     const src = pageSource();

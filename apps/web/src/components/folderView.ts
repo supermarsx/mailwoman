@@ -15,10 +15,11 @@ export function createFolderView(client:Client,mailboxId:string,allowed:()=>bool
  function clear(){request++;abort?.abort();setMessages([]);setSelection(new Set<string>());setTotal(0);setLoading(false);setScroll(0);}
  const stop=observePreferenceAccount(next=>{if(next!==owner)clear();});
  onCleanup(()=>{disposed=true;clear();stop();});
- async function load(next=position()):Promise<void>{
+ async function load(next=position(),options:{upstream?:boolean;upstreamMailboxId?:string|null}={}):Promise<void>{
   if(!current()){clear();return;}
   const generation=++request;abort?.abort();abort=new AbortController();setLoading(true);setError(false);
   try{
+   if(options.upstream){await client.refreshMailbox?.(owner!.id,options.upstreamMailboxId===undefined?mailboxId:options.upstreamMailboxId);if(!current()||generation!==request)return;}
    const response=await client.jmap(listMailbox(owner!.id,mailboxId,100,{position:Math.max(0,next)}),{signal:abort.signal});
    if(!current()||generation!==request)return;
    const query=responseFor<EmailQueryResponse>(response,'q'),result=responseFor<EmailGetResponse>(response,'g');

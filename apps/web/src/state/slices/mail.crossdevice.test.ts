@@ -1,3 +1,4 @@
+import type {JmapCallOptions} from '../../api/client.ts';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRoot } from 'solid-js';
 import { createMailSlice, type MailSlice } from './mail.ts';
@@ -119,4 +120,19 @@ describe('open messages follow another device', () => {
       expect(mail.mailboxes().map((b) => b.id)).toEqual(expect.arrayContaining(['inbox', 'archive', 'trash']));
     });
   });
+});
+
+it('shows new mail without waiting for a slow folder-count request',async()=>{
+ await withSlice([msg('old')],async(mail,s)=>{
+  const original=s.client.jmap;let release!:(value:JmapResponse)=>void;let held:JmapRequest|undefined;
+  s.client.jmap=vi.fn((request:JmapRequest,options?:JmapCallOptions):Promise<JmapResponse>=>{if(!held&&request.methodCalls.some(([method])=>method==='Mailbox/changes'||method==='Mailbox/get')){held=request;return new Promise<JmapResponse>(resolve=>{release=resolve;});}return original(request,options);});
+  s.store.set('new',msg('new'));const refreshing=mail.refreshCurrentMailbox();
+  try{await vi.waitFor(()=>expect(mail.messages().map(row=>row.id)).toContain('new'));}finally{if(held)release(await original(held));await refreshing;}
+ });
+});
+it('an explicit full refresh pulls upstream before replacing the visible list',async()=>{
+ await withSlice([msg('old')],async(mail,s)=>{
+  const refresh=vi.fn(async()=>{s.store.set('arrived',msg('arrived'));});s.client.refreshMailbox=refresh;
+  await mail.refreshCurrentMailbox({upstream:true});expect(refresh).toHaveBeenCalledWith('acct1','inbox');expect(mail.messages().map(row=>row.id)).toContain('arrived');
+ });
 });

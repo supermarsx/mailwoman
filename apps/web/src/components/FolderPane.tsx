@@ -31,6 +31,7 @@ export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:
  const owner=preferenceAccount(),client=createConfiguredClient(),controller=new AbortController();
  const box=()=>app.mailboxes().find(value=>value.id===props.mailboxId);
  const view=createFolderView(client,props.mailboxId,()=>!!box());
+ const manualRefresh=()=>view.load(view.position(),{upstream:true,upstreamMailboxId:box()?.mailwomanSearchQuery===undefined?props.mailboxId:null});
  const sync=createInitialSync(()=>props.mailboxId,()=>view.load(view.position()));
  const [busy,setBusy]=createSignal(false),[result,setResult]=createSignal(''),[failed,setFailed]=createSignal(false);
  const [confirmDelete,setConfirmDelete]=createSignal<string[]|null>(null);
@@ -86,7 +87,7 @@ export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:
  let previouslySelecting=props.selecting===true;
  createEffect(()=>{const selecting=props.selecting===true;if(previouslySelecting&&!selecting)view.retainSelection([]);previouslySelecting=selecting;});
  let previouslyActive=props.active;
- onMount(()=>{props.registerRefresh?.(()=>{if(!disabled())void view.load();});void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void loadCatalog('rename-folder');void loadCatalog('selection-bar');renameContext();void view.load();});
+ onMount(()=>{props.registerRefresh?.(()=>{if(!disabled())void manualRefresh();});void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void loadCatalog('rename-folder');void loadCatalog('selection-bar');renameContext();void view.load();});
  createEffect(()=>{if(props.active&&viewport)viewport.scrollTop=view.scroll();});
  createEffect(()=>{const active=props.active;if(active&&!previouslyActive)untrack(()=>{if(!disabled())void view.load();});previouslyActive=active;});
  createEffect(()=>{if(props.active&&!busy()&&dirty){dirty=false;void view.load();}});
@@ -98,7 +99,7 @@ export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:
   const row=rows[index<0?(delta>0?0:rows.length-1):Math.max(0,Math.min(rows.length-1,index+delta))];
   if(row){view.select(row.id);props.onOpen(row.id);}return true;
  }
- useActions({next:()=>step(1),previous:()=>step(-1),refresh:()=>{if(!props.active)return false;if(!disabled())void view.load();return true;},trash:()=>{if(!props.active)return false;remove();return true;},markRead:()=>{if(!props.active)return false;void run({kind:'read',read:true});return true;},markUnread:()=>{if(!props.active)return false;void run({kind:'read',read:false});return true;},archive:()=>{if(!props.active)return false;const archive=role('archive');if(archive)void run({kind:'move',target:archive.id});return true;}});
+ useActions({next:()=>step(1),previous:()=>step(-1),refresh:()=>{if(!props.active)return false;if(!disabled())void manualRefresh();return true;},trash:()=>{if(!props.active)return false;remove();return true;},markRead:()=>{if(!props.active)return false;void run({kind:'read',read:true});return true;},markUnread:()=>{if(!props.active)return false;void run({kind:'read',read:false});return true;},archive:()=>{if(!props.active)return false;const archive=role('archive');if(archive)void run({kind:'move',target:archive.id});return true;}});
  function key(event:KeyboardEvent,id:string){
   const rows=viewport?.querySelectorAll<HTMLButtonElement>('[data-folder-message]');if(!rows)return;
   const at=[...rows].findIndex(row=>row.dataset['folderMessage']===id);
@@ -107,7 +108,7 @@ export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:
   if(next!==null){event.preventDefault();const target=rows[Math.max(0,Math.min(rows.length-1,next))];target?.focus();if(modifierSelectionEnabled()&&event.shiftKey&&target?.dataset['folderMessage'])view.select(target.dataset['folderMessage'],true);}
  }
  return <div class={css.pane}>
-  <header class={css.toolbar}><h2>{box()?.name??t('folder-tabs-unavailable')}</h2><button type="button" class="btn btn--ghost" disabled={disabled()} onClick={()=>void view.load()}>{t('folder-tabs-refresh')}</button><button type="button" class="btn btn--ghost" disabled={disabled()||!view.messages().length} onClick={view.selectAll}>{t('folder-tabs-select-page')}</button><Show when={box()&&canRename(box()!)}><button ref={renameButton} type="button" class="btn btn--ghost" disabled={!admitted()} onClick={()=>setRenaming(true)}>{t('rename-folder-action')}</button></Show><Show when={box()&&canEmpty(box()!)}><button type="button" class="btn btn--ghost" disabled={disabled()} onClick={()=>setEmptying(true)}>{t('empty-folder-action')}</button></Show></header>
+  <header class={css.toolbar}><h2>{box()?.name??t('folder-tabs-unavailable')}</h2><button type="button" class="btn btn--ghost" disabled={disabled()} onClick={()=>void manualRefresh()}>{t('folder-tabs-refresh')}</button><button type="button" class="btn btn--ghost" disabled={disabled()||!view.messages().length} onClick={view.selectAll}>{t('folder-tabs-select-page')}</button><Show when={box()&&canRename(box()!)}><button ref={renameButton} type="button" class="btn btn--ghost" disabled={!admitted()} onClick={()=>setRenaming(true)}>{t('rename-folder-action')}</button></Show><Show when={box()&&canEmpty(box()!)}><button type="button" class="btn btn--ghost" disabled={disabled()} onClick={()=>setEmptying(true)}>{t('empty-folder-action')}</button></Show></header>
   <Show when={renaming()&&box()&&renameContext()}>{context=><RenameFolderDialog box={box()!} context={context()} {...(viewport?.ownerDocument&&viewport.ownerDocument!==document?{mount:viewport.ownerDocument.body}:{})} onClose={()=>{setRenaming(false);queueMicrotask(()=>renameButton?.focus());}}/>}</Show>
   <Show when={emptying()&&box()&&emptyAbility()}>{ability=><EmptyFolderDialog box={box()!} ability={ability()} onClose={()=>setEmptying(false)} onEmptied={()=>{view.retainSelection([]);void reconcile();}}/>}</Show>
   <Show when={confirmDelete()}>{ids=><ConfirmDialog open title={t('folder-tabs-permanent-title')} body={t('folder-tabs-permanent-confirm',{count:ids().length})} confirmLabel={t('mail-trash-permanent')} cancelLabel={t('folder-tabs-cancel')} mount={viewport?.ownerDocument.body} onCancel={()=>setConfirmDelete(null)} onConfirm={confirmPermanent}/>}</Show>

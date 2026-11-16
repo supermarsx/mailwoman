@@ -497,7 +497,7 @@ export function MailboxScreen(): JSX.Element {
           <Show when={listVisible()}><MessageOrderMenu order={messageOrder} scope={()=>`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}`} class={`btn btn--ghost ${a11y.iconButton}`}/></Show>
           <UndoRedoControl/>
           <OutboxChip onOpenOutbox={()=>router.navigate('outbox')}/>
-          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>{if(activePane()?.kind==='attachments')requestModuleAction('attachments','refresh');else if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox();}}><Icon name="refresh" /></button>
+          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>{if(activePane()?.kind==='attachments')requestModuleAction('attachments','refresh');else if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox({upstream:true});}}><Icon name="refresh" /></button>
         </div>);
   const compactBadges=()=>settings()['mail.compactFolderBadges']?.value!==false;
   const folderCountShown=(box:{role?:string|null;unreadEmails:number;totalEmails:number})=>showsFolderCount(box,folderCountMode(),folderCountScope());
@@ -1132,7 +1132,7 @@ export function MailboxScreen(): JSX.Element {
   }
   useActions({
     settings: () => { openSettings(); return true; },
-    refresh: () => { if (surface() !== 'mail') return false; if(activePane()?.kind==='attachments')requestModuleAction('attachments','refresh');else if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox(); return true; },
+    refresh: () => { if (surface() !== 'mail') return false; if(activePane()?.kind==='attachments')requestModuleAction('attachments','refresh');else if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox({upstream:true}); return true; },
     trash: () => shortcutMailAction(ids => app.trashMessage(ids)),
     markRead: () => shortcutMailAction(ids => app.markRead(ids, true)),
     markUnread: () => shortcutMailAction(ids => app.markRead(ids, false)),

@@ -87,6 +87,7 @@
     { "path": "/api/assist/config", "scope": "mailbox", "note": "t87 D5: the linked mailbox's own Assist policy (assist.rs, feature_session)" },
     { "path": "/api/assist/invoke", "scope": "mailbox", "note": "t87 D5" },
     { "path": "/api/assist/transcribe", "scope": "mailbox", "note": "t87 D5 (v7_mount.rs, authed)" },
+    { "path": "/api/mail/refresh", "scope": "mailbox" },
     { "path": "/api/push/vapid", "scope": "mailbox", "note": "t87 D3: the linked mailbox's own push subscription, removed on unlink" },
     { "path": "/api/push/permission", "scope": "mailbox", "note": "t87 D3" },
     { "path": "/api/push/subscribe", "scope": "mailbox", "note": "t87 D3" },

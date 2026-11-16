@@ -284,6 +284,7 @@ export interface Client {
    * ordinary request.
    */
   jmap(body: JmapRequest, opts?: JmapCallOptions): Promise<JmapResponse>;
+  refreshMailbox?(accountId:string,mailboxId:string|null):Promise<void>;
   sanitize(html: string): Promise<string>;
   onNetwork(listener: NetworkListener): () => void;
   /**
@@ -501,6 +502,7 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
         }
       });
     },
+    refreshMailbox(accountId,mailboxId){return guarded(async()=>{const response=await req('/api/mail/refresh',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId,mailboxId})});await jsonOrGate(response);});},
     sanitize(html) {
       return guarded(async () => {
         const res = await req(`/api/sanitize`, {

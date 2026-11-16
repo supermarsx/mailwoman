@@ -33,6 +33,7 @@ use mw_engine::Engine;
 use mw_jmap::JmapClient;
 use mw_store::{Credentials, NativeSessionRow, ServerKey, Store};
 
+mod mail_refresh;
 mod analytics_adapter;
 mod analytics_config;
 mod analytics_routes;
@@ -1579,6 +1580,7 @@ fn router(
         .merge(security_center::router())
         .merge(security_alerts::router())
         .merge(notification_center::router())
+        .merge(mail_refresh::router())
         // t16 (26.16, e10 chain link 3): the additive route modules e6/e18/e10 deliver.
         // All session-authed and ride the same CSRF/security-headers middleware below.
         //   * image_proxy (e6, S7/S8): the anonymizing `/api/image-proxy` + the

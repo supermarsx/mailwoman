@@ -477,9 +477,29 @@ impl Engine {
 
     pub(crate) async fn resync_runtime(&self, account_id: &str, rt: &AccountRuntime) -> Result<()> {
         let guard = self.sync_health.begin(account_id);
-        let result = self.resync_runtime_untimed(account_id, rt).await;
+        let result = self.resync_runtime_untimed(account_id, rt, None, false).await;
         guard.finish(&result);
         result
+    }
+
+    /// Explicit refresh reaches the upstream before the caller re-queries JMAP.
+    /// A folder id is verified against this account; cached rows are reconciled,
+    /// never discarded before the upstream confirms their state.
+    pub async fn refresh_mailbox(&self, account_id: &str, mailbox_id: Option<&str>) -> Result<()> {
+        let rt=self.require_runtime(account_id)?;
+        let priority=if let Some(id)=mailbox_id {
+            let mailbox=self.store.get_mailbox(id).await?;
+            if mailbox.account_id!=account_id{return Err(EngineError::MailboxNotFound(id.to_owned()));}
+            mailbox.name
+        }else{"INBOX".to_owned()};
+        let guard=self.sync_health.begin(account_id);
+        let result=self.resync_runtime_untimed(account_id,&rt,Some(&priority),mailbox_id.is_some()).await;
+        guard.finish(&result);if result.is_ok(){self.broadcast_state(account_id).await;}result
+    }
+    async fn resync_after_change(&self, account_id:&str, mailbox:&str)->Result<()> {
+        let rt=self.require_runtime(account_id)?;let guard=self.sync_health.begin(account_id);
+        let result=self.resync_runtime_untimed(account_id,&rt,Some(mailbox),false).await;
+        guard.finish(&result);result
     }
 
     /// Sync and send telemetry for every registered account (t103): which
@@ -505,17 +525,22 @@ impl Engine {
         self.sync_health.snapshot(&registered)
     }
 
-    async fn resync_runtime_untimed(&self, account_id: &str, rt: &AccountRuntime) -> Result<()> {
+    async fn resync_runtime_untimed(&self, account_id: &str, rt: &AccountRuntime, priority: Option<&str>, only:bool) -> Result<()> {
         self.require_runtime_generation(account_id, rt)?;
         self.ensure_cached_date_upgrade(account_id).await?;
         let mailboxes = rt.backend.list_mailboxes().await?;
         self.require_runtime_generation(account_id, rt)?;
-        let pairs = self
+        let mut pairs = self
             .reconcile_mailbox_list(account_id, rt, mailboxes)
             .await?;
-        for (rm, mailbox_id) in &pairs {
+        if let Some(name)=priority {
+            pairs.sort_by_key(|(mailbox,_)|if mailbox.mailbox_ref.name==name{0}else if mailbox.role==crate::backend::MailboxRole::Inbox{1}else{2});
+            if only{pairs.retain(|(mailbox,_)|mailbox.mailbox_ref.name==name);if pairs.is_empty(){return Err(EngineError::MailboxNotFound(name.to_owned()));}}
+        }
+        for (index,(rm, mailbox_id)) in pairs.iter().enumerate() {
             self.require_runtime_generation(account_id, rt)?;
             self.sync_one(account_id, rt, rm, mailbox_id).await?;
+            if priority.is_some()&&index==0{self.broadcast_state(account_id).await;}
         }
         Ok(())
     }
@@ -1774,7 +1799,7 @@ async fn watch_loop(
                 handle = new_handle;
                 rx = new_rx;
                 backoff = Duration::from_secs(1); // reconnected — reset backoff
-                if let Err(e) = engine.resync(&account_id).await {
+                if let Err(e) = engine.resync_after_change(&account_id,"INBOX").await {
                     if matches!(e, EngineError::Auth(_)) {
                         engine
                             .reject_runtime_credentials(&account_id, &backend)
@@ -1827,8 +1852,8 @@ async fn consume_events(
             // resolves Ok when a stop is signalled — both mean "tear down".
             _ = stop_rx.changed() => return WatchExit::Stop,
             event = rx.recv() => match event {
-                Some(ChangeEvent::MailboxChanged { .. }) => {
-                    match engine.resync(account_id).await {
+                Some(ChangeEvent::MailboxChanged { mailbox }) => {
+                    match engine.resync_after_change(account_id,&mailbox.name).await {
                         Ok(()) => engine.broadcast_state(account_id).await,
                         Err(EngineError::Auth(_)) => {
                             if let Some(rt) = engine.runtime(account_id) {
