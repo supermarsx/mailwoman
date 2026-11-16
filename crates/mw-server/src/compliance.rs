@@ -183,6 +183,9 @@ async fn cookies_page(
     public_page(&state, &headers, &ext, q, "cookies").await
 }
 
+#[derive(Clone)]
+pub(crate) struct PublicPolicyResponse;
+
 async fn public_page(state: &AppState, headers: &HeaderMap, ext: &axum::http::Extensions, q: PageQuery, document: &str) -> Response {
     let domain = crate::cookie_consent::request_domain(state, headers, ext).await.unwrap_or_default();
     if !flag(state, &domain, "policy.publicPages").await {
@@ -204,6 +207,7 @@ async fn public_page(state: &AppState, headers: &HeaderMap, ext: &axum::http::Ex
         _ => "Privacy policy",
     };
     let date = date_of(version.created_at);
+    let page_csp = public_page_csp();
     let (content_type, body) = match q.format.as_deref() {
         Some("md") => ("text/markdown; charset=utf-8", policy::to_markdown(&sections, heading, version.version, &date, lang)),
         Some("json") => (
@@ -212,23 +216,40 @@ async fn public_page(state: &AppState, headers: &HeaderMap, ext: &axum::http::Ex
         ),
         _ => ("text/html; charset=utf-8", page_html(&sections, heading, version.version, &date, lang)),
     };
-    (
+    let mut response = (
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, content_type),
             (header::CACHE_CONTROL, "no-cache"),
-            (header::CONTENT_SECURITY_POLICY, "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"),
+            (header::CONTENT_SECURITY_POLICY, page_csp.as_str()),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         ],
         body,
     )
-        .into_response()
+        .into_response();
+    response.extensions_mut().insert(PublicPolicyResponse);
+    response
 }
 
-const PAGE_CSS: &str = "body{font:16px/1.55 system-ui,sans-serif;margin:0;background:#fff;color:#111}main{max-width:44rem;margin:0 auto;padding:1.5rem 1rem}h1{font-size:1.6rem}h2{font-size:1.15rem;margin-top:2rem}code{font-size:.9em}@media(prefers-color-scheme:dark){body{background:#111;color:#eee}}";
-
+const PAGE_THEME_JS: &str = include_str!("public-policy-theme.js");
+fn public_page_csp() -> String {
+    use base64::Engine as _;
+    use sha2::Digest as _;
+    let hash = base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(PAGE_THEME_JS.replace("\r\n", "\n").as_bytes()));
+    format!("default-src 'none'; script-src 'sha256-{hash}'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+}
+const PAGE_CSS: &str = r#"
+:root{color-scheme:light dark;--policy-bg:#f4f3ef;--policy-surface:#fff;--policy-text:#191919;--policy-dim:#5b5b5b;--policy-border:#252525;--policy-accent:#7c3aed;--policy-link:#5b21b6;--policy-radius:6px;--policy-font:system-ui,sans-serif}
+@media(prefers-color-scheme:dark){:root{--policy-bg:#111318;--policy-surface:#1c1f27;--policy-text:#f1f2f5;--policy-dim:#b4b9c6;--policy-border:#737b8d;--policy-accent:#bfa0ff;--policy-link:#cfb8ff}}
+*{box-sizing:border-box}html{scroll-padding-block:1.5rem}body{font:16px/1.7 var(--policy-font);margin:0;background:var(--policy-bg);color:var(--policy-text)}main{max-inline-size:68rem;margin-inline:auto;padding:clamp(1.25rem,4vw,3rem)}h1{font-size:clamp(2rem,5vw,3.25rem);line-height:1.15;letter-spacing:-.035em;margin:0 0 1rem;text-wrap:balance}main>p{color:var(--policy-dim);margin-block:0 2rem}h2{font-size:1.25rem;line-height:1.35;margin:0 0 1rem;border-inline-start:4px solid var(--policy-accent);padding-inline-start:.75rem}h3{font-size:1.05rem}section{background:var(--policy-surface);border:2px solid var(--policy-border);border-radius:var(--policy-radius);padding:clamp(1rem,3vw,2rem);margin-block:1.25rem;box-shadow:4px 4px 0 var(--policy-border);scroll-margin-block:1rem}p,li{max-inline-size:76ch;overflow-wrap:anywhere}section>:last-child{margin-block-end:0}a{color:var(--policy-link);text-underline-offset:3px}a:hover{text-decoration-thickness:2px}a:focus-visible{outline:2px solid var(--policy-accent);outline-offset:4px}nav{display:flex;flex-wrap:wrap;gap:.5rem;margin-block:1.5rem 2rem}nav a{font-size:.85rem;padding:.4rem .75rem;border:1px solid var(--policy-border);border-radius:var(--policy-radius);background:var(--policy-surface);text-decoration:none}code,pre{font-family:ui-monospace,monospace;font-size:.9em;overflow-wrap:anywhere}pre{overflow:auto;max-inline-size:100%}table{display:block;overflow:auto;border-collapse:collapse;max-inline-size:100%}td,th{padding:.5rem .75rem;border:1px solid var(--policy-border);text-align:start}ul,ol{padding-inline-start:1.5rem}@media print{body{background:white;color:black}nav{display:none}section{background:white;color:black;box-shadow:none;break-inside:avoid;border-color:#888}a{color:inherit}}
+"#;
 fn page_html(sections: &[policy::Section], heading: &str, version: i64, date: &str, lang: &str) -> String {
-    policy::to_html(sections, heading, version, date, lang).replacen("</head>", &format!("<style>{PAGE_CSS}</style></head>"), 1)
+    let label = if lang == "pt-PT" { "Nesta página" } else { "On this page" };
+    let script = PAGE_THEME_JS.replace("\r\n", "\n");
+    let links = sections.iter().map(|section| format!("<a href=\"#{}\">{}</a>", policy::html_escape(&section.id), policy::html_escape(&section.title))).collect::<String>();
+    policy::to_html(sections, heading, version, date, lang)
+        .replacen("</head>", &format!("<style>{PAGE_CSS}</style><script>{script}</script></head>"), 1)
+        .replacen("<section", &format!("<nav aria-label=\"{label}\">{links}</nav><section"), 1)
 }
 
 // ---------------------------------------------------------------------------

@@ -50,4 +50,5 @@ function Harness(){
   {menu.menu()}
  </>;
 }
-render(()=><Harness/>,document.getElementById('root')!);
+if(new URLSearchParams(location.search).has('login'))void import('./loginPolicyHarness.tsx');
+else render(()=><Harness/>,document.getElementById('root')!);

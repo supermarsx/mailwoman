@@ -18,6 +18,8 @@ import { PasswordInput } from '../components/PasswordInput.tsx';
 import { publicConfig, type PublicConfig } from '../api/publicConfig.ts';
 import { CookiePreferencesLink } from '../cookies/ConsentLayer.tsx';
 import { policyLinks } from '../cookies/policyLinks.ts';
+import {themedPolicyUrl} from '../theme/publicPolicyTheme.ts';
+import * as legalCss from './loginPolicy.css.ts';
 import { consentConfig } from '../cookies/runtime.ts';
 import { applyBranding, brandAssetUrl } from '../branding.ts';
 import { passwordlessAvailable, signInWithPasskey } from '../api/passwordless.ts';
@@ -188,10 +190,13 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
               {t('login-2fa-back')}
             </button>
           </div>
+          {policyFooter()}
         </main>
       )}
     </Show>
   );
+
+  function policyFooter():JSX.Element{return <nav class={legalCss.legal} aria-label={t('cookies-privacy-link')} data-testid="login-policy-links"><Show when={policyLinks(consentConfig()).privacy}>{url => <a class={legalCss.policy} href={themedPolicyUrl(url())} onClick={event => {event.currentTarget.href=themedPolicyUrl(url());}} target="_blank" rel="noopener noreferrer"><Icon name="shield"/>{t('cookies-privacy-link')}</a>}</Show><CookiePreferencesLink class={legalCss.cookies}/></nav>;}
 
   function credentialForm(): JSX.Element {
     return (
@@ -273,7 +278,7 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
           </div>
         </Show>
       </form>
-      <p class="login__hint"><CookiePreferencesLink /><Show when={policyLinks(consentConfig()).privacy}>{(url) => <>{' '}<a href={url()} target="_blank" rel="noopener noreferrer">{t('cookies-privacy-link')}</a></>}</Show></p>
+      {policyFooter()}
     </main>
     );
   }

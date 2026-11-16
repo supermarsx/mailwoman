@@ -1,5 +1,6 @@
 import { render } from 'solid-js/web';
 import { App } from './App.tsx';
+import {installPublicPolicyThemeBridge} from './theme/publicPolicyTheme.ts';
 import { TooltipLayer } from './components/TooltipLayer.tsx';
 import { ConsentLayer } from './cookies/ConsentLayer.tsx';
 import { bootConsent } from './cookies/runtime.ts';
@@ -27,6 +28,8 @@ installBundleRecovery();
 // Errors that reach no boundary (window.onerror, rejections, CSP) are reported to
 // the server's observability, scrubbed (docs/admin/observability.md).
 installClientErrors();
+const stopPolicyTheme=nativeBackgroundStartup()?()=>undefined:installPublicPolicyThemeBridge();
+import.meta.hot?.dispose(stopPolicyTheme);
 // Test builds only (VITE_MW_E2E_HOOKS=1): window.__mwThrow, a deliberate error through a real boundary.
 if (import.meta.env['VITE_MW_E2E_HOOKS'] === '1') void import('./observability/e2eHook.tsx').then(m => m.installE2eErrorHook());
 

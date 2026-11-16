@@ -1987,6 +1987,8 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
         .is_some();
     let pdf_frame = resp.extensions_mut().remove::<pdf_viewer::PdfViewerResponse>().is_some();
     let isolated_frame = reader_frame || appearance_frame || pdf_frame;
+    // Only generated public policy documents admit their fixed, hashed theme bridge.
+    let public_policy = resp.extensions_mut().remove::<compliance::PublicPolicyResponse>().is_some();
     // Only our fixed, script-free entry form may submit to this origin. Neither
     // a request header nor upstream HTML can set this response marker.
     let client_gate_page = resp
@@ -1998,7 +2000,7 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
     let analytics_csp = resp
         .extensions_mut()
         .remove::<analytics_tag::ShellCsp>()
-        .filter(|_| !isolated_frame);
+        .filter(|_| !isolated_frame && !public_policy);
     let h = resp.headers_mut();
     // A handler's own policy (a download's sandbox, t32-h4) is kept as a second
     // header next to the shell's. The browser enforces both, so it can only
@@ -2009,7 +2011,7 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
             "content-security-policy",
             HeaderValue::from_static(client_access::PAGE_CSP),
         );
-    } else if let (true, Some(policy)) = (isolated_frame, own.as_ref()) {
+    } else if let (true, Some(policy)) = (isolated_frame || public_policy, own.as_ref()) {
         h.insert("content-security-policy", policy.clone());
     } else {
         h.insert(

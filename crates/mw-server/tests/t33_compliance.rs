@@ -107,8 +107,18 @@ async fn public_pages_render_the_configuration_in_both_languages_without_sign_in
     let page = c.get(format!("{base}/privacy")).send().await.unwrap();
     assert_eq!(page.status(), 200);
     assert!(page.headers()["content-type"].to_str().unwrap().starts_with("text/html"));
-    assert!(page.headers().contains_key("content-security-policy"));
+    assert_eq!(page.headers().get_all("content-security-policy").iter().count(),1);
+    assert_eq!(page.headers()["x-frame-options"],"DENY");
+    let csp=page.headers()["content-security-policy"].to_str().unwrap().to_owned();
+    assert!(csp.contains("script-src 'sha256-"));
+    assert!(!csp.contains("script-src 'unsafe-inline'"));
     let html = page.text().await.unwrap();
+    let script=html.split("<script>").nth(1).unwrap().split("</script>").next().unwrap();
+    use base64::Engine as _;
+    use sha2::Digest as _;
+    let hash=base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(script.as_bytes()));
+    assert!(csp.contains(&format!("'sha256-{hash}'")));
+    assert!(html.contains("On this page") && html.contains("--policy-bg"));
     assert!(html.contains("Example Ltd") && html.contains("CNPD") && html.contains("Version 1"));
     assert!(!html.contains("not yet filled in"), "all operator fields are set");
 
