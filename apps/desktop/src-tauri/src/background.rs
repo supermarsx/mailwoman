@@ -3,7 +3,11 @@
 //! message, account identifier or encryption key is written into an OS job.
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::{path::Path, process::Command};
+use std::{
+    path::Path,
+    process::{Command, Stdio},
+    time::{Duration, Instant},
+};
 use tauri::Manager;
 
 #[derive(Serialize)]
@@ -23,19 +27,60 @@ fn job_name(executable: &Path) -> String {
     )
 }
 
+fn job_executable(
+    current: std::path::PathBuf,
+    launcher: Option<std::path::PathBuf>,
+) -> Result<std::path::PathBuf, String> {
+    // AppImage mounts its inner executable at a temporary path that disappears
+    // when the process exits. Only the persistent outer launcher can wake it.
+    let executable = launcher.unwrap_or(current);
+    if !executable.is_absolute() || !executable.is_file() {
+        return Err("Background executable unavailable".into());
+    }
+    Ok(executable)
+}
+
+fn session_missing(key: &str) -> Result<bool, keyring::Error> {
+    match keyring::Entry::new(crate::keychain::SERVICE_SESSION, key)?.get_password() {
+        Ok(_) => Ok(false),
+        Err(keyring::Error::NoEntry) => Ok(true),
+        Err(error) => Err(error),
+    }
+}
+
 fn run(command: &mut Command) -> Result<(), String> {
+    run_bounded(command, Duration::from_secs(10))
+}
+
+fn run_bounded(command: &mut Command, limit: Duration) -> Result<(), String> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
-    let output = command
-        .output()
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
         .map_err(|_| "Background scheduler unavailable".to_string())?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err("Background scheduler refused the job".into())
+    let deadline = Instant::now() + limit;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return if status.success() {
+                    Ok(())
+                } else {
+                    Err("Background scheduler refused the job".into())
+                };
+            }
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("Background scheduler timed out".into());
+            }
+        }
     }
 }
 
@@ -138,7 +183,14 @@ fn schedule(_executable: &Path, _data: &Path, _enabled: bool) -> Result<(), Stri
 pub async fn mw_background_replay_schedule(app: tauri::AppHandle, enabled: bool) -> Support {
     let app2 = app.clone();
     let supported = tauri::async_runtime::spawn_blocking(move || {
-        let Ok(executable) = std::env::current_exe() else {
+        let Ok(current) = std::env::current_exe() else {
+            return false;
+        };
+        #[cfg(target_os = "linux")]
+        let launcher = std::env::var_os("APPIMAGE").map(std::path::PathBuf::from);
+        #[cfg(not(target_os = "linux"))]
+        let launcher = None;
+        let Ok(executable) = job_executable(current, launcher) else {
             return false;
         };
         let Ok(data) = app2.path().app_local_data_dir() else {
@@ -158,7 +210,17 @@ pub async fn mw_background_replay_complete(app: tauri::AppHandle, complete: bool
     if !is_background() {
         return Support { supported: false };
     }
-    if complete {
+    // Re-read the OS store, not the WebView's memoized token. An older hidden
+    // process must preserve a newer foreground sign-in. The JS scheduling lock
+    // serializes this cancellation with any racing foreground registration.
+    let missing = if complete {
+        false
+    } else {
+        tauri::async_runtime::spawn_blocking(|| session_missing("token").unwrap_or(false))
+            .await
+            .unwrap_or(false)
+    };
+    if complete || missing {
         let _ = mw_background_replay_schedule(app.clone(), false).await;
     }
     app.exit(0);
@@ -168,6 +230,62 @@ pub async fn mw_background_replay_complete(app: tauri::AppHandle, complete: bool
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn scheduler_child_fixture() {
+        if std::env::var("MW_BACKGROUND_TEST_WAIT").as_deref() == Ok("1") {
+            std::fs::write(
+                std::env::var_os("MW_BACKGROUND_TEST_MARKER").unwrap(),
+                b"waiting",
+            )
+            .unwrap();
+            std::thread::sleep(Duration::from_secs(60));
+        }
+    }
+    #[test]
+    fn scheduler_wait_is_bounded_and_reaps_a_stalled_child() {
+        let executable = std::env::current_exe().unwrap();
+        let make = || {
+            let mut command = Command::new(&executable);
+            command.args([
+                "--exact",
+                "background::tests::scheduler_child_fixture",
+                "--test-threads=1",
+            ]);
+            command.env_remove("MW_BACKGROUND_TEST_WAIT");
+            command
+        };
+        assert!(
+            run_bounded(&mut make(), Duration::from_secs(5)).is_ok(),
+            "completed scheduler command must be accepted"
+        );
+        let mut random = [0; 8];
+        getrandom::fill(&mut random).unwrap();
+        let marker = std::env::temp_dir().join(format!(
+            "mw-background-child-{}.started",
+            random
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        ));
+        let result = run_bounded(
+            make()
+                .env("MW_BACKGROUND_TEST_WAIT", "1")
+                .env("MW_BACKGROUND_TEST_MARKER", &marker),
+            Duration::from_secs(1),
+        );
+        let entered = std::fs::read(&marker);
+        let _ = std::fs::remove_file(&marker);
+        assert_eq!(
+            entered.unwrap(),
+            b"waiting",
+            "prove the fixture entered its blocking body before the timeout"
+        );
+        assert_eq!(
+            result.unwrap_err(),
+            "Background scheduler timed out",
+            "the same child really waits unless terminated"
+        );
+    }
     #[test]
     fn names_are_stable_bounded_and_install_specific() {
         let first = job_name(Path::new("C:/Apps/Mailwoman.exe"));
@@ -179,5 +297,43 @@ mod tests {
                 .bytes()
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
         );
+    }
+    #[test]
+    fn packaged_launcher_is_used_instead_of_the_temporary_inner_executable() {
+        let launcher = std::env::current_exe().unwrap();
+        let inner = std::env::temp_dir()
+            .join("gone-appimage-mount")
+            .join("mailwoman");
+        assert_eq!(
+            job_executable(inner, Some(launcher.clone())).unwrap(),
+            launcher
+        );
+        assert!(
+            job_executable(
+                launcher.clone(),
+                Some(std::path::PathBuf::from("relative.AppImage"))
+            )
+            .is_err()
+        );
+        assert_eq!(job_executable(launcher.clone(), None).unwrap(), launcher);
+    }
+    #[test]
+    fn missing_session_cleanup_preserves_a_present_native_session() {
+        let mut random = [0; 8];
+        getrandom::fill(&mut random).unwrap();
+        let key = format!(
+            "background-test-{}",
+            random
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
+        let entry = keyring::Entry::new(crate::keychain::SERVICE_SESSION, &key).unwrap();
+        assert!(session_missing(&key).unwrap());
+        entry.set_password("fixture-only-native-session").unwrap();
+        let present = session_missing(&key);
+        entry.delete_credential().unwrap();
+        assert!(!present.unwrap());
+        assert!(session_missing(&key).unwrap());
     }
 }
