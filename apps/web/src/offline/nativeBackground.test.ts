@@ -38,6 +38,16 @@ describe('native background replay authority',()=>{
   await expect(replayNativeQueue({base,store,verify:async()=>{throw new Error('offline');},run})).rejects.toThrow('offline');
   expect(run).not.toHaveBeenCalled();expect(await store.all()).toHaveLength(1);
  });
+ it('leaves quarantined native rows on disk without keeping an unserviceable wake job alive',async()=>{
+  const missingLink=row({id:'missing-link'});delete missingLink.linkId;
+  const missingAuthority=row({id:'missing-authority'});delete missingAuthority.storageAuthority;
+  const invalidAuthority=row({id:'invalid-authority',storageAuthority:'bad'});
+  const mixed=row({id:'mixed',type:'pim',payload:{callId:'a',request:{using:[],methodCalls:[['Note/set',{accountId:'a',update:{one:{title:'A'}}},'a'],['Task/set',{accountId:'b',update:{two:{title:'B'}}},'b']]}}});
+  const store=memoryOutboxStore([row(),missingLink,missingAuthority,invalidAuthority,mixed]),verify=vi.fn(async()=>identity);
+  const run=vi.fn(async(_row,_identity,selected)=>{expect((await selected.all()).map((item:QueuedItem)=>item.id)).toEqual(['pending']);await selected.delete('pending');});
+  expect(await replayNativeQueue({base,store,verify,run})).toBe(true);
+  expect(verify).toHaveBeenCalledOnce();expect(run).toHaveBeenCalledOnce();expect((await store.all()).map(item=>item.id)).toEqual(['missing-link','missing-authority','invalid-authority','mixed']);
+ });
  it('does not call completion successful when replay has no acknowledgement',async()=>{
   const store=memoryOutboxStore([row()]),run=vi.fn(async()=>undefined);
   expect(await replayNativeQueue({base,store,verify:async()=>identity,run})).toBe(false);

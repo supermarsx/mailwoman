@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { getPlatform, isTauri, setPlatform, type Platform } from './index.ts';
 import { createBrowserPlatform } from './browser.ts';
-import { createTauriPlatform } from './tauri.ts';
+import { createTauriPlatform,invokeBackground } from './tauri.ts';
 
 afterEach(() => {
   // Reset the injected singleton + any test globals between cases.
@@ -160,6 +160,13 @@ describe('native (tauri) platform over __TAURI_INTERNALS__', () => {
     await p.clearSessionToken();
     expect(await p.getSessionToken()).toBeNull();
     expect(shell.calls).toContainEqual({ cmd: 'mw_keychain_delete', args: { service: 'mailwoman.session', key: 'token' } });
+    expect(shell.calls).toContainEqual({cmd:'mw_background_replay_schedule',args:{enabled:false}});
+  });
+  it('only reports scheduler support for an explicit supported shell response',async()=>{
+    for(const value of [null,undefined,{supported:false},{supported:1},{supported:true}]){
+      fakeShell({mw_background_replay_schedule:value});
+      expect(await invokeBackground('mw_background_replay_schedule',{enabled:true})).toEqual({supported:typeof value==='object'&&value?.supported===true});
+    }
   });
 
   it('bridges a shell event through the event plugin and stops on dispose', async () => {

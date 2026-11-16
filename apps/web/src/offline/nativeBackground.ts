@@ -13,17 +13,24 @@ import {accountOutbox,outboundAccount} from './accountOutbox.ts';
 import {drainOutbox,type OutboxStore,type QueuedItem} from './outboxCore.ts';
 import {prepareLocalFiles} from './localFiles.ts';
 import {mintTrackingToken,bindTrackingToken} from '../api/tracking.ts';
+import {nativeReplayScheduler} from './nativeReplaySchedule.ts';
 
 interface NativeBackgroundConfig {native?:boolean;backgroundReplay?:boolean;serverUrl?:string}
 const config=()=>(globalThis as {__MW_CONFIG__?:NativeBackgroundConfig}).__MW_CONFIG__;
 export const nativeBackgroundStartup=():boolean=>config()?.native===true&&config()?.backgroundReplay===true;
 const queue=()=>encryptedOutboxStore(idbOutboxStore());
+const eligible=(row:QueuedItem,base:string)=>row.state==='queued'&&row.cacheBase===`native:${base}`
+ &&(row.linkId===null||typeof row.linkId==='string'&&row.linkId.length>0)
+ &&typeof row.storageAuthority==='string'&&/^[A-Za-z0-9_-]{16,256}$/.test(row.storageAuthority)&&!!outboundAccount(row);
+async function scheduler(base:string|null){
+ const {invokeBackground}=await import('../platform/tauri.ts');
+ const platform=await platformReady();
+ return nativeReplayScheduler({locks:globalThis.navigator?.locks,pending:async()=>base!==null&&!!await platform.getSessionToken()&&(await queue().all() as QueuedItem[]).some(row=>eligible(row,base)),invoke:invokeBackground});
+}
 
 export async function requestNativeBackgroundReplay():Promise<boolean>{
  const base=nativeServerBase();if(!base)return false;
- const pending=(await queue().all() as QueuedItem[]).some(row=>row.state==='queued'&&row.cacheBase===`native:${base}`);
- const {invokeBackground}=await import('../platform/tauri.ts');
- return (await invokeBackground('mw_background_replay_schedule',{enabled:pending})).supported;
+ return (await scheduler(base)).schedule();
 }
 
 /** Replay uses the same encrypted store and drain as tabs, with no cached
@@ -35,7 +42,7 @@ export async function replayNativeQueue(deps:{
 }):Promise<boolean>{
  const contexts=new Map<string,QueuedItem>();
  for(const row of await deps.store.all() as QueuedItem[]){
-  if(row.state==='queued'&&row.cacheBase===`native:${deps.base}`&&row.linkId!==undefined&&row.storageAuthority&&outboundAccount(row))contexts.set(JSON.stringify([row.linkId,row.storageAuthority,outboundAccount(row)]),row);
+  if(eligible(row,deps.base))contexts.set(JSON.stringify([row.linkId,row.storageAuthority,outboundAccount(row)]),row);
  }
  for(const row of contexts.values()){
   const identity=await deps.verify(row.linkId??null),account=outboundAccount(row)!;
@@ -44,7 +51,7 @@ export async function replayNativeQueue(deps:{
   const selected={...owned,all:async()=>(await owned.all()).filter(item=>(item as QueuedItem).cacheBase===`native:${deps.base}`&&(item as QueuedItem).linkId===row.linkId)};
   await deps.run(row,identity,selected);
  }
- return !(await deps.store.all() as QueuedItem[]).some(row=>row.state==='queued'&&row.cacheBase===`native:${deps.base}`);
+ return !(await deps.store.all() as QueuedItem[]).some(row=>eligible(row,deps.base));
 }
 
 /** Dedicated hidden-shell entry: no App, login screen, dialogs or cached Me.
@@ -82,7 +89,6 @@ export async function startNativeBackgroundReplay():Promise<void>{
   }});
  }finally{
   suspendAccountPreferences();installLinkedMailbox(null);
-  const {invokeBackground}=await import('../platform/tauri.ts');
-  await invokeBackground('mw_background_replay_complete',{complete});
+  await (await scheduler(nativeServerBase())).finish(complete);
  }
 }

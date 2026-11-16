@@ -17,6 +17,7 @@
 // + event names below are the frozen JS↔shell contract for e1/e2/e4.
 
 import { createBrowserPlatform } from './browser.ts';
+import {nativeReplayScheduler} from '../offline/nativeReplaySchedule.ts';
 import type {
   CapabilityResult,
   NotificationActionEvent,
@@ -53,7 +54,7 @@ async function invoke<T = void>(cmd: string, args?: Record<string, unknown>): Pr
 
 /** Optional desktop scheduler commands. Older/mobile shells report unsupported. */
 export async function invokeBackground(command:'mw_background_replay_schedule'|'mw_background_replay_complete',args:Record<string,unknown>):Promise<CapabilityResult>{
-  try{return await invoke<CapabilityResult>(command,args);}catch{return {supported:false};}
+  try{const result=await invoke<CapabilityResult|null>(command,args);return {supported:result?.supported===true};}catch{return {supported:false};}
 }
 
 /**
@@ -159,6 +160,7 @@ export async function createTauriPlatform(): Promise<Platform> {
     clearSessionToken: async () => {
       token = null;
       await invoke('mw_keychain_delete', { service: KC_SESSION, key: KC_SESSION_KEY }).catch(() => undefined);
+      await nativeReplayScheduler({locks:globalThis.navigator?.locks,pending:async()=>false,invoke:invokeBackground}).cancel();
     },
 
     // ── Secure store (OS keychain, `mw_keychain_*` service=secure). ──
