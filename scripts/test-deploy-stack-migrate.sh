@@ -9,6 +9,7 @@ set -Eeuo pipefail
 # Variables shared with the deployment helpers/cleanup sourced below.
 # shellcheck disable=SC2034
 ROOT=$1 CASE=$2 STATE=$3 TRACE=$3/trace ACTIVE=$3/active WORK=$3/.work.fixture
+EXPOSURE=$4
 PROJECT=fixture DATA_VOLUME=original_sqlite IMAGE_ID=fixture-image POSTGRES_IMAGE=fixture-postgres TIMEOUT=30 ACTION=deploy PROGRESS_STARTED=0
 RESUME_CONTAINER='' HELPER_CONTAINER='' EXTRACT='' LOG_ERROR='' LOCKED=false
 LAST_BACKUP=$STATE/backup
@@ -30,7 +31,7 @@ compose() {
     printf 'compose %s %s\n' "$directory" "$*" >> "$TRACE"
     case "$1" in
         ps) printf 'original-app\n' ;;
-        up) ;;
+        up) [[ $directory == "$WORK" && $* == 'up -d --wait --wait-timeout 30 postgres valkey' ]] || exit 97 ;;
         run)
             [[ $directory == "$WORK" && $* == *'--complete --upgrade-source'* ]] || exit 93
             if [[ $CASE == failure ]]; then return 7; fi ;;
@@ -39,6 +40,8 @@ compose() {
 }
 render() {
     [[ $DATA_VOLUME != original_sqlite && $1 == "$WORK" ]] || exit 95
+    [[ $EXPOSURE == local || $EXPOSURE == external || $EXPOSURE == network ]] || exit 98
+    printf 'render exposure=%s\n' "$EXPOSURE" >> "$TRACE"
     printf 'new volume config\n' > "$WORK/compose.yaml"
 }
 source "$ROOT/scripts/deploy-stack.sh"
@@ -50,20 +53,24 @@ stack_migrate_sqlite
 # This is cleared by deploy.sh only after migration is verified, before cutover.
 RESUME_CONTAINER=''
 CASE
+for exposure in local external network; do
 for scenario in success failure; do
-    mkdir "$fixture/$scenario"
+    directory=$fixture/$exposure-$scenario
+    mkdir "$directory"
     set +e
-    bash "$fixture/case.sh" "$ROOT" "$scenario" "$fixture/$scenario"
+    bash "$fixture/case.sh" "$ROOT" "$scenario" "$directory" "$exposure"
     status=$?
     set -e
     if [[ $scenario == success ]]; then
         [[ $status == 0 ]] || { printf 'FAIL: migration success flow\n' >&2; exit 1; }
-        ! grep -q '^docker start ' "$fixture/$scenario/trace" || exit 1
+        ! grep -q '^docker start ' "$directory/trace" || exit 1
     else
         [[ $status == 7 ]] || { printf 'FAIL: migration error did not propagate\n' >&2; exit 1; }
-        grep -qx 'docker start original-app' "$fixture/$scenario/trace"
+        grep -qx 'docker start original-app' "$directory/trace"
     fi
-    grep -qx 'original configuration' "$fixture/$scenario/active/compose.yaml"
-    if grep -q 'src=original_sqlite' "$fixture/$scenario/trace"; then exit 1; fi
+    grep -qx 'original configuration' "$directory/active/compose.yaml"
+    grep -qx "render exposure=$exposure" "$directory/trace"
+    if grep -q 'src=original_sqlite\|caddy' "$directory/trace"; then exit 1; fi
 done
-printf 'PASS: migrate an isolated copy, preserve active configuration, propagate failure, resume original app before cutover\n'
+done
+printf 'PASS: local and both BYO proxy migrations start only database/cache sidecars, preserve active configuration and source data, and resume the original app on failure\n'

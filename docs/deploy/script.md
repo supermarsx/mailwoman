@@ -199,6 +199,48 @@ stack. The cache is disposable and memory-limited; PostgreSQL and uploads use
 persistent volumes. Host disk encryption is still an operator responsibility;
 selecting PostgreSQL does not encrypt its disk automatically.
 
+### Full stack and migration with your own reverse proxy (no Caddy)
+
+The storage stack and HTTPS proxy are independent. `--full-stack` never selects
+Caddy by itself. An existing SQLite deployment keeps its saved `EXPOSURE`,
+`PUBLIC_URL`, port, proxy network and trust configuration during migration:
+
+```sh
+# Existing script-managed SQLite installation behind your own proxy:
+bash deploy.sh deploy --full-stack --state-dir .deploy.local
+# Inspect the plan first without changing files or contacting Docker:
+bash deploy.sh deploy --full-stack --state-dir .deploy.local --dry-run
+```
+
+For a **new** full-stack installation with a host-based proxy:
+
+```sh
+bash deploy.sh --full-stack --public-url https://mail.example.org --port 8080
+```
+
+The app binds only `127.0.0.1:8080`; configure the existing proxy to forward to
+that address. For a **new** installation with a Docker-based proxy such as
+Nginx Proxy Manager or Traefik:
+
+```sh
+bash deploy.sh --full-stack --public-url https://mail.example.org --proxy-network proxy
+```
+
+The app publishes no host port and is reachable as `http://mailwoman:8080`
+(or your `--project` name) on the chosen proxy network. PostgreSQL and Valkey
+remain on their separate internal network, without public ports. Both BYO
+modes enable Secure cookies and leave TLS/certificate management to your proxy;
+configure WebSocket/SSE forwarding and trusted proxy addresses using the
+[reverse-proxy guide](reverse-proxy.md). Do not pass `--domain`, which explicitly selects Caddy.
+
+Setup flags on an existing state directory must match its saved configuration.
+To put an existing local SQLite installation behind your proxy while upgrading
+its storage, first edit `deploy.env`: set `EXPOSURE=external` or `network`,
+`PUBLIC_URL=https://…`, and the port or `PROXY_NETWORK` as appropriate. Configure
+the proxy and trust settings, then run the migration command above. Migration
+preserves those values. Moving an installation to or from managed Caddy remains
+a separate deployment change; see [Configuration and exposure](#configuration-and-exposure).
+
 On an existing **script-managed SQLite installation**, `--full-stack` performs
 these steps automatically:
 

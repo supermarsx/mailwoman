@@ -39,6 +39,7 @@ python3 - "$work/config.json" <<'PY'
 import json,sys
 c=json.load(open(sys.argv[1])); s=c['services']; app=s['mailwoman']
 assert set(s)=={'mailwoman','postgres','valkey'}
+assert set(c['volumes'])=={'app_data','postgres_data'}, 'Caddy resources must be absent without managed HTTPS'
 assert not s['postgres'].get('ports') and not s['valkey'].get('ports')
 assert c['networks']['store']['internal']
 assert set(app['networks'])=={'default','store'}
@@ -46,6 +47,42 @@ assert app['environment']['MW_DB_PATH'].startswith('postgres://')
 assert app['environment']['MW_REDIS_URL'].startswith('redis://:')
 assert app['depends_on']['postgres']['condition']=='service_healthy'
 PY
+# Check both BYO proxy shapes and a managed-Caddy positive control using the
+# real renderer and Compose merger. No proxy/app container is started here.
+for exposure in external network caddy; do
+    EXPOSURE=$exposure PUBLIC_URL=https://mail.example.test DOMAIN=mail.example.test
+    PROXY_NETWORK=${project}_proxy CADDY_ID=$IMAGE_ID
+    render "$ACTIVE"
+    compose "$ACTIVE" config --format json > "$work/$exposure.json"
+    python3 - "$work/$exposure.json" "$exposure" "$project" <<'PY'
+import json,sys
+c=json.load(open(sys.argv[1])); exposure=sys.argv[2]; project=sys.argv[3]
+s=c['services']; app=s['mailwoman']; managed=exposure=='caddy'
+assert set(s)==({'mailwoman','postgres','valkey','caddy'} if managed else {'mailwoman','postgres','valkey'})
+assert set(c['volumes'])==({'app_data','postgres_data','caddy_data','caddy_config'} if managed else {'app_data','postgres_data'})
+assert app['environment']['MW_COOKIE_SECURE']=='true'
+assert app['environment']['MW_PUBLIC_URL']=='https://mail.example.test'
+assert not s['postgres'].get('ports') and not s['valkey'].get('ports')
+assert set(s['postgres']['networks'])=={'store'} and set(s['valkey']['networks'])=={'store'}
+assert c['networks']['store']['internal']
+if exposure=='network':
+    assert not app.get('ports')
+    assert set(app['networks'])=={'proxy','store'}
+    assert c['networks']['proxy']['external']
+    assert c['networks']['proxy']['name']==project+'_proxy'
+    assert project in app['networks']['proxy']['aliases']
+else:
+    assert set(app['networks'])=={'default','store'}
+    if exposure=='external':
+        assert len(app['ports'])==1 and app['ports'][0]['host_ip']=='127.0.0.1'
+        assert app['ports'][0]['target']==8080
+PY
+done
+EXPOSURE=local PUBLIC_URL=http://localhost:18182 DOMAIN='' CADDY_ID=''
+# render() adds managed trust to its effective app.env; keep the original
+# operator configuration for subsequent backup/restore checks.
+cp "$work/original.env" "$ACTIVE/app.env"
+render "$ACTIVE"
 compose "$ACTIVE" up -d --wait --wait-timeout "$TIMEOUT" postgres valkey
 compose "$ACTIVE" exec -T postgres psql -U mailwoman -d mailwoman -v ON_ERROR_STOP=1 -c "CREATE TABLE fixture (content text NOT NULL); INSERT INTO fixture VALUES ('backup retained');" >/dev/null
 mkdir "$work/backup"
@@ -72,4 +109,4 @@ python3 - "$work/network.json" <<'PY'
 import json,sys
 c=json.load(open(sys.argv[1])); assert set(c['services']['mailwoman']['networks'])=={'proxy','store'}
 PY
-printf 'PASS: stable secrets, private sidecars, health readiness, network isolation, complete PostgreSQL backup and restore, reverse-proxy topology\n'
+printf 'PASS: stable secrets, private sidecars, health readiness, complete PostgreSQL backup/restore, host and Docker-network BYO proxy topology without Caddy, managed HTTPS control\n'

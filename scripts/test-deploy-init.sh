@@ -43,3 +43,22 @@ bash "$ROOT/deploy.sh" deploy --full-stack --dry-run --no-pull --state-dir "$wor
 cmp "$work/first/deploy.env" "$work/single-original.env" || fail 'dry-run changed the SQLite configuration'
 cmp "$work/first/app.env" "$work/explicit.env" || fail 'dry-run changed credentials'
 printf 'PASS: full-stack bootstrap, stable private credentials, and migration dry-run without writes\n'
+
+# Existing SQLite deployments can migrate behind either BYO proxy shape. No
+# --domain, Caddy installation, public listener or Docker daemon is required.
+for exposure in external network; do
+    state=$work/byo-$exposure
+    proxy_options=(--public-url https://mail.example.test)
+    if [[ $exposure == network ]]; then proxy_options+=(--proxy-network existing-proxy); fi
+    bash "$ROOT/deploy.sh" init --no-pull --state-dir "$state" --port 18184 "${proxy_options[@]}" > "$work/$exposure-init.log" 2>&1
+    cp "$state/deploy.env" "$work/$exposure-deploy.env"
+    cp "$state/app.env" "$work/$exposure-app.env"
+    bash "$ROOT/deploy.sh" deploy --full-stack --dry-run --no-pull --state-dir "$state" "${proxy_options[@]}" > "$work/$exposure-migrate.log" 2>&1
+    grep -F "stack=full; exposure=$exposure" "$work/$exposure-migrate.log" >/dev/null || fail "$exposure migration lost the proxy mode"
+    grep -F 'URL: https://mail.example.test' "$work/$exposure-migrate.log" >/dev/null || fail "$exposure migration lost the public URL"
+    grep -F 'Bring-your-own HTTPS proxy: no Caddy' "$work/$exposure-migrate.log" >/dev/null || fail "$exposure migration omitted the BYO proxy instructions"
+    cmp "$state/deploy.env" "$work/$exposure-deploy.env" || fail "$exposure dry-run changed saved configuration"
+    cmp "$state/app.env" "$work/$exposure-app.env" || fail "$exposure dry-run changed source credentials"
+    grep -qx 'DOMAIN=' "$state/deploy.env" || fail "$exposure unexpectedly configured managed Caddy"
+done
+printf 'PASS: SQLite migration dry-runs retain host and Docker-network BYO proxy configuration without Caddy or source writes\n'

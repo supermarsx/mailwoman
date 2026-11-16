@@ -125,6 +125,7 @@ Options:
                     port from 8080 to 8099)
   --full-stack      Include PostgreSQL and Valkey; migrate an existing SQLite
                     installation automatically (offline backup, verify, cut over)
+                    Keeps the configured proxy/exposure; Caddy is optional
   --mode MODE       proxy for JMAP; engine for IMAP/POP3 + SMTP (init only)
   --http-protocols LIST  Caddy protocols: 'h1', 'h1 h2', or 'h1 h2 h3' (default)
   --proxy-prefix IP First 3 octets of a private /24 for Caddy, e.g. 172.30.71
@@ -157,6 +158,10 @@ Options:
 
 Examples:
   bash deploy.sh --full-stack --domain mail.example.org --mode engine
+  bash deploy.sh --full-stack --public-url https://mail.example.org
+  bash deploy.sh --full-stack --public-url https://mail.example.org --proxy-network proxy
+  # Existing SQLite install: migrate using its saved proxy settings (no Caddy required)
+  bash deploy.sh deploy --full-stack --state-dir .deploy.local
   bash deploy.sh --public-url https://mail.example.org --proxy-network proxy
   bash deploy.sh init --public-url https://mail.example.org
   # Edit .deploy.local/app.env and deploy.env, then:
@@ -167,8 +172,9 @@ Examples:
 Running the same command again updates the installation; setup options may be
 repeated unchanged or left out. No domain means a local HTTP installation at http://localhost:8080, or the
 next free port; the chosen URL is printed and kept in deploy.env.
-For public HTTPS, point DNS to this host and allow TCP ports 80 and 443.
-HTTP/3 (QUIC) also needs UDP port 443; HTTP/2 and HTTP/1.1 remain available.
+With --domain, point DNS to this host and allow TCP ports 80 and 443 for Caddy.
+Managed HTTP/3 (QUIC) also needs UDP port 443. With --public-url, your own
+reverse proxy handles HTTPS; no Caddy service is deployed.
 The script deploys the webmail app; mailbox/SMTP servers remain external.
 Restore/rollback reverts data to the snapshot time (including configuration).
 The replaced volume is retained. Backups contain secrets: store them privately.
@@ -571,6 +577,10 @@ if $DRY_RUN; then
     log "Dry run: $ACTION; project=$PROJECT; mode=$MODE; stack=$STACK; exposure=$EXPOSURE"
     log "State: $STATE; URL: $PUBLIC_URL"
     if [[ $STACK == full ]]; then log "Full stack: PostgreSQL and Valkey on an internal network; an existing SQLite deployment is backed up and copied completely before cutover."; fi
+    case "$EXPOSURE" in
+        external) log "Bring-your-own HTTPS proxy: no Caddy; upstream http://127.0.0.1:$PORT." ;;
+        network) log "Bring-your-own HTTPS proxy: no Caddy or host port; upstream http://$PROJECT:8080 on Docker network $PROXY_NETWORK." ;;
+    esac
     case "$ACTION" in
         deploy) log "Prepare runtime image (${IMAGE:-$($NO_BUILD && printf 'last applied image' || printf 'build Dockerfile --target runtime-static')}${IMAGE:+; signature checked when it is fetched from its registry and cosign is installed}); snapshot existing data; apply Compose; verify app and public HTTP(S)$($AUTO_ROLLBACK && printf '; if an update fails that check, restore the previous release and its data')." ;;
         restore|rollback) log "Validate snapshot checksums; save current installation; restore snapshot to a new volume; apply and verify. Post-snapshot writes will not be in the restored app." ;;
