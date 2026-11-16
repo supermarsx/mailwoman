@@ -920,3 +920,8 @@ settings-sync-option-on-demand = Bij openen
 settings-sync-option-prefetch = Vooraf laden voor offline gebruik
 settings-sync-option-inline = Ingesloten afbeeldingen
 settings-sync-option-all-attachments = Alle toegestane bijlagen
+
+settings-row-actions-custom-title = Indeling van snelle acties
+settings-row-actions-custom-help = Kies en orden snelle acties of plaats ze onder Meer. Verborgen acties blijven beschikbaar in het contextmenu van het bericht.
+settings-row-action-up = { $name } omhoog verplaatsen
+settings-row-action-down = { $name } omlaag verplaatsen

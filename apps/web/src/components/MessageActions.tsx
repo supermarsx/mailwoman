@@ -1,3 +1,5 @@
+import {rowActionLayout,type RowActionId} from '../state/rowActionLayout.ts';
+import {settings} from '../api/settings.ts';
 import {loadCatalog} from '../i18n/catalog.ts';
 void loadCatalog('snooze');
 import {followUpActions} from './followUpActions.ts';
@@ -124,81 +126,31 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
     closeAll();
   }
 
-  return (
-    <div
-      class={`msg-more ${css.more}`}
-      ref={wrapper}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={onKeyDown}
-      onFocusOut={onFocusOut}
-    >
-      <Show when={mode() !== 'off'}>
-      <button
-        type="button"
-        ref={toggleEl}
-        class={`msg-more__toggle ${css.moreToggle} ${a11y.focusable}`}
-        classList={{ [css.moreToggleAlways]: mode() === 'click' }}
-        aria-label={t('mail-more-actions')}
-        aria-expanded={props.onMore?props.contextOpen:open()}
-        aria-haspopup={props.onMore?'menu':undefined}
-        data-testid="msg-more-toggle"
-        onClick={event => props.onMore ? props.onMore(event) : (open() ? closeAll() : openFromToggle())}
-      >
-        <Icon name={open() ? 'close' : 'more'} />
-      </button>
-      </Show>
-
-      <Show when={props.email.keywords?.['mw-followup-completed']===true}><span class={css.followUpMark} role="img" aria-label={t('mail-follow-up-finished')} data-testid="msg-finished-mark"><Icon name="check"/></span></Show>
-      <Show when={hasFollowUp()}>
-        <span
-          class={`msg-followup ${css.followUpMark}`}
-          role="img"
-          aria-label={t('mail-flag')}
-          data-testid="msg-followup-mark"
-        >
-          <Icon name={ACTION_ICONS.followUp} />
-        </span>
-      </Show>
-
-      <Show when={mode() !== 'off'}>
-      <div
-        ref={clusterEl}
-        class={`msg-actions ${css.actions} ${css.actionsFade}`}
-        classList={{
-          [css.actionsOpen]: open() || menu() !== 'none',
-          [css.actionsOnClick]: mode() === 'click',
-          [css.actionsOnClickOpen]: mode() === 'click' && (open() || menu() !== 'none'),
-        }}
-        data-mode={mode()}
-        role="group"
-        aria-label={t('mail-more-actions')}
-      >
-        <Show when={compact()}>
-          <button
-            type="button"
-            class={`msg-actions__btn ${css.actionBtn} ${css.actionExpand} ${a11y.iconButton}`}
-            aria-label={t('mail-row-actions-expand')}
-            aria-expanded={expanded()}
-            aria-haspopup="true"
-            data-testid="msg-actions-expand"
-            onClick={() => setExpanded((v) => !v)}
-          >
-            <Icon name="more" />
-          </button>
-        </Show>
-        <Show when={props.email.keywords?.['$draft']}><button type="button" class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`} aria-label={t('mail-draft-view')} title={t('mail-draft-view')} onClick={()=>requestDraftMessagePreview(id())}><Icon name="eye"/></button></Show>
-        <button
+  const configuredMore=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${id()}:${JSON.stringify(settings()['mail.rowActions']?.value)}`,onError:()=>app.showToast('error',t('mail-context-failed')),actions:()=>{
+   const messageId=id();
+   const actions={
+    'view-draft':{id:'view-draft',icon:'eye' as const,label:t('mail-draft-view'),disabled:!hasKeyword('$draft'),run:()=>requestDraftMessagePreview(messageId)},
+    pin:{id:'pin',icon:pinned()?ACTION_ICONS.unpin:ACTION_ICONS.pin,label:t(pinned()?'mail-unpin':'mail-pin'),run:()=>app.pinMessage(messageId,!pinned())},
+    snooze:{id:'snooze',icon:ACTION_ICONS.snooze,label:t('mail-snooze'),run:()=>{},children:[{id:'custom',label:t('snooze-custom'),icon:'snoozePick' as const,run:()=>requestCustomSnooze(until=>app.snoozeMessage(messageId,until))},...snoozePresets().map(preset=>({id:preset.id,label:snoozePresetLabel(preset),icon:snoozePresetIcon(preset.labelId),run:()=>{const at=resolveSnooze(preset);if(at)return app.snoozeMessage(messageId,at);}})),...(props.email.snoozedUntil?[{id:'unsnooze',label:t('mail-unsnooze'),icon:ACTION_ICONS.unsnooze,run:()=>app.unsnoozeMessage(messageId)}]:[])]},
+    label:{id:'label',icon:'tag' as const,label:t('mail-label'),run:()=>{},children:app.tags().map(tag=>({id:tag.id,label:tag.name,icon:tagIconName(tag.icon),checked:hasKeyword(tag.id),run:()=>hasKeyword(tag.id)?app.removeTag(messageId,tag.id):app.applyTag(messageId,tag.id)}))},
+    flag:{id:'flag',icon:ACTION_ICONS.followUp,label:t('mail-flag'),run:()=>{},children:followUpActions(until=>app.setFollowUp(messageId,until),hasFollowUp(),()=>app.completeFollowUp(messageId))},
+    archive:{id:'archive',icon:ACTION_ICONS.archive,label:t('mail-archive'),run:()=>app.archiveMessage(messageId)},
+    delete:{id:'delete',icon:'delete' as const,label:t('mail-delete'),run:()=>app.trashMessage(messageId)},
+   };return rowActionLayout().more.map(id=>actions[id]);
+  }});
+  const actionButtons:Record<RowActionId,()=>JSX.Element>={
+    'view-draft':()=>(<Show when={props.email.keywords?.['$draft']}><button type="button" class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`} aria-label={t('mail-draft-view')} title={t('mail-draft-view')} onClick={()=>requestDraftMessagePreview(id())}><Icon name="eye"/></button></Show>),
+    'pin':()=>(<button
           type="button"
           class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}
-          classList={{ [css.actionSecondary]: compact() && !expanded() }}
+          classList={{ [css.actionSecondary]: compact() && !expanded() && !rowActionLayout().customized }}
           aria-label={pinned() ? t('mail-unpin') : t('mail-pin')}
           aria-pressed={pinned()}
           onClick={() => void app.pinMessage(id(), !pinned())}
         >
           <Icon name={pinned() ? ACTION_ICONS.unpin : ACTION_ICONS.pin} />
-        </button>
-
-        <div class={`msg-actions__wrap ${css.menuWrap}`} classList={{ [css.actionSecondary]: compact() && !expanded() }}>
+        </button>),
+    'snooze':()=>(<div class={`msg-actions__wrap ${css.menuWrap}`} classList={{ [css.actionSecondary]: compact() && !expanded() && !rowActionLayout().customized }}>
           <button
             type="button"
             class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}
@@ -243,9 +195,8 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
               </Show>
             </div>
           </Show>
-        </div>
-
-        <div class={`msg-actions__wrap ${css.menuWrap}`} classList={{ [css.actionSecondary]: compact() && !expanded() }}>
+        </div>),
+    'label':()=>(<div class={`msg-actions__wrap ${css.menuWrap}`} classList={{ [css.actionSecondary]: compact() && !expanded() && !rowActionLayout().customized }}>
           <button
             type="button"
             class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}
@@ -282,9 +233,8 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
               </For>
             </div>
           </Show>
-        </div>
-
-        <button
+        </div>),
+    'flag':()=>(<button
           type="button"
           class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}
           aria-label={hasFollowUp() ? t('mail-clear-flag') : t('mail-flag')}
@@ -293,27 +243,91 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
           onClick={event=>followUp.openBelow(event.currentTarget)}
         >
           <Icon name={ACTION_ICONS.followUp} />
-        </button>
-
-        <button
+        </button>),
+    'archive':()=>(<button
           type="button"
           class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}
           aria-label={t('mail-archive')}
           onClick={() => void app.archiveMessage(id())}
         >
           <Icon name={ACTION_ICONS.archive} />
-        </button>
-        <button
+        </button>),
+    'delete':()=>(<button
           type="button"
           class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}
           aria-label={t('mail-delete')}
           onClick={() => void app.trashMessage(id())}
         >
           <Icon name="delete" />
-        </button>
+        </button>)
+  };
+  return (
+    <div
+      class={`msg-more ${css.more}`}
+      ref={wrapper}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={onKeyDown}
+      onFocusOut={onFocusOut}
+    >
+      <Show when={mode() !== 'off'}>
+      <button
+        type="button"
+        ref={toggleEl}
+        class={`msg-more__toggle ${css.moreToggle} ${a11y.focusable}`}
+        classList={{ [css.moreToggleAlways]: mode() === 'click' }}
+        aria-label={t('mail-more-actions')}
+        aria-expanded={props.onMore?props.contextOpen:open()}
+        aria-haspopup={props.onMore?'menu':undefined}
+        data-testid="msg-more-toggle"
+        onClick={event => props.onMore ? props.onMore(event) : (open() ? closeAll() : openFromToggle())}
+      >
+        <Icon name={open() ? 'close' : 'more'} />
+      </button>
+      </Show>
+
+      <Show when={props.email.keywords?.['mw-followup-completed']===true}><span class={css.followUpMark} role="img" aria-label={t('mail-follow-up-finished')} data-testid="msg-finished-mark"><Icon name="check"/></span></Show>
+      <Show when={hasFollowUp()}>
+        <span
+          class={`msg-followup ${css.followUpMark}`}
+          role="img"
+          aria-label={t('mail-flag')}
+          data-testid="msg-followup-mark"
+        >
+          <Icon name={ACTION_ICONS.followUp} />
+        </span>
+      </Show>
+
+      <Show when={mode() !== 'off'}>
+      <div
+        ref={clusterEl}
+        class={`msg-actions ${css.actions} ${css.actionsFade}`}
+        classList={{
+          [css.actionsOpen]: open() || menu() !== 'none' || configuredMore.isOpen(),
+          [css.actionsOnClick]: mode() === 'click',
+          [css.actionsOnClickOpen]: mode() === 'click' && (open() || menu() !== 'none' || configuredMore.isOpen()),
+        }}
+        data-mode={mode()}
+        role="group"
+        aria-label={t('mail-more-actions')}
+      >
+        <Show when={compact()&&!rowActionLayout().customized}>
+          <button
+            type="button"
+            class={`msg-actions__btn ${css.actionBtn} ${css.actionExpand} ${a11y.iconButton}`}
+            aria-label={t('mail-row-actions-expand')}
+            aria-expanded={expanded()}
+            aria-haspopup="true"
+            data-testid="msg-actions-expand"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            <Icon name="more" />
+          </button>
+        </Show>
+        <For each={rowActionLayout().quick}>{action=>actionButtons[action]()}</For>
+        <Show when={rowActionLayout().more.length>0}><button type="button" class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`} aria-label={t('mail-more-actions')} aria-haspopup="menu" aria-expanded={configuredMore.isOpen()} onClick={event=>configuredMore.openBelow(event.currentTarget)}><Icon name="more"/></button></Show>
       </div>
       </Show>
-      {followUp.menu()}
+      {followUp.menu()}{configuredMore.menu()}
     </div>
   );
 }

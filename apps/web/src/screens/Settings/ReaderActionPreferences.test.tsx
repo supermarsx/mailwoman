@@ -71,11 +71,18 @@ it('keeps the effective placement and explains a refused save',async()=>{
 
 it('filters actions by their translated name and previews current ribbon placements',async()=>{
  await mount();fireEvent.click(screen.getByText('Preview your actions ribbon'));
- const preview=screen.getByRole('list',{name:'Preview your actions ribbon'});
+ const preview=screen.getByRole('toolbar',{name:'Preview your actions ribbon'});
  expect(within(preview).getByText(t('reader-action-reply'))).toBeVisible();
  expect(within(preview).queryByText(t('reader-action-block-sender'))).toBeNull();
  fireEvent.input(screen.getByRole('searchbox',{name:'Find a ribbon action'}),{target:{value:'Reply'}});
- expect(screen.getAllByRole('combobox').length).toBe(3);
+ expect(screen.getAllByRole('combobox').length).toBe(4);
  expect(control('open-draft')).toBeInTheDocument();
  expect(control('reply')).toBeInTheDocument();expect(control('reply-all')).toBeInTheDocument();
+});
+
+it('previews the real reader controls with the effective icon and label style and menu placements',async()=>{
+ entries['reader.actionStyle']={value:'labels',source:'global',locked:false};await mount();fireEvent.click(screen.getByText('Preview your actions ribbon'));
+ const preview=screen.getByRole('toolbar',{name:'Preview your actions ribbon'});const reply=within(preview).getByRole('button',{name:t('reader-action-reply')});expect(reply).not.toHaveClass('reader-action--compact');expect(reply.querySelector('svg')).not.toBeNull();
+ await loadSettings({refresh:true,fetcher:async()=>json({settings:{...entries,'reader.actionStyle':{value:'icons',source:'user',locked:false}}})});expect(reply).toHaveClass('reader-action--compact');
+ fireEvent.click(within(preview).getByRole('button',{name:t('reader-actions-option-menu')}));expect(await screen.findByRole('menuitem',{name:t('reader-action-block-sender')})).toBeVisible();expect(writes).toEqual([]);
 });

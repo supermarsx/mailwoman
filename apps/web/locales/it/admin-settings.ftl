@@ -2732,3 +2732,6 @@ admin-settings-help-accounts-show-connection-status = Mostra una piccola icona d
 
 admin-settings-key-security-protection-probe-path-mode = Percorsi di scansione riconosciuti
 admin-settings-help-security-protection-probe-path-mode = Applica blocca la sorgente al primo sondaggio riconosciuto di CMS, webmail, console o file sensibile. Indipendente dalla protezione contro richieste insolite. Restano valide le eccezioni per la sorgente. Osserva registra soltanto; Disattivato disabilita la regola.
+
+admin-settings-key-mail-row-actions = Disposizione delle azioni rapide
+admin-settings-help-mail-row-actions = Scegli e ordina le azioni rapide o inseriscile in Altro. Le azioni nascoste restano disponibili nel menu contestuale del messaggio.

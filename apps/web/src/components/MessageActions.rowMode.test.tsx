@@ -100,3 +100,10 @@ describe('mail.rowActionsMode',()=>{
   expect(within(screen.getByRole('group',{name:'More actions'})).getAllByRole('button')).toHaveLength(6);
  });
 });
+
+it('respects configured quick-action order, hides omitted actions and runs configured More actions',async()=>{
+ await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.rowActions':{value:['quick:delete','quick:pin','more:archive'],source:'user',locked:false}}})});
+ const {app}=mount();const archive=vi.spyOn(app,'archiveMessage').mockResolvedValue();const cluster=screen.getByRole('group',{name:'More actions'});
+ expect(within(cluster).getAllByRole('button').map(button=>button.getAttribute('aria-label'))).toEqual(['Delete','Pin','More actions']);expect(within(cluster).queryByRole('button',{name:'Snooze'})).toBeNull();
+ fireEvent.click(within(cluster).getByRole('button',{name:'More actions'}));fireEvent.click(await screen.findByRole('menuitem',{name:'Archive'}));expect(archive).toHaveBeenCalledWith('a');
+});

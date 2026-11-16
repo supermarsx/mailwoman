@@ -2738,3 +2738,6 @@ admin-settings-help-accounts-show-connection-status = Ein kleines Statussymbol n
 
 admin-settings-key-security-protection-probe-path-mode = Bekannte Scan-Pfade
 admin-settings-help-security-protection-probe-path-mode = Durchsetzen sperrt die Quelle bereits beim ersten erkannten Zugriff auf fremde CMS, Webmail, Serverkonsolen oder vertrauliche Dateien. Unabhängig vom Schutz vor ungewöhnlichen Anfragen. Quellausnahmen gelten weiterhin. Beobachten protokolliert nur; Aus deaktiviert die Regel.
+
+admin-settings-key-mail-row-actions = Anordnung der Schnellaktionen
+admin-settings-help-mail-row-actions = Wählen und ordnen Sie Schnellaktionen oder legen Sie sie unter Mehr ab. Ausgeblendete Aktionen bleiben im Kontextmenü der Nachricht verfügbar.

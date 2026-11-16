@@ -910,3 +910,8 @@ settings-sync-option-on-demand = 打开时
 settings-sync-option-prefetch = 预取以供离线使用
 settings-sync-option-inline = 内嵌图片
 settings-sync-option-all-attachments = 所有允许的附件
+
+settings-row-actions-custom-title = 快速操作布局
+settings-row-actions-custom-help = 选择快速操作、调整顺序或将其放入“更多”菜单。隐藏的操作仍可在邮件右键菜单中使用。
+settings-row-action-up = 上移 { $name }
+settings-row-action-down = 下移 { $name }

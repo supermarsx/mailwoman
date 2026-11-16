@@ -1,3 +1,4 @@
+import {RowActionPreferences} from './RowActionPreferences.tsx';
 import {For,type JSX} from 'solid-js';
 import {useSetting} from './useSetting.ts';
 import {SettingRow} from './layout/SettingRow.tsx';
@@ -10,6 +11,7 @@ import * as css from './styles.css.ts';
 // a global/domain/user boolean, so an administrator can set the default or lock it.
 const FEATURES=Object.keys(MAIL_FEATURE_DEFAULTS) as MailFeature[];
 export const MAIL_CARD_SPECS:readonly CardSpec[]=[
+ {id:'settings-card-row-actions',section:'shortcuts',title:'settings-row-actions-custom-title',help:'settings-row-actions-custom-help',rows:[]},
  {id:'settings-card-mail-features',section:'shortcuts',title:'settings-mail-features',help:'settings-mail-card-list-help',rows:[{id:'row-actions-mode',label:'settings-row-actions-mode',help:'settings-row-actions-mode-help'},...FEATURES.map(f=>({id:mailFeatureKey(f),label:`settings-mail-feature-${f}`,help:`settings-mail-feature-${f}-help`}))]},
  {id:'settings-card-mail-interactions',section:'shortcuts',title:'settings-mail-interactions',rows:[{id:'mail.resumeTabs',label:'settings-mail-resume-tabs',help:'settings-mail-resume-tabs-help'},{id:'mail.modifierSelection',label:'settings-mail-modifier-selection',help:'settings-mail-modifier-selection-help'},{id:'mail.dragToFolder',label:'settings-mail-drag-folder',help:'settings-mail-drag-folder-help'}]},
 ];
@@ -17,12 +19,12 @@ export function MailFeaturePreferences():JSX.Element {
  const choices=FEATURES.map(feature=>({feature,key:mailFeatureKey(feature),handle:useSetting<boolean>(mailFeatureKey(feature),MAIL_FEATURE_DEFAULTS[feature])}));
  const rowActions=useSetting<RowActionsMode>(ROW_ACTIONS_MODE_KEY,ROW_ACTIONS_MODE_DEFAULT,isRowActionsMode);
  const rowActionsDisabled=()=>!rowActions.entry()||rowActions.locked()||rowActions.saving();
- return <SettingsCard id="settings-card-mail-features" title={t('settings-mail-features')} description={t('settings-mail-card-list-help')}>
+ return <><SettingsCard id="settings-card-mail-features" title={t('settings-mail-features')} description={t('settings-mail-card-list-help')}>
   <SettingRow controlId="row-actions-mode" label={t('settings-row-actions-mode')} help={t('settings-row-actions-mode-help')} handle={rowActions}>{describedBy=>
    <select id="row-actions-mode" class={css.select} value={rowActions.value()} disabled={rowActionsDisabled()} aria-describedby={describedBy()} onChange={event=>void rowActions.set(event.currentTarget.value as RowActionsMode)}><For each={ROW_ACTIONS_MODES}>{mode=><option value={mode}>{t(`settings-row-actions-mode-${mode}`)}</option>}</For></select>}</SettingRow>
   <For each={choices}>{choice=>{
    const disabled=()=>!choice.handle.entry()||choice.handle.locked()||choice.handle.saving();
    return <SettingRow controlId={choice.key} label={t(`settings-mail-feature-${choice.feature}`)} help={t(`settings-mail-feature-${choice.feature}-help`)} handle={choice.handle}>{describedBy=>
     <input id={choice.key} type="checkbox" checked={choice.handle.value()} disabled={disabled()} onChange={event=>void choice.handle.set(event.currentTarget.checked)} aria-describedby={describedBy()}/>}</SettingRow>;
-  }}</For></SettingsCard>;
+  }}</For></SettingsCard><RowActionPreferences/></>;
 }

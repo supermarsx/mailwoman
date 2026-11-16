@@ -2732,3 +2732,6 @@ admin-settings-help-accounts-show-connection-status = Toon een klein statuspicto
 
 admin-settings-key-security-protection-probe-path-mode = Herkende scanpaden
 admin-settings-help-security-protection-probe-path-mode = Handhaven blokkeert de bron bij de eerste herkende probe naar een CMS, webmail, serverconsole of gevoelig bestand. Onafhankelijk van bescherming tegen ongebruikelijke verzoeken. Bronuitzonderingen blijven gelden. Observeren registreert alleen; Uit schakelt de regel uit.
+
+admin-settings-key-mail-row-actions = Indeling van snelle acties
+admin-settings-help-mail-row-actions = Kies en orden snelle acties of plaats ze onder Meer. Verborgen acties blijven beschikbaar in het contextmenu van het bericht.

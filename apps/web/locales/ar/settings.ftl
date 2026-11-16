@@ -923,3 +923,8 @@ settings-sync-option-on-demand = عند الفتح
 settings-sync-option-prefetch = جلب مسبق للاستخدام دون اتصال
 settings-sync-option-inline = الصور المضمّنة
 settings-sync-option-all-attachments = كل المرفقات المسموحة
+
+settings-row-actions-custom-title = تخطيط الإجراءات السريعة
+settings-row-actions-custom-help = اختر الإجراءات السريعة ورتّبها أو ضعها في قائمة المزيد. تبقى الإجراءات المخفية متاحة في قائمة سياق الرسالة.
+settings-row-action-up = نقل { $name } لأعلى
+settings-row-action-down = نقل { $name } لأسفل

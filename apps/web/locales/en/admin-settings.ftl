@@ -2527,3 +2527,6 @@ admin-settings-help-accounts-show-connection-status = Show a small status icon b
 
 admin-settings-key-security-protection-probe-path-mode = Recognized scan paths
 admin-settings-help-security-protection-probe-path-mode = Enforce blocks the source immediately on its first recognized CMS, webmail, server-console or sensitive-file probe. Independent of unusual-request protection. Source exceptions still apply. Observe records only; Off disables this rule.
+
+admin-settings-key-mail-row-actions = Quick action layout
+admin-settings-help-mail-row-actions = Choose the quick actions, arrange their order, or place them in More. Hidden actions remain available in the message context menu.

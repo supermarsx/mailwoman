@@ -2750,3 +2750,6 @@ admin-settings-help-accounts-show-connection-status = Pokazuj małą ikonę stan
 
 admin-settings-key-security-protection-probe-path-mode = Rozpoznane ścieżki skanowania
 admin-settings-help-security-protection-probe-path-mode = Egzekwowanie blokuje źródło już przy pierwszej rozpoznanej próbie dostępu do CMS, webmaila, konsoli lub poufnego pliku. Niezależne od ochrony przed nietypowymi żądaniami. Wyjątki źródeł nadal obowiązują. Obserwacja tylko zapisuje zdarzenia; Wyłączone wyłącza regułę.
+
+admin-settings-key-mail-row-actions = Układ szybkich akcji
+admin-settings-help-mail-row-actions = Wybierz i uporządkuj szybkie akcje lub umieść je w menu Więcej. Ukryte akcje pozostają dostępne w menu kontekstowym wiadomości.

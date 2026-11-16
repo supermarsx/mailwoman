@@ -1,3 +1,5 @@
+import {ReaderAction} from '../../components/ReaderAction.tsx';
+import {createContextMenu} from '../../components/ContextMenu.tsx';
 import {SearchInput} from '../../components/SearchInput.tsx';
 import './settingsTransfer.css';
 import {createSignal,For,onMount,Show,type JSX} from 'solid-js';
@@ -40,10 +42,11 @@ function ActionChoice(props:{action:typeof READER_ACTIONS[number]}):JSX.Element 
  * an unavailable message-specific action can be configured for future use. */
 export function ReaderActionPreferences():JSX.Element {
  const [query,setQuery]=createSignal('');
+ const previewMenu=createContextMenu({label:()=>t('reader-actions-option-menu'),scope:()=> 'reader-preview',actions:()=>READER_ACTIONS.filter(action=>readerActionPlacement(action.id,settings())==='menu').map(action=>({id:action.id,label:t(action.labelKey),icon:READER_ACTION_ICONS[action.id],run:()=>{}}))});
  onMount(()=>{void loadCatalog('reader-actions');void loadCatalog('settings-transfer');});
  return <SettingsCard id={READER_ACTIONS_CARD.id} title={t(READER_ACTIONS_CARD.title)} description={t('reader-actions-help')} testId="reader-action-preferences">
   <label for="reader-actions-search">{t('st-ribbon-search')}</label><SearchInput id="reader-actions-search"  value={query()} onInput={event=>setQuery(event.currentTarget.value)} style={{'max-inline-size':'28rem','inline-size':'100%','box-sizing':'border-box'}}/>
-  <details><summary>{t('st-ribbon-preview')}</summary><div class="st-buttons" role="list" aria-label={t('st-ribbon-preview')}><For each={READER_ACTIONS.filter(action=>readerActionPlacement(action.id,settings())==='toolbar')}>{action=><span role="listitem" class="st-status"><Icon name={READER_ACTION_ICONS[action.id]}/>{t(action.labelKey)}</span>}</For><Show when={READER_ACTIONS.some(action=>readerActionPlacement(action.id,settings())==='menu')}><span role="listitem"><Icon name="more"/>{t('reader-actions-option-menu')}</span></Show></div><p>{t('st-ribbon-preview-help')}</p></details>
+  <details><summary>{t('st-ribbon-preview')}</summary><div class={compact.preview} role="toolbar" aria-label={t('st-ribbon-preview')}><For each={READER_ACTIONS.filter(action=>readerActionPlacement(action.id,settings())==='toolbar')}>{action=><ReaderAction icon={READER_ACTION_ICONS[action.id]} label={t(action.labelKey)} help={t(action.labelKey)} onClick={()=>{}}/>}</For><Show when={READER_ACTIONS.some(action=>readerActionPlacement(action.id,settings())==='menu')}><ReaderAction icon="more" label={t('reader-actions-option-menu')} help={t('st-ribbon-preview-help')} popup="menu" expanded={previewMenu.isOpen()} onClick={event=>previewMenu.openBelow(event.currentTarget as HTMLButtonElement)}/></Show></div><p>{t('st-ribbon-preview-help')}</p></details>{previewMenu.menu()}
   <div class={compact.list}><For each={READER_ACTIONS}>{action=><Show when={t(action.labelKey).toLocaleLowerCase().includes(query().trim().toLocaleLowerCase())}><ActionChoice action={action}/></Show>}</For></div>
  </SettingsCard>;
 }

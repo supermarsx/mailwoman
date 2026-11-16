@@ -901,3 +901,8 @@ settings-sync-option-on-demand = Beim Öffnen
 settings-sync-option-prefetch = Für Offline-Nutzung vorladen
 settings-sync-option-inline = Eingebettete Bilder
 settings-sync-option-all-attachments = Alle erlaubten Anhänge
+
+settings-row-actions-custom-title = Anordnung der Schnellaktionen
+settings-row-actions-custom-help = Wählen und ordnen Sie Schnellaktionen oder legen Sie sie unter Mehr ab. Ausgeblendete Aktionen bleiben im Kontextmenü der Nachricht verfügbar.
+settings-row-action-up = { $name } nach oben verschieben
+settings-row-action-down = { $name } nach unten verschieben

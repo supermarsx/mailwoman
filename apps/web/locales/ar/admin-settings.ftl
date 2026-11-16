@@ -2754,3 +2754,6 @@ admin-settings-help-accounts-show-connection-status = إظهار رمز حالة
 
 admin-settings-key-security-protection-probe-path-mode = مسارات الفحص المعروفة
 admin-settings-help-security-protection-probe-path-mode = يحظر وضع الإنفاذ المصدر عند أول محاولة معروفة لفحص نظام إدارة محتوى أو بريد ويب أو لوحة خادم أو ملف حساس. مستقل عن حماية الطلبات غير المعتادة. تبقى استثناءات المصادر سارية. وضع المراقبة يسجل فقط؛ وإيقاف التشغيل يعطل القاعدة.
+
+admin-settings-key-mail-row-actions = تخطيط الإجراءات السريعة
+admin-settings-help-mail-row-actions = اختر الإجراءات السريعة ورتّبها أو ضعها في قائمة المزيد. تبقى الإجراءات المخفية متاحة في قائمة سياق الرسالة.

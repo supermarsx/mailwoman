@@ -545,6 +545,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "mail",
         "Close the open message when it is deleted"
     ),
+    def!("mail.rowActions",Kind::StringList{max_len:7,max_item:32},r#"["quick:view-draft","quick:pin","quick:snooze","quick:label","quick:flag","quick:archive","quick:delete"]"#,GDU,"mail","Ordered message-list quick actions: quick: or more: placement; omitted actions are hidden"),
     def!(
         "mail.rowActionsMode",
         Kind::Enum(&["open", "hover", "click", "off"]),
@@ -9047,6 +9048,11 @@ fn valid_shortcut(value: &str) -> bool {
 }
 
 pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, Refusal> {
+    if def.key=="mail.rowActions" {
+        let mut ids=std::collections::HashSet::new();
+        let valid=value.as_array().is_some_and(|rows|rows.len()<=7&&rows.iter().all(|row|row.as_str().and_then(|row|row.split_once(':')).is_some_and(|(place,id)|["quick","more"].contains(&place)&&["view-draft","pin","snooze","label","flag","archive","delete"].contains(&id)&&ids.insert(id))));
+        if !valid{return Err(Refusal::invalid(field,"expected distinct quick: or more: row action identifiers"));}
+    }
     if def.key == "session.absoluteSecs" && value.as_u64().is_some_and(|value| value > 0 && value < 300) {
         return Err(Refusal::invalid(field,"absolute session limit must be 0 or at least 300 seconds"));
     }
@@ -9398,6 +9404,8 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                         } else if matches!(def.key, "mail.replyFrom.headerPriority" | "mail.priority.sendHeaders" | "properties.folder.overrides.allowed") {
                             // Header names: Delivered-To, X-Original-To, X-MSMail-Priority, ...
                             b.is_ascii_alphanumeric() || b == b'-'
+                        } else if def.key == "mail.rowActions" {
+                            b.is_ascii_lowercase() || b == b'-' || b == b':'
                         } else if def.key == "security.adminProbe.probePaths" {
                             b.is_ascii_alphanumeric() || b"/._~-%+@:!".contains(&b)
                         } else {
@@ -11261,4 +11269,10 @@ mod rolling_session_tests {
         assert_eq!(lookup("admin.session.idleSecs").unwrap().default_value(),json!(1800));
         assert_eq!(lookup("admin.session.absoluteSecs").unwrap().default_value(),json!(43200));
     }
+}
+
+#[cfg(test)]
+mod row_action_layout_tests {
+ use super::*;
+ #[test] fn validates_order_placement_and_unique_actions(){let def=lookup("mail.rowActions").unwrap();assert_eq!(def.scopes,GDU);for value in [json!([]),json!(["quick:delete","quick:pin","more:flag"]),def.default_value()]{assert!(validate(def,&value,"value").is_ok());}for value in [json!(["quick:pin","more:pin"]),json!(["quick:unknown"]),json!(["hidden:delete"]),json!([1])]{assert!(validate(def,&value,"value").is_err());}}
 }

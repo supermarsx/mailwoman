@@ -2750,3 +2750,6 @@ admin-settings-help-accounts-show-connection-status = Показывать не�
 
 admin-settings-key-security-protection-probe-path-mode = Известные пути сканирования
 admin-settings-help-security-protection-probe-path-mode = Применение блокирует источник при первой распознанной проверке CMS, веб-почты, консоли или конфиденциального файла. Не зависит от защиты от необычных запросов. Исключения источников сохраняются. Наблюдение только записывает события; Выкл. отключает правило.
+
+admin-settings-key-mail-row-actions = Расположение быстрых действий
+admin-settings-help-mail-row-actions = Выберите и упорядочьте быстрые действия или поместите их в меню «Ещё». Скрытые действия остаются доступны в контекстном меню сообщения.

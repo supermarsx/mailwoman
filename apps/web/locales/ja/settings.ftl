@@ -891,3 +891,8 @@ settings-sync-option-on-demand = 開くとき
 settings-sync-option-prefetch = オフライン用に事前取得
 settings-sync-option-inline = 埋め込み画像
 settings-sync-option-all-attachments = 許可されたすべての添付
+
+settings-row-actions-custom-title = クイック操作の配置
+settings-row-actions-custom-help = クイック操作を選択し、順序を変更するか、「その他」に配置します。非表示の操作はメッセージのコンテキストメニューから引き続き利用できます。
+settings-row-action-up = { $name } を上へ移動
+settings-row-action-down = { $name } を下へ移動

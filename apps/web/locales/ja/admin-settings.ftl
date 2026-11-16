@@ -2724,3 +2724,6 @@ admin-settings-help-accounts-show-connection-status = メールボックス名�
 
 admin-settings-key-security-protection-probe-path-mode = 既知のスキャンパス
 admin-settings-help-security-protection-probe-path-mode = 強制では、CMS、ウェブメール、サーバー管理画面、機密ファイルへの既知の探索要求を初回から送信元ごとブロックします。不審な要求の保護とは独立しています。送信元の例外は引き続き適用されます。監視は記録のみ、オフはこのルールを無効にします。
+
+admin-settings-key-mail-row-actions = クイック操作の配置
+admin-settings-help-mail-row-actions = クイック操作を選択し、順序を変更するか、「その他」に配置します。非表示の操作はメッセージのコンテキストメニューから引き続き利用できます。

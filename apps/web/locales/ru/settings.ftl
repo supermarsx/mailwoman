@@ -922,3 +922,8 @@ settings-sync-option-on-demand = При открытии
 settings-sync-option-prefetch = Загружать заранее для офлайн
 settings-sync-option-inline = Встроенные изображения
 settings-sync-option-all-attachments = Все разрешённые вложения
+
+settings-row-actions-custom-title = Расположение быстрых действий
+settings-row-actions-custom-help = Выберите и упорядочьте быстрые действия или поместите их в меню «Ещё». Скрытые действия остаются доступны в контекстном меню сообщения.
+settings-row-action-up = Переместить { $name } вверх
+settings-row-action-down = Переместить { $name } вниз

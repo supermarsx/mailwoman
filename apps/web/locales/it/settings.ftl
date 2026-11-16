@@ -897,3 +897,8 @@ settings-sync-option-on-demand = All’apertura
 settings-sync-option-prefetch = Precarica per uso offline
 settings-sync-option-inline = Immagini incorporate
 settings-sync-option-all-attachments = Tutti gli allegati consentiti
+
+settings-row-actions-custom-title = Disposizione delle azioni rapide
+settings-row-actions-custom-help = Scegli e ordina le azioni rapide o inseriscile in Altro. Le azioni nascoste restano disponibili nel menu contestuale del messaggio.
+settings-row-action-up = Sposta { $name } in alto
+settings-row-action-down = Sposta { $name } in basso

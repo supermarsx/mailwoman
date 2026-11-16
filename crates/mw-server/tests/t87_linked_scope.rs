@@ -674,6 +674,8 @@ async fn keys_oauth_grants_and_push_made_in_a_linked_mailbox_go_with_the_link() 
         200,
     )
     .await;
+    json_of(f.child(M::PUT,"/api/settings/mail.rowActions").json(&json!({"value":["quick:delete","more:pin"]})).send().await.unwrap(),200).await;
+    assert_eq!(f.child(M::PUT,"/api/settings/mail.rowActions").json(&json!({"value":["quick:pin","more:pin"]})).send().await.unwrap().status(),422);
     let shared = "https://push.example/t87-browser";
     let only_child = "https://push.example/t87-child-only";
     let subscribe = |endpoint: &str| json!({"transport":"unifiedpush","endpoint":endpoint});
