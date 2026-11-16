@@ -87,7 +87,7 @@ export const TOAST_DURATIONS = {
 export const TOAST_LIMIT = 3;
 
 /** What stops the clocks: pointer over the region, focus inside it, a hidden window. */
-export type PauseReason = 'hover' | 'focus' | 'hidden';
+export type PauseReason = 'hover' | 'focus' | 'hidden' | 'gesture';
 
 interface Clock {
   /** Milliseconds left when the clock last stopped (or was set). */

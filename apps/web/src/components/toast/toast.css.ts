@@ -63,6 +63,7 @@ const drop = keyframes({
 });
 
 export const item = style({
+  touchAction:'pan-y',transitionProperty:'translate, opacity',transitionDuration:vars.a11y.motionDuration,selectors:{'&[data-swiping]':{animation:'none',transition:'none'}},
   pointerEvents: 'auto',
   boxSizing: 'border-box',
   display: 'flex',
@@ -85,7 +86,7 @@ export const item = style({
   animation: `${rise} ${vars.a11y.motionDurationSlow} ease-out`,
   '@media': {
     [PHONE]: { width: 'auto', animationName: drop },
-    [REDUCED]: { animation: 'none' },
+    [REDUCED]: { animation: 'none',transition:'none' },
   },
 });
 

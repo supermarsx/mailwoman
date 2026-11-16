@@ -210,17 +210,45 @@ export function ToastRegion(): JSX.Element {
   );
 }
 
+const swipingToasts=new Set<string>();
+
 function Toast(props: {
   item: ToastItem;
   now: () => number;
   onClose: (reason: 'dismiss' | 'action') => void;
 }): JSX.Element {
+  const toastId=props.item.id;
+  let element!:HTMLDivElement;
+  let gesture:{id:number;x:number;y:number;active:boolean}|undefined;
+  const [offset,setOffset]=createSignal(0);
+  function finishGesture():void{
+    const previous=gesture;gesture=undefined;setOffset(0);if(element?.hasAttribute('style')){element.style.removeProperty('translate');element.style.removeProperty('opacity');if(!element.getAttribute('style'))element.removeAttribute('style');}swipingToasts.delete(toastId);setToastPause('gesture',swipingToasts.size>0);
+    if(previous){try{if(element.hasPointerCapture?.(previous.id))element.releasePointerCapture(previous.id);}catch{/* The browser may have released capture already. */}}
+  }
+  onCleanup(finishGesture);
+  function beginSwipe(event:PointerEvent):void{
+    if(gesture||!event.isPrimary||!['touch','pen'].includes(event.pointerType)||(event.target as Element).closest('button,a,input,textarea,select'))return;
+    gesture={id:event.pointerId,x:event.clientX,y:event.clientY,active:false};swipingToasts.add(toastId);setToastPause('gesture',true);
+  }
+  function moveSwipe(event:PointerEvent):void{
+    if(!gesture||gesture.id!==event.pointerId)return;
+    const dx=event.clientX-gesture.x,dy=event.clientY-gesture.y;
+    if(!gesture.active){if(Math.abs(dy)>12&&Math.abs(dy)>=Math.abs(dx)){finishGesture();return;}if(Math.abs(dx)<12||Math.abs(dx)<Math.abs(dy)*1.25)return;gesture.active=true;try{element.setPointerCapture?.(event.pointerId);}catch{/* Detached or unsupported capture. */}}
+    event.preventDefault();setOffset(dx);element.style.translate=`${dx}px 0`;element.style.opacity=String(Math.max(.35,1-Math.abs(dx)/320));
+  }
+  function endSwipe(event:PointerEvent):void{
+    if(!gesture||gesture.id!==event.pointerId)return;
+    const dismiss=gesture.active&&Math.abs(event.clientX-gesture.x)>=Math.max(48,Math.min(96,element.getBoundingClientRect().width*.25));finishGesture();if(dismiss)props.onClose('dismiss');
+  }
   const seconds = (): number => {
     props.now();
     return Math.ceil(toastTimeLeft(props.item.id) / 1000);
   };
   return (
     <div
+      ref={element}
+      data-swiping={offset()!==0?'true':undefined}
+      onPointerDown={beginSwipe} onPointerMove={moveSwipe} onPointerUp={endSwipe} onPointerCancel={finishGesture} onLostPointerCapture={finishGesture}
       class={`toast ${css.item} ${css.tone[props.item.tone]}`}
       role={props.item.tone === 'error' ? 'alert' : 'status'}
       aria-live={props.item.tone === 'error' ? undefined : 'off'}

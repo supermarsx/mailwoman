@@ -5,10 +5,12 @@ export function installPointerEvent(): void {
   class TestPointerEvent extends MouseEvent {
     pointerId: number;
     pointerType: string;
+    isPrimary: boolean;
     constructor(type: string, init: PointerEventInit = {}) {
       super(type, init);
       this.pointerId = init.pointerId ?? 1;
       this.pointerType = init.pointerType ?? 'mouse';
+      this.isPrimary = init.isPrimary ?? true;
     }
   }
   (globalThis as { PointerEvent: unknown }).PointerEvent = TestPointerEvent;

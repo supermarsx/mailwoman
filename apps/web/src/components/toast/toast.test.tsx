@@ -1,3 +1,5 @@
+import {installPointerEvent} from '../accounts/pointerEventPolyfill.test-util.ts';
+installPointerEvent();
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
 import axe from 'axe-core';
@@ -338,4 +340,16 @@ it('reserves one persistent job slot without increasing the ordinary notificatio
  expect(toasts().find(item=>item.id==='job')).toBeDefined();expect(closed).not.toHaveBeenCalled();
  toast.info('Replacement job',{id:'replacement',persistent:true,duration:Infinity});
  expect(toasts().filter(item=>item.persistent)).toHaveLength(1);expect(closed).toHaveBeenCalledWith('evicted');
+});
+
+describe('touch toast dismissal',()=>{
+ it.each([1,-1])('dismisses a deliberate horizontal swipe in direction %s',direction=>{
+  render(()=><ToastRegion/>);const closed=vi.fn();toast.info('Swipe me',{onClose:closed});const item=screen.getByTestId('toast');
+  fireEvent.pointerDown(item,{pointerId:1,pointerType:'touch',isPrimary:true,clientX:150,clientY:100});fireEvent.pointerMove(item,{pointerId:1,pointerType:'touch',isPrimary:true,clientX:150+direction*110,clientY:102});fireEvent.pointerUp(item,{pointerId:1,pointerType:'touch',isPrimary:true,clientX:150+direction*110,clientY:102});expect(screen.queryByTestId('toast')).toBeNull();expect(closed).toHaveBeenCalledWith('dismiss');
+ });
+ it('keeps short drags, vertical scrolling and canceled gestures, and preserves action taps',async()=>{
+  render(()=><ToastRegion/>);const action=vi.fn();toast.info('Swipe safely',{action:{label:'Undo',run:action}});const item=screen.getByTestId('toast');
+  for(const [x,y,cancel] of [[20,0,false],[10,100,false],[120,0,true]] as const){fireEvent.pointerDown(item,{pointerId:2,pointerType:'touch',isPrimary:true,clientX:100,clientY:100});fireEvent.pointerMove(item,{pointerId:2,pointerType:'touch',isPrimary:true,clientX:100+x,clientY:100+y});if(cancel)fireEvent.pointerCancel(item,{pointerId:2});else fireEvent.pointerUp(item,{pointerId:2,clientX:100+x,clientY:100+y});expect(screen.getByTestId('toast')).toBe(item);}
+  fireEvent.click(screen.getByRole('button',{name:'Undo'}));await flush();expect(action).toHaveBeenCalledOnce();
+ });
 });
