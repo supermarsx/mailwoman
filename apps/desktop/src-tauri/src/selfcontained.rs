@@ -338,6 +338,10 @@ fn spawn_child(opts: &SpawnOptions, key: &str, port: u16) -> std::io::Result<Chi
         .env("MW_SERVER_KEY", key)
         .env("MW_MODE", &opts.mode)
         .env("MW_COOKIE_SECURE", "false")
+        // The shell serves its hash-pinned UI itself. Copying the server's
+        // embedded hashed UI into a second retained-assets tree only delays
+        // API readiness (especially debug builds reading each asset from disk).
+        .env("MW_RETAINED_ASSETS_DIR", "off")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
