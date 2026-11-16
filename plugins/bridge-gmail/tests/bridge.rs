@@ -37,6 +37,23 @@ const MSG_M1_RAW: &str = include_str!("../fixtures/msg_m1_raw.json");
 
 const ACCESS_TOKEN: &str = "test-access-token-abc123";
 
+#[tokio::test]
+async fn poll_only_bridge_wakes_the_engine_when_guest_has_no_push_events() {
+    let (_mock, backend) = host_and_backend();
+    assert!(!backend.capabilities().await.unwrap().idle);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let watch = backend.watch(mw_engine::ChangeSink::new(tx)).await.unwrap();
+    let event = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        event,
+        mw_engine::ChangeEvent::MailboxChanged { .. }
+    ));
+    watch.stop();
+}
+
 /// Replays the recorded Gmail REST fixtures by matching the request URL, recording
 /// every request so the test can assert on the Bearer header + the delta cursor.
 struct GmailMock {

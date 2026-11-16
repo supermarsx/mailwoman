@@ -32,6 +32,10 @@ pub enum EngineError {
     /// Malformed or unexpected protocol response from the server.
     #[error("backend protocol error: {0}")]
     Protocol(String),
+    /// The upstream no longer recognizes its incremental token. Retry a complete
+    /// baseline and reconcile cached membership only after the baseline succeeds.
+    #[error("backend sync state expired")]
+    SyncReset,
     /// Authentication (LOGIN / SASL) was rejected.
     #[error("authentication failed: {0}")]
     Auth(String),

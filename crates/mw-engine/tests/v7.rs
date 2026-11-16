@@ -10,6 +10,7 @@
 //! - the **non-plugin / non-directory default path is byte-unchanged** (every V7
 //!   accessor is inert until something is attached).
 
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -43,6 +44,7 @@ struct PluginBackend {
     /// The cursor the engine handed us on the most recent `sync_mailbox`.
     last_cursor: Mutex<Option<SyncCursor>>,
     served: Mutex<bool>,
+    reset_mode: AtomicU8,
 }
 
 impl PluginBackend {
@@ -51,6 +53,7 @@ impl PluginBackend {
             native_token: b"deltatoken=BRIDGE-XYZ\x00\xff".to_vec(),
             last_cursor: Mutex::new(None),
             served: Mutex::new(false),
+            reset_mode: AtomicU8::new(0),
         }
     }
 }
@@ -95,21 +98,26 @@ impl AccountBackend for PluginBackend {
 
     async fn sync_mailbox(
         &self,
-        mbox: &RawMailboxRef,
+        _mbox: &RawMailboxRef,
         cursor: &SyncCursor,
     ) -> Result<MailboxDelta> {
         *self.last_cursor.lock().unwrap() = Some(cursor.clone());
+        let mode = self.reset_mode.load(Ordering::SeqCst);
+        if mode > 0 && matches!(cursor,SyncCursor::Plugin{opaque} if !opaque.is_empty()) {
+            return Err(mw_engine::EngineError::SyncReset);
+        }
+        if mode == 2 {
+            return Err(mw_engine::EngineError::Transport("baseline failed".into()));
+        }
         // Only serve the message on the FIRST sync (fresh cursor); on a resync with
         // our own Plugin cursor we return no new messages (idempotent).
         let already = *self.served.lock().unwrap();
-        let added = if already {
+        let added = if mode == 1 || already && mode != 3 {
             Vec::new()
         } else {
             *self.served.lock().unwrap() = true;
-            vec![MessageRef::Imap {
-                mailbox: mbox.clone(),
-                uidvalidity: UIDVALIDITY,
-                uid: 1,
+            vec![MessageRef::Plugin {
+                raw: "provider-1".into(),
             }]
         };
         Ok(MailboxDelta {
@@ -379,6 +387,95 @@ async fn plugin_sync_cursor_round_trips() {
         }
         other => panic!("expected the engine to re-hand a Plugin cursor, got {other:?}"),
     }
+}
+
+async fn mail_count(engine: &Engine, account: &str) -> usize {
+    jmap(engine, account, json!([["Email/query", {}, "q"]])).await["methodResponses"][0][1]["ids"]
+        .as_array()
+        .unwrap()
+        .len()
+}
+
+#[tokio::test]
+async fn expired_plugin_cursor_reconciles_removed_members_after_complete_baseline() {
+    let (engine, account, backend) = engine_with_account().await;
+    engine.resync(&account).await.unwrap();
+    assert_eq!(mail_count(&engine, &account).await, 1);
+    backend.reset_mode.store(1, Ordering::SeqCst);
+    engine.resync(&account).await.unwrap();
+    assert_eq!(mail_count(&engine, &account).await, 0);
+    assert!(
+        matches!(backend.last_cursor.lock().unwrap().as_ref(),Some(SyncCursor::Plugin{opaque}) if opaque.is_empty())
+    );
+}
+
+#[tokio::test]
+async fn failed_plugin_reset_preserves_cached_members_and_durable_cursor() {
+    let (engine, account, backend) = engine_with_account().await;
+    engine.resync(&account).await.unwrap();
+    assert_eq!(mail_count(&engine, &account).await, 1);
+    backend.reset_mode.store(2, Ordering::SeqCst);
+    assert!(engine.resync(&account).await.is_err());
+    assert_eq!(mail_count(&engine, &account).await, 1);
+    backend.reset_mode.store(0, Ordering::SeqCst);
+    engine.resync(&account).await.unwrap();
+    assert!(
+        matches!(backend.last_cursor.lock().unwrap().as_ref(),Some(SyncCursor::Plugin{opaque}) if opaque==&backend.native_token)
+    );
+}
+
+#[tokio::test]
+async fn plugin_reset_preserves_surviving_message_identity() {
+    let (engine, account, backend) = engine_with_account().await;
+    engine.resync(&account).await.unwrap();
+    let before = jmap(&engine, &account, json!([["Email/query", {}, "q"]])).await;
+    assert_eq!(mail_count(&engine, &account).await, 1);
+    backend.reset_mode.store(3, Ordering::SeqCst);
+    engine.resync(&account).await.unwrap();
+    let after = jmap(&engine, &account, json!([["Email/query", {}, "q"]])).await;
+    assert_eq!(
+        before["methodResponses"][0][1]["ids"],
+        after["methodResponses"][0][1]["ids"]
+    );
+}
+
+#[tokio::test]
+async fn provider_reference_upgrade_preserves_cached_identity_and_queued_legacy_aliases() {
+    let (engine, account, _backend) = engine_with_account().await;
+    engine.resync(&account).await.unwrap();
+    let original = engine
+        .store()
+        .stable_id_for_uidl(&account, "provider-1")
+        .await
+        .unwrap()
+        .unwrap();
+    engine
+        .migrate_plugin_reference(&account, "provider-1", "provider-1\u{1f}revision")
+        .await
+        .unwrap();
+    engine
+        .migrate_plugin_reference(&account, "provider-1\u{1f}revision", "provider-1")
+        .await
+        .unwrap();
+    assert_eq!(
+        engine
+            .store()
+            .stable_id_for_uidl(&account, "provider-1")
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(original.as_str())
+    );
+    assert_eq!(
+        engine
+            .store()
+            .stable_id_for_uidl(&account, "provider-1\u{1f}revision")
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(original.as_str())
+    );
+    assert_eq!(mail_count(&engine, &account).await, 1);
 }
 
 #[tokio::test]

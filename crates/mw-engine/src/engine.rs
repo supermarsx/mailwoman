@@ -22,7 +22,7 @@ mod date_upgrade;
 
 use crate::account::AccountRuntime;
 use crate::backend::{
-    AccountBackend, ChangeEvent, ChangeSink, EngineError, MailboxDelta, MessageRef, RawMailbox,
+    AccountBackend, ChangeEvent, ChangeSink, EngineError, MessageRef, RawMailbox,
     RawMessage, Result, SyncCursor, WatchHandle,
 };
 use crate::change::{ChangeOp, ChangeType, StateChange};
@@ -545,6 +545,21 @@ impl Engine {
         Ok(())
     }
 
+    /// Upgrade a provider's native reference without replacing cached identity
+    /// or user metadata. The caller owns the provider's encoding/version rules.
+    /// Retain the old alias so already queued operations remain resolvable.
+    pub async fn migrate_plugin_reference(&self,account:&str,old:&str,new:&str)->Result<()> {
+        if old==new||old.is_empty()||new.is_empty(){return Ok(());}
+        let Some(id)=self.store.stable_id_for_uidl(account,old).await? else{return Ok(());};
+        if self.store.stable_id_for_uidl(account,new).await?.is_some_and(|other|other!=id){return Err(EngineError::Protocol("ambiguous provider reference migration".into()));}
+        let message=match self.store.get_message(&id).await {Ok(message)=>message,Err(mw_store::StoreError::NotFound)=>return Ok(()),Err(error)=>return Err(error.into())};
+        if message.account_id!=account{return Err(EngineError::Protocol("provider reference owner mismatch".into()));}
+        let (validity,uid,_)=coords(&MessageRef::Plugin{raw:new.into()});
+        self.store.relocate_message(&id,&message.mailbox_id,uid,validity).await?;
+        self.store.record_uidl(account,new,&id).await?;
+        Ok(())
+    }
+
     async fn reconcile_mailbox_list(
         &self,
         account_id: &str,
@@ -625,7 +640,7 @@ impl Engine {
             .await?)
     }
 
-    /// Incrementally sync one mailbox: load its cursor, apply the [`MailboxDelta`]
+    /// Incrementally sync one mailbox: load its cursor, apply the [`crate::backend::MailboxDelta`]
     /// (fetch+parse+store new messages, apply flag changes, drop removals), then
     /// persist the next cursor.
     async fn sync_one(
@@ -642,7 +657,18 @@ impl Engine {
             .and_then(|json| cursor_from_json(&json))
             .unwrap_or_else(|| self.initial_cursor_for(account_id));
         let cursor = self.with_recorded_uidls(account_id, cursor).await?;
-        let mut delta: MailboxDelta = rt.backend.sync_mailbox(&rm.mailbox_ref, &cursor).await?;
+        let (mut delta, reset) = match rt.backend.sync_mailbox(&rm.mailbox_ref, &cursor).await {
+            Err(EngineError::SyncReset) if matches!(cursor, SyncCursor::Plugin { .. }) => {
+                self.require_runtime_generation(account_id, rt)?;
+                (
+                    rt.backend
+                        .sync_mailbox(&rm.mailbox_ref, &SyncCursor::Plugin { opaque: Vec::new() })
+                        .await?,
+                    true,
+                )
+            }
+            result => (result?, false),
+        };
         self.require_runtime_generation(account_id, rt)?;
         let validity = |cursor: &SyncCursor| match cursor {
             SyncCursor::Qresync { uidvalidity, .. }
@@ -694,9 +720,36 @@ impl Engine {
         // New messages: fetch raw bytes, parse in one pass, ingest.
         if !delta.added.is_empty() {
             let raws = rt.backend.fetch_raw(&delta.added).await?;
+            if reset {
+                let expected:std::collections::BTreeSet<_>=delta.added.iter().filter_map(|r|match r {MessageRef::Plugin{raw}=>Some(raw),_=>None}).collect();
+                let received:std::collections::BTreeSet<_>=raws.iter().filter_map(|r|match &r.message_ref {MessageRef::Plugin{raw}=>Some(raw),_=>None}).collect();
+                if expected!=received{return Err(EngineError::Protocol("incomplete reset baseline fetch".into()));}
+            }
             for raw in &raws {
                 self.require_runtime_generation(account_id, rt)?;
                 self.ingest(account_id, mailbox_id, raw).await?;
+            }
+        }
+
+        if reset {
+            // The bridge's empty-cursor response is a complete baseline, never
+            // an intermediate page. Retain old mail on failed/incomplete fetches.
+            let mut live = std::collections::HashSet::new();
+            let mut removed_ids=std::collections::HashSet::new();
+            for reference in &delta.added {
+                if let Some(id) = self.resolve_ref(account_id, mailbox_id, reference).await? {
+                    live.insert(id);
+                }
+            }
+            for raw in self.store.seen_uidls(account_id).await? {
+                if let Some(id) = self.store.stable_id_for_uidl(account_id, &raw).await?
+                    && !live.contains(&id)
+                    && let Ok(message) = self.store.get_message(&id).await
+                    && message.mailbox_id == mailbox_id
+                    && removed_ids.insert(id)
+                {
+                    delta.removed.push(MessageRef::Plugin { raw });
+                }
             }
         }
 

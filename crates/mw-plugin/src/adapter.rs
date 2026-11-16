@@ -215,6 +215,7 @@ impl AccountBackend for AccountBackendAdapter {
             .admit(self.ctx.bound_account.as_deref())
             .await
             .map_err(plugin_to_engine)?;
+        let polling = !self.capabilities().await?.idle;
         // Host-driven polling loop (the WIT `poll-changes` replaces the WASI async
         // stream, R1). A fresh, resource-limited session is used so the poll loop
         // never contends with foreground syncs; the WatchHandle stops it.
@@ -226,6 +227,7 @@ impl AccountBackend for AccountBackendAdapter {
                 Err(_) => return,
             };
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 tokio::select! {
                     _ = stop_rx.changed() => {
@@ -237,7 +239,16 @@ impl AccountBackend for AccountBackendAdapter {
                         let GuestSession { store, plugin } = &mut sess;
                         let ab = plugin.mailwoman_plugin_account_backend();
                         match ab.call_poll_changes(&mut *store).await {
-                            Ok(Ok(events)) => for ev in events { let _ = sink.emit(change_to_engine(ev)); },
+                            Ok(Ok(events)) => {
+                                if events.is_empty() && polling {
+                                    // A poll-only bridge (Graph/Gmail/EWS) has no
+                                    // independent push listener in the frozen ABI.
+                                    // Wake the engine's persisted delta sync even
+                                    // when its guest has no events to drain.
+                                    let _=sink.emit(ChangeEvent::MailboxChanged{mailbox:RawMailboxRef{name:String::new(),uidvalidity:0}});
+                                }
+                                for ev in events { let _ = sink.emit(change_to_engine(ev)); }
+                            },
                             Ok(Err(_)) => {},
                             // Never call a trapped component again or retry a mutation.
                             Err(_) => break,
@@ -449,6 +460,9 @@ pub(crate) fn wit_to_plugin_err(e: wit::PluginError) -> PluginError {
 
 fn wit_to_engine(e: wit::PluginError) -> EngineError {
     match e {
+        // Additive reset signaling across the frozen 0.1 ABI. Only this exact
+        // protocol code requests reconciliation; ordinary failures never do.
+        wit::PluginError::Protocol(m) if m == "mailwoman:sync-reset" => EngineError::SyncReset,
         wit::PluginError::Protocol(m) => EngineError::Protocol(m),
         wit::PluginError::Auth(m) => EngineError::Auth(m),
         wit::PluginError::Transport(m) => EngineError::Transport(m),
