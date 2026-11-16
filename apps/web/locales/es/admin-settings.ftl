@@ -2732,3 +2732,6 @@ admin-settings-key-mail-unified-account-primary-group = Grupo predeterminado de 
 admin-settings-help-mail-unified-account-primary-group = ID del grupo que se abre cuando la cuenta unificada es el buzón principal. Vacío usa el grupo predeterminado. Cree y edite grupos en Buzones vinculados.
 admin-settings-key-accounts-preload-linked = Precargar buzones vinculados
 admin-settings-help-accounts-preload-linked = Guarda en memoria carpetas y mensajes recientes de buzones vinculados para cambiar más rápido. La caché de correo también debe estar activada.
+
+admin-settings-key-accounts-show-connection-status = Mostrar iconos de conexión de los buzones
+admin-settings-help-accounts-show-connection-status = Mostrar un pequeño icono de estado junto al nombre de cada buzón. El estado siempre está disponible en los ajustes de buzones vinculados. Los administradores pueden establecer o bloquear esta preferencia.

@@ -2732,3 +2732,6 @@ admin-settings-key-mail-unified-account-primary-group = Standardgruppe des gemei
 admin-settings-help-mail-unified-account-primary-group = ID der Gruppe, die beim gemeinsamen Konto als primärem Postfach geöffnet wird. Leer verwendet die Standardgruppe. Gruppen unter Verknüpfte Postfächer verwalten.
 admin-settings-key-accounts-preload-linked = Verknüpfte Postfächer vorladen
 admin-settings-help-accounts-preload-linked = Speichert Ordner und aktuelle Nachrichten verknüpfter Postfächer während der Sitzung für einen schnelleren Wechsel. Der E-Mail-Cache muss ebenfalls aktiviert sein.
+
+admin-settings-key-accounts-show-connection-status = Verbindungssymbole für Postfächer anzeigen
+admin-settings-help-accounts-show-connection-status = Ein kleines Statussymbol neben Postfachnamen anzeigen. Der Verbindungsstatus ist immer in den Einstellungen für verknüpfte Postfächer verfügbar. Administratoren können diese Einstellung vorgeben oder sperren.

@@ -169,3 +169,7 @@ provider-oauth-device-help = 打开服务商页面并输入此代码。本页会
 provider-oauth-connected = 服务商已连接。请重新加载以使用新连接。
 provider-oauth-failed = 无法完成连接。请检查应用注册、桥接权限及邮箱身份，然后重试。
 provider-oauth-migration = 此邮箱已有来自其他后端的邮件。更换服务商前需要进行迁移。邮件及原连接均已保留。
+
+linked-accounts-connection-indicator = 显示邮箱连接图标
+linked-accounts-connection-indicator-help = 在邮箱名称旁显示小型状态图标。连接状态始终可在关联邮箱设置中查看。管理员可以设置或锁定此偏好。
+linked-accounts-connection-unknown = 尚未检查

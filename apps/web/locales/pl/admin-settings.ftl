@@ -2744,3 +2744,6 @@ admin-settings-key-mail-unified-account-primary-group = Domyślna grupa konta zb
 admin-settings-help-mail-unified-account-primary-group = ID grupy otwieranej, gdy konto zbiorcze jest skrzynką główną. Puste używa grupy domyślnej. Zarządzaj grupami w Połączonych skrzynkach.
 admin-settings-key-accounts-preload-linked = Wczytuj połączone skrzynki z wyprzedzeniem
 admin-settings-help-accounts-preload-linked = Przechowuje foldery i najnowsze wiadomości połączonych skrzynek w pamięci sesji, aby szybciej je przełączać. Pamięć podręczna poczty również musi być włączona.
+
+admin-settings-key-accounts-show-connection-status = Pokazuj ikony połączenia skrzynek
+admin-settings-help-accounts-show-connection-status = Pokazuj małą ikonę stanu obok nazw skrzynek. Stan połączenia jest zawsze dostępny w ustawieniach połączonych skrzynek. Administratorzy mogą ustawić lub zablokować tę preferencję.

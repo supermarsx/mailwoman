@@ -1,7 +1,7 @@
 import {createSignal} from 'solid-js';
 import {primaryMailboxAuthority} from '../api/linkedMailboxSession.ts';
 import type {Me} from '../api/client.ts';
-export type AccountHealthState='online'|'syncing'|'offline'|'degraded'|'auth-expired';
+export type AccountHealthState='unknown'|'online'|'syncing'|'offline'|'degraded'|'auth-expired';
 export interface AccountHealth {id:string;root:string;accountId:string;authority:string;linkId:string|null;label:string;state:AccountHealthState;updatedAt:number;retryAt?:number}
 const [records,setRecords]=createSignal<readonly AccountHealth[]>([]);
 export const accountHealth=records;
@@ -19,7 +19,8 @@ export function reconcileLinkedHealth(root:string,accounts:readonly {id:string;a
  for(const account of accounts){
   if(account.status==='disabled')continue;
   const previous=records().find(row=>row.root===root&&row.linkId===account.id);
-  const state:AccountHealthState=account.status==='reauthRequired'?'auth-expired':previous?.state==='auth-expired'||!previous?'online':previous.state;
+  // A saved, usable credential is not evidence of a successful mailbox request.
+  const state:AccountHealthState=account.status==='reauthRequired'?'auth-expired':previous?.state==='auth-expired'||!previous?'unknown':previous.state;
   if(previous?.state===state)continue;
   const value:AccountHealth={id:JSON.stringify([root,'linked',account.id]),root,accountId:account.accountId,authority:account.storageAuthority??'',linkId:account.id,label:account.displayName||account.address||account.accountId,state,updatedAt:Date.now()};
   setRecords(rows=>[value,...rows.filter(row=>!(row.root===root&&row.linkId===account.id))].slice(0,64));

@@ -3,6 +3,7 @@ import type {LinkedMailbox,LinkedMailboxList} from '../../api/linkedAccounts.ts'
 import {NICKNAME_MAX,cleanNickname,linkOf,orderedKeys} from '../../api/mailboxLayout.ts';
 import {createPointerReorder} from '../../components/accounts/pointerReorder.ts';
 import {MailboxAvatarEditor} from './MailboxAvatarEditor.tsx';
+import {MailboxConnectionStatus} from '../../components/accounts/MailboxConnectionStatus.tsx';
 import type {MailboxAvatarSpec} from '../../api/mailboxAvatar.ts';
 import {HostBrandCell} from '../../brands/BrandLogo.tsx';
 import {Icon} from '../../components/Icon.tsx';
@@ -133,6 +134,7 @@ export function LinkedAccountList(props:{
               <div class={table.who} title={nicknameOf(key)?`${nicknameOf(key)}\n${addressOf(key)}`:addressOf(key)}>
                 <HostBrandCell host={addressOf(key)}><span class={table.name} data-linked-name>{isolate(labelOf(key))}</span></HostBrandCell>
                 <Show when={labelOf(key)!==addressOf(key)}><span class={table.address}>{isolate(addressOf(key))}</span></Show>
+                <MailboxConnectionStatus linkId={linkId} root={props.value.primary.storageAuthority} available={linkId===null||account(key)?.status==='ready'} renew={expired()} detail/>
                 <Show when={expired()}><span class={a11y.srOnly}>{t('linked-accounts-expired')}</span></Show>
               </div>}>
               <div class={`${table.who} ${table.rename}`}>

@@ -170,3 +170,7 @@ provider-oauth-device-help = Ouvrez la page du fournisseur et saisissez ce code.
 provider-oauth-connected = Fournisseur connecté. Rechargez pour utiliser la nouvelle connexion.
 provider-oauth-failed = La connexion a échoué. Vérifiez l’inscription de l’application, les autorisations du pont et l’identité de la boîte, puis réessayez.
 provider-oauth-migration = Cette boîte contient déjà du courrier d’un autre backend. Une migration est nécessaire avant de changer de fournisseur. Le courrier et la connexion ont été conservés.
+
+linked-accounts-connection-indicator = Afficher les icônes de connexion des boîtes mail
+linked-accounts-connection-indicator-help = Afficher une petite icône d’état à côté du nom des boîtes mail. L’état reste disponible dans les paramètres des boîtes liées. Les administrateurs peuvent définir ou verrouiller cette préférence.
+linked-accounts-connection-unknown = Pas encore vérifié

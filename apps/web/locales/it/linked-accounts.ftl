@@ -170,3 +170,7 @@ provider-oauth-device-help = Apri la pagina del provider e inserisci questo codi
 provider-oauth-connected = Provider connesso. Ricarica per usare la nuova connessione.
 provider-oauth-failed = Impossibile completare la connessione. Controlla la registrazione dell’applicazione, i permessi del bridge e l’identità della casella, poi riprova.
 provider-oauth-migration = Questa casella contiene già posta di un altro backend. È necessaria una migrazione prima di cambiare provider. Posta e connessione sono state conservate.
+
+linked-accounts-connection-indicator = Mostra le icone di connessione delle caselle
+linked-accounts-connection-indicator-help = Mostra una piccola icona di stato accanto ai nomi delle caselle. Lo stato è sempre disponibile nelle impostazioni delle caselle collegate. Gli amministratori possono impostare o bloccare questa preferenza.
+linked-accounts-connection-unknown = Non ancora verificato

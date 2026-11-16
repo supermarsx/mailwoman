@@ -2718,3 +2718,6 @@ admin-settings-key-mail-unified-account-primary-group = 统一账户的默认分
 admin-settings-help-mail-unified-account-primary-group = 统一账户为主邮箱时打开的分组ID。留空使用默认分组。在关联邮箱中创建和编辑分组。
 admin-settings-key-accounts-preload-linked = 预加载关联邮箱
 admin-settings-help-accounts-preload-linked = 在会话内缓存关联邮箱的文件夹和最近邮件，以加快切换。还需要启用邮件缓存。
+
+admin-settings-key-accounts-show-connection-status = 显示邮箱连接图标
+admin-settings-help-accounts-show-connection-status = 在邮箱名称旁显示小型状态图标。连接状态始终可在关联邮箱设置中查看。管理员可以设置或锁定此偏好。

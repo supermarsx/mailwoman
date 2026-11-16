@@ -2726,3 +2726,6 @@ admin-settings-key-mail-unified-account-primary-group = Gruppo predefinito dell�
 admin-settings-help-mail-unified-account-primary-group = ID del gruppo da aprire quando l’account unificato è la casella principale. Lascia vuoto per il gruppo predefinito. Gestisci i gruppi in Caselle collegate.
 admin-settings-key-accounts-preload-linked = Precarica le caselle collegate
 admin-settings-help-accounts-preload-linked = Mantiene in memoria cartelle e messaggi recenti delle caselle collegate per passare più rapidamente. Anche la cache della posta deve essere attiva.
+
+admin-settings-key-accounts-show-connection-status = Mostra le icone di connessione delle caselle
+admin-settings-help-accounts-show-connection-status = Mostra una piccola icona di stato accanto ai nomi delle caselle. Lo stato è sempre disponibile nelle impostazioni delle caselle collegate. Gli amministratori possono impostare o bloccare questa preferenza.

@@ -170,3 +170,7 @@ provider-oauth-device-help = Abra a página do provedor e insira este código. E
 provider-oauth-connected = Provedor conectado. Recarregue para usar a nova conexão.
 provider-oauth-failed = Não foi possível concluir a conexão. Confira o registro do aplicativo, as permissões da ponte e a identidade da caixa e tente novamente.
 provider-oauth-migration = Esta caixa já contém mensagens de outro backend. É necessária uma migração antes de mudar de provedor. As mensagens e a conexão foram preservadas.
+
+linked-accounts-connection-indicator = Mostrar ícones de conexão das caixas de correio
+linked-accounts-connection-indicator-help = Mostrar um pequeno ícone de status ao lado dos nomes das caixas de correio. O status está sempre disponível nas configurações de caixas vinculadas. Administradores podem definir ou bloquear esta preferência.
+linked-accounts-connection-unknown = Ainda não verificado

@@ -2732,3 +2732,6 @@ admin-settings-key-mail-unified-account-primary-group = Groupe par défaut du co
 admin-settings-help-mail-unified-account-primary-group = ID du groupe à ouvrir quand le compte unifié est la boîte principale. Laissez vide pour le groupe par défaut. Gérez les groupes dans Boîtes liées.
 admin-settings-key-accounts-preload-linked = Précharger les boîtes liées
 admin-settings-help-accounts-preload-linked = Garde en mémoire les dossiers et messages récents des boîtes liées pour accélérer les changements. Le cache de courrier doit aussi être activé.
+
+admin-settings-key-accounts-show-connection-status = Afficher les icônes de connexion des boîtes mail
+admin-settings-help-accounts-show-connection-status = Afficher une petite icône d’état à côté du nom des boîtes mail. L’état reste disponible dans les paramètres des boîtes liées. Les administrateurs peuvent définir ou verrouiller cette préférence.

@@ -2748,3 +2748,6 @@ admin-settings-key-mail-unified-account-primary-group = المجموعة الا�
 admin-settings-help-mail-unified-account-primary-group = معرّف المجموعة لفتحها عندما يكون الحساب الموحد هو الصندوق الرئيسي. اتركه فارغًا للمجموعة الافتراضية. أدر المجموعات في صناديق البريد المرتبطة.
 admin-settings-key-accounts-preload-linked = تحميل صناديق البريد المرتبطة مسبقًا
 admin-settings-help-accounts-preload-linked = يحتفظ بالمجلدات والرسائل الحديثة للصناديق المرتبطة في ذاكرة الجلسة لتسريع التبديل. يجب أيضًا تمكين التخزين المؤقت للبريد.
+
+admin-settings-key-accounts-show-connection-status = إظهار رموز اتصال صناديق البريد
+admin-settings-help-accounts-show-connection-status = إظهار رمز حالة صغير بجوار أسماء صناديق البريد. تظل حالة الاتصال متاحة في إعدادات صناديق البريد المرتبطة. يمكن للمسؤولين تعيين هذا التفضيل أو قفله.

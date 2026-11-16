@@ -170,3 +170,7 @@ provider-oauth-device-help = Öffnen Sie die Anbieterseite und geben Sie diesen 
 provider-oauth-connected = Anbieter verbunden. Neu laden, um die neue Verbindung zu nutzen.
 provider-oauth-failed = Die Verbindung konnte nicht hergestellt werden. Prüfen Sie App-Registrierung, Brückenberechtigungen und Postfachidentität und versuchen Sie es erneut.
 provider-oauth-migration = Dieses Postfach enthält bereits Nachrichten eines anderen Backends. Vor dem Anbieterwechsel ist eine Migration erforderlich. Nachrichten und Verbindung wurden beibehalten.
+
+linked-accounts-connection-indicator = Verbindungssymbole für Postfächer anzeigen
+linked-accounts-connection-indicator-help = Ein kleines Statussymbol neben Postfachnamen anzeigen. Der Verbindungsstatus ist immer in den Einstellungen für verknüpfte Postfächer verfügbar. Administratoren können diese Einstellung vorgeben oder sperren.
+linked-accounts-connection-unknown = Noch nicht geprüft

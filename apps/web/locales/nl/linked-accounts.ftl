@@ -170,3 +170,7 @@ provider-oauth-device-help = Open de providerpagina en voer deze code in. Deze p
 provider-oauth-connected = Provider verbonden. Herlaad om de nieuwe verbinding te gebruiken.
 provider-oauth-failed = De verbinding kon niet worden voltooid. Controleer de appregistratie, brugmachtigingen en postvakidentiteit en probeer opnieuw.
 provider-oauth-migration = Dit postvak bevat al e-mail van een andere backend. Migratie is nodig voordat u van provider wisselt. Uw e-mail en verbinding zijn behouden.
+
+linked-accounts-connection-indicator = Verbindingspictogrammen voor postvakken tonen
+linked-accounts-connection-indicator-help = Toon een klein statuspictogram naast postvaknamen. De verbindingsstatus blijft beschikbaar in de instellingen voor gekoppelde postvakken. Beheerders kunnen deze voorkeur instellen of vergrendelen.
+linked-accounts-connection-unknown = Nog niet gecontroleerd

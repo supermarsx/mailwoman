@@ -61,6 +61,7 @@ export const trigger = style({
 
 export const triggerText = style({ display: 'flex', flexDirection: 'column', flex: '1 1 auto', minWidth: 0 });
 export const triggerAddress = style([address, { fontWeight: vars.weight.bold }]);
+export const nameLine = style({display:'flex',alignItems:'center',minWidth:0});
 export const triggerSecondary = style([address, { fontSize: '.6875rem', color: vars.color.textDim }]);
 
 export const chevron = style({

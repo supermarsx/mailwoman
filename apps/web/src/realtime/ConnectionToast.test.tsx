@@ -10,10 +10,12 @@ import { createChangeReconciler } from './changes.ts';
 import { createRealtimeController, type RealtimeController } from './controller.ts';
 import type { WebSocketLike } from './pushClient.ts';
 import { resetToasts, toasts, TOAST_DURATIONS } from '../components/toast/index.ts';
+import {clearAccountHealth,reconcileLinkedHealth,reportAccountHealth} from './accountHealth.ts';
+import {setPrimaryMailboxAuthority} from '../api/linkedMailboxSession.ts';
 
 /** The shared toast store's messages ("Reconnected" is a toast, not the banner). */
 const toastMessages = (): string[] => toasts().map((i) => i.message);
-afterEach(() => resetToasts());
+afterEach(() => {resetToasts();clearAccountHealth();setPrimaryMailboxAuthority(undefined);});
 
 function makeController(overrides: Partial<RealtimeController> = {}): RealtimeController {
   return {
@@ -37,6 +39,15 @@ function renderToast(controller: RealtimeController) {
 }
 
 describe('ConnectionToast', () => {
+  it('keeps an untested credential quiet and only announces recovery after a failure',()=>{
+    const owner={accountId:'child',username:'child@example.org',storageAuthority:'child-store'};
+    setPrimaryMailboxAuthority('root-store');renderToast(makeController());
+    reconcileLinkedHealth('root-store',[{id:'link',...owner,displayName:'Child',status:'ready'}]);
+    expect(toasts()).toHaveLength(0);
+    reportAccountHealth(owner,'link','online');expect(toasts()).toHaveLength(0);
+    reportAccountHealth(owner,'link','offline');expect(toasts().map(item=>item.tone)).toEqual(['warning']);
+    reportAccountHealth(owner,'link','online');expect(toasts().map(item=>item.tone)).toEqual(['success']);
+  });
   it('shows an offline banner when a live connection loses the network', () => {
     const controller = makeController();
     controller.connection.report('open', 'ws');

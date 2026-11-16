@@ -105,6 +105,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'accounts.linkingEnabled',
   'accounts.useLinked',
   'accounts.preloadLinked',
+  'accounts.showConnectionStatus',
   'views.notifications.visibility',
   'views.notifications.name',
   'views.notifications.showCount',

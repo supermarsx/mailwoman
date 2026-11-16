@@ -125,9 +125,11 @@ function OwnedLinkedAccounts():JSX.Element {
 function LinkedPreference(props:{onChanged:()=>void}):JSX.Element {
   const setting=useSetting<boolean>('accounts.useLinked',true);
   const preload=useSetting<boolean>('accounts.preloadLinked',true);
+  const connectionStatus=useSetting<boolean>('accounts.showConnectionStatus',false);
   // Its own card, like every other Settings block (it sat loose above the list).
   return <section class={css.section}><div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={setting.value()} disabled={!setting.entry()||setting.locked()||setting.saving()} onChange={event=>void setting.set(event.currentTarget.checked).then(saved=>{if(saved)props.onChanged();})}/>{t('linked-accounts-use')}</label><p class={css.meta}>{t('linked-accounts-use-help')}</p><LockNote locked={setting.locked()}/><Show when={setting.error()}><p role="alert" class={css.error}>{setting.error()}</p></Show></div>
     <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={preload.value()} disabled={!preload.entry()||preload.locked()||preload.saving()||!setting.value()} onChange={event=>void preload.set(event.currentTarget.checked)}/>{t('linked-accounts-preload')}</label><p class={css.meta}>{t('linked-accounts-preload-help')}</p><LockNote locked={preload.locked()}/><Show when={preload.error()}><p role="alert" class={css.error}>{preload.error()}</p></Show></div>
+    <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={connectionStatus.value()} disabled={!connectionStatus.entry()||connectionStatus.locked()||connectionStatus.saving()} onChange={event=>void connectionStatus.set(event.currentTarget.checked)}/>{t('linked-accounts-connection-indicator')}</label><p class={css.meta}>{t('linked-accounts-connection-indicator-help')}</p><LockNote locked={connectionStatus.locked()}/><Show when={connectionStatus.error()}><p role="alert" class={css.error}>{connectionStatus.error()}</p></Show></div>
   </section>;
 }
 export default LinkedAccounts;

@@ -2726,3 +2726,6 @@ admin-settings-key-mail-unified-account-primary-group = Standaardgroep van het g
 admin-settings-help-mail-unified-account-primary-group = Groeps-ID om te openen wanneer het gecombineerde account het primaire postvak is. Leeg gebruikt de standaardgroep. Beheer groepen onder Gekoppelde postvakken.
 admin-settings-key-accounts-preload-linked = Gekoppelde postvakken vooraf laden
 admin-settings-help-accounts-preload-linked = Bewaart mappen en recente berichten van gekoppelde postvakken tijdens de sessie om sneller te wisselen. De e-mailcache moet ook ingeschakeld zijn.
+
+admin-settings-key-accounts-show-connection-status = Verbindingspictogrammen voor postvakken tonen
+admin-settings-help-accounts-show-connection-status = Toon een klein statuspictogram naast postvaknamen. De verbindingsstatus blijft beschikbaar in de instellingen voor gekoppelde postvakken. Beheerders kunnen deze voorkeur instellen of vergrendelen.

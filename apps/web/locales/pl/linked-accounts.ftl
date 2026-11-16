@@ -172,3 +172,7 @@ provider-oauth-device-help = Otwórz stronę dostawcy i wpisz ten kod. Ta strona
 provider-oauth-connected = Dostawca połączony. Odśwież, aby użyć nowego połączenia.
 provider-oauth-failed = Nie udało się połączyć. Sprawdź rejestrację aplikacji, uprawnienia mostu i tożsamość skrzynki, a następnie spróbuj ponownie.
 provider-oauth-migration = Ta skrzynka zawiera już pocztę z innego backendu. Przed zmianą dostawcy wymagana jest migracja. Poczta i połączenie zostały zachowane.
+
+linked-accounts-connection-indicator = Pokazuj ikony połączenia skrzynek
+linked-accounts-connection-indicator-help = Pokazuj małą ikonę stanu obok nazw skrzynek. Stan połączenia jest zawsze dostępny w ustawieniach połączonych skrzynek. Administratorzy mogą ustawić lub zablokować tę preferencję.
+linked-accounts-connection-unknown = Jeszcze nie sprawdzono

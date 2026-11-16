@@ -2744,3 +2744,6 @@ admin-settings-key-mail-unified-account-primary-group = Группа объед�
 admin-settings-help-mail-unified-account-primary-group = ID группы, открываемой, когда объединённая учётная запись является основной. Пустое значение выбирает группу по умолчанию. Группы настраиваются в связанных ящиках.
 admin-settings-key-accounts-preload-linked = Предзагружать связанные ящики
 admin-settings-help-accounts-preload-linked = Сохраняет папки и последние письма связанных ящиков в памяти сеанса для быстрого переключения. Кеш почты также должен быть включён.
+
+admin-settings-key-accounts-show-connection-status = Показывать значки подключения почтовых ящиков
+admin-settings-help-accounts-show-connection-status = Показывать небольшой значок состояния рядом с именами ящиков. Состояние всегда доступно в настройках связанных ящиков. Администраторы могут задать или заблокировать эту настройку.

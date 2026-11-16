@@ -2744,3 +2744,6 @@ admin-settings-key-mail-unified-account-primary-group = Типова група 
 admin-settings-help-mail-unified-account-primary-group = ID групи, яку відкривати, коли об’єднаний обліковий запис є основним. Порожнє значення вибирає типову групу. Групи налаштовуються в пов’язаних скриньках.
 admin-settings-key-accounts-preload-linked = Попередньо завантажувати пов’язані скриньки
 admin-settings-help-accounts-preload-linked = Зберігає папки й останні листи пов’язаних скриньок у пам’яті сеансу для швидшого перемикання. Кеш пошти також має бути ввімкнений.
+
+admin-settings-key-accounts-show-connection-status = Показувати значки з’єднання поштових скриньок
+admin-settings-help-accounts-show-connection-status = Показувати невеликий значок стану поруч із назвами скриньок. Стан завжди доступний у налаштуваннях пов’язаних скриньок. Адміністратори можуть установити або заблокувати цей параметр.

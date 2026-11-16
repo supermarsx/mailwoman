@@ -4068,3 +4068,7 @@ Queued changes and unsent drafts do not participate in read-cache eviction. Remo
 <a id="accounts.preloadLinked"></a>
 
 `accounts.preloadLinked` preloads linked mailbox folders and the first inbox page in a bounded, memory-only session cache. Default: enabled. Requires the mail cache, an enabled linked-mailbox policy and a ready verified link. Administrators may set and lock it globally, by domain or per user. Switching still authorizes the link on the server before publishing cached data.
+
+<a id="accounts.showConnectionStatus"></a>
+
+`accounts.showConnectionStatus` shows a small connection-status icon beside mailbox names and in the mailbox switcher. Default: disabled. Hovering the icon reveals the observed mailbox status. The status also appears as text in Settings → Linked mailboxes even while icons are hidden. A saved credential alone is shown as not checked, rather than assumed healthy. This describes mailbox requests, separately from the Mailwoman server's realtime connection. Users can opt in; administrators can set or lock the preference globally, by domain, group/profile or individual user through the normal settings policy.

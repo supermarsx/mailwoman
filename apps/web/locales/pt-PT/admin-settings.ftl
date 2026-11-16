@@ -2524,3 +2524,6 @@ admin-settings-key-mail-unified-account-primary-group = Grupo predefinido da con
 admin-settings-help-mail-unified-account-primary-group = ID do grupo a abrir quando a conta unificada é a caixa principal. Deixe vazio para usar o grupo predefinido. Crie e edite grupos em Caixas associadas.
 admin-settings-key-accounts-preload-linked = Pré-carregar caixas associadas
 admin-settings-help-accounts-preload-linked = Mantém em memória as pastas e mensagens recentes das caixas associadas para mudar mais depressa. A cache de correio também deve estar ativa.
+
+admin-settings-key-accounts-show-connection-status = Mostrar ícones de ligação das caixas de correio
+admin-settings-help-accounts-show-connection-status = Mostrar um pequeno ícone de estado junto aos nomes das caixas de correio. O estado está sempre disponível nas definições de caixas associadas. Os administradores podem definir ou bloquear esta preferência.

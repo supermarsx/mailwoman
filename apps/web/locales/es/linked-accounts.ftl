@@ -170,3 +170,7 @@ provider-oauth-device-help = Abra la página del proveedor e introduzca este có
 provider-oauth-connected = Proveedor conectado. Recargue para usar la nueva conexión.
 provider-oauth-failed = No se pudo completar la conexión. Compruebe el registro de la aplicación, los permisos del puente y la identidad del buzón e inténtelo de nuevo.
 provider-oauth-migration = Este buzón ya contiene correo de otro backend. Se necesita una migración antes de cambiar de proveedor. Se conservaron el correo y la conexión.
+
+linked-accounts-connection-indicator = Mostrar iconos de conexión de los buzones
+linked-accounts-connection-indicator-help = Mostrar un pequeño icono de estado junto al nombre de cada buzón. El estado siempre está disponible en los ajustes de buzones vinculados. Los administradores pueden establecer o bloquear esta preferencia.
+linked-accounts-connection-unknown = Aún sin comprobar

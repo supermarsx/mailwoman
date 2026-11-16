@@ -170,3 +170,7 @@ provider-oauth-device-help = Open the provider page and enter this code. This pa
 provider-oauth-connected = Provider connected. Reload to use the new connection.
 provider-oauth-failed = The provider connection could not be completed. Check the app registration, bridge permissions and mailbox identity, then retry.
 provider-oauth-migration = This mailbox already contains mail from another backend. Provider migration is required before changing it. Your mail and connection were preserved.
+
+linked-accounts-connection-indicator = Show mailbox connection icons
+linked-accounts-connection-indicator-help = Show a small status icon beside mailbox names. Connection status is always available in Linked mailboxes settings. Administrators can set or lock this preference.
+linked-accounts-connection-unknown = Not checked yet

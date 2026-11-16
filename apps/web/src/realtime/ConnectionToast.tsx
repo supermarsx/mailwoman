@@ -1,5 +1,4 @@
 import {backgroundReplayState} from '../sw/register.ts';
-import './accountHealth.css.ts';
 import {connectionToastAllowed} from '../api/notificationRuntime.ts';
 import {accountHealth} from './accountHealth.ts';
 import {primaryMailboxAuthority} from '../api/linkedMailboxSession.ts';
@@ -22,7 +21,7 @@ import {primaryMailboxAuthority} from '../api/linkedMailboxSession.ts';
 // the banner shows nothing: it reports on a session's connection, not on the
 // browser. The copy is in the `common` catalog, which ships in the entry chunk.
 
-import { Show, For, createEffect, createSignal,onMount,onCleanup, useContext, type JSX } from 'solid-js';
+import { Show, createEffect, useContext, type JSX } from 'solid-js';
 import { useRealtime } from './context.ts';
 import { toast } from '../components/toast/index.ts';
 import { AppContext } from '../state/context.ts';
@@ -62,8 +61,6 @@ export function ConnectionToast(): JSX.Element {
     void app?.logout().catch(() => undefined);
   }
   const state = rt.connection.state;
-  const [clock,setClock]=createSignal(Date.now());
-  onMount(()=>{const timer=setInterval(()=>setClock(Date.now()),1000);onCleanup(()=>clearInterval(timer));});
   const previousAccounts=new Map<string,string>();
   createEffect(()=>{
     for(const row of accountHealth()){
@@ -71,7 +68,8 @@ export function ConnectionToast(): JSX.Element {
       const previous=previousAccounts.get(row.id);previousAccounts.set(row.id,row.state);
       if(previous===row.state||!connectionToastAllowed())continue;
       const id=`account-connection:${row.id}`;
-      if(row.state==='online'){if(previous&&previous!=='online')toast.success(t('common-conn-account-recovered',{account:row.label}),{id});else toast.dismiss(id);}
+      if(row.state==='online'){if(previous&&previous!=='online'&&previous!=='unknown')toast.success(t('common-conn-account-recovered',{account:row.label}),{id});else toast.dismiss(id);}
+      else if(row.state==='unknown')toast.dismiss(id);
       else if(row.state!=='syncing')toast.warning(t('common-conn-account-problem',{account:row.label,status:t(`common-conn-account-${row.state}`)}),{id,action:{label:t('common-conn-reconnect'),run:()=>{void app?.switchLinkedMailbox(row.linkId).then(()=>app.refreshCurrentMailbox()).catch(()=>{location.hash='#/settings/linked-accounts';});}}});
     }
   });
@@ -125,11 +123,6 @@ export function ConnectionToast(): JSX.Element {
             </div>
           );
         })()}
-      </Show>
-      <Show when={app&&accountHealth().some(row=>row.root===primaryMailboxAuthority())}>
-        <details class="connection-toast connection-toast--accounts"><summary>{t('common-conn-accounts')}</summary>
-          <ul><For each={accountHealth().filter(row=>row.root===primaryMailboxAuthority())}>{row=><li><bdi>{row.label}</bdi><span>{t(`common-conn-account-${row.state}`)}</span><Show when={row.retryAt&&row.retryAt>clock()}><small>{t('common-conn-account-retry',{seconds:Math.max(1,Math.ceil((row.retryAt!-clock())/1000))})}</small></Show><Show when={row.state!=='online'}><button type="button" class="connection-toast__action" onClick={()=>{void app?.switchLinkedMailbox(row.linkId).then(()=>app.refreshCurrentMailbox()).catch(()=>{location.hash='#/settings/linked-accounts';});}}>{t(row.state==='auth-expired'?'common-conn-sign-in-again':'common-conn-reconnect')}</button></Show></li>}</For></ul>
-        </details>
       </Show>
     </>
   );

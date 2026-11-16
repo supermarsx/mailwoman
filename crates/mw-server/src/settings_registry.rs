@@ -3623,6 +3623,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("mail.unifiedAccount.name",text(Text::Plain,128),r#""""#,GDU,"mail","Display name of the unified virtual account; empty uses the translated default"),
     def!("mail.unifiedAccount.avatar",text(Text::Plain,512),r#""""#,GDU,"mail","Unified virtual-account avatar as a bounded JSON letter or icon specification; empty uses the default"),
     def!("accounts.preloadLinked",Kind::Bool,"true",GDU,"accounts","Preload verified linked mailbox folders and recent messages within the session cache for faster switching; requires mail.cache.enabled"),
+    def!("accounts.showConnectionStatus",Kind::Bool,"false",GDU,"accounts","Show a compact connection status icon beside mailbox names; status remains available in Linked mailboxes settings when hidden"),
     def!("mail.unifiedAccount.groups",text(Text::Plain,65536),r#""[]""#,GDU,"mail","Up to 16 named virtual mailbox groups with independent account and folder selections, bounded by administrator policy"),
     def!("mail.unifiedAccount.primaryGroup",text(Text::Plain,64),r#""""#,GDU,"mail","Virtual mailbox group to open first; empty selects the default virtual mailbox"),
     def!(
@@ -11218,4 +11219,17 @@ mod unified_group_tests {
   assert!(validate(def,&json!("not JSON"),"value").is_err());
   let defaults=lookup("accounts.preloadLinked").unwrap();assert!(validate(defaults,&json!(true),"value").is_ok());
  }
+}
+
+#[cfg(test)]
+mod mailbox_connection_indicator_tests {
+    use super::*;
+    #[test]
+    fn indicator_is_opt_in_and_supports_user_and_admin_policy_scopes() {
+        let def = lookup("accounts.showConnectionStatus").unwrap();
+        assert_eq!(def.default_value(), json!(false));
+        assert_eq!(def.scopes, GDU);
+        assert!(validate(def, &json!(true), "value").is_ok());
+        assert!(validate(def, &json!("true"), "value").is_err());
+    }
 }

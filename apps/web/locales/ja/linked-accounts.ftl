@@ -169,3 +169,7 @@ provider-oauth-device-help = プロバイダーのページを開き、このコ
 provider-oauth-connected = 接続しました。新しい接続を使うには再読み込みしてください。
 provider-oauth-failed = 接続できませんでした。アプリ登録、ブリッジの権限、メールボックスのアドレスを確認して再試行してください。
 provider-oauth-migration = このメールボックスには別のバックエンドのメールが既にあります。プロバイダー変更には移行が必要です。メールと接続は保持されています。
+
+linked-accounts-connection-indicator = メールボックスの接続アイコンを表示
+linked-accounts-connection-indicator-help = メールボックス名の横に小さな状態アイコンを表示します。接続状態は、リンク済みメールボックスの設定でいつでも確認できます。管理者はこの設定を指定またはロックできます。
+linked-accounts-connection-unknown = 未確認

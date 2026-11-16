@@ -16,6 +16,8 @@
 // closes. With one mailbox the caller renders `MailboxPlain`: no menu at all.
 import { For, Show, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
+import {floatingMount,useFloatingLayer} from '../floatingLayer.ts';
+import {MailboxConnectionStatus} from './MailboxConnectionStatus.tsx';
 import { isolate, loadCatalog, t } from '../../i18n/index.ts';
 import { useCollapsibleBar } from '../bars/index.ts';
 import { Icon } from '../Icon.tsx';
@@ -107,6 +109,7 @@ export function MailboxPlain(props: { variant: 'full' | 'icon'; address: string;
       fallback={
         <span class={css.plain} data-account-indicator="plain" title={props.nickname ? `${props.nickname}\n${props.address}` : props.address} data-account-address>
           <span class={css.plainText}>{isolate(props.nickname || props.address)}</span>
+          <MailboxConnectionStatus linkId={null}/>
           <Show when={accountUnreadBadge()}><UnreadBadge count={props.unread} /></Show>
         </span>
       }
@@ -299,7 +302,7 @@ export function MailboxPicker(props: {
           >
             <MailboxAvatar label={active() ? choiceLabel(active()!) : ''} address={active()?.address ?? ''} size="sm" avatar={active()?.avatar} />
             <span class={css.triggerText}>
-              <span class={css.triggerAddress} data-mailbox-label>{isolate(active()?.nickname || (active()?.address ?? ''))}</span>
+              <span class={css.nameLine}><span class={css.triggerAddress} data-mailbox-label>{isolate(active()?.nickname || (active()?.address ?? ''))}</span><Show when={!active()?.linkId?.startsWith('@unified')}><MailboxConnectionStatus linkId={active()?.linkId??null} available={active()?.available} renew={active()?.renew}/></Show></span>
               <Show when={active()?.nickname}><span class={css.triggerSecondary}>{isolate(active()!.address)}</span></Show>
             </span>
             {/* The head bubble is opt-in (t39); the menu entries keep their counts. */}
@@ -330,9 +333,9 @@ export function MailboxPicker(props: {
       </Show>
       <Show when={props.error}><span role="alert" class={css.error}>{props.error}</span></Show>
       <Show when={open()}>
-        <Portal mount={trigger?.ownerDocument.body ?? document.body}>
+        <Portal mount={trigger?floatingMount(trigger):document.body}>
           <div
-            ref={menu}
+            ref={element=>{menu=element;useFloatingLayer(element);}}
             id={menuId}
             role="menu"
             aria-label={t('linked-accounts-select')}
@@ -369,9 +372,9 @@ export function MailboxPicker(props: {
                     >
                       <MailboxAvatar label={choiceLabel(choice)} address={choice.address} avatar={choice.avatar} />
                       <span class={css.itemText}>
-                        <span class={css.itemName} data-mailbox-label>{isolate(choiceLabel(choice))}</span>
+                        <span class={css.nameLine}><span class={css.itemName} data-mailbox-label>{isolate(choiceLabel(choice))}</span><MailboxConnectionStatus linkId={choice.linkId} available={choice.available} renew={choice.renew}/></span>
                         <Show when={choiceLabel(choice) !== choice.address}><span class={css.itemAddress}>{isolate(choice.address)}</span></Show>
-                        {/* No status on the entry (t48 j/k); screen readers still hear why it opens renewal. */}
+                        {/* Hidden by default; renewal remains announced regardless. */}
                         <Show when={!choice.available}><span class={a11y.srOnly}>{t(choice.renew ? 'linked-accounts-expired' : 'linked-accounts-unavailable')}</span></Show>
                       </span>
                       <UnreadBadge count={choice.unread} />

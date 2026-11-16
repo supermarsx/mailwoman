@@ -2521,3 +2521,6 @@ admin-settings-key-mail-unified-account-primary-group = Default unified account 
 admin-settings-help-mail-unified-account-primary-group = Group ID to open when the unified account is the primary mailbox. Leave empty for the default group. Create and edit named groups in Linked mailboxes.
 admin-settings-key-accounts-preload-linked = Preload linked mailboxes
 admin-settings-help-accounts-preload-linked = Keep a small session cache of linked mailbox folders and recent messages for faster switching. Mail caching must also be enabled.
+
+admin-settings-key-accounts-show-connection-status = Show mailbox connection icons
+admin-settings-help-accounts-show-connection-status = Show a small status icon beside mailbox names. Connection status is always available in Linked mailboxes settings. Administrators can set or lock this preference.

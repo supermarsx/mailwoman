@@ -2718,3 +2718,6 @@ admin-settings-key-mail-unified-account-primary-group = 統合アカウントの
 admin-settings-help-mail-unified-account-primary-group = 統合アカウントがメインのメールボックスの場合に開くグループIDです。空欄で既定グループを使用します。グループはリンク済みメールボックスで管理します。
 admin-settings-key-accounts-preload-linked = リンク済みメールボックスを先読み
 admin-settings-help-accounts-preload-linked = リンク済みメールボックスのフォルダーと最近のメールをセッション中メモリーに保持し、切り替えを高速化します。メールキャッシュも有効にする必要があります。
+
+admin-settings-key-accounts-show-connection-status = メールボックスの接続アイコンを表示
+admin-settings-help-accounts-show-connection-status = メールボックス名の横に小さな状態アイコンを表示します。接続状態は、リンク済みメールボックスの設定でいつでも確認できます。管理者はこの設定を指定またはロックできます。
