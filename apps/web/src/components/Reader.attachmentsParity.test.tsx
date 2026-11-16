@@ -64,9 +64,14 @@ describe('attachments bar lists every part the Security panel lists', () => {
     expect(view.container.textContent).toContain('iban_Habito.pdf');
   });
 
-  it('an inline-only message still gets a bar, headed by its inline images', () => {
+  it('an inline-only message has an inline group without an empty files strip', async () => {
     const view = mount(FIXTURES['inline image only'], false);
     expect(view.getByTestId('reader-attachments-bar').textContent).toContain('1 inline image');
+    expand(view);
+    await vi.waitFor(() => expect(view.queryByTestId('reader-attachments-inline')).not.toBeNull());
+    expect(view.container.querySelectorAll('.mw-thumbs')).toHaveLength(1);
+    expect(view.container.querySelector('.mw-thumbs')?.closest('[data-testid=reader-attachments-inline]')).not.toBeNull();
+    expect(view.container.querySelectorAll('.mw-thumb')).toHaveLength(1);
   });
 
   it('a policy-blocked part stays in the bar', async () => {

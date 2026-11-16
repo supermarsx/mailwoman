@@ -458,7 +458,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
             panel keeps its height, so the body below never moves. */}
         <Show when={attachmentPolicy.state==='ready'} fallback={<Show when={attachmentPolicy.error} fallback={<div data-testid="async-pending" data-policy="pending" role="status" aria-label={t('mail-attachment-policy-loading')} aria-busy="true" inert><ThumbnailStrip density={attachmentDensity()} items={items()} selectedBlobId="" onSelect={() => undefined} resolveThumb={() => Promise.resolve('')} /></div>}><AsyncError message={t('mail-attachment-policy-unavailable')} onRetry={()=>{void retryPolicy();}}/></Show>}>
         <div data-policy="ready">
-        <AttachmentStrip items={fileItems()}/>
+        <Show when={fileItems().length > 0}><AttachmentStrip items={fileItems()}/></Show>
         <Show when={inlineItems().length > 0}>
           <details class="reader__attachments-inline" data-testid="reader-attachments-inline" open={inlineOnly()}>
             <summary>{t('reader-attachments-inline-group', { count: inlineItems().length })}</summary>
@@ -1630,7 +1630,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   ,domainTrusted:domainLinksTrusted(),domainTrustEditable:domainTrustEditable(),onTrustDomain:()=>setSenderLinkTrust(true,true),onRevokeDomain:()=>setSenderLinkTrust(false,true)
                 }:undefined}/>
                 <Show when={hostsOpen()&&showRemoteBar()}><ImageHostRules hosts={imageSourceHosts()} lists={hostLists()} disabled={settingsLoadStatus()!=='ready'||!!(settings()['images.trustedHosts']?.locked||settings()['images.blockedHosts']?.locked)} onChange={setImageHostRule}/></Show>
-                <Show when={settings()['reader.attachmentsAtEnd']?.value !== true}><AttachmentsPane email={email()} encrypted={showDecrypt()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></Show>
+                <Show when={settings()['reader.attachmentsAtEnd']?.value !== true}><AttachmentsPane email={email()} encrypted={showDecrypt()} inlineCount={currentBody()?.refs.cids.filter(cid => !!currentBody()?.cidParts[cid]).length ?? 0} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></Show>
               </div>
             </Show>
             <Show when={hasCalendarPart(email()) && app.accountId()}>{(accountId) => (
@@ -1671,7 +1671,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 }}
               />
             </Show>
-            <Show when={settings()['reader.attachmentsAtEnd']?.value === true && stackMounted()}><div style={{display: noticesReady() ? 'contents' : 'none'}}><AttachmentsPane email={email()} encrypted={showDecrypt()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></div></Show>
+            <Show when={settings()['reader.attachmentsAtEnd']?.value === true && stackMounted()}><div style={{display: noticesReady() ? 'contents' : 'none'}}><AttachmentsPane email={email()} encrypted={showDecrypt()} inlineCount={currentBody()?.refs.cids.filter(cid => !!currentBody()?.cidParts[cid]).length ?? 0} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></div></Show>
           </>
         )}
       </Show>
