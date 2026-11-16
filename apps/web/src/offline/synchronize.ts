@@ -23,7 +23,7 @@ export async function synchronizeOffline(client:Client,owner:PreferenceAccount,p
  let previousPage='';
  for(let position=0;current();){
   if(!current()||(await vault.usage(JSON.stringify(['offline-device',offlineServerBase()]))).bytes>=offlinePolicy(owner).budgetMb*1024*1024)return;
-  const response=await client.jmap({using,methodCalls:[['Email/query',{accountId:owner.id,filter:after?{operator:'OR',conditions:[{after},{hasKeyword:'$flagged'},{text:'pinned:true'}]}:{},sort:[{property:'receivedAt',isAscending:false}],position,limit:50},'sync-query'],['Email/get',{accountId:owner.id,'#ids':{resultOf:'sync-query',name:'Email/query',path:'/ids'},properties:[...HEADER_PROPERTIES]},'sync-headers']]},{signal,pace:'background'});
+  const response=await client.jmap({using,methodCalls:[['Email/query',{accountId:owner.id,filter:after?{text:`(after:${Math.floor(Date.parse(after)/1000)} OR is:flagged OR pinned:true)`}:{},sort:[{property:'receivedAt',isAscending:false}],position,limit:50},'sync-query'],['Email/get',{accountId:owner.id,'#ids':{resultOf:'sync-query',name:'Email/query',path:'/ids'},properties:[...HEADER_PROPERTIES]},'sync-headers']]},{signal,pace:'background'});
   if(!current())return;
   const query=responseFor<{ids:string[]}>(response,'sync-query'),headers=responseFor<{list:Email[]}>(response,'sync-headers');
   if(!Array.isArray(query.ids)||!Array.isArray(headers.list)||query.ids.length===0)return;
