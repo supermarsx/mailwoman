@@ -188,7 +188,9 @@ fn verify_bundle_integrity<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Resu
 fn fatal(message: &str) -> ! {
     eprintln!("[mailwoman] FATAL: {message}");
     #[cfg(windows)]
-    win_message_box(message);
+    if !background::is_background() {
+        win_message_box(message);
+    }
     std::process::exit(1);
 }
 
@@ -336,6 +338,10 @@ pub fn run() {
             // applies at the next start.
             let server = serverconfig::server_url();
             let background=background::is_background();
+            #[cfg(target_os = "macos")]
+            if background {
+                app.set_activation_policy(tauri::ActivationPolicy::Prohibited);
+            }
             let script=if background {format!("{}globalThis.__MW_CONFIG__.backgroundReplay=true;",bootstrap_config_script(server.url.as_deref(),updater))} else {bootstrap_config_script(server.url.as_deref(),updater)};
 
             // The main window is created in code (not tauri.conf.json) so the
@@ -349,6 +355,7 @@ pub fn run() {
                     .min_inner_size(720.0, 560.0)
                     .content_protected(false)
                     .visible(!background)
+                    .focused(!background)
                     .initialization_script(script)
                     .build()
             {
