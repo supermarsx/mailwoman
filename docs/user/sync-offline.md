@@ -54,8 +54,13 @@ Where the browser supports one-shot Background Sync, queued work can replay
 with all Mailwoman windows closed, while the browser is running and its scheduler
 permits execution. Unsupported or refused registration is reported honestly:
 keep an online Mailwoman window open. Background execution is not guaranteed
-at a particular time. Native Android/iOS background schedulers and closed-process
-desktop replay remain a separate implementation gap.
+at a particular time. Desktop shells register an operating-system wake job when
+work is queued: Windows Task Scheduler, a Linux user systemd timer, or a macOS
+LaunchAgent. The job opens a hidden WebView using the same encrypted queue and
+fresh account checks. It stores no credentials in the job definition. OS policy,
+a signed-in desktop session and an accessible saved native session are required;
+execution at a particular time is not guaranteed. Android/iOS background replay
+remains unavailable; keep an online shell open on those platforms.
 
 For the same deployed app build, browser windows share one JMAP/push coordinator.
 SharedWorker is preferred; BroadcastChannel plus Web Locks provides leader
@@ -77,5 +82,7 @@ reopens a note created by background replay while offline.
 
 This is browser integration evidence, not certification against every upstream
 JMAP, IMAP, POP3, Graph or EWS service. Server push/session scoping is tested
-separately in `crates/mw-server/tests/t32_h13_realtime_scope.rs`. Native OS wake
-behavior requires native implementation and device testing.
+separately in `crates/mw-server/tests/t32_h13_realtime_scope.rs`. Native replay
+contracts and desktop scheduler definitions have focused tests. Actual OS wake
+behavior still requires platform/device qualification; mobile scheduling is not
+implemented.

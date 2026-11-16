@@ -1353,9 +1353,12 @@ endpoint is configured, and every capability is individually permission-gated.
   attachments upload before sending. An acknowledgement ledger preserves PIM
   creations when replay happens without an open window. Browsers without
   Background Sync require an open online window; the connection notice says so.
-  **Native OS background-fetch execution remains unimplemented.** Native shells
-  use the same foreground cache/queue, but this browser change does not add an
-  Android/iOS scheduler or a closed-process desktop service.
+  **Native mobile OS background-fetch execution remains unimplemented.** Desktop
+  shells register an OS wake job (Windows Task Scheduler, Linux user systemd
+  timer, macOS LaunchAgent) and replay through a hidden same-profile WebView
+  using the encrypted queue and fresh account checks. OS wake qualification
+  remains outstanding. Mobile shells use the same foreground cache/queue;
+  Android/iOS scheduling is not implemented.
 - **Durable offline reads:** the configured client stores authenticated JMAP
   snapshots and cached attachments in an encrypted vault, preferring OPFS with
   encrypted IndexedDB fallback. Opt-in identity/session snapshots allow an
