@@ -183,7 +183,7 @@ async fn capabilities_and_mailboxes_through_the_seam() {
 
     // Outlook-parity caps are advertised (the engine prefers bridge-native paths).
     let caps = backend.capabilities().await.unwrap();
-    assert!(caps.idle && caps.r#move);
+    assert!(!caps.idle && caps.r#move);
 
     // The Graph folder tree is served through the engine seam, roles mapped.
     let boxes = backend.list_mailboxes().await.unwrap();

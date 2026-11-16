@@ -3,31 +3,23 @@
 //! categories. Focused-Inbox sync is handled inline in [`crate::mail`] (the
 //! `$Focused`/`$Other` keywords), and advertised here too.
 //!
-//! **HONESTY (frozen wording, plan §2.6 / SPEC §10.3):** message recall degrades to
-//! *nothing*, never to broken behavior or a false claim of success. Graph exposes no
-//! universal server-side recall API — recall works only for an unread message inside
-//! the SAME Microsoft 365 organization and remains best-effort even then; it is
-//! impossible cross-org or once the recipient has opened the message. The bridge
-//! therefore NEVER reports recall as guaranteed; [`recall`] returns an outcome that
-//! states the limitation plainly. Reactions/voting are likewise best-effort surfaces.
+//! Recall uses the documented beta Sent Items action and reports only acceptance,
+//! never guaranteed removal. Sender isRead does not establish recipient read state.
+//! Outlook mailbox reactions have no documented Graph endpoint: capability probing
+//! leaves them on the engine's standards fallback. These methods cross the additive
+//! plugin-pim exports implemented in guest.rs.
 //!
-//! None of these have an export in the frozen `mailwoman:plugin` WIT world; they are
-//! pure functions advertised via `capabilities()` and (today) exercised through
-//! fixtures — see the e10 report's WIT-ABI friction note (a `bridge-capabilities`
-//! interface for e11/e12).
-
 use crate::graph::{GraphClient, Result, Transport};
-use crate::model::GraphMessage;
 use crate::types::BackendCaps;
 
 /// The capability set the Graph bridge advertises. Focused-Inbox sync + categories
-/// are genuine Graph features; reactions/voting/recall are advertised as best-effort
-/// (the honesty matrix governs their outcomes).
+/// are genuine Graph features; recall is beta/best-effort and voting uses a reply.
+/// Mailbox reactions are unavailable through Graph.
 pub fn backend_caps() -> BackendCaps {
     BackendCaps {
-        idle: true,
+        idle: false,
         move_cap: true,
-        reactions: true,
+        reactions: false,
         voting: true,
         recall: true,
         focused_sync: true,
@@ -45,64 +37,36 @@ pub struct RecallOutcome {
     pub note: String,
 }
 
-/// Attempt to recall a previously-sent message, honoring the recall honesty matrix.
-///
-/// The bridge first checks the message's read/state via `GET /me/messages/{id}` and
-/// then issues the recall verb. Regardless of the server's acceptance, the outcome is
-/// reported as NOT guaranteed, with the reason. If the message was already read (or
-/// the check reveals it left the org), the bridge declines rather than pretend.
+/// Request recall through Microsoft's documented beta Sent Items action. The
+/// service owns recipient state and tenant policy; only acceptance is reported.
 pub fn recall<T: Transport>(
     client: &GraphClient<'_, T>,
     message_id: &str,
 ) -> Result<RecallOutcome> {
-    // Inspect current state (best-effort; a failure here is itself informative).
-    let msg: GraphMessage = client.get_json(&format!(
-        "/me/messages/{message_id}?$select=isRead,inferenceClassification"
+    // The sender's Sent Items isRead says nothing about recipient delivery/read
+    // state. Ask the documented beta action; only acceptance can be reported.
+    client.post_empty(&format!(
+        "https://graph.microsoft.com/beta/me/mailFolders/sentitems/messages/{}/recall",
+        crate::graph::encode_segment(message_id)
     ))?;
-
-    if msg.is_read == Some(true) {
-        return Ok(RecallOutcome {
-            requested: false,
-            guaranteed: false,
-            note: "message already read by the recipient — recall is impossible; \
-                   not attempted (honesty matrix)"
-                .to_string(),
-        });
-    }
-
-    // Issue the recall verb. Graph's recall support is org-internal, preview, and
-    // best-effort; a 2xx here means "accepted for processing", never "recalled".
-    client.post_ignore(
-        &format!("/me/messages/{message_id}/recall"),
-        &serde_json::json!({}),
-    )?;
 
     Ok(RecallOutcome {
         requested: true,
         guaranteed: false,
-        note: "recall requested; succeeds only for an unread message inside the same \
-               Microsoft 365 organization, best-effort — cross-org and already-opened \
-               messages cannot be recalled"
+        note: "recall requested through Microsoft's beta API; best-effort and subject \
+               to the tenant's recall policy. Delivery and recipient read state are \
+               not verified by this request; check the provider's recall report"
             .to_string(),
     })
 }
 
-/// Post a reaction (emoji) to a message. Best-effort — Graph reaction support for
-/// mailbox messages is limited; a non-2xx degrades to `Ok(false)` (no broken state),
-/// never an error the UI would surface as failure.
+/// Refuse unsupported native mailbox reactions before making a network request.
 pub fn react<T: Transport>(
-    client: &GraphClient<'_, T>,
-    message_id: &str,
-    reaction: &str,
+    _client: &GraphClient<'_, T>,
+    _message_id: &str,
+    _reaction: &str,
 ) -> Result<bool> {
-    let body = serde_json::json!({ "reactionType": reaction });
-    match client.post_ignore(&format!("/me/messages/{message_id}/react"), &body) {
-        Ok(()) => Ok(true),
-        Err(crate::graph::BridgeError::Auth(_)) => {
-            Err(crate::graph::BridgeError::Auth("reaction rejected".into()))
-        }
-        Err(_) => Ok(false),
-    }
+    Err(crate::graph::BridgeError::Unsupported("Microsoft Graph has no documented mailbox reaction API; use the standards reaction fallback".into()))
 }
 
 /// Cast a voting-button response by replying with the chosen option. Outlook voting

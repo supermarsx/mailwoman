@@ -402,6 +402,8 @@ fn an_empty_well_known_name_falls_back_to_the_folder_id() {
     let tr = Scripted::new(|req: &HttpRequestSpec| {
         if req.url.contains("/messages/delta") {
             Ok(json_ok(serde_json::json!({ "value": [] })))
+        } else if req.url.contains("?$select=id") {
+            Ok(bare(404))
         } else {
             Ok(json_ok(serde_json::json!({ "value": [
                 { "id": "AAMkOpaqueFolderId", "displayName": "Custom", "wellKnownName": "" }
@@ -415,9 +417,41 @@ fn an_empty_well_known_name_falls_back_to_the_folder_id() {
     // …and the ref it produced re-addresses that folder correctly.
     mail::sync_mailbox(&c, &boxes[0].mailbox_ref, &SyncCursor::default()).expect("sync");
     assert!(
-        tr.urls()[1].contains("/me/mailFolders/AAMkOpaqueFolderId/messages/delta"),
+        tr.urls()
+            .last()
+            .unwrap()
+            .contains("/me/mailFolders/AAMkOpaqueFolderId/messages/delta"),
         "folder must be re-addressed by id: {}",
-        tr.urls()[1]
+        tr.urls().last().unwrap()
+    );
+}
+
+#[test]
+fn v1_special_folders_are_resolved_by_id_without_beta_properties_or_english_names() {
+    let tr = Scripted::new(|request: &HttpRequestSpec| {
+        if request.url.contains("?$top=100") {
+            return Ok(json_ok(
+                serde_json::json!({"value":[{"id":"opaque-inbox","displayName":"Posteingang"},{"id":"opaque-sent","displayName":"Enviados"}]}),
+            ));
+        }
+        if request.url.contains("/inbox?") {
+            return Ok(json_ok(serde_json::json!({"id":"opaque-inbox"})));
+        }
+        if request.url.contains("/sentitems?") {
+            return Ok(json_ok(serde_json::json!({"id":"opaque-sent"})));
+        }
+        Ok(bare(404))
+    });
+    let rows = mail::list_mailboxes(&GraphClient::new(&tr, ACCOUNT)).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].role, "inbox");
+    assert_eq!(rows[0].mailbox_ref.name, "inbox");
+    assert_eq!(rows[1].role, "sent");
+    assert_eq!(rows[1].mailbox_ref.name, "sentitems");
+    assert_eq!(
+        tr.urls().len(),
+        7,
+        "one hierarchy and six bounded well-known folder lookups"
     );
 }
 
@@ -457,10 +491,13 @@ fn removed_entries_are_removed_and_never_also_added() {
 }
 
 #[test]
-fn a_mid_page_delta_returns_the_next_link_as_the_cursor() {
-    // Mid-page there is no deltaLink, only a nextLink; returning an EMPTY cursor there
-    // would make the following sync restart from the beginning and re-add everything.
-    let tr = Scripted::new(|_: &HttpRequestSpec| {
+fn a_mid_page_delta_is_consumed_before_the_final_cursor_is_returned() {
+    let tr = Scripted::new(|request: &HttpRequestSpec| {
+        if request.url.contains("$skiptoken=X") {
+            return Ok(json_ok(
+                serde_json::json!({"value":[{"id":"m2"}],"@odata.deltaLink":"https://graph.microsoft.com/v1.0/complete?$deltatoken=Y"}),
+            ));
+        }
         Ok(json_ok(serde_json::json!({
             "value": [ { "id": "m1" } ],
             "@odata.nextLink": "https://graph.microsoft.com/v1.0/more?$skiptoken=X",
@@ -470,8 +507,74 @@ fn a_mid_page_delta_returns_the_next_link_as_the_cursor() {
     let delta = mail::sync_mailbox(&c, &inbox(), &SyncCursor::default()).expect("delta");
     assert_eq!(
         String::from_utf8(delta.next_cursor.opaque).unwrap(),
-        "https://graph.microsoft.com/v1.0/more?$skiptoken=X"
+        "https://graph.microsoft.com/v1.0/complete?$deltatoken=Y"
     );
+    assert_eq!(delta.added.len(), 2);
+    assert_eq!(tr.urls().len(), 2);
+}
+
+#[test]
+fn a_repeating_page_is_refused_without_a_partial_baseline() {
+    let tr = Scripted::new(|_: &HttpRequestSpec| {
+        Ok(json_ok(
+            serde_json::json!({"value":[],"@odata.nextLink":"https://graph.microsoft.com/v1.0/more"}),
+        ))
+    });
+    assert!(matches!(
+        mail::sync_mailbox(
+            &GraphClient::new(&tr, ACCOUNT),
+            &inbox(),
+            &SyncCursor::default()
+        ),
+        Err(BridgeError::Protocol(_))
+    ));
+    assert_eq!(tr.urls().len(), 2);
+}
+
+#[test]
+fn delta_expiry_is_distinct_from_a_missing_folder() {
+    let tr = Scripted::new(|_: &HttpRequestSpec| Ok(bare(410)));
+    assert_eq!(
+        mail::sync_mailbox(
+            &GraphClient::new(&tr, ACCOUNT),
+            &inbox(),
+            &SyncCursor::default()
+        )
+        .unwrap_err(),
+        BridgeError::Protocol("mailwoman:sync-reset".into())
+    );
+}
+
+#[test]
+fn an_external_continuation_is_refused_before_token_or_network_use() {
+    let tr = Scripted::new(|_: &HttpRequestSpec| panic!("external request reached transport"));
+    let client = GraphClient::new(&tr, ACCOUNT);
+    for path in [
+        "https://evil.test/delta",
+        "http://graph.microsoft.com/delta",
+        "https://graph.microsoft.com.evil.test/delta",
+    ] {
+        assert!(matches!(
+            client.get_json::<serde_json::Value>(path),
+            Err(BridgeError::Protocol(_))
+        ));
+    }
+    assert!(tr.urls().is_empty());
+}
+
+#[test]
+fn nested_folders_are_enumerated_with_canonical_parent_coordinates() {
+    let tr = Scripted::new(|request: &HttpRequestSpec| {
+        Ok(json_ok(if request.url.contains("childFolders") {
+            serde_json::json!({"value":[{"id":"child","parentFolderId":"opaque-parent"}]})
+        } else {
+            serde_json::json!({"value":[{"id":"opaque-parent","wellKnownName":"inbox","childFolderCount":1}]})
+        }))
+    });
+    let rows = mail::list_mailboxes(&GraphClient::new(&tr, ACCOUNT)).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(tr.urls().len(), 2);
+    assert_eq!(rows[1].parent.as_deref(), Some("inbox"));
 }
 
 #[test]
@@ -615,56 +718,34 @@ fn submit_base64_encodes_the_mime_for_send_mail() {
 // ── best-effort caps degrade rather than fail ────────────────────────────────
 
 #[test]
-fn a_reaction_degrades_to_false_but_an_auth_failure_still_propagates() {
-    // Reactions are advertised best-effort: a tenant that does not support them must
-    // not surface as a broken mailbox. An auth failure is different — it means the
-    // credential needs attention and must reach the host.
-    let unsupported = Scripted::new(|_: &HttpRequestSpec| Ok(bare(501)));
-    let c = GraphClient::new(&unsupported, ACCOUNT);
-    assert!(
-        !caps::react(&c, "m1", "👍").expect("degrades, never errors"),
-        "an unsupported reaction reports 'not applied', not a failure"
-    );
-
-    let unauthorized = Scripted::new(|_: &HttpRequestSpec| Ok(bare(401)));
-    let c = GraphClient::new(&unauthorized, ACCOUNT);
-    let err = caps::react(&c, "m1", "👍").expect_err("auth must not be swallowed");
-    assert!(matches!(err, BridgeError::Auth(_)), "got {err:?}");
+fn undocumented_mailbox_reactions_are_refused_without_network_calls() {
+    let tr = Scripted::new(|_: &HttpRequestSpec| panic!("no documented mailbox reaction endpoint"));
+    assert!(matches!(
+        caps::react(&GraphClient::new(&tr, ACCOUNT), "m1", "👍"),
+        Err(BridgeError::Unsupported(_))
+    ));
+    assert!(tr.requests().is_empty());
 }
 
 #[test]
-fn recall_is_declined_outright_once_the_message_has_been_read() {
-    // The honesty matrix: an already-read message cannot be recalled, so the bridge
-    // must not issue the recall verb and then report a hopeful outcome.
+fn recall_uses_the_documented_beta_sentitems_action_with_no_body() {
     let tr = Scripted::new(|req: &HttpRequestSpec| {
-        assert_ne!(
-            req.method, "POST",
-            "no recall verb for an already-read message"
+        assert_eq!(req.method, "POST");
+        assert_eq!(
+            req.url,
+            "https://graph.microsoft.com/beta/me/mailFolders/sentitems/messages/m%2F1/recall"
         );
-        Ok(json_ok(serde_json::json!({ "id": "m1", "isRead": true })))
+        assert!(req.body.is_none());
+        Ok(bare(202))
     });
-    let c = GraphClient::new(&tr, ACCOUNT);
-    let outcome = caps::recall(&c, "m1").expect("recall check");
-    assert!(!outcome.requested);
-    assert!(!outcome.guaranteed);
-    assert_eq!(tr.requests().len(), 1, "only the state check is issued");
-
-    // An unread message does issue the verb — and is STILL never reported guaranteed.
-    let tr = Scripted::new(|req: &HttpRequestSpec| {
-        if req.method == "POST" {
-            Ok(bare(202))
-        } else {
-            Ok(json_ok(serde_json::json!({ "id": "m1", "isRead": false })))
-        }
-    });
-    let c = GraphClient::new(&tr, ACCOUNT);
-    let outcome = caps::recall(&c, "m1").expect("recall attempt");
+    let outcome = caps::recall(&GraphClient::new(&tr, ACCOUNT), "m/1").unwrap();
     assert!(outcome.requested);
-    assert!(
-        !outcome.guaranteed,
-        "Graph never guarantees recall — reporting otherwise would be a false claim"
+    assert!(!outcome.guaranteed);
+    assert_eq!(
+        tr.requests().len(),
+        1,
+        "sender read state is not a recipient read receipt"
     );
-    assert_eq!(tr.requests().len(), 2);
 }
 
 // ── client primitives ────────────────────────────────────────────────────────

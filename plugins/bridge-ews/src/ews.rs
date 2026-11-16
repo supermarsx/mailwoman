@@ -33,6 +33,7 @@ pub struct EwsFolder {
     pub role: String,
     pub total: u32,
     pub unread: u32,
+    pub parent: Option<String>,
 }
 
 /// Map a folder display name to a JMAP special-use role (best-effort; Exchange does
@@ -72,6 +73,7 @@ pub fn sync_folder_hierarchy_request(sync_state: &str) -> String {
 
 /// Parse a `SyncFolderHierarchy` response into `(folders, sync_state)`.
 pub fn parse_folder_hierarchy(xml: &str) -> Result<(Vec<EwsFolder>, String), String> {
+    require_success(xml)?;
     let sync_state = soap::first_text(xml, "SyncState").unwrap_or_default();
     let mut folders = Vec::new();
     let mut reader = Reader::from_str(xml);
@@ -103,6 +105,11 @@ pub fn parse_folder_hierarchy(xml: &str) -> Result<(Vec<EwsFolder>, String), Str
                                 f.change_key = attr_val(&e, "ChangeKey").unwrap_or_default();
                             }
                         }
+                        "ParentFolderId" => {
+                            if let Some(f) = cur.as_mut() {
+                                f.parent = attr_val(&e, "Id");
+                            }
+                        }
                         "DisplayName" | "TotalCount" | "UnreadCount" => {
                             text_field = Some(ln);
                             pending.clear();
@@ -118,6 +125,11 @@ pub fn parse_folder_hierarchy(xml: &str) -> Result<(Vec<EwsFolder>, String), Str
                 {
                     f.id = attr_val(&e, "Id").unwrap_or_default();
                     f.change_key = attr_val(&e, "ChangeKey").unwrap_or_default();
+                }
+                if ln == "ParentFolderId"
+                    && let Some(f) = cur.as_mut()
+                {
+                    f.parent = attr_val(&e, "Id");
                 }
             }
             Ok(Event::Text(t)) if text_field.is_some() => {
@@ -199,6 +211,7 @@ pub fn sync_folder_items_request(folder_id: &str, sync_state: &str, max: u32) ->
 /// Parse a `SyncFolderItems` response, distinguishing `Create` (added) from
 /// `Delete` (removed) changes and capturing the new `SyncState`.
 pub fn parse_folder_items(xml: &str) -> Result<ItemsDelta, String> {
+    require_success(xml)?;
     let mut out = ItemsDelta {
         sync_state: soap::first_text(xml, "SyncState").unwrap_or_default(),
         includes_last: soap::first_text(xml, "IncludesLastItemInRange").as_deref() == Some("true"),
@@ -224,7 +237,7 @@ pub fn parse_folder_items(xml: &str) -> Result<ItemsDelta, String> {
         match reader.read_event_into(&mut buf) {
             // `ItemId` is normally an empty element, but tolerate a start tag too.
             Ok(Event::Start(e)) => match local(e.name()).as_str() {
-                "Create" => mode = 1,
+                "Create" | "Update" | "ReadFlagChange" => mode = 1,
                 "Delete" => mode = 2,
                 "ItemId" => push_item(&e, mode, &mut out),
                 _ => {}
@@ -233,7 +246,7 @@ pub fn parse_folder_items(xml: &str) -> Result<ItemsDelta, String> {
                 push_item(&e, mode, &mut out);
             }
             Ok(Event::End(e)) => match local(e.name()).as_str() {
-                "Create" | "Delete" => mode = 0,
+                "Create" | "Update" | "ReadFlagChange" | "Delete" => mode = 0,
                 _ => {}
             },
             Ok(Event::Eof) => break,
@@ -245,6 +258,17 @@ pub fn parse_folder_items(xml: &str) -> Result<ItemsDelta, String> {
     Ok(out)
 }
 
+fn require_success(xml: &str) -> Result<(), String> {
+    if soap::is_success(xml) {
+        Ok(())
+    } else if soap::first_text(xml, "ResponseCode").as_deref() == Some("ErrorInvalidSyncStateData")
+    {
+        Err("mailwoman:sync-reset".into())
+    } else {
+        Err(soap::message_text(xml).unwrap_or_else(|| "EWS sync failed".into()))
+    }
+}
+
 // ── Fetch raw MIME ──────────────────────────────────────────────────────────────
 
 /// Build a `GetItem` request that returns full RFC822 `MimeContent` for `item_id`.
@@ -254,7 +278,7 @@ pub fn get_item_mime_request(item_id: &str) -> String {
         concat!(
             "<m:GetItem>",
             "<m:ItemShape>",
-            "<t:BaseShape>IdOnly</t:BaseShape>",
+            "<t:BaseShape>Default</t:BaseShape>",
             "<t:IncludeMimeContent>true</t:IncludeMimeContent>",
             "</m:ItemShape>",
             "<m:ItemIds><t:ItemId Id=\"{id}\"/></m:ItemIds>",
@@ -311,11 +335,16 @@ pub fn parse_created_item_id(xml: &str) -> Result<Option<EwsItem>, String> {
 /// Build an `UpdateItem` request setting the read (`IsRead`) state of an item.
 #[must_use]
 pub fn update_read_flag_request(item_id: &str, change_key: &str, is_read: bool) -> String {
+    let key = if change_key.is_empty() {
+        String::new()
+    } else {
+        format!(" ChangeKey=\"{}\"", soap::escape(change_key))
+    };
     soap::envelope(&format!(
         concat!(
             "<m:UpdateItem MessageDisposition=\"SaveOnly\" ConflictResolution=\"AutoResolve\">",
             "<m:ItemChanges><t:ItemChange>",
-            "<t:ItemId Id=\"{id}\" ChangeKey=\"{ck}\"/>",
+            "<t:ItemId Id=\"{id}\"{ck}/>",
             "<t:Updates><t:SetItemField>",
             "<t:FieldURI FieldURI=\"message:IsRead\"/>",
             "<t:Message><t:IsRead>{read}</t:IsRead></t:Message>",
@@ -324,7 +353,7 @@ pub fn update_read_flag_request(item_id: &str, change_key: &str, is_read: bool) 
             "</m:UpdateItem>"
         ),
         id = soap::escape(item_id),
-        ck = soap::escape(change_key),
+        ck = key,
         read = is_read
     ))
 }
@@ -469,6 +498,41 @@ mod tests {
         assert_eq!(d.removed.len(), 1);
         assert_eq!(d.added[0].id, "ITEM-AAA");
         assert_eq!(d.removed[0].id, "ITEM-OLD");
+    }
+
+    #[test]
+    fn updates_and_read_flags_are_refetched_and_faults_do_not_advance_sync() {
+        let xml = ITEMS
+            .replace("<t:Create>", "<t:Update>")
+            .replace("</t:Create>", "</t:Update>")
+            .replace("<t:Delete>", "<t:ReadFlagChange>")
+            .replace("</t:Delete>", "</t:ReadFlagChange>");
+        let delta = parse_folder_items(&xml).unwrap();
+        assert_eq!(delta.added.len(), 3);
+        assert!(delta.removed.is_empty());
+        let fault = r#"<m:SyncFolderItemsResponseMessage ResponseClass="Error"><m:ResponseCode>ErrorInvalidSyncStateData</m:ResponseCode></m:SyncFolderItemsResponseMessage>"#;
+        assert_eq!(
+            parse_folder_items(fault).unwrap_err(),
+            "mailwoman:sync-reset"
+        );
+        assert!(parse_folder_hierarchy(fault).is_err());
+        assert!(parse_folder_items("<broken/>").is_err());
+    }
+
+    #[test]
+    fn folder_parent_is_retained_and_blank_change_keys_are_omitted() {
+        let xml = HIER.replace(
+            "<t:DisplayName>Inbox",
+            r#"<t:ParentFolderId Id="PARENT"/><t:DisplayName>Inbox"#,
+        );
+        let (folders, _) = parse_folder_hierarchy(&xml).unwrap();
+        assert_eq!(folders[0].parent.as_deref(), Some("PARENT"));
+        let request = update_read_flag_request("item-id", "", true);
+        assert!(!request.contains("ChangeKey="));
+        assert!(
+            update_read_flag_request("item-id", "revision", true)
+                .contains(r#"ChangeKey="revision""#)
+        );
     }
 
     #[test]

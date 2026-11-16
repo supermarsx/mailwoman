@@ -56,20 +56,25 @@ fn b64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
-    headers
-        .iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case(name))
-        .map(|(_, v)| v.as_str())
+fn post(url: &str, auth: Option<&str>, body: &[u8]) -> Result<host::HttpResponse, PluginError> {
+    post_session(url, auth, body, None)
 }
 
-fn post(url: &str, auth: Option<&str>, body: &[u8]) -> Result<host::HttpResponse, PluginError> {
+fn post_session(
+    url: &str,
+    auth: Option<&str>,
+    body: &[u8],
+    session: Option<&str>,
+) -> Result<host::HttpResponse, PluginError> {
     let mut headers = vec![(
         "Content-Type".to_string(),
         "text/xml; charset=utf-8".to_string(),
     )];
     if let Some(a) = auth {
         headers.push(("Authorization".to_string(), a.to_string()));
+    }
+    if let Some(session) = session {
+        headers.push(("X-Mailwoman-Auth-Session".into(), session.into()));
     }
     host::http_fetch(&host::HttpRequest {
         method: "POST".into(),
@@ -117,41 +122,83 @@ fn basic_call(creds: &host::HostCredentials, body: &[u8]) -> Result<String, Plug
 /// NTLMv2 path: the 401 NEGOTIATE (Type 1) → CHALLENGE (Type 2) → AUTHENTICATE
 /// (Type 3) dance, keyed by the account's cleartext credential.
 fn ntlm_call(creds: &host::HostCredentials, body: &[u8]) -> Result<String, PluginError> {
+    let random = host::random(16);
+    if random.len() != 16 {
+        return Err(PluginError::Auth("NTLM session entropy unavailable".into()));
+    }
+    let session = random
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     // Step 1: send the request with an NTLM NEGOTIATE (Type 1) token.
     let type1 = ntlm::type1_message();
     let neg = format!("NTLM {}", b64(&type1));
-    let r1 = post(&creds.endpoint, Some(&neg), body)?;
+    let r1 = post_session(&creds.endpoint, Some(&neg), body, Some(&session))?;
 
     if r1.status == 401 {
         // Step 2: parse the CHALLENGE (Type 2) and answer with AUTHENTICATE (Type 3).
-        let www = header(&r1.headers, "WWW-Authenticate")
-            .ok_or_else(|| PluginError::Auth("401 without WWW-Authenticate".into()))?;
-        let token = www
-            .split_whitespace()
-            .nth(1)
-            .ok_or_else(|| PluginError::Auth("malformed NTLM challenge header".into()))?;
+        let token = r1
+            .headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("WWW-Authenticate"))
+            .flat_map(|(_, value)| value.split(','))
+            .find_map(|challenge| {
+                let mut parts = challenge.split_whitespace();
+                parts
+                    .next()
+                    .filter(|scheme| scheme.eq_ignore_ascii_case("NTLM"))
+                    .and_then(|_| parts.next())
+            })
+            .ok_or_else(|| PluginError::Auth("401 without an NTLM challenge".into()))?;
         let type2 = base64::engine::general_purpose::STANDARD
             .decode(token)
             .map_err(|e| PluginError::Auth(format!("NTLM challenge base64: {e}")))?;
-        let challenge = ntlm::parse_challenge(&type2).map_err(PluginError::Auth)?;
-
         let rnd = host::random(8);
-        let mut client_challenge = [0u8; 8];
-        for (i, b) in rnd.iter().take(8).enumerate() {
-            client_challenge[i] = *b;
+        if rnd.len() != 8 {
+            return Err(PluginError::Auth("NTLM client entropy unavailable".into()));
         }
+        let mut client_challenge = [0u8; 8];
+        client_challenge.copy_from_slice(&rnd);
+        let certificate = r1
+            .headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("x-mailwoman-tls-server-end-point"))
+            .map(|(_, value)| value)
+            .ok_or_else(|| PluginError::Auth("NTLM TLS binding unavailable".into()))?;
+        if ![56, 64, 96, 128].contains(&certificate.len())
+            || !certificate.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(PluginError::Auth("NTLM TLS binding invalid".into()));
+        }
+        let certificate = (0..certificate.len())
+            .step_by(2)
+            .map(|offset| {
+                u8::from_str_radix(&certificate[offset..offset + 2], 16)
+                    .map_err(|_| PluginError::Auth("NTLM TLS binding invalid".into()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let target = r1
+            .headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("x-mailwoman-ntlm-target-name"))
+            .map(|(_, value)| value)
+            .ok_or_else(|| PluginError::Auth("NTLM service binding unavailable".into()))?;
         let timestamp = ntlm::filetime_from_unix_millis(host::now());
-        let ntowf2 = ntlm::ntowf_v2(&creds.user, &creds.domain, &creds.password);
-        let resp = ntlm::ntlmv2_response(
-            &ntowf2,
-            &challenge.server_challenge,
+        let type3 = ntlm::protected_authenticate(
+            &creds.user,
+            &creds.domain,
+            &creds.workstation,
+            &creds.password,
+            &type1,
+            &type2,
             &client_challenge,
             timestamp,
-            &challenge.target_info,
-        );
-        let type3 = ntlm::type3_message(&creds.user, &creds.domain, &creds.workstation, &resp);
+            &certificate,
+            target,
+        )
+        .map_err(PluginError::Auth)?;
         let auth = format!("NTLM {}", b64(&type3));
-        let r2 = post(&creds.endpoint, Some(&auth), body)?;
+        let r2 = post_session(&creds.endpoint, Some(&auth), body, Some(&session))?;
         if (200..300).contains(&r2.status) {
             return Ok(String::from_utf8_lossy(&r2.body).into_owned());
         }
@@ -169,8 +216,8 @@ fn ntlm_call(creds: &host::HostCredentials, body: &[u8]) -> Result<String, Plugi
 
 fn msgref(item_id: &str, change_key: &str, mbox: &MailboxRef) -> MessageRef {
     MessageRef {
-        // Pack the native EWS ItemId + ChangeKey into the opaque `raw`; the host adapter
-        // round-trips it verbatim as MessageRef::Plugin (no synthetic-UID map needed).
+        // Stable EWS ItemId identity; the host round-trips it verbatim. The wire
+        // decoder still accepts legacy ItemId+ChangeKey references during upgrade.
         raw: wire::encode_msgref(item_id, change_key),
         mailbox: mbox.clone(),
     }
@@ -193,8 +240,22 @@ impl ab::Guest for Component {
     }
 
     fn list_mailboxes() -> Result<Vec<Mailbox>, PluginError> {
-        let xml = ews_call(&ews::sync_folder_hierarchy_request(""))?;
-        let (folders, _state) = ews::parse_folder_hierarchy(&xml).map_err(protocol)?;
+        let mut state = String::new();
+        let mut seen = std::collections::BTreeSet::new();
+        let mut folders = Vec::new();
+        loop {
+            let xml = ews_call(&ews::sync_folder_hierarchy_request(&state))?;
+            let (mut page, next) = ews::parse_folder_hierarchy(&xml).map_err(protocol)?;
+            folders.append(&mut page);
+            if crate::soap::first_text(&xml, "IncludesLastFolderInRange").as_deref() == Some("true")
+            {
+                break;
+            }
+            if next.is_empty() || seen.len() >= 4096 || !seen.insert(next.clone()) {
+                return Err(protocol("EWS folder pagination did not finish"));
+            }
+            state = next;
+        }
         Ok(folders
             .into_iter()
             .map(|f| Mailbox {
@@ -203,7 +264,7 @@ impl ab::Guest for Component {
                     uidvalidity: 1,
                 },
                 role: f.role.to_string(),
-                parent: None,
+                parent: f.parent,
                 total: f.total,
                 unread: f.unread,
             })
@@ -212,31 +273,49 @@ impl ab::Guest for Component {
 
     fn sync_mailbox(mbox: MailboxRef, cursor: SyncCursor) -> Result<MailboxDelta, PluginError> {
         let folder_id = mbox.name.clone();
-        let sync_state = wire::decode_cursor(&cursor.opaque);
-        let xml = ews_call(&ews::sync_folder_items_request(
-            &folder_id,
-            &sync_state,
-            512,
-        ))?;
-        let delta = ews::parse_folder_items(&xml).map_err(protocol)?;
-
-        let added = delta
-            .added
-            .iter()
-            .map(|it| msgref(&it.id, &it.change_key, &mbox))
-            .collect();
-        let removed = delta
-            .removed
-            .iter()
-            .map(|it| msgref(&it.id, &it.change_key, &mbox))
-            .collect();
+        let mut sync_state = wire::decode_cursor(&cursor.opaque);
+        let mut seen = std::collections::BTreeSet::new();
+        let mut items = std::collections::BTreeMap::new();
+        loop {
+            let xml = ews_call(&ews::sync_folder_items_request(
+                &folder_id,
+                &sync_state,
+                512,
+            ))?;
+            let delta = ews::parse_folder_items(&xml).map_err(protocol)?;
+            for item in delta.added {
+                items.insert(item.id, true);
+            }
+            for item in delta.removed {
+                items.insert(item.id, false);
+            }
+            if delta.sync_state.is_empty() {
+                return Err(protocol("EWS sync response has no SyncState"));
+            }
+            sync_state = delta.sync_state;
+            if delta.includes_last {
+                break;
+            }
+            if seen.len() >= 4096 || !seen.insert(sync_state.clone()) {
+                return Err(protocol("EWS item pagination did not finish"));
+            }
+        }
+        let mut added = Vec::new();
+        let mut removed = Vec::new();
+        for (id, present) in items {
+            if present {
+                added.push(msgref(&id, "", &mbox));
+            } else {
+                removed.push(msgref(&id, "", &mbox));
+            }
+        }
 
         Ok(MailboxDelta {
             added,
             removed,
             flag_changes: vec![],
             next_cursor: SyncCursor {
-                opaque: wire::encode_cursor(&delta.sync_state),
+                opaque: wire::encode_cursor(&sync_state),
             },
         })
     }
@@ -250,7 +329,22 @@ impl ab::Guest for Component {
             out.push(RawMessage {
                 message_ref: r,
                 raw,
-                msg_flags: vec![],
+                msg_flags: {
+                    let mut flags = Vec::new();
+                    if crate::soap::first_text(&xml, "IsRead").as_deref() == Some("true") {
+                        flags.push(Flag::Seen);
+                    }
+                    if crate::soap::first_text(&xml, "IsDraft").as_deref() == Some("true") {
+                        flags.push(Flag::Draft);
+                    }
+                    if crate::soap::first_text(&xml, "FlagStatus").as_deref() == Some("Flagged") {
+                        flags.push(Flag::Flagged);
+                    }
+                    if crate::soap::first_text(&xml, "Importance").as_deref() == Some("High") {
+                        flags.push(Flag::Keyword("$Important".into()));
+                    }
+                    flags
+                },
                 internaldate: None,
             });
         }
@@ -269,12 +363,8 @@ impl ab::Guest for Component {
         }
         let is_read = seen_add && !seen_remove;
         for r in refs {
-            let (item_id, change_key) = item_id_of(&r)?;
-            let xml = ews_call(&ews::update_read_flag_request(
-                &item_id,
-                &change_key,
-                is_read,
-            ))?;
+            let (item_id, _change_key) = item_id_of(&r)?;
+            let xml = ews_call(&ews::update_read_flag_request(&item_id, "", is_read))?;
             if !crate::soap::is_success(&xml) {
                 return Err(protocol(
                     crate::soap::message_text(&xml).unwrap_or_else(|| "UpdateItem failed".into()),

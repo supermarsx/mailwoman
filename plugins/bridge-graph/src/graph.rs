@@ -14,6 +14,19 @@ use serde::de::DeserializeOwned;
 /// (`graph.microsoft.com`); OAuth (`login.microsoftonline.com`) is host-side.
 pub const GRAPH_BASE: &str = "https://graph.microsoft.com/v1.0";
 
+pub fn encode_segment(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
 /// A coarse bridge error mirroring the WIT `plugin-error` variants so the guest can
 /// map it 1:1 across the ABI without loss.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,6 +103,13 @@ impl<'a, T: Transport> GraphClient<'a, T> {
         body: Option<Vec<u8>>,
         content_type: Option<&str>,
     ) -> Result<HttpResponseData> {
+        if !url.starts_with("https://graph.microsoft.com/")
+            || url.bytes().any(|b| b < 0x20 || b == 0x7f)
+        {
+            return Err(BridgeError::Protocol(
+                "Graph continuation authority refused".into(),
+            ));
+        }
         // Acquire the token immediately before the call and attach it transiently.
         let token = self.transport.token(self.account)?;
         let mut headers = vec![
@@ -101,10 +121,26 @@ impl<'a, T: Transport> GraphClient<'a, T> {
         }
         let resp = self.transport.fetch(HttpRequestSpec {
             method: method.to_string(),
-            url,
+            url: url.clone(),
             headers,
             body,
         })?;
+        if method == "GET"
+            && url.contains("/delta")
+            && (resp.status == 410
+                || (400..500).contains(&resp.status)
+                    && serde_json::from_slice::<serde_json::Value>(&resp.body)
+                        .ok()
+                        .and_then(|v| v.get("error")?.get("code")?.as_str().map(str::to_owned))
+                        .is_some_and(|code| {
+                            matches!(
+                                code.as_str(),
+                                "syncStateNotFound" | "SyncStateNotFound" | "InvalidDeltaToken"
+                            )
+                        }))
+        {
+            return Err(BridgeError::Protocol("mailwoman:sync-reset".into()));
+        }
         if resp.status == 401 || resp.status == 403 {
             return Err(BridgeError::Auth(format!("Graph returned {}", resp.status)));
         }
@@ -135,7 +171,45 @@ impl<'a, T: Transport> GraphClient<'a, T> {
     /// GET a path and deserialize the JSON body.
     pub fn get_json<D: DeserializeOwned>(&self, path: &str) -> Result<D> {
         let resp = self.authed("GET", Self::absolute(path), None, None)?;
-        serde_json::from_slice(&resp.body)
+        let mut value: serde_json::Value = serde_json::from_slice(&resp.body)
+            .map_err(|e| BridgeError::Protocol(format!("decode GET {path}: {e}")))?;
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(next) = value
+            .get("@odata.nextLink")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+        {
+            if seen.len() >= 4096 || !seen.insert(next.clone()) {
+                return Err(BridgeError::Protocol(
+                    "Graph pagination did not finish".into(),
+                ));
+            }
+            let page = self.authed("GET", Self::absolute(&next), None, None)?;
+            let mut page: serde_json::Value = serde_json::from_slice(&page.body)
+                .map_err(|e| BridgeError::Protocol(format!("decode Graph page: {e}")))?;
+            let items = page
+                .get_mut("value")
+                .and_then(|v| v.as_array_mut())
+                .ok_or_else(|| {
+                    BridgeError::Protocol("Graph continuation has no collection".into())
+                })?;
+            value
+                .get_mut("value")
+                .and_then(|v| v.as_array_mut())
+                .ok_or_else(|| BridgeError::Protocol("Graph page has no collection".into()))?
+                .append(items);
+            let object = value
+                .as_object_mut()
+                .ok_or_else(|| BridgeError::Protocol("Graph page is not an object".into()))?;
+            object.remove("@odata.nextLink");
+            if let Some(next) = page.get("@odata.nextLink") {
+                object.insert("@odata.nextLink".into(), next.clone());
+            }
+            if let Some(delta) = page.get("@odata.deltaLink") {
+                object.insert("@odata.deltaLink".into(), delta.clone());
+            }
+        }
+        serde_json::from_value(value)
             .map_err(|e| BridgeError::Protocol(format!("decode GET {path}: {e}")))
     }
 
@@ -177,6 +251,12 @@ impl<'a, T: Transport> GraphClient<'a, T> {
             Some(raw),
             Some("application/json"),
         )?;
+        Ok(())
+    }
+
+    /// An action whose provider contract explicitly requires an empty body.
+    pub fn post_empty(&self, path: &str) -> Result<()> {
+        self.authed("POST", Self::absolute(path), None, None)?;
         Ok(())
     }
 

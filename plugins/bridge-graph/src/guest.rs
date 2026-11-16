@@ -284,7 +284,7 @@ impl tasks_ex::Guest for Component {
 
 impl parity::Guest for Component {
     fn supports_reactions() -> bool {
-        true
+        false
     }
     fn supports_voting() -> bool {
         true
@@ -297,33 +297,19 @@ impl parity::Guest for Component {
     }
 
     fn set_reaction(
-        msg: wit::MessageRef,
-        emoji: String,
-        add: bool,
+        _msg: wit::MessageRef,
+        _emoji: String,
+        _add: bool,
     ) -> Result<(), wit::PluginError> {
-        let (tr, acct) = client();
-        let c = GraphClient::new(&tr, acct);
-        if add {
-            // Wire the existing best-effort reaction post.
-            caps::react(&c, &msg.raw, &emoji)
-                .map(|_| ())
-                .map_err(bridge_to_wit)
-        } else {
-            // Removal: best-effort `unreact`, mirroring `caps::react`'s degrade-not-fail
-            // posture (a non-2xx is a no-op success, never a surfaced failure).
-            let body = serde_json::json!({ "reactionType": emoji });
-            match c.post_ignore(&format!("/me/messages/{}/unreact", msg.raw), &body) {
-                Ok(()) => Ok(()),
-                Err(BridgeError::Auth(_)) => Err(wit::PluginError::Auth("unreact rejected".into())),
-                Err(_) => Ok(()),
-            }
-        }
+        Err(wit::PluginError::Unsupported(
+            "Microsoft Graph mailbox reactions are unavailable; use the standards fallback".into(),
+        ))
     }
 
     fn get_reactions(_msg: wit::MessageRef) -> Result<Vec<parity::Reaction>, wit::PluginError> {
-        // Graph exposes no read-back for mailbox-message reactions — an honest empty
-        // list (reactions are a best-effort write surface, never a fabricated read).
-        Ok(Vec::new())
+        Err(wit::PluginError::Unsupported(
+            "Microsoft Graph mailbox reactions are unavailable; use the standards fallback".into(),
+        ))
     }
 
     fn cast_vote(msg: wit::MessageRef, choice: String) -> Result<(), wit::PluginError> {

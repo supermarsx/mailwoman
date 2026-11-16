@@ -20,6 +20,8 @@ pub struct MailFolder {
     pub total_item_count: u32,
     #[serde(default)]
     pub unread_item_count: u32,
+    #[serde(default)]
+    pub child_folder_count: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]

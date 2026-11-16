@@ -40,7 +40,7 @@ fn ntlm_type2() -> Vec<u8> {
     m.extend_from_slice(b"NTLMSSP\0");
     m.extend_from_slice(&2u32.to_le_bytes());
     m.extend_from_slice(&[0u8; 8]); // TargetNameFields
-    m.extend_from_slice(&0x0008_0201u32.to_le_bytes()); // flags (unicode|ntlm|target-info)
+    m.extend_from_slice(&0x0008_8205u32.to_le_bytes()); // flags (unicode|ntlm|target-info)
     m.extend_from_slice(&[0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef]); // server challenge
     m.extend_from_slice(&[0u8; 8]); // reserved
     m.extend_from_slice(&4u16.to_le_bytes()); // TargetInfo len
@@ -142,10 +142,17 @@ impl HttpFetcher for FakeEws {
                     self.saw_type1.store(true, Ordering::SeqCst);
                     return Ok(HttpResp {
                         status: 401,
-                        headers: vec![(
-                            "WWW-Authenticate".to_string(),
-                            format!("NTLM {}", b64(&ntlm_type2())),
-                        )],
+                        headers: vec![
+                            (
+                                "WWW-Authenticate".to_string(),
+                                format!("NTLM {}", b64(&ntlm_type2())),
+                            ),
+                            ("x-mailwoman-tls-server-end-point".into(), "ab".repeat(32)),
+                            (
+                                "x-mailwoman-ntlm-target-name".into(),
+                                "HTTP/ews.example.com".into(),
+                            ),
+                        ],
                         body: vec![],
                     });
                 }

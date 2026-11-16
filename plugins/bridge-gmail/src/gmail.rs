@@ -27,7 +27,10 @@ pub fn url_labels() -> String {
 /// List message ids carrying `label_id` (a page of the mailbox baseline).
 #[must_use]
 pub fn url_messages_list(label_id: &str) -> String {
-    format!("{BASE}/messages?labelIds={}&maxResults=500", enc(label_id))
+    format!(
+        "{BASE}/messages?labelIds={}&maxResults=500&includeSpamTrash=true",
+        enc(label_id)
+    )
 }
 
 /// Get one message's metadata (labels/date) — cheap, no body.
@@ -88,6 +91,15 @@ pub fn url_drafts_create() -> String {
     format!("{BASE}/drafts")
 }
 
+/// Opaque page tokens are query values, never URLs or unescaped query fragments.
+pub fn with_page_token(base: &str, page: &str) -> String {
+    if page.is_empty() {
+        base.to_owned()
+    } else {
+        format!("{base}&pageToken={}", enc(page))
+    }
+}
+
 /// Minimal, allocation-light percent-encoding for the few characters that appear in
 /// Gmail ids / label ids used in a query string (`/`, space, `#`, `?`, `&`, `+`).
 fn enc(s: &str) -> String {
@@ -142,6 +154,8 @@ impl Label {
 pub struct MessagesList {
     #[serde(default)]
     pub messages: Vec<MessageId>,
+    #[serde(rename = "nextPageToken", default)]
+    pub next_page_token: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -170,6 +184,8 @@ pub struct HistoryList {
     /// The newest history id at the time of the response — the next cursor.
     #[serde(rename = "historyId", default)]
     pub history_id: String,
+    #[serde(rename = "nextPageToken", default)]
+    pub next_page_token: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -187,6 +203,8 @@ pub struct HistoryRecord {
 #[derive(Debug, Deserialize)]
 pub struct HistoryMessage {
     pub message: Message,
+    #[serde(rename = "labelIds", default)]
+    pub label_ids: Vec<String>,
 }
 
 #[cfg(test)]

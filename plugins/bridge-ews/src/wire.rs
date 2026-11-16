@@ -6,19 +6,21 @@
 //! its own **provider-native** encodings, no engine-JSON disguise:
 //!
 //! EWS identifies items by an opaque `ItemId` (+ a `ChangeKey` that advances as the
-//! item is modified) and resumes sync from a `SyncState` token. The bridge packs the
-//! `ItemId` + `ChangeKey` into `message-ref.raw` and carries the `SyncState` bytes in
+//! item is modified) and resumes sync from a `SyncState` token. The bridge carries
+//! the stable `ItemId` in `message-ref.raw` and the `SyncState` bytes in
 //! `sync-cursor.opaque`, both round-tripped losslessly — no synthetic-UID map needed.
 
 /// Field separator packed into the message-ref `raw` (US, 0x1F — never appears in a
 /// base64 EWS `ItemId` or `ChangeKey`).
 const SEP: char = '\u{1f}';
 
-/// Pack an EWS `(item_id, change_key)` into the opaque `message-ref.raw` string the
-/// host adapter passes through as `MessageRef::Plugin { raw }`.
+/// Carry stable ItemId as identity. ChangeKey is not part of a stable reference.
+/// The host adapter passes it through as `MessageRef::Plugin { raw }`.
 #[must_use]
-pub fn encode_msgref(item_id: &str, change_key: &str) -> String {
-    format!("{item_id}{SEP}{change_key}")
+pub fn encode_msgref(item_id: &str, _change_key: &str) -> String {
+    // ChangeKey is a revision, not identity. Deletes/read flags omit it and an
+    // update changes it. Old packed references remain decodable for migration.
+    item_id.to_owned()
 }
 
 /// Recover `(item_id, change_key)` from a `message-ref.raw`. Tolerant of a bare
@@ -56,11 +58,16 @@ mod tests {
     #[test]
     fn msgref_round_trips_item_id_and_change_key() {
         let raw = encode_msgref("AAMkITEM==", "CK-9");
-        assert_eq!(raw, "AAMkITEM==\u{1f}CK-9");
+        assert_eq!(raw, "AAMkITEM==");
         assert_eq!(
             decode_msgref(&raw),
+            Some(("AAMkITEM==".into(), String::new()))
+        );
+        assert_eq!(
+            decode_msgref("AAMkITEM==\u{1f}CK-9"),
             Some(("AAMkITEM==".into(), "CK-9".into()))
         );
+        assert_eq!(encode_msgref("AAMkITEM==", "next-revision"), raw);
     }
 
     #[test]

@@ -80,7 +80,7 @@ pub(crate) mod assist_profiles;
 // backs is injected through [`host_services`] (owned here), so it reaches the running
 // host without any `lib.rs` change. The file lives at `crates/mw-server/src/oauth_client.rs`.
 #[path = "oauth_client.rs"]
-mod oauth_client;
+pub(crate) mod oauth_client;
 
 fn env(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.is_empty())
@@ -91,7 +91,7 @@ fn env(key: &str) -> Option<String> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[path = "plugin_transport.rs"]
-mod plugin_transport;
+pub(crate) mod plugin_transport;
 
 /// Host-bound HTTP transport. No process-wide credential injection.
 pub(crate) struct ReqwestFetcher {
@@ -177,11 +177,12 @@ impl BasicCredentialProvider for StoreEwsCredProvider {
                 .await
                 .map_err(|_| "provider credentials unavailable")?
                 .ok_or("provider credentials unavailable")?;
+            let (user,domain,workstation)=selected.config.credential_identity(&credential.username)?;
             return Ok(BasicCredentials {
-                user: credential.username,
+                user,
                 password: credential.password,
-                domain: String::new(),
-                workstation: String::new(),
+                domain,
+                workstation,
                 endpoint: selected.config.endpoint()?.to_string(),
             });
         }
@@ -1234,27 +1235,15 @@ pub(crate) async fn build_plugin_host(store: &Store) -> PluginRegistry {
 const FIRST_PARTY_DIGESTS: &[(&str, [u8; 32])] = &[
     (
         "bridge-graph",
-        [
-            0x97, 0xf2, 0xe9, 0x3b, 0x70, 0x84, 0xfc, 0xc8, 0x51, 0xa7, 0xf4, 0xf4, 0x58, 0xe2,
-            0xbf, 0x0f, 0x81, 0x0a, 0x42, 0x96, 0x15, 0x98, 0xfb, 0x71, 0x24, 0x3f, 0xfb, 0x19,
-            0xfd, 0x51, 0xc3, 0xcb,
-        ],
+        [0x3f, 0xa0, 0x3d, 0xa8, 0x7a, 0x6d, 0x73, 0x5b, 0x30, 0xd8, 0x9f, 0x18, 0x09, 0xb9, 0xb0, 0x94, 0x0c, 0x91, 0x31, 0xb7, 0x09, 0x8e, 0x82, 0xff, 0xa0, 0x81, 0xbc, 0x0e, 0xe4, 0xf8, 0x1e, 0xbc],
     ),
     (
         "bridge-ews",
-        [
-            0x17, 0x7d, 0x3b, 0x66, 0xfc, 0xc1, 0x38, 0xcb, 0x9a, 0xe5, 0x10, 0x38, 0xca, 0xe1,
-            0xe2, 0x3d, 0xfe, 0xb3, 0x54, 0x76, 0x39, 0x85, 0xa4, 0xfc, 0x83, 0x04, 0xb7, 0x67,
-            0xf8, 0x6d, 0x12, 0xd8,
-        ],
+        [0x30, 0x40, 0x5b, 0x1c, 0x89, 0x91, 0x16, 0x9d, 0x29, 0xe7, 0x1b, 0x10, 0x2e, 0x1d, 0xb3, 0x6c, 0x7b, 0x7b, 0xa7, 0x24, 0xa1, 0xdb, 0x19, 0x6a, 0xaf, 0xf0, 0xf2, 0x4a, 0x4a, 0x47, 0x8f, 0xb2],
     ),
     (
         "bridge-gmail",
-        [
-            0xc9, 0xfb, 0xbc, 0x80, 0x79, 0x3a, 0xd3, 0x1f, 0xa3, 0xbb, 0x39, 0x03, 0x79, 0x86,
-            0x1e, 0x63, 0xb4, 0x37, 0x03, 0x85, 0xac, 0x34, 0x83, 0x3b, 0x64, 0x0c, 0x67, 0xaa,
-            0x3d, 0x15, 0x8d, 0x47,
-        ],
+        [0xf4, 0xd7, 0x32, 0x2d, 0xab, 0x7d, 0xb0, 0x2e, 0x1d, 0xdf, 0x4b, 0xa5, 0xa7, 0x84, 0xcb, 0xbb, 0xac, 0x7d, 0x4e, 0x73, 0xc5, 0x8c, 0xb6, 0xfc, 0xe4, 0x97, 0x4c, 0x09, 0x9e, 0x3c, 0x5b, 0xae],
     ),
     (
         "languagetool",
@@ -3083,6 +3072,10 @@ pub async fn load_plugin_backends(
             runtime.note_failure(&row.id, NotLoaded::NoGrant);
             continue;
         };
+        if b.bridge_id=="bridge-ews" && migrate_ews_references(engine,&b.account_id).await.is_err(){
+            tracing::warn!("EWS cached reference migration failed; provider not activated");
+            continue;
+        }
 
         // The account's own identity (From/MAIL FROM); fall back to the account id.
         let identity = store
@@ -3135,6 +3128,28 @@ pub async fn load_plugin_backends(
     (loaded, Some(shared_pim))
 }
 
+/// Activate a credential-verified OAuth bridge without waiting for a restart.
+pub(crate) async fn activate_oauth(engine:&Arc<mw_engine::Engine>,host:&PluginRegistry,account:&str,bridge:&str)->Result<(),String>{
+    if !matches!(bridge,"bridge-graph"|"bridge-gmail"){return Err("unsupported OAuth provider".into());}
+    let store=engine.store();
+    let row=store.get_plugin(bridge).await.map_err(|_|"provider registry unavailable")?.ok_or("provider unavailable")?;
+    let plan=plan_load(store,&row,Some(account)).await.map_err(|_|"provider grant unavailable")?;
+    let handle=load_planned(host,store,&plan,Some(account)).await.map_err(|_|"provider load failed")?;
+    let backend=handle.as_account_backend().ok_or("provider capability unavailable")?;
+    let mailboxes=backend.list_mailboxes().await.map_err(|_|"provider mailbox list failed")?;
+    let identity=store.get_account(account).await.map_err(|_|"provider identity unavailable")?.username;
+    let mut account_runtime=mw_engine::account::AccountRuntime::new(backend.clone(),Arc::new(BridgeSubmitter{backend,bridge_id:bridge.into()}),identity);
+    account_runtime.credential_revision=Some(store.account_credential_revision(account).await.map_err(|_|"provider credential revision unavailable")?);
+    crate::features::plugin_policy_admit(store,bridge,Some(account)).await?;
+    engine.register_plugin_backend(account.to_owned(),bridge.to_owned(),account_runtime);
+    engine.cache_mailbox_list(account,mailboxes).await.map_err(|_|"provider mailbox metadata unavailable")?;
+    let runtime=plugin_runtime(host);runtime.note_loaded(&row,account,&handle);
+    let slots=probe_bridge_pim(&handle).await;
+    if let Some(source)=runtime.bridge_pim.lock().expect("plugin runtime lock").as_ref(){source.accounts.write().expect("bridge pim lock").insert(account.into(),slots);}
+    engine.start_initial_sync(account);
+    Ok(())
+}
+
 /// Activate one provider only after credential proof and durable enrollment.
 pub(crate) async fn activate_ews(
     engine: &Arc<mw_engine::Engine>,
@@ -3143,6 +3158,7 @@ pub(crate) async fn activate_ews(
     mailboxes: Vec<mw_engine::RawMailbox>,
 ) -> Result<(), String> {
     let store = engine.store();
+    migrate_ews_references(engine,account).await?;
     let selected = crate::domain_provider::stored_selection(store, account)
         .await?
         .ok_or("provider unavailable")?;
@@ -3211,6 +3227,15 @@ pub(crate) async fn activate_ews(
             .insert(account.into(), slots);
     }
     engine.start_initial_sync(account);
+    Ok(())
+}
+
+async fn migrate_ews_references(engine:&mw_engine::Engine,account:&str)->Result<(),String>{
+    for reference in engine.store().seen_uidls(account).await.map_err(|_|"provider reference migration unavailable")?{
+        if let Some((item,_revision))=reference.split_once('\u{1f}'){
+            engine.migrate_plugin_reference(account,&reference,item).await.map_err(|_|"provider reference migration failed")?;
+        }
+    }
     Ok(())
 }
 
@@ -4147,21 +4172,21 @@ mod tests {
             "graph binds calendar + tasks"
         );
         assert!(
-            graph.reactions.is_some()
+            graph.reactions.is_none()
                 && graph.voting.is_some()
                 && graph.recall.is_some()
                 && graph.focused.is_some(),
-            "graph binds all four parity interfaces"
+            "graph binds supported parity interfaces and leaves reactions on standards fallback"
         );
         assert_eq!(
             graph.caps,
             mw_engine::BridgeCaps {
-                reactions: true,
+                reactions: false,
                 voting: true,
                 recall: true,
                 focused_sync: true,
             },
-            "graph advertises all parity caps"
+            "graph advertises supported parity caps"
         );
 
         let ews = probe_bridge_shape("bridge-ews").await;

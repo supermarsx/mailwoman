@@ -8,6 +8,7 @@
 
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE, URL_SAFE_NO_PAD};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::gmail;
 use crate::labels;
@@ -175,11 +176,18 @@ impl<T: Transport> GmailBackend<T> {
                 .ok_or_else(|| BridgeError::Protocol("un-decodable message ref".into()))?;
             // A Gmail "move" is a re-tag: add the destination label, drop the source.
             let mut remove: Vec<String> = Vec::new();
-            if !src_label.is_empty() && src_label != dest {
+            if !src_label.is_empty() && src_label != dest && src_label != labels::ALL_MAIL_ID {
                 remove.push(src_label);
             }
+            // All Mail is virtual: moving there archives by dropping INBOX.
+            let add = if dest == labels::ALL_MAIL_ID {
+                remove.push(labels::SYS_INBOX.to_owned());
+                Vec::new()
+            } else {
+                vec![dest.clone()]
+            };
             let body = serde_json::json!({
-                "addLabelIds": [dest],
+                "addLabelIds": add,
                 "removeLabelIds": remove,
             });
             self.post_json(&token, &gmail::url_message_modify(&id), &body)?;
@@ -231,19 +239,38 @@ impl<T: Transport> GmailBackend<T> {
     // ── sync strategies ─────────────────────────────────────────────────────────
 
     fn sync_full(&self, token: &str, label_id: &str) -> Result<MailboxDelta> {
+        // Capture BEFORE enumeration: a message arriving between pages must be
+        // included by the next history pass, even if its page has already passed.
+        let profile: gmail::Profile = self.get_json(token, &gmail::url_profile())?;
+        if profile.history_id.is_empty() {
+            return Err(BridgeError::Protocol("profile has no historyId".into()));
+        }
         let url = if label_id == labels::ALL_MAIL_ID {
             gmail::url_messages_list_all()
         } else {
             gmail::url_messages_list(label_id)
         };
-        let list: gmail::MessagesList = self.get_json(token, &url)?;
-        let added = list
-            .messages
-            .iter()
-            .map(|m| MessageRef::for_gmail(label_id, &m.id))
+        let mut ids = BTreeSet::new();
+        let mut page = String::new();
+        let mut seen = BTreeSet::new();
+        loop {
+            let list: gmail::MessagesList =
+                self.get_json(token, &gmail::with_page_token(&url, &page))?;
+            ids.extend(list.messages.into_iter().map(|m| m.id));
+            if list.next_page_token.is_empty() {
+                break;
+            }
+            if seen.len() >= 4096 || !seen.insert(list.next_page_token.clone()) {
+                return Err(BridgeError::Protocol(
+                    "message pagination did not finish".into(),
+                ));
+            }
+            page = list.next_page_token;
+        }
+        let added = ids
+            .into_iter()
+            .map(|id| MessageRef::for_gmail(label_id, &id))
             .collect();
-        // Baseline historyId to resume from — the profile's current head.
-        let profile: gmail::Profile = self.get_json(token, &gmail::url_profile())?;
         Ok(MailboxDelta {
             added,
             removed: Vec::new(),
@@ -253,44 +280,97 @@ impl<T: Transport> GmailBackend<T> {
     }
 
     fn sync_delta(&self, token: &str, label_id: &str, start_history: &str) -> Result<MailboxDelta> {
-        let url = if label_id == labels::ALL_MAIL_ID {
-            gmail::url_history_all(start_history)
-        } else {
-            gmail::url_history(start_history, label_id)
-        };
-        let hist: gmail::HistoryList = self.get_json(token, &url)?;
-
+        // An API label filter can hide the very removal that must remove a
+        // cached folder member. Read account history and project membership here.
+        let url = gmail::url_history_all(start_history);
+        let mut page = String::new();
+        let mut seen = BTreeSet::new();
+        let mut changes = BTreeMap::new();
+        let mut new_members = BTreeSet::new();
+        let mut next_history = start_history.to_owned();
+        loop {
+            let page_url = gmail::with_page_token(&url, &page);
+            let response = self.tp.http("GET", &page_url, auth_headers(token), None)?;
+            if response.status == 404 {
+                return Err(BridgeError::Protocol("mailwoman:sync-reset".into()));
+            }
+            check_status(response.status, &page_url)?;
+            let hist: gmail::HistoryList = serde_json::from_slice(&response.body)
+                .map_err(|e| BridgeError::Protocol(format!("history response: {e}")))?;
+            for rec in &hist.history {
+                for hm in &rec.messages_added {
+                    if belongs(label_id, &hm.message.label_ids) {
+                        changes.insert(
+                            hm.message.id.clone(),
+                            Some(labels::labels_to_flags(&hm.message.label_ids)),
+                        );
+                        new_members.insert(hm.message.id.clone());
+                    }
+                }
+                for hm in &rec.messages_deleted {
+                    changes.insert(hm.message.id.clone(), None);
+                }
+                // A label add/remove is a flag change — recompute the full flag set from
+                // the message's (post-change) labelIds Gmail includes in the record.
+                for hm in rec.labels_added.iter().chain(rec.labels_removed.iter()) {
+                    if belongs(label_id, &hm.message.label_ids) {
+                        changes.insert(
+                            hm.message.id.clone(),
+                            Some(labels::labels_to_flags(&hm.message.label_ids)),
+                        );
+                    } else if hm.label_ids.iter().any(|id| id == label_id)
+                        || label_id == labels::ALL_MAIL_ID
+                            && hm
+                                .message
+                                .label_ids
+                                .iter()
+                                .any(|id| id == labels::SYS_SPAM || id == labels::SYS_TRASH)
+                    {
+                        changes.insert(hm.message.id.clone(), None);
+                    }
+                }
+                for hm in &rec.labels_added {
+                    if hm.label_ids.iter().any(|id| id == label_id)
+                        && belongs(label_id, &hm.message.label_ids)
+                    {
+                        new_members.insert(hm.message.id.clone());
+                    }
+                }
+            }
+            if !hist.history_id.is_empty() {
+                next_history = hist.history_id;
+            }
+            if hist.next_page_token.is_empty() {
+                break;
+            }
+            if seen.len() >= 4096 || !seen.insert(hist.next_page_token.clone()) {
+                return Err(BridgeError::Protocol(
+                    "history pagination did not finish".into(),
+                ));
+            }
+            page = hist.next_page_token;
+        }
         let mut added = Vec::new();
         let mut removed = Vec::new();
         let mut flag_changes = Vec::new();
-        for rec in &hist.history {
-            for hm in &rec.messages_added {
-                added.push(MessageRef::for_gmail(label_id, &hm.message.id));
-            }
-            for hm in &rec.messages_deleted {
-                removed.push(MessageRef::for_gmail(label_id, &hm.message.id));
-            }
-            // A label add/remove is a flag change — recompute the full flag set from
-            // the message's (post-change) labelIds Gmail includes in the record.
-            for hm in rec.labels_added.iter().chain(rec.labels_removed.iter()) {
-                let r = MessageRef::for_gmail(label_id, &hm.message.id);
-                let flags = labels::labels_to_flags(&hm.message.label_ids);
-                flag_changes.push((r, flags));
+        for (id, flags) in changes {
+            let reference = MessageRef::for_gmail(label_id, &id);
+            match flags {
+                Some(flags) => {
+                    if new_members.contains(&id) {
+                        added.push(reference);
+                    } else {
+                        flag_changes.push((reference, flags));
+                    }
+                }
+                None => removed.push(reference),
             }
         }
-
-        // Resume from the response head; if empty (no records) keep the old cursor
-        // so we never lose our place.
-        let next = if hist.history_id.is_empty() {
-            SyncCursor::from_history_id(start_history)
-        } else {
-            SyncCursor::from_history_id(&hist.history_id)
-        };
         Ok(MailboxDelta {
             added,
             removed,
             flag_changes,
-            next_cursor: next,
+            next_cursor: SyncCursor::from_history_id(&next_history),
         })
     }
 
@@ -334,6 +414,15 @@ impl<T: Transport> GmailBackend<T> {
         let resp = self.tp.http("POST", url, headers, Some(bytes))?;
         check_status(resp.status, url)?;
         Ok(resp)
+    }
+}
+
+fn belongs(label: &str, ids: &[String]) -> bool {
+    if label == labels::ALL_MAIL_ID {
+        !ids.iter()
+            .any(|id| id == labels::SYS_SPAM || id == labels::SYS_TRASH)
+    } else {
+        ids.iter().any(|id| id == label)
     }
 }
 

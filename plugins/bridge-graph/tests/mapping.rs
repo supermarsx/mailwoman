@@ -219,11 +219,11 @@ fn todo_lists_and_tasks() {
 #[test]
 fn advertised_caps_include_outlook_parity() {
     let caps = caps::backend_caps();
-    assert!(caps.reactions && caps.voting && caps.recall && caps.focused_sync);
+    assert!(!caps.reactions && caps.voting && caps.recall && caps.focused_sync);
 }
 
 #[test]
-fn recall_is_never_guaranteed_and_declines_when_read() {
+fn recall_is_never_guaranteed_and_sender_read_state_is_not_recipient_state() {
     let tr = transport();
     let c = GraphClient::new(&tr, ACCOUNT);
 
@@ -235,9 +235,9 @@ fn recall_is_never_guaranteed_and_declines_when_read() {
 
     // Already read ⇒ the bridge declines rather than pretend it can recall.
     let read = caps::recall(&c, "recall-read").unwrap();
-    assert!(!read.requested);
+    assert!(read.requested);
     assert!(!read.guaranteed);
-    assert!(read.note.contains("already read"));
+    assert!(read.note.contains("not verified"));
 }
 
 #[test]
@@ -245,7 +245,10 @@ fn reactions_voting_categories_reach_graph() {
     let tr = transport();
     let c = GraphClient::new(&tr, ACCOUNT);
 
-    assert!(caps::react(&c, "react-msg", "👍").unwrap());
+    assert!(matches!(
+        caps::react(&c, "react-msg", "👍"),
+        Err(BridgeError::Unsupported(_))
+    ));
     caps::vote(&c, "vote-msg", "Approve").unwrap();
     // Categories is a genuine, fully-supported Graph field (PATCH /me/messages).
     caps::set_categories(&c, "AAMk-msg-1", &["Blue category".into()]).unwrap();

@@ -42,10 +42,26 @@ fn addressing_key(folder: &MailFolder) -> String {
 /// `GET /me/mailFolders` → the mailbox list. Follows `@odata.nextLink` paging.
 pub fn list_mailboxes<T: Transport>(client: &GraphClient<'_, T>) -> Result<Vec<Mailbox>> {
     let mut out = Vec::new();
-    let mut path = "/me/mailFolders?$top=100".to_string();
-    loop {
+    let mut paths = std::collections::VecDeque::from(["/me/mailFolders?$top=100".to_owned()]);
+    let mut seen = std::collections::BTreeMap::new();
+    while let Some(path) = paths.pop_front() {
+        if seen.len() > 16384 {
+            return Err(BridgeError::Protocol(
+                "Graph folder hierarchy exceeded limit".into(),
+            ));
+        }
         let page: MailFoldersResponse = client.get_json(&path)?;
         for folder in &page.value {
+            if seen.contains_key(&folder.id) {
+                continue;
+            }
+            seen.insert(folder.id.clone(), addressing_key(folder));
+            if folder.child_folder_count > 0 {
+                paths.push_back(format!(
+                    "/me/mailFolders/{}/childFolders?$top=100",
+                    crate::graph::encode_segment(&folder.id)
+                ));
+            }
             out.push(Mailbox {
                 mailbox_ref: MailboxRef {
                     name: addressing_key(folder),
@@ -57,10 +73,37 @@ pub fn list_mailboxes<T: Transport>(client: &GraphClient<'_, T>) -> Result<Vec<M
                 unread: folder.unread_item_count,
             });
         }
-        match page.next_link {
-            Some(next) => path = next,
-            None => break,
+    }
+    // `mailFolder.wellKnownName` is not part of the v1.0 resource contract.
+    // Resolve stable special-use IDs explicitly instead of guessing English
+    // display names (which breaks localized Exchange mailboxes).
+    if !out.is_empty() && out.iter().all(|mailbox| mailbox.role == "none") {
+        for (known, role) in [
+            ("inbox", "inbox"),
+            ("sentitems", "sent"),
+            ("drafts", "drafts"),
+            ("deleteditems", "trash"),
+            ("junkemail", "junk"),
+            ("archive", "archive"),
+        ] {
+            match client.get_json::<MailFolder>(&format!("/me/mailFolders/{known}?$select=id")) {
+                Ok(folder) => {
+                    if let Some(mailbox) = out
+                        .iter_mut()
+                        .find(|mailbox| mailbox.mailbox_ref.name == folder.id)
+                    {
+                        mailbox.mailbox_ref.name = known.into();
+                        mailbox.role = role.into();
+                        seen.insert(folder.id, known.into());
+                    }
+                }
+                Err(BridgeError::MailboxNotFound(_)) => {}
+                Err(error) => return Err(error),
+            }
         }
+    }
+    for mailbox in &mut out {
+        mailbox.parent = mailbox.parent.as_ref().and_then(|id| seen.get(id)).cloned();
     }
     Ok(out)
 }
@@ -70,7 +113,7 @@ pub fn list_mailboxes<T: Transport>(client: &GraphClient<'_, T>) -> Result<Vec<M
 fn initial_delta_path(mbox: &MailboxRef) -> String {
     format!(
         "/me/mailFolders/{}/messages/delta?$select=isRead,flag,inferenceClassification,receivedDateTime",
-        mbox.name
+        crate::graph::encode_segment(&mbox.name)
     )
 }
 
@@ -147,7 +190,10 @@ pub fn fetch_raw<T: Transport>(
 ) -> Result<Vec<RawMessage>> {
     let mut out = Vec::with_capacity(refs.len());
     for r in refs {
-        let raw = client.get_bytes(&format!("/me/messages/{}/$value", r.raw))?;
+        let raw = client.get_bytes(&format!(
+            "/me/messages/{}/$value",
+            crate::graph::encode_segment(&r.raw)
+        ))?;
         out.push(RawMessage {
             message_ref: r.clone(),
             raw,
@@ -206,7 +252,10 @@ pub fn store_flags<T: Transport>(
         return Ok(());
     }
     for r in refs {
-        client.patch_ignore(&format!("/me/messages/{}", r.raw), &body)?;
+        client.patch_ignore(
+            &format!("/me/messages/{}", crate::graph::encode_segment(&r.raw)),
+            &body,
+        )?;
     }
     Ok(())
 }
@@ -219,7 +268,10 @@ pub fn move_messages<T: Transport>(
 ) -> Result<()> {
     let body = serde_json::json!({ "destinationId": to.name });
     for r in refs {
-        client.post_ignore(&format!("/me/messages/{}/move", r.raw), &body)?;
+        client.post_ignore(
+            &format!("/me/messages/{}/move", crate::graph::encode_segment(&r.raw)),
+            &body,
+        )?;
     }
     Ok(())
 }

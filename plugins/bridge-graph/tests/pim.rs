@@ -151,7 +151,7 @@ async fn probes_as_pim_guest_with_honest_graph_support() {
     assert!(handle.bridge_supports_calendar().await.unwrap());
     assert!(handle.bridge_supports_tasks().await.unwrap());
     let caps = handle.bridge_parity_caps().await.unwrap();
-    assert!(caps.reactions && caps.voting && caps.recall && caps.focused_sync);
+    assert!(!caps.reactions && caps.voting && caps.recall && caps.focused_sync);
 }
 
 #[tokio::test]
@@ -239,15 +239,17 @@ async fn parity_reactions_voting_and_focused_round_trip() {
 
     // reaction set (best-effort write) + get (honest empty — Graph has no read-back).
     let reactions = handle.as_bridge_reactions().unwrap();
-    reactions
-        .set_reaction(&plugin_msg("react-msg"), "👍", true)
-        .await
-        .unwrap();
+    assert!(
+        reactions
+            .set_reaction(&plugin_msg("react-msg"), "👍", true)
+            .await
+            .is_err(),
+        "unsupported native mailbox reactions must not report success"
+    );
     assert!(reactions
         .get_reactions(&plugin_msg("react-msg"))
         .await
-        .unwrap()
-        .is_empty());
+        .is_err());
 
     // vote cast (reply carries the choice) + tally (honest empty — Graph won't aggregate).
     let voting = handle.as_bridge_voting().unwrap();
@@ -287,14 +289,8 @@ async fn recall_honesty_matrix_is_preserved() {
     let unread = recall.recall(&plugin_msg("recall-unread")).await.unwrap();
     assert_eq!(unread, RecallOutcome::Requested);
 
-    // Already read ⇒ the bridge declines rather than pretend it can recall — the honest
-    // limitation rides `Failed(note)`, never a false `Requested`/success.
+    // Sender read state is not the recipient's read state. A second accepted
+    // provider request is still only Requested, never recalled/guaranteed.
     let read = recall.recall(&plugin_msg("recall-read")).await.unwrap();
-    match read {
-        RecallOutcome::Failed { reason } => assert!(
-            reason.contains("already read"),
-            "honest recall note preserved: {reason}"
-        ),
-        other => panic!("already-read recall must decline, got {other:?}"),
-    }
+    assert!(matches!(read, RecallOutcome::Requested));
 }
