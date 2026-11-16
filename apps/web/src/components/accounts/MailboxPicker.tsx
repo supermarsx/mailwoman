@@ -138,7 +138,7 @@ export function MailboxPicker(props: {
   onSelect: (linkId: string | null) => void;
   /** t48: choosing a link whose access expired opens this (the renew flow). */
   onRenew?: (linkId: string) => void;
-  unified?:{active:boolean;unread:number|null;onSelect:()=>void;avatar?:MailboxAvatarSpec|undefined;name?:string}|undefined;
+  unified?:{groups?:{id:string;name:string;active:boolean;avatar?:MailboxAvatarSpec|undefined;onSelect:()=>void}[];active:boolean;unread:number|null;onSelect:()=>void;avatar?:MailboxAvatarSpec|undefined;name?:string}|undefined;
 }): JSX.Element {
   onMount(() => {
     void loadCatalog('bars');
@@ -154,8 +154,10 @@ export function MailboxPicker(props: {
   let typed = '';
   let typedAt = 0;
 
-  const active = (): MailboxChoice | undefined =>
-    props.unified?.active?{linkId:'@unified',address:props.unified.name||t('unified-mail-title'),available:true,unread:props.unified.unread,avatar:props.unified.avatar??{kind:'icon',icon:'inbox'}}:props.choices.find((choice) => choice.linkId === props.activeLinkId) ?? props.choices[0];
+  const active = (): MailboxChoice | undefined => {
+    const group=props.unified?.groups?.find(group=>group.active);if(group)return {linkId:`@unified:${group.id}`,address:group.name,available:true,unread:null,avatar:group.avatar??{kind:'icon',icon:'inbox'}};
+    return props.unified?.active?{linkId:'@unified',address:props.unified.name||t('unified-mail-title'),available:true,unread:props.unified.unread,avatar:props.unified.avatar??{kind:'icon',icon:'inbox'}}:props.choices.find((choice) => choice.linkId === props.activeLinkId) ?? props.choices[0];
+  };
   const linked = (): boolean => props.activeLinkId !== null;
   const label = (): string => accountIndicatorLabel(active()?.address ?? '', linked(), active()?.nickname);
   const fullTitle = (choice: MailboxChoice): string => (choiceLabel(choice) === choice.address ? choice.address : `${choiceLabel(choice)}\n${choice.address}`);
@@ -344,10 +346,10 @@ export function MailboxPicker(props: {
               if (next instanceof Node) close();
             }}
           >
-            <Show when={props.unified}><div class={css.row} role="none"><button type="button" role="menuitemradio" tabIndex={-1} class={css.item} aria-checked={props.unified!.active} aria-disabled={props.busy} data-mailbox-item data-link="@unified" data-label={t('unified-mail-title')} onClick={()=>{if(!props.busy){close(true);props.unified!.onSelect();}}}><MailboxAvatar label={props.unified!.name||t('unified-mail-title')} address="@unified" avatar={props.unified!.avatar??{kind:'icon',icon:'inbox'}}/><span class={css.itemText}>{props.unified!.name||t('unified-mail-title')}</span><UnreadBadge count={props.unified!.unread}/><span class={css.check} aria-hidden="true"><Show when={props.unified!.active}><Icon name="check"/></Show></span></button></div></Show>
+            <Show when={props.unified}><For each={[{id:'default',name:props.unified!.name||t('unified-mail-title'),avatar:props.unified!.avatar,active:props.unified!.active,onSelect:props.unified!.onSelect},...(props.unified!.groups??[])]}>{group=><div class={css.row} role="none"><button type="button" role="menuitemradio" tabIndex={-1} class={css.item} aria-checked={group.active} aria-disabled={props.busy} data-mailbox-item data-link={group.id==='default'?'@unified':`@unified:${group.id}`} data-label={group.name} onClick={()=>{if(!props.busy){close(true);group.onSelect();}}}><MailboxAvatar label={group.name} address={`@unified:${group.id}`} avatar={group.avatar??{kind:'icon',icon:'inbox'}}/><span class={css.itemText}>{group.name}</span><UnreadBadge count={group.active||group.id==='default'&&!props.unified!.groups?.some(item=>item.active)?props.unified!.unread:null}/><span class={css.check} aria-hidden="true"><Show when={group.active}><Icon name="check"/></Show></span></button></div>}</For></Show>
             <For each={props.choices.filter(choice=>!choice.hidden)}>
               {(choice) => {
-                const isActive = (): boolean => !props.unified?.active&&choice.linkId === props.activeLinkId;
+                const isActive = (): boolean => !props.unified?.active&&!props.unified?.groups?.some(group=>group.active)&&choice.linkId === props.activeLinkId;
                 return (
                   <div class={css.row} role="none" data-mailbox-row data-active={isActive() ? 'true' : undefined}>
                     <button

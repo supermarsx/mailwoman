@@ -14,3 +14,6 @@ unified-config-name = Anzeigename
 unified-config-accounts = Enthaltene Konten
 unified-config-folders = Enthaltene Ordner
 unified-config-help = Wählen Sie Konten und Ordner für dieses virtuelle Postfach. Administratorvorgaben gelten immer.
+
+unified-config-groups = Gruppen vereinter Konten
+unified-config-add-group = Gruppe hinzufügen

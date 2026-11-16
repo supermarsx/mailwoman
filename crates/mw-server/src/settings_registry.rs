@@ -3622,6 +3622,9 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("mail.unifiedAccount.openFirst",Kind::Bool,"false",GDU,"mail","Open the unified virtual account first when linked mailboxes are available and more than one account is usable"),
     def!("mail.unifiedAccount.name",text(Text::Plain,128),r#""""#,GDU,"mail","Display name of the unified virtual account; empty uses the translated default"),
     def!("mail.unifiedAccount.avatar",text(Text::Plain,512),r#""""#,GDU,"mail","Unified virtual-account avatar as a bounded JSON letter or icon specification; empty uses the default"),
+    def!("accounts.preloadLinked",Kind::Bool,"true",GDU,"accounts","Preload verified linked mailbox folders and recent messages within the session cache for faster switching; requires mail.cache.enabled"),
+    def!("mail.unifiedAccount.groups",text(Text::Plain,65536),r#""[]""#,GDU,"mail","Up to 16 named virtual mailbox groups with independent account and folder selections, bounded by administrator policy"),
+    def!("mail.unifiedAccount.primaryGroup",text(Text::Plain,64),r#""""#,GDU,"mail","Virtual mailbox group to open first; empty selects the default virtual mailbox"),
     def!(
         "accounts.settings.inheritGroups",
         Kind::StringList { max_len: 8, max_item: 16 },
@@ -9035,6 +9038,19 @@ fn valid_shortcut(value: &str) -> bool {
 }
 
 pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, Refusal> {
+    if def.key == "mail.unifiedAccount.groups" {
+        let valid = value.as_str().and_then(|raw| serde_json::from_str::<Value>(raw).ok()).and_then(|value| value.as_array().cloned()).is_some_and(|groups| {
+            let mut ids=std::collections::HashSet::new();
+            groups.len()<=16 && groups.iter().all(|group| {
+                let Some(object)=group.as_object() else{return false;};
+                let string=|key:&str,max:usize|object.get(key).and_then(Value::as_str).is_some_and(|text|!text.trim().is_empty()&&text.len()<=max&&!text.chars().any(char::is_control));
+                let list=|key:&str,max:usize,item:usize|object.get(key).and_then(Value::as_array).is_some_and(|rows|rows.len()<=max&&rows.iter().all(|row|row.as_str().is_some_and(|text|!text.is_empty()&&text.len()<=item&&!text.chars().any(char::is_control))));
+                string("id",64)&&object["id"].as_str().is_some_and(|id|id.bytes().all(|byte|byte.is_ascii_alphanumeric()||byte==b'_'||byte==b'-')&&ids.insert(id.to_owned()))&&string("name",128)&&list("accounts",32,128)&&list("folders",512,512)&&object.get("avatar").is_none_or(|avatar|avatar.as_str().is_some_and(|value|value.len()<=512))&&object.keys().all(|key|["id","name","accounts","folders","avatar"].contains(&key.as_str()))
+            })
+        });
+        if !valid {return Err(Refusal::invalid(field,"invalid unified account groups"));}
+    }
+
     if def.key=="mail.attachmentWarningTypes" && !value.as_array().is_some_and(|values|values.iter().all(|value|value.as_str().is_some_and(|kind|["executable","macro","disguisedName","typeMismatch","activeDocument"].contains(&kind)))) {return Err(Refusal::invalid(field,"unsupported attachment warning category"));}
 
     if def.key=="accounts.settings.inheritGroups" && !value.as_array().is_some_and(|values|{
@@ -11186,5 +11202,20 @@ mod folder_role_validation_tests {
   assert!(validate(def,&serde_json::json!([]),"/value").is_ok());
   assert!(validate(def,&serde_json::json!(["reader","mail","privacy"]),"/value").is_ok());
   for value in [serde_json::json!(["security"]),serde_json::json!(["reader","reader"]),serde_json::json!([1])]{assert!(validate(def,&value,"/value").is_err());}
+ }
+}
+
+#[cfg(test)]
+mod unified_group_tests {
+ use super::*;
+ #[test] fn groups_are_bounded_structured_and_policy_configurable() {
+  let def=lookup("mail.unifiedAccount.groups").unwrap();
+  let valid=json!([{"id":"work","name":"Work","accounts":["link"],"folders":["role:inbox"]}]);
+  assert!(validate(def,&json!(valid.to_string()),"value").is_ok());
+  for invalid in [json!([{"id":"bad/id","name":"Bad","accounts":[],"folders":[]}]),json!([{"id":"work","name":" ","accounts":[],"folders":[]}]),json!([{"id":"work","name":"Work","accounts":[],"folders":[],"extra":true}]),json!([valid[0].clone(),valid[0].clone()])] {
+   assert!(validate(def,&json!(invalid.to_string()),"value").is_err());
+  }
+  assert!(validate(def,&json!("not JSON"),"value").is_err());
+  let defaults=lookup("accounts.preloadLinked").unwrap();assert!(validate(defaults,&json!(true),"value").is_ok());
  }
 }

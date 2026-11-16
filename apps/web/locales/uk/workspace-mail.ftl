@@ -14,3 +14,6 @@ unified-config-name = Відображуване ім’я
 unified-config-accounts = Включені облікові записи
 unified-config-folders = Включені папки
 unified-config-help = Виберіть облікові записи та папки віртуальної скриньки. Обмеження адміністратора діють завжди.
+
+unified-config-groups = Групи об’єднаних облікових записів
+unified-config-add-group = Додати групу

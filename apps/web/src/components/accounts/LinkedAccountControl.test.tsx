@@ -6,6 +6,7 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {render,waitFor} from '@solidjs/testing-library';
 import {Suspense} from 'solid-js';
+import {reportOffline} from '../../offline/runtime.ts';
 import {loadSettings} from '../../api/settings.ts';
 import {WORKSPACE_STORAGE_KEY} from '../../realtime/workspaceStorage.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
@@ -23,34 +24,36 @@ const linked={primary:{accountId:'acct1',address:'me@example.org',storageAuthori
   accounts:[{id:'link-1',accountId:'acct2',address:'child@example.org',displayName:'Child',storageAuthority:CHILD_AUTHORITY,status:'ready',revision:'1'}],
   policy:{enabled:true,maxAccounts:4,supportedAuthentication:['password']}};
 
-beforeEach(async()=>{suspendAccountPreferences();localStorage.removeItem(WORKSPACE_STORAGE_KEY);history.replaceState(null,'','#/mail');await new Promise(resolve=>setTimeout(resolve,0));});
+beforeEach(async()=>{reportOffline(false);suspendAccountPreferences();localStorage.removeItem(WORKSPACE_STORAGE_KEY);history.replaceState(null,'','#/mail');await new Promise(resolve=>setTimeout(resolve,0));});
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();});
 
 /** /api/accounts answers only when released, so the in-flight state is observable. */
 function stubAccounts(){
-  const real=globalThis.fetch;
+  const identity={username:'me@example.org',accountId:'acct1',storageAuthority:AUTHORITY};
   const waiting:(()=>void)[]=[];
   let hold=false;
-  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,_init?:RequestInit)=>{
     const url=new URL(input instanceof Request?input.url:String(input),location.href);
+    if(url.pathname==='/api/me')return Response.json(identity);
+    if(url.pathname==='/jmap/session')return Response.json(await makeClient().session());
     if(url.pathname==='/api/accounts'){
       if(hold)await new Promise<void>(resolve=>waiting.push(resolve));
       return new Response(JSON.stringify(linked),{status:200,headers:{'content-type':'application/json'}});
     }
     if(/^\/api\/accounts\/[^/]+\/switch$/.test(url.pathname))return new Response('{}',{status:409});
     if(url.pathname.startsWith('/api/settings'))return new Response(JSON.stringify({settings:{}}),{status:200,headers:{'content-type':'application/json'}});
-    return real?real(input,init):new Response(null,{status:404});
+    return new Response(null,{status:404});
   }));
   return {hold(on:boolean){hold=on;},release(){for(const resolve of waiting.splice(0))resolve();}};
 }
 async function mount(){
   const client=makeClient({emails:[mkEmail('a')]});
-  const app=createAppState(client);const realtime=createRealtimeController();
+  let app!:ReturnType<typeof createAppState>;
   let fallbacks=0;
   const Fallback=()=>{fallbacks++;return <p data-testid="route-fallback">Loading…</p>;};
-  const view=render(()=><AppContext.Provider value={app}><RealtimeContext.Provider value={realtime}>
+  const view=render(()=>{app=createAppState(client);const realtime=createRealtimeController();return <AppContext.Provider value={app}><RealtimeContext.Provider value={realtime}>
     <Suspense fallback={<Fallback/>}><MailboxScreen/></Suspense>
-  </RealtimeContext.Provider></AppContext.Provider>);
+  </RealtimeContext.Provider></AppContext.Provider>;});
   await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{}}),{headers:{'Content-Type':'application/json'}})});
   await app.login({username:'me@example.org',password:'p'});
   await waitFor(()=>expect(view.container.querySelector('button[data-account-indicator="picker"]')).not.toBeNull());

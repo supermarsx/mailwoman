@@ -128,3 +128,6 @@ export const empty = style({
   color: vars.color.textDim,
   fontSize: '0.9rem',
 });
+
+export const unifiedHeader=style({display:'flex',alignItems:'center',flexWrap:'wrap',gap:vars.space[3]});
+export const unifiedAction=style({display:'inline-flex',alignItems:'center',justifyContent:'center',gap:vars.space[2]});

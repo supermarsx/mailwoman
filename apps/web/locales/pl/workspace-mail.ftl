@@ -14,3 +14,6 @@ unified-config-name = Wyświetlana nazwa
 unified-config-accounts = Uwzględnione konta
 unified-config-folders = Uwzględnione foldery
 unified-config-help = Wybierz konta i foldery tej wirtualnej skrzynki. Ograniczenia administratora zawsze obowiązują.
+
+unified-config-groups = Grupy kont ujednoliconych
+unified-config-add-group = Dodaj grupę

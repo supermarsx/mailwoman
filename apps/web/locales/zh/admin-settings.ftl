@@ -2711,3 +2711,10 @@ admin-settings-help-sync-attachments = 缓存已打开的文件，或预取内�
 
 admin-settings-key-offline-eviction = 达到上限时
 admin-settings-help-offline-eviction = 达到上限时: lru, oldest, manual.
+
+admin-settings-key-mail-unified-account-groups = 统一账户组
+admin-settings-help-mail-unified-account-groups = 统一账户组 (id, name, accounts, folders, avatar).
+admin-settings-key-mail-unified-account-primary-group = 统一账户的默认分组
+admin-settings-help-mail-unified-account-primary-group = 统一账户为主邮箱时打开的分组ID。留空使用默认分组。在关联邮箱中创建和编辑分组。
+admin-settings-key-accounts-preload-linked = 预加载关联邮箱
+admin-settings-help-accounts-preload-linked = 在会话内缓存关联邮箱的文件夹和最近邮件，以加快切换。还需要启用邮件缓存。

@@ -2737,3 +2737,10 @@ admin-settings-help-sync-attachments = Сохраняет открытые фа�
 
 admin-settings-key-offline-eviction = При достижении лимита
 admin-settings-help-offline-eviction = При достижении лимита: lru, oldest, manual.
+
+admin-settings-key-mail-unified-account-groups = Группы объединённых аккаунтов
+admin-settings-help-mail-unified-account-groups = Группы объединённых аккаунтов (id, name, accounts, folders, avatar).
+admin-settings-key-mail-unified-account-primary-group = Группа объединённой учётной записи по умолчанию
+admin-settings-help-mail-unified-account-primary-group = ID группы, открываемой, когда объединённая учётная запись является основной. Пустое значение выбирает группу по умолчанию. Группы настраиваются в связанных ящиках.
+admin-settings-key-accounts-preload-linked = Предзагружать связанные ящики
+admin-settings-help-accounts-preload-linked = Сохраняет папки и последние письма связанных ящиков в памяти сеанса для быстрого переключения. Кеш почты также должен быть включён.

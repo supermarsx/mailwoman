@@ -14,3 +14,6 @@ unified-config-name = اسم العرض
 unified-config-accounts = الحسابات المضمنة
 unified-config-folders = المجلدات المضمنة
 unified-config-help = اختر حسابات ومجلدات صندوق البريد الافتراضي. تُطبق قيود المسؤول دائمًا.
+
+unified-config-groups = مجموعات الحسابات الموحدة
+unified-config-add-group = إضافة مجموعة

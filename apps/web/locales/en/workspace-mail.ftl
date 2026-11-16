@@ -52,3 +52,6 @@ unified-config-name = Display name
 unified-config-accounts = Included accounts
 unified-config-folders = Included folders
 unified-config-help = Choose the accounts and folders shown in this virtual mailbox. Administrator restrictions always apply.
+
+unified-config-groups = Unified account groups
+unified-config-add-group = Add group

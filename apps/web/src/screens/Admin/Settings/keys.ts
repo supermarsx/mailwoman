@@ -104,6 +104,7 @@ export const KNOWN_KEYS: readonly string[] = [
 
   'accounts.linkingEnabled',
   'accounts.useLinked',
+  'accounts.preloadLinked',
   'views.notifications.visibility',
   'views.notifications.name',
   'views.notifications.showCount',
@@ -549,6 +550,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'mail.unifiedAccount.openFirst',
   'mail.unifiedAccount.name',
   'mail.unifiedAccount.avatar',
+  'mail.unifiedAccount.groups',
+  'mail.unifiedAccount.primaryGroup',
 
   'accounts.settings.inheritGroups',
   'mail.crossAccountTransfer',

@@ -14,3 +14,6 @@ unified-config-name = 表示名
 unified-config-accounts = 含めるアカウント
 unified-config-folders = 含めるフォルダー
 unified-config-help = この仮想メールボックスに含めるアカウントとフォルダーを選択します。管理者の制限は常に適用されます。
+
+unified-config-groups = 統合アカウントのグループ
+unified-config-add-group = グループを追加

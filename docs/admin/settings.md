@@ -4057,3 +4057,14 @@ Queued changes and unsent drafts do not participate in read-cache eviction. Remo
 
 <a id="offline.eviction"></a>
 `offline.eviction` controls read-cache eviction: `lru` (default), `oldest` or `manual`. Users can change it unless an administrator locks it. Pins, follow-up flags, unsent drafts and pending outbound work are protected from read-cache eviction. Manual mode refuses new cache entries when the budget is full.
+
+<a id="mail.unifiedAccount.groups"></a>
+
+- `mail.unifiedAccount.groups`: Up to 16 named virtual mailbox groups, each with its own included accounts and folders. Global and domain allowed-account/folder bounds apply to every group. A JSON string of `{id,name,accounts,folders,avatar?}` records; users can manage these in Linked mailboxes.
+<a id="mail.unifiedAccount.primaryGroup"></a>
+
+- `mail.unifiedAccount.primaryGroup`: Group ID to open first when the virtual account is the primary mailbox; empty selects the default unified account.
+
+<a id="accounts.preloadLinked"></a>
+
+`accounts.preloadLinked` preloads linked mailbox folders and the first inbox page in a bounded, memory-only session cache. Default: enabled. Requires the mail cache, an enabled linked-mailbox policy and a ready verified link. Administrators may set and lock it globally, by domain or per user. Switching still authorizes the link on the server before publishing cached data.

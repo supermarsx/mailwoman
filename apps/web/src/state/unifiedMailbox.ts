@@ -1,3 +1,4 @@
+import {activeUnifiedGroup,setActiveUnifiedGroup,unifiedDefaultGroup} from './unifiedAccountPreferences.ts';
 import {settings} from '../api/settings.ts';
 import {createSignal} from 'solid-js';
 import {preferenceAccount,preferenceAccountIsCurrent,type PreferenceAccount} from '../api/accountPreferenceLifecycle.ts';
@@ -10,5 +11,12 @@ export const [unifiedMailboxActive,setUnifiedMailboxActive]=createSignal(false);
 export const [unifiedVirtualMode,setUnifiedVirtualMode]=createSignal(false);
 export const [unifiedFolderRole,setUnifiedFolderRole]=createSignal<UnifiedRole>('inbox');
 export const [unifiedFolderCounts,setUnifiedFolderCounts]=createSignal<Partial<Record<UnifiedRole,{total:number|null;unread:number|null}>>>({});
-export function requestUnifiedMailbox(role=unifiedFolderRole()):void{const owner=preferenceAccount();if(owner&&unifiedAvailable()&&settings()['mail.unifiedAccount']?.value===true){setUnifiedVirtualMode(true);setUnifiedFolderRole(role);setRequest({owner});}}
+export function requestUnifiedMailbox(role?:UnifiedRole,groupId?:string|null):void{
+ const owner=preferenceAccount();
+ if(owner&&unifiedAvailable()&&settings()['mail.unifiedAccount']?.value===true){
+  const selectedGroup=groupId!==undefined?groupId:role!==undefined?activeUnifiedGroup():unifiedDefaultGroup();
+  if(activeUnifiedGroup()!==selectedGroup)setUnifiedFolderCounts({});
+  setActiveUnifiedGroup(selectedGroup);setUnifiedVirtualMode(true);setUnifiedFolderRole(role??unifiedFolderRole());setRequest({owner});
+ }
+}
 export function takeUnifiedMailboxRequest():boolean{const value=request();setRequest(undefined);return !!value&&preferenceAccountIsCurrent(value.owner);}

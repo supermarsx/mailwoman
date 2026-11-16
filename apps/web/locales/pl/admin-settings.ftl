@@ -2737,3 +2737,10 @@ admin-settings-help-sync-attachments = Zapisuje otwarte pliki lub pobiera osadzo
 
 admin-settings-key-offline-eviction = Po osiągnięciu limitu
 admin-settings-help-offline-eviction = Po osiągnięciu limitu: lru, oldest, manual.
+
+admin-settings-key-mail-unified-account-groups = Grupy kont ujednoliconych
+admin-settings-help-mail-unified-account-groups = Grupy kont ujednoliconych (id, name, accounts, folders, avatar).
+admin-settings-key-mail-unified-account-primary-group = Domyślna grupa konta zbiorczego
+admin-settings-help-mail-unified-account-primary-group = ID grupy otwieranej, gdy konto zbiorcze jest skrzynką główną. Puste używa grupy domyślnej. Zarządzaj grupami w Połączonych skrzynkach.
+admin-settings-key-accounts-preload-linked = Wczytuj połączone skrzynki z wyprzedzeniem
+admin-settings-help-accounts-preload-linked = Przechowuje foldery i najnowsze wiadomości połączonych skrzynek w pamięci sesji, aby szybciej je przełączać. Pamięć podręczna poczty również musi być włączona.

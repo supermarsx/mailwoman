@@ -2719,3 +2719,10 @@ admin-settings-help-sync-attachments = Salva arquivos abertos ou pré-carrega im
 
 admin-settings-key-offline-eviction = Quando o limite for atingido
 admin-settings-help-offline-eviction = Quando o limite for atingido: lru, oldest, manual.
+
+admin-settings-key-mail-unified-account-groups = Grupos de contas unificadas
+admin-settings-help-mail-unified-account-groups = Grupos de contas unificadas (id, name, accounts, folders, avatar).
+admin-settings-key-mail-unified-account-primary-group = Grupo padrão da conta unificada
+admin-settings-help-mail-unified-account-primary-group = ID do grupo a abrir quando a conta unificada é a caixa principal. Deixe vazio para usar o grupo padrão. Crie e edite grupos em Caixas vinculadas.
+admin-settings-key-accounts-preload-linked = Pré-carregar caixas vinculadas
+admin-settings-help-accounts-preload-linked = Mantém em memória as pastas e mensagens recentes das caixas vinculadas para alternar mais rápido. O cache de correio também deve estar ativado.

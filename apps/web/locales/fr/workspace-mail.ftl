@@ -14,3 +14,6 @@ unified-config-name = Nom affiché
 unified-config-accounts = Comptes inclus
 unified-config-folders = Dossiers inclus
 unified-config-help = Choisissez les comptes et dossiers de cette boîte virtuelle. Les restrictions administratives restent applicables.
+
+unified-config-groups = Groupes de comptes unifiés
+unified-config-add-group = Ajouter un groupe

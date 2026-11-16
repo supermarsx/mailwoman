@@ -2737,3 +2737,10 @@ admin-settings-help-sync-attachments = Зберігає відкриті фай�
 
 admin-settings-key-offline-eviction = Коли обсяг вичерпано
 admin-settings-help-offline-eviction = Коли обсяг вичерпано: lru, oldest, manual.
+
+admin-settings-key-mail-unified-account-groups = Групи об’єднаних облікових записів
+admin-settings-help-mail-unified-account-groups = Групи об’єднаних облікових записів (id, name, accounts, folders, avatar).
+admin-settings-key-mail-unified-account-primary-group = Типова група об’єднаного облікового запису
+admin-settings-help-mail-unified-account-primary-group = ID групи, яку відкривати, коли об’єднаний обліковий запис є основним. Порожнє значення вибирає типову групу. Групи налаштовуються в пов’язаних скриньках.
+admin-settings-key-accounts-preload-linked = Попередньо завантажувати пов’язані скриньки
+admin-settings-help-accounts-preload-linked = Зберігає папки й останні листи пов’язаних скриньок у пам’яті сеансу для швидшого перемикання. Кеш пошти також має бути ввімкнений.

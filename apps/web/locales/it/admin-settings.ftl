@@ -2719,3 +2719,10 @@ admin-settings-help-sync-attachments = Conserva i file aperti o precarica immagi
 
 admin-settings-key-offline-eviction = Quando lo spazio è esaurito
 admin-settings-help-offline-eviction = Quando lo spazio è esaurito: lru, oldest, manual.
+
+admin-settings-key-mail-unified-account-groups = Gruppi di account unificati
+admin-settings-help-mail-unified-account-groups = Gruppi di account unificati (id, name, accounts, folders, avatar).
+admin-settings-key-mail-unified-account-primary-group = Gruppo predefinito dell’account unificato
+admin-settings-help-mail-unified-account-primary-group = ID del gruppo da aprire quando l’account unificato è la casella principale. Lascia vuoto per il gruppo predefinito. Gestisci i gruppi in Caselle collegate.
+admin-settings-key-accounts-preload-linked = Precarica le caselle collegate
+admin-settings-help-accounts-preload-linked = Mantiene in memoria cartelle e messaggi recenti delle caselle collegate per passare più rapidamente. Anche la cache della posta deve essere attiva.

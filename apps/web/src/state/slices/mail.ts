@@ -1,3 +1,6 @@
+import {clearLinkedMailboxCache,rememberLinkedMailbox,peekLinkedMailbox,linkedMailboxCachedPage,type LinkedMailboxSnapshot} from '../../api/linkedMailboxCache.ts';
+import {readLinkedMailboxIdentity,readWorkspaceJmap,type WorkspaceMailbox} from '../../api/workspaceMail.ts';
+import type {LinkedMailboxList} from '../../api/linkedAccounts.ts';
 import {publishSharedView,readSharedView,observeSharedViews} from '../../worker/networkProxy.ts';
 import {collectionDelta} from '../../realtime/collectionDelta.ts';
 import {captureQuery,queryIdentity,reconcileQuery,queryResponse,type QuerySnapshot} from '../../realtime/queryDelta.ts';
@@ -106,18 +109,6 @@ export const PAGE_SIZE = 50;
 /** `mail.list.pageSize` (20 to 200); `PAGE_SIZE` until the setting is known. */
 const pageSize = (): number => { const v = Number(settings()['mail.list.pageSize']?.value); return Number.isInteger(v) && v >= 20 && v <= 200 ? v : PAGE_SIZE; };
 
-/**
- * Ceiling on how much of the loaded extent an in-place refresh will refetch.
- *
- * `refreshCurrentMailbox` runs on every push tick and every peer-tab mutation.
- * Refetching only the first page would collapse a reader who has scrolled to row
- * 400 back to row 50; refetching everything loaded would put a 20 000-row
- * `Email/get` on the push path, which is the cost this tag exists to remove. So
- * a refresh renews the loaded extent up to this many rows and, past it, declines
- * — leaving the list exactly as it was rather than shrinking it. Refresh is
- * already best-effort here (it swallows transient failures for the same reason).
- */
-
 /** Which query the list is currently showing, so a page N can repeat it. */
 type PageSource =
   | { readonly kind: 'mailbox'; readonly mailboxId: Id; readonly upcoming?: boolean }
@@ -214,6 +205,7 @@ export interface MailSlice {
   switchingMailbox:Accessor<boolean>;
   switchingMailboxName:Accessor<string|null>;
   switchLinkedMailbox(linkId:string|null,label?:string):Promise<void>;
+  preloadLinkedMailboxes(list:LinkedMailboxList):Promise<void>;
   me: Accessor<Me | null>;
   authChecked: Accessor<boolean>;
   mailboxes: Accessor<Mailbox[]>;
@@ -471,8 +463,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const readCache=createMailReadCache<CachedMailRead>({policy:readMailCachePolicy,currentOwner:cacheOwner,persistent:persistentMailStore<CachedMailRead>(),persistenceResolved:()=>settingsLoadStatus()==='ready',
     canPrefetch:()=>!switchingMailbox()&&!isOffline()&&!listLoading()&&!loadingMore()});
   const stopCacheAuthority=observePreferenceAccount(()=>{readCache.syncPolicy();relocations.clear();});
-  createEffect(()=>{readMailCachePolicy();readCache.syncPolicy();});
-  const purgeOfflineCache=()=>{void readCache.purge();};
+  createEffect(()=>{if(!readMailCachePolicy().enabled)clearLinkedMailboxCache();readCache.syncPolicy();});
+  const purgeOfflineCache=()=>{clearLinkedMailboxCache();void readCache.purge();};
   if(typeof window!=='undefined')window.addEventListener('mw:offline-purge',purgeOfflineCache);
   if(getOwner())onCleanup(()=>{stopCacheAuthority();readCache.dispose();if(typeof window!=='undefined')window.removeEventListener('mw:offline-purge',purgeOfflineCache);});
   const messageCacheKey=(id:Id)=>JSON.stringify(['message',id]);
@@ -1765,12 +1757,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     } else if (selected) await refreshCurrentList(false,true);
   }
 
-  async function loadMailboxes(verifiedSession?:JmapSession): Promise<void> {
+  let lastVerifiedSession:JmapSession|undefined;
+  async function loadMailboxes(verifiedSession?:JmapSession,warm?:LinkedMailboxSnapshot): Promise<void> {
     const authority = preferenceAccount();
     if (authority === null) return;
     const current = () => preferenceAccountIsCurrent(authority);
     const session = verifiedSession??await client.session();
     if (!current()) return;
+    lastVerifiedSession=session;
     setDownloadUrl(session.downloadUrl);
     setExactFromDomain((session.capabilities['urn:mailwoman:search'] as {exactFromDomain?:boolean}|undefined)?.exactFromDomain===true);
     const primary = session.primaryAccounts[CAP_MAIL];
@@ -1780,7 +1774,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       setMailboxes([]);
       return;
     }
-    const res = await jmapCall(mailboxGet(acct));
+    const res = warm?.folders??await jmapCall(mailboxGet(acct));
     if (!current()) return;
     countScope();
     mailboxState=responseFor<MailboxGetResponse>(res,'c0').state;
@@ -1868,7 +1862,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const request=pageRequest(acct,src,0,pageSize(),true),owner=cacheOwner();
     const key=JSON.stringify(request);
     const hit=src.kind==='mailbox'&&owner?readCache.peek(owner,key,'mailbox')?.value:undefined;
-    const cached=hit?.kind==='mailbox'?hit.response:undefined;
+    const cached=hit?.kind==='mailbox'?hit.response:primaryIdentity?.storageAuthority&&owner?.storageAuthority&&readMailCachePolicy().enabled?linkedMailboxCachedPage(primaryIdentity.storageAuthority,activeLinkedMailbox()?.linkId??null,acct,owner.storageAuthority,request):undefined;
     const apply=(res:JmapResponse)=>{querySnapshot=captureQuery(request,res);const {page,serverLen,hidden,relocated}=ingestPage(res,src,req);setMessages(page);setLoadedStart(0);nextServerPosition=serverLen;hiddenRows=hidden;const t=pageTotal(res);setTotal(relocated>0?null:t===null?null:Math.max(0,t-hidden));setExhausted(serverLen<pageSize());};
     if(cached)apply(cached);
     setListLoading(!cached);
@@ -2603,6 +2597,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function login(input: LoginInput): Promise<void> {
+    clearLinkedMailboxCache();
     installLinkedMailbox(null);
     setPrimaryMailboxAuthority(undefined);
     suspendAccountPreferences();
@@ -2618,6 +2613,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function logout(): Promise<void> {
+    clearLinkedMailboxCache();
     installLinkedMailbox(null);
     setPrimaryMailboxAuthority(undefined);
     primaryIdentity=null;
@@ -2658,11 +2654,41 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
   }
 
+  const linkedCacheLimits=()=>{const policy=readMailCachePolicy();return {maxBytes:policy.maxBytes,maxEntries:policy.maxEntries};};
+  let preloading=false;
+  async function preloadLinkedMailboxes(list:LinkedMailboxList):Promise<void>{
+    if(preloading||settings()['accounts.preloadLinked']?.value!==true||!readMailCachePolicy().enabled||!list.policy.enabled)return;
+    const owner=preferenceAccount(),root=primaryIdentity?.storageAuthority;if(!owner?.storageAuthority||root!==list.primary.storageAuthority)return;
+    preloading=true;const request=new AbortController(),off=observePreferenceAccount(()=>{if(!preferenceAccountIsCurrent(owner))request.abort();});
+    try{
+      for(const account of list.accounts){
+        if(request.signal.aborted||!preferenceAccountIsCurrent(owner)||settings()['accounts.preloadLinked']?.value!==true||!readMailCachePolicy().enabled)break;
+        if(account.status!=='ready'||!account.storageAuthority||account.id===(activeLinkedMailbox()?.linkId??null)||peekLinkedMailbox(root,account.id,account.accountId,account.storageAuthority))continue;
+        try{
+          const {user,discovery}=await readLinkedMailboxIdentity(account.id,request.signal);
+          const context={linkId:account.id,accountId:account.accountId,storageAuthority:account.storageAuthority};validateLinkedAccountContext(context,user,discovery);
+          if(request.signal.aborted||!preferenceAccountIsCurrent(owner)||settings()['accounts.preloadLinked']?.value!==true||!readMailCachePolicy().enabled)break;
+          const target:WorkspaceMailbox={...context,owner,label:account.displayName,current:false};
+          const folders=await readWorkspaceJmap(target,mailboxGet(account.accountId),request.signal);
+          const boxes=responseFor<MailboxGetResponse>(folders,'c0').list,inbox=boxes.find(box=>box.role==='inbox')??boxes[0];
+          const page=inbox?pageRequest(account.accountId,{kind:'mailbox',mailboxId:inbox.id},0,pageSize(),true):undefined;
+          const response=page?await readWorkspaceJmap(target,page,request.signal):undefined;
+          if(!request.signal.aborted&&preferenceAccountIsCurrent(owner)&&settings()['accounts.preloadLinked']?.value===true&&readMailCachePolicy().enabled)rememberLinkedMailbox(root,account.id,{user,discovery,context,folders,...(page&&response?{page:{request:page,response}}:{})},linkedCacheLimits());
+        }catch{/* A failed preload never changes the selected mailbox or its UI. */}
+      }
+    }finally{off();preloading=false;}
+  }
+
   async function switchLinkedMailbox(linkId:string|null,label?:string):Promise<void> {
     if(switchingMailbox()||linkId===(activeLinkedMailbox()?.linkId??null))return;
     const owner=preferenceAccount();
     if(!owner?.storageAuthority||!primaryIdentity?.storageAuthority)throw new Error(t('linked-accounts-changed'));
     const current=()=>preferenceAccountIsCurrent(owner);
+    const sourceUser=me(),source=pageSource();
+    if(readMailCachePolicy().enabled&&sourceUser?.storageAuthority&&lastVerifiedSession&&source?.kind==='mailbox'&&loadedStart()===0&&messages().length){
+      const ids=messages().slice(0,pageSize()).map(email=>email.id);
+      rememberLinkedMailbox(primaryIdentity.storageAuthority,activeLinkedMailbox()?.linkId??null,{user:sourceUser,discovery:lastVerifiedSession,context:activeLinkedMailbox(),folders:{sessionState:lastVerifiedSession.state,methodResponses:[['Mailbox/get',{accountId:sourceUser.accountId,state:mailboxState??'cached',list:mailboxes()},'c0']]},page:{request:pageRequest(sourceUser.accountId,source,0,pageSize(),true),response:{sessionState:lastVerifiedSession.state,methodResponses:[['Email/query',{accountId:sourceUser.accountId,ids,position:0,total:total()??undefined,canCalculateChanges:false},'q'],['Email/get',{accountId:sourceUser.accountId,state:'cached',list:messages().slice(0,pageSize()),notFound:[]},'g']]}}},linkedCacheLimits());
+    }
     const api=createLinkedAccountsApi();
     setSwitchingMailboxName(label??(linkId===null?primaryIdentity.username:null));
     setSwitchingMailbox(true);
@@ -2672,7 +2698,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       if(selected&&selected.linkId!==linkId)throw new Error(t('linked-accounts-changed'));
       // t99: both endpoints of the target are read at once (each is ~0.35 s for
       // a linked mailbox); both are still verified below before anything shows.
-      const [user,discovery]=await Promise.all([client.me({linkId}),client.session({linkId})]);
+      const warm=readMailCachePolicy().enabled?peekLinkedMailbox(primaryIdentity.storageAuthority,linkId,selected?.accountId??primaryIdentity.accountId,selected?.storageAuthority??primaryIdentity.storageAuthority):undefined;
+      const [user,discovery]=warm?[warm.user,warm.discovery]:await Promise.all([client.me({linkId}),client.session({linkId})]);
       if(!current())throw new DOMException('Mailbox changed','AbortError');
       if(selected)validateLinkedAccountContext(selected,user,discovery);
       else if(user.accountId!==primaryIdentity.accountId||user.storageAuthority!==primaryIdentity.storageAuthority
@@ -2688,7 +2715,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         activateAccountPreferences(user.accountId,user.storageAuthority);
       });
       rememberActiveMailbox(primaryIdentity.storageAuthority,linkId);
-      await loadMailboxes(discovery);
+      await loadMailboxes(discovery,warm);
+      if(warm)void refreshFolders().catch(()=>{/* Cached rows remain usable; normal refresh reports connection state. */});
     }finally{api.dispose();batch(()=>{setSwitchingMailbox(false);setSwitchingMailboxName(null);});}
   }
 
@@ -2697,6 +2725,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     switchingMailbox,
     switchingMailboxName,
     switchLinkedMailbox,
+    preloadLinkedMailboxes,
     me,
     authChecked,
     mailboxes,
@@ -2788,7 +2817,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     login,
     logout,
     selectMailbox,
-    clearMailCache:()=>{void readCache.purge();},
+    clearMailCache:purgeOfflineCache,
     clearFolderCache:(mailboxId:Id)=>{void readCache.purge(folderCachePredicate(mailboxId,messages().filter(message=>message.mailboxIds[mailboxId]).map(message=>message.id)));},
     mailCacheStats:()=>readCache.stats(),
     prefetchMailbox,

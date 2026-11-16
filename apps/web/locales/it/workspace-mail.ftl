@@ -14,3 +14,6 @@ unified-config-name = Nome visualizzato
 unified-config-accounts = Account inclusi
 unified-config-folders = Cartelle incluse
 unified-config-help = Scegli account e cartelle di questa casella virtuale. Le restrizioni dell’amministratore sono sempre applicate.
+
+unified-config-groups = Gruppi di account unificati
+unified-config-add-group = Aggiungi gruppo

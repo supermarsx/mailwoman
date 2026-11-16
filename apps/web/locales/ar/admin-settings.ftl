@@ -2741,3 +2741,10 @@ admin-settings-help-sync-attachments = حفظ الملفات المفتوحة أ
 
 admin-settings-key-offline-eviction = عند بلوغ الحد
 admin-settings-help-offline-eviction = عند بلوغ الحد: lru, oldest, manual.
+
+admin-settings-key-mail-unified-account-groups = مجموعات الحسابات الموحدة
+admin-settings-help-mail-unified-account-groups = مجموعات الحسابات الموحدة (id, name, accounts, folders, avatar).
+admin-settings-key-mail-unified-account-primary-group = المجموعة الافتراضية للحساب الموحد
+admin-settings-help-mail-unified-account-primary-group = معرّف المجموعة لفتحها عندما يكون الحساب الموحد هو الصندوق الرئيسي. اتركه فارغًا للمجموعة الافتراضية. أدر المجموعات في صناديق البريد المرتبطة.
+admin-settings-key-accounts-preload-linked = تحميل صناديق البريد المرتبطة مسبقًا
+admin-settings-help-accounts-preload-linked = يحتفظ بالمجلدات والرسائل الحديثة للصناديق المرتبطة في ذاكرة الجلسة لتسريع التبديل. يجب أيضًا تمكين التخزين المؤقت للبريد.

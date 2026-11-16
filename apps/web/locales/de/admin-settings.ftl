@@ -2725,3 +2725,10 @@ admin-settings-help-sync-attachments = Geöffnete Dateien speichern, eingebettet
 
 admin-settings-key-offline-eviction = Wenn die Größe erreicht ist
 admin-settings-help-offline-eviction = Wenn die Größe erreicht ist: lru, oldest, manual.
+
+admin-settings-key-mail-unified-account-groups = Gruppen vereinter Konten
+admin-settings-help-mail-unified-account-groups = Gruppen vereinter Konten (id, name, accounts, folders, avatar).
+admin-settings-key-mail-unified-account-primary-group = Standardgruppe des gemeinsamen Kontos
+admin-settings-help-mail-unified-account-primary-group = ID der Gruppe, die beim gemeinsamen Konto als primärem Postfach geöffnet wird. Leer verwendet die Standardgruppe. Gruppen unter Verknüpfte Postfächer verwalten.
+admin-settings-key-accounts-preload-linked = Verknüpfte Postfächer vorladen
+admin-settings-help-accounts-preload-linked = Speichert Ordner und aktuelle Nachrichten verknüpfter Postfächer während der Sitzung für einen schnelleren Wechsel. Der E-Mail-Cache muss ebenfalls aktiviert sein.

@@ -14,3 +14,6 @@ unified-config-name = Weergavenaam
 unified-config-accounts = Opgenomen accounts
 unified-config-folders = Opgenomen mappen
 unified-config-help = Kies accounts en mappen voor dit virtuele postvak. Beheerdersbeperkingen gelden altijd.
+
+unified-config-groups = Groepen van gecombineerde accounts
+unified-config-add-group = Groep toevoegen

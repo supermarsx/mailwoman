@@ -14,3 +14,6 @@ unified-config-name = 显示名称
 unified-config-accounts = 包含的账户
 unified-config-folders = 包含的文件夹
 unified-config-help = 选择此虚拟邮箱包含的账户和文件夹。管理员限制始终适用。
+
+unified-config-groups = 统一账户组
+unified-config-add-group = 添加组

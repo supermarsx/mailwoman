@@ -127,7 +127,7 @@ async fn list(State(state): State<AppState>, headers: HeaderMap) -> Result<Respo
         &keys,
     );
     let mut unified_config=serde_json::Map::new();
-    for suffix in ["accounts","folders","allowedAccounts","allowedFolders","name","avatar","openFirst"] {
+    for suffix in ["accounts","folders","allowedAccounts","allowedFolders","name","avatar","openFirst","groups","primaryGroup"] {
         if let Some(entry)=crate::settings_routes::effective_for_session(&state,&parent,&format!("mail.unifiedAccount.{suffix}")).await.map_err(unavailable)? {unified_config.insert(suffix.into(),entry.value);}
     }
     Ok(([(axum::http::header::CACHE_CONTROL,"private, no-store")],Json(json!({

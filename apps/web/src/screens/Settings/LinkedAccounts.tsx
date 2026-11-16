@@ -1,4 +1,5 @@
 import {UnifiedAccountManager} from './UnifiedAccountManager.tsx';
+import {ProviderConnections} from './ProviderConnections.tsx';
 import {LinkedSettingsInheritance} from './LinkedSettingsInheritance.tsx';
 import {toast} from '../../components/toast/toast.ts';
 import {requestMailboxOpen} from '../../state/mailboxOpenRequest.ts';
@@ -112,6 +113,7 @@ function OwnedLinkedAccounts():JSX.Element {
       <Show when={value().policy.reason==='linkedBackendUnsupported'}><p class={css.meta}>{t('linked-accounts-backend-unsupported')}</p></Show>
       <LinkedAccountList special={<Show when={app.linkedMailboxId()===null}><UnifiedAccountManager list={value()} onChanged={()=>{invalidateLinkedAccounts();void refetch();}}/></Show>} value={value()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename} onRenew={setRenewing} onAvatar={setAvatar} onVisibility={setVisibility} onLoginPolicy={(id,value)=>void layoutAction(()=>api.setLoginPolicy(id,value))} onOpen={id=>void openAccount(id)}/>
       <Show when={app.linkedMailboxId()}><LinkedSettingsInheritance/></Show>
+      <Show when={app.linkedMailboxId()===null}><ProviderConnections/></Show>
       <Show when={renewing()}>{account=><RenewAccessDialog account={account()} label={mailboxNickname(account().id)||account().address||account().displayName} api={api}
         onRenewed={()=>{setRenewing(undefined);invalidateLinkedAccounts();void refetch();}} onCancel={()=>setRenewing(undefined)} onGone={()=>{setRenewing(undefined);void refetch();}}/>}</Show>
     </>}</Show>
@@ -122,7 +124,10 @@ function OwnedLinkedAccounts():JSX.Element {
 }
 function LinkedPreference(props:{onChanged:()=>void}):JSX.Element {
   const setting=useSetting<boolean>('accounts.useLinked',true);
+  const preload=useSetting<boolean>('accounts.preloadLinked',true);
   // Its own card, like every other Settings block (it sat loose above the list).
-  return <section class={css.section}><div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={setting.value()} disabled={!setting.entry()||setting.locked()||setting.saving()} onChange={event=>void setting.set(event.currentTarget.checked).then(saved=>{if(saved)props.onChanged();})}/>{t('linked-accounts-use')}</label><p class={css.meta}>{t('linked-accounts-use-help')}</p><LockNote locked={setting.locked()}/><Show when={setting.error()}><p role="alert" class={css.error}>{setting.error()}</p></Show></div></section>;
+  return <section class={css.section}><div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={setting.value()} disabled={!setting.entry()||setting.locked()||setting.saving()} onChange={event=>void setting.set(event.currentTarget.checked).then(saved=>{if(saved)props.onChanged();})}/>{t('linked-accounts-use')}</label><p class={css.meta}>{t('linked-accounts-use-help')}</p><LockNote locked={setting.locked()}/><Show when={setting.error()}><p role="alert" class={css.error}>{setting.error()}</p></Show></div>
+    <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={preload.value()} disabled={!preload.entry()||preload.locked()||preload.saving()||!setting.value()} onChange={event=>void preload.set(event.currentTarget.checked)}/>{t('linked-accounts-preload')}</label><p class={css.meta}>{t('linked-accounts-preload-help')}</p><LockNote locked={preload.locked()}/><Show when={preload.error()}><p role="alert" class={css.error}>{preload.error()}</p></Show></div>
+  </section>;
 }
 export default LinkedAccounts;

@@ -14,3 +14,6 @@ unified-config-name = Nome de exibição
 unified-config-accounts = Contas incluídas
 unified-config-folders = Pastas incluídas
 unified-config-help = Escolha as contas e pastas desta caixa virtual. As restrições do administrador sempre se aplicam.
+
+unified-config-groups = Grupos de contas unificadas
+unified-config-add-group = Adicionar grupo

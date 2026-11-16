@@ -14,3 +14,6 @@ unified-config-name = Nombre mostrado
 unified-config-accounts = Cuentas incluidas
 unified-config-folders = Carpetas incluidas
 unified-config-help = Elige las cuentas y carpetas de este buzón virtual. Siempre se aplican las restricciones del administrador.
+
+unified-config-groups = Grupos de cuentas unificadas
+unified-config-add-group = Añadir grupo

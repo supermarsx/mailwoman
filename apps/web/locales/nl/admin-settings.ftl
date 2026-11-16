@@ -2719,3 +2719,10 @@ admin-settings-help-sync-attachments = Bewaar geopende bestanden of laad ingeslo
 
 admin-settings-key-offline-eviction = Wanneer de limiet is bereikt
 admin-settings-help-offline-eviction = Wanneer de limiet is bereikt: lru, oldest, manual.
+
+admin-settings-key-mail-unified-account-groups = Groepen van gecombineerde accounts
+admin-settings-help-mail-unified-account-groups = Groepen van gecombineerde accounts (id, name, accounts, folders, avatar).
+admin-settings-key-mail-unified-account-primary-group = Standaardgroep van het gecombineerde account
+admin-settings-help-mail-unified-account-primary-group = Groeps-ID om te openen wanneer het gecombineerde account het primaire postvak is. Leeg gebruikt de standaardgroep. Beheer groepen onder Gekoppelde postvakken.
+admin-settings-key-accounts-preload-linked = Gekoppelde postvakken vooraf laden
+admin-settings-help-accounts-preload-linked = Bewaart mappen en recente berichten van gekoppelde postvakken tijdens de sessie om sneller te wisselen. De e-mailcache moet ook ingeschakeld zijn.

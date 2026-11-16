@@ -10,6 +10,19 @@ import UnifiedMail from './UnifiedMail.tsx';
 const fixture=vi.hoisted(()=>({targets:[] as WorkspaceMailbox[],update:vi.fn(async(..._args:unknown[])=>['same'])}));
 vi.mock('../api/workspaceMail.ts',async original=>({...await original<typeof import('../api/workspaceMail.ts')>(),workspaceMailboxes:async()=>fixture.targets,workspaceFolders:async()=>[{id:'inbox',name:'Inbox',role:'inbox',myRights:{maySetKeywords:true,mayRemoveItems:true}},{id:'archive',name:'Archive',role:'archive',myRights:{mayAddItems:true}}] as unknown as Mailbox[],workspaceMessages:async(target:WorkspaceMailbox)=>({rows:[{target,email:{id:'same',subject:`Mail from ${target.label}`,from:[{name:'Sender',email:'sender@example.test'}],to:[],receivedAt:'2026-11-13T00:00:00Z',preview:'A readable preview',keywords:{},mailboxIds:{inbox:true},hasAttachment:true} as Email,folderId:'inbox'}],next:null,total:5,unread:3}),updateWorkspaceMessages:(...args:unknown[])=>fixture.update(...args)}));
 afterEach(()=>{cleanup();clearSettings();suspendAccountPreferences();fixture.update.mockReset().mockResolvedValue(['same']);});
+it('keeps independent Ctrl/Cmd picks while extending and shrinking a Shift range',async()=>{
+ activateAccountPreferences('owner','primary_authority_1234');const owner=preferenceAccount()!;
+ fixture.targets=['A','B','C','D'].map((label,index)=>({linkId:index?label:null,accountId:label,storageAuthority:`mailbox_authority_${label}`,owner,label,current:false}));
+ const app={density:()=> 'cozy',tags:()=>[],identities:()=>[],me:()=>({username:'me@example.test'})} as unknown as AppState,open=vi.fn();
+ const view=render(()=><AppContext.Provider value={app}><UnifiedMail activeLink={null} onOpenMessage={open}/></AppContext.Provider>);await screen.findByText('Mail from D');
+ const rows=[...view.container.querySelectorAll<HTMLButtonElement>('.list__row')];expect(rows).toHaveLength(4);
+ fireEvent.click(rows[3]!,{ctrlKey:true});fireEvent.click(rows[0]!,{ctrlKey:true});fireEvent.click(rows[2]!,{shiftKey:true});
+ expect(screen.getByTestId('bulk-count')).toHaveTextContent('4 selected');
+ fireEvent.click(rows[1]!,{shiftKey:true});expect(screen.getByTestId('bulk-count')).toHaveTextContent('3 selected');
+ fireEvent.click(rows[0]!,{metaKey:true});expect(screen.getByTestId('bulk-count')).toHaveTextContent('2 selected');expect(open).not.toHaveBeenCalled();
+ fireEvent.keyDown(rows[1]!,{key:'Escape'});fireEvent.click(rows[0]!);expect(open).toHaveBeenCalledOnce();
+ fireEvent.click(rows[2]!,{shiftKey:true});expect(screen.getByTestId('bulk-count')).toHaveTextContent('3 selected');
+});
 it('uses normal message rows with aggregate counts and routes bulk updates to each source mailbox',async()=>{
  activateAccountPreferences('owner','primary_authority_1234');const owner=preferenceAccount()!;
  fixture.targets=[{linkId:null,accountId:'a',storageAuthority:'primary_authority_1234',owner,label:'Primary',current:false},{linkId:'other',accountId:'b',storageAuthority:'linked_authority_12345',owner,label:'Work',current:false}];

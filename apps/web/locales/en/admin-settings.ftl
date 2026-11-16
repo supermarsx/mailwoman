@@ -2514,3 +2514,10 @@ admin-settings-help-sync-attachments = Cache opened files, prefetch inline image
 
 admin-settings-key-offline-eviction = When the budget is reached
 admin-settings-help-offline-eviction = When the budget is reached: lru, oldest, manual.
+
+admin-settings-key-mail-unified-account-groups = Unified account groups
+admin-settings-help-mail-unified-account-groups = Unified account groups (id, name, accounts, folders, avatar).
+admin-settings-key-mail-unified-account-primary-group = Default unified account group
+admin-settings-help-mail-unified-account-primary-group = Group ID to open when the unified account is the primary mailbox. Leave empty for the default group. Create and edit named groups in Linked mailboxes.
+admin-settings-key-accounts-preload-linked = Preload linked mailboxes
+admin-settings-help-accounts-preload-linked = Keep a small session cache of linked mailbox folders and recent messages for faster switching. Mail caching must also be enabled.

@@ -14,3 +14,6 @@ unified-config-name = Отображаемое имя
 unified-config-accounts = Включённые аккаунты
 unified-config-folders = Включённые папки
 unified-config-help = Выберите аккаунты и папки виртуального ящика. Ограничения администратора действуют всегда.
+
+unified-config-groups = Группы объединённых аккаунтов
+unified-config-add-group = Добавить группу

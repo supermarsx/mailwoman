@@ -2711,3 +2711,10 @@ admin-settings-help-sync-attachments = 開いたファイルを保存するか�
 
 admin-settings-key-offline-eviction = 容量の上限に達したとき
 admin-settings-help-offline-eviction = 容量の上限に達したとき: lru, oldest, manual.
+
+admin-settings-key-mail-unified-account-groups = 統合アカウントのグループ
+admin-settings-help-mail-unified-account-groups = 統合アカウントのグループ (id, name, accounts, folders, avatar).
+admin-settings-key-mail-unified-account-primary-group = 統合アカウントの既定グループ
+admin-settings-help-mail-unified-account-primary-group = 統合アカウントがメインのメールボックスの場合に開くグループIDです。空欄で既定グループを使用します。グループはリンク済みメールボックスで管理します。
+admin-settings-key-accounts-preload-linked = リンク済みメールボックスを先読み
+admin-settings-help-accounts-preload-linked = リンク済みメールボックスのフォルダーと最近のメールをセッション中メモリーに保持し、切り替えを高速化します。メールキャッシュも有効にする必要があります。

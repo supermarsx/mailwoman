@@ -1,3 +1,7 @@
+import {loadSettings} from '../../api/settings.ts';
+import {readLinkedMailboxIdentity,readWorkspaceJmap} from '../../api/workspaceMail.ts';
+import type {LinkedMailboxList} from '../../api/linkedAccounts.ts';
+import {clearLinkedMailboxCache} from '../../api/linkedMailboxCache.ts';
 import {createRoot} from 'solid-js';
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {createMailSlice} from './mail.ts';
@@ -5,6 +9,7 @@ import type {Client,Me} from '../../api/client.ts';
 import {CAP_MAIL,type JmapRequest,type JmapResponse,type JmapSession} from '../../api/jmap-types.ts';
 import {activeLinkedMailbox,installLinkedMailbox,setPrimaryMailboxAuthority} from '../../api/linkedMailboxSession.ts';
 import {preferenceAccount,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
+vi.mock('../../api/workspaceMail.ts',()=>({readLinkedMailboxIdentity:vi.fn(),readWorkspaceJmap:vi.fn()}));
 const {authorize}=vi.hoisted(()=>({authorize:vi.fn(async(id:string)=>({context:{linkId:id,accountId:'same',storageAuthority:'msa1_child_verified'}}))}));
 // `list` is what mail.ts asks at sign-in for the mailbox to open first (t40): no
 // link is marked, so the sign-in mailbox opens and these tests switch by hand.
@@ -48,7 +53,7 @@ describe('mailbox switching publication',()=>{
       expect(mail.switchingMailbox()).toBe(true);expect(mail.switchingMailboxName()).toBe('Work mailbox');
       await vi.waitFor(()=>expect(client.session).toHaveBeenCalledTimes(2));release(discovery(true));await switching;
       expect(mail.switchingMailbox()).toBe(false);expect(mail.switchingMailboxName()).toBeNull();
-      vi.mocked(client.session).mockRejectedValueOnce(new Error('Offline'));
+      mail.clearMailCache();vi.mocked(client.session).mockRejectedValueOnce(new Error('Offline'));
       const returning=mail.switchLinkedMailbox(null);expect(mail.switchingMailboxName()).toBe('parent@example.org');
       await expect(returning).rejects.toThrow('Offline');expect(mail.switchingMailboxName()).toBeNull();expect(mail.switchingMailbox()).toBe(false);
     }finally{dispose();}});
@@ -72,4 +77,31 @@ describe('mailbox switching publication',()=>{
       expect(mail.me()).toBeNull();expect(mail.messages()).toEqual([]);expect(activeLinkedMailbox()).toBeNull();
     }finally{dispose();}});
   });
+});
+
+it('uses a warm verified identity only after fresh linked authorization and refreshes cached rows',async()=>{
+ const client=transport();await createRoot(async dispose=>{try{
+ const mail=createMailSlice({client,showToast:vi.fn()});await mail.login({username:'parent',password:'p'});await mail.switchLinkedMailbox('child-link');await mail.switchLinkedMailbox(null);
+ vi.mocked(client.me).mockClear();vi.mocked(client.session).mockClear();authorize.mockClear();
+ await mail.switchLinkedMailbox('child-link');expect(authorize).toHaveBeenCalledWith('child-link');expect(client.me).not.toHaveBeenCalled();expect(client.session).not.toHaveBeenCalled();expect(mail.messages()[0]?.subject).toBe('child');
+ }finally{dispose();}});
+});
+it('never publishes warm child data when fresh authorization refuses it',async()=>{
+ const client=transport();await createRoot(async dispose=>{try{
+ const mail=createMailSlice({client,showToast:vi.fn()});await mail.login({username:'parent',password:'p'});await mail.switchLinkedMailbox('child-link');await mail.switchLinkedMailbox(null);
+ authorize.mockRejectedValueOnce(new Error('Link revoked'));await expect(mail.switchLinkedMailbox('child-link')).rejects.toThrow('Link revoked');expect(mail.me()?.username).toBe('parent@example.org');expect(mail.messages()[0]?.subject).toBe('parent');
+ }finally{dispose();}});
+});
+
+it('preloads scoped linked headers without publishing them and respects a disabled preload policy',async()=>{
+ const client=transport();await createRoot(async dispose=>{try{
+ const mail=createMailSlice({client,showToast:vi.fn()});await mail.login({username:'parent',password:'p'});
+ const policy=async(value:boolean)=>loadSettings({refresh:true,fetcher:async()=>Response.json({settings:{'accounts.preloadLinked':{value,source:'user',locked:false}}})});
+ await policy(true);
+ vi.mocked(readLinkedMailboxIdentity).mockResolvedValue({user:identity(true),discovery:discovery(true)});
+ vi.mocked(readWorkspaceJmap).mockImplementation(async(target,body)=>{expect(target.linkId).toBe('child-link');expect(activeLinkedMailbox()).toBeNull();return {sessionState:'s',methodResponses:body.methodCalls.map(call=>call[0]==='Mailbox/get'?[call[0],{list:[{id:'child-inbox',role:'inbox'}]},call[2]]:call[0]==='Email/query'?[call[0],{ids:[],position:0,total:0},call[2]]:[call[0],{list:[]},call[2]])};});
+ const list:LinkedMailboxList={primary:{accountId:'same',address:'parent@example.org',storageAuthority:'msa1_parent_verified'},accounts:[{id:'child-link',accountId:'same',displayName:'Child',storageAuthority:'msa1_child_verified',status:'ready',revision:'1'}],policy:{enabled:true,maxAccounts:4,supportedAuthentication:['password']}};
+ await mail.preloadLinkedMailboxes(list);expect(readWorkspaceJmap).toHaveBeenCalledTimes(2);expect(mail.me()?.username).toBe('parent@example.org');expect(mail.messages()[0]?.subject).toBe('parent');
+ clearLinkedMailboxCache();vi.mocked(readWorkspaceJmap).mockClear();await policy(false);await mail.preloadLinkedMailboxes(list);expect(readWorkspaceJmap).not.toHaveBeenCalled();
+ }finally{dispose();}});
 });
