@@ -9,7 +9,7 @@ export const row=style([linked.row,{
  paddingInline:vars.space[3],
  '@media':{'screen and (max-width: 600px)':{gridTemplateColumns:'auto minmax(0, 1fr)',gridTemplateAreas:'"avatar who" ". actions"'}},
 }]);
-export const avatar=style({gridArea:'avatar',display:'inline-flex',alignItems:'center',justifyContent:'center',inlineSize:'2rem',blockSize:'2rem',borderRadius:vars.radius.md,background:vars.color.bgAlt,color:vars.color.textDim});
+export const avatar=style({gridArea:'avatar',display:'inline-flex',alignItems:'center',justifyContent:'center',inlineSize:'2rem',blockSize:'2rem',borderRadius:0,background:vars.color.bgAlt,color:vars.color.textDim});
 export const name=style({display:'flex',alignItems:'center',gap:vars.space[2],minInlineSize:0,flexWrap:'wrap'});
 export const label=style({overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minInlineSize:0,fontWeight:vars.weight.bold});
 export const detail=style({margin:0,fontSize:'.8rem',color:vars.color.textDim,overflowWrap:'anywhere'});

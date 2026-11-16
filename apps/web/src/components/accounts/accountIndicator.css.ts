@@ -73,7 +73,7 @@ export const chevron = style({
 
 export const avatar = style({
   margin: 0,
-  borderRadius: '50%',
+  borderRadius: 0,
   aspectRatio: '1',
   flexShrink: 0,
   overflow: 'hidden',
@@ -101,7 +101,7 @@ export const iconButton = style({
   minWidth: '24px',
   minHeight: '24px',
   padding: 0,
-  borderRadius: '50%',
+  borderRadius: 0,
   fontWeight: vars.weight.bold,
   textTransform: 'uppercase',
   selectors: {

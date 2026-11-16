@@ -186,7 +186,7 @@ export const avatar = style({
   placeItems: 'center',
   inlineSize: '2rem',
   blockSize: '2rem',
-  borderRadius: vars.radius.pill,
+  borderRadius: 0,
   background: vars.color.accent,
   color: vars.color.accentText,
   fontSize: '0.75rem',

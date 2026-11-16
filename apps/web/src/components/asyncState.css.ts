@@ -49,7 +49,7 @@ export const skeletonBody = style({display:'grid',gap:vars.space[3],paddingBlock
 export const skeletonRow = style({display:'flex',alignItems:'center',gap:vars.space[3],minBlockSize:'2rem',minInlineSize:0});
 export const skeletonLine = style({display:'block',blockSize:'.75rem',flex:'1 1 0',minInlineSize:0,background:vars.color.border,borderRadius:vars.radius.sm});
 export const skeletonShort = style([skeletonLine,{flex:'0 1 18%'}]);
-export const skeletonAvatar = style({display:'block',inlineSize:'2rem',blockSize:'2rem',flex:'0 0 auto',background:vars.color.bgAlt,border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:vars.radius.sm});
+export const skeletonAvatar = style({display:'block',inlineSize:'2rem',blockSize:'2rem',flex:'0 0 auto',background:vars.color.bgAlt,border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:0});
 export const skeletonCards = style({display:'grid',minInlineSize:0,gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,9rem),1fr))',gap:vars.space[3],'@media':{'(max-width: 480px)':{gridTemplateColumns:'minmax(0,1fr)'}}});
 export const skeletonCard = style({display:'block',blockSize:'5rem',background:vars.color.bgAlt,border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:vars.radius.sm});
 export const boot = style({minBlockSize:'100dvh',maxInlineSize:'38rem',margin:'0 auto',padding:vars.space[6],justifyContent:'center',fontFamily:vars.font.ui,color:vars.color.text});
@@ -78,7 +78,7 @@ export const messageSkeleton = style({
   borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`,
 });
 export const messageSkeletonHead = style({display:'flex',alignItems:'center',gap:vars.space[2],minInlineSize:0});
-export const messageSkeletonAvatar = style({display:'block',flex:'0 0 auto',inlineSize:'var(--mail-row-line, 18px)',blockSize:'var(--mail-row-line, 18px)',borderRadius:'50%',background:vars.color.border});
+export const messageSkeletonAvatar = style({display:'block',flex:'0 0 auto',inlineSize:'var(--mail-row-line, 18px)',blockSize:'var(--mail-row-line, 18px)',borderRadius:0,background:vars.color.border});
 export const messageSkeletonDate = style({display:'block',flex:'0 0 3rem',marginInlineStart:'auto',blockSize:'.6rem',background:vars.color.border,borderRadius:vars.radius.sm});
 export const messageSkeletonDim = style({opacity:.6});
 globalStyle(`${messageSkeletons} span`, {animation:`${pulse} 1.6s ease-in-out infinite`});

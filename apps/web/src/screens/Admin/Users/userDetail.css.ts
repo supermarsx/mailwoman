@@ -9,7 +9,7 @@ export const header = style({
 export const headline = style({ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: vars.space[3], minInlineSize: 0 });
 export const avatar = style({
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', inlineSize: '2.5rem', blockSize: '2.5rem', flex: '0 0 auto',
-  borderRadius: vars.radius.pill, background: vars.color.accent, color: vars.color.accentText, fontWeight: vars.weight.bold,
+  borderRadius: 0, background: vars.color.accent, color: vars.color.accentText, fontWeight: vars.weight.bold,
   border: '1px solid transparent',
   '@media': { '(forced-colors: active)': { borderColor: 'CanvasText' } },
 });

@@ -238,7 +238,7 @@
 .mwb-avatar {
   inline-size: var(--mail-row-line, 18px);
   block-size: var(--mail-row-line, 18px);
-  border-radius: 50%;
+  border-radius: 0;
 }
 .mwb-line {
   block-size: 0.75rem;
