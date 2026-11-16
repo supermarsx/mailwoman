@@ -36,6 +36,35 @@ test.describe('floating controls above native dialogs and popovers',()=>{
    await footer.evaluate(node=>node.remove());const after=(await form.boundingBox())!;expect(after.y).toBeCloseTo(before.y,1);
   }
  });
+ test('settings cards, document pages, warning spacing and reader previews work at desktop and phone sizes',async({page,context,browserName})=>{
+  const entries:Record<string,unknown>={};const entry=(value:unknown)=>({value,source:'user',locked:false});
+  for(const key of ['mail.focusedInbox','mail.attachmentWarnings','mail.attachmentThumbnails'])entries[key]=entry(true);
+  entries['mail.attachmentWarningsRequired']=entry(false);entries['mail.attachmentWarningTypes']=entry(['executable','macro','disguisedName','typeMismatch','activeDocument']);entries['reader.actionStyle']=entry('labels');entries['mail.rowActions']=entry(['quick:delete','quick:pin','more:archive']);
+  for(const id of ['reply','reply-all','forward'])entries[`reader.actions.${id}`]=entry('toolbar');
+  await context.route('**/api/**',async route=>{
+   const url=new URL(route.request().url());
+   if(url.pathname==='/api/settings'){await route.fulfill({json:{settings:entries}});return;}
+   if(url.pathname.startsWith('/api/settings/')){const key=decodeURIComponent(url.pathname.split('/').at(-1)!);entries[key]=entry(route.request().postDataJSON().value);await route.fulfill({json:entries[key]});return;}
+   if(url.pathname==='/api/privacy/processing'){await route.fulfill({json:{controller:{name:'Example operator',address:'Town'},contact:{name:'Privacy',email:'privacy@example.org',url:''},supervisoryAuthority:'Authority',activities:[{id:'mail',name:'Mail delivery',purpose:'Send and receive mail.',categories:'Messages',recipients:'Mail provider',retention:'Until removed',legalBasis:'Contract'}],recipients:[]}});return;}
+   await route.fulfill({json:url.pathname.includes('/sessions')?{sessions:[]}:url.pathname==='/api/keys'?{keys:[]}:{}});
+  });
+  await context.route('**/privacy?*',route=>route.fulfill({json:{version:1,date:'2026-11-16',lang:'en',sections:[{id:'rights',title:'Your rights',body:'Request access to your data.',missing:false}]}}));
+  for(const width of [1280,390]){
+   await page.setViewportSize({width,height:900});await page.goto(origin+'?settings');await expect(page.getByTestId('yd-categories')).toBeVisible();await page.screenshot({path:`.orchestration/settings-${width}-${browserName}.png`});
+   await expect(page.locator('#folders-card-focused')).toHaveCount(1);const wrapper=page.getByRole('region',{name:'Stored data by category'});await expect(wrapper).toBeVisible();expect(await wrapper.evaluate(node=>node.clientWidth<=innerWidth)).toBe(true);
+   const table=page.getByTestId('yd-categories');expect(await table.locator('td[data-number]').first().evaluate(node=>getComputedStyle(node).textAlign)).toBe('end');
+   await page.getByRole('button',{name:'Privacy policy',exact:true}).click();await expect(page.getByText('Request access to your data.')).toBeVisible();await page.getByRole('button',{name:'Back',exact:true}).click();
+   await page.getByRole('button',{name:'Processing records',exact:true}).click();await expect(page.getByRole('heading',{name:'Mail delivery'})).toBeVisible();await page.getByRole('button',{name:'Back',exact:true}).click();
+   const warnings=page.locator('fieldset[aria-label="Attachment security warnings"]');await expect(warnings).toHaveCount(1);{const labels=warnings.locator('label');const one=(await labels.nth(0).boundingBox())!,two=(await labels.nth(1).boundingBox())!;expect(two.y>=one.y+one.height+4||two.x>=one.x+one.width+4).toBe(true);}
+   const clear=page.getByRole('button',{name:'Clear cached mail now'});await clear.click();expect(await page.locator('body').getAttribute('data-cache-cleared')).toBe('true');
+   await page.getByText('Preview your actions ribbon',{exact:true}).click();const preview=page.getByRole('toolbar',{name:'Preview your actions ribbon'});await expect(preview.getByRole('button',{name:'Reply',exact:true})).not.toHaveClass(/reader-action--compact/);
+   if(width===1280){const row=page.getByTestId('quick-action-row');await row.hover();await expect(row.getByRole('button',{name:'Delete',exact:true})).toBeVisible();await row.getByRole('button',{name:'More actions',exact:true}).last().click();await page.getByRole('menuitem',{name:'Archive',exact:true}).click();expect(await page.locator('body').getAttribute('data-archived')).toBe('true');}
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+   if(width===390&&browserName==='chromium'){
+    await page.getByRole('button',{name:'Show swipe toast'}).click();const toast=page.getByTestId('toast');await expect(toast).toBeVisible();const rect=(await toast.boundingBox())!;const cdp=await context.newCDPSession(page);await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:true});const x=rect.x+30,y=rect.y+rect.height/2;await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x+130,y}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await expect(toast).toHaveCount(0);await cdp.detach();
+   }
+  }
+ });
  for(const owner of ['dialog','popover'])test(`tooltips, themed dropdowns and submenus work inside a native ${owner}`,async({page})=>{
   await page.goto(origin);await page.getByRole('button',{name:`Open ${owner}`,exact:true}).click();
   const panel=owner==='dialog'?page.locator('dialog'):page.locator('[popover="manual"]').filter({has:page.getByRole('button',{name:'Close popover'})});
@@ -79,7 +108,7 @@ test.describe('floating controls above native dialogs and popovers',()=>{
   await expect(page.getByTestId('folder-search-query')).toContainText('budget');await expect(page.getByTestId('folder-search-query')).toContainText('in:');
  });
  test('optional mailbox icons show live status with readable hover help inside the picker',async({page})=>{
-  await page.goto(origin);await expect(page.locator('[data-mailbox-connection]')).toHaveCount(0);
+  await page.goto(origin);await expect(page.locator('.person-avatar').first()).toHaveCSS('border-radius','0px');await expect(page.locator('[data-mailbox-connection]')).toHaveCount(0);
   await page.getByRole('button',{name:'Show connection icons',exact:true}).click();
   await expect(page.locator('[data-account-indicator="picker"] [data-mailbox-connection]')).toHaveCount(1);
   await page.locator('[data-account-indicator="picker"]').click();
