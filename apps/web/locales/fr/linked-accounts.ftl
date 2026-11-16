@@ -155,3 +155,18 @@ linked-login-inherit = Utiliser le choix de l’administrateur
 linked-login-allow = Autoriser la connexion directe
 linked-login-block = Accès lié uniquement
 linked-login-enforced = Géré par l’administrateur
+
+linked-accounts-preload = Précharger les boîtes liées
+linked-accounts-preload-help = Garde en mémoire les dossiers et messages récents des boîtes liées pour accélérer les changements. Le cache de courrier doit aussi être activé.
+
+provider-oauth-title = Connexion au fournisseur
+provider-oauth-help = Connectez cette boîte à Microsoft Graph ou à Gmail API avec votre inscription d’application. Un administrateur doit d’abord activer le pont. Autorisez la même adresse que cette boîte.
+provider-oauth-provider = Fournisseur
+provider-oauth-client-id = ID client de l’application
+provider-oauth-tenant = Locataire Microsoft (facultatif)
+provider-oauth-connect = Se connecter en sécurité
+provider-oauth-device = Utiliser un code appareil
+provider-oauth-device-help = Ouvrez la page du fournisseur et saisissez ce code. Cette page vérifie automatiquement l’approbation.
+provider-oauth-connected = Fournisseur connecté. Rechargez pour utiliser la nouvelle connexion.
+provider-oauth-failed = La connexion a échoué. Vérifiez l’inscription de l’application, les autorisations du pont et l’identité de la boîte, puis réessayez.
+provider-oauth-migration = Cette boîte contient déjà du courrier d’un autre backend. Une migration est nécessaire avant de changer de fournisseur. Le courrier et la connexion ont été conservés.

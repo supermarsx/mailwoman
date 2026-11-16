@@ -159,3 +159,18 @@ linked-login-inherit = استخدام إعداد المسؤول
 linked-login-allow = السماح بتسجيل الدخول المباشر
 linked-login-block = الوصول المرتبط فقط
 linked-login-enforced = يتحكم فيه المسؤول
+
+linked-accounts-preload = تحميل صناديق البريد المرتبطة مسبقًا
+linked-accounts-preload-help = يحتفظ بالمجلدات والرسائل الحديثة للصناديق المرتبطة في ذاكرة الجلسة لتسريع التبديل. يجب أيضًا تمكين التخزين المؤقت للبريد.
+
+provider-oauth-title = الاتصال بمزوّد الخدمة
+provider-oauth-help = اربط هذا الصندوق بـ Microsoft Graph أو Gmail API باستخدام تسجيل تطبيقك. يجب أن يُفعّل المسؤول الجسر أولًا. فوّض عنوان البريد نفسه لهذا الصندوق.
+provider-oauth-provider = مزوّد الخدمة
+provider-oauth-client-id = معرّف عميل التطبيق
+provider-oauth-tenant = مستأجر Microsoft (اختياري)
+provider-oauth-connect = اتصال آمن
+provider-oauth-device = استخدام رمز جهاز
+provider-oauth-device-help = افتح صفحة المزوّد وأدخل هذا الرمز. تتحقق هذه الصفحة من الموافقة تلقائيًا.
+provider-oauth-connected = تم الاتصال بالمزوّد. أعد التحميل لاستخدام الاتصال الجديد.
+provider-oauth-failed = تعذّر إكمال الاتصال. تحقق من تسجيل التطبيق وأذونات الجسر وهوية الصندوق ثم أعد المحاولة.
+provider-oauth-migration = يحتوي هذا الصندوق على بريد من خلفية أخرى. يلزم ترحيل قبل تغيير المزوّد. تم الاحتفاظ بالبريد والاتصال.

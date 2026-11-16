@@ -3,6 +3,11 @@ import {withBase} from './basePath.ts';
 import {primaryMailboxAuthority} from './linkedMailboxSession.ts';
 import {preferenceAccount,preferenceAccountIsCurrent} from './accountPreferenceLifecycle.ts';
 export type ProviderBridge='bridge-graph'|'bridge-gmail';
+/** Query-free registered redirects also work for personal Microsoft accounts.
+ * Correlation and account authority are still checked before exchanging a code. */
+export function providerCallbackCandidate(search:string):boolean{
+ const params=new URLSearchParams(search);return params.has('provider-oauth-callback')||params.has('state')&&(params.has('code')||params.has('error'));
+}
 export interface ProviderStatus {bridgeId?:ProviderBridge;configured:boolean;connected:boolean;clientId?:string;tenant?:string;flows:('authorizationCode'|'deviceCode')[]}
 export interface ProviderFlow {flowId:string;authorizationUrl?:string;redirectUri?:string;userCode?:string;verificationUri?:string;expiresIn:number;interval?:number}
 export class ProviderOauthError extends Error {constructor(readonly code:string){super(code);}}

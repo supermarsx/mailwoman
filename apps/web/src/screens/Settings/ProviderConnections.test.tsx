@@ -25,7 +25,7 @@ it('keeps correlation after cancellation is refused during commit and finishes b
  vi.useFakeTimers();let release!:(value:{status:string})=>void;
  vi.mocked(providerRequest).mockImplementation(async(path='',method='GET')=>{
   if(path==='/start')return {flowId:'committing',userCode:'SAVE-CODE',verificationUri:'https://microsoft.com/devicelogin',expiresIn:600,interval:5} as never;
-  if(path==='/complete')return await new Promise(resolve=>{release=resolve;}) as never;
+  if(path==='/complete')return await new Promise<{status:string}>(resolve=>{release=resolve;}) as never;
   if(method==='DELETE')throw new ProviderOauthError('provider_committing');
   return {configured:false,connected:false,flows:['authorizationCode','deviceCode']} as never;
  });
@@ -42,7 +42,7 @@ it('does not clear a completed flow or report a late cancellation error after co
  vi.useFakeTimers();let complete!:(value:{status:string})=>void,rejectCancel!:(error:Error)=>void;
  vi.mocked(providerRequest).mockImplementation(async(path='',method='GET')=>{
   if(path==='/start')return {flowId:'finishing',userCode:'FINISH-CODE',verificationUri:'https://microsoft.com/devicelogin',expiresIn:600,interval:5} as never;
-  if(path==='/complete')return await new Promise(resolve=>{complete=resolve;}) as never;
+  if(path==='/complete')return await new Promise<{status:string}>(resolve=>{complete=resolve;}) as never;
   if(method==='DELETE')return await new Promise((_resolve,reject)=>{rejectCancel=reject;}) as never;
   return {configured:false,connected:false,flows:['authorizationCode','deviceCode']} as never;
  });
@@ -77,4 +77,10 @@ it('refuses callbacks without local correlation and never exchanges the code',()
 it('refuses a callback without state and scrubs its code before showing failure',()=>{
  history.replaceState(null,'','/?provider-oauth-callback=1&code=secret-code');render(()=><ProviderOauthCallback/>);
  expect(screen.getByText('provider-oauth-failed')).toBeVisible();expect(providerRequest).not.toHaveBeenCalled();expect(location.search).toBe('');
+});
+it('keeps callback correlation and offers retry when provider activation is temporarily unavailable',async()=>{
+ history.replaceState(null,'','/?provider-oauth-callback=1&code=one-use-code&state=opaque');
+ vi.mocked(providerRequest).mockRejectedValueOnce(new ProviderOauthError('provider_activation_failed')).mockResolvedValueOnce({status:'connected'} as never);
+ render(()=><ProviderOauthCallback/>);await screen.findByRole('button',{name:'common-retry'});expect(forgetProviderFlow).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'common-retry'}));await screen.findByText('provider-oauth-connected');expect(forgetProviderFlow).toHaveBeenCalledOnce();expect(location.search).toBe('');
 });

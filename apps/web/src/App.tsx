@@ -1,4 +1,5 @@
 import {startSharedToasts} from './components/toast/shared.ts';
+import {providerCallbackCandidate} from './api/providerOauth.ts';
 import {ThemedSelects} from './components/ThemedSelects.tsx';
 import {SnoozeDialog} from './components/SnoozeDialog.tsx';
 import {requestMessageOpen} from './state/messageOpenRequest.ts';
@@ -51,6 +52,7 @@ const loadAdminScreen = () => import('./screens/Admin/index.tsx');
 /** V6 OAuth 2.1 consent (plan §3 e8/e11): the resource-owner grant/deny screen,
  *  reached ONLY via the `/oauth/authorize` redirect. */
 const loadConsentScreen = () => import('./screens/Consent/index.tsx');
+const loadProviderCallback=()=>import('./screens/Settings/ProviderConnections.tsx').then(module=>({default:module.ProviderOauthCallback}));
 const loadIdentityConsent = () => import('./screens/IdentityConsent/index.tsx');
 
 /** t10 UI-plugin tier (plan §3 e13, SPEC §22.2): a fail-soft surface rendering the
@@ -179,6 +181,7 @@ export function App(): JSX.Element {
   // is a session but not yet a mail session: nothing below may treat it as one.
   const held = (): boolean => app.me()?.passwordChangeRequired === true;
   const inMail = (): boolean => app.me() !== null && !held();
+  const providerCallback=providerCallbackCandidate(location.search);
 
   onMount(() => {
     // t99: when the last visit had a mail session open (the boot splash drew the
@@ -313,6 +316,7 @@ export function App(): JSX.Element {
                 control are all a held account gets. */}
             <LazyRoute load={loadForcedPasswordChange} />
           </Match>
+          <Match when={inMail()&&providerCallback}><LazyRoute load={loadProviderCallback}/></Match>
           <Match when={inMail()}>
             <>
               {/* The mailbox is the app; if it throws, a blank shell with a

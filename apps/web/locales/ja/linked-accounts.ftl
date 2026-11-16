@@ -154,3 +154,18 @@ linked-login-inherit = 管理者の既定値を使う
 linked-login-allow = 直接サインインを許可
 linked-login-block = リンク経由のアクセスのみ
 linked-login-enforced = 管理者が管理
+
+linked-accounts-preload = リンク済みメールボックスを先読み
+linked-accounts-preload-help = リンク済みメールボックスのフォルダーと最近のメールをセッション中メモリーに保持し、切り替えを高速化します。メールキャッシュも有効にする必要があります。
+
+provider-oauth-title = プロバイダー接続
+provider-oauth-help = 自分のアプリ登録でこのメールボックスをMicrosoft GraphまたはGmail APIに接続します。管理者が先にブリッジを有効にする必要があります。このメールボックスと同じメールアドレスを承認してください。
+provider-oauth-provider = プロバイダー
+provider-oauth-client-id = アプリケーションのクライアントID
+provider-oauth-tenant = Microsoftテナント（任意）
+provider-oauth-connect = 安全に接続
+provider-oauth-device = デバイスコードを使用
+provider-oauth-device-help = プロバイダーのページを開き、このコードを入力してください。このページで承認を自動確認します。
+provider-oauth-connected = 接続しました。新しい接続を使うには再読み込みしてください。
+provider-oauth-failed = 接続できませんでした。アプリ登録、ブリッジの権限、メールボックスのアドレスを確認して再試行してください。
+provider-oauth-migration = このメールボックスには別のバックエンドのメールが既にあります。プロバイダー変更には移行が必要です。メールと接続は保持されています。

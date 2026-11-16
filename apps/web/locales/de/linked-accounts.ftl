@@ -155,3 +155,18 @@ linked-login-inherit = Administratorstandard verwenden
 linked-login-allow = Direkte Anmeldung erlauben
 linked-login-block = Nur verknüpfter Zugriff
 linked-login-enforced = Vom Administrator vorgegeben
+
+linked-accounts-preload = Verknüpfte Postfächer vorladen
+linked-accounts-preload-help = Speichert Ordner und aktuelle Nachrichten verknüpfter Postfächer während der Sitzung für einen schnelleren Wechsel. Der E-Mail-Cache muss ebenfalls aktiviert sein.
+
+provider-oauth-title = Verbindung zum Anbieter
+provider-oauth-help = Verbinden Sie dieses Postfach mit Microsoft Graph oder der Gmail API über Ihre eigene App-Registrierung. Ein Administrator muss zuerst die Brücke aktivieren. Genehmigen Sie dieselbe E-Mail-Adresse wie dieses Postfach.
+provider-oauth-provider = Anbieter
+provider-oauth-client-id = Client-ID der Anwendung
+provider-oauth-tenant = Microsoft-Mandant (optional)
+provider-oauth-connect = Sicher verbinden
+provider-oauth-device = Gerätecode verwenden
+provider-oauth-device-help = Öffnen Sie die Anbieterseite und geben Sie diesen Code ein. Diese Seite prüft die Genehmigung automatisch.
+provider-oauth-connected = Anbieter verbunden. Neu laden, um die neue Verbindung zu nutzen.
+provider-oauth-failed = Die Verbindung konnte nicht hergestellt werden. Prüfen Sie App-Registrierung, Brückenberechtigungen und Postfachidentität und versuchen Sie es erneut.
+provider-oauth-migration = Dieses Postfach enthält bereits Nachrichten eines anderen Backends. Vor dem Anbieterwechsel ist eine Migration erforderlich. Nachrichten und Verbindung wurden beibehalten.

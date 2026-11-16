@@ -155,3 +155,18 @@ linked-login-inherit = Usar valor del administrador
 linked-login-allow = Permitir inicio de sesión directo
 linked-login-block = Solo acceso vinculado
 linked-login-enforced = Controlado por el administrador
+
+linked-accounts-preload = Precargar buzones vinculados
+linked-accounts-preload-help = Guarda en memoria carpetas y mensajes recientes de buzones vinculados para cambiar más rápido. La caché de correo también debe estar activada.
+
+provider-oauth-title = Conexión al proveedor
+provider-oauth-help = Conecte este buzón a Microsoft Graph o Gmail API con el registro de su aplicación. Un administrador debe activar el puente primero. Autorice la misma dirección de este buzón.
+provider-oauth-provider = Proveedor
+provider-oauth-client-id = ID de cliente de la aplicación
+provider-oauth-tenant = Inquilino Microsoft (opcional)
+provider-oauth-connect = Conectar de forma segura
+provider-oauth-device = Usar código de dispositivo
+provider-oauth-device-help = Abra la página del proveedor e introduzca este código. Esta página comprueba la aprobación automáticamente.
+provider-oauth-connected = Proveedor conectado. Recargue para usar la nueva conexión.
+provider-oauth-failed = No se pudo completar la conexión. Compruebe el registro de la aplicación, los permisos del puente y la identidad del buzón e inténtelo de nuevo.
+provider-oauth-migration = Este buzón ya contiene correo de otro backend. Se necesita una migración antes de cambiar de proveedor. Se conservaron el correo y la conexión.

@@ -6,6 +6,7 @@ import {toast} from '../../components/toast/toast.ts';
 import * as css from './styles.css.ts';
 const providers:readonly ProviderBridge[]=['bridge-graph','bridge-gmail'];
 const label=(id:ProviderBridge)=>id==='bridge-graph'?'Microsoft Graph':'Gmail API';
+const failure=(cause:unknown)=>t(cause instanceof ProviderOauthError&&cause.code==='provider_migration_required'?'provider-oauth-migration':'provider-oauth-failed');
 export function ProviderConnections():JSX.Element{
  const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
  onMount(()=>void loadCatalog('linked-accounts'));onCleanup(()=>{controller.abort();clearTimeout(timer);});
@@ -27,7 +28,7 @@ export function ProviderConnections():JSX.Element{
    schedulePoll(pending,result.interval??pending.interval??5);
   }catch(cause){if(current(pending)){
    if(cause instanceof ProviderOauthError&&['provider_busy','provider_committing','provider_activation_failed'].includes(cause.code)){schedulePoll(pending);if(cause.code==='provider_activation_failed')toast.error(t('provider-oauth-failed'));}
-   else{setFlow(undefined);forgetProviderFlow();toast.error(t('provider-oauth-failed'));}
+   else{setFlow(undefined);forgetProviderFlow();toast.error(failure(cause));}
   }}finally{polling.delete(pending.flowId);}
  }
  async function start(kind:'authorizationCode'|'deviceCode'):Promise<void>{
@@ -37,7 +38,7 @@ export function ProviderConnections():JSX.Element{
    rememberProviderFlow(pending);
    if(kind==='authorizationCode'){const url=providerHttpsUrl(pending.authorizationUrl);if(!url)throw new Error('Invalid authorization URL');location.assign(url);}
    else{if(!providerHttpsUrl(pending.verificationUri)||!pending.userCode)throw new Error('Invalid verification response');setFlow(pending);schedulePoll(pending);}
-  }catch{if(!controller.signal.aborted){forgetProviderFlow();toast.error(t('provider-oauth-failed'));}}finally{setBusy(false);}
+  }catch(cause){if(!controller.signal.aborted){forgetProviderFlow();toast.error(failure(cause));}}finally{setBusy(false);}
  }
  async function cancel():Promise<void>{
   const pending=flow();if(!pending||busy())return;clearTimeout(timer);setBusy(true);
@@ -67,11 +68,23 @@ export function ProviderConnections():JSX.Element{
 export function ProviderOauthCallback():JSX.Element{
  const controller=new AbortController(),params=new URLSearchParams(location.search),id=pendingProviderFlow();
  const [state,setState]=createSignal<'loading'|'done'|'error'>('loading');
+ const [retryable,setRetryable]=createSignal(false),[error,setError]=createSignal('');
  const clean=new URL(location.href);for(const key of ['code','state','error','error_description','provider-oauth-callback','session_state'])clean.searchParams.delete(key);history.replaceState(history.state,'',clean.pathname+clean.search+clean.hash);
  onCleanup(()=>controller.abort());
+ async function complete():Promise<void>{
+  if(!id||controller.signal.aborted)return;setState('loading');setRetryable(false);
+  try{const result=await providerRequest<{status:string}>('/complete','POST',{flowId:id,code:params.get('code'),state:params.get('state')},controller.signal);
+   if(controller.signal.aborted)return;
+   if(result.status!=='connected')throw new ProviderOauthError('provider_authorization_failed');
+   forgetProviderFlow();setState('done');
+  }catch(cause){if(!controller.signal.aborted){
+   const retry=!(cause instanceof ProviderOauthError)||['provider_activation_failed','provider_busy','provider_committing','provider_unavailable'].includes(cause.code);
+   if(!retry)forgetProviderFlow();setRetryable(retry);setError(failure(cause));setState('error');
+  }}
+ }
  onMount(()=>{void loadCatalog('linked-accounts');
   if(!id||params.has('error')||!params.get('code')||!params.get('state')){forgetProviderFlow();setState('error');return;}
-  void providerRequest<{status:string}>('/complete','POST',{flowId:id,code:params.get('code'),state:params.get('state')},controller.signal).then(result=>{forgetProviderFlow();setState(result.status==='connected'?'done':'error');}).catch(()=>{if(!controller.signal.aborted){forgetProviderFlow();setState('error');}});
+  void complete();
  });
- return <section class={css.section} aria-label={t('provider-oauth-title')}><h2 class={css.heading}>{t('provider-oauth-title')}</h2><p role="status">{t(state()==='loading'?'common-loading':state()==='done'?'provider-oauth-connected':'provider-oauth-failed')}</p><Show when={state()!=='loading'}><button class={css.button} type="button" onClick={()=>location.reload()}>{t('common-close')}</button></Show></section>;
+ return <section class={css.section} aria-label={t('provider-oauth-title')}><h2 class={css.heading}>{t('provider-oauth-title')}</h2><p role="status">{state()==='error'?(error()||t('provider-oauth-failed')):t(state()==='loading'?'common-loading':'provider-oauth-connected')}</p><Show when={state()!=='loading'}><div class={css.actions}><Show when={retryable()}><button class={css.button} type="button" onClick={()=>void complete()}>{t('common-retry')}</button></Show><button class={css.ghost} type="button" onClick={()=>{forgetProviderFlow();location.reload();}}>{t('common-close')}</button></div></Show></section>;
 }

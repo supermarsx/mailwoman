@@ -1,10 +1,14 @@
 import {afterEach,expect,it,vi} from 'vitest';
 import {activateAccountPreferences,suspendAccountPreferences} from './accountPreferenceLifecycle.ts';
 import {setPrimaryMailboxAuthority} from './linkedMailboxSession.ts';
-import {pendingProviderFlow,rememberProviderFlow,forgetProviderFlow,providerHttpsUrl,providerRequest} from './providerOauth.ts';
+import {providerCallbackCandidate,pendingProviderFlow,rememberProviderFlow,forgetProviderFlow,providerHttpsUrl,providerRequest} from './providerOauth.ts';
 import {apiFetch} from './http.ts';
 vi.mock('./http.ts',()=>({apiFetch:vi.fn()}));
 afterEach(()=>{forgetProviderFlow();suspendAccountPreferences();setPrimaryMailboxAuthority(undefined);vi.restoreAllMocks();});
+it('recognizes provider responses on the query-free root redirect without mistaking mail links for callbacks',()=>{
+ expect(providerCallbackCandidate('?code=opaque&state=correlation')).toBe(true);expect(providerCallbackCandidate('?error=access_denied&state=correlation')).toBe(true);expect(providerCallbackCandidate('?provider-oauth-callback=1')).toBe(true);
+ for(const search of ['','?message=123&folder=inbox','?code=unrelated','?state=unrelated'])expect(providerCallbackCandidate(search)).toBe(false);
+});
 it('keeps redirect correlation bound to the primary authority and expiry',()=>{
  activateAccountPreferences('a','msa1_primary_authority_a');rememberProviderFlow({flowId:'flow',expiresIn:600});expect(pendingProviderFlow()).toBe('flow');
  activateAccountPreferences('a','msa1_primary_authority_b');expect(pendingProviderFlow()).toBeUndefined();activateAccountPreferences('a','msa1_primary_authority_a');expect(pendingProviderFlow()).toBe('flow');

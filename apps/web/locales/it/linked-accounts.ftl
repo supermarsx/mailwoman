@@ -155,3 +155,18 @@ linked-login-inherit = Usa impostazione amministratore
 linked-login-allow = Consenti accesso diretto
 linked-login-block = Solo accesso collegato
 linked-login-enforced = Gestito dall’amministratore
+
+linked-accounts-preload = Precarica le caselle collegate
+linked-accounts-preload-help = Mantiene in memoria cartelle e messaggi recenti delle caselle collegate per passare più rapidamente. Anche la cache della posta deve essere attiva.
+
+provider-oauth-title = Connessione al provider
+provider-oauth-help = Collega questa casella a Microsoft Graph o Gmail API con la registrazione della tua applicazione. Un amministratore deve prima abilitare il bridge. Autorizza lo stesso indirizzo della casella.
+provider-oauth-provider = Provider
+provider-oauth-client-id = ID client dell’applicazione
+provider-oauth-tenant = Tenant Microsoft (facoltativo)
+provider-oauth-connect = Connetti in sicurezza
+provider-oauth-device = Usa un codice dispositivo
+provider-oauth-device-help = Apri la pagina del provider e inserisci questo codice. Questa pagina verifica automaticamente l’approvazione.
+provider-oauth-connected = Provider connesso. Ricarica per usare la nuova connessione.
+provider-oauth-failed = Impossibile completare la connessione. Controlla la registrazione dell’applicazione, i permessi del bridge e l’identità della casella, poi riprova.
+provider-oauth-migration = Questa casella contiene già posta di un altro backend. È necessaria una migrazione prima di cambiare provider. Posta e connessione sono state conservate.

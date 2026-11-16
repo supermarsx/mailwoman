@@ -155,3 +155,18 @@ linked-login-inherit = Use administrator default
 linked-login-allow = Allow direct sign-in
 linked-login-block = Linked access only
 linked-login-enforced = Controlled by your administrator
+
+linked-accounts-preload = Preload linked mailboxes
+linked-accounts-preload-help = Keep a small session cache of linked mailbox folders and recent messages for faster switching. Mail caching must also be enabled.
+
+provider-oauth-title = Provider connection
+provider-oauth-help = Connect this mailbox to Microsoft Graph or Gmail API using your own app registration. An administrator must enable the bridge first. Authorize the same email address as this mailbox.
+provider-oauth-provider = Provider
+provider-oauth-client-id = Application client ID
+provider-oauth-tenant = Microsoft tenant (optional)
+provider-oauth-connect = Connect securely
+provider-oauth-device = Use a device code
+provider-oauth-device-help = Open the provider page and enter this code. This page checks for approval automatically.
+provider-oauth-connected = Provider connected. Reload to use the new connection.
+provider-oauth-failed = The provider connection could not be completed. Check the app registration, bridge permissions and mailbox identity, then retry.
+provider-oauth-migration = This mailbox already contains mail from another backend. Provider migration is required before changing it. Your mail and connection were preserved.

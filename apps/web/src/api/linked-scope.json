@@ -1,6 +1,10 @@
 {
   "$comment": "The one list of what a linked mailbox may call (t87). Read by apps/web/src/api/linkedAccountRouting.ts and, through include_str!, by crates/mw-server/src/linked_accounts/scope.rs. A rule matches a path exactly (`path`), or a `prefix` followed by exactly `segments` non-empty segments whose last one equals `suffix` when given. Scopes: `mailbox` is sent with the x-mailwoman-link selector and runs as the linked mailbox (the server refuses every other path with that selector); `primary` is sent without it and runs as the sign-in account; `public` needs no session; `signed` carries its own signed token. `resource: true` marks the unsigned GET downloads that may carry ?mwLink instead of the header. Anything not listed is refused while a linked mailbox is open. Every `mailbox` entry names a handler that resolves its session through crate::authed (the linked child), never the sign-in session. `refused` documents the paths that are kept out on purpose; it is checked against `routes` but adds nothing to them.",
   "routes": [
+    { "path": "/api/provider/oauth", "scope": "primary" },
+    { "path": "/api/provider/oauth/start", "scope": "primary" },
+    { "path": "/api/provider/oauth/complete", "scope": "primary" },
+    { "prefix": "/api/provider/oauth/", "segments": 1, "scope": "primary" },
     { "path": "/api/me", "scope": "mailbox" },
     { "path": "/api/policy", "scope": "mailbox" },
     { "path": "/api/rc/policy", "scope": "mailbox", "note": "remote_policy::get resolves the selected mailbox through authed" },

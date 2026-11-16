@@ -157,3 +157,18 @@ linked-login-inherit = Użyj ustawienia administratora
 linked-login-allow = Zezwalaj na logowanie bezpośrednie
 linked-login-block = Tylko dostęp przez powiązanie
 linked-login-enforced = Kontrolowane przez administratora
+
+linked-accounts-preload = Wczytuj połączone skrzynki z wyprzedzeniem
+linked-accounts-preload-help = Przechowuje foldery i najnowsze wiadomości połączonych skrzynek w pamięci sesji, aby szybciej je przełączać. Pamięć podręczna poczty również musi być włączona.
+
+provider-oauth-title = Połączenie z dostawcą
+provider-oauth-help = Połącz tę skrzynkę z Microsoft Graph lub Gmail API przez własną rejestrację aplikacji. Administrator musi najpierw włączyć most. Autoryzuj ten sam adres e-mail co skrzynka.
+provider-oauth-provider = Dostawca
+provider-oauth-client-id = Identyfikator klienta aplikacji
+provider-oauth-tenant = Dzierżawa Microsoft (opcjonalna)
+provider-oauth-connect = Połącz bezpiecznie
+provider-oauth-device = Użyj kodu urządzenia
+provider-oauth-device-help = Otwórz stronę dostawcy i wpisz ten kod. Ta strona automatycznie sprawdza zatwierdzenie.
+provider-oauth-connected = Dostawca połączony. Odśwież, aby użyć nowego połączenia.
+provider-oauth-failed = Nie udało się połączyć. Sprawdź rejestrację aplikacji, uprawnienia mostu i tożsamość skrzynki, a następnie spróbuj ponownie.
+provider-oauth-migration = Ta skrzynka zawiera już pocztę z innego backendu. Przed zmianą dostawcy wymagana jest migracja. Poczta i połączenie zostały zachowane.

@@ -154,3 +154,18 @@ linked-login-inherit = 使用管理员默认值
 linked-login-allow = 允许直接登录
 linked-login-block = 仅允许关联访问
 linked-login-enforced = 由管理员控制
+
+linked-accounts-preload = 预加载关联邮箱
+linked-accounts-preload-help = 在会话内缓存关联邮箱的文件夹和最近邮件，以加快切换。还需要启用邮件缓存。
+
+provider-oauth-title = 服务商连接
+provider-oauth-help = 使用自己的应用注册，将此邮箱连接到Microsoft Graph或Gmail API。管理员必须先启用桥接。请授权与此邮箱相同的邮件地址。
+provider-oauth-provider = 服务商
+provider-oauth-client-id = 应用客户端ID
+provider-oauth-tenant = Microsoft租户（可选）
+provider-oauth-connect = 安全连接
+provider-oauth-device = 使用设备代码
+provider-oauth-device-help = 打开服务商页面并输入此代码。本页会自动检查授权状态。
+provider-oauth-connected = 服务商已连接。请重新加载以使用新连接。
+provider-oauth-failed = 无法完成连接。请检查应用注册、桥接权限及邮箱身份，然后重试。
+provider-oauth-migration = 此邮箱已有来自其他后端的邮件。更换服务商前需要进行迁移。邮件及原连接均已保留。

@@ -155,3 +155,18 @@ linked-login-inherit = Usar padrão do administrador
 linked-login-allow = Permitir login direto
 linked-login-block = Somente acesso vinculado
 linked-login-enforced = Controlado pelo administrador
+
+linked-accounts-preload = Pré-carregar caixas vinculadas
+linked-accounts-preload-help = Mantém em memória as pastas e mensagens recentes das caixas vinculadas para alternar mais rápido. O cache de correio também deve estar ativado.
+
+provider-oauth-title = Conexão ao provedor
+provider-oauth-help = Conecte esta caixa ao Microsoft Graph ou à Gmail API usando o registro do seu aplicativo. Um administrador deve ativar a ponte primeiro. Autorize o mesmo endereço desta caixa.
+provider-oauth-provider = Provedor
+provider-oauth-client-id = ID de cliente do aplicativo
+provider-oauth-tenant = Locatário Microsoft (opcional)
+provider-oauth-connect = Conectar com segurança
+provider-oauth-device = Usar código de dispositivo
+provider-oauth-device-help = Abra a página do provedor e insira este código. Esta página verifica a aprovação automaticamente.
+provider-oauth-connected = Provedor conectado. Recarregue para usar a nova conexão.
+provider-oauth-failed = Não foi possível concluir a conexão. Confira o registro do aplicativo, as permissões da ponte e a identidade da caixa e tente novamente.
+provider-oauth-migration = Esta caixa já contém mensagens de outro backend. É necessária uma migração antes de mudar de provedor. As mensagens e a conexão foram preservadas.

@@ -155,3 +155,18 @@ linked-login-inherit = Beheerdersstandaard gebruiken
 linked-login-allow = Rechtstreeks aanmelden toestaan
 linked-login-block = Alleen gekoppelde toegang
 linked-login-enforced = Beheerd door de beheerder
+
+linked-accounts-preload = Gekoppelde postvakken vooraf laden
+linked-accounts-preload-help = Bewaart mappen en recente berichten van gekoppelde postvakken tijdens de sessie om sneller te wisselen. De e-mailcache moet ook ingeschakeld zijn.
+
+provider-oauth-title = Providerverbinding
+provider-oauth-help = Verbind dit postvak met Microsoft Graph of Gmail API via uw eigen appregistratie. Een beheerder moet de brug eerst inschakelen. Autoriseer hetzelfde e-mailadres als dit postvak.
+provider-oauth-provider = Provider
+provider-oauth-client-id = Client-ID van de toepassing
+provider-oauth-tenant = Microsoft-tenant (optioneel)
+provider-oauth-connect = Veilig verbinden
+provider-oauth-device = Apparaatcode gebruiken
+provider-oauth-device-help = Open de providerpagina en voer deze code in. Deze pagina controleert automatisch op goedkeuring.
+provider-oauth-connected = Provider verbonden. Herlaad om de nieuwe verbinding te gebruiken.
+provider-oauth-failed = De verbinding kon niet worden voltooid. Controleer de appregistratie, brugmachtigingen en postvakidentiteit en probeer opnieuw.
+provider-oauth-migration = Dit postvak bevat al e-mail van een andere backend. Migratie is nodig voordat u van provider wisselt. Uw e-mail en verbinding zijn behouden.

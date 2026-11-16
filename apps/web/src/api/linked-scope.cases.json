@@ -97,6 +97,10 @@
   "/api/export/folder/m1.zip"
  ],
  "primary": [
+  "/api/provider/oauth",
+  "/api/provider/oauth/start",
+  "/api/provider/oauth/complete",
+  "/api/provider/oauth/opaque-flow",
   "/api/accounts",
   "/api/accounts/link",
   "/api/accounts/id",
