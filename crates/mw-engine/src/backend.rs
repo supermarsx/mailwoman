@@ -73,6 +73,13 @@ pub trait AccountBackend: Send + Sync {
     async fn sync_mailbox(&self, mbox: &RawMailboxRef, cursor: &SyncCursor)
     -> Result<MailboxDelta>;
 
+    /// Explicit user refresh may require a fresh membership/flags baseline.
+    /// Providers without a separate baseline operation retain their delta sync.
+    async fn reconcile_mailbox(&self, mbox: &RawMailboxRef, cursor: &SyncCursor) -> Result<MailboxDelta> {
+        self.sync_mailbox(mbox, cursor).await
+    }
+
+
     /// Fetch full raw RFC822 bytes for a set of message refs
     /// (handed to `mw-mime` for parsing inside the render jail).
     async fn fetch_raw(&self, refs: &[MessageRef]) -> Result<Vec<RawMessage>>;

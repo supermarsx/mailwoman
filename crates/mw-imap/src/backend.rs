@@ -181,6 +181,11 @@ impl AccountBackend for ImapBackend {
         Ok(session.sync_mailbox(mbox, cursor).await?)
     }
 
+    async fn reconcile_mailbox(&self, mbox: &RawMailboxRef, cursor: &SyncCursor) -> Result<MailboxDelta> {
+        let mut session = self.ready_session().await?;
+        Ok(session.reconcile_mailbox(mbox, cursor).await?)
+    }
+
     async fn fetch_raw(&self, refs: &[MessageRef]) -> Result<Vec<RawMessage>> {
         let groups = group_imap_refs(refs)?;
         let mut session = self.ready_session().await?;

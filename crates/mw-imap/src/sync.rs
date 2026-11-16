@@ -90,6 +90,21 @@ impl Session {
         }
     }
 
+    /// Explicit refresh ignores the modification checkpoint, but retains known
+    /// membership so unchanged messages do not need their bodies downloaded.
+    pub async fn reconcile_mailbox(&mut self, mbox: &RawMailboxRef, cursor: &SyncCursor) -> ImapResult<MailboxDelta> {
+        let mode = if self.caps().has("CONDSTORE") || self.caps().has("QRESYNC") { SelectMode::Condstore } else { SelectMode::Plain };
+        let sel = self.select(&mbox.name, mode).await?;
+        let previous = match cursor {
+            SyncCursor::ImapSnapshot { uidvalidity, known_uids, .. } if *uidvalidity == sel.uidvalidity => Some(known_uids),
+            _ => None,
+        };
+        // Without membership (legacy/QRESYNC), all flags are returned. The
+        // engine fetches unknown UIDs and reconciles cached membership against
+        // the resulting snapshot, including server-side expunges.
+        self.snapshot_delta(&mbox.name, &sel, previous, u32::MAX, None).await
+    }
+
     async fn sync_qresync(
         &mut self,
         name: &str,

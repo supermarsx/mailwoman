@@ -477,7 +477,7 @@ impl Engine {
 
     pub(crate) async fn resync_runtime(&self, account_id: &str, rt: &AccountRuntime) -> Result<()> {
         let guard = self.sync_health.begin(account_id);
-        let result = self.resync_runtime_untimed(account_id, rt, None, false).await;
+        let result = self.resync_runtime_untimed(account_id, rt, None, false, false).await;
         guard.finish(&result);
         result
     }
@@ -493,12 +493,12 @@ impl Engine {
             mailbox.name
         }else{"INBOX".to_owned()};
         let guard=self.sync_health.begin(account_id);
-        let result=self.resync_runtime_untimed(account_id,&rt,Some(&priority),mailbox_id.is_some()).await;
+        let result=self.resync_runtime_untimed(account_id,&rt,Some(&priority),mailbox_id.is_some(),true).await;
         guard.finish(&result);if result.is_ok(){self.broadcast_state(account_id).await;}result
     }
     async fn resync_after_change(&self, account_id:&str, mailbox:&str)->Result<()> {
         let rt=self.require_runtime(account_id)?;let guard=self.sync_health.begin(account_id);
-        let result=self.resync_runtime_untimed(account_id,&rt,Some(mailbox),false).await;
+        let result=self.resync_runtime_untimed(account_id,&rt,Some(mailbox),false,false).await;
         guard.finish(&result);result
     }
 
@@ -525,7 +525,7 @@ impl Engine {
         self.sync_health.snapshot(&registered)
     }
 
-    async fn resync_runtime_untimed(&self, account_id: &str, rt: &AccountRuntime, priority: Option<&str>, only:bool) -> Result<()> {
+    async fn resync_runtime_untimed(&self, account_id: &str, rt: &AccountRuntime, priority: Option<&str>, only:bool, reconcile:bool) -> Result<()> {
         self.require_runtime_generation(account_id, rt)?;
         self.ensure_cached_date_upgrade(account_id).await?;
         let mailboxes = rt.backend.list_mailboxes().await?;
@@ -539,7 +539,7 @@ impl Engine {
         }
         for (index,(rm, mailbox_id)) in pairs.iter().enumerate() {
             self.require_runtime_generation(account_id, rt)?;
-            self.sync_one(account_id, rt, rm, mailbox_id).await?;
+            self.sync_one(account_id, rt, rm, mailbox_id, reconcile).await?;
             if priority.is_some()&&index==0{self.broadcast_state(account_id).await;}
         }
         Ok(())
@@ -674,6 +674,7 @@ impl Engine {
         rt: &AccountRuntime,
         rm: &RawMailbox,
         mailbox_id: &str,
+        reconcile: bool,
     ) -> Result<()> {
         let cursor = self
             .store
@@ -682,7 +683,8 @@ impl Engine {
             .and_then(|json| cursor_from_json(&json))
             .unwrap_or_else(|| self.initial_cursor_for(account_id));
         let cursor = self.with_recorded_uidls(account_id, cursor).await?;
-        let (mut delta, reset) = match rt.backend.sync_mailbox(&rm.mailbox_ref, &cursor).await {
+        let result = if reconcile { rt.backend.reconcile_mailbox(&rm.mailbox_ref, &cursor).await } else { rt.backend.sync_mailbox(&rm.mailbox_ref, &cursor).await };
+        let (mut delta, reset) = match result {
             Err(EngineError::SyncReset) if matches!(cursor, SyncCursor::Plugin { .. }) => {
                 self.require_runtime_generation(account_id, rt)?;
                 (

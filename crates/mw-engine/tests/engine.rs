@@ -37,6 +37,7 @@ struct FakeBackend {
     snapshot: AtomicBool,
     uidvalidity: AtomicU32,
     state: Mutex<Scripted>,
+    reconcile_calls: AtomicUsize,
     store_flags_calls: AtomicUsize,
     move_calls: AtomicUsize,
     append_calls: AtomicUsize,
@@ -79,6 +80,7 @@ impl FakeBackend {
                 mailboxes,
                 messages,
             }),
+            reconcile_calls: AtomicUsize::new(0),
             store_flags_calls: AtomicUsize::new(0),
             move_calls: AtomicUsize::new(0),
             append_calls: AtomicUsize::new(0),
@@ -124,6 +126,11 @@ impl AccountBackend for FakeBackend {
                 }
             })
             .collect())
+    }
+
+    async fn reconcile_mailbox(&self, mbox: &RawMailboxRef, _cursor: &SyncCursor) -> Result<MailboxDelta> {
+        self.reconcile_calls.fetch_add(1, Ordering::SeqCst);
+        self.sync_mailbox(mbox, &SyncCursor::UidWindow { uidvalidity: UIDVALIDITY, uidnext: 1 }).await
     }
 
     async fn sync_mailbox(
@@ -2025,7 +2032,9 @@ async fn explicit_folder_refresh_reaches_upstream_and_rejects_foreign_folder_ids
  let h=setup().await;h.engine.resync(&h.account_id).await.unwrap();
  let inbox=h.engine.store().list_mailboxes(&h.account_id).await.unwrap().into_iter().find(|folder|folder.name=="INBOX").unwrap();
  h.backend.state.lock().unwrap().messages.get_mut("INBOX").unwrap().push((4,plain_msg("manual@x","sender@example.org","Manual refresh","Body"),vec![],"2026-07-05T09:00:00Z".into()));
+ h.engine.store().save_cursor(&h.account_id,&inbox.id,&mw_engine::mapping::cursor_to_json(&SyncCursor::UidWindow{uidvalidity:UIDVALIDITY,uidnext:9999})).await.unwrap();
  h.engine.refresh_mailbox(&h.account_id,Some(&inbox.id)).await.unwrap();
+ assert_eq!(h.backend.reconcile_calls.load(Ordering::SeqCst),1);
  let response=h.engine.handle_jmap(&h.account_id,&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/query",{"accountId":h.account_id,"filter":{"inMailbox":inbox.id}},"q"]]})).await;
  assert_eq!(response["methodResponses"][0][1]["ids"].as_array().unwrap().len(),4);
  assert!(h.engine.refresh_mailbox(&h.account_id,Some("foreign-folder")).await.is_err());

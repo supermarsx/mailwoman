@@ -1325,3 +1325,48 @@ async fn stripped_copy_append_keeps_flags_keyword_and_internaldate() {
     assert!(line.contains(r"\Seen") && line.contains(r"\Flagged") && line.contains("mw-stripped"), "{line}");
     assert!(line.contains("\"05-Jan-2026 09:00:00 +0000\""), "{line}");
 }
+
+#[tokio::test]
+async fn explicit_refresh_reconciles_all_flags_and_membership_despite_a_future_checkpoint() {
+    let greeting = "* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN CONDSTORE] ready\r\n".to_string();
+    let steps = vec![
+        Ex::Auth { expect: "AUTHENTICATE PLAIN", respond: "{tag} OK [CAPABILITY IMAP4rev1 AUTH=PLAIN CONDSTORE] Logged in\r\n".into() },
+        Ex::Cmd { expect: "CONDSTORE", respond: "* OK [UIDVALIDITY 1]\r\n* OK [UIDNEXT 14]\r\n* OK [HIGHESTMODSEQ 51]\r\n{tag} OK Selected\r\n".into() },
+        Ex::Cmd { expect: "UID SEARCH ALL", respond: "* SEARCH 11 13\r\n{tag} OK Search\r\n".into() },
+        Ex::Cmd { expect: "UID FETCH 1:* (UID FLAGS)", respond: "* 1 FETCH (UID 11 FLAGS (\\Seen))\r\n* 2 FETCH (UID 13 FLAGS ())\r\n{tag} OK Fetch\r\n".into() },
+    ];
+    let (addr, _) = spawn_mock(vec![Script { greeting, steps }]).await;
+    let backend = ImapBackend::connect(config(addr, password_creds()))
+        .await
+        .unwrap();
+    let persisted = mw_engine::mapping::cursor_to_json(&SyncCursor::ImapSnapshot {
+        uidvalidity: 1,
+        uidnext: 13,
+        known_uids: [10, 11, 12].into_iter().collect(),
+        highestmodseq: Some(999999),
+    });
+    let cursor = mw_engine::mapping::cursor_from_json(&persisted).unwrap();
+    let delta = backend
+        .reconcile_mailbox(
+            &RawMailboxRef {
+                name: "INBOX".into(),
+                uidvalidity: 1,
+            },
+            &cursor,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        delta.added.as_slice(),
+        [MessageRef::Imap { uid: 13, .. }]
+    ));
+    assert_eq!(delta.removed.len(), 2);
+    assert!(matches!(delta.removed[0], MessageRef::Imap { uid: 10, .. }));
+    assert!(matches!(delta.removed[1], MessageRef::Imap { uid: 12, .. }));
+    assert_eq!(delta.flag_changes.len(), 1);
+    assert!(matches!(
+        delta.flag_changes[0].0,
+        MessageRef::Imap { uid: 11, .. }
+    ));
+    assert_eq!(delta.flag_changes[0].1, vec![Flag::Seen]);
+}
