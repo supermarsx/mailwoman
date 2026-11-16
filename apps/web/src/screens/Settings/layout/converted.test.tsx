@@ -20,7 +20,7 @@ afterEach(()=>{cleanup();vi.unstubAllGlobals();clearSettings();});
 const CASES:{name:string;view:()=>JSX.Element;cards:string[];extra?:string[]}[]=[
  {name:'appearance interface rows',view:()=><InterfacePreferences/>,cards:['settings-appearance-text-card']},
  {name:'folder counters',view:()=><FolderCountPreferences/>,cards:['folders-card-counts']},
- {name:'focused inbox',view:()=><FocusedInboxPreference/>,cards:[],extra:['settings-focused-inbox']},
+ {name:'focused inbox',view:()=><FocusedInboxPreference/>,cards:['folders-card-focused'],extra:['settings-focused-inbox']},
  {name:'offline cache',view:()=><CachePreferences/>,cards:['cache-card-store','cache-card-prefetch']},
  {name:'avatars',view:()=><ContactAppearance/>,cards:['avatars-card']},
  {name:'undo history',view:()=><UndoRedoPreferences/>,cards:['undo-card']},

@@ -1,7 +1,7 @@
 // Navigation is the section list (SettingsNav) and a section's own tab row; the
 // layout kit adds no navigation of its own (no jump bar, rail, toolbar or collapse).
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
-import {fireEvent,render,screen,waitFor} from '@solidjs/testing-library';
+import {fireEvent,render,screen,waitFor,within} from '@solidjs/testing-library';
 import {RetainedSettingsSection} from '../RetainedSettingsSection.tsx';
 import {ReaderAppearanceSettings,READER_CARDS} from '../ReaderAppearance.tsx';
 import {MailFeaturePreferences} from '../MailFeaturePreferences.tsx';
@@ -25,7 +25,7 @@ it('keeps every message display setting exactly once within its grouped subtabs'
  mount();
  for(const key of ALL_KEYS)expect(await screen.findAllByText(t(`reader-${key}`),{selector:'label'})).toHaveLength(1);
  expect(READER_CARDS.flatMap(c=>[...c.keys,...(c.leading?[c.leading]:[])]).sort()).toEqual([...ALL_KEYS].sort());
- expect(screen.getAllByRole('heading',{level:4,hidden:true})).toHaveLength(READER_CARDS.length+7);
+ for(const card of READER_CARDS)expect(document.querySelectorAll(`section[id="${card.id}"]`)).toHaveLength(1);
  expect(screen.getAllByRole('tab')).toHaveLength(8);
  expect(screen.queryByRole('search')).toBeNull();
  expect(screen.queryByRole('textbox',{name:/search/i})).toBeNull();
@@ -60,14 +60,12 @@ it('says nothing matches when neither a section nor a row does',()=>{
  render(()=><SettingsNav current={()=>'reader'} query={()=>'zzzzqq'} supported={()=>true} onSelect={()=>undefined} onOpenCard={()=>undefined}/>);
  expect(screen.getByRole('status')).toHaveTextContent(t('settings-search-no-sections'));
 });
-it('Special folders is a native collapsible block, closed until opened, and a deep link opens it',async()=>{
+it('Special folders stays visible without a collapsed disclosure when deep-linked',async()=>{
  const nav=createSettingsNavigation({section:'folders',card:'folders-card-roles'});
  Element.prototype.scrollIntoView=vi.fn();
  const folders=()=>[{id:'inbox',name:'Inbox',role:'inbox',mailwomanUpstreamName:'INBOX'}];
  render(()=><SettingsNavigationContext.Provider value={nav}><RetainedSettingsSection name="folders" active accountBound={false}>{()=><FolderRoles folders={folders}/>}</RetainedSettingsSection></SettingsNavigationContext.Provider>);
- const details=document.querySelector<HTMLDetailsElement>('#folders-card-roles > details')!;
- expect(details.querySelector('summary')).toHaveTextContent(t('settings-folder-role-title'));
- await waitFor(()=>expect(details.open).toBe(true));
+ const card=document.getElementById('folders-card-roles')!;expect(card).toBeVisible();expect(card.querySelector('details')).toBeNull();expect(within(card).getByRole('heading')).toHaveTextContent(t('settings-folder-role-title'));
 });
 
 it('search targets scroll to and highlight the exact setting row, and repeat on a second selection',async()=>{

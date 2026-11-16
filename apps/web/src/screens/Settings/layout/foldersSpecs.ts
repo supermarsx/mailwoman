@@ -8,6 +8,7 @@ void loadCatalog('folder-dnd');
 void loadCatalog('workspace-mail');
 
 export const FOLDER_PREFERENCE_CARDS: readonly CardSpec[] = [
+  {id:'folders-card-focused',section:'folders',title:'settings-focused-inbox',rows:[{id:'mail-focused-inbox',label:'settings-focused-inbox',help:'settings-focused-inbox-help'}]},
   { id: 'folders-card-display', section: 'folders', title: 'settings-folders-title', help: 'settings-folders-help', rows: [
     { id: 'folders-collapse-user', label: 'settings-folders-collapse-user', help: 'settings-folders-hidden-help' },
     { id: 'folders-colour', label: 'settings-folders-colour', help: 'settings-folders-colour-help' },

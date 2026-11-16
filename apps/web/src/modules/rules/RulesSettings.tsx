@@ -1,3 +1,5 @@
+import * as settingsTabs from '../../screens/Settings/securityTabs.css.ts';
+import * as settingsCss from '../../screens/Settings/styles.css.ts';
 // Visual rules and the authoritative Sieve script store share one account.
 import { createEffect, createMemo, createSignal, For, on, onMount, Show, type JSX } from 'solid-js';
 import { t, loadCatalog, isolate } from '../../i18n';
@@ -51,19 +53,24 @@ export function RulesSettings(props: RulesSettingsProps): JSX.Element {
   }
   // A rule started from a message or a mailing list opens in the builder, once.
   createEffect(() => { if (pendingRuleDraft()) { const draft = takeRuleDraft(); if (draft) { setPane('builder'); setEditing(draft); } } });
+  function tabKey(event:KeyboardEvent,index:number):void{
+    const ids=panes(),delta=event.key==='ArrowRight'?1:event.key==='ArrowLeft'?-1:0;
+    const target=event.key==='Home'?0:event.key==='End'?ids.length-1:delta?(index+delta+ids.length)%ids.length:-1;if(target<0)return;
+    event.preventDefault();const id=ids[target]!;setPane(id);(event.currentTarget as HTMLElement).ownerDocument.getElementById(`rules-tab-${id}`)?.focus();
+  }
   function edit(rule: MailRule): void { setEditing({ ...rule }); }
-  return <section class={css.card} id="rules-card" aria-labelledby="rules-heading">
+  return <section class={settingsCss.stack} id="rules-card" aria-labelledby="rules-heading">
     <h2 id="rules-heading" class={css.heading}>{t('rules-title')}</h2>
     <p class={css.prose}>{t('rules-intro')}</p>
-    <div class={css.tabs} role="tablist" aria-label={t('rules-panes-label')}>
-      <For each={panes()}>{(id) => <button type="button" role="tab" id={`rules-tab-${id}`} class={css.tab}
+    <div class={settingsTabs.list} role="tablist" aria-label={t('rules-panes-label')}>
+      <For each={panes()}>{(id,index) => <button type="button" role="tab" id={`rules-tab-${id}`} tabIndex={pane()===id?0:-1} onKeyDown={event=>tabKey(event,index())}
         aria-selected={pane() === id} aria-controls={`rules-panel-${id}`} onClick={() => { setPane(id); if (id === 'builder') load(); }}>
         {t(id === 'builder' ? 'rules-tab-builder' : id === 'raw' ? 'rules-tab-raw' : id === 'vacation' ? 'rules-vacation-title' : 'rules-forward-title')}
       </button>}</For>
     </div>
     <Show when={vacationAvailability()?.available === false}><p class={css.prose} data-testid="rules-vacation-unavailable">{t('rules-vacation-unavailable')}</p></Show>
     <Show when={pane() === 'builder'}>
-      <div role="tabpanel" id="rules-panel-builder" aria-labelledby="rules-tab-builder">
+      <div class={settingsTabs.panel} tabIndex={0} role="tabpanel" id="rules-panel-builder" aria-labelledby="rules-tab-builder">
         <Show when={loadFailure() === null} fallback={<>
           <p class={css.prose} role={unsupported() ? undefined : 'alert'}>{t(unsupported() ? 'rules-unavailable' : 'rules-load-failed')}</p>
           <Show when={!unsupported()}><button type="button" class={css.btn} data-testid="rules-retry" onClick={load}>{t('common-retry')}</button></Show>
@@ -90,8 +97,8 @@ export function RulesSettings(props: RulesSettingsProps): JSX.Element {
         </Show>
       </div>
     </Show>
-    <Show when={pane() === 'raw'}><div role="tabpanel" id="rules-panel-raw" aria-labelledby="rules-tab-raw"><ScriptsPanel api={scripts()} /></div></Show>
-    <Show when={pane() === 'vacation' && vacationRunsAt()}>{(runsAt) => <div role="tabpanel" id="rules-panel-vacation" aria-labelledby="rules-tab-vacation"><VacationPanel api={vacation()} runsAt={runsAt()} /></div>}</Show>
-    <Show when={pane() === 'forward'}><div role="tabpanel" id="rules-panel-forward" aria-labelledby="rules-tab-forward"><ForwardingPanel slice={slice} api={scripts()} /></div></Show>
+    <Show when={pane() === 'raw'}><div class={settingsTabs.panel} tabIndex={0} role="tabpanel" id="rules-panel-raw" aria-labelledby="rules-tab-raw"><ScriptsPanel api={scripts()} /></div></Show>
+    <Show when={pane() === 'vacation' && vacationRunsAt()}>{(runsAt) => <div class={settingsTabs.panel} tabIndex={0} role="tabpanel" id="rules-panel-vacation" aria-labelledby="rules-tab-vacation"><VacationPanel api={vacation()} runsAt={runsAt()} /></div>}</Show>
+    <Show when={pane() === 'forward'}><div class={settingsTabs.panel} tabIndex={0} role="tabpanel" id="rules-panel-forward" aria-labelledby="rules-tab-forward"><ForwardingPanel slice={slice} api={scripts()} /></div></Show>
   </section>;
 }

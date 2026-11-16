@@ -276,7 +276,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    {id:'views',label:'workspace-view-properties',cards:['workspace-views-card'],content:<WorkspaceViewPreferences/>},
    {id:'arrangement',label:'folder-dnd-arrange-title',cards:['folders-arrange-card'],content:<FolderArrangeCard layout={layout} prefs={prefs} update={update} disabled={!current()}/>},
    {id:'roles',label:'settings-folder-role-title',cards:['folders-card-roles'],content:<Show when={!props.onChange}><FolderRoles folders={props.folders} {...(props.onRolesSaved?{onSaved:props.onRolesSaved}:{})}/></Show>},
-   {id:'focus',label:'settings-focused-inbox',cards:['folders-card-focused','focused-inbox-preference','focused-senders'],content:<><Show when={!props.onChange}><FocusedInboxPreference/></Show><Show when={!props.onChange?app:undefined}>{state=><FocusedSenders senders={state().focusedSenders} onRemove={email=>state().removeSenderFocus(email)}/>}</Show></>},
+   {id:'focus',label:'settings-focused-inbox',cards:['folders-card-focused','focused-inbox-preference','focused-senders'],content:<><Show when={!props.onChange}><FocusedInboxPreference><Show when={app}>{state=><FocusedSenders senders={state().focusedSenders} onRemove={email=>state().removeSenderFocus(email)}/>}</Show></FocusedInboxPreference></Show></>},
    {id:'properties',label:'properties-card',cards:['folders-card-properties'],content:<Show when={!props.onChange}><PropertiesPreferences/></Show>},
    {id:'storage',label:'quota-details-title',cards:['folders-card-quota'],content:<SettingsCard id="folders-card-quota" title={t('quota-details-title')}><QuotaDetails accountId={app?.accountId()??null} refresh={props.folders()}/></SettingsCard>},
   ]}/>

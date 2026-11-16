@@ -1,3 +1,5 @@
+import {Icon} from '../../components/Icon.tsx';
+import {action} from './privacyData.css.ts';
 import {useApp} from '../../state/context.ts';
 import {For,Show,type JSX} from 'solid-js';
 import {MAIL_CACHE_FIELDS,DEFAULT_MAIL_CACHE_POLICY} from '../../state/mailCachePolicy.ts';
@@ -33,8 +35,7 @@ export function CachePreferences():JSX.Element{
  const exclusions=useSetting<string[]>('mail.cache.excludedFolders',[...DEFAULT_MAIL_CACHE_POLICY.excludedFolders],(value):value is string[]=>Array.isArray(value)&&value.every(v=>typeof v==='string'));
  const fieldsFor=(keys:string[])=>MAIL_CACHE_FIELDS.filter(f=>keys.includes(f[0]));
  return <>
-  <SettingsCard id="cache-card-store" title={t('cache-card-store')} description={t('cache-help-durable')}>
-   <div><button type="button" class={css.ghost} onClick={()=>app.clearMailCache()}>{t('cache-clear')}</button></div>
+  <SettingsCard id="cache-card-store" title={t('cache-card-store')} description={t('cache-help-durable')} actions={<button type="button" class={`${css.ghost} ${action}`} onClick={()=>app.clearMailCache()}><Icon name="delete"/>{t('cache-clear')}</button>}>
    <For each={fieldsFor(STORE_KEYS)}>{field=><CacheRow field={field}/>}</For>
    <SettingRow stacked controlId="cache-excludedFolders" label={t('cache-excludedFolders')} help={t('cache-exclusions-help')} handle={exclusions}>{d=>
     <textarea id="cache-excludedFolders" class={css.input} aria-describedby={d()} value={exclusions.value().join('\n')} disabled={!exclusions.entry()||exclusions.locked()||exclusions.saving()} onChange={event=>{const value=event.currentTarget.value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean);void exclusions.set(value);}}/>}</SettingRow>

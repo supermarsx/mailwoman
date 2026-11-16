@@ -16,17 +16,17 @@ afterEach(()=>{cleanup();clearSettings();});
 it('is off by default and turning it on stores the preference in the shared map',async()=>{
  await serve({value:false,source:'default',locked:false});
  render(()=><FocusedInboxPreference/>);
- const box=screen.getByLabelText('Focused inbox');
+ const box=screen.getByRole('checkbox',{name:'Focused inbox'});
  expect(box).not.toBeChecked();expect(box).toBeEnabled();
  fireEvent.click(box);
  await waitFor(()=>expect(settings()['mail.focusedInbox']?.value).toBe(true));
  expect(puts).toEqual([{value:true}]);
- expect(screen.getByLabelText('Focused inbox')).toBeChecked();
+ expect(screen.getByRole('checkbox',{name:'Focused inbox'})).toBeChecked();
 });
 it('follows an administrator default and is disabled while locked',async()=>{
  await serve({value:true,source:'global',locked:true,lockedBy:'global'});
  render(()=><FocusedInboxPreference/>);
- const box=screen.getByLabelText('Focused inbox');
+ const box=screen.getByRole('checkbox',{name:'Focused inbox'});
  expect(box).toBeChecked();expect(box).toBeDisabled();
  expect(screen.getByTestId('focused-inbox-preference').textContent).toMatch(/administrator/i);
  fireEvent.click(box);expect(puts).toEqual([]);
