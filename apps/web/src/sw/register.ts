@@ -5,6 +5,13 @@ import {createSignal} from 'solid-js';
 
 import { withBase, shellBase } from '../api/basePath.ts';
 import { isTauri } from '../platform/index.ts';
+const watchedContainers=new WeakSet<ServiceWorkerContainer>();
+let foregroundRetry:ReturnType<typeof setTimeout>|undefined;
+function stopForegroundRetry():void{if(foregroundRetry!==undefined){clearTimeout(foregroundRetry);foregroundRetry=undefined;}}
+function armForegroundRetry():void{
+  if(foregroundRetry!==undefined)return;
+  foregroundRetry=setTimeout(()=>{foregroundRetry=undefined;void requestBackgroundReplay();},60000);
+}
 
 /**
  * Register the hand-rolled app-shell SW (`public/sw.js`). No-op when unsupported.
@@ -42,6 +49,11 @@ export async function registerServiceWorker(): Promise<void> {
     return;
   }
   try {
+    const container=navigator.serviceWorker;
+    if(typeof container.addEventListener==='function'&&!watchedContainers.has(container)){
+      watchedContainers.add(container);
+      container.addEventListener('controllerchange',()=>{void requestBackgroundReplay();});
+    }
     await navigator.serviceWorker.register(withBase('/sw.js'), {
       type: 'classic',
       scope: shellBase(),
@@ -57,15 +69,17 @@ const [backgroundReplayState,setBackgroundReplayState]=createSignal<'unknown'|'a
 export {backgroundReplayState};
 export async function requestBackgroundReplay():Promise<boolean>{
   if(isTauri()){
+    stopForegroundRetry();
     try{const available=await (await import('../offline/nativeBackground.ts')).requestNativeBackgroundReplay();setBackgroundReplayState(available?'available':'unavailable');return available;}catch{setBackgroundReplayState('unavailable');return false;}
   }
-  if(typeof navigator==='undefined'||!('serviceWorker' in navigator)){setBackgroundReplayState('unavailable');return false;}
+  if(typeof navigator==='undefined'||!('serviceWorker' in navigator)){stopForegroundRetry();setBackgroundReplayState('unavailable');return false;}
   try{
     const registration=await navigator.serviceWorker.getRegistration(shellBase());
     const worker=registration?.active??registration?.waiting??registration?.installing;
     if(worker&&worker.state!=='activated')await new Promise<void>((resolve,reject)=>{const timer=setTimeout(()=>{worker.removeEventListener('statechange',changed);reject(new Error('Service worker activation timed out'));},10000);const changed=()=>{if(worker.state==='activated'){clearTimeout(timer);worker.removeEventListener('statechange',changed);resolve();}else if(worker.state==='redundant'){clearTimeout(timer);worker.removeEventListener('statechange',changed);reject(new Error('Service worker activation failed'));}};worker.addEventListener('statechange',changed);changed();});
     const sync=(registration as (ServiceWorkerRegistration&{sync?:{register(tag:string):Promise<void>}})|undefined)?.sync;
-    if(!sync){setBackgroundReplayState('unavailable');return false;}
-    await sync.register('mw-outbox');setBackgroundReplayState('available');return true;
-  }catch{setBackgroundReplayState('unavailable');return false;}
+    const foreground=()=>{if(worker){worker.postMessage({type:'mw-outbox-replay'});armForegroundRetry();}else stopForegroundRetry();setBackgroundReplayState('unavailable');return false;};
+    if(!sync)return foreground();
+    try{await sync.register('mw-outbox');stopForegroundRetry();setBackgroundReplayState('available');return true;}catch{return foreground();}
+  }catch{stopForegroundRetry();setBackgroundReplayState('unavailable');return false;}
 }

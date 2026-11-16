@@ -732,3 +732,21 @@ it('notification clicks focus the mail shell instead of an admin window and forw
 it('marks an opaque wake after showing its OS alert so the page can avoid a duplicate',async()=>{
  const worker=bootWorker();worker.pushState.clientOpen=true;worker.network.fetch=async()=>new Response(JSON.stringify({allowed:true}),{headers:{'content-type':'application/json'}});await worker.push();expect(worker.pushState.notifications).toEqual(['Mailwoman']);expect(worker.pushState.clientMessages).toEqual([{type:'mw-push-wake',notificationShown:true}]);
 });
+
+describe('foreground replay authorization',()=>{
+ it('accepts controlled prefixed mail shells without trusting payload selectors',async()=>{
+  const onReplay=vi.fn(async()=>undefined),worker=bootWorker(ORIGIN+'/mail/sw.js',{onReplay});
+  await worker.message({type:'mw-outbox-replay',accountId:'other',url:'https://foreign.test'},{url:ORIGIN+'/mail/'});
+  await worker.message({type:'mw-outbox-replay'},{url:ORIGIN+'/mail/index.html'});
+  expect(onReplay.mock.calls).toEqual([[],[]]);
+ });
+ it('rejects foreign, framed, non-shell, unrelated and uncontrolled clients',async()=>{
+  const onReplay=vi.fn(async()=>undefined),worker=bootWorker(ORIGIN+'/mail/sw.js',{onReplay});
+  for(const url of [ORIGIN+'/mail/admin',ORIGIN+'/mail/pdfjs/web/viewer.html',ORIGIN+'/', 'https://foreign.test/mail/'])await worker.message({type:'mw-outbox-replay'},{url});
+  await worker.message({type:'mw-outbox-replay'},{url:ORIGIN+'/mail/',frameType:'nested'});
+  await worker.message({type:'mw-outbox-replay'},{url:ORIGIN+'/mail/',type:'worker'});
+  await worker.message({type:'mw-outbox-replay'},{url:ORIGIN+'/mail/'},false);
+  await worker.message({type:'mw-outbox-replay'},null);await worker.message({type:'unrelated'},{url:ORIGIN+'/mail/'});
+  expect(onReplay).not.toHaveBeenCalled();
+ });
+});

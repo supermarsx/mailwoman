@@ -119,6 +119,7 @@ export interface Worker {
   /** The network as the worker sees it; replace per test. */
   network: { fetch: (req: FakeRequest | string) => Promise<Response>; calls: string[] };
   notificationClick(data:unknown,clients:{url:string;focus:()=>Promise<void>;postMessage:(value:unknown)=>void}[]):Promise<void>;
+  message(data:unknown,source:{url:string;type?:string;frameType?:string}|null,controlled?:boolean):Promise<void>;
   push(): Promise<void>;
   pushState: { endpoint: string | null; visible: boolean; clientOpen:boolean; clientMessages:unknown[]; notifications: string[] };
   install(): Promise<void>;
@@ -159,11 +160,12 @@ type Listener = (event: Record<string, unknown>) => void;
  * `scriptUrl` is where the worker is served from — its directory is the deploy
  * prefix the worker derives for itself.
  */
-export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js', options: { digests?: Record<string, string> | null } = {}): Worker {
+export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js', options: { digests?: Record<string, string> | null; onReplay?:()=>Promise<void> } = {}): Worker {
   const location = new URL(scriptUrl);
   const caches = new FakeCacheStorage(location.href);
   const listeners = new Map<string, Listener>();
-  const clientUrls = new Map<string, { type: string; url: string }>();
+  const clientUrls = new Map<string, { id?:string;type: string; url: string;frameType?:string }>();
+  let replayClients:{id:string}[]|undefined;
   const network: Worker['network'] = {
     calls: [],
     fetch: async () => new Response('ok', { status: 200 }),
@@ -173,10 +175,11 @@ export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js', options
   const self = {
     crypto: globalThis.crypto, TextEncoder, TextDecoder,
     location,
+    mwReplayOutbox:options.onReplay,
     addEventListener: (type: string, fn: Listener) => listeners.set(type, fn),
     skipWaiting: async () => undefined,
     __assetDigests: options.digests === undefined ? defaultDigests() : options.digests,
-    clients: { claim: async () => undefined, get: async (id: string) => clientUrls.get(id), matchAll: async () => notificationClients??(pushState.visible||pushState.clientOpen ? [{ visibilityState: pushState.visible?'visible':'hidden', postMessage: (value:unknown) => pushState.clientMessages.push(value) }] : []) },
+    clients: { claim: async () => undefined, get: async (id: string) => clientUrls.get(id), matchAll: async () => replayClients??notificationClients??(pushState.visible||pushState.clientOpen ? [{ visibilityState: pushState.visible?'visible':'hidden', postMessage: (value:unknown) => pushState.clientMessages.push(value) }] : []) },
     registration: { pushManager: { getSubscription: async () => pushState.endpoint ? { endpoint: pushState.endpoint } : null }, showNotification: async (title: string) => { pushState.notifications.push(title); } },
   };
   const fetchFromWorker = (req: FakeRequest | string): Promise<Response> => {
@@ -198,6 +201,12 @@ export function bootWorker(scriptUrl = 'https://mail.example.com/sw.js', options
     caches,
     network,
     async notificationClick(data,clients){notificationClients=clients;const waits:Promise<unknown>[]=[];listeners.get('notificationclick')?.({notification:{data,close(){}},waitUntil:(work:Promise<unknown>)=>waits.push(work)});await Promise.all(waits);notificationClients=undefined;},
+    async message(data,source,controlled=true){
+      const id=`message-${clientUrls.size+1}`,waits:Promise<unknown>[]=[];
+      if(source)clientUrls.set(id,{id,type:source.type??'window',url:source.url,...(source.frameType?{frameType:source.frameType}:{})});
+      replayClients=source&&controlled?[{id}]:[];
+      try{listeners.get('message')?.({data,source:source?{id}:null,waitUntil:(work:Promise<unknown>)=>waits.push(work)});await Promise.all(waits);}finally{replayClients=undefined;}
+    },
     push: () => lifecycle('push'),
     pushState,
     install: () => lifecycle('install'),

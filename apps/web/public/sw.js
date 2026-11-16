@@ -1,4 +1,6 @@
 /* @mw-offline-background */
+// The injected queue module owns Background Sync and explicit foreground replay
+// messages. It verifies each stored account; POST bodies never enter CacheStorage.
 // Mailwoman app-shell Service Worker (plan §2.5, owned by e5). Hand-rolled — no
 // Workbox. Ships copied verbatim into dist/ (no bundling), so it cannot import
 // from src/. This file is the only implementation of its routing: the unit tests
@@ -114,7 +116,7 @@ async function fromShellClient(event) {
     // through the cache offline. Only a worker running a manifest-listed
     // script of this build qualifies; a blob: worker never does.
     if (client.type === 'worker' || client.type === 'sharedworker') {
-      return ASSET_DIGESTS !== null && (/^[\/]assets\/[^/]+\.m?js$/.test(path)||/^\/pdfjs\/[^?]*\.m?js$/.test(path)) && typeof ASSET_DIGESTS[path] === 'string';
+      return ASSET_DIGESTS !== null && (/^\/assets\/[^/]+\.m?js$/.test(path)||/^\/pdfjs\/[^?]*\.m?js$/.test(path)) && typeof ASSET_DIGESTS[path] === 'string';
     }
     if (client.type !== undefined && client.type !== 'window') return false;
     return isShellNavigation(path)||path===PDF_DOCUMENT;
@@ -169,6 +171,23 @@ const SHELL_DOCUMENTS = ['/', '/index.html'];
 function isShellNavigation(pathname) {
   return SHELL_DOCUMENTS.includes(pathname);
 }
+
+// Only a controlled top-level mail shell may request foreground queue replay.
+// Identity and mutations are always read from the encrypted queue and verified
+// afresh; message payload fields never select an account or destination.
+self.addEventListener('message', (event) => {
+  if (event.data?.type !== 'mw-outbox-replay' || !event.source?.id) return;
+  event.waitUntil((async () => {
+    const client = await self.clients.get(event.source.id);
+    if (!client || client.type !== 'window' || client.frameType === 'nested') return;
+    let url;
+    try { url = new URL(client.url); } catch { return; }
+    if (url.origin !== self.location.origin || (BASE && url.pathname !== BASE && !url.pathname.startsWith(BASE + '/')) || !isShellNavigation(stripBase(url.pathname))) return;
+    const controlled = await self.clients.matchAll({type:'window'});
+    if (!controlled.some((entry) => entry.id === event.source.id)) return;
+    if (typeof self.mwReplayOutbox === 'function') await self.mwReplayOutbox();
+  })());
+});
 
 // The ONLY API responses that may be stored. Both are served before login and
 // are the same for every visitor: the IdP buttons the login screen shows

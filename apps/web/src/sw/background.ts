@@ -10,19 +10,26 @@ import {jmapApiPath} from '../api/jmapDiscovery.ts';
 import type {JmapResponse,JmapSession} from '../api/jmap-types.ts';
 
 interface SyncEvent {tag:string;waitUntil(work:Promise<unknown>):void}
-interface WorkerScope {registration:{scope:string};addEventListener(name:'sync',callback:(event:SyncEvent)=>void):void;clients:{matchAll():Promise<{postMessage(value:unknown):void}[]>}}
+interface WorkerScope {registration:{scope:string};addEventListener(name:'sync',callback:(event:SyncEvent)=>void):void;mwReplayOutbox?:()=>Promise<void>;clients:{matchAll():Promise<{postMessage(value:unknown):void}[]>}}
 const scope=globalThis as unknown as WorkerScope;
 const TAG='mw-outbox';
 
 /** Same encrypted queue and drain lock as the tabs. Authorization is acquired
  * afresh from the server; a cached identity never authorizes background work. */
-export async function replayBackground():Promise<void>{
+let replaying:Promise<void>|undefined,replayAgain=false;
+export function replayBackground():Promise<void>{
+ if(replaying){replayAgain=true;return replaying;}
+ replaying=(async()=>{do{replayAgain=false;await replayOnce();}while(replayAgain);})().finally(()=>{replaying=undefined;});
+ return replaying;
+}
+async function replayOnce():Promise<void>{
  const root=new URL(scope.registration.scope),base=root.pathname.replace(/\/$/,'');
  const store=encryptedOutboxStore(idbOutboxStore());
  const pending=(await store.all()) as QueuedItem[];
  const contexts=new Map<string,QueuedItem>();
  for(const row of pending)if(row.state==='queued'&&row.storageAuthority&&row.serverBase===base&&row.linkId!==undefined)contexts.set(JSON.stringify([row.storageAuthority,outboundAccount(row),row.linkId]),row);
  for(const row of contexts.values()){
+  try{
   const headers=new Headers();if(row.linkId)headers.set('X-Mailwoman-Link',row.linkId);
   let csrf='';
   const send=async(path:string,init:RequestInit={}):Promise<Response>=>{
@@ -56,7 +63,15 @@ export async function replayBackground():Promise<void>{
    bind:async(token,emailId)=>(await send(`${base}/api/track/open/${encodeURIComponent(token)}`,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({emailId})})).ok,
   });
   if((await selected.all()).some(item=>item.state==='queued'))throw new NetworkError('Background replay is incomplete');
+  }catch(error){
+   // A refused link is suspended until reauthentication. Keep its rows, but
+   // let the other verified mailboxes drain; transport outages still retry.
+   if(error instanceof ApiError&&[401,403,409].includes(error.status))continue;
+   throw error;
+  }
  }
  for(const client of await scope.clients.matchAll())client.postMessage({type:'mw-outbox-updated'});
 }
 scope.addEventListener('sync',event=>{if(event.tag===TAG)event.waitUntil(replayBackground());});
+// The public worker checks the controlled mail-shell source before invoking this.
+scope.mwReplayOutbox=replayBackground;
