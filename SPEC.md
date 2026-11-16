@@ -910,23 +910,36 @@ disabled for zero-access accounts (§15.6).
   written and is simply not mounted.
 - Recipient chips show encryption capability; live banner: "this message will
   be: E2EE / TLS / mixed". DLP evaluation pre-send with inline explanations (§7.6).
-- **Read-receipt / open-tracking (sender side): both mechanisms are cut.**
-  - **MDN read receipts (RFC 8098).** The `requestReceipt` toggle is defined,
-    rendered and toggled — and never read by the send path. No
-    `Disposition-Notification-To` header is ever produced and there is no
-    server-side MDN handling. A toggle that silently no-ops is worse than no
-    toggle, so the line and the control both go.
-  - **Self-hosted tracking pixel.** This was never functional: the composer
-    embeds `/api/track/open/{draftId}.gif`, **no `track` route exists on the
-    server**, the URL is site-relative so it could never resolve from a
-    delivered message, and it is keyed on the local draft id so an event could
-    not be correlated to a sent message anyway. None of the storage, timeline,
-    activation or disclosure modes exists. Today the toggle ships recipients a
-    permanently broken image. Beyond being unbuilt, it is the wrong feature for
-    this client: a product whose sanitizer blocks exactly this pattern in
-    received mail should not ship its own, and Mailwoman's own remote-content
-    proxy would defeat it Mailwoman-to-Mailwoman regardless. **Removing the
-    composer toggle and the pixel is a code follow-up.**
+- **Read receipts and open tracking (sender side): separately controlled; tracking UI incomplete.**
+  - **MDN read receipts (RFC 8098).** The composer passes its receipt choice
+    through the send envelope as `mailwomanRequestReadReceipt`. The engine
+    derives the request address from the sending identity and the MIME builder
+    emits `Disposition-Notification-To` only when requested. Server-side
+    handling parses incoming reports and implements `MDN/send`, including
+    recipient policy, loop prevention and duplicate-send protection. A request
+    does not guarantee a receipt: the recipient's client and policy decide
+    whether one is returned. See `crates/mw-engine/tests/t29_mdn_inline.rs`
+    and `crates/mw-mime/tests/{inline_receipt,mdn}.rs`.
+  - **Self-hosted open tracking.** Off by default and subject to user/admin
+    policy. Requires configured `MW_PUBLIC_URL`; the server mints a random
+    token and an absolute, base-path-aware `/t/{token}.gif` URL through
+    `POST /api/track/open`. The send path embeds that image and binds the token
+    to the created Email using `PUT /api/track/open/{token}`. Offline sends
+    mint during replay. The store records image-load times; the account-scoped
+    summary returns count, first and last load. Current sender policy and
+    retention apply to recording, and withdrawing permission stops further
+    recording. Plain-text, encrypted and signed composition excludes the pixel;
+    linked-mailbox tracking is unsupported and fails closed.
+    The summary client exists, but is not mounted in the message-reader UI;
+    a sender-facing tracking readout remains unfinished.
+    This is an image-load signal, not proof of reading or a per-recipient read
+    receipt: one token covers the message's recipients, remote-image blocking
+    (including Mailwoman's tracking protection) can suppress loads, and proxies
+    or prefetching can cause loads without reading. No recipient-facing
+    disclosure mode or detailed event-timeline API is claimed. Incoming tracking
+    protection remains independent of this optional outgoing feature.
+    See `crates/mw-server/tests/t29_open_tracking.rs`,
+    `apps/web/src/api/tracking.test.ts` and the composer/send-path tests.
 - Templates ("quick parts") and canned responses; keyboard-driven
   emoji/mention pickers; spellcheck via OS/browser; grammar and text review via
   the AI assistant (§14). None of the template library ships yet. **OFT template
