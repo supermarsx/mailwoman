@@ -118,3 +118,12 @@ yd-scope-thirdParty = 已连接的服务
 yd-scope-all = 全部
 yd-banner = 你的数据处理已受限制。已暂停：{ $scopes }。你仍可阅读和删除邮件。
 yd-banner-where = 请参阅“设置 > 隐私与数据”。
+
+yd-doc-title = 隐私文件
+yd-doc-controller = 数据控制者
+yd-doc-contact = 隐私联系人
+yd-doc-authority = 监管机构
+yd-doc-data = 处理的数据
+yd-doc-basis = 法律依据
+yd-doc-empty = 目前未列出任何数据处理活动。
+yd-policy-version = 版本 { $version } · { $date }

@@ -118,3 +118,12 @@ yd-scope-thirdParty = الخدمات المتصلة
 yd-scope-all = كل شيء
 yd-banner = معالجة بياناتك مقيّدة. المتوقف مؤقتًا: { $scopes }. ما زال بإمكانك قراءة بريدك وحذفه.
 yd-banner-where = راجع الإعدادات > الخصوصية والبيانات.
+
+yd-doc-title = وثائق الخصوصية
+yd-doc-controller = جهة التحكم بالبيانات
+yd-doc-contact = جهة اتصال الخصوصية
+yd-doc-authority = السلطة الرقابية
+yd-doc-data = البيانات المعالَجة
+yd-doc-basis = الأساس القانوني
+yd-doc-empty = لا توجد أنشطة معالجة مدرجة حاليًا.
+yd-policy-version = الإصدار { $version } · { $date }

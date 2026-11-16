@@ -118,3 +118,12 @@ yd-scope-thirdParty = połączone usługi
 yd-scope-all = wszystko
 yd-banner = Przetwarzanie Twoich danych jest ograniczone. Wstrzymano: { $scopes }. Nadal możesz czytać i usuwać swoją pocztę.
 yd-banner-where = Zobacz Ustawienia > Prywatność i dane.
+
+yd-doc-title = Dokumenty dotyczące prywatności
+yd-doc-controller = Administrator danych
+yd-doc-contact = Kontakt w sprawie prywatności
+yd-doc-authority = Organ nadzorczy
+yd-doc-data = Przetwarzane dane
+yd-doc-basis = Podstawa prawna
+yd-doc-empty = Obecnie nie ma wymienionych czynności przetwarzania.
+yd-policy-version = Wersja { $version } · { $date }

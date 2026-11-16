@@ -63,6 +63,7 @@ export const PRIVACY_CARDS: readonly CardSpec[] = [
     { id: 'error-reports-control', label: 'privacy-error-reports-send', help: 'privacy-error-reports-send-help' },
   ] },
   { id: 'privacy-card-cookies', section: 'privacy', title: 'cookies-settings-title', help: 'cookies-settings-help', rows: [] },
+  {id:'your-data-card-documents',section:'privacy',title:'yd-doc-title',rows:[]},
   { id: 'your-data-card-overview', section: 'privacy', title: 'yd-title', rows: [] },
   { id: 'your-data-card-consents', section: 'privacy', title: 'yd-consents-title', help: 'yd-consents-help', rows: [] },
   { id: 'your-data-card-art22', section: 'privacy', title: 'yd-art22-title', rows: [] },

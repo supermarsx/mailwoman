@@ -118,3 +118,12 @@ yd-scope-thirdParty = 連携サービス
 yd-scope-all = すべて
 yd-banner = データの処理が制限されています。停止中: { $scopes }。メールの閲覧と削除は引き続き可能です。
 yd-banner-where = 「設定 > プライバシーとデータ」を確認してください。
+
+yd-doc-title = プライバシー文書
+yd-doc-controller = データ管理者
+yd-doc-contact = プライバシーに関する連絡先
+yd-doc-authority = 監督機関
+yd-doc-data = 処理されるデータ
+yd-doc-basis = 法的根拠
+yd-doc-empty = 現在、処理活動は登録されていません。
+yd-policy-version = バージョン { $version } · { $date }

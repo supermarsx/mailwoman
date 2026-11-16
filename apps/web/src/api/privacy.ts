@@ -97,3 +97,17 @@ export async function listKeys(): Promise<KeyRow[]> {
 export async function revokeKey(prefix: string): Promise<void> {
   await call(`/api/keys/${encodeURIComponent(prefix)}/revoke`, { method: 'POST', body: {} });
 }
+
+export interface PolicyDocument {version:number;date:string;lang:string;sections:{id:string;title:string;body:string;missing:boolean}[]}
+export interface ProcessingDocument {controller:{name:string;address:string};contact:{name:string;email:string;url:string};supervisoryAuthority:string;activities:{id:string;name:string;purpose:string;categories:string;recipients:string;retention:string;legalBasis:string}[];recipients:{id:string;name:string;enabled:boolean}[]}
+export async function loadPolicyDocument(source:string,lang:string,signal:AbortSignal):Promise<PolicyDocument|null>{
+ const url=new URL(withBase(source),location.href);if(url.origin!==location.origin)return null;
+ url.searchParams.set('format','json');url.searchParams.set('lang',lang);
+ const target=source.startsWith('/')&&!source.startsWith('//')?url.pathname+url.search:url.href;
+ const response=await apiFetch(target,{signal,headers:{Accept:'application/json'}});if(!response.ok)throw new PrivacyError(response.status,'unavailable');
+ const value=await response.json() as PolicyDocument;if(!Array.isArray(value.sections))throw new PrivacyError(502,'invalid');return value;
+}
+export async function loadProcessingDocument(lang:string,signal:AbortSignal):Promise<ProcessingDocument>{
+ const response=await apiFetch(withBase('/api/privacy/processing')+'?'+new URLSearchParams({lang}),{signal,cache:'no-store',headers:{Accept:'application/json'}});
+ if(!response.ok)throw new PrivacyError(response.status,'unavailable');const value=await response.json() as ProcessingDocument;if(!Array.isArray(value.activities))throw new PrivacyError(502,'invalid');return value;
+}

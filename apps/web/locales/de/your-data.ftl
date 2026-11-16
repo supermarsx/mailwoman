@@ -118,3 +118,12 @@ yd-scope-thirdParty = verbundene Dienste
 yd-scope-all = alles
 yd-banner = Die Verarbeitung Ihrer Daten ist eingeschränkt. Pausiert: { $scopes }. Sie können Ihre E-Mails weiterhin lesen und löschen.
 yd-banner-where = Siehe Einstellungen > Datenschutz & Daten.
+
+yd-doc-title = Datenschutzdokumente
+yd-doc-controller = Verantwortlicher
+yd-doc-contact = Datenschutzkontakt
+yd-doc-authority = Aufsichtsbehörde
+yd-doc-data = Verarbeitete Daten
+yd-doc-basis = Rechtsgrundlage
+yd-doc-empty = Derzeit sind keine Verarbeitungstätigkeiten aufgeführt.
+yd-policy-version = Version { $version } · { $date }

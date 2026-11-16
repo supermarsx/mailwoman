@@ -25,7 +25,7 @@ export function PrivacyCenter(props:Record<PrivacyTab,JSX.Element>):JSX.Element 
   createEffect(()=>{
     const route=navigation?.route();
     if(route?.section!=='privacy')return;
-    const target=tabForCard(route.card);
+    const target=['privacy-policy','processing-records'].includes(route.editor?.id??'')?'data':tabForCard(route.card);
     if(target)setSelected(target);
   });
   function key(event:KeyboardEvent,index:number):void {

@@ -118,3 +118,12 @@ yd-scope-thirdParty = gekoppelde diensten
 yd-scope-all = alles
 yd-banner = De verwerking van uw gegevens is beperkt. Gepauzeerd: { $scopes }. U kunt uw mail nog steeds lezen en verwijderen.
 yd-banner-where = Zie Instellingen > Privacy en gegevens.
+
+yd-doc-title = Privacydocumenten
+yd-doc-controller = Verwerkingsverantwoordelijke
+yd-doc-contact = Privacycontact
+yd-doc-authority = Toezichthoudende autoriteit
+yd-doc-data = Verwerkte gegevens
+yd-doc-basis = Rechtsgrondslag
+yd-doc-empty = Er zijn momenteel geen verwerkingsactiviteiten vermeld.
+yd-policy-version = Versie { $version } · { $date }

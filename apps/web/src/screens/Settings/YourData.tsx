@@ -1,3 +1,8 @@
+import {PrivacyDocumentPage,type PrivacyDocumentKind} from './PrivacyDocumentPage.tsx';
+import {useEntityNavigation} from './entityEditor.tsx';
+import {PersonalAccountBoundary} from './PersonalAccountBoundary.tsx';
+import {Icon} from '../../components/Icon.tsx';
+import * as dataLayout from './privacyData.css.ts';
 // Settings > Privacy & data > What we hold about you: the stored data by plain
 // category with counts, sizes, retention and processors; the purposes you can
 // consent to or withdraw from; automated-processing notice and per-feature
@@ -11,24 +16,23 @@ import {
   type ConsentPurpose, type ConsentView, type DataCategory, type KeyRow, type PrivacyOverview, type SessionRow,
 } from '../../api/privacy.ts';
 import { chooseRequest } from '../../api/privacyShortcut.ts';
-import { withBase } from '../../api/basePath.ts';
 import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 
 const when = (seconds: number | null): string => (seconds === null ? '' : formatDateTime(seconds * 1000));
 
 function Categories(props: { items: DataCategory[] }): JSX.Element {
-  return <div role="region" aria-label={t('yd-categories-title')} tabindex="0">
-    <table data-testid="yd-categories">
+  return <div class={dataLayout.tableRegion} role="region" aria-label={t('yd-categories-title')} tabindex="0">
+    <table class={dataLayout.table} data-testid="yd-categories">
       <caption class={css.meta}>{t('yd-categories-help')}</caption>
       <thead><tr>
-        <th scope="col">{t('yd-col-category')}</th><th scope="col">{t('yd-col-count')}</th><th scope="col">{t('yd-col-size')}</th>
+        <th scope="col">{t('yd-col-category')}</th><th scope="col" data-number>{t('yd-col-count')}</th><th scope="col" data-number>{t('yd-col-size')}</th>
         <th scope="col">{t('yd-col-retention')}</th><th scope="col">{t('yd-col-processors')}</th>
       </tr></thead>
       <tbody><For each={props.items}>{c => <tr data-testid={`yd-cat-${c.id}`}>
         <th scope="row">{t(`yd-cat-${c.id}`)}</th>
-        <td>{formatNumber(c.rows)}</td>
-        <td>{c.bytes > 0 ? t('yd-approx', { size: formatBytes(c.bytes) }) : t('yd-size-none')}</td>
+        <td data-number>{formatNumber(c.rows)}</td>
+        <td data-number>{c.bytes > 0 ? t('yd-approx', { size: formatBytes(c.bytes) }) : t('yd-size-none')}</td>
         <td>{c.retention ? t(c.retention.source === 'userRule' ? 'yd-retention-rule' : 'yd-retention-days', { days: c.retention.days }) : t('yd-retention-none')}</td>
         <td>{c.processors.length > 0 ? c.processors.map(p => t(`yd-proc-${p}`)).join(', ') : t('yd-proc-none')}</td>
       </tr>}</For></tbody>
@@ -119,10 +123,14 @@ function Devices(): JSX.Element {
   </>;
 }
 
-export function YourData(props: { load?: () => Promise<PrivacyOverview> } = {}): JSX.Element {
+export function YourData(props: { load?: () => Promise<PrivacyOverview> } = {}): JSX.Element {return <PersonalAccountBoundary>{()=> <OwnedYourData {...props}/>}</PersonalAccountBoundary>;}
+function OwnedYourData(props:{load?:()=>Promise<PrivacyOverview>}):JSX.Element {
+  const navigation=useEntityNavigation('privacy');
+  const documentKind=():PrivacyDocumentKind|undefined=>navigation.route().editor?.id==='privacy-policy'?'policy':navigation.route().editor?.id==='processing-records'?'processing':undefined;
+  const openDocument=(kind:PrivacyDocumentKind)=>void navigation.navigate({section:'privacy',card:'your-data-card-documents',editor:{kind:'edit',id:kind==='policy'?'privacy-policy':'processing-records'}});
   onMount(() => { void loadCatalog('your-data'); });
   const [overview, { mutate }] = createResource(async () => { try { return await (props.load ?? loadOverview)(); } catch { return null; } });
-  return <Show when={overview()} fallback={<SettingsCard id="your-data-card-overview" title={t('yd-title')} testId="your-data"><p class={css.meta}>{overview.loading ? t('yd-loading') : t('yd-unavailable')}</p></SettingsCard>}>{o => <>
+  const body=()=> <Show when={overview()} fallback={<SettingsCard id="your-data-card-overview" title={t('yd-title')} testId="your-data"><p class={css.meta}>{overview.loading ? t('yd-loading') : t('yd-unavailable')}</p></SettingsCard>}>{o => <>
       <SettingsCard id="your-data-card-overview" wide title={t('yd-title')} description={t('yd-intro', { address: o().account.address })} testId="your-data">
       <Show when={o().restriction.active}>
         <p class={css.warn} role="status" data-testid="yd-restriction">
@@ -140,10 +148,10 @@ export function YourData(props: { load?: () => Promise<PrivacyOverview> } = {}):
         <button type="button" class={css.ghost} onClick={() => chooseRequest('restriction')}>{t('yd-restrict')}</button>
         <button type="button" class={css.danger} onClick={() => chooseRequest('erasure')}>{t('yd-delete')}</button>
       </div>
-      <p class={css.meta}>
-        <a href={withBase(o().links.policy)} rel="noopener">{t('yd-link-policy')}</a>{' · '}
-        <a href={withBase(o().links.processing)} rel="noopener">{t('yd-link-processing')}</a>
-      </p>
+      </SettingsCard>
+      <SettingsCard id="your-data-card-documents" title={t('yd-doc-title')}>
+       <div class={css.actions}><button type="button" class={`${css.ghost} ${dataLayout.action}`} onClick={()=>openDocument('policy')}><Icon name="shield"/>{t('yd-link-policy')}</button><button type="button" class={`${css.ghost} ${dataLayout.action}`} onClick={()=>openDocument('processing')}><Icon name="file"/>{t('yd-link-processing')}</button></div>
       </SettingsCard>
     </>}</Show>;
+  return <Show when={documentKind()} keyed fallback={body()}>{kind=><PrivacyDocumentPage kind={kind} source={overview()?.links[kind==='policy'?'policy':'processing']??(kind==='policy'?'/privacy':'/api/privacy/processing')} onBack={()=>void navigation.navigate({section:'privacy',card:'your-data-card-documents'})}/>}</Show>;
 }

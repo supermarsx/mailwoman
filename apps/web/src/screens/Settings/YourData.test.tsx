@@ -7,7 +7,7 @@ import type { ConsentView, PrivacyOverview } from '../../api/privacy.ts';
 
 vi.mock('../../api/privacy.ts', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../api/privacy.ts')>(),
-  decideConsent: vi.fn(), listSessions: vi.fn(), listKeys: vi.fn(), revokeSession: vi.fn(), revokeKey: vi.fn(),
+  loadPolicyDocument:vi.fn(),loadProcessingDocument:vi.fn(),decideConsent: vi.fn(), listSessions: vi.fn(), listKeys: vi.fn(), revokeSession: vi.fn(), revokeKey: vi.fn(),
 }));
 
 const consents = (over: Partial<ConsentView> = {}): ConsentView => ({
@@ -37,6 +37,8 @@ const overview = (over: Partial<PrivacyOverview> = {}): PrivacyOverview => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.loadPolicyDocument).mockResolvedValue({version:2,date:'2026-11-16',lang:'en',sections:[{id:'rights',title:'Your rights',body:'You can request a copy of your data.',missing:false}]});
+  vi.mocked(api.loadProcessingDocument).mockResolvedValue({controller:{name:'Example',address:'Town'},contact:{name:'Privacy',email:'privacy@example.org',url:''},supervisoryAuthority:'Authority',activities:[{id:'mail',name:'Mail delivery',purpose:'Sending and receiving mail.',categories:'Messages',recipients:'Mail provider',retention:'Until removed',legalBasis:'Contract'}],recipients:[]});
   vi.mocked(api.listSessions).mockResolvedValue([{ handle: 'h1', current: true }, { handle: 'h2', current: false, deviceLabel: 'Phone' }]);
   vi.mocked(api.listKeys).mockResolvedValue([{ prefix: 'mwk_abc' }]);
 });
@@ -113,8 +115,13 @@ describe('Your data (Settings)', () => {
     expect(requestedKind()).toBe('erasure');
   });
 
-  it('links to the policy page', async () => {
-    render(() => <YourData load={async () => overview()} />);
-    expect((await screen.findByRole('link', { name: 'Privacy policy' })).getAttribute('href')).toContain('/privacy');
+  it('opens a dedicated readable privacy page and returns to the overview',async()=>{
+    render(()=><YourData load={async()=>overview()}/>);fireEvent.click(await screen.findByRole('button',{name:'Privacy policy'}));
+    expect(await screen.findByText('You can request a copy of your data.')).toBeVisible();expect(screen.queryByTestId('yd-categories')).toBeNull();
+    expect(screen.getByRole('link',{name:'Open'})).toHaveAttribute('target','_blank');fireEvent.click(screen.getByRole('button',{name:'Back'}));expect(await screen.findByTestId('yd-categories')).toBeVisible();
+  });
+  it('opens processing records as structured cards rather than navigating to raw JSON',async()=>{
+    render(()=><YourData load={async()=>overview()}/>);fireEvent.click(await screen.findByRole('button',{name:'Processing records'}));
+    expect(await screen.findByRole('heading',{name:'Mail delivery'})).toBeVisible();expect(screen.getByText('Contract')).toBeVisible();expect(screen.getByText('Messages')).toBeVisible();expect(screen.queryByTestId('yd-categories')).toBeNull();
   });
 });

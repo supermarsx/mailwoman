@@ -114,3 +114,12 @@ yd-scope-thirdParty = connected services
 yd-scope-all = everything
 yd-banner = Processing of your data is restricted. Paused: { $scopes }. You can still read and delete your mail.
 yd-banner-where = See Settings > Privacy & data.
+
+yd-doc-title = Privacy documents
+yd-doc-controller = Data controller
+yd-doc-contact = Privacy contact
+yd-doc-authority = Supervisory authority
+yd-doc-data = Data processed
+yd-doc-basis = Legal basis
+yd-doc-empty = No processing activities are currently listed.
+yd-policy-version = Version { $version } · { $date }

@@ -118,3 +118,12 @@ yd-scope-thirdParty = servizi collegati
 yd-scope-all = tutto
 yd-banner = Il trattamento dei suoi dati è limitato. In pausa: { $scopes }. Può comunque leggere ed eliminare la sua posta.
 yd-banner-where = Vedi Impostazioni > Privacy e dati.
+
+yd-doc-title = Documenti sulla privacy
+yd-doc-controller = Titolare del trattamento
+yd-doc-contact = Contatto per la privacy
+yd-doc-authority = Autorità di controllo
+yd-doc-data = Dati trattati
+yd-doc-basis = Base giuridica
+yd-doc-empty = Al momento non sono elencate attività di trattamento.
+yd-policy-version = Versione { $version } · { $date }

@@ -118,3 +118,12 @@ yd-scope-thirdParty = підключені служби
 yd-scope-all = усе
 yd-banner = Обробку ваших даних обмежено. Призупинено: { $scopes }. Ви все ще можете читати й видаляти свою пошту.
 yd-banner-where = Див. «Налаштування» > «Конфіденційність і дані».
+
+yd-doc-title = Документи про конфіденційність
+yd-doc-controller = Контролер даних
+yd-doc-contact = Контакт із питань конфіденційності
+yd-doc-authority = Наглядовий орган
+yd-doc-data = Оброблювані дані
+yd-doc-basis = Правова підстава
+yd-doc-empty = Наразі операції з обробки даних не вказані.
+yd-policy-version = Версія { $version } · { $date }
