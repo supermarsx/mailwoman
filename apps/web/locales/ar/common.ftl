@@ -251,3 +251,5 @@ common-conn-offline-queued = العمل دون اتصال — { $count } تغي�
 common-conn-account-problem = { $account }: { $status }
 
 common-conn-background-unavailable = أبقِ Mailwoman مفتوحًا لمزامنة التغييرات المعلقة على هذا الجهاز.
+
+notification-center-action-success = { $action } · { $count }

@@ -257,3 +257,5 @@ common-conn-offline-queued = Offline — { $count } wijzigingen in wachtrij
 common-conn-account-problem = { $account }: { $status }
 
 common-conn-background-unavailable = Houd Mailwoman open om wijzigingen in de wachtrij op dit apparaat te synchroniseren.
+
+notification-center-action-success = { $action } · { $count }

@@ -243,3 +243,5 @@ common-conn-offline-queued = Offline — { $count } modifiche in coda
 common-conn-account-problem = { $account }: { $status }
 
 common-conn-background-unavailable = Tieni Mailwoman aperto per sincronizzare le modifiche in coda su questo dispositivo.
+
+notification-center-action-success = { $action } · { $count }

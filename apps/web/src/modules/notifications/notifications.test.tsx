@@ -4,10 +4,14 @@ import {activateAccountPreferences,suspendAccountPreferences} from '../../api/ac
 import {startNotificationCenter,notificationNotices,notificationUnread,changeCenterNotice,refreshNotificationCenter,publishAvailableUpdate,type CenterNotice} from '../../state/notificationCenter.ts';
 import {settingsRequest} from '../../state/settingsRequest.ts';
 import Notifications from './index.tsx';
-const fixture=vi.hoisted(()=>({rows:[] as CenterNotice[],fetch:vi.fn()}));
+import {toast} from '../../components/toast/toast.ts';
+vi.mock('../../components/toast/toast.ts',()=>({toast:{success:vi.fn(),error:vi.fn()},registerToastObstacle:()=>()=>undefined}));
+const fixture=vi.hoisted(()=>({rows:[] as CenterNotice[],fetch:vi.fn(),stateChange:undefined as undefined|((change:{changed:Record<string,Record<string,string>>})=>void),connection:undefined as undefined|((value:string)=>void)}));
+vi.mock('../../realtime/context.ts',async()=>{const {createSignal}=await import('solid-js');const [state,setState]=createSignal('idle');fixture.connection=setState;return {useRealtime:()=>({connection:{state},onStateChange:(fn:typeof fixture.stateChange)=>{fixture.stateChange=fn;return ()=>{fixture.stateChange=undefined;};}})};});
 vi.mock('../../api/http.ts',()=>({apiFetch:(...args:unknown[])=>fixture.fetch(...args)}));
 let stop:(()=>void)|undefined;
 beforeEach(()=>{
+ vi.mocked(toast.success).mockClear();vi.mocked(toast.error).mockClear();fixture.connection?.('idle');
  fixture.rows=[{id:'security-one',ts:100,kind:'session',event:'fingerprintMismatch',severity:'warning',state:'active',read:false},{id:'login-one',ts:90,kind:'login',event:'success',severity:'info',state:'active',read:false}];
  fixture.fetch.mockReset().mockImplementation(async(_url:string,init:RequestInit)=>{
   expect(new Headers(init.headers).get('x-mailwoman-storage-authority')).toBe('notification_test_authority');
@@ -46,4 +50,18 @@ it('publishes an actual available build once and preserves a dismissed update on
 });
 it('discards a delayed response after logout and clears private notifications immediately',async()=>{
  await waitFor(()=>expect(notificationNotices()).toHaveLength(2));let release!:(value:Response)=>void;fixture.fetch.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));const pending=refreshNotificationCenter();suspendAccountPreferences();expect(notificationNotices()).toEqual([]);release(new Response(JSON.stringify({notices:fixture.rows})));await pending;expect(notificationNotices()).toEqual([]);
+});
+
+it('confirms notification actions and keeps search fields accessible without a manual refresh button',async()=>{
+ render(()=><Notifications/>);await screen.findByText('Successful sign-in');
+ expect(screen.getByRole('searchbox',{name:'Search'})).toBeInTheDocument();expect(screen.queryByRole('button',{name:'Refresh'})).toBeNull();
+ const row=screen.getByText('Successful sign-in').closest('li')!;fireEvent.click(within(row).getByRole('button',{name:'Dismiss'}));
+ await waitFor(()=>expect(toast.success).toHaveBeenCalledWith('Dismissed · 1'));
+});
+it('refreshes the current principal on notification pushes keyed by the sign-in parent and after reconnecting',async()=>{
+ await waitFor(()=>expect(notificationNotices()).toHaveLength(2));
+ fixture.rows.push({...fixture.rows[0]!,id:'pushed-notice'});fixture.stateChange?.({changed:{parent:{Notification:'n2'}}});
+ await waitFor(()=>expect(notificationNotices()).toHaveLength(3));
+ fixture.rows.push({...fixture.rows[0]!,id:'offline-notice'});fixture.connection?.('connecting');fixture.connection?.('online');
+ await waitFor(()=>expect(notificationNotices()).toHaveLength(4));
 });

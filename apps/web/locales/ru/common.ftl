@@ -262,3 +262,5 @@ common-conn-offline-queued = Офлайн — изменений в очеред
 common-conn-account-problem = { $account }: { $status }
 
 common-conn-background-unavailable = Оставьте Mailwoman открытым для синхронизации ожидающих изменений на этом устройстве.
+
+notification-center-action-success = { $action } · { $count }

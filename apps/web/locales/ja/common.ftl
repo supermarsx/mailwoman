@@ -242,3 +242,5 @@ common-conn-offline-queued = オフライン — { $count } 件の変更が待�
 common-conn-account-problem = { $account }: { $status }
 
 common-conn-background-unavailable = この端末の保留中の変更を同期するには、Mailwoman を開いたままにしてください。
+
+notification-center-action-success = { $action } · { $count }

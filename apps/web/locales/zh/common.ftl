@@ -256,3 +256,5 @@ common-conn-offline-queued = 正在离线工作 — { $count } 项更改待同�
 common-conn-account-problem = { $account }: { $status }
 
 common-conn-background-unavailable = 请保持 Mailwoman 打开，以同步此设备上排队的更改。
+
+notification-center-action-success = { $action } · { $count }

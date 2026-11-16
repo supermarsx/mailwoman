@@ -275,3 +275,5 @@ common-conn-offline-queued = Working offline — { $count } changes queued
 common-conn-account-problem = { $account }: { $status }
 
 common-conn-background-unavailable = Keep Mailwoman open to sync queued changes on this device.
+
+notification-center-action-success = { $action } · { $count }
