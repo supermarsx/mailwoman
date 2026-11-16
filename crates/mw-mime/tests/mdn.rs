@@ -480,17 +480,32 @@ fn field_variants_are_read_leniently() {
     let r = read("Disposition: weird/unknown; processed\r\n").expect("unknown modes");
     assert_eq!((r.action_mode, r.sending_mode), (None, None));
     assert_eq!(r.disposition, MdnDisposition::Processed);
+}
 
-    // The first occurrence of a field is the one read.
-    let r = read(
+#[test]
+fn duplicate_fields_cannot_choose_a_receipt_disposition_or_recipient() {
+    let read = |fields: &str| parse_mdn(&report_with(fields));
+    // Contradictory dispositions cannot produce an authoritative read status.
+    assert!(read(
         "Disposition: manual-action/MDN-sent-manually; displayed\r\n\
          Disposition: manual-action/MDN-sent-manually; deleted\r\n\
          Final-Recipient: rfc822; first@example.net\r\n\
          Final-Recipient: rfc822; second@example.net\r\n",
     )
-    .expect("duplicates");
+    .is_none());
+
+    let valid = read("Disposition: displayed\r\nFinal-Recipient: rfc822; first@example.net\r\n")
+        .expect("single recipient");
+    assert_eq!(valid.final_recipient.as_deref(), Some("first@example.net"));
+    // A valid disposition still parses, but an ambiguous recipient is absent.
+    let r = read(
+        "Disposition: displayed\r\n\
+         Final-Recipient: rfc822; first@example.net\r\n\
+         FINAL-RECIPIENT: rfc822; second@example.net\r\n",
+    )
+    .expect("unambiguous disposition");
     assert_eq!(r.disposition, MdnDisposition::Displayed);
-    assert_eq!(r.final_recipient.as_deref(), Some("first@example.net"));
+    assert_eq!(r.final_recipient, None);
 }
 
 #[test]

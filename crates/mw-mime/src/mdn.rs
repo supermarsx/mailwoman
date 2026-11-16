@@ -433,8 +433,8 @@ fn recipient_field(name: &str, addr: &str) -> Result<String, MimeError> {
 /// `Disposition` field naming a type. Everything else about the report is
 /// optional and read leniently: field names in any case, folded lines, bare LF
 /// line ends, a missing address type, a missing mode pair, and any transfer
-/// encoding `mail-parser` decodes. A field that appears twice is read from its
-/// first occurrence.
+/// encoding `mail-parser` decodes. Duplicate fields are ambiguous and treated
+/// as absent; a duplicate required `Disposition` rejects the report.
 ///
 /// Runs over untrusted bytes and never panics. A report nested in another
 /// message (a forwarded receipt) is not reported.
