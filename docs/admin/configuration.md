@@ -114,8 +114,8 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 | <a id="mw-directory-bind-pw"></a>`MW_DIRECTORY_BIND_PW` | ui | secret |  | pin | directory (GAL/LDAP) service bind password | Admin → Integrations → Directory |
 | <a id="mw-webauthn-origin"></a>`MW_WEBAUTHN_ORIGIN` | readOnly | url | derived from the public URL | boot | WebAuthn relying-party origin | a root of trust, or a protection a stolen admin session could switch off |
 | <a id="mw-webauthn-rp-id"></a>`MW_WEBAUTHN_RP_ID` | readOnly | plain | derived from the public URL | boot | WebAuthn relying-party id | a root of trust, or a protection a stolen admin session could switch off |
-| <a id="mw-session-idle-secs"></a>`MW_SESSION_IDLE_SECS` | ui | plain | 1800 | boot | mailbox session idle limit (upper bound for the stored policy) | Admin → Sessions |
-| <a id="mw-session-absolute-secs"></a>`MW_SESSION_ABSOLUTE_SECS` | ui | plain | 1296000 | boot | mailbox session absolute limit (upper bound for the stored policy) | Admin → Sessions |
+| <a id="mw-session-idle-secs"></a>`MW_SESSION_IDLE_SECS` | ui | plain | 604800 | boot | mailbox session idle limit (upper bound for the stored policy) | Admin → Sessions |
+| <a id="mw-session-absolute-secs"></a>`MW_SESSION_ABSOLUTE_SECS` | ui | plain | 0 | boot | optional mailbox absolute limit; 0 leaves the stored policy in control | Admin → Sessions |
 
 ## Integrations
 
@@ -491,8 +491,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="privacy.allowdirect"></a>`privacy.allowDirect` | privacy | global | false | plain |  | yes | Permit direct remote-content mode with the direct-content capability |
 | <a id="cap.remote-content.direct"></a>`cap.remote_content.direct` | privacy | global+domain+admin_user | false | plain |  | yes | Permit this account to load remote images directly |
 | <a id="session.maxconcurrent"></a>`session.maxConcurrent` | signin | global+domain+admin_user | 10 | plain |  | yes | Maximum concurrent mailbox sessions |
-| <a id="session.idlesecs"></a>`session.idleSecs` | signin | global+domain+admin_user | 1800 | plain |  | yes | Mailbox session idle timeout, bounded by the deployment cap |
-| <a id="session.absolutesecs"></a>`session.absoluteSecs` | signin | global+domain+admin_user | 1296000 | plain |  | yes | Mailbox session absolute timeout, bounded by the deployment cap |
+| <a id="session.idlesecs"></a>`session.idleSecs` | signin | global+domain+admin_user | 604800 | plain |  | yes | Rolling mailbox inactivity timeout, bounded by the deployment cap |
+| <a id="session.absolutesecs"></a>`session.absoluteSecs` | signin | global+domain+admin_user | 0 | plain |  | yes | Optional fixed mailbox lifetime; 0 disables this limit unless the deployment enforces one |
 | <a id="session.persistacrossrestarts"></a>`session.persistAcrossRestarts` | signin | global | true | plain |  | yes | Keep mailbox, native and console sessions across a server restart; off ends them all at start-up |
 | <a id="session.lastactivityflushseconds"></a>`session.lastActivityFlushSeconds` | signin | global | 15 | plain |  | yes | Write a session's last-seen time at most this often; zero writes on every request |
 | <a id="server.shutdowngraceseconds"></a>`server.shutdownGraceSeconds` | maintenance | global | 30 | plain |  | yes | How long a stopping server lets in-flight requests finish before it closes connections |

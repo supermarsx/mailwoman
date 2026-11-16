@@ -2003,19 +2003,19 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "session.idleSecs",
-        int(60, 86400),
-        "1800",
+        int(60, 604800),
+        "604800",
         GDA,
         "signin",
-        "Mailbox session idle timeout, bounded by the deployment cap"
+        "Rolling mailbox inactivity timeout, bounded by the deployment cap"
     ),
     def!(
         "session.absoluteSecs",
-        int(300, 1296000),
-        "1296000",
+        int(0, 1296000),
+        "0",
         GDA,
         "signin",
-        "Mailbox session absolute timeout, bounded by the deployment cap"
+        "Optional fixed mailbox lifetime; 0 disables this limit unless the deployment enforces one"
     ),
     def!(
         "session.persistAcrossRestarts",
@@ -9039,6 +9039,9 @@ fn valid_shortcut(value: &str) -> bool {
 }
 
 pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, Refusal> {
+    if def.key == "session.absoluteSecs" && value.as_u64().is_some_and(|value| value > 0 && value < 300) {
+        return Err(Refusal::invalid(field,"absolute session limit must be 0 or at least 300 seconds"));
+    }
     if def.key == "mail.unifiedAccount.groups" {
         let valid = value.as_str().and_then(|raw| serde_json::from_str::<Value>(raw).ok()).and_then(|value| value.as_array().cloned()).is_some_and(|groups| {
             let mut ids=std::collections::HashSet::new();
@@ -11231,5 +11234,23 @@ mod mailbox_connection_indicator_tests {
         assert_eq!(def.scopes, GDU);
         assert!(validate(def, &json!(true), "value").is_ok());
         assert!(validate(def, &json!("true"), "value").is_err());
+    }
+}
+
+#[cfg(test)]
+mod rolling_session_tests {
+    use super::*;
+    #[test]
+    fn rolling_session_defaults_and_explicit_absolute_limits_validate() {
+        let idle=lookup("session.idleSecs").unwrap();
+        assert_eq!(idle.default_value(),json!(604800));
+        assert!(validate(idle,&json!(604800),"value").is_ok());
+        assert!(validate(idle,&json!(604801),"value").is_err());
+        let absolute=lookup("session.absoluteSecs").unwrap();
+        assert_eq!(absolute.default_value(),json!(0));
+        for valid in [0,300,1296000] {assert!(validate(absolute,&json!(valid),"value").is_ok());}
+        for invalid in [1,299,1296001] {assert!(validate(absolute,&json!(invalid),"value").is_err());}
+        assert_eq!(lookup("admin.session.idleSecs").unwrap().default_value(),json!(1800));
+        assert_eq!(lookup("admin.session.absoluteSecs").unwrap().default_value(),json!(43200));
     }
 }

@@ -60,22 +60,20 @@ pub(crate) async fn policy(
             .as_u64()
             .unwrap_or(10)
             .clamp(1, 100) as usize,
-        idle_secs: value(state, "session.idleSecs", &subject, json!(1800))
+        idle_secs: value(state, "session.idleSecs", &subject, json!(crate::hardening::MAILBOX_IDLE_SECS))
             .await?
             .as_u64()
-            .unwrap_or(1800)
+            .unwrap_or(crate::hardening::MAILBOX_IDLE_SECS)
             .min(state.hardening.idle_timeout.as_secs()),
-        absolute_secs: value(
+        absolute_secs: crate::hardening::mailbox_absolute_secs(value(
             state,
             "session.absoluteSecs",
             &subject,
-            json!(crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS),
+            json!(0),
         )
         .await?
         .as_u64()
-        .unwrap_or(crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS)
-        .min(state.hardening.absolute_timeout.as_secs())
-        .min(crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS),
+        .unwrap_or(crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS), state.hardening.absolute_timeout.as_secs()),
         remember_days: value(state, "twofa.rememberDays", &subject, json!(0))
             .await?
             .as_u64()
@@ -407,6 +405,17 @@ pub(crate) fn session_deadline_passed(
     idle_secs: u64,
     absolute_secs: u64,
 ) -> bool {
+    session_remaining_secs(created,activity,now,idle_secs,absolute_secs)==0
+}
+
+/// Remaining cookie/session lifetime, with the same clocks as authentication.
+fn session_remaining_secs(
+    created: &str,
+    activity: &str,
+    now: chrono::DateTime<chrono::Utc>,
+    idle_secs: u64,
+    absolute_secs: u64,
+) -> u64 {
     let elapsed = |value: &str| {
         chrono::DateTime::parse_from_rfc3339(value)
             .ok()
@@ -416,9 +425,36 @@ pub(crate) fn session_deadline_passed(
                     .max(0) as u64
             })
     };
-    elapsed(created)
-        .is_none_or(|age| age >= absolute_secs.min(crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS))
-        || elapsed(activity).is_none_or(|age| age >= idle_secs)
+    let (Some(created_age), Some(idle_age)) = (elapsed(created), elapsed(activity)) else {
+        return 0;
+    };
+    let idle = idle_secs.saturating_sub(idle_age);
+    if absolute_secs == 0 {
+        idle
+    } else {
+        idle.min(absolute_secs.min(crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS).saturating_sub(created_age))
+    }
+}
+
+/// Only mailbox cookies become persistent; console cookie policy is separate.
+pub(crate) async fn mailbox_cookies(
+    state: &AppState,
+    id: &str,
+) -> Result<[axum::http::HeaderValue; 2], Response> {
+    let session = state.store.get_primary_session(id).await.map_err(|_| crate::unauthorized())?;
+    let policy = policy(state, &session.account_id, &session.username).await?;
+    let (created, activity) = state.store.session_activity_clock(id).await
+        .map_err(|cause| error("session cookie clock", cause))?.ok_or_else(crate::unauthorized)?;
+    let ttl = session_remaining_secs(&created, &activity, chrono::Utc::now(), policy.idle_secs, policy.absolute_secs);
+    if ttl == 0 {
+        return Err(crate::session_expired());
+    }
+    let csrf = state.store.session_csrf_token(id);
+    let csrf_cookie = crate::csrf_cookie(&csrf, state.cookie_secure);
+    Ok([
+        crate::session_cookie(id, state.cookie_secure, ttl),
+        axum::http::HeaderValue::from_str(&format!("{}; Max-Age={ttl}", csrf_cookie.to_str().expect("cookie is ASCII"))).expect("cookie is ASCII"),
+    ])
 }
 
 /// Explicit foreground interaction only; normal authenticated requests update
@@ -435,11 +471,21 @@ async fn renew_activity(State(state): State<AppState>, headers: HeaderMap) -> Re
     )
     .await
     {
-        Ok(true) => (
-            [(header::CACHE_CONTROL, "private, no-store")],
-            Json(json!({"ok":true})),
-        )
-            .into_response(),
+        Ok(true) => {
+            let mut response = (
+                [(header::CACHE_CONTROL, "private, no-store")],
+                Json(json!({"ok":true})),
+            ).into_response();
+            // A selected linked context must never replace the primary browser
+            // cookie. Bearer-authenticated clients receive no browser cookies.
+            if !headers.contains_key(header::AUTHORIZATION) && let Some(id) = crate::cookie_value(&headers) {
+                match mailbox_cookies(&state, &id).await {
+                    Ok(cookies) => for cookie in cookies { response.headers_mut().append(header::SET_COOKIE, cookie); },
+                    Err(response) => return response,
+                }
+            }
+            response
+        },
         Ok(false) => crate::unauthorized(),
         Err(error) => self::error("session activity", error),
     }
@@ -997,6 +1043,19 @@ fn webmail_fail2ban_line(address: &str, ip: &str, reason: &str) -> Option<String
 #[cfg(test)]
 mod auth_log_failure_tests {
     use super::{session_deadline_passed, webmail_fail2ban_line};
+    #[test]
+    fn rolling_session_uses_activity_and_optional_caps_still_win() {
+        let start = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap().with_timezone(&chrono::Utc);
+        let week = crate::hardening::MAILBOX_IDLE_SECS;
+        let day_three = start + chrono::Duration::days(3);
+        let day_nine = start + chrono::Duration::days(9);
+        assert!(!session_deadline_passed(&start.to_rfc3339(), &day_three.to_rfc3339(), day_nine, week, 0));
+        assert!(session_deadline_passed(&start.to_rfc3339(), &start.to_rfc3339(), day_nine, week, 0));
+        assert!(session_deadline_passed(&start.to_rfc3339(), &day_three.to_rfc3339(), day_nine, week, week));
+        for (policy, deployment, expected) in [(0,0,0),(0,3600,3600),(3600,0,3600),(3600,1800,1800),(2_000_000,0,1_296_000)] {
+            assert_eq!(crate::hardening::mailbox_absolute_secs(policy,deployment), expected);
+        }
+    }
     #[test]
     fn mailbox_activity_has_fixed_absolute_cap_and_separate_idle_clock() {
         let start = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")

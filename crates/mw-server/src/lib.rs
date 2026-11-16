@@ -3009,7 +3009,7 @@ pub(crate) async fn finish_login_ext(
     if let Some(authority) = storage_authority {
         body["storageAuthority"] = json!(authority);
     }
-    authenticated_response(state, id, body)
+    authenticated_response(state, id, body).await
 }
 
 /// Shallow-merge the fields of `extra` (if an object) into `base` (if an object).
@@ -3138,7 +3138,7 @@ async fn engine_login(
 
 /// Build a login/rotate success response: set the session cookie, mint a fresh
 /// double-submit CSRF token (cookie + body), and return the JSON payload.
-fn authenticated_response(state: &AppState, id: &str, mut body: serde_json::Value) -> Response {
+async fn authenticated_response(state: &AppState, id: &str, mut body: serde_json::Value) -> Response {
     linked_accounts::links_changed();
     let token = state.store.session_csrf_token(id);
     if let Some(obj) = body.as_object_mut() {
@@ -3147,8 +3147,10 @@ fn authenticated_response(state: &AppState, id: &str, mut body: serde_json::Valu
     let mut resp = Json(body).into_response();
     resp.extensions_mut().insert(signin_cooldown::SessionIssued);
     let h = resp.headers_mut();
-    h.append(header::SET_COOKIE, session_cookie(id, state.cookie_secure));
-    h.append(header::SET_COOKIE, csrf_cookie(&token, state.cookie_secure));
+    match security_center::mailbox_cookies(state,id).await {
+        Ok(cookies)=>for cookie in cookies {h.append(header::SET_COOKIE,cookie);},
+        Err(response)=>return response,
+    }
     resp
 }
 
@@ -3291,7 +3293,7 @@ async fn rotate_session(State(state): State<AppState>, headers: HeaderMap) -> Re
     state.step_up.forget_user(&old_id);
     state.sessions.rotate(&old_id, &new_id);
     session_watch::on_rotate(&state, &old_id, &new_id).await;
-    authenticated_response(&state, &new_id, json!({ "ok": true }))
+    authenticated_response(&state, &new_id, json!({ "ok": true })).await
 }
 
 // ---------------------------------------------------------------------------
@@ -6006,8 +6008,8 @@ fn looks_like_content_hash(candidate: &str) -> bool {
 // Session cookie helpers + auth extraction
 // ---------------------------------------------------------------------------
 
-fn session_cookie(id: &str, secure: bool) -> HeaderValue {
-    let mut c = format!("{COOKIE_NAME}={id}; HttpOnly; SameSite=Strict; Path=/");
+fn session_cookie(id: &str, secure: bool, ttl: u64) -> HeaderValue {
+    let mut c = format!("{COOKIE_NAME}={id}; HttpOnly; SameSite=Strict; Path=/; Max-Age={ttl}");
     if secure {
         c.push_str("; Secure");
     }

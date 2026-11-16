@@ -16,10 +16,15 @@ export function createSessionActivity(options: {
   let lastSent = -Infinity;
   let pending: AbortController | undefined;
   let blocked: PreferenceAccount | null = null;
-  const stop = observePreferenceAccount(() => { pending?.abort(); pending = undefined; lastSent = -Infinity; blocked = null; });
+  let disposed=false;
+  const opened=()=>{
+    const account=preferenceAccount();
+    queueMicrotask(()=>{if(!disposed&&account&&preferenceAccountIsCurrent(account))activity(true);});
+  };
+  const stop = observePreferenceAccount(() => { pending?.abort(); pending = undefined; lastSent = -Infinity; blocked = null; opened(); });
   function activity(trusted: boolean): void {
     const account = preferenceAccount();
-    if (!trusted || !foreground() || !account || pending || (blocked && preferenceAccountIsCurrent(blocked)) || now() - lastSent < INTERVAL_MS) return;
+    if (disposed || !trusted || !foreground() || !account || pending || (blocked && preferenceAccountIsCurrent(blocked)) || now() - lastSent < INTERVAL_MS) return;
     lastSent = now();
     const controller = new AbortController(); pending = controller;
     void send(controller.signal).then((response) => {
@@ -28,7 +33,10 @@ export function createSessionActivity(options: {
       if (pending === controller) pending = undefined;
     });
   }
-  return { activity, dispose: () => { stop(); pending?.abort(); pending = undefined; } };
+  // Restoring a verified session while opening mail is foreground use even
+  // before the first click. Hidden tabs still fail the foreground check.
+  opened();
+  return { activity, dispose: () => { disposed=true; stop(); pending?.abort(); pending = undefined; } };
 }
 
 let started = false;
@@ -37,9 +45,12 @@ export function startMailboxSessionActivity(): void {
   started = true;
   const tracker = createSessionActivity();
   const interaction = (event: Event): void => tracker.activity(event.isTrusted);
-  // Plain scroll/visibility/focus events are intentionally excluded: scripted
-  // scrolling and background refresh must not keep an unattended session alive.
+  // No heartbeat: an unattended tab never renews itself. Native page/focus
+  // events cover reopening mail and returning to an already loaded tab.
   for (const name of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
     document.addEventListener(name, interaction, { passive: true, capture: true });
   }
+  window.addEventListener('pageshow',interaction);
+  window.addEventListener('focus',interaction);
+  document.addEventListener('visibilitychange',interaction);
 }

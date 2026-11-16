@@ -494,8 +494,12 @@ to expand):
   `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
   `Permissions-Policy` denying everything unused.
 - Session: httpOnly, Secure, SameSite=Strict cookies; opaque server-side
-  session tokens (no JWT for sessions); rotation on privilege change; absolute
-  + idle timeouts; concurrent-session listing and revocation in settings.
+  session tokens (no JWT for sessions); rotation on privilege change;
+  configurable idle and optional absolute timeouts; concurrent-session listing
+  and revocation in settings. Mailbox sessions default to a rolling seven days
+  since foreground use: opening or using mail renews the window and persistent
+  browser cookies; background polling does not. Explicit administrator or
+  deployment limits still apply. Original authentication time is preserved.
 - CSRF: double-submit + Origin checks. All state-changing endpoints require
   the JMAP session state token.
 - Login: constant-time compares, uniform error messages/timing, Argon2id.

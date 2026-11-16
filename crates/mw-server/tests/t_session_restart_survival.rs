@@ -192,6 +192,7 @@ async fn mailbox_session_survives_a_restart_and_deadlines_do_not_move() {
 
     // The absolute deadline is stored: moving creation into the past ends the
     // session on the next process too.
+    set_policy(&db, "session.absoluteSecs", "1296000").await;
     sqlx::query("UPDATE sessions SET created_at='2000-01-01T00:00:00+00:00' WHERE id=?")
         .bind(&login.session)
         .execute(&p)
@@ -201,6 +202,71 @@ async fn mailbox_session_survives_a_restart_and_deadlines_do_not_move() {
     let third = boot(&db, &key, &upstream, false).await;
     assert_eq!(me(&c, &third.base, &login.session).await, 401);
     third.stop();
+}
+
+#[tokio::test]
+async fn rolling_week_renews_on_day_three_survives_restart_and_expires_after_inactivity() {
+    let upstream = mock().await;
+    let (db, key) = fixture();
+    let c = client();
+    let first = boot(&db, &key, &upstream, true).await;
+    let response = c.post(format!("{}/api/login", first.base))
+        .header("Origin", &first.base)
+        .json(&json!({"username":mw_mock_jmap::USER,"password":mw_mock_jmap::PASS}))
+        .send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    let session = cookie(&response, "mw_session").unwrap();
+    let csrf = cookie(&response, "mw_csrf").unwrap();
+    let persistent_cookies = |response: &reqwest::Response| {
+        let cookies: Vec<_> = response.headers().get_all("set-cookie").iter()
+            .filter_map(|value|value.to_str().ok()).collect();
+        for name in ["mw_session=", "mw_csrf="] {
+            let value = cookies.iter().find(|value| value.starts_with(name)).unwrap();
+            let ttl: u64 = value.split(';').find_map(|part|part.trim().strip_prefix("Max-Age=")).unwrap().parse().unwrap();
+            assert!((604_790..=604_800).contains(&ttl), "persistent rolling cookie: {value}");
+            assert!(value.contains("SameSite=Strict"));
+        }
+    };
+    persistent_cookies(&response);
+    let p = pool(&db).await;
+    let created = (chrono::Utc::now()-chrono::Duration::days(3)).to_rfc3339();
+    sqlx::query("UPDATE sessions SET created_at=?1,activity_at=?1 WHERE id=?2")
+        .bind(&created).bind(&session).execute(&p).await.unwrap();
+    assert_eq!(me(&c, &first.base, &session).await, 200, "return on day three");
+    let renew = c.post(format!("{}/api/account/session/activity", first.base))
+        .header("Origin", &first.base)
+        .header("Cookie", format!("mw_session={session}; mw_csrf={csrf}"))
+        .header("X-CSRF-Token", &csrf).send().await.unwrap();
+    assert_eq!(renew.status(), 200);persistent_cookies(&renew);
+    assert_eq!(cookie(&renew,"mw_session").as_deref(),Some(session.as_str()),"renew the actual primary cookie");
+    let clock: (String,String)=sqlx::query_as("SELECT created_at,activity_at FROM sessions WHERE id=?")
+        .bind(&session).fetch_one(&p).await.unwrap();
+    assert_eq!(clock.0,created,"renewal preserves the original authentication time");
+    assert!(chrono::DateTime::parse_from_rfc3339(&clock.1).unwrap()>chrono::DateTime::parse_from_rfc3339(&created).unwrap());
+    first.stop();
+    // Day nine since login, six days since use: the original seven-day window
+    // has passed, but the renewed one is still valid after a router restart.
+    let second=boot(&db,&key,&upstream,true).await;
+    sqlx::query("UPDATE sessions SET created_at=?1,activity_at=?2 WHERE id=?3")
+        .bind((chrono::Utc::now()-chrono::Duration::days(9)).to_rfc3339())
+        .bind((chrono::Utc::now()-chrono::Duration::days(6)).to_rfc3339())
+        .bind(&session).execute(&p).await.unwrap();
+    assert_eq!(me(&c,&second.base,&session).await,200);
+    let before: String=sqlx::query_scalar("SELECT activity_at FROM sessions WHERE id=?")
+        .bind(&session).fetch_one(&p).await.unwrap();
+    assert_eq!(me(&c,&second.base,&session).await,200);
+    let after: String=sqlx::query_scalar("SELECT activity_at FROM sessions WHERE id=?")
+        .bind(&session).fetch_one(&p).await.unwrap();
+    assert_eq!(before,after,"background requests do not renew inactivity");
+    sqlx::query("UPDATE sessions SET activity_at=?1 WHERE id=?2")
+        .bind((chrono::Utc::now()-chrono::Duration::days(7)-chrono::Duration::seconds(1)).to_rfc3339())
+        .bind(&session).execute(&p).await.unwrap();
+    let expired=c.post(format!("{}/api/account/session/activity",second.base))
+        .header("Origin",&second.base).header("Cookie",format!("mw_session={session}; mw_csrf={csrf}"))
+        .header("X-CSRF-Token",&csrf).send().await.unwrap();
+    assert_eq!(expired.status(),401,"a late renewal cannot revive an expired session");
+    assert!(cookie(&expired,"mw_session").is_none());
+    second.stop();
 }
 
 #[tokio::test]

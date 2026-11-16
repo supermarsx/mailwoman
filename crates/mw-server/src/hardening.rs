@@ -41,8 +41,16 @@ const PERMISSIONS_POLICY: &str = "accelerometer=(), autoplay=(), camera=(), \
     gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), \
     picture-in-picture=(), usb=(), interest-cohort=()";
 
-/// Mailbox sessions may never outlive fifteen days from their original sign-in.
+/// Default rolling inactivity window for mailbox sessions.
+pub const MAILBOX_IDLE_SECS: u64 = 7 * 24 * 60 * 60;
+/// Maximum absolute lifetime when an administrator enables a fixed cutoff.
 pub const MAILBOX_ABSOLUTE_CAP_SECS: u64 = 15 * 24 * 60 * 60;
+
+/// Zero means no absolute cutoff. Either nonzero policy or deployment cap wins.
+pub(crate) fn mailbox_absolute_secs(policy: u64, deployment: u64) -> u64 {
+    [policy, deployment].into_iter().filter(|value| *value > 0)
+        .min().map_or(0, |value| value.min(MAILBOX_ABSOLUTE_CAP_SECS))
+}
 
 /// Tunable hardening knobs (populated from the CLI/env).
 #[derive(Debug, Clone)]
@@ -54,7 +62,7 @@ pub struct HardeningConfig {
     pub csrf_strict: bool,
     /// No activity for this long invalidates the session.
     pub idle_timeout: Duration,
-    /// A session is force-expired this long after creation regardless of use.
+    /// Force expiry after creation regardless of use; zero disables this cap.
     pub absolute_timeout: Duration,
 }
 
@@ -63,8 +71,8 @@ impl Default for HardeningConfig {
         Self {
             coep: true,
             csrf_strict: false,
-            idle_timeout: Duration::from_secs(30 * 60),
-            absolute_timeout: Duration::from_secs(MAILBOX_ABSOLUTE_CAP_SECS),
+            idle_timeout: Duration::from_secs(MAILBOX_IDLE_SECS),
+            absolute_timeout: Duration::ZERO,
         }
     }
 }
@@ -411,7 +419,7 @@ impl SessionGuard {
         let mut map = self.inner.lock().expect("session guard lock");
         match map.get(id).copied() {
             Some(t) => {
-                if now.duration_since(t.created) > cfg.absolute_timeout {
+                if !cfg.absolute_timeout.is_zero() && now.duration_since(t.created) > cfg.absolute_timeout {
                     map.remove(id);
                     return Err(Expiry::Absolute);
                 }
@@ -456,7 +464,7 @@ impl SessionGuard {
     fn expired_at(&self, id: &str, cfg: &HardeningConfig, now: Instant) -> Option<Expiry> {
         let map = self.inner.lock().expect("session guard lock");
         let t = map.get(id)?;
-        if now.duration_since(t.created) > cfg.absolute_timeout {
+        if !cfg.absolute_timeout.is_zero() && now.duration_since(t.created) > cfg.absolute_timeout {
             Some(Expiry::Absolute)
         } else if now.duration_since(t.last_seen) > cfg.idle_timeout {
             Some(Expiry::Idle)
@@ -816,6 +824,18 @@ mod tests {
             g.expired_at("a", &cfg, t0 + Duration::from_secs(1_001)),
             Some(Expiry::Absolute)
         );
+    }
+
+    #[test]
+    fn rolling_default_renews_on_day_three_and_has_no_fixed_signin_cutoff() {
+        let guard = SessionGuard::new();
+        let config = HardeningConfig::default();
+        let start = Instant::now();
+        assert!(guard.check_at("rolling", &config, start).is_ok());
+        for day in [3, 8, 13, 18] {
+            assert!(guard.check_at("rolling", &config, start + Duration::from_secs(day * 86400)).is_ok());
+        }
+        assert_eq!(guard.expired_at("rolling", &config, start + Duration::from_secs(25 * 86400 + 1)), Some(Expiry::Idle));
     }
 
     #[test]

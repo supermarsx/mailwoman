@@ -191,17 +191,18 @@ and administrator sessions remain intact. Newly created sessions without
 recorded provenance cannot mint sensitive-action proofs or enroll factors;
 a fresh sign-in records the method.
 
-## Mailbox activity and the fifteen-day limit
+## Mailbox activity and rolling sessions
 
-Mailbox sessions default to a fifteen-day absolute lifetime from the original
-sign-in. Lower deployment or account policy limits still apply. Foreground,
-trusted pointer, keyboard, wheel and touch interactions renew the idle clock,
-at most once every thirty seconds; background requests, focus/visibility events
-and scripted scrolling do not. Existing sessions keep their previous idle
-baseline during the upgrade, rather than receiving a new lifetime.
+Mailbox sessions default to seven days since foreground use, with no fixed
+total lifetime. Opening a verified mailbox, returning to it, and trusted
+pointer, keyboard, wheel and touch interactions renew the window, at most once
+every thirty seconds. Background requests and scripted scrolling do not.
+Explicit deployment or account policy limits still apply: administrators can
+require a shorter inactivity period or a fixed lifetime up to fifteen days.
+Existing stored timestamps and explicit policy values are preserved on upgrade.
 
 The idle clock is persisted separately from request telemetry. Token rotation
-preserves both original sign-in time and user activity. Browser cookies remain
-session cookies; this does not introduce a persistent remember-me cookie.
-Native bearer sessions use the same persisted clocks and absolute cap.
+preserves both original sign-in time and user activity. Browser session and CSRF
+cookies persist for the remaining permitted window and renew on foreground use.
+Native bearer sessions use the same persisted clocks and optional absolute cap.
 Administrator idle/absolute limits and fresh verification remain unchanged.

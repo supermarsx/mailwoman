@@ -146,6 +146,7 @@ async fn default_key_sessions_survive_real_process_restart_but_logout_and_expiry
         "logout survives restart"
     );
     let expired = login(&client, &base).await;
+    sqlx::query("INSERT INTO setting_policy(key,global_value,updated_by,updated_at) VALUES('session.absoluteSecs','1296000','restart-fixture',0)").execute(&pool).await.unwrap();
     sqlx::query("UPDATE sessions SET created_at='2000-01-01T00:00:00Z' WHERE id=?")
         .bind(&expired)
         .execute(&pool)

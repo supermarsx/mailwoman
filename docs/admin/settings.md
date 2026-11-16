@@ -1458,10 +1458,16 @@ users cannot override them.
 `session.maxConcurrent` limits sessions per account to 1–100 (default 10).
 Oldest sessions are revoked when a successful sign-in exceeds the cap.
 <a id="session.idleSecs"></a>
-`session.idleSecs` is 60–86400 seconds (default 1800).
+`session.idleSecs` is 60–604800 seconds (default 604800: seven days). Opening or
+using mail renews this inactivity window. Background polling does not.
 <a id="session.absoluteSecs"></a>
-`session.absoluteSecs` is 300–1296000 seconds (default 1296000: 15 days).
-Deployment timeout limits also apply; persisted timestamps survive restarts.
+`session.absoluteSecs` is 0 (no fixed cutoff) or 300–1296000 seconds (up to 15
+days), default 0. The default is a rolling session; administrators can enforce
+an absolute limit regardless of use. Deployment timeout limits also apply;
+the shorter nonzero absolute limit wins. Persisted timestamps survive restarts,
+and renewal preserves the original authentication time. Browser cookies persist
+for the remaining permitted window and are refreshed on foreground activity.
+Explicit stored policy values are preserved when upgrading.
 <a id="session.persistAcrossRestarts"></a>
 `session.persistAcrossRestarts` defaults to true. Off ends every stored mailbox,
 app and console session when the server starts. See [Sessions and server

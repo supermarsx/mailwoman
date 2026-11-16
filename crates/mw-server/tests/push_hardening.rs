@@ -56,13 +56,19 @@ async fn spawn_mock() -> String {
 /// Spawn mw-server with the given hardening config; return (base URL, SocketAddr,
 /// push handle).
 async fn spawn_server(hardening: HardeningConfig) -> (String, SocketAddr, PushHandle) {
+    let (base, address, push, _) = spawn_server_with_database(hardening).await;
+    (base, address, push)
+}
+
+async fn spawn_server_with_database(hardening: HardeningConfig) -> (String, SocketAddr, PushHandle, PathBuf) {
     let base = test_db::unique_dir("mw-push-test");
     let web_dir = base.join("web");
     std::fs::create_dir_all(&web_dir).unwrap();
     std::fs::write(web_dir.join("index.html"), INDEX_HTML).unwrap();
 
+    let database = base.join("mw.db");
     let config = AppConfig {
-        db_path: base.join("mw.db").to_string_lossy().into_owned(),
+        db_path: database.to_string_lossy().into_owned(),
         server_key_hex: None,
         web_dir: Some(PathBuf::from(&web_dir)),
         cookie_secure: false,
@@ -81,7 +87,7 @@ async fn spawn_server(hardening: HardeningConfig) -> (String, SocketAddr, PushHa
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    (format!("http://{addr}"), addr, push)
+    (format!("http://{addr}"), addr, push, database)
 }
 
 fn client() -> reqwest::Client {
@@ -314,17 +320,25 @@ async fn strict_csrf_requires_a_matching_token() {
 
 #[tokio::test]
 async fn idle_timeout_expires_the_session() {
-    // idle=0 → any request after login is already past the idle window.
+    // A persistent cookie needs a positive lifetime. Age the durable clock
+    // after a successful login, rather than minting an already-expired cookie.
     let hardening = HardeningConfig {
-        idle_timeout: Duration::from_secs(0),
+        idle_timeout: Duration::from_secs(60),
         ..HardeningConfig::default()
     };
     let mock = spawn_mock().await;
-    let (server, _addr, _push) = spawn_server(hardening).await;
+    let (server, _addr, _push, database) = spawn_server_with_database(hardening).await;
     let c = client();
     login_session_cookie(&c, &server, &mock).await;
+    assert_eq!(c.get(format!("{server}/api/me")).send().await.unwrap().status(), 200);
+    let pool = sqlx::SqlitePool::connect(&format!("sqlite:{}", database.display())).await.unwrap();
+    sqlx::query("UPDATE sessions SET activity_at=?1")
+        .bind((chrono::Utc::now()-chrono::Duration::seconds(61)).to_rfc3339())
+        .execute(&pool).await.unwrap();
 
     // The follow-up request is rejected as expired, and the session is gone.
     let me = c.get(format!("{server}/api/me")).send().await.unwrap();
     assert_eq!(me.status(), 401, "idle-expired session must be rejected");
+    let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions").fetch_one(&pool).await.unwrap();
+    assert_eq!(remaining, 0);
 }

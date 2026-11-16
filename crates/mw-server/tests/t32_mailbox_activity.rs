@@ -64,6 +64,11 @@ async fn activity_renews_only_live_mailbox_idle_and_rotation_keeps_fifteen_day_c
     // This fixture tests session clocks across repeated cookie/native/admin sign-ins.
     sqlx::query("INSERT INTO setting_policy(key,global_value,updated_by,updated_at) VALUES('signin.retryCooldownSecs','0','session-clock-fixture',0)")
         .execute(&pool).await.unwrap();
+    // Explicit administrator policy still overrides the new rolling defaults.
+    for (key,value) in [("session.idleSecs","1800"),("session.absoluteSecs","1296000")] {
+        sqlx::query("INSERT INTO setting_policy(key,global_value,updated_by,updated_at) VALUES(?1,?2,'session-clock-fixture',0)")
+            .bind(key).bind(value).execute(&pool).await.unwrap();
+    }
     let endpoint = format!("{base}/api/account/session/activity");
     let anonymous = reqwest::Client::new();
     assert_eq!(
@@ -139,6 +144,15 @@ async fn activity_renews_only_live_mailbox_idle_and_rotation_keeps_fifteen_day_c
         let renewed = request.send().await.unwrap();
         assert_eq!(renewed.status(), 200);
         assert_eq!(renewed.headers()["cache-control"], "private, no-store");
+        if native {
+            assert!(renewed.headers().get_all("set-cookie").iter().next().is_none(), "native renewal must not issue browser credentials");
+        } else {
+            assert_eq!(session_cookie(&renewed), id);
+            let ttl: u64=renewed.headers().get_all("set-cookie").iter().filter_map(|value|value.to_str().ok())
+                .find(|value|value.starts_with("mw_session=")).unwrap().split(';')
+                .find_map(|part|part.trim().strip_prefix("Max-Age=")).unwrap().parse().unwrap();
+            assert!((1790..=1800).contains(&ttl), "the cookie's remaining lifetime respects the administrator's 30-minute idle window");
+        }
         let renewed_at: String = sqlx::query_scalar("SELECT activity_at FROM sessions WHERE id=?1")
             .bind(&id)
             .fetch_one(&pool)

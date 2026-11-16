@@ -53,14 +53,20 @@ to flip once the whole stack is on V2.
 
 ## Sessions
 
-- **Idle timeout** — `--session-idle-secs` (default `1800`).
-- **Absolute timeout** — `--session-absolute-secs` (default `43200`).
+- **Idle timeout** — `--session-idle-secs` / `MW_SESSION_IDLE_SECS` (default
+  `604800`, seven days since foreground use). Opening or returning to mail and
+  interacting with it renews the window; background polling does not.
+- **Absolute timeout** — `--session-absolute-secs` / `MW_SESSION_ABSOLUTE_SECS`
+  (default `0`, no fixed cutoff). Nonzero deployment or administrator policy
+  values impose an absolute limit, even on an active session.
 - **Rotation** — a fresh session id is issued on every login, plus
   `POST /api/session/rotate` (new id + csrf, old id invalidated, absolute clock
   preserved). Expired sessions are deleted and answered `401`.
 
-  > Timing is in-process in V2. Sessions survive for the process lifetime; after
-  > a restart a session is re-seeded leniently on next use.
+  Timing is persisted in the database and survives restarts. Session and CSRF
+  cookies persist for the remaining permitted window and are refreshed on
+  foreground activity. See [Sessions and server restarts](../admin/sessions.md).
+  Console sessions keep their own, separate timeouts.
 
 ## TLS
 
@@ -75,5 +81,5 @@ reaches Mailwoman over HTTPS.
 | `MW_COOKIE_SECURE` | `false` | `true` (behind TLS) |
 | `--coep` / `MW_COEP` | on | on |
 | `--csrf-strict` / `MW_CSRF_STRICT` | off | on (`deploy.sh` sets it for a new installation; the web client sends `X-CSRF-Token`) |
-| `--session-idle-secs` | `1800` | tune to policy |
-| `--session-absolute-secs` | `43200` | tune to policy |
+| `--session-idle-secs` | `604800` | tune to policy |
+| `--session-absolute-secs` | `0` | set a nonzero absolute limit when required by policy |

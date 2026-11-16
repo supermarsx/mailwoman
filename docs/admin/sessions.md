@@ -9,6 +9,20 @@ The same status is on the Security overview ("Sessions and restarts"): it reads
 "Sessions survive restarts: yes" or "no" with the reason, and the number of
 stored mailbox, app and console sessions.
 
+Mailbox sessions default to **seven days since the last foreground use**.
+Opening mail on day three renews the window for another seven days. The login
+and activity responses issue persistent session and CSRF cookies, so closing
+and reopening the browser does not discard the session. Opening a verified
+mailbox, returning to it, or interacting with it renews activity; background
+polling and unattended tabs do not. An expired or revoked session cannot be
+renewed.
+
+There is no fixed total mailbox-session lifetime by default. Administrators can
+still enforce a shorter inactivity window or an absolute sign-in limit using
+the policy/deployment controls below. Existing explicit values remain in effect.
+Original sign-in times are preserved during renewal and token rotation. Console
+sessions retain their separate limits.
+
 ## What is stored in the database
 
 | State | Where | After a restart |
@@ -61,6 +75,10 @@ of them can serve any session.
 
 Idle and absolute limits keep their existing keys: `session.idleSecs`,
 `session.absoluteSecs`, `admin.session.idleSecs`, `admin.session.absoluteSecs`.
+The mailbox idle default and deployment cap are `604800` seconds (seven days).
+`session.absoluteSecs` and `MW_SESSION_ABSOLUTE_SECS` default to `0` (no fixed
+cutoff); any nonzero policy/deployment limit still applies, with the shorter
+nonzero limit winning. An enabled mailbox absolute limit is capped at 15 days.
 
 A "memory-only" upstream credential mode (credentials sealed with a secret held
 only in the cookie, so the database alone cannot open them) is not implemented:

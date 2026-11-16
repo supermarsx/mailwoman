@@ -3,6 +3,17 @@ import { createSessionActivity } from './sessionActivity.ts';
 import { activateAccountPreferences, suspendAccountPreferences } from './accountPreferenceLifecycle.ts';
 const settle = async (): Promise<void> => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
 afterEach(() => suspendAccountPreferences());
+it('renews on a verified foreground opening, including a return on day three without a click',async()=>{
+  const send=vi.fn(async()=>new Response(null,{status:200}));
+  let foreground=true;
+  let tracker=createSessionActivity({foreground:()=>foreground,send});
+  activateAccountPreferences('alice');await settle();expect(send).toHaveBeenCalledTimes(1);
+  tracker.dispose();
+  tracker=createSessionActivity({now:()=>3*86400000,foreground:()=>foreground,send});
+  await settle();expect(send).toHaveBeenCalledTimes(2);tracker.dispose();
+  foreground=false;tracker=createSessionActivity({foreground:()=>foreground,send});
+  await settle();expect(send).toHaveBeenCalledTimes(2);tracker.dispose();
+});
 it('renews only genuine foreground interaction and never schedules background renewal', async () => {
   let now = 0; let foreground = true;
   const send = vi.fn(async () => new Response(null, { status: 200 }));

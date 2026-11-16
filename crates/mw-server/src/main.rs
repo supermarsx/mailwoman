@@ -415,10 +415,10 @@ struct ServeArgs {
     #[arg(long, env = "MW_CSRF_STRICT", default_value_t = false)]
     csrf_strict: bool,
     /// Idle session timeout in seconds (env: MW_SESSION_IDLE_SECS).
-    #[arg(long, env = "MW_SESSION_IDLE_SECS", default_value_t = 1800)]
+    #[arg(long, env = "MW_SESSION_IDLE_SECS", default_value_t = mw_server::HardeningConfig::default().idle_timeout.as_secs())]
     session_idle_secs: u64,
-    /// Absolute session lifetime in seconds (env: MW_SESSION_ABSOLUTE_SECS).
-    #[arg(long, env = "MW_SESSION_ABSOLUTE_SECS", default_value_t = 1_296_000)]
+    /// Absolute session lifetime in seconds; 0 keeps rolling sessions (env: MW_SESSION_ABSOLUTE_SECS).
+    #[arg(long, env = "MW_SESSION_ABSOLUTE_SECS", default_value_t = 0)]
     session_absolute_secs: u64,
 }
 
