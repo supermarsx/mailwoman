@@ -35,6 +35,8 @@ pub fn has_exact_sender_domain_filter(filter: &serde_json::Value) -> bool {
 #[serde(rename_all = "camelCase", default)]
 pub struct EmailFilter {
     pub in_mailbox: Option<String>,
+    /// Mailwoman extension: at least one of these owned folders. Empty matches nothing.
+    pub in_mailboxes: Option<Vec<String>>,
     pub in_mailbox_other_than: Option<Vec<String>>,
     pub text: Option<String>,
     pub from: Option<String>,
@@ -82,8 +84,8 @@ impl EmailFilter {
     /// Validate the supported flat filter before persistence or execution. Unknown
     /// fields and malformed bounds must never silently become an unrestricted query.
     pub fn parse_saved_json(raw: &str) -> Result<Self, &'static str> {
-        if raw.len() > 32 * 1024 {
-            return Err("search filter exceeds 32 KiB");
+        if raw.len() > 256 * 1024 {
+            return Err("search filter exceeds 256 KiB");
         }
         let value: serde_json::Value =
             serde_json::from_str(raw).map_err(|_| "search filter must be valid JSON")?;
@@ -102,6 +104,14 @@ impl EmailFilter {
         }
         let filter: Self =
             serde_json::from_value(value).map_err(|_| "search filter field has an invalid type")?;
+        if let Some(ids) = &filter.in_mailboxes
+            && (ids.len() > 512
+                || ids
+                    .iter()
+                    .any(|id| id.is_empty() || id.len() > 256 || id.chars().any(char::is_control)))
+        {
+            return Err("invalid included mailbox list");
+        }
         if let Some(ids) = &filter.in_mailbox_other_than
             && (ids.len() > 256
                 || ids
@@ -168,6 +178,7 @@ impl EmailFilter {
     /// `inMailboxOtherThan` is routed separately by `query_route` in `jmap.rs`.
     pub fn needs_search(&self) -> bool {
         self.text.is_some()
+            || self.in_mailboxes.is_some()
             || self.from.is_some()
             || self.to.is_some()
             || self.cc.is_some()

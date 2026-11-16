@@ -235,6 +235,17 @@ pub(crate) fn build_search_query(
                 .collect(),
         )),
     }
+    if let Some(include) = &filter.in_mailboxes {
+        let included: Vec<_> = include
+            .iter()
+            .filter(|id| owned(id))
+            .map(|id| Expr::Clause(Clause::Mailbox(id.clone())))
+            .collect();
+        if included.is_empty() {
+            return match_nothing(sort);
+        }
+        clauses.push(Expr::Or(included));
+    }
     if let Some(exclude) = &filter.in_mailbox_other_than {
         for mb in exclude {
             clauses.push(Expr::Not(Box::new(Expr::Clause(Clause::Mailbox(
@@ -498,6 +509,69 @@ mod tests {
             text: Some(v.into()),
             ..EmailFilter::default()
         }
+    }
+
+    #[test]
+    fn included_folders_are_positive_bounded_and_account_scoped() {
+        let filter = |ids: Vec<&str>| EmailFilter {
+            in_mailboxes: Some(ids.into_iter().map(str::to_string).collect()),
+            ..EmailFilter::default()
+        };
+        assert_eq!(
+            hits(&["mb-a", "mb-b"], None, filter(vec!["mb-a"])),
+            ["msg-a"]
+        );
+        assert!(hits(&["mb-a", "mb-b"], None, filter(vec!["mb-b"])).is_empty());
+        assert!(hits(&["mb-b"], None, filter(vec!["mb-a"])).is_empty());
+        assert!(hits(&["mb-a"], None, filter(vec![])).is_empty());
+        assert_eq!(
+            hits(&["mb-a"], None, filter(vec!["mb-a", "foreign"])),
+            ["msg-a"]
+        );
+        assert!(filter(vec!["mb-a"]).needs_search());
+        assert!(EmailFilter::parse_saved_json(r#"{"inMailboxes":["mb-a"]}"#).is_ok());
+        assert!(EmailFilter::parse_saved_json(r#"{"inMailboxes":[""]}"#).is_err());
+        let too_many = serde_json::json!({"inMailboxes":vec!["a";513]});
+        assert!(EmailFilter::parse_saved_json(&too_many.to_string()).is_err());
+    }
+
+    #[test]
+    fn offline_header_window_keeps_old_flags_and_pins_with_a_supported_flat_filter() {
+        let idx = mw_search::Index::open_in_ram().unwrap();
+        for (id, date, flagged, pinned) in [
+            ("recent", 200, false, false),
+            ("old", 1, false, false),
+            ("flag", 1, true, false),
+            ("pin", 1, false, true),
+        ] {
+            idx.upsert(&IndexDoc {
+                stable_id: id.into(),
+                account_id: "account".into(),
+                mailbox_id: "owned".into(),
+                date,
+                pinned,
+                keywords: if flagged {
+                    vec!["$flagged".into()]
+                } else {
+                    vec![]
+                },
+                ..IndexDoc::default()
+            })
+            .unwrap();
+        }
+        let filter =
+            EmailFilter::parse_saved_json(r#"{"text":"(after:100 OR is:flagged OR pinned:true)"}"#)
+                .unwrap();
+        let query = build_search_query(&filter, Sort::received_desc(), &["owned".into()], None);
+        let mut ids = idx.search_hits(&query, 0).unwrap().ids;
+        ids.sort();
+        assert_eq!(ids, ["flag", "pin", "recent"]);
+        assert!(
+            EmailFilter::parse_saved_json(
+                r#"{"operator":"OR","conditions":[{"after":"2026-01-01T00:00:00Z"}]}"#
+            )
+            .is_err()
+        );
     }
 
     #[test]

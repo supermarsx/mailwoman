@@ -1,11 +1,19 @@
 import {afterEach,expect,it,vi} from 'vitest';
 import {activateAccountPreferences,preferenceAccount,suspendAccountPreferences} from './accountPreferenceLifecycle.ts';
 import {apiFetch} from './http.ts';
-import {transferWorkspaceMessage,workspaceMessages,updateWorkspaceMessages,type WorkspaceMailbox} from './workspaceMail.ts';
+import {readLinkedMailboxIdentity,transferWorkspaceMessage,workspaceMessages,updateWorkspaceMessages,type WorkspaceMailbox} from './workspaceMail.ts';
 import type {Email,Mailbox} from './jmap-types.ts';
 
 vi.mock('./http.ts',()=>({apiFetch:vi.fn()}));
 const mock=vi.mocked(apiFetch);
+it('keeps inactive identity probes scoped, abortable and out of durable offline clients',async()=>{
+ activateAccountPreferences('account','primary_authority_1234');
+ const signal=new AbortController().signal;
+ mock.mockImplementation(async(path,init)=>{expect(init).toMatchObject({mailboxContext:'linked-b',cache:'no-store',redirect:'error',signal});return Response.json(path.endsWith('/api/me')?{accountId:'b',storageAuthority:'linked_authority_12345'}:{state:'session'});});
+ expect(await readLinkedMailboxIdentity('linked-b',signal)).toMatchObject({user:{accountId:'b'},discovery:{state:'session'}});expect(mock).toHaveBeenCalledTimes(2);
+ mock.mockImplementation(async()=>{const response=Response.json({state:'foreign'});vi.spyOn(response,'json').mockImplementation(async()=>{activateAccountPreferences('other','foreign_authority_1234');return {state:'foreign'};});return response;});
+ await expect(readLinkedMailboxIdentity('linked-b',signal)).rejects.toMatchObject({name:'AbortError'});
+});
 it('keeps query totals, unread totals and keyword writes bound to their source account',async()=>{
  activateAccountPreferences('account','primary_authority_1234');const owner=preferenceAccount()!;
  const source:WorkspaceMailbox={linkId:'linked-b',accountId:'b',storageAuthority:'linked_authority_12345',owner,label:'Other',current:false};
@@ -71,4 +79,14 @@ it('reports a confirmed copy separately from an unconfirmed source update',async
  const {run,mutations}=scenario({imported:1,failed:0,total:1,mailboxId:'work'},false);
  await expect(run()).resolves.toBe('source-unconfirmed');
  expect(mutations).toEqual(['import','trash']);
+});
+
+it('uses supported flat filters for both the unified page and its unread count',async()=>{
+ activateAccountPreferences('account','primary_authority_1234');const owner=preferenceAccount()!;
+ const target:WorkspaceMailbox={linkId:null,accountId:'a',storageAuthority:'primary_authority_1234',owner,label:'Primary',current:true};
+ const boxes=[{id:'inbox',role:'inbox'},{id:'archive',role:'archive'},{id:'hidden',role:'trash'}] as unknown as Mailbox[];
+ mock.mockImplementation(async(_url,init)=>{const body=JSON.parse(String(init?.body));const [query,,unread]=body.methodCalls;expect(query[1].filter).toEqual({inMailboxes:['inbox','archive']});expect(unread[1].filter).toEqual({inMailboxes:['inbox','archive'],notKeyword:'$seen'});return Response.json({methodResponses:[['Email/query',{ids:[],position:0,total:0},'query'],['Email/get',{list:[]},'rows'],['Email/query',{total:0},'unread']]});});
+ expect(await workspaceMessages(target,boxes,'all','',0,new AbortController().signal,'newest',false,['inbox','archive'])).toMatchObject({total:0,unread:0,next:null});
+ expect(mock).toHaveBeenCalledTimes(1);
+ expect(await workspaceMessages(target,boxes,'trash','',0,new AbortController().signal,'newest',false,['inbox'])).toMatchObject({rows:[],next:null});expect(mock).toHaveBeenCalledTimes(1);
 });

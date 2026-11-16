@@ -70,6 +70,7 @@ function match(email:Email,filter:Record<string,unknown>|undefined,mailboxes:Mai
  }
  for(const [key,value] of Object.entries(filter)){
   if(key==='inMailbox'&&!email.mailboxIds?.[String(value)])return false;
+  else if(key==='inMailboxes'&&Array.isArray(value)&&!value.some(id=>email.mailboxIds?.[String(id)]===true))return false;
   else if(key==='inMailboxOtherThan'&&Array.isArray(value)&&Object.keys(email.mailboxIds??{}).every(id=>value.includes(id)))return false;
   else if(key==='hasKeyword'&&email.keywords?.[String(value)]!==true)return false;
   else if(key==='notKeyword'&&email.keywords?.[String(value)]===true)return false;
@@ -82,7 +83,7 @@ function match(email:Email,filter:Record<string,unknown>|undefined,mailboxes:Mai
   else if(['subject','from','to','cc','bcc'].includes(key)){
    const text=key==='text'?JSON.stringify([email.subject,email.from,email.to,email.cc,email.preview]):JSON.stringify(email[key as keyof Email]);
    if(!String(text??'').toLocaleLowerCase().includes(String(value).toLocaleLowerCase()))return false;
-  }else if(!['inMailbox','inMailboxOtherThan','hasKeyword','notKeyword','after','before','minSize','maxSize','hasAttachment','text','subject','from','to','cc','bcc'].includes(key))return false;
+  }else if(!['inMailbox','inMailboxes','inMailboxOtherThan','hasKeyword','notKeyword','after','before','minSize','maxSize','hasAttachment','text','subject','from','to','cc','bcc'].includes(key))return false;
  }
  return true;
 }

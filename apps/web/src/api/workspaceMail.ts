@@ -6,10 +6,22 @@ import {CAP_CORE,CAP_MAIL,type Email,type JmapRequest,type JmapResponse,type Mai
 import {HEADER_PROPERTIES,responseFor} from './jmap.ts';
 import {messageSort} from '../state/messageSort.ts';
 import type {MessageListOrder} from '../components/messageOrder.ts';
+import type {Me} from './client.ts';
+import type {JmapSession} from './jmap-types.ts';
 
 export interface WorkspaceMailbox extends MailboxTarget {
   label: string;
   current: boolean;
+}
+/** Speculative identity probes stay in memory: the inactive account's durable
+ * offline policy has not been loaded, so these must not enter its vault. */
+export async function readLinkedMailboxIdentity(linkId:string,signal:AbortSignal):Promise<{user:Me;discovery:JmapSession}>{
+ const owner=preferenceAccount();if(!owner?.storageAuthority)throw new Error('Mailbox authority unavailable');
+ const read=async<T>(path:string):Promise<T>=>{
+  const result=await json<T>(await apiFetch(withBase(path),{mailboxContext:linkId,signal,cache:'no-store',credentials:'same-origin',redirect:'error',pace:'background'}));
+  if(signal.aborted||!preferenceAccountIsCurrent(owner))throw new DOMException('Mailbox changed','AbortError');return result;
+ };
+ const [user,discovery]=await Promise.all([read<Me>('/api/me'),read<JmapSession>('/jmap/session')]);return {user,discovery};
 }
 export async function workspaceMailboxes(activeLink:string|null):Promise<WorkspaceMailbox[]> {
   const owner=preferenceAccount();
@@ -32,6 +44,10 @@ async function json<T>(response:Response):Promise<T>{
   if(!response.ok)throw new Error(`Mailbox request failed (${response.status})`);
   return await response.json() as T;
 }
+export async function readWorkspaceJmap(target:WorkspaceMailbox,body:JmapRequest,signal:AbortSignal):Promise<JmapResponse>{
+ if(!body.methodCalls.every(([method])=>/\/(get|query|changes|queryChanges)$/.test(method)))throw new Error('Preload requires read-only methods');
+ return json(await apiFetch(withBase('/jmap/api'),{mailboxTarget:target,method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal,pace:'background',redirect:'error'}));
+}
 async function jmap(target:WorkspaceMailbox,methodCalls:JmapRequest['methodCalls'],signal:AbortSignal):Promise<JmapResponse>{
   return json(await request(target,'/jmap/api',signal,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({using:[CAP_CORE,CAP_MAIL],methodCalls})}));
 }
@@ -49,11 +65,16 @@ export async function workspaceMessages(target:WorkspaceMailbox,boxes:Mailbox[],
   if(allowedFolderIds?.length===0)return {rows:[],next:null,total:0,unread:0};
   const limit=30;
   const baseFilter={...(folder?{inMailbox:folder.id}:{}),...(search?{text:search}:{}),...(unreadOnly?{notKeyword:'$seen'}:{})};
-  const filter=allowedFolderIds?{operator:'AND',conditions:[baseFilter,{operator:'OR',conditions:allowedFolderIds.map(inMailbox=>({inMailbox}))}]}:baseFilter;
+  if(folder&&allowedFolderIds&&!allowedFolderIds.includes(folder.id))return {rows:[],next:null,total:0,unread:0};
+  // Positive membership preserves Gmail's multiple-label semantics: a message
+  // in an included folder remains visible even when it also has another label.
+  const included=role==='all'&&allowedFolderIds?boxes.filter(box=>box.mailwomanSearchQuery===undefined&&allowedFolderIds.includes(box.id)).map(box=>box.id):undefined;
+  const restricted=included&&boxes.some(box=>box.mailwomanSearchQuery===undefined&&!included.includes(box.id));
+  const filter={...baseFilter,...(restricted?{inMailboxes:included}:{})};
   const response=await jmap(target,[
     ['Email/query',{accountId,filter,position,limit,calculateTotal:true,sort:messageSort(order,'none')},'query'],
     ['Email/get',{accountId,'#ids':{resultOf:'query',name:'Email/query',path:'/ids'},properties:[...HEADER_PROPERTIES,'sentAt']},'rows'],
-    ['Email/query',{accountId,filter:{operator:'AND',conditions:[filter,{notKeyword:'$seen'}]},limit:1,calculateTotal:true},'unread'],
+    ['Email/query',{accountId,filter:{...filter,notKeyword:'$seen'},limit:1,calculateTotal:true},'unread'],
   ],signal);
   const query=responseFor<{ids:string[];position:number;total?:number}>(response,'query');
   const count=response.methodResponses.find(part=>part[2]==='unread'&&part[0]==='Email/query')?.[1] as {total?:number}|undefined;
