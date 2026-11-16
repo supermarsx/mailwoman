@@ -98,7 +98,7 @@
         if (value.type === 'displayed') { displayed(revision); return; }
         if (value.type !== 'address-context' || typeof value.address !== 'string' || value.address.length > 254 || !Number.isFinite(value.x) || !Number.isFinite(value.y) || value.x < 0 || value.y < 0 || value.x > current.clientWidth || value.y > current.clientHeight) return;
         const bounds = current.getBoundingClientRect();
-        parent.postMessage({ type: 'mw-reader-address-context', token, revision, address: value.address, x: bounds.left + value.x, y: bounds.top + value.y }, origin);
+        parent.postMessage({ type: 'mw-reader-address-context', token, revision, address: value.address, ...(value.compose === true ? {compose:true} : {}), x: bounds.left + value.x, y: bounds.top + value.y }, origin);
       };
       channel.port1.start();
       current.contentWindow.postMessage({ type: 'mw-reader-address-init', nonce, revision, prefixes, ...(fromIncoming && lastScroll ? { scroll: lastScroll } : {}) }, '*', [channel.port2]);

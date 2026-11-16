@@ -332,6 +332,23 @@
   addEventListener('message', initialize);
   addEventListener('scroll', reportScroll, { passive: true });
   addEventListener('load', () => { settled = true; restore(); restoreScroll = null; document.querySelectorAll('img[data-mw-image-unsized]').forEach(image => { if (image.getBoundingClientRect().width || image.getBoundingClientRect().height) image.removeAttribute('data-mw-image-unsized'); }); }, { once: true });
+  function composeAddress(event) {
+    if (!port || imagesClosed || !event.isTrusted || event.defaultPrevented) return;
+    if (event.type === 'keydown' && event.key !== 'Enter') return;
+    if (event.type === 'click' && (event.button !== 0 || document.getSelection?.()?.isCollapsed === false)) return;
+    const anchor = event.target?.closest?.('a');
+    let address = anchor ? mailbox(anchor.getAttribute('data-mw-contact-address') || '') || mailto(anchor.getAttribute('href')) : null;
+    if (!address && event.type === 'click' && !event.target?.closest?.('a,button,input,textarea,select')) {
+      const caret = document.caretPositionFromPoint?.(event.clientX, event.clientY);
+      const range = !caret && document.caretRangeFromPoint?.(event.clientX, event.clientY);
+      address = textTarget(caret?.offsetNode ?? range?.startContainer, caret?.offset ?? range?.startOffset, event.clientX, event.clientY);
+    }
+    if (!address) return;
+    event.preventDefault();
+    port.postMessage({type:'address-context',nonce,revision,address,compose:true,x:event.clientX || 0,y:event.clientY || 0});
+  }
+  document.addEventListener('click', composeAddress, true);
+  document.addEventListener('keydown', composeAddress, true);
   document.addEventListener('contextmenu', event => {
     if (!event.isTrusted || event.defaultPrevented || !port) return;
     const target = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;

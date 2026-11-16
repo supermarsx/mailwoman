@@ -123,8 +123,9 @@ it('accepts address context only for the current authenticated body and validate
  const data={type:'mw-reader-address-context',token,revision:1,address:'Case@EXAMPLE.ORG',x:20,y:30};
  send(data,'https://mail.example');send(data,'null',window);send({...data,token:'bad'});send({...data,address:'x@example.org,y@example.org'});send({...data,x:201});expect(opened).not.toHaveBeenCalled();
  send(data);expect(opened).toHaveBeenCalledWith({address:'Case@example.org',x:50,y:80,ownerDocument:document,trigger:frame});
- setKey('two');send(data);expect(opened).toHaveBeenCalledTimes(1);
- frame.setAttribute('inert','');send({...data,revision:2});expect(opened).toHaveBeenCalledTimes(1);
+ send({...data,compose:true});expect(opened).toHaveBeenLastCalledWith({address:'Case@example.org',compose:true,x:50,y:80,ownerDocument:document,trigger:frame});
+ setKey('two');send(data);expect(opened).toHaveBeenCalledTimes(2);
+ frame.setAttribute('inert','');send({...data,revision:2});expect(opened).toHaveBeenCalledTimes(2);
 });
 
 it('keeps the loading surface until the current parsed body has paint time, masks replacements, and cancels stale paints',()=>{

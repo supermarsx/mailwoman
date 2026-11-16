@@ -7,7 +7,7 @@ function handler(){
  const parent={postMessage:vi.fn()};const port={start:vi.fn(),postMessage:vi.fn(),close:vi.fn()};
  const listeners=new Map<string,(event:Record<string,unknown>)=>void>();
  let context:((event:Record<string,unknown>)=>void)|undefined;
- const documentListeners=new Map<string,()=>void>();
+ const documentListeners=new Map<string,(event?:Record<string,unknown>)=>void>();
  const doc={readyState:'loading',body:document.createElement('body'),querySelectorAll:()=>[],removeEventListener:(type:string)=>documentListeners.delete(type),addEventListener:(type:string,fn:typeof context)=>{if(type==='contextmenu')context=fn;else if(fn)documentListeners.set(type,fn as ()=>void);},caretPositionFromPoint:()=>null as {offsetNode:Text;offset:number}|null,createRange:()=>({setStart:vi.fn(),setEnd:vi.fn(),getClientRects:()=>[{left:0,right:999,top:0,bottom:999}]})};
  new Function('document','parent','addEventListener','removeEventListener',source)(doc,parent,(type:string,fn:(event:Record<string,unknown>)=>void)=>listeners.set(type,fn),(type:string)=>listeners.delete(type));
  const init={source:parent,origin:'null',data:{type:'mw-reader-address-init',nonce:'a'.repeat(48),revision:1},ports:[port]};
@@ -55,4 +55,14 @@ it('announces readable content after DOM parsing without waiting for image load,
  h.listeners.get('pagehide')!({});expect(h.documentListeners.has('DOMContentLoaded')).toBe(false);
  const loaded=handler();loaded.doc.readyState='complete';loaded.listeners.get('message')!(loaded.init);
  expect(loaded.port.postMessage).toHaveBeenCalledWith({type:'displayed',nonce:'a'.repeat(48),revision:1});
+});
+
+it('only trusted clicks and Enter activate in-app compose over the authenticated channel',()=>{
+ const h=handler();h.anchor.setAttribute('data-mw-contact-address','Case@example.org');
+ h.listeners.get('message')!(h.init);
+ const click={...h.event,type:'click',button:0};
+ h.documentListeners.get('click')!(click as never);
+ expect(h.port.postMessage).toHaveBeenCalledWith(expect.objectContaining({type:'address-context',address:'Case@example.org',compose:true}));
+ h.port.postMessage.mockClear();h.documentListeners.get('click')!({...click,isTrusted:false} as never);expect(h.port.postMessage).not.toHaveBeenCalled();
+ h.documentListeners.get('keydown')!({...h.event,type:'keydown',key:'Enter'} as never);expect(h.port.postMessage).toHaveBeenCalledWith(expect.objectContaining({compose:true}));
 });

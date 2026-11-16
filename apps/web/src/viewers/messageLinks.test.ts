@@ -40,3 +40,19 @@ it('keeps only canonical inert mailto contact metadata while body navigation rem
  const anchors=doc.querySelectorAll('a');expect(anchors[0]?.getAttribute('data-mw-contact-address')).toBe('Case@example.org');expect(doc.querySelector('a[href]')).toBeNull();
  expect(anchors[1]?.hasAttribute('data-mw-contact-address')).toBe(false);expect(anchors[2]?.hasAttribute('data-mw-contact-address')).toBe(false);
 });
+
+it('makes bare email addresses and authored mailto links keyboard-accessible compose actions without enabling web links',()=>{
+ const result=reviewMessageLinks('<p>Write to Alice+team@example.org or <a href="mailto:Bob@example.org?bcc=secret@example.org">Bob</a>. <a href="https://example.org">Website</a></p>','Review');
+ const doc=new DOMParser().parseFromString(result.html,'text/html');
+ const addresses=[...doc.querySelectorAll('[data-mw-contact-address]')];
+ expect(addresses.map(a=>a.getAttribute('data-mw-contact-address'))).toEqual(['Alice+team@example.org','Bob@example.org']);
+ for(const a of addresses){expect(a.getAttribute('tabindex')).toBe('0');expect(a.getAttribute('role')).toBe('link');expect(a.hasAttribute('href')).toBe(false);expect(a.hasAttribute('aria-disabled')).toBe(false);}
+ expect(doc.querySelector('a[aria-disabled="true"]')?.textContent).toBe('Website');
+ expect(doc.querySelectorAll('a a')).toHaveLength(0);
+});
+
+it('linkifies addresses before sentence punctuation without turning URL userinfo into recipients',()=>{
+ const html=reviewMessageLinks('<p>Write to person@example.org. Visit https://person@example.net/page</p>','Review links').html;
+ const doc=new DOMParser().parseFromString(html,'text/html');expect([...doc.querySelectorAll('[data-mw-contact-address]')].map(a=>a.getAttribute('data-mw-contact-address'))).toEqual(['person@example.org']);
+ expect(doc.body.textContent).toBe('Write to person@example.org. Visit https://person@example.net/page');
+});

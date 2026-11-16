@@ -783,6 +783,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   createEffect(on(() => [app.accountId(), emailId(), props.active], () => setAddressTarget(undefined)));
   function addressContext(value: ReaderAddressContext): void {
     if (props.active === false || emailId() === null) return;
+    if(value.compose){const draft=contactComposeInitial(value.address);if(draft)props.onCompose?.(draft);return;}
     setAddressTarget(value);
     addressMenu.openAt({ x: value.x, y: value.y, trigger: value.trigger });
   }

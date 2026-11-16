@@ -1,5 +1,5 @@
 import {listMailDraft} from '../api/mailingList.ts';
-import {contactAddressFromMailto} from '../modules/contacts/contactAddress.ts';
+import {normalizeContactAddress,contactAddressFromMailto} from '../modules/contacts/contactAddress.ts';
 export interface MessageLink {href:string;label:string;host:string;kind:'web'|'mail';warnings:('http'|'address'|'international'|'mismatch'|'direction')[]}
 export interface ReviewedMessage {html:string;links:MessageLink[];truncated:boolean}
 const control=(value:string):boolean=>[...value].some(char=>char.charCodeAt(0)<32||char.charCodeAt(0)===127);
@@ -23,11 +23,23 @@ export function inspectMessageLink(raw:string,label:string):MessageLink|null{
  try{const shown=new URL(label.trim());if(['http:','https:'].includes(shown.protocol)&&shown.hostname!==url.hostname)warnings.push('mismatch');}catch{/* Ordinary labels are not claimed hostnames. */}
  return {href:url.href,label:label.slice(0,256),host:url.host,kind:'web',warnings};
 }
+/** Linkify only text nodes in the display copy; never attributes or authored links. */
+function linkifyAddresses(doc:Document):void{
+ const walker=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);const nodes:Text[]=[];let next:Node|null;
+ let visited=0;
+ while(visited++<10000&&(next=walker.nextNode())){const node=next as Text;if(node.textContent?.includes('@')&&node.textContent.length<=65536&&!node.parentElement?.closest('a,button,script,style,textarea,svg,math,code'))nodes.push(node);}
+ let remaining=500;
+ for(const node of nodes){if(!remaining)break;const value=node.data;const matches=[...value.matchAll(/(?<![A-Z0-9.!#$%&'*+/=?^_`{|}~-])[A-Z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Z0-9-]{1,63}(?:\.[A-Z0-9-]{1,63}){1,8}(?![A-Z0-9-]|\.[A-Z0-9-])/gi)].filter(match=>!!normalizeContactAddress(match[0])&&!/(?:https?:|www\.)/i.test(value.slice(0,match.index).match(/\S*$/)?.[0]??''));if(!matches.length)continue;
+ const fragment=doc.createDocumentFragment();let offset=0;
+ for(const match of matches){if(!remaining)break;const address=normalizeContactAddress(match[0])!;fragment.append(doc.createTextNode(value.slice(offset,match.index)));const a=doc.createElement('a');a.textContent=match[0];a.setAttribute('href',`mailto:${address}`);fragment.append(a);offset=match.index!+match[0].length;remaining--;}
+ fragment.append(doc.createTextNode(value.slice(offset)));node.replaceWith(fragment);
+ }
+}
 /** Only display copies enter here. Source MIME, quotes and exports stay intact.
  * Body navigation is inert until explicit consent for this message. Only
  * validated destinations can then open a new context without an opener/referrer. */
 export function reviewMessageLinks(html:string,help:string,enabled=false):ReviewedMessage{
- const doc=new DOMParser().parseFromString(html,'text/html');const links:MessageLink[]=[];const seen=new Set<string>();let truncated=false;
+ const doc=new DOMParser().parseFromString(html,'text/html');linkifyAddresses(doc);const links:MessageLink[]=[];const seen=new Set<string>();let truncated=false;
  for(const anchor of doc.querySelectorAll('a,area')){
   anchor.removeAttribute('data-mw-contact-address');
   const raw=anchor.getAttribute('href');
@@ -39,6 +51,7 @@ export function reviewMessageLinks(html:string,help:string,enabled=false):Review
    if(enabled&&link){anchor.setAttribute('href',link.href);anchor.removeAttribute('aria-disabled');anchor.removeAttribute('title');anchor.setAttribute('target','_blank');anchor.setAttribute('rel','noopener noreferrer');anchor.setAttribute('referrerpolicy','no-referrer');}
    else{anchor.removeAttribute('href');anchor.setAttribute('aria-disabled','true');anchor.setAttribute('title',help);}
   }
+  if(contact){anchor.removeAttribute('aria-disabled');anchor.setAttribute('role','link');anchor.setAttribute('tabindex','0');anchor.setAttribute('title',contact);anchor.setAttribute('style',`${anchor.getAttribute('style')??''};cursor:pointer;text-decoration:underline`);}
   if(!enabled||!anchor.hasAttribute('href')||raw?.startsWith('#'))anchor.removeAttribute('target');anchor.removeAttribute('ping');anchor.removeAttribute('download');
  }
  return {html:'<!doctype html>'+doc.documentElement.outerHTML,links,truncated};
