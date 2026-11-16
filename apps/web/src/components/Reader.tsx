@@ -1007,7 +1007,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
         : [];
       const parts = k.securityMode === 'full-sanitized' ? [...new Set(refs.cids.map(id => cidParts[id]).filter((id): id is string => Boolean(id)))] : [];
       let signed = EMPTY_SIGNED;
-      if (urls.length || parts.length) { try { signed = await signContent(k.email.id, { urls, parts }); } catch { failed = true; } }
+      if (urls.length || parts.length) { try { signed = await signContent(k.email.id, { urls, parts }, k.account); } catch { failed = true; } }
+      if (!current()) return cancelled();
       // One batched, authenticated request fetches the images into the server cache; the frame's own requests then hit it (best effort, silent).
       if (signed.images.length > 0) { prewarmAbort?.abort(); prewarmAbort = new AbortController(); void prewarmSignedImages(signed.images, { signal: prewarmAbort.signal }); }
       return { blocked, restored, original:!!original,originalReview:originalHelpers?.reviewOriginalLinks,originalReport:original&&originalHelpers?originalHelpers.originalHtmlReport(original):undefined, scope:k.scope, emailId: k.email.id, account: k.account, html: original&&originalHelpers?originalHelpers.renderOriginalHtml(original,signed,effective,cidParts,remoteServerBase(),k.securityMode==='full-sanitized'):rewriteReaderContent(html, signed, effective, cidParts, undefined, window.innerWidth, window.devicePixelRatio), sanitized, refs,cidParts, policy: effective, failed, images: signed.images.length, imageSources:signed.images };

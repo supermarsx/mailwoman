@@ -59,7 +59,7 @@
   function retryImage(image) {
     if (imagesClosed || image?.tagName !== 'IMG') return;
     const source = image.getAttribute('src') || '';
-    if (!prefixes.some(prefix => prefix.endsWith('/i/') && source.startsWith(prefix))) return;
+    if (!prefixes.some(prefix => /\/(?:i|p)\/$/.test(prefix) && source.startsWith(prefix))) return;
     const attempt = retries.get(image) || 0;
     if (attempt >= retryDelays.length) return;
     retries.set(image, attempt + 1);

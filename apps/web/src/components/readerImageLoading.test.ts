@@ -9,9 +9,9 @@ function frame(html:string){
  Object.defineProperty(doc,'readyState',{value:'complete'});
  const parent={postMessage:vi.fn()},port={start:vi.fn(),postMessage:vi.fn(),close:vi.fn()};
  const listeners=new Map<string,(event:unknown)=>void>();
- const start=()=>{
+ const start=(prefixes:string[]=[])=>{
   new Function('document','parent','addEventListener','removeEventListener',source)(doc,parent,(type:string,listener:(event:unknown)=>void)=>listeners.set(type,listener),(type:string)=>listeners.delete(type));
-  listeners.get('message')!({source:parent,origin:'null',data:{type:'mw-reader-address-init',nonce:'a'.repeat(48),revision:1},ports:[port]});
+  listeners.get('message')!({source:parent,origin:'null',data:{type:'mw-reader-address-init',nonce:'a'.repeat(48),revision:1,prefixes},ports:[port]});
  };
  return {doc,start,close:()=>listeners.get('pagehide')!({}),port};
 }
@@ -78,4 +78,20 @@ it('disconnects image events and queued retry mutations when a message document 
  const next=frame('<img src="/new">');const current=next.doc.images[0]!;resource(current,false,0);next.start();
  resource(image,true,100);image.dispatchEvent(new Event('load'));await mutations();
  expect(image.dataset.mwImageState).toBe('loading');expect(current.dataset.mwImageState).toBe('loading');expect(old.port.close).toHaveBeenCalledOnce();next.close();
+});
+
+
+it('retries transient failures for signed inline and remote images, with a bounded budget and no unrelated requests',()=>{
+ vi.useFakeTimers();
+ try{
+  const f=frame('<img src="https://mail.test/api/rc/p/part.sig"><img src="https://mail.test/api/rc/i/image.sig"><img src="https://other.test/image">');
+  const images=Array.from(f.doc.images);images.forEach(image=>resource(image,true,0));
+  f.start(['https://mail.test/api/rc/p/','https://mail.test/api/rc/i/']);
+  const writes=images.map(image=>vi.spyOn(image,'setAttribute'));
+  for(let attempt=0;attempt<6;attempt++){images.forEach(image=>image.dispatchEvent(new Event('error')));vi.advanceTimersByTime(10000);}
+  expect(writes[0]!.mock.calls.filter(([key])=>key==='src')).toHaveLength(4);
+  expect(writes[1]!.mock.calls.filter(([key])=>key==='src')).toHaveLength(4);
+  expect(writes[2]!.mock.calls.filter(([key])=>key==='src')).toHaveLength(0);
+  f.close();
+ }finally{vi.useRealTimers();}
 });
