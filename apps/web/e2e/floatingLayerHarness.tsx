@@ -13,6 +13,7 @@ import '../src/theme/themes.css.ts';
 
 function Harness(){
  let dialog!:HTMLDialogElement,popover!:HTMLDivElement;
+ const [longChoice,setLongChoice]=createSignal('0');
  const [value,setValue]=createSignal('One'),[region,setRegion]=createSignal(''),[selected,setSelected]=createSignal<string[]>([]);
  const [action,setAction]=createSignal('');
  setPrimaryMailboxAuthority('fixture');
@@ -40,6 +41,7 @@ function Harness(){
    <div style={{height:'55px',overflow:'hidden',transform:'translateZ(0)'}}><MultiSelect label="Accounts" selected={selected()} onChange={setSelected} options={[{value:'a',label:'Account A'},{value:'b',label:'Account B'},{value:'c',label:'Account C'}]}/></div>
   </dialog>
   <div ref={popover} popover="manual" style={{position:'fixed',inset:'100px auto auto 100px',margin:0,padding:'24px',background:'#222',color:'white'}}>{fields()}<button onClick={()=>popover.hidePopover()}>Close popover</button></div>
+  <label>Long choices<select aria-label="Long choices" value={longChoice()} onChange={event=>setLongChoice(event.currentTarget.value)}>{Array.from({length:80},(_,index)=><option value={String(index)}>Choice {index}</option>)}</select></label>
   {menu.menu()}
  </>;
 }

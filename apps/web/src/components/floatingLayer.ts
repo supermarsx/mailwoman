@@ -12,10 +12,15 @@ export function useFloatingLayer(target:HTMLElement|(()=>HTMLElement),anchor?:()
     const element=typeof target==='function'?target():target;
     const doc=element.ownerDocument,view=doc.defaultView;
     if(!view)return;
+    element.style.boxSizing='border-box';
     const supported=typeof element.showPopover==='function';
     if(supported){
       element.setAttribute('popover','manual');
+      // Preserve caller-owned coordinates: Solid skips reapplying unchanged
+      // style values, so clearing top/left here strands edge-clamped menus offscreen.
+      const insets={top:element.style.top,right:element.style.right,bottom:element.style.bottom,left:element.style.left};
       element.style.margin='0';element.style.inset='auto';
+      for(const [edge,value] of Object.entries(insets))if(value)element.style.setProperty(edge,value);
       try{element.showPopover();}catch{element.removeAttribute('popover');}
     }
     const place=()=>{

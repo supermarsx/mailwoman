@@ -41,6 +41,14 @@ test.describe('floating controls above native dialogs and popovers',()=>{
   await page.getByRole('combobox',{name:'Accounts'}).click();const account=page.getByRole('option',{name:'Account C',exact:true});await above(account);await account.click();await expect(account).toHaveAttribute('aria-selected','true');
   await page.keyboard.press('Escape');await expect(page.getByRole('listbox')).toHaveCount(0);await expect(page.locator('dialog')).toBeVisible();
  });
+ test('long dropdowns stay visible when their position is clamped to the viewport edge',async({page})=>{
+  await page.goto(origin);await page.locator('#root').evaluate(node=>{(node as HTMLElement).style.minHeight='100vh';});
+  await page.getByRole('combobox',{name:'Long choices'}).click();
+  const menu=page.getByRole('menu');
+  await expect.poll(()=>menu.evaluate(node=>{const rect=node.getBoundingClientRect();return rect.top>=7&&rect.bottom<=innerHeight-7;})).toBe(true);
+  const option=page.getByRole('menuitemradio',{name:'Choice 0',exact:true});await above(option);await option.click();
+  await expect(menu).toHaveCount(0);
+ });
  test('optional mailbox icons show live status with readable hover help inside the picker',async({page})=>{
   await page.goto(origin);await expect(page.locator('[data-mailbox-connection]')).toHaveCount(0);
   await page.getByRole('button',{name:'Show connection icons',exact:true}).click();
