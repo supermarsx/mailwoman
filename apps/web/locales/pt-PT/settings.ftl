@@ -345,7 +345,7 @@ settings-permissions-push-unsupported = O Web Push em segundo plano não está d
 settings-permissions-push-registered = Este navegador está registado para notificações em segundo plano desta conta.
 settings-permissions-push-unregistered = Este navegador não tem nenhuma subscrição push.
 settings-permissions-push-register = Registar notificações em segundo plano
-settings-permissions-push-remove = Remover subscrição do navegador
+settings-permissions-push-remove = Remover desta conta
 settings-permissions-push-policy = O seu administrador não permite notificações push em segundo plano.
 settings-permissions-storage-title = Armazenamento do navegador
 settings-permissions-storage-help = O armazenamento persistente protege os dados locais deste site contra a remoção automática, quando o navegador o concede. Isto aplica-se apenas a este dispositivo e não altera a retenção no servidor. Pode limpar os dados do site nas definições do navegador; as alterações offline não enviadas podem perder-se.
@@ -536,7 +536,7 @@ settings-draft-periodic = A intervalos regulares
 settings-draft-manual = Só quando eu escolher Guardar
 settings-draft-debounce = Pausa na escrita (milissegundos)
 settings-draft-interval = Intervalo de gravação (segundos)
-settings-permissions-push-other-registration = Este navegador tem uma subscrição que não está registada nesta conta. Remova-a antes de voltar a registar.
+settings-permissions-push-other-registration = Esta subscrição do navegador pertence a outro grupo de contas. Reponha a permissão de notificações nas definições do site no navegador e registe novamente.
 
 settings-show-from = Mostrar De ao escrever
 settings-show-from-help = Começar com o campo De visível. Também o pode mostrar para uma única mensagem a partir do friso. Só são aceites endereços de envio autorizados.
@@ -900,3 +900,5 @@ settings-row-actions-custom-title = Disposição das ações rápidas
 settings-row-actions-custom-help = Escolha as ações rápidas, organize a ordem ou coloque-as em Mais. As ações ocultas continuam disponíveis no menu de contexto da mensagem.
 settings-row-action-up = Mover { $name } para cima
 settings-row-action-down = Mover { $name } para baixo
+
+settings-permissions-push-account-help = Escolha a caixa de correio a configurar. A permissão do navegador é partilhada, mas o registo e a remoção aplicam-se apenas à conta selecionada.

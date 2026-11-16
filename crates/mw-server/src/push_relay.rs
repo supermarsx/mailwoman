@@ -406,53 +406,38 @@ pub(crate) async fn push_permission(
         return StatusCode::BAD_REQUEST.into_response();
     }
     let status = async {
-        let registered = state
+        let account_registered = state
             .store
             .list_personal_push_subscriptions(&owner)
             .await?
             .iter()
             .any(|row| endpoint_matches(row, &query.endpoint_hash));
-        if !registered {
-            // t87 D3: the service worker asks as the signed-in account; a wake
-            // may be for one of its linked mailboxes, judged by that mailbox's
-            // own policy, as the dispatcher judged it.
-            for (account, subject) in family_subjects(&state, &session).await? {
-                if subject == owner {
-                    continue;
-                }
-                let theirs = state
-                    .store
-                    .list_personal_push_subscriptions(&subject)
-                    .await?
-                    .iter()
-                    .any(|row| endpoint_matches(row, &query.endpoint_hash));
-                if theirs {
-                    return Ok((true, wake_allowed(&state.store, &account).await));
+        let mut registered = account_registered;
+        let mut allowed = false;
+        // The service worker shares one endpoint across the verified family.
+        // A paused primary must not suppress an allowed linked mailbox's wake.
+        for (account, subject) in family_subjects(&state, &session).await? {
+            let matches = if subject == owner {
+                account_registered
+            } else {
+                state.store.list_personal_push_subscriptions(&subject).await?
+                    .iter().any(|row| endpoint_matches(row, &query.endpoint_hash))
+            };
+            if matches {
+                registered = true;
+                if wake_allowed(&state.store, &account).await {
+                    allowed = true;
+                    break;
                 }
             }
-            return Ok::<(bool, bool), mw_store::StoreError>((false, false));
         }
-        let subject = crate::settings_routes::UserSubject::resolved(&state.store, &session).await?;
-        let config =
-            crate::notification_policy::for_subject(&state.store, &subject.as_subject(), &owner)
-                .await?;
-        let allowed = config.enabled
-            && config.rules.is_empty()
-            && !crate::notification_policy::quiet_at(&config.quiet_hours, chrono::Utc::now())
-            && !quiet_now(&state.store).await
-            && crate::notification_policy::allowed(
-                &state.store,
-                &subject.as_subject(),
-                "notifications.pushAllowed",
-            )
-            .await?;
-        Ok((true, allowed))
+        Ok::<(bool, bool, bool), mw_store::StoreError>((registered, allowed, account_registered))
     }
     .await;
     match status {
-        Ok((registered, allowed)) => (
+        Ok((registered, allowed, account_registered)) => (
             [(header::CACHE_CONTROL, "private, no-store")],
-            Json(json!({"registered":registered,"allowed":allowed})),
+            Json(json!({"registered":registered,"allowed":allowed,"accountRegistered":account_registered})),
         )
             .into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),

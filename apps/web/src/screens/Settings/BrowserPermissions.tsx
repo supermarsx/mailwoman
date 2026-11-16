@@ -1,3 +1,4 @@
+import {NotificationAccountPicker} from './NotificationAccountPicker.tsx';
 import {permissionBody} from './notificationSettings.css.ts';
 import {PushRegistrationError} from '../../platform/pushRegistrationError.ts';
 import {toast} from '../../components/toast/toast.ts';
@@ -40,8 +41,8 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
       const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(subscription.endpoint));
       const hash=Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
       const response=await apiFetch(withBase(`/api/push/permission?endpointHash=${hash}`),{headers:storageAuthorityHeaders(account.storageAuthority)});
-      if(!response.ok)return;const status=await response.json() as {registered?:boolean};
-      if(preferenceAccountIsCurrent(account))setSubscribed(status.registered===true);
+      if(!response.ok)return;const status=await response.json() as {registered?:boolean;accountRegistered?:boolean};
+      if(preferenceAccountIsCurrent(account))setSubscribed((status.accountRegistered??status.registered)===true);
     }catch{if(preferenceAccountIsCurrent(account))setSubscribed(false);}
   }
   async function run(action: () => Promise<void>): Promise<void> {
@@ -70,21 +71,21 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
     if (subscription) {
       const response = await apiFetch(withBase('/api/push/unsubscribe'), { method: 'POST', headers: { 'content-type': 'application/json', ...storageAuthorityHeaders(account.storageAuthority) }, body: JSON.stringify({ endpoint: subscription.endpoint }) });
       if (!response.ok) throw new Error('Removal refused');
-      await subscription.unsubscribe();
+      // Keep the browser endpoint alive for other linked mailbox registrations.
     }
-    if (preferenceAccountIsCurrent(account)) {setSubscribed(false);setBrowserSubscription(false);setBindingConflict(false);}
+    if (preferenceAccountIsCurrent(account)) {setSubscribed(false);setBrowserSubscription(subscription!==null);setBindingConflict(false);}
   }
   // Two groups (background notifications, browser storage) so the Settings
   // card rules each off like its other subgroups.
   return <>
     <SettingsCard id="notif-card-background" title={t('settings-permissions-background-title')} description={t('settings-permissions-background-help')}>
-    <fieldset class={`${css.bareFieldset} ${permissionBody}`} disabled={props.disabled}>
+    <NotificationAccountPicker disabled={props.disabled===true}/><fieldset class={`${css.bareFieldset} ${permissionBody}`} disabled={props.disabled}>
     <Show when={pushSupported} fallback={<p>{t('settings-permissions-push-unsupported')}</p>}>
       <p role="status">{t(subscribed() ? 'settings-permissions-push-registered' : browserSubscription()?'settings-permissions-push-unlinked':'settings-permissions-push-unregistered')}</p>
       <Show when={bindingConflict()}><p>{t('settings-permissions-push-other-registration')}</p></Show>
       <div class={css.actions}>
         <button type="button" class={css.button} disabled={busy() || subscribed() || !props.enabled || !props.pushAllowed || bindingConflict()} onClick={() => void run(registerPush)}>{t('settings-permissions-push-register')}</button>
-        <button type="button" class={css.ghost} disabled={busy() || !browserSubscription()} onClick={() => void run(unregisterPush)}>{t('settings-permissions-push-remove')}</button>
+        <button type="button" class={css.ghost} disabled={busy() || !subscribed()} onClick={() => void run(unregisterPush)}>{t('settings-permissions-push-remove')}</button>
       </div>
       <Show when={!props.pushAllowed}><p>{t('settings-permissions-push-policy')}</p></Show>
     </Show>

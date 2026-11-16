@@ -718,7 +718,17 @@ async fn keys_oauth_grants_and_push_made_in_a_linked_mailbox_go_with_the_link() 
     };
     let seen = json_of(permission(only_child).send().await.unwrap(), 200).await;
     assert_eq!(seen["registered"], true, "{seen}");
+    assert_eq!(seen["accountRegistered"],false,"a child-only endpoint must not appear registered for the primary");
+    let child_seen=json_of(f.child(M::GET,&format!("/api/push/permission?endpointHash={}",hash(only_child))).send().await.unwrap(),200).await;
+    assert_eq!(child_seen["accountRegistered"],true,"{child_seen}");
     assert_eq!(seen["allowed"], true, "{seen}");
+    let mut paused = config.clone();
+    paused["enabled"] = json!(false);
+    json_of(f.parent(M::PUT, "/api/account/notifications").json(&paused).send().await.unwrap(), 200).await;
+    let linked_wake = json_of(permission(shared).send().await.unwrap(), 200).await;
+    assert_eq!(linked_wake["accountRegistered"], true);
+    assert_eq!(linked_wake["allowed"], true, "a paused primary must not suppress its enabled linked mailbox");
+    json_of(f.parent(M::PUT, "/api/account/notifications").json(&config).send().await.unwrap(), 200).await;
     st.upsert_personal_push_subscription(&mw_store::PushSubscriptionRow {
         id: "foreign".into(),
         account_id: "another-owner".into(),

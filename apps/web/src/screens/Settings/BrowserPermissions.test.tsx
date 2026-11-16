@@ -76,10 +76,10 @@ it('reports server refusal separately from browser permission failures',async()=
  await waitFor(()=>expect(errorToast).toHaveBeenCalledWith(t('settings-permissions-push-server-error')));
 });
 
-it('allows explicit removal when the server reports a subscription bound to another account',async()=>{
+it('does not remove another account binding when registration belongs to a different owner',async()=>{
  readyPush('granted');request.mockResolvedValue(new Response('',{status:409}));fireEvent.click(screen.getByRole('button',{name:'Register background notifications'}));
  await waitFor(()=>expect(errorToast).toHaveBeenCalledWith(t('settings-permissions-push-other-registration')));
- expect(screen.getByRole('button',{name:'Register background notifications'})).toBeDisabled();expect(screen.getByRole('button',{name:'Remove browser subscription'})).toBeEnabled();
+ expect(screen.getByRole('button',{name:'Register background notifications'})).toBeDisabled();expect(screen.getByRole('button',{name:t('settings-permissions-push-remove')})).toBeDisabled();
 });
 
 it('requests permission synchronously from the click before starting push or server work',async()=>{
@@ -87,4 +87,14 @@ it('requests permission synchronously from the click before starting push or ser
  fireEvent.click(screen.getByRole('button',{name:'Register background notifications'}));
  expect(requestPermission).toHaveBeenCalledOnce();expect(pushSubscribe).not.toHaveBeenCalled();expect(request).not.toHaveBeenCalled();
  grant('granted');await waitFor(()=>expect(pushSubscribe).toHaveBeenCalledOnce());await screen.findByText(t('settings-permissions-push-registered'));
+});
+
+it('uses account-specific registration status and preserves the shared endpoint when removing only this account',async()=>{
+ vi.stubGlobal('PushManager',class {});vi.stubGlobal('crypto',{subtle:{digest:async()=>new Uint8Array(32).buffer}});
+ const unsubscribe=vi.fn();Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:{getRegistration:async()=>({pushManager:{getSubscription:async()=>({endpoint:'https://push.example/browser',unsubscribe})}})}});
+ activateAccountPreferences('child','msa1_child_push_authority');request.mockImplementation(async(_url:string,init?:RequestInit)=>new Response(JSON.stringify(init?.method==='POST'?{}:{registered:true,accountRegistered:false,allowed:true})));
+ render(()=><BrowserPermissions enabled pushAllowed persistentStorageAllowed={false}/>);await screen.findByText(t('settings-permissions-push-unlinked'));expect(screen.getByRole('button',{name:'Register background notifications'})).toBeEnabled();
+ suspendAccountPreferences();request.mockImplementation(async(_url:string,init?:RequestInit)=>new Response(JSON.stringify(init?.method==='POST'?{}:{registered:true,accountRegistered:true,allowed:true})));activateAccountPreferences('child','msa1_child_push_authority');
+ await screen.findByText(t('settings-permissions-push-registered'));fireEvent.click(screen.getByRole('button',{name:t('settings-permissions-push-remove')}));await screen.findByText(t('settings-permissions-push-unlinked'));
+ expect(unsubscribe).not.toHaveBeenCalled();expect(request).toHaveBeenCalledWith('/api/push/unsubscribe',expect.objectContaining({method:'POST',headers:expect.objectContaining({'x-mailwoman-storage-authority':'msa1_child_push_authority'})}));
 });

@@ -349,7 +349,7 @@ settings-permissions-push-unsupported = Background Web Push is unavailable in th
 settings-permissions-push-registered = This browser is registered for background notifications for this account.
 settings-permissions-push-unregistered = This browser has no push subscription.
 settings-permissions-push-register = Register background notifications
-settings-permissions-push-remove = Remove browser subscription
+settings-permissions-push-remove = Remove for this account
 settings-permissions-push-policy = Your administrator does not allow background push notifications.
 settings-permissions-storage-title = Browser storage
 settings-permissions-storage-help = Persistent storage protects this site's local data from automatic eviction when the browser grants it. This is device-local and does not change server retention. You can clear site data in browser settings; unsent offline changes may be lost.
@@ -540,7 +540,7 @@ settings-draft-periodic = At regular intervals
 settings-draft-manual = Only when I choose Save
 settings-draft-debounce = Typing pause (milliseconds)
 settings-draft-interval = Save interval (seconds)
-settings-permissions-push-other-registration = This browser has a subscription that is not registered to this account. Remove it before registering again.
+settings-permissions-push-other-registration = This browser subscription belongs to another account group. Reset notification permission in your browser’s site settings, then register again.
 
 settings-show-from = Show From when composing
 settings-show-from-help = Start with the From field visible. You can also show it for one message from the ribbon. Only authorized sending addresses are accepted.
@@ -904,3 +904,5 @@ settings-row-actions-custom-title = Quick action layout
 settings-row-actions-custom-help = Choose the quick actions, arrange their order, or place them in More. Hidden actions remain available in the message context menu.
 settings-row-action-up = Move { $name } up
 settings-row-action-down = Move { $name } down
+
+settings-permissions-push-account-help = Choose the mailbox to configure. Browser permission is shared, but registration and removal apply only to the selected account.
