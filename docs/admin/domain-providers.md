@@ -2,9 +2,13 @@
 
 The EWS mail backend runs in engine mode through the bundled, digest-pinned
 `bridge-ews` WASM component. Proxy mode refuses an EWS selection. This first
-provider path supports HTTPS with HTTP Basic authentication. NTLM and the
-Graph/Gmail OAuth enrollment flows are separate work; choosing EWS does not
-enable them.
+provider path supports HTTPS with explicit Basic or NTLMv2 authentication.
+NTLMv2 keeps the challenge exchange on one verified HTTP/1 connection, including
+through the selected outbound proxy. It supports the server-requested transcript
+MIC and TLS server-end-point channel binding. Authentication failures do not
+fall back to Basic. Native Kerberos/SPNEGO is not implemented; use an approved
+Kerberos gateway when required. Graph/Gmail OAuth enrollment is available
+separately in Settings → Linked mailboxes.
 
 The domain's version 2 backend document uses an explicit provider endpoint:
 
@@ -64,3 +68,17 @@ The unauthenticated domain diagnostic does not claim EWS authentication or
 mailbox access. Full verification requires a provider sign-in. Controlled TLS
 fixtures exercise the bundled guest and routing boundary; they are not evidence
 of compatibility with every deployed Exchange version or authentication policy.
+
+
+For NTLMv2, select it in the EWS backend editor and supply the Windows domain:
+
+```json
+{"endpointUrl":"https://exchange.example/EWS/Exchange.asmx","authentication":"ntlm","ntlmDomain":"CORP","workstation":"MAILWOMAN"}
+```
+
+`workstation` is optional. Domain/workstation identifiers are bounded ASCII
+letters, digits, dots, underscores and hyphens. They are distinct from the
+backend username-format settings. Origin TLS validation and all egress/proxy
+restrictions apply to both authentication methods. Controlled TLS fixtures prove
+connection affinity directly and through CONNECT, plus negative controls for
+new-connection Type 3 requests. They do not qualify every Exchange deployment.
