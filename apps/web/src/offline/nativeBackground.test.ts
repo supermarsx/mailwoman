@@ -4,6 +4,7 @@ import {memoryOutboxStore} from './outbox.ts';
 import type {QueuedItem} from './outboxCore.ts';
 import {nativeBackgroundStartup,replayNativeQueue} from './nativeBackground.ts';
 import {observeOfflineChanges} from './events.ts';
+import {ApiError} from '../api/client.ts';
 const base='https://mail.example.test/mail';
 const authority='verified_native_authority_123';
 const session={accounts:{a:{}},primaryAccounts:{[CAP_MAIL]:'a'}} as unknown as JmapSession;
@@ -38,6 +39,12 @@ describe('native background replay authority',()=>{
   const store=memoryOutboxStore([row()]),run=vi.fn(async()=>undefined);
   await expect(replayNativeQueue({base,store,verify:async()=>{throw new Error('offline');},run})).rejects.toThrow('offline');
   expect(run).not.toHaveBeenCalled();expect(await store.all()).toHaveLength(1);
+ });
+ it.each([401,403,409])('keeps a refused linked mailbox (%s) queued while replaying a healthy primary mailbox',async status=>{
+  const store=memoryOutboxStore([row({id:'expired',storageAuthority:'verified_linked_authority_123',payload:{accountId:'expired-account',emailId:'email',keyword:'$flagged',value:true}}),row({id:'healthy',linkId:null})]),run=vi.fn(async(_row,_identity,selected)=>{expect((await selected.all()).map((item:QueuedItem)=>item.id)).toEqual(['healthy']);await selected.delete('healthy');});
+  const verify=vi.fn(async(link:string|null)=>{if(link!==null)throw new ApiError(status,'Linked account requires attention');return identity;});
+  expect(await replayNativeQueue({base,store,verify,run})).toBe(false);
+  expect(verify.mock.calls.map(call=>call[0])).toEqual(['linked-a',null]);expect(run).toHaveBeenCalledOnce();expect((await store.all()).map(item=>item.id)).toEqual(['expired']);
  });
  it('leaves quarantined native rows on disk without keeping an unserviceable wake job alive',async()=>{
   const missingLink=row({id:'missing-link'});delete missingLink.linkId;

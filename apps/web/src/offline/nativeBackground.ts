@@ -46,7 +46,14 @@ export async function replayNativeQueue(deps:{
   if(eligible(row,deps.base))contexts.set(JSON.stringify([row.linkId,row.storageAuthority,outboundAccount(row)]),row);
  }
  for(const row of contexts.values()){
-  const identity=await deps.verify(row.linkId??null),account=outboundAccount(row)!;
+  let identity:{me:Me;session:JmapSession};
+  try{identity=await deps.verify(row.linkId??null);}catch(error){
+   // A refused/expired link must not starve the other verified mailboxes. Its
+   // own rows remain queued for reauthentication; outages still stop the run.
+   if(error instanceof ApiError&&[401,403,409].includes(error.status))continue;
+   throw error;
+  }
+  const account=outboundAccount(row)!;
   if(identity.me.accountId!==account||identity.me.storageAuthority!==row.storageAuthority||identity.me.passwordChangeRequired||identity.session.primaryAccounts[CAP_MAIL]!==account||!Object.hasOwn(identity.session.accounts,account))continue;
   const owned=accountOutbox(deps.store,account,row.storageAuthority!);
   const selected={...owned,all:async()=>(await owned.all()).filter(item=>(item as QueuedItem).cacheBase===`native:${deps.base}`&&(item as QueuedItem).linkId===row.linkId)};
