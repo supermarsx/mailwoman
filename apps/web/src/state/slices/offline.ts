@@ -72,6 +72,8 @@ export interface OfflineSliceDeps {
 
 export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {}): OfflineSlice {
   const { client, showToast } = ctx;
+  let disposed=false;
+  const activeReplays=new Set<AbortController>();
 
   const [offlineQueuePending, setPending] = createSignal(0);
   const [offlineFailed, setFailed] = createSignal<QueuedItem[]>([]);
@@ -93,13 +95,14 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
   }
 
   /** Re-read the queue into the two signals the UI shows. */
-  async function refresh(): Promise<void> {
+  async function refresh(): Promise<QueuedItem[]> {
     const account = preferenceAccount();
-    if (!account?.storageAuthority) return;
+    if (disposed||!account?.storageAuthority) return [];
     const items = (await scoped(account).all()) as QueuedItem[];
-    if (!preferenceAccountIsCurrent(account)) return;
+    if (disposed||!preferenceAccountIsCurrent(account)) return [];
     setPending(items.filter((i) => i.state === 'queued').length);
     setFailed(items.filter((i) => i.state === 'failed'));
+    return items;
   }
 
   async function enqueueOffline(type: OutboundType, payload: unknown): Promise<string> {
@@ -118,15 +121,16 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
 
   async function replayOffline(): Promise<DrainResult> {
     const account = preferenceAccount();
-    if (!account?.storageAuthority) return { sent: 0, failed: 0 };
+    if (disposed||!account?.storageAuthority) return { sent: 0, failed: 0 };
     const live=await client.me();
-    if((client.offlineReads===true&&isOffline())||!preferenceAccountIsCurrent(account)||live.accountId!==account.id||live.storageAuthority!==account.storageAuthority)return {sent:0,failed:0};
+    if(disposed||live.passwordChangeRequired||(client.offlineReads===true&&isOffline())||!preferenceAccountIsCurrent(account)||live.accountId!==account.id||live.storageAuthority!==account.storageAuthority)return {sent:0,failed:0};
     const controller=new AbortController();
+    activeReplays.add(controller);
     const stop=observePreferenceAccount(()=>{if(!preferenceAccountIsCurrent(account))controller.abort();});
     let result:DrainResult;
-    try {result=await drainOutbox(scoped(account), client, undefined, () => preferenceAccountIsCurrent(account),controller.signal);}
-    finally {stop();}
-    if (!preferenceAccountIsCurrent(account)) return result;
+    try {result=await drainOutbox(scoped(account), client, undefined, () => !disposed&&preferenceAccountIsCurrent(account),controller.signal);}
+    finally {stop();activeReplays.delete(controller);}
+    if (disposed||!preferenceAccountIsCurrent(account)) return result;
     await refresh();publishOfflineChange('queue');
     if (result.sent > 0) showToast('success', t('mail-queue-sent', { count: result.sent }));
     if (result.failed > 0) showToast('error', t('mail-queue-failed', { count: result.failed }));
@@ -154,6 +158,11 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
 
   // Replay only on an offline→online transition (client.onNetwork fires `up` on
   // every successful request, so gate on the recovery edge).
+  function wakePersistedContexts():void {
+    // The worker verifies each stored mailbox separately. An empty active queue
+    // does not mean an inactive linked mailbox has no work waiting in IndexedDB.
+    if(idbAvailable()&&preferenceAccount()?.storageAuthority)void requestBackgroundReplay().catch(()=>undefined);
+  }
   let wasOffline = false;
   const stopNetwork = client.onNetwork((up) => {
     if (!up) {
@@ -163,18 +172,28 @@ export function createOfflineSlice(ctx: SliceContext, deps: OfflineSliceDeps = {
     if (wasOffline) {
       wasOffline = false;
       void replayOffline().catch(()=>undefined);
+      wakePersistedContexts();
     }
   });
   // The browser's own reconnect signal, independent of in-flight requests. It
   // usually fires together with the edge above; `drainOutbox` runs one drain at
   // a time, so the two do not replay the queue twice.
-  const online = (): void => { void replayOffline().catch(()=>undefined); };
+  const online = (): void => { void replayOffline().catch(()=>undefined);wakePersistedContexts(); };
   if (typeof window !== 'undefined') window.addEventListener('online', online);
   const stopAccount = observePreferenceAccount(account => {
     setPending(0); setFailed([]); setCachedHeaders([]);
-    if (account?.storageAuthority) void refresh();
+    if (account?.storageAuthority) void refresh().then(items=>{
+      // A tab can reopen already online, with no reconnect edge (notably when
+      // Background Sync is unavailable). Resume only persisted owned work;
+      // replayOffline still verifies live Me before any mutation is sent.
+      if(disposed||!preferenceAccountIsCurrent(account)||wasOffline||isOffline()||ctx.online?.()===false||typeof navigator!=='undefined'&&navigator.onLine===false)return;
+      wakePersistedContexts();
+      if(items.some(item=>item.state==='queued'))void replayOffline().catch(()=>undefined);
+    }).catch(()=>undefined);
   });
   if (getOwner()) onCleanup(() => {
+    disposed=true;
+    for(const replay of activeReplays)replay.abort();activeReplays.clear();
     stopAccount(); stopNetwork();
     if (typeof window !== 'undefined') window.removeEventListener('online', online);
   });

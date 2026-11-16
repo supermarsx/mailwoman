@@ -6,8 +6,13 @@ import { createRoot } from 'solid-js';
 import { createOfflineSlice, type OfflineSlice } from './offline.ts';
 import type { SliceContext } from './context.ts';
 import type { Client } from '../../api/client.ts';
+import {ApiError} from '../../api/client.ts';
+import {reportOffline} from '../../offline/runtime.ts';
+import * as offlineDb from '../../offline/idb.ts';
+import * as serviceWorker from '../../sw/register.ts';
+import {publishOfflineChange} from '../../offline/events.ts';
 import type { JmapRequest, JmapResponse } from '../../api/jmap-types.ts';
-import { memoryOutboxStore, type MovePayload, type OutboxStore, type SendPayload } from '../../offline/outbox.ts';
+import { memoryOutboxStore, type MovePayload, type OutboxStore, type SendPayload,type QueuedItem } from '../../offline/outbox.ts';
 import { createAppState } from '../store.ts';
 import { makeClient, mkEmail } from '../../components/appHarness.tsx';
 
@@ -76,6 +81,66 @@ function submissions(jmap: Rig['jmap']): JmapRequest[] {
   return jmap.mock.calls.map((c) => c[0]).filter((r) => r.methodCalls.some((m) => m[0] === 'EmailSubmission/set'));
 }
 
+describe('offline slice — already-online cold startup',()=>{
+ const identity={accountId:'acct1',storageAuthority:'test-storage-authority-acct1',username:'test'};
+ const pending=():QueuedItem=>({id:'persisted-send',createdAt:1,state:'queued',type:'send',storageAuthority:identity.storageAuthority,payload:send});
+ const clientFor=(me=vi.fn(async()=>identity))=>({me,jmap:vi.fn<Client['jmap']>(async()=>sentOk()),onNetwork:vi.fn(()=>()=>undefined)} as unknown as Client);
+ afterEach(()=>{reportOffline(false);vi.restoreAllMocks();});
+ it('replays a previously persisted owned send without any reconnect or browser online event',async()=>{
+  reportOffline(false);const store=memoryOutboxStore([pending()]),client=clientFor();let dispose!:()=>void;
+  try{
+   createRoot(end=>{dispose=end;createOfflineSlice({client,online:()=>true,showToast:vi.fn()},{store});});
+   await vi.waitFor(async()=>expect(await store.all()).toEqual([]));
+   expect(client.me).toHaveBeenCalledOnce();expect(client.jmap).toHaveBeenCalledOnce();
+   expect(vi.mocked(client.jmap).mock.calls[0]![0].methodCalls.some(call=>call[0]==='EmailSubmission/set')).toBe(true);
+  }finally{dispose();}
+ });
+ it('does not make a fresh identity request for an empty owned queue',async()=>{
+  const store=memoryOutboxStore(),client=clientFor();let dispose!:()=>void;
+  try{createRoot(end=>{dispose=end;createOfflineSlice({client,online:()=>true,showToast:vi.fn()},{store});});await new Promise(resolve=>setTimeout(resolve,0));expect(client.me).not.toHaveBeenCalled();expect(client.jmap).not.toHaveBeenCalled();}
+  finally{dispose();}
+ });
+ it.each(['cached','refused','held'] as const)('keeps the queue intact when fresh verification is %s',async kind=>{
+  reportOffline(false);const store=memoryOutboxStore([pending()]),me=vi.fn(async()=>{if(kind==='refused')throw new ApiError(401,'Signed out');if(kind==='cached')reportOffline(true);return {...identity,...(kind==='held'?{passwordChangeRequired:true}:{})};}),client=clientFor(me);Object.assign(client,{offlineReads:true});let dispose!:()=>void;
+  try{createRoot(end=>{dispose=end;createOfflineSlice({client,online:()=>true,showToast:vi.fn()},{store});});await vi.waitFor(()=>expect(me).toHaveBeenCalledOnce());await new Promise(resolve=>setTimeout(resolve,0));expect(client.jmap).not.toHaveBeenCalled();expect((await store.all()).map(item=>item.id)).toEqual(['persisted-send']);}
+  finally{dispose();}
+ });
+ it.each(['core','runtime','browser'] as const)('does not initiate a cold replay while %s reports offline',async kind=>{
+  reportOffline(kind==='runtime');if(kind==='browser')vi.spyOn(navigator,'onLine','get').mockReturnValue(false);
+  const store=memoryOutboxStore([pending()]),client=clientFor();let dispose!:()=>void;
+  try{createRoot(end=>{dispose=end;createOfflineSlice({client,online:()=>kind!=='core',showToast:vi.fn()},{store});});await new Promise(resolve=>setTimeout(resolve,0));expect(client.me).not.toHaveBeenCalled();expect(client.jmap).not.toHaveBeenCalled();}
+  finally{dispose();}
+ });
+ it.each(['account','dispose'] as const)('does not resume after %s changes during the pending queue read',async change=>{
+  const store=memoryOutboxStore([pending()]),all=store.all;let release!:(items:Awaited<ReturnType<OutboxStore['all']>>)=>void;
+  store.all=vi.fn().mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;})).mockImplementation(all);
+  const client=clientFor();let dispose!:()=>void;
+  try{createRoot(end=>{dispose=end;createOfflineSlice({client,online:()=>true,showToast:vi.fn()},{store});});if(change==='account')activateAccountPreferences('other','test-storage-authority-other');else dispose();release([pending()]);await new Promise(resolve=>setTimeout(resolve,0));expect(client.me).not.toHaveBeenCalled();expect(client.jmap).not.toHaveBeenCalled();}
+  finally{dispose();}
+ });
+ it.each(['account','dispose'] as const)('does not send after %s changes during fresh identity verification',async change=>{
+  const store=memoryOutboxStore([pending()]);let release!:(value:typeof identity)=>void;
+  const me=vi.fn(()=>new Promise<typeof identity>(resolve=>{release=resolve;})),client=clientFor(me);let dispose!:()=>void;
+  try{createRoot(end=>{dispose=end;createOfflineSlice({client,online:()=>true,showToast:vi.fn()},{store});});await vi.waitFor(()=>expect(me).toHaveBeenCalledOnce());if(change==='account')activateAccountPreferences('other','test-storage-authority-other');else dispose();release(identity);await new Promise(resolve=>setTimeout(resolve,0));expect(client.jmap).not.toHaveBeenCalled();expect(await store.all()).toHaveLength(1);}
+  finally{dispose();}
+ });
+ it('does not verify or replay pending work belonging to an inactive account',async()=>{
+  const store=memoryOutboxStore([{...pending(),storageAuthority:'test-storage-authority-other',payload:{...send,accountId:'other'}}]),client=clientFor();let dispose!:()=>void;
+  try{createRoot(end=>{dispose=end;createOfflineSlice({client,online:()=>true,showToast:vi.fn()},{store});});await new Promise(resolve=>setTimeout(resolve,0));expect(client.me).not.toHaveBeenCalled();expect(client.jmap).not.toHaveBeenCalled();expect(await store.all()).toHaveLength(1);}
+  finally{dispose();}
+ });
+ it('wakes persisted inactive contexts after verified activation and online events without a queue-change wake loop',async()=>{
+  suspendAccountPreferences();vi.spyOn(offlineDb,'idbAvailable').mockReturnValue(true);vi.spyOn(serviceWorker,'registerServiceWorker').mockResolvedValue();
+  const wake=vi.spyOn(serviceWorker,'requestBackgroundReplay').mockResolvedValue(false),store=memoryOutboxStore(),client=clientFor();let dispose!:()=>void;
+  try{
+   createRoot(end=>{dispose=end;createOfflineSlice({client,online:()=>true,showToast:vi.fn()},{store});});await new Promise(resolve=>setTimeout(resolve,0));wake.mockClear();
+   activateAccountPreferences('acct1',identity.storageAuthority);await new Promise(resolve=>setTimeout(resolve,0));expect(wake).toHaveBeenCalledOnce();expect(client.me).not.toHaveBeenCalled();
+   publishOfflineChange('queue');await new Promise(resolve=>setTimeout(resolve,0));expect(wake).toHaveBeenCalledOnce();
+   window.dispatchEvent(new Event('online'));expect(wake).toHaveBeenCalledTimes(2);
+  }finally{dispose();}
+ });
+});
+
 describe('offline slice — queue and undo', () => {
   it('clears visible data and cannot replay or mutate another account queue', async () => {
     await withSlice(async ({ offline, store, jmap }) => {
@@ -91,7 +156,10 @@ describe('offline slice — queue and undo', () => {
       expect(await store.all()).toHaveLength(1);
       await expect(offline.enqueueOffline('move', move)).rejects.toThrow('active account');
       activateAccountPreferences('acct1','test-storage-authority-acct1');
-      await vi.waitFor(() => expect(offline.offlineQueuePending()).toBe(1));
+      // Once its verified owner returns online, the persisted change resumes
+      // automatically; the other account above never got to dispatch it.
+      await vi.waitFor(async() => expect(await store.all()).toEqual([]));
+      expect(offline.offlineQueuePending()).toBe(0);expect(jmap).toHaveBeenCalledOnce();
     });
   });
 
