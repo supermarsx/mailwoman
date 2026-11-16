@@ -29,7 +29,7 @@ function linkifyAddresses(doc:Document):void{
  let visited=0;
  while(visited++<10000&&(next=walker.nextNode())){const node=next as Text;if(node.textContent?.includes('@')&&node.textContent.length<=65536&&!node.parentElement?.closest('a,button,script,style,textarea,svg,math,code'))nodes.push(node);}
  let remaining=500;
- for(const node of nodes){if(!remaining)break;const value=node.data;const matches=[...value.matchAll(/(?<![A-Z0-9.!#$%&'*+/=?^_`{|}~-])[A-Z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Z0-9-]{1,63}(?:\.[A-Z0-9-]{1,63}){1,8}(?![A-Z0-9-]|\.[A-Z0-9-])/gi)].filter(match=>!!normalizeContactAddress(match[0])&&!/(?:https?:|www\.)/i.test(value.slice(0,match.index).match(/\S*$/)?.[0]??''));if(!matches.length)continue;
+ for(const node of nodes){if(!remaining)break;const value=node.data;const matches=[...value.matchAll(/(?<![\p{L}\p{N}.!#$%&'*+/=?^_`{|}~-])[\p{L}\p{N}.!#$%&'*+/=?^_`{|}~-]{1,64}@[\p{L}\p{N}-]{1,63}(?:\.[\p{L}\p{N}-]{1,63}){1,8}(?![\p{L}\p{N}-]|\.[\p{L}\p{N}-])/giu)].slice(0,remaining).filter(match=>!!normalizeContactAddress(match[0])&&!/(?:https?:|www\.)/i.test(value.slice(0,match.index).match(/\S*$/)?.[0]??''));if(!matches.length)continue;
  const fragment=doc.createDocumentFragment();let offset=0;
  for(const match of matches){if(!remaining)break;const address=normalizeContactAddress(match[0])!;fragment.append(doc.createTextNode(value.slice(offset,match.index)));const a=doc.createElement('a');a.textContent=match[0];a.setAttribute('href',`mailto:${address}`);fragment.append(a);offset=match.index!+match[0].length;remaining--;}
  fragment.append(doc.createTextNode(value.slice(offset)));node.replaceWith(fragment);

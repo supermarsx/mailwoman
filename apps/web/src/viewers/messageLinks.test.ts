@@ -56,3 +56,8 @@ it('linkifies addresses before sentence punctuation without turning URL userinfo
  const doc=new DOMParser().parseFromString(html,'text/html');expect([...doc.querySelectorAll('[data-mw-contact-address]')].map(a=>a.getAttribute('data-mw-contact-address'))).toEqual(['person@example.org']);
  expect(doc.body.textContent).toBe('Write to person@example.org. Visit https://person@example.net/page');
 });
+
+it('preserves complete internationalized addresses instead of matching an ASCII suffix',()=>{
+ const html=reviewMessageLinks('<p>élise@example.org and user@bücher.example</p>','Review links').html;
+ const doc=new DOMParser().parseFromString(html,'text/html');expect([...doc.querySelectorAll('[data-mw-contact-address]')].map(a=>a.getAttribute('data-mw-contact-address'))).toEqual(['élise@example.org','user@bücher.example']);
+});
