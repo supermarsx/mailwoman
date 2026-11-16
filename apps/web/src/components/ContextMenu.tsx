@@ -1,6 +1,7 @@
 import {SearchInput} from './SearchInput.tsx';
 import {createEffect,createSignal,For,onCleanup,onMount,Show,type Accessor,type JSX} from 'solid-js';
 import {Portal} from 'solid-js/web';
+import {floatingMount,useFloatingLayer} from './floatingLayer.ts';
 import {Icon,type IconName} from './Icon.tsx';
 import * as css from './contextMenu.css.ts';
 /** `checked` marks an on/off action (a label); it is then a menuitemcheckbox that says which.
@@ -63,6 +64,9 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
    // Firefox can change iframe focus without emitting parent focus/blur events.
    // Check only while this menu is mounted; no access to the frame is needed.
    const frameFocusPoll=setInterval(dismissFrame,100);
+   const ownerClosed=(event:Event):void=>{if(event.type==='beforetoggle'&&(event as ToggleEvent).newState!=='closed')return;const node=event.target as Node|null;if(node?.nodeType&&node.contains(props.point.trigger))close(false);};
+   doc.addEventListener('close',ownerClosed,true);doc.addEventListener('beforetoggle',ownerClosed,true);
+   onCleanup(()=>{doc.removeEventListener('close',ownerClosed,true);doc.removeEventListener('beforetoggle',ownerClosed,true);});
    doc.addEventListener('mailwoman-context-open',dismiss);doc.addEventListener('pointerdown',outside,true);host.addEventListener('resize',dismiss);host.addEventListener('scroll',dismiss,true);host.addEventListener('blur',frameFocus);
    onCleanup(()=>{clearInterval(frameFocusPoll);clearTimeout(frameFocusTimer);doc.removeEventListener('mailwoman-context-open',dismiss);doc.removeEventListener('pointerdown',outside,true);host.removeEventListener('resize',dismiss);host.removeEventListener('scroll',dismiss,true);host.removeEventListener('blur',frameFocus);});
   });
@@ -77,6 +81,8 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
    const dismissChild=()=>{const old=child();setChild(undefined);old?.anchor.focus({preventScroll:true});};
    const childAction=()=>panel.actions().find(action=>action.id===child()?.id);
    createEffect(()=>{if(child()&&(!childAction()?.children?.length||childAction()?.disabled))dismissChild();});
+   // Register before measuring: a closed popover has no layout box.
+   useFloatingLayer(()=>element);
    onMount(()=>{
     const rect=element.getBoundingClientRect(),anchor=panel.anchor?.getBoundingClientRect();
     const rtl=host.getComputedStyle(element).direction==='rtl';
@@ -113,6 +119,6 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
   }
   return <div ref={container}><Panel actions={options.actions} label={options.label()} searchLabel={options.searchLabel?.()} valid={()=>true}/></div>;
  }
- const menu=():JSX.Element=><Show when={position()} keyed>{point=><Portal mount={point.document.body}><MenuBody point={point}/></Portal>}</Show>;
+ const menu=():JSX.Element=><Show when={position()} keyed>{point=><Portal mount={floatingMount(point.trigger)}><MenuBody point={point}/></Portal>}</Show>;
  return {open,openBelow,openAbove,openAt,keydown,close,menu,isOpen:()=>position()!==undefined};
 }

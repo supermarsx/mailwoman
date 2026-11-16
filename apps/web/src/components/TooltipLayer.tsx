@@ -1,5 +1,6 @@
 import { createSignal, createUniqueId, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
+import {floatingMount,useFloatingLayer} from './floatingLayer.ts';
 import * as css from './tooltip.css.ts';
 
 const controls = 'button,a[href],input,select,textarea,[role="button"],[role="tab"],[role="switch"],[role="checkbox"],[role="separator"],[title],[data-tooltip],[data-tooltip-title]';
@@ -35,6 +36,7 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
   const scopeWindow=scopeDocument.defaultView ?? window;
   const id = `tooltip-${createUniqueId()}`;
   const [text, setText] = createSignal<string | null>(null);
+  const [mount,setMount]=createSignal<HTMLElement>(scopeDocument.body);
   // Opened from a pointer hover (hoverable) or from keyboard focus (click-through).
   const [hoverable, setHoverable] = createSignal(false);
   let target: HTMLElement | null = null;
@@ -108,6 +110,7 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
     hide();
     const description = tooltipDescription(element);
     if (!description) return;
+    setMount(floatingMount(element));
     target = element; nativeTitle = element.getAttribute('title'); setHoverable(byPointer);
     element.removeAttribute('title');
     {
@@ -172,6 +175,9 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
     };
     const focus = (event: FocusEvent) => show(find(event));
     const blur = () => { restoreDismissed(); hide(); };
+    const ownerClosed=(event:Event)=>{if(event.type==='beforetoggle'&&(event as ToggleEvent).newState!=='closed')return;const node=event.target as Node|null;if(target&&node?.nodeType&&node.contains(target))hide();};
+    scopeDocument.addEventListener('close',ownerClosed,true);scopeDocument.addEventListener('beforetoggle',ownerClosed,true);
+    onCleanup(()=>{scopeDocument.removeEventListener('close',ownerClosed,true);scopeDocument.removeEventListener('beforetoggle',ownerClosed,true);});
     const key = (event: KeyboardEvent) => { pointerUntil = 0; pressedAt = lastPointer; if (event.key === 'Escape') hide(true); };
     // Pointer activation can focus a button after pointerdown. Do not reopen
     // its tooltip over the new page/tab as a side effect of that focus.
@@ -196,5 +202,5 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
       scopeWindow.visualViewport?.removeEventListener('scroll', schedulePosition);
     });
   });
-  return <Portal mount={scopeDocument.body}><Show when={text()}>{(description) => <div ref={bubble} id={id} role="tooltip" class={css.tooltip} classList={{ [css.passive]: !hoverable() }} onPointerEnter={()=>hide(true)} onPointerLeave={scheduleHide}>{description()}</div>}</Show></Portal>;
+  return <Portal mount={mount()}><Show when={text()}>{(description) => <div ref={element=>{bubble=element;useFloatingLayer(element);}} id={id} role="tooltip" class={css.tooltip} classList={{ [css.passive]: !hoverable() }} onPointerEnter={()=>hide(true)} onPointerLeave={scheduleHide}>{description()}</div>}</Show></Portal>;
 }

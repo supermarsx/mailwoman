@@ -1,3 +1,4 @@
+import {useFloatingLayer} from './floatingLayer.ts';
 // MultiSelect (t39 L15): pick several values from a list. Selected values are
 // chips (each with its own remove button); the text field filters the options
 // as you type (typeahead) and is an ARIA 1.2 combobox over a multi-selectable
@@ -122,7 +123,7 @@ export function MultiSelect(props: MultiSelectProps): JSX.Element {
         onBlur={event => { if (!root.contains(event.relatedTarget as Node | null)) setOpen(false); }} />
     </div>
     <Show when={open()}>
-      <ul id={listId} class={css.listbox} role="listbox" aria-multiselectable="true" aria-label={props.label} aria-labelledby={props.labelledBy}>
+      <ul ref={element=>useFloatingLayer(element,()=>root)} id={listId} class={css.listbox} role="listbox" aria-multiselectable="true" aria-label={props.label} aria-labelledby={props.labelledBy}>
         <For each={visible()} fallback={<li class={css.empty} role="presentation">{t('multiselect-no-match')}</li>}>{(option, index) =>
           <li id={optionId(option.value)} role="option" class={css.option} aria-selected={chosen().has(option.value)} data-active={activeOption()?.value === option.value ? '' : undefined}
             onPointerDown={event => event.preventDefault()} onPointerMove={() => setActive(index())} onClick={() => { toggle(option.value); input.focus(); }}>
