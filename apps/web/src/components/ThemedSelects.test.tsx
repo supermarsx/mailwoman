@@ -7,7 +7,8 @@ afterEach(cleanup);
 it('uses the themed menu and fires the real form change for a pointer selection',async()=>{
  const change=vi.fn();render(()=><><ThemedSelects/><label>Choice<select onChange={change}><option value="one">One</option><option value="two">Two</option></select></label></>);
  const select=screen.getByRole('combobox',{name:'Choice'});fireEvent.pointerDown(select,{button:0});
- fireEvent.click(await screen.findByRole('menuitemradio',{name:'Two'}));
+ const other=await screen.findByRole('menuitemradio',{name:'Two'});expect(other.querySelectorAll('svg')).toHaveLength(0);expect(screen.getByRole('menuitemradio',{name:'One'}).querySelectorAll('svg')).toHaveLength(1);expect(screen.queryByRole('menuitemcheckbox')).toBeNull();
+ fireEvent.click(other);
  expect(select).toHaveValue('two');expect(change).toHaveBeenCalledTimes(1);
  await waitFor(()=>expect(screen.queryByRole('menu')).not.toBeInTheDocument());
 });

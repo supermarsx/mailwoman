@@ -7,7 +7,7 @@ export function ThemedSelects(){
  const [control,setControl]=createSignal<HTMLSelectElement>();
  const label=()=>{const select=control();if(!select)return '';const ids=select.getAttribute('aria-labelledby');return select.getAttribute('aria-label')||(ids?ids.split(/\s+/).map(id=>select.ownerDocument.getElementById(id)?.textContent??'').join(' '):'')||Array.from(select.labels??[]).map(item=>item.textContent??'').join(' ')||select.title;};
  const menu=createContextMenu({label,scope:()=>control()?.id??label(),focusCurrent:true,ownerDocument:()=>control()?.ownerDocument??document,actions:()=>{
-   const select=control();return select?Array.from(select.options).filter(option=>!option.hidden).map((option,index)=>({id:String(index),label:option.textContent??option.label,icon:'check' as const,radio:true,current:option.selected,checked:option.selected,disabled:option.disabled||option.parentElement?.matches('optgroup:disabled')===true,run:()=>{
+   const select=control();return select?Array.from(select.options).filter(option=>!option.hidden).map((option,index)=>({id:String(index),label:option.textContent??option.label,icon:'check' as const,omitIcon:true,radio:true,current:option.selected,checked:option.selected,disabled:option.disabled||option.parentElement?.matches('optgroup:disabled')===true,run:()=>{
      if(!select.isConnected||select.matches(':disabled')||option.disabled||option.parentElement?.matches('optgroup:disabled'))return;
      if(select.value!==option.value){select.value=option.value;const EventClass=select.ownerDocument.defaultView?.Event??Event;select.dispatchEvent(new EventClass('input',{bubbles:true}));select.dispatchEvent(new EventClass('change',{bubbles:true}));}
    }})):[];
