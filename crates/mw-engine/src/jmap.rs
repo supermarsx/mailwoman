@@ -100,7 +100,7 @@ pub fn session_json(account_id: &str, username: &str) -> Value {
             // envelope; private-key ops run client-side (WASM), never here.
             "urn:mailwoman:crypto": {},
             "urn:mailwoman:security": {},
-            "urn:mailwoman:search": {"exactFromDomain": true}
+            "urn:mailwoman:search": {"exactFromDomain": true,"inMailboxes":true}
         },
         "accounts": {
             account_id: { "name": username, "isPersonal": true, "isReadOnly": false, "accountCapabilities": {
@@ -113,7 +113,7 @@ pub fn session_json(account_id: &str, username: &str) -> Value {
                 "urn:mailwoman:contacts": {},
                 "urn:mailwoman:crypto": {},
                 "urn:mailwoman:security": {},
-            "urn:mailwoman:search": {"exactFromDomain": true}
+            "urn:mailwoman:search": {"exactFromDomain": true,"inMailboxes":true}
             } }
         },
         "primaryAccounts": {
@@ -7878,7 +7878,13 @@ mod email_get_batch_tests {
             .await
             .unwrap()
             .unwrap_or_default();
-        Some(patch_engine_fields(email, stable_id, &msg, &meta))
+        let mut email=patch_engine_fields(email, stable_id, &msg, &meta);
+        // The public mentions projection was added after this retained oracle.
+        // Keep it in the equivalence contract while preserving independent
+        // per-ID metadata/envelope reads used by the batching calibration.
+        let indexed=engine.search().fetch_doc(stable_id).ok().flatten();
+        email["mailwomanMentions"]=json!(indexed.as_ref().map(|doc|crate::mentions::from_keywords(&doc.keywords)).unwrap_or_default());
+        Some(email)
     }
 
     fn list_of(resp: &Value) -> &Vec<Value> {
