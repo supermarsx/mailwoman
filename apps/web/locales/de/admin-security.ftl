@@ -219,7 +219,7 @@ admin-protect-rule-rate-window-secs = Budget-Zeitfenster
 admin-protect-rule-rate-window-secs-help = Die Länge jedes Budget-Zeitfensters in Sekunden. Die Zählung beginnt mit jedem Zeitfenster neu.
 admin-protect-rule-rate-window-secs-example = 60 bedeutet „pro Minute“.
 admin-protect-rule-adaptive-mode = Schutz vor ungewöhnlichen Anfragen
-admin-protect-rule-adaptive-mode-help = Aus: Nichts wird gezählt. Nur beobachten: Aktionen werden erfasst, aber nicht angewendet. Durchsetzen: Clients, die zu viele ungewöhnliche Anfragen senden, werden verlangsamt und dann eine Zeit lang blockiert; erkannte Scan-Pfade lösen bei aktiviertem Client-Schutz sofort eine vorübergehende Sperre aus.
+admin-protect-rule-adaptive-mode-help = Aus: nichts wird gezählt. Beobachten: Aktionen werden nur protokolliert. Durchsetzen: Clients mit zu vielen ungewöhnlichen Anfragen werden verlangsamt und vorübergehend gesperrt. Bekannte Scan-Pfade haben einen unabhängigen Modus.
 admin-protect-rule-adaptive-mode-example = Verwenden Sie eine Woche lang „Nur beobachten“, lesen Sie den Verlauf und wechseln Sie dann zu „Durchsetzen“.
 admin-protect-rule-signals = Was als ungewöhnlich zählt
 admin-protect-rule-signals-help = Diese Auswahl steuert die Nachweise für wiederholte Anfragen. Erkannte Scan-Pfade lösen bei durchgesetztem adaptivem Client-Schutz unabhängig von dieser Auswahl und den Schwellenwerten sofort eine Sperre aus. Gewöhnliche „Nicht gefunden“-Antworten, Ablehnungen wegen ausgelasteten Servers und Browsernamen zählen nie.
@@ -662,3 +662,7 @@ admin-console-path-share = Konsolenadresse teilen
 admin-console-path-email = Konsolenadresse per E-Mail senden
 admin-console-path-copied = Konsolenadresse kopiert.
 admin-console-path-share-failed = Adresse konnte nicht geteilt werden. Bitte manuell auswählen und kopieren.
+
+admin-protect-rule-probe-path-mode = Bekannte Scan-Pfade
+admin-protect-rule-probe-path-mode-help = Durchsetzen sperrt die Quelle bereits beim ersten erkannten Zugriff auf fremde CMS, Webmail, Serverkonsolen oder vertrauliche Dateien. Unabhängig vom Schutz vor ungewöhnlichen Anfragen. Quellausnahmen gelten weiterhin. Beobachten protokolliert nur; Aus deaktiviert die Regel.
+admin-protect-rule-probe-path-mode-example = Eine Anfrage an /wp-admin oder /roundcube/installer sperrt die Quelle sofort.

@@ -74,6 +74,7 @@ pub(crate) fn presets() -> Value {
         "relaxed": {
             "security.protection.rateMode": "observe",
             "security.protection.adaptiveMode": "observe",
+            "security.protection.probePathMode": "observe",
             "security.protection.clientRequests": 1200,
             "security.protection.accountRequests": 3600,
             "security.protection.adminRequests": 2400,
@@ -87,6 +88,7 @@ pub(crate) fn presets() -> Value {
         "balanced": {
             "security.protection.rateMode": "enforce",
             "security.protection.adaptiveMode": "enforce",
+            "security.protection.probePathMode": "enforce",
             "security.protection.clientRequests": 600,
             "security.protection.accountRequests": 1800,
             "security.protection.adminRequests": 1200,
@@ -100,6 +102,7 @@ pub(crate) fn presets() -> Value {
         "strict": {
             "security.protection.rateMode": "enforce",
             "security.protection.adaptiveMode": "enforce",
+            "security.protection.probePathMode": "enforce",
             "security.protection.clientRequests": 300,
             "security.protection.accountRequests": 900,
             "security.protection.adminRequests": 600,
@@ -365,8 +368,12 @@ async fn simulate(
     let config = parse_or_refuse(candidate(effective(&state).await?, &pairs, |i| {
         format!("/draft/{}", keys[i])
     })?)?;
-    let off = if body.user_agent.is_some() {
-        !config.enabled()
+    let probe_sample = kind == "client" && body.sample.signal == Some(Signal::ProbePath);
+    let off = if probe_sample {
+        !config.probe_enabled()
+    } else if body.user_agent.is_some() {
+        !config.legacy_enabled()
+            && config.user_agent.mode == mw_store::request_protection_model::Mode::Off
     } else {
         !config.legacy_enabled()
     };
@@ -414,7 +421,9 @@ async fn simulate(
                 subject_budget: config
                     .subject(kind, value)
                     .map(|p| (p.rate_limit, p.rate_window_secs)),
-                ua_budget: ua_policy.as_ref().map(|p| (p.rate_limit, p.rate_window_secs)),
+                ua_budget: ua_policy
+                    .as_ref()
+                    .map(|p| (p.rate_limit, p.rate_window_secs)),
                 subject_kind: kind,
                 cooldown_secs: setting("signin.retryCooldownSecs", 3, 300).await,
                 difficulty: u32::try_from(setting("signin.antiBotDifficulty", 2000, 20000).await)
@@ -422,15 +431,14 @@ async fn simulate(
                 heightened: super::tier_sim::heightened_now(tier),
             };
             Some(
-                super::tier_sim::effects(input, &inputs, crate::trust_tier::country_known).map_err(
-                    |()| {
+                super::tier_sim::effects(input, &inputs, crate::trust_tier::country_known)
+                    .map_err(|()| {
                         AdminApiError::invalid(
                             "invalidTier",
                             "Check the user-agent class, country code and country state",
                             "/tier",
                         )
-                    },
-                )?,
+                    })?,
             )
         }
     };
@@ -441,7 +449,12 @@ async fn simulate(
     if legacy_sample.signal == Some(Signal::BotUserAgent) {
         legacy_sample.signal = Some(Signal::Ignored);
     }
-    let legacy = config.subject(kind, value).map(|p| run(&p, &legacy_sample));
+    let legacy = if probe_sample {
+        config.probe_policy(value)
+    } else {
+        config.subject(kind, value)
+    }
+    .map(|p| run(&p, &legacy_sample));
     let ua = ua_policy.map(|p| {
         let mut sample = body.sample;
         if category.is_some_and(|category| config.user_agent.blocks_bot(category)) {

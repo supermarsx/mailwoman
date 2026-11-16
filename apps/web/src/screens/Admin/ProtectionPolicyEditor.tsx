@@ -215,6 +215,10 @@ function Summary(props: { value: (short: string) => unknown }): JSX.Element {
         client: Number(v('clientRequests') ?? 0), account: Number(v('accountRequests') ?? 0), admin: Number(v('adminRequests') ?? 0), window: secs('rateWindowSecs'),
       })}
     </li>
+    <li data-mode={mode('probePathMode')}>
+      <strong>{t('admin-protect-rule-probe-path-mode')}: {t(`admin-protect-value-${mode('probePathMode')}`)}</strong>{' '}
+      {t('admin-protect-rule-probe-path-mode-help')}
+    </li>
     <li data-mode={mode('adaptiveMode')}>
       <strong>{t('admin-protect-summary-unusual', { mode: t(`admin-protect-value-${mode('adaptiveMode')}`) })}</strong>{' '}
       {mode('adaptiveMode') === 'off' ? t('admin-protect-summary-unusual-off') : t('admin-protect-summary-unusual-on', {
@@ -227,7 +231,7 @@ function Summary(props: { value: (short: string) => unknown }): JSX.Element {
       <strong>{t('admin-protect-summary-step')}</strong>{' '}
       {t('admin-protect-summary-step-detail', { throttle: secs('throttleSecs'), block: secs('blockSecs'), decay: secs('decaySecs') })}
     </li>
-    <Show when={mode('rateMode') === 'observe' || mode('adaptiveMode') === 'observe'}><li>{t('admin-protect-summary-observe')}</li></Show>
+    <Show when={mode('rateMode') === 'observe' || mode('adaptiveMode') === 'observe' || mode('probePathMode') === 'observe'}><li>{t('admin-protect-summary-observe')}</li></Show>
   </ul>;
 }
 

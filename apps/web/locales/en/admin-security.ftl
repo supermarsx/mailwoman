@@ -216,7 +216,7 @@ admin-protect-rule-rate-window-secs = Budget window
 admin-protect-rule-rate-window-secs-help = The length of each budget window, in seconds. The count starts again at the start of each window.
 admin-protect-rule-rate-window-secs-example = 60 means "per minute".
 admin-protect-rule-adaptive-mode = Unusual request protection
-admin-protect-rule-adaptive-mode-help = Off: nothing is counted. Observe only: actions are recorded but not applied. Enforce: clients that send too many unusual requests are slowed down, then blocked for a while; recognized scan paths trigger an immediate temporary block when client protection is enabled.
+admin-protect-rule-adaptive-mode-help = Off: nothing is counted. Observe only: actions are recorded but not applied. Enforce: clients that send too many unusual requests are slowed down, then blocked for a while. Recognized scan paths have their own independent mode.
 admin-protect-rule-adaptive-mode-example = Use Observe only for a week, read the history, then switch to Enforce.
 admin-protect-rule-signals = What counts as unusual
 admin-protect-rule-signals-help = These choices control repeated-request evidence. Recognized scan paths trigger an immediate block independently of these choices and thresholds when adaptive client protection is enforcing. Ordinary "not found" answers, busy-server refusals and browser names never count.
@@ -652,3 +652,7 @@ admin-console-path-share = Share console address
 admin-console-path-email = Email console address
 admin-console-path-copied = Console address copied.
 admin-console-path-share-failed = Could not share the address. Select and copy it manually.
+
+admin-protect-rule-probe-path-mode = Recognized scan paths
+admin-protect-rule-probe-path-mode-help = Enforce blocks the source immediately on its first recognized CMS, webmail, server-console or sensitive-file probe. Independent of unusual-request protection. Source exceptions still apply. Observe records only; Off disables this rule.
+admin-protect-rule-probe-path-mode-example = A request to /wp-admin or /roundcube/installer blocks that source immediately.

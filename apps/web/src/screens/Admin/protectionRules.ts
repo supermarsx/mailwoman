@@ -12,7 +12,7 @@ export const PROTECTION_PREFIX = 'security.protection.';
 export const RULE_GROUPS: readonly { id: string; keys: readonly string[] }[] = [
   { id: 'user-agent', keys: ['userAgentMode', 'userAgentBlockBots', 'userAgentCategories', 'userAgentWeakRequests', 'userAgentCrawlerRequests', 'userAgentWindowSecs', 'userAgentMaxAction', 'userAgentScope', 'userAgentAdaptive', 'userAgentPatterns', 'userAgentExceptions'] },
   { id: 'budget', keys: ['rateMode', 'clientRequests', 'accountRequests', 'adminRequests', 'rateWindowSecs'] },
-  { id: 'unusual', keys: ['adaptiveMode', 'signals', 'adaptiveClients', 'adaptiveAccounts', 'adaptiveAdmins', 'shortWindowSecs', 'shortAbsoluteAnomalies', 'shortRatioPercent', 'shortMinimumSamples', 'longWindowSecs', 'longAbsoluteAnomalies', 'longRatioPercent', 'longMinimumSamples', 'normalCapPerBucket'] },
+  { id: 'unusual', keys: ['probePathMode', 'adaptiveMode', 'signals', 'adaptiveClients', 'adaptiveAccounts', 'adaptiveAdmins', 'shortWindowSecs', 'shortAbsoluteAnomalies', 'shortRatioPercent', 'shortMinimumSamples', 'longWindowSecs', 'longAbsoluteAnomalies', 'longRatioPercent', 'longMinimumSamples', 'normalCapPerBucket'] },
   { id: 'actions', keys: ['throttleSecs', 'blockSecs', 'decaySecs'] },
   { id: 'exceptions', keys: ['exemptClients', 'exemptAccounts', 'exemptAdmins', 'storageFailure'] },
 ];

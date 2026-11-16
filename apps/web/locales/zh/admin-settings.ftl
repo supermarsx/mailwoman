@@ -2721,3 +2721,6 @@ admin-settings-help-accounts-preload-linked = 在会话内缓存关联邮箱的�
 
 admin-settings-key-accounts-show-connection-status = 显示邮箱连接图标
 admin-settings-help-accounts-show-connection-status = 在邮箱名称旁显示小型状态图标。连接状态始终可在关联邮箱设置中查看。管理员可以设置或锁定此偏好。
+
+admin-settings-key-security-protection-probe-path-mode = 已知扫描路径
+admin-settings-help-security-protection-probe-path-mode = 强制模式在首次识别到对 CMS、网页邮箱、服务器控制台或敏感文件的探测时立即封禁来源。独立于异常请求防护，仍遵守来源例外。观察模式仅记录，关闭则禁用此规则。

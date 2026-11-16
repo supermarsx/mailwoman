@@ -127,6 +127,71 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn scanner_namespace_preserves_mode_isolation_and_canonical_ips() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut scan = policy();
+        scan.adaptive_mode = Mode::Observe;
+        let mut general = policy();
+        general.adaptive_mode = Mode::Enforce;
+        let observed = store
+            .request_protection(
+                "client",
+                "probe-path:192.0.2.1",
+                &scan,
+                100,
+                Some(Signal::ProbePath),
+            )
+            .await
+            .unwrap();
+        assert_eq!(observed.decision.action, Action::Block);
+        assert!(!observed.decision.enforced);
+        assert_eq!(observed.snapshot.source_ip.as_deref(), Some("192.0.2.1"));
+        assert!(
+            store
+                .request_protection_with_source(
+                    "client",
+                    "probe-path:192.0.2.1",
+                    &scan,
+                    100,
+                    Some(Signal::ProbePath),
+                    ProtectionSource {
+                        country: None,
+                        ip: Some("192.0.2.2")
+                    }
+                )
+                .await
+                .is_err()
+        );
+        let admitted = store
+            .request_protection("client", "192.0.2.1", &general, 101, None)
+            .await
+            .unwrap();
+        assert!(!admitted.decision.enforced);
+        assert_ne!(observed.subject_key, admitted.subject_key);
+        assert_eq!(
+            store
+                .request_protection_subject("client", "probe-path:192.0.2.1")
+                .unwrap(),
+            store
+                .request_protection_subject("client", "probe-path:::ffff:192.0.2.1")
+                .unwrap()
+        );
+        assert!(
+            store
+                .request_protection_subject("client", "probe-path:invalid")
+                .is_err()
+        );
+        scan.adaptive_mode = Mode::Enforce;
+        assert!(
+            store
+                .request_protection_probe_decision("client", "probe-path:192.0.2.1", &scan, 101)
+                .await
+                .unwrap()
+                .enforced
+        );
+    }
+
     async fn subject_row(store: &Store, key: &str) -> (String, String, i64, i64) {
         let row = q("SELECT state_json,revision,updated_at,expires_at FROM request_protection_subject WHERE subject_key=?1").bind(key).fetch_all(&store.backend).await.unwrap().remove(0);
         (
@@ -913,6 +978,7 @@ impl Store {
             .collect()
     }
     /// Caller supplies a trusted transport IP or a server-authenticated account ID.
+    /// Internal scanner counters use `probe-path:<IP>` with the same IP validation.
     /// Distinct authority kinds cannot collide. Source IP display metadata is
     /// separately validated; account IDs and tokens never enter these keys.
     pub fn request_protection_subject(
@@ -922,6 +988,18 @@ impl Store {
     ) -> Result<String, StoreError> {
         let canonical;
         let value = match kind {
+            // Independent path policy must not share adaptive stages with the
+            // general source policy. Keep the public subject kind and source
+            // metadata unchanged while giving this internal counter its own key.
+            "client" if value.starts_with("probe-path:") => {
+                let ip = value
+                    .strip_prefix("probe-path:")
+                    .unwrap()
+                    .parse::<std::net::IpAddr>()
+                    .map_err(|_| corrupt())?;
+                canonical = format!("probe-path:{}", ip.to_canonical());
+                canonical.as_str()
+            }
             "client" | "ua-missing" | "ua-uncommon" | "ua-automation" | "ua-search"
             | "ua-ai-training" | "ua-ai-search" | "ua-ai-user" | "ua-custom" => {
                 canonical = value
@@ -1049,7 +1127,12 @@ impl Store {
                 .map_err(|_| corrupt())
         };
         let observed_ip = if source_subject {
-            let expected = canonical_ip(value)?;
+            let source_value = if kind == "client" {
+                value.strip_prefix("probe-path:").unwrap_or(value)
+            } else {
+                value
+            };
+            let expected = canonical_ip(source_value)?;
             if let Some(ip) = source.ip
                 && canonical_ip(ip)? != expected
             {
@@ -1160,11 +1243,12 @@ impl Store {
     }
     /// Live row totals `(subjects, events)` for the admin pagination controls.
     pub async fn request_protection_totals(&self, now: i64) -> Result<(i64, i64), StoreError> {
-        let subjects = q("SELECT COUNT(*) AS n FROM request_protection_subject WHERE expires_at>?1")
-            .bind(now)
-            .fetch_all(&self.backend)
-            .await?[0]
-            .get_i64("n");
+        let subjects =
+            q("SELECT COUNT(*) AS n FROM request_protection_subject WHERE expires_at>?1")
+                .bind(now)
+                .fetch_all(&self.backend)
+                .await?[0]
+                .get_i64("n");
         let events = q("SELECT COUNT(*) AS n FROM request_protection_event WHERE observed_at>?1 AND observed_at<=?2")
             .bind(now.saturating_sub(EVENT_RETENTION_SECS))
             .bind(now)

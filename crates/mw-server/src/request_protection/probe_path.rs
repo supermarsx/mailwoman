@@ -90,6 +90,30 @@ pub(crate) fn hostile_probe_path(path: &str) -> bool {
     {
         return false;
     }
+    // Shared curated catalog: whole segments, with transport resource namespaces
+    // excluded above. Lazy parsing keeps matching bounded and allocation-free
+    // apart from the normalized request path and its segment vector.
+    static TARGETS: std::sync::LazyLock<Vec<Vec<String>>> = std::sync::LazyLock::new(|| {
+        serde_json::from_str::<Vec<String>>(include_str!("../../data/scan_probe_paths.json"))
+            .expect("validated scanner path catalog")
+            .iter()
+            .map(|target| {
+                target
+                    .split('/')
+                    .filter(|part| !part.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .collect()
+    });
+    if TARGETS.iter().any(|needle| {
+        needle.len() <= segments.len()
+            && segments
+                .windows(needle.len())
+                .any(|window| window.iter().zip(needle).all(|(a, b)| *a == b.as_str()))
+    }) {
+        return true;
+    }
     let Some(last) = segments.last().copied() else {
         return false;
     };
@@ -116,87 +140,6 @@ pub(crate) fn hostile_probe_path(path: &str) -> bool {
         )
         || config_file(last, "wp-config.php")
     {
-        return true;
-    }
-    // Foreign consoles and well-known exposure/exploitation endpoints. Keep
-    // generic /login, /health, /metrics, OpenAPI and mail discovery paths out:
-    // these also have legitimate first-party uses. Entries match whole segments.
-    const FOREIGN_TARGETS: &[&str] = &[
-        "/manager/html",
-        "/manager/status",
-        "/host-manager/html",
-        "/jmx-console",
-        "/web-console",
-        "/console/login/loginform.jsp",
-        "/weblogic",
-        "/wls-wsat",
-        "/jolokia",
-        "/solr/admin",
-        "/h2-console",
-        "/jenkins/script",
-        "/jenkins/scripttext",
-        "/jenkins/cli",
-        "/hudson/script",
-        "/actuator/env",
-        "/actuator/heapdump",
-        "/actuator/configprops",
-        "/actuator/mappings",
-        "/actuator/threaddump",
-        "/actuator/gateway/routes",
-        "/druid/index.html",
-        "/druid/login.html",
-        "/nifi-api/access/config",
-        "/geoserver/web",
-        "/geoserver/rest/about/version",
-        "/server-status",
-        "/server-info",
-        "/telescope/requests",
-        "/_ignition/execute-solution",
-        "/_profiler/phpinfo",
-        "/debug/default/view",
-        "/debug/default/index",
-        "/vendor/phpunit",
-        "/phpunit/phpunit/src/util/php/eval-stdin.php",
-        "/roundcube/installer",
-        "/phpmyadmin/scripts/setup.php",
-        "/hnap1",
-        "/boaform/admin",
-        "/gponform/diagform",
-        "/goform/setusbmount",
-        "/sdk/vimservice",
-        "/.docker/config.json",
-        "/.kube/config",
-        "/.vscode/sftp.json",
-        "/.idea/workspace.xml",
-        "/.svn/entries",
-        "/.hg/hgrc",
-        "/app/etc/local.xml",
-        "/app/etc/env.php",
-        "/web-inf/web.xml",
-        "/web-inf/classes/application.properties",
-        "/meta-inf/maven",
-        "/proc/self/environ",
-        "/proc/self/cmdline",
-        "/etc/passwd",
-    ];
-    if FOREIGN_TARGETS.iter().any(|target| {
-        let needle: Vec<_> = target.split('/').filter(|part| !part.is_empty()).collect();
-        needle.len() <= segments.len()
-            && segments
-                .windows(needle.len())
-                .any(|window| window == needle)
-    }) || matches!(
-        last,
-        "phpinfo.php"
-            | "info.php"
-            | "adminer.php"
-            | "c99.php"
-            | "r57.php"
-            | "wso.php"
-            | "alfa.php"
-            | "cmd.php"
-            | "eval-stdin.php"
-    ) {
         return true;
     }
     for (index, segment) in segments.iter().enumerate() {
@@ -330,6 +273,9 @@ mod tests {
             "/.well-known/jmap",
             "/.well-known/oauth-authorization-server",
             "/autodiscover/autodiscover.xml",
+            "/autodiscover/autodiscover.json",
+            "/Microsoft-Server-ActiveSync/default.eas",
+            "/ews/exchange.asmx",
             "/help?path=/actuator/env",
             "/safe%3fpath=/manager/html",
         ] {
@@ -635,5 +581,38 @@ mod tests {
         )));
         assert!(!hostile_probe_path("/safe%253fnext=%252fwp-admin"));
         assert!(!hostile_probe_path("/safe%2523/.env"));
+    }
+    #[test]
+    fn curated_catalog_is_valid_shared_and_matches_encoded_nested_probes() {
+        let paths: Vec<String> =
+            serde_json::from_str(include_str!("../../data/scan_probe_paths.json")).unwrap();
+        let defaults: Vec<String> =
+            serde_json::from_str(include_str!("../../data/admin_probe_paths.json")).unwrap();
+        assert_eq!(paths.len(), 235);
+        assert!(defaults.len() <= 512);
+        let unique: std::collections::BTreeSet<_> = paths.iter().collect();
+        assert_eq!(unique.len(), paths.len());
+        for path in paths {
+            assert!(path.len() <= 128);
+            assert_eq!(normalized_path(&path).as_deref(), Some(path.as_str()));
+            assert!(defaults.contains(&path), "admin tracker missing {path}");
+            assert!(hostile_probe_path(&path), "{path}");
+            assert!(
+                hostile_probe_path(&format!("/nested{}/extra", path.to_uppercase())),
+                "nested {path}"
+            );
+            assert!(
+                !hostile_probe_path(&format!("/api/files{path}")),
+                "resource {path}"
+            );
+        }
+        for path in [
+            "/%63panel",
+            "/roundcube/%69nstaller",
+            "/host-manager/%74ext",
+            "/%65cp",
+        ] {
+            assert!(hostile_probe_path(path), "{path}");
+        }
     }
 }

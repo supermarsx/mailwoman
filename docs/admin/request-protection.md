@@ -7,6 +7,36 @@ Two rules hold for all of them:
 * **Every refusal paces the client.** A `429`, and a `503` from a limiter, carries `Retry-After` (whole seconds). Refusals from the concurrency gates and the per-address or per-session budgets also carry `RateLimit-Limit`, `RateLimit-Remaining: 0` and `RateLimit-Reset` (the draft `ratelimit-headers` fields). A refusal that does not name itself still gets `Retry-After` (1 s) from a response layer at the edge of the router.
 * **A `429` is never evidence of abuse.** Adaptive request protection records only typed anomalies (malformed or oversized request, rejected credential, probe path, bot user-agent); a status code is not a signal, so a client that was refused never raises the penalty against itself.
 
+## Immediate scanner-path blocking
+
+`security.protection.probePathMode` defaults to **enforce**. A recognized foreign
+CMS, webmail installer, hosting panel, server console or sensitive-file probe
+blocks its transport source on the **first request**, without grace requests or
+an anomaly threshold. The first response is `429 requestProtectionLimited` with
+`Retry-After`; subsequent in-scope requests from the same source are refused for
+`security.protection.blockSecs` (five minutes by default). Decisions are stored
+and recorded in protection history as `probe-path`, with `enforced: true`.
+
+This rule is independent of `rateMode`, `adaptiveMode` and `adaptiveClients`.
+Those aggregate/anomaly protections remain off by default. Scan-path decisions
+use a separate source counter, so an Observe decision cannot become enforced by
+the broader adaptive policy. In the console's
+protection policy, **Recognized scan paths** can be changed to **Observe** (record
+without refusal) or **Off**. Presets include this control: Relaxed observes;
+Balanced and Strict enforce. Source CIDRs in `security.protection.exemptClients`
+are exempt; the existing verified operator recovery and logout/health exclusions
+remain available. Only the trusted proxy resolver selects the source: untrusted
+forwarding headers cannot choose a victim address. Configure trusted proxies
+correctly before exposing an instance through a proxy.
+
+The curated immediate catalog contains 235 targets. Administrative probe defaults
+contain 284 paths, including the broader scored console guesses. Saved custom
+administrative `probePaths` lists are preserved; changing a scored-path list does
+not disable the separate immediate catalog. The scored administrative tracker
+continues to handle generic guesses according to its configured grace and
+threshold policies. [Catalog coverage and research](scan-path-catalog.md) explains
+which paths qualify and which normal routes are excluded.
+
 ## Where signed-in clients get leeway
 
 | Mechanism | What it does | Setting |

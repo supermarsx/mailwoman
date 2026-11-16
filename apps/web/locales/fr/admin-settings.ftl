@@ -2735,3 +2735,6 @@ admin-settings-help-accounts-preload-linked = Garde en mémoire les dossiers et 
 
 admin-settings-key-accounts-show-connection-status = Afficher les icônes de connexion des boîtes mail
 admin-settings-help-accounts-show-connection-status = Afficher une petite icône d’état à côté du nom des boîtes mail. L’état reste disponible dans les paramètres des boîtes liées. Les administrateurs peuvent définir ou verrouiller cette préférence.
+
+admin-settings-key-security-protection-probe-path-mode = Chemins de sondage reconnus
+admin-settings-help-security-protection-probe-path-mode = Appliquer bloque la source dès le premier sondage reconnu de CMS, webmail, console ou fichier sensible. Indépendant de la protection contre les requêtes inhabituelles. Les exceptions de source restent valables. Observer journalise seulement ; Désactivé désactive la règle.

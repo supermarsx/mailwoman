@@ -219,7 +219,7 @@ admin-protect-rule-rate-window-secs = Fenêtre du budget
 admin-protect-rule-rate-window-secs-help = La durée de chaque fenêtre de budget, en secondes. Le comptage repart de zéro au début de chaque fenêtre.
 admin-protect-rule-rate-window-secs-example = 60 signifie « par minute ».
 admin-protect-rule-adaptive-mode = Protection contre les requêtes inhabituelles
-admin-protect-rule-adaptive-mode-help = Désactivé : rien n'est compté. Observation seule : les actions sont consignées mais non appliquées. Appliquer : les clients qui envoient trop de requêtes inhabituelles sont ralentis, puis bloqués pendant un temps ; les chemins de scan reconnus déclenchent un blocage temporaire immédiat lorsque la protection des clients est activée.
+admin-protect-rule-adaptive-mode-help = Désactivé : rien n’est compté. Observer : les actions sont uniquement journalisées. Appliquer : ralentit puis bloque temporairement les clients envoyant trop de requêtes inhabituelles. Les chemins de sondage reconnus ont un mode indépendant.
 admin-protect-rule-adaptive-mode-example = Utilisez Observation seule pendant une semaine, lisez l'historique, puis passez à Appliquer.
 admin-protect-rule-signals = Ce qui compte comme inhabituel
 admin-protect-rule-signals-help = Ces choix contrôlent les éléments de preuve de requêtes répétées. Les chemins de scan reconnus déclenchent un blocage immédiat indépendamment de ces choix et seuils lorsque la protection adaptative des clients est en application. Les réponses « introuvable » ordinaires, les refus dus à un serveur occupé et les noms de navigateur ne comptent jamais.
@@ -662,3 +662,7 @@ admin-console-path-share = Partager l’adresse de la console
 admin-console-path-email = Envoyer l’adresse par e-mail
 admin-console-path-copied = Adresse de la console copiée.
 admin-console-path-share-failed = Impossible de partager l’adresse. Sélectionnez-la et copiez-la manuellement.
+
+admin-protect-rule-probe-path-mode = Chemins de sondage reconnus
+admin-protect-rule-probe-path-mode-help = Appliquer bloque la source dès le premier sondage reconnu de CMS, webmail, console ou fichier sensible. Indépendant de la protection contre les requêtes inhabituelles. Les exceptions de source restent valables. Observer journalise seulement ; Désactivé désactive la règle.
+admin-protect-rule-probe-path-mode-example = Une requête vers /wp-admin ou /roundcube/installer bloque immédiatement la source.

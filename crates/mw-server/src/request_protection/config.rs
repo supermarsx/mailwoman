@@ -20,6 +20,7 @@ const CACHE_TTL: Duration = Duration::from_secs(30);
 #[derive(Clone, Debug)]
 pub(super) struct Config {
     base: Policy,
+    probe_path_mode: Mode,
     pub user_agent: super::user_agent::Rules,
     client_requests: u32,
     account_requests: u32,
@@ -39,10 +40,10 @@ impl Config {
             Mode::Observe => "observe",
             Mode::Enforce => "enforce",
         };
-        serde_json::json!({"userAgent":self.user_agent.summary(),"rateMode":mode(self.base.rate_mode),"adaptiveMode":mode(self.base.adaptive_mode),"clientRequests":self.client_requests,"accountRequests":self.account_requests,"adminRequests":self.admin_requests,"rateWindowSecs":self.base.rate_window_secs,"adaptiveClients":self.adaptive_clients,"adaptiveAccounts":self.adaptive_accounts,"adaptiveAdmins":self.adaptive_admins,"short":self.base.short,"long":self.base.long,"normalCapPerBucket":self.base.normal_cap_per_bucket,"signals":self.base.signals,"throttleSecs":self.base.throttle_secs,"blockSecs":self.base.block_secs,"decaySecs":self.base.decay_secs,"storageFailure":if self.fail_closed {"closed"} else {"open"}})
+        serde_json::json!({"userAgent":self.user_agent.summary(),"rateMode":mode(self.base.rate_mode),"probePathMode":mode(self.probe_path_mode),"adaptiveMode":mode(self.base.adaptive_mode),"clientRequests":self.client_requests,"accountRequests":self.account_requests,"adminRequests":self.admin_requests,"rateWindowSecs":self.base.rate_window_secs,"adaptiveClients":self.adaptive_clients,"adaptiveAccounts":self.adaptive_accounts,"adaptiveAdmins":self.adaptive_admins,"short":self.base.short,"long":self.base.long,"normalCapPerBucket":self.base.normal_cap_per_bucket,"signals":self.base.signals,"throttleSecs":self.base.throttle_secs,"blockSecs":self.base.block_secs,"decaySecs":self.base.decay_secs,"storageFailure":if self.fail_closed {"closed"} else {"open"}})
     }
     pub fn enabled(&self) -> bool {
-        !self.base.off() || self.user_agent.mode != Mode::Off
+        !self.base.off() || self.user_agent.mode != Mode::Off || self.probe_path_mode != Mode::Off
     }
     pub fn legacy_enabled(&self) -> bool {
         !self.base.off()
@@ -57,6 +58,26 @@ impl Config {
             return None;
         }
         self.user_agent.policy(&self.base, category)
+    }
+    /// Strong path evidence is independent of weak adaptive anomaly thresholds.
+    pub fn probe_policy(&self, source: &str) -> Option<Policy> {
+        let ip: IpAddr = source.parse().ok()?;
+        if self.probe_path_mode == Mode::Off
+            || self
+                .exempt_clients
+                .iter()
+                .any(|network| network.contains(ip))
+        {
+            return None;
+        }
+        let mut policy = self.base.clone();
+        policy.rate_mode = Mode::Off;
+        policy.rate_limit = 0;
+        policy.adaptive_mode = self.probe_path_mode;
+        Some(policy)
+    }
+    pub fn probe_enabled(&self) -> bool {
+        self.probe_path_mode != Mode::Off
     }
     pub fn account_dimension_enforced(&self) -> bool {
         (self.base.rate_mode == Mode::Enforce && self.account_requests > 0)
@@ -165,6 +186,7 @@ impl Config {
         Ok(Self {
             user_agent: super::user_agent::Rules::parse(&values)?,
             base,
+            probe_path_mode: mode("probePathMode")?,
             client_requests: number("clientRequests")?,
             account_requests: number("accountRequests")?,
             admin_requests: number("adminRequests")?,
@@ -298,8 +320,50 @@ mod tests {
             .unwrap()
             .value = serde_json::json!("off");
         let disabled = Config::parse(values).unwrap();
-        assert!(!disabled.enabled());
+        assert!(disabled.enabled());
+        assert!(disabled.probe_enabled());
         assert!(disabled.user_agent.classify(None).is_none());
+    }
+    #[tokio::test]
+    async fn scan_path_defaults_enforce_independently_and_honor_exemptions() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut values = rows(&store).await;
+        let defaults = Config::parse(values.clone()).unwrap();
+        assert!(!defaults.legacy_enabled());
+        assert!(defaults.subject("client", "192.0.2.1").is_none());
+        let strong = defaults.probe_policy("192.0.2.1").unwrap();
+        assert_eq!(strong.adaptive_mode, Mode::Enforce);
+        assert_eq!(strong.rate_mode, Mode::Off);
+        for mode in ["observe", "off"] {
+            values
+                .iter_mut()
+                .find(|row| row.key == format!("{PREFIX}probePathMode"))
+                .unwrap()
+                .value = serde_json::json!(mode);
+            let config = Config::parse(values.clone()).unwrap();
+            assert!(!config.legacy_enabled());
+            if mode == "off" {
+                assert!(config.probe_policy("192.0.2.1").is_none());
+            } else {
+                assert_eq!(
+                    config.probe_policy("192.0.2.1").unwrap().adaptive_mode,
+                    Mode::Observe
+                );
+            }
+        }
+        for (key, value) in [
+            ("probePathMode", serde_json::json!("enforce")),
+            ("exemptClients", serde_json::json!(["192.0.2.0/24"])),
+        ] {
+            values
+                .iter_mut()
+                .find(|row| row.key == format!("{PREFIX}{key}"))
+                .unwrap()
+                .value = value;
+        }
+        let config = Config::parse(values).unwrap();
+        assert!(config.probe_policy("::ffff:192.0.2.1").is_none());
+        assert!(config.probe_policy("198.51.100.1").is_some());
     }
     #[tokio::test]
     async fn legacy_defaults_are_off_and_exemptions_do_not_cross_subject_dimensions() {

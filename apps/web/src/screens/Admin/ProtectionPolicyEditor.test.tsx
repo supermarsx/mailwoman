@@ -20,6 +20,7 @@ function policy(): ProtectionPolicy {
   return {
     rules: [
       setting('rateMode', { ...modes, values: [...modes.values] }, 'off', 'off'),
+      setting('probePathMode', { ...modes, values: [...modes.values] }, 'enforce', 'enforce'),
       setting('adaptiveMode', { ...modes, values: [...modes.values] }, 'observe', 'off'),
       setting('clientRequests', { type: 'int', min: 0, max: 1_000_000 }, 600, 600),
       setting('rateWindowSecs', { type: 'int', min: 1, max: 3600 }, 60, 60),
@@ -120,6 +121,18 @@ describe('Adaptive protection editor', () => {
     fireEvent.click(within(sim).getByRole('button', { name: 'Check' }));
     await waitFor(() => expect(a.simulate).toHaveBeenCalledWith(expect.objectContaining({ userAgent: '' })));
     expect(await screen.findByText('Unverified header classification: Missing header.')).toBeVisible();
+  });
+  it('saves an independent recognized-path override and shows the enforced default', async () => {
+    const a = api();
+    render(() => <ProtectionPolicyEditor api={a} canWrite />);
+    const row = await screen.findByTestId('protect-rule-probe-path-mode');
+    expect(within(row).getByRole('combobox')).toHaveValue('enforce');
+    expect(row).toHaveTextContent('first recognized');
+    fireEvent.change(within(row).getByRole('combobox'), { target: { value: 'observe' } });
+    fireEvent.click(within(row).getByRole('button', { name: 'Save Recognized scan paths' }));
+    await waitFor(() => expect(a.save).toHaveBeenCalledWith([
+      { key: 'security.protection.probePathMode', value: 'observe', etag: '"probePathMode-1"' },
+    ], undefined));
   });
   it('explains today\'s policy in words', async () => {
     render(() => <ProtectionPolicyEditor api={api()} canWrite />);

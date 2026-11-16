@@ -2729,3 +2729,6 @@ admin-settings-help-accounts-preload-linked = Mantém em memória as pastas e me
 
 admin-settings-key-accounts-show-connection-status = Mostrar ícones de conexão das caixas de correio
 admin-settings-help-accounts-show-connection-status = Mostrar um pequeno ícone de status ao lado dos nomes das caixas de correio. O status está sempre disponível nas configurações de caixas vinculadas. Administradores podem definir ou bloquear esta preferência.
+
+admin-settings-key-security-protection-probe-path-mode = Caminhos de varredura conhecidos
+admin-settings-help-security-protection-probe-path-mode = Aplicar bloqueia a origem na primeira sondagem conhecida de CMS, webmail, console ou arquivo sensível. Independente da proteção contra solicitações incomuns. As exceções de origem continuam válidas. Observar apenas registra; Desativado desativa a regra.

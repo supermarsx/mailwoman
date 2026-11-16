@@ -213,7 +213,7 @@ admin-protect-rule-rate-window-secs = 额度窗口
 admin-protect-rule-rate-window-secs-help = 每个额度窗口的长度，单位为秒。每个窗口开始时重新计数。
 admin-protect-rule-rate-window-secs-example = 60 表示“每分钟”。
 admin-protect-rule-adaptive-mode = 异常请求保护
-admin-protect-rule-adaptive-mode-help = 关：不统计任何内容。仅观察：记录操作但不执行。强制执行：发送过多异常请求的客户端会先被减速，然后被封锁一段时间；启用客户端保护时，已识别的扫描路径会立即触发临时封锁。
+admin-protect-rule-adaptive-mode-help = 关闭：不计数。观察：仅记录操作。强制：对发送过多异常请求的客户端限速并暂时封禁。已知扫描路径使用独立模式。
 admin-protect-rule-adaptive-mode-example = 先用仅观察模式运行一周，查看历史记录，再切换到强制执行。
 admin-protect-rule-signals = 哪些算异常
 admin-protect-rule-signals-help = 这些选项控制重复请求的判断依据。启用自适应客户端保护后，已识别的扫描路径会独立于这些选项和阈值立即触发封锁。普通的“未找到”响应、服务器繁忙拒绝和浏览器名称从不计数。
@@ -656,3 +656,7 @@ admin-console-path-share = 分享控制台地址
 admin-console-path-email = 通过邮件发送地址
 admin-console-path-copied = 已复制控制台地址。
 admin-console-path-share-failed = 无法分享地址。请选择并手动复制。
+
+admin-protect-rule-probe-path-mode = 已知扫描路径
+admin-protect-rule-probe-path-mode-help = 强制模式在首次识别到对 CMS、网页邮箱、服务器控制台或敏感文件的探测时立即封禁来源。独立于异常请求防护，仍遵守来源例外。观察模式仅记录，关闭则禁用此规则。
+admin-protect-rule-probe-path-mode-example = 请求 /wp-admin 或 /roundcube/installer 会立即封禁来源。

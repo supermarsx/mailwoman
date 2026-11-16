@@ -214,7 +214,7 @@ admin-protect-rule-rate-window-secs = 上限のウィンドウ
 admin-protect-rule-rate-window-secs-help = 各上限ウィンドウの長さ（秒）です。カウントは各ウィンドウの開始時にリセットされます。
 admin-protect-rule-rate-window-secs-example = 60 は「毎分」を意味します。
 admin-protect-rule-adaptive-mode = 異常リクエストの保護
-admin-protect-rule-adaptive-mode-help = オフ： 何もカウントしません。監視のみ： 動作は記録されますが適用されません。適用： 異常なリクエストを大量に送るクライアントは遅延され、その後しばらくブロックされます。クライアント保護が有効な場合、既知のスキャンパスは直ちに一時的なブロックの対象になります。
+admin-protect-rule-adaptive-mode-help = オフ：何も集計しません。監視：操作を記録するだけです。強制：不審な要求が多すぎるクライアントを低速化し、一時的にブロックします。既知のスキャンパスには独立したモードがあります。
 admin-protect-rule-adaptive-mode-example = まず1週間「監視のみ」にして履歴を確認し、その後「適用」に切り替えます。
 admin-protect-rule-signals = 異常とみなす対象
 admin-protect-rule-signals-help = この選択は、繰り返しリクエストの証拠を制御します。適応型クライアント保護が適用されている場合、既知のスキャンパスは、これらの選択やしきい値とは無関係に直ちにブロックされます。通常の「見つかりません」の応答、サーバー混雑による拒否、ブラウザー名はカウントされません。
@@ -658,3 +658,7 @@ admin-console-path-share = コンソールのアドレスを共有
 admin-console-path-email = アドレスをメールで送信
 admin-console-path-copied = コンソールのアドレスをコピーしました。
 admin-console-path-share-failed = アドレスを共有できませんでした。選択して手動でコピーしてください。
+
+admin-protect-rule-probe-path-mode = 既知のスキャンパス
+admin-protect-rule-probe-path-mode-help = 強制では、CMS、ウェブメール、サーバー管理画面、機密ファイルへの既知の探索要求を初回から送信元ごとブロックします。不審な要求の保護とは独立しています。送信元の例外は引き続き適用されます。監視は記録のみ、オフはこのルールを無効にします。
+admin-protect-rule-probe-path-mode-example = /wp-admin または /roundcube/installer への要求で送信元を直ちにブロックします。

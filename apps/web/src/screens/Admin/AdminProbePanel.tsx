@@ -41,7 +41,7 @@ export const PROBE_FIELDS: readonly { key: AdminProbeKey; kind: Kind; def: unkno
   { key: 'repeatWindowSecs', kind: { type: 'int', min: 0, max: 2_592_000, unit: 's' }, def: 86_400 },
   { key: 'blockStatus', kind: { type: 'enum', values: ['429', '403'] }, def: '429' },
   { key: 'signals', kind: { type: 'signals' }, def: null },
-  { key: 'probePaths', kind: { type: 'list', max: 100 }, def: null },
+  { key: 'probePaths', kind: { type: 'list', max: 512 }, def: null },
   { key: 'allowlist', kind: { type: 'list', max: 100 }, def: [] },
   { key: 'auditIp', kind: { type: 'enum', values: ['masked', 'full'] }, def: 'masked' },
   { key: 'fail2banLog', kind: { type: 'bool' }, def: true },

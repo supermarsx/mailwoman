@@ -219,7 +219,7 @@ admin-protect-rule-rate-window-secs = Ventana del presupuesto
 admin-protect-rule-rate-window-secs-help = La duración de cada ventana de presupuesto, en segundos. El recuento vuelve a empezar al comienzo de cada ventana.
 admin-protect-rule-rate-window-secs-example = 60 significa «por minuto».
 admin-protect-rule-adaptive-mode = Protección contra solicitudes inusuales
-admin-protect-rule-adaptive-mode-help = Desactivado: no se cuenta nada. Solo observar: las acciones se registran pero no se aplican. Aplicar: los clientes que envían demasiadas solicitudes inusuales se ralentizan y después se bloquean durante un tiempo; las rutas de escaneo reconocidas desencadenan un bloqueo temporal inmediato cuando la protección de clientes está activada.
+admin-protect-rule-adaptive-mode-help = Desactivado: no se cuenta nada. Observar: las acciones se registran sin aplicarlas. Aplicar: ralentiza y bloquea temporalmente a clientes con demasiadas solicitudes inusuales. Las rutas de exploración conocidas tienen un modo independiente.
 admin-protect-rule-adaptive-mode-example = Use Solo observar durante una semana, lea el historial y después cambie a Aplicar.
 admin-protect-rule-signals = Qué cuenta como inusual
 admin-protect-rule-signals-help = Estas opciones controlan la evidencia de solicitudes repetidas. Las rutas de escaneo reconocidas desencadenan un bloqueo inmediato con independencia de estas opciones y umbrales cuando la protección adaptativa de clientes está en modo de aplicación. Las respuestas «no encontrado» ordinarias, los rechazos por servidor ocupado y los nombres de navegador nunca cuentan.
@@ -662,3 +662,7 @@ admin-console-path-share = Compartir dirección de la consola
 admin-console-path-email = Enviar dirección por correo
 admin-console-path-copied = Dirección de la consola copiada.
 admin-console-path-share-failed = No se pudo compartir la dirección. Selecciónala y cópiala manualmente.
+
+admin-protect-rule-probe-path-mode = Rutas de exploración conocidas
+admin-protect-rule-probe-path-mode-help = Aplicar bloquea el origen en el primer sondeo reconocido de CMS, webmail, consola o archivo sensible. Independiente de la protección contra solicitudes inusuales. Se respetan las excepciones de origen. Observar solo registra; Desactivado desactiva la regla.
+admin-protect-rule-probe-path-mode-example = Una solicitud a /wp-admin o /roundcube/installer bloquea el origen inmediatamente.

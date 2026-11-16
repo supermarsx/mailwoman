@@ -142,10 +142,10 @@ async fn aggregate_source_country_uses_local_geoip_and_is_returned_in_lists_and_
         429
     );
     let known_key = store
-        .request_protection_subject("client", "127.0.0.48")
+        .request_protection_subject("client", "probe-path:127.0.0.48")
         .unwrap();
     let unknown_key = store
-        .request_protection_subject("client", "127.0.0.49")
+        .request_protection_subject("client", "probe-path:127.0.0.49")
         .unwrap();
     let operator = client(50);
     admin_login(&operator, &base, "root", "hunter2").await;
@@ -207,7 +207,6 @@ async fn aggregate_source_country_uses_local_geoip_and_is_returned_in_lists_and_
 async fn scanner_paths_block_the_source_on_the_first_request_and_audit_the_reason() {
     let (base, store) = fixture(&[
         ("security.adminProbe.enabled", json!(false)),
-        ("security.protection.adaptiveMode", json!("enforce")),
         ("security.protection.signals", json!([])),
         ("security.protection.blockSecs", json!(120)),
     ])
@@ -394,7 +393,7 @@ async fn explicit_probes_respect_modes_and_do_not_treat_normal_paths_or_query_te
     for mode in ["off", "observe", "enforce"] {
         let (base, store) = fixture(&[
             ("security.adminProbe.enabled", json!(false)),
-            ("security.protection.adaptiveMode", json!(mode)),
+            ("security.protection.probePathMode", json!(mode)),
         ])
         .await;
         let ordinary = client(46);
@@ -1009,6 +1008,9 @@ async fn user_agent_scope_excludes_verified_sessions_unless_all_is_selected() {
 #[tokio::test]
 async fn bot_user_agents_are_blocked_on_the_first_request_by_default_even_for_files() {
     let (base, store) = fixture(&[
+        // Isolate category-only UA blocks; combined scanner/UA source blocks
+        // are tested by scanner_source_block_survives_user_agent_changes.
+        ("security.protection.probePathMode", json!("off")),
         ("security.protection.blockSecs", json!(120)),
         ("security.protection.userAgentAdaptive", json!(false)),
         ("security.protection.userAgentMaxAction", json!("throttle")),
@@ -1154,4 +1156,169 @@ async fn bot_simulation_uses_default_first_hit_policy_for_headers_and_direct_sam
         assert_eq!(decision["enforced"], true);
         assert_eq!(decision["signalCounted"], true);
     }
+}
+
+#[tokio::test]
+async fn foreign_console_families_block_immediately_with_default_policy() {
+    let (base, store) = fixture(&[("security.adminProbe.enabled", json!(false))]).await;
+    for (index, path) in [
+        "/cpanel",
+        "/whm",
+        "/postfixadmin",
+        "/roundcube/installer",
+        "/rainloop/data",
+        "/snappymail/data",
+        "/ecp",
+        "/horde/admin",
+        "/host-manager/text",
+        "/actuator/logfile",
+        "/jolokia",
+        "/webmin",
+        "/bitrix/admin",
+        "/typo3",
+        "/phppgadmin",
+        "/phpmyadmin/setup",
+        "/grafana/login",
+        "/cgi-bin/luci",
+        "/dana-na",
+        "/portainer/auth",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let caller = client(100 + index as u8);
+        let first = caller.get(format!("{base}{path}")).send().await.unwrap();
+        assert_eq!(first.status(), 429, "first default request: {path}");
+        assert!(first.headers().contains_key("retry-after"));
+        assert_eq!(
+            caller
+                .get(format!("{base}/api/me"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            429
+        );
+    }
+    let events = store
+        .request_protection_events(chrono::Utc::now().timestamp(), None, 100)
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 20);
+    assert!(
+        events
+            .iter()
+            .all(|event| event.enforced && event.reason == "probe-path")
+    );
+}
+
+#[tokio::test]
+async fn scanner_source_block_survives_user_agent_changes() {
+    let (base, _) = fixture(&[
+        ("security.adminProbe.enabled", json!(false)),
+        ("security.trust.uaAiTraining", json!("block")),
+    ])
+    .await;
+    let scanner = client(125);
+    assert_eq!(
+        scanner
+            .get(format!("{base}/wp-admin"))
+            .header("user-agent", "GPTBot/1.0")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
+    );
+    assert_eq!(
+        scanner
+            .get(format!("{base}/api/me"))
+            .header("user-agent", "Mozilla/5.0")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
+    );
+    assert_eq!(
+        client(126)
+            .get(format!("{base}/api/me"))
+            .header("user-agent", "Mozilla/5.0")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+}
+
+#[tokio::test]
+async fn immediate_probe_rule_covers_get_head_post_and_options() {
+    let (base, _) = fixture(&[("security.adminProbe.enabled", json!(false))]).await;
+    for (index, method) in [
+        reqwest::Method::GET,
+        reqwest::Method::HEAD,
+        reqwest::Method::POST,
+        reqwest::Method::OPTIONS,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let scanner = client(128 + index as u8);
+        let first = scanner
+            .request(method.clone(), format!("{base}/roundcube/installer"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(first.status(), 429, "{method}");
+        assert!(first.headers().contains_key("retry-after"));
+        assert_eq!(
+            scanner
+                .get(format!("{base}/api/me"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            429
+        );
+    }
+}
+
+#[tokio::test]
+async fn scan_path_observe_does_not_become_enforced_by_general_adaptive_protection() {
+    let (base, store) = fixture(&[
+        ("security.adminProbe.enabled", json!(false)),
+        ("security.protection.probePathMode", json!("observe")),
+        ("security.protection.adaptiveMode", json!("enforce")),
+    ])
+    .await;
+    let scanner = client(135);
+    assert_ne!(
+        scanner
+            .get(format!("{base}/wp-admin"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
+    );
+    for _ in 0..3 {
+        assert_eq!(
+            scanner
+                .get(format!("{base}/api/me"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            401,
+            "a proposed scan block must not leak into the enforced general counter"
+        );
+    }
+    let events = store
+        .request_protection_events(chrono::Utc::now().timestamp(), None, 100)
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].reason, "probe-path");
+    assert!(!events[0].enforced);
 }

@@ -219,7 +219,7 @@ admin-protect-rule-rate-window-secs = Budgetvenster
 admin-protect-rule-rate-window-secs-help = De lengte van elk budgetvenster, in seconden. De telling begint opnieuw aan het begin van elk venster.
 admin-protect-rule-rate-window-secs-example = 60 betekent "per minuut".
 admin-protect-rule-adaptive-mode = Bescherming tegen ongebruikelijke verzoeken
-admin-protect-rule-adaptive-mode-help = Uit: er wordt niets geteld. Alleen waarnemen: acties worden vastgelegd maar niet toegepast. Afdwingen: clients die te veel ongebruikelijke verzoeken sturen, worden vertraagd en daarna een tijd geblokkeerd; herkende scanpaden leiden tot een onmiddellijke tijdelijke blokkade wanneer clientbescherming is ingeschakeld.
+admin-protect-rule-adaptive-mode-help = Uit: niets wordt geteld. Observeren: acties worden alleen geregistreerd. Handhaven: clients met te veel ongebruikelijke verzoeken worden vertraagd en tijdelijk geblokkeerd. Herkende scanpaden hebben een onafhankelijke modus.
 admin-protect-rule-adaptive-mode-example = Gebruik Alleen waarnemen een week, lees de geschiedenis en schakel dan over op Afdwingen.
 admin-protect-rule-signals = Wat als ongebruikelijk telt
 admin-protect-rule-signals-help = Deze keuzes bepalen het bewijs van herhaalde verzoeken. Herkende scanpaden leiden tot een onmiddellijke blokkade, los van deze keuzes en drempels, wanneer adaptieve clientbescherming afdwingt. Gewone "niet gevonden"-antwoorden, weigeringen door een drukke server en browsernamen tellen nooit mee.
@@ -666,3 +666,7 @@ admin-console-path-share = Consoleadres delen
 admin-console-path-email = Consoleadres e-mailen
 admin-console-path-copied = Consoleadres gekopieerd.
 admin-console-path-share-failed = Het adres kon niet worden gedeeld. Selecteer en kopieer het handmatig.
+
+admin-protect-rule-probe-path-mode = Herkende scanpaden
+admin-protect-rule-probe-path-mode-help = Handhaven blokkeert de bron bij de eerste herkende probe naar een CMS, webmail, serverconsole of gevoelig bestand. Onafhankelijk van bescherming tegen ongebruikelijke verzoeken. Bronuitzonderingen blijven gelden. Observeren registreert alleen; Uit schakelt de regel uit.
+admin-protect-rule-probe-path-mode-example = Een verzoek naar /wp-admin of /roundcube/installer blokkeert de bron direct.

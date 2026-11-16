@@ -229,7 +229,7 @@ admin-protect-rule-rate-window-secs = Okno budżetu
 admin-protect-rule-rate-window-secs-help = Długość każdego okna budżetu w sekundach. Liczenie zaczyna się od nowa na początku każdego okna.
 admin-protect-rule-rate-window-secs-example = 60 oznacza „na minutę”.
 admin-protect-rule-adaptive-mode = Ochrona przed nietypowymi żądaniami
-admin-protect-rule-adaptive-mode-help = Wyłączone: nic nie jest liczone. Tylko obserwuj: działania są zapisywane, ale nie stosowane. Egzekwuj: klienci wysyłający zbyt wiele nietypowych żądań są spowalniani, a potem na jakiś czas blokowani; rozpoznane ścieżki skanowania wywołują natychmiastową tymczasową blokadę, gdy ochrona klientów jest włączona.
+admin-protect-rule-adaptive-mode-help = Wyłączone: nic nie jest zliczane. Obserwacja: działania są tylko zapisywane. Egzekwowanie: spowalnia i tymczasowo blokuje klientów wysyłających zbyt wiele nietypowych żądań. Rozpoznane ścieżki skanowania mają niezależny tryb.
 admin-protect-rule-adaptive-mode-example = Użyj Tylko obserwuj przez tydzień, przeczytaj historię, a potem przełącz na Egzekwuj.
 admin-protect-rule-signals = Co uznaje się za nietypowe
 admin-protect-rule-signals-help = Te wybory sterują dowodami powtarzanych żądań. Rozpoznane ścieżki skanowania wywołują natychmiastową blokadę niezależnie od tych wyborów i progów, gdy ochrona adaptacyjna klientów egzekwuje reguły. Zwykłe odpowiedzi „nie znaleziono”, odmowy przy przeciążeniu serwera i nazwy przeglądarek nigdy się nie liczą.
@@ -678,3 +678,7 @@ admin-console-path-share = Udostępnij adres konsoli
 admin-console-path-email = Wyślij adres e-mailem
 admin-console-path-copied = Adres konsoli skopiowany.
 admin-console-path-share-failed = Nie udało się udostępnić adresu. Zaznacz go i skopiuj ręcznie.
+
+admin-protect-rule-probe-path-mode = Rozpoznane ścieżki skanowania
+admin-protect-rule-probe-path-mode-help = Egzekwowanie blokuje źródło już przy pierwszej rozpoznanej próbie dostępu do CMS, webmaila, konsoli lub poufnego pliku. Niezależne od ochrony przed nietypowymi żądaniami. Wyjątki źródeł nadal obowiązują. Obserwacja tylko zapisuje zdarzenia; Wyłączone wyłącza regułę.
+admin-protect-rule-probe-path-mode-example = Żądanie do /wp-admin lub /roundcube/installer natychmiast blokuje źródło.

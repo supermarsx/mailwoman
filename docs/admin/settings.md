@@ -2946,6 +2946,18 @@ State is bounded to 20,000 subjects and 10,000 decision events. Expired state is
 `security.protection.storageFailure` (default `"closed"`): Closed refuses protected work when an enabled enforcement budget cannot be checked. Open temporarily permits it with a bounded operational warning. Observe-only failures never impose an enforcement action.
 
 <a id="security.adminProbe"></a>
+<a id="security.protection.probePathMode"></a>
+### Immediate scanner-path protection (`security.protection.probePathMode`)
+
+Global enum: `off`, `observe`, `enforce`; default **enforce**. Recognized CMS,
+webmail, hosting-panel and server-console scans block their source on the first
+request for `security.protection.blockSecs` (default 300 seconds). Independent of
+the aggregate and adaptive switches, which remain off by default. Observe records
+without refusing; Off disables this path rule. Honors
+`security.protection.exemptClients` and verified operator recovery. The editable
+scored admin-probe paths below do not replace this immediate catalog.
+See [Request protection](request-protection.md#immediate-scanner-path-blocking).
+
 ### Admin-probe protection (`security.adminProbe.*`)
 
 Counts requests that look for the admin console, per client network (an IPv4
@@ -2966,7 +2978,7 @@ generic settings route. See [Admin-probe protection](../security/admin-panel.md#
 | <a id="security.adminProbe.repeatWindowSecs"></a>`security.adminProbe.repeatWindowSecs` | `86400` | 0–2592000 | A block starting this soon after the previous one ended is a repeat. |
 | <a id="security.adminProbe.blockStatus"></a>`security.adminProbe.blockStatus` | `"429"` | `429`, `403` | Status of the blocked answer (with `Retry-After`). |
 | <a id="security.adminProbe.signals"></a>`security.adminProbe.signals` | all four | `probe-path`, `slug-guess`, `admin-signin-failed`, `admin-unauthenticated` | Which misses count. |
-| <a id="security.adminProbe.probePaths"></a>`security.adminProbe.probePaths` | 97 paths (`/admin`, `/wp-admin`, `/.env`, `/manager/html`, `/jolokia`, …) | up to 100, each starting with `/` | Paths scanners ask for; matched as whole segments, any case. |
+| <a id="security.adminProbe.probePaths"></a>`security.adminProbe.probePaths` | 284 paths (`/admin`, `/wp-admin`, `/.env`, `/manager/html`, `/jolokia`, …) | up to 512, each starting with `/` | Paths scanners ask for; matched as whole segments, any case. |
 | <a id="security.adminProbe.allowlist"></a>`security.adminProbe.allowlist` | `[]` | up to 100 IPs/CIDRs | Never counted or blocked. |
 | <a id="security.adminProbe.auditIp"></a>`security.adminProbe.auditIp` | `"masked"` | `masked`, `full` | Source in the audit log and the API: IPv4 /24 and IPv6 /48, or the address. |
 | <a id="security.adminProbe.fail2banLog"></a>`security.adminProbe.fail2banLog` | `true` | bool | Write the `mailwoman[admin-probe]` line on each block. |

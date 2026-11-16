@@ -2729,3 +2729,6 @@ admin-settings-help-accounts-preload-linked = Mantiene in memoria cartelle e mes
 
 admin-settings-key-accounts-show-connection-status = Mostra le icone di connessione delle caselle
 admin-settings-help-accounts-show-connection-status = Mostra una piccola icona di stato accanto ai nomi delle caselle. Lo stato è sempre disponibile nelle impostazioni delle caselle collegate. Gli amministratori possono impostare o bloccare questa preferenza.
+
+admin-settings-key-security-protection-probe-path-mode = Percorsi di scansione riconosciuti
+admin-settings-help-security-protection-probe-path-mode = Applica blocca la sorgente al primo sondaggio riconosciuto di CMS, webmail, console o file sensibile. Indipendente dalla protezione contro richieste insolite. Restano valide le eccezioni per la sorgente. Osserva registra soltanto; Disattivato disabilita la regola.

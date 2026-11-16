@@ -107,6 +107,9 @@ async fn fixture(name: &str, extra: &[(&str, Value)]) -> Fixture {
         .unwrap();
     for (key, value) in [
         ("signin.retryCooldownSecs", json!(0)),
+        // Exercise the separate scored admin-probe tracker in isolation. The
+        // default immediate scanner rule is covered by t32_request_protection.
+        ("security.protection.probePathMode", json!("off")),
         ("security.adminProbe.graceAllowance", json!(3)),
         ("security.adminProbe.blockAfter", json!(2)),
         ("security.adminProbe.tarpitDelayMs", json!(0)),
@@ -592,4 +595,20 @@ async fn a_scanner_is_blocked_while_the_admin_keeps_working() {
         status(&fresh, format!("{}{SLUG}/session", f.base)).await,
         200
     );
+}
+
+#[test]
+fn expanded_scanner_defaults_validate_through_the_settings_registry() {
+    use mw_server::settings_registry::{lookup, validate};
+    let mode = lookup("security.protection.probePathMode").unwrap();
+    assert_eq!(mode.default_value(), json!("enforce"));
+    assert!(validate(mode, &mode.default_value(), "value").is_ok());
+    let paths = lookup("security.adminProbe.probePaths").unwrap();
+    let defaults = paths.default_value();
+    assert_eq!(defaults.as_array().unwrap().len(), 284);
+    assert!(validate(paths, &defaults, "value").is_ok());
+    assert!(validate(paths, &json!(["/bamboo/userlogin!default.action"]), "value").is_ok());
+    assert!(validate(paths, &json!(["/bad\npath"]), "value").is_err());
+    assert!(validate(paths, &json!(vec!["/path"; 513]), "value").is_err());
+    assert!(validate(paths, &json!([format!("/{}", "a".repeat(128))]), "value").is_err());
 }

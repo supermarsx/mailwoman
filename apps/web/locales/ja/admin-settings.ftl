@@ -2721,3 +2721,6 @@ admin-settings-help-accounts-preload-linked = リンク済みメールボック�
 
 admin-settings-key-accounts-show-connection-status = メールボックスの接続アイコンを表示
 admin-settings-help-accounts-show-connection-status = メールボックス名の横に小さな状態アイコンを表示します。接続状態は、リンク済みメールボックスの設定でいつでも確認できます。管理者はこの設定を指定またはロックできます。
+
+admin-settings-key-security-protection-probe-path-mode = 既知のスキャンパス
+admin-settings-help-security-protection-probe-path-mode = 強制では、CMS、ウェブメール、サーバー管理画面、機密ファイルへの既知の探索要求を初回から送信元ごとブロックします。不審な要求の保護とは独立しています。送信元の例外は引き続き適用されます。監視は記録のみ、オフはこのルールを無効にします。

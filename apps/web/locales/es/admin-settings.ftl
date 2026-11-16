@@ -2735,3 +2735,6 @@ admin-settings-help-accounts-preload-linked = Guarda en memoria carpetas y mensa
 
 admin-settings-key-accounts-show-connection-status = Mostrar iconos de conexión de los buzones
 admin-settings-help-accounts-show-connection-status = Mostrar un pequeño icono de estado junto al nombre de cada buzón. El estado siempre está disponible en los ajustes de buzones vinculados. Los administradores pueden establecer o bloquear esta preferencia.
+
+admin-settings-key-security-protection-probe-path-mode = Rutas de exploración conocidas
+admin-settings-help-security-protection-probe-path-mode = Aplicar bloquea el origen en el primer sondeo reconocido de CMS, webmail, consola o archivo sensible. Independiente de la protección contra solicitudes inusuales. Se respetan las excepciones de origen. Observar solo registra; Desactivado desactiva la regla.

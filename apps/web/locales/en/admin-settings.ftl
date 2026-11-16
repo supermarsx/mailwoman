@@ -2524,3 +2524,6 @@ admin-settings-help-accounts-preload-linked = Keep a small session cache of link
 
 admin-settings-key-accounts-show-connection-status = Show mailbox connection icons
 admin-settings-help-accounts-show-connection-status = Show a small status icon beside mailbox names. Connection status is always available in Linked mailboxes settings. Administrators can set or lock this preference.
+
+admin-settings-key-security-protection-probe-path-mode = Recognized scan paths
+admin-settings-help-security-protection-probe-path-mode = Enforce blocks the source immediately on its first recognized CMS, webmail, server-console or sensitive-file probe. Independent of unusual-request protection. Source exceptions still apply. Observe records only; Off disables this rule.

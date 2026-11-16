@@ -219,7 +219,7 @@ admin-protect-rule-rate-window-secs = Janela do orçamento
 admin-protect-rule-rate-window-secs-help = A duração de cada janela do orçamento, em segundos. A contagem recomeça no início de cada janela.
 admin-protect-rule-rate-window-secs-example = 60 significa "por minuto".
 admin-protect-rule-adaptive-mode = Proteção contra solicitações incomuns
-admin-protect-rule-adaptive-mode-help = Desativado: nada é contado. Apenas observar: as ações são registradas, mas não aplicadas. Aplicar: clientes que enviam solicitações incomuns demais são retardados e depois bloqueados por um tempo; caminhos de varredura reconhecidos disparam um bloqueio temporário imediato quando a proteção de clientes está ativada.
+admin-protect-rule-adaptive-mode-help = Desativado: nada é contado. Observar apenas: as ações são registradas sem aplicação. Aplicar: reduz a velocidade e bloqueia temporariamente clientes com solicitações incomuns demais. Os caminhos de varredura conhecidos têm um modo independente.
 admin-protect-rule-adaptive-mode-example = Use Apenas observar por uma semana, leia o histórico e então passe para Aplicar.
 admin-protect-rule-signals = O que conta como incomum
 admin-protect-rule-signals-help = Estas opções controlam a evidência de solicitações repetidas. Caminhos de varredura reconhecidos disparam um bloqueio imediato, independentemente destas opções e limites, quando a proteção adaptativa de clientes está em modo de aplicação. Respostas comuns de "não encontrado", recusas por servidor ocupado e nomes de navegador nunca contam.
@@ -666,3 +666,7 @@ admin-console-path-share = Compartilhar endereço do console
 admin-console-path-email = Enviar endereço por email
 admin-console-path-copied = Endereço do console copiado.
 admin-console-path-share-failed = Não foi possível compartilhar o endereço. Selecione e copie manualmente.
+
+admin-protect-rule-probe-path-mode = Caminhos de varredura conhecidos
+admin-protect-rule-probe-path-mode-help = Aplicar bloqueia a origem na primeira sondagem conhecida de CMS, webmail, console ou arquivo sensível. Independente da proteção contra solicitações incomuns. As exceções de origem continuam válidas. Observar apenas registra; Desativado desativa a regra.
+admin-protect-rule-probe-path-mode-example = Uma solicitação a /wp-admin ou /roundcube/installer bloqueia a origem imediatamente.

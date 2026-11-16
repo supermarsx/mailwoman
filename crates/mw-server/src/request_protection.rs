@@ -646,6 +646,61 @@ pub(crate) async fn guard(
         Ok(config) => config,
         Err(()) => return response(unavailable()),
     };
+    let source = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions());
+    let source_country = match mw_engine::security::country_lookup(source) {
+        mw_engine::security::CountryLookup::Known(country) => Some(country),
+        _ => None,
+    };
+    let source_ip = source.map(|ip| ip.to_canonical().to_string());
+    if source_scope
+        && let Some(source) = source
+        && let Some(policy) = config.probe_policy(&source.to_canonical().to_string())
+        && policy.adaptive_mode != mw_store::request_protection_model::Mode::Off
+    {
+        let source = source.to_canonical().to_string();
+        let probe_subject = format!("probe-path:{source}");
+        let now = chrono::Utc::now().timestamp();
+        // Strong scanner evidence belongs to the transport source even when a
+        // cookie is present. Subsequent checks never charge an anonymous budget
+        // or revise a subject simply because an authenticated page was read.
+        let decision = if probe {
+            state
+                .store
+                .request_protection_with_source(
+                    "client",
+                    &probe_subject,
+                    &policy,
+                    now,
+                    Some(Signal::ProbePath),
+                    mw_store::request_protection::ProtectionSource {
+                        country: source_country.as_deref(),
+                        ip: source_ip.as_deref(),
+                    },
+                )
+                .await
+                .map(|outcome| outcome.decision)
+        } else {
+            state
+                .store
+                .request_protection_probe_decision("client", &probe_subject, &policy, now)
+                .await
+        };
+        if let Ok(decision) = &decision {
+            history::note_decision("client", decision);
+        }
+        match decision {
+            Ok(decision) if decision.enforced => return response(limited(decision)),
+            Err(_) => {
+                warning();
+                if config.fail_closed
+                    && policy.adaptive_mode == mw_store::request_protection_model::Mode::Enforce
+                {
+                    return response(unavailable());
+                }
+            }
+            _ => {}
+        }
+    }
     let trust = crate::trust_tier::policy(&state.store).await;
     let mut ua_allowed = false;
     if ua_route || bot_route {
@@ -683,60 +738,6 @@ pub(crate) async fn guard(
     }
     if !config.enabled() {
         return next.run(request).await;
-    }
-    let source = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions());
-    let source_country = match mw_engine::security::country_lookup(source) {
-        mw_engine::security::CountryLookup::Known(country) => Some(country),
-        _ => None,
-    };
-    let source_ip = source.map(|ip| ip.to_canonical().to_string());
-    if source_scope
-        && let Some(source) = source
-        && let Some(policy) = config.subject("client", &source.to_canonical().to_string())
-        && policy.adaptive_mode != mw_store::request_protection_model::Mode::Off
-    {
-        let source = source.to_canonical().to_string();
-        let now = chrono::Utc::now().timestamp();
-        // Strong scanner evidence belongs to the transport source even when a
-        // cookie is present. Subsequent checks never charge an anonymous budget
-        // or revise a subject simply because an authenticated page was read.
-        let decision = if probe {
-            state
-                .store
-                .request_protection_with_source(
-                    "client",
-                    &source,
-                    &policy,
-                    now,
-                    Some(Signal::ProbePath),
-                    mw_store::request_protection::ProtectionSource {
-                        country: source_country.as_deref(),
-                        ip: source_ip.as_deref(),
-                    },
-                )
-                .await
-                .map(|outcome| outcome.decision)
-        } else {
-            state
-                .store
-                .request_protection_probe_decision("client", &source, &policy, now)
-                .await
-        };
-        if let Ok(decision) = &decision {
-            history::note_decision("client", decision);
-        }
-        match decision {
-            Ok(decision) if decision.enforced => return response(limited(decision)),
-            Err(_) => {
-                warning();
-                if config.fail_closed
-                    && policy.adaptive_mode == mw_store::request_protection_model::Mode::Enforce
-                {
-                    return response(unavailable());
-                }
-            }
-            _ => {}
-        }
     }
     let ua_category = (ua_route || bot_route)
         .then(|| {

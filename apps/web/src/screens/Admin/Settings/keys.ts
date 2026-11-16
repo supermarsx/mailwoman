@@ -252,6 +252,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'ratelimit.anon.perMinute',
   'ratelimit.trustedMultiplier',
   'security.protection.rateMode',
+  'security.protection.probePathMode',
   'security.protection.adaptiveMode',
   'security.protection.clientRequests',
   'security.protection.accountRequests',

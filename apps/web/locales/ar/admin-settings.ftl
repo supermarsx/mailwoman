@@ -2751,3 +2751,6 @@ admin-settings-help-accounts-preload-linked = يحتفظ بالمجلدات وا
 
 admin-settings-key-accounts-show-connection-status = إظهار رموز اتصال صناديق البريد
 admin-settings-help-accounts-show-connection-status = إظهار رمز حالة صغير بجوار أسماء صناديق البريد. تظل حالة الاتصال متاحة في إعدادات صناديق البريد المرتبطة. يمكن للمسؤولين تعيين هذا التفضيل أو قفله.
+
+admin-settings-key-security-protection-probe-path-mode = مسارات الفحص المعروفة
+admin-settings-help-security-protection-probe-path-mode = يحظر وضع الإنفاذ المصدر عند أول محاولة معروفة لفحص نظام إدارة محتوى أو بريد ويب أو لوحة خادم أو ملف حساس. مستقل عن حماية الطلبات غير المعتادة. تبقى استثناءات المصادر سارية. وضع المراقبة يسجل فقط؛ وإيقاف التشغيل يعطل القاعدة.

@@ -2747,3 +2747,6 @@ admin-settings-help-accounts-preload-linked = Сохраняет папки и �
 
 admin-settings-key-accounts-show-connection-status = Показывать значки подключения почтовых ящиков
 admin-settings-help-accounts-show-connection-status = Показывать небольшой значок состояния рядом с именами ящиков. Состояние всегда доступно в настройках связанных ящиков. Администраторы могут задать или заблокировать эту настройку.
+
+admin-settings-key-security-protection-probe-path-mode = Известные пути сканирования
+admin-settings-help-security-protection-probe-path-mode = Применение блокирует источник при первой распознанной проверке CMS, веб-почты, консоли или конфиденциального файла. Не зависит от защиты от необычных запросов. Исключения источников сохраняются. Наблюдение только записывает события; Выкл. отключает правило.

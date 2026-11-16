@@ -2735,3 +2735,6 @@ admin-settings-help-accounts-preload-linked = Speichert Ordner und aktuelle Nach
 
 admin-settings-key-accounts-show-connection-status = Verbindungssymbole für Postfächer anzeigen
 admin-settings-help-accounts-show-connection-status = Ein kleines Statussymbol neben Postfachnamen anzeigen. Der Verbindungsstatus ist immer in den Einstellungen für verknüpfte Postfächer verfügbar. Administratoren können diese Einstellung vorgeben oder sperren.
+
+admin-settings-key-security-protection-probe-path-mode = Bekannte Scan-Pfade
+admin-settings-help-security-protection-probe-path-mode = Durchsetzen sperrt die Quelle bereits beim ersten erkannten Zugriff auf fremde CMS, Webmail, Serverkonsolen oder vertrauliche Dateien. Unabhängig vom Schutz vor ungewöhnlichen Anfragen. Quellausnahmen gelten weiterhin. Beobachten protokolliert nur; Aus deaktiviert die Regel.

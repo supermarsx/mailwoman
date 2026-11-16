@@ -2729,3 +2729,6 @@ admin-settings-help-accounts-preload-linked = Bewaart mappen en recente berichte
 
 admin-settings-key-accounts-show-connection-status = Verbindingspictogrammen voor postvakken tonen
 admin-settings-help-accounts-show-connection-status = Toon een klein statuspictogram naast postvaknamen. De verbindingsstatus blijft beschikbaar in de instellingen voor gekoppelde postvakken. Beheerders kunnen deze voorkeur instellen of vergrendelen.
+
+admin-settings-key-security-protection-probe-path-mode = Herkende scanpaden
+admin-settings-help-security-protection-probe-path-mode = Handhaven blokkeert de bron bij de eerste herkende probe naar een CMS, webmail, serverconsole of gevoelig bestand. Onafhankelijk van bescherming tegen ongebruikelijke verzoeken. Bronuitzonderingen blijven gelden. Observeren registreert alleen; Uit schakelt de regel uit.

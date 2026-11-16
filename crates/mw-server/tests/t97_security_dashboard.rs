@@ -396,6 +396,35 @@ async fn simulator_explains_the_decision_without_moving_counters() {
         (off["action"].as_str(), off["off"].as_bool()),
         (Some("allow"), Some(true))
     );
+    // First-request path blocking has an independent default and simulator.
+    for (mode, action, enforced) in [
+        ("enforce", "block", true),
+        ("observe", "block", false),
+        ("off", "allow", false),
+    ] {
+        let outcome: Value = sim(json!({
+            "subjectKind":"client",
+            "sample":{"requestsInWindow":1,"signal":"probe-path"},
+            "draft":{"security.protection.probePathMode":mode}
+        }))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+        assert_eq!(outcome["action"], action, "{outcome}");
+        assert_eq!(outcome["enforced"], enforced, "{outcome}");
+        assert_eq!(outcome["off"], mode == "off", "{outcome}");
+    }
+    let defaults: Value =
+        sim(json!({"subjectKind":"client", "sample":{"requestsInWindow":1,"signal":"probe-path"}}))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+    assert_eq!(defaults["action"], "block");
+    assert_eq!(defaults["enforced"], true);
     // UA policy is independent of those older switches. Missing/uncommon
     // headers retain budgets; selected bots are blocked on their first claim.
     for (ua, count, action, class) in [

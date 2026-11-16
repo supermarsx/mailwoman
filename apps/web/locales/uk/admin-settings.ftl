@@ -2747,3 +2747,6 @@ admin-settings-help-accounts-preload-linked = Зберігає папки й о�
 
 admin-settings-key-accounts-show-connection-status = Показувати значки з’єднання поштових скриньок
 admin-settings-help-accounts-show-connection-status = Показувати невеликий значок стану поруч із назвами скриньок. Стан завжди доступний у налаштуваннях пов’язаних скриньок. Адміністратори можуть установити або заблокувати цей параметр.
+
+admin-settings-key-security-protection-probe-path-mode = Відомі шляхи сканування
+admin-settings-help-security-protection-probe-path-mode = Застосування блокує джерело за першої розпізнаної перевірки CMS, вебпошти, консолі або конфіденційного файлу. Не залежить від захисту від незвичних запитів. Винятки джерел зберігаються. Спостереження лише записує події; Вимкнено вимикає правило.

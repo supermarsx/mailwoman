@@ -4541,6 +4541,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "Off by default. Observe records budget exhaustion without refusal; enforce returns a temporary 429. Existing protocol concurrency limits remain independent."
     ),
     def!(
+        "security.protection.probePathMode",
+        Kind::Enum(&["off", "observe", "enforce"]),
+        "\"enforce\"",
+        G,
+        "security",
+        "Enforce by default: recognized foreign admin, CMS and sensitive-file scan paths immediately block the source on its first request for blockSecs. Independent of aggregate and adaptive modes; source exemptions and operator recovery still apply. Observe records without refusing; off disables this path rule."
+    ),
+    def!(
         "security.protection.adaptiveMode",
         Kind::Enum(&["off", "observe", "enforce"]),
         "\"off\"",
@@ -5160,10 +5168,10 @@ pub static REGISTRY: &[SettingDef] = &[
         def!(
             "security.adminProbe.probePaths",
             Kind::StringList {
-                max_len: 100,
+                max_len: 512,
                 max_item: 128
             },
-            r#"["/admin","/administrator","/wp-admin","/wp-login.php","/xmlrpc.php","/phpmyadmin","/pma","/myadmin","/adminer.php","/.env","/.git","/manager/html","/admin.php","/cpanel","/webadmin","/server-status","/actuator","/vendor/phpunit","/cgi-bin","/boaform","/admincp","/adminpanel","/admin-console","/admin_area","/admin-login","/adminlogin","/admin1","/admin2","/administrator.php","/login.php","/phpmyadmin4","/phpmyadmin5","/phpMyAdmin-4","/phpMyAdmin-5","/mysqladmin","/mysql-admin","/sqladmin","/sql-admin","/dbadmin","/db-admin","/phppgadmin","/pgadmin","/adminer","/manager/status","/host-manager/html","/jmx-console","/web-console","/console/login/LoginForm.jsp","/weblogic","/jenkins","/scriptText","/jolokia","/solr/admin","/nifi","/druid/index.html","/druid/login.html","/h2-console","/hudson","/geoserver/web","/zabbix","/nagios","/icinga","/webmin","/plesk","/whm","/ispconfig","/vesta","/hestia","/directadmin","/roundcube/installer","/phpinfo.php","/info.php","/.svn","/.hg","/.aws","/.ssh","/.docker","/.kube","/.vscode","/config.json.bak","/web.config.bak","/backup.sql","/dump.sql","/database.sql","/telescope","/_profiler","/_ignition","/debug/default/view","/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php","/HNAP1","/goform","/GponForm","/level/15","/boaform/admin","/sdk/vimService","/ecp","/wls-wsat"]"#,
+            include_str!("../data/admin_probe_paths.json"),
             G,
             "security",
             "Paths scanners ask for. A request whose path contains one of these as whole segments (any case) counts as a miss; the console's own path never does."
@@ -9391,7 +9399,7 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                             // Header names: Delivered-To, X-Original-To, X-MSMail-Priority, ...
                             b.is_ascii_alphanumeric() || b == b'-'
                         } else if def.key == "security.adminProbe.probePaths" {
-                            b.is_ascii_alphanumeric() || b"/._~-%+@:".contains(&b)
+                            b.is_ascii_alphanumeric() || b"/._~-%+@:!".contains(&b)
                         } else {
                             b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'.')
                         }

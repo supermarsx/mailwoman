@@ -2747,3 +2747,6 @@ admin-settings-help-accounts-preload-linked = Przechowuje foldery i najnowsze wi
 
 admin-settings-key-accounts-show-connection-status = Pokazuj ikony połączenia skrzynek
 admin-settings-help-accounts-show-connection-status = Pokazuj małą ikonę stanu obok nazw skrzynek. Stan połączenia jest zawsze dostępny w ustawieniach połączonych skrzynek. Administratorzy mogą ustawić lub zablokować tę preferencję.
+
+admin-settings-key-security-protection-probe-path-mode = Rozpoznane ścieżki skanowania
+admin-settings-help-security-protection-probe-path-mode = Egzekwowanie blokuje źródło już przy pierwszej rozpoznanej próbie dostępu do CMS, webmaila, konsoli lub poufnego pliku. Niezależne od ochrony przed nietypowymi żądaniami. Wyjątki źródeł nadal obowiązują. Obserwacja tylko zapisuje zdarzenia; Wyłączone wyłącza regułę.

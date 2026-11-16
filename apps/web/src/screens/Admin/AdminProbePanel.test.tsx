@@ -106,6 +106,9 @@ describe('Admin probe protection card', () => {
     expect(validateProbe('graceAllowance', 1001, policy)).toMatch(/1,000|1000/);
     expect(validateProbe('probePaths', ['wp-admin'], policy)).toMatch(/starts with \//);
     expect(validateProbe('windowSecs', 600, policy)).toBeNull();
+    expect(validateProbe('probePaths', Array.from({length:512},(_,i)=>`/scanner-${i}`), policy)).toBeNull();
+    expect(validateProbe('probePaths', Array.from({length:513},(_,i)=>`/scanner-${i}`), policy)).toMatch(/512/);
+    expect(validateProbe('allowlist', Array(101).fill('192.0.2.1'), policy)).toMatch(/100/);
   });
 });
 

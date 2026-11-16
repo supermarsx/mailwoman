@@ -219,7 +219,7 @@ admin-protect-rule-rate-window-secs = Finestra del budget
 admin-protect-rule-rate-window-secs-help = La durata di ogni finestra del budget, in secondi. Il conteggio riparte all'inizio di ogni finestra.
 admin-protect-rule-rate-window-secs-example = 60 significa "al minuto".
 admin-protect-rule-adaptive-mode = Protezione dalle richieste insolite
-admin-protect-rule-adaptive-mode-help = Disattivo: nulla viene contato. Solo osservazione: le azioni vengono registrate ma non applicate. Applica: i client che inviano troppe richieste insolite vengono rallentati e poi bloccati per un po'; i percorsi di scansione riconosciuti attivano un blocco temporaneo immediato quando la protezione dei client è attiva.
+admin-protect-rule-adaptive-mode-help = Disattivato: nulla viene conteggiato. Osserva: le azioni vengono solo registrate. Applica: rallenta e blocca temporaneamente i client con troppe richieste insolite. I percorsi di scansione riconosciuti hanno una modalità indipendente.
 admin-protect-rule-adaptive-mode-example = Usare Solo osservazione per una settimana, leggere la cronologia e poi passare ad Applica.
 admin-protect-rule-signals = Cosa conta come insolito
 admin-protect-rule-signals-help = Queste scelte controllano l'evidenza delle richieste ripetute. I percorsi di scansione riconosciuti attivano un blocco immediato, indipendentemente da queste scelte e soglie, quando la protezione adattiva dei client è in modalità di applicazione. Le normali risposte "non trovato", i rifiuti per server occupato e i nomi dei browser non contano mai.
@@ -666,3 +666,7 @@ admin-console-path-share = Condividi indirizzo console
 admin-console-path-email = Invia indirizzo via email
 admin-console-path-copied = Indirizzo console copiato.
 admin-console-path-share-failed = Impossibile condividere l’indirizzo. Selezionalo e copialo manualmente.
+
+admin-protect-rule-probe-path-mode = Percorsi di scansione riconosciuti
+admin-protect-rule-probe-path-mode-help = Applica blocca la sorgente al primo sondaggio riconosciuto di CMS, webmail, console o file sensibile. Indipendente dalla protezione contro richieste insolite. Restano valide le eccezioni per la sorgente. Osserva registra soltanto; Disattivato disabilita la regola.
+admin-protect-rule-probe-path-mode-example = Una richiesta a /wp-admin o /roundcube/installer blocca subito la sorgente.
