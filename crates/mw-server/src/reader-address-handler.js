@@ -50,26 +50,29 @@
     if (state === 'loading' && !image.hasAttribute('width') && !image.hasAttribute('height') && !image.style.width && !image.style.height && !image.style.aspectRatio && (!settled || (!image.getBoundingClientRect().width && !image.getBoundingClientRect().height))) image.setAttribute('data-mw-image-unsized', '');
     else if (state !== 'loading') image.removeAttribute('data-mw-image-unsized');
     tipRefresh(image);
+    if (state === 'error') retryImage(image);
   }
   // A signed image the proxy could not serve right now (busy, rate-limited, a
   // transient upstream failure) is asked for again after a growing pause, so the
   // reader sees the picture arrive instead of a broken image. Bounded, per image.
   const retries = new WeakMap();
+  const retryTimers = new Map();
   const retryDelays = [800, 2000, 4500, 9000];
   function retryImage(image) {
-    if (imagesClosed || image?.tagName !== 'IMG') return;
+    if (imagesClosed || image?.tagName !== 'IMG' || retryTimers.has(image)) return;
     const source = image.getAttribute('src') || '';
     if (!prefixes.some(prefix => /\/(?:i|p)\/$/.test(prefix) && source.startsWith(prefix))) return;
     const attempt = retries.get(image) || 0;
     if (attempt >= retryDelays.length) return;
     retries.set(image, attempt + 1);
-    setTimeout(() => {
+    retryTimers.set(image, setTimeout(() => {
+      retryTimers.delete(image);
       if (imagesClosed || !document.body.contains(image) || image.getAttribute('src') !== source || (image.complete && image.naturalWidth > 0)) return;
       image.removeAttribute('src');
       image.setAttribute('src', source);
-    }, retryDelays[attempt] + Math.floor(Math.random() * 300));
+    }, retryDelays[attempt] + Math.floor(Math.random() * 300)));
   }
-  function imageSettled(event) { imageState(event.target); if (event.type === 'error') retryImage(event.target); }
+  function imageSettled(event) { imageState(event.target); }
   function imageAdded(node) {
     if (node?.nodeType !== 1) return;
     if (node.tagName === 'IMG') imageState(node);
@@ -363,6 +366,6 @@
     event.preventDefault();
     port.postMessage({ type: 'address-context', nonce, revision, address, x: event.clientX, y: event.clientY });
   }, true);
-  addEventListener('pagehide', () => { tipHide(); for (const [type, listener, capture] of tipListeners) document.removeEventListener(type, listener, capture); removeEventListener('resize', tipHide); imagesClosed = true; imageObserver?.disconnect(); imageStates.clear(); document.removeEventListener('load', imageSettled, true); document.removeEventListener('error', imageSettled, true); port?.close(); port = null; removeEventListener('message', initialize); document.removeEventListener('DOMContentLoaded', parsed); }, { once: true });
+  addEventListener('pagehide', () => { tipHide(); for (const [type, listener, capture] of tipListeners) document.removeEventListener(type, listener, capture); removeEventListener('resize', tipHide); imagesClosed = true; for (const timer of retryTimers.values()) clearTimeout(timer); retryTimers.clear(); imageObserver?.disconnect(); imageStates.clear(); document.removeEventListener('load', imageSettled, true); document.removeEventListener('error', imageSettled, true); port?.close(); port = null; removeEventListener('message', initialize); document.removeEventListener('DOMContentLoaded', parsed); }, { once: true });
   parent.postMessage({ type: 'mw-reader-address-ready' }, '*');
 })();

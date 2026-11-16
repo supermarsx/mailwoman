@@ -95,3 +95,14 @@ it('retries transient failures for signed inline and remote images, with a bound
   f.close();
  }finally{vi.useRealTimers();}
 });
+
+it('recovers inline failures observed before the bridge starts and cancels pending retries on replacement',()=>{
+ vi.useFakeTimers();
+ try{
+  const f=frame('<img src="https://mail.test/api/rc/p/part.sig">');const image=f.doc.images[0]!;resource(image,true,0);const writes=vi.spyOn(image,'setAttribute');
+  f.start(['https://mail.test/api/rc/p/']);
+  image.dispatchEvent(new Event('error'));image.dispatchEvent(new Event('error'));
+  vi.advanceTimersByTime(1200);expect(writes.mock.calls.filter(([key])=>key==='src')).toHaveLength(1);
+  image.dispatchEvent(new Event('error'));f.close();vi.advanceTimersByTime(20000);expect(writes.mock.calls.filter(([key])=>key==='src')).toHaveLength(1);
+ }finally{vi.useRealTimers();}
+});
