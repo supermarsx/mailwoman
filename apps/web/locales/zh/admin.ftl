@@ -1016,12 +1016,12 @@ admin-protocol-enforce-title = 对所有协议防护类别强制执行？
 admin-protocol-enforce-body = 强制执行会拒绝匹配任一类别的请求，包括可能误伤代理、健康检查或上传的启发式类别。自服务器启动以来，检测已发现 { $count } 个此类请求。已锁定或由环境固定的类别保持其值。
 admin-protocol-enforce-confirm = 全部强制执行
 admin-protocol-stat-line = 自启动以来已检测 { $detected }，已拒绝 { $refused }。
-admin-protection-tab-admin-probe = 管理端探测
-admin-probe-mode = 管理端探测防护开关
+admin-protection-tab-admin-probe = 探测
+admin-probe-mode = 探测防护开关
 admin-probe-mode-on = 开启
 admin-probe-mode-off = 关闭
 admin-probe-mode-help = 开启：持续请求管理控制台、扫描器路径或管理员登录屡次失败的来源会先被减速，然后被封锁。关闭：不计数也不封锁。封锁也会拒绝该地址访问邮件应用，因此请把共享的公司网络加入永不封锁列表。
-admin-probe-enable-title = 开启管理端探测防护？
+admin-probe-enable-title = 启用探测防护？
 admin-probe-enable-body = 持续探测管理控制台的来源会先被减速，然后被封锁，封锁会拒绝来自该地址的所有请求，包括邮件应用。请先把共享的公司网络加入永不封锁列表。
 admin-probe-enable-confirm = 开启
 admin-probe-stats-title = 探测活动
@@ -1029,8 +1029,8 @@ admin-probe-last-seen = 最近一次探测
 admin-probe-evidence-title = 按类型的依据
 admin-probe-settings-unavailable = 无法加载国家封锁设置。
 admin-probe-edit-policies = 编辑策略
-admin-probe-summary-loading = 正在加载管理端探测摘要。
-admin-probe-summary-unavailable = 无法加载管理端探测摘要。
+admin-probe-summary-loading = 正在加载探测摘要。
+admin-probe-summary-unavailable = 无法加载探测摘要。
 
 # -- Machine translation (2026-11): added to match en ---------------------
 admin-probe-group-detection = 检测与依据

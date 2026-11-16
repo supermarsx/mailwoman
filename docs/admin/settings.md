@@ -2403,7 +2403,7 @@ Every request gets one tier: authenticated (a valid session; never scaled), know
 
 Bot classes (`security.trust.ua*`) act only on anonymous requests, by claimed user-agent (a header, not verified identity): `allow` skips the user-agent budget, `limit` keeps it, `block` answers 403 with `X-Robots-Tag: noindex, nofollow, noai`. A signed-in session is never blocked by class. `security.protection.userAgentExceptions` keeps a needed client allowed. The app serves no `robots.txt` or `ai.txt`.
 
-The admin-console country block adds a rule to admin-probe protection (it needs `security.adminProbe.enabled`): a probe of the console (probe list, console path guesses, unauthenticated console API calls, refused console sign-ins) from a source that is not known, not an authenticated administrator, and whose country has no successful sign-in inside the window and is not in `security.trust.adminGeoCountries`, counts toward `security.trust.adminGeoThreshold` and then blocks the source through the same tracker as other admin-probe blocks, with escalating lengths. The block shows in Security, Admin probe with the reason "admin discovery from unknown country" and is lifted with the existing one-click unblock. Without a readable country database nothing is blocked by this rule. To recover a locked-out administrator: sign in from another network, add the network to `security.adminProbe.allowlist`, add the country to `security.trust.adminGeoCountries`, or set `MW_ADMIN_GEO_ENABLED=false` (or `MW_ADMIN_PROBE_ENABLED=false`) and restart.
+The admin-console country block adds a rule to probing protection (it needs `security.adminProbe.enabled`): a probe of the console (probe list, console path guesses, unauthenticated console API calls, refused console sign-ins) from a source that is not known, not an authenticated administrator, and whose country has no successful sign-in inside the window and is not in `security.trust.adminGeoCountries`, counts toward `security.trust.adminGeoThreshold` and then blocks the source through the same tracker as other admin-probe blocks, with escalating lengths. The block shows in Security, Admin probe with the reason "admin discovery from unknown country" and is lifted with the existing one-click unblock. Without a readable country database nothing is blocked by this rule. To recover a locked-out administrator: sign in from another network, add the network to `security.adminProbe.allowlist`, add the country to `security.trust.adminGeoCountries`, or set `MW_ADMIN_GEO_ENABLED=false` (or `MW_ADMIN_PROBE_ENABLED=false`) and restart.
 
 <a id="account-signin-geography"></a>
 ### Per-account sign-in country policy
@@ -2958,13 +2958,13 @@ without refusing; Off disables this path rule. Honors
 scored admin-probe paths below do not replace this immediate catalog.
 See [Request protection](request-protection.md#immediate-scanner-path-blocking).
 
-### Admin-probe protection (`security.adminProbe.*`)
+### Probing protection (`security.adminProbe.*`)
 
 Counts requests that look for the admin console, per client network (an IPv4
 address or an IPv6 /64, resolved through the trusted-proxy rules), and slows
 then blocks a source that keeps going. These keys are changed through
 `PUT {console}/security/admin-probe/policy` (step-up `banManage`), not the
-generic settings route. See [Admin-probe protection](../security/admin-panel.md#admin-probe-protection).
+generic settings route. See [Probing protection](../security/admin-panel.md#admin-probe-protection).
 
 | Key | Default | Range | Meaning |
 |---|---|---|---|
@@ -2978,7 +2978,7 @@ generic settings route. See [Admin-probe protection](../security/admin-panel.md#
 | <a id="security.adminProbe.repeatWindowSecs"></a>`security.adminProbe.repeatWindowSecs` | `86400` | 0–2592000 | A block starting this soon after the previous one ended is a repeat. |
 | <a id="security.adminProbe.blockStatus"></a>`security.adminProbe.blockStatus` | `"429"` | `429`, `403` | Status of the blocked answer (with `Retry-After`). |
 | <a id="security.adminProbe.signals"></a>`security.adminProbe.signals` | all four | `probe-path`, `slug-guess`, `admin-signin-failed`, `admin-unauthenticated` | Which misses count. |
-| <a id="security.adminProbe.probePaths"></a>`security.adminProbe.probePaths` | 284 paths (`/admin`, `/wp-admin`, `/.env`, `/manager/html`, `/jolokia`, …) | up to 512, each starting with `/` | Paths scanners ask for; matched as whole segments, any case. |
+| <a id="security.adminProbe.probePaths"></a>`security.adminProbe.probePaths` | 327 paths (`/admin`, `/wp-admin`, `/.env`, `/manager/html`, `/jolokia`, …) | up to 512, each starting with `/` | Paths scanners ask for; matched as whole segments, any case. |
 | <a id="security.adminProbe.allowlist"></a>`security.adminProbe.allowlist` | `[]` | up to 100 IPs/CIDRs | Never counted or blocked. |
 | <a id="security.adminProbe.auditIp"></a>`security.adminProbe.auditIp` | `"masked"` | `masked`, `full` | Source in the audit log and the API: IPv4 /24 and IPv6 /48, or the address. |
 | <a id="security.adminProbe.fail2banLog"></a>`security.adminProbe.fail2banLog` | `true` | bool | Write the `mailwoman[admin-probe]` line on each block. |

@@ -185,7 +185,7 @@ exportable from the Observability section (and via `mailwoman admin`).
 Failed admin logins feed a login monitor and a ban list emitted in **fail2ban-compatible
 log format**, so an operator can wire the existing fail2ban tooling against Mailwoman's
 admin surface without a bespoke parser. Sources that search for the console are
-handled by [admin-probe protection](#admin-probe-protection).
+handled by [probing protection](#admin-probe-protection).
 
 ## Adaptive protection and explicit scan paths
 
@@ -201,7 +201,7 @@ blocking; in `off` mode this adaptive check does not run.
 Ordinary unknown paths and generic 404 responses alone are not evidence. The
 console's protection history explains the first-request decision and block
 duration separately from repeated-request escalation. This adaptive rule is
-independent of the grace-based admin-probe protection below.
+independent of the grace-based probing protection below.
 
 Source rows and decision history include a country when the local GeoIP database
 can resolve the trusted client address. The operator-only lists also show the
@@ -223,7 +223,8 @@ and message authorization, privacy grants, image queues, fetch and byte limits
 still apply. Invalid or expired links and deliberate file downloads keep normal
 request accounting.
 
-## Admin-probe protection
+<a id="admin-probe-protection"></a>
+## Probing protection
 
 A hidden console path stops scanners from finding the console. Admin-probe
 protection (26.20, `security.adminProbe.*`) also stops them from searching for
@@ -275,12 +276,12 @@ one public address (a company NAT) share its score: put such networks on the
 allowlist if one scanner there must not lock the others out.
 
 **In the console.** Security centre > Aggregate and adaptive protection has an
-"Admin probe protection" card: the policy in plain words, each setting editable
+"Probing protection" card: the policy in plain words, each setting editable
 in place (with identity confirmation), the sources blocked now with Unblock,
 and the counters and top offenders since the server started. The card repeats
 the warning above, since a block also stops that address from using the mail
 app: add shared company networks (an office, a VPN) to "Never-blocked
-networks". The Security centre Overview has an "Admin probe blocks" tile for
+networks". The Security centre Overview has an "Probing blocks" tile for
 administrators who can read IP bans.
 
 **Audit and logs.**

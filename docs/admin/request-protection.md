@@ -29,8 +29,8 @@ remain available. Only the trusted proxy resolver selects the source: untrusted
 forwarding headers cannot choose a victim address. Configure trusted proxies
 correctly before exposing an instance through a proxy.
 
-The curated immediate catalog contains 235 targets. Administrative probe defaults
-contain 284 paths, including the broader scored console guesses. Saved custom
+The curated immediate catalog contains 279 targets. Administrative probe defaults
+contain 327 paths, including the broader scored console guesses. Saved custom
 administrative `probePaths` lists are preserved; changing a scored-path list does
 not disable the separate immediate catalog. The scored administrative tracker
 continues to handle generic guesses according to its configured grace and
@@ -62,7 +62,7 @@ which paths qualify and which normal routes are excluded.
 | Adaptive subjects | Client, account, administrator | Throttle 3 s on first threshold crossing, block 300 s on a later one, decay 24 h | Same exemptions; never triggered by a `429` | `429` with `retryAfterSecs` | `security.protection.adaptive*`, `short*`, `long*`, `throttleSecs`, `blockSecs`, `decaySecs`, `signals` |
 | Recognized bot user-agent (first request) | Source address | Blocks declared bot classes on first request, when enabled | A request with a valid session is limited, not blocked; Playwright's default `HeadlessChrome` user-agent is flagged on purpose | `403` `automatedClientBlocked`, or the budget's `429` | `security.protection.userAgentBlockBots`, `userAgentCategories` |
 | Baseline warming up | Subject | The normal-traffic baseline is learned per minute bucket; no ratio decision before `minimumSamples` | All real browsers: it never refuses by itself, only an absolute anomaly count can | none while warming | `shortMinimumSamples`, `longMinimumSamples`, `normalCapPerBucket` |
-| Admin probe guard | Source address | Per `security.adminProbe.*` policy (default blocks a source after probing for the console) | Operators with a console session; assets | Configured status (`429` default) | `security.adminProbe.*` |
+| Probing guard | Source address | Per `security.adminProbe.*` policy (default blocks a source after probing for the console) | Operators with a console session; assets | Configured status (`429` default) | `security.adminProbe.*` |
 | Protocol guard | Request | Framing, Host, target, header and body rules | `/healthz` | `400`/`405`/`413`/`414`/`417`/`431`, never `429` | `security.protocol.*` |
 | JMAP API concurrency | Account id; process | 8 per account, 256 per process, wait 3 s | Proxy mode (upstream limits apply) | `429` problem `limit: maxConcurrentRequests`, `Retry-After`, `RateLimit-*` | `ratelimit.jmap.perAccountConcurrent`, `globalConcurrent`, `queueMs` |
 | JMAP blob upload concurrency | Account id; process | 4 per account (half the request value, never below 4), 128 per process, wait 3 s | Proxy mode | `429` problem `limit: maxConcurrentUpload` | same |

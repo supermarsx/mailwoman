@@ -323,12 +323,12 @@ admin-security-tab-geoip = Country database
 admin-obs-geo-open-database = Open the country database page
 
 ## t97: Admin probe protection (server t100) in Adaptive protection, and its Overview tile
-admin-secdash-admin-probe = Admin probe blocks
+admin-secdash-admin-probe = Probing blocks
 admin-secdash-admin-probe-off = Off
 admin-secdash-admin-probe-detail = { $day } in 24 h · { $refused } requests refused
-admin-secdash-open-admin-probe = Open admin probe protection
-admin-probe-title = Admin probe protection
-admin-probe-intro = Scanners look for admin consoles at common addresses such as /wp-admin or /admin, guess the console's address, or try admin passwords. Each such miss counts against the client's network (an IPv4 address or an IPv6 /64). A few misses are forgiven, so a typo or an old bookmark does nothing; past that, answers are slowed down, and a source that keeps going is blocked for a while, longer each time it comes back.
+admin-secdash-open-admin-probe = Open probing protection
+admin-probe-title = Probing protection
+admin-probe-intro = Detects CMS folders and assets, webmail installers, server consoles and sensitive files, alongside console guesses and rejected administrator sign-ins. Recognized scanner paths are blocked on the first request by their own policy. The scored rules below allow a grace period for other misses.
 admin-probe-mail-app-warning = A block refuses every request from that address, the mail app included. If your staff share one address (an office, a VPN, a mobile carrier), add that network to "Never-blocked networks" so one scanner or one mistyped bookmark cannot lock everyone out.
 admin-probe-summary-on = On.
 admin-probe-summary-off = Off: misses are not counted and nothing is blocked.

@@ -1322,3 +1322,43 @@ async fn scan_path_observe_does_not_become_enforced_by_general_adaptive_protecti
     assert_eq!(events[0].reason, "probe-path");
     assert!(!events[0].enforced);
 }
+
+#[tokio::test]
+async fn cms_fingerprint_assets_enforce_on_the_first_request_with_default_policy() {
+    let (base, store) = fixture(&[("security.adminProbe.enabled", json!(false))]).await;
+    let paths = [
+        "/media/system/js/core.js",
+        "/wp-includes/js/jquery/jquery.js",
+        "/wp-includes/custom/arbitrary.css",
+        "/wp-content/uploads/image.png",
+        "/media/system/custom/image.png",
+        "/components/com_custom/asset.js",
+        "/core/misc/drupal.js",
+        "/typo3temp/assets/custom.css",
+    ];
+    for (index, path) in paths.iter().enumerate() {
+        let scanner = client(145 + index as u8);
+        let first = scanner.get(format!("{base}{path}")).send().await.unwrap();
+        assert_eq!(first.status(), 429, "first request to {path}");
+        assert!(first.headers().contains_key("retry-after"));
+        assert_eq!(
+            scanner
+                .get(format!("{base}/api/me"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            429
+        );
+    }
+    let events = store
+        .request_protection_events(chrono::Utc::now().timestamp(), None, 100)
+        .await
+        .unwrap();
+    assert_eq!(events.len(), paths.len());
+    assert!(
+        events
+            .iter()
+            .all(|event| event.reason == "probe-path" && event.enforced)
+    );
+}

@@ -34,7 +34,7 @@ function api(overrides: Partial<AdminProbeApi> = {}): AdminProbeApi {
   };
 }
 
-describe('Admin probe protection card', () => {
+describe('Probing protection card', () => {
   it('shows readable block reasons in top offenders and a safe fallback for a watched source without evidence', async () => {
     const data=overview();
     data.topOffenders=[blocked,{...blocked,id:'c'.repeat(32),source:'198.51.100.0/24',lastSignal:'admin-signin-failed'},{...blocked,id:'d'.repeat(32),source:'192.0.2.0/24',lastSignal:null,blocked:false,blockedAt:null,blockedUntil:null,retryAfterSecs:null}];
@@ -121,7 +121,7 @@ function geo(key: string, value: unknown, extra: Partial<AdminSetting> = {}): Ad
 }
 const geoKeys = PROBE_GROUPS.flatMap((g) => g.registry);
 
-describe('Admin probe subtab', () => {
+describe('Probing subtab', () => {
   it('shows every admin-probe policy once, in five named groups', () => {
     expect(PROBE_GROUPS.map((g) => g.id)).toEqual(['detection', 'responses', 'countries', 'exemptions', 'logging']);
     expect([...PROBE_GROUP_KEYS].sort()).toEqual(PROBE_FIELDS.map((f) => f.key).sort());
@@ -168,7 +168,7 @@ describe('Admin probe subtab', () => {
   it('opens by route, lists the tab, and the Overview keeps a compact card linking to it', async () => {
     expect(protectionTab(['protection', 'admin-probe'])).toBe('admin-probe');
     renderInShell(() => <RequestProtection probeApi={api()} api={{ status: async () => ({}) as never, subjects: async () => ({ subjects: [], cursor: null, total: 0 }), events: async () => ({ events: [], cursor: null, total: 0 }), clear: async () => undefined }} />, { route: () => ({ section: 'security', rest: ['protection', 'admin-probe'] }) });
-    expect(await screen.findByRole('link', { name: 'Admin probe' })).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByRole('link', { name: 'Probing' })).toHaveAttribute('aria-current', 'page');
     expect(await screen.findByTestId('admin-probe-panel')).toBeInTheDocument();
   });
   it('shows the compact summary with an Edit policies link and no editors', async () => {

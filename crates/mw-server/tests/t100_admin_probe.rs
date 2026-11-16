@@ -605,7 +605,7 @@ fn expanded_scanner_defaults_validate_through_the_settings_registry() {
     assert!(validate(mode, &mode.default_value(), "value").is_ok());
     let paths = lookup("security.adminProbe.probePaths").unwrap();
     let defaults = paths.default_value();
-    assert_eq!(defaults.as_array().unwrap().len(), 284);
+    assert_eq!(defaults.as_array().unwrap().len(), 327);
     assert!(validate(paths, &defaults, "value").is_ok());
     assert!(validate(paths, &json!(["/bamboo/userlogin!default.action"]), "value").is_ok());
     assert!(validate(paths, &json!(["/bad\npath"]), "value").is_err());

@@ -326,12 +326,12 @@ admin-security-tab-geoip = Base de dados de países
 admin-obs-geo-open-database = Abrir a página da base de dados de países
 
 ## t97: Proteção contra sondagem da administração (servidor t100) e o respetivo mosaico
-admin-secdash-admin-probe = Bloqueios de sondagem da administração
+admin-secdash-admin-probe = Bloqueios de sondagem
 admin-secdash-admin-probe-off = Desativada
 admin-secdash-admin-probe-detail = { $day } em 24 h · { $refused } pedidos recusados
-admin-secdash-open-admin-probe = Abrir proteção contra sondagem da administração
-admin-probe-title = Proteção contra sondagem da administração
-admin-probe-intro = Os scanners procuram consolas de administração em endereços comuns como /wp-admin ou /admin, tentam adivinhar o endereço da consola ou experimentam palavras-passe de administrador. Cada falha destas conta contra a rede do cliente (um endereço IPv4 ou um /64 IPv6). Algumas falhas são perdoadas, por isso um erro de escrita ou um marcador antigo não têm efeito; a partir daí, as respostas são atrasadas, e uma origem que insiste é bloqueada durante algum tempo, cada vez mais quando volta.
+admin-secdash-open-admin-probe = Abrir proteção contra sondagem
+admin-probe-title = Proteção contra sondagem
+admin-probe-intro = Deteta pastas e recursos de CMS, instaladores de webmail, consolas e ficheiros sensíveis, além de tentativas de descobrir a consola e de autenticações administrativas recusadas. Os caminhos de varrimento conhecidos são bloqueados ao primeiro pedido pela sua própria política. As regras pontuadas abaixo permitem tolerância para outras falhas.
 admin-probe-mail-app-warning = Um bloqueio recusa todos os pedidos desse endereço, incluindo a aplicação de correio. Se a sua equipa partilha um endereço (um escritório, uma VPN, um operador móvel), adicione essa rede a "Redes nunca bloqueadas" para que um scanner ou um marcador mal escrito não bloqueie toda a gente.
 admin-probe-summary-on = Ativada.
 admin-probe-summary-off = Desativada: as falhas não são contadas e nada é bloqueado.

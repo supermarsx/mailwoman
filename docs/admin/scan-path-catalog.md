@@ -17,9 +17,9 @@ other applications hosted on the same domain.
 | Data, monitoring and infrastructure | phpMyAdmin/phpPgAdmin/Adminer, SQLite/Redis/Mongo tools, Zabbix, Nagios, Icinga, Grafana/Kibana, Prometheus/Alertmanager, RabbitMQ, Portainer, Rancher, Consul, Vault, MinIO, Kubernetes dashboard, Harbor, Nexus/Artifactory, GitLab/Gitea/Gogs, TeamCity/Bamboo/SonarQube, Guacamole |
 | Appliances and exposed files | Fortinet/Pulse/Palo Alto/Cisco VPN namespaces, router CGI/management endpoints, VMware SDK, source-control metadata, environment files, PHP shells, SQL dumps, Java/Magento configuration, cloud/container/IDE credentials, procfs and passwd probes |
 
-`crates/mw-server/data/scan_probe_paths.json` holds the 235 immediate catalog
+`crates/mw-server/data/scan_probe_paths.json` holds the 279 immediate catalog
 entries. Additional existing filename/environment rules cover known variants.
-`admin_probe_paths.json` contains the 284 editable administrative defaults and
+`admin_probe_paths.json` contains the 327 editable administrative defaults and
 is checked to include every immediate entry. Whole path segments are matched,
 case-insensitively, including nested installations. Normalization bounds request
 length and percent decoding, resolves dot segments and ignores query/fragment
@@ -60,3 +60,5 @@ that an arbitrary login name is a bot just because it contains `admin` or has no
 yet signed in locally: proxy deployments can legitimately admit first-time
 upstream users. Credential rejection and unavailable upstreams have their own
 sign-in protections; this catalog changes path-based enforcement.
+
+CMS namespaces match all descendants, including static JavaScript, stylesheets and images. Examples include `/media/system/js/core.js`, `/wp-includes/js/jquery/jquery.js`, Joomla `components/com_*` and `modules/mod_*`, Drupal core/site resources, and TYPO3/Bitrix/Magento asset folders. Generic `/media`, `/components`, `/modules` and `/templates` paths are not blanket scan triggers.

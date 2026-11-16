@@ -142,6 +142,15 @@ pub(crate) fn hostile_probe_path(path: &str) -> bool {
     {
         return true;
     }
+    // Joomla extension directories use well-known component/module prefixes,
+    // including third-party extensions whose names cannot be enumerated.
+    if segments.windows(2).any(|pair| {
+        matches!((pair[0], pair[1].split_once('_')),
+            ("components", Some(("com", suffix))) | ("modules", Some(("mod", suffix)))
+                if !suffix.is_empty())
+    }) {
+        return true;
+    }
     for (index, segment) in segments.iter().enumerate() {
         let tail = &segments[index + 1..];
         match *segment {
@@ -390,7 +399,7 @@ mod tests {
             "/admin",
             "/login",
             "/user/login",
-            "/administrator/help.html",
+            "/administrator-guide/help.html",
             "/wp-administration",
             "/my-wp-admin",
             "/wp-admin.js",
@@ -405,9 +414,9 @@ mod tests {
             "/typo30",
             "/umbraco-assets",
             "/myumbraco",
-            "/bitrix/administer",
-            "/bitrix/admin.js",
-            "/bitrix/public/index.php",
+            "/bitrix-assets/administer",
+            "/bitrix-assets/admin.js",
+            "/bitrix-assets/public/index.php",
             "/api/files/.env",
             "/jmap/wp-admin",
             "/dav/collection/wp-login.php",
@@ -588,7 +597,7 @@ mod tests {
             serde_json::from_str(include_str!("../../data/scan_probe_paths.json")).unwrap();
         let defaults: Vec<String> =
             serde_json::from_str(include_str!("../../data/admin_probe_paths.json")).unwrap();
-        assert_eq!(paths.len(), 235);
+        assert_eq!(paths.len(), 279);
         assert!(defaults.len() <= 512);
         let unique: std::collections::BTreeSet<_> = paths.iter().collect();
         assert_eq!(unique.len(), paths.len());
@@ -613,6 +622,43 @@ mod tests {
             "/%65cp",
         ] {
             assert!(hostile_probe_path(path), "{path}");
+        }
+    }
+    #[test]
+    fn cms_folders_cover_all_descendants_including_static_assets() {
+        for path in [
+            "/media/system/js/core.js",
+            "/wp-includes/js/jquery/jquery.js",
+            "/WP-INCLUDES/custom/arbitrary.css",
+            "/wp-content/uploads/arbitrary.jpg",
+            "/wp-admin/arbitrary/file.js",
+            "/media/system/custom/file.png",
+            "/blog/media/jui/js/jquery.min.js",
+            "/media/vendor/joomla/js/custom.js",
+            "/components/com_custom/new/file.css",
+            "/modules/mod_custom/tmpl/default.php",
+            "/administrator/components/com_users/view.html",
+            "/bitrix/public/index.php",
+            "/core/misc/drupal.js",
+            "/sites/default/files/example.png",
+            "/typo3temp/assets/css/anything.css",
+            "/pub/static/custom/arbitrary.js",
+            "/opencart/catalog/custom.css",
+            "/media/%73ystem/js/core.js",
+        ] {
+            assert!(hostile_probe_path(path), "{path}");
+        }
+        for path in [
+            "/media/profile.jpg",
+            "/media/systematic/js/core.js",
+            "/wp-includes-extra/file.js",
+            "/components/common/file.js",
+            "/modules/modern/file.js",
+            "/templates/custom/app.css",
+            "/api/files/media/system/js/core.js",
+            "/jmap/download/a/wp-includes/js/jquery/jquery.js",
+        ] {
+            assert!(!hostile_probe_path(path), "{path}");
         }
     }
 }
