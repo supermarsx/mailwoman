@@ -983,20 +983,32 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       const cancelled = () => ({ blocked: false, restored:false, original:false,originalReview:originalHelpers?.reviewOriginalLinks,originalReport:undefined as ReturnType<typeof import('../viewers/originalHtml.ts')['originalHtmlReport']>|undefined, scope:k.scope, emailId: k.email.id, account: k.account, html: '', sanitized: '', refs: { urls: [], cids: [], trackers: 0, files: [], links: [] },cidParts:{} as Record<string,string>, policy: BLOCKED_POLICY, failed: false, images: 0, imageSources:EMPTY_SIGNED.images });
       const current = () => app.accountId() === k.account && emailId() === k.email.id && maxsec.effectiveMode(sender()) === k.securityMode && htmlRenderScope()===k.scope;
       if (!current()) return cancelled();
-      const refs = original?.refs??(blocked&&!restored ? { urls: [], cids: [], trackers: 0, files: [], links: [] } : readerReferences(html)); const cidParts: Record<string,string> = {};
-      const walk = (part: unknown): void => {
-        if (!part || typeof part !== 'object') return;
+      const refs = original?.refs??(blocked&&!restored ? { urls: [], cids: [], trackers: 0, files: [], links: [] } : readerReferences(html)); const cidParts: Record<string,string> = Object.create(null);
+      let visitedParts=0;
+      const walk = (part: unknown, depth=0): void => {
+        if (!part || typeof part !== 'object' || depth>32 || visitedParts++>=4096) return;
+        if(Array.isArray(part)){for(const item of part)walk(item,depth+1);return;}
         const p = part as { cid?: string; blobId?: string; subParts?: unknown[] };
-        if (typeof p.cid === 'string' && typeof p.blobId === 'string') cidParts[p.cid.replace(/^<|>$/g, '')] = p.blobId;
-        if (Array.isArray(p.subParts)) p.subParts.forEach(walk);
+        if (typeof p.cid === 'string' && typeof p.blobId === 'string' && p.blobId) {
+          const key=p.cid.trim().replace(/^<|>$/g, '').trim();
+          if(key)cidParts[key] = p.blobId;
+        }
+        if (Array.isArray(p.subParts)) walk(p.subParts,depth+1);
       };
+      const collect=(message:Record<string,unknown>|undefined):void=>{if(message)for(const property of ['mailwomanInlineParts','bodyStructure','attachments'])walk(message[property]);};
+      // Some backends omit the extension in a later response. Retain owned
+      // metadata already present on this exact message rather than blanking it.
+      collect(k.email as unknown as Record<string,unknown>);
       if (refs.cids.length) {
-        try {
-          const property = effective.inlineParts ? 'mailwomanInlineParts' : 'bodyStructure';
-          const response = await jmapClient.jmap({ using: [CAP_CORE, CAP_MAIL], methodCalls: [['Email/get', { accountId: k.account, ids: [k.email.id], properties: ['id', property], bodyProperties: ['partId','blobId','cid','subParts','type'] }, 'rc-parts']] });
-          const message = responseFor<{ list: Record<string,unknown>[] }>(response, 'rc-parts').list[0];
-          const parts = message?.[property]; if (Array.isArray(parts)) parts.forEach(walk); else walk(parts);
-        } catch { failed = true; }
+        const readParts=async(properties:string[]):Promise<void>=>{
+          const response = await jmapClient.jmap({ using: [CAP_CORE, CAP_MAIL], methodCalls: [['Email/get', { accountId: k.account, ids: [k.email.id], properties: ['id',...properties], bodyProperties: ['partId','blobId','cid','subParts','type'] }, 'rc-parts']] });
+          collect(responseFor<{ list: Record<string,unknown>[] }>(response, 'rc-parts').list.find(message=>message['id']===k.email.id));
+        };
+        try { await readParts(effective.inlineParts?['mailwomanInlineParts']:['bodyStructure','attachments']); } catch { /* Standard metadata and the already loaded message can still resolve its parts. */ }
+        if(effective.inlineParts&&refs.cids.some(id=>!cidParts[id])){
+          try{await readParts(['bodyStructure','attachments']);}catch{/* The unresolved references below expose Retry. */}
+        }
+        if(refs.cids.some(id=>!cidParts[id]))failed=true;
       }
       if (!current()) return cancelled();
       const rules = JSON.parse(k.hostRules) as ImageHostLists;

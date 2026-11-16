@@ -395,6 +395,35 @@ describe('Reader signed privacy pipeline',()=>{
     expect(requests).toContainEqual({emailId:'m1',urls:['https://cdn.example.test/image.png'],parts:['m1.2']});
     expect(JSON.stringify(requests)).not.toContain('Private body');expect(frame()?.srcdoc).not.toContain('/api/image-proxy');
   });
+  it('retains known inline MIME parts when a metadata response omits the extension',async()=>{
+    const original=globalThis.fetch;
+    vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(init?.body&&String(init.body).includes('rc-parts')){
+        const body=JSON.parse(String(init.body)) as {methodCalls:[string,unknown,string][]};
+        return json({sessionState:'s',methodResponses:body.methodCalls.map(([method,,tag])=>[method,{accountId:'acct1',state:'s',list:[{id:'m1',mailwomanInlineParts:[]}],notFound:[]},tag])});
+      }
+      return original(input,init);
+    }));
+    const email=message('m1','<p>Inline logo</p><img src="cid:logo%40test" alt="Logo">');
+    Object.assign(email,{attachments:[{partId:'2',blobId:'m1.2',cid:' <logo@test> ',type:'image/png',name:'logo.png',size:24}]});
+    await open([email]);await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/p/part.signature'));
+    expect(requests).toContainEqual({emailId:'m1',urls:[],parts:['m1.2']});
+  });
+  it('resolves inline images through standard nested MIME metadata when the extension is missing',async()=>{
+    const original=globalThis.fetch;let standard=0;
+    vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      if(init?.body&&String(init.body).includes('rc-parts')){
+        const body=JSON.parse(String(init.body)) as {methodCalls:[string,{properties:string[]},string][]};
+        return json({sessionState:'s',methodResponses:body.methodCalls.map(([method,args,tag])=>{
+          const fallback=args.properties.includes('bodyStructure');if(fallback)standard++;
+          return [method,{accountId:'acct1',state:'s',list:[{id:'m1',...(fallback?{bodyStructure:{subParts:[{cid:'<logo@test>',blobId:'m1.2'}]}}:{})}],notFound:[]},tag];
+        })});
+      }
+      return original(input,init);
+    }));
+    await open([message('m1','<p>Inline logo</p><img src="cid:logo%40test" alt="Logo">')]);
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/p/part.signature'));expect(standard).toBeGreaterThan(0);
+  });
   it.each(['block','ask'] as const)('does not sign ungranted remote URLs in %s mode',async mode=>{
     policy.mode=mode;await open([message('m1','<img src="https://cdn.example.test/image.png">')]);
     await waitFor(()=>expect(frame()?.srcdoc).toContain('data-mw-ph='));
