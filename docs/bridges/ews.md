@@ -27,6 +27,21 @@ EWS on-premises authentication supported in V7:
   against RFC / MS-NLMP known-answer test vectors). **Zero new dependencies**, no
   GSSAPI, no C.
 
+The domain connection editor exposes Basic and NTLM. NTLM requires an explicit NT
+domain; a workstation name is optional. Requests use one host-owned HTTP/1.1
+connection for the Type 1/2/3 exchange, including through the configured egress
+proxy. The authentication session identifier stays inside Mailwoman. The Type 3
+message includes a transcript MIC, the verified Exchange TLS certificate channel
+binding and an `HTTP/<endpoint host>` service binding. Missing TLS binding or a
+weaker negotiated authentication mode is refused. Basic and NTLM both require an
+exact HTTPS endpoint and verified trust roots; neither follows an arbitrary redirect.
+
+Folder and item synchronization consume all pages before committing a new cursor.
+Updates and read-flag changes are refetched, SOAP errors cannot masquerade as an
+empty successful sync, and expired sync state requests an engine reconciliation.
+Item identity uses the stable EWS ItemId rather than the changing ChangeKey, so a
+read flag or deletion without a revision can resolve the cached message.
+
 ### Kerberos SSO is via a BYO reverse-proxy (not native)
 
 **Kerberos / SPNEGO single sign-on via the system GSSAPI is not spoken by the bridge.**

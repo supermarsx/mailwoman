@@ -201,20 +201,40 @@ pub trait FormPoster: Send + Sync {
 
 /// A raw form-POST response (status + body). Kept transport-agnostic so a mock can
 /// stand in for the provider verbatim.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct FormResponse {
     pub status: u16,
     pub body: String,
+}
+impl std::fmt::Debug for FormResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FormResponse")
+            .field("status", &self.status)
+            .field("body", &"<redacted>")
+            .finish()
+    }
 }
 
 /// Account-bound form transport. Uses the current egress plan; never follows redirects.
 pub struct ReqwestPoster {
     store: Store,
     account: String,
+    enrollment: Option<mw_store::BridgeAccountRow>,
 }
 impl ReqwestPoster {
     pub fn new(store: Store, account: String) -> Self {
-        Self { store, account }
+        Self {
+            store,
+            account,
+            enrollment: None,
+        }
+    }
+    pub(crate) fn enrollment(store: Store, binding: mw_store::BridgeAccountRow) -> Self {
+        Self {
+            store,
+            account: binding.account_id.clone(),
+            enrollment: Some(binding),
+        }
     }
 }
 #[async_trait]
@@ -225,12 +245,15 @@ impl FormPoster for ReqwestPoster {
         form: &[(&str, &str)],
     ) -> std::result::Result<FormResponse, OauthError> {
         let operation = async {
-            let binding = self
-                .store
-                .get_bridge_account(&self.account)
-                .await
-                .map_err(|_| OauthError::Transport("binding unavailable".into()))?
-                .ok_or_else(|| OauthError::Transport("binding unavailable".into()))?;
+            let binding = match &self.enrollment {
+                Some(binding) => binding.clone(),
+                None => self
+                    .store
+                    .get_bridge_account(&self.account)
+                    .await
+                    .map_err(|_| OauthError::Transport("binding unavailable".into()))?
+                    .ok_or_else(|| OauthError::Transport("binding unavailable".into()))?,
+            };
             crate::features::plugin_policy_admit(
                 &self.store,
                 &binding.bridge_id,
@@ -256,7 +279,7 @@ impl FormPoster for ReqwestPoster {
             {
                 return Err(OauthError::Transport("plugin capability revoked".into()));
             }
-            let client = build_client(&self.store, self, None, &self.account).await?;
+            let client = client_from_binding(self, None, &binding)?;
             let target = reqwest::Url::parse(url)
                 .map_err(|_| OauthError::Transport("invalid OAuth endpoint".into()))?;
             let allowed: Vec<String> = serde_json::from_str(&plugin.net_allowlist_json)
@@ -302,6 +325,7 @@ impl FormPoster for ReqwestPoster {
             let mut request = mw_egress::plan::Request::plugin(
                 mw_egress::TrafficClass::Oauth,
                 mw_egress::PluginHttp {
+                    connection: None,
                     additional_roots: &[],
                     method: "POST",
                     headers: &headers,
@@ -336,7 +360,7 @@ impl FormPoster for ReqwestPoster {
 }
 
 /// A minted/refreshed token set from a provider token response.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TokenResponse {
     pub access_token: String,
     /// Absent when the provider did not issue/rotate one (Google often omits it on a
@@ -348,8 +372,22 @@ pub struct TokenResponse {
     pub scope: String,
 }
 
+impl std::fmt::Debug for TokenResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenResponse")
+            .field("access_token", &"<redacted>")
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "<redacted>"),
+            )
+            .field("expires_in", &self.expires_in)
+            .field("scope", &self.scope)
+            .finish()
+    }
+}
+
 /// The wire shape of a provider token response (`access_token` grant success).
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct TokenWire {
     access_token: Option<String>,
     refresh_token: Option<String>,
@@ -363,7 +401,7 @@ struct TokenWire {
 }
 
 /// A device-authorization response (RFC 8628 §3.2).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DeviceAuthorization {
     pub device_code: String,
     pub user_code: String,
@@ -375,7 +413,19 @@ pub struct DeviceAuthorization {
     pub interval: i64,
 }
 
-#[derive(Debug, Deserialize)]
+impl std::fmt::Debug for DeviceAuthorization {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeviceAuthorization")
+            .field("device_code", &"<redacted>")
+            .field("user_code", &"<redacted>")
+            .field("verification_uri", &self.verification_uri)
+            .field("expires_in", &self.expires_in)
+            .field("interval", &self.interval)
+            .finish()
+    }
+}
+
+#[derive(Deserialize)]
 struct DeviceAuthWire {
     device_code: Option<String>,
     user_code: Option<String>,
@@ -412,6 +462,37 @@ pub struct OauthClient<'a> {
 }
 
 impl<'a> OauthClient<'a> {
+    pub(crate) fn enrollment(
+        poster: &'a dyn FormPoster,
+        binding: &mw_store::BridgeAccountRow,
+    ) -> Result<Self, OauthError> {
+        let secret = std::env::var("MW_BRIDGE_OAUTH_CLIENT_SECRET").ok();
+        client_from_binding(poster, secret.as_deref(), binding)
+    }
+    pub(crate) fn authorization_url(
+        &self,
+        redirect: &str,
+        state: &str,
+        challenge: &str,
+    ) -> Result<String, OauthError> {
+        let mut url = reqwest::Url::parse(&self.endpoints.authorize)
+            .map_err(|_| OauthError::Config("invalid authorize endpoint".into()))?;
+        url.query_pairs_mut().extend_pairs([
+            ("client_id", self.client_id.as_str()),
+            ("response_type", "code"),
+            ("redirect_uri", redirect),
+            ("scope", self.scope_str().as_str()),
+            ("state", state),
+            ("code_challenge", challenge),
+            ("code_challenge_method", "S256"),
+        ]);
+        if self.provider == Provider::Google {
+            url.query_pairs_mut()
+                .append_pair("access_type", "offline")
+                .append_pair("prompt", "consent");
+        }
+        Ok(url.into())
+    }
     /// The space-delimited requested-scope string.
     fn scope_str(&self) -> String {
         self.scopes.join(" ")
@@ -550,6 +631,15 @@ fn parse_token_response(
             resp.status
         ))));
     };
+    if !(200..300).contains(&resp.status)
+        || access_token.is_empty()
+        || access_token.len() > 32768
+        || access_token.bytes().any(|b| b < 0x20 || b == 0x7f)
+    {
+        return Ok(Err(OauthError::Malformed(
+            "provider did not acknowledge a valid token".into(),
+        )));
+    }
     Ok(Ok(TokenResponse {
         access_token,
         refresh_token: wire.refresh_token,
@@ -583,7 +673,16 @@ async fn build_client<'a>(
         .map_err(|e| OauthError::Config(format!("bridge_accounts read failed: {e}")))?
         .ok_or_else(|| OauthError::Config(format!("no bridge account binding for '{account}'")))?;
 
-    let raw = binding.oauth_ref.unwrap_or_default();
+    client_from_binding(poster, client_secret, &binding)
+}
+
+fn client_from_binding<'a>(
+    poster: &'a dyn FormPoster,
+    client_secret: Option<&str>,
+    binding: &mw_store::BridgeAccountRow,
+) -> Result<OauthClient<'a>, OauthError> {
+    let account = &binding.account_id;
+    let raw = binding.oauth_ref.clone().unwrap_or_default();
     if raw.trim().is_empty() {
         return Err(OauthError::Config(format!(
             "bridge account '{account}' has no oauth_ref configured"
@@ -613,14 +712,56 @@ async fn build_client<'a>(
     } else {
         cfg.scopes.clone()
     };
+    let mapped = std::env::var("MW_BRIDGE_OAUTH_CLIENT_SECRETS").ok();
+    let provider_secret = std::env::var(match provider {
+        Provider::Microsoft => "MW_GRAPH_OAUTH_CLIENT_SECRET",
+        Provider::Google => "MW_GMAIL_OAUTH_CLIENT_SECRET",
+    })
+    .ok();
+    let provider_id = std::env::var(match provider {
+        Provider::Microsoft => "MW_GRAPH_OAUTH_CLIENT_ID",
+        Provider::Google => "MW_GMAIL_OAUTH_CLIENT_ID",
+    })
+    .ok();
+    let legacy_id = std::env::var("MW_BRIDGE_OAUTH_CLIENT_ID").ok();
+    let chosen = select_client_secret(
+        mapped.as_deref(),
+        &cfg.client_id,
+        provider_id.as_deref().zip(provider_secret.as_deref()),
+        legacy_id.as_deref().zip(client_secret),
+    )?;
     Ok(OauthClient {
         poster,
         provider,
         client_id: cfg.client_id,
-        client_secret: client_secret.map(str::to_string),
+        client_secret: chosen,
         scopes,
         endpoints,
     })
+}
+
+fn select_client_secret(
+    map: Option<&str>,
+    client: &str,
+    provider: Option<(&str, &str)>,
+    legacy: Option<(&str, &str)>,
+) -> Result<Option<String>, OauthError> {
+    if let Some(raw) = map {
+        if raw.len() > 65536 {
+            return Err(OauthError::Config("client secret map is too large".into()));
+        }
+        let map: std::collections::BTreeMap<String, String> = serde_json::from_str(raw)
+            .map_err(|_| OauthError::Config("invalid client secret map".into()))?;
+        if let Some(secret) = map.get(client) {
+            return Ok(Some(secret.clone()));
+        }
+    }
+    Ok(provider
+        .filter(|(id, _)| *id == client)
+        .or(legacy.filter(|(id, _)| *id == client))
+        .map(|(_, secret)| secret)
+        .filter(|secret| !secret.is_empty())
+        .map(str::to_owned))
 }
 
 /// The live `oauth-token` path: return a valid access token for a bridge `account`,
@@ -761,6 +902,94 @@ mod tests {
     use std::sync::Mutex;
 
     use mw_store::ServerKey;
+
+    #[test]
+    fn separate_provider_and_per_client_secrets_do_not_cross_app_registrations() {
+        let map = r#"{"graph-app":"ms-private","google-app":"google-private"}"#;
+        assert_eq!(
+            select_client_secret(
+                Some(map),
+                "graph-app",
+                Some(("another", "provider")),
+                Some(("legacy-app", "legacy"))
+            )
+            .unwrap()
+            .as_deref(),
+            Some("ms-private")
+        );
+        assert_eq!(
+            select_client_secret(
+                Some(map),
+                "google-app",
+                Some(("another", "provider")),
+                Some(("legacy-app", "legacy"))
+            )
+            .unwrap()
+            .as_deref(),
+            Some("google-private")
+        );
+        assert_eq!(
+            select_client_secret(
+                None,
+                "another",
+                Some(("another", "provider")),
+                Some(("legacy-app", "legacy"))
+            )
+            .unwrap()
+            .as_deref(),
+            Some("provider")
+        );
+        assert_eq!(
+            select_client_secret(None, "public", None, None).unwrap(),
+            None
+        );
+        assert_eq!(
+            select_client_secret(
+                None,
+                "unrelated-byo",
+                Some(("configured-app", "must-not-send")),
+                Some(("legacy-app", "legacy-secret"))
+            )
+            .unwrap(),
+            None
+        );
+        assert!(select_client_secret(Some("malformed"), "app", None, None).is_err());
+    }
+
+    #[test]
+    fn token_debug_is_redacted_and_non_success_does_not_install_a_token() {
+        let token = TokenResponse {
+            access_token: "secret-access".into(),
+            refresh_token: Some("secret-refresh".into()),
+            expires_in: 3600,
+            scope: "scope".into(),
+        };
+        assert_eq!(token.access_token, "secret-access");
+        assert_eq!(token.refresh_token.as_deref(), Some("secret-refresh"));
+        let debug = format!("{token:?}");
+        assert!(!debug.contains("secret-access"));
+        assert!(!debug.contains("secret-refresh"));
+        assert!(
+            parse_token_response(&FormResponse {
+                status: 500,
+                body: r#"{"access_token":"must-not-install"}"#.into()
+            })
+            .unwrap()
+            .is_err()
+        );
+        let device = DeviceAuthorization {
+            device_code: "device-grant-secret".into(),
+            user_code: "USER-CODE-SECRET".into(),
+            verification_uri: "https://microsoft.com/devicelogin".into(),
+            expires_in: 900,
+            interval: 5,
+        };
+        assert_eq!(device.device_code, "device-grant-secret");
+        assert_eq!(device.user_code, "USER-CODE-SECRET");
+        let debug = format!("{device:?}");
+        assert!(!debug.contains("device-grant-secret"));
+        assert!(!debug.contains("USER-CODE-SECRET"));
+    }
 
     /// One recorded POST: the URL and its decoded form fields.
     type RecordedCall = (String, Vec<(String, String)>);

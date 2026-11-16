@@ -64,6 +64,72 @@ impl fmt::Debug for BridgeOauthTokenRow {
 }
 
 impl Store {
+    /// Bind a verified provider and its sealed credentials atomically. A flow
+    /// started before an administrator changed the binding cannot overwrite it.
+    pub async fn enroll_bridge_oauth(
+        &self,
+        binding: &crate::BridgeAccountRow,
+        previous: Option<&crate::BridgeAccountRow>,
+        token: &BridgeOauthTokenRow,
+        session: Option<&crate::Session>,
+    ) -> Result<bool, StoreError> {
+        if token.bridge_account_id != binding.account_id {
+            return Err(StoreError::Corrupt("OAuth binding mismatch".into()));
+        }
+        let access = self.key.seal(token.access_token.as_bytes())?;
+        let refresh = self
+            .key
+            .seal(token.refresh_token.as_deref().unwrap_or("").as_bytes())?;
+        let mut tx = self.backend.begin().await?;
+        q("UPDATE accounts SET sync_policy_json=sync_policy_json WHERE id=?1")
+            .bind(&binding.account_id)
+            .execute_tx(&mut tx)
+            .await?;
+        if let Some(session) = session {
+            if session.account_id!=binding.account_id || q("UPDATE sessions SET last_seen=last_seen WHERE id=?1 AND account_id=?2 AND linked_internal=0 AND username=?3 AND jmap_url=?4 AND api_url=?5")
+                .bind(&session.id).bind(&session.account_id).bind(&session.username).bind(&session.jmap_url).bind(&session.api_url).execute_tx(&mut tx).await?!=1 {
+                return Ok(false);
+            }
+        }
+        let held = q(
+            "SELECT account_id,bridge_id,oauth_ref,extra FROM bridge_accounts WHERE account_id=?1",
+        )
+        .bind(&binding.account_id)
+        .fetch_all_tx(&mut tx)
+        .await?
+        .pop()
+        .map(|row| crate::BridgeAccountRow {
+            account_id: row.get_string("account_id"),
+            bridge_id: row.get_string("bridge_id"),
+            oauth_ref: row.get_opt_string("oauth_ref"),
+            extra_json: row.get_string("extra"),
+        });
+        if held.as_ref() != previous {
+            return Ok(false);
+        }
+        if previous.is_none_or(|previous| previous.bridge_id != binding.bridge_id)
+            && !q("SELECT stable_id FROM messages WHERE account_id=?1 LIMIT 1")
+                .bind(&binding.account_id)
+                .fetch_all_tx(&mut tx)
+                .await?
+                .is_empty()
+        {
+            return Ok(false);
+        }
+        q("INSERT INTO bridge_accounts(account_id,bridge_id,oauth_ref,extra) VALUES(?1,?2,?3,?4) ON CONFLICT(account_id) DO UPDATE SET bridge_id=excluded.bridge_id,oauth_ref=excluded.oauth_ref,extra=excluded.extra")
+            .bind(&binding.account_id).bind(&binding.bridge_id).bind(binding.oauth_ref.clone()).bind(&binding.extra_json).execute_tx(&mut tx).await?;
+        q("INSERT INTO bridge_oauth_tokens(bridge_account_id,sealed_access_token,sealed_refresh_token,expires_at,scope,updated_at) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(bridge_account_id) DO UPDATE SET sealed_access_token=excluded.sealed_access_token,sealed_refresh_token=excluded.sealed_refresh_token,expires_at=excluded.expires_at,scope=excluded.scope,updated_at=excluded.updated_at")
+            .bind(&binding.account_id).bind(access).bind(refresh).bind(&token.expires_at).bind(&token.scope).bind(Utc::now().to_rfc3339()).execute_tx(&mut tx).await?;
+        if previous.is_none_or(|previous| previous.bridge_id != binding.bridge_id) {
+            q("DELETE FROM sync_state WHERE account_id=?1")
+                .bind(&binding.account_id)
+                .execute_tx(&mut tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(true)
+    }
+
     /// Upsert the cached OAuth token pair for a bridge account, sealing both tokens.
     pub async fn put_bridge_oauth_token(
         &self,
@@ -145,6 +211,164 @@ mod tests {
 
     async fn store() -> Store {
         Store::open_in_memory(ServerKey::generate()).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn verified_enrollment_is_atomic_and_does_not_overwrite_a_changed_binding() {
+        let store = store().await;
+        let binding = crate::BridgeAccountRow {
+            account_id: "owner".into(),
+            bridge_id: "bridge-graph".into(),
+            oauth_ref: Some(r#"{"client_id":"app"}"#.into()),
+            extra_json: "{}".into(),
+        };
+        let mut token = BridgeOauthTokenRow {
+            bridge_account_id: "owner".into(),
+            access_token: "verified-access".into(),
+            refresh_token: Some("verified-refresh".into()),
+            expires_at: "2027-01-01T00:00:00Z".into(),
+            scope: "Mail.ReadWrite".into(),
+            updated_at: String::new(),
+        };
+        assert!(
+            store
+                .enroll_bridge_oauth(&binding, None, &token, None)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            store.get_bridge_account("owner").await.unwrap().as_ref(),
+            Some(&binding)
+        );
+        assert_eq!(
+            store
+                .get_bridge_oauth_token("owner")
+                .await
+                .unwrap()
+                .unwrap()
+                .access_token,
+            "verified-access"
+        );
+        token.access_token = "must-not-install".into();
+        assert!(
+            !store
+                .enroll_bridge_oauth(&binding, None, &token, None)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            store
+                .get_bridge_oauth_token("owner")
+                .await
+                .unwrap()
+                .unwrap()
+                .access_token,
+            "verified-access"
+        );
+        let changed = crate::BridgeAccountRow {
+            bridge_id: "bridge-gmail".into(),
+            ..binding.clone()
+        };
+        store.put_bridge_account(&changed).await.unwrap();
+        assert!(
+            !store
+                .enroll_bridge_oauth(&binding, Some(&binding), &token, None)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            store.get_bridge_account("owner").await.unwrap().as_ref(),
+            Some(&changed)
+        );
+        assert_eq!(
+            store
+                .get_bridge_oauth_token("owner")
+                .await
+                .unwrap()
+                .unwrap()
+                .access_token,
+            "verified-access"
+        );
+        let raw=q("SELECT sealed_access_token,sealed_refresh_token FROM bridge_oauth_tokens WHERE bridge_account_id='owner'").fetch_optional(&store.backend).await.unwrap().unwrap();
+        for secret in [
+            b"verified-access".as_slice(),
+            b"verified-refresh".as_slice(),
+        ] {
+            for bytes in [
+                raw.get_blob("sealed_access_token"),
+                raw.get_blob("sealed_refresh_token"),
+            ] {
+                assert!(!bytes.windows(secret.len()).any(|window| window == secret));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn enrollment_rechecks_live_primary_session_inside_the_write_transaction() {
+        let store = store().await;
+        let id = store
+            .create_session(
+                "owner",
+                "owner@example.test",
+                "https://mail.example/jmap/session",
+                "https://mail.example/jmap/api",
+                &crate::Credentials {
+                    username: "owner@example.test".into(),
+                    password: "proof".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let session = store.get_primary_session(&id).await.unwrap();
+        let binding = crate::BridgeAccountRow {
+            account_id: "owner".into(),
+            bridge_id: "bridge-graph".into(),
+            oauth_ref: Some(r#"{"client_id":"app"}"#.into()),
+            extra_json: "{}".into(),
+        };
+        let mut token = BridgeOauthTokenRow {
+            bridge_account_id: "owner".into(),
+            access_token: "initial".into(),
+            refresh_token: Some("refresh".into()),
+            expires_at: "2027-01-01T00:00:00Z".into(),
+            scope: "Mail.Read".into(),
+            updated_at: String::new(),
+        };
+        assert!(
+            store
+                .enroll_bridge_oauth(&binding, None, &token, Some(&session))
+                .await
+                .unwrap()
+        );
+        token.access_token = "replacement".into();
+        q("UPDATE sessions SET api_url='https://other.example/api' WHERE id=?1")
+            .bind(&id)
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert!(
+            !store
+                .enroll_bridge_oauth(&binding, Some(&binding), &token, Some(&session))
+                .await
+                .unwrap()
+        );
+        let replaced = store.get_primary_session(&id).await.unwrap();
+        store.delete_session(&id).await.unwrap();
+        assert!(
+            !store
+                .enroll_bridge_oauth(&binding, Some(&binding), &token, Some(&replaced))
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            store
+                .get_bridge_oauth_token("owner")
+                .await
+                .unwrap()
+                .unwrap()
+                .access_token,
+            "initial"
+        );
     }
 
     #[tokio::test]

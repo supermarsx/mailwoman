@@ -5,8 +5,8 @@ Workspace via the Gmail API. It is a first-party **WASM plugin** (`wasm32-wasip2
 implementing the engine account-backend seam; a Gmail account looks like any other
 backend to the engine.
 
-The Gmail bridge **shipped fully in V7** — it was the sanctioned first scope-cut
-candidate, but it was not cut. (For most Workspace users, IMAP + XOAUTH2 also works;
+The Gmail bridge is included as a first-party plugin. It is the first scope-cut
+candidate, but remains in the 1.0 scope. (For most Workspace users, IMAP + XOAUTH2 also works;
 the API bridge additionally gives true Gmail label semantics and history-ID delta
 sync.)
 
@@ -57,5 +57,43 @@ job hits a real account only when secrets are present.
 ## Scope boundary (honest)
 
 - **Mail is delivered through the real plugin jail.** The WIT world currently exports
-  the **account-backend (MAIL)** interface only; any Google calendar/contacts surfaces
-  a bridge advertises follow the same post-1.0 seam extension as the other bridges.
+  the `plugin-pim` world, but its Google calendar/contacts/task capability probes
+  deliberately return false. The Gmail API bridge is mail-only.
+
+## Guided authorization
+
+An administrator must approve the plugin and grant `net` and `account-backend`.
+An authenticated primary account can then open **Settings → Linked accounts →
+Mail provider**, select Gmail API, enter its app ID and connect in the browser.
+Register this exact callback in Google Cloud, including any deployment sub-path:
+
+`https://mail.example.com/`
+
+Google enrollment uses an authorization code with S256 PKCE and requests offline
+consent. Device-code authorization is not offered for Gmail mail scopes. Configure
+the confidential app ID and secret as `MW_GMAIL_OAUTH_CLIENT_ID` and
+`MW_GMAIL_OAUTH_CLIENT_SECRET` on the server, or use
+`MW_BRIDGE_OAUTH_CLIENT_SECRETS`, a JSON application-ID-to-secret map for distinct
+users' registrations. The legacy `MW_BRIDGE_OAUTH_CLIENT_ID` /
+`MW_BRIDGE_OAUTH_CLIENT_SECRET` pair is a fallback. Only the secret associated with
+the exact selected app ID is sent; another user's BYO app never receives it.
+
+The host verifies the returned Gmail profile address against the signed-in mailbox
+before storing access and refresh tokens sealed at rest. A missing refresh token
+requires renewed offline consent. Tokens and the PKCE verifier stay server-side.
+The route enrolls an existing authenticated account; standalone Google sign-in is
+not implemented here. Changing backend type on an account with cached messages is
+refused until source migration is implemented; reauthorizing the same backend works.
+
+## Complete mailbox synchronization
+
+Baseline and history reads follow every page, reject repeated tokens, and store a
+cursor only after the complete result. The baseline history head is captured before
+enumeration so messages arriving during pagination remain discoverable. History is
+read at account scope and projected into label membership, including moves into and
+out of a label. Expired history IDs request an engine baseline reconciliation rather
+than incorrectly reporting a missing mailbox. Trash and spam label views include
+their messages. Moving into virtual All Mail archives without adding a nonexistent
+Gmail label. The host drives a 30-second delta polling fallback.
+
+See [Google's synchronization contract](https://developers.google.com/workspace/gmail/api/guides/sync).

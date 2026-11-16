@@ -141,6 +141,7 @@ mod packages;
 mod packages_model;
 pub mod passwd;
 pub mod plugins;
+mod provider_oauth;
 mod primary_identity;
 mod private_etag;
 // V7 MOUNT/WIRE (plan §3 e14): builds + injects the five V7 extensions, backs the
@@ -1518,6 +1519,7 @@ fn router(
         .merge(assist::assist_router())
         .merge(nextcloud::nextcloud_router())
         .merge(v7_mount::extra_v7_router())
+        .merge(provider_oauth::router())
         .layer(Extension(v7.directory))
         .layer(Extension(v7.passwd))
         .layer(Extension(v7.assist))
