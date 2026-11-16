@@ -14,6 +14,7 @@ import {drainOutbox,type OutboxStore,type QueuedItem} from './outboxCore.ts';
 import {prepareLocalFiles} from './localFiles.ts';
 import {mintTrackingToken,bindTrackingToken} from '../api/tracking.ts';
 import {nativeReplayScheduler} from './nativeReplaySchedule.ts';
+import {publishOfflineChange} from './events.ts';
 
 interface NativeBackgroundConfig {native?:boolean;backgroundReplay?:boolean;serverUrl?:string}
 const config=()=>(globalThis as {__MW_CONFIG__?:NativeBackgroundConfig}).__MW_CONFIG__;
@@ -49,7 +50,7 @@ export async function replayNativeQueue(deps:{
   if(identity.me.accountId!==account||identity.me.storageAuthority!==row.storageAuthority||identity.me.passwordChangeRequired||identity.session.primaryAccounts[CAP_MAIL]!==account||!Object.hasOwn(identity.session.accounts,account))continue;
   const owned=accountOutbox(deps.store,account,row.storageAuthority!);
   const selected={...owned,all:async()=>(await owned.all()).filter(item=>(item as QueuedItem).cacheBase===`native:${deps.base}`&&(item as QueuedItem).linkId===row.linkId)};
-  await deps.run(row,identity,selected);
+  try{await deps.run(row,identity,selected);}finally{publishOfflineChange('queue');}
  }
  return !(await deps.store.all() as QueuedItem[]).some(row=>eligible(row,deps.base));
 }

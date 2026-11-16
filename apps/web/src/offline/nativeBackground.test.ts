@@ -3,6 +3,7 @@ import {CAP_MAIL,type JmapSession} from '../api/jmap-types.ts';
 import {memoryOutboxStore} from './outbox.ts';
 import type {QueuedItem} from './outboxCore.ts';
 import {nativeBackgroundStartup,replayNativeQueue} from './nativeBackground.ts';
+import {observeOfflineChanges} from './events.ts';
 const base='https://mail.example.test/mail';
 const authority='verified_native_authority_123';
 const session={accounts:{a:{}},primaryAccounts:{[CAP_MAIL]:'a'}} as unknown as JmapSession;
@@ -52,5 +53,12 @@ describe('native background replay authority',()=>{
   const store=memoryOutboxStore([row()]),run=vi.fn(async()=>undefined);
   expect(await replayNativeQueue({base,store,verify:async()=>identity,run})).toBe(false);
   expect(run).toHaveBeenCalledTimes(1);expect(await store.all()).toHaveLength(1);
+ });
+ it('invalidates foreground queue readers after a verified drain, including partial failures',async()=>{
+  const changed=vi.fn(),off=observeOfflineChanges(changed),store=memoryOutboxStore([row()]);
+  try{
+   await expect(replayNativeQueue({base,store,verify:async()=>identity,run:async()=>{await store.delete('pending');throw new Error('later context unavailable');}})).rejects.toThrow('later context unavailable');
+   expect(changed).toHaveBeenCalledExactlyOnceWith('queue');expect(await store.all()).toEqual([]);
+  }finally{off();}
  });
 });
