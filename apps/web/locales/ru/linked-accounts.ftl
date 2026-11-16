@@ -176,3 +176,5 @@ provider-oauth-migration = В этом ящике уже есть почта д�
 linked-accounts-connection-indicator = Показывать значки подключения почтовых ящиков
 linked-accounts-connection-indicator-help = Показывать небольшой значок состояния рядом с именами ящиков. Состояние всегда доступно в настройках связанных ящиков. Администраторы могут задать или заблокировать эту настройку.
 linked-accounts-connection-unknown = Ещё не проверено
+
+linked-accounts-preferences-title = Настройки почтовых ящиков

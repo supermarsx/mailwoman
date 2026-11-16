@@ -174,3 +174,5 @@ provider-oauth-migration = Este buzón ya contiene correo de otro backend. Se ne
 linked-accounts-connection-indicator = Mostrar iconos de conexión de los buzones
 linked-accounts-connection-indicator-help = Mostrar un pequeño icono de estado junto al nombre de cada buzón. El estado siempre está disponible en los ajustes de buzones vinculados. Los administradores pueden establecer o bloquear esta preferencia.
 linked-accounts-connection-unknown = Aún sin comprobar
+
+linked-accounts-preferences-title = Preferencias de los buzones

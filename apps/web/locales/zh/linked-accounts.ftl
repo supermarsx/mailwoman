@@ -173,3 +173,5 @@ provider-oauth-migration = 此邮箱已有来自其他后端的邮件。更换�
 linked-accounts-connection-indicator = 显示邮箱连接图标
 linked-accounts-connection-indicator-help = 在邮箱名称旁显示小型状态图标。连接状态始终可在关联邮箱设置中查看。管理员可以设置或锁定此偏好。
 linked-accounts-connection-unknown = 尚未检查
+
+linked-accounts-preferences-title = 邮箱偏好设置

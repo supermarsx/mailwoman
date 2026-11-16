@@ -173,3 +173,5 @@ provider-oauth-migration = このメールボックスには別のバックエ�
 linked-accounts-connection-indicator = メールボックスの接続アイコンを表示
 linked-accounts-connection-indicator-help = メールボックス名の横に小さな状態アイコンを表示します。接続状態は、リンク済みメールボックスの設定でいつでも確認できます。管理者はこの設定を指定またはロックできます。
 linked-accounts-connection-unknown = 未確認
+
+linked-accounts-preferences-title = メールボックスの設定

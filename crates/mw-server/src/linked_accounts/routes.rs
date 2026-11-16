@@ -126,13 +126,15 @@ async fn list(State(state): State<AppState>, headers: HeaderMap) -> Result<Respo
             .map_err(unavailable)?,
         &keys,
     );
+    let unified_enabled = effective(&state,&parent,"mail.unifiedAccount").await?;
     let mut unified_config=serde_json::Map::new();
+    unified_config.insert("enabled".into(),json!(unified_enabled));
     for suffix in ["accounts","folders","allowedAccounts","allowedFolders","name","avatar","openFirst","groups","primaryGroup"] {
         if let Some(entry)=crate::settings_routes::effective_for_session(&state,&parent,&format!("mail.unifiedAccount.{suffix}")).await.map_err(unavailable)? {unified_config.insert(suffix.into(),entry.value);}
     }
     Ok(([(axum::http::header::CACHE_CONTROL,"private, no-store")],Json(json!({
         "unifiedConfig":unified_config,
-        "virtualPrimary":enabled(&state,&parent).await?&&accounts.iter().any(|account|account["status"]=="ready")&&effective(&state,&parent,"mail.unifiedAccount").await?&&effective(&state,&parent,"mail.unifiedAccount.openFirst").await?,
+        "virtualPrimary":enabled(&state,&parent).await?&&accounts.iter().any(|account|account["status"]=="ready")&&unified_enabled&&effective(&state,&parent,"mail.unifiedAccount.openFirst").await?,
         "primaryMailbox":primary_mailbox,"primaryFallback":primary_fallback,"layout":layout,
         "primary":{"accountId":parent.account_id,"address":parent.username,"storageAuthority":state.store.session_storage_authority(&parent.id).await.map_err(unavailable)?},
         "accounts":accounts,"policy":{"enabled":enabled(&state,&parent).await?,"maxAccounts":maximum(&state).await?,

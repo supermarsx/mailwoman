@@ -174,3 +174,5 @@ provider-oauth-migration = Questa casella contiene già posta di un altro backen
 linked-accounts-connection-indicator = Mostra le icone di connessione delle caselle
 linked-accounts-connection-indicator-help = Mostra una piccola icona di stato accanto ai nomi delle caselle. Lo stato è sempre disponibile nelle impostazioni delle caselle collegate. Gli amministratori possono impostare o bloccare questa preferenza.
 linked-accounts-connection-unknown = Non ancora verificato
+
+linked-accounts-preferences-title = Preferenze delle caselle di posta

@@ -73,7 +73,10 @@ export const chevron = style({
 
 export const avatar = style({
   margin: 0,
-  borderRadius: vars.radius.sm,
+  borderRadius: '50%',
+  aspectRatio: '1',
+  flexShrink: 0,
+  overflow: 'hidden',
   // The owner's letter is shown as typed (t86), also inside the uppercase icon button.
   textTransform: 'none',
   letterSpacing: 0,

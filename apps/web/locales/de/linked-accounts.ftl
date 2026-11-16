@@ -174,3 +174,5 @@ provider-oauth-migration = Dieses Postfach enthält bereits Nachrichten eines an
 linked-accounts-connection-indicator = Verbindungssymbole für Postfächer anzeigen
 linked-accounts-connection-indicator-help = Ein kleines Statussymbol neben Postfachnamen anzeigen. Der Verbindungsstatus ist immer in den Einstellungen für verknüpfte Postfächer verfügbar. Administratoren können diese Einstellung vorgeben oder sperren.
 linked-accounts-connection-unknown = Noch nicht geprüft
+
+linked-accounts-preferences-title = Postfacheinstellungen

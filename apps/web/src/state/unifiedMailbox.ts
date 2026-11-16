@@ -1,5 +1,4 @@
-import {activeUnifiedGroup,setActiveUnifiedGroup,unifiedDefaultGroup} from './unifiedAccountPreferences.ts';
-import {settings} from '../api/settings.ts';
+import {activeUnifiedGroup,setActiveUnifiedGroup,unifiedDefaultGroup,unifiedAccountEnabled} from './unifiedAccountPreferences.ts';
 import {createSignal} from 'solid-js';
 import {preferenceAccount,preferenceAccountIsCurrent,type PreferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import type {UnifiedRole} from '../api/workspaceMail.ts';
@@ -13,7 +12,7 @@ export const [unifiedFolderRole,setUnifiedFolderRole]=createSignal<UnifiedRole>(
 export const [unifiedFolderCounts,setUnifiedFolderCounts]=createSignal<Partial<Record<UnifiedRole,{total:number|null;unread:number|null}>>>({});
 export function requestUnifiedMailbox(role?:UnifiedRole,groupId?:string|null):void{
  const owner=preferenceAccount();
- if(owner&&unifiedAvailable()&&settings()['mail.unifiedAccount']?.value===true){
+ if(owner&&unifiedAvailable()&&unifiedAccountEnabled()){
   const selectedGroup=groupId!==undefined?groupId:role!==undefined?activeUnifiedGroup():unifiedDefaultGroup();
   if(activeUnifiedGroup()!==selectedGroup)setUnifiedFolderCounts({});
   setActiveUnifiedGroup(selectedGroup);setUnifiedVirtualMode(true);setUnifiedFolderRole(role??unifiedFolderRole());setRequest({owner});

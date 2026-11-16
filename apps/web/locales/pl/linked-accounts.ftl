@@ -176,3 +176,5 @@ provider-oauth-migration = Ta skrzynka zawiera już pocztę z innego backendu. P
 linked-accounts-connection-indicator = Pokazuj ikony połączenia skrzynek
 linked-accounts-connection-indicator-help = Pokazuj małą ikonę stanu obok nazw skrzynek. Stan połączenia jest zawsze dostępny w ustawieniach połączonych skrzynek. Administratorzy mogą ustawić lub zablokować tę preferencję.
 linked-accounts-connection-unknown = Jeszcze nie sprawdzono
+
+linked-accounts-preferences-title = Preferencje skrzynek pocztowych

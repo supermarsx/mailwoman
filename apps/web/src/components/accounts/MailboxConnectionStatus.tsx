@@ -13,5 +13,5 @@ export function MailboxConnectionStatus(props:{linkId:string|null;available?:boo
  const state=()=>props.renew?'auth-expired':props.available===false?'unavailable':health()?.state??'unknown';
  const label=()=>state()==='unknown'?t('linked-accounts-connection-unknown'):state()==='unavailable'?t('linked-accounts-unavailable'):t(`common-conn-account-${state()}`);
  const icon=():IconName=>state()==='online'?'check':state()==='syncing'?'restore':state()==='auth-expired'?'lock':state()==='unknown'?'info':'alert';
- return <Show when={props.detail||settings()['accounts.showConnectionStatus']?.value===true}><span class={css.status} data-mailbox-connection={state()} role={props.detail?undefined:'img'} aria-label={props.detail?undefined:label()} data-tooltip={label()}><Icon name={icon()}/><Show when={props.detail}><span>{label()}</span></Show></span></Show>;
+ return <Show when={props.detail||settings()['accounts.showConnectionStatus']?.value===true}><span class={css.status} data-detail={props.detail?'':undefined} data-mailbox-connection={state()} role={props.detail?undefined:'img'} aria-label={props.detail?undefined:label()} data-tooltip={label()}><Icon name={icon()}/><Show when={props.detail}><span>{label()}</span></Show></span></Show>;
 }

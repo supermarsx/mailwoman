@@ -3,7 +3,7 @@ import {settings} from '../api/settings.ts';
 import {validAvatar} from '../api/mailboxAvatar.ts';
 import type {WorkspaceMailbox} from '../api/workspaceMail.ts';
 import type {Mailbox} from '../api/jmap-types.ts';
-import {onLinkedMailboxChange} from '../api/linkedMailboxSession.ts';
+import {activeLinkedMailbox,onLinkedMailboxChange} from '../api/linkedMailboxSession.ts';
 export const unifiedAccountKey=(target:WorkspaceMailbox)=>target.linkId??'primary';
 export const unifiedFolderKey=(target:WorkspaceMailbox,folder:Mailbox)=>JSON.stringify([unifiedAccountKey(target),folder.id]);
 export const [unifiedConfig,writeUnifiedConfig]=createSignal<Record<string,unknown>>({});
@@ -12,6 +12,7 @@ export function setUnifiedConfig(value:Record<string,unknown>):void{
  const selected=activeUnifiedGroup();if(selected&&!unifiedGroups().some(group=>group.id===selected))setActiveUnifiedGroup(null);
 }
 export const baseUnifiedPreference=(key:string)=>unifiedConfig()[key]??settings()[`mail.unifiedAccount.${key}`]?.value;
+export const unifiedAccountEnabled=()=>activeLinkedMailbox()!==null&&typeof unifiedConfig()['enabled']==='boolean'?unifiedConfig()['enabled']===true:settings()['mail.unifiedAccount']?.value===true;
 export interface UnifiedAccountGroup {id:string;name:string;accounts:string[];folders:string[];avatar?:string}
 export function parseUnifiedGroups(value:unknown):UnifiedAccountGroup[]{
  try{const rows=typeof value==='string'?JSON.parse(value):value;if(!Array.isArray(rows)||rows.length>16)return [];const ids=new Set<string>();

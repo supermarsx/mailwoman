@@ -1,3 +1,8 @@
+import {resourceValue} from '../../components/resourceValue.ts';
+import {Icon} from '../../components/Icon.tsx';
+import {unifiedAccountEnabled,unifiedName,unifiedAvatar} from '../../state/unifiedAccountPreferences.ts';
+import {MailboxAvatar} from '../../components/accounts/MailboxPicker.tsx';
+import {requestUnifiedMailbox} from '../../state/unifiedMailbox.ts';
 import {UnifiedAccountManager} from './UnifiedAccountManager.tsx';
 import {ProviderConnections} from './ProviderConnections.tsx';
 import {LinkedSettingsInheritance} from './LinkedSettingsInheritance.tsx';
@@ -32,7 +37,7 @@ function OwnedLinkedAccounts():JSX.Element {
   const app=useApp(),api=createLinkedAccountsApi(),navigation=useEntityNavigation('linked-accounts');
   let disposed=false;
   onCleanup(()=>{disposed=true;api.dispose();});
-  onMount(()=>{void loadCatalog('linked-accounts');void loadCatalog('settings');});
+  onMount(()=>{void loadCatalog('linked-accounts');void loadCatalog('settings');void loadCatalog('workspace-mail');});
   const [list,{refetch,mutate}]=createResource(()=>api.list());
   const [config]=createResource(()=>publicConfig());
   createEffect(()=>{if(list.error)toast.error(linkedAccountError(list.error));});
@@ -40,6 +45,8 @@ function OwnedLinkedAccounts():JSX.Element {
   const [challenge,setChallenge]=createSignal<LinkedMailboxChallenge>();
   const [proof,setProof]=createSignal<string>();
   const [reset,setReset]=createSignal(0);
+  const listValue=()=>resourceValue(list);
+  const managingUnified=()=>navigation.route().editor?.kind==='edit'&&navigation.route().editor?.id==='@unified';
   const [busy,setBusy]=createSignal(false);
   const error=()=>'';const setError=(message:string):void=>{if(message)toast.error(message);};
   const [renewing,setRenewing]=createSignal<LinkedMailbox>();
@@ -65,13 +72,13 @@ function OwnedLinkedAccounts():JSX.Element {
   async function setFirst(id:string|null):Promise<void>{
     if(busy())return;
     setBusy(true);setError('');
-    try{if(list()?.virtualPrimary)await api.setVirtualPrimary(false);await api.setPrimary(id);if(disposed)return;invalidateLinkedAccounts();await refetch();}
+    try{if(listValue()?.virtualPrimary)await api.setVirtualPrimary(false);await api.setPrimary(id);if(disposed)return;invalidateLinkedAccounts();await refetch();}
     catch(cause){if(!disposed)setError(linkedAccountError(cause));}
     finally{if(!disposed)setBusy(false);}
   }
   async function openAccount(id:string|null):Promise<void>{
     if(busy()||app.switchingMailbox()||!await confirmShellNavigation())return;
-    const current=list();if(!current)return;
+    const current=listValue();if(!current)return;
     const account=id===null?undefined:current.accounts.find(item=>item.id===id);
     if(id!==null&&(!current.policy.enabled||account?.status!=='ready'))return;
     const label=mailboxNickname(id)||(id===null?current.primary.address:account?.address||account?.displayName);
@@ -81,21 +88,21 @@ function OwnedLinkedAccounts():JSX.Element {
     finally{if(!disposed)setBusy(false);}
   }
   function move(from:number,slot:number):void{
-    const current=list();if(!current||busy())return;
+    const current=listValue();if(!current||busy())return;
     const order=moveTo(orderedKeys(current),from,slot);
     mutate({...current,layout:{revision:current.layout?.revision??'',order,nicknames:current.layout?.nicknames??{},avatars:current.layout?.avatars??{},hidden:current.layout?.hidden??[]}});
     void layoutAction(()=>saveLayout(api,current,fresh=>layoutChange(fresh,{order})));
   }
   async function rename(id:string|null,nickname:string):Promise<boolean>{
-    const current=list();if(!current)return false;
+    const current=listValue();if(!current)return false;
     return await layoutAction(()=>saveLayout(api,current,fresh=>layoutChange(fresh,{nickname:{key:keyOf(id),value:nickname}})));
   }
   function setVisibility(id:string,visible:boolean):void {
-    const current=list();if(!current||busy())return;
+    const current=listValue();if(!current||busy())return;
     void layoutAction(()=>saveLayout(api,current,fresh=>layoutChange(fresh,{visibility:{key:id,visible}})));
   }
   async function setAvatar(id:string|null,avatar:MailboxAvatarSpec|undefined):Promise<boolean>{
-    const current=list();if(!current)return false;
+    const current=listValue();if(!current)return false;
     return await layoutAction(()=>saveLayout(api,current,fresh=>layoutChange(fresh,{avatar:{key:keyOf(id),value:avatar}})));
   }
   async function layoutAction(action:()=>Promise<unknown>):Promise<boolean>{
@@ -105,29 +112,30 @@ function OwnedLinkedAccounts():JSX.Element {
     catch(cause){if(!disposed){setError(linkedAccountError(cause));void refetch();}return false;}
     finally{if(!disposed)setBusy(false);}
   }
-  return <Show when={challenge()} keyed fallback={<Show when={editing()} fallback={<>
-    <Show when={list.loading&&!list()}><InlineLoading /></Show>
+  const accounts=()=> <Show when={challenge()} keyed fallback={<Show when={editing()} fallback={<>
+    <Show when={list.loading&&!listValue()}><InlineLoading /></Show>
     <Show when={list.error}><button class={css.button} onClick={()=>void refetch()}>{t('linked-accounts-retry')}</button></Show>
-    <Show when={!list.error&&list()}>{value=><>
+    <Show when={!list.error&&listValue()}>{value=><>
       <Show when={app.linkedMailboxId()===null} fallback={<p class={css.meta}>{t('linked-accounts-primary-preference')}</p>}><LinkedPreference onChanged={()=>{invalidateLinkedAccounts();void refetch();}}/></Show>
       <Show when={value().policy.reason==='linkedBackendUnsupported'}><p class={css.meta}>{t('linked-accounts-backend-unsupported')}</p></Show>
-      <LinkedAccountList special={<Show when={app.linkedMailboxId()===null}><UnifiedAccountManager list={value()} onChanged={()=>{invalidateLinkedAccounts();void refetch();}}/></Show>} value={value()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename} onRenew={setRenewing} onAvatar={setAvatar} onVisibility={setVisibility} onLoginPolicy={(id,value)=>void layoutAction(()=>api.setLoginPolicy(id,value))} onOpen={id=>void openAccount(id)}/>
+      <LinkedAccountList special={<Show when={value().policy.enabled&&value().accounts.some(account=>account.status==='ready')}><section class={css.section} data-testid="unified-account-summary"><div class={css.actions}><MailboxAvatar label={unifiedName()||t('unified-mail-title')} address="@unified" avatar={unifiedAvatar()??{kind:'icon',icon:'inbox'}}/><h3 class={css.subheading}>{unifiedName()||t('unified-mail-title')}</h3><button type="button" class={css.ghost} disabled={!unifiedAccountEnabled()} onClick={()=>requestUnifiedMailbox()}><Icon name="mail"/>{t('common-open')}</button><button type="button" class={css.ghost} disabled={app.linkedMailboxId()!==null} title={app.linkedMailboxId()!==null?t('linked-accounts-primary-preference'):undefined} onClick={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'edit',id:'@unified'}})}><Icon name="settings"/>{t('unified-config-edit')}</button></div><p class={css.meta}>{t('unified-config-help')}</p></section></Show>} value={value()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename} onRenew={setRenewing} onAvatar={setAvatar} onVisibility={setVisibility} onLoginPolicy={(id,value)=>void layoutAction(()=>api.setLoginPolicy(id,value))} onOpen={id=>void openAccount(id)}/>
       <Show when={app.linkedMailboxId()}><LinkedSettingsInheritance/></Show>
       <Show when={app.linkedMailboxId()===null}><ProviderConnections/></Show>
       <Show when={renewing()}>{account=><RenewAccessDialog account={account()} label={mailboxNickname(account().id)||account().address||account().displayName} api={api}
         onRenewed={()=>{setRenewing(undefined);invalidateLinkedAccounts();void refetch();}} onCancel={()=>setRenewing(undefined)} onGone={()=>{setRenewing(undefined);void refetch();}}/>}</Show>
     </>}</Show>
-  </>}><LinkMailboxEditor enabled={!!list()?.policy.enabled&&!config.loading&&!config.error} storeCredentials={list()?.policy.storeCredentials!==false} storeCredentialsReason={list()?.policy.storeCredentialsReason??null} onVerify={link} onVerified={complete} onCancel={back} errorText={linkedAccountError}
+  </>}><LinkMailboxEditor enabled={!!listValue()?.policy.enabled&&!config.loading&&!config.error} storeCredentials={listValue()?.policy.storeCredentials!==false} storeCredentialsReason={listValue()?.policy.storeCredentialsReason??null} onVerify={link} onVerified={complete} onCancel={back} errorText={linkedAccountError}
       verificationRequired={config()?.antiBot?.mailbox===true} {...(proof()?{verificationProof:proof()!}:{})}
       verification={<Show when={config()?.antiBot?.mailbox}><SigninChallenge surface="mailbox" reset={reset()} onProof={setProof}/></Show>}/>
   </Show>}>{pending=><LinkedMailboxFactor challenge={pending} onConfirm={confirm} onCancel={()=>void back()} errorText={linkedAccountError}/>}</Show>;
+  return <Show when={managingUnified()} fallback={accounts()}><div class={css.stack} data-testid="unified-account-editor-page"><div class={css.actions}><button type="button" class={css.ghost} onClick={()=>void back()}><Icon name="chevronLeft"/>{t('common-back')}</button><h2 class={css.heading}>{t('unified-mail-title')}</h2></div><Show when={listValue()}>{value=><Show when={app.linkedMailboxId()===null} fallback={<p class={css.prose}>{t('linked-accounts-primary-preference')}</p>}><UnifiedAccountManager page list={value()} onChanged={()=>{invalidateLinkedAccounts();void refetch();}}/></Show>}</Show></div></Show>;
 }
 function LinkedPreference(props:{onChanged:()=>void}):JSX.Element {
   const setting=useSetting<boolean>('accounts.useLinked',true);
   const preload=useSetting<boolean>('accounts.preloadLinked',true);
   const connectionStatus=useSetting<boolean>('accounts.showConnectionStatus',false);
   // Its own card, like every other Settings block (it sat loose above the list).
-  return <section class={css.section}><div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={setting.value()} disabled={!setting.entry()||setting.locked()||setting.saving()} onChange={event=>void setting.set(event.currentTarget.checked).then(saved=>{if(saved)props.onChanged();})}/>{t('linked-accounts-use')}</label><p class={css.meta}>{t('linked-accounts-use-help')}</p><LockNote locked={setting.locked()}/><Show when={setting.error()}><p role="alert" class={css.error}>{setting.error()}</p></Show></div>
+  return <section class={css.section}><h3 class={css.subheading}>{t('linked-accounts-preferences-title')}</h3><div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={setting.value()} disabled={!setting.entry()||setting.locked()||setting.saving()} onChange={event=>void setting.set(event.currentTarget.checked).then(saved=>{if(saved)props.onChanged();})}/>{t('linked-accounts-use')}</label><p class={css.meta}>{t('linked-accounts-use-help')}</p><LockNote locked={setting.locked()}/><Show when={setting.error()}><p role="alert" class={css.error}>{setting.error()}</p></Show></div>
     <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={preload.value()} disabled={!preload.entry()||preload.locked()||preload.saving()||!setting.value()} onChange={event=>void preload.set(event.currentTarget.checked)}/>{t('linked-accounts-preload')}</label><p class={css.meta}>{t('linked-accounts-preload-help')}</p><LockNote locked={preload.locked()}/><Show when={preload.error()}><p role="alert" class={css.error}>{preload.error()}</p></Show></div>
     <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={connectionStatus.value()} disabled={!connectionStatus.entry()||connectionStatus.locked()||connectionStatus.saving()} onChange={event=>void connectionStatus.set(event.currentTarget.checked)}/>{t('linked-accounts-connection-indicator')}</label><p class={css.meta}>{t('linked-accounts-connection-indicator-help')}</p><LockNote locked={connectionStatus.locked()}/><Show when={connectionStatus.error()}><p role="alert" class={css.error}>{connectionStatus.error()}</p></Show></div>
   </section>;

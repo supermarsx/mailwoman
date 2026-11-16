@@ -178,3 +178,5 @@ provider-oauth-migration = Esta caixa já contém correio de outro backend. É n
 linked-accounts-connection-indicator = Mostrar ícones de ligação das caixas de correio
 linked-accounts-connection-indicator-help = Mostrar um pequeno ícone de estado junto aos nomes das caixas de correio. O estado está sempre disponível nas definições de caixas associadas. Os administradores podem definir ou bloquear esta preferência.
 linked-accounts-connection-unknown = Ainda não verificado
+
+linked-accounts-preferences-title = Preferências das caixas de correio

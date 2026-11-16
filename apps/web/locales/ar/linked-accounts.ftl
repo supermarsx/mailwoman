@@ -178,3 +178,5 @@ provider-oauth-migration = يحتوي هذا الصندوق على بريد من
 linked-accounts-connection-indicator = إظهار رموز اتصال صناديق البريد
 linked-accounts-connection-indicator-help = إظهار رمز حالة صغير بجوار أسماء صناديق البريد. تظل حالة الاتصال متاحة في إعدادات صناديق البريد المرتبطة. يمكن للمسؤولين تعيين هذا التفضيل أو قفله.
 linked-accounts-connection-unknown = لم يتم التحقق بعد
+
+linked-accounts-preferences-title = تفضيلات صناديق البريد

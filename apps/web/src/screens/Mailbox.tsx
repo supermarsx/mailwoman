@@ -1,3 +1,4 @@
+import {unifiedAccountEnabled as workspaceUnifiedAccountEnabled} from '../state/unifiedAccountPreferences.ts';
 import {WORKSPACE_VIEWS,viewMode,viewShown,viewName,viewCountsShown,type WorkspaceViewId} from '../state/workspaceViews.ts';
 import {WorkspaceViewProperties} from './Settings/WorkspaceViewPreferences.tsx';
 import {forwardMessages,BULK_MESSAGE_LIMIT,BULK_BYTE_LIMIT} from '../api/mailBulk.ts';
@@ -687,7 +688,7 @@ export function MailboxScreen(): JSX.Element {
     }catch{toast.error(t('mail-context-failed'));}
   }
   const unifiedEnabled=()=>unifiedAvailable()&&settings()['mail.unifiedInbox']?.value===true;
-  const unifiedAccountEnabled=()=>unifiedAvailable()&&settings()['mail.unifiedAccount']?.value===true;
+  const unifiedAccountEnabled=()=>unifiedAvailable()&&workspaceUnifiedAccountEnabled();
   const unifiedSurfaceEnabled=()=>unifiedVirtualMode()?unifiedAccountEnabled():unifiedEnabled();
   createEffect(()=>{const active=surface()==='unified'&&unifiedAccountEnabled()&&unifiedVirtualMode();setUnifiedMailboxActive(active);if(active)clearSelectedFolders();});
   onCleanup(()=>setUnifiedMailboxActive(false));

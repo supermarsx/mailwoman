@@ -176,3 +176,5 @@ provider-oauth-migration = Ця скринька вже містить пошт�
 linked-accounts-connection-indicator = Показувати значки з’єднання поштових скриньок
 linked-accounts-connection-indicator-help = Показувати невеликий значок стану поруч із назвами скриньок. Стан завжди доступний у налаштуваннях пов’язаних скриньок. Адміністратори можуть установити або заблокувати цей параметр.
 linked-accounts-connection-unknown = Ще не перевірено
+
+linked-accounts-preferences-title = Налаштування поштових скриньок

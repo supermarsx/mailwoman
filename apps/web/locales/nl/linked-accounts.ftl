@@ -174,3 +174,5 @@ provider-oauth-migration = Dit postvak bevat al e-mail van een andere backend. M
 linked-accounts-connection-indicator = Verbindingspictogrammen voor postvakken tonen
 linked-accounts-connection-indicator-help = Toon een klein statuspictogram naast postvaknamen. De verbindingsstatus blijft beschikbaar in de instellingen voor gekoppelde postvakken. Beheerders kunnen deze voorkeur instellen of vergrendelen.
 linked-accounts-connection-unknown = Nog niet gecontroleerd
+
+linked-accounts-preferences-title = Postvakvoorkeuren

@@ -174,3 +174,5 @@ provider-oauth-migration = Cette boîte contient déjà du courrier d’un autre
 linked-accounts-connection-indicator = Afficher les icônes de connexion des boîtes mail
 linked-accounts-connection-indicator-help = Afficher une petite icône d’état à côté du nom des boîtes mail. L’état reste disponible dans les paramètres des boîtes liées. Les administrateurs peuvent définir ou verrouiller cette préférence.
 linked-accounts-connection-unknown = Pas encore vérifié
+
+linked-accounts-preferences-title = Préférences des boîtes aux lettres

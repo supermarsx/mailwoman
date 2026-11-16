@@ -174,3 +174,5 @@ provider-oauth-migration = This mailbox already contains mail from another backe
 linked-accounts-connection-indicator = Show mailbox connection icons
 linked-accounts-connection-indicator-help = Show a small status icon beside mailbox names. Connection status is always available in Linked mailboxes settings. Administrators can set or lock this preference.
 linked-accounts-connection-unknown = Not checked yet
+
+linked-accounts-preferences-title = Mailbox preferences
