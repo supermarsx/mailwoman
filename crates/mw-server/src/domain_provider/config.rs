@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) enum EwsAuth {
     #[default]
     Basic,
+    Ntlm,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,6 +17,10 @@ pub(crate) struct EwsConfig {
     pub authentication: EwsAuth,
     #[serde(default)]
     pub ca_pem: Option<String>,
+    #[serde(default)]
+    pub ntlm_domain: String,
+    #[serde(default)]
+    pub workstation: String,
 }
 
 impl EwsConfig {
@@ -68,7 +73,41 @@ impl EwsConfig {
     pub fn validate(&self) -> Result<(), String> {
         self.endpoint()?;
         self.roots()?;
+        let identifier = |value: &str, limit: usize| {
+            value.len() <= limit
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+        };
+        if !identifier(&self.ntlm_domain, 128)
+            || !identifier(&self.workstation, 64)
+            || (self.authentication == EwsAuth::Ntlm && self.ntlm_domain.is_empty())
+        {
+            return Err("NTLM requires a valid domain; workstation is optional".into());
+        }
         Ok(())
+    }
+    pub fn credential_identity(&self, username: &str) -> Result<(String, String, String), String> {
+        self.validate()?;
+        if self.authentication == EwsAuth::Basic {
+            return Ok((username.into(), String::new(), String::new()));
+        }
+        let user = if let Some((domain, user)) = username.split_once('\\') {
+            if !domain.eq_ignore_ascii_case(&self.ntlm_domain) {
+                return Err("NTLM login domain does not match configured domain".into());
+            }
+            user
+        } else {
+            username.split_once('@').map_or(username, |(user, _)| user)
+        };
+        if user.is_empty() || user.len() > 320 || user.chars().any(char::is_control) {
+            return Err("invalid NTLM username".into());
+        }
+        Ok((
+            user.into(),
+            self.ntlm_domain.clone(),
+            self.workstation.clone(),
+        ))
     }
 }
 
@@ -81,6 +120,8 @@ mod tests {
             endpoint_url: "https://exchange.example/EWS/Exchange.asmx".into(),
             authentication: EwsAuth::Basic,
             ca_pem: None,
+            ntlm_domain: String::new(),
+            workstation: String::new(),
         };
         assert!(config.validate().is_ok());
         for endpoint in [
@@ -94,12 +135,16 @@ mod tests {
             assert!(config.validate().is_err());
         }
         config.endpoint_url = "https://exchange.example/EWS/Exchange.asmx".into();
-        assert!(
-            serde_json::from_value::<EwsConfig>(
-                serde_json::json!({"endpointUrl":config.endpoint_url,"authentication":"ntlm"})
-            )
-            .is_err()
+        let ntlm=serde_json::from_value::<EwsConfig>(serde_json::json!({"endpointUrl":config.endpoint_url,"authentication":"ntlm","ntlmDomain":"CORP","workstation":"MWCLIENT"})).unwrap();
+        assert_eq!(
+            ntlm.credential_identity("alice@example.test").unwrap(),
+            ("alice".into(), "CORP".into(), "MWCLIENT".into())
         );
+        assert!(ntlm.credential_identity("FOREIGN\\alice").is_err());
+        assert_eq!(ntlm.credential_identity("CORP\\alice").unwrap().0, "alice");
+        let mut invalid = ntlm.clone();
+        invalid.ntlm_domain.clear();
+        assert!(invalid.validate().is_err());
         config.ca_pem = Some("not a certificate".into());
         assert!(config.validate().is_err());
     }

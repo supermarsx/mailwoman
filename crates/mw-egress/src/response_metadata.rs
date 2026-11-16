@@ -3,12 +3,19 @@
 use std::sync::Mutex;
 
 /// Captures bounded concurrency metadata and accepted-body byte counters. Cookies,
-/// authentication challenges and arbitrary upstream headers are never retained.
-#[derive(Debug, Default)]
+/// arbitrary upstream headers are never retained. Plugin HTTP can separately
+/// capture bounded authentication challenges for a host-owned handshake.
+#[derive(Default)]
 pub struct ResponseMetadata {
     value: Mutex<Option<ResponseHead>>,
     progress: Mutex<Option<ResponseProgress>>,
     cache: Mutex<Option<CacheHeaders>>,
+    authentication: Mutex<Vec<String>>,
+}
+impl std::fmt::Debug for ResponseMetadata {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResponseMetadata").finish_non_exhaustive()
+    }
 }
 
 /// The two caching headers a revalidating cache needs, retained alongside the
@@ -34,6 +41,31 @@ pub struct ResponseProgress {
 }
 
 impl ResponseMetadata {
+    pub fn authentication_challenges(&self) -> Vec<String> {
+        self.authentication
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_default()
+    }
+    pub(crate) fn record_authentication(&self, headers: &reqwest::header::HeaderMap) {
+        let mut total = 0;
+        let mut values = headers
+            .get_all(reqwest::header::WWW_AUTHENTICATE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .filter(|value| {
+                total += value.len();
+                value.len() <= 16384
+                    && total <= 32768
+                    && value.bytes().all(|b| (0x20..0x7f).contains(&b))
+            })
+            .take(8)
+            .map(str::to_owned)
+            .collect();
+        if let Ok(mut held) = self.authentication.lock() {
+            std::mem::swap(&mut *held, &mut values);
+        }
+    }
     pub fn progress(&self) -> Option<ResponseProgress> {
         *self.progress.lock().ok()?
     }
@@ -52,7 +84,11 @@ impl ResponseMetadata {
         self.cache.lock().ok()?.clone()
     }
 
-    pub(crate) fn record_cache_headers(&self, last_modified: Option<&str>, cache_control: Option<&str>) {
+    pub(crate) fn record_cache_headers(
+        &self,
+        last_modified: Option<&str>,
+        cache_control: Option<&str>,
+    ) {
         let keep = |v: &str| v.len() <= 512 && v.bytes().all(|b| (0x20..0x7f).contains(&b));
         if let Ok(mut value) = self.cache.lock() {
             *value = Some(CacheHeaders {
@@ -81,6 +117,37 @@ impl ResponseMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authentication_metadata_is_bounded_separate_and_redacted() {
+        let metadata = ResponseMetadata::default();
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.append(
+            reqwest::header::WWW_AUTHENTICATE,
+            "Negotiate".parse().unwrap(),
+        );
+        headers.append(
+            reqwest::header::WWW_AUTHENTICATE,
+            "NTLM challenge-secret".parse().unwrap(),
+        );
+        headers.append(
+            reqwest::header::SET_COOKIE,
+            "do-not-forward=secret".parse().unwrap(),
+        );
+        metadata.record_authentication(&headers);
+        assert_eq!(
+            metadata.authentication_challenges(),
+            ["Negotiate", "NTLM challenge-secret"]
+        );
+        assert!(!format!("{metadata:?}").contains("challenge-secret"));
+        headers.clear();
+        headers.append(
+            reqwest::header::WWW_AUTHENTICATE,
+            "x".repeat(16385).parse().unwrap(),
+        );
+        metadata.record_authentication(&headers);
+        assert!(metadata.authentication_challenges().is_empty());
+    }
 
     #[test]
     fn captures_conflict_status_without_accepting_unbounded_or_injected_headers() {

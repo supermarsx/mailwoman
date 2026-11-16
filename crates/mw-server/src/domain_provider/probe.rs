@@ -61,11 +61,15 @@ impl InvocationPolicy for Context {
 impl BasicCredentialProvider for Context {
     async fn credentials(&self, account: &str) -> Result<BasicCredentials, String> {
         self.admit("bridge-ews", Some(account)).await?;
+        let (user, domain, workstation) = self
+            .selected
+            .config
+            .credential_identity(&self.wire_username)?;
         Ok(BasicCredentials {
-            user: self.wire_username.clone(),
+            user,
             password: self.password.clone(),
-            domain: String::new(),
-            workstation: String::new(),
+            domain,
+            workstation,
             endpoint: self.selected.config.endpoint()?.to_string(),
         })
     }
@@ -80,7 +84,7 @@ impl HttpFetcher for Context {
         &self,
         plugin: &str,
         account: Option<&str>,
-        request: HttpReq,
+        mut request: HttpReq,
     ) -> Result<HttpResp, String> {
         self.admit(plugin, account).await?;
         let endpoint = self.selected.config.endpoint()?;
@@ -98,6 +102,12 @@ impl HttpFetcher for Context {
             .await
             .map_err(|_| "provider egress unavailable")?;
         let roots = self.selected.config.roots()?;
+        let connection = crate::v7_mount::plugin_transport::authentication_connection(
+            plugin,
+            account,
+            &request.url,
+            &mut request.headers,
+        )?;
         let metadata = mw_egress::ResponseMetadata::default();
         let body = request.body.as_deref().map(|bytes| mw_egress::OutBody {
             content_type: "text/xml",
@@ -106,6 +116,7 @@ impl HttpFetcher for Context {
         let operation = mw_egress::plan::Request::plugin(
             mw_egress::TrafficClass::Plugins,
             mw_egress::PluginHttp {
+                connection: connection.as_deref(),
                 method: "POST",
                 headers: &request.headers,
                 additional_roots: &roots,
@@ -120,10 +131,30 @@ impl HttpFetcher for Context {
             .outcome
             .map_err(|_| "provider egress refused or failed")?;
         let head = metadata.snapshot().ok_or("provider response unavailable")?;
-        let headers = response
+        let mut headers = response
             .content_type
             .map(|value| vec![("content-type".into(), value)])
             .unwrap_or_default();
+        headers.extend(
+            metadata
+                .authentication_challenges()
+                .into_iter()
+                .map(|value| ("www-authenticate".into(), value)),
+        );
+        if let Some(connection) = connection {
+            if let Some(binding) = connection.tls_server_end_point().await {
+                headers.push((
+                    "x-mailwoman-tls-server-end-point".into(),
+                    binding.iter().map(|byte| format!("{byte:02x}")).collect(),
+                ));
+            }
+            if let Some(host) = target.host_str() {
+                headers.push((
+                    "x-mailwoman-ntlm-target-name".into(),
+                    format!("HTTP/{host}"),
+                ));
+            }
+        }
         Ok(HttpResp {
             status: head.status,
             headers,

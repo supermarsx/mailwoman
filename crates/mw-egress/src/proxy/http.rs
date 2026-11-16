@@ -27,6 +27,85 @@ use crate::{
 /// before bodies existed); a `POST` sends its bytes with a known length.
 type ReqBody = Either<Empty<Bytes>, Full<Bytes>>;
 
+#[derive(PartialEq, Eq)]
+pub(crate) struct ConnectionScope {
+    url: String,
+    address: std::net::SocketAddr,
+    route: Option<super::ProxyRoute>,
+    roots: Vec<Vec<u8>>,
+    floor: super::stream::MinTls,
+}
+impl ConnectionScope {
+    pub(crate) fn new(
+        target: &crate::Target,
+        route: Option<&super::ProxyRoute>,
+        roots: &[Vec<u8>],
+    ) -> Self {
+        Self {
+            url: target.url.to_string(),
+            address: target.addr,
+            route: route.cloned(),
+            roots: roots.to_vec(),
+            floor: super::stream::min_tls(),
+        }
+    }
+}
+pub(crate) struct Connected {
+    sender: hyper::client::conn::http1::SendRequest<ReqBody>,
+    pump: tokio::task::JoinHandle<()>,
+    scope: ConnectionScope,
+    opened: std::time::Instant,
+    pub(crate) binding: Option<Vec<u8>>,
+}
+impl Drop for Connected {
+    fn drop(&mut self) {
+        self.pump.abort();
+    }
+}
+
+/// Keep one explicitly owned HTTP/1 connection through a challenge/response.
+/// A closed socket or a changed route/address/trust policy fails this exchange;
+/// an Authenticate token is never silently retried on a new connection.
+pub(crate) async fn exchange_connected<S, F>(
+    session: &crate::PluginConnection,
+    scope: ConnectionScope,
+    open: F,
+    url: &reqwest::Url,
+    out: &Outgoing<'_>,
+    timed: Option<Timed<'_>>,
+) -> Result<(Hop, Option<String>), ProxyRefusal>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    F: std::future::Future<Output = Result<(S, Option<Vec<u8>>), ProxyRefusal>>,
+{
+    let mut held = session.inner.lock().await;
+    if held.as_ref().is_some_and(|value| {
+        value.scope != scope || value.opened.elapsed() > std::time::Duration::from_secs(30)
+    }) {
+        return Err(ProxyRefusal::Origin(Refusal::BadRequest(
+            "authentication connection changed",
+        )));
+    }
+    if held.is_none() {
+        let (stream, binding) = open.await?;
+        let (sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+            .await
+            .map_err(|_| ProxyRefusal::OriginHttp("HTTP/1 handshake failed".into()))?;
+        let pump = tokio::spawn(async move {
+            let _ = conn.await;
+        });
+        *held = Some(Connected {
+            sender,
+            pump,
+            scope,
+            opened: std::time::Instant::now(),
+            binding,
+        });
+    }
+    let connected = held.as_mut().unwrap();
+    exchange_inner(&mut connected.sender, url, out, timed).await
+}
+
 /// The `Host` header value for an origin URL: the hostname, plus the port when it
 /// is not the scheme default. `reqwest::Url::port` is already `None` for a default
 /// port and `host_str` already brackets an IPv6 literal.
@@ -240,6 +319,9 @@ async fn exchange_inner(
 
     let status = response.status();
     if let Some(metadata) = out.response_metadata {
+        if out.authorized_plugin.is_some() {
+            metadata.record_authentication(response.headers());
+        }
         metadata.record(
             status.as_u16(),
             response
@@ -338,6 +420,7 @@ mod tests {
         let out = Outgoing {
             response_metadata: Some(&metadata),
             authorized_plugin: Some(crate::PluginHttp {
+                connection: None,
                 additional_roots: &[],
                 method: "GET",
                 headers: &headers,

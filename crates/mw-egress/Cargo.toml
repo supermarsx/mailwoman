@@ -58,6 +58,11 @@ bytes = { workspace = true }
 hyper = { workspace = true, features = ["client", "http1"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 http-body-util = { workspace = true }
+# RFC5929 origin-certificate channel binding for the explicitly owned NTLM
+# connection. These exact RustCrypto/X.509 versions already back mw-crypto.
+sha2 = { workspace = true }
+x509-cert = { workspace = true }
+der = { version = "0.8", features = ["derive"] }
 
 # `axum` backs the loopback test origin the fetch-mechanics tests spawn; it is the
 # same helper those tests used before the move, and it is dev-only so no consumer

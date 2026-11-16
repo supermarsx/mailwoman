@@ -400,8 +400,15 @@ impl<'a> Request<'a> {
 
     /// Make this `GET` conditional on a copy the caller holds; a `304` is
     /// [`Refusal::Status`]`(304)`.
-    pub fn conditional(mut self, etag: Option<&'a str>, last_modified: Option<&'a str>) -> Request<'a> {
-        self.conditional = Some(crate::Conditional { etag, last_modified });
+    pub fn conditional(
+        mut self,
+        etag: Option<&'a str>,
+        last_modified: Option<&'a str>,
+    ) -> Request<'a> {
+        self.conditional = Some(crate::Conditional {
+            etag,
+            last_modified,
+        });
         self
     }
 
@@ -455,7 +462,7 @@ impl<'a> Request<'a> {
         self.class
     }
 
-    fn outgoing(&self) -> Outgoing<'a> {
+    pub(crate) fn outgoing(&self) -> Outgoing<'a> {
         Outgoing {
             response_metadata: self.response_metadata,
             authorized_plugin: self.authorized_plugin,
@@ -1049,15 +1056,46 @@ pub async fn connect_sieve_with(
     allow_private: bool,
     encrypted: bool,
 ) -> Result<proxy::stream::ProxyConn, proxy::ProxyRefusal> {
-    connect_operator_stream(plan,TrafficClass::Sieve,domain,host,port,allow_private,encrypted).await
+    connect_operator_stream(
+        plan,
+        TrafficClass::Sieve,
+        domain,
+        host,
+        port,
+        allow_private,
+        encrypted,
+    )
+    .await
 }
 
 /// SMTP notifications use their own scoped traffic class and never fall back
 /// to a direct socket when the selected proxy fails.
-pub async fn connect_system_mail_with(plan:&EgressPlan,host:&str,port:u16,allow_private:bool)->Result<proxy::stream::ProxyConn,proxy::ProxyRefusal>{
-    connect_operator_stream(plan,TrafficClass::SystemMail,None,host,port,allow_private,true).await
+pub async fn connect_system_mail_with(
+    plan: &EgressPlan,
+    host: &str,
+    port: u16,
+    allow_private: bool,
+) -> Result<proxy::stream::ProxyConn, proxy::ProxyRefusal> {
+    connect_operator_stream(
+        plan,
+        TrafficClass::SystemMail,
+        None,
+        host,
+        port,
+        allow_private,
+        true,
+    )
+    .await
 }
-async fn connect_operator_stream(plan:&EgressPlan,class:TrafficClass,domain:Option<&str>,host:&str,port:u16,allow_private:bool,encrypted:bool)->Result<proxy::stream::ProxyConn,proxy::ProxyRefusal>{
+async fn connect_operator_stream(
+    plan: &EgressPlan,
+    class: TrafficClass,
+    domain: Option<&str>,
+    host: &str,
+    port: u16,
+    allow_private: bool,
+    encrypted: bool,
+) -> Result<proxy::stream::ProxyConn, proxy::ProxyRefusal> {
     use proxy::ProxyRefusal;
     let route = plan.selected_route(class, domain);
     if let Some(route) = route {

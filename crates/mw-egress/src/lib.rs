@@ -54,8 +54,9 @@
 mod api;
 mod plugin_http;
 pub use api::{ApiMethod, AuthorizedApi};
-pub use plugin_http::PluginHttp;
+pub use plugin_http::{PluginConnection, PluginHttp};
 mod response_metadata;
+mod tls_binding;
 pub use response_metadata::{CacheHeaders, ResponseHead, ResponseMetadata, ResponseProgress};
 pub mod proxy;
 
@@ -944,6 +945,41 @@ pub(crate) async fn send_hop_timed(
     out: &Outgoing<'_>,
     timed: Option<Timed<'_>>,
 ) -> Result<(Hop, Option<String>), Refusal> {
+    if let Some(plugin) = out
+        .authorized_plugin
+        .filter(|plugin| plugin.connection.is_some())
+    {
+        plugin.validate()?;
+        let open = async {
+            let tcp = tokio::net::TcpStream::connect(target.addr)
+                .await
+                .map_err(|_| proxy::ProxyRefusal::Origin(Refusal::Upstream))?;
+            let conn = proxy::stream::ProxyConn::from(tcp);
+            let pipe = if target.url.scheme() == "https" {
+                proxy::stream::wrap_tls_with_roots(conn, &target.host, plugin.additional_roots)
+                    .await?
+            } else {
+                proxy::stream::TunnelStream::Plain(conn)
+            };
+            let binding = pipe.tls_server_end_point()?;
+            Ok((pipe, binding))
+        };
+        let scope = proxy::http::ConnectionScope::new(target, None, plugin.additional_roots);
+        return tokio::time::timeout(
+            timed.map_or(FETCH_TIMEOUT, |t| t.limits.total),
+            proxy::http::exchange_connected(
+                plugin.connection.unwrap(),
+                scope,
+                open,
+                &target.url,
+                out,
+                timed,
+            ),
+        )
+        .await
+        .map_err(|_| Refusal::Timeout)?
+        .map_err(Refusal::from);
+    }
     let mut builder = reqwest::Client::builder();
     if let Some(plugin) = out.authorized_plugin {
         plugin.validate()?;
@@ -1099,6 +1135,9 @@ pub(crate) async fn send_hop_timed(
 
     let status = resp.status();
     if let Some(metadata) = out.response_metadata {
+        if out.authorized_plugin.is_some() {
+            metadata.record_authentication(resp.headers());
+        }
         metadata.record(
             status.as_u16(),
             resp.headers()
@@ -1106,10 +1145,7 @@ pub(crate) async fn send_hop_timed(
                 .and_then(|v| v.to_str().ok()),
         );
         let text = |name| resp.headers().get(name).and_then(|v| v.to_str().ok());
-        metadata.record_cache_headers(
-            text(header::LAST_MODIFIED),
-            text(header::CACHE_CONTROL),
-        );
+        metadata.record_cache_headers(text(header::LAST_MODIFIED), text(header::CACHE_CONTROL));
     }
     if status == reqwest::StatusCode::NOT_MODIFIED && out.conditional.is_some() {
         return Err(Refusal::Status(304));

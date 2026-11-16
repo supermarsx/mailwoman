@@ -2,9 +2,31 @@
 
 use crate::Refusal;
 
+/// One host-owned authentication exchange. The transport binds it to an exact
+/// URL, address, proxy configuration and trust roots before retaining HTTP/1.
+#[derive(Default)]
+pub struct PluginConnection {
+    pub(crate) inner: tokio::sync::Mutex<Option<crate::proxy::http::Connected>>,
+}
+impl PluginConnection {
+    pub async fn tls_server_end_point(&self) -> Option<Vec<u8>> {
+        self.inner
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|held| held.binding.clone())
+    }
+}
+impl std::fmt::Debug for PluginConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PluginConnection").finish_non_exhaustive()
+    }
+}
+
 /// The server must verify the plugin/account and destination authority before construction.
 #[derive(Clone, Copy)]
 pub struct PluginHttp<'a> {
+    pub connection: Option<&'a PluginConnection>,
     pub method: &'a str,
     pub headers: &'a [(String, String)],
     /// Administrator-owned roots for the exact origin, never for a proxy hop.
@@ -82,6 +104,7 @@ mod tests {
         let invalid = vec![vec![1, 2, 3]];
         assert!(
             PluginHttp {
+                connection: None,
                 method: "POST",
                 headers: &[],
                 additional_roots: &invalid
@@ -92,6 +115,7 @@ mod tests {
         let excessive = vec![Vec::new(); 9];
         assert!(
             PluginHttp {
+                connection: None,
                 method: "POST",
                 headers: &[],
                 additional_roots: &excessive
@@ -102,6 +126,7 @@ mod tests {
         let large = vec![vec![0; 65537]];
         assert!(
             PluginHttp {
+                connection: None,
                 method: "POST",
                 headers: &[],
                 additional_roots: &large
@@ -115,6 +140,7 @@ mod tests {
     fn credentials_are_redacted_and_authority_headers_cannot_be_overridden() {
         let headers = vec![("Authorization".into(), "Bearer secret-token".into())];
         let request = PluginHttp {
+            connection: None,
             additional_roots: &[],
             method: "POST",
             headers: &headers,
@@ -134,6 +160,7 @@ mod tests {
             let headers = vec![(name.into(), "value".into())];
             assert!(
                 PluginHttp {
+                    connection: None,
                     additional_roots: &[],
                     method: "GET",
                     headers: &headers
@@ -148,6 +175,7 @@ mod tests {
         ];
         assert!(
             PluginHttp {
+                connection: None,
                 additional_roots: &[],
                 method: "GET",
                 headers: &duplicate
@@ -158,6 +186,7 @@ mod tests {
         let injected = vec![("Accept".into(), "text/plain\r\nHost: foreign".into())];
         assert!(
             PluginHttp {
+                connection: None,
                 additional_roots: &[],
                 method: "GET",
                 headers: &injected

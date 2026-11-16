@@ -254,6 +254,27 @@ impl TunnelStream {
     }
 }
 
+impl TunnelStream {
+    pub(crate) fn tls_server_end_point(&self) -> Result<Option<Vec<u8>>, ProxyRefusal> {
+        match self {
+            Self::Plain(_) => Ok(None),
+            Self::Tls(stream) => {
+                let certificate = stream
+                    .get_ref()
+                    .1
+                    .peer_certificates()
+                    .and_then(|chain| chain.first())
+                    .ok_or_else(|| {
+                        ProxyRefusal::OriginTls("Origin certificate unavailable".into())
+                    })?;
+                crate::tls_binding::certificate_digest(certificate.as_ref())
+                    .map(Some)
+                    .map_err(ProxyRefusal::OriginTls)
+            }
+        }
+    }
+}
+
 impl AsyncRead for TunnelStream {
     fn poll_read(
         self: Pin<&mut Self>,

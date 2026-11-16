@@ -476,44 +476,85 @@ async fn hop_with(
     // Under t56 bounds the connect clock covers dialling the proxy, its CONNECT or
     // SOCKS handshake and the origin TLS handshake inside the tunnel: everything
     // before the request is written, as reqwest's connect timeout does directly.
-    let connect_deadline = timed.map(|t| (t, tokio::time::Instant::now() + t.limits.connect));
-    let conn = match connect_deadline {
-        None => open_tunnel(dialer, route, dst).await?,
-        Some((t, at)) => match tokio::time::timeout_at(at, open_tunnel(dialer, route, dst)).await {
-            Ok(conn) => conn?,
-            Err(_) => return Err(ProxyRefusal::Origin(t.fired(TimeoutPhase::Connect))),
-        },
+    let connection_addr = match &dst {
+        TunnelDest::Addr(addr) => Some(*addr),
+        TunnelDest::Remote(_) => None,
     };
-    // From here the bytes have gone through the proxy. Set this BEFORE the TLS
-    // handshake, so a certificate failure still reports a traversed tunnel.
-    traversed.store(true, Ordering::SeqCst);
-
-    let wrapping = async {
-        Ok::<_, ProxyRefusal>(if is_https {
-            if let Some(dav) = out.authorized_dav {
-                dav.validate().map_err(ProxyRefusal::Origin)?;
-                stream::wrap_tls_with_roots(conn, origin_host, dav.additional_roots).await?
-            } else if let Some(plugin) = out.authorized_plugin {
-                plugin.validate().map_err(ProxyRefusal::Origin)?;
-                stream::wrap_tls_with_roots(conn, origin_host, plugin.additional_roots).await?
-            } else if let Some(download) = out.download.filter(|d| !d.additional_roots.is_empty()) {
-                download.validate().map_err(ProxyRefusal::Origin)?;
-                stream::wrap_tls_with_roots(conn, origin_host, download.additional_roots).await?
-            } else {
-                stream::wrap_tls(conn, origin_host).await?
+    let open = async {
+        let connect_deadline = timed.map(|t| (t, tokio::time::Instant::now() + t.limits.connect));
+        let conn = match connect_deadline {
+            None => open_tunnel(dialer, route, dst).await?,
+            Some((t, at)) => {
+                match tokio::time::timeout_at(at, open_tunnel(dialer, route, dst)).await {
+                    Ok(conn) => conn?,
+                    Err(_) => return Err(ProxyRefusal::Origin(t.fired(TimeoutPhase::Connect))),
+                }
             }
+        };
+        // From here the bytes have gone through the proxy. Set this BEFORE the TLS
+        // handshake, so a certificate failure still reports a traversed tunnel.
+        traversed.store(true, Ordering::SeqCst);
+
+        let wrapping = async {
+            Ok::<_, ProxyRefusal>(if is_https {
+                if let Some(dav) = out.authorized_dav {
+                    dav.validate().map_err(ProxyRefusal::Origin)?;
+                    stream::wrap_tls_with_roots(conn, origin_host, dav.additional_roots).await?
+                } else if let Some(plugin) = out.authorized_plugin {
+                    plugin.validate().map_err(ProxyRefusal::Origin)?;
+                    stream::wrap_tls_with_roots(conn, origin_host, plugin.additional_roots).await?
+                } else if let Some(download) =
+                    out.download.filter(|d| !d.additional_roots.is_empty())
+                {
+                    download.validate().map_err(ProxyRefusal::Origin)?;
+                    stream::wrap_tls_with_roots(conn, origin_host, download.additional_roots)
+                        .await?
+                } else {
+                    stream::wrap_tls(conn, origin_host).await?
+                }
+            } else {
+                stream::TunnelStream::Plain(conn)
+            })
+        };
+        let pipe = match connect_deadline {
+            None => wrapping.await?,
+            Some((t, at)) => match tokio::time::timeout_at(at, wrapping).await {
+                Ok(pipe) => pipe?,
+                Err(_) => return Err(ProxyRefusal::Origin(t.fired(TimeoutPhase::Connect))),
+            },
+        };
+        let binding = if out
+            .authorized_plugin
+            .is_some_and(|plugin| plugin.connection.is_some())
+        {
+            pipe.tls_server_end_point()?
         } else {
-            stream::TunnelStream::Plain(conn)
-        })
+            None
+        };
+        Ok::<_, ProxyRefusal>((pipe, binding))
     };
-    let pipe = match connect_deadline {
-        None => wrapping.await?,
-        Some((t, at)) => match tokio::time::timeout_at(at, wrapping).await {
-            Ok(pipe) => pipe?,
-            Err(_) => return Err(ProxyRefusal::Origin(t.fired(TimeoutPhase::Connect))),
-        },
-    };
-    http::exchange_typed(pipe, url, out, timed).await
+    if let Some(plugin) = out
+        .authorized_plugin
+        .filter(|plugin| plugin.connection.is_some())
+    {
+        // Plugin routes never use remote DNS. Keep the checked address and the
+        // complete selected route as part of the authentication binding.
+        let addr = connection_addr.ok_or(ProxyRefusal::RouteInvalid(
+            "authentication requires local destination verification",
+        ))?;
+        let target = Target {
+            url: url.clone(),
+            host: origin_host.into(),
+            addr,
+        };
+        let scope = http::ConnectionScope::new(&target, Some(route), plugin.additional_roots);
+        let session = plugin.connection.unwrap();
+        if session.inner.lock().await.is_some() {
+            traversed.store(true, Ordering::SeqCst);
+        }
+        return http::exchange_connected(session, scope, open, url, out, timed).await;
+    }
+    http::exchange_typed(open.await?.0, url, out, timed).await
 }
 
 /// The bound on one tunnelled hop: the legacy [`FETCH_TIMEOUT`], or under t56

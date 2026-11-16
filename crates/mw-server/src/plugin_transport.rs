@@ -1,12 +1,133 @@
 //! Host-bound plugin requests through the current administrator egress policy.
+use base64::Engine as _;
 use mw_plugin::{HttpReq, HttpResp};
 use mw_store::Store;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, OnceLock},
+    time::{Duration, Instant},
+};
+
+struct AuthConnection {
+    connection: Arc<mw_egress::PluginConnection>,
+    url: String,
+    created: Instant,
+}
+type AuthKey = (String, String, String);
+fn connections() -> &'static Mutex<HashMap<AuthKey, AuthConnection>> {
+    static SESSIONS: OnceLock<Mutex<HashMap<AuthKey, AuthConnection>>> = OnceLock::new();
+    SESSIONS.get_or_init(Mutex::default)
+}
+/// Correlation is host-only: strip it before any upstream request. One NTLM
+/// NEGOTIATE creates the lease; AUTHENTICATE consumes it exactly once.
+pub(crate) fn authentication_connection(
+    plugin: &str,
+    account: Option<&str>,
+    url: &str,
+    headers: &mut Vec<(String, String)>,
+) -> Result<Option<Arc<mw_egress::PluginConnection>>, String> {
+    // Apply the transport's limits before cloning correlation fields or
+    // decoding an untrusted base64 token. The one extra field is stripped here.
+    if headers.len() > 17
+        || headers.iter().any(|(_, value)| value.len() > 16384)
+        || headers
+            .iter()
+            .map(|(name, value)| name.len() + value.len())
+            .sum::<usize>()
+            > 32824
+    {
+        return Err("authentication headers exceed transport limits".into());
+    }
+    let markers = headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("x-mailwoman-auth-session"))
+        .map(|(_, value)| value.clone())
+        .collect::<Vec<_>>();
+    headers.retain(|(name, _)| !name.eq_ignore_ascii_case("x-mailwoman-auth-session"));
+    if markers.is_empty() {
+        return Ok(None);
+    }
+    let token = &markers[0];
+    if plugin != "bridge-ews"
+        || account.is_none()
+        || markers.len() != 1
+        || token.len() != 32
+        || !token
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err("invalid authentication connection".into());
+    }
+    let authorizations = headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("authorization"))
+        .map(|(_, value)| value.as_str())
+        .collect::<Vec<_>>();
+    if authorizations.len() != 1 {
+        return Err("authentication requires one credential".into());
+    }
+    let value = authorizations[0]
+        .strip_prefix("NTLM ")
+        .ok_or("authentication scheme mismatch")?;
+    let message = base64::engine::general_purpose::STANDARD
+        .decode(value)
+        .map_err(|_| "invalid authentication token")?;
+    if message.len() < 12 || message.len() > 16384 || &message[..8] != b"NTLMSSP\0" {
+        return Err("invalid authentication token".into());
+    }
+    let phase = u32::from_le_bytes(message[8..12].try_into().unwrap());
+    let key = (
+        plugin.to_owned(),
+        account.unwrap().to_owned(),
+        token.clone(),
+    );
+    let now = Instant::now();
+    let mut sessions = connections()
+        .lock()
+        .map_err(|_| "authentication connection unavailable")?;
+    sessions.retain(|_, value| now.duration_since(value.created) < Duration::from_secs(30));
+    match phase {
+        1 => {
+            if sessions.len() >= 256 || sessions.contains_key(&key) {
+                return Err("authentication connection limit".into());
+            }
+            let connection = Arc::new(mw_egress::PluginConnection::default());
+            sessions.insert(
+                key.clone(),
+                AuthConnection {
+                    connection: connection.clone(),
+                    url: url.into(),
+                    created: now,
+                },
+            );
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                if let Ok(mut held) = connections().lock() {
+                    if held.get(&key).is_some_and(|value| value.created == now) {
+                        held.remove(&key);
+                    }
+                }
+            });
+            Ok(Some(connection))
+        }
+        3 => {
+            let held = sessions
+                .remove(&key)
+                .ok_or("authentication connection expired")?;
+            if held.url != url {
+                return Err("authentication endpoint changed".into());
+            }
+            Ok(Some(held.connection))
+        }
+        _ => Err("invalid authentication phase".into()),
+    }
+}
 
 pub(super) async fn fetch(
     store: &Store,
     plugin: &str,
     account: Option<&str>,
-    req: HttpReq,
+    mut req: HttpReq,
 ) -> Result<HttpResp, String> {
     let operation = async {
         crate::features::plugin_policy_admit(store, plugin, account).await?;
@@ -119,6 +240,7 @@ pub(super) async fn fetch(
         let plan = crate::image_proxy::load_plan(store)
             .await
             .map_err(|_| "plugin egress unavailable")?;
+        let connection = authentication_connection(plugin, account, &req.url, &mut req.headers)?;
         let metadata = mw_egress::ResponseMetadata::default();
         let body = req.body.as_deref().map(|bytes| mw_egress::OutBody {
             content_type: "application/octet-stream",
@@ -127,6 +249,7 @@ pub(super) async fn fetch(
         let mut request = mw_egress::plan::Request::plugin(
             mw_egress::TrafficClass::Plugins,
             mw_egress::PluginHttp {
+                connection: connection.as_deref(),
                 additional_roots: &additional_roots,
                 method: &req.method,
                 headers: &req.headers,
@@ -141,7 +264,7 @@ pub(super) async fn fetch(
         {
             request = request.for_domain(domain);
         }
-        let fetched = mw_egress::plan::send_with(&plan, url, &request).await;
+        let fetched = mw_egress::plan::send_with(&plan, url.clone(), &request).await;
         let body = fetched
             .outcome
             .map_err(|_| "plugin egress request refused or failed")?;
@@ -152,6 +275,28 @@ pub(super) async fn fetch(
         }
         if let Some(etag) = head.etag {
             headers.push(("etag".into(), etag));
+        }
+        if plugin == "bridge-ews" {
+            headers.extend(
+                metadata
+                    .authentication_challenges()
+                    .into_iter()
+                    .map(|value| ("www-authenticate".into(), value)),
+            );
+            if let Some(connection) = connection {
+                if let Some(binding) = connection.tls_server_end_point().await {
+                    headers.push((
+                        "x-mailwoman-tls-server-end-point".into(),
+                        binding.iter().map(|byte| format!("{byte:02x}")).collect(),
+                    ));
+                }
+                if let Some(host) = url.host_str() {
+                    headers.push((
+                        "x-mailwoman-ntlm-target-name".into(),
+                        format!("HTTP/{host}"),
+                    ));
+                }
+            }
         }
         Ok(HttpResp {
             status: head.status,
@@ -167,6 +312,108 @@ pub(super) async fn fetch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ntlm_headers(id: &str, phase: u32) -> Vec<(String, String)> {
+        let mut token = b"NTLMSSP\0".to_vec();
+        token.extend_from_slice(&phase.to_le_bytes());
+        vec![
+            ("X-Mailwoman-Auth-Session".into(), id.into()),
+            (
+                "Authorization".into(),
+                format!(
+                    "NTLM {}",
+                    base64::engine::general_purpose::STANDARD.encode(token)
+                ),
+            ),
+        ]
+    }
+    #[tokio::test]
+    async fn ntlm_connection_is_bound_stripped_and_consumed_once() {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let url = "https://exchange.test/EWS/Exchange.asmx";
+        let mut headers = ntlm_headers(&id, 1);
+        let first = authentication_connection("bridge-ews", Some("account-a"), url, &mut headers)
+            .unwrap()
+            .unwrap();
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0].0, "Authorization");
+        assert!(
+            authentication_connection(
+                "bridge-ews",
+                Some("account-b"),
+                url,
+                &mut ntlm_headers(&id, 3)
+            )
+            .is_err()
+        );
+        let second = authentication_connection(
+            "bridge-ews",
+            Some("account-a"),
+            url,
+            &mut ntlm_headers(&id, 3),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(
+            authentication_connection(
+                "bridge-ews",
+                Some("account-a"),
+                url,
+                &mut ntlm_headers(&id, 3)
+            )
+            .is_err()
+        );
+    }
+    #[tokio::test]
+    async fn ntlm_connection_refuses_changed_endpoint_unbound_or_wrong_provider() {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let url = "https://exchange.test/EWS/Exchange.asmx";
+        let mut oversized = ntlm_headers(&id, 1);
+        oversized[1].1 = "NTLM ".to_string() + &"A".repeat(16384);
+        assert!(
+            authentication_connection("bridge-ews", Some("account-a"), url, &mut oversized)
+                .unwrap_err()
+                .contains("limits")
+        );
+        assert!(
+            authentication_connection(
+                "bridge-graph",
+                Some("account-a"),
+                url,
+                &mut ntlm_headers(&id, 1)
+            )
+            .is_err()
+        );
+        assert!(
+            authentication_connection("bridge-ews", None, url, &mut ntlm_headers(&id, 1)).is_err()
+        );
+        authentication_connection(
+            "bridge-ews",
+            Some("account-a"),
+            url,
+            &mut ntlm_headers(&id, 1),
+        )
+        .unwrap();
+        assert!(
+            authentication_connection(
+                "bridge-ews",
+                Some("account-a"),
+                "https://other.test/EWS/Exchange.asmx",
+                &mut ntlm_headers(&id, 3)
+            )
+            .is_err()
+        );
+        assert!(
+            authentication_connection(
+                "bridge-ews",
+                Some("account-a"),
+                url,
+                &mut ntlm_headers("injected\r\nheader", 1)
+            )
+            .is_err()
+        );
+    }
 
     async fn fixture() -> Store {
         let store = Store::open_in_memory(mw_store::ServerKey::generate())

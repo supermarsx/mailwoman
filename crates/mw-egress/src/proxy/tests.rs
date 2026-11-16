@@ -28,6 +28,235 @@ use tokio::net::{TcpListener, TcpStream};
 use super::*;
 use crate::{Hop, Refusal, Target};
 
+async fn authentication_origin() -> (
+    SocketAddr,
+    Vec<Vec<u8>>,
+    Arc<std::sync::atomic::AtomicUsize>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let issued = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+    let roots = vec![issued.cert.der().to_vec()];
+    let server = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_no_client_auth()
+    .with_single_cert(
+        vec![issued.cert.der().clone()],
+        rustls_pki_types::PrivateKeyDer::try_from(issued.signing_key.serialize_der()).unwrap(),
+    )
+    .unwrap();
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(server));
+    let accepted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = accepted.clone();
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = listener.accept().await {
+            counter.fetch_add(1, Ordering::SeqCst);
+            let acceptor = acceptor.clone();
+            tokio::spawn(async move {
+                let Ok(mut pipe) = acceptor.accept(tcp).await else {
+                    return;
+                };
+                for phase in ["type1", "type3"] {
+                    let mut bytes = Vec::new();
+                    while !bytes.ends_with(b"\r\n\r\n") && bytes.len() < 32768 {
+                        match pipe.read_u8().await {
+                            Ok(byte) => bytes.push(byte),
+                            Err(_) => return,
+                        }
+                    }
+                    let head = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+                    let length = head
+                        .lines()
+                        .find_map(|line| {
+                            line.strip_prefix("content-length: ")
+                                .and_then(|value| value.parse::<usize>().ok())
+                        })
+                        .unwrap_or(0);
+                    let mut body = vec![0; length];
+                    if pipe.read_exact(&mut body).await.is_err() {
+                        return;
+                    }
+                    assert!(!head.contains("x-mailwoman-auth-session"));
+                    let response = if head.contains(&format!("authorization: ntlm {phase}\r\n")) {
+                        if phase == "type1" {
+                            "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Negotiate\r\nWWW-Authenticate: NTLM fixture-challenge\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n"
+                        } else {
+                            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                        }
+                    } else {
+                        "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    };
+                    if pipe.write_all(response.as_bytes()).await.is_err() {
+                        return;
+                    }
+                    if !head.contains(&format!("authorization: ntlm {phase}\r\n")) {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    (addr, roots, accepted)
+}
+
+#[tokio::test]
+async fn ntlm_exchange_retains_one_verified_tls_socket_direct_and_through_connect() {
+    for proxied in [false, true] {
+        let (addr, roots, accepted) = authentication_origin().await;
+        let (proxy, log) = recording_connect_proxy().await;
+        let route = http_route(ProxyScheme::HttpConnect, proxy);
+        let target = Target {
+            url: reqwest::Url::parse(&format!(
+                "https://localhost:{}/EWS/Exchange.asmx",
+                addr.port()
+            ))
+            .unwrap(),
+            host: "localhost".into(),
+            addr,
+        };
+        let session = crate::PluginConnection::default();
+        for (phase, expected) in [("type1", 401), ("type3", 200)] {
+            let headers = vec![("Authorization".into(), format!("NTLM {phase}"))];
+            let metadata = crate::ResponseMetadata::default();
+            let request = crate::plan::Request::plugin(
+                crate::TrafficClass::Plugins,
+                crate::PluginHttp {
+                    connection: Some(&session),
+                    method: "POST",
+                    headers: &headers,
+                    additional_roots: &roots,
+                },
+                Some(crate::OutBody {
+                    content_type: "text/xml",
+                    bytes: b"soap",
+                }),
+            )
+            .unwrap()
+            .capture_response(&metadata);
+            let out = request.outgoing();
+            let response = if proxied {
+                tunnel_send_hop_gated(
+                    &Dialer::production(),
+                    &target,
+                    &route,
+                    &out,
+                    &|_, _, ip| ip.is_loopback(),
+                    None,
+                )
+                .await
+                .outcome
+                .map_err(crate::Refusal::from)
+            } else {
+                crate::send_hop_timed(&target, &out, None)
+                    .await
+                    .map(|(hop, _)| hop)
+            };
+            assert!(response.is_ok(), "proxied={proxied}: {response:?}");
+            assert_eq!(metadata.snapshot().unwrap().status, expected);
+            if phase == "type1" {
+                assert_eq!(
+                    session.tls_server_end_point().await.unwrap(),
+                    crate::tls_binding::certificate_digest(&roots[0]).unwrap(),
+                    "binding is the verified origin leaf, including through CONNECT"
+                );
+                assert_eq!(
+                    metadata.authentication_challenges(),
+                    ["Negotiate", "NTLM fixture-challenge"]
+                );
+                if proxied {
+                    let mut changed = route.clone();
+                    changed.id = "replacement-route".into();
+                    let refused = tunnel_send_hop_gated(
+                        &Dialer::production(),
+                        &target,
+                        &changed,
+                        &out,
+                        &|_, _, ip| ip.is_loopback(),
+                        None,
+                    )
+                    .await;
+                    assert!(refused.outcome.is_err());
+                    assert_eq!(
+                        log.lock().unwrap().len(),
+                        1,
+                        "changed route cannot open another authentication tunnel"
+                    );
+                } else {
+                    let mut changed_url = target.url.clone();
+                    changed_url.set_path("/other");
+                    let changed = Target {
+                        url: changed_url,
+                        host: target.host.clone(),
+                        addr: target.addr,
+                    };
+                    assert!(crate::send_hop_timed(&changed, &out, None).await.is_err());
+                }
+                assert_eq!(accepted.load(Ordering::SeqCst), 1);
+            }
+        }
+        assert_eq!(
+            accepted.load(Ordering::SeqCst),
+            1,
+            "challenge and authenticate must use the same socket"
+        );
+        assert_eq!(log.lock().unwrap().len(), usize::from(proxied));
+        // Negative control: AUTHENTICATE on a new socket is rejected by the origin.
+        let fresh = crate::PluginConnection::default();
+        let headers = vec![("Authorization".into(), "NTLM type3".into())];
+        let metadata = crate::ResponseMetadata::default();
+        let request = crate::plan::Request::plugin(
+            crate::TrafficClass::Plugins,
+            crate::PluginHttp {
+                connection: Some(&fresh),
+                method: "POST",
+                headers: &headers,
+                additional_roots: &roots,
+            },
+            None,
+        )
+        .unwrap()
+        .capture_response(&metadata);
+        let out = request.outgoing();
+        if proxied {
+            assert!(
+                tunnel_send_hop_gated(
+                    &Dialer::production(),
+                    &target,
+                    &route,
+                    &out,
+                    &|_, _, ip| ip.is_loopback(),
+                    None
+                )
+                .await
+                .outcome
+                .is_ok()
+            );
+        } else {
+            assert!(crate::send_hop_timed(&target, &out, None).await.is_ok());
+        }
+        assert_eq!(metadata.snapshot().unwrap().status, 401);
+        assert_eq!(accepted.load(Ordering::SeqCst), 2);
+        // A revoked gate opens no new socket, even with an existing lease.
+        if proxied {
+            let before = log.lock().unwrap().len();
+            let blocked = tunnel_send_hop_gated(
+                &Dialer::production(),
+                &target,
+                &route,
+                &out,
+                &|_, _, _| false,
+                None,
+            )
+            .await;
+            assert!(blocked.outcome.is_err());
+            assert_eq!(log.lock().unwrap().len(), before);
+        }
+    }
+}
+
 #[tokio::test]
 async fn plugin_calls_use_selected_connect_route_and_never_follow_redirects() {
     let (proxy, log) = recording_connect_proxy().await;
@@ -39,6 +268,7 @@ async fn plugin_calls_use_selected_connect_route_and_never_follow_redirects() {
     let out = Outgoing {
         response_metadata: Some(&metadata),
         authorized_plugin: Some(crate::PluginHttp {
+            connection: None,
             additional_roots: &[],
             method: "GET",
             headers: &headers,
