@@ -444,42 +444,49 @@ async fn watch_loop(
             return;
         }
     };
-    if !session.caps().has("IDLE") {
-        // No IDLE: signal once so the engine falls back to timed polling.
-        let _ = sink.emit(ChangeEvent::MailboxChanged {
-            mailbox: RawMailboxRef {
-                name: mailbox,
-                uidvalidity: 0,
-            },
-        });
-        return;
-    }
     if session.select(&mailbox, SelectMode::Plain).await.is_err() {
         let _ = sink.emit(ChangeEvent::Disconnected);
         return;
     }
+    if !session.caps().has("IDLE") {
+        // Keep this connection alive: ending the stream caused rapid reconnects,
+        // not the polling promised by the old fallback comment.
+        loop {
+            if sink.emit(ChangeEvent::MailboxChanged { mailbox: RawMailboxRef { name: mailbox.clone(), uidvalidity: 0 } }).is_err() { return; }
+            tokio::select! {
+                _ = stop.changed() => { let _ = session.logout().await; return; }
+                _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+            }
+            match session.conn_mut().execute("NOOP").await.and_then(|response| response.ok()) {
+                Ok(_) => {},
+                Err(_) => { let _ = sink.emit(ChangeEvent::Disconnected); return; }
+            }
+        }
+    }
 
     loop {
-        let tag = match session.conn_mut().idle_start().await {
-            Ok(t) => t,
+        let (tag, updates) = match session.conn_mut().idle_start_with_updates().await {
+            Ok(value) => value,
             Err(_) => {
                 let _ = sink.emit(ChangeEvent::Disconnected);
                 return;
             }
         };
-        let renew = tokio::time::sleep(Duration::from_secs(29 * 60));
+        // A bounded catch-up also covers servers/proxies that silently miss IDLE updates.
+        let renew = tokio::time::sleep(Duration::from_secs(60));
         tokio::pin!(renew);
-        let mut activity = false;
+        let mut activity = updates.iter().any(is_activity);
+        let mut catch_up = false;
         let mut disconnected = false;
 
-        loop {
+        while !activity {
             tokio::select! {
                 _ = stop.changed() => {
                     let _ = session.conn_mut().idle_done(&tag).await;
                     let _ = session.logout().await;
                     return;
                 }
-                _ = &mut renew => break,
+                _ = &mut renew => { catch_up = true; break; },
                 res = session.conn_mut().idle_next() => match res {
                     Ok(resp) => {
                         if is_activity(&resp) {
@@ -499,11 +506,11 @@ async fn watch_loop(
             let _ = sink.emit(ChangeEvent::Disconnected);
             return;
         }
-        if session.conn_mut().idle_done(&tag).await.is_err() {
-            let _ = sink.emit(ChangeEvent::Disconnected);
-            return;
+        match session.conn_mut().idle_done(&tag).await.and_then(|response| response.ok()) {
+            Ok(response) => activity |= response.untagged.iter().any(is_activity),
+            Err(_) => { let _ = sink.emit(ChangeEvent::Disconnected); return; }
         }
-        if activity {
+        if activity || catch_up {
             let event = ChangeEvent::MailboxChanged {
                 mailbox: RawMailboxRef {
                     name: mailbox.clone(),

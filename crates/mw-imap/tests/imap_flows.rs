@@ -44,6 +44,7 @@ enum Ex {
     /// `IDLE`: read the command, send `+ idling` and `unsolicited`, read the
     /// `DONE` line, then send `respond`.
     Idle {
+        before_continuation: String,
         unsolicited: String,
         respond: String,
     },
@@ -152,6 +153,7 @@ async fn handle_conn(sock: TcpStream, script: Script, log: Arc<Mutex<Vec<String>
                     .unwrap();
             }
             Ex::Idle {
+                before_continuation,
                 unsolicited,
                 respond,
             } => {
@@ -160,6 +162,7 @@ async fn handle_conn(sock: TcpStream, script: Script, log: Arc<Mutex<Vec<String>
                     last_tag = t;
                 }
                 assert!(line.contains("IDLE"), "expected IDLE in {line:?}");
+                wr.write_all(before_continuation.as_bytes()).await.unwrap();
                 wr.write_all(b"+ idling\r\n").await.unwrap();
                 if !unsolicited.is_empty() {
                     wr.write_all(unsolicited.as_bytes()).await.unwrap();
@@ -753,11 +756,13 @@ async fn watch_emits_mailbox_changed_on_idle_activity() {
             respond: "{tag} OK [READ-WRITE] Selected\r\n".into(),
         });
         s.push(Ex::Idle {
+            before_continuation: String::new(),
             unsolicited: "* 5 EXISTS\r\n".into(),
             respond: "{tag} OK IDLE terminated\r\n".into(),
         });
         // A second IDLE the loop enters after emitting; ended by the stop signal.
         s.push(Ex::Idle {
+            before_continuation: String::new(),
             unsolicited: String::new(),
             respond: "{tag} OK IDLE terminated\r\n".into(),
         });
@@ -838,10 +843,12 @@ async fn connect_via_a_dialer_runs_both_connections_through_it() {
             respond: "{tag} OK [READ-WRITE] Selected\r\n".into(),
         });
         s.push(Ex::Idle {
+            before_continuation: String::new(),
             unsolicited: "* 5 EXISTS\r\n".into(),
             respond: "{tag} OK IDLE terminated\r\n".into(),
         });
         s.push(Ex::Idle {
+            before_continuation: String::new(),
             unsolicited: String::new(),
             respond: "{tag} OK IDLE terminated\r\n".into(),
         });
@@ -1369,4 +1376,65 @@ async fn explicit_refresh_reconciles_all_flags_and_membership_despite_a_future_c
         MessageRef::Imap { uid: 11, .. }
     ));
     assert_eq!(delta.flag_changes[0].1, vec![Flag::Seen]);
+}
+
+#[tokio::test]
+async fn watch_preserves_updates_before_the_idle_continuation() {
+    // Two connections: the command connection (connect) and the watch connection.
+    let cmd_script = dovecot_script(vec![]);
+    let watch_steps = {
+        let mut s = dovecot_connect_steps();
+        s.push(Ex::Cmd {
+            expect: "SELECT",
+            respond: "{tag} OK [READ-WRITE] Selected\r\n".into(),
+        });
+        s.push(Ex::Idle {
+            before_continuation: "* 5 EXISTS\r\n".into(),
+            unsolicited: String::new(),
+            respond: "{tag} OK IDLE terminated\r\n".into(),
+        });
+        // A second IDLE the loop enters after emitting; ended by the stop signal.
+        s.push(Ex::Idle {
+            before_continuation: String::new(),
+            unsolicited: String::new(),
+            respond: "{tag} OK IDLE terminated\r\n".into(),
+        });
+        s.push(Ex::Cmd {
+            expect: "LOGOUT",
+            respond: "* BYE bye\r\n{tag} OK Logout\r\n".into(),
+        });
+        s
+    };
+    let watch_script = Script {
+        greeting: dovecot_greeting(),
+        steps: watch_steps,
+    };
+    let (addr, _log) = spawn_mock(vec![cmd_script, watch_script]).await;
+    let backend = connect_dovecot(addr, vec![]).await;
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let handle = backend.watch(ChangeSink::new(tx)).await.unwrap();
+
+    let event = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("watch event within timeout")
+        .expect("channel open");
+    assert!(matches!(event, ChangeEvent::MailboxChanged { .. }));
+    handle.stop();
+}
+
+
+#[tokio::test]
+async fn no_idle_server_keeps_polling_without_reconnecting() {
+ let greeting="* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] ready\r\n".to_string();
+ let auth=||Ex::Auth{expect:"AUTHENTICATE PLAIN",respond:"{tag} OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] Logged in\r\n".into()};
+ let command=Script{greeting:greeting.clone(),steps:vec![auth()]};
+ let watcher=Script{greeting,steps:vec![auth(),Ex::Cmd{expect:"SELECT",respond:"* OK [UIDVALIDITY 1]\r\n{tag} OK Selected\r\n".into()},Ex::Cmd{expect:"NOOP",respond:"* 2 EXISTS\r\n{tag} OK Poll\r\n".into()},Ex::Cmd{expect:"LOGOUT",respond:"* BYE bye\r\n{tag} OK Logout\r\n".into()}]};
+ let (addr,log)=spawn_mock(vec![command,watcher]).await;
+ let backend=ImapBackend::connect(config(addr,password_creds())).await.unwrap();
+ let (tx,mut rx)=mpsc::unbounded_channel();let handle=backend.watch(ChangeSink::new(tx)).await.unwrap();
+ assert!(matches!(tokio::time::timeout(std::time::Duration::from_secs(5),rx.recv()).await.unwrap(),Some(ChangeEvent::MailboxChanged{..})));
+ assert!(matches!(tokio::time::timeout(std::time::Duration::from_secs(35),rx.recv()).await.unwrap(),Some(ChangeEvent::MailboxChanged{..})));
+ assert_eq!(log.lock().unwrap().iter().filter(|line|line.contains("NOOP")).count(),1);
+ handle.stop();
 }

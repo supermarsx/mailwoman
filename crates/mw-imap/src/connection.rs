@@ -614,11 +614,17 @@ impl Connection {
 
     /// Begin an `IDLE`; returns once the server confirms with a continuation.
     pub async fn idle_start(&mut self) -> ImapResult<String> {
+        self.idle_start_with_updates().await.map(|(tag, _)| tag)
+    }
+
+    /// SELECT/IDLE transition responses are real changes, not disposable noise.
+    pub async fn idle_start_with_updates(&mut self) -> ImapResult<(String, Vec<OwnedResponse>)> {
+        let mut updates = Vec::new();
         let tag = self.next_tag();
         self.write_all(format!("{tag} IDLE\r\n").as_bytes()).await?;
         loop {
             match self.read_response().await? {
-                Response::Continue { .. } => return Ok(tag),
+                Response::Continue { .. } => return Ok((tag, updates)),
                 Response::Done {
                     status,
                     information,
@@ -630,7 +636,7 @@ impl Connection {
                         information.unwrap_or_default()
                     )));
                 }
-                _ => {}
+                response => updates.push(response)
             }
         }
     }
