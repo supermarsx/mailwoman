@@ -47,6 +47,7 @@ import serviceAsset20 from './assets/iefp-site.png?url';
 import serviceAsset21 from './assets/mercedes-benz-io-site.png?url';
 import serviceAsset22 from './assets/workday-site.ico?url';
 import spaceshipAsset from './assets/spaceship-site.svg?url';
+import autodocAsset from './assets/autodoc-site.png?url';
 export const REGIONAL_SENDER_ICONS:readonly SenderIcon[]=[
  {"id": "cm-sintra", "name": "Câmara Municipal de Sintra", "category": "municipal", "domains": ["cm-sintra.pt"], "paths": [],asset:regionalAsset0},
  {"id": "siga-edubox", "name": "SIGA Edubox", "category": "service", "domains": ["edubox.pt"], "paths": [],asset:regionalAsset1},
@@ -95,4 +96,5 @@ export const REGIONAL_SENDER_ICONS:readonly SenderIcon[]=[
  {"id": "mercedes-benz-io", "name": "Mercedes-Benz.io", "category": "service", "domains": ["mercedes-benz.io"], "paths": [],asset:serviceAsset21},
  {"id": "workday", "name": "Workday", "category": "service", "domains": ["workday.com", "myworkday.com", "myworkdayjobs.com"], "paths": [],asset:serviceAsset22},
  {id:"spaceship",name:"Spaceship",category:"service",domains:["spaceship.com"],paths:[],asset:spaceshipAsset},
+ {id:"autodoc",name:"AUTODOC",category:"service",domains:["auto-doc.pt","autodoc.eu","autodoc.de"],paths:[],asset:autodocAsset},
 ];

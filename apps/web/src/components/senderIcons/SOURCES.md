@@ -265,3 +265,7 @@ GoDaddy and Spaceship: Simple Icons CC0-1.0 artwork. Other service assets come f
 Spaceship (`spaceship.com`), as clarified by the user: https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/spaceship.svg (CC0-1.0). Tally is the form service at `tally.so`; INCM is Imprensa Nacional–Casa da Moeda.
 
 Cartão Continente publisher listing: https://play.google.com/store/apps/details?id=pt.continente.ContinenteTelemovel.
+
+## AUTODOC, GLS and Synology notification mail (2026-11-17)
+
+AUTODOC: official publisher's icon from https://play.google.com/store/apps/details?id=de.autodoc.gmbh; domain attribution https://www.auto-doc.pt/services/toc. GLS retains its existing official bundled favicon, with the current `gls-group.eu` host added alongside `gls-group.com` and `gls-portugal.pt` (official redirect). Synology's existing logo also covers `synologynotification.com`, explicitly documented by https://account.synology.com/en-us/activation_assistance.

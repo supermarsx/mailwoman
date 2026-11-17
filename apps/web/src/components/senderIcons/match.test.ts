@@ -58,3 +58,9 @@ it('recognises creative tools, utilities, public bodies and Workday without broa
  for(const [domain,id] of Object.entries(examples))expect(senderDomainIcon(`mail@${domain}`)?.id,domain).toBe(id);
  for(const domain of ['notmiio.com','e-redes.pt.evil.test','notmyworkday.com','myworkdayjobs.com.evil.test','affinity.serif.com.evil.test'])expect(senderDomainIcon(`mail@${domain}`),domain).toBeUndefined();
 });
+
+it('covers AUTODOC, GLS and official Synology notification senders without suffix spoofing',()=>{
+ for(const [domain,id] of [['auto-doc.pt','autodoc'],['autodoc.eu','autodoc'],['autodoc.de','autodoc'],['gls-group.eu','gls'],['synologynotification.com','synology']]){
+  expect(senderDomainIcon(`notice@${domain}`)?.id).toBe(id);expect(senderDomainIcon(`notice@${domain}.evil.test`)).toBeUndefined();
+ }
+});
