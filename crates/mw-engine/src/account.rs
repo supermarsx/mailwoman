@@ -133,6 +133,7 @@ pub struct AccountRuntime {
     pub dav_transport: Option<Arc<dyn mw_dav::DavTransport>>,
     pub(crate) pim_sync: Arc<crate::pim::schedule::SyncControl>,
     pub(crate) initial_sync: Arc<crate::initial_sync::InitialSyncControl>,
+    pub(crate) mail_sync_locks: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 impl AccountRuntime {
@@ -153,6 +154,7 @@ impl AccountRuntime {
             dav_transport: None,
             pim_sync: Arc::default(),
             initial_sync: Arc::default(),
+            mail_sync_locks: Arc::default(),
         }
     }
 

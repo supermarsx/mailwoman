@@ -498,7 +498,7 @@ impl Engine {
     }
     async fn resync_after_change(&self, account_id:&str, mailbox:&str)->Result<()> {
         let rt=self.require_runtime(account_id)?;let guard=self.sync_health.begin(account_id);
-        let result=self.resync_runtime_untimed(account_id,&rt,Some(mailbox),false,false).await;
+        let result=self.resync_runtime_untimed(account_id,&rt,Some(mailbox),true,true).await;
         guard.finish(&result);result
     }
 
@@ -676,6 +676,9 @@ impl Engine {
         mailbox_id: &str,
         reconcile: bool,
     ) -> Result<()> {
+        let lock = rt.mail_sync_locks.lock().expect("mailbox sync locks").entry(mailbox_id.to_owned()).or_default().clone();
+        let _sync = lock.lock().await;
+        self.require_runtime_generation(account_id, rt)?;
         let cursor = self
             .store
             .load_cursor(account_id, mailbox_id)
@@ -745,17 +748,18 @@ impl Engine {
         }
 
         // New messages: fetch raw bytes, parse in one pass, ingest.
-        if !delta.added.is_empty() {
-            let raws = rt.backend.fetch_raw(&delta.added).await?;
-            if reset {
-                let expected:std::collections::BTreeSet<_>=delta.added.iter().filter_map(|r|match r {MessageRef::Plugin{raw}=>Some(raw),_=>None}).collect();
-                let received:std::collections::BTreeSet<_>=raws.iter().filter_map(|r|match &r.message_ref {MessageRef::Plugin{raw}=>Some(raw),_=>None}).collect();
-                if expected!=received{return Err(EngineError::Protocol("incomplete reset baseline fetch".into()));}
-            }
+        for references in delta.added.chunks(64) {
+            let raws = rt.backend.fetch_raw(references).await?;
+            // Never advance a checkpoint over a message that was not fetched.
+            // Retrying safely reuses stable IDs for already ingested chunks.
+            let expected: std::collections::HashSet<_> = references.iter().collect();
+            let received: std::collections::HashSet<_> = raws.iter().map(|raw| &raw.message_ref).collect();
+            if expected != received { return Err(EngineError::Protocol("incomplete mailbox fetch".into())); }
             for raw in &raws {
                 self.require_runtime_generation(account_id, rt)?;
                 self.ingest(account_id, mailbox_id, raw).await?;
             }
+            tokio::task::yield_now().await;
         }
 
         if reset {
@@ -813,6 +817,7 @@ impl Engine {
                 }
                 None => {
                     let raws = rt.backend.fetch_raw(std::slice::from_ref(mref)).await?;
+                    if raws.len()!=1 || raws[0].message_ref!=*mref { return Err(EngineError::Protocol("incomplete changed-message fetch".into())); }
                     for raw in &raws {
                         self.require_runtime_generation(account_id, rt)?;
                         self.ingest(account_id, mailbox_id, raw).await?;
@@ -1753,6 +1758,19 @@ impl Engine {
             };
             current.watch = Some(Arc::new(WatchHandle::new(stop_tx)));
         }
+        let sweep_engine=engine.clone();let sweep_account=acct.clone();let sweep_backend=backend.clone();let mut sweep_stop=stop_rx.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! { _=sweep_stop.changed()=>return, _=tokio::time::sleep(Duration::from_secs(60))=>{} }
+                let Some(runtime)=sweep_engine.runtime(&sweep_account).filter(|current|Arc::ptr_eq(&current.backend,&sweep_backend)) else{return;};
+                let result=tokio::select! { _=sweep_stop.changed()=>return, result=sweep_engine.resync_runtime_untimed(&sweep_account,&runtime,Some("INBOX"),false,false)=>result };
+                match result {
+                    Ok(())=>sweep_engine.broadcast_state(&sweep_account).await,
+                    Err(EngineError::Auth(_))=>{sweep_engine.reject_runtime_credentials(&sweep_account,&sweep_backend).await;return;},
+                    Err(error)=>tracing::warn!(account=%sweep_account,error=%error,"periodic mailbox catch-up failed"),
+                }
+            }
+        });
         tokio::spawn(async move {
             watch_loop(engine, acct, backend, handle, rx, stop_rx).await;
         });

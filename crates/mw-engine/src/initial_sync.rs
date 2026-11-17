@@ -112,6 +112,14 @@ impl Engine {
                     {
                         return;
                     }
+                    // Subscribe before backfill: a large archive must not delay
+                    // Inbox delivery until the entire account has been indexed.
+                    if engine.runtime(&account).is_some_and(|current|current.watch.is_none()) {
+                        let watched=tokio::select! { _=cancelled.changed()=>return, result=engine.start_watch(&account)=>result };
+                        if matches!(watched,Err(EngineError::Auth(_))) {
+                            engine.reject_runtime_credentials(&account,&runtime.backend).await;return;
+                        }
+                    }
                     control.state.store(1, Ordering::Release);
                     let result = tokio::select! { biased;
                         _=cancelled.changed()=>return,
@@ -119,10 +127,10 @@ impl Engine {
                     };
                     match result {
                         Ok(()) => {
-                            let watched = tokio::select! { biased;
+                            let watched = if engine.runtime(&account).is_some_and(|current|current.watch.is_some()) { Ok(()) } else { tokio::select! { biased;
                                 _=cancelled.changed()=>return,
                                 result=engine.start_watch(&account)=>result,
-                            };
+                            }};
                             match watched {
                                 Ok(()) | Err(EngineError::Unsupported(_)) => {
                                     control.state.store(0, Ordering::Release);

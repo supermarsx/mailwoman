@@ -34,6 +34,7 @@ struct Scripted {
 }
 
 struct FakeBackend {
+    incomplete_fetch: AtomicBool,
     snapshot: AtomicBool,
     uidvalidity: AtomicU32,
     state: Mutex<Scripted>,
@@ -74,6 +75,7 @@ impl FakeBackend {
         let mut messages: HashMap<String, Vec<ScriptMsg>> = HashMap::new();
         messages.insert("INBOX".to_string(), inbox);
         Self {
+            incomplete_fetch: AtomicBool::new(false),
             snapshot: AtomicBool::new(false),
             uidvalidity: AtomicU32::new(UIDVALIDITY),
             state: Mutex::new(Scripted {
@@ -211,6 +213,7 @@ impl AccountBackend for FakeBackend {
                 });
             }
         }
+        if self.incomplete_fetch.load(Ordering::SeqCst) { out.pop(); }
         Ok(out)
     }
 
@@ -2015,18 +2018,20 @@ async fn strip_attachments_imports_a_stripped_copy_with_flags_and_date() {
 #[tokio::test]
 async fn inbox_watch_publishes_before_a_slow_archive_finishes() {
  let backend=Arc::new(FakeBackend::with_inbox(vec![]));
- backend.state.lock().unwrap().mailboxes.swap(0,3);
  let h=setup_with(backend.clone()).await;h.engine.resync(&h.account_id).await.unwrap();
  let gate=Arc::new(HeldDraftAppend{entered:tokio::sync::Notify::new(),release:tokio::sync::Notify::new()});
  *backend.held_sync.lock().unwrap()=Some(("Archive".into(),gate.clone()));
+ let engine=h.engine.clone();let account=h.account_id.clone();let backfill=tokio::spawn(async move{engine.resync(&account).await});
+ tokio::time::timeout(std::time::Duration::from_secs(3),gate.entered.notified()).await.unwrap();
  backend.state.lock().unwrap().messages.insert("INBOX".into(),vec![(1,plain_msg("new@x","sender@example.org","Arrived","Body"),vec![],"2026-07-04T09:00:00Z".into())]);
  let mut changes=h.engine.subscribe();h.engine.start_watch(&h.account_id).await.unwrap();
  backend.watch_sink.lock().unwrap().as_ref().unwrap().emit(ChangeEvent::MailboxChanged{mailbox:RawMailboxRef{name:"INBOX".into(),uidvalidity:UIDVALIDITY}}).unwrap();
- tokio::time::timeout(std::time::Duration::from_secs(3),gate.entered.notified()).await.unwrap();
  let pushed=tokio::time::timeout(std::time::Duration::from_millis(500),changes.recv()).await;
- gate.release.notify_one();assert!(pushed.is_ok(),"new inbox mail waited for the archive before push");
+ gate.release.notify_one();backfill.await.unwrap().unwrap();assert!(pushed.is_ok(),"new inbox mail waited for the archive before push");
+ assert_eq!(backend.reconcile_calls.load(Ordering::SeqCst),1);
  h.engine.unregister(&h.account_id);
 }
+
 #[tokio::test]
 async fn explicit_folder_refresh_reaches_upstream_and_rejects_foreign_folder_ids(){
  let h=setup().await;h.engine.resync(&h.account_id).await.unwrap();
@@ -2038,4 +2043,24 @@ async fn explicit_folder_refresh_reaches_upstream_and_rejects_foreign_folder_ids
  let response=h.engine.handle_jmap(&h.account_id,&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/query",{"accountId":h.account_id,"filter":{"inMailbox":inbox.id}},"q"]]})).await;
  assert_eq!(response["methodResponses"][0][1]["ids"].as_array().unwrap().len(),4);
  assert!(h.engine.refresh_mailbox(&h.account_id,Some("foreign-folder")).await.is_err());
+}
+
+#[tokio::test]
+async fn incomplete_fetch_does_not_advance_the_checkpoint_and_retry_recovers_mail(){
+ let h=setup().await;h.backend.incomplete_fetch.store(true,Ordering::SeqCst);
+ assert!(h.engine.resync(&h.account_id).await.is_err());
+ let inbox=h.engine.store().list_mailboxes(&h.account_id).await.unwrap().into_iter().find(|folder|folder.name=="INBOX").unwrap();
+ assert!(h.engine.store().load_cursor(&h.account_id,&inbox.id).await.unwrap().is_none());
+ h.backend.incomplete_fetch.store(false,Ordering::SeqCst);h.engine.resync(&h.account_id).await.unwrap();
+ assert_eq!(h.engine.store().list_message_ids(&inbox.id,100,0).await.unwrap().len(),3);
+}
+#[tokio::test]
+async fn initial_sync_starts_watching_before_archive_backfill_finishes(){
+ let backend=Arc::new(FakeBackend::with_inbox(vec![]));let h=setup_with(backend.clone()).await;
+ let gate=Arc::new(HeldDraftAppend{entered:tokio::sync::Notify::new(),release:tokio::sync::Notify::new()});
+ *backend.held_sync.lock().unwrap()=Some(("Archive".into(),gate.clone()));
+ h.engine.start_initial_sync(&h.account_id);
+ tokio::time::timeout(std::time::Duration::from_secs(3),gate.entered.notified()).await.unwrap();
+ assert!(backend.watch_sink.lock().unwrap().is_some(),"live watch waited for archive backfill");
+ gate.release.notify_one();h.engine.unregister(&h.account_id);
 }
