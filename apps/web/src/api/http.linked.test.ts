@@ -94,3 +94,12 @@ it('sends one-click unsubscribe through the selected linked mailbox instead of r
  await apiFetch('/api/mail/list-unsubscribe',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url:'https://list.example.test/unsubscribe'})});
  expect(send).toHaveBeenCalledOnce();expect(header(send.mock.calls[0]?.[1])).toBe(child.linkId);
 });
+
+it('reads another verified mailbox notification policy without granting targeted settings writes',async()=>{
+ const send=vi.fn(async(_url:string,_init?:RequestInit)=>ok());vi.stubGlobal('fetch',send);
+ const target={linkId:'different-link',accountId:'other',storageAuthority:'msa1_different_verified',owner:preferenceAccount()!};
+ await apiFetch('/api/account/notifications',{mailboxTarget:target});
+ const headers=new Headers(send.mock.calls[0]?.[1]?.headers);expect(headers.get('x-mailwoman-link')).toBe(target.linkId);expect(headers.get('x-mailwoman-account')).toBe(target.accountId);expect(headers.get('x-mailwoman-storage-authority')).toBe(target.storageAuthority);
+ await expect(apiFetch('/api/account/notifications',{method:'PUT',mailboxTarget:target})).rejects.toMatchObject({name:'LinkedContextUnsupportedError'});
+ await expect(apiFetch('https://elsewhere.example/api/account/notifications',{mailboxTarget:target})).rejects.toMatchObject({name:'LinkedContextUnsupportedError'});expect(send).toHaveBeenCalledOnce();
+});

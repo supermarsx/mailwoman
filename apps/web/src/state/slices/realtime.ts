@@ -50,6 +50,7 @@ export interface RealtimeSlice {
 export interface RealtimeSliceOptions extends RealtimeControllerOptions {
   /** The open linked mailbox moved (t46): refetch these datatypes. */
   onActiveLinkedChanged?: (types: ChangedType[]) => void;
+  onMailboxChanged?: (frame: import('../../contracts/push.ts').MailboxChange) => void;
 }
 
 /**
@@ -119,7 +120,7 @@ export function createRealtimeSlice(
     // picker and the open context are re-verified.
     onAuthorityMismatch: invalidateLinkedAccounts,
   });
-  controller.onMailboxChange?.((frame) => linkedLive.apply(frame));
+  controller.onMailboxChange?.((frame) => {linkedLive.apply(frame);opts.onMailboxChanged?.(frame);});
 
   return {
     connectionState: controller.connection.state,

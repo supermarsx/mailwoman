@@ -320,7 +320,7 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
   if(mailboxTarget){
     const method=(given?.method??'GET').toUpperCase();
     const allowed=(method==='POST'&&(routePath==='/jmap/api'||routePath==='/api/import/eml'))
-      ||(method==='GET'&&(routePath==='/api/import/formats'||/^\/api\/export\/[^/]+$/.test(routePath)));
+      ||(method==='GET'&&(routePath==='/api/import/formats'||routePath==='/api/account/notifications'||/^\/api\/export\/[^/]+$/.test(routePath)));
     const rootOrigin=globalThis.location?.origin??'http://localhost';
     const scopedOrigin=isRootRelative(input)?rootOrigin:expectedOrigin;
     if(target.origin!==scopedOrigin||admin||!allowed||mailboxContext!==undefined||!mailboxTarget.accountId||!mailboxTarget.storageAuthority)throw new LinkedContextUnsupportedError();

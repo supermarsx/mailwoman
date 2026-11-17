@@ -5,6 +5,8 @@ import {SnoozeDialog} from './components/SnoozeDialog.tsx';
 import {requestMessageOpen} from './state/messageOpenRequest.ts';
 import {startNotificationCenter} from './state/notificationCenter.ts';
 import {toast} from './components/toast/toast.ts';
+import {createIncomingDelivery} from './realtime/incomingDelivery.ts';
+import {readWorkspaceNotifications,type WorkspaceMailbox} from './api/workspaceMail.ts';
 import type {IncomingMail} from './realtime/incomingMail.ts';
 import {useInterfacePreferences} from './theme/interfacePreferences.ts';
 import { onMount, onCleanup, createEffect, createSignal, Show, Switch, Match, type JSX } from 'solid-js';
@@ -29,7 +31,7 @@ import { t, isolate } from './i18n/index.ts';
 import { clearSettings, loadSettings } from './api/settings.ts';
 import { startAnalytics } from './api/startAnalytics.ts';
 
-import { observePreferenceAccount, preferenceAccountIsCurrent, type PreferenceAccount } from './api/accountPreferenceLifecycle.ts';
+import { preferenceAccount, observePreferenceAccount, preferenceAccountIsCurrent, type PreferenceAccount } from './api/accountPreferenceLifecycle.ts';
 import { SettingsService } from './screens/Settings/service.ts';
 import { shouldNotify } from './api/notificationPolicy.ts';
 import {NotificationPermissionPrompt} from './components/NotificationPermissionPrompt.tsx';
@@ -217,39 +219,47 @@ export function App(): JSX.Element {
   });
 
   const [notificationAccount, setNotificationAccount] = createSignal<PreferenceAccount | null>(null);
-  const notificationTargets=new Map<string,{owner:PreferenceAccount;messageId:string}>();
+  const notificationTargets=new Map<string,{owner:PreferenceAccount;messageId:string;target?:WorkspaceMailbox}>();
   let notificationActionsOff:(()=>void)|undefined,disposed=false,genericPushUntil=0;
-  function clearIncomingAlerts():void{for(const id of notificationTargets.keys())toast.dismiss(id);notificationTargets.clear();}
+  function clearIncomingAlerts():void{incomingDelivery.clear();for(const id of notificationTargets.keys())toast.dismiss(id);notificationTargets.clear();}
   function openNotification(id:string):void {
     const target=notificationTargets.get(id);
-    if(target&&preferenceAccountIsCurrent(target.owner)){window.focus();requestMessageOpen(target.messageId,target.owner);}
+    if(target&&preferenceAccountIsCurrent(target.owner)){window.focus();void openIncoming(target.messageId,target.owner,target.target);}
+  }
+  async function openIncoming(messageId:string,owner:PreferenceAccount,target?:WorkspaceMailbox):Promise<void>{
+    if(!preferenceAccountIsCurrent(owner))return;
+    if(target){
+      try{await app.switchLinkedMailbox(target.linkId);}catch{return;}
+      const current=preferenceAccount();if(!current||current.id!==target.accountId||current.storageAuthority!==target.storageAuthority)return;
+      requestMessageOpen(messageId,current);
+    }else requestMessageOpen(messageId,owner);
   }
   async function incoming(batch:IncomingMail):Promise<void>{
     if(!preferenceAccountIsCurrent(batch.owner)||!inMail())return;
-    try{
-      const config=await new SettingsService().notifications();
+      const target=batch.target;
+      const config=await (target?readWorkspaceNotifications(target):new SettingsService().notifications());
       if(disposed||!preferenceAccountIsCurrent(batch.owner)||!inMail())return;
-      const allowed=batch.messages.filter(message=>shouldNotify(config,{...message,mailboxNames:app.mailboxes().filter(box=>message.mailboxIds?.[box.id]).map(box=>box.name)}));
+      const allowed=batch.messages.filter(message=>shouldNotify(config,{...message,mailboxNames:(batch.mailboxes??app.mailboxes()).filter(box=>message.mailboxIds?.[box.id]).map(box=>box.name)}));
       const first=allowed[0];if(!first)return;
       const title=allowed.length===1?t('common-notify-new-message'):t('common-notify-new-count',{count:allowed.length});
       const sender=first.from?.[0]?.name||first.from?.[0]?.email;
-      const body=`${sender?`${isolate(sender)}: `:''}${isolate(first.subject||t('common-notify-no-subject'))}`;
-      const id=`mw-mail:${batch.owner.storageAuthority??batch.owner.id}:${first.id}`;
-      notificationTargets.set(id,{owner:batch.owner,messageId:first.id});
+      const body=`${batch.target?`${isolate(batch.target.label)} · `:''}${sender?`${isolate(sender)}: `:''}${isolate(first.subject||t('common-notify-no-subject'))}`;
+      const id=`mw-mail:${batch.target?.storageAuthority??batch.owner.storageAuthority??batch.owner.id}:${first.id}`;
+      notificationTargets.set(id,{owner:batch.owner,messageId:first.id,...(batch.target?{target:batch.target}:{})});
       while(notificationTargets.size>100)notificationTargets.delete(notificationTargets.keys().next().value!);
       if(!document.hidden){
-        toast.info(`${title} — ${body}`,{id,action:{label:t('common-open'),run:()=>requestMessageOpen(first.id,batch.owner)},testId:'incoming-mail-toast'});
+        toast.info(`${title} — ${body}`,{id,action:{label:t('common-open'),run:()=>void openIncoming(first.id,batch.owner,batch.target)},testId:'incoming-mail-toast'});
       }
       if(Date.now()>genericPushUntil&&(document.hidden||!document.hasFocus())&&(capabilityEnabled('notifications')||(typeof Notification!=='undefined'&&Notification.permission==='granted'))){
         await getPlatform().notify({id,title,body,...(first.threadId?{threadId:first.threadId}:{})});
       }
-    }catch{/* Missing/failed policy and account transitions never grant delivery. */}
   }
+  const incomingDelivery=createIncomingDelivery({deliver:incoming,current:batch=>!disposed&&inMail()&&preferenceAccountIsCurrent(batch.owner)});
   onMount(()=>{
     onCleanup(startNotificationCenter());
     onCleanup(startSharedToasts());
     onCleanup(observePreferenceAccount(owner=>{clearIncomingAlerts();genericPushUntil=0;setNotificationAccount(owner);}));
-    const off=app.onIncomingMail?.(batch=>{void incoming(batch);});onCleanup(()=>off?.());
+    const off=app.onIncomingMail?.(batch=>incomingDelivery.send(batch));onCleanup(()=>off?.());
     const worker=navigator.serviceWorker;
     const wake=(event:MessageEvent):void=>{if(event.data?.type==='mw-push-wake'&&event.data.notificationShown===true)genericPushUntil=Date.now()+10_000;};
     worker?.addEventListener?.('message',wake);onCleanup(()=>worker?.removeEventListener?.('message',wake));

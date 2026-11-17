@@ -2098,10 +2098,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     return refreshCurrentList(true);
   }
 
+  let refreshRetry:ReturnType<typeof setTimeout>|undefined,refreshFailures=0;
+  if(getOwner())onCleanup(()=>{if(refreshRetry)clearTimeout(refreshRetry);});
   let pendingListRefresh=false;
   function finishPendingRefresh():void{if(!pendingListRefresh||listLoading()||loadingMore())return;pendingListRefresh=false;queueMicrotask(()=>void refreshCurrentList(false));}
 
   async function refreshCurrentList(includeSearch: boolean,countsCurrent=false): Promise<void> {
+    if(refreshRetry){clearTimeout(refreshRetry);refreshRetry=undefined;}
     readCache.invalidate(undefined,{abort:false});
     const current = captureMailAuthority();
     void syncOpenMessages();
@@ -2157,9 +2160,20 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       setLoadedStart(range.start);
       const reportedTotal = pageTotal(res);
       setTotal(relocated>0||reportedTotal===null?null:Math.max(0,reportedTotal-hidden));
-      setExhausted(serverLen < loaded);
+      setExhausted(serverLen < loaded);refreshFailures=0;
     } catch {
-      // Transient/offline refetch — keep the current list.
+      // A pushed state has already been acknowledged by the reconciler. Retry a
+      // transient list failure ourselves rather than waiting for a second mail.
+      if(isCurrent(req)){
+        refreshFailures++;
+        const retry=():void=>{
+          refreshRetry=undefined;
+          if(!current()||accountId()!==acct||pageSource()!==src)return;
+          if(ctx.online?.()===false){refreshRetry=setTimeout(retry,30000);return;}
+          void refreshCurrentList(includeSearch);
+        };
+        refreshRetry=setTimeout(retry,Math.min(30000,1000*2**Math.min(refreshFailures-1,5)));
+      }
     } finally {
       endListRequest(req);
       finishPendingRefresh();

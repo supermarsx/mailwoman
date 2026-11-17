@@ -136,3 +136,12 @@ it('an explicit full refresh pulls upstream before replacing the visible list',a
   await mail.refreshCurrentMailbox({upstream:true});expect(refresh).toHaveBeenCalledWith('acct1','inbox');expect(mail.messages().map(row=>row.id)).toContain('arrived');
  });
 });
+
+it('retries a failed pushed-list update without a second push or manual refresh',async()=>{
+ await withSlice([msg('old')],async(mail,s)=>{
+  const original=s.client.jmap;let failed=false;
+  s.client.jmap=vi.fn(async(request:JmapRequest,options?:JmapCallOptions):Promise<JmapResponse>=>{if(!failed&&request.methodCalls.some(([method])=>method==='Email/query'||method==='Email/queryChanges')){failed=true;throw new Error('temporary query failure');}return original(request,options);});
+  s.store.set('arrived',msg('arrived'));await mail.refreshCurrentMailbox();
+  expect(failed).toBe(true);await vi.waitFor(()=>expect(mail.messages().map(row=>row.id)).toContain('arrived'),{timeout:2500});
+ });
+});

@@ -39,6 +39,8 @@ export interface RealtimeControllerOptions {
   pushClient?: PushClientImpl;
   /** Invoked with the datatypes that moved for an account after each push. */
   onChanged?: ReconcileHandler;
+  /** Refetch the active account even before a first push frame established state. */
+  onCatchUp?: () => void;
 }
 
 export function createRealtimeController(
@@ -52,6 +54,9 @@ export function createRealtimeController(
   // was pushed while it was down, so re-read once instead of waiting for the next
   // change to arrive.
   let wasDown = false;
+  let polling: ReturnType<typeof setInterval> | undefined;
+  const stopPolling=():void=>{if(polling!==undefined){clearInterval(polling);polling=undefined;}};
+  const catchUp=():void=>{reconciler.resync();opts.onCatchUp?.();};
   const push =
     opts.pushClient ??
     createSharedPushClient({
@@ -59,11 +64,14 @@ export function createRealtimeController(
       onStatus: (status, transport) => {
         connection.report(status, transport);
         opts.push?.onStatus?.(status, transport);
+        if(status==='degraded'&&transport==='poll'&&polling===undefined){catchUp();polling=setInterval(catchUp,30000);}
+        if(status==='open'||status==='closed'||status==='unauthorized')stopPolling();
         if (status === 'reconnecting') wasDown = true;
         else if (status === 'open' && wasDown) {
           wasDown = false;
-          reconciler.resync();
-        } else if (status === 'closed' || status === 'unauthorized') wasDown = false;
+          catchUp();
+        } else if (status === 'open') opts.onCatchUp?.();
+        else if (status === 'closed' || status === 'unauthorized') wasDown = false;
       },
     });
 
@@ -79,6 +87,7 @@ export function createRealtimeController(
       push.connect();
     },
     stop(): void {
+      stopPolling();
       push.close();
       reconciler.reset();
     },

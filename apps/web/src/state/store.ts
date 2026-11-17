@@ -5,6 +5,8 @@ import {seedOfflineHttp} from '../offline/httpCache.ts';
 import {settings,settingsLoadStatus} from '../api/settings.ts';
 import {accountUiPreferences} from '../api/accountPreferences.ts';
 import {preferenceAccount} from '../api/accountPreferenceLifecycle.ts';
+import {createFamilyIncomingMail} from '../realtime/familyIncomingMail.ts';
+import {activeLinkedMailbox} from '../api/linkedMailboxSession.ts';
 import {createIncomingMail,type IncomingMail} from '../realtime/incomingMail.ts';
 import { startMailboxSessionActivity } from '../api/sessionActivity.ts';
 import {accountScopedSlice,accountScopedFetcher} from './accountScopedSlice.ts';
@@ -224,7 +226,10 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
   // Push refreshes have no awaiting UI. Keep the last Outbox rows on a transport
   // interruption; explicit refresh callers still receive errors, and transport
   // authentication handling continues to invalidate an expired session.
+  const familyIncoming=createFamilyIncomingMail({activeLink:()=>activeLinkedMailbox()?.linkId??null,deliver:batch=>{for(const listener of incomingListeners)listener(batch);}});
   const realtime = createRealtimeSlice(ctx, {
+    onMailboxChanged:frame=>{if(frame.changed.Email!==undefined||frame.changed.Mailbox!==undefined)familyIncoming.changed(frame.link,frame.storageAuthority);},
+    onCatchUp:()=>{incoming.changed();familyIncoming.changed();void mail.refreshCurrentMailbox();},
     onChanged: (accountId, types) => {
       if (accountId !== mail.accountId()) return;
       if(types.includes('Email'))incoming.changed();
@@ -254,8 +259,8 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
     ...tags,
     ...outbox,
     ...realtime,
-    startRealtime(){incoming.start();realtime.startRealtime();},
-    stopRealtime(){incoming.stop();realtime.stopRealtime();},
+    startRealtime(){incoming.start();familyIncoming.start();realtime.startRealtime();},
+    stopRealtime(){incoming.stop();familyIncoming.stop();realtime.stopRealtime();},
     onIncomingMail(handler){incomingListeners.add(handler);return()=>incomingListeners.delete(handler);},
     ...offline,
     ...theme,

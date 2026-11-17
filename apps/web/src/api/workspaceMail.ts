@@ -41,7 +41,7 @@ function request(target:WorkspaceMailbox,path:string,signal:AbortSignal,init:Req
   return apiFetch(withBase(path),{...init,mailboxTarget:target,credentials:'same-origin',signal,redirect:'error'});
 }
 async function json<T>(response:Response):Promise<T>{
-  if(!response.ok)throw new Error(`Mailbox request failed (${response.status})`);
+  if(!response.ok)throw Object.assign(new Error(`Mailbox request failed (${response.status})`),{status:response.status});
   return await response.json() as T;
 }
 export async function readWorkspaceJmap(target:WorkspaceMailbox,body:JmapRequest,signal:AbortSignal):Promise<JmapResponse>{
@@ -170,4 +170,13 @@ export async function transferWorkspaceMessage(input:{
     if(!result.updated||!Object.hasOwn(result.updated,emailId))return 'source-unconfirmed';
     return 'moved';
   }catch{return 'source-unconfirmed';}
+}
+
+/** Read an inactive mailbox's policy without changing the active mailbox's
+ * runtime notification preferences. */
+export async function readWorkspaceNotifications(target:WorkspaceMailbox):Promise<import('../screens/Settings/types.ts').NotificationConfig>{
+ const response=await apiFetch(withBase('/api/account/notifications'),{mailboxTarget:target,credentials:'same-origin',cache:'no-store',redirect:'error',pace:'background'});
+ const config=await json<import('../screens/Settings/types.ts').NotificationConfig>(response);
+ if(!preferenceAccountIsCurrent(target.owner))throw new DOMException('Mailbox changed','AbortError');
+ return config;
 }

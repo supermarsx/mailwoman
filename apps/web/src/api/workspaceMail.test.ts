@@ -1,7 +1,7 @@
 import {afterEach,expect,it,vi} from 'vitest';
 import {activateAccountPreferences,preferenceAccount,suspendAccountPreferences} from './accountPreferenceLifecycle.ts';
 import {apiFetch} from './http.ts';
-import {readLinkedMailboxIdentity,transferWorkspaceMessage,workspaceMessages,updateWorkspaceMessages,type WorkspaceMailbox} from './workspaceMail.ts';
+import {readWorkspaceNotifications,readLinkedMailboxIdentity,transferWorkspaceMessage,workspaceMessages,updateWorkspaceMessages,type WorkspaceMailbox} from './workspaceMail.ts';
 import type {Email,Mailbox} from './jmap-types.ts';
 
 vi.mock('./http.ts',()=>({apiFetch:vi.fn()}));
@@ -89,4 +89,13 @@ it('uses supported flat filters for both the unified page and its unread count',
  expect(await workspaceMessages(target,boxes,'all','',0,new AbortController().signal,'newest',false,['inbox','archive'])).toMatchObject({total:0,unread:0,next:null});
  expect(mock).toHaveBeenCalledTimes(1);
  expect(await workspaceMessages(target,boxes,'trash','',0,new AbortController().signal,'newest',false,['inbox'])).toMatchObject({rows:[],next:null});expect(mock).toHaveBeenCalledTimes(1);
+});
+
+it('loads an inactive account policy through its verified target and rejects late owner changes',async()=>{
+ activateAccountPreferences('account','primary_authority_1234');const owner=preferenceAccount()!;
+ const target:WorkspaceMailbox={linkId:'linked-b',accountId:'b',storageAuthority:'linked_authority_12345',owner,label:'Other',current:false};
+ mock.mockImplementation(async(path,init)=>{expect(path).toBe('/api/account/notifications');expect(init).toMatchObject({mailboxTarget:target,cache:'no-store',redirect:'error'});return Response.json({enabled:true,rules:[],quietHours:{enabled:false}});});
+ expect((await readWorkspaceNotifications(target)).enabled).toBe(true);
+ mock.mockImplementation(async()=>{const response=Response.json({enabled:true});vi.spyOn(response,'json').mockImplementation(async()=>{activateAccountPreferences('other','foreign_authority_1234');return {enabled:true};});return response;});
+ await expect(readWorkspaceNotifications(target)).rejects.toMatchObject({name:'AbortError'});
 });
