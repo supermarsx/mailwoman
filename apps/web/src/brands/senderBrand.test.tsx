@@ -90,3 +90,13 @@ it.each([['wise','wise.com'],['revolut','revolut.com'],['monzo','monzo.com'],['n
  expect(brandAvatarFor(`hello@${host}`,auth({dkimDomain:host}),'always')?.id).toBe(id);
  expect(brandAvatarFor(`hello@${host}`,auth({dmarc:'fail'}))).toBeUndefined();
 });
+
+it('the reader renders newly bundled sender marks and keeps authentication and visibility rules',()=>{
+ state.value=undefined;
+ const shown=render(()=><SenderBrandMark address="mail@viacard.pt" auth={null}/>);
+ expect(shown.container.querySelector('[data-sender-icon="viacard"] img')).not.toBeNull();
+ expect(render(()=><SenderBrandMark address="mail@viacard.pt" auth={auth({dmarc:'fail'})}/>).container.querySelector('img')).toBeNull();
+ state.value=false;
+ expect(render(()=><SenderBrandMark address="mail@viacard.pt" auth={null}/>).container.querySelector('img')).toBeNull();
+ state.value=undefined;
+});

@@ -1,5 +1,6 @@
 import {afterEach,expect,it} from 'vitest';
 import {render} from '@solidjs/testing-library';
+import {SenderBrandMark} from '../brands/SenderBrandMark.tsx';
 import {PersonAvatar} from './PersonAvatar.tsx';
 import {MailboxAvatar} from './accounts/MailboxAvatar.tsx';
 import {rememberLinkedList} from '../api/mailboxLayout.ts';
@@ -14,6 +15,9 @@ it('uses exactly the saved mailbox artwork for owned primary and linked addresse
   const message=render(()=><PersonAvatar name="Unrelated sender name" address={address} messageSender/>);
   const mailbox=render(()=><MailboxAvatar size="message" label={label!} address={address!.toLowerCase()} avatar={list.layout!.avatars![key!]}/>);
   expect(message.container.querySelector('.person-avatar')?.outerHTML).toBe(mailbox.container.querySelector('.person-avatar')?.outerHTML);
+  const reader=render(()=><SenderBrandMark address={address} auth={null}/>);
+  const compact=render(()=><MailboxAvatar size="sm" label={label!} address={address!.toLowerCase()} avatar={list.layout!.avatars![key!]}/>);
+  expect(reader.container.querySelector('.person-avatar')?.outerHTML).toBe(compact.container.querySelector('.person-avatar')?.outerHTML);
  }
 });
 it('reacts to saved avatar edits and never reuses another signed-in owner’s layout',()=>{
