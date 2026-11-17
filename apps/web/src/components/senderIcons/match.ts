@@ -1,3 +1,4 @@
+import {REGIONAL_SENDER_ICONS} from './regional.ts';
 import {EXPANDED_SENDER_ICONS} from './expanded.ts';
 import {SENDER_ICONS,type SenderIcon} from './catalog.ts';
 
@@ -28,8 +29,8 @@ const GOVERNMENT_ICONS=[
  government('Canada government',['gc.ca']),
  government('Australia government',['gov.au']),
 ];
-export const ALL_SENDER_ICONS=[...SENDER_ICONS,...EXPANDED_SENDER_ICONS,...GOVERNMENT_ICONS];
-const domains=[...SENDER_ICONS,...EXPANDED_SENDER_ICONS,...GOVERNMENT_ICONS].flatMap(icon=>icon.domains.map(domain=>({domain,icon}))).sort((a,b)=>b.domain.length-a.domain.length);
+export const ALL_SENDER_ICONS=[...SENDER_ICONS,...EXPANDED_SENDER_ICONS,...REGIONAL_SENDER_ICONS,...GOVERNMENT_ICONS];
+const domains=[...SENDER_ICONS,...EXPANDED_SENDER_ICONS,...REGIONAL_SENDER_ICONS,...GOVERNMENT_ICONS].flatMap(icon=>icon.domains.map(domain=>({domain,icon}))).sort((a,b)=>b.domain.length-a.domain.length);
 
 /** Domain hints only, never authentication evidence. Do not match display names,
  * substring lookalikes, public mailbox providers or user-controlled hosting. */

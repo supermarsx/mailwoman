@@ -45,7 +45,7 @@ const TABLE: [string, string, string][] = [
   ['atlassian.com', 'atlassian', 'atlassian'], ['mail.atlassian.com', 'atlassian', 'atlassian'], ['zoom.us', 'zoom', 'zoom'], ['mail.zoom.us', 'zoom', 'zoom'],
   ['docusign.net', 'docusign', '-'], ['docusign.com', 'docusign', '-'], ['wise.com', 'wise', '-'],
   ['revolut.com', 'revolut', 'revolut'], ['mail.revolut.com', 'revolut', 'revolut'], ['n26.com', 'n26', '-'],
-  ['klarna.com', 'klarna', 'klarna'], ['mail.klarna.com', 'klarna', 'klarna'], ['mbway.pt', 'mbway', '-'], ['sibs.pt', 'sibs', '-'],
+  ['klarna.com', 'klarna', 'klarna'], ['mail.klarna.com', 'klarna', 'klarna'], ['mbway.pt', 'mbway', 'mbway'], ['sibs.pt', 'sibs', '-'],
   ['dhl.com', 'dhl', 'dhl'], ['dhl.de', 'dhl', '-'], ['ups.com', 'ups', 'ups'], ['fedex.com', 'fedex', 'fedex'], ['seur.com', 'seur', '-'], ['correos.es', 'correos', '-'],
   ['lemonde.fr', 'lemonde', '-'], ['spiegel.de', 'spiegel', '-'], ['bbc.co.uk', 'bbc', 'bbc'], ['nytimes.com', 'nytimes', '-'], ['mail.nytimes.com', 'nytimes', '-'],
   // Public bodies: the catalogue shows one civic glyph, the registry has a few named agencies.

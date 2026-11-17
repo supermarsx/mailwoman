@@ -198,3 +198,70 @@ The generic civic icon (original artwork, not an official seal) additionally cov
 WTF currently uses a bundled text monogram; the official site icon was unavailable.
 
 MEO Empresas domain attribution: [official MEO enterprise customer-area terms](https://conteudos.meo.pt/empresarial/Documentos/Condicoes-Utilizacao/Condicoes-Utilizacao-ACE.pdf) identify `meoempresas.pt` as the enterprise customer-area domain. It reuses the existing bundled MEO mark.
+
+## Municipalities, services and chambers (2026-11-17)
+
+Bundled solely to identify the sender organisation. Marks remain the property of their respective owners. No remote logo lookup is performed when viewing mail. Existing authentication policies continue to apply.
+
+| Organisation | Bundled source |
+| --- | --- |
+| Câmara Municipal de Sintra | https://cm-sintra.pt/images/logos/logo-cms_vertical_preto.png |
+| SIGA Edubox | https://siga.edubox.pt/assets/icon/favicon.svg |
+| Câmara Municipal de Setúbal | https://www.mun-setubal.pt/wp-content/uploads/2026/02/Favicon_ID_CMS-cores.svg |
+| Câmara Municipal de Almada | https://www.cm-almada.pt/themes/custom/cma_theme/favicon.ico |
+| Câmara Municipal de Lisboa | https://upload.wikimedia.org/wikipedia/commons/c/cd/C%C3%A2mara_Municipal_de_Lisboa_logo.svg |
+| British-Portuguese Chamber of Commerce | https://bpcc.pt/wp-content/uploads/2017/12/cropped-BPCC_Symb_Square-1-180x180.jpg |
+| Câmara de Comércio e Indústria Luso-Brasileira | https://ccilb.net/favicon.ico |
+| moey! | https://moey.pt/hubfs/icons/favicon-1.ico |
+| Cartão Continente | https://play-lh.googleusercontent.com/0a0UZkrpu89IiyZmHFIyP9SgFlF2lZSPY3cuQacR24DhxpQ6PB7XCEetm9SRIcslacC2QSt7Xe-nGG8tHxJN=w192 |
+| Via Verde | https://www.viaverde.pt/Portals/0/favicon.ico?ver=oanZWtivISRukx4WTYFHRg%3d%3d |
+| ViaCard | https://viacard.pt/wp-content/uploads/2019/01/VC.png |
+| CUF | https://www.cuf.pt/themes/custom/cuf_theme/logo.svg |
+| Lusíadas Saúde | https://www.lusiadas.pt/sites/default/files/favicons/apple-touch-icon.png |
+| Clínica Santa Madalena | https://www.santamadalena.pt/assets/img/csm-icon.svg |
+| Fidelidade | https://fidelidade.pt/hubfs/coe-global-assets/favicon_fidelidade.ico |
+| Seguro Directo | https://www.segurodirecto.pt/images/system/apple-touch-icon-180x180.png |
+| Vila Galé | https://d2h50f2ee3zau3.cloudfront.net/app/uploads/2026/04/11152341/cropped-vg-180x180.png |
+| MB WAY | https://endpoint-mbway.azureedge.net/wp-content/uploads/2020/11/cropped-Favicon_mbway-180x180.jpg |
+| SIBS | https://www.sibs.com/wp-content/uploads/2025/05/sibs_favicon-300x300.png |
+| British Chambers of Commerce | https://www.britishchambers.org.uk/wp-content/uploads/2023/08/cropped-Favicon-180x180.webp |
+| Confederação das Associações Comerciais e Empresariais do Brasil | https://cacb.org.br/wp-content/uploads/2023/03/cropped-favicon-cacb-novo-180x180.png |
+| Portuguese Chamber of Commerce in the UK | https://portuguese-chamber.org.uk/wp-content/uploads/2025/12/portuguesechamberofcommerceintheuk-favicon-300x300.png |
+| Câmara Portuguesa de Comércio no Brasil | https://www.camaraportuguesa.com.br/wp-content/uploads/2021/05/favicon.png |
+| Brazilian Chamber of Commerce for Great Britain | https://www.brazilianchamber.org.uk/themes/custom/brazilian/logo.svg |
+| British Chamber of Commerce and Industry in Brazil | https://britcham.com.br/wp-content/uploads/2025/04/cropped-logo-britcham3-180x180.png |
+
+Lisboa artwork: Câmara Municipal de Lisboa, public-domain text/logo geometry via [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:C%C3%A2mara_Municipal_de_Lisboa_logo.svg), attributed there to the municipality’s official graphic-identity page. Brazilian Chamber UK: the official SVG wraps an embedded PNG; that same PNG is bundled directly, without an SVG image wrapper. Cartão Continente: official publisher’s app icon from its Google Play listing. Credibom, Cetelem and Público already use existing bundled assets.
+
+Porto Luso-Brazilian Chamber (`ccilb.pt`): https://ccilb.pt/favicon.ico, independent of the Lisbon chamber at `ccilb.net`.
+
+## Further requested services (2026-11-17)
+
+| Organisation | Bundled source |
+| --- | --- |
+| Smashwords | https://www.smashwords.com/static/img/swlogo57x57.png |
+| Affinity | https://static.canva.com/domain-assets/affinity/static/images/apple-touch-180x180-1.png |
+| Serif | https://static.canva.com/domain-assets/affinity/static/images/apple-touch-180x180-1.png |
+| Tally | https://tally.so/tally-square.png |
+| miio | https://www.miio.com/logo.ico |
+| E-REDES | https://www.e-redes.pt/themes/custom/eredes_theme/logo.svg |
+| Porkbun | https://porkbun.com/images/favicons/apple-icon-180x180.png |
+| GoDaddy | https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/godaddy.svg |
+| DeviantArt | https://st.deviantart.net/eclipse/icons/pwa/ios-180.png |
+| Imprensa Nacional–Casa da Moeda | https://incm.pt/site/wp-content/uploads/2022/03/cropped-favicon_incmcws_black-180x180.png |
+| Altice | https://static.s-sfr.fr/AlticeFrance/images/big-icon.png |
+| BNP Paribas | https://group.bnpparibas/favicon.ico |
+| Instituto da Mobilidade e dos Transportes | https://www.imt-ip.pt/wp-content/uploads/2025/01/cropped-favicon-imt-180x180.png |
+| Generali Tranquilidade | https://www.generalitranquilidade.pt/-/media/images/tranquilidade/logos/rebranding/ed258_logocor_horiz_trsp_esq-01.svg |
+| navegante | https://www.navegante.pt/favicon.ico |
+| Razer | https://www.razer.com/favicon.png |
+| Sacoor Brothers | https://pt.sacoorbrothers.com/cdn/shop/files/favicon-bros.png?crop=center&height=180&v=1712747245&width=180 |
+| Instituto do Emprego e Formação Profissional | https://www.iefp.pt/public-WCAG-theme/images/apple-touch-icon.png |
+| Mercedes-Benz.io | https://www.mercedes-benz.io/apple-touch-icon.png |
+| Workday | https://www.workday.com/favicon.ico |
+
+GoDaddy and Spaceship: Simple Icons CC0-1.0 artwork. Other service assets come from their official sites. Current Affinity and Serif sites publish the same Affinity mark; the dedicated `affinity.serif.com` domain maps to Affinity. Continente and EDP already have catalogue entries. IMT and IEFP now take priority over the generic civic mark. Workday tenant domains identify the platform, not the employer. CUF now uses its official vector from https://www.cuf.pt/themes/custom/cuf_theme/logo.svg.
+
+Spaceship (`spaceship.com`), as clarified by the user: https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/spaceship.svg (CC0-1.0). Tally is the form service at `tally.so`; INCM is Imprensa Nacional–Casa da Moeda.
+
+Cartão Continente publisher listing: https://play.google.com/store/apps/details?id=pt.continente.ContinenteTelemovel.

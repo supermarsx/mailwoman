@@ -1,11 +1,12 @@
 import {readFileSync,readdirSync} from 'node:fs';
 import {it,expect} from 'vitest';
 import {SENDER_ICONS} from './catalog.ts';
+import {REGIONAL_SENDER_ICONS} from './regional.ts';
 import {EXPANDED_SENDER_ICONS} from './expanded.ts';
 import {senderDomainIcon} from './match.ts';
 it('matches every bundled domain and its mail subdomains without network lookup',()=>{
  expect(SENDER_ICONS.length).toBeGreaterThanOrEqual(80);
- for(const icon of [...SENDER_ICONS,...EXPANDED_SENDER_ICONS])for(const domain of icon.domains){
+ for(const icon of [...SENDER_ICONS,...EXPANDED_SENDER_ICONS,...REGIONAL_SENDER_ICONS])for(const domain of icon.domains){
   expect(senderDomainIcon(`sender@${domain}`)?.id).toBe(icon.id);
   expect(senderDomainIcon(`sender@MAIL.${domain.toUpperCase()}`)?.id).toBe(icon.id);
  }
@@ -27,7 +28,7 @@ it('covers the curated banking and brokerage sets with honest fallback artwork',
  expect(senderDomainIcon('news@eco.sapo.pt')?.id).toBe('eco');expect(senderDomainIcon('person@sapo.pt')).toBeUndefined();
  expect(senderDomainIcon('x@trading212.com.evil.org')).toBeUndefined();expect(senderDomainIcon('x@notolx.pt')).toBeUndefined();
  expect(senderDomainIcon('x@irn.justica.gov.pt')?.name).toBe('Instituto dos Registos e do Notariado');
- expect(senderDomainIcon('x@iefp.pt')?.id).toBe('government');
+ expect(senderDomainIcon('x@iefp.pt')?.id).toBe('iefp');
 });
 
 it('bundles passive SVG artwork without scripts, event handlers or external resources',()=>{
@@ -40,4 +41,20 @@ it('matches MEO Empresas and its subdomains using the existing MEO asset, never 
   const icon=senderDomainIcon(address);expect(icon?.id).toBe('meo');expect(icon?.asset).toContain('meo-site.png');
  }
  for(const address of ['billing@notmeoempresas.pt','billing@meoempresas.pt.evil.io'])expect(senderDomainIcon(address)).toBeUndefined();
+});
+
+it('covers requested regional organisations with bundled artwork and rejects domain lookalikes',()=>{
+ for(const icon of REGIONAL_SENDER_ICONS){
+  expect(icon.asset,icon.name).toBeTruthy();
+  for(const domain of icon.domains){expect(senderDomainIcon(`mail@news.${domain}`)?.id).toBe(icon.id);expect(senderDomainIcon(`mail@${domain}.evil.test`)).toBeUndefined();}
+ }
+ expect(senderDomainIcon('mail@siga1.edubox.pt')?.id).toBe('siga-edubox');
+ expect(senderDomainIcon('mail@cm-lisboa.pt')?.id).toBe('cm-lisboa');
+ expect(senderDomainIcon('mail@newsletter.cartaocontinente.pt')?.id).toBe('cartao-continente');
+});
+
+it('recognises creative tools, utilities, public bodies and Workday without broad host matching',()=>{
+ const examples:Record<string,string>={'smashwords.com':'smashwords','affinity.serif.com':'affinity','store.serif.com':'serif','tally.so':'tally-forms','miio.com':'miio','e-redes.pt':'e-redes','porkbun.com':'porkbun','spaceship.com':'spaceship','godaddy.com':'godaddy','deviantart.com':'deviantart','incm.pt':'incm','altice.pt':'altice','bnpparibas.com':'bnp-paribas','imt-ip.pt':'imt','tranquilidade.pt':'generali-tranquilidade','navegante.pt':'navegante','razer.com':'razer','sacoorbrothers.com':'sacoor','iefp.pt':'iefp','mercedes-benz.io':'mercedes-benz-io','myworkday.com':'workday','wd5.myworkdayjobs.com':'workday','continente.pt':'continente','edp.pt':'edp'};
+ for(const [domain,id] of Object.entries(examples))expect(senderDomainIcon(`mail@${domain}`)?.id,domain).toBe(id);
+ for(const domain of ['notmiio.com','e-redes.pt.evil.test','notmyworkday.com','myworkdayjobs.com.evil.test','affinity.serif.com.evil.test'])expect(senderDomainIcon(`mail@${domain}`),domain).toBeUndefined();
 });
