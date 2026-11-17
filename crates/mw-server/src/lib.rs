@@ -61,6 +61,7 @@ pub mod knobs;
 mod login_failure;
 mod notification_policy;
 pub mod push;
+mod websocket_actions;
 pub mod push_relay;
 mod client_errors;
 mod client_errors_symbolicate;
@@ -1680,6 +1681,7 @@ fn router(
         .route("/api/security/dlp/config", get(dlp_config))
         .route("/api/security/watermark", get(watermark_config))
         .route("/jmap/ws", get(push::jmap_ws))
+        .route("/jmap/actions", get(websocket_actions::upgrade))
         .route("/jmap/eventsource", get(push::jmap_eventsource))
         // ── V5 push relay: VAPID key serving, subscription storage, and the
         // opaque-wake dispatcher. Handlers are live, cookie-authed like every
@@ -1792,7 +1794,8 @@ fn router(
         ))
         .with_state(state.clone());
     // t20 B4: also serve the whole thing under `MW_BASE_PATH`. No-op when unset.
-    mount_under_base_path(app, &state.base_path)
+    let dispatcher=websocket_actions::Dispatcher(app.clone());
+    mount_under_base_path(app.layer(Extension(dispatcher)), &state.base_path)
 }
 
 // ---------------------------------------------------------------------------

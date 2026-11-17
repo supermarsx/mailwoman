@@ -1,3 +1,4 @@
+import {settings as actionSettings} from '../api/settings.ts';
 import {createChannelNetworkConnection} from './networkChannel.ts';
 import {ApiError,NetworkError,type Client,type JmapCallOptions,type Me,PasswordChangeRequired} from '../api/client.ts';
 import type {JmapRequest,JmapResponse,JmapSession} from '../api/jmap-types.ts';
@@ -12,7 +13,7 @@ export interface Connection {mode:'shared-worker'|'leader';ready:Promise<boolean
 let shared:Connection|undefined;
 function context(linkId=activeLinkedMailbox()?.linkId??null):NetworkContext{
  const account=preferenceAccount(),active=activeLinkedMailbox()?.linkId??null;
- return {base:`${location.origin}${basePath()}`,linkId,...(account?.storageAuthority&&linkId===active?{owner:{accountId:account.id,storageAuthority:account.storageAuthority}}:{})};
+ return {preferWebSocket:actionSettings()['realtime.actions.preferWebSocket']?.value===true&&actionSettings()['realtime.actions.enabled']?.value!==false,base:`${location.origin}${basePath()}`,linkId,...(account?.storageAuthority&&linkId===active?{owner:{accountId:account.id,storageAuthority:account.storageAuthority}}:{})};
 }
 function connection():Connection|undefined{
  if(shared)return shared;

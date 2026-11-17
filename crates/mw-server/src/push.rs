@@ -339,6 +339,12 @@ impl ScopedChanges {
         // Only opaque state tokens leave this authenticated account's stream.
         // Seed the initial baseline without emitting spurious changes.
         let mut changed = serde_json::Map::new();
+        // A reconnect also carries the current web build so an old open tab
+        // notices a server restart/deploy without waiting for its slow poll.
+        let build=crate::client_policy::web_build_id(scope.state.web_dir.as_deref());
+        if scope.metadata.insert("WebVersion".into(),build.clone()).as_deref()!=Some(build.as_str()) {
+            changed.insert("WebVersion".into(),build.into());
+        }
         if let Ok(mut rows) = scope.state.store.list_security_sessions(Some(&scope.parent.account_id), 100).await {
             rows.sort_by(|a,b| a.handle.cmp(&b.handle));
             let snapshot: Vec<_> = rows.iter().map(|row| (&row.handle, &row.device)).collect();

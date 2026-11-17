@@ -76,7 +76,8 @@ async fn spawn_mock() -> String {
     origin
 }
 
-async fn spawn_server() -> (String, SocketAddr, PushHandle) {
+async fn spawn_server() -> (String, SocketAddr, PushHandle) { spawn_server_hardening(HardeningConfig::default()).await }
+async fn spawn_server_hardening(hardening:HardeningConfig) -> (String, SocketAddr, PushHandle) {
     let base = test_db::unique_dir("mw-pushv5");
     let web_dir = base.join("web");
     std::fs::create_dir_all(&web_dir).unwrap();
@@ -88,7 +89,7 @@ async fn spawn_server() -> (String, SocketAddr, PushHandle) {
         web_dir: Some(PathBuf::from(&web_dir)),
         cookie_secure: false,
         mode: mw_server::ServerMode::Proxy,
-        hardening: HardeningConfig::default(),
+        hardening,
         security: mw_server::SecurityConfig {
             jmap_upstreams: mock_upstreams(),
             upstream_default: last_mock(),
@@ -398,4 +399,42 @@ async fn login_cookie(c: &reqwest::Client, server: &str, _mock: &str) -> String 
     let saved=c.put(format!("{server}/api/account/notifications")).header("x-mailwoman-storage-authority", authority).json(&json!({"enabled":true,"rules":[],"quietHours":{"enabled":false,"start":"22:00","end":"07:00","timezone":"UTC"}})).send().await.unwrap();
     assert_eq!(saved.status(), 200, "explicit account notification opt-in");
     authority.to_string()
+}
+
+#[tokio::test]
+async fn websocket_actions_reuse_csrf_and_verified_account_fences() {
+    use futures_util::{SinkExt,StreamExt};
+    use tokio_tungstenite::tungstenite::{Message,client::IntoClientRequest};
+    let _mock=spawn_mock().await;
+    let (server,_,_)=spawn_server_hardening(HardeningConfig{csrf_strict:true,..HardeningConfig::default()}).await;
+    let c=client();let response=c.post(format!("{server}/api/login")).json(&json!({"username":mw_mock_jmap::USER,"password":mw_mock_jmap::PASS})).send().await.unwrap();assert_eq!(response.status(),200);
+    let cookies=response.headers().get_all("set-cookie").iter().map(|header|header.to_str().unwrap().split(';').next().unwrap().to_string()).collect::<Vec<_>>();
+    let csrf=cookies.iter().find_map(|cookie|cookie.strip_prefix("mw_csrf=")).unwrap().to_string();
+    let me:Value=response.json().await.unwrap();
+    let request=server.replacen("http://","ws://",1).to_string()+"/jmap/actions";
+    let mut request=request.into_client_request().unwrap();request.headers_mut().insert("cookie",cookies.join("; ").parse().unwrap());request.headers_mut().insert("origin",server.parse().unwrap());
+    let foreign=server.replacen("http://","ws://",1).to_string()+"/jmap/actions";
+    let mut foreign=foreign.into_client_request().unwrap();*foreign.headers_mut()=request.headers().clone();foreign.headers_mut().insert("origin","https://foreign.invalid".parse().unwrap());
+    match tokio_tungstenite::connect_async(foreign).await{Err(tokio_tungstenite::tungstenite::Error::Http(response))=>assert_eq!(response.status().as_u16(),403),_=>panic!("cross-origin action socket must not upgrade")};
+    let (mut ws,_)=tokio_tungstenite::connect_async(request).await.unwrap();
+    let ready:Value=serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();assert_eq!(ready["type"],"ready");
+    let body=json!({"using":[],"methodCalls":[["Core/echo",{"value":"ws"},"echo"]]}).to_string();
+    ws.send(Message::Text(json!({"id":"csrf","method":"POST","path":"/jmap/api","headers":{"content-type":"application/json"},"body":body}).to_string().into())).await.unwrap();
+    let refusal:Value=serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();assert_eq!(refusal["status"],403,"WS must not bypass CSRF: {refusal}");
+    let headers=json!({"content-type":"application/json","x-csrf-token":csrf,"x-mailwoman-account":me["accountId"],"x-mailwoman-storage-authority":me["storageAuthority"]});
+    ws.send(Message::Text(json!({"id":"save","method":"PUT","path":"/api/settings/notifications.incoming.toast","headers":headers,"body":json!({"value":false}).to_string()}).to_string().into())).await.unwrap();
+    let saved:Value=serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();assert_eq!(saved["status"],200,"normal policy route must execute: {saved}");
+    let read:Value=c.get(format!("{server}/api/settings")).send().await.unwrap().json().await.unwrap();assert_eq!(read["settings"]["notifications.incoming.toast"]["value"],false);
+    // A real JMAP move uses the same channel and can be read back over HTTP.
+    let queried:Value=c.post(format!("{server}/jmap/api")).header("x-csrf-token",&csrf).json(&json!({"using":["urn:ietf:params:jmap:mail"],"methodCalls":[["Email/query",{"accountId":mw_mock_jmap::ACCOUNT_ID,"limit":1},"q"]]})).send().await.unwrap().json().await.unwrap();
+    let email=queried["methodResponses"][0][1]["ids"][0].as_str().unwrap();
+    let move_body=json!({"using":["urn:ietf:params:jmap:mail"],"methodCalls":[["Email/set",{"accountId":mw_mock_jmap::ACCOUNT_ID,"update":{email:{"mailboxIds":{"mb-sent":true}}}},"move"]]}).to_string();
+    ws.send(Message::Text(json!({"id":"move","method":"POST","path":"/jmap/api","headers":headers,"body":move_body}).to_string().into())).await.unwrap();
+    let moved:Value=serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();assert_eq!(moved["status"],200,"JMAP move route: {moved}");
+    let read:Value=c.post(format!("{server}/jmap/api")).header("x-csrf-token",&csrf).json(&json!({"using":["urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{"accountId":mw_mock_jmap::ACCOUNT_ID,"ids":[email]},"get"]]})).send().await.unwrap().json().await.unwrap();
+    assert_eq!(read["methodResponses"][0][1]["list"][0]["mailboxIds"]["mb-sent"],true,"WS action must actually move the message");
+    let mut wrong=headers;wrong["x-mailwoman-storage-authority"]=json!("msa1_wrong_account_authority");
+    ws.send(Message::Text(json!({"id":"wrong","method":"PUT","path":"/api/settings/notifications.incoming.toast","headers":wrong,"body":json!({"value":true}).to_string()}).to_string().into())).await.unwrap();
+    let fenced:Value=serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();assert!(matches!(fenced["status"].as_u64(),Some(403|409)),"wrong authority must be refused: {fenced}");
+    ws.close(None).await.unwrap();
 }

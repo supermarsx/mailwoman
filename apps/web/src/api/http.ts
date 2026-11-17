@@ -1,3 +1,7 @@
+import {websocketAction,clearWebSocketActions} from './websocketActions.ts';
+import {settings as transportSettings} from './settings.ts';
+import {observePreferenceAccount as observeActionAccount} from './accountPreferenceLifecycle.ts';
+observeActionAccount(clearWebSocketActions);
 import {offlineBlobRead} from '../offline/blobCache.ts';
 import {verifyOfflineAuthority,revokeOfflineAuthorization} from '../offline/runtime.ts';
 import {offlineHttpRead} from '../offline/httpCache.ts';
@@ -283,9 +287,15 @@ async function sendApiFetch(input: string, given: RequestInit|undefined, assertA
   const init = withClientHeader(input, given);
   if (native !== null && isRootRelative(input)) return sendNative(native, input, init,assertAuthority);
   const method = (init?.method ?? 'GET').toUpperCase();
-  if (SAFE_METHODS.has(method)) return send(input, init);
+  const ordinarySend=async(options:RequestInit|undefined):Promise<Response>=>{
+    const values=transportSettings();
+    if(values['realtime.actions.preferWebSocket']?.value!==true||values['realtime.actions.enabled']?.value===false)return send(input,options);
+    const response=await websocketAction(input,options,`${location.origin}${basePath()}`);
+    assertAuthority();return response??send(input,options);
+  };
+  if (SAFE_METHODS.has(method)) return ordinarySend(init);
   const token = csrfToken();
-  const res = await send(input, token === null ? init : withToken(init, token));
+  const res = await ordinarySend(token === null ? init : withToken(init, token));
   if (!(await isCsrfRefusal(res))) return res;
   if (typeof ReadableStream !== 'undefined' && init?.body instanceof ReadableStream) return res;
   const fresh = await refreshToken(tokenSource(input));

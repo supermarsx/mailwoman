@@ -1,3 +1,4 @@
+import {clearWebSocketActions} from '../api/websocketActions.ts';
 import {jmapReadsOnly} from '../api/jmapReadOnly.ts';
 import {workerHttp} from '../api/workerHttp.ts';
 import {ApiError} from '../api/errors.ts';
@@ -7,7 +8,7 @@ import {jmapApiPath} from '../api/jmapDiscovery.ts';
 import {createPushClient,type PushClientImpl,type PushStatus} from '../realtime/pushClientCore.ts';
 import type {PushTransport} from '../contracts/push.ts';
 
-export interface NetworkContext {base:string;linkId:string|null;owner?:{accountId:string;storageAuthority:string}}
+export interface NetworkContext {preferWebSocket?:boolean;base:string;linkId:string|null;owner?:{accountId:string;storageAuthority:string}}
 export interface NetworkRequest {id:string;method:'me'|'session'|'jmap'|'push.start'|'push.stop'|'push.reconnect'|'reset'|'lease'|'view.put'|'view.get';context:NetworkContext;body?:JmapRequest;idempotencyKey?:string|false;primaryAuthority?:string;view?:{topic:string;value?:unknown;sender:string}}
 export type NetworkReply={id:string;result?:unknown;error?:{name:string;message:string;status?:number;code?:string;retryAfterSecs?:number}}|{event:string;value:unknown};
 interface Peer {send(reply:NetworkReply):void;lastSeen:number;authority?:string;push:boolean}
@@ -34,7 +35,7 @@ export function createNetworkCore(){
   const context=message.context,base=new URL(context.base),prefix=base.pathname.replace(/\/$/,'');
   if(base.origin!==globalThis.location?.origin)throw new ApiError(400,'Shared worker requires this Mailwoman origin');
   if(message.method==='lease')return true;
-  if(message.method==='reset'){generation++;views.clear();clear();push?.close();push=undefined;for(const value of peers.values()){value.push=false;value.send({event:'reset',value:null});}return true;}
+  if(message.method==='reset'){clearWebSocketActions();generation++;views.clear();clear();push?.close();push=undefined;for(const value of peers.values()){value.push=false;value.send({event:'reset',value:null});}return true;}
   if(message.method==='push.stop'){peer.push=false;stopUnused();return true;}
   if(message.method.startsWith('push.')){
    const live=await identity({base:context.base,linkId:null});
@@ -85,7 +86,7 @@ export function createNetworkCore(){
     const session=await (await workerHttp(context.base,`${prefix}/jmap/session`,{headers})).json() as JmapSession;
     const path=jmapApiPath(session.apiUrl,context.base);
     if(message.idempotencyKey)headers.set('Idempotency-Key',message.idempotencyKey);
-    value=await (await workerHttp(context.base,`${prefix}${path}`,{method:'POST',headers,body:JSON.stringify(message.body)})).json() as JmapResponse;
+    value=await (await workerHttp(context.base,`${prefix}${path}`,{method:'POST',headers,body:JSON.stringify(message.body),allowWebSocket:context.preferWebSocket===true})).json() as JmapResponse;
    }
    if(admitted!==generation)throw new ApiError(401,'Shared session changed');
    if(read&&epoch===dataEpoch){const size=new TextEncoder().encode(JSON.stringify(value)).length;if(size<=2*1024*1024){const old=snapshots.get(key);if(old)bytes-=old.bytes;snapshots.delete(key);snapshots.set(key,{value,at:Date.now(),bytes:size});bytes+=size;while(bytes>20*1024*1024||snapshots.size>256){const first=snapshots.keys().next().value!;bytes-=snapshots.get(first)!.bytes;snapshots.delete(first);}}}

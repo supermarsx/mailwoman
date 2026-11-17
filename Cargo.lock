@@ -5694,6 +5694,7 @@ dependencies = [
  "tokio-rustls-acme",
  "tokio-tungstenite",
  "toml 0.8.23",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-opentelemetry",
