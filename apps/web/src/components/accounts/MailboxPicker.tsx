@@ -21,10 +21,12 @@ import {MailboxConnectionStatus} from './MailboxConnectionStatus.tsx';
 import { isolate, loadCatalog, t } from '../../i18n/index.ts';
 import { useCollapsibleBar } from '../bars/index.ts';
 import { Icon } from '../Icon.tsx';
-import { avatarLook, type MailboxAvatarSpec } from '../../api/mailboxAvatar.ts';
+import { type MailboxAvatarSpec } from '../../api/mailboxAvatar.ts';
 import * as a11y from '../mailA11y.css.ts';
 import * as css from './accountIndicator.css.ts';
 import { accountUnreadBadge } from '../../api/countBadges.ts';
+import {MailboxAvatar} from './MailboxAvatar.tsx';
+export {MailboxAvatar} from './MailboxAvatar.tsx';
 import '../person-avatar.css';
 import '../senderIcons/palette.css';
 void loadCatalog('workspace-mail');
@@ -72,22 +74,6 @@ export function choiceLabel(choice: Pick<MailboxChoice, 'nickname' | 'name' | 'a
  * never moves what is beside it. Colours are set through the CSSOM (Solid's
  * dynamic `style`), never a style attribute (shell CSP).
  */
-export function MailboxAvatar(props: { label: string; address: string; size?: 'sm' | 'md' | 'lg'; avatar?: MailboxAvatarSpec | undefined }): JSX.Element {
-  const look = (): ReturnType<typeof avatarLook> => avatarLook(props.avatar, props.label, props.address);
-  return (
-    <span
-      class={`person-avatar ${css.avatar}`}
-      data-size={props.size ?? 'md'}
-      data-avatar-color={look().palette}
-      data-avatar-kind={look().custom ? look().kind : undefined}
-      data-avatar-icon={look().icon}
-      style={look().custom ? { 'background-color': look().bg, color: look().fg } : {}}
-      aria-hidden="true"
-    >
-      <Show when={look().glyph} fallback={look().text}>{(glyph) => <Icon name={glyph()} />}</Show>
-    </span>
-  );
-}
 
 function UnreadBadge(props: { count: number | null }): JSX.Element {
   return (

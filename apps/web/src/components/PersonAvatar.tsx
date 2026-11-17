@@ -4,6 +4,8 @@ import {apiFetch} from '../api/http.ts';
 import {withBase} from '../api/basePath.ts';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import {loadCatalog,t} from '../i18n';
+import {mailboxForAddress} from '../api/mailboxLayout.ts';
+import {MailboxAvatar} from './accounts/MailboxAvatar.tsx';
 import {avatarPresentation} from './avatarPresentation.ts';
 import {senderDomainIcon} from './senderIcons/match.ts';
 import {brandAvatarDecision,DEFAULT_REQUIRE_AUTH,isRequireAuth,senderIconDecision} from '../brands/senderBrand.ts';
@@ -27,6 +29,7 @@ export function PersonAvatar(props:{name?:string|undefined;address?:string|undef
  messageSender?:boolean|undefined;auth?:ListAuthSummary|null|undefined}):JSX.Element {
  onMount(()=>void loadCatalog('avatars'));
  const [currentOwner,setCurrentOwner]=createSignal(preferenceAccount());onCleanup(observePreferenceAccount(setCurrentOwner));
+ const ownMailbox=createMemo(()=>currentOwner()?mailboxForAddress(props.address??''):undefined);
  const mode=()=>settings()['contacts.avatarMode']?.value??'initials';
  const appearance=()=>avatarPresentation(props.name??'',props.address??'');const [photo,setPhoto]=createSignal('');
  const requireAuth=()=>{const value=settings()['mail.brandAvatars.requireAuth']?.value;return isRequireAuth(value)?value:DEFAULT_REQUIRE_AUTH;};
@@ -41,7 +44,7 @@ export function PersonAvatar(props:{name?:string|undefined;address?:string|undef
  const brand=()=>shown().icon;
  createEffect(()=>{
   const address=props.address;const owner=currentOwner();const selected=mode();setPhoto('');
-  if(selected!=='contacts'||!address||!owner)return;
+  if(selected!=='contacts'||!address||!owner||ownMailbox())return;
   const controller=new AbortController();let url='';let active=true;
   onCleanup(()=>{active=false;controller.abort();if(url)URL.revokeObjectURL(url);});
   void (async()=>{
@@ -55,5 +58,5 @@ export function PersonAvatar(props:{name?:string|undefined;address?:string|undef
    }catch{/* Unavailable photos fall back to local initials without retries. */}
   })();
  });
- return <Show when={mode()!=='off'}><span class="person-avatar" aria-hidden="true" data-avatar-color={appearance().palette} data-sender-icon={!photo()?(brand()?.id??shown().mark?.id):undefined} data-unverified={!photo()&&shown().unverified?'true':undefined} data-tooltip={!photo()?(brand()?t('avatars-domain-icon',{name:brand()!.name}):shown().mark?t('avatars-domain-icon',{name:shown().mark!.name}):shown().unverified?t('avatars-unverified-sender'):undefined):undefined}><Show when={photo()} fallback={<Show when={brand()} fallback={<Show when={shown().mark} fallback={appearance().initials}>{mark=><RegistryMark brand={mark()} fallback={appearance().initials}/>}</Show>}>{icon=><Show when={icon().asset} fallback={<Show when={icon().monogram} fallback={<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><For each={icon().paths}>{path=><path d={path}/>}</For></svg>}>{text=><span class="person-avatar__monogram" data-length={text().length}>{text()}</span>}</Show>}>{asset=><img class="person-avatar__brand" src={asset()} alt=""/>}</Show>}</Show>}>{url=><img src={url()} alt="" onError={()=>setPhoto('')}/>}</Show></span></Show>;
+ return <Show when={mode()!=='off'}><Show when={ownMailbox()} fallback={<span class="person-avatar" aria-hidden="true" data-avatar-color={appearance().palette} data-sender-icon={!photo()?(brand()?.id??shown().mark?.id):undefined} data-unverified={!photo()&&shown().unverified?'true':undefined} data-tooltip={!photo()?(brand()?t('avatars-domain-icon',{name:brand()!.name}):shown().mark?t('avatars-domain-icon',{name:shown().mark!.name}):shown().unverified?t('avatars-unverified-sender'):undefined):undefined}><Show when={photo()} fallback={<Show when={brand()} fallback={<Show when={shown().mark} fallback={appearance().initials}>{mark=><RegistryMark brand={mark()} fallback={appearance().initials}/>}</Show>}>{icon=><Show when={icon().asset} fallback={<Show when={icon().monogram} fallback={<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><For each={icon().paths}>{path=><path d={path}/>}</For></svg>}>{text=><span class="person-avatar__monogram" data-length={text().length}>{text()}</span>}</Show>}>{asset=><img class="person-avatar__brand" src={asset()} alt=""/>}</Show>}</Show>}>{url=><img src={url()} alt="" onError={()=>setPhoto('')}/>}</Show></span>}>{mailbox=><MailboxAvatar size="message" label={mailbox().label} address={mailbox().address} avatar={mailbox().avatar}/>}</Show></Show>;
 }

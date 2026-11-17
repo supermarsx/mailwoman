@@ -81,6 +81,7 @@ export const avatar = style({
   textTransform: 'none',
   letterSpacing: 0,
   selectors: {
+    '&[data-size="message"]': { flexBasis: '1.7rem', inlineSize: '1.7rem', blockSize: '1.7rem', fontSize: '.65rem', marginInlineEnd: '.45rem' },
     '&[data-size="sm"]': { flexBasis: '1.35rem', inlineSize: '1.35rem', blockSize: '1.35rem', fontSize: '.6rem' },
     '&[data-size="md"]': { flexBasis: '2rem', inlineSize: '2rem', blockSize: '2rem', fontSize: '.72rem' },
     '&[data-size="lg"]': { flexBasis: '3rem', inlineSize: '3rem', blockSize: '3rem', fontSize: '1.05rem' },

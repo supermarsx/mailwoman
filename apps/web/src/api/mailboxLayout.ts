@@ -72,6 +72,18 @@ export function mailboxAvatar(linkId: string | null): MailboxAvatarSpec | undefi
   return value.list.layout?.avatars?.[keyOf(linkId)];
 }
 
+/** Match only exact owned addresses; never infer ownership from a domain. */
+export function mailboxForAddress(address:string):{address:string;label:string;avatar:MailboxAvatarSpec|undefined}|undefined {
+  const value=known();
+  if(!value||value.authority!==primaryMailboxAuthority())return;
+  const normalized=address.trim().toLowerCase();
+  if(!normalized||!normalized.includes('@'))return;
+  const list=value.list;
+  const match=list.primary.address.toLowerCase()===normalized?{key:MAIN_KEY,address:list.primary.address,label:list.primary.address}:list.accounts.filter(account=>account.address?.toLowerCase()===normalized).map(account=>({key:account.id,address:account.address!,label:account.displayName||account.address!}))[0];
+  if(!match)return;
+  return {address:match.address,label:list.layout?.nicknames[match.key]||match.label,avatar:list.layout?.avatars?.[match.key]};
+}
+
 /** The arrangement with `keys` in a new order (from `moveTo` on the display order). */
 export function layoutChange(list: LinkedMailboxList, edit: { order?: string[]; nickname?: { key: string; value: string }; avatar?: { key: string; value: MailboxAvatarSpec | undefined }; visibility?: {key:string;visible:boolean} }): Omit<MailboxLayout, 'revision'> {
   const nicknames = { ...(list.layout?.nicknames ?? {}) };
