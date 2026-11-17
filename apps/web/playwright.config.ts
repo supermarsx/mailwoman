@@ -132,7 +132,13 @@ export default defineConfig({
         'compose-options.spec.ts',
         'csrf-strict.spec.ts',
       ],
-      use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL },
+      // SharedWorker requests inherit Chromium's process UA, not the context's
+      // device UA. Keep both aligned so bot protection is tested separately.
+      use: { ...devices['Desktop Chrome'], baseURL: engineBaseURL, channel:'chromium', launchOptions:{args:[`--user-agent=${devices['Desktop Chrome'].userAgent}`]} },
+    },
+    {
+      name:'realtime-firefox',testMatch:['realtime-push.spec.ts'],
+      use:{...devices['Desktop Firefox'],baseURL:engineBaseURL},
     },
     {
       name: 'phone',

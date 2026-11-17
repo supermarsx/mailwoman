@@ -680,3 +680,21 @@ export async function ribbonControl(scope: Page | Locator, group: string, contro
   }).toPass({ timeout: 15_000 });
   return control;
 }
+/** Deliver directly to a server-side folder, independently of the web client. */
+export async function appendViaImap(folder:string,subject:string):Promise<void>{
+ const quote=(value:string):string=>{if(/[\r\n]/.test(value))throw new Error('Invalid IMAP fixture value');return `"${value.replace(/\\/g,'\\\\').replace(/"/g,'\\"')}"`;};
+ const socket=net.createConnection({host:process.env['MW_E2E_IMAP_HOST']??'127.0.0.1',port:Number(process.env['MW_E2E_IMAP_PORT']??3143)});socket.setEncoding('utf8');
+ let buffer='',failure:Error|undefined,resolveLine:((line:string)=>void)|undefined,rejectLine:((error:Error)=>void)|undefined;const lines:string[]=[];
+ socket.on('data',(chunk:string)=>{buffer+=chunk;for(let end=buffer.indexOf('\r\n');end>=0;end=buffer.indexOf('\r\n')){const line=buffer.slice(0,end);buffer=buffer.slice(end+2);if(resolveLine){const resolve=resolveLine;resolveLine=undefined;rejectLine=undefined;resolve(line);}else lines.push(line);}});
+ socket.on('error',error=>{failure=error;rejectLine?.(error);});socket.on('end',()=>{failure??=new Error('IMAP fixture connection ended');rejectLine?.(failure);});socket.setTimeout(10000,()=>socket.destroy(new Error('IMAP fixture timed out')));
+ const read=():Promise<string>=>{const line=lines.shift();if(line!==undefined)return Promise.resolve(line);if(failure)return Promise.reject(failure);return new Promise((resolve,reject)=>{resolveLine=resolve;rejectLine=reject;});};
+ const tagged=async(tag:string):Promise<void>=>{for(;;){const line=await read();if(line.startsWith(`${tag} `)){if(!line.startsWith(`${tag} OK`))throw new Error('IMAP fixture command refused');return;}}};
+ try{
+  if(!(await read()).startsWith('* OK'))throw new Error('IMAP fixture greeting refused');
+  socket.write(`A1 LOGIN ${quote(ENGINE_CREDS.username)} ${quote(ENGINE_CREDS.password)}\r\n`);await tagged('A1');
+  socket.write(`A2 CREATE ${quote(folder)}\r\n`);await tagged('A2');
+  const raw=Buffer.from(`From: Filed Bot <filedbot@example.org>\r\nTo: ${ENGINE_CREDS.selfAddress}\r\nSubject: ${subject}\r\nDate: ${new Date().toUTCString()}\r\nMessage-ID: <filed-${Date.now()}@example.org>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${subject}\r\n`);
+  socket.write(`A3 APPEND ${quote(folder)} {${raw.length}}\r\n`);if(!(await read()).startsWith('+'))throw new Error('IMAP APPEND continuation missing');socket.write(raw);socket.write('\r\n');await tagged('A3');
+  socket.write('A4 LOGOUT\r\n');await tagged('A4');
+ }finally{socket.destroy();}
+}
