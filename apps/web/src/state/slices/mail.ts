@@ -1,3 +1,4 @@
+import {notifyEvent} from '../../realtime/notificationEvents.ts';
 import {clearLinkedMailboxCache,rememberLinkedMailbox,peekLinkedMailbox,linkedMailboxCachedPage,type LinkedMailboxSnapshot} from '../../api/linkedMailboxCache.ts';
 import {readLinkedMailboxIdentity,readWorkspaceJmap,type WorkspaceMailbox} from '../../api/workspaceMail.ts';
 import type {LinkedMailboxList} from '../../api/linkedAccounts.ts';
@@ -2454,7 +2455,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
 
     if (!sendAuthorityCurrent()) return;
     if (scheduled) {
-      showToast('success', t('mail-toast-send-scheduled'));
+      notifyEvent('queued',t('mail-toast-send-scheduled'),'success');
     } else if (submissionId !== null) {
       // Queued: the engine holds the submission for `holdSeconds` (the user's
       // recall window; 0 sends at once and shows no countdown). Undo is a
@@ -2466,17 +2467,17 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       };
       if (holdSeconds > 0) {
         await loadCatalog('send-delay');
-        showUndo(
+        notifyEvent('queued',t('send-queued'),'info',`submission:${submissionId}:queued`,()=>showUndo(
           t('send-queued'),
           async () => { await recallQueued(queued); },
           holdSeconds * 1000,
           t('send-queued-undo'),
           true,
           {secondary: { label: t('send-queued-now'), run: async () => { await sendQueuedNow(queued); } }},
-        );
-      } else showToast('success', t('mail-toast-sent'));
+        ));
+      } else {await loadCatalog('send-delay');notifyEvent('queued',t('send-queued'),'success');}
     } else {
-      showToast('success', t('mail-toast-sent'));
+      notifyEvent('sent',t('mail-toast-sent'),'success');
     }
 
     const current = selectedMailboxId();

@@ -1,3 +1,9 @@
+import {TimeZoneCombobox} from '../../components/TimeZoneCombobox.tsx';
+import {SettingsSubtabs} from './SettingsSubtabs.tsx';
+import {NotificationRules} from './NotificationRules.tsx';
+import {useEntityNavigation} from './entityEditor.tsx';
+import {NotificationControls,StorageRequestControl} from './NotificationControls.tsx';
+import {ALERT_CONTROLS,alertSlug} from '../../api/notificationControls.ts';
 import {toast} from '../../components/toast/toast.ts';
 import {container} from './notificationSettings.css.ts';
 import { preferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
@@ -16,12 +22,12 @@ import { BrowserPermissions } from './BrowserPermissions.tsx';
 import type { NotificationConfig, NotificationRule } from './types.ts';
 import { ControlRow } from './layout/SettingRow.tsx';
 import { SettingsCard } from './layout/SettingsCard.tsx';
-import * as kit from './layout/layout.css.ts';
 import type { CardSpec } from './layout/rows.tsx';
 import * as css from './styles.css.ts';
 
 /** Search-index entries (static; the rows render once the configuration loads). */
 export const NOTIFICATION_CARDS: readonly CardSpec[] = [
+  ...(['incoming','events','toasts'] as const).map(group=>({id:`notif-card-${group}`,section:'notifications',title:`settings-alert-${group==='incoming'?'channels':group}-title`,rows:ALERT_CONTROLS.filter(row=>row[0].startsWith(`notifications.${group}.`)).map(row=>({id:`alert-${alertSlug(row[0])}`,label:`settings-alert-${alertSlug(row[0])}`}))})),
   { id: 'notif-card-general', section: 'notifications', title: 'settings-notif-title', help: 'settings-notif-intro', rows: [{ id: 'notif-enabled', label: 'settings-notif-enabled-label' }, { id: 'notif-view-enabled', label: 'settings-notif-view-enabled' }, { id: 'notif-view-sidebar', label: 'settings-notif-view-sidebar' }] },
   { id: 'notif-card-device', section: 'notifications', title: 'settings-notif-device-title', help: 'settings-notif-device-help', rows: [{ id: 'notif-ask-permission', label: 'settings-notif-ask-permission', help: 'settings-notif-ask-permission-help' }] },
   { id: 'notif-card-quiet', section: 'notifications', title: 'settings-notif-quiet-title', rows: [{ id: 'notif-quiet-enabled', label: 'settings-notif-quiet-enabled-label' }, { id: 'notif-quiet-start', label: 'settings-notif-quiet-start' }, { id: 'notif-quiet-end', label: 'settings-notif-quiet-end' }, { id: 'notif-quiet-timezone', label: 'settings-notif-timezone' }] },
@@ -40,15 +46,12 @@ const DEFAULT_CONFIG: NotificationConfig = {
   quietHours: { enabled: false, start: '22:00', end: '07:00' },
 };
 
-function newRuleId(): string {
-  return `r-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
-}
-
 export function Notifications(props: NotificationsProps): JSX.Element {
  return <PersonalAccountBoundary>{()=> <OwnedNotifications {...props}/>}</PersonalAccountBoundary>;
 }
 function OwnedNotifications(props: NotificationsProps): JSX.Element {
-  const owner=preferenceAccount();
+  const owner=preferenceAccount(),navigation=useEntityNavigation('notifications');
+  const rulesPage=()=>navigation.route().editor?.id==='notification-rules';
   const service = props.service ?? new SettingsService();
   onMount(() => void loadCatalog('settings'));
   onMount(() => void loadCatalog('settings-policy'));
@@ -59,12 +62,12 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
   const viewEnabled = useSetting('notifications.view.enabled', true);
   const viewSidebar = useSetting('notifications.view.showInSidebar', true);
 
-  const [loaded] = createResource<NotificationConfig>(() => service.notifications());
+  const [loaded,{refetch}] = createResource<NotificationConfig>(() => service.notifications());
   // Working copy; hydrated from the resource once it settles (exactly once).
   const [config, setConfig] = createSignal<NotificationConfig>(DEFAULT_CONFIG);
   const [hydrated, setHydrated] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal('');
+  const setError=(message:string):void=>{if(message)toast.error(message,{id:'notification-settings-error',action:{label:t('common-retry'),run:()=>{if(hydrated())void save();else void refetch();}}});};
   const [saved, setSaved] = createSignal(false);
   const [unsaved,setUnsaved]=createSignal(false);
   let revision=0,saving=false,disposed=false,timer:ReturnType<typeof setTimeout>|undefined;
@@ -72,7 +75,7 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
   onMount(()=>{const changed=(event:Event)=>{const value=(event as CustomEvent<unknown>).detail;if(value==='granted'||value==='denied'||value==='default')setPermission(value);};window.addEventListener('mw:notification-permission-changed',changed);onCleanup(()=>window.removeEventListener('mw:notification-permission-changed',changed));});
   const [permission, setPermission] = createSignal<NotificationPermission | 'unsupported'>(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
   async function requestNotifications(): Promise<void> {
-    if (!hydrated() || !view().enabled || typeof Notification === 'undefined') return;
+    if (!hydrated() || typeof Notification === 'undefined') return;
     try { const result=await Notification.requestPermission();if(owner!==preferenceAccount())return;setPermission(result);if(result==='granted')window.dispatchEvent(new Event('mw:notifications-changed')); }
     catch { if(owner===preferenceAccount())toast.error(t('settings-notif-permission-error')); }
   }
@@ -102,19 +105,6 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
     patch({ quietHours: { ...config().quietHours, ...next } });
   }
 
-  function addRule(): void {
-    const rule: NotificationRule = { id: newRuleId(), label: '', match: '', action: 'notify' };
-    patch({ rules: [...config().rules, rule] });
-  }
-
-  function updateRule(id: string, next: Partial<NotificationRule>): void {
-    patch({ rules: config().rules.map((r) => (r.id === id ? { ...r, ...next } : r)) });
-  }
-
-  function removeRule(id: string): void {
-    patch({ rules: config().rules.filter((r) => r.id !== id) });
-  }
-
   async function save(): Promise<void> {
     if(owner!==preferenceAccount()||saving||!unsaved()||!hydrated())return;
     clearTimeout(timer);saving=true;const sent=revision,payload=view();
@@ -132,8 +122,15 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
     }
   }
 
+  async function saveRules(rules:readonly NotificationRule[]):Promise<void>{
+    if(owner!==preferenceAccount()||busy())throw new Error('Account changed');setBusy(true);
+    try{await service.saveNotifications({...view(),rules});if(owner!==preferenceAccount())throw new Error('Account changed');setConfig(previous=>({...previous,rules}));window.dispatchEvent(new Event('mw:notifications-changed'));}finally{setBusy(false);}
+  }
   return (
     <div class={container} data-testid="notifications-settings">
+      <Show when={!rulesPage()} fallback={<NotificationRules rules={view().rules} save={saveRules} back={()=>void navigation.navigate({section:'notifications',card:'notif-card-rules'})}/>}>
+      <SettingsSubtabs section="notifications" label="settings-notif-title" {...(navigation.shared?{navigation:navigation.shared}:{})} tabs={[
+        {id:'mail',label:'settings-alert-tab-mail',cards:['notif-card-general','notif-card-device','notif-card-incoming','notif-card-folders'],content:<>
       <SettingsCard id="notif-card-general" title={t('settings-notif-title')} description={t('settings-notif-intro')}>
         <For each={[
           {id:'notif-view-enabled',label:'settings-notif-view-enabled',handle:viewEnabled},
@@ -167,14 +164,20 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
           <p role="status">{t(`settings-notif-permission-${permission()}`)}</p>
           <Show when={permission() === 'default'}>
             <div class={css.actions}>
-              <button type="button" class={css.button} disabled={!view().enabled || !hydrated()} onClick={() => void requestNotifications()}>{t('settings-notif-permission-request')}</button>
+              <button type="button" class={css.button} disabled={!hydrated()} onClick={() => void requestNotifications()}>{t('settings-notif-permission-request')}</button>
             </div>
           </Show>
         </fieldset>
       </SettingsCard>
 
+<NotificationControls group="incoming"/></>},
+        {id:'events',label:'settings-alert-tab-events',cards:['notif-card-events','notif-card-toasts'],content:<><NotificationControls group="events"/><NotificationControls group="toasts"/></>},
+        {id:'browser',label:'settings-alert-tab-browser',cards:['notif-card-storage','notif-card-background','notif-card-storage-offer'],content:<>
+      <SettingsCard id="notif-card-storage-offer" title={t('settings-permissions-storage-title')}><StorageRequestControl/></SettingsCard>
       <BrowserPermissions disabled={locked()||busy()||unsaved()} enabled={view().enabled} pushAllowed={config().pushAllowed === true} persistentStorageAllowed={config().persistentStorageAllowed === true} />
 
+</>},
+        {id:'quiet',label:'settings-alert-tab-quiet',cards:['notif-card-quiet','notif-card-rules'],content:<>
       <SettingsCard id="notif-card-quiet" title={t('settings-notif-quiet-title')}>
         <fieldset class={`${css.bareFieldset} ${css.stack}`} disabled={locked()}>
           <ControlRow controlId="notif-quiet-enabled" label={t('settings-notif-quiet-enabled-label')}>{() =>
@@ -193,57 +196,16 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
               <input id="notif-quiet-end" class={css.input} type="time" value={view().quietHours.end} onInput={(e) => patchQuiet({ end: e.currentTarget.value })} />
             }</ControlRow>
             <ControlRow controlId="notif-quiet-timezone" label={t('settings-notif-timezone')}>{() => <>
-              <input id="notif-quiet-timezone" class={css.input} value={view().quietHours.timezone ?? 'UTC'} onInput={event => patchQuiet({ timezone: event.currentTarget.value })} />
-              <button type="button" class={kit.rowReset} onClick={() => patchQuiet({ timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })}>{t('settings-notif-timezone-device')}</button>
+              <TimeZoneCombobox id="notif-quiet-timezone" hideLabel label={t('settings-notif-timezone')} value={view().quietHours.timezone??'UTC'} browserValue={Intl.DateTimeFormat().resolvedOptions().timeZone} onChange={value=>patchQuiet({timezone:value})}/>
             </>}</ControlRow>
           </Show>
         </fieldset>
       </SettingsCard>
 
-      <SettingsCard id="notif-card-rules" title={t('settings-notif-rules-title')} wide>
-        <fieldset class={`${css.bareFieldset} ${css.stack}`} disabled={locked()}>
-          <Show when={view().rules.length > 0}><p class={css.meta}>{t('settings-notif-background-rules')}</p></Show>
-          <ul class={css.list} data-testid="notif-rule-list">
-            <For each={view().rules}>
-              {(rule) => (
-                <li class={css.item}>
-                  <input
-                    class={`${css.input} ${css.grow}`}
-                    placeholder={t('settings-notif-rule-match-placeholder')}
-                    aria-label={t('settings-notif-rule-match-placeholder')}
-                    value={rule.match}
-                    onInput={(e) => updateRule(rule.id, { match: e.currentTarget.value })}
-                  />
-                  <select
-                    class={css.select}
-                    aria-label={t('settings-notif-rule-action-label')}
-                    value={rule.action}
-                    onChange={(e) => updateRule(rule.id, { action: e.currentTarget.value as NotificationRule['action'] })}
-                  >
-                    <option value="notify">{t('settings-notif-rule-notify')}</option>
-                    <option value="mute">{t('settings-notif-rule-mute')}</option>
-                  </select>
-                  <button type="button" class={css.danger} onClick={() => removeRule(rule.id)}>
-                    {t('settings-delete')}
-                  </button>
-                </li>
-              )}
-            </For>
-          </ul>
-          <div class={css.actions}>
-            <button type="button" class={css.ghost} onClick={addRule} data-testid="notif-add-rule">
-              {t('settings-notif-rule-add')}
-            </button>
-          </div>
-        </fieldset>
-      </SettingsCard>
-
+      <SettingsCard id="notif-card-rules" title={t('settings-notif-rules-title')} description={t('settings-alert-rule-intro')}><button type="button" class={css.button} disabled={!hydrated()||busy()||unsaved()} onClick={()=>void navigation.navigate({section:'notifications',editor:{kind:'edit',id:'notification-rules'}})}>{t('settings-alert-manage-rules')}</button></SettingsCard>
+</>},
+      ]}/></Show>
       <Show when={busy()||saved()}><p class={css.meta} role="status" data-testid={busy()?'notif-saving':'notif-saved'}>{t(busy()?'common-saving':'settings-saved')}</p></Show>
-      <Show when={error() !== ''}>
-        <p class={css.error} role="alert">
-          {error()} <Show when={hydrated()}><button type="button" class={css.ghost} disabled={busy()} onClick={()=>void save()}>{t('common-retry')}</button></Show>
-        </p>
-      </Show>
     </div>
   );
 }

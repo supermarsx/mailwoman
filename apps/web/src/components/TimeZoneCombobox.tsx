@@ -37,6 +37,7 @@ export function TimeZoneCombobox(props: {
   /** Extra pinned rows, such as "No comparison time zone". */
   extra?: readonly ComboboxOption[] | undefined;
   freeText?: boolean | undefined;
+  hideLabel?: boolean | undefined;
   disabled?: boolean | undefined;
   describedBy?: string | undefined;
   id?: string | undefined;
@@ -49,5 +50,5 @@ export function TimeZoneCombobox(props: {
     ];
     return timeZoneOptions(new Date(), pickerTimeZones(), pinned);
   });
-  return <Combobox label={props.label} value={props.value} options={options()} onChange={props.onChange} freeText={props.freeText} disabled={props.disabled} describedBy={props.describedBy} id={props.id} />;
+  return <Combobox label={props.label} value={props.value} options={options()} onChange={props.onChange} hideLabel={props.hideLabel} freeText={props.freeText} disabled={props.disabled} describedBy={props.describedBy} id={props.id} />;
 }

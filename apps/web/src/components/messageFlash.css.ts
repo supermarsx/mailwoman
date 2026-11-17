@@ -16,3 +16,5 @@ globalStyle('.list__folder-chip',{
 globalStyle('.list__folder-chip:hover',{color:vars.color.text,borderColor:vars.color.accent});
 globalStyle('.list__folder-chip:focus-visible',{outline:`2px solid ${vars.color.focus}`,outlineOffset:'1px'});
 globalStyle('.list__folder-chip',{'@media':{'(forced-colors: active)':{color:'ButtonText',background:'ButtonFace',borderColor:'ButtonText'}}});
+
+globalStyle('.list__row[data-incoming="true"]',{boxShadow:`inset 3px 0 ${vars.color.accent}`,backgroundColor:vars.color.selection});

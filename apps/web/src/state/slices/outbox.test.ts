@@ -1,3 +1,5 @@
+import {notifyEvent} from '../../realtime/notificationEvents.ts';
+vi.mock('../../realtime/notificationEvents.ts',()=>({notifyEvent:vi.fn()}));
 import { describe, it, expect, vi } from 'vitest';
 import { createRoot } from 'solid-js';
 import { createOutboxSlice, outboxStateOf, type OutboxSlice, type OutboxSubmission } from './outbox.ts';
@@ -234,7 +236,7 @@ describe('outbox slice', () => {
   it('release sends the release patch and shows the row as sent when the server says so', async () => {
     await withOutbox(
       [sub('a', { mailwomanHold: 'manual', mailwomanOrigin: { kind: 'apiKey', name: 'abcd' } })],
-      async (o, { jmap, toast }) => {
+      async (o, { jmap }) => {
         await o.refreshOutbox();
         expect(outboxStateOf(o.outbox()[0]!)).toBe('held');
         jmap.mockClear();
@@ -245,7 +247,7 @@ describe('outbox slice', () => {
         expect(o.outbox()[0]!.mailwomanHold).toBeNull();
         // The origin is not in the update and must survive it.
         expect(o.outbox()[0]!.mailwomanOrigin).toEqual({ kind: 'apiKey', name: 'abcd' });
-        expect(toast).toHaveBeenCalledWith('success', 'Sent');
+        expect(notifyEvent).toHaveBeenCalledWith('sent','Sent','success','submission:a:sent');
       },
       RELEASED_AND_SENT,
     );

@@ -16,7 +16,7 @@ vi.mock('./state/store.ts',()=>({createAppState:()=>hooks.app!}));
 vi.mock('./api/transport.ts',()=>({createConfiguredClient:()=>({})}));
 vi.mock('./platform/index.ts',()=>({getPlatform:()=>hooks.platform!,initPlatform:async()=>hooks.platform!,isTauri:()=>false}));
 vi.mock('./platform/capabilities.ts',()=>({capabilityEnabled:(name:string)=>name==='notifications'&&hooks.native}));
-vi.mock('./api/settings.ts',()=>({clearSettings:()=>{},loadSettings:async()=>{}}));
+vi.mock('./api/settings.ts',()=>({settings:()=>({}),clearSettings:()=>{},loadSettings:async()=>{}}));
 vi.mock('./api/policy.ts',()=>({resetClientPolicy:()=>{}}));
 vi.mock('./api/startAnalytics.ts',()=>({startAnalytics:()=>{}}));
 vi.mock('./theme/interfacePreferences.ts',()=>({useInterfacePreferences:()=>{}}));
@@ -45,7 +45,7 @@ it.each(['browser','native'] as const)('delivers %s incoming events after permis
  hooks.app={authChecked:checked,me:()=>({accountId:'account',username:'me@example.test'}),init:async()=>{setChecked(true);},messages,mailboxes:()=>[{id:'inbox',name:'Inbox'}],assist:{loadConfig:async()=>{}},startRealtime:()=>{},stopRealtime:()=>{},cacheHeaders:()=>{},onIncomingMail:(handler:(batch:IncomingMail)=>void)=>{hooks.incoming=handler;return()=>{hooks.incoming=null;};}} as unknown as AppState;
  activateAccountPreferences('account','notification_test_realm');
  let hidden=false;vi.spyOn(document,'hidden','get').mockImplementation(()=>hidden);
- render(()=><App/>);await screen.findByText('Notification test mailbox');
+ render(()=><App/>);await screen.findByText('Notification test mailbox');hooks.notifications.mockClear();
  expect(systemNotification).not.toHaveBeenCalled();expect(nativeNotify).not.toHaveBeenCalled();
 
  // This is the event emitted after the permission prompt has saved delivery.
@@ -70,7 +70,7 @@ async function visibleApp(enabled=true):Promise<void>{
  hooks.native=false;hooks.platform={notify:vi.fn(async()=>{}),setBadgeCount:vi.fn(async()=>{}),onNotificationAction:()=>()=>{}} as unknown as Platform;
  hooks.config={enabled,rules:[],quietHours:{enabled:false,start:'22:00',end:'07:00'}};
  hooks.app={authChecked:()=>true,me:()=>({accountId:'account',username:'me@example.test'}),init:async()=>{},messages:()=>[email('existing')],mailboxes:()=>[{id:'inbox',name:'Inbox'}],assist:{loadConfig:async()=>{}},startRealtime:()=>{},stopRealtime:()=>{},cacheHeaders:()=>{},onIncomingMail:(handler:(batch:IncomingMail)=>void)=>{hooks.incoming=handler;return()=>{hooks.incoming=null;};}} as unknown as AppState;
- activateAccountPreferences('account','notification_test_realm');render(()=><App/>);await screen.findByText('Notification test mailbox');
+ activateAccountPreferences('account','notification_test_realm');render(()=><App/>);await screen.findByText('Notification test mailbox');hooks.notifications.mockClear();
 }
 it('shows incoming toasts without browser permission and opens the correct message from the action',async()=>{
  await visibleApp();hooks.incoming?.({owner:preferenceAccount()!,accountId:'account',messages:[email('new','Visible incoming mail')]});await waitFor(()=>expect(toasts()).toHaveLength(1));expect(toasts()[0]!.message).toContain('Visible incoming mail');expect(hooks.platform!.notify).not.toHaveBeenCalled();await toasts()[0]!.action!.run();expect(messageOpenRequest()?.messageId).toBe('new');
@@ -93,4 +93,17 @@ it('suppresses a policy response that arrives after the account changes',async()
 
 it('does not duplicate an OS alert already displayed by a background push wake',async()=>{
  const worker=new EventTarget();Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:worker});await visibleApp();vi.stubGlobal('Notification',{permission:'granted'});vi.spyOn(document,'hidden','get').mockReturnValue(true);worker.dispatchEvent(new MessageEvent('message',{data:{type:'mw-push-wake',notificationShown:true}}));hooks.incoming?.({owner:preferenceAccount()!,accountId:'account',messages:[email('new')]});await waitFor(()=>expect(hooks.notifications).toHaveBeenCalledOnce());await Promise.resolve();expect(hooks.platform!.notify).not.toHaveBeenCalled();expect(toasts()).toHaveLength(0);
+});
+
+it('applies independent channels and folder scope before emitting any alert',async()=>{
+ await visibleApp();vi.stubGlobal('Notification',{permission:'granted'});vi.spyOn(document,'hasFocus').mockReturnValue(true);
+ const boxes=[{id:'inbox',name:'Inbox',role:'inbox' as const},{id:'filed',name:'Projects',role:null}].map(box=>({...box,parentId:null,sortOrder:0,totalEmails:0,unreadEmails:0}));
+ hooks.config={...hooks.config!,presentation:{'notifications.incoming.toast':false,'notifications.incoming.native':true,'notifications.incoming.foreground':true,'notifications.incoming.scope':'inbox'}};
+ hooks.incoming?.({owner:preferenceAccount()!,accountId:'account',messages:[{...email('filed'),mailboxIds:{filed:true}}],mailboxes:boxes});
+ await waitFor(()=>expect(hooks.notifications).toHaveBeenCalledOnce());await Promise.resolve();expect(hooks.platform!.notify).not.toHaveBeenCalled();expect(toasts()).toHaveLength(0);
+ hooks.incoming?.({owner:preferenceAccount()!,accountId:'account',messages:[email('new')],mailboxes:boxes});
+ await waitFor(()=>expect(hooks.platform!.notify).toHaveBeenCalledOnce());expect(toasts()).toHaveLength(0);
+ hooks.config={...hooks.config!,presentation:{'notifications.incoming.toast':true,'notifications.incoming.native':false}};
+ hooks.incoming?.({owner:preferenceAccount()!,accountId:'account',messages:[email('next')],mailboxes:boxes});
+ await waitFor(()=>expect(toasts()).toHaveLength(1));expect(hooks.platform!.notify).toHaveBeenCalledOnce();
 });

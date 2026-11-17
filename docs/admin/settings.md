@@ -4090,3 +4090,232 @@ Queued changes and unsent drafts do not participate in read-cache eviction. Remo
 <a id="accounts.showConnectionStatus"></a>
 
 `accounts.showConnectionStatus` shows a small connection-status icon beside mailbox names and in the mailbox switcher. Default: disabled. Hovering the icon reveals the observed mailbox status. The status also appears as text in Settings → Linked mailboxes even while icons are hidden. A saved credential alone is shown as not checked, rather than assumed healthy. This describes mailbox requests, separately from the Mailwoman server's realtime connection. Users can opt in; administrators can set or lock the preference globally, by domain, group/profile or individual user through the normal settings policy.
+
+
+## Notification channels, local cache and action transport
+
+New-mail channel settings use the normal global/domain/group/user inheritance
+and administrator locks. Toasts, browser notifications, tab attention and row
+highlights are independent. The new-mail master switch, quiet hours, folder scope,
+muted folders and content rules are checked before any channel is activated.
+A matching mute rule takes priority over notify rules. Sent, Drafts and Trash do
+not count as received mail; spam alerts require explicit opt-in. Folder-scoped
+and content-filtered system alerts require an open client; opaque background
+system alerts are suppressed when folder selection or content rules cannot be
+safely evaluated from an opaque wake.
+
+Notification rules have a dedicated list/editor page. New rules remain local
+until valid, and request failures use retryable toasts. Other controls autosave.
+Send success means acceptance by the outgoing service, not confirmed delivery to
+a recipient. The Outbox retains failures even when transient alerts are muted.
+
+`offline.persistentStorageAllowed` now defaults to true. Encrypted offline
+caching remains opt-in. `offline.requestPersistence` offers a user-gesture request
+when caching is enabled. The browser decides whether persistence is granted and
+whether a permission dialog appears; it also controls the quota. A cache budget
+does not allocate disk space or override browser limits. Budgets support up to
+100,000 MiB. Usage and quota estimates are shown beside the cache controls.
+
+`realtime.actions.enabled` enables the bounded JSON WebSocket action endpoint.
+`realtime.actions.preferWebSocket` selects it for supported actions. Authentication,
+files and administrative requests retain HTTP. The WebSocket dispatches through
+the same HTTP router with CSRF, source identity, account/linked fences, scopes,
+rate limits, feature policy, idempotency and auditing intact. HTTP fallback happens
+only before dispatch; losing a mutation acknowledgement is an uncertain outcome,
+never proof that it should be replayed.
+
+<a id="notifications.incoming.toast"></a>
+### New-mail toast (`notifications.incoming.toast`)
+
+Show an in-app alert when matching mail arrives.
+
+Built-in default: `true`. Administrator policy can hold the effective value.
+
+<a id="notifications.incoming.native"></a>
+### Native new-mail notification (`notifications.incoming.native`)
+
+Use browser or operating-system notifications. Browser permission is required.
+
+Built-in default: `true`. Administrator policy can hold the effective value.
+
+<a id="notifications.incoming.tab"></a>
+### Flash the browser tab (`notifications.incoming.tab`)
+
+Alternate the tab title until focused or the alert timeout expires. Reduced motion uses a steady indicator.
+
+Built-in default: `false`. Administrator policy can hold the effective value.
+
+<a id="notifications.incoming.highlight"></a>
+### Highlight arriving messages (`notifications.incoming.highlight`)
+
+Briefly highlight newly received rows without changing selection.
+
+Built-in default: `true`. Administrator policy can hold the effective value.
+
+<a id="notifications.incoming.foreground"></a>
+### Native notifications while focused (`notifications.incoming.foreground`)
+
+Also show native alerts while this window is being used.
+
+Built-in default: `false`. Administrator policy can hold the effective value.
+
+<a id="notifications.incoming.onlyMatchingRules"></a>
+### Only notify matching rules (`notifications.incoming.onlyMatchingRules`)
+
+Notify only mail matching a Notify rule. Matching mute rules, quiet hours and muted folders still take priority.
+
+Built-in default: `false`. Administrator policy can hold the effective value.
+
+<a id="notifications.incoming.includeJunk"></a>
+### Allow spam-folder alerts (`notifications.incoming.includeJunk`)
+
+Spam is muted unless this is enabled. Folder scope and mute rules still apply.
+
+Built-in default: `false`. Administrator policy can hold the effective value.
+
+<a id="notifications.incoming.durationSeconds"></a>
+### New-mail attention duration (`notifications.incoming.durationSeconds`)
+
+Seconds before tab attention and row highlights stop (2–120).
+
+Built-in default: `15`. Administrator policy can hold the effective value.
+
+<a id="notifications.incoming.scope"></a>
+### New-mail folder scope (`notifications.incoming.scope`)
+
+Choose Inbox only, all received folders, or selected folders. Drafts, Sent and Trash never trigger new-mail alerts.
+
+Built-in default: `'received'`. Administrator policy can hold the effective value.
+
+<a id="notifications.events.queued"></a>
+### Message queued or scheduled (`notifications.events.queued`)
+
+Choose alerts after a message is successfully queued or scheduled.
+
+Built-in default: `'toast'`. Administrator policy can hold the effective value.
+
+<a id="notifications.events.sent"></a>
+### Message accepted by the mail server (`notifications.events.sent`)
+
+Choose alerts after successful submission. This does not prove recipient delivery.
+
+Built-in default: `'toast'`. Administrator policy can hold the effective value.
+
+<a id="notifications.events.failed"></a>
+### Sending failed or uncertain (`notifications.events.failed`)
+
+Choose alerts for send failures and uncertain outcomes; the Outbox retains the status.
+
+Built-in default: `'toast'`. Administrator policy can hold the effective value.
+
+<a id="notifications.events.security"></a>
+### New security notices (`notifications.events.security`)
+
+Choose alerts for new security-centre records. Records remain available when alerts are muted.
+
+Built-in default: `'toast'`. Administrator policy can hold the effective value.
+
+<a id="notifications.events.update"></a>
+### New application version (`notifications.events.update`)
+
+Choose alerts when a new application version becomes available.
+
+Built-in default: `'toast'`. Administrator policy can hold the effective value.
+
+<a id="notifications.toasts.enabled"></a>
+### Show toasts (`notifications.toasts.enabled`)
+
+Enable transient in-app alerts. Persistent progress and undo controls stay available.
+
+Built-in default: `true`. Administrator policy can hold the effective value.
+
+<a id="notifications.toasts.success"></a>
+### Success toasts (`notifications.toasts.success`)
+
+Show success confirmations.
+
+Built-in default: `true`. Administrator policy can hold the effective value.
+
+<a id="notifications.toasts.info"></a>
+### Information toasts (`notifications.toasts.info`)
+
+Show informational alerts.
+
+Built-in default: `true`. Administrator policy can hold the effective value.
+
+<a id="notifications.toasts.warning"></a>
+### Warning toasts (`notifications.toasts.warning`)
+
+Show transient warnings.
+
+Built-in default: `true`. Administrator policy can hold the effective value.
+
+<a id="notifications.toasts.error"></a>
+### Error toasts (`notifications.toasts.error`)
+
+Show transient error alerts. Errors still remain in their owning views.
+
+Built-in default: `true`. Administrator policy can hold the effective value.
+
+<a id="notifications.toasts.durationSeconds"></a>
+### Toast duration (`notifications.toasts.durationSeconds`)
+
+Default duration in seconds for ordinary alerts. Timed actions keep their own deadlines.
+
+Built-in default: `5`. Administrator policy can hold the effective value.
+
+<a id="notifications.toasts.limit"></a>
+### Visible toast limit (`notifications.toasts.limit`)
+
+Maximum number of ordinary toasts visible together (1–8).
+
+Built-in default: `3`. Administrator policy can hold the effective value.
+
+<a id="notifications.toasts.swipe"></a>
+### Swipe to dismiss (`notifications.toasts.swipe`)
+
+Allow dismissing toasts with a horizontal touch or pen gesture.
+
+Built-in default: `true`. Administrator policy can hold the effective value.
+
+<a id="offline.requestPersistence"></a>
+### Offer persistent browser storage (`offline.requestPersistence`)
+
+When encrypted offline mail is enabled, offer a browser persistence request to protect the cache from automatic eviction.
+
+Built-in default: `true`. Administrator policy can hold the effective value.
+
+<a id="notifications.incoming.folders"></a>
+### Selected notification folders (`notifications.incoming.folders`)
+
+Mailbox IDs allowed when selected-folder scope is used. Configure these for the intended account; IDs are not display names.
+
+Built-in default: `[]`. Administrator policy can hold the effective value.
+
+<a id="notifications.incoming.mutedFolders"></a>
+### Muted notification folders (`notifications.incoming.mutedFolders`)
+
+Mailbox IDs which suppress alerts, including messages also present in another allowed folder.
+
+Built-in default: `[]`. Administrator policy can hold the effective value.
+
+<a id="realtime.actions.enabled"></a>
+### Allow WebSocket actions (`realtime.actions.enabled`)
+
+Allow supported authenticated JSON actions over WebSocket. All original HTTP route guards still apply.
+
+Built-in default: `true`. Administrator policy can hold the effective value.
+
+<a id="realtime.actions.preferWebSocket"></a>
+### Prefer WebSocket actions (`realtime.actions.preferWebSocket`)
+
+Prefer WebSocket actions with HTTP fallback before dispatch. Authentication, files and admin requests keep HTTP.
+
+Built-in default: `true`. Administrator policy can hold the effective value.
+
+<a id="mail.rowActions"></a>
+### Message-list quick actions (`mail.rowActions`)
+
+Ordered quick: or more: action identifiers. Omitted actions are hidden. Configure through the message-list quick-action editor.
+
+Built-in default: `built-in ordered actions`. Administrator policy can hold the effective value.

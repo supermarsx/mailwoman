@@ -574,6 +574,7 @@ async fn wake_allowed(store: &Store, account: &str) -> bool {
         return false;
     };
     config.enabled
+        && crate::notification_policy::opaque_channels_allowed(store,&subject.as_subject()).await.unwrap_or(false)
         && config.rules.is_empty()
         && !crate::notification_policy::quiet_at(&config.quiet_hours, chrono::Utc::now())
         && crate::notification_policy::allowed(
@@ -619,7 +620,7 @@ async fn dispatch_wakes(store: &Store, change: &StateChange) {
     {
         return;
     }
-    if !config.rules.is_empty() {
+    if !config.rules.is_empty() || !crate::notification_policy::opaque_channels_allowed(store,&subject.as_subject()).await.unwrap_or(false) {
         return;
     } // Opaque wakes cannot safely evaluate content rules.
     if !config.enabled

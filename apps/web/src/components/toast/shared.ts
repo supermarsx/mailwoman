@@ -1,14 +1,14 @@
 import {observeToastEvents,toast,toasts,type ToastTone,type ToastCloseReason} from './toast.ts';
 import {publishSharedView,readSharedView,observeSharedViews,sharedWindowId} from '../../worker/networkProxy.ts';
 import {observePreferenceAccount,preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
-interface Descriptor {id:string;message:string;tone:ToastTone;duration:number;expires:number;owner:string;action?:{label:string;token:string};secondaryAction?:{label:string;token:string};persistent:boolean;countdown:boolean;pausable:boolean;busy:boolean}
+interface Descriptor {respectPreferences?:boolean;id:string;message:string;tone:ToastTone;duration:number;expires:number;owner:string;action?:{label:string;token:string};secondaryAction?:{label:string;token:string};persistent:boolean;countdown:boolean;pausable:boolean;busy:boolean}
 interface Snapshot {items:Descriptor[];closed?:{id:string;reason:ToastCloseReason}}
 /** UI callbacks stay in their originating window. Only scoped presentation
  * data and one-use action handles cross the coordinator. */
 export function startSharedToasts():()=>void{
  let applying=false,sequence=0;const descriptors=new Map<string,Descriptor>(),actions=new Map<string,()=>void|Promise<void>>();
  function apply(value:unknown):void{
-  const snapshot=value as Snapshot|null;if(!snapshot||!Array.isArray(snapshot.items)||snapshot.items.length>4)return;
+  const snapshot=value as Snapshot|null;if(!snapshot||!Array.isArray(snapshot.items)||snapshot.items.length>9)return;
   if(snapshot.items.some(row=>!row||typeof row.id!=='string'||row.id.length>512||typeof row.message!=='string'||row.message.length>8192||!['success','info','warning','error'].includes(row.tone)||typeof row.expires!=='number'||typeof row.duration!=='number'||typeof row.owner!=='string'||[row.action,row.secondaryAction].some(action=>action&&(typeof action.label!=='string'||typeof action.token!=='string'))))return;
   applying=true;
   try{
@@ -18,7 +18,7 @@ export function startSharedToasts():()=>void{
     if(JSON.stringify(descriptors.get(row.id))===JSON.stringify(row))continue;
     descriptors.set(row.id,row);
     const remote=(action:NonNullable<Descriptor['action']>)=>({label:action.label,run:()=>publishSharedView('toast-action',{owner:row.owner,token:action.token})});
-    toast.show(row.tone,row.message,{id:row.id,duration:row.expires>0?Math.max(1,row.expires-Date.now()):Infinity,persistent:row.persistent,countdown:row.countdown,pausable:row.pausable,busy:row.busy,...(row.action?{action:remote(row.action)}:{}),...(row.secondaryAction?{secondaryAction:remote(row.secondaryAction)}:{})});
+    toast.show(row.tone,row.message,{id:row.id,duration:row.expires>0?Math.max(1,row.expires-Date.now()):Infinity,persistent:row.persistent,countdown:row.countdown,pausable:row.pausable,busy:row.busy,respectPreferences:row.respectPreferences===true,...(row.action?{action:remote(row.action)}:{}),...(row.secondaryAction?{secondaryAction:remote(row.secondaryAction)}:{})});
    }
   }finally{applying=false;}
  }
@@ -28,7 +28,7 @@ export function startSharedToasts():()=>void{
    const row=event.item,options=event.options;
    const action=(value:typeof options.action)=>{if(!value)return;const token=`${sharedWindowId}:${++sequence}`;actions.set(token,value.run);while(actions.size>64)actions.delete(actions.keys().next().value!);return {label:value.label,token};};
    const first=action(options.action),second=action(options.secondaryAction);
-   descriptors.set(row.id,{id:row.id,message:row.message,tone:row.tone,duration:Number.isFinite(row.duration)?row.duration:0,expires:Number.isFinite(row.duration)?Date.now()+row.duration:0,owner:sharedWindowId,persistent:row.persistent,countdown:row.countdown,pausable:row.pausable,busy:row.busy,...(first?{action:first}:{}),...(second?{secondaryAction:second}:{})});
+   descriptors.set(row.id,{...(options.respectPreferences?{respectPreferences:true}:{}),id:row.id,message:row.message,tone:row.tone,duration:Number.isFinite(row.duration)?row.duration:0,expires:Number.isFinite(row.duration)?Date.now()+row.duration:0,owner:sharedWindowId,persistent:row.persistent,countdown:row.countdown,pausable:row.pausable,busy:row.busy,...(first?{action:first}:{}),...(second?{secondaryAction:second}:{})});
   }
   if(event.kind==='clear')descriptors.clear();
   const items=toasts().map(row=>descriptors.get(row.id)).filter((row):row is Descriptor=>!!row);

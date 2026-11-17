@@ -1,3 +1,4 @@
+import {notifyEvent} from '../../realtime/notificationEvents.ts';
 // Outbox slice (plan §3 e7, §1.3, §2.1). Owns the *visible* send queue backed by
 // `EmailSubmission/query` — the honest Outbox — plus the sending identities the
 // compose picker offers. Undo-send itself (the 10-second Cancel toast) lives in
@@ -190,8 +191,9 @@ export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
       const before = seenStates.get(sub.id);
       if (seenOnce && before !== undefined && before !== state && (state === 'failed' || state === 'uncertain')) {
         const error = sub.mailwomanLastError ?? '';
-        showToast('error', state === 'uncertain' ? t('outbox-failed-uncertain-toast') : t('outbox-failed-toast', { error }));
+        notifyEvent('failed',state === 'uncertain' ? t('outbox-failed-uncertain-toast') : t('outbox-failed-toast', { error }),'error',`submission:${sub.id}:${state}`);
       }
+      if(seenOnce&&before!==undefined&&before!==state&&state==='sent')notifyEvent('sent',t('mail-outbox-toast-sent'),'success',`submission:${sub.id}:sent`);
       seenStates.set(sub.id, state);
     }
     seenOnce = true;
@@ -263,7 +265,7 @@ export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
     patchRow(id, changed);
     const error = changed.mailwomanLastError ?? '';
     if (changed.undoStatus === 'final') {
-      showToast('success', t('mail-outbox-toast-sent'));
+      notifyEvent('sent',t('mail-outbox-toast-sent'),'success',`submission:${id}:sent`);
     } else if (changed.mailwomanFailed === true) {
       showToast('error', t('mail-outbox-toast-failed', { error }));
     } else if (changed.undoStatus === 'pending' && error !== '') {

@@ -1,3 +1,5 @@
+import {browserStorageStatus,requestBrowserPersistence,storageSize} from '../../offline/storagePermission.ts';
+import {settings} from '../../api/settings.ts';
 import {NotificationAccountPicker} from './NotificationAccountPicker.tsx';
 import {permissionBody} from './notificationSettings.css.ts';
 import {PushRegistrationError} from '../../platform/pushRegistrationError.ts';
@@ -17,7 +19,7 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
   let disposed=false;onCleanup(()=>{disposed=true;});
   const [persistent, setPersistent] = createSignal(false), [subscribed, setSubscribed] = createSignal(false);
   const [browserSubscription,setBrowserSubscription]=createSignal(false),[bindingConflict,setBindingConflict]=createSignal(false);
-  const [usage, setUsage] = createSignal<number | undefined>();
+  const [usage, setUsage] = createSignal<number | undefined>(),[quota,setQuota]=createSignal<number>();
   const storageSupported = typeof navigator !== 'undefined' && typeof navigator.storage?.persist === 'function';
   const pushSupported = typeof navigator !== 'undefined' && 'serviceWorker' in navigator && typeof PushManager !== 'undefined';
   async function currentSubscription(): Promise<PushSubscription | null> {
@@ -29,7 +31,7 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
   onMount(() => {
     if (storageSupported) {
       void navigator.storage.persisted().then(setPersistent).catch(() => undefined);
-      void navigator.storage.estimate().then(value => setUsage(value.usage)).catch(() => undefined);
+      void browserStorageStatus().then(value => {setUsage(value.usage);setQuota(value.quota);}).catch(() => undefined);
     }
     onCleanup(observePreferenceAccount(()=>{void refreshPushRegistration();}));
   });
@@ -95,9 +97,9 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
     <fieldset class={`${css.bareFieldset} ${permissionBody}`} disabled={props.disabled}>
     <Show when={storageSupported} fallback={<p>{t('settings-permissions-storage-unsupported')}</p>}>
       <p role="status">{t(persistent() ? 'settings-permissions-storage-persistent' : 'settings-permissions-storage-evictable')}</p>
-      <Show when={usage() !== undefined}><p>{t('settings-permissions-storage-usage', { mib: ((usage() ?? 0) / 1048576).toFixed(1) })}</p></Show>
+      <p>{t('settings-storage-quota',{used:storageSize(usage()),quota:storageSize(quota())})}</p><p>{t('settings-storage-quota-help')}</p><Show when={quota()!==undefined&&Number(settings()['offline.budgetMb']?.value??250)*1048576>quota()!}><p role="status">{t('settings-storage-budget-warning')}</p></Show>
       <div class={css.actions}>
-        <button type="button" class={css.button} disabled={busy() || persistent() || !props.persistentStorageAllowed} onClick={() => void run(async () => { if (props.persistentStorageAllowed) setPersistent(await navigator.storage.persist()); })}>{t('settings-permissions-storage-request')}</button>
+        <button type="button" class={css.button} disabled={busy() || persistent() || !props.persistentStorageAllowed} onClick={() => void run(async () => { if (props.persistentStorageAllowed) setPersistent(await requestBrowserPersistence());const status=await browserStorageStatus();setUsage(status.usage);setQuota(status.quota); })}>{t('settings-permissions-storage-request')}</button>
       </div>
       <Show when={!props.persistentStorageAllowed}><p>{t('settings-permissions-storage-policy')}</p></Show>
     </Show>

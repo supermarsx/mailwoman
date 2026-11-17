@@ -7,8 +7,7 @@ export interface NotificationMessage {
   mailboxIds?: Readonly<Record<string, boolean>> | null;
 }
 
-/** Missing/malformed policy never grants delivery. Rules are evaluated in order;
- * the first matching sender/subject/mailbox rule wins. */
+/** Missing/malformed policy never grants delivery. Matching mute rules take priority over notify rules. */
 export function shouldNotify(config: NotificationConfig | undefined, message: NotificationMessage, now = new Date()): boolean {
   if (!config?.enabled) return false;
   if (config.quietHours.enabled) {
@@ -24,9 +23,10 @@ export function shouldNotify(config: NotificationConfig | undefined, message: No
     } catch { return false; }
   }
   const values = [message.subject ?? '', ...(message.from ?? []).flatMap(from => [from.email ?? '', from.name ?? '']), ...Object.keys(message.mailboxIds ?? {}), ...(message.mailboxNames ?? [])].map(value => value.toLowerCase());
+  let notified=false;
   for (const rule of config.rules) {
     const match = rule.match.trim().toLowerCase();
-    if (match && values.some(value => value.includes(match))) return rule.action === 'notify';
+    if(match&&values.some(value=>value.includes(match))){if(rule.action==='mute')return false;if(rule.action==='notify')notified=true;}
   }
-  return true;
+  return config.presentation?.['notifications.incoming.onlyMatchingRules']===true?notified:true;
 }

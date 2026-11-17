@@ -240,7 +240,7 @@ mod tests {
                 .unwrap()
         );
         assert!(
-            !allowed(&store, &subject, "offline.persistentStorageAllowed")
+            allowed(&store, &subject, "offline.persistentStorageAllowed")
                 .await
                 .unwrap()
         );
@@ -273,4 +273,29 @@ mod tests {
                 .unwrap()
         );
     }
+}
+
+pub(crate) const PRESENTATION_KEYS: &[&str] = &[
+    "notifications.incoming.onlyMatchingRules",
+    "notifications.incoming.toast",
+    "notifications.incoming.native",
+    "notifications.incoming.tab",
+    "notifications.incoming.highlight",
+    "notifications.incoming.foreground",
+    "notifications.incoming.includeJunk",
+    "notifications.incoming.durationSeconds",
+    "notifications.incoming.scope",
+    "notifications.incoming.folders",
+    "notifications.incoming.mutedFolders",
+];
+
+/// An opaque background wake cannot evaluate folder selection. Never bypass a
+/// user's scoped/muted-folder policy with a generic system notification.
+pub(crate) async fn opaque_channels_allowed(store:&Store,subject:&SettingSubject<'_>)->Result<bool,StoreError>{
+    if !allowed(store,subject,"notifications.incoming.native").await? {return Ok(false);}
+    if allowed(store,subject,"notifications.incoming.onlyMatchingRules").await? {return Ok(false);}
+    let scope=crate::settings_registry::effective_for(store,"notifications.incoming.scope",subject).await?;
+    if scope.is_some_and(|entry|entry.value.as_str()!=Some("received")){return Ok(false);}
+    let muted=crate::settings_registry::effective_for(store,"notifications.incoming.mutedFolders",subject).await?;
+    Ok(!muted.is_some_and(|entry|entry.value.as_array().is_some_and(|rows|!rows.is_empty())))
 }

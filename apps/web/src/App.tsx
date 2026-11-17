@@ -1,3 +1,6 @@
+import {folderAlertAllowed,alertValue} from './api/notificationControls.ts';
+import {newMailAttention,clearNotificationAttention} from './realtime/notificationAttention.ts';
+import {StoragePersistencePrompt} from './components/StoragePersistencePrompt.tsx';
 import {startSharedToasts} from './components/toast/shared.ts';
 import {providerCallbackCandidate} from './api/providerOauth.ts';
 import {ThemedSelects} from './components/ThemedSelects.tsx';
@@ -219,9 +222,10 @@ export function App(): JSX.Element {
   });
 
   const [notificationAccount, setNotificationAccount] = createSignal<PreferenceAccount | null>(null);
+  createEffect(()=>{if(notificationAccount()&&inMail())void new SettingsService().notifications().catch(()=>undefined);});
   const notificationTargets=new Map<string,{owner:PreferenceAccount;messageId:string;target?:WorkspaceMailbox}>();
   let notificationActionsOff:(()=>void)|undefined,disposed=false,genericPushUntil=0;
-  function clearIncomingAlerts():void{incomingDelivery.clear();for(const id of notificationTargets.keys())toast.dismiss(id);notificationTargets.clear();}
+  function clearIncomingAlerts():void{incomingDelivery.clear();clearNotificationAttention();for(const id of notificationTargets.keys())toast.dismiss(id);notificationTargets.clear();}
   function openNotification(id:string):void {
     const target=notificationTargets.get(id);
     if(target&&preferenceAccountIsCurrent(target.owner)){window.focus();void openIncoming(target.messageId,target.owner,target.target);}
@@ -239,18 +243,19 @@ export function App(): JSX.Element {
       const target=batch.target;
       const config=await (target?readWorkspaceNotifications(target):new SettingsService().notifications());
       if(disposed||!preferenceAccountIsCurrent(batch.owner)||!inMail())return;
-      const allowed=batch.messages.filter(message=>shouldNotify(config,{...message,mailboxNames:(batch.mailboxes??app.mailboxes()).filter(box=>message.mailboxIds?.[box.id]).map(box=>box.name)}));
+      const allowed=batch.messages.filter(message=>folderAlertAllowed(config.presentation,batch.mailboxes??app.mailboxes(),message.mailboxIds)&&shouldNotify(config,{...message,mailboxNames:(batch.mailboxes??app.mailboxes()).filter(box=>message.mailboxIds?.[box.id]).map(box=>box.name)}));
       const first=allowed[0];if(!first)return;
+      newMailAttention(batch.target?[]:allowed.map(message=>message.id),t('common-notify-new-count',{count:allowed.length}),config.presentation);
       const title=allowed.length===1?t('common-notify-new-message'):t('common-notify-new-count',{count:allowed.length});
       const sender=first.from?.[0]?.name||first.from?.[0]?.email;
       const body=`${batch.target?`${isolate(batch.target.label)} · `:''}${sender?`${isolate(sender)}: `:''}${isolate(first.subject||t('common-notify-no-subject'))}`;
       const id=`mw-mail:${batch.target?.storageAuthority??batch.owner.storageAuthority??batch.owner.id}:${first.id}`;
       notificationTargets.set(id,{owner:batch.owner,messageId:first.id,...(batch.target?{target:batch.target}:{})});
       while(notificationTargets.size>100)notificationTargets.delete(notificationTargets.keys().next().value!);
-      if(!document.hidden){
-        toast.info(`${title} — ${body}`,{id,action:{label:t('common-open'),run:()=>void openIncoming(first.id,batch.owner,batch.target)},testId:'incoming-mail-toast'});
+      if(!document.hidden&&alertValue('notifications.incoming.toast',true,config.presentation)){
+        toast.info(`${title} — ${body}`,{id,action:{label:t('common-open'),run:()=>void openIncoming(first.id,batch.owner,batch.target)},testId:'incoming-mail-toast',respectPreferences:true});
       }
-      if(Date.now()>genericPushUntil&&(document.hidden||!document.hasFocus())&&(capabilityEnabled('notifications')||(typeof Notification!=='undefined'&&Notification.permission==='granted'))){
+      if(alertValue('notifications.incoming.native',true,config.presentation)&&Date.now()>genericPushUntil&&(alertValue('notifications.incoming.foreground',false,config.presentation)||document.hidden||!document.hasFocus())&&(capabilityEnabled('notifications')||(typeof Notification!=='undefined'&&Notification.permission==='granted'))){
         await getPlatform().notify({id,title,body,...(first.threadId?{threadId:first.threadId}:{})});
       }
   }
@@ -339,7 +344,7 @@ export function App(): JSX.Element {
                   and must not take the mailbox down with it. */}
               <LazyRoute load={loadUiPluginTier} failSoft />
               <RestrictionBanner />
-              <NotificationPermissionPrompt />
+              <StoragePersistencePrompt/><NotificationPermissionPrompt />
             </>
           </Match>
         </Switch>

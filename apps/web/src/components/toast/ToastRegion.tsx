@@ -1,3 +1,4 @@
+import {alertValue} from '../../api/notificationControls.ts';
 // Renders the shared toast store (./toast.ts). Mount it once per app shell:
 // App.tsx for the webmail, screens/Admin/index.tsx for the admin console.
 //
@@ -227,7 +228,7 @@ function Toast(props: {
   }
   onCleanup(finishGesture);
   function beginSwipe(event:PointerEvent):void{
-    if(gesture||!event.isPrimary||!['touch','pen'].includes(event.pointerType)||(event.target as Element).closest('button,a,input,textarea,select'))return;
+    if(!alertValue('notifications.toasts.swipe',true)||gesture||!event.isPrimary||!['touch','pen'].includes(event.pointerType)||(event.target as Element).closest('button,a,input,textarea,select'))return;
     gesture={id:event.pointerId,x:event.clientX,y:event.clientY,active:false};swipingToasts.add(toastId);setToastPause('gesture',true);
   }
   function moveSwipe(event:PointerEvent):void{

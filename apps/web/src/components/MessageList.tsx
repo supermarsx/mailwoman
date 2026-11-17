@@ -1,3 +1,4 @@
+import {incomingHighlighted} from '../realtime/notificationAttention.ts';
 import {mentionsAny} from '../modules/mentions/metadata.ts';
 import {hasFileAttachments} from './attachmentMetadata.ts';
 import {mailPrefetchEvents} from './mailPrefetchEvents.ts';
@@ -219,7 +220,7 @@ function MessageRow(props: {
 /** Shared row geometry, state styling and accessible position for every mailbox list. */
 export function MessageRowFrame(props:{email:Email;top:number;height:number;index:number;total:number;selected:boolean;focused:boolean;active?:boolean;threadChild?:boolean|undefined;replyDraftId?:string|undefined;slotProps?:JSX.LiHTMLAttributes<HTMLLIElement>&{[key:`data-${string}`]:string|number|undefined};buttonProps?:JSX.ButtonHTMLAttributes<HTMLButtonElement>&{[key:`data-${string}`]:string|number|undefined};actions?:JSX.Element;children:JSX.Element}):JSX.Element {
  return <li {...props.slotProps} class={`list__slot ${rowCss.slot}`} data-motion-row={`m:${props.email.id}`} data-reply-draft={props.replyDraftId} role="listitem" aria-posinset={props.index+1} aria-setsize={props.total} style={{transform:`translateY(${props.top}px)`,height:`${props.height}px`}}>
-  <button {...props.buttonProps} type="button" class={`list__row ${rowCss.row} ${a11y.focusable}`} classList={{'list__row--active':props.active===true,'list__row--pinned':props.email.pinned===true,'list__row--unread':props.email.keywords?.['$seen']!==true,'list__row--selected':props.selected,[bulk.selectedRow]:props.selected,[thread.childRow]:props.threadChild===true,[rowCss.expired]:rowExpired(props.email)}} tabindex={props.focused?0:-1} aria-current={props.active?'true':undefined} data-index={props.index} data-email-id={props.email.id}>
+  <button {...props.buttonProps} type="button" class={`list__row ${rowCss.row} ${a11y.focusable}`} classList={{'list__row--active':props.active===true,'list__row--pinned':props.email.pinned===true,'list__row--unread':props.email.keywords?.['$seen']!==true,'list__row--selected':props.selected,[bulk.selectedRow]:props.selected,[thread.childRow]:props.threadChild===true,[rowCss.expired]:rowExpired(props.email)}} tabindex={props.focused?0:-1} aria-current={props.active?'true':undefined} data-index={props.index} data-email-id={props.email.id} data-incoming={incomingHighlighted(props.email.id)?'true':undefined}>
    <Show when={props.email.keywords?.['$seen']!==true}><span class={a11y.srOnly}>{t('mail-unread')}</span></Show>
    <span class={a11y.srOnly}>{t('mail-row-position',{pos:props.index+1,total:props.total})}</span>{props.children}
   </button>{props.actions}
@@ -376,7 +377,7 @@ function ThreadHeadRow(props: {
         onClick={(e) => props.onClick(e)}
         onDblClick={(e) => props.onDblClick(e)}
         draggable={dragToFolderEnabled()&&!app.listLoading()} onDragStart={props.onDragStart} onDragEnd={clearMessageDrag}
-        data-email-id={rep().id} data-context-open={props.contextMenu.isOpen(rep().id)?'true':undefined} {...prefetch} onContextMenu={e=>props.contextMenu.open(e,rep(),true)} onKeyDown={e=>props.contextMenu.keydown(e,rep(),true)}
+        data-email-id={rep().id} data-incoming={incomingHighlighted(rep().id)?'true':undefined} data-context-open={props.contextMenu.isOpen(rep().id)?'true':undefined} {...prefetch} onContextMenu={e=>props.contextMenu.open(e,rep(),true)} onKeyDown={e=>props.contextMenu.keydown(e,rep(),true)}
       >
         <Show when={props.row.unread}>
           <span class={a11y.srOnly}>{t('mail-unread')}</span>

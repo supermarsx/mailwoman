@@ -307,6 +307,15 @@ async fn notifications_get(State(state): State<AppState>, headers: HeaderMap) ->
             let mut body = serde_json::to_value(cfg).unwrap_or_else(|_| json!({}));
             body["lockedFields"] = json!(locked);
             body["pushAllowed"] = json!(push_allowed);
+            let mut presentation=serde_json::Map::new();
+            for key in crate::notification_policy::PRESENTATION_KEYS {
+                match crate::settings_registry::effective_for(&state.store,key,&subject.as_subject()).await {
+                    Ok(Some(value))=>{presentation.insert((*key).into(),value.value);},
+                    Ok(None)=>{},
+                    Err(error)=>return server_error("notification presentation policy",error),
+                }
+            }
+            body["presentation"]=serde_json::Value::Object(presentation);
             body["persistentStorageAllowed"] = json!(persistent_storage_allowed);
             Json(body).into_response()
         }

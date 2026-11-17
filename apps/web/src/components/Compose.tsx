@@ -1,3 +1,4 @@
+import {notifyEvent} from '../realtime/notificationEvents.ts';
 import {isOffline} from '../offline/runtime.ts';
 import {registerDraftPreview,requestDraftPreview} from './compose/draftPreview.ts';
 import {formatDateTime as regionalDateTime} from '../i18n/format.ts';
@@ -1816,6 +1817,7 @@ export function Compose(props: {
       props.onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('mail-compose-send-failed'));
+      notifyEvent('failed',t('mail-compose-send-failed'),'error');
     } finally {
       setBusy(false);
     }

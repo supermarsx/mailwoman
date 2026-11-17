@@ -38,6 +38,7 @@ export function Combobox(props: {
   onChange: (value: string) => void;
   /** Keep what is typed as the value (the caller validates it). */
   freeText?: boolean | undefined;
+  hideLabel?: boolean | undefined;
   disabled?: boolean | undefined;
   describedBy?: string | undefined;
   id?: string | undefined;
@@ -94,11 +95,11 @@ export function Combobox(props: {
   };
   return (
     <div class={css.root}>
-      <label for={id}>{props.label}</label>
+      <Show when={!props.hideLabel}><label for={id}>{props.label}</label></Show>
       <div class={css.field}>
         <input
           id={id} type="text" role="combobox" class={css.input} autocomplete="off" autocapitalize="none" spellcheck={false}
-          aria-autocomplete="list" aria-expanded={open()} aria-controls={`${id}-list`} aria-activedescendant={activeId()}
+          aria-label={props.hideLabel?props.label:undefined} aria-autocomplete="list" aria-expanded={open()} aria-controls={`${id}-list`} aria-activedescendant={activeId()}
           aria-describedby={props.describedBy} disabled={props.disabled} maxlength={props.maxLength ?? 64}
           value={shown()}
           onFocus={(e) => { openList(); e.currentTarget.select(); }}

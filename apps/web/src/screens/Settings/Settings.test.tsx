@@ -1,3 +1,4 @@
+import {toasts} from '../../components/toast/toast.ts';
 import {chooseEditorFormat} from '../../components/compose/nativeHtmlTestHarness.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
 import {startAccountUiPreferences} from '../../api/accountPreferences.ts';
@@ -199,7 +200,7 @@ describe('Notifications — rules + quiet hours', () => {
   it('keeps failed configuration unavailable instead of enabling notifications', async () => {
     const save = vi.fn();
     render(() => <Notifications service={fakeService({ notifications: vi.fn(async () => { throw new Error('offline'); }), saveNotifications: save })} />);
-    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    await waitFor(()=>expect(toasts().some(row=>row.tone==='error')).toBe(true));
     expect(screen.queryByTestId('notif-save')).toBeNull();
     expect(screen.getByRole('checkbox',{name:'Show notifications for new mail'})).toBeDisabled();
     expect(save).not.toHaveBeenCalled();
@@ -218,7 +219,7 @@ describe('Notifications — rules + quiet hours', () => {
     } finally { vi.unstubAllGlobals(); }
   });
 
-  it('adds a rule and automatically saves the config', async () => {
+  it('opens the dedicated rule editor and saves only a valid completed rule', async () => {
     const save = vi.fn(async (_c: NotificationConfig) => undefined);
     const service = fakeService({
       notifications: vi.fn(async () => ({
@@ -230,15 +231,14 @@ describe('Notifications — rules + quiet hours', () => {
     });
     render(() => <Notifications service={service} />);
 
+    fireEvent.click(screen.getByRole('tab',{name:'Quiet hours & rules'}));
+    fireEvent.click(await screen.findByRole('button',{name:'Manage notification rules'}));
     fireEvent.click(await screen.findByTestId('notif-add-rule'));
-    const list = screen.getByTestId('notif-rule-list');
-    fireEvent.input(list.querySelector('input')!, { target: { value: 'boss@ex.com' } });
-    expect(screen.queryByTestId('notif-save')).toBeNull();
+    expect(save).not.toHaveBeenCalled();
+    fireEvent.input(screen.getByLabelText('Sender, mailbox, or subject contains…'),{target:{value:'boss@ex.com'}});
+    fireEvent.click(screen.getByRole('button',{name:'Save'}));
+    await waitFor(()=>expect(save).toHaveBeenCalled());expect(save.mock.calls[0]![0].rules[0]?.match).toBe('boss@ex.com');
 
-    await waitFor(() => expect(save).toHaveBeenCalled());
-    const cfg = save.mock.calls[0]![0];
-    expect(cfg.rules[0]?.match).toBe('boss@ex.com');
-    expect(await screen.findByTestId('notif-saved')).toBeInTheDocument();
   });
 });
 
@@ -296,7 +296,7 @@ describe('Preferences — keyboard preset, offline purge, direction', () => {
 
     expect(screen.getByTestId('dir-preview')).toHaveAttribute('dir', 'rtl');
     fireEvent.click(screen.getByTestId('offline-purge'));
-    expect(purge).toHaveBeenCalled();
+    await waitFor(()=>expect(purge).toHaveBeenCalled());
     window.removeEventListener('mw:offline-purge', purge);
   });
 });

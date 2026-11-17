@@ -39,3 +39,6 @@ globalStyle(`${option}[data-active="true"] ${detail}`, {
   '@media': { '(forced-colors: active)': { color: 'HighlightText' } },
 });
 export const empty = style({ padding: `${vars.space[2]} ${vars.space[3]}`, color: vars.color.textDim });
+
+// Keep the field and its chevron together inside bounded settings rows.
+globalStyle(`${root} ${field} ${input}`, {maxInlineSize:'none',inlineSize:'100%',minInlineSize:0});

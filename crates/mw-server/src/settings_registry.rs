@@ -294,7 +294,7 @@ impl SettingDef {
             || self.key == "receipts.dsnAllowed"
             || matches!(
                 self.key,
-                "mail.attachmentWarningsRequired"
+                "mail.attachmentWarningsRequired" | "offline.persistentStorageAllowed" | "realtime.actions.enabled"
                     | "mail.unifiedAccount.allowedAccounts"
                     | "mail.unifiedAccount.allowedFolders"
                     | "mail.templates.shared"
@@ -4095,11 +4095,38 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "offline.persistentStorageAllowed",
         Kind::Bool,
-        "false",
+        "true",
         GD,
         "offline",
         "explicit browser persistent-storage permission request"
     ),
+    def!("realtime.actions.enabled",Kind::Bool,"true",GD,"notifications","Allow authenticated JSON mailbox and settings actions over WebSocket; HTTP remains available and all normal security checks apply"),
+    def!("realtime.actions.preferWebSocket",Kind::Bool,"true",GDU,"notifications","Prefer WebSocket for supported JSON actions, with HTTP fallback before dispatch when unavailable"),
+    def!("notifications.incoming.onlyMatchingRules",Kind::Bool,"false",GDU,"notifications","Only notify received mail matching a Notify content rule; matching mute rules and folder limits always take priority"),
+    def!("notifications.incoming.toast", Kind::Bool, "true", GDU, "notifications", "Show an in-app alert when matching mail arrives."),
+    def!("notifications.incoming.native", Kind::Bool, "true", GDU, "notifications", "Use browser or operating-system notifications. Browser permission is required."),
+    def!("notifications.incoming.tab", Kind::Bool, "false", GDU, "notifications", "Alternate the tab title until focused or the alert timeout expires. Reduced motion uses a steady indicator."),
+    def!("notifications.incoming.highlight", Kind::Bool, "true", GDU, "notifications", "Briefly highlight newly received rows without changing selection."),
+    def!("notifications.incoming.foreground", Kind::Bool, "false", GDU, "notifications", "Also show native alerts while this window is being used."),
+    def!("notifications.incoming.includeJunk", Kind::Bool, "false", GDU, "notifications", "Spam is muted unless this is enabled. Folder scope and mute rules still apply."),
+    def!("notifications.incoming.durationSeconds", int(2, 120), "15", GDU, "notifications", "Seconds before tab attention and row highlights stop (2-120)."),
+    def!("notifications.incoming.scope", Kind::Enum(&["received", "inbox", "selected"]), "\"received\"", GDU, "notifications", "Choose Inbox only, all received folders, or selected folders. Drafts, Sent and Trash never trigger new-mail alerts."),
+    def!("notifications.events.queued", Kind::Enum(&["none", "toast", "native", "both"]), "\"toast\"", GDU, "notifications", "Choose alerts after a message is successfully queued or scheduled."),
+    def!("notifications.events.sent", Kind::Enum(&["none", "toast", "native", "both"]), "\"toast\"", GDU, "notifications", "Choose alerts after successful submission. This does not prove recipient delivery."),
+    def!("notifications.events.failed", Kind::Enum(&["none", "toast", "native", "both"]), "\"toast\"", GDU, "notifications", "Choose alerts for send failures and uncertain outcomes; the Outbox retains the status."),
+    def!("notifications.events.security", Kind::Enum(&["none", "toast", "native", "both"]), "\"toast\"", GDU, "notifications", "Choose alerts for new security-centre records. Records remain available when alerts are muted."),
+    def!("notifications.events.update", Kind::Enum(&["none", "toast", "native", "both"]), "\"toast\"", GDU, "notifications", "Choose alerts when a new application version becomes available."),
+    def!("notifications.toasts.enabled", Kind::Bool, "true", GDU, "notifications", "Enable transient in-app alerts. Persistent progress and undo controls stay available."),
+    def!("notifications.toasts.success", Kind::Bool, "true", GDU, "notifications", "Show success confirmations."),
+    def!("notifications.toasts.info", Kind::Bool, "true", GDU, "notifications", "Show informational alerts."),
+    def!("notifications.toasts.warning", Kind::Bool, "true", GDU, "notifications", "Show transient warnings."),
+    def!("notifications.toasts.error", Kind::Bool, "true", GDU, "notifications", "Show transient error alerts. Errors still remain in their owning views."),
+    def!("notifications.toasts.durationSeconds", int(1, 60), "5", GDU, "notifications", "Default duration in seconds for ordinary alerts. Timed actions keep their own deadlines."),
+    def!("notifications.toasts.limit", int(1, 8), "3", GDU, "notifications", "Maximum number of ordinary toasts visible together (1-8)."),
+    def!("notifications.toasts.swipe", Kind::Bool, "true", GDU, "notifications", "Allow dismissing toasts with a horizontal touch or pen gesture."),
+    def!("offline.requestPersistence", Kind::Bool, "true", GDU, "offline", "When encrypted offline mail is enabled, offer a browser persistence request to protect the cache from automatic eviction."),
+    def!("notifications.incoming.folders", Kind::StringList { max_len: 256, max_item: 512 }, "[]", GDU, "notifications", "Folder IDs included when selected-folder scope is used."),
+    def!("notifications.incoming.mutedFolders", Kind::StringList { max_len: 256, max_item: 512 }, "[]", GDU, "notifications", "Never alert for messages in these folders, including when a notify rule matches."),
     def!(
         "notifications.askPermission",
         Kind::Bool,
@@ -4142,7 +4169,7 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "offline.budgetMb",
-        int(0, 10240),
+        int(0, 100000),
         "250",
         GDU,
         "offline",
@@ -10680,7 +10707,8 @@ mod tests {
     fn validation_refuses_with_a_field_pointer() {
         let d = lookup("offline.budgetMb").unwrap();
         assert_eq!(validate(d, &json!(10), "/value").unwrap(), json!(10));
-        let r = validate(d, &json!(99_999), "/value").unwrap_err();
+        assert!(validate(d, &json!(100_000), "/value").is_ok());
+        let r = validate(d, &json!(100_001), "/value").unwrap_err();
         assert_eq!(
             (r.status, r.code, r.field.as_deref()),
             (422, "invalidValue", Some("/value"))

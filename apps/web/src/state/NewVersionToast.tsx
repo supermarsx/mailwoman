@@ -1,3 +1,4 @@
+import {notifyEvent} from '../realtime/notificationEvents.ts';
 // Mounts the new-version notice for a signed-in session (see newVersionNotice.ts).
 
 import { createEffect, onCleanup, useContext, type JSX } from 'solid-js';
@@ -34,7 +35,8 @@ export function NewVersionToast(): JSX.Element {
     },
     active: () => app?.me() != null && notifyNewVersionOn(),
     show: ({ reload, later }) => {
-      toast.info(t('common-new-version'), {
+      notifyEvent('update',t('common-new-version'),'info',NEW_VERSION_TOAST_ID,()=>toast.info(t('common-new-version'), {
+        respectPreferences:true,
         id: NEW_VERSION_TOAST_ID,
         duration: Infinity,
         action: {
@@ -47,7 +49,7 @@ export function NewVersionToast(): JSX.Element {
         onClose: (reason) => {
           if (reason !== 'action') later();
         },
-      });
+      }));
     },
     hide: () => toast.dismiss(NEW_VERSION_TOAST_ID),
   });
@@ -55,6 +57,7 @@ export function NewVersionToast(): JSX.Element {
     if (app?.me() != null && notifyNewVersionOn()) notice.start();
     else notice.stop();
   });
-  onCleanup(() => notice.stop());
+  const stopRealtime=app?.onRealtimeChange?.(change=>{if(Object.values(change.changed).some(state=>state.WebVersion!==undefined))void notice.check(true);});
+  onCleanup(()=>{stopRealtime?.();notice.stop();});
   return <></>;
 }

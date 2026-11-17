@@ -199,6 +199,7 @@ export interface QuietHours {
 
 /** `GET/PUT /api/account/notifications` — the account's notification config. */
 export interface NotificationConfig {
+  readonly presentation?: Readonly<Record<string,unknown>>;
   readonly pushAllowed?: boolean;
   readonly persistentStorageAllowed?: boolean;
   readonly enabled: boolean;

@@ -1,3 +1,5 @@
+import {notifyEvent} from '../realtime/notificationEvents.ts';
+import {t,loadCatalog} from '../i18n/index.ts';
 import {useRealtime} from '../realtime/context.ts';
 import {createSignal,createRoot,createEffect} from 'solid-js';
 import {apiFetch} from '../api/http.ts';
@@ -11,6 +13,7 @@ const [notices,setNotices]=createSignal<CenterNotice[]>([]),[loading,setLoading]
 export const notificationNotices=notices,notificationLoading=loading,notificationFailed=failed;
 export const notificationUnread=()=>notices().filter(n=>n.state==='active'&&!n.read).length;
 let controller:AbortController|undefined,epoch=0,activeOwner:PreferenceAccount|null=null;
+let seeded=false;const announced=new Set<string>();
 async function request(owner:PreferenceAccount,action?:{id:string;action:CenterAction},signal?:AbortSignal):Promise<unknown>{
  if(!preferenceAccountIsCurrent(owner))throw new DOMException('Account changed','AbortError');
  const response=await apiFetch(withBase('/api/account/notification-center'),{cache:'no-store',headers:{...storageAuthorityHeaders(owner.storageAuthority),'X-Mailwoman-Account':owner.id,...(action?{'content-type':'application/json'}:{})},...(signal?{signal}:{}),...(action?{method:'POST',body:JSON.stringify(action)}:{})});
@@ -19,7 +22,13 @@ async function request(owner:PreferenceAccount,action?:{id:string;action:CenterA
 }
 export async function refreshNotificationCenter():Promise<void>{
  const owner=preferenceAccount();if(!owner)return;const mine=++epoch;controller?.abort();const abort=new AbortController();controller=abort;setLoading(true);
- try{const value=await request(owner,undefined,abort.signal) as {notices?:CenterNotice[]};if(mine===epoch){setNotices(Array.isArray(value.notices)?value.notices:[]);setFailed(false);}}
+ try{const value=await request(owner,undefined,abort.signal) as {notices?:CenterNotice[]};if(mine===epoch){const next=Array.isArray(value.notices)?value.notices:[];
+ if(seeded)for(const row of next)if(row.state==='active'&&!row.read&&!announced.has(row.id)){
+   const event=row.kind.includes('update')?'update':'security';
+   notifyEvent(event,t(event==='update'?'settings-alert-new-update':'settings-alert-new-security'),row.severity==='critical'?'warning':'info',`notice:${row.id}`);
+ }
+ for(const row of next)announced.add(row.id);while(announced.size>2000)announced.delete(announced.values().next().value!);seeded=true;
+ setNotices(next);setFailed(false);}}
  catch{if(mine===epoch&&!abort.signal.aborted)setFailed(true);}
  finally{if(mine===epoch)setLoading(false);}
 }
@@ -27,15 +36,15 @@ export async function changeCenterNotice(id:string,action:CenterAction):Promise<
  const owner=preferenceAccount();if(!owner)throw new DOMException('No account','AbortError');
  const value=await request(owner,{id,action}) as {notice?:CenterNotice};if(!value.notice)throw new Error('Invalid notification response');
  controller?.abort();epoch++;setLoading(false);
- const notice=value.notice;setNotices(old=>[notice,...old.filter(row=>row.id!==notice.id)].sort((a,b)=>b.ts-a.ts));
+ const notice=value.notice;if(action==='publish-update')announced.add(notice.id);setNotices(old=>[notice,...old.filter(row=>row.id!==notice.id)].sort((a,b)=>b.ts-a.ts));
  window.dispatchEvent(new Event('mw:notification-center-changed'));
 }
 export function publishAvailableUpdate(build:string):void{if(build.length<=240&&preferenceAccount())void changeCenterNotice(`update:${build}`,'publish-update').catch(()=>undefined);}
 export function startNotificationCenter():()=>void{
- const realtime=useRealtime();
+ void loadCatalog('settings');const realtime=useRealtime();
  const realtimeOff=realtime.onStateChange(change=>{if(activeOwner&&Object.values(change.changed).some(states=>states.Notification!==undefined))void refreshNotificationCenter();});
  const stopConnection=createRoot(dispose=>{let previous=realtime.connection.state();createEffect(()=>{const next=realtime.connection.state();if(next==='online'&&previous!=='online'&&activeOwner)void refreshNotificationCenter();previous=next;});return dispose;});
- const off=observePreferenceAccount(owner=>{controller?.abort();epoch++;activeOwner=owner;setNotices([]);setFailed(false);setLoading(false);if(owner)void refreshNotificationCenter();});
+ const off=observePreferenceAccount(owner=>{controller?.abort();epoch++;activeOwner=owner;seeded=false;announced.clear();setNotices([]);setFailed(false);setLoading(false);if(owner)void refreshNotificationCenter();});
  const refresh=()=>{if(document.visibilityState==='visible'&&activeOwner)void refreshNotificationCenter();};
  const wake=(event:MessageEvent)=>{if(event.data?.type==='mw-push-wake')refresh();};
  window.addEventListener('focus',refresh);window.addEventListener('online',refresh);document.addEventListener('visibilitychange',refresh);navigator.serviceWorker?.addEventListener?.('message',wake);

@@ -1,3 +1,4 @@
+import {alertValue} from '../../api/notificationControls.ts';
 // The one toast store for the webmail and the admin console (t32 f39, user
 // request 2026-10-25: "saved alerts and all other messages should be popped up
 // in a neat toast message that auto dismisses after a while but is also user
@@ -39,6 +40,8 @@ export interface ToastAction {
 export type ToastCloseReason = 'timeout' | 'dismiss' | 'action' | 'evicted' | 'cleared';
 
 export interface ToastOptions {
+  /** Apply notification preferences even when this alert has an Open action. */
+  respectPreferences?: boolean;
   /** Showing the same id again replaces the toast on screen instead of adding one. */
   id?: string;
   /** Reserve the single background-job slot; ordinary notifications cannot evict it. */
@@ -112,7 +115,7 @@ const emit=(event:ToastEvent)=>{for(const listener of observers)listener(event);
 
 function defaultDuration(tone: ToastTone, opts: ToastOptions): number {
   if (opts.duration !== undefined) return opts.duration;
-  return opts.action !== undefined ? TOAST_DURATIONS.action : TOAST_DURATIONS[tone];
+  return opts.action !== undefined || opts.persistent || opts.busy ? TOAST_DURATIONS.action : TOAST_DURATIONS[tone]*alertValue('notifications.toasts.durationSeconds',5)/5;
 }
 
 function stopClock(id: string): void {
@@ -138,6 +141,7 @@ function isPausable(id: string): boolean {
 function show(tone: ToastTone, message: string, opts: ToastOptions = {}): string {
   // Raising a notification must not subscribe its caller to the toast list.
   // Resource-error effects would otherwise rerun after their own notification.
+  if(!opts.persistent&&!opts.busy&&(opts.respectPreferences||!opts.action&&!opts.secondaryAction&&!opts.countdown)&&(!alertValue('notifications.toasts.enabled',true)||!alertValue(`notifications.toasts.${tone}`,true)))return opts.id??`muted:${++seq}`;
   const list = untrack(items);
   const id =
     opts.id ?? list.find((i) => i.id.startsWith('auto:') && i.tone === tone && i.message === message)?.id ?? `auto:${++seq}`;
@@ -165,7 +169,7 @@ function show(tone: ToastTone, message: string, opts: ToastOptions = {}): string
     const next = [...list, item];
     const ordinary = next.filter(entry => !entry.persistent);
     const jobs = next.filter(entry => entry.persistent);
-    evicted = [...ordinary.slice(0, Math.max(0, ordinary.length - TOAST_LIMIT)), ...jobs.slice(0, Math.max(0, jobs.length - 1))];
+    evicted = [...ordinary.slice(0, Math.max(0, ordinary.length - Math.max(1,Math.min(8,alertValue('notifications.toasts.limit',TOAST_LIMIT))))), ...jobs.slice(0, Math.max(0, jobs.length - 1))];
     const removed = new Set(evicted.map(entry => entry.id));
     setItems(next.filter(entry => !removed.has(entry.id)));
   }

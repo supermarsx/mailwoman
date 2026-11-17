@@ -13,11 +13,11 @@ function result<T>(response:JmapResponse,name:string):T{
  const error=response.methodResponses.find(part=>part[0]==='error')?.[1];
  throw Object.assign(new Error('Incoming-mail state unavailable'),{type:error?.['type']});
 }
-export function incomingUnread(message:Email,mailboxes:readonly Mailbox[]):boolean{
+export function incomingUnread(message:Email,mailboxes:readonly Mailbox[],includeJunk=false):boolean{
  if(message.keywords?.['$seen']===true||message.keywords?.['$draft']===true)return false;
  const boxes=mailboxes.filter(box=>message.mailboxIds?.[box.id]);
  if(boxes.some(box=>box.role==='inbox'))return true;
- return boxes.length>0&&!boxes.every(box=>['junk','trash','drafts','sent'].includes(box.role??''));
+ return boxes.length>0&&!boxes.every(box=>[...(includeJunk?[]:['junk']),'trash','drafts','sent'].includes(box.role??''));
 }
 export function createIncomingMail(options:Options):{start:()=>void;stop:()=>void;changed:()=>void}{
  let startedAt=0;const now=options.now??Date.now;
@@ -39,7 +39,7 @@ export function createIncomingMail(options:Options):{start:()=>void;stop:()=>voi
     const refreshed=await request<MailboxGetResponse>('Mailbox/get',{});
     if(!current()||refreshed.accountId!==accountId||!Array.isArray(refreshed.list))throw new Error('Incoming mailbox metadata unavailable');boxes=refreshed.list;
    }
-   return {messages:list.filter(message=>incomingUnread(message,boxes)),boxes};
+   return {messages:list.filter(message=>incomingUnread(message,boxes,true)),boxes};
   };
   try{
    if(cursor===null){

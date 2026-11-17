@@ -10,6 +10,7 @@ import type { Id } from '../api/jmap-types.ts';
 export interface TypeStates {
   Session?: string;
   Notification?: string;
+  WebVersion?: string;
   Email?: string;
   Mailbox?: string;
   EmailSubmission?: string;

@@ -1,3 +1,6 @@
+import {StorageRequestControl} from './NotificationControls.tsx';
+import {browserStorageStatus,requestBrowserPersistence,storageSize} from '../../offline/storagePermission.ts';
+import {settings} from '../../api/settings.ts';
 import {offlineCacheUsage,purgeOfflineReadCache} from '../../offline/cacheManagement.ts';
 import {formatBytes} from '../../i18n/format.ts';
 import {SettingRow} from './layout/SettingRow.tsx';
@@ -57,6 +60,8 @@ export function Preferences(props: PreferencesProps): JSX.Element {
 
   const patch = (next: Partial<SettingsPrefs>): void => props.onChange({ ...props.prefs(), ...next });
   const enabled=useSetting<boolean>('offline.enabled',false);
+  const [storageStatus,setStorageStatus]=createSignal<Awaited<ReturnType<typeof browserStorageStatus>>>();
+  onMount(()=>{void browserStorageStatus().then(setStorageStatus).catch(()=>undefined);});
   const headersWindow=useSetting<string>('sync.headersWindow','90'),bodies=useSetting<string>('sync.bodies','on-demand'),attachments=useSetting<string>('sync.attachments','on-demand');
   const evictionHold=useSetting<EvictionStrategy>('offline.eviction',props.prefs().eviction);
   const budgetHold = useSetting('offline.budgetMb', props.prefs().offlineBudgetMb);
@@ -121,6 +126,8 @@ export function Preferences(props: PreferencesProps): JSX.Element {
       {/* W16 — offline cache eviction policy */}
       <SettingsCard id="prefs-card-offline" title={t('settings-offline-title')} description={t('settings-offline-intro')}>
         <SettingRow controlId="prefs-offline-enabled" label={t('settings-offline-enabled')} help={t('settings-offline-enabled-help')} handle={enabled}>{describedBy=><input id="prefs-offline-enabled" type="checkbox" class={css.checkbox} checked={enabled.value()} disabled={!enabled.entry()||enabled.locked()||enabled.saving()} aria-describedby={describedBy()} onChange={event=>void enabled.set(event.currentTarget.checked)}/>}</SettingRow>
+        <StorageRequestControl/><p>{t('settings-storage-quota',{used:storageSize(storageStatus()?.usage),quota:storageSize(storageStatus()?.quota)})}</p><p>{t('settings-storage-quota-help')}</p>
+        <Show when={storageStatus()?.supported}><button type="button" class={css.button} disabled={storageStatus()?.persistent||settings()['offline.persistentStorageAllowed']?.value!==true} onClick={()=>void requestBrowserPersistence().then(()=>browserStorageStatus()).then(setStorageStatus)}>{t('settings-storage-request')}</button></Show>
         <For each={[
           {id:'headers-window',handle:headersWindow,options:['30','90','365','all']},
           {id:'bodies',handle:bodies,options:['on-demand','prefetch']},
@@ -132,10 +139,11 @@ export function Preferences(props: PreferencesProps): JSX.Element {
             class={css.input}
             type="number"
             min="0"
+            max="100000"
             aria-describedby={budgetHold.locked() ? 'settings-offline-budget-lock' : undefined}
             disabled={budgetHold.locked()}
             value={props.prefs().offlineBudgetMb}
-            onInput={(e) => patch({ offlineBudgetMb: Math.max(0, Number(e.currentTarget.value) || 0) })}
+            onInput={(e) => patch({ offlineBudgetMb: Math.min(100000,Math.max(0, Number(e.currentTarget.value) || 0)) })}
           />
         }</ControlRow>
         <ControlRow controlId="prefs-offline-retention" label={t('settings-offline-retention-label')} note={<LockNote id="settings-offline-retention-lock" locked={retentionHold.locked()} />}>{() =>
