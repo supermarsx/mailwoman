@@ -1,10 +1,10 @@
 import {afterEach,expect,it,vi} from 'vitest';
-import {createWebSocketActions} from './websocketActions.ts';
+import {createWebSocketActions,websocketAction,clearWebSocketActions} from './websocketActions.ts';
 class Socket{
  static latest:Socket;onmessage:((event:{data:string})=>void)|null=null;onclose:(()=>void)|null=null;onerror:(()=>void)|null=null;
  sent:string[]=[];constructor(){Socket.latest=this;}send(value:string){this.sent.push(value);}close(){}receive(value:unknown){this.onmessage?.({data:JSON.stringify(value)});}
 }
-afterEach(()=>vi.useRealTimers());
+afterEach(()=>{clearWebSocketActions();vi.useRealTimers();vi.unstubAllGlobals();});
 const socketType=Socket as unknown as typeof WebSocket;
 it('sends JSON actions with CSRF, account fences and idempotency keys and matches acknowledgements',async()=>{
  const client=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',WebSocketImpl:socketType});
@@ -27,4 +27,12 @@ it('bounds simultaneous actions even when they all wait for the same handshake',
  expect(Socket.latest.sent).toHaveLength(8);
  for(const frame of Socket.latest.sent)Socket.latest.receive({id:JSON.parse(frame).id,status:200,body:'{}'});
  const responses=await Promise.all(requests);expect(responses.filter(value=>value===undefined)).toHaveLength(2);client.close();
+});
+
+it('opens a fresh authenticated socket when the CSRF proof rotates',async()=>{
+ vi.stubGlobal('WebSocket',socketType);
+ const request=(proof:string)=>websocketAction('/jmap/api',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':proof},body:'{}'},location.origin);
+ const first=request('first');Socket.latest.receive({type:'ready',protocol:'mailwoman-actions-v1'});await Promise.resolve();await Promise.resolve();await Promise.resolve();
+ const before=Socket.latest;before.receive({id:JSON.parse(before.sent[0]!).id,status:200,body:'{}'});await first;
+ const next=request('renewed');expect(Socket.latest).not.toBe(before);Socket.latest.receive({type:'ready',protocol:'mailwoman-actions-v1'});await Promise.resolve();await Promise.resolve();await Promise.resolve();Socket.latest.receive({id:JSON.parse(Socket.latest.sent[0]!).id,status:200,body:'{}'});expect((await next)?.status).toBe(200);
 });

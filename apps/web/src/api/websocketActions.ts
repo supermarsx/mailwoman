@@ -47,8 +47,8 @@ export function createWebSocketActions(options:{endpoint:string;WebSocketImpl?:t
  }
  return {send,close};
 }
-let client:ReturnType<typeof createWebSocketActions>|undefined,endpoint='';
-export function clearWebSocketActions():void{client?.close();client=undefined;endpoint='';}
+let client:ReturnType<typeof createWebSocketActions>|undefined,endpoint='',proof='';
+export function clearWebSocketActions():void{client?.close();client=undefined;endpoint='';proof='';}
 export async function websocketAction(input:string,init:RequestInit|undefined,base:string,enabled=true):Promise<Response|undefined>{
  if(!enabled||init?.keepalive||init?.credentials==='omit'||init?.body!=null&&typeof init.body!=='string')return undefined;
  const root=new URL(base,globalThis.location?.href),target=new URL(input,globalThis.location?.href);
@@ -64,6 +64,8 @@ export async function websocketAction(input:string,init:RequestInit|undefined,ba
  if([...headers.keys()].some(name=>!['content-type','x-csrf-token','x-mailwoman-link','x-mailwoman-account','x-mailwoman-storage-authority','x-mailwoman-client','idempotency-key','if-match','if-none-match'].includes(name)))return undefined;
  if(init?.body&&!headers.get('content-type')?.startsWith('application/json'))return undefined;
  const url=new URL(`${prefix}/jmap/actions`,root.origin);url.protocol=root.protocol==='https:'?'wss:':'ws:';
- if(endpoint!==url.href){clearWebSocketActions();endpoint=url.href;client=createWebSocketActions({endpoint});}
+ const cookieProof=typeof document==='undefined'?null:document.cookie.split(';').map(part=>part.trim()).find(part=>part.startsWith('mw_csrf='))?.slice('mw_csrf='.length);
+ const nextProof=headers.get('x-csrf-token')??cookieProof??'';
+ if(endpoint!==url.href||proof!==nextProof){clearWebSocketActions();endpoint=url.href;proof=nextProof;client=createWebSocketActions({endpoint});}
  return client!.send(path,init??{});
 }
