@@ -5,6 +5,7 @@
 import { For, Show, createMemo, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { t } from '../i18n';
 import * as css from './combobox.css.ts';
+import {useFloatingLayer} from './floatingLayer.ts';
 
 export interface ComboboxOption {
   value: string;
@@ -44,6 +45,7 @@ export function Combobox(props: {
   id?: string | undefined;
   maxLength?: number | undefined;
 }): JSX.Element {
+  let input!:HTMLInputElement;
   const uid = createUniqueId();
   const id = props.id ?? `cb-${uid}`;
   const [open, setOpen] = createSignal(false);
@@ -98,7 +100,7 @@ export function Combobox(props: {
       <Show when={!props.hideLabel}><label for={id}>{props.label}</label></Show>
       <div class={css.field}>
         <input
-          id={id} type="text" role="combobox" class={css.input} autocomplete="off" autocapitalize="none" spellcheck={false}
+          ref={input} id={id} type="text" role="combobox" class={css.input} autocomplete="off" autocapitalize="none" spellcheck={false}
           aria-label={props.hideLabel?props.label:undefined} aria-autocomplete="list" aria-expanded={open()} aria-controls={`${id}-list`} aria-activedescendant={activeId()}
           aria-describedby={props.describedBy} disabled={props.disabled} maxlength={props.maxLength ?? 64}
           value={shown()}
@@ -119,7 +121,7 @@ export function Combobox(props: {
           <span aria-hidden="true">▾</span>
         </button>
         <Show when={open() && !props.disabled}>
-          <div id={`${id}-list`} role="listbox" aria-label={props.label} class={css.list}>
+          <div ref={element=>useFloatingLayer(element,()=>input)} id={`${id}-list`} role="listbox" aria-label={props.label} class={css.list}>
             <Show when={matches().length > 0} fallback={<div class={css.empty} role="status">{t('combobox-empty')}</div>}>
               <For each={sections()}>{(section, si) => (
                 <div role="group" aria-labelledby={section.group ? `${id}-g-${si()}` : undefined}>

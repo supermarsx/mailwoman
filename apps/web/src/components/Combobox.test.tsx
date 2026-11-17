@@ -1,3 +1,4 @@
+import {configureRegionalSettings} from '../i18n/regional.ts';
 import { expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
@@ -66,6 +67,7 @@ it('computes DST-aware offsets and formats them', () => {
 });
 
 it('time zone rows carry region group, offset and local time, and are found by GMT+1 or the city', () => {
+  configureRegionalSettings(()=>({'time.hourCycle':{value:'24'}}));
   const summer = new Date('2026-07-15T12:00:00Z');
   const rows = timeZoneOptions(summer, ['Europe/Lisbon', 'America/New_York', 'UTC']);
   const lisbon = rows.find((r) => r.value === 'Europe/Lisbon')!;
@@ -75,6 +77,9 @@ it('time zone rows carry region group, offset and local time, and are found by G
   expect(filterComboboxOptions(rows, 'Europe/Lisbon').map((r) => r.value)).toEqual(['Europe/Lisbon']);
   expect(filterComboboxOptions(rows, 'GMT+1').map((r) => r.value)).toContain('Europe/Lisbon');
   expect(filterComboboxOptions(rows, 'new york')[0]!.group).toBe('America');
+  configureRegionalSettings(()=>({'time.hourCycle':{value:'12'}}));
+  expect(timeZoneOptions(summer,['Europe/Lisbon'])[0]!.detail).toBe('UTC+01:00 · 01:00 PM');
+  configureRegionalSettings(()=>({}));
 });
 
 it('pins the browser time zone on top and stores the requested value for it', () => {
