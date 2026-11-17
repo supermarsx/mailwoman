@@ -1,3 +1,4 @@
+import {rowReset as inheritLink} from './layout/layout.css.ts';
 import {createEffect,createSignal,onMount,onCleanup,untrack,Show,type JSX} from 'solid-js';
 import {loadCatalog,t} from '../../i18n';
 import {useSetting} from './useSetting.ts';
@@ -26,7 +27,7 @@ export function DeliveryReceiptPreferences(props:{accountId:string}):JSX.Element
   {/* Save, inherit and back share one row; back stays usable while the default is held. */}
   <div class={css.actions}>
    <button type="submit" class={css.button} disabled={readOnly()||!dirty()}>{t('receipts-save')}</button>
-   <button type="button" class={css.ghost} disabled={readOnly()} onClick={()=>void persist(true)}>{t('reader-inherit')}</button>
+   <button type="button" class={inheritLink} disabled={readOnly()} onClick={()=>void persist(true)}>{t('reader-inherit')}</button>
    <button type="button" class={css.ghost} disabled={setting.saving()} onClick={()=>void guard.leave(back)}>{t('receipts-back')}</button>
   </div></form>{guard.dialog()}</section>
  </Show>;

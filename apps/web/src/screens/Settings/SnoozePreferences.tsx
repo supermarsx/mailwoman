@@ -1,3 +1,4 @@
+import {rowReset as inheritLink} from './layout/layout.css.ts';
 import {createEffect,createMemo,createSignal,onMount,Show,type JSX} from 'solid-js';
 import {loadCatalog,t} from '../../i18n';
 import {SnoozePresetEditor} from '../../components/SnoozePresetEditor.tsx';
@@ -26,7 +27,7 @@ export function SnoozePreferences(props:{followUp?:boolean}={}):JSX.Element{
   <ControlRow controlId={props.followUp?'follow-up-presets-editor':'snooze-presets-editor'} group label={t(card().title)}>{()=> <SnoozePresetEditor value={draft()} onChange={setDraft} disabled={disabled()}/>}</ControlRow>
   <Show when={!validSnoozePresets(draft())}><p role="alert" class={css.error}>{t('snooze-invalid-presets')}</p></Show>
   <Show when={setting.error()}><p role="alert" class={css.error}>{setting.error()}</p></Show>
-  <div class={css.actions}><button type="button" class={css.button} disabled={disabled()||!dirty()||!validSnoozePresets(draft())} onClick={()=>void setting.set(draft())}>{t(props.followUp?'follow-up-save':'snooze-save')}</button><button type="button" class={css.ghost} disabled={disabled()} onClick={()=>void setting.reset()}>{t('reader-inherit')}</button></div>
+  <div class={css.actions}><button type="button" class={css.button} disabled={disabled()||!dirty()||!validSnoozePresets(draft())} onClick={()=>void setting.set(draft())}>{t(props.followUp?'follow-up-save':'snooze-save')}</button><button type="button" class={inheritLink} disabled={disabled()} onClick={()=>void setting.reset()}>{t('reader-inherit')}</button></div>
   {guard.dialog()}
  </SettingsCard>;
 }
