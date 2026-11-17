@@ -291,7 +291,7 @@ export function formatList(items: readonly string[], options: Intl.ListFormatOpt
  */
 export function formatLanguageName(code: string, locale: string = formatLocale()): string {
   const names = cached('lang', locale, undefined, () => new Intl.DisplayNames(locale, { type: 'language' }));
-  return names.of(code) ?? code;
+  const value=names.of(code);return value&&value!==code?capitalizeDisplayName(value,locale):code;
 }
 
 /** The CLDR plural category of `n` in the active locale ('one', 'few', 'other', …). */
@@ -304,3 +304,6 @@ export function pluralCategory(n: number, options?: Intl.PluralRulesOptions): In
 export function _resetFormatCache(): void {
   cache.clear();
 }
+
+/** Capitalize the initial display letter without title-casing articles or names. */
+export function capitalizeDisplayName(value:string,locale:string):string{return value.replace(/\p{L}/u,letter=>letter.toLocaleUpperCase(locale));}

@@ -1,3 +1,4 @@
+import {Combobox} from '../../components/Combobox.tsx';
 // Language picker (settings key `ui.language`, worker f01; t32-admin §2.8).
 //
 // A native <select> (keyboard and screen readers for free): "Same as the
@@ -6,7 +7,7 @@
 // start, and applied at once. When an administrator holds the key the select is
 // disabled, says so (LockNote), and the held language is the one applied.
 
-import { createEffect, createSignal, For, onMount, Show, type JSX } from 'solid-js';
+import { createEffect, createSignal, onMount, Show, type JSX } from 'solid-js';
 import { formatLanguageName, loadCatalog, t, useI18n, type Locale } from '../../i18n';
 import { useSetting } from './useSetting.ts';
 import { LockNote } from './LockNote.tsx';
@@ -80,22 +81,8 @@ export function Language(props: LanguageProps): JSX.Element {
             </p>
           </Show>
         </>}>{(describedBy) =>
-        <select
-          id="settings-language"
-          class={css.select}
-          aria-describedby={`${describedBy()} settings-language-lock`}
-          disabled={setting.locked() || setting.saving()}
-          value={setting.value()}
-          onChange={(e) => void choose(e.currentTarget.value)}
-        >
-          <For each={LANGUAGE_CHOICES}>
-            {(v) => (
-              <option value={v} lang={v === 'browser' ? undefined : v}>
-                {label(v)}
-              </option>
-            )}
-          </For>
-        </select>
+        <Combobox id="settings-language" hideLabel label={t('settings-policy-language')} value={setting.value()} options={LANGUAGE_CHOICES.map(value=>({value,label:label(value)}))} disabled={setting.locked()||setting.saving()} describedBy={`${describedBy()} settings-language-lock`} onChange={value=>void choose(value)}/>
+
       }</ControlRow>
     </SettingsCard>
   );
