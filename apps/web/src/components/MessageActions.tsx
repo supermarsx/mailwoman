@@ -240,7 +240,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
           aria-label={hasFollowUp() ? t('mail-clear-flag') : t('mail-flag')}
           aria-pressed={hasFollowUp()}
           aria-haspopup="menu" aria-expanded={followUp.isOpen()}
-          onClick={event=>followUp.openBelow(event.currentTarget)}
+          onClick={event=>followUp.toggleBelow(event.currentTarget)}
         >
           <Icon name={ACTION_ICONS.followUp} />
         </button>),
@@ -324,7 +324,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
           </button>
         </Show>
         <For each={rowActionLayout().quick}>{action=>actionButtons[action]()}</For>
-        <Show when={rowActionLayout().more.length>0}><button type="button" class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`} aria-label={t('mail-more-actions')} aria-haspopup="menu" aria-expanded={configuredMore.isOpen()} onClick={event=>configuredMore.openBelow(event.currentTarget)}><Icon name="more"/></button></Show>
+        <Show when={rowActionLayout().more.length>0}><button type="button" class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`} aria-label={t('mail-more-actions')} aria-haspopup="menu" aria-expanded={configuredMore.isOpen()} onClick={event=>configuredMore.toggleBelow(event.currentTarget)}><Icon name="more"/></button></Show>
       </div>
       </Show>
       {followUp.menu()}{configuredMore.menu()}

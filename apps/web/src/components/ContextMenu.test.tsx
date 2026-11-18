@@ -78,3 +78,16 @@ it('searches within a submenu and navigates the filtered destinations without lo
  const target=screen.getByRole('button',{name:'Target'});fireEvent.click(target);fireEvent.click(screen.getByRole('menuitem',{name:'Move to'}));const search=screen.getByRole('searchbox',{name:'Search folders'});expect(search).toHaveFocus();fireEvent.input(search,{target:{value:'alpha'}});
  expect(screen.queryByRole('menuitem',{name:'Inbox'})).toBeNull();expect(screen.getByRole('menuitem',{name:'Projects / Alpha'})).toBeVisible();fireEvent.keyDown(search,{key:'ArrowDown'});expect(screen.getByRole('menuitem',{name:'Projects / Alpha'})).toHaveFocus();fireEvent.click(screen.getByRole('menuitem',{name:'Projects / Alpha'}));expect(run).toHaveBeenCalledWith('project');expect(screen.queryByRole('menu')).toBeNull();expect(target).toHaveFocus();
 });
+
+it('toggles an anchored dropdown closed on a second pointer click and opens it again',()=>{
+ render(()=>{const menu=createContextMenu({label:()=> 'Choices',scope:()=> 'a',actions:()=>[{id:'one',label:'One',icon:'mail',run:()=>{}}]});return <><button aria-expanded={menu.isOpen()} onClick={event=>menu.toggleBelow(event.currentTarget)}>Choose</button>{menu.menu()}</>;});
+ const trigger=screen.getByRole('button',{name:'Choose'});
+ fireEvent.pointerDown(trigger);fireEvent.click(trigger);expect(screen.getByRole('menu')).toBeVisible();
+ fireEvent.pointerDown(trigger);fireEvent.click(trigger);expect(screen.queryByRole('menu')).toBeNull();expect(trigger).toHaveFocus();expect(trigger).toHaveAttribute('aria-expanded','false');
+ fireEvent.pointerDown(trigger);fireEvent.click(trigger);expect(screen.getByRole('menu')).toBeVisible();
+});
+
+it.each(['above','event'] as const)('closes %s dropdowns when their trigger is clicked twice',kind=>{
+ render(()=>{const menu=createContextMenu({label:()=> 'Choices',scope:()=> 'a',actions:()=>[{id:'one',label:'One',icon:'mail',run:()=>{}}]});return <><button onClick={event=>kind==='above'?menu.toggleAbove(event.currentTarget):menu.open(event)}>Choose</button>{menu.menu()}</>;});
+ const trigger=screen.getByRole('button',{name:'Choose'});fireEvent.pointerDown(trigger);fireEvent.click(trigger);expect(screen.getByRole('menu')).toBeVisible();fireEvent.pointerDown(trigger);fireEvent.click(trigger);expect(screen.queryByRole('menu')).toBeNull();
+});

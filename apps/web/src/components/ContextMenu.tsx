@@ -34,7 +34,7 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
   const target=event.target as Element|null,doc=owner();if(target?.nodeType===1&&target.closest('input,textarea,[contenteditable="true"]'))return;
   if(doc.defaultView?.getSelection()?.toString()||options.actions().length===0)return;
   const trigger=(target?.nodeType===1?target.closest<HTMLElement>('button,[tabindex]'):null)??event.currentTarget as HTMLElement;const rect=trigger.getBoundingClientRect();
-  event.preventDefault();event.stopPropagation();announce(doc);setPosition({x:'clientX' in event&&event.type==='contextmenu'?event.clientX:rect.left,y:'clientY' in event&&event.type==='contextmenu'?event.clientY:rect.bottom,scope:options.scope(),trigger,document:doc});
+  event.preventDefault();event.stopPropagation();if(event.type==='click'&&position()?.trigger===trigger){close();return;}announce(doc);setPosition({anchored:event.type==='click',x:'clientX' in event&&event.type==='contextmenu'?event.clientX:rect.left,y:'clientY' in event&&event.type==='contextmenu'?event.clientY:rect.bottom,scope:options.scope(),trigger,document:doc});
  }
  /** A toolbar dropdown uses the same themed menu without the native text-selection rules. */
  function openBelow(trigger:HTMLElement):void {
@@ -44,7 +44,7 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
  /** Open from a control near the bottom of its pane (the selection bar, t58): the menu opens upward, its bottom edge just above the trigger. */
  function openAbove(trigger:HTMLElement):void {
   if(options.actions().length===0)return;const rect=trigger.getBoundingClientRect();
-  const doc=owner();announce(doc);setPosition({x:rect.left,y:rect.top-4,scope:options.scope(),trigger,above:true,document:doc});
+  const doc=owner();announce(doc);setPosition({x:rect.left,y:rect.top-4,scope:options.scope(),trigger,above:true,anchored:true,document:doc});
  }
  /** Already validated coordinates from an isolated frame's explicit gesture. */
  function openAt(point:{x:number;y:number;trigger:HTMLElement}):void {if(!Number.isFinite(point.x)||!Number.isFinite(point.y)||options.actions().length===0)return;const doc=owner();announce(doc);setPosition({...point,scope:options.scope(),document:doc});}
@@ -120,5 +120,7 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
   return <div ref={container}><Panel actions={options.actions} label={options.label()} searchLabel={options.searchLabel?.()} valid={()=>true}/></div>;
  }
  const menu=():JSX.Element=><Show when={position()} keyed>{point=><Portal mount={floatingMount(point.trigger)}><MenuBody point={point}/></Portal>}</Show>;
- return {open,openBelow,openAbove,openAt,keydown,close,menu,isOpen:()=>position()!==undefined};
+ function toggleBelow(trigger:HTMLElement):void {if(position()?.trigger===trigger)close();else openBelow(trigger);}
+ function toggleAbove(trigger:HTMLElement):void {if(position()?.trigger===trigger)close();else openAbove(trigger);}
+ return {open,toggleBelow,toggleAbove,openBelow,openAbove,openAt,keydown,close,menu,isOpen:()=>position()!==undefined};
 }

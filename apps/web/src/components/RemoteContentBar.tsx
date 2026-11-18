@@ -219,7 +219,7 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
           <NoticeButton icon="restore" label={props.imageFailures?.retrying?t('common-retrying'):t('remote-images-toast-retry')} tooltip={t('remote-images-toast-failed',{count:props.imageFailures?.count??0})} disabled={pending()||props.imageFailures?.retrying===true} detachedLocal onClick={()=>props.onRetryImages?.()} />
         </Show>
         <Show when={menuActions().length > 0}>
-          <NoticeButton icon="chevron" menu iconOnly label={t('remote-banner-more')} haspopup="menu" expanded={menu.isOpen()} detachedLocal onClick={(event) => {const target=event.currentTarget as HTMLElement;menuOwner=target.ownerDocument;menu.openBelow(target);}} onKeyDown={menu.keydown} />
+          <NoticeButton icon="chevron" menu iconOnly label={t('remote-banner-more')} haspopup="menu" expanded={menu.isOpen()} detachedLocal onClick={(event) => {const target=event.currentTarget as HTMLElement;menuOwner=target.ownerDocument;menu.toggleBelow(target);}} onKeyDown={menu.keydown} />
         </Show>
       </>}
       after={menu.menu()}
