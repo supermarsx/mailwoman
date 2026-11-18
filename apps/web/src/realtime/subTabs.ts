@@ -6,7 +6,7 @@
 // window's job — §0 lists cross-window sync beyond re-attach as a cut). Pure
 // reactive state so the `SubTabStrip` component is a thin view over it.
 
-import { createSignal, type Accessor } from 'solid-js';
+import { batch, createSignal, type Accessor } from 'solid-js';
 
 export type SubTabKind = 'messages' | 'composer' | 'settings' | 'attachment' | 'module' | 'attachments' | 'outbox' | 'sharing' | 'folder';
 
@@ -60,6 +60,7 @@ function genId(): string {
 export function createSubTabs(opts: SubTabsOptions = {}): SubTabsModel {
   const [tabs, setTabs] = createSignal<SubTab[]>([]);
   const [activeId, setActiveId] = createSignal<string | null>(null);
+  let focusHistory: string[] = [];
   const openWindow =
     opts.openWindow ??
     ((url: string, target: string) =>
@@ -67,14 +68,17 @@ export function createSubTabs(opts: SubTabsOptions = {}): SubTabsModel {
   const tearOffUrl = opts.tearOffUrl ?? ((tab: SubTab) => `?tab=${encodeURIComponent(tab.id)}`);
 
   function activate(id: string): void {
-    if (tabs().some((t) => t.id === id)) setActiveId(id);
+    if (tabs().some((t) => t.id === id)) {
+      focusHistory = [...focusHistory.filter(previous => previous !== id), id];
+      setActiveId(id);
+    }
   }
 
   function open(input: OpenTabInput): string {
     if (input.id !== undefined) {
       const existing = tabs().find((t) => t.id === input.id);
       if (existing !== undefined) {
-        setActiveId(existing.id);
+        activate(existing.id);
         return existing.id;
       }
     }
@@ -87,7 +91,7 @@ export function createSubTabs(opts: SubTabsOptions = {}): SubTabsModel {
       ...(input.data !== undefined ? { data: input.data } : {}),
     };
     setTabs((prev) => [...prev, tab]);
-    setActiveId(id);
+    activate(id);
     return id;
   }
 
@@ -96,12 +100,15 @@ export function createSubTabs(opts: SubTabsOptions = {}): SubTabsModel {
     const idx = list.findIndex((t) => t.id === id);
     if (idx === -1) return;
     const next = list.filter((t) => t.id !== id);
-    setTabs(next);
-    if (activeId() === id) {
-      // Focus the neighbour (prefer the one to the left).
-      const fallback = next[idx - 1] ?? next[idx] ?? null;
-      setActiveId(fallback ? fallback.id : null);
-    }
+    focusHistory = focusHistory.filter(previous => next.some(tab => tab.id === previous));
+    batch(() => {
+      setTabs(next);
+      if (activeId() === id) {
+        const fallback = focusHistory.at(-1) ?? next[idx - 1]?.id ?? next[idx]?.id;
+        if (fallback) activate(fallback);
+        else setActiveId(null);
+      }
+    });
   }
 
   function togglePin(id: string): void {
@@ -131,7 +138,7 @@ export function createSubTabs(opts: SubTabsOptions = {}): SubTabsModel {
     const nextIdx = (curIdx + dir + list.length) % list.length;
     const next = list[nextIdx];
     if (next === undefined) return null;
-    setActiveId(next.id);
+    activate(next.id);
     return next.id;
   }
 
