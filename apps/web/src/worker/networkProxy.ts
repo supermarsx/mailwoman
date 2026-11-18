@@ -1,7 +1,8 @@
+import {keyedAttempt} from '../api/recovery.ts';
 import {jmapReadsOnly} from '../api/jmapReadOnly.ts';
 import {settings as actionSettings} from '../api/settings.ts';
 import {createChannelNetworkConnection} from './networkChannel.ts';
-import {ApiError,NetworkError,type Client,type JmapCallOptions,type Me,PasswordChangeRequired} from '../api/client.ts';
+import {ApiError,NetworkError,isKeyedCreate,type Client,type JmapCallOptions,type Me,PasswordChangeRequired} from '../api/client.ts';
 import type {JmapRequest,JmapResponse,JmapSession} from '../api/jmap-types.ts';
 import {activeLinkedMailbox,primaryMailboxAuthority} from '../api/linkedMailboxSession.ts';
 import {preferenceAccount} from '../api/accountPreferenceLifecycle.ts';
@@ -76,7 +77,15 @@ export function withSharedNetwork(client:Client):Client{
   async logout(){try{await client.logout();}finally{if(await channel.ready)await channel.call('reset',context(null));}},
   me:options=>run<Me>('me',()=>client.me(options),options?options.linkId:activeLinkedMailbox()?.linkId??null),
   session:options=>run<JmapSession>('session',()=>client.session(options),options?options.linkId:activeLinkedMailbox()?.linkId??null),
-  jmap:(body,options)=>run<JmapResponse>('jmap',()=>client.jmap(body,options),activeLinkedMailbox()?.linkId??null,body,options),
+  jmap:(body,options)=>{
+   const scope=context(),linkId=scope.linkId;
+   const send=(key?:string)=>{const opts=key?{...options,idempotencyKey:key}:options;return run<JmapResponse>('jmap',()=>client.jmap(body,opts),linkId,body,opts);};
+   // The shared path bypasses createClient.jmap's automatic keys. Keep one key
+   // for an ambiguous create so a manual retry or leader failover cannot
+   // create the same task, contact or folder twice.
+   return options?.idempotencyKey===undefined&&isKeyedCreate(body)
+    ?keyedAttempt(JSON.stringify(['shared-jmap',scope.base,scope.linkId,scope.owner,body]),key=>send(key)):send();
+  },
  };
 }
 
