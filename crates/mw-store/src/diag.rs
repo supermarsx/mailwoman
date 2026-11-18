@@ -70,7 +70,26 @@ pub struct StoreDiagnostics {
     pub db_ping_ms: f64,
 }
 
+/// Clock-only browser/session summary, without opening linked credentials.
+pub struct DashboardSessionClock {
+    pub account_id: String,
+    pub username: String,
+    pub created_at: String,
+    pub last_activity: String,
+}
+
 impl Store {
+    /// Count real signed-in sessions separately from private linked contexts.
+    /// A stale link must not make an otherwise healthy session count unavailable.
+    pub async fn dashboard_session_clocks(&self) -> Result<Vec<DashboardSessionClock>, StoreError> {
+        let rows = q("SELECT account_id,username,created_at,COALESCE(activity_at,created_at) AS last_activity FROM sessions WHERE linked_internal=0 ORDER BY account_id,id LIMIT 10001")
+            .fetch_all(&self.backend).await?;
+        Ok(rows.into_iter().map(|row| DashboardSessionClock {
+            account_id: row.get_string("account_id"), username: row.get_string("username"),
+            created_at: row.get_string("created_at"), last_activity: row.get_string("last_activity"),
+        }).collect())
+    }
+
     pub async fn dashboard_snapshot(
         &self,
         now: i64,
@@ -467,6 +486,20 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn clock_summary_does_not_decode_or_count_private_linked_sessions() {
+        let store=Store::open_in_memory(crate::ServerKey::generate()).await.unwrap();
+        let credentials=crate::Credentials{username:"one@example.test".into(),password:"private".into()};
+        let normal=store.create_session("account","one@example.test","https://example.test/session","https://example.test/api",&credentials).await.unwrap();
+        let linked=store.create_session("linked","two@example.test","https://example.test/session","https://example.test/api",&credentials).await.unwrap();
+        q("UPDATE sessions SET linked_internal=1,sealed_creds=?1 WHERE id=?2").bind(vec![0_u8;3]).bind(linked).execute(&store.backend).await.unwrap();
+        let rows=store.dashboard_session_clocks().await.unwrap();
+        assert_eq!(rows.len(),1);
+        assert_eq!(rows[0].account_id,"account");
+        assert_eq!(rows[0].username,"one@example.test");
+        assert!(store.get_session(&normal).await.is_ok());
+    }
+
     #[tokio::test]
     async fn bounded_snapshot_and_diagnostics_use_live_store_without_credentials() {
         let store = Store::open_in_memory(crate::ServerKey::generate())

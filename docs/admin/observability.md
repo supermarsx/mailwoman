@@ -73,7 +73,7 @@ off, usually under 10%. Counts and means are exact. Values above 120 s are
 counted as 120 s. Figures are sampled (see `sampleRatePercent`) and come only
 from browsers that stayed on the page long enough to report, so very slow
 loads that were abandoned are under-represented. Percentiles are hidden for a
-period or chart interval with fewer samples than the minimum (default 20).
+period or chart interval with fewer samples than the minimum (default 1).
 
 Checked in a browser against the real server (a deliberate error through an error boundary, `VITE_MW_E2E_HOOKS=1` build, reported, opened in Client errors): the frames resolve to `src/...:line:col` only when the bundle and its map describe the same text. `vite-plugin-top-level-await` re-printed every chunk after the map was written and did not remap it, so with that plugin the hidden maps no longer lined up and the raw frames were shown unresolved. The plugin has been removed: the wasm modules' top-level await is native (build target es2022) and the Web Workers are built as ES modules (`worker.format: 'es'` in `apps/web/vite.config.ts`). Measured on the two builds, resolving 430 `throw`/`new Error(` positions through the shipped maps landed on a source line containing the same text for 88% of them without the plugin and 13% with it. The sanitize worker (a message opened in the reader), the crypto worker (a real OpenPGP `generateKey` call), the zero-access worker and the PDF viewer all load and answer in Chrome from the plugin-free build. Check a release by building with `MW_SOURCEMAP=hidden`, throwing through a boundary and looking for a `src/` path in the group's stack. `VITE_MW_E2E_HOOKS=1` adds `window.__mwThrow(message)` for that (a normal build contains neither the hook nor its file).
 
@@ -83,7 +83,7 @@ Checked in a browser against the real server (a deliberate error through an erro
 | --- | --- | --- |
 | `observability.clientTiming.enabled` | on | Turn collection on or off. Hot reload; browsers pick the change up at their next page load, and the server ignores beacons meanwhile. |
 | `observability.clientTiming.sampleRatePercent` | 100 | Share of sessions that report (1 to 100). |
-| `observability.clientTiming.minSamples` | 20 | Samples needed before a percentile is shown. |
+| `observability.clientTiming.minSamples` | 1 | Samples needed before a percentile is shown. |
 | `observability.clientTiming.folderLoads` | on | Folder load times. Global, domain and user scope: the administrator sets the default or locks it, and each person can switch it off for themselves in Settings > Privacy unless it is locked. |
 | `observability.clientTiming.messageLoads` | on | Message load times. Same scopes and behaviour as `folderLoads`. |
 

@@ -6577,7 +6577,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "observability.clientTiming.minSamples",
         int(1, 100000),
-        "20",
+        "1",
         G,
         "observability",
         "samples needed to show load time percentiles"

@@ -68,7 +68,7 @@ impl Default for Policy {
         Self {
             enabled: true,
             sample_rate_percent: 100,
-            min_samples: 20,
+            min_samples: 1,
             retention_days: 1095,
         }
     }
@@ -701,6 +701,18 @@ mod tests {
         assert!(recorder.allow("s2", false));
         let p = Policy::load(&store).await;
         assert_eq!(p, Policy::default());
+    }
+
+    #[test]
+    fn the_default_reports_a_single_sample_without_inventing_empty_percentiles() {
+        let mut histogram = Hist::default(); histogram.record(500);
+        let value = stats(&histogram, Policy::default().min_samples as u64);
+        assert_eq!(value["count"], 1);
+        assert_eq!(value["sufficient"], true);
+        assert!(value["p50Ms"].is_number());
+        assert!(value["p95Ms"].is_number());
+        assert!(stats(&Hist::default(), 1)["p50Ms"].is_null());
+        assert!(stats(&histogram, 20)["p95Ms"].is_null());
     }
 
     #[test]

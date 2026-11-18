@@ -83,10 +83,10 @@ async fn active_webmail_sessions(
     }
     let rows = state
         .store
-        .list_security_sessions(None, 1000)
+        .dashboard_session_clocks()
         .await
         .map_err(|_| "Session storage is unavailable.")?;
-    if rows.len() == 1000 {
+    if rows.len() > 10000 {
         return Err("Session query limit was reached; incomplete totals are not reported.");
     }
     let mut policies = std::collections::BTreeMap::new();
