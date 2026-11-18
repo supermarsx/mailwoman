@@ -87,6 +87,9 @@ export default defineConfig({
     navigationTimeout: 15_000,
   },
   projects: [
+    {name:'contacts-notices-firefox',testMatch:['contacts-notices.spec.ts','ribbon-docs.spec.ts'],use:{...devices['Desktop Firefox']}},
+    {name:'contacts-notices-browser',testMatch:['contacts-notices.spec.ts','ribbon-docs.spec.ts'],use:{...devices['Desktop Chrome']}},
+    {name:'pdf-theme-browser',testMatch:['pdf-theme.spec.ts'],use:{...devices['Desktop Chrome']}},
     {name:'floating-browser',testMatch:['floating-layers.spec.ts'],use:{...devices['Desktop Chrome']}},
     {name:'floating-firefox',testMatch:['floating-layers.spec.ts'],use:{...devices['Desktop Firefox']}},
     {name:'sync-browser',testMatch:['sync-offline.spec.ts'],use:{...devices['Desktop Chrome'],launchOptions:{ignoreDefaultArgs:['--disable-background-networking']}}},

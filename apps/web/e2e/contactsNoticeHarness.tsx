@@ -1,0 +1,21 @@
+import {createSignal} from 'solid-js';
+import {render} from 'solid-js/web';
+import {ContactsModule} from '../src/modules/contacts/index.tsx';
+import {makeContactsClient,defaultSeed} from '../src/modules/contacts/mockClient.ts';
+import {createAppState} from '../src/state/store.ts';
+import {AppContext} from '../src/state/context.ts';
+import {NoticeTemplateEditor} from '../src/components/NoticeTemplateEditor.tsx';
+import type {MessageNotice} from '../src/components/compose/messageNotices.ts';
+import {inertEmailDocument} from '../src/viewers/inertEmailDocument.ts';
+import {bodyFrameDoc} from '../src/viewers/sandbox.ts';
+import {loadCatalog} from '../src/i18n';
+import '../src/theme/themes.css.ts';
+import '../src/styles/app.css';
+const [rows,setRows]=createSignal<MessageNotice[]>([]);
+(globalThis as unknown as {inertProbe:(html:string)=>string}).inertProbe=html=>{
+ const doc=inertEmailDocument(html);
+ return bodyFrameDoc('sanitized-no-media',{html:doc.body.innerHTML});
+};
+await Promise.all([loadCatalog('contacts'),loadCatalog('notices')]);
+const app=createAppState(makeContactsClient(defaultSeed()));
+render(()=>location.search.includes('notices')?<main><NoticeTemplateEditor value={rows()} onChange={setRows}/></main>:<AppContext.Provider value={app}><ContactsModule/></AppContext.Provider>,document.getElementById('root')!);

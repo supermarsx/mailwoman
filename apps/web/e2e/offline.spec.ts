@@ -130,7 +130,7 @@ test.describe('V2 offline queue + replay (engine mode)', () => {
     // Go offline, then force a request to fail so app.online() flips to false.
     await context.setOffline(true);
     await sidebarInbox(page).click();
-    await expect(page.locator('.sidebar__offline')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('.connection-toast[data-state="offline"]')).toBeVisible({ timeout: 15_000 });
 
     // Composing now takes the offline path: queued, not sent.
     const subject = `Offline ${Date.now()}`;

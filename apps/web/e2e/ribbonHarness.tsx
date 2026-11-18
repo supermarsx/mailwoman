@@ -1,0 +1,25 @@
+import {CommandRibbonContext,createCommandRibbon,useFileRibbon} from '../src/components/CommandRibbonContext.tsx';
+import TextViewer from '../src/viewers/TextViewer.tsx';
+import {AttachmentPreviewActions} from '../src/viewers/AttachmentPreviewActions.tsx';
+import {createSignal,Show} from 'solid-js';
+import {render} from 'solid-js/web';
+import {AppContext} from '../src/state/context.ts';
+import {createAppState} from '../src/state/store.ts';
+import {makeContactsClient,defaultSeed} from '../src/modules/contacts/mockClient.ts';
+import {Ribbon} from '../src/components/Ribbon.tsx';
+import {Compose} from '../src/components/Compose.tsx';
+import {RibbonGroup,RibbonItem} from '../src/components/bars/index.ts';
+import {IconSelect} from '../src/components/IconSelect.tsx';
+import {loadCatalog} from '../src/i18n';
+import '../src/theme/themes.css.ts';
+import '../src/styles/app.css';
+// This component fixture bypasses App, which normally releases the boot splash.
+document.getElementById('mw-boot')?.remove();
+await Promise.all(['mail','appearance','notices'].map(loadCatalog));
+const bridge=createCommandRibbon(()=>true);
+const [file,setFile]=createSignal(false);
+const textUrl=URL.createObjectURL(new Blob(['One line\nAnother line'],{type:'text/plain'}));
+const File=()=>{const centralized=useFileRibbon(()=> 'notes.txt');return <section data-testid="preview-file"><header hidden={centralized()}>notes.txt<AttachmentPreviewActions url={textUrl} name="notes.txt" canDownload/></header><TextViewer part={{partId:null,blobId:'test',size:21,type:'text/plain'}} blobUrl={textUrl} name="notes.txt" mime="text/plain"/></section>;};
+const app=createAppState(makeContactsClient(defaultSeed()));
+const [compose,setCompose]=createSignal(false),[mount,setMount]=createSignal<HTMLDivElement>();
+render(()=><AppContext.Provider value={app}><CommandRibbonContext.Provider value={bridge}><main><button type="button" onClick={()=>setFile(true)}>Open file preview</button><div ref={setMount}/><Show when={!compose()}><Ribbon preview={bridge.preview()} onPreviewTarget={bridge.setFileTarget} onCompose={()=>setCompose(true)} onOpenSettings={()=>{}} search={<input type="search" aria-label="Search mail"/>} layoutActions={<RibbonGroup label="Workspace" icon="layoutColumns"><RibbonItem><IconSelect label="Arrangement" value="tabs" showLabel options={[{value:'tabs',label:'Tabs',icon:'layoutTabs'},{value:'columns',label:'Side by side',icon:'layoutColumns'}]} onChange={()=>{}}/></RibbonItem></RibbonGroup>}/></Show><Show when={file()}><File/></Show><Show when={compose()}><Compose embedded active ribbonMount={mount()} onClose={()=>setCompose(false)}/></Show></main></CommandRibbonContext.Provider></AppContext.Provider>,document.getElementById('root')!);
