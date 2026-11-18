@@ -49,6 +49,34 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
+        id: builder
+
+      # The gha layer exporter does not persist RUN cache mounts. Retain the
+      # Cargo/JS compiler caches when a source change invalidates the build layer.
+      - name: restore Docker compiler caches
+        id: compiler-cache
+        uses: actions/cache@v4
+        with:
+          path: .orchestration/docker-mounts
+          key: docker-mounts-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Dockerfile', 'rust-toolchain.toml', 'Cargo.lock', 'apps/web/pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            docker-mounts-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Dockerfile', 'rust-toolchain.toml', 'Cargo.lock', 'apps/web/pnpm-lock.yaml') }}-
+
+      - name: preserve Docker cache mounts
+        uses: reproducible-containers/buildkit-cache-dance@ca04d1a0e0018e28a060ec9f87518ddc453b4460 # v3.3.0
+        continue-on-error: true
+        with:
+          builder: ${{ steps.builder.outputs.name }}
+          scratch-dir: .orchestration/cache-dance
+          utility-image: node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914
+          skip-extraction: ${{ steps.compiler-cache.outputs.cache-hit == 'true' }}
+          cache-map: |
+            {
+              ".orchestration/docker-mounts/cargo-registry": "/usr/local/cargo/registry",
+              ".orchestration/docker-mounts/cargo-target": {"target": "/src/target", "id": "mailwoman-target-musl-ni", "sharing": "locked"},
+              ".orchestration/docker-mounts/pnpm": "/root/.local/share/pnpm/store",
+              ".orchestration/docker-mounts/jsx": {"target": "/web/node_modules/.vite", "id": "mailwoman-web-transform-v1"}
+            }
 
       - name: log in to GHCR
         if: github.event_name != 'pull_request'
