@@ -57,23 +57,29 @@ export interface RealtimeSliceOptions extends RealtimeControllerOptions {
  * Wire a Service-Worker push wake (`{type:'mw-push-wake'}`, posted by
  * `public/sw.js` on a Web Push message) to a realtime resync. The wake is
  * OPAQUE (no content, plan §2.3) — it only means "something changed" — so we
- * reconnect from the top of the transport ladder, which resyncs. This is the
+ * resync the healthy connection in place, or reconnect a dropped transport. This is the
  * completing hop for background delivery: a backgrounded tab whose WS/SSE has
  * dropped still refetches when a push arrives (the primary foreground path is
  * the live WS/SSE `StateChange`; this is its background backup). Returns a
  * cleanup fn. Browser-only + guarded so jsdom (no `serviceWorker`) is inert.
  */
 export function wireServiceWorkerWake(
-  controller: Pick<RealtimeController, 'reconnect'>,
+  controller: Pick<RealtimeController, 'reconnect'> & Partial<Pick<RealtimeController,'connection'|'reconciler'>>,
   target: EventTarget | undefined = typeof navigator !== 'undefined' &&
     'serviceWorker' in navigator
     ? navigator.serviceWorker
     : undefined,
+  onCatchUp?: () => void,
 ): () => void {
   if (target === undefined) return () => undefined;
+  let lastWake=-Infinity;
   const onMessage = (event: Event): void => {
     const data = (event as MessageEvent).data as { type?: string } | null;
-    if (data?.type === 'mw-push-wake') controller.reconnect();
+    if(data?.type!=='mw-push-wake'||Date.now()-lastWake<1000)return;
+    lastWake=Date.now();
+    const state=controller.connection?.state();
+    if(state==='online'||state==='degraded'){controller.reconciler?.resync();onCatchUp?.();}
+    else if(state!=='idle'&&state!=='auth-expired'&&state!=='connecting')controller.reconnect();
   };
   target.addEventListener('message', onMessage);
   return () => target.removeEventListener('message', onMessage);
@@ -89,7 +95,7 @@ export function createRealtimeSlice(
   setGlobalRealtime(controller);
 
   // A Web Push wake (opaque) → resync, so a backgrounded tab refetches (V5 e9).
-  wireServiceWorkerWake(controller);
+  wireServiceWorkerWake(controller,undefined,opts.onCatchUp);
 
   // Bridge the fetch layer's network signal into the connection model: a dropped
   // request marks the push connection offline before the socket layer notices,

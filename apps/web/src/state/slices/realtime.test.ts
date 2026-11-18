@@ -169,3 +169,15 @@ describe('realtime slice — request outcomes drive the connection state', () =>
     expect(slice.connectionState()).toBe('idle');
   });
 });
+
+it('resyncs healthy sockets on background wakes without reconnecting, and coalesces wake bursts',()=>{
+ const target=new EventTarget(),reconnect=vi.fn(),resync=vi.fn(),catchUp=vi.fn();
+ const stop=wireServiceWorkerWake({reconnect,connection:{state:()=> 'online'} as never,reconciler:{resync} as never},target,catchUp);
+ target.dispatchEvent(wakeMessage('mw-push-wake'));target.dispatchEvent(wakeMessage('mw-push-wake'));
+ expect(reconnect).not.toHaveBeenCalled();expect(resync).toHaveBeenCalledOnce();expect(catchUp).toHaveBeenCalledOnce();stop();
+});
+it.each(['idle','auth-expired','connecting'] as const)('does not restart a %s connection on a background wake',state=>{
+ const target=new EventTarget(),reconnect=vi.fn();
+ const stop=wireServiceWorkerWake({reconnect,connection:{state:()=>state} as never},target);
+ target.dispatchEvent(wakeMessage('mw-push-wake'));expect(reconnect).not.toHaveBeenCalled();stop();
+});
