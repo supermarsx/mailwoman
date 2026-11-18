@@ -19,6 +19,9 @@ import {unifiedMailboxRequest,takeUnifiedMailboxRequest,unifiedAvailable,unified
 import {recalledDraftId,takeRecalledDraft} from '../state/recalledDraft.ts';
 import {pendingCompose,takePendingCompose} from '../state/pendingCompose.ts';
 import {requestModuleAction,type ModuleAction} from '../state/moduleActions.ts';
+import {CommandRibbonContext,CommandRibbonScope,createCommandRibbon} from '../components/CommandRibbonContext.tsx';
+import {createContextMenu} from '../components/ContextMenu.tsx';
+import {workspaceCloseAction} from '../components/workspaceCloseActions.ts';
 import {createEntityContextMenu} from '../components/entityContextMenu.ts';
 import {attachmentDecision,attachmentPolicyUrl,loadAttachmentPolicy} from '../api/attachmentPolicy.ts';
 import {settingsRequest} from '../state/settingsRequest.ts';
@@ -41,14 +44,14 @@ import {displayText} from '../i18n/presentation.ts';
 import {LinkedAccountControl} from '../components/accounts/LinkedAccountControl.tsx';
 import {accountIndicatorLabel} from '../components/accounts/MailboxPicker.tsx';
 import {mailboxNickname} from '../api/mailboxLayout.ts';
-import {CollapsibleBar} from '../components/bars/index.ts';
+import {CollapsibleBar,RibbonGroup,RibbonItem} from '../components/bars/index.ts';
 import {MessageOrderMenu} from '../components/MessageOrderMenu.tsx';
 import {createMessageOrder} from '../components/messageOrder.ts';
 import {UndoRedoControl} from '../components/UndoRedoControl.tsx';
 import {OutboxChip} from '../components/OutboxChip.tsx';
 import {DetachedWorkspacePane,type DetachedPaneHandle} from '../components/DetachedWorkspacePane.tsx';
 import {WorkspaceLayoutControls} from '../components/WorkspaceLayoutControls.tsx';
-import {createWorkspaceViews,isSplitLayout,isStackedLayout,workspaceLayout as parseWorkspaceLayout,type WorkspaceLayout,type WorkspaceViewSlot} from '../realtime/workspaceLayout.ts';
+import {WORKSPACE_LAYOUTS,createWorkspaceViews,isSplitLayout,isStackedLayout,workspaceLayout as parseWorkspaceLayout,type WorkspaceLayout,type WorkspaceViewSlot} from '../realtime/workspaceLayout.ts';
 import {workspaceTabDragId,endWorkspaceTabDrag} from '../realtime/workspaceTabDrag.ts';
 import {resolveWorkspaceAttachment} from '../realtime/workspaceAttachment.ts';
 import { settings, settingsLoadStatus } from '../api/settings.ts';
@@ -79,7 +82,7 @@ import { ResizeHandle } from '../components/ResizeHandle.tsx';
 import { accountUiPreferences, setAccountUiPreferences } from '../api/accountPreferences.ts';
 import {ReadingPaneControl} from '../components/ReadingPaneControl.tsx';
 import {BulkSelectionSummary} from '../components/BulkSelectionSummary.tsx';
-import { readingPane } from '../components/readingPane.ts';
+import { readingPane,setReadingPane,READING_PANE_OPTIONS } from '../components/readingPane.ts';
 import { readingPaneSplit } from '../components/readingPaneSplit.ts';
 import { messageOpenTarget, type OpenGesture } from '../components/messageOpen.ts';
 import { visibleSidebarFolders } from '../components/folderVisibility.ts';
@@ -116,6 +119,7 @@ import { EventsNavEntry, EventsViewBar } from '../components/EventsView.tsx';
 import { EVENTS_VIEW_ID } from '../api/jmap.ts';
 import { SubTabStrip } from '../components/SubTabStrip.tsx';
 import { ConfirmDialog } from './Admin/shell/ConfirmDialog.tsx';
+import * as ribbonCss from '../styles/ribbon.css.ts';
 import { Ribbon } from '../components/Ribbon.tsx';
 import { Settings } from './Settings.tsx';
 import { SharingDialog } from './SharingDialog.tsx';
@@ -373,6 +377,11 @@ export function MailboxScreen(): JSX.Element {
     if(!panes().some(pane=>pane.id===id))setPanes(old=>[...old,{id,kind:'attachment',title:item.name,attachment:{...item,downloadUrl:buildDownloadUrl(template,{accountId,blobId:item.blobId,name:item.name,mime:item.mime})}}]);
     subTabs.open({id,kind:'attachment',title:item.name});
   }
+  const openAttachmentFromReader=(item:StripItem,split=false):void=>{
+    if(split){let opener=subTabs.activeId();if(opener==='mail'&&previewId){openMessageTab(previewId);opener=subTabs.activeId();}setWorkspaceLayout('side-by-side');if(opener&&opener!=='mail')views.openBeside(opener);}
+    openAttachmentTab(item);
+  };
+  const forwardReaderAttachment=(item:StripItem)=>forwardAttachmentFiles([{...item,emailId:item.emailId??'',subject:'',from:'',receivedAt:''}]);
   async function downloadAttachmentItem(item:StripItem):Promise<void>{
     const owner=preferenceAccount(),accountId=app.accountId(),template=app.downloadUrl();
     if(!owner||!accountId||!template||!mailFeature('allowDownload'))return;
@@ -484,6 +493,8 @@ export function MailboxScreen(): JSX.Element {
     if(index<0)return;
     for(const neighbour of [list[index+1],list[index-1],list[index+2]])if(neighbour)app.prefetchMessage?.(neighbour.id,'focus');
   }
+  const openReaderEmail=()=>activePane()?.kind==='messages'?activePane()?.view?.openEmail():previewVisible()?preview()?.openEmail():undefined;
+  const closeActiveReader=():void=>{const pane=activePane();if(pane?.kind==='messages')void closePane(pane.id);else closePreview();};
   const workspaceCommands=()=>(<div class="workspace-bar" role="toolbar" aria-label={t('mail-workspace-layout')}>
           {/* With the sidebar hidden, its account indicator moves here: exactly one is ever shown. */}
           <Show when={accountIconInTopBar()}><LinkedAccountControl variant="icon"/></Show>
@@ -491,6 +502,7 @@ export function MailboxScreen(): JSX.Element {
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={folderMode()==='compact'} aria-label={t('mail-compact-folders')} title={t('mail-compact-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='compact'?'expanded':'compact'})}><Icon name="mailboxes"/></button>
           <Show when={(subTabs.activeId()==='mail'&&listVisible())||activePane()?.kind==='folder'}><button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-select-messages')} title={t('mail-select-messages')} aria-pressed={selectionActive()} onClick={toggleListSelection}><Icon name="bulkSelect"/></button></Show>
           <Show when={subTabs.activeId()==='mail'}><ReadingPaneControl/></Show>
+          <Show when={openReaderEmail()}><button type="button" class={`btn btn--ghost ${a11y.iconButton}`} data-testid="workspace-close-message" aria-label={t('mail-reader-close-message')} title={t('mail-reader-close-message')} onClick={closeActiveReader}><Icon name="close"/></button></Show>
           <Show when={previewVisible()&&(preview()!==null||previewDraft()!==null)}><button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-toggle-list')} title={t('mail-toggle-list')} aria-pressed={listVisible()} onClick={()=>setAccountUiPreferences({messageListCollapsed:listVisible()})}><Icon name="layoutColumns"/></button></Show>
 
           <WorkspaceLayoutControls value={workspaceLayout()} onChange={setWorkspaceLayout}/>
@@ -499,6 +511,40 @@ export function MailboxScreen(): JSX.Element {
           <OutboxChip onOpenOutbox={()=>router.navigate('outbox')}/>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>{if(activePane()?.kind==='attachments')requestModuleAction('attachments','refresh');else if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox({upstream:true});}}><Icon name="refresh" /></button>
         </div>);
+  const commandRibbon=createCommandRibbon(()=>app.layout()==='ribbon');
+  const [composerRibbonMount,setComposerRibbonMount]=createSignal<HTMLDivElement>();
+  const ribbonButton=`btn btn--ghost ${ribbonCss.btn}`;
+  const refreshWorkspace=()=>{if(activePane()?.kind==='attachments')requestModuleAction('attachments','refresh');else if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox({upstream:true});};
+  const ribbonLayoutActions=()=><>
+    <RibbonGroup label={t('mail-workspace-view-mode')} icon="layoutColumns" priority={40}>
+      <For each={WORKSPACE_LAYOUTS}>{mode=><RibbonItem><button type="button" class={ribbonButton} aria-pressed={workspaceLayout()===mode} onClick={()=>setWorkspaceLayout(mode)}><Icon name={mode==='tabs'?'layoutTabs':mode==='stack'?'layoutRows':mode==='masonry-stack'?'layoutMasonryRows':mode==='masonry-side-by-side'?'layoutMasonryColumns':'layoutColumns'}/><span>{t(`mail-workspace-${mode}`)}</span></button></RibbonItem>}</For>
+    </RibbonGroup>
+    <RibbonGroup label={t('mail-reading-pane')} icon="paneRight" priority={35}>
+      <For each={READING_PANE_OPTIONS}>{mode=><RibbonItem><button type="button" class={ribbonButton} aria-pressed={readingPane()===mode} onClick={()=>{setAccountUiPreferences({readerCollapsed:false,...(mode!=='off'?{messageListCollapsed:false}:{})});setReadingPane(mode);}}><Icon name={mode==='right'?'paneRight':mode==='bottom'?'paneBottom':'eyeOff'}/><span>{t(`mail-reading-pane-${mode}`)}</span></button></RibbonItem>}</For>
+    </RibbonGroup>
+    <RibbonGroup label={t('mail-ribbon-group-folders')} icon="folder" priority={30}>
+      <RibbonItem><button type="button" class={ribbonButton} aria-pressed={folderMode()!=='hidden'} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='hidden'?'expanded':'hidden'})}><Icon name="folder"/><span>{t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')}</span></button></RibbonItem>
+      <RibbonItem><button type="button" class={ribbonButton} aria-pressed={folderMode()==='compact'} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='compact'?'expanded':'compact'})}><Icon name="mailboxes"/><span>{t('mail-compact-folders')}</span></button></RibbonItem>
+      <Show when={previewVisible()}><RibbonItem><button type="button" class={ribbonButton} aria-pressed={listVisible()} onClick={()=>setAccountUiPreferences({messageListCollapsed:listVisible()})}><Icon name="layoutColumns"/><span>{t('mail-toggle-list')}</span></button></RibbonItem></Show>
+    </RibbonGroup>
+  </>;
+  const ribbonMailActions=()=><RibbonGroup label={t('mail-ribbon-tab-home')} icon="mail" priority={25}>
+    <Show when={accountIconInTopBar()}><RibbonItem><LinkedAccountControl variant="icon"/></RibbonItem></Show>
+    <RibbonItem><button type="button" class={ribbonButton} aria-pressed={selectionActive()} onClick={toggleListSelection}><Icon name="bulkSelect"/><span>{t('mail-select-messages')}</span></button></RibbonItem>
+    <RibbonItem><button type="button" class={ribbonButton} onClick={refreshWorkspace}><Icon name="refresh"/><span>{t('mail-workspace-refresh')}</span></button></RibbonItem>
+    <RibbonItem><UndoRedoControl/></RibbonItem>
+    <RibbonItem><OutboxChip onOpenOutbox={()=>router.navigate('outbox')}/></RibbonItem>
+  </RibbonGroup>;
+  const [closingPane,setClosingPane]=createSignal('');
+  const visiblePaneTabs=()=>orderedPanes().filter(pane=>paneVisible(pane.id)).flatMap(pane=>{const tab=subTabs.tabs().find(tab=>tab.id===pane.id);return tab?[tab]:[];});
+  const paneCloseMenu=createContextMenu({label:()=>subTabs.tabs().find(tab=>tab.id===closingPane())?.title??t('mail-workspace-layout'),scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${effectiveLayout()}:${closingPane()}:${visiblePaneTabs().some(tab=>tab.id===closingPane())}`,actions:()=>visiblePaneTabs().some(tab=>tab.id===closingPane())?[workspaceCloseAction({tabs:visiblePaneTabs,id:closingPane,canClose:id=>id!=='mail',rtl:()=>document.documentElement.dir==='rtl',close:()=>{void closePane(closingPane());},closeMany:ids=>{void closePanes(ids);}})]:[]});
+  function openPaneCloseMenu(event:MouseEvent|KeyboardEvent,id:string):void {
+    if(effectiveLayout()==='tabs'||event.defaultPrevented)return;
+    const target=event.target as Element|null;
+    if(target?.closest('input,textarea,select,[contenteditable="true"],[role="menu"]'))return;
+    if('key' in event&&event.key!=='ContextMenu'&&!(event.shiftKey&&event.key==='F10'))return;
+    setClosingPane(id);paneCloseMenu.open(event);
+  }
   const compactBadges=()=>settings()['mail.compactFolderBadges']?.value!==false;
   const folderCountShown=(box:{role?:string|null;unreadEmails:number;totalEmails:number})=>showsFolderCount(box,folderCountMode(),folderCountScope());
   createEffect(on(()=>JSON.stringify([settings()['mail.messageListOrder']?.value??'newest',settings()['mail.messageListGroup']?.value??'none',settings()['time.displayZone']?.value]),()=>{if(app.accountId())void app.refreshMessageOrder();},{defer:true}));
@@ -1185,7 +1231,7 @@ export function MailboxScreen(): JSX.Element {
   });
 
   return (
-    <div class="shell workspace-shell mw-custom-mail" onPointerDown={noteWorkspaceIntent} onClick={noteWorkspaceIntent} onKeyDown={noteWorkspaceIntent} ref={shellElement} data-folder-mode={folderMode()}>
+    <CommandRibbonContext.Provider value={commandRibbon}><div class="shell workspace-shell mw-custom-mail" onPointerDown={noteWorkspaceIntent} onClick={noteWorkspaceIntent} onKeyDown={noteWorkspaceIntent} ref={shellElement} data-folder-mode={folderMode()}>
       <AppearanceCustomizationRuntime owner={() => {const accountId = app.accountId(); return accountId ? {kind: 'mailbox', accountId} : null;}} />
 
       <Show when={narrow()}>
@@ -1368,18 +1414,13 @@ export function MailboxScreen(): JSX.Element {
         <div class="sidebar__footer">
         <Show when={folderMode()!=='compact'||narrow()}><QuotaMeter accountId={app.accountId()} refresh={app.mailboxes()}/></Show>
         <div class={sidebarFooterActions}>
-        <button type="button" class={`btn btn--ghost sidebar__settings ${a11y.focusable} ${a11y.iconButton}`} aria-label={t('mail-nav-settings')} data-tooltip={t('mail-nav-settings')} onClick={()=>openSettings()}>
+        <Show when={app.layout()!=='ribbon'}><button type="button" class={`btn btn--ghost sidebar__settings ${a11y.focusable} ${a11y.iconButton}`} aria-label={t('mail-nav-settings')} data-tooltip={t('mail-nav-settings')} onClick={()=>openSettings()}>
           <Icon name="settings"/>
-        </button>
+        </button></Show>
         <Show when={app.layout()!=='ribbon'}>        <button type="button" class={`btn btn--ghost sidebar__logout ${a11y.focusable}`} aria-label={t('mail-logout')} title={t('mail-logout')} onClick={() => void app.logout()}>
           <Icon name="signOut"/><span class="sidebar__box-name">{t('mail-logout')}</span>
         </button></Show>
         </div>
-        <Show when={!app.online()}>
-          <span class="sidebar__offline" aria-live="polite">
-            {t('mail-offline')}
-          </span>
-        </Show>
         </div>
       </aside>
 
@@ -1390,7 +1431,8 @@ export function MailboxScreen(): JSX.Element {
         <Show when={app.layout()!=='ribbon'}><CollapsibleBar id="mailTopBar" revealPolicy="push" class="mail-topbar">
         {workspaceCommands()}
         </CollapsibleBar></Show>
-        <Show when={app.layout()==='ribbon'}><Ribbon onCompose={openNewMessage} onOpenSettings={openSettings} email={activePane()?.view?.openEmail()??(previewVisible()?preview()?.openEmail():undefined)??app.messages().find(message=>app.selectedIds().has(message.id))} onOpenMessage={id=>openPreview(id)} onOpenMessageTab={id=>openMessageTab(id)} onCreateFolder={mailFeature('showCreateFolderButton')&&!unifiedMailboxActive()&&createFolderAbility()?.manages!==false?()=>setCreatingFolder(true):undefined} workspaceActions={workspaceCommands()} search={<><SearchBox onSearch={()=>{router.navigate('mail');subTabs.activate('mail');}}/><InboxTabs/><EventsViewBar/></>}/></Show>
+        <Show when={app.layout()==='ribbon'}><div ref={setComposerRibbonMount}/><Show when={activePane()?.kind!=='composer'||activePane()?.detach?.isDetached()}><Ribbon onCloseMessage={openReaderEmail()?closeActiveReader:undefined} readerActions={commandRibbon.reader()?.actions} preview={commandRibbon.preview()} onPreviewTarget={commandRibbon.setFileTarget} onCompose={openNewMessage} onOpenSettings={openSettings} email={activePane()?.view?.openEmail()??(previewVisible()?preview()?.openEmail():undefined)??app.messages().find(message=>app.selectedIds().has(message.id))} onOpenMessage={id=>openPreview(id)} onOpenMessageTab={id=>openMessageTab(id)} onCreateFolder={mailFeature('showCreateFolderButton')&&!unifiedMailboxActive()&&createFolderAbility()?.manages!==false?()=>setCreatingFolder(true):undefined} workspaceActions={ribbonMailActions()} layoutActions={ribbonLayoutActions()} searchActions={<><MessageOrderMenu showLabel order={messageOrder} scope={()=>`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}`} class={ribbonButton}/><UndoRedoControl/></>} search={<><SearchBox onSearch={()=>{router.navigate('mail');subTabs.activate('mail');}}/><InboxTabs/><EventsViewBar/></>}/></Show></Show>
+        {paneCloseMenu.menu()}
         <PropertiesHost/><ExportDialogHost/>
         <div class={a11y.srOnly} role="status" aria-live="polite" aria-atomic="true" data-testid="message-opened-status">{openedNotice()}</div>
         <div class="workspace-body" ref={bodyElement} data-reading-pane={readingPane()} classList={{'workspace-body--split':splitVisible()}}>
@@ -1404,15 +1446,16 @@ export function MailboxScreen(): JSX.Element {
               inert={!paneVisible(pane.id)} data-tab-id={pane.id} data-view-slot={views.slot(pane.id)??undefined} data-drop-target={dropView()!==null&&dropView()===views.slot(pane.id)}
               onDragOver={event=>dragView(event,views.slot(pane.id))} onDrop={event=>dragView(event,views.slot(pane.id),true)} onDragLeave={()=>setDropView(null)}
               data-companion-list={companion()===pane.id}
+              onContextMenu={event=>openPaneCloseMenu(event,pane.id)} onKeyDown={event=>openPaneCloseMenu(event,pane.id)}
               onFocusIn={()=>{if(companion()!==pane.id)subTabs.activate(pane.id);}} onPointerDown={()=>{if(companion()!==pane.id)subTabs.activate(pane.id);}}>
-              <DetachedWorkspacePane title={()=>subTabs.tabs().find(tab=>tab.id===pane.id)?.title??pane.title} account={()=>mailboxNickname(app.linkedMailboxId())??app.me()?.username} register={handle=>{pane.detach=handle;if(pane.autoDetach){pane.autoDetach=false;queueMicrotask(()=>handle.detach());}setPaneWindowRevision(value=>value+1);}}>{()=> <>
+              <CommandRibbonScope active={subTabs.activeId()===pane.id&&!pane.detach?.isDetached()}><DetachedWorkspacePane title={()=>subTabs.tabs().find(tab=>tab.id===pane.id)?.title??pane.title} account={()=>mailboxNickname(app.linkedMailboxId())??app.me()?.username} register={handle=>{pane.detach=handle;if(pane.autoDetach){pane.autoDetach=false;queueMicrotask(()=>handle.detach());}setPaneWindowRevision(value=>value+1);}}>{()=> <>
               <Show when={pane.draftPreview}>{draft=><DraftPreview draft={draft()} active={subTabs.activeId()===pane.id} onEdit={()=>void openReplyDraft(draft().id)} onRefresh={()=>void viewReplyDraft(draft().id)} onClose={()=>void closePane(pane.id)}/>}</Show>
-              <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader onOpenReplyDraft={id=>void openReplyDraft(id)} onEditDraft={id=>void editDraft(id)} view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={initial=>openReply(initial,pane.sourceMailboxId)} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)} onOpenSettings={section=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section});}}/></>}</Show>
+              <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader onOpenReplyDraft={id=>void openReplyDraft(id)} onEditDraft={id=>void editDraft(id)} view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={initial=>openReply(initial,pane.sourceMailboxId)} onOpenAttachment={openAttachmentFromReader} onForwardAttachment={forwardReaderAttachment} onExport={messageId=>void openExport(messageId)} onOpenSettings={section=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section});}}/></>}</Show>
               <Show when={pane.kind==='attachment' && pane.attachment}>{item=><AttachmentTab item={item()}/>}</Show>
-              <Show when={pane.kind==='composer'}><Compose embedded registerBeforeClose={(handler,dirty)=>{pane.beforeClose=handler;pane.dirty=dirty;}} onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||rawT('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
+              <Show when={pane.kind==='composer'}><Compose embedded ribbonMount={app.layout()==='ribbon'&&!pane.detach?.isDetached()?composerRibbonMount():undefined} ribbonLayout={ribbonLayoutActions} onOpenSettings={openSettings} registerBeforeClose={(handler,dirty)=>{pane.beforeClose=handler;pane.dirty=dirty;}} onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||rawT('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
               <Show when={pane.kind==='folder'&&pane.reference}><FolderPane onOpenReplyDraft={id=>void openReplyDraft(id)} onSelectionModeChange={enabled=>setFolderSelecting(modes=>({...modes,[pane.id]:enabled}))} selecting={folderSelecting()[pane.id]===true} mailboxId={pane.reference!} beforeGlobalAction={()=>pane.detach?.reattach()} registerRefresh={refresh=>{pane.refresh=refresh;}} active={subTabs.activeId()===pane.id} companion={companion()===pane.id} onOpen={id=>void openDraftOrMessage(id,pane.id)}/></Show>
               <Show when={pane.kind==='outbox'}><Outbox/></Show>
-              <Show when={pane.kind==='attachments'}><Attachments accountId={app.accountId()} mailboxes={app.mailboxes()} loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onDownload={downloadAttachmentItem} onLocateMessage={locateAttachmentMessage} onForwardFiles={forwardAttachmentFiles} onForwardMessages={forwardAttachmentMessages} onDownloadZip={zipAttachmentItems} onDeleteMessages={deleteAttachmentMessages} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
+              <Show when={pane.kind==='attachments'}><Attachments accountId={app.accountId()} mailboxes={app.mailboxes()} loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onOpenSplit={item=>openAttachmentFromReader(item,true)} onDownload={downloadAttachmentItem} onLocateMessage={locateAttachmentMessage} onForwardFiles={forwardAttachmentFiles} onForwardMessages={forwardAttachmentMessages} onDownloadZip={zipAttachmentItems} onDeleteMessages={deleteAttachmentMessages} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
               <Show when={pane.kind==='sharing'&&pane.reference&&pane.accountId}><SharingDialog embedded mailboxId={pane.reference!} accountId={pane.accountId!} mailboxName={pane.title} onClose={()=>void closePane(pane.id)}/></Show>
               <Show when={pane.surface==='unified'&&unifiedSurfaceEnabled()}>
                 <Suspense fallback={<AsyncPending/>}><UnifiedMail activeLink={app.linkedMailboxId?.()??null} onOpenMessage={row=>void openUnifiedMessage(row)}/></Suspense>
@@ -1424,7 +1467,7 @@ export function MailboxScreen(): JSX.Element {
               </Show>
               <Show when={pane.kind==='module'&&APP_NAV_MODULES.find(module=>module.id===pane.surface)}>{module=><main class="module-pane" data-surface={module().id} data-mw-surface><AsyncBoundary><Suspense fallback={<AsyncPending message={t('mail-module-loading',{module:module().label})}/>}><Dynamic component={module().mount()}/></Suspense></AsyncBoundary></main>}</Show>
               <Show when={pane.kind==='settings' && pane.navigation}>{navigation=><Settings embedded navigation={navigation()} onClose={()=>void closePane(pane.id)}/>}</Show>
-              </>}</DetachedWorkspacePane>
+              </>}</DetachedWorkspacePane></CommandRibbonScope>
             </section></PaneNavigationContext.Provider>}</For>
             <Show when={isSplitLayout(effectiveLayout())}>
               <ResizeHandle label={t('mail-resize-tiles')} orientation={workspaceLayout()==='stack'?'horizontal':'vertical'} value={tileFirst()} min={tileExtent()*0.2} max={tileExtent()*0.8} onChange={setTileDrag} onCommit={value=>{setAccountUiPreferences({workspaceSplitRatio:Math.max(0.2,Math.min(0.8,value/tileExtent()))});setTileDrag(null);}}/>
@@ -1432,7 +1475,7 @@ export function MailboxScreen(): JSX.Element {
             </Show>
           </div>
           <section class="workspace-pane workspace-reading-pane" aria-label={t('mail-reading-pane')} data-testid="reading-pane" hidden={!previewVisible()} inert={!previewVisible()}>
-            <Show when={app.selectedIds().size>0} fallback={<Show when={previewDraft()} fallback={<Show when={preview()} fallback={<p class="reader__empty">{t('mail-reader-empty')}</p>}>{view=><Reader onOpenReplyDraft={id=>void openReplyDraft(id)} onEditDraft={id=>void editDraft(id)} view={view()} active={previewVisible()} onClose={closePreview} onCompose={initial=>openReply(initial,previewSourceMailboxId)} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)} onOpenSettings={section=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section});}}/>}</Show>}>{draft=><DraftPreview draft={draft()} active={previewVisible()} onEdit={()=>void openReplyDraft(draft().id)} onRefresh={()=>void viewReplyDraft(draft().id)} onClose={closePreview}/>}</Show>}><BulkSelectionSummary onCancel={()=>setSelectionReset(value=>value+1)}/></Show>
+            <CommandRibbonScope active={previewVisible()}><Show when={app.selectedIds().size>0} fallback={<Show when={previewDraft()} fallback={<Show when={preview()} fallback={<p class="reader__empty">{t('mail-reader-empty')}</p>}>{view=><Reader onOpenReplyDraft={id=>void openReplyDraft(id)} onEditDraft={id=>void editDraft(id)} view={view()} active={previewVisible()} onClose={closePreview} onCompose={initial=>openReply(initial,previewSourceMailboxId)} onOpenAttachment={openAttachmentFromReader} onForwardAttachment={forwardReaderAttachment} onExport={messageId=>void openExport(messageId)} onOpenSettings={section=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section});}}/>}</Show>}>{draft=><DraftPreview draft={draft()} active={previewVisible()} onEdit={()=>void openReplyDraft(draft().id)} onRefresh={()=>void viewReplyDraft(draft().id)} onClose={closePreview}/>}</Show>}><BulkSelectionSummary onCancel={()=>setSelectionReset(value=>value+1)}/></Show></CommandRibbonScope>
           </section>
         </div>
         <Show when={transfer()} keyed>{request=>
@@ -1453,6 +1496,6 @@ export function MailboxScreen(): JSX.Element {
         <AssistPanel config={app.assist.config()} service={app.assist.service} context={assistContext()} onReviewAction={openNewMessage}/>
       </div>
 
-    </div>
+    </div></CommandRibbonContext.Provider>
   );
 }

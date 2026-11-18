@@ -190,6 +190,9 @@ export function Compose(props: {
   onClose: () => void;
   embedded?: boolean;
   active?: boolean;
+  ribbonMount?: HTMLElement | undefined;
+  ribbonLayout?: () => JSX.Element;
+  onOpenSettings?: () => void;
   /** Workspace metadata contains only this account-owned local draft ID. */
   resumeDraftId?: string;
   onDraftIdChange?: (id:string)=>void;
@@ -204,6 +207,7 @@ export function Compose(props: {
   const [composerAuthority,setComposerAuthority]=createSignal(preferenceAccount());
   onCleanup(observePreferenceAccount(setComposerAuthority));
   function localDraftAuthority():string|undefined {const owner=composerAuthority();return owner?.id===app.accountId()?owner.storageAuthority:undefined;}
+  const centralizedCommands=()=>Boolean(props.ribbonMount)||app.layout()==='ribbon';
   const composeId=createUniqueId();
   const initial = props.initial;
   const [expanded, setExpanded] = createSignal(false);
@@ -1945,27 +1949,13 @@ export function Compose(props: {
             <Show when={noticeMode()==='manual'}><For each={noticeTemplates().filter(row=>row.enabled)}>{row=><label class="compose__option"><input type="checkbox" checked={noticeIds().includes(row.id)} onChange={event=>setNoticeIds(ids=>event.currentTarget.checked?[...ids,row.id]:ids.filter(id=>id!==row.id))}/>{row.title}</label>}</For></Show>
             <For each={applicableNotices()}>{row=><p data-testid="compose-notice-preview"><strong>{row.title}</strong> — {row.text}</p>}</For>
           </section>);
-  return (
-    <div
-      class={props.embedded ? "workspace-compose" : "compose__backdrop"}
-      role={props.embedded ? "region" : "dialog"}
-      aria-modal={props.embedded ? undefined : "true"}
-      aria-label={t('mail-compose-label')}
-      ref={backdropEl}
-      onKeyDown={(e)=>{insertKeys(e);onDialogKeyDown(e);}}
-    >
-      <form class="compose" classList={{'compose--compact':compact()}} onSubmit={(e) => void onSubmit(e)}>
-        <ComposeDropZone host={dropHost}/>
-        <header class="compose__header">
-          <button type="submit" class={`btn btn--primary ${a11y.focusable}`} disabled={!mailFeature('allowSend')||busy()||discardCurrentOpen()||discardCurrentBusy()} title={mailFeature('allowSend')?undefined:mailFeatureOffTitle()}>
+  const SendAction=()=>(<button type="submit" form={composeId} class={`btn btn--primary ${a11y.focusable}`} disabled={!mailFeature('allowSend')||busy()||discardCurrentOpen()||discardCurrentBusy()} title={mailFeature('allowSend')?undefined:mailFeatureOffTitle()}>
             <Icon name="sent"/> {busy() ? t('mail-compose-sending') : sendAt() !== '' ? t('mail-compose-schedule') : t('mail-compose-send')}
-          </button>
-          <Show when={featureOn('compose.scheduled_send')&&mailFeature('allowSend')}><SendLaterMenu disabled={busy()} onPick={value=>{setSendAt(value);queueMicrotask(()=>backdropEl?.querySelector<HTMLFormElement>('form.compose')?.requestSubmit());}}/></Show>
-          <h2 class={a11y.srOnly}>{t(initial !== undefined ? TITLE_KEY[initial.mode] : 'mail-compose-title')}</h2>
-          <div class="compose__header-actions">
-            <button type="button" class="btn btn--ghost compose-action--secondary" data-detached-local="" aria-haspopup="dialog" aria-label={t('mail-draft-discard-account')} disabled={busy()||uploading()||discardCurrentBusy()||remoteStatus()==='uncertain'||remoteStatus()==='conflict'} onClick={()=>setDiscardCurrentOpen(true)} data-tooltip={t('mail-draft-discard-confirm')}><Icon name="delete"/><span>{t('mail-draft-discard-account')}</span></button>
-        <Show when={remoteReady()&&!protectedDraft()}><button type="button" class="btn btn--ghost" disabled={remoteStatus()==='saving'||remoteStatus()==='uncertain'||remoteStatus()==='conflict'} onClick={()=>void remoteWriter?.flush()}><Icon name="file"/>{t('mail-draft-save-now')}</button></Show>
-            <button
+          </button>);
+  const ScheduleAction=()=>(<Show when={featureOn('compose.scheduled_send')&&mailFeature('allowSend')}><SendLaterMenu disabled={busy()} onPick={value=>{setSendAt(value);queueMicrotask(()=>backdropEl?.querySelector<HTMLFormElement>('form.compose')?.requestSubmit());}}/></Show>);
+  const DiscardAction=()=>(<button type="button" class="btn btn--ghost compose-action--secondary" data-detached-local="" aria-haspopup="dialog" aria-label={t('mail-draft-discard-account')} disabled={busy()||uploading()||discardCurrentBusy()||remoteStatus()==='uncertain'||remoteStatus()==='conflict'} onClick={()=>setDiscardCurrentOpen(true)} data-tooltip={t('mail-draft-discard-confirm')}><Icon name="delete"/><span>{t('mail-draft-discard-account')}</span></button>);
+  const SaveDraftAction=()=>(<Show when={remoteReady()&&!protectedDraft()}><button type="button" class="btn btn--ghost" disabled={remoteStatus()==='saving'} onClick={()=>void remoteWriter?.flush()}><Icon name="file"/>{t('mail-draft-save-now')}</button></Show>);
+  const DraftsAction=()=>(<button
               type="button"
               class={`btn btn--ghost ${a11y.focusable}`}
               data-testid="open-drafts"
@@ -1974,8 +1964,8 @@ export function Compose(props: {
               onClick={() => (draftsOpen() ? setDraftsOpen(false) : openDrafts())}
             >
               <Icon name="file"/> {t('mail-compose-drafts')}
-            </button>
-            <button
+            </button>);
+  const RecallAction=()=>(<button
               type="button"
               class={`btn btn--ghost ${a11y.focusable}`}
               data-testid="open-recall"
@@ -1985,12 +1975,33 @@ export function Compose(props: {
               onClick={() => (recallOpen() ? setRecallOpen(false) : openRecall())}
             >
               <Icon name="clock"/> <span>{t('mail-compose-recall')}</span>
-            </button>
-            <Show when={!props.embedded}><button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-compose-close')} onClick={() => void closeWithDraftSave()}>
+            </button>);
+  const CloseAction=()=>(<Show when={!props.embedded}><button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-compose-close')} onClick={() => void closeWithDraftSave()}>
               <Icon name="close" />
-            </button></Show>
+            </button></Show>);
+  return (
+    <div
+      class={props.embedded ? "workspace-compose" : "compose__backdrop"}
+      role={props.embedded ? "region" : "dialog"}
+      aria-modal={props.embedded ? undefined : "true"}
+      aria-label={t('mail-compose-label')}
+      ref={backdropEl}
+      onKeyDown={(e)=>{insertKeys(e);onDialogKeyDown(e);}}
+    >
+      <form id={composeId} class="compose" classList={{'compose--compact':compact()}} onSubmit={(e) => void onSubmit(e)}>
+        <ComposeDropZone host={dropHost}/>
+        <Show when={!centralizedCommands()}><header class="compose__header">
+          <SendAction/>
+          <ScheduleAction/>
+          <h2 class={a11y.srOnly}>{t(initial !== undefined ? TITLE_KEY[initial.mode] : 'mail-compose-title')}</h2>
+          <div class="compose__header-actions">
+            <DiscardAction/>
+        <SaveDraftAction/>
+            <DraftsAction/>
+            <RecallAction/>
+            <CloseAction/>
           </div>
-        </header>
+        </header></Show>
 
 
         {/* Discard confirmations and the unsaved-close prompt share one themed modal,
@@ -2179,12 +2190,15 @@ export function Compose(props: {
             tabs stay mounted, so the security evaluation is always live. */}
         <EditorRibbon
           state={ribbon}
+          class={centralizedCommands()?'workspace-command-ribbon':undefined}
+          mount={props.ribbonMount}
+          active={props.active}
           modeToggle={featRibbonAutoHide}
           visible={()=>visibleTabs()}
           history={editorApi}
           showHistory={()=>richMode()}
           tabs={[
-            {id:'format',after:()=><>
+            {id:'format',before:()=><Show when={centralizedCommands()}><RibbonGroup label={t('mail-compose-title')} icon="sent" priority={100} testId="compose-group-message"><RibbonItem><SendAction/></RibbonItem><Show when={featureOn('compose.scheduled_send')&&mailFeature('allowSend')}><RibbonItem><ScheduleAction/></RibbonItem></Show><RibbonItem><DiscardAction/></RibbonItem><Show when={remoteReady()&&!protectedDraft()}><RibbonItem><SaveDraftAction/></RibbonItem></Show><RibbonItem><DraftsAction/></RibbonItem><RibbonItem><RecallAction/></RibbonItem><Show when={!props.embedded}><RibbonItem><CloseAction/></RibbonItem></Show></RibbonGroup></Show>,after:()=><>
               <RibbonGroup label={t('mail-compose-ribbon-recipients')} priority={70} icon="users" testId="compose-group-recipients">
                 <RibbonItem><button type="button" class="btn btn--ghost" onClick={checkNames} data-tooltip={t('mail-compose-check-names-help')}><Icon name="check"/><span class="compose-rib__text">{t('mail-compose-check-names')}</span></button></RibbonItem>
                 <RibbonItem><button type="button" class="btn btn--ghost" data-testid="compose-show-cc-bcc" aria-pressed={ccBccOpen()} onClick={()=>setCcBccOpen(!ccBccOpen())}><Icon name="users"/><span class="compose-rib__text">{t('mail-compose-show-cc-bcc')}</span></button></RibbonItem>
@@ -2192,7 +2206,7 @@ export function Compose(props: {
               </RibbonGroup>
               <Show when={featureOn('compose.rich_text')}><BodyModeGroup label={t('mail-compose-ribbon-message-type')} value={()=>!richMode()?'plain':sourceMode()?'html':'rich'} onChange={changeFormat}/></Show>
             </>},
-            {id:'insert',before:()=><>
+            {id:'insert',before:()=><><Show when={centralizedCommands()&&noticesEnabled()&&noticeTemplates().length>0}><RibbonGroup label={t('notices-title')} icon="file" priority={20}><RibbonItem><RibbonPopover label={t('notices-title')} icon="file" buttonClass="btn btn--ghost"><NoticeOptions ribbon/></RibbonPopover></RibbonItem></RibbonGroup></Show>
               <RibbonGroup label={t('response-templates-title')} priority={65} icon="book" testId="compose-response-templates"><RibbonItem><ResponseTemplates disabled={busy()} onInsert={insertResponseTemplate}/></RibbonItem></RibbonGroup>
               {/* New-file attach (26.15 §1): pick a local file, upload its bytes to the
                   account's JMAP upload endpoint, and fold the returned blob into the
@@ -2277,7 +2291,7 @@ export function Compose(props: {
             </>},
             {id:'table'},
             {id:'picture'},
-            {id:'layout',before:()=><LayoutGroups
+            {id:'layout',after:()=><Show when={centralizedCommands()}>{props.ribbonLayout?.()}<RibbonGroup label={t('mail-ribbon-group-session')} icon="settings" priority={10}><Show when={props.onOpenSettings}><RibbonItem><button type="button" class="btn btn--ghost" onClick={()=>props.onOpenSettings?.()}><Icon name="settings"/><span>{t('mail-nav-settings')}</span></button></RibbonItem></Show><RibbonItem><button type="button" class="btn btn--ghost" onClick={()=>void app.logout()}><Icon name="signOut"/><span>{t('mail-ribbon-logout')}</span></button></RibbonItem></RibbonGroup></Show>,before:()=><LayoutGroups
               layout={layout}
               update={(change)=>setLayout(change)}
               insertHtml={html=>{const api=editorApi();if(api===null)return;if(api.insertHtml)api.insertHtml(html,false);else api.appendHtml(html);}}
@@ -2483,7 +2497,9 @@ export function Compose(props: {
           )}
         </Show>
 
-        <Show when={noticesEnabled()&&noticeTemplates().length>0}><NoticeOptions/></Show>
+
+
+        <Show when={!centralizedCommands()&&noticesEnabled()&&noticeTemplates().length>0}><NoticeOptions/></Show>
         {/* Asked once per composer, when a send would put the decrypted text of
             an encrypted original on the wire unencrypted. Confirming sends. */}
         <Show when={plaintextConfirmOpen()}>

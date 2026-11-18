@@ -29,7 +29,7 @@ export const tabs = style({
   alignItems: 'center',
   gap: vars.space[2],
   paddingBlock: `calc(${vars.space[2]} - 2px) 0`,
-  paddingInline: vars.space[4],
+  paddingInline: vars.space[2],
 });
 
 // The tab buttons in a row (was an inline style the shell CSP drops).
@@ -48,7 +48,7 @@ export const tab = style({
   letterSpacing: vars.tracking.label,
   textTransform: 'uppercase',
   cursor: 'pointer',
-  padding: `${vars.space[2]} ${vars.space[4]}`,
+  padding: `${vars.space[1]} ${vars.space[3]}`,
   borderRadius: vars.radius.sm,
 });
 
@@ -70,33 +70,8 @@ export const body = style({
 });
 
 export const btn = style({
-  appearance: 'none',
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: vars.space[2],
-  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
-  background: vars.color.bg,
-  color: vars.color.text,
-  borderRadius: vars.radius.md,
-  cursor: 'pointer',
-  // No block padding: a ribbon row is fixed (28px fine, 44px coarse) and the
-  // 20px label line is centred in it; block padding would overflow the row.
-  padding: `0 calc(${vars.space[3]} - 1px)`,
-  font: 'inherit',
-  fontSize: '0.85rem',
-  lineHeight: 1.2,
-  maxInlineSize: '12rem',
-  minInlineSize: 0,
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  selectors: {
-    '&:hover': { boxShadow: vars.elevation[1] },
-    '&[aria-pressed="true"]': {
-      background: vars.color.accent,
-      color: vars.color.accentText,
-      borderColor: vars.color.accent,
-    },
-  },
+  minInlineSize:0, maxInlineSize:'14rem', whiteSpace:'nowrap',
+  selectors:{'&[aria-pressed="true"]':{background:vars.color.accent,color:vars.color.accentText,borderColor:vars.color.accent}},
 });
 
 // A `large` ribbon item: icon over the label, all three rows high (Office's
@@ -133,8 +108,14 @@ export const label = style({
 // still fits the 88px button.
 globalStyle(`${ribbon} [data-ribbon-more] > span`, { blockSize: '18px', lineHeight: '18px' });
 
-export const search=style({minInlineSize:0,paddingInline:vars.space[3],paddingBlock:vars.space[2]});
+export const search=style({minInlineSize:0,maxInlineSize:'64rem',paddingInline:vars.space[2],paddingBlock:vars.space[1]});
 export const commands=style({display:'flex',alignItems:'center',flexWrap:'wrap',alignContent:'center',gap:vars.space[1],blockSize:'100%',minInlineSize:0});
 globalStyle(`.${commands} > .workspace-bar`,{display:'contents'});
 
 globalStyle(`.${search} .mail-search-area > div`,{maxBlockSize:'min(40dvh, 22rem)',overflow:'auto'});
+
+globalStyle(`${ribbon} [data-ribbon-item=small] > button`,{inlineSize:"100%",justifyContent:"flex-start"});
+globalStyle(`${ribbon} [data-ribbon-item] svg`,{flexShrink:0});
+globalStyle(`${ribbon} [data-ribbon-item] button > span`,{minInlineSize:0,overflow:"hidden",textOverflow:"ellipsis"});
+
+export const previewTitle=style({minInlineSize:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:".8rem",paddingInline:vars.space[2]});

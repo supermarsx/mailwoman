@@ -1,5 +1,6 @@
+import type {StripItem} from '../viewers/ThumbnailStrip.tsx';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, waitFor } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { AppContext } from '../state/context.ts';
 import type { AppState } from '../state/store.ts';
 import type { Email } from '../api/jmap-types.ts';
@@ -24,14 +25,14 @@ const INLINE = { blobId: 'b.4', type: 'image/png', name: 'logo.png', size: 99, c
 type Values = Record<string, { value: unknown; locked?: boolean }>;
 const apply = (values: Values) => loadSettings({ refresh: true, fetcher: async () => new Response(JSON.stringify({ settings: Object.fromEntries(Object.entries(values).map(([key, entry]) => [key, { value: entry.value, source: 'global', locked: entry.locked ?? false }])) }), { headers: { 'content-type': 'application/json' } }) });
 
-async function setup(attachments: unknown[], values: Values = {}) {
+async function setup(attachments: unknown[], values: Values = {}, actions:{onOpenAttachment?:(item:StripItem,split?:boolean)=>void;onForwardAttachment?:(item:StripItem)=>void}={}) {
   const showToast = vi.fn();
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify(policy), { status: 200, headers: { 'content-type': 'application/json' } }))));
   await apply({ 'reader.attachmentsCollapsed': { value: true }, ...values });
   const app = { accountId: () => 'a1', downloadUrl: () => 'https://m/d/{accountId}/{blobId}/{name}?type={type}', showToast, openMessage: vi.fn(), nextcloud: { enabled: () => false, ensureEnabled: () => Promise.resolve(), service: {} } } as unknown as AppState;
   const [parts,setParts]=createSignal(attachments);
   const [messageId,setMessageId]=createSignal('e1');
-  const view = render(() => <AppContext.Provider value={app}><AttachmentsPane email={{ id: messageId(), hasAttachment: true, attachments:parts() } as unknown as Email} /></AppContext.Provider>);
+  const view = render(() => <AppContext.Provider value={app}><AttachmentsPane {...actions} email={{ id: messageId(), hasAttachment: true, attachments:parts() } as unknown as Email} /></AppContext.Provider>);
   return { app, showToast, view,setParts,setMessageId };
 }
 type View = Awaited<ReturnType<typeof setup>>['view'];
@@ -220,4 +221,13 @@ describe('Download all', () => {
     const { view } = await setup([PDF], { 'attachments.bar.downloadAll': { value: false, locked: true } });
     expect(view.queryByTestId('reader-attachments-download-all')).toBeNull();
   });
+});
+
+it('offers open, split preview, download and forwarding from an attachment context button',async()=>{
+ const open=vi.fn(),forward=vi.fn();const {view}=await setup([PDF],{}, {onOpenAttachment:open,onForwardAttachment:forward});
+ fireEvent.click(view.getByTestId('reader-attachments-toggle'));await waitFor(()=>expect(view.getByTestId('attachment-download')).not.toHaveAttribute('aria-disabled','true'));
+ fireEvent.click(view.getByRole('button',{name:'More actions'}));
+ fireEvent.click(screen.getByRole('menuitem',{name:'Open in split view'}));await waitFor(()=>expect(open).toHaveBeenCalledWith(expect.objectContaining({name:'a.pdf'}),true));
+ fireEvent.contextMenu(view.container.querySelector('.mw-thumb')!);fireEvent.click(screen.getByRole('menuitem',{name:'Forward in a new email'}));
+ await waitFor(()=>expect(forward).toHaveBeenCalledWith(expect.objectContaining({blobId:'b.1',emailId:'e1'})));
 });

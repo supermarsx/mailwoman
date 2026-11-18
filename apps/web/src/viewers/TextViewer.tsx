@@ -1,5 +1,6 @@
+import {MessageLoading} from '../components/MessageLoading.tsx';
 import {SearchInput} from '../components/SearchInput.tsx';
-import {ViewerToolbar,downloadPreview} from './ViewerToolbar.tsx';
+import {PreviewRibbonExtras,ViewerToolbar,downloadPreview} from './ViewerToolbar.tsx';
 import {previewToolEnabled,previewToolPlacement} from './filePreviewPreferences.ts';
 import {viewerKindFor} from '../contracts/viewer.ts';
 import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, Show, type JSX } from 'solid-js';
@@ -118,7 +119,7 @@ export function TextViewer(props: ViewerProps): JSX.Element {
   );
 
   return (
-    <Show when={value()} fallback={<p class="mw-viewer__loading" role="status">{t('text-viewer-loading')}</p>}>
+    <Show when={value()} fallback={<MessageLoading/>}>
       {(state) => (
         <>
           <Show when={state().kind === 'error'}>
@@ -150,7 +151,7 @@ export function TextViewer(props: ViewerProps): JSX.Element {
                     {id:'text.search',label:t('text-viewer-search'),icon:'search',render:()=>null,run:()=>{setSearchOpen(value=>!value);}},
                     ...(mailFeature('allowDownload')?[{id:'text.copy',label:copied()==='ok'?t('text-viewer-copied'):copied()==='failed'?t('text-viewer-copy-failed'):t('text-viewer-copy'),icon:'copy' as const,testId:'text-copy',run:copy},{id:'download',label:t('text-viewer-download'),icon:'download' as const,run:()=>downloadPreview(props.blobUrl,props.name)}]:[])
                   ]}/>
-                  <Show when={previewToolEnabled('text.search')&&(previewToolPlacement('text.search')==='toolbar'||searchOpen())}>
+                  <PreviewRibbonExtras large label={t('text-viewer-search')}><Show when={previewToolEnabled('text.search')&&(previewToolPlacement('text.search')==='toolbar'||searchOpen())}>
                   <SearchInput
                     
                     value={query()}
@@ -175,7 +176,7 @@ export function TextViewer(props: ViewerProps): JSX.Element {
                     </span>
                   </Show>
                   </Show>
-                  <span class="mw-text__meta">{t('text-viewer-lines', { count: formatNumber(doc().lines) })} · {doc().encoding}</span>
+                  <span class="mw-text__meta">{t('text-viewer-lines', { count: formatNumber(doc().lines) })} · {doc().encoding}</span></PreviewRibbonExtras>
                 </div>
                 <div class="mw-text__scroll" ref={scroller} tabindex="0" aria-label={props.name}>
                   <Show when={previewToolEnabled('text.numbers')&&numbers() && !wrap()}><pre class="mw-text__gutter" aria-hidden="true">{gutter()}</pre></Show>

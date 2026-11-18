@@ -575,6 +575,28 @@ describe('retained mailbox workspace',()=>{
     fireEvent.click(document.getElementById(`subtab-tab-${first}`)!);
     expect(within(screen.getByRole('tabpanel',{name:'Draft alpha'})).getByLabelText('Subject')).toHaveValue('Draft alpha');
   });
+  it.each(['default','ribbon'] as const)('closes the reading-pane message from the %s toolbar and leaves the list open',async layout=>{
+    const {app,realtime,show}=setup();show();await app.login({username:'me@example.org',password:'p'});
+    app.setLayout(layout);try{setReadingPane('right');
+    fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    const pane=screen.getByTestId('reading-pane');await within(pane).findByRole('heading',{name:'Subject a'});
+    fireEvent.click(screen.getByTestId('workspace-close-message'));
+    await waitFor(()=>expect(pane.querySelector('.reader__subject')).toBeNull());
+    expect(realtime.subTabs.activeId()).toBe('mail');expect(screen.getByText('Subject a',{selector:'.list__subject'})).toBeVisible();expect(screen.queryByTestId('workspace-close-message')).toBeNull();}finally{app.setLayout('default');}
+  });
+  it('offers a closing submenu on visible split panes and leaves starred panes open',async()=>{
+    const {app,realtime,show}=setup();show();await app.login({username:'me@example.org',password:'p'});
+    fireEvent.click(screen.getByRole('button',{name:'Contacts'}));await screen.findByRole('tab',{name:'Contacts'});
+    fireEvent.click(screen.getByRole('button',{name:'Tasks'}));await screen.findByRole('tab',{name:'Tasks'});
+    setAccountUiPreferences({workspaceLayout:'side-by-side'});
+    const contacts=screen.getByRole('tabpanel',{name:'Contacts'}),tasks=screen.getByRole('tabpanel',{name:'Tasks'});
+    expect(contacts).toBeVisible();expect(tasks).toBeVisible();
+    const contactsId=realtime.subTabs.tabs().find(tab=>tab.title==='Contacts')!.id;realtime.subTabs.togglePin(contactsId);
+    fireEvent.contextMenu(tasks);fireEvent.click(screen.getByRole('menuitem',{name:'Close'}));
+    expect(screen.getByRole('menuitem',{name:'Close other tabs'})).toHaveAttribute('aria-disabled','true');
+    fireEvent.click(screen.getByRole('menuitem',{name:'Close all tabs'}));
+    await waitFor(()=>expect(realtime.subTabs.tabs().map(tab=>tab.title)).toEqual(['Mail','Contacts']));
+  });
   it('a bulk close lists the composers that would lose their message in one dialog: keep, then discard (t50)',async()=>{
     // No storage authority: the composer cannot keep an account draft, so closing it loses the message.
     const {app,realtime,show,client}=setup();const unstored=async()=>({username:'me@example.org',accountId:'acct1'});
@@ -585,7 +607,7 @@ describe('retained mailbox workspace',()=>{
     fireEvent.input(within(screen.getByRole('tabpanel',{name:'Compose'})).getByLabelText('Subject'),{target:{value:'Unstored draft'}});
     const composer=realtime.subTabs.activeId()!;
     fireEvent.click(screen.getByRole('button',{name:'Tasks'}));await screen.findByRole('tab',{name:'Tasks'});
-    fireEvent.contextMenu(screen.getByRole('tab',{name:'Mail'}));
+    fireEvent.contextMenu(screen.getByRole('tab',{name:'Mail'}));fireEvent.click(screen.getByRole('menuitem',{name:'Close'}));
     expect(screen.getByRole('menuitem',{name:'Close tabs to the left'})).toHaveAttribute('aria-disabled','true');
     fireEvent.click(screen.getByRole('menuitem',{name:'Close all tabs'}));
     const dialog=await screen.findByTestId('workspace-tabs-close-dirty');
@@ -593,7 +615,7 @@ describe('retained mailbox workspace',()=>{
     expect(screen.queryByTestId('compose-close-confirm')).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button',{name:'Keep them open'}));
     await waitFor(()=>expect(realtime.subTabs.tabs().map(tab=>tab.id)).toEqual(['mail',composer]));
-    fireEvent.contextMenu(screen.getByRole('tab',{name:'Unstored draft'}));fireEvent.click(screen.getByRole('menuitem',{name:'Close all tabs'}));
+    fireEvent.contextMenu(screen.getByRole('tab',{name:'Unstored draft'}));fireEvent.click(screen.getByRole('menuitem',{name:'Close'}));fireEvent.click(screen.getByRole('menuitem',{name:'Close all tabs'}));
     fireEvent.click(within(await screen.findByTestId('workspace-tabs-close-dirty')).getByRole('button',{name:'Discard and close'}));
     await waitFor(()=>expect(realtime.subTabs.tabs().map(tab=>tab.id)).toEqual(['mail']));
     expect(screen.queryByTestId('compose-close-confirm')).not.toBeInTheDocument();

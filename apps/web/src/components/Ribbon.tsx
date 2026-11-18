@@ -1,3 +1,5 @@
+import type {RibbonReaderActions,RibbonPreview} from './CommandRibbonContext.tsx';
+import {RibbonSlot,type RibbonSlotTarget} from './compose/ribbonParts.tsx';
 import {READER_ACTIONS,readerActionPlacement} from './readerActionPlacement.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {createMessageContextMenu} from './MessageContextMenu.tsx';
@@ -22,7 +24,7 @@ import { Icon } from './Icon.tsx';
 // panel groups are labelled groups. Styling is token-native
 // (styles/ribbon.css.ts); focus rings come from the shared a11y contract.
 
-import { createEffect, createSignal, For, Index, onMount, Show, type JSX } from 'solid-js';
+import { createEffect, createSignal, For, Index, onMount, onCleanup, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { loadCatalog, t } from '../i18n/index.ts';
 import { THEME_OPTIONS } from '../theme/tokens.ts';
@@ -31,21 +33,29 @@ import { settings } from '../api/settings.ts';
 import { migrateLegacyRibbonCollapsed } from '../state/legacyRibbonCollapsed.ts';
 import { CollapsibleBar, RibbonGroup, RibbonItem, RibbonPanel, useCollapsibleBar, type BarModeHandle } from './bars/index.ts';
 import * as css from '../styles/ribbon.css.ts';
+import './compose/compose-extras.css';
+import './compose/richtext.css';
 import * as a11y from './mailA11y.css.ts';
 
-type RibbonTab = 'home' | 'view' | 'folder';
+type RibbonTab = 'home' | 'view' | 'folder' | 'search' | 'file';
 
-const TABS: readonly RibbonTab[] = ['home', 'view', 'folder'];
+const TABS: readonly RibbonTab[] = ['home', 'view', 'folder', 'search'];
 const DENSITIES: readonly Density[] = ['compact', 'cozy', 'relaxed'];
 
 export interface RibbonProps {
   /** Open the composer (owned by the mailbox screen). */
   onCompose: () => void;
+  onCloseMessage?: (()=>void)|undefined;
   /** Open the Settings panel. */
   onOpenSettings: () => void;
   /** The pin/auto-hide handle; defaults to `useBarMode('mailRibbon')` (tests pass one). */
   bar?: BarModeHandle;
+  readerActions?: RibbonReaderActions | undefined;
+  preview?: RibbonPreview | undefined;
+  onPreviewTarget?: (target:RibbonSlotTarget|undefined)=>void;
   workspaceActions?: JSX.Element;
+  layoutActions?: JSX.Element;
+  searchActions?: JSX.Element;
   search?: JSX.Element;
   email?: Email | undefined;
   onOpenMessage?: (id:string)=>void;
@@ -56,15 +66,15 @@ export interface RibbonProps {
 
 export function Ribbon(props: RibbonProps): JSX.Element {
   const app = useApp();
-  void loadCatalog('mail');void loadCatalog('properties');
+  void loadCatalog('file-previews');void loadCatalog('mail');void loadCatalog('properties');
   const commands=createMessageContextMenu(()=>props.email,undefined,undefined,undefined,{allowRetainedMessage:true,actionFilter:row=>ribbonPlacement(row.id)!=='hidden',onOpenMessage:id=>props.onOpenMessage?.(id),onOpenMessageTab:id=>props.onOpenMessageTab?.(id)});
   const scope=()=>`${app.accountId()}:${preferenceAccount()?.generation}:${props.email?.id}:${[...app.selectedIds()].sort().join(',')}`;
   const groups=[
-    {label:'mail-context-reply',icon:'reply' as const,ids:['reply','reply-all','forward']},
-    {label:'mail-reader-move-to',icon:'moveTo' as const,ids:['archive','trash','junk','move-to','copy','snooze']},
-    {label:'mail-mark-as',icon:'flag' as const,ids:['mark-as','followup','labels','pin','create-task','quick-print']},
+    {label:'mail-context-reply',icon:'reply' as const,ids:['reply','reply-all','forward','quick-reply']},
+    {label:'mail-reader-move-to',icon:'moveTo' as const,ids:['archive','delete','trash','spam','junk','move','move-to','copy','snooze']},
+    {label:'mail-mark-as',icon:'flag' as const,ids:['mark-as','read','flag','followup','labels','pin','create-task','quick-print','finish-followup']},
   ];
-  const rows=(ids:readonly string[])=>commands.actions().filter(row=>ids.includes(row.id)&&ribbonPlacement(row.id)==='toolbar').map(row=>{
+  const rows=(ids:readonly string[])=>(props.readerActions?.toolbar??commands.actions()).filter(row=>ids.includes(row.id)&&ribbonPlacement(row.id)==='toolbar').map(row=>{
     const chosen=app.selectedIds(),message=props.email;
     if(!message||!chosen.has(message.id)||chosen.size<2)return row;
     const targets=[...chosen];const runs:Record<string,()=>Promise<void>>={archive:()=>app.archiveMessage(targets),trash:()=>app.trashMessage(targets),junk:()=>app.markSpam(targets)};
@@ -79,18 +89,22 @@ export function Ribbon(props: RibbonProps): JSX.Element {
     void migrateLegacyRibbonCollapsed();
   });
   const [active, setActive] = createSignal<RibbonTab>('home');
+  const tabs=()=>props.preview?[...TABS,'file' as const]:TABS;
+  let previewToken:symbol|undefined;
+  createEffect(()=>{const token=props.preview?.token;if(token&&token!==previewToken)setActive('file');else if(!token&&active()==='file')setActive('home');previewToken=token;});
+  const readerMore=createContextMenu({label:()=>t('mail-more-actions'),scope,actions:()=>props.readerActions?.menu??[]});
 
-  const btn = `${css.btn} ${a11y.focusable}`;
-  const large = `${css.btn} ${css.btnLarge} ${a11y.focusable}`;
+  const btn = `btn btn--ghost ${css.btn} ${a11y.focusable}`;
+  const large = `btn btn--ghost compose-rib__large ${css.btn} ${css.btnLarge} ${a11y.focusable}`;
 
   return (
     <CollapsibleBar
       id="mailRibbon"
       revealPolicy="push"
       {...(props.bar ? { bar: props.bar } : {})}
-      class={css.ribbon}
+      class={`compose-ribbon workspace-command-ribbon ${css.ribbon}`}
       panelClass={css.panel}
-      header={<><RibbonTabs active={active()} onSelect={setActive}/><Show when={props.search}><div class={css.search} data-ribbon-search="">{props.search}</div></Show></>}
+      header={<div class="compose-ribbon__heading"><RibbonTabs tabs={tabs()} active={active()} onSelect={setActive}/><Show when={active()==='file'&&props.preview}>{preview=><strong class={css.previewTitle} title={preview().name}>{preview().name}</strong>}</Show></div>}
     >
       <div id="ribbon-panel" role="tabpanel" aria-labelledby={`ribbon-tab-${active()}`} class={css.body}>
         <Show when={active() === 'home'}>
@@ -103,10 +117,12 @@ export function Ribbon(props: RibbonProps): JSX.Element {
                 </button>
               </RibbonItem>
             </RibbonGroup>
-            <Show when={props.email}><For each={groups}>{group=><Show when={rows(group.ids).length}><RibbonGroup label={t(group.label)} icon={group.icon} priority={20} testId={`ribbon-message-${group.icon}`}><Index each={rows(group.ids)}>{row=><RibbonItem><RibbonCommand action={row()} scope={scope()}/></RibbonItem>}</Index></RibbonGroup></Show>}</For>
-              <RibbonGroup label={t('mail-more-actions')} icon="more" priority={5} testId="ribbon-message-more"><RibbonItem><button type="button" class={btn} aria-label={t('mail-more-actions')} aria-haspopup="menu" aria-expanded={commands.isOpen()} onClick={event=>commands.openBelow(event.currentTarget)}><Icon name="more"/><span class={css.label}>{t('mail-more-actions')}</span></button></RibbonItem></RibbonGroup>
+            <Show when={props.email||props.readerActions}><For each={groups}>{group=><Show when={rows(group.ids).length}><RibbonGroup label={t(group.label)} icon={group.icon} priority={20} testId={`ribbon-message-${group.icon}`}><Index each={rows(group.ids)}>{row=><RibbonItem><RibbonCommand action={row()} scope={scope()}/></RibbonItem>}</Index></RibbonGroup></Show>}</For>
+              <Show when={props.readerActions}><RibbonGroup label={t('mail-reader-actions')} icon="preferences" priority={15}><Index each={props.readerActions!.toolbar.filter(action=>!groups.some(group=>group.ids.includes(action.id)))}>{action=><RibbonItem><RibbonCommand action={action()} scope={scope()}/></RibbonItem>}</Index></RibbonGroup></Show>
+              <RibbonGroup label={t('mail-more-actions')} icon="more" priority={5} testId="ribbon-message-more"><RibbonItem><button type="button" class={btn} aria-label={t('mail-more-actions')} aria-haspopup="menu" aria-expanded={props.readerActions?readerMore.isOpen():commands.isOpen()} onClick={event=>(props.readerActions?readerMore:commands).toggleBelow(event.currentTarget)}><Icon name="more"/><span class={css.label}>{t('mail-more-actions')}</span></button></RibbonItem></RibbonGroup>
             </Show>
-            <Show when={props.workspaceActions}><RibbonGroup label={t('mail-workspace-layout')} priority={25} icon="layoutColumns" testId="ribbon-workspace"><RibbonItem size="large" inlineSize="min(24rem, calc(100vw - 3rem))"><div class={css.commands}>{props.workspaceActions}</div></RibbonItem></RibbonGroup></Show>
+            <Show when={props.onCloseMessage}><RibbonGroup label={t('common-close')} icon="close" priority={30}><RibbonItem><button type="button" class={btn} data-testid="workspace-close-message" onClick={()=>props.onCloseMessage?.()}><Icon name="close"/><span>{t('mail-reader-close-message')}</span></button></RibbonItem></RibbonGroup></Show>
+            {props.workspaceActions}
             <RibbonGroup label={t('mail-ribbon-group-session')} priority={10} icon="signOut" testId="ribbon-group-session">
               <RibbonItem>
                 <button type="button" class={btn} onClick={() => void app.logout()}>
@@ -119,7 +135,8 @@ export function Ribbon(props: RibbonProps): JSX.Element {
         </Show>
 
         <Show when={active() === 'view'}>
-          <RibbonPanel label={t('mail-ribbon-tab-view')}>
+          <RibbonPanel label={t('mail-workspace-layout')}>
+            {props.layoutActions}
             <RibbonGroup label={t('mail-ribbon-group-theme')} priority={30} icon="branding" testId="ribbon-group-theme">
               <RibbonItem inlineSize="11rem">
                 <select
@@ -146,10 +163,10 @@ export function Ribbon(props: RibbonProps): JSX.Element {
               </For>
             </RibbonGroup>
             <RibbonGroup label={t('mail-ribbon-group-settings')} priority={10} icon="settings" testId="ribbon-group-settings">
-              <RibbonItem size="large">
-                <button type="button" class={large} onClick={() => props.onOpenSettings()}>
+              <RibbonItem>
+                <button type="button" class={btn} onClick={() => props.onOpenSettings()}>
                   <Icon name="settings" />
-                  <span class={css.label}>{t('mail-ribbon-more')}</span>
+                  <span class={css.label}>{t('mail-nav-settings')}</span>
                 </button>
               </RibbonItem>
             </RibbonGroup>
@@ -178,35 +195,42 @@ export function Ribbon(props: RibbonProps): JSX.Element {
             </RibbonGroup>
           </RibbonPanel>
         </Show>
+        <div hidden={active() !== 'search'} inert={active() !== 'search'}>
+          <div class={css.search} data-ribbon-search="">{props.search}<div class={css.commands} role="toolbar" aria-label={t('mail-order-by')}>{props.searchActions}</div></div>
+        </div>
+        <Show when={active()==='file'&&props.preview}>
+          <RibbonPanel label={t('preview-tools-title')}><RibbonSlot name="file-preview" onTarget={target=>props.onPreviewTarget?.(target)}/></RibbonPanel>
+        </Show>
       </div>
       {commands.menu()}
+      {readerMore.menu()}
     </CollapsibleBar>
   );
 }
 
 /** The always-visible tab names; in auto-hide mode a click (or focus) opens the bar. */
-function RibbonTabs(props: { active: RibbonTab; onSelect: (tab: RibbonTab) => void }): JSX.Element {
+function RibbonTabs(props: { tabs:readonly RibbonTab[]; active: RibbonTab; onSelect: (tab: RibbonTab) => void }): JSX.Element {
   const bar = useCollapsibleBar();
   const tabEls: (HTMLButtonElement | undefined)[] = [];
 
   /** Roving-tabindex keyboard handler: Arrow/Home/End move + activate the tab. */
   function onTabKeyDown(e: KeyboardEvent): void {
-    const idx = TABS.indexOf(props.active);
+    const idx = props.tabs.indexOf(props.active);
     let next = idx;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % TABS.length;
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + TABS.length) % TABS.length;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % props.tabs.length;
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + props.tabs.length) % props.tabs.length;
     else if (e.key === 'Home') next = 0;
-    else if (e.key === 'End') next = TABS.length - 1;
+    else if (e.key === 'End') next = props.tabs.length - 1;
     else return;
     e.preventDefault();
-    props.onSelect(TABS[next]!);
+    props.onSelect(props.tabs[next]!);
     tabEls[next]?.focus();
   }
 
   return (
     <div class={css.tabs}>
       <div class={css.tablist} role="tablist" aria-label={t('mail-ribbon-label')} onKeyDown={onTabKeyDown}>
-        <For each={TABS}>
+        <For each={props.tabs}>
           {(id, i) => (
             <button
               type="button"
@@ -223,7 +247,7 @@ function RibbonTabs(props: { active: RibbonTab; onSelect: (tab: RibbonTab) => vo
                 bar?.open(e.currentTarget);
               }}
             >
-              {t(`mail-ribbon-tab-${id}`)}
+              {t(id==='file'?'preview-title':id==='search'?'mail-search':id==='view'?'mail-workspace-layout':`mail-ribbon-tab-${id}`)}
             </button>
           )}
         </For>
@@ -234,8 +258,10 @@ function RibbonTabs(props: { active: RibbonTab; onSelect: (tab: RibbonTab) => vo
 
 function RibbonCommand(props:{action:ContextAction;scope:string}):JSX.Element{
  const app=useApp();
+ const bar=useCollapsibleBar();
  const menu=createContextMenu({label:()=>props.action.label,scope:()=>props.scope,actions:()=>props.action.children??[],searchLabel:()=>props.action.searchLabel??'',onError:()=>app.showToast('error',t('mail-context-failed'))});
- return <><button type="button" class={`${css.btn} ${a11y.focusable}`} disabled={props.action.disabled} title={props.action.title??props.action.label} aria-label={props.action.label} aria-haspopup={props.action.children?'menu':undefined} aria-expanded={props.action.children?menu.isOpen():undefined} onClick={event=>{if(props.action.children)menu.openBelow(event.currentTarget);else void Promise.resolve().then(()=>props.action.run()).catch(()=>app.showToast('error',t('mail-context-failed')));}}><Icon name={props.action.icon}/><span class={css.label}>{props.action.label}</span><Show when={props.action.children}><Icon name="chevronDown"/></Show></button>{menu.menu()}</>;
+ createEffect(()=>{if(menu.isOpen()&&bar){const release=bar.hold();onCleanup(release);}});
+ return <><button type="button" class={`btn btn--ghost ${css.btn} ${a11y.focusable}`} disabled={props.action.disabled} aria-pressed={props.action.checked} title={props.action.title??props.action.label} aria-label={props.action.label} aria-haspopup={props.action.children?'menu':undefined} aria-expanded={props.action.children?menu.isOpen():undefined} onClick={event=>{if(props.action.children)menu.toggleBelow(event.currentTarget);else void Promise.resolve().then(()=>props.action.run()).catch(()=>app.showToast('error',t('mail-context-failed')));}}><Icon name={props.action.icon}/><span class={css.label}>{props.action.label}</span><Show when={props.action.children}><Icon name="chevronDown"/></Show></button>{menu.menu()}</>;
 }
 
 function ribbonPlacement(id:string){

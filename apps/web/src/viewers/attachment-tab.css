@@ -39,3 +39,13 @@
   .attachment-details__algorithm, .attachment-details__verify { border-color:CanvasText; }
   .attachment-details__copy, .attachment-details__button { forced-color-adjust:auto; border:1px solid ButtonText; }
 }
+
+.attachment-tab__header[hidden] { display:none; }
+.reader-attachment-actions { display:flex; align-items:center; gap:.2rem; }
+
+.reader-attachment-actions {position:absolute;inset-block-start:4px;inset-inline-end:4px;}
+.mw-thumbs[data-density="compact"] .reader-attachment-actions {inset-block-start:50%;transform:translateY(-50%);}
+.mw-thumbs[data-density="compact"] .mw-thumb-wrap:has(>.reader-attachment-actions)>.mw-thumb {padding-inline-end:68px;}
+.mw-thumb-wrap[data-action-mode="hover"]>.reader-attachment-actions {opacity:0;}
+.mw-thumb-wrap[data-action-mode="hover"]:hover>.reader-attachment-actions,.mw-thumb-wrap[data-action-mode="hover"]:focus-within>.reader-attachment-actions {opacity:1;}
+@media(pointer:coarse){.mw-thumb-wrap[data-action-mode="hover"]>.reader-attachment-actions {opacity:1;}.mw-thumbs[data-density="compact"] .mw-thumb-wrap:has(>.reader-attachment-actions)>.mw-thumb {padding-inline-end:100px;}}

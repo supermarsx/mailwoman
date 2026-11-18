@@ -8,5 +8,5 @@ export function AttachmentPreviewActions(props:{url:string;name:string;canDownlo
  const actions=(open?:()=>void):ViewerToolAction[]=>[
   ...(props.canDownload?[{id:'download',label:t('common-message-preview-download'),icon:'download' as const,run:()=>downloadPreview(props.url,props.name),render:()=> <a class="btn btn--ghost attachment-tab__download" rel="noopener" href={props.url} download={props.name.replace(/[\\/]/g,'_')} aria-label={t('common-message-preview-download')} title={t('common-message-preview-download')}><Show when={attachmentActionStyle()!=='labels'}><Icon name="download"/></Show><Show when={attachmentActionStyle()!=='icons'}><span>{t('common-message-preview-download')}</span></Show></a>}]:[]),
   ...(open?[{id:'details',label:t('mail-file-details-button'),icon:'info' as const,testId:'attachment-details-button',run:open}]:[])];
- return <Show when={props.details} fallback={<ViewerToolbar scope={props.url} actions={actions()}/>}><AttachmentDetailsButton details={props.details!} renderTrigger={open=><ViewerToolbar scope={props.url} actions={actions(open)}/>}/></Show>;
+ return <Show when={props.details} fallback={<ViewerToolbar general scope={props.url} actions={actions()}/>}><AttachmentDetailsButton details={props.details!} renderTrigger={open=><ViewerToolbar general scope={props.url} actions={actions(open)}/>}/></Show>;
 }

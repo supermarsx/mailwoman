@@ -62,6 +62,21 @@ describe('composer ribbon corner toggle', () => {
     expect(root()).toHaveAttribute('data-expanded', 'true');
   });
 
+  it('moves a live ribbon between the workspace host and the composer without resetting its controls',()=>{
+    const target=document.createElement('div');document.body.append(target);
+    const [host,setHost]=createSignal<HTMLElement>();
+    const [active,setActive]=createSignal(true);
+    const state=createEditorRibbon<never>('format');
+    const result=render(()=><EditorRibbon state={state} mount={host()} active={active()} bar={fakeBar('pinned')} history={()=>null} showHistory={()=>false} visible={()=>['format']} tabs={[{id:'format',after:()=> <input aria-label="Retained control"/>}]}/>);
+    try {
+      const control=screen.getByRole('textbox',{name:'Retained control'});fireEvent.input(control,{target:{value:'Keep me'}});
+      setHost(target);expect(target.contains(control)).toBe(true);
+      setActive(false);expect(screen.queryByRole('textbox',{name:'Retained control'})).toBeNull();
+      setActive(true);expect(screen.getByRole('textbox',{name:'Retained control'})).toHaveValue('Keep me');
+      setHost(undefined);expect(target.contains(control)).toBe(false);expect(screen.getByRole('textbox',{name:'Retained control'})).toBe(control);
+    }finally{result.unmount();target.remove();}
+  });
+
   it('Ctrl+F1 toggles the mode and other chords do nothing', () => {
     const bar = fakeBar('pinned');
     mount(bar);

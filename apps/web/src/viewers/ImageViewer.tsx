@@ -1,5 +1,7 @@
+import {CommandRibbonScope} from '../components/CommandRibbonContext.tsx';
+import {MessageLoading} from '../components/MessageLoading.tsx';
 import {convertImageData} from './imageConversion.ts';
-import {ViewerToolbar} from './ViewerToolbar.tsx';
+import {PreviewRibbonExtras,ViewerToolbar} from './ViewerToolbar.tsx';
 import {previewToolEnabled} from './filePreviewPreferences.ts';
 import {createMemo,createResource,createSignal,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import type {ViewerProps} from '../contracts/viewer.ts';
@@ -94,17 +96,17 @@ export function ImageViewer(props:ViewerProps):JSX.Element{
   {id:'reset',icon:'restore',run:reset},
  ];
  return <div ref={root} class="image-preview">
-  <div class="image-preview__toolbar" role="group" aria-label={t('image-viewer-controls')}>
+  <CommandRibbonScope active={!fullscreen()}><div class="image-preview__toolbar" role="group" aria-label={t('image-viewer-controls')}>
    <ViewerToolbar scope={props.blobUrl} actions={[...controls.map(control=>({id:`image.${control.id}`,label:t(`image-viewer-${control.id}`),icon:control.icon,pressed:control.pressed?.(),disabled:control.disabled?.()||!image(),run:control.run})),...(mailFeature('allowDownload')?[{id:'image.copy',label:t('image-viewer-copy'),icon:'copy' as const,disabled:!canCopy()||copying(),run:copy}]:[]),...(typeof document.documentElement.requestFullscreen==='function'?[{id:'image.fullscreen',label:t('image-viewer-fullscreen'),icon:'fullscreen' as const,pressed:fullscreen(),run:toggleFullscreen}]:[])]}/>
-   <output aria-label={t('image-viewer-zoom')}>{Math.round(scale()*100)}%</output>
-  </div>
+   <PreviewRibbonExtras label={t('image-viewer-zoom')}><output aria-label={t('image-viewer-zoom')}>{Math.round(scale()*100)}%</output></PreviewRibbonExtras>
+  </div></CommandRibbonScope>
   <div ref={viewport} class="image-preview__viewport" tabindex="0" aria-label={props.name}
    onKeyDown={event=>{if(event.ctrlKey||event.metaKey||event.altKey)return;const key=event.key;const tool=key==='+'||key==='='?'image.zoom-in':key==='-'?'image.zoom-out':key==='0'?'image.fit':key==='1'?'image.actual':key.toLowerCase()==='r'?'image.rotate-right':undefined;if(tool&&!previewToolEnabled(tool))return;if(key==='+'||key==='=')changeZoom(1.25);else if(key==='-')changeZoom(1/1.25);else if(key==='0')setMode('fit');else if(key==='1')setMode('actual');else if(key.toLowerCase()==='r')setRotation(value=>(value+90)%360);else return;event.preventDefault();}}
    onPointerDown={event=>{if(event.pointerType!=='mouse'||event.button!==0)return;const node=event.currentTarget;pan={id:event.pointerId,x:event.clientX,y:event.clientY,left:node.scrollLeft,top:node.scrollTop};node.setPointerCapture?.(event.pointerId);}}
    onPointerMove={event=>{if(pan?.id!==event.pointerId)return;event.currentTarget.scrollLeft=pan.left+pan.x-event.clientX;event.currentTarget.scrollTop=pan.top+pan.y-event.clientY;}}
    onPointerUp={()=>{pan=undefined;}} onPointerCancel={()=>{pan=undefined;}} onLostPointerCapture={()=>{pan=undefined;}}>
    <Show when={!source.error} fallback={<p role="alert">{t('image-viewer-failed')}</p>}>
-    <Show when={source()} fallback={<p class="mw-viewer__loading">{t('common-viewer-loading-image')}</p>}>{doc=><div class="image-preview__canvas" style={{width:`${canvasWidth()}px`,height:`${canvasHeight()}px`}}><iframe class="mw-viewer__frame mw-viewer__frame--image" title={props.name} sandbox={SANDBOX_TOKENS} scrolling="no" srcdoc={converted()||doc()} style={{filter:colorFilter(),width:`${width()*scale()}px`,height:`${height()*scale()}px`,transform:`translate(-50%, -50%) rotate(${rotation()}deg) scale(${flipH()?-1:1}, ${flipV()?-1:1})`}}/></div>}</Show>
+    <Show when={source()} fallback={<MessageLoading/>}>{doc=><div class="image-preview__canvas" style={{width:`${canvasWidth()}px`,height:`${canvasHeight()}px`}}><iframe class="mw-viewer__frame mw-viewer__frame--image" title={props.name} sandbox={SANDBOX_TOKENS} scrolling="no" srcdoc={converted()||doc()} style={{filter:colorFilter(),width:`${width()*scale()}px`,height:`${height()*scale()}px`,transform:`translate(-50%, -50%) rotate(${rotation()}deg) scale(${flipH()?-1:1}, ${flipV()?-1:1})`}}/></div>}</Show>
    </Show>
   </div>
   <Show when={status()}><p class="image-preview__status" role="status">{status()}</p></Show>

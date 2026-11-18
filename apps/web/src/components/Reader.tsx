@@ -1,3 +1,4 @@
+import {useCommandRibbon} from './CommandRibbonContext.tsx';
 import {AttachmentWarningBar} from './AttachmentWarningBar.tsx';
 import {AsyncError} from './AsyncState.tsx';
 import {ReaderReplyState} from './ReplyState.tsx';
@@ -113,7 +114,7 @@ import { extractHtmlBody } from '../state/slices/mail.ts';
 import {MessagePrivacyBar} from './MessagePrivacyBar.tsx';
 import { NoticeButton, ReaderNoticeBar, noticeCss } from './ReaderNoticeBar.tsx';
 import { AttachmentDownloadButton } from './AttachmentDownloadButton.tsx';
-import { downloadBarAll, isDownloadButtonMode, type BarItem } from './attachmentsBarDownload.ts';
+import { downloadBarItem,downloadBarAll, isDownloadButtonMode, type BarItem } from './attachmentsBarDownload.ts';
 import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
 import { formatBytes } from '../i18n/format.ts';
 import { createRemoteImageLoad } from './remoteImageToast.ts';
@@ -264,7 +265,7 @@ function announceOnce(key: string): boolean {
  *  collapsed), and previews load only in comfortable density after expansion. Each viewer keeps its own sandbox (§2.4). In a
  *  locked-down max-security mode attachments open ONLY through this re-encode
  *  preview jail (the AttachmentViewer sandbox), never as original bytes (§7.2). */
-export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item: StripItem) => void; encrypted?: boolean; inlineCount?: number }): JSX.Element {
+export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item: StripItem,split?:boolean) => void; onForwardAttachment?: (item:StripItem)=>void|Promise<void>; encrypted?: boolean; inlineCount?: number }): JSX.Element {
   const app = useApp();
   const cloudAccount=app.accountId();
   const [cloudItem,setCloudItem]=createSignal<StripItem|null>(null);
@@ -397,18 +398,30 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
   const cloudActions = createMemo<ContextAction[]>(() => items().map((item, i) => ({ id: `nc${i}`, label: t('nextcloud-save-attachment', { name: isolate(item.name) }), icon: 'nextcloud', disabled: !decision(item)?.allowed, run: () => { setCloudItem(item); } })));
   const cloudMenu = createContextMenu({ label: () => t('nextcloud-save-options'), scope: () => props.email.id, actions: cloudActions });
 
+  const [contextItem,setContextItem]=createSignal<StripItem>();
+  const attachmentMenu=createContextMenu({label:()=>contextItem()?.name??t('common-viewer-attachments'),scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${props.email.id}`,onError:()=>app.showToast('error',t('mail-context-failed')),actions:()=>{
+    const item=contextItem();if(!item||!items().some(row=>row.blobId===item.blobId))return [];
+    const accepted=decision(item),forwardAllowed=accepted?.allowed&&!accepted.warning;
+    return [
+      {id:'open',label:t('common-open'),icon:'file',run:()=>{if(props.onOpenAttachment)props.onOpenAttachment(item);else setOpenItem(item);}},
+      {id:'split',label:t('attach-action-open-split'),icon:'layoutColumns',disabled:!props.onOpenAttachment,run:()=>props.onOpenAttachment?.(item,true)},
+      {id:'download',label:t('common-viewer-download'),icon:'download',disabled:!allowDownload()||!accepted?.allowed||!!accepted?.warning,run:async()=>{await downloadBarItem(app,props.email.id,item,attachmentPolicy.state==='ready'?attachmentPolicy():undefined);}},
+      {id:'forward',label:t('attach-action-forward-new'),icon:'forward',disabled:!props.onForwardAttachment||!mailFeature('allowForward')||!forwardAllowed,run:()=>props.onForwardAttachment?.({...item,emailId:props.email.id})},
+    ];
+  }});
+  const openAttachmentMenu=(item:StripItem,event:MouseEvent|KeyboardEvent)=>{setContextItem(item);attachmentMenu.open(event);};
   const AttachmentStrip = (strip: {items:BarItem[]}): JSX.Element => (
         <ThumbnailStrip
           density={attachmentDensity()}
           items={strip.items}
           selectedBlobId={openItem()?.blobId ?? ''}
           dragSource={{ accountId: app.accountId(), emailId: props.email.id }}
+          onContextMenu={openAttachmentMenu}
           onSelect={(it) => {setAcknowledged(false); if(props.onOpenAttachment)props.onOpenAttachment(it);else setOpenItem(it);}}
           {...(attachmentThumbnailsEnabled()?{resolveThumb:(item:StripItem,signal?:AbortSignal)=>blobUrlFor(item,false,signal)}:{})}
-          {...(downloadMode() !== 'never' ? {
-            actionMode: downloadMode() as 'always' | 'hover',
-            renderAction: (item: StripItem) => <AttachmentDownloadButton app={app} item={item} emailId={props.email.id} policy={attachmentPolicy.state === 'ready' ? attachmentPolicy() : undefined} allowDownload={allowDownload()} />,
-          } : {})}
+          actionMode={downloadMode()==='never'?'always':downloadMode() as 'always'|'hover'}
+          renderAction={item=><div class="reader-attachment-actions"><Show when={downloadMode()!=='never'}><AttachmentDownloadButton app={app} item={item} emailId={props.email.id} policy={attachmentPolicy.state==='ready'?attachmentPolicy():undefined} allowDownload={allowDownload()}/></Show><button type="button" class="mw-thumb__download" data-no-toggle="" aria-label={t('mail-more-actions')} aria-haspopup="menu" aria-expanded={attachmentMenu.isOpen()&&contextItem()?.blobId===item.blobId} onClick={event=>{event.stopPropagation();setContextItem(item);attachmentMenu.toggleBelow(event.currentTarget);}}><Icon name="more"/></button></div>}
+
         />
   );
 
@@ -419,6 +432,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
 
   return (
     <>
+    {attachmentMenu.menu()}
     <Show when={items().length === 0 && missingReason()}>{(reason) => (
       <ReaderNoticeBar
         label={t('mail-attachments')}
@@ -497,7 +511,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
               <Show when={decision(item())?.warning && !acknowledged()}><p role="alert">{t('mail-attachment-policy-warning')}</p><button class="btn" onClick={()=>setAcknowledged(true)}>{t('mail-attachment-policy-acknowledge')}</button></Show>
               <Show when={decision(item())?.allowed && !decision(item())?.preview}><p>{t('mail-attachment-policy-no-preview')}</p></Show>
               <Show when={decision(item())?.preview && (!decision(item())?.warning || acknowledged())}>
-              <Show when={settled(blobUrl)} fallback={<Show when={blobUrl.state === 'errored'} fallback={<p class="attachment-modal__loading">{t('mail-attachment-loading')}</p>}><p role="alert">{t('mail-attachment-failed')}</p><button type="button" class="btn" onClick={() => void retryAttachment()}>{t('common-retry')}</button></Show>}>
+              <Show when={settled(blobUrl)} fallback={<Show when={blobUrl.state === 'errored'} fallback={<MessageLoading/>}><p role="alert">{t('mail-attachment-failed')}</p><button type="button" class="btn" onClick={() => void retryAttachment()}>{t('common-retry')}</button></Show>}>
                 {(url) => (
                   <AttachmentViewer
                     part={{ partId: null, blobId: item().blobId, size: item().size, type: item().mime }}
@@ -714,7 +728,7 @@ interface ReaderProps {
   /** Continue editing this message when it is itself a draft (opens the composer with the saved draft). */
   onEditDraft?: (messageId:string)=>void;
   onExport?: (messageId: string) => void;
-  onOpenAttachment?: (item: StripItem) => void;
+  onOpenAttachment?: (item: StripItem,split?:boolean) => void; onForwardAttachment?: (item:StripItem)=>void|Promise<void>;
   onCompose?: (initial: ComposeInitial) => void;
   view?: MessageView;
   onClose?: () => void;
@@ -737,6 +751,8 @@ export function Reader(props: ReaderProps): JSX.Element {
   return <AppContext.Provider value={scoped}><ReaderBody {...props} /></AppContext.Provider>;
 }
 function ReaderBody(props: ReaderProps): JSX.Element {
+  const ribbonBridge=useCommandRibbon();
+  const readerRibbonMode=()=>ribbonBridge?.enabled()===true&&ribbonBridge.active();
   const app = useApp();
   const [browserOnline,setBrowserOnline]=createSignal(typeof navigator==='undefined'||navigator.onLine!==false);
   onMount(()=>{
@@ -1607,9 +1623,9 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               {/* One action row (t57): reply group, View conversation (threads of more
                   than one message), Review links (with its count), the message
                   actions and the max-security switch; what does not fit folds into More. */}
-              <ReaderToolbar email={email()} colors={{get value(){return colorChoice();},get setting(){return colorSetting();},get locked(){return colorLocked();},onChange:(choice)=>setMessageColorOverride(colorKey(),choice),onMakeDefault:(choice)=>void makeColorDefault(choice)}} {...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})} {...(props.onEditDraft?{onEditDraft:props.onEditDraft}:{})} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />{colorConfirm.Dialog()}
+              <ReaderToolbar {...(readerRibbonMode()&&effectiveSettings()['mail.quickReply']?.value === true && props.onCompose && mailFeature('allowReply') && !activeQuickReply() && !isDraftMessage(email(),app.mailboxes())?{onQuickReply:()=>void startReply('reply',true)}:{})} email={email()} colors={{get value(){return colorChoice();},get setting(){return colorSetting();},get locked(){return colorLocked();},onChange:(choice)=>setMessageColorOverride(colorKey(),choice),onMakeDefault:(choice)=>void makeColorDefault(choice)}} {...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})} {...(props.onEditDraft?{onEditDraft:props.onEditDraft}:{})} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />{colorConfirm.Dialog()}
               <Show when={cleanupOpen()}><SweepDialog fromEmail={sender()} onClose={()=>setCleanupOpen(false)}/></Show>
-              <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose && mailFeature('allowReply') && !activeQuickReply() && !isDraftMessage(email(),app.mailboxes())}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
+              <Show when={!readerRibbonMode()&&effectiveSettings()['mail.quickReply']?.value === true && props.onCompose && mailFeature('allowReply') && !activeQuickReply() && !isDraftMessage(email(),app.mailboxes())}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
               <Show when={activeQuickReply()} keyed>{reply=>
                 <div class="reader__quick-reply" data-testid="reader-quick-reply">
                   <Suspense fallback={<p role="status">{t('common-loading')}</p>}>
@@ -1644,7 +1660,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   ,domainTrusted:domainLinksTrusted(),domainTrustEditable:domainTrustEditable(),onTrustDomain:()=>setSenderLinkTrust(true,true),onRevokeDomain:()=>setSenderLinkTrust(false,true)
                 }:undefined}/>
                 <Show when={hostsOpen()&&showRemoteBar()}><ImageHostRules hosts={imageSourceHosts()} lists={hostLists()} disabled={settingsLoadStatus()!=='ready'||!!(settings()['images.trustedHosts']?.locked||settings()['images.blockedHosts']?.locked)} onChange={setImageHostRule}/></Show>
-                <Show when={settings()['reader.attachmentsAtEnd']?.value !== true}><AttachmentsPane email={email()} encrypted={showDecrypt()} inlineCount={currentBody()?.refs.cids.filter(cid => !!currentBody()?.cidParts[cid]).length ?? 0} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></Show>
+                <Show when={settings()['reader.attachmentsAtEnd']?.value !== true}><AttachmentsPane email={email()} encrypted={showDecrypt()} inlineCount={currentBody()?.refs.cids.filter(cid => !!currentBody()?.cidParts[cid]).length ?? 0} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} {...(props.onForwardAttachment?{onForwardAttachment:props.onForwardAttachment}:{})} /></Show>
               </div>
             </Show>
             <Show when={hasCalendarPart(email()) && app.accountId()}>{(accountId) => (
@@ -1685,7 +1701,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 }}
               />
             </Show>
-            <Show when={settings()['reader.attachmentsAtEnd']?.value === true && stackMounted()}><div style={{display: noticesReady() ? 'contents' : 'none'}}><AttachmentsPane email={email()} encrypted={showDecrypt()} inlineCount={currentBody()?.refs.cids.filter(cid => !!currentBody()?.cidParts[cid]).length ?? 0} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></div></Show>
+            <Show when={settings()['reader.attachmentsAtEnd']?.value === true && stackMounted()}><div style={{display: noticesReady() ? 'contents' : 'none'}}><AttachmentsPane email={email()} encrypted={showDecrypt()} inlineCount={currentBody()?.refs.cids.filter(cid => !!currentBody()?.cidParts[cid]).length ?? 0} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} {...(props.onForwardAttachment?{onForwardAttachment:props.onForwardAttachment}:{})} /></div></Show>
           </>
         )}
       </Show>

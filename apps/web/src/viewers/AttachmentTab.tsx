@@ -1,3 +1,5 @@
+import {useFileRibbon} from '../components/CommandRibbonContext.tsx';
+import {MessageLoading} from '../components/MessageLoading.tsx';
 import { createResource, createSignal, For, Show, onCleanup, type JSX } from 'solid-js';
 import { apiFetch } from '../api/http.ts';
 import { attachmentDecision, attachmentPolicyUrl, loadAttachmentPolicy } from '../api/attachmentPolicy.ts';
@@ -39,18 +41,19 @@ export function AttachmentTab(props: { item: AttachmentTabItem }): JSX.Element {
   });
   const ready = () => file.state === 'ready' ? file.latest : undefined;
   const declared = () => inspectFile(props.item.name, props.item.mime);
+  const centralized=useFileRibbon(()=>props.item.name,()=>declared().icon);
   // What the open viewer reports about the document itself (a PDF's pages, producer...).
   const [extra, setExtra] = createSignal<ViewerDetails>();
   return <section class="attachment-tab" aria-label={props.item.name}>
-    <header class="attachment-tab__header"><Icon name={declared().icon}/><h2 title={props.item.name}>{props.item.name}</h2>
+    <header class="attachment-tab__header" hidden={centralized()}><Icon name={declared().icon}/><h2 title={props.item.name}>{props.item.name}</h2>
       <div class="attachment-tab__actions" data-action-style={attachmentActionStyle()}><AttachmentPreviewActions url={ready()?.url??download()} name={props.item.name} canDownload={!!permitted()&&mailFeature('allowDownload')} details={ready()?{name:props.item.name,mime:props.item.mime||'application/octet-stream',size:ready()!.size,digest:ready()!.digest,type:ready()!.info.description,extension:ready()!.info.extension,detected:ready()!.info.detected,extra:extra()}:undefined}/></div>
     </header>
-    <Show when={policy.loading}><p role="status">{t('mail-attachment-policy-loading')}</p></Show>
+    <Show when={policy.loading}><MessageLoading/></Show>
     <Show when={policy.error}><p role="alert">{t('mail-attachment-policy-unavailable')}</p></Show>
     <Show when={decision() && !decision()!.allowed}><p role="alert">{t('mail-attachment-policy-blocked')}</p></Show>
     <Show when={decision()?.warning && !acknowledged()}><p role="alert">{t('mail-attachment-policy-warning')}</p><button class="btn" onClick={()=>setAcknowledged(true)}>{t('mail-attachment-policy-acknowledge')}</button></Show>
     <Show when={permitted() && !decision()?.preview}><p>{t('mail-attachment-policy-no-preview')}</p></Show>
-    <Show when={file.loading}><p role="status">{t('mail-attachment-loading')}</p></Show>
+    <Show when={file.loading}><MessageLoading/></Show>
     <Show when={file.state === 'errored'}><p role="alert">{t('mail-attachment-failed')}</p><button class="btn" onClick={() => void refetch()}>{t('common-retry')}</button></Show>
     <Show when={ready()}>{loaded => <>
       <For each={loaded().info.warnings}>{warning => <p class="attachment-tab__warning" role="status"><Icon name="alert"/>{t(`mail-file-warning-${warning}`)}</p>}</For>

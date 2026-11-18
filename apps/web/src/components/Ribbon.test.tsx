@@ -10,18 +10,25 @@ import { assertRibbonGeometry, type BarMode, type BarModeHandle } from './bars/i
 describe('Ribbon', () => {
   beforeEach(() => localStorage.clear());
 
-  it('exposes a tablist with the three ribbon tabs', () => {
+  it('exposes a tablist with the four ribbon tabs', () => {
     renderWithApp(() => <Ribbon onCompose={() => undefined} onOpenSettings={() => undefined} />);
     const tablist = screen.getByRole('tablist', { name: 'Ribbon' });
     expect(tablist).toBeInTheDocument();
-    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
     expect(screen.getByRole('tab', { name: 'Home' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('keeps search in its own tab and opens Settings from the layout panel',()=>{
+    const open=vi.fn();renderWithApp(()=><Ribbon onCompose={()=>{}} onOpenSettings={open} search={<input aria-label="Search mail"/>}/>);
+    expect(screen.queryByRole('textbox',{name:'Search mail'})).toBeNull();
+    fireEvent.click(screen.getByRole('tab',{name:'Search'}));expect(screen.getByRole('textbox',{name:'Search mail'})).toBeVisible();
+    fireEvent.click(screen.getByRole('tab',{name:'Workspace layout'}));fireEvent.click(screen.getByRole('button',{name:'Settings'}));expect(open).toHaveBeenCalledOnce();
   });
 
   it('uses roving tabindex: only the selected tab is in the tab order', () => {
     renderWithApp(() => <Ribbon onCompose={() => undefined} onOpenSettings={() => undefined} />);
     const home = screen.getByRole('tab', { name: 'Home' });
-    const view = screen.getByRole('tab', { name: 'View' });
+    const view = screen.getByRole('tab', { name: 'Workspace layout' });
     expect(home).toHaveAttribute('tabindex', '0');
     expect(view).toHaveAttribute('tabindex', '-1');
   });
@@ -31,7 +38,7 @@ describe('Ribbon', () => {
     const tablist = screen.getByRole('tablist', { name: 'Ribbon' });
     fireEvent.keyDown(tablist, { key: 'ArrowRight' });
 
-    const view = screen.getByRole('tab', { name: 'View' });
+    const view = screen.getByRole('tab', { name: 'Workspace layout' });
     expect(view).toHaveAttribute('aria-selected', 'true');
     expect(view).toHaveAttribute('tabindex', '0');
     // The View panel (theme/density/settings groups) is now shown.
@@ -52,7 +59,7 @@ describe('Ribbon', () => {
     const bar = fakeBar('auto');
     renderWithApp(() => <Ribbon onCompose={() => undefined} onOpenSettings={() => undefined} bar={bar} />);
     const root = document.querySelector('[data-bar="mailRibbon"]') as HTMLElement;
-    const view = screen.getByRole('tab', { name: 'View' });
+    const view = screen.getByRole('tab', { name: 'Workspace layout' });
     expect(root).toHaveAttribute('data-expanded', 'false');
     expect(view).toHaveAttribute('aria-expanded', 'false');
     fireEvent.pointerDown(view);

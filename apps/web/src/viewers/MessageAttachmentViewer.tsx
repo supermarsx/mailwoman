@@ -1,3 +1,4 @@
+import {MessageLoading} from '../components/MessageLoading.tsx';
 import { createResource, createSignal, For, Show, onCleanup, type JSX } from 'solid-js';
 import type { ViewerProps } from '../contracts/viewer.ts';
 import { apiFetch } from '../api/http.ts';
@@ -48,7 +49,7 @@ export function MessageAttachmentViewer(props: ViewerProps): JSX.Element {
     } catch { setFailure(t('common-message-preview-failed')); }
   }
   return <section class="mw-viewer__message" aria-label={props.name}>
-    <Show when={preview.loading}><p role="status">{t('common-viewer-loading')}</p></Show>
+    <Show when={preview.loading}><MessageLoading/></Show>
     <Show when={failure()}><p role="alert">{failure()}</p><button class="btn" onClick={() => void refetch()}>{t('common-retry')}</button></Show>
     <Show when={preview()} keyed>{message => <>
       <h2>{displayText(message.subject || props.name)}</h2>

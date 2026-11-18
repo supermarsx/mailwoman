@@ -358,12 +358,6 @@ body {
   font-variant-numeric: tabular-nums;
   font-weight: var(--weight-bold);
 }
-.sidebar__offline {
-  font-size: 0.75rem;
-  color: var(--danger);
-  text-align: center;
-}
-
 /* ── Message list ─────────────────────────────────────────────── */
 /* `display`, `flex-direction` (on .list) and `position` (on .list__items) were
    static inline styles the shell CSP drops (t32-h12). */

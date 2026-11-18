@@ -254,3 +254,8 @@
 .compose-ribbon__pin:focus-visible { outline:var(--focus-ring-width,2px) solid var(--focus,var(--signal)); outline-offset:1px; }
 .compose-ribbon__pin[aria-pressed=true] { color:var(--accent); }
 .compose-ribbon__pin svg { inline-size:1rem; block-size:1rem; }
+
+.workspace-command-ribbon { --mw-ribbon-row:24px; --mw-ribbon-caption:16px; --mw-ribbon-pad:2px; --mw-ribbon-scroll-reserve:2px; }
+.workspace-command-ribbon .compose-ribbon__heading { min-block-size:28px; }
+.workspace-command-ribbon .compose-rib__text { line-height:1.3; }
+@media (pointer:coarse) { .workspace-command-ribbon { --mw-ribbon-row:44px; } }

@@ -30,6 +30,7 @@ export interface ThumbnailStripProps {
   density?: 'compact' | 'comfortable';
   selectedBlobId?: string;
   onSelect?: (item: StripItem) => void;
+  onContextMenu?: (item:StripItem,event:MouseEvent|KeyboardEvent)=>void;
   /** Resolve an image preview object URL; only called for `image/*` items. */
   resolveThumb?: (item: StripItem,signal?:AbortSignal) => Promise<string>;
   /** A small control beside each thumbnail (the bar's download button). It sits
@@ -58,6 +59,7 @@ function Thumb(props: {
   drag?: { accountId: string | null; emailId: string } | undefined;
   selected: boolean;
   onSelect: ((item: StripItem) => void) | undefined;
+  onContextMenu?: ((item:StripItem,event:MouseEvent|KeyboardEvent)=>void)|undefined;
   resolveThumb: ((item: StripItem,signal?:AbortSignal) => Promise<string>) | undefined;
 }): JSX.Element {
   const category = (): TypeCategory => categoryOf(props.item.mime, props.item.name);
@@ -99,6 +101,8 @@ function Thumb(props: {
       data-event={isEvent() ? '' : undefined}
       draggable={props.drag !== undefined}
       onDragStart={(e) => { if (props.drag) beginAttachmentDrag(e, { accountId: props.drag.accountId, emailId: props.drag.emailId, blobId: props.item.blobId, name: props.item.name, mime: props.item.mime, size: props.item.size }); }}
+      onContextMenu={event=>props.onContextMenu?.(props.item,event)}
+      onKeyDown={event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10')props.onContextMenu?.(props.item,event);}}
       onClick={() => props.onSelect?.(props.item)}
     >
       <span class="mw-thumb__preview" data-category={category()}>
@@ -134,6 +138,7 @@ export function ThumbnailStrip(props: ThumbnailStripProps): JSX.Element {
               item={item}
               selected={item.blobId === props.selectedBlobId}
               onSelect={props.onSelect}
+              onContextMenu={props.onContextMenu}
               resolveThumb={props.resolveThumb}
               drag={props.dragSource}
             />

@@ -153,6 +153,26 @@ describe('Compose', () => {
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
   });
 
+  it('sends from the centralized ribbon and keeps the editor mounted across tab changes',async()=>{
+    const target=document.createElement('div');document.body.append(target);
+    const {app,result}=renderWithApp(()=><Compose embedded ribbonMount={target} onClose={()=>{}}/>);
+    const send=vi.spyOn(app,'sendMessage').mockResolvedValue(undefined);
+    try {
+      await app.login({username:'me@example.org',password:'p'});
+      await chooseComposeFormat('plain');
+      expect(target.querySelector('[data-bar="composerRibbon"]')).not.toBeNull();
+      expect(document.querySelector('.compose__header')).toBeNull();
+      fireEvent.input(screen.getByLabelText('To'),{target:{value:'alice@example.test'}});
+      fireEvent.input(screen.getByLabelText('Subject'),{target:{value:'Ribbon send'}});
+      fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
+      fireEvent.click(screen.getByRole('tab',{name:'Format text'}));
+      expect(screen.getByLabelText('Subject')).toHaveValue('Ribbon send');
+      const button=screen.getByRole('button',{name:'Send'}) as HTMLButtonElement;
+      expect(target.contains(button)).toBe(true);expect(button.form).toBe(document.querySelector('form.compose'));
+      fireEvent.click(button);await waitFor(()=>expect(send).toHaveBeenCalledWith(expect.objectContaining({subject:'Ribbon send'})));
+    } finally {result.unmount();target.remove();}
+  });
+
   it('starts a reply from the identity the original was sent to and explains why', async () => {
     const initial = { mode: 'reply' as const, to: 'alice@outside.test', cc: '', subject: 'Re: Plans', bodyText: 'Q', bodyHtml: '<p>Q</p>', inReplyTo: [], references: [], attachments: [], quotesDecrypted: false, received: { to: ['Work <WORK+news@corp.example>'], cc: [] } };
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} initial={initial} />, { identities: IDENTITIES });

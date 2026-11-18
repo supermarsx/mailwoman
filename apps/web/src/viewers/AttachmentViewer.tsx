@@ -1,3 +1,4 @@
+import {MessageLoading} from '../components/MessageLoading.tsx';
 import {previewToolPlacement} from './filePreviewPreferences.ts';
 import {previewKindEnabled} from './filePreviewPreferences.ts';
 // `<AttachmentViewer>` — dispatches by MIME to a per-type viewer (plan §2.4).
@@ -48,7 +49,7 @@ export function AttachmentViewer(props: ViewerProps): JSX.Element {
           </div>
         );
       }}>
-      <Suspense fallback={<p class="mw-viewer__loading">{t('common-viewer-loading')}</p>}>
+      <Suspense fallback={<MessageLoading/>}>
         <Switch fallback={<UnsupportedViewer {...props} />}>
           <Match when={kind() === 'message'}><MessageAttachmentViewer {...props} /></Match>
           <Match when={kind() === 'calendar'}><CalendarAttachmentViewer {...props} /></Match>

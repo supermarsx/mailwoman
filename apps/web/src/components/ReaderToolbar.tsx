@@ -1,3 +1,4 @@
+import {useCommandRibbon} from './CommandRibbonContext.tsx';
 import {followUpActions} from './followUpActions.ts';
 import {requestDraftPreview} from './compose/draftPreview.ts';
 // The reader's action row (t57): every message action on ONE line, with the
@@ -75,7 +76,7 @@ function ReaderMenuAction(props:{id:string;action:()=>ContextAction|undefined;sc
    {...(children().length?{popup:'menu' as const,expanded:menu.isOpen()}:{})}
    onClick={event=>{
     const trigger=event.currentTarget as HTMLButtonElement;button=trigger;const current=action();if(!current||current.disabled)return;
-    if(current.children?.length){menu.openBelow(trigger);return;}
+    if(current.children?.length){menu.toggleBelow(trigger);return;}
     try{void Promise.resolve(current.run()).catch(props.onError);}catch{props.onError();}
    }}/>
   {menu.menu()}
@@ -99,6 +100,7 @@ export function ReaderToolbar(props:{
  headersUrl?:string|null;
  headersScope?:string;
  onCompose?:(draft:ComposeInitial)=>void;
+ onQuickReply?:()=>void;
  /** Opens the saved reply to this message; the action appears only while one exists. */
  onOpenReplyDraft?:(draftId:string)=>void;
  /** Opens this message in the composer when it is a draft; the action appears only then. */
@@ -108,6 +110,8 @@ export function ReaderToolbar(props:{
  colors?:ReaderColorProps;
 }):JSX.Element {
  const app=useApp();
+ const commandRibbon=useCommandRibbon(),ribbonToken=Symbol('reader-ribbon');
+ const centralized=()=>commandRibbon?.enabled()===true&&commandRibbon.active();
  const realtime=useRealtime();
  const [sweeping,setSweeping]=createSignal(false);
  const [headersOpen,setHeadersOpen]=createSignal(false);
@@ -151,6 +155,7 @@ export function ReaderToolbar(props:{
  // (read, flagged, a new link count) updates its button in place and never
  // re-creates a button that has focus. `ids` decides which are present.
  const all:Record<string,RowAction>={
+  'quick-reply':plain({id:'quick-reply',icon:icon('reply'),label:()=>t('mail-quick-reply'),help:()=>t('mail-quick-reply-help'),disabled:()=>props.preparing,run:()=>props.onQuickReply?.()}),
   'delete-sender':plain({id:'delete-sender',icon:icon('delete'),label:()=>t('mail-delete-sender-title'),help:()=>t('mail-delete-sender-help'),testId:'reader-delete-sender',disabled:deletingSender,run:()=>{void deleteSender();}}),
   'finish-followup':plain({id:'finish-followup',icon:icon('check'),label:()=>t('mail-mark-finished'),help:()=>t('mail-mark-finished'),testId:'reader-finish-followup',run:()=>{void app.completeFollowUp(id()).catch(()=>app.showToast('error',t('mail-context-failed')));}}),
   reply:plain({id:'reply',icon:icon(ACTION_ICONS.reply),label:()=>t('mail-reply'),help:()=>t('mail-action-help-reply'),testId:'reader-reply',disabled:()=>props.preparing,run:()=>props.onReply('reply')}),
@@ -191,7 +196,7 @@ export function ReaderToolbar(props:{
    inline:()=><ReaderAction icon="serverMetadata" label={t('mail-headers-title')} help={t('mail-headers-action-help')} testId="reader-headers" popup="dialog" expanded={headersOpen()} onClick={()=>setHeadersOpen(true)}/>,
    menu:()=>[{id:'headers',label:t('mail-headers-title'),icon:'serverMetadata',run:()=>{setHeadersOpen(true);}}]},
  };
- const primaryIds=createMemo(()=>[...(sender()!==''&&canDeleteSender()?['delete-sender']:[]),...((props.email.followUpAt||props.email.keywords?.['$flagged'])&&!props.email.keywords?.['mw-followup-completed']?['finish-followup']:[]),...(isDraft()?['edit-draft']:[]),...(mailFeature('allowReply')&&!isDraft()?['reply','reply-all']:[]),...(mailFeature('allowForward')&&!isDraft()?['forward']:[]),...(replyDraft()?['view-draft','open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
+ const primaryIds=createMemo(()=>[...(props.onQuickReply?['quick-reply']:[]),...(sender()!==''&&canDeleteSender()?['delete-sender']:[]),...((props.email.followUpAt||props.email.keywords?.['$flagged'])&&!props.email.keywords?.['mw-followup-completed']?['finish-followup']:[]),...(isDraft()?['edit-draft']:[]),...(mailFeature('allowReply')&&!isDraft()?['reply','reply-all']:[]),...(mailFeature('allowForward')&&!isDraft()?['forward']:[]),...(replyDraft()?['view-draft','open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
  const extraRows=createMemo(()=>[...saveRowsFor(app,[props.email]),...focusActions(app,props.email),...messageActionRows(app,props.email,new Set(['move-to']))]);
  const extraId=(value:ContextAction)=>readerMenuActionId(value.id)??value.id;
  const extraIds=createMemo(()=>[...new Set(extraRows().map(extraId))].filter(key=>!primaryIds().includes(key)));
@@ -225,7 +230,7 @@ export function ReaderToolbar(props:{
   setFolded(foldActions(toolbarIds().map(key=>({id:key,priority:PRIORITY[key]??99,width:widths.get(key)??0})),available,gap,moreWidth,forcedMenuIds().length>0));
  }
  const observer=typeof ResizeObserver==='function'?new ResizeObserver(()=>fit()):undefined;
- onMount(()=>{observer?.observe(row);observer?.observe(moreButton);fit();});
+ onMount(()=>{if(row)observer?.observe(row);if(moreButton)observer?.observe(moreButton);fit();});
  onCleanup(()=>observer?.disconnect());
  // A new set of actions (a conversation found, links parsed) or a label-style
  // change: show everything for one measure, then fold again.
@@ -257,19 +262,27 @@ export function ReaderToolbar(props:{
  // outside-press handler); the click that follows must not open it again. This
  // capture listener is registered before the menu's, so it sees the press first.
  let reopenGuard=false;
- onMount(()=>{const press=(event:PointerEvent):void=>{reopenGuard=menu.isOpen()&&event.target instanceof Node&&moreButton.contains(event.target);};document.addEventListener('pointerdown',press,true);onCleanup(()=>document.removeEventListener('pointerdown',press,true));});
+ onMount(()=>{const press=(event:PointerEvent):void=>{reopenGuard=menu.isOpen()&&event.target instanceof Node&&moreButton?.contains(event.target)===true;};document.addEventListener('pointerdown',press,true);onCleanup(()=>document.removeEventListener('pointerdown',press,true));});
  function toggleMore(event:MouseEvent):void {if(menu.isOpen()){menu.close();return;}if(reopenGuard){reopenGuard=false;return;}menu.open(event);}
 
+ createEffect(()=>{
+  if(!commandRibbon?.enabled()||!commandRibbon.active()||!props.active)return;
+  const toolbar=toolbarIds().flatMap(key=>actionFor(key).menu().map((action,index,rows)=>({...action,id:rows.length===1?key:`${key}:${index}`})));
+  const overflow=forcedMenuIds().flatMap(key=>actionFor(key).menu());
+  commandRibbon.publishReader(ribbonToken,{toolbar,menu:overflow});onCleanup(()=>commandRibbon.publishReader(ribbonToken,undefined));
+ });
  return (
-  <div ref={row} class={`reader__toolbar ${css.row}`} role="toolbar" aria-label={t('mail-reader-actions')}>
+  <>
+  <Show when={!centralized()}><div ref={element=>{row=element;observer?.observe(element);queueMicrotask(fit);}} class={`reader__toolbar ${css.row}`} role="toolbar" aria-label={t('mail-reader-actions')}>
    <For each={ids()}>{key=>{const value=actionFor(key);return <span ref={element=>{observer?.observe(element);onCleanup(()=>observer?.unobserve(element));}} class={css.item} classList={{[css.groupEnd]:value.groupEnd===true}} data-reader-item={key} data-reader-placement={placement(key)} hidden={placement(key)!=='toolbar'||folded().has(key)}>{value.inline()}</span>;}}</For>
-   <button ref={moreButton} type="button" class={`btn btn--ghost reader-action reader-action--compact ${a11y.focusable} ${css.more}`} classList={{[css.moreIdle]:idle()}} aria-label={t('mail-more-actions')} title={t('mail-more-actions')} aria-haspopup="menu" aria-expanded={menu.isOpen()} aria-hidden={idle()?'true':undefined} tabindex={idle()?-1:0} data-testid="reader-more" onClick={toggleMore}><Icon name="more"/></button>
+   <button ref={element=>{moreButton=element;observer?.observe(element);queueMicrotask(fit);}} type="button" class={`btn btn--ghost reader-action reader-action--compact ${a11y.focusable} ${css.more}`} classList={{[css.moreIdle]:idle()}} aria-label={t('mail-more-actions')} title={t('mail-more-actions')} aria-haspopup="menu" aria-expanded={menu.isOpen()} aria-hidden={idle()?'true':undefined} tabindex={idle()?-1:0} data-testid="reader-more" onClick={toggleMore}><Icon name="more"/></button>
    {menu.menu()}
+  </div></Show>
    <senderDeleteConfirm.Dialog/>
    {conversation.dialog()}
    {linkReview.dialog()}
    <Show when={headersOpen()&&props.active&&props.headersUrl}>{url=><RawMessageHeaders url={url()} scope={props.headersScope??`${app.accountId()}:${id()}`} onClose={closeHeaders}/>}</Show>
    <Show when={sweeping()}><SweepDialog fromEmail={sender()} onClose={()=>setSweeping(false)}/></Show>
-  </div>
+  </>
  );
 }

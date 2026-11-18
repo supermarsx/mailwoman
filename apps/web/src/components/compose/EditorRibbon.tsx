@@ -26,6 +26,7 @@ import {
   type BarModeHandle,
   type CollapsibleBarApi,
 } from '../bars/index.ts';
+import {Portal} from 'solid-js/web';
 import { ComposerHistory } from './ComposerHistory.tsx';
 import { RibbonSlot, type RibbonSlotTarget } from './ribbonParts.tsx';
 import type { RichTextApi } from './RichTextEditor.tsx';
@@ -109,7 +110,9 @@ export interface EditorRibbonProps<T extends string> {
   showHistory: () => boolean;
   /** The bar's mode handle; defaults to the `composerRibbon` preference. */
   bar?: BarModeHandle;
-  class?: string;
+  class?: string | undefined;
+  mount?: HTMLElement | undefined;
+  active?: boolean | undefined;
   /** Show the pin / auto-hide toggle in the ribbon's corner and answer Ctrl+F1 (the layout.ribbonAutoHide flag). Default on. */
   modeToggle?: () => boolean;
 }
@@ -138,7 +141,7 @@ export function EditorRibbon<T extends string>(props: EditorRibbonProps<T>): JSX
     };
     // Ctrl+F1 pins or auto-hides the ribbon, as in Office; it never moves focus.
     const onKey = (event: KeyboardEvent): void => {
-      if (!toggleOn() || event.key !== 'F1' || !event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      if (props.active===false || !toggleOn() || event.key !== 'F1' || !event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
       event.preventDefault();
       flip();
     };
@@ -196,7 +199,7 @@ export function EditorRibbon<T extends string>(props: EditorRibbonProps<T>): JSX
       </div>
     );
   };
-  return (
+  const content = (
     <CollapsibleBar
       id="composerRibbon"
       revealPolicy="overlay"
@@ -223,6 +226,7 @@ export function EditorRibbon<T extends string>(props: EditorRibbonProps<T>): JSX
       </div>
     </CollapsibleBar>
   );
+  return <Show when={props.mount} fallback={content}>{mount=><Portal mount={mount()}><div hidden={props.active===false} inert={props.active===false}>{content}</div></Portal>}</Show>;
 }
 
 export type BodyMode = 'plain' | 'rich' | 'html';

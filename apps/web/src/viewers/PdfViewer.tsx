@@ -1,3 +1,4 @@
+import {MessageLoading} from '../components/MessageLoading.tsx';
 import {loadCatalog} from '../i18n/catalog.ts';
 void loadCatalog('reader');
 import {filePreviews,previewToolEnabled} from './filePreviewPreferences.ts';
@@ -158,7 +159,7 @@ function PdfDocument(props: { url: string; name: string; onDetails: ((details: V
     for(const [url,timer] of downloads){clearTimeout(timer);host.URL.revokeObjectURL(url);}downloads.clear();
   });
   return <div class="mw-viewer__pdf-full" data-pdf-state={status()}>
-    <Show when={status() === 'loading'}><p role="status" class="mw-viewer__loading">{t('common-viewer-rendering-pdf')}</p></Show>
+    <Show when={status() === 'loading'}><MessageLoading/></Show>
     <Show when={status() === 'error'}><div role="alert" class="mw-viewer__error">
       <p>{t('common-viewer-pdf-failed')}</p>
       <Show when={failure()}>{detail => <details class="mw-viewer__error-details" data-testid="pdf-failure-details"><summary>{t('common-viewer-pdf-details')}</summary>
