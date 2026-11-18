@@ -32,6 +32,8 @@ pub use auth_logs::{AuthLogEvent, AuthLogLimits, AuthLogQuery, AuthSurface};
 pub use hosting_connections::{HostingConnectionRow, HostingCredentialChange, HostingMutation};
 pub mod audit_identity;
 pub mod diag;
+pub mod database_observability;
+pub mod database_growth;
 pub mod diagnostics;
 mod directory_display;
 pub mod feature_governance;

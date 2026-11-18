@@ -6575,6 +6575,8 @@ pub static REGISTRY: &[SettingDef] = &[
         "observability",
         "browser load time sample rate"
     ),
+    def!("observability.database.growthAlerts", Kind::Bool, "true", G, "observability", "Alert in audit and server logs after two consecutive rapid database growth samples; at most once per 30 minutes."),
+    def!("observability.database.growthMiBPerMinute", int(1, 1048576), "64", G, "observability", "Database file growth threshold in MiB per minute. WAL is measured separately. History is bounded and held in memory."),
     def!(
         "observability.clientTiming.minSamples",
         int(1, 100000),

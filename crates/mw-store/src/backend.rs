@@ -216,13 +216,16 @@ impl IntoArg for Option<&[u8]> {
 pub(crate) struct Sql {
     sql: &'static str,
     args: Vec<Arg>,
+    origin: &'static std::panic::Location<'static>,
 }
 
 /// Author a query (SQLite `?n` placeholder style; translated per-backend).
+#[track_caller]
 pub(crate) fn q(sql: &'static str) -> Sql {
     Sql {
         sql,
         args: Vec::new(),
+        origin: std::panic::Location::caller(),
     }
 }
 
@@ -233,7 +236,7 @@ impl Sql {
     }
 
     pub(crate) async fn execute(self, backend: &Backend) -> Result<u64, sqlx::Error> {
-        match backend {
+        let result = match backend {
             Backend::Sqlite(p) => Ok(build_sqlite(self.sql, &self.args)
                 .execute(p)
                 .await?
@@ -242,14 +245,18 @@ impl Sql {
                 let sql = dialect::placeholders(self.sql, Dialect::Postgres);
                 Ok(build_pg(&sql, &self.args).execute(p).await?.rows_affected())
             }
+        };
+        if let Ok(rows) = &result {
+            crate::database_growth::record_write(self.sql, self.origin, &self.args, *rows);
         }
+        result
     }
 
     pub(crate) async fn fetch_optional(
         self,
         backend: &Backend,
     ) -> Result<Option<Row>, sqlx::Error> {
-        match backend {
+        let result = match backend {
             Backend::Sqlite(p) => Ok(build_sqlite(self.sql, &self.args)
                 .fetch_optional(p)
                 .await?
@@ -261,11 +268,20 @@ impl Sql {
                     .await?
                     .map(Row::Postgres))
             }
+        };
+        if let Ok(rows) = &result {
+            crate::database_growth::record_write(
+                self.sql,
+                self.origin,
+                &self.args,
+                u64::from(rows.is_some()),
+            );
         }
+        result
     }
 
     pub(crate) async fn fetch_one(self, backend: &Backend) -> Result<Row, sqlx::Error> {
-        match backend {
+        let result = match backend {
             Backend::Sqlite(p) => Ok(Row::Sqlite(
                 build_sqlite(self.sql, &self.args).fetch_one(p).await?,
             )),
@@ -275,17 +291,21 @@ impl Sql {
                     build_pg(&sql, &self.args).fetch_one(p).await?,
                 ))
             }
+        };
+        if result.is_ok() {
+            crate::database_growth::record_write(self.sql, self.origin, &self.args, 1);
         }
+        result
     }
 
     pub(crate) async fn fetch_all(self, backend: &Backend) -> Result<Vec<Row>, sqlx::Error> {
-        match backend {
+        let result = match backend {
             Backend::Sqlite(p) => Ok(build_sqlite(self.sql, &self.args)
                 .fetch_all(p)
                 .await?
                 .into_iter()
                 .map(Row::Sqlite)
-                .collect()),
+                .collect::<Vec<Row>>()),
             Backend::Postgres(p) => {
                 let sql = dialect::placeholders(self.sql, Dialect::Postgres);
                 Ok(build_pg(&sql, &self.args)
@@ -293,9 +313,18 @@ impl Sql {
                     .await?
                     .into_iter()
                     .map(Row::Postgres)
-                    .collect())
+                    .collect::<Vec<Row>>())
             }
+        };
+        if let Ok(rows) = &result {
+            crate::database_growth::record_write(
+                self.sql,
+                self.origin,
+                &self.args,
+                rows.len() as u64,
+            );
         }
+        result
     }
 
     /// A single-column `i64` scalar (`COUNT`/`MAX`/`RETURNING state`).
@@ -330,7 +359,7 @@ impl Sql {
     // ---- transaction variants ------------------------------------------------
 
     pub(crate) async fn fetch_all_tx(self, tx: &mut Tx) -> Result<Vec<Row>, sqlx::Error> {
-        Ok(match tx {
+        let rows: Vec<Row> = match tx {
             Tx::Sqlite(t) => build_sqlite(self.sql, &self.args)
                 .fetch_all(&mut **t)
                 .await?
@@ -346,11 +375,13 @@ impl Sql {
                     .map(Row::Postgres)
                     .collect()
             }
-        })
+        };
+        crate::database_growth::record_write(self.sql, self.origin, &self.args, rows.len() as u64);
+        Ok(rows)
     }
 
     pub(crate) async fn execute_tx(self, tx: &mut Tx) -> Result<u64, sqlx::Error> {
-        match tx {
+        let result = match tx {
             Tx::Sqlite(t) => Ok(build_sqlite(self.sql, &self.args)
                 .execute(&mut **t)
                 .await?
@@ -362,7 +393,11 @@ impl Sql {
                     .await?
                     .rows_affected())
             }
+        };
+        if let Ok(rows) = &result {
+            crate::database_growth::record_write(self.sql, self.origin, &self.args, *rows);
         }
+        result
     }
 
     pub(crate) async fn fetch_opt_scalar_string_tx(
@@ -382,6 +417,12 @@ impl Sql {
                     .map(Row::Postgres)
             }
         };
+        crate::database_growth::record_write(
+            self.sql,
+            self.origin,
+            &self.args,
+            u64::from(row.is_some()),
+        );
         Ok(row.map(|r| r.get_string_idx(0)))
     }
 }

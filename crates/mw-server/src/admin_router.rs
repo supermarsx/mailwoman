@@ -95,6 +95,7 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     crate::telemetry_routes::register(r);
     crate::diagnostics::register(r);
     crate::admin_dashboard::register(r);
+    crate::admin_database::register(r);
     crate::auth_logs::register(r);
     crate::signin_guard::register(r);
     crate::security_alerts::register_admin(r);

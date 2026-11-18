@@ -225,6 +225,7 @@ pub mod prefs_routes;
 // 26.20 t32-e10b (f01): the settings model C — the registry (keys, types,
 // defaults, scopes, environment precedence, the limit ceiling) and its routes.
 mod admin_dashboard;
+mod admin_database;
 pub mod application_logs;
 mod audit_projection;
 mod auth_logs;
@@ -1457,6 +1458,7 @@ async fn build_app_inner(
     jobs::start(state.clone());
     compliance_mail::start(state.clone());
     operational_incidents::start(state.clone());
+    admin_database::start(state.clone());
     dsr::start(state.clone());
     breach::start(state.clone());
     image_proxy::remote_content::start_capacity_monitor(state.clone());
