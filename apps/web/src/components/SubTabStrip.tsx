@@ -1,3 +1,4 @@
+import {workspaceCloseAction} from './workspaceCloseActions.ts';
 import {displayText} from '../i18n/presentation.ts';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
 import {preferenceAccount,observePreferenceAccount} from '../api/accountPreferenceLifecycle.ts';
@@ -110,15 +111,7 @@ function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:strin
   // instead of falling to <body> where a keyboard or screen-reader user is lost.
   const close=():void=>{if(props.canClose?.(id())===false) return;const owned=label?.parentElement?.contains(document.activeElement)??false;if(props.onClose) props.onClose(id());else subTabs.close(id());
     if(owned)queueMicrotask(()=>{const next=subTabs.activeId();if(next&&next!==id()&&(document.activeElement===null||document.activeElement===document.body))document.getElementById(tabDomId(next))?.focus();});};
-  /** Tabs a bulk close may take: not starred, and allowed to close (the Mail home tab is not). */
-  const bulk=(tab:SubTab):boolean=>!tab.pinned&&props.canClose?.(tab.id)!==false;
-  /** The strip's visual direction at the tab: under `dir="rtl"` the first tab sits on the right. */
   const rtl=():boolean=>(label?.closest('[dir="rtl"],[dir="ltr"]')?.getAttribute('dir')??document.documentElement.dir)==='rtl';
-  function sides():{others:string[];left:string[];right:string[];all:string[]} {
-    const tabs=subTabs.tabs(),at=tabs.findIndex(tab=>tab.id===id());
-    const before=tabs.slice(0,Math.max(0,at)).filter(bulk).map(tab=>tab.id),after=tabs.slice(at+1).filter(bulk).map(tab=>tab.id);
-    return {others:[...before,...after],left:rtl()?after:before,right:rtl()?before:after,all:tabs.filter(bulk).map(tab=>tab.id)};
-  }
   function closeMany(ids:string[]):void {
     if(ids.length===0)return;
     const owned=label?.parentElement?.contains(document.activeElement)??false;
@@ -127,13 +120,8 @@ function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:strin
   }
   const context=createContextMenu({label:()=>displayText(props.tab.title),scope:()=>`${preferenceAccount()?.generation}:${id()}:${subTabs.tabs().some(tab=>tab.id===id())}`,actions:()=>{
     if(!subTabs.tabs().some(tab=>tab.id===id()))return [];
-    const side=sides(),actions:ContextAction[]=[];
-    if(props.canClose?.(id())!==false)actions.push({id:'close',label:t('mail-subtab-close',{title:props.tab.title}),icon:'close',run:close});
+    const actions:ContextAction[]=[workspaceCloseAction({tabs:subTabs.tabs,id,canClose:each=>props.canClose?.(each)!==false,rtl,close,closeMany})];
     actions.push(
-      {id:'close-others',label:t('workspace-tabs-close-others'),icon:'close',disabled:side.others.length===0,run:()=>closeMany(sides().others)},
-      {id:'close-left',label:t('workspace-tabs-close-left'),icon:'close',disabled:side.left.length===0,run:()=>closeMany(sides().left)},
-      {id:'close-right',label:t('workspace-tabs-close-right'),icon:'close',disabled:side.right.length===0,run:()=>closeMany(sides().right)},
-      {id:'close-all',label:t('workspace-tabs-close-all'),icon:'close',disabled:side.all.length===0,run:()=>closeMany(sides().all)},
       {id:'star',separatorBefore:true,label:t(props.tab.pinned?'workspace-tabs-unstar':'workspace-tabs-star'),icon:props.tab.pinned?'star':'starOutline',run:()=>{
         const pinned=!props.tab.pinned;subTabs.togglePin(id());toast.success(t(pinned?'mail-toast-tab-pinned':'mail-toast-tab-unpinned',{target:toastTarget(props.tab.title,t('mail-subtabs-label'))}));
       }},
