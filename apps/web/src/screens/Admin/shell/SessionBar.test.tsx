@@ -361,3 +361,12 @@ describe('http client', () => {
     await expect(createHttpSessionBarApi('').status()).rejects.toThrow();
   });
 });
+
+it('places the signed-in identity before the timeout with a dot and keeps its preferences link',async()=>{
+ const server=fakeServer(1700,40000),open=vi.fn((event:MouseEvent)=>event.preventDefault());
+ render(()=><SessionBar api={server.api} mode="always" username="ops" identityHref="/admin#/preferences" onOpenIdentity={open} onExpired={()=>{}}/>);
+ await flush();const label=screen.getByRole('link',{name:/Signed in as.*ops/});
+ expect(label).toHaveAttribute('href','/admin#/preferences');expect(label.nextElementSibling).toHaveTextContent('·');
+ expect(label.compareDocumentPosition(screen.getByTestId('admin-session-bar-text'))&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ fireEvent.click(label);expect(open).toHaveBeenCalledOnce();
+});

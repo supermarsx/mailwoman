@@ -206,6 +206,7 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   const Account = (p: { testId?: string }): JSX.Element => (
     <AdminAccountButtons
       username={props.username}
+      hideUser={props.sessionBar!==undefined}
       onSignOut={props.onSignOut}
       href={visible().some((s) => s.id === 'preferences') ? hrefFor(sectionPath('preferences')) : undefined}
       onOpenAccount={(e) => inPlace(e, () => go('preferences'))}
@@ -321,7 +322,7 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
       </main>
 
       <Show when={props.sessionBar}>
-        {(bar) => <SessionBar api={bar().api} mode={barMode()} onExpired={bar().onExpired} onVisible={setBarShown} />}
+        {(bar) => <SessionBar username={props.username} identityHref={visible().some(s=>s.id==='preferences')?hrefFor(sectionPath('preferences')):undefined} onOpenIdentity={event=>inPlace(event,()=>go('preferences'))} api={bar().api} mode={barMode()} onExpired={bar().onExpired} onVisible={setBarShown} />}
       </Show>
 
       <CommandPalette

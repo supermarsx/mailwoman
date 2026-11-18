@@ -30,5 +30,6 @@ it('the session bar preference is saved with the other preferences, and the bar 
   await waitFor(() => expect(select).not.toBeDisabled());
   fireEvent.change(select, { target: { value: 'hidden' } });
   await waitFor(() => expect(saved).toHaveBeenCalledWith({ future: 'keep', sessionBar: 'hidden' }, 'v1'));
-  await waitFor(() => expect(screen.queryByTestId('admin-session-bar')).toBeNull());
+  await waitFor(() => expect(screen.queryByTestId('admin-session-bar-text')).toBeNull());
+  expect(screen.getByTestId('admin-signed-in-label')).toBeVisible();
 });

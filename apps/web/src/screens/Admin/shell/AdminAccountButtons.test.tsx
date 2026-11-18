@@ -32,3 +32,8 @@ describe('AdminAccountButtons', () => {
     expect(onOpen).toHaveBeenCalledOnce();
   });
 });
+
+it('keeps Sign out while the signed-in identity is shown in the bottom bar',()=>{
+ render(()=><AdminAccountButtons username="ops" hideUser onSignOut={()=>{}}/>);
+ expect(screen.queryByRole('button',{name:/Signed in as/})).toBeNull();expect(screen.getByRole('button',{name:'Sign out'})).toBeVisible();
+});

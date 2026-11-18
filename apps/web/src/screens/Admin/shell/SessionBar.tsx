@@ -7,7 +7,7 @@ import {formatDateTime as regionalDateTime} from '../../../i18n/format.ts';
 // polite announcements, which are made at the thresholds only, never per tick.
 
 import { Show, createEffect, createSignal, createUniqueId, onCleanup, type JSX } from 'solid-js';
-import { t } from '../../../i18n';
+import { isolate,t } from '../../../i18n';
 import { registerToastObstacle } from '../../../components/toast/toast.ts';
 import { Icon } from './icons.tsx';
 import {
@@ -23,6 +23,9 @@ import * as css from './sessionBar.css.ts';
 
 export interface SessionBarProps {
   api: SessionBarApi;
+  username?: string | undefined;
+  identityHref?: string | undefined;
+  onOpenIdentity?: ((event:MouseEvent)=>void)|undefined;
   mode: SessionBarMode;
   /** The console has ended the session: go to the sign-in gate (the route stays in the address). */
   onExpired: () => void;
@@ -53,14 +56,16 @@ export function SessionBar(props: SessionBarProps): JSX.Element {
   const popId = createUniqueId();
   let root: HTMLDivElement | undefined;
 
-  const shown = (): boolean => {
+  const timerShown = (): boolean => {
     if (props.mode === 'hidden' || bar.level() === null) return false;
     return props.mode === 'always' || bar.level() !== 'normal';
   };
+  const shown=()=>Boolean(props.username)||timerShown();
+  const identity=()=>t('admin-shell-signed-in-as',{name:isolate(props.username??'')});
   createEffect(() => props.onVisible?.(shown()));
   onCleanup(() => props.onVisible?.(false));
   createEffect(() => root?.style.setProperty('--admin-bar-fraction', bar.fraction().toFixed(4)));
-  createEffect(() => { if (!shown()) setOpen(false); });
+  createEffect(() => { if (!timerShown()) setOpen(false); });
 
   // Escape closes the details; a click elsewhere does too.
   createEffect(() => {
@@ -100,6 +105,8 @@ export function SessionBar(props: SessionBarProps): JSX.Element {
       </div>
       <Show when={shown()}>
         <div ref={(el) => { root = el; onCleanup(registerToastObstacle(el)); }} class={css.bar} role="group" aria-label={t('admin-session-bar-label')} data-testid="admin-session-bar" data-level={bar.level()} data-primary={bar.primary()}>
+          <Show when={props.username}><Show when={props.identityHref} fallback={<span class={css.identity} title={identity()} data-testid="admin-signed-in-label">{identity()}</span>}>{href=><a class={css.identity} title={identity()} data-testid="admin-signed-in-label" href={href()} onClick={event=>props.onOpenIdentity?.(event)}>{identity()}</a>}</Show><Show when={timerShown()}><span class={css.separator} aria-hidden="true">·</span></Show></Show>
+          <Show when={timerShown()}>
           <span class={css.sliver} aria-hidden="true" data-testid="admin-session-bar-sliver" />
           <Show
             when={bar.level() !== 'expired'}
@@ -149,6 +156,7 @@ export function SessionBar(props: SessionBarProps): JSX.Element {
                 <p class={css.popoverNote}>{t('admin-session-bar-note')}</p>
               </div>
             </Show>
+          </Show>
           </Show>
         </div>
       </Show>

@@ -145,3 +145,6 @@ globalStyle('[data-screen="admin"][data-session-bar] [data-admin-column]', {
 globalStyle('[data-screen="admin"][data-session-bar] [data-admin-column="resize"]', {
   blockSize: 'calc(100vh - var(--admin-bar-h, 0px))',
 });
+
+export const identity=style({fontSize:'.75rem',maxInlineSize:'min(42vw, 28rem)',minInlineSize:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'inherit',textDecoration:'none',selectors:{'&:hover':{color:vars.color.text,textDecoration:'underline'},'&:focus-visible':ring}});
+export const separator=style({flexShrink:0,marginInline:'-.25rem'});

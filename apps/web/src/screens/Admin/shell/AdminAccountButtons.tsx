@@ -16,6 +16,7 @@ import * as css from './accountButtons.css.ts';
 
 export interface AdminAccountButtonsProps {
   username: string;
+  hideUser?: boolean;
   onSignOut: () => void;
   /** The user's own account/preferences page; the user button is a link when set. */
   href?: string | undefined;
@@ -36,7 +37,7 @@ export function AdminAccountButtons(props: AdminAccountButtonsProps): JSX.Elemen
 
   return (
     <div class={css.row} data-admin-account>
-      <Show
+      <Show when={!props.hideUser}><Show
         when={props.href}
         fallback={
           <button type="button" class={css.square} aria-label={label()} title={label()} data-testid={props.testId ?? 'admin-account-user'}>
@@ -56,7 +57,7 @@ export function AdminAccountButtons(props: AdminAccountButtonsProps): JSX.Elemen
             {avatar()}
           </a>
         )}
-      </Show>
+      </Show></Show>
       <button
         type="button"
         class={css.square}
