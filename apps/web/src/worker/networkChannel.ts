@@ -54,7 +54,7 @@ export function createChannelNetworkConnection(initial:NetworkContext):Connectio
  }
  const call:Connection['call']=(method,context,extra={},signal)=>new Promise((resolve,reject)=>{
   if(stopped||signal?.aborted){reject(new NetworkError('Coordinator unavailable'));return;}
-  const requestId=`${id}:${++sequence}`,timer=setTimeout(()=>{pending.delete(requestId);reject(new NetworkError('Coordinator request timed out'));},30000);
+  const requestId=`${id}:${++sequence}`,timer=setTimeout(()=>{pending.delete(requestId);signal?.removeEventListener('abort',abort);reject(method==='jmap'&&extra.body&&!jmapReadsOnly(extra.body)?new ApiError(503,'The action may have completed. Check before retrying.',{code:'outcomeUnknown'}):new NetworkError('Coordinator request timed out'));},method==='jmap'?130000:30000);
   const abort=()=>{pending.delete(requestId);clearTimeout(timer);reject(new DOMException('Request aborted','AbortError'));};
   const cleanup=()=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);};
   const request={id:requestId,method,context,...extra} satisfies NetworkRequest;

@@ -433,6 +433,16 @@ async fn websocket_actions_reuse_csrf_and_verified_account_fences() {
     let moved:Value=serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();assert_eq!(moved["status"],200,"JMAP move route: {moved}");
     let read:Value=c.post(format!("{server}/jmap/api")).header("x-csrf-token",&csrf).json(&json!({"using":["urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{"accountId":mw_mock_jmap::ACCOUNT_ID,"ids":[email]},"get"]]})).send().await.unwrap().json().await.unwrap();
     assert_eq!(read["methodResponses"][0][1]["list"][0]["mailboxIds"]["mb-sent"],true,"WS action must actually move the message");
+    // Bounded concurrent requests are correlated independently, including JSON reads.
+    for index in 0..8 {
+      ws.send(Message::Text(json!({"id":format!("read-{index}"),"method":"GET","path":"/api/account/preferences","headers":headers}).to_string().into())).await.unwrap();
+    }
+    let mut seen=std::collections::HashSet::new();
+    for _ in 0..8 {
+      let reply:Value=serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+      assert_eq!(reply["status"],200,"account JSON reads use the guarded socket: {reply}");
+      assert!(seen.insert(reply["id"].as_str().unwrap().to_string()));
+    }
     let mut wrong=headers;wrong["x-mailwoman-storage-authority"]=json!("msa1_wrong_account_authority");
     ws.send(Message::Text(json!({"id":"wrong","method":"PUT","path":"/api/settings/notifications.incoming.toast","headers":wrong,"body":json!({"value":true}).to_string()}).to_string().into())).await.unwrap();
     let fenced:Value=serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();assert!(matches!(fenced["status"].as_u64(),Some(403|409)),"wrong authority must be refused: {fenced}");

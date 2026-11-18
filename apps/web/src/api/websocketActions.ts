@@ -13,7 +13,7 @@ export function createWebSocketActions(options:{endpoint:string;WebSocketImpl?:t
   const Constructor=options.WebSocketImpl??globalThis.WebSocket;if(typeof Constructor!=='function')return Promise.resolve(false);
   opening=new Promise(resolve=>{
    let settled=false;const finish=(value:boolean)=>{if(settled)return;settled=true;clearTimeout(timer);if(!value)disabledUntil=Date.now()+30000;resolve(value);};
-   const timer=setTimeout(()=>{finish(false);close();},1500);
+   const timer=setTimeout(()=>{finish(false);close();},5000);
    try{socket=new Constructor(options.endpoint);}catch{finish(false);opening=undefined;return;}
    socket.onmessage=event=>{
     let value:{type?:string;protocol?:string;id?:string;status?:number;headers?:Record<string,string>;body?:string;notDispatched?:boolean};try{value=JSON.parse(String(event.data));}catch{return;}
@@ -57,7 +57,6 @@ export async function websocketAction(input:string,init:RequestInit|undefined,ba
  if(path.includes('%')||path.includes('..')||!target.pathname.startsWith(`${prefix}/`)||!(path==='/jmap/api'||path==='/api/version'||path.startsWith('/api/mail/')||path==='/api/settings'||path.startsWith('/api/settings/')||path.startsWith('/api/account/')||['/api/tasks/','/api/notes/','/api/contacts/','/api/calendar/','/api/events/'].some(prefix=>path.startsWith(prefix))))return undefined;
  const method=(init?.method??'GET').toUpperCase();
  if(!['GET','POST','PUT','PATCH','DELETE'].includes(method))return undefined;
- if(!['/api/version','/api/settings','/api/account/notifications','/api/account/notification-center'].includes(path)&&method==='GET')return undefined;
  // Authentication, security proofs, credentials, files and redirects stay on HTTP.
  if(/\/(?:login|logout|password|passkey|security|session|token|push|export|import|upload|download|avatar)(?:\/|$)/.test(path))return undefined;
  const headers=new Headers(init?.headers);

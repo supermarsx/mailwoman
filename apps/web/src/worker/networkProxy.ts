@@ -1,3 +1,4 @@
+import {jmapReadsOnly} from '../api/jmapReadOnly.ts';
 import {settings as actionSettings} from '../api/settings.ts';
 import {createChannelNetworkConnection} from './networkChannel.ts';
 import {ApiError,NetworkError,type Client,type JmapCallOptions,type Me,PasswordChangeRequired} from '../api/client.ts';
@@ -35,7 +36,7 @@ function connection():Connection|undefined{
  const call:Connection['call']=(method,scope,extra={},signal)=>new Promise((resolve,reject)=>{
   if(!healthy){reject(new NetworkError('Shared worker disconnected'));return;}
   if(signal?.aborted){reject(new DOMException('Request aborted','AbortError'));return;}
-  const id=String(++sequence),timer=setTimeout(()=>{pending.delete(id);reject(new NetworkError('Shared request timed out'));},30000);
+  const id=String(++sequence),timer=setTimeout(()=>{pending.delete(id);signal?.removeEventListener('abort',abort);reject(method==='jmap'&&extra.body&&!jmapReadsOnly(extra.body)?new ApiError(503,'The action may have completed. Check before retrying.',{code:'outcomeUnknown'}):new NetworkError('Shared request timed out'));},method==='jmap'?130000:30000);
   const abort=()=>{clearTimeout(timer);pending.delete(id);reject(new DOMException('Request aborted','AbortError'));};
   const cleanup=()=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);};
   pending.set(id,{resolve,reject:reason=>{cleanup();reject(reason);},cleanup});signal?.addEventListener('abort',abort,{once:true});

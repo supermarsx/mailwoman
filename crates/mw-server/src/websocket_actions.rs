@@ -8,6 +8,7 @@ use tower::ServiceExt;
 use crate::AppState;
 #[derive(Clone)]
 pub(crate) struct Dispatcher(pub Router);
+#[derive(Clone)]
 pub(crate) struct Context{headers:HeaderMap,extensions:axum::http::Extensions}
 impl<S:Send+Sync> FromRequestParts<S> for Context{
  type Rejection=Infallible;
@@ -33,13 +34,29 @@ pub(crate) async fn upgrade(State(state):State<AppState>,context:Context,ws:WebS
  let Some(dispatcher)=context.extensions.get::<Dispatcher>().cloned() else{return StatusCode::SERVICE_UNAVAILABLE.into_response();};
  ws.max_message_size(2*1024*1024).on_upgrade(move|mut socket|async move{
   if socket.send(Message::Text(json!({"type":"ready","protocol":"mailwoman-actions-v1"}).to_string().into())).await.is_err(){return;}
-  while let Some(Ok(frame))=socket.recv().await{
-   let Message::Text(text)=frame else{if matches!(frame,Message::Close(_)){return;}continue;};
-   let action:Action=match serde_json::from_str(&text){Ok(value)=>value,Err(_)=>{let _=socket.send(Message::Close(None)).await;return;}};
-   let id=action.id.clone();
-   let result=execute(&state,&context,&dispatcher,action).await;
-   let payload=match result{Ok((status,headers,body))=>json!({"id":id,"status":status,"headers":headers,"body":body}),Err(status)=>json!({"id":id,"notDispatched":status==StatusCode::FORBIDDEN,"status":status.as_u16(),"headers":{"content-type":"application/json"},"body":json!({"code":"websocketActionRefused"}).to_string()})};
-   if socket.send(Message::Text(payload.to_string().into())).await.is_err(){return;}
+  // Bound concurrent dispatches so one slow upstream read cannot hold every
+  // unrelated account action behind it. Each reply remains correlated by id.
+  let mut tasks=tokio::task::JoinSet::new();
+  loop {
+   tokio::select! {
+    frame=socket.recv(), if tasks.len()<8 => {
+     let Some(Ok(frame))=frame else{return;};
+     let Message::Text(text)=frame else{if matches!(frame,Message::Close(_)){return;}continue;};
+     let action:Action=match serde_json::from_str(&text){Ok(value)=>value,Err(_)=>{let _=socket.send(Message::Close(None)).await;return;}};
+     let state=state.clone();let context=context.clone();let dispatcher=dispatcher.clone();
+     tasks.spawn(async move {
+      let id=action.id.clone();
+      match execute(&state,&context,&dispatcher,action).await {
+       Ok((status,headers,body))=>json!({"id":id,"status":status,"headers":headers,"body":body}),
+       Err(status)=>json!({"id":id,"notDispatched":status==StatusCode::FORBIDDEN,"status":status.as_u16(),"headers":{"content-type":"application/json"},"body":json!({"code":"websocketActionRefused"}).to_string()})
+      }
+     });
+    },
+    reply=tasks.join_next(), if !tasks.is_empty() => {
+     let Some(Ok(payload))=reply else{return;};
+     if socket.send(Message::Text(payload.to_string().into())).await.is_err(){return;}
+    }
+   }
   }
  }).into_response()
 }
