@@ -1,3 +1,4 @@
+import {inertEmailDocument,authoredEmailStyle,type InertEmailDocument} from './inertEmailDocument.ts';
 // In-place patching of the message document (no reload, no flicker).
 //
 // Toggling "Show images", "Retry", or cancelling image loading only changes
@@ -57,11 +58,11 @@ export function patchOpAllowed(op: unknown, prefixes: readonly string[]): op is 
 
 interface Slot { s: 'b' | 'h'; el: Element; attrs: Partial<Record<PatchAttr, string>>; text?: string }
 /** Strips patchable values out of `doc` (in place) and returns them by slot. */
-function neutralise(doc: Document): Slot[] {
+function neutralise(doc: InertEmailDocument): Slot[] {
   const slots: Slot[] = [];
   const take = (s: 'b' | 'h', el: Element): void => {
     const slot: Slot = { s, el, attrs: {} };
-    if (s === 'b') for (const attr of PATCH_ATTRS) { const value = el.getAttribute(attr); if (value !== null) { slot.attrs[attr] = value; el.removeAttribute(attr); } }
+    if (s === 'b') for (const attr of PATCH_ATTRS) { const value = attr==='style'?authoredEmailStyle(el):el.getAttribute(attr); if (value !== null) { slot.attrs[attr] = value; el.removeAttribute(attr); } }
     if (el.tagName === 'STYLE') { slot.text = el.textContent ?? ''; el.textContent = ''; }
     slots.push(slot);
   };
@@ -78,8 +79,7 @@ function neutralise(doc: Document): Slot[] {
 export function diffReaderDocument(oldHtml: string, newHtml: string, prefixes: readonly string[]): PatchOp[] | null {
   if (oldHtml === newHtml) return [];
   if (oldHtml.length > 8 * 1024 * 1024 || newHtml.length > 8 * 1024 * 1024) return null;
-  const parser = new DOMParser();
-  const a = parser.parseFromString(oldHtml, 'text/html'), b = parser.parseFromString(newHtml, 'text/html');
+  const a=inertEmailDocument(oldHtml),b=inertEmailDocument(newHtml);
   const left = neutralise(a), right = neutralise(b);
   if (left.length !== right.length || a.documentElement.outerHTML !== b.documentElement.outerHTML) return null;
   const ops: PatchOp[] = [];

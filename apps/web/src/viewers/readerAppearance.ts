@@ -1,3 +1,4 @@
+import {inertEmailDocument,setInertAttribute} from './inertEmailDocument.ts';
 export type ReaderColorMode = 'original' | 'adaptive' | 'invert';
 export interface ReaderAppearance {
   colorMode: ReaderColorMode;
@@ -51,12 +52,12 @@ export function readerStyleDeclarations(style: string): string[] {
  *  so CSSOM removal silently kept every sender colour in Chromium only. */
 export function adaptReaderColors(html: string): string {
   if (typeof DOMParser === 'undefined') return html;
-  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const doc = inertEmailDocument(html);
   for (const element of doc.body.querySelectorAll<HTMLElement>('*')) {
     const style = element.getAttribute('style');
     if (style !== null) {
       const kept = readerStyleDeclarations(style).filter(part => !PAINT_PROPERTIES.has(part.slice(0, part.indexOf(':')).trim().toLowerCase()));
-      if (kept.length) element.setAttribute('style', kept.map(part => part.trim()).join(';'));
+      if (kept.length) setInertAttribute(element,'style',kept.map(part=>part.trim()).join(';'));
       else element.removeAttribute('style');
     }
     for (const attribute of ['bgcolor', 'color', 'text']) element.removeAttribute(attribute);

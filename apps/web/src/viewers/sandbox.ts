@@ -1,3 +1,4 @@
+import {inertEmailDocument,setInertAttribute,type InertEmailDocument} from './inertEmailDocument.ts';
 // Sandboxed-container helpers for the attachment viewers (plan §1.7 / §2.4).
 //
 // Image / text / audio / video render inside an `<iframe sandbox="">` — the
@@ -208,9 +209,9 @@ const BODY_STYLE =
 export function withImageLoadingHints(html: string): string {
   if (!/<img\b/i.test(html)) return html;
   if (typeof DOMParser === 'undefined') return html;
-  let doc: Document;
+  let doc: InertEmailDocument;
   try {
-    doc = new DOMParser().parseFromString(html, 'text/html');
+    doc = inertEmailDocument(html);
   } catch {
     return html;
   }
@@ -295,8 +296,8 @@ function styleProp(style: string, name: string): string | null {
  */
 export function withBlockedImagePlaceholders(html: string, all = false): string {
   if (!/<img\b/i.test(html) || typeof DOMParser === 'undefined') return html;
-  let doc: Document;
-  try { doc = new DOMParser().parseFromString(html, 'text/html'); } catch { return html; }
+  let doc: InertEmailDocument;
+  try { doc = inertEmailDocument(html); } catch { return html; }
   let changed = false;
   for (const img of Array.from(doc.body.querySelectorAll('img'))) {
     const src = (img.getAttribute('src') ?? '').trim();
@@ -318,7 +319,7 @@ export function withBlockedImagePlaceholders(html: string, all = false): string 
     else kind = alt === '' ? 'deco' : 'box';
     if (kind === 'sized' && wpx !== null && hpx !== null) {
       const ratio = `aspect-ratio:${wpx}/${hpx}`;
-      img.setAttribute('style', style.trim() === '' ? ratio : `${style.replace(/;\s*$/, '')};${ratio}`);
+      setInertAttribute(img,'style',style.trim()===''?ratio:`${style.replace(/;\s*$/, '')};${ratio}`);
     }
     img.setAttribute('data-mw-blocked-src', /^mw-rc:\d+$/.test(src) ? src : '');
     img.setAttribute('data-mw-ph', kind);
@@ -337,14 +338,14 @@ export function withBlockedImagePlaceholders(html: string, all = false): string 
  * has nothing to reject and the layout the sender declared is preserved. */
 function withoutBodyMedia(html: string): string {
   // Images stay as source-less attribute-only placeholders (BLOCKED_IMAGE_STYLE).
-  const doc = new DOMParser().parseFromString(withBlockedImagePlaceholders(html, true), 'text/html');
+  const doc = inertEmailDocument(withBlockedImagePlaceholders(html,true));
   for (const media of doc.body.querySelectorAll('video,audio,source,track')) media.remove();
   for (const element of doc.body.querySelectorAll('[background],[style]')) {
     element.removeAttribute('background');
     const style = element.getAttribute('style');
     if (style === null) continue;
     const kept = readerStyleDeclarations(style).filter(part => !/url\s*\(|image-set\s*\(/i.test(part));
-    if (kept.length) element.setAttribute('style', kept.join(';'));
+    if (kept.length) setInertAttribute(element,'style',kept.join(';'));
     else element.removeAttribute('style');
   }
   return doc.body.innerHTML;

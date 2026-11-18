@@ -18,7 +18,8 @@ it('keeps images as source-less placeholders, and drops their data-image CSS in 
   expect(doc).not.toContain('<source');
   expect(doc).not.toContain('data:image');
   expect(doc).not.toContain('blocked.test');
-  expect(doc).toContain('width:200px;color:red');
+  const cell=new DOMParser().parseFromString(doc,'text/html').querySelector('td');
+  expect(cell?.style.width).toBe('200px');expect(cell?.style.color).toBe('red');
   expect(bodyFrameDoc('plain-text', { text: 'Plain message' })).not.toContain('data:image');
   expect(doc).toContain("default-src 'none'");
 });

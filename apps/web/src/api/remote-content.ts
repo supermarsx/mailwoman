@@ -1,3 +1,4 @@
+import {inertEmailDocument,setInertAttribute,type InertEmailDocument} from '../viewers/inertEmailDocument.ts';
 import { basePath, withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
 import { isNativeAuth, nativeServerBase } from './serverAddress.ts';
@@ -32,7 +33,7 @@ export async function signContent(emailId: string, refs: { urls?: string[]; part
   if (!r.ok) throw new Error('Unable to authorize remote content');
   return await r.json() as SignedContent;
 }
-function documentOf(html: string): Document { return new DOMParser().parseFromString(html, 'text/html'); }
+function documentOf(html:string):InertEmailDocument{return inertEmailDocument(html);}
 function httpUrl(raw: string, httpsOnly = false): string | null {
   try { const u = new URL(raw); return (u.protocol === 'https:' || (!httpsOnly && u.protocol === 'http:')) && !u.username && !u.password ? u.href : null; } catch { return null; }
 }
@@ -96,7 +97,7 @@ export const FIRST_VIEWPORT_IMAGES = 6;
  * a `Priority` request field, which the image proxy schedules ahead of the
  * background queue (RFC 9218; the server also honours `x-mw-priority: high`).
  */
-function markFirstViewportImages(doc: Document): void {
+function markFirstViewportImages(doc: InertEmailDocument): void {
   let n = 0;
   for (const image of doc.querySelectorAll('img[src]')) {
     if (!/\/api\/rc\/i\//.test(image.getAttribute('src') ?? '')) continue;
@@ -139,7 +140,7 @@ export function rewriteReaderContent(html: string, signed: SignedContent, policy
       if (attr === 'src' && /^cid:/i.test(raw)) { const blob = cidParts[cid(raw)]; const src = blob ? partMap.get(blob) : undefined; if (src) element.setAttribute(attr, src); else element.removeAttribute(attr); continue; }
       const withParts = raw.replace(CID_TOKEN, token => { const blob = cidParts[cid(token)]; return (blob ? partMap.get(blob) : null) ?? EMPTY_IMAGE; });
       const value = withParts.replace(/mw-rc:(\d+)/g, (_, id: string) => (refs.get(id) ?? EMPTY_IMAGE).replace(/["'()\\\s<>]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase()));
-      element.setAttribute(attr, value);
+      setInertAttribute(element,attr,value);
     }
   }
   markFirstViewportImages(doc);

@@ -20,16 +20,14 @@ describe('isolated reader appearance', () => {
     expect(doc.querySelector('meta[http-equiv]')?.getAttribute('content')).toContain("default-src 'none'");
     expect(doc.querySelector('script')).toBeNull();
   });
-  it('removes sender paint even where the browser leaves inline styles unparsed', () => {
-    // Chromium does not parse style attributes in a DOMParser document under the app's
-    // style-src CSP, so CSSOM edits there are no-ops; model that with a no-op removeProperty.
-    const removeProperty = vi.spyOn(CSSStyleDeclaration.prototype, 'removeProperty').mockReturnValue('');
-    try {
-      const html = adaptReaderColors('<p style="COLOR: red; background-image:url(data:image/gif;base64,R0lG);margin:1px;font-family:\'a;b\'">x</p><table><tr><td style="background:#fff">y</td></tr></table>');
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      expect(doc.querySelector('p')?.getAttribute('style')).toBe("margin:1px;font-family:'a;b'");
-      expect(doc.querySelector('td')?.hasAttribute('style')).toBe(false);
-    } finally { removeProperty.mockRestore(); }
+  it('removes sender paint without constructing an active DOMParser document', () => {
+    const parser=vi.spyOn(DOMParser.prototype,'parseFromString').mockImplementation(()=>{throw new Error('must remain inert');});
+    let html:string;
+    try {html=adaptReaderColors('<p style="COLOR: red; background-image:url(data:image/gif;base64,R0lG);margin:1px;font-family:format">x</p><table><tr><td style="background:#fff">y</td></tr></table>');}
+    finally {parser.mockRestore();}
+    const doc=new DOMParser().parseFromString(html!,'text/html');
+    expect(doc.querySelector('p')?.style.color).toBe('');expect(doc.querySelector('p')?.style.margin).toBe('1px');
+    expect(doc.querySelector('td')?.hasAttribute('style')).toBe(false);
   });
   it('preserves sender paint in original mode and reverses image inversion', () => {
     const original = bodyFrameDoc('full-sanitized', { html: '<p style="color:red">Original</p>' }, { appearance: { ...appearance, colorMode: 'original' } });
