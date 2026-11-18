@@ -36,7 +36,7 @@ function LabelEditor(props:{value?:Tag;navigation:SettingsNavigation}):JSX.Eleme
     <ControlRow controlId="label-color-row" group label={t('labels-color')}>{()=><ColorField label={t('labels-color')} testId="label-color" value={draft().color} disabled={pending()} contrast={{against:'surface',use:'non-text'}} onChange={color=>{if(color)setDraft(value=>({...value,color}));}}/>}</ControlRow>
     <ControlRow controlId="label-icon" label={t('labels-icon')}>{()=><select id="label-icon" class={css.input} value={draft().icon} disabled={pending()} onChange={event=>setDraft(value=>({...value,icon:event.currentTarget.value}))}><For each={FOLDER_ICONS}>{icon=><option value={icon}>{t(`settings-folder-icon-${icon}`)}</option>}</For></select>}</ControlRow>
     <p class={css.meta}>{t('labels-keyword',{keyword:props.value?.id??keywordFor(draft().name)})}</p>
-    <div class={css.actions}><button class={css.button} disabled={!changed()||pending()} type="submit">{t('labels-save')}</button><button class={css.ghost} type="button" onClick={()=>void props.navigation.navigate({section:'labels'})}>{t('labels-back')}</button></div>
+    <div class={css.actions}><button class={css.ghost} type="button" onClick={()=>void props.navigation.navigate({section:'labels'})}>{t('labels-back')}</button><button class={css.button} disabled={!changed()||pending()} type="submit">{t('labels-save')}</button></div>
     <LeaveDialog/>
   </SettingsCard></form>;
 }

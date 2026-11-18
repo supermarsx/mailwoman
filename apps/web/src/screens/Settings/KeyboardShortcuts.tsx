@@ -38,7 +38,7 @@ function BindingEditor(props: { action: ShortcutAction; navigation: SettingsNavi
       <input id="shortcut-binding" class={`${css.input} settings-binding-input`} value={value()} disabled={disabled()} onInput={event => setValue(event.currentTarget.value)} aria-describedby={describedBy()}/>
     }</ControlRow>
     <Show when={error() || binding.error()}><p role="alert">{error() || binding.error()}</p></Show>
-    <div class={css.actions}><button type="button" class={css.button} disabled={disabled()} onClick={() => void save()}>{t('settings-shortcuts-save')}</button><button type="button" class={css.ghost} onClick={() => void props.navigation.navigate({ section: 'shortcuts' })}>{t('settings-shortcuts-back')}</button></div>
+    <div class={css.actions}><button type="button" class={css.ghost} onClick={() => void props.navigation.navigate({ section: 'shortcuts' })}>{t('settings-shortcuts-back')}</button><button type="button" class={css.button} disabled={disabled()} onClick={() => void save()}>{t('settings-shortcuts-save')}</button></div>
     <LeaveDialog/>
   </SettingsCard>;
 }

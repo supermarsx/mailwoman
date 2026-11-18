@@ -38,7 +38,7 @@ function SenderEditor(props:{accountId:string;locked:boolean;address:string;snap
   <label class={layout.label}>{t('receipts-sender-address')}<input class={css.input} type="text" inputMode="email" autocapitalize="off" spellcheck={false} required maxlength={254} value={address()} disabled={!!props.address} onInput={event=>setAddress(event.currentTarget.value)}/></label>
   <label class={layout.label}>{t('receipts-sender-decision')}<select class={css.input} value={decision()} onChange={event=>setDecision(event.currentTarget.value as 'always'|'never')}><option value="never">{t('receipts-sender-never')}</option><option value="always">{t('receipts-sender-always')}</option></select></label>
  </fieldset><Show when={error()}><p role="alert">{t(error())}</p></Show>
-  <div class={css.actions}><button class={css.button} type="submit" disabled={props.locked||busy()}>{t('receipts-senders-save')}</button><button type="button" class={css.ghost} disabled={busy()} onClick={()=>void guard.leave(props.onDone)}>{t('receipts-back')}</button></div>
+  <div class={css.actions}><button type="button" class={css.ghost} disabled={busy()} onClick={()=>void guard.leave(props.onDone)}>{t('receipts-back')}</button><button class={css.button} type="submit" disabled={props.locked||busy()}>{t('receipts-senders-save')}</button></div>
   <Show when={props.address}><div class={css.dangerZone}><button class={css.danger} type="button" disabled={props.locked||busy()} onClick={()=>void save(true)}>{t('receipts-senders-remove')}</button></div></Show>
  </form>{guard.dialog()}</section>;
 }

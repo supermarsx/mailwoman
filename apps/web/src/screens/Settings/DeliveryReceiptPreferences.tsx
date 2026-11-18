@@ -24,11 +24,11 @@ export function DeliveryReceiptPreferences(props:{accountId:string}):JSX.Element
   <form class={css.group} onSubmit={event=>void save(event)}><fieldset class={css.group} disabled={readOnly()}>
    <label class={css.check}><input type="checkbox" class={css.checkbox} checked={draft()} onChange={event=>{setDraft(event.currentTarget.checked);setSaved(false);}}/>{t('receipts-delivery-default')}</label>
   </fieldset><LockNote locked={setting.locked()}/><Show when={setting.error()}><p role="alert">{setting.error()}</p></Show>
-  {/* Save, inherit and back share one row; back stays usable while the default is held. */}
+  {/* Back, save and inherit share one row; back stays usable while the default is held. */}
   <div class={css.actions}>
+   <button type="button" class={css.ghost} disabled={setting.saving()} onClick={()=>void guard.leave(back)}>{t('receipts-back')}</button>
    <button type="submit" class={css.button} disabled={readOnly()||!dirty()}>{t('receipts-save')}</button>
    <button type="button" class={inheritLink} disabled={readOnly()} onClick={()=>void persist(true)}>{t('reader-inherit')}</button>
-   <button type="button" class={css.ghost} disabled={setting.saving()} onClick={()=>void guard.leave(back)}>{t('receipts-back')}</button>
   </div></form>{guard.dialog()}</section>
  </Show>;
 }
