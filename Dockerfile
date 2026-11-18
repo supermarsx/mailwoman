@@ -26,10 +26,17 @@ WORKDIR /web
 COPY apps/web/package.json apps/web/pnpm-lock.yaml apps/web/pnpm-workspace.yaml ./
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
-COPY apps/web/ ./
+# Only production build inputs: browser tests, reports and local fixture builds
+# must neither enter this layer nor invalidate it when they change.
+COPY apps/web/src ./src
+COPY apps/web/public ./public
+COPY apps/web/locales ./locales
+COPY apps/web/scripts ./scripts
+COPY apps/web/index.html apps/web/vite.config.ts apps/web/tsconfig.json ./
 # Hidden source maps: embedded for the server's stack-trace resolver, never served.
 ARG MW_SOURCEMAP=hidden
-RUN MW_SOURCEMAP=$MW_SOURCEMAP pnpm build
+RUN --mount=type=cache,id=mailwoman-web-transform-v1,target=/web/node_modules/.vite,sharing=shared \
+    MW_SOURCEMAP=$MW_SOURCEMAP pnpm build
 # -> /web/dist
 
 # ---------------------------------------------------------------------------
@@ -80,13 +87,15 @@ ENV RUSTUP_TOOLCHAIN=1.98.1 \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 COPY --from=rust-source /src/ /src/
 ENV MW_PRODUCT_SUPPORT_UNTIL=${MW_PRODUCT_SUPPORT_UNTIL}
+# Give the inert embedded placeholder a stable mtime: a fresh touch would
+# invalidate Cargo include_bytes dependencies on every build-layer rerun.
 # Cache the cargo registry and target dir across builds; copy the finished
 # binaries OUT of the (non-persisted) cache mount so later stages can COPY them.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,id=mailwoman-target-gnu-ni-${TARGETPLATFORM},target=/src/target,sharing=locked \
     if [ -n "$MW_BUILD_JOBS" ]; then export CARGO_BUILD_JOBS="$MW_BUILD_JOBS"; fi \
     && mkdir -p /src/apps/web/dist \
-    && touch /src/apps/web/dist/.gitkeep \
+    && touch -t 200001010000 /src/apps/web/dist/.gitkeep \
     && cargo build --locked --release --bin mailwoman --bin mw-render --bin mw-mock-jmap \
     && mkdir -p /out /data-empty \
     && cp target/release/mailwoman target/release/mw-render target/release/mw-mock-jmap /out/
@@ -169,12 +178,19 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,id=mailwoman-target-musl-ni,target=/src/target,sharing=locked \
     if [ -n "$MW_BUILD_JOBS" ]; then export CARGO_BUILD_JOBS="$MW_BUILD_JOBS"; fi \
     && mkdir -p /src/apps/web/dist \
-    && touch /src/apps/web/dist/.gitkeep \
-    && cargo build --locked --release --target x86_64-unknown-linux-musl \
+    && touch -t 200001010000 /src/apps/web/dist/.gitkeep \
+    && cargo build --locked --release --timings --target x86_64-unknown-linux-musl \
         --bin mailwoman --bin mw-render \
     && mkdir -p /out-musl \
     && cp target/x86_64-unknown-linux-musl/release/mailwoman \
-          target/x86_64-unknown-linux-musl/release/mw-render /out-musl/
+          target/x86_64-unknown-linux-musl/release/mw-render /out-musl/ \
+    && cp target/cargo-timings/cargo-timing.html /out-musl/cargo-timing.html
+
+# Export the default deployment compiler's per-crate timeline without copying
+# the source tree, compiler caches or application data into the report directory.
+# docker buildx build --target build-timings --output type=local,dest=.orchestration/build-timings .
+FROM scratch AS build-timings
+COPY --from=build-musl /out-musl/cargo-timing.html /cargo-timing.html
 
 # ---------------------------------------------------------------------------
 # Stage 6 — runtime-static: FROM scratch. The hardened production image (X3).

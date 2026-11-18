@@ -8,6 +8,132 @@ thin-LTO question `Cargo.toml` had deferred to a human since 26.9 (DQ-8).
 Every number here is wall-clock on the dev host. Nothing is estimated. Where a
 measurement is contaminated or does not transfer to the shipped platform, it says so.
 
+## 2026-11-18: web compilation and Docker inputs
+
+The current web build was profiled on Windows with Node 24.14.1 and pnpm
+11.12.0. The following runs used the same source tree and `pnpm build:profile`,
+without another compiler running. They are individual wall-clock samples, not
+statistical averages or Linux deployment estimates.
+
+| Run | Total | Module transformation | Rendering/writing | JSX cache |
+|---|---:|---:|---:|---:|
+| Previous pipeline (`MW_BUILD_CACHE=0 MW_CATALOG_ASSETS=0`) | 60.785 s | 48.518 s | 9.621 s | disabled |
+| New pipeline, first build | 53.698 s | 46.966 s | 4.385 s | 576 misses |
+| New pipeline, unchanged repeat | 37.019 s | 29.522 s | 5.054 s | 576 hits, zero misses |
+
+The repeat build is **39.1% faster** than the previous pipeline. The first build
+was **11.7% faster** in these samples. All **2,666 output files** of the first and
+repeat optimized builds had identical SHA-256 hashes, including the service-worker
+integrity manifest. These are samples of the final source including the new admin
+screens, measured with other compilers stopped; they are not Linux deployment timings.
+
+CPU sampling identified Babel JSX compilation and Rollup tree traversal as major
+costs, with garbage collection and filesystem work also visible. Transforming the
+module graph remains the largest phase after this pass.
+
+### Lazy translation assets
+
+Production previously emitted one executable JavaScript module per Fluent
+catalog. Catalogs now use Vite's hashed, same-origin text assets and retain lazy
+loading by locale and namespace. The main bundle went from **1,979 to 255 JavaScript
+chunks**, with 1,726 text assets in the optimized build. English common strings
+remain in the initial bundle; the full asset URL map loads with the first
+noncritical catalog instead of inflating the entry. An earlier same-source comparison before the additional admin screens measured
+entry gzip size decreasing from 289.6 to 275.7 KiB. The pre-existing 250 KiB size limit and literal-style
+CSP checks still fail on both pipelines; this pass does not relax those gates. Development and unit tests keep their raw imports.
+
+Text catalogs are never inlined as data URLs. They remain in the generated
+integrity manifest and offline precache. Browser tests cover lazy loading below a
+deployment URL prefix and loading a previously unopened locale while offline in
+both Chromium and Firefox.
+
+### Persistent production JSX transform cache
+
+Only the pure `vite-plugin-solid` production JSX/TSX transform is cached. Vite
+resolution, CSS extraction, tree shaking, minification, source maps, SBOM
+generation and integrity hashing still run. Development/HMR and SSR bypass the
+cache. Its key includes module identity and source, lockfile and package bytes,
+Vite configuration dependencies, Node version, mode, public environment, defines,
+output target and source-map mode. Cached results carry a checksum; corrupt,
+missing or unwritable caches fall back to normal compilation.
+
+The cache keeps one slot per module under
+`apps/web/node_modules/.vite/mailwoman-solid`, replacing changed revisions.
+Docker preserves this directory in a BuildKit cache mount. Set `MW_BUILD_CACHE=0`
+to bypass it for diagnosis. `MW_CATALOG_ASSETS=0` restores the previous catalog
+pipeline for an explicit comparison; it is not needed for normal builds.
+
+### Repeatable profiling
+
+Run from `apps/web`:
+
+```sh
+pnpm build:profile
+```
+
+The command prints phase timings, module/chunk counts, and cache hit/miss counts,
+and writes `node_modules/.cache/mailwoman-build/profile.json`. It uses the real
+production pipeline and does not add profiling code to shipped assets. Keep other
+compilers stopped while measuring; distinguish a first cache population, a warm
+rebuild, and a completely cached Docker layer. To gather a Node CPU profile:
+
+```sh
+node --cpu-prof scripts/profile-build.mjs
+```
+
+### Docker context and layer reuse
+
+A real Docker COPY probe confirmed that the old root-only ignore rules admitted
+nested browser-test output. On this workstation, `apps/web/.orchestration` alone
+contained **24,366 files / 695.7 MiB**. Recursive rules now exclude fixture builds,
+reports, coverage and local Vite caches. A second COPY probe confirmed the nested
+marker could no longer enter the context. This is excluded input, not deleted
+user data or a claimed reduction in final runtime-image size.
+
+The web stage now copies explicit production inputs instead of the entire web
+project. Browser test files are also excluded, so editing browser tests and
+reports no longer invalidates a production web layer. Dependency installation
+retains its manifest-only cache boundary; JSX transforms have a separate
+persistent BuildKit cache.
+
+The pinned Node 22 Alpine web stage also built successfully with hidden source
+maps: Vite reported **73 s**. That run included concurrent validation and is a
+compatibility result, not a comparison against the Windows timings. Exporting
+that diagnostic builder image took another **52.8 s**, including unpacking; the
+builder image includes development dependencies and is not the shipped runtime.
+
+The embedded empty SPA placeholder now has a fixed timestamp. A fresh `touch`
+was marking an unchanged `include_bytes!` dependency newer than Cargo's last
+artifact whenever a compilation layer reran. A focused Cargo fixture reproduced
+the unnecessary rebuild and verified that the fixed timestamp leaves it fresh.
+This also avoids embedding a variable modification time for that empty file.
+
+The image workflow now separately restores/saves the Cargo target/registry,
+pnpm store and JSX transform cache mounts. Docker's `gha` layer exporter alone
+[does not export cache mounts](https://docs.docker.com/build/ci/github-actions/cache/#cache-mounts).
+The mount-transfer action and its utility image are pinned. `actionlint` and a
+check of all four mappings against the Dockerfile passed; hosted cache transfer
+and CI speedup have not been measured in this session. Mount restoration is an
+optional acceleration: its failure does not block a normal compilation.
+
+The default musl server build now also records Cargo's per-crate HTML timeline.
+Export the most recent build invocation's report without exporting the source tree:
+
+```sh
+docker buildx build --target build-timings \
+  --output type=local,dest=.orchestration/build-timings .
+```
+
+Open `.orchestration/build-timings/cargo-timing.html`. A reused compiler cache
+produces a warm/no-op report; it must not be presented as a cold compilation.
+The report remains outside the runtime image. The final/default Docker target is
+still `runtime-static`.
+
+The Rust release profile is unchanged. Its earlier LTO measurements below still
+apply; enabling LTO would spend more build time. Rust source inputs remain
+separate from the SPA, and the `rust-source` Docker stage was verified after the
+ignore changes. A source-stage check alone does not prove a full runtime build.
+
 ## Measurement host and method
 
 | | |
@@ -260,3 +386,17 @@ future lane that owns those crates, and out of scope for a build-profile pass.
   the budget is now 21 MB (self-contained 126 MB) — same file, new section. The
   numbers quoted elsewhere in this document are the 26.x measurements as taken then
   and are left as written.
+
+
+The production snapshot supplied during this investigation copied a 104,854,867,968-byte
+SQLite file and took **1,025 seconds** just for the data copy. That is a separate
+source of deployment delay from compilation. See [database maintenance](../admin/database-maintenance.md)
+for measurement, repair and the explicit `--skip-backup` option. No production
+repair or data deletion was performed from this workspace.
+
+A sampled cold musl compiler was still solving nested future `Send` auto-traits
+in the large server crate after dependencies finished, using several GiB of RAM.
+The full release experiment was stopped without a completed runtime image; it
+is not evidence of a successful image build or of a measured server speedup.
+Boxed-future experiments were reverted because their release improvement was not
+established. The host library/binary check passed; Rust release settings remain unchanged.

@@ -31,3 +31,16 @@ System.Diagnostics.Process
 # Docs and CI aren't needed inside the image build
 docs
 .github
+
+# Generated artifacts can occur below apps/web and other workspace projects.
+# Exclude them at every depth so local browser runs never enter build layers.
+**/.orchestration
+**/test-results
+**/playwright-report
+**/coverage
+**/.vite
+
+# These are validation inputs, not dependencies of the shipped web bundle.
+apps/web/e2e
+apps/web/src/**/*.test.ts
+apps/web/src/**/*.test.tsx
