@@ -146,3 +146,14 @@ it('never attributes raw-ID-only legacy draft bytes to a verified realm',()=>{
  localStorage.clear();const legacy={...draft('legacy')};delete (legacy as Partial<StoredDraft>).storageAuthority;localStorage.setItem('mw.compose.drafts.v1',JSON.stringify([legacy]));
  expect(listDrafts('account-a','test-storage-authority-a')).toEqual([]);expect(localStorage.getItem('mw.compose.drafts.v1')).toContain('legacy');
 });
+
+it('keeps separate notice choices in saved drafts and rejects invalid selection modes',()=>{
+ const saved=draft('notice',{noticeMode:'manual',noticeIds:['legal']});saveDraft(saved);
+ expect(listDrafts('account-a','test-storage-authority-a').find(row=>row.id==='notice')).toMatchObject({noticeMode:'manual',noticeIds:['legal']});
+ saveDraft({...saved,id:'invalid',noticeMode:'invalid'} as unknown as StoredDraft);
+ expect(listDrafts('account-a','test-storage-authority-a').some(row=>row.id==='invalid')).toBe(false);
+});
+it('preserves deleting every character from an existing draft',()=>{
+ saveDraft(draft('editing'));saveDraft(draft('editing',{to:'',subject:'',bodyText:'',bodyHtml:'',savedAt:2}));
+ expect(listDrafts('account-a','test-storage-authority-a')).toEqual([draft('editing',{to:'',subject:'',bodyText:'',bodyHtml:'',savedAt:2})]);
+});

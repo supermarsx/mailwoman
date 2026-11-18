@@ -33,3 +33,9 @@ it('does not discard a legacy draft if its encrypted replacement cannot be saved
  const api=await import('./drafts-store.ts');api.listDrafts(draft.accountId,draft.storageAuthority);await api.flushDrafts();
  expect(localStorage.getItem('mw.compose.drafts.v2')).toBe(raw);expect(api.draftPersistenceState()).toBe('unavailable');
 });
+
+it('retains legacy recovery when the encrypted vault refuses its replacement',async()=>{
+ vi.spyOn(shared.vault!,'put').mockResolvedValue(false);const raw=JSON.stringify([draft]);localStorage.setItem('mw.compose.drafts.v2',raw);
+ const api=await import('./drafts-store.ts');api.listDrafts(draft.accountId,draft.storageAuthority);await api.flushDrafts();
+ expect(localStorage.getItem('mw.compose.drafts.v2')).toBe(raw);expect(api.draftPersistenceState()).toBe('unavailable');
+});

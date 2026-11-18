@@ -1,4 +1,4 @@
-import './compose/nativeHtmlTestHarness.ts';
+import {chooseComposeFormat} from './compose/nativeHtmlTestHarness.ts';
 import {afterEach,beforeAll,expect,it,vi} from 'vitest';
 import {render,fireEvent,screen,waitFor,within} from '@solidjs/testing-library';
 import {Compose} from './Compose.tsx';
@@ -79,4 +79,20 @@ it.each(['revision-one','revision-two','switch-draft'])('saves with captured aut
  const removal=fetcher.mock.calls.find(call=>call[1]?.method==='DELETE');
  expect(new Headers(removal?.[1]?.headers).get('x-mailwoman-storage-authority')).toBe('test-storage-authority-acct1');
 
+});
+import {listDrafts} from './compose/drafts-store.ts';
+it('captures each input character in browser recovery without waiting for the server debounce',async()=>{
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>String(input).endsWith('/api/account/drafts')?json({accountId:'acct1',storageAuthority:'test-storage-authority-acct1',supported:true,items:[]}):json({})));
+ const app=createAppState(makeClient());await app.login({username:'me@example.org',password:'p'});
+ await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.draftSaveMode':{value:'manual',source:'user',locked:false}}})});
+ render(()=><AppContext.Provider value={app}><Compose embedded onClose={()=>{}}/></AppContext.Provider>);
+ await chooseComposeFormat('plain');
+ const body=screen.getByLabelText('Body');
+ for(const value of ['one','one🙂','one🙂  \nnext']){fireEvent.input(body,{target:{value}});expect(listDrafts('acct1','test-storage-authority-acct1')[0]?.bodyText).toBe(value);}
+ const subject=await screen.findByLabelText('Subject');
+ for(const value of ['a','ab','ab🙂','ab🙂  ']){
+  fireEvent.input(subject,{target:{value}});
+  expect(listDrafts('acct1','test-storage-authority-acct1')[0]?.subject).toBe(value);
+ }
+ fireEvent.input(subject,{target:{value:''}});expect(listDrafts('acct1','test-storage-authority-acct1')[0]?.subject).toBe('');
 });

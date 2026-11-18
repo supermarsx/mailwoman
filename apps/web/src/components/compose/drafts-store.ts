@@ -84,21 +84,23 @@ export interface StoredDraft {
 
 let draftGeneration=0,localRevision=0;
 let memory:StoredDraft[]=[],seenLegacy:string|undefined;
+let writeTicket=0,publishingDrafts=false;
 let writes:Promise<void>=Promise.resolve(),hydrating:Promise<void>|undefined;
 const [draftPersistenceState,setPersistence]=createSignal<'loading'|'saving'|'saved'|'unavailable'>('loading');
 export {draftPersistenceState};
 const draftKey=(draft:Pick<StoredDraft,'storageAuthority'|'accountId'|'id'>)=>JSON.stringify([draft.storageAuthority,draft.accountId,draft.id]);
 function schedule(run:()=>Promise<void>):void {
- setPersistence('saving');
- writes=writes.then(run,run).then(()=>{setPersistence('saved');publishOfflineChange('drafts');},()=>{setPersistence('unavailable');});
+ const ticket=++writeTicket;setPersistence('saving');
+ writes=writes.then(run,run).then(()=>{if(ticket===writeTicket)setPersistence('saved');publishDrafts();},()=>{if(ticket===writeTicket)setPersistence('unavailable');});
 }
-export function flushDrafts():Promise<void>{return writes;}
+function publishDrafts():void{publishingDrafts=true;try{publishOfflineChange('drafts');}finally{publishingDrafts=false;}}
+export async function flushDrafts():Promise<void>{let pending:Promise<void>;do{pending=writes;await pending;}while(pending!==writes);}
 function notify(change:DraftChange):void {if(typeof window!=='undefined')window.dispatchEvent(new CustomEvent<DraftChange>(DRAFTS_CHANGED,{detail:change}));}
 async function migratePlaintext(raw:string):Promise<void>{
  const parsed:unknown=JSON.parse(raw),vault=await offlineVault();
  for(const draft of Array.isArray(parsed)?parsed.filter(isDraft):[]){
   const existing=await vault.get<StoredDraft>('composer-drafts',draftKey(draft));
-  if(!existing||existing.savedAt<draft.savedAt)await vault.put('composer-drafts',draftKey(draft),draft);
+  if((!existing||existing.savedAt<draft.savedAt)&&!await vault.put('composer-drafts',draftKey(draft),draft))throw new Error('Draft recovery storage unavailable');
  }
  if(localStorage.getItem(KEY)===raw)localStorage.removeItem(KEY);
 }
@@ -123,7 +125,7 @@ export function hydrateDrafts():Promise<void>{
    const merged=new Map(rows.filter(row=>isDraft(row.value)).map(row=>[draftKey(row.value),row.value]));
    for(const draft of memory)merged.set(draftKey(draft),draft);
    memory=[...merged.values()];
-   await writes;if(draftPersistenceState()!=='unavailable')setPersistence('saved');notify({kind:'save'});
+   const ticket=writeTicket;await writes;if(ticket===writeTicket&&draftPersistenceState()!=='unavailable')setPersistence('saved');notify({kind:'save'});
   }catch{setPersistence('unavailable');}
  })();
 }
@@ -193,7 +195,7 @@ function write(drafts: StoredDraft[],change:DraftChange): void {
  schedule(async()=>{
   const legacy=localStorage.getItem(KEY);if(legacy!==null)await migratePlaintext(legacy);
   const vault=await offlineVault();
-  if(saved)await vault.put('composer-drafts',draftKey(saved),saved);
+  if(saved){if(!await vault.put('composer-drafts',draftKey(saved),saved))throw new Error('Draft recovery storage unavailable');}
   else if(change.id&&change.accountId&&change.storageAuthority)await vault.remove('composer-drafts',JSON.stringify([change.storageAuthority,change.accountId,change.id]));
  });
  notify(change);
@@ -213,8 +215,10 @@ export function draftHasContent(d: Pick<StoredDraft, 'to' | 'cc' | 'bcc' | 'subj
 
 /** Insert or update a draft by id (no-op when it has no content yet). */
 export function saveDraft(draft: StoredDraft): void {
-  if (!draft.accountId || !isDraft(draft) || !draftHasContent(draft)) return;
-  const rest = read().filter((d) => d.id !== draft.id || d.accountId !== draft.accountId || d.storageAuthority!==draft.storageAuthority);
+  if (!draft.accountId || !isDraft(draft)) return;
+  const existing=read();
+  if(!draftHasContent(draft)&&!existing.some(row=>row.id===draft.id&&row.accountId===draft.accountId&&row.storageAuthority===draft.storageAuthority))return;
+  const rest = existing.filter((d) => d.id !== draft.id || d.accountId !== draft.accountId || d.storageAuthority!==draft.storageAuthority);
   write([draft, ...rest],{kind:'save',id:draft.id,accountId:draft.accountId,storageAuthority:draft.storageAuthority});
 }
 
@@ -246,7 +250,7 @@ export function newDraftId(): string {
 // Disk is authoritative for the recovery drawer in other windows. Active
 // composers retain their own editor state and still use server revisions.
 observeOfflineChanges(kind=>{
- if(kind!=='drafts')return;
+ if(kind!=='drafts'||publishingDrafts)return;
  const generation=draftGeneration,revision=localRevision;
  void writes.then(async()=>{
   const rows=await (await offlineVault()).list<StoredDraft>('composer-drafts');

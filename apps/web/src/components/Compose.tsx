@@ -85,6 +85,7 @@ import {
 } from './compose/ComposerExtras.tsx';
 import {
   draftPersistenceState,
+  flushDrafts,
   draftHasContent,
   listDrafts,
   saveDraft,
@@ -1105,7 +1106,7 @@ export function Compose(props: {
       }else{
         deleteDraft(id,draftAccount,draftAuthority?.storageAuthority);
       }
-      clearTimeout(saveTimer);pendingDraft=undefined;
+      pendingDraft=undefined;
       sent=true;allowRecoveryClose=true;props.onClose();
     }catch{if(current())remoteFailure('draftDiscardPending');}
     finally{
@@ -1134,9 +1135,10 @@ export function Compose(props: {
   /** Why closing now would lose the message (it is never stored), or null when a draft keeps it. */
   function unsavedCloseReason():string|null{
     const content=[to(),cc(),bcc(),subject(),body()].some(value=>value.trim()!=='')||attachments().length>0||inlineImages().length>0;
-    if(!content)return null;
+    if(!content&&!remoteWriter?.hasPending())return null;
     if(protectedDraft())return 'mail-draft-close-protected';
     if(!draftAuthority?.storageAuthority)return 'mail-draft-close-unstored';
+    if(draftPersistenceState()==='unavailable'&&remoteStatus()!=='saved')return 'mail-compose-encrypted-storage-unavailable';
     return null;
   }
   function confirmUnsavedClose(reason:string):Promise<boolean>{
@@ -1148,6 +1150,9 @@ export function Compose(props: {
   async function beforeDraftClose(discard=false):Promise<boolean>{
     if(sent||allowRecoveryClose||!ownsDraft())return true;
     if(closePrompt())return false;
+    try{await editorApi()?.whenReady?.();}catch{/* The last valid editor snapshot remains recoverable. */}
+    if(!ownsDraft())return true;
+    const final=currentDraftSnapshot();if(final&&!protectedDraft())pendingDraft=final;
     const reason=unsavedCloseReason();
     if(reason)return discard||confirmUnsavedClose(reason);
     // Closing is a local operation. A slow or failed account save must never trap
@@ -1157,18 +1162,19 @@ export function Compose(props: {
     if(pendingDraft&&ownsDraft()){
       if(remoteWriter?.isBusy()||remoteStatus()==='uncertain'||remoteStatus()==='conflict')pendingDraft={...pendingDraft,serverStatus:'uncertain'};
       saveDraft(pendingDraft);
+      await flushDrafts();
+      if(draftPersistenceState()==='unavailable'&&remoteStatus()!=='saved')return discard||confirmUnsavedClose('mail-compose-encrypted-storage-unavailable');
     }
-    clearTimeout(saveTimer);remoteWriter?.dispose();remoteAbort?.abort();
+    remoteWriter?.dispose();remoteAbort?.abort();
     return true;
   }
   async function closeWithDraftSave():Promise<void>{if(await beforeDraftClose())props.onClose();}
   onMount(()=>props.registerBeforeClose?.(beforeDraftClose,()=>!sent&&!allowRecoveryClose&&ownsDraft()&&unsavedCloseReason()!==null));
-  // W9 auto-save: debounce a snapshot of the composition to local storage so a
+  // W9 auto-save: persist every changed snapshot of the composition to local storage so a
   // closed / refreshed composer can be resumed. Empty compositions are skipped
   // (see `draftHasContent`). A composition quoting decrypted text is never
   // saved: local storage is plaintext, and the original was not.
   onMount(() => setDrafts(listDrafts(app.accountId(),localDraftAuthority())));
-  let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingDraft:StoredDraft | undefined;
   let sent=false;
   let draftAccount=app.accountId();
@@ -1197,7 +1203,7 @@ export function Compose(props: {
     if (draftAccount === null && account !== null) { draftAccount = account; draftAuthority=owner; setDrafts(listDrafts(account,localDraftAuthority())); }
     if (account !== draftAccount || (draftAuthority && !preferenceAccountIsCurrent(draftAuthority))) {
       remoteWriter?.dispose();remoteAbort?.abort();
-      clearTimeout(saveTimer); pendingDraft=undefined;
+       pendingDraft=undefined;
       setTo('');setCc('');setBcc('');setSubject('');setBody('');setBodyHtml('');setIdentityId('');setFromOverride('');setCustomFrom(false);
       for (const image of inlineImages()) if (image.previewUrl) URL.revokeObjectURL(image.previewUrl);
       setInlineImages([]);setAttachments([]);setDrafts([]);props.onClose();
@@ -1211,7 +1217,7 @@ export function Compose(props: {
       storageAuthority:draftAuthority?.storageAuthority??'',
       ...(draftSource()?{source:draftSource()!}:{}),
       ...(remoteRevision()?{serverRevision:remoteRevision()!}:{}),
-      ...(remoteStatus()==='uncertain'?{serverStatus:'uncertain' as const}:{}),
+      ...(['uncertain','saving','conflict'].includes(remoteStatus())?{serverStatus:'uncertain' as const}:{}),
       identityId: identityId(),
       importance:importance(),
       includeFileHashes:includeFileHashes(),attachPublicKey:attachPublicKey(),...(effectiveSentCopy()?{sentMailboxId:effectiveSentCopy()}:{}),
@@ -1221,12 +1227,12 @@ export function Compose(props: {
       insertedSignatures: [...insertedSignatures()],
       attachments: attachments().map(file => ({...file})),
       to: to(),
-      ...(cc().trim() !== '' ? { cc: cc() } : {}),
-      ...(bcc().trim() !== '' ? { bcc: bcc() } : {}),
+      cc: cc(),
+      bcc: bcc(),
       ...(threading().inReplyTo.length > 0 ? { inReplyTo: threading().inReplyTo } : {}),
       ...(threading().references.length > 0 ? { references: threading().references } : {}),
       subject: subject(),
-      bodyHtml: richMode() && editorApi() !== null ? joinLayout(layout(), stripEditorMarkers(bodyHtml())) : plainToHtml(body()),
+      bodyHtml: richMode() ? joinLayout(layout(), stripEditorMarkers(bodyHtml())) : plainToHtml(body()),
       bodyText: body(),
       savedAt: Date.now(),
       ...(replyToEdited() ? { replyTo: replyToText() } : {}),
@@ -1242,15 +1248,16 @@ export function Compose(props: {
     composerAuthority();
     if (protectedDraft() || account === null || account !== draftAccount || !draftAuthority?.storageAuthority) return;
     const snapshot=currentDraftSnapshot();if(!snapshot)return;
-    clearTimeout(saveTimer);
+
     pendingDraft=snapshot;
     ensureRemoteWriter();
-    if(draftHasContent(snapshot))remoteWriter?.update(draftEditorState(snapshot));
-    saveTimer = setTimeout(() => {if(!sent && ownsDraft() && app.accountId()===snapshot.accountId && app.me()!==null) saveDraft(snapshot);}, 800);
+    const keep=draftHasContent(snapshot)||listDrafts(account,draftAuthority.storageAuthority).some(row=>row.id===snapshot.id);
+    if(keep)remoteWriter?.update(draftEditorState(snapshot));
+    if(!sent&&ownsDraft()&&app.accountId()===snapshot.accountId&&app.me()!==null)saveDraft(snapshot);
   });
   createEffect(()=>{
     const protectedNow=protectedDraft(),offline=isOffline();remoteWriter?.suspend(protectedNow||offline);
-    if(protectedNow){clearTimeout(saveTimer);pendingDraft=undefined;}
+    if(protectedNow){pendingDraft=undefined;}
   });
   let remoteOwnerStarted=false;
   createEffect(()=>{const owner=composerAuthority();if(!remoteOwnerStarted&&owner?.storageAuthority&&ownsDraft()){remoteOwnerStarted=true;remoteAbort=new AbortController();void refreshRemoteDrafts();}});
@@ -1259,10 +1266,10 @@ export function Compose(props: {
     const values=settings();
     const mode=values['mail.draftSaveMode']?.value;
     remoteWriter?.configure({mode:(mode==='periodic'||mode==='manual'?mode:'realtime') as DraftSaveMode,debounceMs:Number(values['mail.draftDebounceMs']?.value??1000),intervalSecs:Number(values['mail.draftIntervalSecs']?.value??30)});
-    if(pendingDraft&&draftHasContent(pendingDraft))remoteWriter?.update(draftEditorState(pendingDraft));
+    if(pendingDraft&&(draftHasContent(pendingDraft)||listDrafts(pendingDraft.accountId,pendingDraft.storageAuthority).some(row=>row.id===pendingDraft!.id)))remoteWriter?.update(draftEditorState(pendingDraft));
   });
   onCleanup(()=>{remoteWriter?.dispose();remoteAbort?.abort();});
-  onCleanup(() => {clearTimeout(saveTimer);if(!sent && pendingDraft && ownsDraft() && app.me()!==null) saveDraft(pendingDraft);draftDisposed=true;});
+  onCleanup(() => {if(!sent && pendingDraft && ownsDraft() && app.me()!==null) saveDraft(pendingDraft);draftDisposed=true;});
 
   const recipientFields = {
     to: [to, setTo],
@@ -1812,7 +1819,7 @@ export function Compose(props: {
       });
       if (!ownsDraft()) return;
       // W9: the composition was sent — drop its auto-saved draft.
-      sent=true;releaseLiveReply();clearTimeout(saveTimer);pendingDraft=undefined;
+      sent=true;releaseLiveReply();pendingDraft=undefined;
       deleteDraft(draftId, draftAccount,draftAuthority?.storageAuthority);
       props.onClose();
     } catch (err) {
@@ -1903,13 +1910,14 @@ export function Compose(props: {
     if(!localDraftAuthority())items.push({id:'storage',severity:'warning',icon:'alert',label:t('mail-status-storage'),detail:t('mail-compose-private-storage-unavailable')});
     const status=remoteStatus();
     if(pendingDraft&&draftPersistenceState()==='unavailable'&&status!=='saved')items.push({id:'local-storage',severity:'warning',icon:'alert',label:t('mail-status-storage'),detail:t('mail-compose-encrypted-storage-unavailable')});
+    if(pendingDraft&&draftPersistenceState()==='saved'&&status!=='saved'&&!protectedDraft())items.push({id:'local-recovery',severity:'success',icon:'check',label:t('mail-draft-local-saved')});
     const draftBase={id:'draft',testId:'account-draft-status'};
     if(protectedDraft())items.push({...draftBase,severity:'neutral',icon:'lock',label:t('mail-status-protected'),detail:t('mail-draft-protected')});
     else if(status==='saving')items.push({...draftBase,severity:'busy',icon:'refresh',label:t('mail-status-saving')});
     else if(status==='saved')items.push({...draftBase,severity:'success',icon:'check',label:t('mail-status-saved',{time:savedTime(savedAt()??new Date())}),detail:t('mail-status-saved-full',{time:savedTime(savedAt()??new Date())})});
     else if(status==='pending')items.push({...draftBase,severity:'neutral',icon:'edit',label:t('mail-draft-status-pending')});
     else if(status==='error')items.push({...draftBase,severity:'danger',icon:'alert',label:t('mail-status-not-saved'),detail:t('mail-draft-status-error'),actionLabel:t('mail-status-retry'),onAction:()=>void remoteWriter?.flush()});
-    else if(status==='uncertain'||status==='conflict')items.push({...draftBase,severity:'warning',icon:'alert',label:t(status==='conflict'?'mail-status-conflict':'mail-status-uncertain'),detail:t(`mail-draft-status-${status}`),...(localDraftAuthority()?{actionLabel:t('mail-status-close-recovery'),onAction:()=>{allowRecoveryClose=true;props.onClose();}}:{})});
+    else if(status==='uncertain'||status==='conflict')items.push({...draftBase,severity:'warning',icon:'alert',label:t(status==='conflict'?'mail-status-conflict':'mail-status-uncertain'),detail:t(`mail-draft-status-${status}`),actionLabel:t('mail-status-retry'),onAction:()=>void remoteWriter?.flush()});
     else if(status==='unsupported')items.push({...draftBase,severity:'neutral',icon:'info',label:t('mail-status-unsupported'),detail:t('mail-draft-status-unsupported')});
     return items;
   });
