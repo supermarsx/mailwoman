@@ -9,15 +9,16 @@ import {clearDrafts,deleteDraft,saveDraft,listDrafts,type StoredDraft} from './d
 const authority='test-storage-authority-a';
 const draft=(id:string,over:Partial<StoredDraft>={}):StoredDraft=>({id,accountId:'a',storageAuthority:authority,to:'person@example.org',subject:'Reply',bodyHtml:'<p>Reply text</p>',bodyText:'Reply text',savedAt:1,source:{emailId:'message',keyword:'$answered'},...over});
 const remote=(id:string,over:Partial<AccountDraftDocument>={}):AccountDraftDocument=>({id,accountId:'a',storageAuthority:authority,revision:'r1',emailId:'server-draft',savedAt:2,status:'saved',cleanupPending:false,summary:{source:{emailId:'message',keyword:'$answered'}},...over});
+vi.mock('../../api/websocketActions.ts',async original=>({...await original<typeof import('../../api/websocketActions.ts')>(),websocketAction:vi.fn(async()=>undefined)}));
 let dispose:()=>void;
-beforeEach(()=>{localStorage.clear();activateAccountPreferences('a',authority);vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({accountId:'a',storageAuthority:authority,supported:true,items:[]}))));});
+beforeEach(()=>{clearDrafts();localStorage.clear();activateAccountPreferences('a',authority);vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({accountId:'a',storageAuthority:authority,supported:true,items:[]}))));});
 afterEach(()=>{dispose?.();suspendAccountPreferences();vi.unstubAllGlobals();});
 function index(){return createRoot(stop=>{dispose=stop;const [account,setAccount]=createSignal<string|null>('a');return {value:createReplyDraftIndex(account),setAccount};});}
 it('updates pending state on save/delete without falsely treating a draft or forward as answered',async()=>{
  const state=index();saveDraft(draft('reply'));expect(state.value().get('message')?.id).toBe('reply');
  saveDraft(draft('forward',{source:{emailId:'other',keyword:'$forwarded'}}));const legacy=draft('legacy');delete legacy.source;saveDraft(legacy);
  expect([...state.value().keys()]).toEqual(['message']);deleteDraft('reply','a',authority);expect(state.value().size).toBe(0);
- expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);clearDrafts();expect(state.value().size).toBe(0);
+ await waitFor(()=>expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1));clearDrafts();expect(state.value().size).toBe(0);
 });
 it('persists exact source metadata through local and restored account draft state',()=>{
  const saved=draft('reply');saveDraft(saved);expect(listDrafts('a',authority)[0]?.source).toEqual(saved.source);
