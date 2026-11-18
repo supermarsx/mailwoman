@@ -1592,11 +1592,20 @@ impl Store {
 
     // ---- bodies (sealed at rest) ---------------------------------------
 
-    /// Seal and store a raw/parsed body blob; returns its opaque `blob_ref`.
+    /// Seal and store an immutable body once per account/content pair. A keyed,
+    /// account-bound reference prevents both cross-account correlation and an
+    /// ever-growing duplicate blob on every authoritative resync.
     pub async fn put_body(&self, account_id: &str, plaintext: &[u8]) -> Result<String, StoreError> {
-        let blob_ref = seal::random_token();
+        use sha2::{Digest, Sha256};
+        let account_key = seal::hmac_sha256(&self.key.derive("mw-body-reference-v1"), account_id.as_bytes());
+        let tag = seal::hmac_sha256(&account_key, &Sha256::digest(plaintext));
+        let blob_ref: String = tag.iter().map(|byte| format!("{byte:02x}")).collect();
+        if q("SELECT blob_ref FROM bodies WHERE blob_ref=?1 AND account_id=?2")
+            .bind(&blob_ref).bind(account_id).fetch_optional(&self.backend).await?.is_some() {
+            return Ok(blob_ref);
+        }
         let sealed = self.key.seal(plaintext)?;
-        q("INSERT INTO bodies (blob_ref, account_id, sealed_bytes) VALUES (?1, ?2, ?3)")
+        q("INSERT INTO bodies (blob_ref, account_id, sealed_bytes) VALUES (?1, ?2, ?3) ON CONFLICT(blob_ref) DO NOTHING")
             .bind(&blob_ref)
             .bind(account_id)
             .bind(sealed)
@@ -3205,6 +3214,39 @@ mod tests {
         // error: most deployments never configure Assist at all.
         s.delete_message(&kept).await.unwrap();
         assert_eq!(s.count_message_embeddings(&account_id).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn identical_bodies_are_reused_without_reencrypting_and_remain_account_private() {
+        let s = store().await;
+        let first = seed_account(&s).await;
+        let second = seed_account(&s).await;
+        let body = b"From: sender@example.test\r\n\r\nUnchanged message";
+        let id = s.put_body(&first, body).await.unwrap();
+        let ciphertext = q("SELECT sealed_bytes FROM bodies WHERE blob_ref=?1").bind(&id)
+            .fetch_one(s.backend()).await.unwrap().get_blob("sealed_bytes");
+        for _ in 0..20 { assert_eq!(s.put_body(&first, body).await.unwrap(), id); }
+        assert_eq!(q("SELECT sealed_bytes FROM bodies WHERE blob_ref=?1").bind(&id)
+            .fetch_one(s.backend()).await.unwrap().get_blob("sealed_bytes"), ciphertext);
+        assert_ne!(s.put_body(&second, body).await.unwrap(), id);
+        assert_ne!(s.put_body(&first, b"Changed message").await.unwrap(), id);
+        assert_eq!(q("SELECT COUNT(*) FROM bodies").fetch_scalar_i64(s.backend()).await.unwrap(), 3);
+        assert_eq!(s.get_body(&id).await.unwrap().unwrap(), body);
+    }
+
+    #[tokio::test]
+    async fn concurrent_ingestion_cannot_duplicate_an_identical_body() {
+        let s = store().await;
+        let account = seed_account(&s).await;
+        let mut tasks = tokio::task::JoinSet::new();
+        for _ in 0..8 {
+            let s = s.clone(); let account = account.clone();
+            tasks.spawn(async move { s.put_body(&account, b"Concurrent body").await.unwrap() });
+        }
+        let mut ids = std::collections::BTreeSet::new();
+        while let Some(result) = tasks.join_next().await { ids.insert(result.unwrap()); }
+        assert_eq!(ids.len(), 1);
+        assert_eq!(q("SELECT COUNT(*) FROM bodies").fetch_scalar_i64(s.backend()).await.unwrap(), 1);
     }
 
     #[tokio::test]
