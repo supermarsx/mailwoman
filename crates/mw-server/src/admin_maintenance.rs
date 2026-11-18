@@ -71,6 +71,7 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
         Capability::MaintenanceRead,
         search_index_status,
     );
+    r.admin_endpoint(Method::POST,"/maintenance/logs",Capability::MaintenanceRun,maintain_logs);
     // t76: the console's own address for the metadata passthrough. The admin
     // cookie is scoped to the console path, so the browser no longer sends it to
     // `/jmap/api`; the console posts the same JMAP request here instead.
@@ -80,6 +81,16 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
         Capability::ServerMetadataWrite,
         metadata_jmap,
     );
+}
+
+#[derive(Deserialize)]
+struct LogMaintenance { #[serde(default)] rotate:bool }
+async fn maintain_logs(State(state):State<AppState>,ctx:AdminCtx,Json(request):Json<LogMaintenance>)->Result<Response,crate::admin_ctx::AdminApiError>{
+    ctx.require_unscoped(Capability::MaintenanceRun)?;
+    let result=tokio::task::spawn_blocking(move||crate::observability::log_files::maintain_now(request.rotate)).await
+        .map_err(crate::admin_ctx::AdminApiError::internal)?.map_err(crate::admin_ctx::AdminApiError::internal)?;
+    audit(&state,&ctx.username,"maintain-log-files","application-logs",result.clone()).await;
+    Ok(([(axum::http::header::CACHE_CONTROL,"no-store")],Json(result)).into_response())
 }
 
 /// `POST {console}/server-metadata/jmap`: [`try_admin_jmap_passthrough`] at the

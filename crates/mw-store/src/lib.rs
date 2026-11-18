@@ -34,6 +34,7 @@ pub mod audit_identity;
 pub mod diag;
 pub mod database_observability;
 pub mod database_growth;
+pub mod database_maintenance;
 pub mod diagnostics;
 mod directory_display;
 pub mod feature_governance;

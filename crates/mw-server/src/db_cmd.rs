@@ -27,6 +27,26 @@ pub struct DbArgs {
 pub enum DbCommand {
     /// Print the file's state and the configured key source. Changes nothing.
     Status,
+    /// Preview or apply offline cleanup. Stop ALL writers before --apply.
+    Cleanup {
+        #[arg(long)]
+        apply: bool,
+        /// Confirm that the server and every database writer have been stopped.
+        #[arg(long, requires = "apply")]
+        offline: bool,
+        /// Remove cached bodies with no message reference (never live mail).
+        #[arg(long)]
+        orphan_bodies: bool,
+        /// Purge the default sibling search index; rebuild it after restarting.
+        #[arg(long)]
+        purge_search_index: bool,
+        /// Purge operational diagnostics older than N days (0 means all).
+        #[arg(long)]
+        logs_older_than_days: Option<u32>,
+        /// Rebuild SQLite to reclaim free pages. May need twice the DB size free.
+        #[arg(long)]
+        compact: bool,
+    },
     /// Print a new random 256-bit key as 64 hex characters.
     Keygen,
     /// Encrypt a plaintext database in place (copy, verify, swap). Stop the server first.
@@ -116,6 +136,17 @@ pub async fn run(args: DbArgs) -> anyhow::Result<()> {
         bail!("`mailwoman db` works on a SQLite file; for Postgres see docs/admin/encryption.md");
     };
     match args.command {
+        DbCommand::Cleanup {apply,offline,orphan_bodies,purge_search_index,logs_older_than_days,compact} => {
+            if apply&&!offline {bail!("stop every writer first, then acknowledge with --offline; omit --apply for a read-only preview");}
+            if !orphan_bodies&&!purge_search_index&&logs_older_than_days.is_none()&&!compact {bail!("select --orphan-bodies, --logs-older-than-days N and/or --compact");}
+            if purge_search_index {
+                if std::env::var("MW_SEARCH_DIR").ok().is_some_and(|dir|!dir.is_empty()) {bail!("index purge supports the default sibling directory only; use Maintenance > Rebuild search index for a custom MW_SEARCH_DIR");}
+                let result=mw_store::database_maintenance::purge_default_search_index(&path,apply).map_err(|e|anyhow::anyhow!(e.to_string()))?;
+                println!("Search index: {}",serde_json::to_string_pretty(&result)?);
+            }
+            let result=mw_store::database_maintenance::sqlite_maintenance(&path,apply,orphan_bodies,logs_older_than_days,compact).await.map_err(|e|anyhow::anyhow!(e.to_string()))?;
+            println!("{}",serde_json::to_string_pretty(&result)?);
+        }
         DbCommand::Keygen => {
             println!("{}", DbKey::generate().to_hex().as_str());
         }

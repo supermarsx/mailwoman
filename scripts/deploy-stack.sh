@@ -54,7 +54,7 @@ services:
       retries: 24
     logging:
       driver: json-file
-      options: {max-size: 10m, max-file: '3'}
+      options: {max-size: 10m, max-file: '3', compress: 'true'}
   valkey:
     image: $VALKEY_IMAGE
     restart: unless-stopped
@@ -76,7 +76,7 @@ services:
       retries: 12
     logging:
       driver: json-file
-      options: {max-size: 10m, max-file: '3'}
+      options: {max-size: 10m, max-file: '3', compress: 'true'}
 networks:
   store:
     internal: true

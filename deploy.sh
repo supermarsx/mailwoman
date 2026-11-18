@@ -59,6 +59,9 @@ NO_BUILD=false
 BUILD_JOBS=
 BUILD_INCREMENTAL=0
 AUTO_ROLLBACK=true
+SKIP_BACKUP=false
+MAINTENANCE_APPLY=false
+MAINTENANCE_OPTIONS=()
 REQUIRE_SIGNATURE=false
 DRY_RUN=false
 GEOIP=false
@@ -68,6 +71,7 @@ INIT_OPTIONS=false
 LOCKED=false
 RESUME_CONTAINER=
 HELPER_CONTAINER=
+MAINTENANCE_CONTAINER=
 WORK=
 LAST_BACKUP=
 PRUNE_REPLACED=false
@@ -98,6 +102,7 @@ Commands (default: deploy):
   stop              Stop services; retain all containers, volumes, and backups
   start             Start the last applied configuration and verify health
   restart           Restart the last applied configuration and verify health
+  maintenance       Preview offline database cleanup; --apply stops app and applies it
   backup            Stop the app briefly; snapshot data, uploads, config and key
                     (one encrypted archive when BACKUP_RECIPIENT is set), then
                     publish to BACKUP_TARGETS_FILE destinations and run BACKUP_HOOK
@@ -142,6 +147,12 @@ Options:
   --incremental     Opt in to cached incremental Rust compilation (off by default: stale incremental state in a reused target cache caused link failures)
   --no-incremental  Force incremental compilation off (the default)
   --no-pull         Deploy the current checkout without updating Git
+  --apply            Apply maintenance cleanup (otherwise preview only)
+  --orphan-bodies    Reclaim cached message bodies with no message reference
+  --compact          Rebuild SQLite to reclaim free pages
+  --purge-search-index  Remove the default index; rebuild from Maintenance afterwards
+  --logs-older-than-days N  Purge operational diagnostics older than N days (0 = all)
+  --skip-backup       Skip the deploy/maintenance copy; disables automatic rollback
   --no-auto-rollback
                     Leave a failed update in place instead of restoring the
                     previous release and its data automatically
@@ -245,7 +256,7 @@ port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 declare -A REQUESTED=()
 while (($#)); do
     case "$1" in
-        init|deploy|doctor|status|check|logs|stop|start|restart|backup|rollback|restore|prune|timers|geoip)
+        init|deploy|doctor|status|check|logs|stop|start|restart|backup|rollback|restore|prune|timers|geoip|maintenance)
             $ACTION_SET && die "Specify only one command"
             ACTION=$1; ACTION_SET=true
             if [[ $ACTION == restore ]]; then need_value "$@"; SNAPSHOT=$2; shift; fi ;;
@@ -270,6 +281,10 @@ while (($#)); do
         --no-incremental) BUILD_INCREMENTAL=0 ;;
         --no-pull) GIT_PULL=false ;;
         --no-auto-rollback) AUTO_ROLLBACK=false ;;
+        --skip-backup) SKIP_BACKUP=true ;;
+        --apply) MAINTENANCE_APPLY=true ;;
+        --orphan-bodies|--compact|--purge-search-index) MAINTENANCE_OPTIONS+=("$1") ;;
+        --logs-older-than-days) need_value "$@"; [[ $2 =~ ^[0-9]{1,6}$ ]] || die "Invalid log age in days"; MAINTENANCE_OPTIONS+=("$1" "$2"); shift ;;
         --replaced) PRUNE_REPLACED=true ;;
         --yes) ASSUME_YES=true ;;
         --identity) need_value "$@"; IDENTITY=$2; shift ;;
@@ -281,6 +296,13 @@ while (($#)); do
     shift
 done
 
+if $SKIP_BACKUP; then
+    [[ $ACTION == deploy || $ACTION == maintenance && $MAINTENANCE_APPLY == true ]] || die "--skip-backup applies only to deploy or maintenance --apply"
+    if [[ $ACTION == deploy ]]; then AUTO_ROLLBACK=false; fi
+fi
+if $MAINTENANCE_APPLY || ((${#MAINTENANCE_OPTIONS[@]})); then
+    [[ $ACTION == maintenance ]] || die "Cleanup options apply only to maintenance"
+fi
 if [[ -n $BUILD_JOBS ]]; then
     [[ $BUILD_JOBS =~ ^[1-9][0-9]{0,2}$ ]] || die "--build-jobs must be an integer from 1 to 999"
 fi
@@ -512,8 +534,17 @@ validate_app_env() {
 cleanup() {
     local result=$?
     trap - EXIT
+    # Stop an interrupted one-off writer before the app can resume on this file.
+    if [[ -n ${MAINTENANCE_CONTAINER:-} ]]; then
+        if ! docker rm -f "$MAINTENANCE_CONTAINER" >/dev/null 2>&1; then
+            if [[ $(docker inspect --format '{{.State.Running}}' "$MAINTENANCE_CONTAINER" 2>/dev/null || true) == true ]]; then
+                log "Maintenance is still running; app remains stopped. Stop $MAINTENANCE_CONTAINER before restarting the app"
+                RESUME_CONTAINER=
+            fi
+        fi
+    fi
     if [[ -n $RESUME_CONTAINER ]]; then
-        log "Resuming app after interrupted/failed snapshot"
+        log "Resuming app after snapshot or offline maintenance"
         docker start "$RESUME_CONTAINER" >/dev/null || log "Recovery needed: docker start $RESUME_CONTAINER"
     fi
     if [[ -n $HELPER_CONTAINER ]]; then docker rm "$HELPER_CONTAINER" >/dev/null 2>&1 || true; fi
@@ -582,7 +613,8 @@ if $DRY_RUN; then
         network) log "Bring-your-own HTTPS proxy: no Caddy or host port; upstream http://$PROJECT:8080 on Docker network $PROXY_NETWORK." ;;
     esac
     case "$ACTION" in
-        deploy) log "Prepare runtime image (${IMAGE:-$($NO_BUILD && printf 'last applied image' || printf 'build Dockerfile --target runtime-static')}${IMAGE:+; signature checked when it is fetched from its registry and cosign is installed}); snapshot existing data; apply Compose; verify app and public HTTP(S)$($AUTO_ROLLBACK && printf '; if an update fails that check, restore the previous release and its data')." ;;
+        deploy) log "Prepare runtime image (${IMAGE:-$($NO_BUILD && printf 'last applied image' || printf 'build Dockerfile --target runtime-static')}${IMAGE:+; signature checked when it is fetched from its registry and cosign is installed}); $(if $SKIP_BACKUP; then printf 'skip backup copy (--skip-backup)'; else printf 'snapshot existing data'; fi); apply Compose; verify app and public HTTP(S)$($AUTO_ROLLBACK && printf '; if an update fails that check, restore the previous release and its data')." ;;
+        maintenance) log "Preview selected cleanup; --apply stops the app, optionally snapshots it, cleans selected stores, then resumes it." ;;
         restore|rollback) log "Validate snapshot checksums; save current installation; restore snapshot to a new volume; apply and verify. Post-snapshot writes will not be in the restored app." ;;
         *) log "Would run $ACTION. No files, containers, networks or volumes changed." ;;
     esac
@@ -910,7 +942,7 @@ services:
       retries: 12
     logging:
       driver: json-file
-      options: {max-size: 10m, max-file: '3'}
+      options: {max-size: 10m, max-file: '3', compress: 'true'}
 EOF
     if [[ $EXPOSURE == caddy ]]; then
         [[ $CADDY_ID =~ ^sha256:[0-9a-f]{64}$ ]] || die "Invalid Caddy image ID"
@@ -956,7 +988,7 @@ $caddy_env
         ipv4_address: $PROXY_PREFIX.2
     logging:
       driver: json-file
-      options: {max-size: 10m, max-file: '3'}
+      options: {max-size: 10m, max-file: '3', compress: 'true'}
 networks:
   default:
     ipam:
@@ -1531,6 +1563,36 @@ case "$ACTION" in
     stop) load_active; compose "$ACTIVE" stop --timeout 60; log "Stopped; data retained" ;;
     start) load_active; require_free_ports; ensure_proxy_network; compose "$ACTIVE" up -d --wait --wait-timeout "$TIMEOUT"; verify ;;
     restart) load_active; require_free_ports; ensure_proxy_network; compose "$ACTIVE" restart; compose "$ACTIVE" up -d --no-recreate --wait --wait-timeout "$TIMEOUT"; verify ;;
+    maintenance)
+        load_active
+        [[ $STACK == single ]] || die "This offline cleanup currently supports SQLite installations; use the PostgreSQL maintenance tools for full stack"
+        ((${#MAINTENANCE_OPTIONS[@]})) || die "Choose --orphan-bodies, --compact, --purge-search-index and/or --logs-older-than-days N"
+        if $MAINTENANCE_APPLY; then
+            if ! $SKIP_BACKUP; then
+                snapshot keep-stopped
+                record_snapshot pre-maintenance "$LAST_BACKUP"
+            else
+                log "Skipping maintenance backup (--skip-backup); retain a verified backup separately"
+                cid=$(compose "$ACTIVE" ps --all -q mailwoman)
+                [[ -n $cid ]] || die "No app container found"
+                if [[ $(docker inspect --format '{{.State.Running}}' "$cid") == true ]]; then
+                    RESUME_CONTAINER=$cid
+                    snapshot_progress "Stopping app for offline maintenance" "" docker stop -t 60 "$cid" >/dev/null
+                fi
+            fi
+            MAINTENANCE_CONTAINER="${PROJECT}-maintenance-$$_$RANDOM"
+            snapshot_progress "Applying offline maintenance" "" compose "$ACTIVE" run --rm --name "$MAINTENANCE_CONTAINER" --no-deps -T mailwoman db cleanup --apply --offline "${MAINTENANCE_OPTIONS[@]}"
+            MAINTENANCE_CONTAINER=
+        else
+            log "Read-only maintenance preview; no data will be removed"
+            compose "$ACTIVE" run --rm --no-deps -T mailwoman db cleanup "${MAINTENANCE_OPTIONS[@]}"
+        fi
+        if [[ -n $RESUME_CONTAINER ]]; then
+            docker start "$RESUME_CONTAINER" >/dev/null
+            RESUME_CONTAINER=
+            compose "$ACTIVE" up -d --no-recreate --wait --wait-timeout "$TIMEOUT" mailwoman
+        fi
+        ;;
     backup)
         load_active
         if [[ -n $BACKUP_TARGETS_FILE ]]; then
@@ -1573,6 +1635,7 @@ case "$ACTION" in
             validate_config
             [[ $applied_stack != full || $STACK == full ]] || die "Changing full-stack PostgreSQL back to SQLite requires a separate export"
             if [[ $applied_stack == single && $STACK == full ]]; then
+                $SKIP_BACKUP && die "--skip-backup cannot be used for SQLite-to-full-stack migration: migration needs the consistent source snapshot"
                 MIGRATE_STACK=true
                 POSTGRES_VOLUME="${PROJECT}_postgres_migrate_$(date -u +%Y%m%dT%H%M%SZ)_$$_$RANDOM"
             fi
@@ -1642,8 +1705,15 @@ case "$ACTION" in
         if [[ -f $STATE/rollback.path ]]; then IFS= read -r previous_rollback < "$STATE/rollback.path"; fi
         phase "Protect installation data"
         if [[ -f $ACTIVE/release.env ]]; then
-            if $MIGRATE_STACK; then snapshot keep-stopped; stack_migrate_sqlite; else snapshot; fi
-            printf '%s\n' "$LAST_BACKUP" > "$STATE/rollback.path"
+            if $SKIP_BACKUP; then
+                log "Skipping pre-deploy backup (--skip-backup); automatic rollback is disabled"
+                # An older snapshot must never masquerade as this deployment's backup.
+                rm -f -- "$STATE/rollback.path"
+                previous_rollback=
+            else
+                if $MIGRATE_STACK; then snapshot keep-stopped; stack_migrate_sqlite; else snapshot; fi
+                printf '%s\n' "$LAST_BACKUP" > "$STATE/rollback.path"
+            fi
         else
             log "First installation: creating the data volume; no previous snapshot needed"
             docker volume create --label "mailwoman.deploy.project=$PROJECT" "$DATA_VOLUME" >/dev/null

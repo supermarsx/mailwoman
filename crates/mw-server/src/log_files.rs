@@ -489,6 +489,25 @@ pub fn set_policy(p: Policy) {
     *cur = p;
 }
 
+/// Apply the configured age/count/size limits immediately, with optional rotation.
+/// No caller-supplied path and no bypass of the configured retention policy.
+pub fn maintain_now(rotate:bool)->io::Result<serde_json::Value>{
+    let p=policy();
+    let now=chrono::Utc::now().timestamp();
+    let removed={
+        let mut cell=sink_cell().lock().unwrap_or_else(|e|e.into_inner());
+        if rotate&&p.file_enabled {
+            let key=file_key().ok_or_else(||crypto_error("server key unavailable for log maintenance"))?;
+            let sink=cell.get_or_insert_with(||FileSink::new(p.directory.clone()));
+            sink.key=Some(key);
+            sink.rotate(now,&p)?;
+        }
+        let current=fs::metadata(p.directory.join(CURRENT)).map(|m|m.len()).unwrap_or(0);
+        enforce_limits(&p.directory,&p,now,current).len()
+    };
+    Ok(serde_json::json!({"removedFiles":removed,"rotationRequested":rotate&&p.file_enabled,"compressionMayBeRunning":rotate&&p.file_enabled&&p.compress,"status":status()}))
+}
+
 /// Bytes in the live file and the rotated files, for the console.
 pub fn status() -> serde_json::Value {
     let p = policy();

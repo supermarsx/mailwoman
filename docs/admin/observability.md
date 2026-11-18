@@ -137,3 +137,6 @@ Production stack frames point into minified bundles. Build the web app with `MW_
 ### Logs, metrics and forwarding
 
 Each stored report writes one `info` log line with target `client_error` (fingerprint, name, kind, boundary, build, route). The metrics endpoint exposes `mw_client_errors_total{kind,boundary}` and `mw_client_error_groups_open`. With `observability.client.forward` on and `MW_ERROR_FORWARD_URL` set, each scrubbed report is also posted to that sink. No OpenTelemetry or Sentry exporter is built in.
+
+For database growth, write origins, size inspections and repair commands, see
+[Database growth and maintenance](database-maintenance.md).

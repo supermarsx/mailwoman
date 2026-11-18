@@ -5,6 +5,7 @@ import {useShell} from './shell/context.ts';
 import {SectionTabs} from './shell/SectionTabs.tsx';
 import {sectionPath} from './shell/router.ts';
 import {MaintenanceMode} from './MaintenanceMode.tsx';
+import {CleanupMaintenance} from './CleanupMaintenance.tsx';
 import {RethreadMaintenance} from './RethreadMaintenance.tsx';
 import * as ux from './shell/ux.css.ts';
 export function Maintenance():JSX.Element {
@@ -14,6 +15,6 @@ export function Maintenance():JSX.Element {
     ...(shell.can.can('maintenance.read')?[{id:'mode',label:t('maintenance-mode-title'),path:sectionPath('maintenance')}]:[]),
     ...(shell.can.can('maintenance.run')?[{id:'jobs',label:t('maintenance-mode-jobs'),path:sectionPath('maintenance',['jobs'])}]:[]),
   ]} navigate={path=>{void shell.router.navigate(path);}}/>
-    <AdminSubtabPanel><Show when={jobs()} fallback={<Show when={shell.can.can('maintenance.read')}><MaintenanceMode readOnly={!shell.can.can('maintenance.write')}/></Show>}><RethreadMaintenance/></Show></AdminSubtabPanel>
+    <AdminSubtabPanel><Show when={jobs()} fallback={<Show when={shell.can.can('maintenance.read')}><MaintenanceMode readOnly={!shell.can.can('maintenance.write')}/></Show>}><><CleanupMaintenance/><RethreadMaintenance/></></Show></AdminSubtabPanel>
   </div>;
 }
