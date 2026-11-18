@@ -28,9 +28,11 @@ export const groupNavigation = style({display:'grid',gridTemplateColumns:'minmax
 
 export const layout = style({
   display: 'grid',
-  gridTemplateColumns: 'minmax(160px, 220px) minmax(220px, 340px) 1fr',
-  gap: vars.space[5],
+  gridTemplateColumns: 'minmax(160px, 200px) minmax(260px, 360px) minmax(0, 1fr)',
+  gap: vars.space[3],
   height: '100%',
+  minHeight:0,
+  boxSizing:'border-box',
   padding: vars.space[5],
   color: vars.color.text,
   fontFamily: vars.font.ui,
@@ -41,8 +43,11 @@ export const sidebar = style({
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[1],
-  borderInlineEnd: rule,
-  paddingInlineEnd: `calc(${vars.space[4]} - 1px)`,
+  border:hair,
+  background:vars.color.surface,
+  padding:vars.space[3],
+  minBlockSize:0,
+  overflowY:'auto',
   minWidth: 0,
 });
 
@@ -101,8 +106,11 @@ export const listPane = style({
   flexDirection: 'column',
   gap: vars.space[3],
   minWidth: 0,
-  borderInlineEnd: rule,
-  paddingInlineEnd: `calc(${vars.space[4]} - 1px)`,
+  border:hair,
+  background:vars.color.surface,
+  padding:vars.space[3],
+  minBlockSize:0,
+  overflowY:'auto',
 });
 
 export const toolbar = style({
@@ -127,6 +135,8 @@ export const contactList = style({
   flexDirection: 'column',
   gap: vars.space[1],
   overflowY: 'auto',
+  flex:'1 1 auto',
+  minBlockSize:0,
 });
 
 export const contactRow = style({
@@ -134,8 +144,9 @@ export const contactRow = style({
   alignItems: 'center',
   gap: vars.space[2],
   padding: `${vars.space[2]} ${vars.space[3]}`,
-  border: '1px solid transparent',
+  border: hair,
   borderRadius: vars.radius.md,
+  boxSizing:'border-box',
   background: vars.color.surface,
   cursor: 'pointer',
   width: '100%',
@@ -361,3 +372,21 @@ globalStyle(contactLinks.map((selector) => `${selector}:focus-visible`).join(', 
   background: vars.color.selection,
   '@media': { '(forced-colors: active)': { color: 'LinkText', background: 'Canvas', outlineColor: 'Highlight' } },
 });
+
+export const paneHeader=style({display:'flex',alignItems:'center',justifyContent:'space-between',gap:vars.space[3],paddingBlockEnd:vars.space[3],borderBlockEnd:hair});
+export const paneTitle=style({display:'flex',alignItems:'center',gap:vars.space[2],fontSize:'1.15rem',margin:0});
+export const scopeLabel=style({fontSize:'.8rem',color:vars.color.textDim,margin:`${vars.space[1]} 0 0`,overflowWrap:'anywhere'});
+export const navLabel=style({display:'inline-flex',alignItems:'center',gap:vars.space[2],minInlineSize:0});
+export const mobileBack=style({display:'none','@media':{'(max-width: 900px)':{display:'inline-flex',alignSelf:'start'}}});
+export const emptyCard=style({display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:vars.space[3],minBlockSize:'14rem',border:hair,padding:vars.space[5],textAlign:'center',color:vars.color.textDim,background:vars.color.surface});
+globalStyle(`${rowName}`,{display:'block',lineHeight:1.4});
+globalStyle(`${cardName}`,{display:'flex',alignItems:'center',gap:vars.space[3],overflowWrap:'anywhere'});
+globalStyle(`${cardHeader} > div:first-child`,{minInlineSize:0,flex:'1 1 16rem'});
+globalStyle(`${toolbar} button`,{display:'inline-flex',alignItems:'center',justifyContent:'center',gap:vars.space[2]});
+globalStyle(`${card} ${fieldGroup}`,{padding:vars.space[3],background:vars.color.bgAlt,border:hair});
+globalStyle(`${layout}[data-contact-open="true"] ${sidebar}, ${layout}[data-contact-open="true"] ${listPane}`,{'@media':{'(max-width: 900px)':{display:'none'}}});
+globalStyle(`${layout}[data-contact-open="false"] ${detail}`,{'@media':{'(max-width: 900px)':{display:'none'}}});
+
+export const searchTools=style({display:'flex',alignItems:'center',gap:vars.space[2],flex:'1 1 100%',minInlineSize:0});
+globalStyle(`${searchTools} > button`,{flexShrink:0,minInlineSize:'2rem',minBlockSize:'2rem'});
+globalStyle(`${searchTools} > span`,{flex:'1 1 auto',minInlineSize:0});

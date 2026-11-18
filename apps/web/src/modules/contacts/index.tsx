@@ -129,7 +129,7 @@ export function ContactsModule(): JSX.Element {
   }
 
   return (
-    <section aria-label={t('contacts-title')} data-module="contacts" data-range-selection-root class={panel() === 'view' ? css.layout : panel() === 'membership' || panel() === 'import' || panel() === 'merge' ? css.pageHost : css.editorPage}>
+    <section aria-label={t('contacts-title')} data-module="contacts" data-contact-open={app.selectedContactId()!==null} data-range-selection-root class={panel() === 'view' ? css.layout : panel() === 'membership' || panel() === 'import' || panel() === 'merge' ? css.pageHost : css.editorPage}>
         <Show when={panel() === 'group'}><GroupEditor books={app.addressBooks()} editing={editingGroup()!==null} initialName={app.contactGroups().find(group=>group.id===editingGroup())?.name??''} initialBook={app.contactGroups().find(group=>group.id===editingGroup())?.addressBookId??app.selectedAddressBookId()??app.addressBooks()[0]?.id??''} onSave={async(name,book)=>{const id=editingGroup();return id?(await app.updateGroup(id,{name})?id:null):app.createGroup(name,book);}} onSaved={()=>setPanel('view')} onCancel={()=>setPanel('view')}/></Show>
         {/* t39 R6: membership, import and merge are pages of their own (pages.tsx). */}
         <Show when={panel() === 'membership'}><MembershipPage initialGroup={membershipGroup()} onBack={back} onNewGroup={() => { setEditingGroup(null); setPanel('group'); }} /></Show>
@@ -169,8 +169,9 @@ export function ContactsModule(): JSX.Element {
       />
 
       <div class={css.listPane}>
+        <header class={css.paneHeader}><div><h1 class={css.paneTitle}><Icon name="users"/>{t('contacts-title')}</h1><p class={css.scopeLabel}>{app.selectedGroupId()?app.contactGroups().find(group=>group.id===app.selectedGroupId())?.name:app.favoritesOnly()?t('contacts-favorites'):app.addressBooks().find(book=>book.id===app.selectedAddressBookId())?.name??t('contacts-all')}</p></div><span class={css.chip}>{app.filteredContacts().length}</span></header>
         <div class={css.toolbar}>
-          <RangeSelectionToggle selection={bulk}/>
+          <div class={css.searchTools}><RangeSelectionToggle selection={bulk}/>
           <SearchInput
             
             class={css.input}
@@ -178,12 +179,12 @@ export function ContactsModule(): JSX.Element {
             placeholder={t('contacts-search')}
             value={app.contactSearch()}
             onInput={(e) => app.setContactSearch(e.currentTarget.value)}
-          />
+          /></div>
           <button type="button" class={css.button} onClick={() => { app.selectContact(null); setPanel('create'); }}>
-            {t('contacts-new')}
+            <Icon name="plus"/>{t('contacts-new')}
           </button>
           <button type="button" class={css.buttonGhost} onClick={() => setPanel('merge')}>
-            {t('contacts-find-duplicates')}
+            <Icon name="users"/>{t('contacts-find-duplicates')}
           </button>
         </div>
 
@@ -204,6 +205,7 @@ export function ContactsModule(): JSX.Element {
                     class={css.contactRow}
                     role="button"
                     tabindex={0}
+                    onMouseDown={event=>{if(event.button===0&&(bulk.mode()||event.shiftKey||event.ctrlKey||event.metaKey)){event.preventDefault();event.currentTarget.focus();}}}
                     aria-current={app.selectedContactId() === card().id}
                     onClick={event=>bulk.click(card().id,event,()=>openContact(card().id))}
                     data-selection-id={card().id} data-bulk-selected={selected().has(card().id)}
@@ -228,8 +230,9 @@ export function ContactsModule(): JSX.Element {
                     >
                       <Icon name={card().isFavorite ? 'star' : 'starOutline'} />
                     </button>
+                    <PersonAvatar name={contactDisplayName(card())} address={primaryEmail(card())}/>
                     <span class={css.rowBody}>
-                      <span class={css.rowName}><PersonAvatar name={contactDisplayName(card())} address={primaryEmail(card())}/><bdi>{contactDisplayName(card())}</bdi></span>
+                      <span class={css.rowName}><bdi>{contactDisplayName(card())}</bdi></span>
                       <span class={css.rowMeta}><bdi>{primaryEmail(card()) || card().organizations[0] || ''}</bdi></span>
                     </span>
                   </div>
@@ -245,25 +248,25 @@ export function ContactsModule(): JSX.Element {
             class={css.buttonGhost}
             onClick={() => download('contacts.vcf', toVCardDocument(app.filteredContacts()), 'text/vcard')}
           >
-            {t('contacts-export-vcard')}
+            <Icon name="download"/>{t('contacts-export-vcard')}
           </button>
           <button
             type="button"
             class={css.buttonGhost}
             onClick={() => download('contacts.csv', contactsToCsv(app.filteredContacts()), 'text/csv')}
           >
-            {t('contacts-export-csv')}
+            <Icon name="download"/>{t('contacts-export-csv')}
           </button>
         </div>
       </div>
       {rowMenu.menu()}
 
-      <div class={css.detail}>
+      <div class={css.detail}><Show when={app.selectedContact()!==null}><button type="button" class={`${css.buttonGhost} ${css.mobileBack}`} onClick={()=>app.selectContact(null)}><Icon name="chevronLeft"/>{t('common-back')}</button></Show>
         <Show when={panel() === 'view' && app.selectedContact() !== null}>
           <BusinessCard card={app.selectedContact()!} onEdit={() => setPanel('edit')} onManageMembership={manageMembership} />
         </Show>
         <Show when={panel() === 'view' && app.selectedContact() === null}>
-          <p class={css.empty}>{t('contacts-select-hint')}</p>
+          <div class={css.emptyCard}><Icon name="person"/><p>{t('contacts-select-hint')}</p></div>
         </Show>
       </div>
 
@@ -317,7 +320,7 @@ function Sidebar(props: {
         {...bookMenu.bind('all')}
         onClick={() => { app.selectAddressBook(null); app.setSelectedGroup(null); app.setFavoritesOnly(false); }}
       >
-        <span>{t('contacts-all')}</span>
+        <span class={css.navLabel}><Icon name="users"/>{t('contacts-all')}</span>
         <span class={css.count}>{app.contacts().length}</span>
       </button>
       <button
@@ -371,7 +374,7 @@ function Sidebar(props: {
       </For>
 
       <h2 class={css.heading}>{t('contacts-data')}</h2>
-      <button type="button" class={css.navButton} onClick={props.onImport}>{t('contacts-import')}</button>
+      <button type="button" class={css.navButton} onClick={props.onImport}><span class={css.navLabel}><Icon name="plus"/>{t('contacts-import')}</span></button>
       {bookMenu.menu()}{groupMenu.menu()}
     </aside>
   );
@@ -404,8 +407,8 @@ function BusinessCard(props: { card: ContactCard; onEdit: () => void; onManageMe
             <Icon name={card().isFavorite ? 'star' : 'starOutline'} /> {card().isFavorite ? t('contacts-favorited') : t('contacts-favorite-action')}
           </button>
           <ContactShareMenu card={card} triggerClass={css.buttonGhost} label onCompose={requestCompose} />
-          <button type="button" class={css.button} onClick={props.onEdit}>{t('common-edit')}</button>
-          <button type="button" class={css.buttonGhost} onClick={() => void app.deleteContact(card().id)}>{t('common-delete')}</button>
+          <button type="button" class={css.button} onClick={props.onEdit}><Icon name="edit"/>{t('common-edit')}</button>
+          <button type="button" class={css.buttonGhost} onClick={() => void app.deleteContact(card().id)}><Icon name="delete"/>{t('common-delete')}</button>
         </div>
       </div>
 
@@ -413,7 +416,7 @@ function BusinessCard(props: { card: ContactCard; onEdit: () => void; onManageMe
         <div class={css.fieldGroup}>
           <span class={css.fieldLabel}>{t('contacts-email')}</span>
           <For each={card().emails}>
-            {(e) => <div class={css.fieldRow}><a href={`mailto:${e.value}`}><bdi>{e.value}</bdi></a> <Show when={e.context}><span class={css.chip}><bdi>{e.context}</bdi></span></Show></div>}
+            {(e) => <div class={css.fieldRow}><a href={`mailto:${e.value}`} onClick={event=>{const initial=contactComposeInitial(e.value,card().name.full);if(initial){event.preventDefault();requestCompose(initial);}}}><bdi>{e.value}</bdi></a> <Show when={e.context}><span class={css.chip}><bdi>{e.context}</bdi></span></Show></div>}
           </For>
         </div>
       </Show>
