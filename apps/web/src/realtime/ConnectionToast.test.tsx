@@ -45,6 +45,7 @@ describe('ConnectionToast', () => {
     reconcileLinkedHealth('root-store',[{id:'link',...owner,displayName:'Child',status:'ready'}]);
     expect(toasts()).toHaveLength(0);
     reportAccountHealth(owner,'link','online');expect(toasts()).toHaveLength(0);
+    reportAccountHealth(owner,'link','syncing');reportAccountHealth(owner,'link','online');expect(toasts()).toHaveLength(0);
     reportAccountHealth(owner,'link','offline');expect(toasts().map(item=>item.tone)).toEqual(['warning']);
     reportAccountHealth(owner,'link','online');expect(toasts().map(item=>item.tone)).toEqual(['success']);
   });
@@ -217,4 +218,28 @@ describe('ConnectionToast across sign-in and sign-out', () => {
     controller.connection.setOffline();
     expect(screen.queryByRole('status')).toBeNull();
   });
+});
+
+it('warns once during rapid reconnects, keeps the warning through brief opens, and clears after a stable minute',()=>{
+ vi.useFakeTimers();const controller=makeController();renderToast(controller);
+ try{
+  for(let i=0;i<3;i++){controller.connection.report('open','ws');controller.connection.report('reconnecting','ws');}
+  expect(screen.getByRole('status')).toHaveAttribute('data-state','unstable');
+  expect(toasts().filter(row=>row.id==='connection-unstable')).toHaveLength(1);
+  controller.connection.report('open','ws');expect(screen.getByRole('status')).toHaveTextContent('Connection unstable');
+  expect(toastMessages()).not.toContain('Reconnected');
+  vi.advanceTimersByTime(60_000);expect(screen.queryByRole('status')).toBeNull();
+  expect(toasts().some(row=>row.id==='connection-unstable')).toBe(false);
+ }finally{controller.connection.report('closed','offline');vi.useRealTimers();}
+});
+it('tracks instability separately for linked mailboxes and waits before announcing recovery',()=>{
+ vi.useFakeTimers();setPrimaryMailboxAuthority('root');renderToast(makeController());
+ const child={accountId:'child',username:'child@example.org',storageAuthority:'child-authority'};
+ try{
+  for(let i=0;i<4;i++){reportAccountHealth(child,'link','syncing');reportAccountHealth(child,'link','offline');}
+  expect(toastMessages().join(' ')).not.toContain('keeps reconnecting');
+  for(let i=0;i<3;i++){reportAccountHealth(child,'link','online');reportAccountHealth(child,'link','offline');}
+  reportAccountHealth(child,'link','online');expect(toastMessages().join(' ')).toContain('keeps reconnecting');
+  vi.advanceTimersByTime(60_000);expect(toastMessages().join(' ')).toContain('connection restored');
+ }finally{clearAccountHealth();vi.useRealTimers();}
 });

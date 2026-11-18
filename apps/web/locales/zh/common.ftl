@@ -263,3 +263,7 @@ common-loading-still = 此页面仍在加载中。请稍候…
 
 attach-action-open-split = 在拆分视图中打开
 attach-action-forward-new = 在新邮件中转发
+
+common-conn-unstable = 连接不稳定 — 频繁断开。正在等待连接恢复稳定。
+common-conn-account-unstable = 连接不稳定
+common-conn-account-instability = 与 { $account } 的连接不稳定，正在反复重新连接。

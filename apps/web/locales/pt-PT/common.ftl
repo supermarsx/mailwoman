@@ -269,3 +269,7 @@ common-loading-still = Esta página ainda está a carregar. Aguarde…
 
 attach-action-open-split = Abrir em vista dividida
 attach-action-forward-new = Reencaminhar num novo email
+
+common-conn-unstable = Ligação instável — desconexões frequentes. A aguardar uma ligação estável.
+common-conn-account-unstable = Ligação instável
+common-conn-account-instability = A ligação a { $account } está instável e continua a restabelecer-se.

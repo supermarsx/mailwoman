@@ -282,3 +282,7 @@ common-loading-still = This page is still loading. Please wait…
 
 attach-action-open-split = Open in split view
 attach-action-forward-new = Forward in a new email
+
+common-conn-unstable = Connection unstable — frequent disconnections. Waiting for a stable connection.
+common-conn-account-unstable = Unstable connection
+common-conn-account-instability = The connection to { $account } is unstable and keeps reconnecting.

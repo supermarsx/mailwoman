@@ -44,3 +44,15 @@ it('carries account JSON reads over the action socket',async()=>{
  const frame=JSON.parse(Socket.latest.sent[0]!);expect(frame.path).toBe('/api/account/drafts');expect(frame.method).toBe('GET');
  Socket.latest.receive({id:frame.id,status:200,body:'{"items":[]}'});expect(await (await request)!.json()).toEqual({items:[]});
 });
+
+it('reports established action-socket losses without treating intentional closure as failure',async()=>{
+ const changes=vi.fn();const client=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',WebSocketImpl:socketType,onConnection:changes});
+ const request=client.send('/api/account/preferences',{});Socket.latest.receive({type:'ready',protocol:'mailwoman-actions-v1'});
+ await Promise.resolve();await Promise.resolve();
+ const frame=JSON.parse(Socket.latest.sent[0]!);Socket.latest.receive({id:frame.id,status:200,body:'{}'});await request;
+ expect(changes.mock.calls).toEqual([[true]]);Socket.latest.onclose?.();expect(changes.mock.calls).toEqual([[true],[false]]);
+ const next=client.send('/api/account/preferences',{});Socket.latest.receive({type:'ready',protocol:'mailwoman-actions-v1'});
+ await Promise.resolve();await Promise.resolve();
+ Socket.latest.receive({id:JSON.parse(Socket.latest.sent[0]!).id,status:200,body:'{}'});await next;
+ client.close();expect(changes.mock.calls).toEqual([[true],[false],[true]]);
+});

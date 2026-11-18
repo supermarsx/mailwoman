@@ -91,6 +91,19 @@ change that folder's selection. Toast actions execute in their originating
 window, which must remain open. Encrypted draft recovery updates across windows;
 an active editor retains its working copy until explicitly reopened.
 
+## Connection instability
+
+Mailwoman watches established live-update and action sockets, plus observed
+mailbox request health. Three losses within 60 seconds trigger an instability
+warning. Repeated attempts during the same outage and initial connection
+attempts do not count as separate losses. A brief reconnection keeps the warning;
+60 uninterrupted healthy seconds clear it. Signing out resets the detection.
+
+The live-update/action connection warning stays in the connection banner.
+Affected mailboxes receive an account-specific warning and an unstable status
+in their connection indicator. Connection warning toasts respect the existing
+notification preferences. Detection runs while Mailwoman is open.
+
 ## Verification
 
 `apps/web/e2e/sync-offline.spec.ts` builds the production transport, workers,

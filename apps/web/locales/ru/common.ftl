@@ -269,3 +269,7 @@ common-loading-still = Эта страница всё ещё загружает�
 
 attach-action-open-split = Открыть в разделённом виде
 attach-action-forward-new = Переслать в новом письме
+
+common-conn-unstable = Нестабильное соединение — частые отключения. Ожидание стабильного соединения.
+common-conn-account-unstable = Нестабильное соединение
+common-conn-account-instability = Соединение с { $account } нестабильно и постоянно переподключается.

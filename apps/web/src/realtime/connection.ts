@@ -11,6 +11,7 @@
 // hold. It is not a connectivity claim, so it must not read as `offline` — that
 // is what put "You are offline" on the login screen of an online browser.
 
+import {createConnectionStability} from './connectionStability.ts';
 import { createSignal, type Accessor } from 'solid-js';
 import type { PushStatus } from './pushClient.ts';
 import type { PushTransport } from '../contracts/push.ts';
@@ -25,6 +26,7 @@ export type ConnectionState =
 
 export interface ConnectionModel {
   state: Accessor<ConnectionState>;
+  unstable: Accessor<boolean>;
   transport: Accessor<PushTransport>;
   /** Fed by the push client on every lifecycle change. */
   report(status: PushStatus, transport: PushTransport): void;
@@ -59,6 +61,8 @@ function mapStatus(status: PushStatus): ConnectionState {
 }
 
 export function createConnection(): ConnectionModel {
+  const [unstable,setUnstable]=createSignal(false);
+  const stability=createConnectionStability(setUnstable);
   const [state, setState] = createSignal<ConnectionState>('idle');
   const [transport, setTransport] = createSignal<PushTransport>('offline');
   // Auth expiry outranks socket lifecycle: a reconnecting socket must not hide a
@@ -74,6 +78,8 @@ export function createConnection(): ConnectionModel {
   let netDown = false;
 
   function report(status: PushStatus, t: PushTransport): void {
+    if(status==='closed'||status==='unauthorized')stability.reset();
+    else stability.observe(status==='open');
     setTransport(t);
     active = status !== 'closed';
     last = { status, transport: t };
@@ -90,10 +96,12 @@ export function createConnection(): ConnectionModel {
 
   return {
     state,
+    unstable,
     transport,
     report,
     setOffline(): void {
       if (!active) return;
+      stability.observe(false);
       netDown = true;
       setTransport('offline');
       if (!authExpired) setState('offline');
@@ -102,10 +110,11 @@ export function createConnection(): ConnectionModel {
       if (!netDown || last === null) return;
       netDown = false;
       setTransport(last.transport);
-      if (!authExpired) setState(mapStatus(last.status));
+      if (!authExpired){stability.observe(last.status==='open');setState(mapStatus(last.status));}
     },
     setAuthExpired(): void {
       if (!active) return;
+      stability.reset();
       authExpired = true;
       setState('auth-expired');
     },

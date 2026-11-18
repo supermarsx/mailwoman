@@ -1,7 +1,8 @@
+import {actionConnectionStability} from '../realtime/connectionStability.ts';
 import {ApiError} from './errors.ts';
 /** A separate request socket keeps long JSON actions from blocking push events.
  * It uses the same authenticated HTTP routes on the server. Files stay HTTP. */
-export function createWebSocketActions(options:{endpoint:string;WebSocketImpl?:typeof WebSocket;timeoutMs?:number}){
+export function createWebSocketActions(options:{endpoint:string;WebSocketImpl?:typeof WebSocket;timeoutMs?:number;onConnection?:(connected:boolean)=>void}){
  let socket:WebSocket|undefined,ready=false,sequence=0,opening:Promise<boolean>|undefined,disabledUntil=0;
  const pending=new Map<string,{resolve:(value:Response|undefined)=>void;reject:(error:unknown)=>void;stop:()=>void}>();
  function close():void{
@@ -17,14 +18,14 @@ export function createWebSocketActions(options:{endpoint:string;WebSocketImpl?:t
    try{socket=new Constructor(options.endpoint);}catch{finish(false);opening=undefined;return;}
    socket.onmessage=event=>{
     let value:{type?:string;protocol?:string;id?:string;status?:number;headers?:Record<string,string>;body?:string;notDispatched?:boolean};try{value=JSON.parse(String(event.data));}catch{return;}
-    if(value.type==='ready'&&value.protocol==='mailwoman-actions-v1'){ready=true;finish(true);return;}
+    if(value.type==='ready'&&value.protocol==='mailwoman-actions-v1'){ready=true;options.onConnection?.(true);finish(true);return;}
     if(typeof value.id!=='string')return;const entry=pending.get(value.id);if(!entry)return;
     pending.delete(value.id);entry.stop();
     if(typeof value.status!=='number'||value.status<200||value.status>599||typeof value.body!=='string'){entry.reject(new ApiError(502,'Invalid action acknowledgement',{code:'outcomeUnknown'}));return;}
     if(value.status===403&&value.notDispatched===true){entry.resolve(undefined);close();return;}
     entry.resolve(new Response([204,205,304].includes(value.status)?null:value.body,{status:value.status,...(value.headers?{headers:value.headers}:{})}));
    };
-   socket.onerror=()=>{finish(false);close();};socket.onclose=()=>{finish(false);close();};
+   socket.onerror=()=>{options.onConnection?.(false);finish(false);close();};socket.onclose=()=>{options.onConnection?.(false);finish(false);close();};
   });
   const attempt=opening;return attempt.then(value=>{if(!value&&opening===attempt)opening=undefined;return value;});
  }
@@ -48,7 +49,7 @@ export function createWebSocketActions(options:{endpoint:string;WebSocketImpl?:t
  return {send,close};
 }
 let client:ReturnType<typeof createWebSocketActions>|undefined,endpoint='',proof='';
-export function clearWebSocketActions():void{client?.close();client=undefined;endpoint='';proof='';}
+export function clearWebSocketActions():void{actionConnectionStability.reset();client?.close();client=undefined;endpoint='';proof='';}
 export async function websocketAction(input:string,init:RequestInit|undefined,base:string,enabled=true):Promise<Response|undefined>{
  if(!enabled||init?.keepalive||init?.credentials==='omit'||init?.body!=null&&typeof init.body!=='string')return undefined;
  const root=new URL(base,globalThis.location?.href),target=new URL(input,globalThis.location?.href);
@@ -65,6 +66,6 @@ export async function websocketAction(input:string,init:RequestInit|undefined,ba
  const url=new URL(`${prefix}/jmap/actions`,root.origin);url.protocol=root.protocol==='https:'?'wss:':'ws:';
  const cookieProof=typeof document==='undefined'?null:document.cookie.split(';').map(part=>part.trim()).find(part=>part.startsWith('mw_csrf='))?.slice('mw_csrf='.length);
  const nextProof=headers.get('x-csrf-token')??cookieProof??'';
- if(endpoint!==url.href||proof!==nextProof){clearWebSocketActions();endpoint=url.href;proof=nextProof;client=createWebSocketActions({endpoint});}
+ if(endpoint!==url.href||proof!==nextProof){clearWebSocketActions();endpoint=url.href;proof=nextProof;client=createWebSocketActions({endpoint,onConnection:connected=>actionConnectionStability.observe(connected)});}
  return client!.send(path,init??{});
 }

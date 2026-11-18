@@ -1,3 +1,4 @@
+import {actionConnectionUnstable} from './connectionStability.ts';
 import {backgroundReplayState} from '../sw/register.ts';
 import {connectionToastAllowed} from '../api/notificationRuntime.ts';
 import {accountHealth} from './accountHealth.ts';
@@ -29,17 +30,18 @@ import type { ConnectionState } from './connection.ts';
 import { t } from '../i18n/index.ts';
 
 /** The states that put a banner on screen. */
-type BannerState = Exclude<ConnectionState, 'online' | 'idle'>;
+type BannerState = Exclude<ConnectionState, 'online' | 'idle'> | 'unstable';
 
 // Literal ids at each call, so check-catalog.mjs can resolve them.
 const MESSAGES: Record<BannerState, () => string> = {
+  unstable: () => t('common-conn-unstable'),
   connecting: () => t('common-conn-connecting'),
   degraded: () => t('common-conn-degraded'),
   offline: () => t('common-conn-offline'),
   'auth-expired': () => t('common-conn-auth-expired'),
 };
 
-function isBannerState(s: ConnectionState): s is BannerState {
+function isBannerState(s: ConnectionState|'unstable'): s is BannerState {
   return s !== 'online' && s !== 'idle';
 }
 
@@ -47,7 +49,7 @@ function isBannerState(s: ConnectionState): s is BannerState {
 const RECONNECTED_TOAST_ID = 'connection-reconnected';
 
 /** These states offer a manual "Reconnect" action from the top of the ladder. */
-const RECOVERABLE = new Set<ConnectionState>(['degraded']);
+const RECOVERABLE = new Set<ConnectionState|'unstable'>(['degraded','unstable']);
 
 export function ConnectionToast(): JSX.Element {
   const rt = useRealtime();
@@ -61,14 +63,24 @@ export function ConnectionToast(): JSX.Element {
     void app?.logout().catch(() => undefined);
   }
   const state = rt.connection.state;
-  const previousAccounts=new Map<string,string>();
+  const unstable=()=>rt.connection.unstable()||actionConnectionUnstable();
+  const displayedState=():ConnectionState|'unstable'=>{const current=state();return unstable()&&current!=='idle'&&current!=='auth-expired'&&current!=='offline'?'unstable':current;};
+  let warned=false;
+  createEffect(()=>{
+    const active=displayedState()==='unstable';
+    if(active&&!warned&&connectionToastAllowed())toast.warning(t('common-conn-unstable'),{id:'connection-unstable'});
+    if(!unstable()||state()==='idle'||state()==='auth-expired')toast.dismiss('connection-unstable');
+    warned=unstable();
+  });
+  const previousAccounts=new Map<string,{state:string;unstable:boolean}>();
   createEffect(()=>{
     for(const row of accountHealth()){
       if(row.root!==primaryMailboxAuthority())continue;
-      const previous=previousAccounts.get(row.id);previousAccounts.set(row.id,row.state);
-      if(previous===row.state||!connectionToastAllowed())continue;
+      const previous=previousAccounts.get(row.id);previousAccounts.set(row.id,{state:row.state,unstable:row.unstable===true});
+      if(previous?.state===row.state&&previous.unstable===(row.unstable===true)||!connectionToastAllowed())continue;
       const id=`account-connection:${row.id}`;
-      if(row.state==='online'){if(previous&&previous!=='online'&&previous!=='unknown')toast.success(t('common-conn-account-recovered',{account:row.label}),{id});else toast.dismiss(id);}
+      if(row.unstable&&row.state!=='auth-expired'){if(!previous?.unstable)toast.warning(t('common-conn-account-instability',{account:row.label}),{id});}
+      else if(row.state==='online'){if(previous&&(previous.unstable||['offline','degraded','auth-expired'].includes(previous.state)))toast.success(t('common-conn-account-recovered',{account:row.label}),{id});else toast.dismiss(id);}
       else if(row.state==='unknown')toast.dismiss(id);
       else if(row.state!=='syncing')toast.warning(t('common-conn-account-problem',{account:row.label,status:t(`common-conn-account-${row.state}`)}),{id,action:{label:t('common-conn-reconnect'),run:()=>{void app?.switchLinkedMailbox(row.linkId).then(()=>app.refreshCurrentMailbox()).catch(()=>{location.hash='#/settings/linked-accounts';});}}});
     }
@@ -83,7 +95,7 @@ export function ConnectionToast(): JSX.Element {
   createEffect(() => {
     const s = state();
     if (s === 'online') {
-      if (wasDown&&connectionToastAllowed()) toast.success(t('common-conn-reconnected'), { id: RECONNECTED_TOAST_ID });
+      if (wasDown&&!unstable()&&connectionToastAllowed()) toast.success(t('common-conn-reconnected'), { id: RECONNECTED_TOAST_ID });
       wasDown = false;
     } else if (s === 'idle') {
       // The session ended; there is nothing left to have recovered.
@@ -98,10 +110,8 @@ export function ConnectionToast(): JSX.Element {
 
   return (
     <>
-      <Show when={isBannerState(state())}>
-        {(() => {
-          const s = state() as BannerState;
-          return (
+      <Show when={isBannerState(displayedState())?displayedState() as BannerState:undefined} keyed>
+        {s => (
             <div
               class={`connection-toast connection-toast--${s}`}
               data-state={s}
@@ -121,8 +131,7 @@ export function ConnectionToast(): JSX.Element {
                 </button>
               </Show>
             </div>
-          );
-        })()}
+          )}
       </Show>
     </>
   );

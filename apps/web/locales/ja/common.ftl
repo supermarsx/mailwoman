@@ -249,3 +249,7 @@ common-loading-still = このページはまだ読み込み中です。しばら
 
 attach-action-open-split = 分割表示で開く
 attach-action-forward-new = 新しいメールで転送
+
+common-conn-unstable = 接続が不安定です — 切断が頻発しています。安定した接続を待っています。
+common-conn-account-unstable = 不安定な接続
+common-conn-account-instability = { $account } への接続が不安定で、再接続を繰り返しています。

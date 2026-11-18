@@ -648,6 +648,7 @@ body {
   background: var(--danger);
   color: var(--accent-text);
 }
+.connection-toast--unstable,
 .connection-toast--degraded {
   background: var(--warning);
   color: var(--accent-text);

@@ -264,3 +264,7 @@ common-loading-still = Deze pagina wordt nog geladen. Even geduld…
 
 attach-action-open-split = Openen in gesplitste weergave
 attach-action-forward-new = Doorsturen in een nieuwe e-mail
+
+common-conn-unstable = Instabiele verbinding — vaak verbroken. Wachten op een stabiele verbinding.
+common-conn-account-unstable = Instabiele verbinding
+common-conn-account-instability = De verbinding met { $account } is instabiel en wordt steeds opnieuw gemaakt.

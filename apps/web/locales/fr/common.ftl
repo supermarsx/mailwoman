@@ -254,3 +254,7 @@ common-loading-still = Cette page est toujours en cours de chargement. Veuillez 
 
 attach-action-open-split = Ouvrir en vue fractionnée
 attach-action-forward-new = Transférer dans un nouvel email
+
+common-conn-unstable = Connexion instable — déconnexions fréquentes. En attente d’une connexion stable.
+common-conn-account-unstable = Connexion instable
+common-conn-account-instability = La connexion à { $account } est instable et se reconnecte sans cesse.

@@ -258,3 +258,7 @@ common-loading-still = ما زال تحميل هذه الصفحة جاريًا. 
 
 attach-action-open-split = فتح في عرض منقسم
 attach-action-forward-new = إعادة التوجيه في رسالة جديدة
+
+common-conn-unstable = الاتصال غير مستقر — انقطاعات متكررة. في انتظار اتصال مستقر.
+common-conn-account-unstable = اتصال غير مستقر
+common-conn-account-instability = الاتصال بـ { $account } غير مستقر وتتم إعادة الاتصال باستمرار.
