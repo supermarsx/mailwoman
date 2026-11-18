@@ -2735,3 +2735,11 @@ admin-settings-help-security-protection-probe-path-mode = Applica blocca la sorg
 
 admin-settings-key-mail-row-actions = Disposizione delle azioni rapide
 admin-settings-help-mail-row-actions = Scegli e ordina le azioni rapide o inseriscile in Altro. Le azioni nascoste restano disponibili nel menu contestuale del messaggio.
+
+admin-settings-key-mail-cache-preload-headers = Precarica le intestazioni dei messaggi
+admin-settings-help-mail-cache-preload-headers = Carica destinatari, indirizzi di consegna, date e intestazioni di risposta con gli elenchi. Attivo per impostazione predefinita; senza scaricare corpi o allegati.
+
+admin-settings-key-mail-notices-enabled = Abilita avvisi
+admin-settings-help-mail-notices-enabled = Contenuto riutilizzabile aggiunto dopo la firma, separatamente. I modelli appartengono a questo account. Il testo è obbligatorio; HTML facoltativo viene ripulito prima dell’invio.
+admin-settings-key-mail-notices-templates = Avvisi dei messaggi
+admin-settings-help-mail-notices-templates = Tutte le condizioni devono corrispondere. I campi vuoti accettano tutto. Oggetto e corpo usano testo letterale senza distinzione di maiuscole. I destinatari interni condividono il dominio del mittente o uno attendibile. La scelta manuale sostituisce le regole.

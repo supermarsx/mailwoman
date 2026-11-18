@@ -258,3 +258,8 @@ common-conn-account-problem = { $account }: { $status }
 common-conn-background-unavailable = 请保持 Mailwoman 打开，以同步此设备上排队的更改。
 
 notification-center-action-success = { $action } · { $count }
+
+common-loading-still = 此页面仍在加载中。请稍候…
+
+attach-action-open-split = 在拆分视图中打开
+attach-action-forward-new = 在新邮件中转发

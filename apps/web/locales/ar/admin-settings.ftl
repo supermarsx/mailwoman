@@ -2757,3 +2757,11 @@ admin-settings-help-security-protection-probe-path-mode = يحظر وضع الإ
 
 admin-settings-key-mail-row-actions = تخطيط الإجراءات السريعة
 admin-settings-help-mail-row-actions = اختر الإجراءات السريعة ورتّبها أو ضعها في قائمة المزيد. تبقى الإجراءات المخفية متاحة في قائمة سياق الرسالة.
+
+admin-settings-key-mail-cache-preload-headers = تحميل رؤوس الرسائل مسبقًا
+admin-settings-help-mail-cache-preload-headers = جلب المستلمين وعناوين التسليم والتواريخ ورؤوس الرد مع قوائم الرسائل. مفعّل افتراضيًا؛ لا ينزّل محتوى الرسائل أو المرفقات.
+
+admin-settings-key-mail-notices-enabled = تفعيل الإشعارات
+admin-settings-help-mail-notices-enabled = محتوى قابل لإعادة الاستخدام يضاف بعد التوقيع بشكل مستقل. القوالب تخص هذا الحساب. النص مطلوب، وتُنقّى نسخة HTML الاختيارية قبل الإرسال.
+admin-settings-key-mail-notices-templates = إشعارات الرسائل
+admin-settings-help-mail-notices-templates = يجب تطابق جميع الشروط. الحقول الفارغة تقبل أي قيمة. البحث في الموضوع والنص حرفي ولا يميز حالة الأحرف. المستلمون الداخليون يشتركون في نطاق المرسل أو نطاق موثوق. الاختيار اليدوي يتجاوز القواعد.

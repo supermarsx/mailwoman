@@ -867,7 +867,7 @@ settings-permissions-push-server-error = El servidor no pudo registrar las notif
 settings-permissions-push-browser-error = El navegador no pudo crear la suscripción push. Revise los permisos del sitio, la compatibilidad y la conexión.
 settings-permissions-push-unlinked = Este navegador tiene una suscripción push aún no vinculada a esta cuenta.
 
-cache-prefetchEnabled-help = Precarga las carpetas probables antes de abrirlas. Desactivado por defecto; requiere la caché de sesión.
+cache-prefetchEnabled-help = Preparar las próximas carpetas antes de abrirlas. Activado por defecto; requiere la caché de sesión.
 cache-hoverEnabled-help = Precarga una carpeta al mantener el puntero sobre ella durante el tiempo indicado. Requiere precarga.
 cache-focusEnabled-help = Precarga una carpeta al mantener el foco del teclado durante el tiempo indicado. Requiere precarga.
 cache-dwellMs-help = Tiempo que el puntero o el foco debe permanecer en una carpeta antes de precargar.
@@ -908,3 +908,6 @@ settings-row-action-up = Subir { $name }
 settings-row-action-down = Bajar { $name }
 
 settings-permissions-push-account-help = Elige el buzón que deseas configurar. El permiso del navegador es compartido, pero el registro y la eliminación solo afectan a la cuenta seleccionada.
+
+cache-preloadHeaders = Precargar cabeceras de mensajes
+cache-preloadHeaders-help = Obtener destinatarios, direcciones de entrega, fechas y cabeceras de respuesta con las listas. Activado por defecto; no descarga cuerpos ni adjuntos.

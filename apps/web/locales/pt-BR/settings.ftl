@@ -886,7 +886,7 @@ settings-permissions-push-server-error = O servidor não conseguiu registrar as 
 settings-permissions-push-browser-error = O navegador não conseguiu criar a assinatura push. Verifique as permissões do site, a compatibilidade e o acesso à rede.
 settings-permissions-push-unlinked = Este navegador tem uma assinatura push ainda não vinculada a esta conta.
 
-cache-prefetchEnabled-help = Prepara as próximas pastas antes de abri-las. Desativado por padrão; requer o cache de sessão.
+cache-prefetchEnabled-help = Preparar as próximas pastas antes de abri-las. Ativado por padrão; requer o cache da sessão.
 cache-hoverEnabled-help = Prepara uma pasta quando o ponteiro permanece sobre ela, após o atraso abaixo. Requer pré-carregamento.
 cache-focusEnabled-help = Prepara uma pasta quando recebe foco pelo teclado, após o atraso abaixo. Requer pré-carregamento.
 cache-dwellMs-help = Tempo que o ponteiro ou foco deve permanecer numa pasta antes de iniciar o pré-carregamento.
@@ -927,3 +927,6 @@ settings-row-action-up = Mover { $name } para cima
 settings-row-action-down = Mover { $name } para baixo
 
 settings-permissions-push-account-help = Escolha a caixa de correio a configurar. A permissão do navegador é compartilhada, mas o registro e a remoção se aplicam apenas à conta selecionada.
+
+cache-preloadHeaders = Pré-carregar cabeçalhos das mensagens
+cache-preloadHeaders-help = Obter destinatários, endereços de entrega, datas e cabeçalhos de resposta com as listas. Ativado por padrão; não baixa corpos nem anexos.

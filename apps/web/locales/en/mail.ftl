@@ -487,7 +487,7 @@ mail-workspace-layout = Workspace layout
 mail-workspace-tabs = Tabs
 mail-workspace-side-by-side = Side by side
 mail-workspace-stack = Stacked
-mail-workspace-refresh = Refresh folder
+mail-workspace-refresh = Check for new mail
 mail-workspace-load-error = This message could not be loaded. Close the tab and try again.
 
 mail-resize-folders = Resize folders sidebar
@@ -688,13 +688,13 @@ mail-draft-status-pending = Unsaved changes
 mail-draft-status-saving = Saving to Drafts…
 mail-draft-status-saved = Saved to account Drafts
 mail-draft-status-error = Draft was not saved. Your local recovery copy remains available.
-mail-draft-status-uncertain = Save confirmation is missing. Check Drafts before creating another copy; automatic saving is paused.
-mail-draft-status-conflict = This draft changed on another device. Reopen its account copy before continuing.
+mail-draft-status-uncertain = Waiting for server confirmation; saving will retry automatically when safe.
+mail-draft-status-conflict = Checking the server draft before retrying your changes.
 mail-draft-status-unsupported = This account cannot currently confirm saves to its Drafts folder.
 mail-draft-protected = Encrypted or decrypted quoted content is not saved as plaintext. Any earlier account draft remains until you explicitly discard it.
 mail-draft-save-now = Save to Drafts
 mail-draft-save-failed = Could not save this draft to your account. Check the composer before closing it.
-mail-draft-uncertain = The draft may have been saved. Automatic retries are paused; check your Drafts folder.
+mail-draft-uncertain = Save confirmation is missing. Mailwoman will check again and retry safely.
 mail-draft-conflict = Another device changed this draft. Your edits have not overwritten its copy.
 mail-draft-cleanup-pending = The new draft was saved, but its previous copy could not be removed. Review Drafts before saving again.
 mail-draft-account-list = Account drafts
@@ -1471,3 +1471,9 @@ mail-attachment-warning-title = Attachment security warnings
 mail-attachment-warning-help = These files may run code or disguise their type. Verify the sender and filename before opening them.
 
 mail-compose-encrypted-storage-unavailable = Encrypted local recovery is unavailable. Keep this editor open or save the draft to the server before closing.
+
+mail-folder-check-complete = Folder checked for new mail.
+
+mail-reader-close-message = Close message
+
+mail-draft-local-saved = Saved in this browser

@@ -867,7 +867,7 @@ settings-permissions-push-server-error = Der Server konnte Hintergrundbenachrich
 settings-permissions-push-browser-error = Der Browser konnte kein Push-Abonnement erstellen. Prüfen Sie Websiteberechtigungen, Browserunterstützung und Netzwerk.
 settings-permissions-push-unlinked = Dieser Browser hat ein Push-Abonnement, das noch nicht mit diesem Konto verknüpft ist.
 
-cache-prefetchEnabled-help = Lädt wahrscheinliche nächste Ordner vorab. Standardmäßig aus; benötigt den Sitzungscache.
+cache-prefetchEnabled-help = Nächste Ordner vor dem Öffnen vorbereiten. Standardmäßig aktiviert; benötigt den Sitzungscache.
 cache-hoverEnabled-help = Lädt einen Ordner nach der unten eingestellten Zeigerverweildauer vor. Benötigt Vorladen.
 cache-focusEnabled-help = Lädt einen Ordner nach der unten eingestellten Tastaturfokusdauer vor. Benötigt Vorladen.
 cache-dwellMs-help = Verweildauer von Zeiger oder Tastaturfokus vor dem Vorladen.
@@ -908,3 +908,6 @@ settings-row-action-up = { $name } nach oben verschieben
 settings-row-action-down = { $name } nach unten verschieben
 
 settings-permissions-push-account-help = Wählen Sie das Postfach aus. Die Browserberechtigung wird geteilt, Registrierung und Entfernung gelten jedoch nur für das ausgewählte Konto.
+
+cache-preloadHeaders = Nachrichtenkopfzeilen vorladen
+cache-preloadHeaders-help = Empfänger, Zustelladressen, Datumsangaben und Antwortkopfzeilen mit den Listen laden. Standardmäßig aktiviert; keine Nachrichteninhalte oder Anhänge herunterladen.

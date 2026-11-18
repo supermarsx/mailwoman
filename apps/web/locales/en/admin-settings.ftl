@@ -2588,3 +2588,11 @@ admin-settings-help-realtime-actions-prefer-web-socket = Prefer WebSocket for su
 
 admin-settings-key-notifications-incoming-only-matching-rules = Only notify matching rules
 admin-settings-help-notifications-incoming-only-matching-rules = Notify only mail matching a Notify rule; matching mute rules, quiet hours and muted folders still take priority.
+
+admin-settings-key-mail-cache-preload-headers = Preload message headers
+admin-settings-help-mail-cache-preload-headers = Fetch recipients, delivery addresses, dates and reply headers with message lists. Enabled by default; message bodies and attachment files are not downloaded.
+
+admin-settings-key-mail-notices-enabled = Enable notices
+admin-settings-help-mail-notices-enabled = Reusable content added after the signature, independently of it. Templates belong to this account. Text is required for plain text and encrypted mail; optional HTML is sanitized before sending.
+admin-settings-key-mail-notices-templates = Message notices
+admin-settings-help-mail-notices-templates = All configured conditions must match. Empty fields match any value. Subject and body matches are case-insensitive literal text. Internal recipients share the sender domain or a trusted recipient domain. Manual selection overrides automatic rules.

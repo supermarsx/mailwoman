@@ -562,7 +562,7 @@ mail-workspace-layout = تخطيط مساحة العمل
 mail-workspace-tabs = علامات التبويب
 mail-workspace-side-by-side = جنبًا إلى جنب
 mail-workspace-stack = متراصّة
-mail-workspace-refresh = تحديث المجلد
+mail-workspace-refresh = التحقق من الرسائل الجديدة
 mail-workspace-load-error = تعذّر تحميل هذه الرسالة. أغلق علامة التبويب وحاول مرة أخرى.
 mail-resize-folders = تغيير حجم الشريط الجانبي للمجلدات
 mail-resize-list = تغيير حجم قائمة الرسائل
@@ -715,13 +715,13 @@ mail-draft-status-pending = تغييرات غير محفوظة
 mail-draft-status-saving = جارٍ الحفظ في المسودات…
 mail-draft-status-saved = تم الحفظ في مسودات الحساب
 mail-draft-status-error = لم تُحفظ المسودة. تبقى نسخة الاسترداد المحلية متاحة.
-mail-draft-status-uncertain = تأكيد الحفظ مفقود. تحقق من المسودات قبل إنشاء نسخة أخرى؛ الحفظ التلقائي متوقف مؤقتًا.
-mail-draft-status-conflict = تغيّرت هذه المسودة على جهاز آخر. أعد فتح نسخة الحساب قبل المتابعة.
+mail-draft-status-uncertain = بانتظار تأكيد الخادم؛ ستتم إعادة محاولة الحفظ تلقائياً عندما يكون ذلك آمناً.
+mail-draft-status-conflict = جارٍ التحقق من مسودة الخادم قبل إعادة حفظ تعديلاتك.
 mail-draft-status-unsupported = لا يستطيع هذا الحساب حاليًا تأكيد عمليات الحفظ في مجلد المسودات.
 mail-draft-protected = لا يُحفظ المحتوى المقتبس المشفر أو المفكوك تشفيره كنص عادي. تبقى أي مسودة سابقة في الحساب إلى أن تتجاهلها صراحةً.
 mail-draft-save-now = حفظ في المسودات
 mail-draft-save-failed = تعذّر حفظ هذه المسودة في حسابك. تحقق من نافذة الإنشاء قبل إغلاقها.
-mail-draft-uncertain = ربما حُفظت المسودة. إعادة المحاولة التلقائية متوقفة مؤقتًا؛ تحقق من مجلد المسودات.
+mail-draft-uncertain = لم يصل تأكيد الحفظ. سيتحقق Mailwoman ويعيد المحاولة بأمان.
 mail-draft-conflict = غيّر جهاز آخر هذه المسودة. لم تستبدل تعديلاتك نسخته.
 mail-draft-cleanup-pending = حُفظت المسودة الجديدة، لكن تعذّرت إزالة نسختها السابقة. راجع المسودات قبل الحفظ مرة أخرى.
 mail-draft-account-list = مسودات الحساب
@@ -1669,3 +1669,9 @@ mail-attachment-warning-title = تحذيرات أمان المرفقات
 mail-attachment-warning-help = قد تشغل هذه الملفات تعليمات برمجية أو تخفي نوعها. تحقق من المرسل واسم الملف قبل فتحها.
 
 mail-compose-encrypted-storage-unavailable = الاسترداد المحلي المشفر غير متاح. أبقِ المحرر مفتوحًا أو احفظ المسودة على الخادم قبل الإغلاق.
+
+mail-folder-check-complete = تم التحقق من وجود رسائل جديدة في المجلد.
+
+mail-reader-close-message = إغلاق الرسالة
+
+mail-draft-local-saved = تم الحفظ في هذا المتصفح

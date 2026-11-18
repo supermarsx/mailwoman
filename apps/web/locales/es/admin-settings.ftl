@@ -2741,3 +2741,11 @@ admin-settings-help-security-protection-probe-path-mode = Aplicar bloquea el ori
 
 admin-settings-key-mail-row-actions = Disposición de las acciones rápidas
 admin-settings-help-mail-row-actions = Elige las acciones rápidas, ordena su posición o colócalas en Más. Las acciones ocultas siguen disponibles en el menú contextual del mensaje.
+
+admin-settings-key-mail-cache-preload-headers = Precargar cabeceras de mensajes
+admin-settings-help-mail-cache-preload-headers = Obtener destinatarios, direcciones de entrega, fechas y cabeceras de respuesta con las listas. Activado por defecto; no descarga cuerpos ni adjuntos.
+
+admin-settings-key-mail-notices-enabled = Activar avisos
+admin-settings-help-mail-notices-enabled = Contenido reutilizable añadido después de la firma, de forma independiente. Las plantillas pertenecen a esta cuenta. El texto es obligatorio; el HTML opcional se sanea antes del envío.
+admin-settings-key-mail-notices-templates = Avisos de mensajes
+admin-settings-help-mail-notices-templates = Deben cumplirse todas las condiciones. Los campos vacíos aceptan cualquier valor. Asunto y cuerpo usan texto literal sin distinguir mayúsculas. Los internos comparten el dominio del remitente o uno de confianza. La selección manual sustituye las reglas.

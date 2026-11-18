@@ -857,7 +857,7 @@ settings-permissions-push-server-error = サーバーでバックグラウンド
 settings-permissions-push-browser-error = ブラウザーでプッシュ購読を作成できませんでした。サイトの権限、ブラウザーの対応状況、ネットワークを確認してください。
 settings-permissions-push-unlinked = このブラウザーには、このアカウントにまだ関連付けられていないプッシュ購読があります。
 
-cache-prefetchEnabled-help = 開く前に次に使う可能性の高いフォルダーを読み込みます。既定は無効で、セッションキャッシュが必要です。
+cache-prefetchEnabled-help = 次のフォルダーを開く前に準備します。既定で有効です。セッションキャッシュが必要です。
 cache-hoverEnabled-help = 指定時間ポインターを置いたフォルダーを先読みします。先読みの有効化が必要です。
 cache-focusEnabled-help = 指定時間キーボードフォーカスを置いたフォルダーを先読みします。先読みの有効化が必要です。
 cache-dwellMs-help = 先読み開始までポインターやフォーカスをフォルダーに置く時間です。
@@ -898,3 +898,6 @@ settings-row-action-up = { $name } を上へ移動
 settings-row-action-down = { $name } を下へ移動
 
 settings-permissions-push-account-help = 設定するメールボックスを選択してください。ブラウザーの権限は共有されますが、登録と解除は選択したアカウントにのみ適用されます。
+
+cache-preloadHeaders = メッセージヘッダーを先読み
+cache-preloadHeaders-help = 一覧とともに宛先、配信先、日時、返信ヘッダーを取得します。既定で有効です。本文や添付ファイルはダウンロードしません。

@@ -889,7 +889,7 @@ settings-permissions-push-server-error = تعذر على الخادم تسجيل
 settings-permissions-push-browser-error = تعذر على المتصفح إنشاء اشتراك دفع. تحقق من أذونات الموقع ودعم المتصفح واتصال الشبكة.
 settings-permissions-push-unlinked = لهذا المتصفح اشتراك دفع لم يُربط بهذا الحساب بعد.
 
-cache-prefetchEnabled-help = يحمل المجلدات المتوقعة مسبقًا. معطل افتراضيًا؛ يتطلب ذاكرة الجلسة المؤقتة.
+cache-prefetchEnabled-help = تجهيز المجلدات التالية قبل فتحها. مفعّل افتراضيًا؛ يتطلب ذاكرة التخزين المؤقت للجلسة.
 cache-hoverEnabled-help = يحمل المجلد عند بقاء المؤشر فوقه بعد المهلة المحددة. يتطلب التحميل المسبق.
 cache-focusEnabled-help = يحمل المجلد عند تركيز لوحة المفاتيح بعد المهلة المحددة. يتطلب التحميل المسبق.
 cache-dwellMs-help = مدة بقاء المؤشر أو التركيز قبل بدء التحميل المسبق.
@@ -930,3 +930,6 @@ settings-row-action-up = نقل { $name } لأعلى
 settings-row-action-down = نقل { $name } لأسفل
 
 settings-permissions-push-account-help = اختر صندوق البريد المراد إعداده. إذن المتصفح مشترك، لكن التسجيل والإزالة يطبّقان على الحساب المحدد فقط.
+
+cache-preloadHeaders = تحميل رؤوس الرسائل مسبقًا
+cache-preloadHeaders-help = جلب المستلمين وعناوين التسليم والتواريخ ورؤوس الرد مع قوائم الرسائل. مفعّل افتراضيًا؛ لا ينزّل محتوى الرسائل أو المرفقات.

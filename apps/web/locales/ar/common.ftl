@@ -253,3 +253,8 @@ common-conn-account-problem = { $account }: { $status }
 common-conn-background-unavailable = أبقِ Mailwoman مفتوحًا لمزامنة التغييرات المعلقة على هذا الجهاز.
 
 notification-center-action-success = { $action } · { $count }
+
+common-loading-still = ما زال تحميل هذه الصفحة جاريًا. يُرجى الانتظار…
+
+attach-action-open-split = فتح في عرض منقسم
+attach-action-forward-new = إعادة التوجيه في رسالة جديدة

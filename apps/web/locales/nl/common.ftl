@@ -259,3 +259,8 @@ common-conn-account-problem = { $account }: { $status }
 common-conn-background-unavailable = Houd Mailwoman open om wijzigingen in de wachtrij op dit apparaat te synchroniseren.
 
 notification-center-action-success = { $action } · { $count }
+
+common-loading-still = Deze pagina wordt nog geladen. Even geduld…
+
+attach-action-open-split = Openen in gesplitste weergave
+attach-action-forward-new = Doorsturen in een nieuwe e-mail

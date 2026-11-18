@@ -888,7 +888,7 @@ settings-permissions-push-server-error = Serwer nie mógł zarejestrować powiad
 settings-permissions-push-browser-error = Przeglądarka nie mogła utworzyć subskrypcji push. Sprawdź uprawnienia witryny, obsługę przeglądarki i sieć.
 settings-permissions-push-unlinked = Ta przeglądarka ma subskrypcję push, która nie jest jeszcze powiązana z tym kontem.
 
-cache-prefetchEnabled-help = Pobiera przewidywane kolejne foldery przed otwarciem. Domyślnie wyłączone; wymaga pamięci podręcznej sesji.
+cache-prefetchEnabled-help = Przygotuj kolejne foldery przed otwarciem. Domyślnie włączone; wymaga pamięci podręcznej sesji.
 cache-hoverEnabled-help = Wstępnie pobiera folder po zatrzymaniu wskaźnika na podany czas. Wymaga wstępnego pobierania.
 cache-focusEnabled-help = Wstępnie pobiera folder po ustawieniu fokusu klawiatury na podany czas. Wymaga wstępnego pobierania.
 cache-dwellMs-help = Czas zatrzymania wskaźnika lub fokusu przed rozpoczęciem pobierania.
@@ -929,3 +929,6 @@ settings-row-action-up = Przenieś { $name } w górę
 settings-row-action-down = Przenieś { $name } w dół
 
 settings-permissions-push-account-help = Wybierz skrzynkę do skonfigurowania. Uprawnienie przeglądarki jest wspólne, ale rejestracja i usuwanie dotyczą tylko wybranego konta.
+
+cache-preloadHeaders = Wczytuj nagłówki wiadomości z wyprzedzeniem
+cache-preloadHeaders-help = Pobieraj odbiorców, adresy doręczenia, daty i nagłówki odpowiedzi wraz z listami. Domyślnie włączone; bez pobierania treści i załączników.

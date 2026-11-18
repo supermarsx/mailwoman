@@ -460,7 +460,7 @@ mail-workspace-layout = Arbeitsbereich-Layout
 mail-workspace-tabs = Tabs
 mail-workspace-side-by-side = Nebeneinander
 mail-workspace-stack = Untereinander
-mail-workspace-refresh = Ordner aktualisieren
+mail-workspace-refresh = Nach neuen Nachrichten suchen
 mail-workspace-load-error = Diese Nachricht konnte nicht geladen werden. Schließen Sie den Tab und versuchen Sie es erneut.
 mail-resize-folders = Größe der Ordnerleiste ändern
 mail-resize-list = Größe der Nachrichtenliste ändern
@@ -615,13 +615,13 @@ mail-draft-status-pending = Nicht gespeicherte Änderungen
 mail-draft-status-saving = Speichern in Entwürfen …
 mail-draft-status-saved = In den Entwürfen des Kontos gespeichert
 mail-draft-status-error = Der Entwurf wurde nicht gespeichert. Ihre lokale Wiederherstellungskopie bleibt verfügbar.
-mail-draft-status-uncertain = Die Speicherbestätigung fehlt. Prüfen Sie die Entwürfe, bevor Sie eine weitere Kopie erstellen; das automatische Speichern ist angehalten.
-mail-draft-status-conflict = Dieser Entwurf wurde auf einem anderen Gerät geändert. Öffnen Sie die Kontokopie erneut, bevor Sie fortfahren.
+mail-draft-status-uncertain = Warte auf Serverbestätigung; der Speichervorgang wird automatisch sicher wiederholt.
+mail-draft-status-conflict = Der Serverentwurf wird vor dem erneuten Speichern Ihrer Änderungen geprüft.
 mail-draft-status-unsupported = Dieses Konto kann das Speichern in seinem Entwurfsordner derzeit nicht bestätigen.
 mail-draft-protected = Verschlüsselte oder entschlüsselte zitierte Inhalte werden nicht als Klartext gespeichert. Ein früherer Kontoentwurf bleibt bestehen, bis Sie ihn ausdrücklich verwerfen.
 mail-draft-save-now = In Entwürfen speichern
 mail-draft-save-failed = Dieser Entwurf konnte nicht in Ihrem Konto gespeichert werden. Prüfen Sie den Editor, bevor Sie ihn schließen.
-mail-draft-uncertain = Der Entwurf wurde möglicherweise gespeichert. Automatische Wiederholungen sind angehalten; prüfen Sie Ihren Entwurfsordner.
+mail-draft-uncertain = Die Bestätigung fehlt. Mailwoman prüft den Status und versucht es erneut.
 mail-draft-conflict = Ein anderes Gerät hat diesen Entwurf geändert. Ihre Änderungen haben dessen Kopie nicht überschrieben.
 mail-draft-cleanup-pending = Der neue Entwurf wurde gespeichert, aber seine vorherige Kopie konnte nicht entfernt werden. Prüfen Sie die Entwürfe, bevor Sie erneut speichern.
 mail-draft-account-list = Kontoentwürfe
@@ -1463,3 +1463,9 @@ mail-attachment-warning-title = Sicherheitswarnungen zu Anhängen
 mail-attachment-warning-help = Diese Dateien können Code ausführen oder ihren Typ verschleiern. Prüfen Sie Absender und Dateinamen vor dem Öffnen.
 
 mail-compose-encrypted-storage-unavailable = Die verschlüsselte lokale Wiederherstellung ist nicht verfügbar. Lass den Editor geöffnet oder speichere den Entwurf vor dem Schließen auf dem Server.
+
+mail-folder-check-complete = Ordner auf neue Nachrichten geprüft.
+
+mail-reader-close-message = Nachricht schließen
+
+mail-draft-local-saved = In diesem Browser gespeichert

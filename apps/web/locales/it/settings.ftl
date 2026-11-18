@@ -863,7 +863,7 @@ settings-permissions-push-server-error = Il server non ha potuto registrare le n
 settings-permissions-push-browser-error = Il browser non ha potuto creare la sottoscrizione push. Controlla autorizzazioni del sito, compatibilità e rete.
 settings-permissions-push-unlinked = Questo browser ha una sottoscrizione push non ancora collegata a questo account.
 
-cache-prefetchEnabled-help = Precarica le cartelle probabili prima di aprirle. Disattivato per impostazione predefinita; richiede la cache di sessione.
+cache-prefetchEnabled-help = Prepara le prossime cartelle prima di aprirle. Attivo per impostazione predefinita; richiede la cache di sessione.
 cache-hoverEnabled-help = Precarica una cartella dopo la permanenza del puntatore per il ritardo indicato. Richiede il precaricamento.
 cache-focusEnabled-help = Precarica una cartella dopo il focus da tastiera per il ritardo indicato. Richiede il precaricamento.
 cache-dwellMs-help = Tempo di permanenza del puntatore o del focus prima del precaricamento.
@@ -904,3 +904,6 @@ settings-row-action-up = Sposta { $name } in alto
 settings-row-action-down = Sposta { $name } in basso
 
 settings-permissions-push-account-help = Scegli la casella da configurare. Il permesso del browser è condiviso, ma registrazione e rimozione riguardano solo l’account selezionato.
+
+cache-preloadHeaders = Precarica le intestazioni dei messaggi
+cache-preloadHeaders-help = Carica destinatari, indirizzi di consegna, date e intestazioni di risposta con gli elenchi. Attivo per impostazione predefinita; senza scaricare corpi o allegati.

@@ -481,7 +481,7 @@ mail-workspace-layout = Disposition de l’espace de travail
 mail-workspace-tabs = Onglets
 mail-workspace-side-by-side = Côte à côte
 mail-workspace-stack = Empilé
-mail-workspace-refresh = Actualiser le dossier
+mail-workspace-refresh = Rechercher de nouveaux messages
 mail-workspace-load-error = Ce message n’a pas pu être chargé. Fermez l’onglet et réessayez.
 mail-resize-folders = Redimensionner la barre latérale des dossiers
 mail-resize-list = Redimensionner la liste des messages
@@ -636,13 +636,13 @@ mail-draft-status-pending = Modifications non enregistrées
 mail-draft-status-saving = Enregistrement dans Brouillons…
 mail-draft-status-saved = Enregistré dans les brouillons du compte
 mail-draft-status-error = Le brouillon n’a pas été enregistré. Votre copie de récupération locale reste disponible.
-mail-draft-status-uncertain = La confirmation d’enregistrement est absente. Vérifiez Brouillons avant de créer une autre copie ; l’enregistrement automatique est suspendu.
-mail-draft-status-conflict = Ce brouillon a été modifié sur un autre appareil. Rouvrez sa copie du compte avant de continuer.
+mail-draft-status-uncertain = En attente de confirmation du serveur ; nouvel essai automatique dès que possible.
+mail-draft-status-conflict = Vérification du brouillon serveur avant de réessayer vos modifications.
 mail-draft-status-unsupported = Ce compte ne peut actuellement pas confirmer les enregistrements dans son dossier Brouillons.
 mail-draft-protected = Le contenu cité chiffré ou déchiffré n’est pas enregistré en clair. Tout brouillon antérieur du compte reste en place jusqu’à ce que vous l’abandonniez explicitement.
 mail-draft-save-now = Enregistrer dans Brouillons
 mail-draft-save-failed = Ce brouillon n’a pas pu être enregistré dans votre compte. Vérifiez l’éditeur avant de le fermer.
-mail-draft-uncertain = Le brouillon a peut-être été enregistré. Les nouvelles tentatives automatiques sont suspendues ; vérifiez votre dossier Brouillons.
+mail-draft-uncertain = La confirmation manque. Mailwoman vérifiera puis réessaiera sans créer de doublon.
 mail-draft-conflict = Un autre appareil a modifié ce brouillon. Vos modifications n’ont pas écrasé sa copie.
 mail-draft-cleanup-pending = Le nouveau brouillon a été enregistré, mais sa copie précédente n’a pas pu être supprimée. Vérifiez Brouillons avant d’enregistrer à nouveau.
 mail-draft-account-list = Brouillons du compte
@@ -1500,3 +1500,9 @@ mail-attachment-warning-title = Alertes de sécurité des pièces jointes
 mail-attachment-warning-help = Ces fichiers peuvent exécuter du code ou masquer leur type. Vérifiez l’expéditeur et le nom avant de les ouvrir.
 
 mail-compose-encrypted-storage-unavailable = La récupération locale chiffrée est indisponible. Gardez cet éditeur ouvert ou enregistrez le brouillon sur le serveur avant de fermer.
+
+mail-folder-check-complete = Recherche de nouveaux messages terminée.
+
+mail-reader-close-message = Fermer le message
+
+mail-draft-local-saved = Enregistré dans ce navigateur

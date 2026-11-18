@@ -2753,3 +2753,11 @@ admin-settings-help-security-protection-probe-path-mode = Egzekwowanie blokuje �
 
 admin-settings-key-mail-row-actions = Układ szybkich akcji
 admin-settings-help-mail-row-actions = Wybierz i uporządkuj szybkie akcje lub umieść je w menu Więcej. Ukryte akcje pozostają dostępne w menu kontekstowym wiadomości.
+
+admin-settings-key-mail-cache-preload-headers = Wczytuj nagłówki wiadomości z wyprzedzeniem
+admin-settings-help-mail-cache-preload-headers = Pobieraj odbiorców, adresy doręczenia, daty i nagłówki odpowiedzi wraz z listami. Domyślnie włączone; bez pobierania treści i załączników.
+
+admin-settings-key-mail-notices-enabled = Włącz klauzule
+admin-settings-help-mail-notices-enabled = Treść wielokrotnego użytku dodawana niezależnie po podpisie. Szablony należą do tego konta. Tekst jest wymagany; opcjonalny HTML jest oczyszczany przed wysłaniem.
+admin-settings-key-mail-notices-templates = Powiadomienia w treści wiadomości
+admin-settings-help-mail-notices-templates = Wszystkie warunki muszą pasować. Puste pola pasują do wszystkiego. Temat i treść używają dosłownego tekstu bez rozróżniania wielkości liter. Odbiorcy wewnętrzni mają domenę nadawcy lub zaufaną domenę. Wybór ręczny zastępuje reguły.

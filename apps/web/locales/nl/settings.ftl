@@ -886,7 +886,7 @@ settings-permissions-push-server-error = De server kon achtergrondmeldingen niet
 settings-permissions-push-browser-error = De browser kon geen pushabonnement maken. Controleer sitemachtigingen, browserondersteuning en netwerktoegang.
 settings-permissions-push-unlinked = Deze browser heeft een pushabonnement dat nog niet aan dit account is gekoppeld.
 
-cache-prefetchEnabled-help = Laadt waarschijnlijke volgende mappen vooraf. Standaard uit; vereist sessiecache.
+cache-prefetchEnabled-help = Volgende mappen voorbereiden voordat u ze opent. Standaard ingeschakeld; vereist de sessiecache.
 cache-hoverEnabled-help = Laadt een map vooraf na de ingestelde aanwijzerwachttijd. Vereist vooraf laden.
 cache-focusEnabled-help = Laadt een map vooraf na de ingestelde toetsenbordfocuswachttijd. Vereist vooraf laden.
 cache-dwellMs-help = Wachttijd voor aanwijzer of toetsenbordfocus voordat vooraf laden begint.
@@ -927,3 +927,6 @@ settings-row-action-up = { $name } omhoog verplaatsen
 settings-row-action-down = { $name } omlaag verplaatsen
 
 settings-permissions-push-account-help = Kies de mailbox. De browsertoestemming wordt gedeeld, maar registratie en verwijdering gelden alleen voor het geselecteerde account.
+
+cache-preloadHeaders = Berichtkoppen vooraf laden
+cache-preloadHeaders-help = Ontvangers, bezorgadressen, datums en antwoordkoppen met berichtenlijsten laden. Standaard ingeschakeld; berichtinhoud en bijlagen worden niet gedownload.

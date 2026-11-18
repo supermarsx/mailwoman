@@ -464,7 +464,7 @@ mail-workspace-layout = 工作区布局
 mail-workspace-tabs = 标签页
 mail-workspace-side-by-side = 并排
 mail-workspace-stack = 堆叠
-mail-workspace-refresh = 刷新文件夹
+mail-workspace-refresh = 检查新邮件
 mail-workspace-load-error = 无法加载此邮件。请关闭标签页后重试。
 mail-resize-folders = 调整文件夹侧边栏大小
 mail-resize-list = 调整邮件列表大小
@@ -617,13 +617,13 @@ mail-draft-status-pending = 有未保存的更改
 mail-draft-status-saving = 正在保存到草稿…
 mail-draft-status-saved = 已保存到账户草稿
 mail-draft-status-error = 草稿未保存。你的本地恢复副本仍然可用。
-mail-draft-status-uncertain = 缺少保存确认。创建另一个副本前请检查草稿；自动保存已暂停。
-mail-draft-status-conflict = 此草稿已在另一台设备上更改。继续前请重新打开其账户副本。
+mail-draft-status-uncertain = 正在等待服务器确认；确认安全后将自动重试保存。
+mail-draft-status-conflict = 正在检查服务器草稿，然后重试保存您的修改。
 mail-draft-status-unsupported = 此账户目前无法确认对其草稿文件夹的保存。
 mail-draft-protected = 加密或已解密的引用内容不会以明文保存。之前的账户草稿会一直保留，直到你明确丢弃。
 mail-draft-save-now = 保存到草稿
 mail-draft-save-failed = 无法将此草稿保存到你的账户。关闭前请检查撰写窗口。
-mail-draft-uncertain = 草稿可能已保存。自动重试已暂停；请检查草稿文件夹。
+mail-draft-uncertain = 尚未收到保存确认。Mailwoman 将检查状态并安全重试。
 mail-draft-conflict = 另一台设备更改了此草稿。你的编辑未覆盖其副本。
 mail-draft-cleanup-pending = 新草稿已保存，但无法删除其之前的副本。再次保存前请检查草稿。
 mail-draft-account-list = 账户草稿
@@ -1439,3 +1439,9 @@ mail-attachment-warning-title = 附件安全警告
 mail-attachment-warning-help = 这些文件可能执行代码或伪装文件类型。打开之前请核实发件人和文件名。
 
 mail-compose-encrypted-storage-unavailable = 加密本地恢复不可用。关闭前请保持编辑器打开或将草稿保存到服务器。
+
+mail-folder-check-complete = 已检查文件夹中的新邮件。
+
+mail-reader-close-message = 关闭邮件
+
+mail-draft-local-saved = 已保存在此浏览器中

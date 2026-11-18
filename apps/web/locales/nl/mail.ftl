@@ -479,7 +479,7 @@ mail-workspace-layout = Indeling van de werkruimte
 mail-workspace-tabs = Tabbladen
 mail-workspace-side-by-side = Naast elkaar
 mail-workspace-stack = Gestapeld
-mail-workspace-refresh = Map vernieuwen
+mail-workspace-refresh = Controleren op nieuwe berichten
 mail-workspace-load-error = Dit bericht kon niet worden geladen. Sluit het tabblad en probeer het opnieuw.
 mail-resize-folders = Grootte van de mappenzijbalk wijzigen
 mail-resize-list = Grootte van de berichtenlijst wijzigen
@@ -634,13 +634,13 @@ mail-draft-status-pending = Niet-opgeslagen wijzigingen
 mail-draft-status-saving = Opslaan in Concepten…
 mail-draft-status-saved = Opgeslagen in de Concepten van het account
 mail-draft-status-error = Het concept is niet opgeslagen. Uw lokale herstelkopie blijft beschikbaar.
-mail-draft-status-uncertain = De opslagbevestiging ontbreekt. Controleer Concepten voordat u nog een kopie maakt; automatisch opslaan is gepauzeerd.
-mail-draft-status-conflict = Dit concept is op een ander apparaat gewijzigd. Open de accountkopie opnieuw voordat u doorgaat.
+mail-draft-status-uncertain = Wachten op serverbevestiging; veilig opslaan wordt automatisch opnieuw geprobeerd.
+mail-draft-status-conflict = De serverversie wordt gecontroleerd voordat uw wijzigingen opnieuw worden opgeslagen.
 mail-draft-status-unsupported = Dit account kan op dit moment geen opslagbewerkingen in de map Concepten bevestigen.
 mail-draft-protected = Versleutelde of ontsleutelde geciteerde inhoud wordt niet als platte tekst opgeslagen. Een eerder accountconcept blijft bestaan totdat u het uitdrukkelijk negeert.
 mail-draft-save-now = Opslaan in Concepten
 mail-draft-save-failed = Dit concept kon niet in uw account worden opgeslagen. Controleer de editor voordat u hem sluit.
-mail-draft-uncertain = Het concept is mogelijk opgeslagen. Automatische nieuwe pogingen zijn gepauzeerd; controleer uw map Concepten.
+mail-draft-uncertain = De bevestiging ontbreekt. Mailwoman controleert dit en probeert het veilig opnieuw.
 mail-draft-conflict = Een ander apparaat heeft dit concept gewijzigd. Uw bewerkingen hebben de kopie ervan niet overschreven.
 mail-draft-cleanup-pending = Het nieuwe concept is opgeslagen, maar de vorige kopie kon niet worden verwijderd. Controleer Concepten voordat u opnieuw opslaat.
 mail-draft-account-list = Accountconcepten
@@ -1482,3 +1482,9 @@ mail-attachment-warning-title = Beveiligingswaarschuwingen voor bijlagen
 mail-attachment-warning-help = Deze bestanden kunnen code uitvoeren of hun type verhullen. Controleer afzender en bestandsnaam vóór openen.
 
 mail-compose-encrypted-storage-unavailable = Versleuteld lokaal herstel is niet beschikbaar. Houd de editor open of sla het concept op de server op voordat je sluit.
+
+mail-folder-check-complete = Map gecontroleerd op nieuwe berichten.
+
+mail-reader-close-message = Bericht sluiten
+
+mail-draft-local-saved = Opgeslagen in deze browser

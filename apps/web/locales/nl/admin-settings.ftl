@@ -2735,3 +2735,11 @@ admin-settings-help-security-protection-probe-path-mode = Handhaven blokkeert de
 
 admin-settings-key-mail-row-actions = Indeling van snelle acties
 admin-settings-help-mail-row-actions = Kies en orden snelle acties of plaats ze onder Meer. Verborgen acties blijven beschikbaar in het contextmenu van het bericht.
+
+admin-settings-key-mail-cache-preload-headers = Berichtkoppen vooraf laden
+admin-settings-help-mail-cache-preload-headers = Ontvangers, bezorgadressen, datums en antwoordkoppen met berichtenlijsten laden. Standaard ingeschakeld; berichtinhoud en bijlagen worden niet gedownload.
+
+admin-settings-key-mail-notices-enabled = Mededelingen inschakelen
+admin-settings-help-mail-notices-enabled = Herbruikbare inhoud na de handtekening, onafhankelijk daarvan. Sjablonen horen bij dit account. Tekst is vereist; optionele HTML wordt vóór verzending opgeschoond.
+admin-settings-key-mail-notices-templates = Berichtmededelingen
+admin-settings-help-mail-notices-templates = Alle voorwaarden moeten overeenkomen. Lege velden passen overal bij. Onderwerp en tekst gebruiken letterlijke zoektekst zonder hoofdletterverschil. Interne ontvangers delen het afzenderdomein of een vertrouwd domein. Handmatige selectie vervangt de regels.

@@ -460,7 +460,7 @@ mail-workspace-layout = Diseño del espacio de trabajo
 mail-workspace-tabs = Pestañas
 mail-workspace-side-by-side = Lado a lado
 mail-workspace-stack = Apilado
-mail-workspace-refresh = Actualizar carpeta
+mail-workspace-refresh = Buscar correo nuevo
 mail-workspace-load-error = No se pudo cargar este mensaje. Cierre la pestaña e inténtelo de nuevo.
 mail-resize-folders = Cambiar el tamaño de la barra lateral de carpetas
 mail-resize-list = Cambiar el tamaño de la lista de mensajes
@@ -615,13 +615,13 @@ mail-draft-status-pending = Cambios sin guardar
 mail-draft-status-saving = Guardando en Borradores…
 mail-draft-status-saved = Guardado en los borradores de la cuenta
 mail-draft-status-error = El borrador no se guardó. Su copia de recuperación local sigue disponible.
-mail-draft-status-uncertain = Falta la confirmación del guardado. Compruebe Borradores antes de crear otra copia; el guardado automático está en pausa.
-mail-draft-status-conflict = Este borrador cambió en otro dispositivo. Vuelva a abrir su copia de la cuenta antes de continuar.
+mail-draft-status-uncertain = Esperando confirmación del servidor; se reintentará cuando sea seguro.
+mail-draft-status-conflict = Comprobando el borrador del servidor antes de reintentar los cambios.
 mail-draft-status-unsupported = Esta cuenta no puede confirmar por ahora los guardados en su carpeta de Borradores.
 mail-draft-protected = El contenido citado cifrado o descifrado no se guarda como texto sin formato. Cualquier borrador anterior de la cuenta permanece hasta que lo descarte explícitamente.
 mail-draft-save-now = Guardar en Borradores
 mail-draft-save-failed = No se pudo guardar este borrador en su cuenta. Compruebe el editor antes de cerrarlo.
-mail-draft-uncertain = Es posible que el borrador se haya guardado. Los reintentos automáticos están en pausa; compruebe su carpeta de Borradores.
+mail-draft-uncertain = Falta la confirmación. Mailwoman comprobará el estado y reintentará de forma segura.
 mail-draft-conflict = Otro dispositivo cambió este borrador. Sus ediciones no han sobrescrito su copia.
 mail-draft-cleanup-pending = Se guardó el nuevo borrador, pero no se pudo quitar su copia anterior. Revise Borradores antes de volver a guardar.
 mail-draft-account-list = Borradores de la cuenta
@@ -1471,3 +1471,9 @@ mail-attachment-warning-title = Avisos de seguridad de adjuntos
 mail-attachment-warning-help = Estos archivos pueden ejecutar código u ocultar su tipo. Verifica el remitente y el nombre antes de abrirlos.
 
 mail-compose-encrypted-storage-unavailable = La recuperación local cifrada no está disponible. Mantén abierto el editor o guarda el borrador en el servidor antes de cerrar.
+
+mail-folder-check-complete = Carpeta comprobada en busca de correo nuevo.
+
+mail-reader-close-message = Cerrar mensaje
+
+mail-draft-local-saved = Guardado en este navegador

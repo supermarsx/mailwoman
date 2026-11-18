@@ -460,7 +460,7 @@ mail-workspace-layout = Layout dell'area di lavoro
 mail-workspace-tabs = Schede
 mail-workspace-side-by-side = Affiancati
 mail-workspace-stack = Impilati
-mail-workspace-refresh = Aggiorna cartella
+mail-workspace-refresh = Controlla nuovi messaggi
 mail-workspace-load-error = Impossibile caricare questo messaggio. Chiudere la scheda e riprovare.
 mail-resize-folders = Ridimensiona la barra laterale delle cartelle
 mail-resize-list = Ridimensiona l'elenco dei messaggi
@@ -615,13 +615,13 @@ mail-draft-status-pending = Modifiche non salvate
 mail-draft-status-saving = Salvataggio in Bozze…
 mail-draft-status-saved = Salvata nelle Bozze dell'account
 mail-draft-status-error = La bozza non è stata salvata. La copia di ripristino locale resta disponibile.
-mail-draft-status-uncertain = Manca la conferma del salvataggio. Controllare Bozze prima di creare un'altra copia; il salvataggio automatico è in pausa.
-mail-draft-status-conflict = Questa bozza è cambiata su un altro dispositivo. Riaprire la copia dell'account prima di continuare.
+mail-draft-status-uncertain = In attesa della conferma del server; nuovo tentativo automatico quando sicuro.
+mail-draft-status-conflict = Controllo della bozza sul server prima di ritentare le modifiche.
 mail-draft-status-unsupported = Al momento questo account non può confermare i salvataggi nella cartella Bozze.
 mail-draft-protected = Il contenuto citato cifrato o decifrato non viene salvato come testo semplice. Un'eventuale bozza precedente dell'account resta finché non viene scartata esplicitamente.
 mail-draft-save-now = Salva in Bozze
 mail-draft-save-failed = Impossibile salvare questa bozza nell'account. Controllare l'editor prima di chiuderlo.
-mail-draft-uncertain = La bozza potrebbe essere stata salvata. I tentativi automatici sono in pausa; controllare la cartella Bozze.
+mail-draft-uncertain = Conferma mancante. Mailwoman controllerà e riproverà in sicurezza.
 mail-draft-conflict = Un altro dispositivo ha modificato questa bozza. Le modifiche non hanno sovrascritto la sua copia.
 mail-draft-cleanup-pending = La nuova bozza è stata salvata, ma non è stato possibile rimuovere la copia precedente. Controllare Bozze prima di salvare di nuovo.
 mail-draft-account-list = Bozze dell'account
@@ -1471,3 +1471,9 @@ mail-attachment-warning-title = Avvisi di sicurezza degli allegati
 mail-attachment-warning-help = Questi file possono eseguire codice o nascondere il loro tipo. Verifica mittente e nome prima di aprirli.
 
 mail-compose-encrypted-storage-unavailable = Il recupero locale cifrato non è disponibile. Mantieni aperto l’editor o salva la bozza sul server prima di chiuderlo.
+
+mail-folder-check-complete = Cartella controllata per nuovi messaggi.
+
+mail-reader-close-message = Chiudi messaggio
+
+mail-draft-local-saved = Salvato in questo browser

@@ -2741,3 +2741,11 @@ admin-settings-help-security-protection-probe-path-mode = Durchsetzen sperrt die
 
 admin-settings-key-mail-row-actions = Anordnung der Schnellaktionen
 admin-settings-help-mail-row-actions = Wählen und ordnen Sie Schnellaktionen oder legen Sie sie unter Mehr ab. Ausgeblendete Aktionen bleiben im Kontextmenü der Nachricht verfügbar.
+
+admin-settings-key-mail-cache-preload-headers = Nachrichtenkopfzeilen vorladen
+admin-settings-help-mail-cache-preload-headers = Empfänger, Zustelladressen, Datumsangaben und Antwortkopfzeilen mit den Listen laden. Standardmäßig aktiviert; keine Nachrichteninhalte oder Anhänge herunterladen.
+
+admin-settings-key-mail-notices-enabled = Hinweise aktivieren
+admin-settings-help-mail-notices-enabled = Wiederverwendbarer Inhalt nach der Signatur, unabhängig davon. Vorlagen gehören zu diesem Konto. Text ist erforderlich; optionales HTML wird vor dem Senden bereinigt.
+admin-settings-key-mail-notices-templates = Nachrichtenhinweise
+admin-settings-help-mail-notices-templates = Alle Bedingungen müssen zutreffen. Leere Felder akzeptieren jeden Wert. Betreff und Text verwenden einfache Suche ohne Beachtung der Großschreibung. Interne Empfänger teilen die Absenderdomain oder eine vertrauenswürdige Domain. Manuelle Auswahl ersetzt die Regeln.

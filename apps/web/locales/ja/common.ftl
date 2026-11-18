@@ -244,3 +244,8 @@ common-conn-account-problem = { $account }: { $status }
 common-conn-background-unavailable = この端末の保留中の変更を同期するには、Mailwoman を開いたままにしてください。
 
 notification-center-action-success = { $action } · { $count }
+
+common-loading-still = このページはまだ読み込み中です。しばらくお待ちください…
+
+attach-action-open-split = 分割表示で開く
+attach-action-forward-new = 新しいメールで転送

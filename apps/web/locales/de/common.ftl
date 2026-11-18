@@ -249,3 +249,8 @@ common-conn-account-problem = { $account }: { $status }
 common-conn-background-unavailable = Mailwoman geöffnet lassen, um ausstehende Änderungen auf diesem Gerät zu synchronisieren.
 
 notification-center-action-success = { $action } · { $count }
+
+common-loading-still = Diese Seite wird noch geladen. Bitte warten…
+
+attach-action-open-split = In geteilter Ansicht öffnen
+attach-action-forward-new = In einer neuen E-Mail weiterleiten

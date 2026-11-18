@@ -445,7 +445,7 @@ mail-workspace-layout = ワークスペースのレイアウト
 mail-workspace-tabs = タブ
 mail-workspace-side-by-side = 左右に並べる
 mail-workspace-stack = 上下に重ねる
-mail-workspace-refresh = フォルダーを更新
+mail-workspace-refresh = 新着メールを確認
 mail-workspace-load-error = このメッセージを読み込めませんでした。タブを閉じてもう一度お試しください。
 mail-resize-folders = フォルダーサイドバーのサイズを変更
 mail-resize-list = メッセージ一覧のサイズを変更
@@ -598,13 +598,13 @@ mail-draft-status-pending = 未保存の変更があります
 mail-draft-status-saving = 下書きに保存中…
 mail-draft-status-saved = アカウントの下書きに保存しました
 mail-draft-status-error = 下書きは保存されませんでした。ローカルの復元用コピーは引き続き利用できます。
-mail-draft-status-uncertain = 保存の確認が取れていません。別のコピーを作成する前に下書きを確認してください。自動保存は一時停止しています。
-mail-draft-status-conflict = この下書きは別のデバイスで変更されました。続行する前に、アカウント上のコピーを開き直してください。
+mail-draft-status-uncertain = サーバーの確認を待っています。安全を確認して自動的に再試行します。
+mail-draft-status-conflict = 変更を再保存する前にサーバーの下書きを確認しています。
 mail-draft-status-unsupported = このアカウントは現在、下書きフォルダーへの保存を確認できません。
 mail-draft-protected = 暗号化または復号された引用内容は平文では保存されません。以前のアカウントの下書きは、明示的に破棄するまで残ります。
 mail-draft-save-now = 下書きに保存
 mail-draft-save-failed = この下書きをアカウントに保存できませんでした。閉じる前に作成画面を確認してください。
-mail-draft-uncertain = 下書きは保存された可能性があります。自動再試行は一時停止しています。下書きフォルダーを確認してください。
+mail-draft-uncertain = 保存の確認が届いていません。Mailwomanが状態を確認して安全に再試行します。
 mail-draft-conflict = 別のデバイスがこの下書きを変更しました。あなたの編集内容はそのコピーを上書きしていません。
 mail-draft-cleanup-pending = 新しい下書きは保存されましたが、以前のコピーを削除できませんでした。もう一度保存する前に下書きを確認してください。
 mail-draft-account-list = アカウントの下書き
@@ -1417,3 +1417,9 @@ mail-attachment-warning-title = 添付ファイルのセキュリティ警告
 mail-attachment-warning-help = これらのファイルはコードを実行したり、種類を偽装したりする可能性があります。開く前に送信者とファイル名を確認してください。
 
 mail-compose-encrypted-storage-unavailable = 暗号化されたローカル復元を利用できません。エディターを開いたままにするか、閉じる前に下書きをサーバーに保存してください。
+
+mail-folder-check-complete = フォルダーの新着メールを確認しました。
+
+mail-reader-close-message = メッセージを閉じる
+
+mail-draft-local-saved = このブラウザーに保存済み

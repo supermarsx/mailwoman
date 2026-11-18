@@ -482,7 +482,7 @@ mail-workspace-layout = Layout do espaço de trabalho
 mail-workspace-tabs = Abas
 mail-workspace-side-by-side = Lado a lado
 mail-workspace-stack = Empilhado
-mail-workspace-refresh = Atualizar pasta
+mail-workspace-refresh = Verificar novas mensagens
 mail-workspace-load-error = Não foi possível carregar esta mensagem. Feche a aba e tente novamente.
 mail-resize-folders = Redimensionar a barra lateral de pastas
 mail-resize-list = Redimensionar a lista de mensagens
@@ -637,13 +637,13 @@ mail-draft-status-pending = Alterações não salvas
 mail-draft-status-saving = Salvando em Rascunhos…
 mail-draft-status-saved = Salvo em Rascunhos da conta
 mail-draft-status-error = O rascunho não foi salvo. Sua cópia de recuperação local continua disponível.
-mail-draft-status-uncertain = A confirmação do salvamento não foi recebida. Verifique Rascunhos antes de criar outra cópia; o salvamento automático está pausado.
-mail-draft-status-conflict = Este rascunho foi alterado em outro dispositivo. Reabra a cópia da conta antes de continuar.
+mail-draft-status-uncertain = Aguardando confirmação do servidor; uma nova tentativa será feita quando for seguro.
+mail-draft-status-conflict = Verificando o rascunho no servidor antes de tentar salvar suas alterações.
 mail-draft-status-unsupported = No momento, esta conta não consegue confirmar salvamentos em sua pasta Rascunhos.
 mail-draft-protected = O conteúdo citado criptografado ou descriptografado não é salvo como texto simples. Qualquer rascunho anterior da conta permanece até que você o descarte explicitamente.
 mail-draft-save-now = Salvar em Rascunhos
 mail-draft-save-failed = Não foi possível salvar este rascunho na sua conta. Verifique o editor antes de fechá-lo.
-mail-draft-uncertain = O rascunho pode ter sido salvo. As novas tentativas automáticas estão pausadas; verifique sua pasta Rascunhos.
+mail-draft-uncertain = A confirmação não chegou. O Mailwoman verificará e tentará novamente com segurança.
 mail-draft-conflict = Outro dispositivo alterou este rascunho. Suas edições não sobrescreveram a cópia dele.
 mail-draft-cleanup-pending = O novo rascunho foi salvo, mas não foi possível remover a cópia anterior. Revise Rascunhos antes de salvar novamente.
 mail-draft-account-list = Rascunhos da conta
@@ -1501,3 +1501,9 @@ mail-attachment-warning-title = Avisos de segurança dos anexos
 mail-attachment-warning-help = Estes arquivos podem executar código ou disfarçar seu tipo. Verifique o remetente e o nome antes de abri-los.
 
 mail-compose-encrypted-storage-unavailable = A recuperação local criptografada está indisponível. Mantenha o editor aberto ou salve o rascunho no servidor antes de fechar.
+
+mail-folder-check-complete = Pasta verificada em busca de novas mensagens.
+
+mail-reader-close-message = Fechar mensagem
+
+mail-draft-local-saved = Salvo neste navegador

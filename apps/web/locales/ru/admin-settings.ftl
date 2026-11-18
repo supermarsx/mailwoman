@@ -2753,3 +2753,11 @@ admin-settings-help-security-protection-probe-path-mode = Применение �
 
 admin-settings-key-mail-row-actions = Расположение быстрых действий
 admin-settings-help-mail-row-actions = Выберите и упорядочьте быстрые действия или поместите их в меню «Ещё». Скрытые действия остаются доступны в контекстном меню сообщения.
+
+admin-settings-key-mail-cache-preload-headers = Предзагрузка заголовков сообщений
+admin-settings-help-mail-cache-preload-headers = Загружать получателей, адреса доставки, даты и заголовки ответов вместе со списками. Включено по умолчанию; без загрузки содержимого и вложений.
+
+admin-settings-key-mail-notices-enabled = Включить примечания
+admin-settings-help-mail-notices-enabled = Повторно используемый текст после подписи, независимо от неё. Шаблоны относятся к этому аккаунту. Текст обязателен; необязательный HTML очищается перед отправкой.
+admin-settings-key-mail-notices-templates = Примечания к сообщениям
+admin-settings-help-mail-notices-templates = Должны выполняться все условия. Пустые поля подходят всем значениям. Тема и текст ищутся буквально без учёта регистра. Внутренние получатели используют домен отправителя или доверенный домен. Ручной выбор заменяет правила.

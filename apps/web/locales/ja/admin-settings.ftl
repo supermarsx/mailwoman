@@ -2727,3 +2727,11 @@ admin-settings-help-security-protection-probe-path-mode = 強制では、CMS、�
 
 admin-settings-key-mail-row-actions = クイック操作の配置
 admin-settings-help-mail-row-actions = クイック操作を選択し、順序を変更するか、「その他」に配置します。非表示の操作はメッセージのコンテキストメニューから引き続き利用できます。
+
+admin-settings-key-mail-cache-preload-headers = メッセージヘッダーを先読み
+admin-settings-help-mail-cache-preload-headers = 一覧とともに宛先、配信先、日時、返信ヘッダーを取得します。既定で有効です。本文や添付ファイルはダウンロードしません。
+
+admin-settings-key-mail-notices-enabled = 注意書きを有効化
+admin-settings-help-mail-notices-enabled = 署名とは別に、その後に追加する再利用可能な内容です。テンプレートはこのアカウントに属します。テキストは必須で、任意のHTMLは送信前に安全化されます。
+admin-settings-key-mail-notices-templates = メッセージの注意書き
+admin-settings-help-mail-notices-templates = 設定した条件はすべて一致する必要があります。空欄はすべてに一致します。件名と本文は大文字小文字を区別しない文字列検索です。内部宛先は送信元または信頼済みのドメインを共有します。手動選択はルールを上書きします。

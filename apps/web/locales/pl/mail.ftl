@@ -509,7 +509,7 @@ mail-workspace-layout = Układ przestrzeni roboczej
 mail-workspace-tabs = Karty
 mail-workspace-side-by-side = Obok siebie
 mail-workspace-stack = Jedno pod drugim
-mail-workspace-refresh = Odśwież folder
+mail-workspace-refresh = Sprawdź nowe wiadomości
 mail-workspace-load-error = Nie udało się wczytać tej wiadomości. Zamknij kartę i spróbuj ponownie.
 mail-resize-folders = Zmień rozmiar paska folderów
 mail-resize-list = Zmień rozmiar listy wiadomości
@@ -664,13 +664,13 @@ mail-draft-status-pending = Niezapisane zmiany
 mail-draft-status-saving = Zapisywanie w Wersjach roboczych…
 mail-draft-status-saved = Zapisano w Wersjach roboczych konta
 mail-draft-status-error = Nie zapisano wersji roboczej. Lokalna kopia odzyskiwania pozostaje dostępna.
-mail-draft-status-uncertain = Brak potwierdzenia zapisu. Sprawdź Wersje robocze, zanim utworzysz kolejną kopię; automatyczne zapisywanie jest wstrzymane.
-mail-draft-status-conflict = Ta wersja robocza zmieniła się na innym urządzeniu. Otwórz ponownie jej kopię z konta, zanim przejdziesz dalej.
+mail-draft-status-uncertain = Oczekiwanie na potwierdzenie serwera; zapis zostanie bezpiecznie ponowiony.
+mail-draft-status-conflict = Sprawdzanie wersji roboczej na serwerze przed ponownym zapisem zmian.
 mail-draft-status-unsupported = To konto nie może obecnie potwierdzać zapisów w folderze Wersje robocze.
 mail-draft-protected = Zaszyfrowana lub odszyfrowana treść cytowana nie jest zapisywana jako zwykły tekst. Wcześniejsza wersja robocza na koncie pozostaje, dopóki jej wyraźnie nie odrzucisz.
 mail-draft-save-now = Zapisz w Wersjach roboczych
 mail-draft-save-failed = Nie udało się zapisać tej wersji roboczej na koncie. Sprawdź edytor przed jego zamknięciem.
-mail-draft-uncertain = Wersja robocza mogła zostać zapisana. Automatyczne ponowienia są wstrzymane; sprawdź folder Wersje robocze.
+mail-draft-uncertain = Brak potwierdzenia. Mailwoman sprawdzi stan i bezpiecznie ponowi zapis.
 mail-draft-conflict = Inne urządzenie zmieniło tę wersję roboczą. Twoje zmiany nie nadpisały jej kopii.
 mail-draft-cleanup-pending = Nowa wersja robocza została zapisana, ale nie udało się usunąć jej poprzedniej kopii. Przejrzyj Wersje robocze przed ponownym zapisem.
 mail-draft-account-list = Wersje robocze konta
@@ -1562,3 +1562,9 @@ mail-attachment-warning-title = Ostrzeżenia bezpieczeństwa załączników
 mail-attachment-warning-help = Te pliki mogą wykonywać kod lub ukrywać swój typ. Sprawdź nadawcę i nazwę przed otwarciem.
 
 mail-compose-encrypted-storage-unavailable = Zaszyfrowane odzyskiwanie lokalne jest niedostępne. Pozostaw edytor otwarty lub zapisz szkic na serwerze przed zamknięciem.
+
+mail-folder-check-complete = Sprawdzono folder pod kątem nowych wiadomości.
+
+mail-reader-close-message = Zamknij wiadomość
+
+mail-draft-local-saved = Zapisano w tej przeglądarce

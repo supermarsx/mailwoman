@@ -865,7 +865,7 @@ settings-permissions-push-server-error = The server could not register backgroun
 settings-permissions-push-browser-error = The browser could not create a push subscription. Check site permissions, browser support and network access.
 settings-permissions-push-unlinked = This browser has a push subscription that is not yet linked to this account.
 
-cache-prefetchEnabled-help = Fetch likely next folders before you open them. Off by default; requires the session cache.
+cache-prefetchEnabled-help = Prepare likely next folders before opening them. Enabled by default; requires the session cache.
 cache-hoverEnabled-help = Prepare a folder when the pointer rests on it, after the delay below. Requires speculative preloading.
 cache-focusEnabled-help = Prepare a folder when you focus it with the keyboard, after the delay below. Requires speculative preloading.
 cache-dwellMs-help = How long the pointer or keyboard focus must stay on a folder before preloading starts.
@@ -996,3 +996,6 @@ settings-alert-background-scope = Folder-scoped or muted-folder alerts are evalu
 
 settings-alert-notifications-incoming-only-matching-rules = Only notify matching rules
 settings-alert-help-notifications-incoming-only-matching-rules = Notify only mail matching a Notify rule. Matching mute rules, quiet hours and muted folders still take priority.
+
+cache-preloadHeaders = Preload message headers
+cache-preloadHeaders-help = Fetch recipients, delivery addresses, dates and reply headers with message lists. Enabled by default; message bodies and attachment files are not downloaded.

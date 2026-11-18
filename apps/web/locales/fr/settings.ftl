@@ -867,7 +867,7 @@ settings-permissions-push-server-error = Le serveur n’a pas pu enregistrer les
 settings-permissions-push-browser-error = Le navigateur n’a pas pu créer l’abonnement push. Vérifiez les autorisations du site, la compatibilité et le réseau.
 settings-permissions-push-unlinked = Ce navigateur possède un abonnement push qui n’est pas encore lié à ce compte.
 
-cache-prefetchEnabled-help = Précharge les dossiers probables avant leur ouverture. Désactivé par défaut ; nécessite le cache de session.
+cache-prefetchEnabled-help = Préparer les prochains dossiers avant leur ouverture. Activé par défaut ; nécessite le cache de session.
 cache-hoverEnabled-help = Précharge un dossier après le survol pendant le délai ci-dessous. Nécessite le préchargement.
 cache-focusEnabled-help = Précharge un dossier après le focus clavier pendant le délai ci-dessous. Nécessite le préchargement.
 cache-dwellMs-help = Durée de survol ou de focus clavier avant le début du préchargement.
@@ -908,3 +908,6 @@ settings-row-action-up = Monter { $name }
 settings-row-action-down = Descendre { $name }
 
 settings-permissions-push-account-help = Choisissez la boîte à configurer. L’autorisation du navigateur est partagée, mais l’inscription et la suppression concernent uniquement le compte sélectionné.
+
+cache-preloadHeaders = Précharger les en-têtes des messages
+cache-preloadHeaders-help = Charger destinataires, adresses de livraison, dates et en-têtes de réponse avec les listes. Activé par défaut ; sans télécharger les corps ni les pièces jointes.

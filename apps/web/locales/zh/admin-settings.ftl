@@ -2727,3 +2727,11 @@ admin-settings-help-security-protection-probe-path-mode = 强制模式在首次�
 
 admin-settings-key-mail-row-actions = 快速操作布局
 admin-settings-help-mail-row-actions = 选择快速操作、调整顺序或将其放入“更多”菜单。隐藏的操作仍可在邮件右键菜单中使用。
+
+admin-settings-key-mail-cache-preload-headers = 预加载邮件标头
+admin-settings-help-mail-cache-preload-headers = 随邮件列表获取收件人、投递地址、日期和回复标头。默认启用；不下载正文或附件文件。
+
+admin-settings-key-mail-notices-enabled = 启用声明
+admin-settings-help-mail-notices-enabled = 独立于签名、添加在签名之后的可复用内容。模板属于此账户。纯文本为必填项；可选 HTML 会在发送前进行安全处理。
+admin-settings-key-mail-notices-templates = 邮件声明
+admin-settings-help-mail-notices-templates = 所有已配置条件均须匹配。空字段匹配任意值。主题和正文采用不区分大小写的字面文本匹配。内部收件人使用发件人域名或受信任域名。手动选择覆盖自动规则。
