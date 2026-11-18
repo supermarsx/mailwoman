@@ -31,7 +31,7 @@ export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:
  const owner=preferenceAccount(),client=createConfiguredClient(),controller=new AbortController();
  const box=()=>app.mailboxes().find(value=>value.id===props.mailboxId);
  const view=createFolderView(client,props.mailboxId,()=>!!box());
- const manualRefresh=()=>view.load(view.position(),{upstream:true,upstreamMailboxId:box()?.mailwomanSearchQuery===undefined?props.mailboxId:null});
+ const manualRefresh=async()=>{await view.load(view.position(),{upstream:true,upstreamMailboxId:box()?.mailwomanSearchQuery===undefined?props.mailboxId:null});if(view.current()&&!view.loading())app.showToast(view.error()?'error':'success',t(view.error()?'mail-context-failed':'mail-folder-check-complete'));};
  const sync=createInitialSync(()=>props.mailboxId,()=>view.load(view.position()));
  const [busy,setBusy]=createSignal(false),[result,setResult]=createSignal(''),[failed,setFailed]=createSignal(false);
  const [confirmDelete,setConfirmDelete]=createSignal<string[]|null>(null);

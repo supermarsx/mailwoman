@@ -434,7 +434,8 @@ describe('mail slice — undo-send', () => {
   });
 
   it('send-later shows a scheduled toast, not an undo window', async () => {
-    await withInbox([email('a')], async (mail, { toast }) => {
+    toastStore.clear();
+    await withInbox([email('a')], async (mail) => {
       await mail.sendMessage({
         to: 'you@example.org',
         subject: 'Later',
@@ -442,7 +443,7 @@ describe('mail slice — undo-send', () => {
         sendAt: new Date(Date.now() + 3_600_000).toISOString(),
       });
       expect(mail.pendingUndo()).toBeNull();
-      expect(toast).toHaveBeenCalledWith('success', 'Scheduled to send');
+      expect(toasts()).toEqual(expect.arrayContaining([expect.objectContaining({tone:'success',message:'Scheduled to send',testId:'notification-queued'})]));
     });
   });
 });
@@ -1404,6 +1405,21 @@ describe('mail slice — search', () => {
     });
   });
 
+  it('checks upstream for new mail before reconciling and reports successful completion',async()=>{
+    await withInbox([email('a')],async(mail,{client,toast,setSeed})=>{
+      const check=vi.fn(async()=>{});client.refreshMailbox=check;toast.mockClear();setSeed([email('a'),email('b')]);
+      await mail.refreshCurrentMailbox({upstream:true});
+      expect(check).toHaveBeenCalledWith(mail.accountId(),'inbox');expect(mail.messages().map(message=>message.id)).toEqual(['a','b']);
+      expect(toast).toHaveBeenCalledWith('success','Folder checked for new mail.');
+    });
+  });
+  it('does not report a successful folder check when the upstream check fails',async()=>{
+    await withInbox([email('a')],async(mail,{client,toast})=>{
+      client.refreshMailbox=vi.fn(async()=>{throw new Error('offline');});toast.mockClear();
+      await mail.refreshCurrentMailbox({upstream:true});expect(toast).toHaveBeenCalledWith('error',expect.any(String));
+      expect(toast).not.toHaveBeenCalledWith('success','Folder checked for new mail.');
+    });
+  });
   it('refreshCurrentMailbox reloads in place, keeping the open message', async () => {
     await withInbox([email('a')], async (mail, { setSeed }) => {
       await mail.openMessage('a');

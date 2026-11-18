@@ -2092,7 +2092,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       try{await client.refreshMailbox?.(account,mailbox);}catch{if(current())ctx.showToast('error',t('mail-context-failed'));return;}
       if(!current())return;querySnapshot=undefined;mailboxState=undefined;
     }
-    return refreshCurrentList(options.upstream===true);
+    const current=captureMailAuthority();
+    return refreshCurrentList(options.upstream===true,false,options.upstream?ok=>{if(current())ctx.showToast(ok?'success':'error',t(ok?'mail-folder-check-complete':'mail-context-failed'));}:undefined);
   }
 
   function refreshMessageOrder(): Promise<void> {
@@ -2104,7 +2105,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   let pendingListRefresh=false;
   function finishPendingRefresh():void{if(!pendingListRefresh||listLoading()||loadingMore())return;pendingListRefresh=false;queueMicrotask(()=>void refreshCurrentList(false));}
 
-  async function refreshCurrentList(includeSearch: boolean,countsCurrent=false): Promise<void> {
+  async function refreshCurrentList(includeSearch: boolean,countsCurrent=false,onChecked?:((ok:boolean)=>void)|undefined): Promise<void> {
     if(refreshRetry){clearTimeout(refreshRetry);refreshRetry=undefined;}
     readCache.invalidate(undefined,{abort:false});
     const current = captureMailAuthority();
@@ -2118,7 +2119,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // Push refreshes can wait for current work. An explicit order/group change
     // supersedes the old query, including an append, so it cannot mix pages
     // from two different arrangements or silently lose the user's choice.
-    if (listLoading() || loadingMore()) {if(includeSearch)await loadFirstPage(acct,src);else pendingListRefresh=true;return;}
+    if (listLoading() || loadingMore()) {if(includeSearch){if(onChecked){try{await loadFirstPage(acct,src);if(current())onChecked(true);}catch{if(current())onChecked(false);}}else await loadFirstPage(acct,src);}else pendingListRefresh=true;return;}
     const range = loadedRange();
     const loaded = Math.max(pageSize(), range.end - range.start + hiddenRows);
     const req = beginListRequest();
@@ -2161,11 +2162,12 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       setLoadedStart(range.start);
       const reportedTotal = pageTotal(res);
       setTotal(relocated>0||reportedTotal===null?null:Math.max(0,reportedTotal-hidden));
-      setExhausted(serverLen < loaded);refreshFailures=0;
+      setExhausted(serverLen < loaded);refreshFailures=0;onChecked?.(true);
     } catch {
       // A pushed state has already been acknowledged by the reconciler. Retry a
       // transient list failure ourselves rather than waiting for a second mail.
       if(isCurrent(req)){
+        onChecked?.(false);
         refreshFailures++;
         const retry=():void=>{
           refreshRetry=undefined;
