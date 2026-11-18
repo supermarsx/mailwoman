@@ -28,8 +28,8 @@ def frame_document():
     html = re.sub(r'(http-equiv="Content-Security-Policy"\s+content=")[^"]+', lambda match: match[1] + FRAME_CSP, html)
     # Stylesheets first, then the module script: a script ahead of a pending stylesheet makes Firefox log
     # "Layout was forced before the page was fully loaded" for the layout reads the viewer makes on start.
-    html = html.replace('<script src="../build/pdf.mjs" type="module"></script>', '<link rel="stylesheet" href="../mailwoman.css" />')
-    html = html.replace('<link rel="stylesheet" href="viewer.css" />', '<link rel="stylesheet" href="viewer.css" />\n<script src="../bootstrap.mjs" type="module"></script>')
+    html = html.replace('<script src="../build/pdf.mjs" type="module"></script>', '')
+    html = html.replace('<link rel="stylesheet" href="viewer.css" />', '<link rel="stylesheet" href="viewer.css" />\n<link rel="stylesheet" href="../mailwoman.css" />\n<script src="../bootstrap.mjs" type="module"></script>')
     return html.replace('<script src="viewer.mjs" type="module"></script>', '')
 
 

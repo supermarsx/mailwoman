@@ -17,10 +17,23 @@
   --text-secondary-color: var(--mw-text-dim, #bdc1c6);
   --doorhanger-bg-color: var(--mw-surface, #292a2d);
   --doorhanger-border-color: var(--mw-border, #5f6368);
+  --doorhanger-hover-color: var(--mw-text, #e8eaed);
+  --doorhanger-separator-color: var(--mw-border, #5f6368);
+  --dialog-button-bg-color: var(--mw-bg-alt, #303134);
+  --dialog-button-hover-bg-color: var(--mw-border, #5f6368);
+  --dialog-button-hover-color: var(--mw-text, #e8eaed);
+  --progressBar-color: var(--mw-accent, #8ab4f8);
+  --progressBar-bg-color: var(--mw-bg-alt, #303134);
+  --progressBar-blend-color: var(--mw-border, #5f6368);
   --sidebar-toolbar-bg-color: var(--mw-surface, #292a2d);
   --sidebaritem-bg-color: var(--mw-bg-alt, #303134);
   --sidebaritem-color: var(--mw-text, #e8eaed);
   --focus-ring-color: var(--mw-accent, #8ab4f8);
+  --toggled-btn-color: var(--mw-accent-text, #202124);
+  --toggled-btn-bg-color: var(--mw-accent, #8ab4f8);
+  --toggled-hover-active-btn-color: var(--mw-accent, #8ab4f8);
+  --scrollbar-color: var(--mw-border, #5f6368);
+  --scrollbar-bg-color: var(--mw-bg, #202124);
   --dialog-bg-color: var(--mw-surface);
   --dialog-border-color: var(--mw-border);
   --separator-color: var(--mw-border);
@@ -62,6 +75,76 @@ button, input, select { font-family: inherit; }
   --sidebar-bg-color: var(--mw-surface);
   --sidebar-border-color: var(--mw-border);
   --text-color: var(--mw-text);
+}
+/* PDF.js 6 defines these on the views manager itself, rather than inheriting
+   the older toolbar palette. Keep document paper/annotations untouched. */
+@media (forced-colors: none) {
+  .popupMenu {
+    --menu-bg: var(--mw-surface);
+    --menu-border-color: var(--mw-border);
+    --menu-text-color: var(--mw-text);
+    --menuitem-hover-bg: var(--mw-bg-alt);
+    --menuitem-active-bg: var(--mw-accent);
+    --menuitem-text-active-fg: var(--mw-accent-text);
+    --menuitem-focus-bg: var(--mw-bg-alt);
+    --menuitem-focus-outline-color: var(--mw-accent);
+    --menuitem-focus-border-color: var(--mw-border);
+    --menuitem-border-radius: var(--mw-radius-sm, 0px);
+    border-radius: var(--mw-radius-md, 0px);
+  }
+  #viewsManager {
+    --header-bg: var(--mw-surface);
+    --header-shadow: 0 1px 0 var(--mw-border);
+    --button-fg: var(--mw-text);
+    --button-bg: var(--mw-bg-alt);
+    --button-hover-bg: var(--mw-border);
+    --button-hover-fg: var(--mw-text);
+    --button-active-bg: var(--mw-accent);
+    --button-active-fg: var(--mw-accent-text);
+    --button-focus-no-bg: var(--mw-bg-alt);
+    --button-focus-outline-color: var(--mw-accent);
+    --button-focus-border-color: var(--mw-border);
+    --status-actions-bg: var(--mw-bg-alt);
+    --status-undo-bg: color-mix(in srgb, var(--mw-accent) 15%, var(--mw-surface));
+    --indicator-color: var(--mw-accent);
+    --status-warning-bg: color-mix(in srgb, var(--mw-warning) 15%, var(--mw-surface));
+    --indicator-warning-color: var(--mw-warning);
+    --image-border-color: var(--mw-border);
+    --image-hover-border-color: var(--mw-text-dim);
+    --image-current-border-color: var(--mw-accent);
+    --image-page-number-bg: var(--mw-bg-alt);
+    --image-page-number-fg: var(--mw-text);
+    --image-current-page-number-fg: var(--mw-accent-text);
+    --image-dragging-placeholder-bg: color-mix(in srgb, var(--mw-accent) 15%, var(--mw-surface));
+    --multiple-dragging-bg: var(--mw-surface);
+    --multiple-dragging-text-color: var(--mw-accent-text);
+  }
+  #viewsManager, .sidebar {
+    --sidebar-bg-color: var(--mw-surface);
+    --sidebar-border-color: var(--mw-border);
+    --sidebar-border-radius: var(--mw-radius-md, 0px);
+    --sidebar-box-shadow: 0 2px 8px color-mix(in srgb, var(--mw-text) 15%, transparent);
+    --resizer-hover-bg-color: var(--mw-accent);
+  }
+  #viewsManager .treeView {
+    --treeitem-color: var(--mw-text);
+    --treeitem-bg-color: var(--mw-bg-alt);
+    --treeitem-hover-color: var(--mw-text);
+    --treeitem-selected-color: var(--mw-accent-text);
+    --treeitem-selected-bg-color: var(--mw-accent);
+  }
+  #viewsManager #viewsManagerContent #attachmentsView {
+    --attachment-color: var(--mw-text);
+    --attachment-bg-color: var(--mw-bg-alt);
+    --attachment-hover-color: var(--mw-text);
+  }
+}
+/* Native menu/message-box shorthands otherwise replace the app's font. */
+#viewsManager .viewsManagerLabel, #viewsManager .thumbnailImageContainer::after,
+#viewsManager :is(button, input, select), #secondaryToolbar .toolbarButton,
+#findbar :is(button, input), .dialog :is(button, input, select),
+.treeView .treeItem > a, .menuContainer button {
+  font-family: var(--mw-font-sans, system-ui, sans-serif) !important;
 }
 /* Hide tools requiring online AI/model services or changing document identity. */
 #imageAltTextSettings, #imageAltTextSettingsSeparator, #editorSignature,
