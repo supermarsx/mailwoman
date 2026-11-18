@@ -178,3 +178,38 @@ button, input, select { font-family: inherit; }
 }
 :root #secondaryToolbar { max-height: calc(100dvh - 58px); }
 :root #secondaryToolbarButtonContainer { max-height: calc(100dvh - 72px) !important; overflow-y: auto; overscroll-behavior: contain; }
+
+/* Views manager chrome has its own native fonts, radii and thumbnail shadows.
+   Scope these overrides to the sidebar so PDF pages keep their original art. */
+@media (forced-colors: none) {
+  #viewsManager {
+    --button-border-color: var(--mw-border);
+    --button-hover-border-color: var(--mw-text-dim);
+    --button-active-border-color: var(--mw-accent);
+    --status-border-color: var(--mw-border);
+    --image-shadow: 0 0 0 1px var(--mw-border);
+    --image-hover-shadow: 0 0 0 2px var(--mw-text-dim);
+    --image-current-shadow: 0 0 0 var(--image-border-width) var(--mw-accent);
+    --image-current-focused-outline-color: var(--mw-text);
+    --image-page-number-border-color: var(--mw-border);
+  }
+  #viewsManager .popupMenu {
+    --menuitem-text-hover-fg: var(--mw-text);
+    --menu-text-disabled-color: var(--mw-text-dim);
+    --menu-box-shadow: 0 2px 8px color-mix(in srgb, var(--mw-text) 15%, transparent);
+  }
+  #viewsManager :is(.viewsManagerButton, .thumbnailPasteButton),
+  #viewsManager .thumbnailImageContainer,
+  #viewsManager .thumbnailImageContainer::after,
+  #viewsManager .thumbnailImageContainer > :is(canvas, img),
+  #viewsManager .thumbnail.draggingThumbnail::after {
+    border-radius: var(--mw-radius-sm, 0px) !important;
+  }
+  #viewsManager .sidebarResizer:hover { border-color: var(--mw-border); }
+}
+#viewsManager .viewsManagerStatusLabel,
+#viewsManager .thumbnailPasteButton,
+#viewsManager .thumbnailImageContainer::after,
+#viewsManager .popupMenu button {
+  font-family: var(--mw-font-sans, system-ui, sans-serif) !important;
+}

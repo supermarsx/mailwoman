@@ -23,6 +23,37 @@ test('PDF viewer chrome follows custom app palettes, including the modern sideba
   await expect(page.locator('#viewsManagerHeaderLabel')).toHaveCSS('color',palette.text);
   await expect(page.locator('#viewsManagerHeaderLabel')).toHaveCSS('font-family','monospace');
   await expect(page.locator('#viewsManagerSelectorButton')).toHaveCSS('font-family','monospace');
+  await expect(page.locator('#viewsManagerStatusActionLabel')).toHaveCSS('font-family','monospace');
+  await expect(page.locator('#viewsManagerSelectorButton')).toHaveCSS('border-radius','0px');
+  await expect(page.locator('#viewsManagerStatus')).toHaveCSS('border-top-color',palette.accent);
+  // Exercise the actual selector's hover palette, not just inherited tokens.
+  await page.evaluate(()=>{
+   document.querySelector('#outerContainer')?.classList.add('viewsManagerOpen');
+   document.querySelector('#viewsManager')?.removeAttribute('hidden');
+   document.documentElement.style.setProperty('--viewer-container-height','700px');
+   const thumbnails=document.querySelector('#thumbnailsView')!;
+   thumbnails.classList.remove('hidden');
+   if(!thumbnails.firstElementChild){
+    const thumbnail=document.createElement('div');thumbnail.className='thumbnail';thumbnail.setAttribute('page-number','1');
+    const image=document.createElement('a');image.className='thumbnailImageContainer';image.setAttribute('aria-current','page');
+    image.append(document.createElement('img'));thumbnail.append(image);thumbnails.append(thumbnail);
+   }
+
+   document.querySelector('#viewsManagerSelectorButton')?.setAttribute('aria-expanded','true');
+  });
+  const menu=page.locator('#viewsManagerSelectorOptions');
+  await expect(menu).toHaveCSS('background-color',palette.surface);
+  await expect(menu).toHaveCSS('border-radius','0px');
+  const thumbnail=page.locator('#thumbnailsView .thumbnailImageContainer');
+  await expect(thumbnail).toHaveCSS('border-radius','0px');
+  await expect(thumbnail.locator('img')).toHaveCSS('border-radius','0px');
+  expect(await thumbnail.evaluate(node=>getComputedStyle(node,'::after').borderRadius)).toBe('0px');
+  expect(await thumbnail.evaluate(node=>getComputedStyle(node,'::after').backgroundColor)).toBe(palette.accent);
+
+  await expect(page.locator('#thumbnailsViewMenu')).toHaveCSS('font-family','monospace');
+  await page.locator('#thumbnailsViewMenu').hover();
+  await expect(page.locator('#thumbnailsViewMenu')).toHaveCSS('background-color',palette.bg);
+  await expect(page.locator('#thumbnailsViewMenu span')).toHaveCSS('color',palette.text);
   const variable=(selector:string,key:string)=>page.locator(selector).evaluate((node,key)=>getComputedStyle(node).getPropertyValue(key).trim(),key);
   expect(await variable('#viewsManager','--image-current-border-color')).toBe(palette.accent);
   expect(await variable('#viewsManager','--image-page-number-bg')).toBe(palette.bg);
