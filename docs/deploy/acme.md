@@ -6,7 +6,7 @@ over **ACME** or by loading an **external certificate** that hot-reloads on
 or the other, not both, for a given listener.
 
 > If you already terminate TLS at nginx/Traefik/Caddy (see
-> [`README.md`](./README.md) and [`nginx.conf`](./nginx.conf)), you do **not**
+> [`README.md`](./README.md) and [`nginx.conf`](https://github.com/supermarsx/mailwoman/blob/master/docs/deploy/nginx.conf)), you do **not**
 > need this — keep `mw-server` on plaintext `127.0.0.1:8080` behind the proxy.
 
 ## ACME (automatic certificates)

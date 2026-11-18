@@ -4,7 +4,7 @@ Milestone: 1.0 hardening (baseline release 26.8.0). This document consolidates t
 threat model across Mailwoman's security-sensitive surfaces into one place for an
 external auditor. Each surface is described as: **assets**, **trust boundaries**,
 **adversary model**, **existing mitigations**, and **residual risk**. The per-subsystem
-docs under [`docs/security/`](../) remain authoritative for mechanism detail; this is the
+docs under [`docs/security/`](../README.md) remain authoritative for mechanism detail; this is the
 cross-cutting view.
 
 > **HUMAN-GATED AUDIT.** The funded external audit **run** and the **resolution of its
@@ -22,7 +22,7 @@ native store. The three defining security stances are: (1) **private keys and E2
 plaintext are handled only client-side in a WASM crypto worker**; (2) **untrusted input
 (mail bodies, MIME, plugin code, LLM-facing content) is treated as hostile and confined**;
 (3) **the supply-chain floor is permissive-license, pure-Rust, rustls-only, no openssl/C
-TLS** (enforced by `cargo deny`, see [`deny.toml`](../../../deny.toml)).
+TLS** (enforced by `cargo deny`, see [`deny.toml`](https://github.com/supermarsx/mailwoman/blob/master/deny.toml)).
 
 ## Global trust boundaries
 

@@ -17,7 +17,7 @@ release 26.8.0). Commands assume a checkout at the repo root.
 ## 1. Supply chain — licenses, advisories, bans, sources {#supply-chain}
 
 **Gate:** the `deny` CI job → `cargo deny check licenses advisories bans sources` against
-[`deny.toml`](../../../deny.toml). This is the **authoritative** supply-chain gate.
+[`deny.toml`](https://github.com/supermarsx/mailwoman/blob/master/deny.toml). This is the **authoritative** supply-chain gate.
 
 ```sh
 cargo install cargo-deny        # or use EmbarkStudios/cargo-deny-action@v2 as CI does

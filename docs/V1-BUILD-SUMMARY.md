@@ -1,6 +1,6 @@
 # Mailwoman V1 — Build Summary
 
-**Release:** `26.2` (rolling `YY.N` — see [../VERSIONING.md](../VERSIONING.md)) · **Date:** 2026-07-12 · **Repo:** https://github.com/supermarsx/mailwoman
+**Release:** `26.2` (rolling `YY.N` — see [../VERSIONING.md](https://github.com/supermarsx/mailwoman/blob/master/VERSIONING.md)) · **Date:** 2026-07-12 · **Repo:** https://github.com/supermarsx/mailwoman
 
 V1 turns Mailwoman from "a JMAP proxy that drives Stalwart" into "an engine that
 drives the mail servers the world actually runs" — Dovecot, Gmail-over-IMAP, a

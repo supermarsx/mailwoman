@@ -58,7 +58,7 @@ The runner does not transmit malformed TCP/IP packets, exhaust disk space, mutat
 mail, or run a distributed denial-of-service campaign. Raw HTTP framing,
 slow-header/body behavior, HTTP/2 stream pressure and QUIC-specific limits need
 their own isolated transport tests. Existing parser fuzz targets are documented
-in [fuzz/README.md](../../fuzz/README.md); having a harness is not evidence of a
+in [fuzz/README.md](https://github.com/supermarsx/mailwoman/blob/master/fuzz/README.md); having a harness is not evidence of a
 completed long-running fuzz campaign. Preserve minimized failures as regression
 tests and record actual fuzz runtime/corpus coverage separately.
 

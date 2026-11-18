@@ -44,6 +44,20 @@ replay and invalidates the offline bootstrap. Flags and moves retain the server
 version if the captured baseline changed; the failed change remains reviewable.
 Tracked sends keep the same prepared request and retry identity.
 
+### Draft recovery and interrupted saves
+
+Draft recovery records each editor change in the encrypted browser vault without
+waiting for a pause in typing. This includes deleting text, unfinished recipients,
+formatting, attachments and inline-image references. If browser storage refuses a
+write, Mailwoman warns you rather than claiming the recovery copy is saved.
+
+An uncertain account save keeps the newest browser copy. While the composer is
+open, Mailwoman checks the server again with a backoff starting at 30 seconds and
+rising to five minutes. It waits for a confirmed server revision before saving
+newer edits; an ambiguous upstream append is never blindly repeated. Reopening a
+browser recovery copy resumes this reconciliation. Closing waits for pending
+editor processing and the browser recovery write, rather than for the mail server.
+
 The profile encryption key is non-extractable and stored in IndexedDB. This
 protects persisted bytes; it is not zero-access protection against code already
 running with permission inside that browser profile.

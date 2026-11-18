@@ -19,7 +19,7 @@ for streaming.
 
 ## nginx
 
-See [`nginx.conf`](./nginx.conf) for the full snippet. The essentials:
+See [`nginx.conf`](https://github.com/supermarsx/mailwoman/blob/master/docs/deploy/nginx.conf) for the full snippet. The essentials:
 
 1. A `map` at `http{}` scope to translate the `Connection` header:
 

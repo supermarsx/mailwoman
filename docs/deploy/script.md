@@ -1,6 +1,6 @@
 # Root deployment script
 
-[`deploy.sh`](../../deploy.sh) manages a single-host Docker deployment of the
+[`deploy.sh`](https://github.com/supermarsx/mailwoman/blob/master/deploy.sh) manages a single-host Docker deployment of the
 Mailwoman web app: packaged SPA, Rust server, render worker, first-party plugins,
 SQLite database and filesystem upload storage, or a full stack with PostgreSQL
 and Valkey. It does not install a mail server.
@@ -437,6 +437,15 @@ The existing `--pull` option fetches a **container image**, independently of Git
 passes only the tag and never a registry address. It always fetches from the
 registry, so the signature check below applies. None of the commands asks
 questions; all of them can run unattended.
+
+Snapshots report each stage separately: stopping the app, copying `/data`,
+dumping PostgreSQL on full-stack installs, validating the archive, calculating
+checksums, and resuming the app. Each stage reports its duration; stages lasting
+more than five seconds also print elapsed-time updates every five seconds.
+Copies and database dumps show MiB written. Progress goes to stderr, so archive
+and dump contents remain unchanged. These are activity updates, not a percentage
+or ETA: the script does not scan all data ahead of the copy to estimate its size.
+The final message includes the total snapshot duration and backup location.
 
 Each deployment sets `MW_IMAGE_DIGEST` in the app's environment to the image it
 runs: `<repository>@sha256:...` when the `--image` (or

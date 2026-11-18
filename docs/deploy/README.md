@@ -316,7 +316,7 @@ public or not.
 
 For a complete single-host deployment with configuration, persistent data,
 optional automatic HTTPS, health checks, backups and recovery, use the root
-[`deploy.sh`](../../deploy.sh). See the [script guide](script.md).
+[`deploy.sh`](https://github.com/supermarsx/mailwoman/blob/master/deploy.sh). See the [script guide](script.md).
 
 ```sh
 bash deploy.sh --domain mail.example.org --mode engine
@@ -370,7 +370,7 @@ environment reference, the migration note for `MW_PUBLIC_URL` (it can invalidate
 existing passkeys), sub-path hosting with `MW_BASE_PATH`, the interaction
 between header auth and the proxy trust list, and **which proxies have actually
 been tested versus merely shipped**. Per-proxy configuration trees are under
-[`proxy/`](./proxy/).
+[`proxy/`](./proxy/README.md).
 
 V7 (release 26.8.0) — bridges, directory, AI assistant, plugins — adds:
 
@@ -384,7 +384,7 @@ V7 (release 26.8.0) — bridges, directory, AI assistant, plugins — adds:
   authoring, Ed25519 signing, the capability model, and resource limits.
 - [`../security/password-change.md`](../security/password-change.md) — in-app
   **password change** backends and the zero-access re-wrap.
-- [`../bridges/`](../bridges/) — the **Graph / EWS / Gmail** bridges (admin
+- [`../bridges/`](../bridges/index.md) — the **Graph / EWS / Gmail** bridges (admin
   app-registration + BYO app-ID + the honest scope boundaries).
 - [`../export/msg-oft-docx.md`](../export/msg-oft-docx.md) — **MSG/OFT/DOCX** export.
 - [`../integrations/nextcloud.md`](../integrations/nextcloud.md) — **Nextcloud**

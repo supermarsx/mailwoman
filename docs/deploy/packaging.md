@@ -4,12 +4,12 @@ Two distinct distribution stories:
 
 1. **Client shells** — the Tauri desktop/mobile apps (winget / notarized-macOS /
    AppImage / deb / rpm / Flatpak / F-Droid / Play / App Store). Recipes live in
-   [`../../packaging/`](../../packaging/).
+   [`../../packaging/`](https://github.com/supermarsx/mailwoman/tree/master/packaging).
 2. **Server** — the single Rust binary (`mailwoman serve`, container, or systemd),
    deployable behind a reverse proxy or via a **hosting panel**. The
    operator-facing reverse-proxy document is
    [`reverse-proxy.md`](reverse-proxy.md); per-proxy configuration trees are in
-   [`proxy/`](proxy/); topic notes are in this directory
+   [`proxy/`](proxy/README.md); topic notes are in this directory
    (`caldav-carddav.md`, `websocket.md`, …). **Hosting-panel recipes** are below.
 
 Nothing here submits to a store or signs an artifact — every account/cert/submission
@@ -22,14 +22,14 @@ artifacts **build** and meet the §16 size budgets.
 
 | Channel | Recipe | Autonomous (CI) | HUMAN-gated |
 |---|---|---|---|
-| Windows / winget | [`packaging/winget/`](../../packaging/winget/) | YAML manifests build + validate | Authenticode cert; signed installer URL + SHA-256; `winget-pkgs` PR |
-| macOS notarized | [`packaging/macos/`](../../packaging/macos/) | unsigned `.app`/`.dmg` builds + size gate | Apple Developer ID cert; notarization Apple ID / API key |
-| Linux AppImage/deb/rpm | [`packaging/linux/`](../../packaging/linux/) | bundles build + size gate | (only for a hosted apt/dnf repo GPG key) |
-| Flatpak / Flathub | [`packaging/flatpak/`](../../packaging/flatpak/) | manifest parses / `--show-manifest` | Flathub PR review + hosting; reproducible-source conversion |
-| F-Droid | [`packaging/fdroid/`](../../packaging/fdroid/) | metadata parses | `fdroiddata` MR; reproducible build review |
+| Windows / winget | [`packaging/winget/`](https://github.com/supermarsx/mailwoman/tree/master/packaging/winget) | YAML manifests build + validate | Authenticode cert; signed installer URL + SHA-256; `winget-pkgs` PR |
+| macOS notarized | [`packaging/macos/`](https://github.com/supermarsx/mailwoman/tree/master/packaging/macos) | unsigned `.app`/`.dmg` builds + size gate | Apple Developer ID cert; notarization Apple ID / API key |
+| Linux AppImage/deb/rpm | [`packaging/linux/`](https://github.com/supermarsx/mailwoman/tree/master/packaging/linux) | bundles build + size gate | (only for a hosted apt/dnf repo GPG key) |
+| Flatpak / Flathub | [`packaging/flatpak/`](https://github.com/supermarsx/mailwoman/tree/master/packaging/flatpak) | manifest parses / `--show-manifest` | Flathub PR review + hosting; reproducible-source conversion |
+| F-Droid | [`packaging/fdroid/`](https://github.com/supermarsx/mailwoman/tree/master/packaging/fdroid) | metadata parses | `fdroiddata` MR; reproducible build review |
 | Google Play | (Android APK/AAB via `apps/mobile`) | APK builds (`android-apk` CI job) | Play Console account; Play **upload key**; store listing + review |
 | Apple App Store | (`apps/mobile` iOS) | — (needs macOS + Xcode) | App Store Connect account; distribution cert; listing + review |
-| Desktop auto-update | [`packaging/updater/`](../../packaging/updater/) | per-build overlay (`MW_SHELL_UPDATER_URL` + `MW_SHELL_UPDATER_PUBKEY`); off without both | minisign keypair per deployment; hosted feed |
+| Desktop auto-update | [`packaging/updater/`](https://github.com/supermarsx/mailwoman/tree/master/packaging/updater) | per-build overlay (`MW_SHELL_UPDATER_URL` + `MW_SHELL_UPDATER_PUBKEY`); off without both | minisign keypair per deployment; hosted feed |
 
 ### Version
 
@@ -91,7 +91,7 @@ Common prerequisites: a `mailwoman` binary (from a release, the container image,
 the panel's reverse proxy. **Unix-socket binding is not supported** — `serve` binds
 a TCP address; there is no `UnixListener` in the tree, and systemd socket activation
 (`LISTEN_FDS`) is not implemented either. See [`hardening.md`](hardening.md) and
-[`mailwoman.service`](mailwoman.service) for the base systemd unit these adapt — a
+[`mailwoman.service`](https://github.com/supermarsx/mailwoman/blob/master/docs/deploy/mailwoman.service) for the base systemd unit these adapt — a
 plain hardened `ExecStart` unit, not a socket-activated one.
 
 > **There is no `--acme off`.** Earlier revisions of this page told operators to
@@ -122,7 +122,7 @@ reverse-proxy path:
    ```
 3. In **WHM → Apache → Include Editor** (or cPanel's "Domains → proxy"), add a
    reverse proxy from the domain to `127.0.0.1:8801`, passing `X-Forwarded-*` and
-   WebSocket upgrade headers (see [`nginx.conf`](nginx.conf) for the header set).
+   WebSocket upgrade headers (see [`nginx.conf`](https://github.com/supermarsx/mailwoman/blob/master/docs/deploy/nginx.conf) for the header set).
 4. TLS is terminated by cPanel/AutoSSL; leave Mailwoman's embedded ACME off by
    not passing `--acme` and leaving `MW_ACME` unset, as in the unit above.
 
@@ -133,7 +133,7 @@ reverse-proxy path:
 ### Plesk
 
 1. Install the binary under `/opt/mailwoman/` + data dir; add a hardened systemd unit
-   (adapt [`mailwoman.service`](mailwoman.service)) bound to `127.0.0.1:8801`.
+   (adapt [`mailwoman.service`](https://github.com/supermarsx/mailwoman/blob/master/docs/deploy/mailwoman.service)) bound to `127.0.0.1:8801`.
 2. In **Plesk → Domains → <domain> → Apache & nginx Settings**, add an
    **Additional nginx directive** reverse-proxying `/` to `http://127.0.0.1:8801`
    with the WebSocket `Upgrade`/`Connection` headers and `X-Forwarded-*`.
@@ -196,8 +196,8 @@ YunoHost apps are packaged as a git repo with `manifest.toml` + install scripts:
   (`__PORT__`), a `data_dir`.
 - `scripts/install`: fetch the release binary (or build), create the data dir + a
   system user, install a hardened systemd unit (adapt
-  [`mailwoman.service`](mailwoman.service)), and register the nginx reverse-proxy conf
-  (`conf/nginx.conf` from [`nginx.conf`](nginx.conf)) with SSOwat.
+  [`mailwoman.service`](https://github.com/supermarsx/mailwoman/blob/master/docs/deploy/mailwoman.service)), and register the nginx reverse-proxy conf
+  (`conf/nginx.conf` from [`nginx.conf`](https://github.com/supermarsx/mailwoman/blob/master/docs/deploy/nginx.conf)) with SSOwat.
 - YunoHost owns the domain + Let's Encrypt; run without `--acme` and with
   `MW_ACME` unset.
 - **`# HUMAN:`** listing in the YunoHost app catalog is a PR to `YunoHost-Apps` +
@@ -218,6 +218,6 @@ runtipi apps are a `config.json` + a `docker-compose.yml` fragment:
 
 The container-based panels (Cloudron / runtipi) reuse the repo `Dockerfile`; the
 reverse-proxy panels (cPanel / Plesk / CloudPanel / ISPConfig) reuse
-[`nginx.conf`](nginx.conf). `.github/workflows/packaging.yml` validates the container
+[`nginx.conf`](https://github.com/supermarsx/mailwoman/blob/master/docs/deploy/nginx.conf). `.github/workflows/packaging.yml` validates the container
 image builds and (where a compose fragment is provided) that `docker compose config`
 parses. Panel-store **publication** is HUMAN-gated in every case.

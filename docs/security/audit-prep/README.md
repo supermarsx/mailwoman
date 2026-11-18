@@ -50,5 +50,5 @@ These documents summarise and cross-link the per-subsystem security docs already
   [`../dlp.md`](../dlp.md) · [`../observability.md`](../observability.md) ·
   [`../password-change.md`](../password-change.md) · [`../max-security.md`](../max-security.md) ·
   [`../screen-capture.md`](../screen-capture.md) · [`../admin-panel.md`](../admin-panel.md)
-- The supply-chain posture: [`../../../deny.toml`](../../../deny.toml).
-- The coordinated-disclosure policy + honest scope boundaries: [`../../../SECURITY.md`](../../../SECURITY.md).
+- The supply-chain posture: [`../../../deny.toml`](https://github.com/supermarsx/mailwoman/blob/master/deny.toml).
+- The coordinated-disclosure policy + honest scope boundaries: [`../../../SECURITY.md`](https://github.com/supermarsx/mailwoman/blob/master/SECURITY.md).

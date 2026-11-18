@@ -244,4 +244,4 @@ it is not a defence against the account holder, who is the party granting.
 
 ## Reporting
 
-Security contact and disclosure policy: [`../../SECURITY.md`](../../SECURITY.md).
+Security contact and disclosure policy: [`../../SECURITY.md`](https://github.com/supermarsx/mailwoman/blob/master/SECURITY.md).

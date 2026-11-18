@@ -21,7 +21,7 @@ audit milestone — see [`ROADMAP-1.0.md`](./ROADMAP-1.0.md).
   local-process), capability-scoped, content-free audit, send always human-gated. See
   [`assist.md`](./assist.md).
 - **Bridges** (`plugins/bridge-{graph,ews,gmail}`) — Microsoft Graph, on-prem EWS, and
-  Gmail as WASM plugins. See [`bridges/`](./bridges/).
+  Gmail as WASM plugins. See [`bridges/`](./bridges/index.md).
 - **MSG/OFT/DOCX export** (`mw-export`) — Outlook message/template + Word export. See
   [`export/msg-oft-docx.md`](./export/msg-oft-docx.md).
 - **Nextcloud** — attach/save/share-link + auto-configured CalDAV/CardDAV/tasks. See

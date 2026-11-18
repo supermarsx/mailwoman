@@ -3409,7 +3409,7 @@ and allocator overhead is not included in that number.
 `mail.cache.maxBytes` — Serialized payload budget,65536–268435456bytes. Default: `16777216`.
 
 <a id="mail.cache.prefetchEnabled"></a>
-`mail.cache.prefetchEnabled` — Master opt-in for speculative reads. Default: `false`.
+`mail.cache.prefetchEnabled` — Enable bounded speculative folder-header reads. Default: `true`.
 
 <a id="mail.cache.hoverEnabled"></a>
 `mail.cache.hoverEnabled` — Pointer dwell triggers, only when master enabled. Default: `true`.
@@ -3421,7 +3421,7 @@ and allocator overhead is not included in that number.
 `mail.cache.dwellMs` — Pointer/focus dwell,0–10000milliseconds. Default: `200`.
 
 <a id="mail.cache.idleEnabled"></a>
-`mail.cache.idleEnabled` — Idle folder warming, only when master enabled. Default: `false`.
+`mail.cache.idleEnabled` — Idle folder warming, only when master enabled. Default: `true`.
 
 <a id="mail.cache.idleDelayMs"></a>
 `mail.cache.idleDelayMs` — Idle delay,100–60000milliseconds. Default: `1500`.
@@ -3431,6 +3431,9 @@ and allocator overhead is not included in that number.
 
 <a id="mail.cache.maxQueued"></a>
 `mail.cache.maxQueued` — Waiting speculative requests,1–64. Default: `8`.
+
+<a id="mail.cache.preloadHeaders"></a>
+`mail.cache.preloadHeaders` — Fetch envelope, delivery and reply headers with folder/search lists, including speculative folder reads. Does not fetch message bodies or attachment files. Default: `true`.
 
 <a id="mail.cache.preloadMessages"></a>
 `mail.cache.preloadMessages` — Allow speculative message payload reads. Default: `false`.
@@ -4319,3 +4322,13 @@ Built-in default: `true`. Administrator policy can hold the effective value.
 Ordered quick: or more: action identifiers. Omitted actions are hidden. Configure through the message-list quick-action editor.
 
 Built-in default: `built-in ordered actions`. Administrator policy can hold the effective value.
+
+
+<a id="mail.notices.enabled"></a>
+`mail.notices.enabled` — Enable separate post-signature message notices. Default: `true`; no notices are shipped in the empty library.
+
+<a id="mail.notices.templates"></a>
+`mail.notices.templates` — Up to 20 reusable notices, managed in Settings → Composing → Message notices. Each has required plain text, optional sanitized HTML, enabled/automatic flags, sender identities, message kinds, recipient audience/domains, and case-insensitive subject/body substring rules. All configured conditions must match. Manual selection overrides automatic matching; disabled notices never apply. Notices enter plaintext before signing/encryption, and rich text after the signature. Default: `[]`. Supports global/domain/user defaults and locks; existing drafts retain their selection mode and IDs, not copied notice text.
+
+
+The JSON action socket dispatches up to eight independent requests concurrently, preserving IDs and all normal HTTP authorization, account, CSRF and policy checks. Eligible account JSON reads (including drafts, preferences, receipt decisions and appearance configuration) use the socket when enabled; bootstrap/authentication, binary files and browser-native credential flows retain their HTTP transports. A socket that cannot open still permits pre-dispatch HTTP fallback. Lost mutation acknowledgements are not automatically replayed.

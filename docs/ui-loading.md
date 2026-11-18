@@ -23,6 +23,9 @@ Everything else is local:
 - Selecting a message never re-skeletons the list pane.
 - Refetch and revalidation never replace visible content with a skeleton. Keep
   the data and show a subtle busy indicator in that region only.
+- Shared loading indicators show one dismissible "This page is still loading"
+  toast after five seconds. Concurrent slow loads share it; completion, navigation
+  or the bounded error state clears it. Informational-toast preferences apply.
 - Fast work shows nothing: `InlineLoading` draws after 150 ms and
   `useDelayedBusy` keeps an indicator for at least 300 ms once drawn. The text is
   in the DOM from the start as a polite `role="status"`, so assistive technology
@@ -35,7 +38,7 @@ Everything else is local:
   Optional `onRetry` turns a wait past the shared 15 s bound into an `AsyncError`.
 - `components/useDelayedBusy.ts`: `useDelayedBusy(active, delayMs = 150, minMs = 300)`.
 - `components/MessageLoading.tsx`: the reader body wait. The reader header,
-  toolbar and attachments render at once; only this label stands in for the body.
+  toolbar and attachments render at once; the selected skeleton or compact indicator stands in for the body.
   The frame placeholder (`.reader__frame-loading`) is a corner label, not a cover.
 - `components/AsyncState.tsx` `AsyncPending`: the full-page card. Referenced only
   from the allowlist in `components/loadingPolicy.test.ts`.
@@ -61,7 +64,7 @@ Kind: skel = skeleton, spin = spinner card, label = inline label, cover = overla
 | screens/Mailbox.tsx folder rows | no folders yet | region / skel | region / skel | folder tree region only; kept |
 | components/MessageList.tsx | folder has no rows yet | pane / skel rows | pane / skel rows | first list only; selection never triggers it; kept |
 | components/FolderPane.tsx | folder has no rows yet | pane / skel | pane / skel | same; kept |
-| components/MessageLoading.tsx ("Sanitizing…") | sanitiser pending | region / panel + skeleton lines, 12 rem min height | inline / label | converted |
+| components/MessageLoading.tsx ("Sanitizing…") | sanitiser pending | region / panel + skeleton lines, 12 rem min height | region / delayed skeleton by default | user/admin choices retained |
 | components/DirectReaderFrame.tsx `.reader__frame-loading` | frame not yet presented | region / opaque `inset:0` cover | inline / corner label, `pointer-events:none` | converted |
 | components/Reader.tsx attachment policy | policy fetch | region / thumbnail placeholders | region / thumbnail placeholders | one strip; kept |
 | screens/Admin/index.tsx | section chunk, capabilities | region / page skeleton | region / heading + label | content region only; header, nav kept |

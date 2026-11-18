@@ -131,7 +131,7 @@ Authoritative: [`plugins.md`](../plugins.md). The precise boundary an auditor te
 
 ## 6. Supply-chain posture & the `deny.toml` bounded ignores
 
-Authoritative source: [`deny.toml`](../../../deny.toml). Enforced in CI by the `deny` job
+Authoritative source: [`deny.toml`](https://github.com/supermarsx/mailwoman/blob/master/deny.toml). Enforced in CI by the `deny` job
 (`cargo deny check licenses advisories bans sources`) — see
 [`self-baseline.md`](./self-baseline.md#supply-chain).
 
@@ -183,7 +183,7 @@ not a dependency), Dovecot/Greenmail, the mock AI assistant endpoint.
 
 ## 7. Honest scope boundaries (do not audit as shipped)
 
-Recorded here and in [`SECURITY.md`](../../../SECURITY.md) / orchestration state so an
+Recorded here and in [`SECURITY.md`](https://github.com/supermarsx/mailwoman/blob/master/SECURITY.md) / orchestration state so an
 auditor does not mistake groundwork for a guarantee:
 
 - **Zero-access protects data at rest, not a malicious active proxying server.**

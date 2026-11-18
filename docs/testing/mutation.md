@@ -34,7 +34,7 @@ silent behaviour change is most expensive.
 `.github/workflows/mutants.yml` — **nightly at 04:23 UTC, and on manual
 dispatch. It is not attached to pushes or pull requests.**
 
-The scope of record is [`.cargo/mutants.toml`](../../.cargo/mutants.toml): the
+The scope of record is [`.cargo/mutants.toml`](https://github.com/supermarsx/mailwoman/blob/master/.cargo/mutants.toml): the
 three crates SPEC §25 names, `src/` only, minus the two
 `#[cfg(target_arch = "wasm32")]` browser boundaries, which do not compile into a
 native build. That file is heavily commented — including for the options
