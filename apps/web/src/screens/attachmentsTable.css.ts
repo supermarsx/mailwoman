@@ -1,4 +1,4 @@
-import { style, globalStyle } from '@vanilla-extract/css';
+import { style, globalStyle, keyframes } from '@vanilla-extract/css';
 import {vars} from '../theme/contract.css.ts';
 import {linkColor} from '../theme/accentLink.ts';
 export const wrap=style({overflow:'auto',minInlineSize:0,minBlockSize:'12rem',flex:'1 1 auto'});
@@ -51,3 +51,15 @@ globalStyle(`${table} tr[aria-selected="true"]`,{background:`color-mix(in srgb, 
 
 export const selectionCheck=style({inlineSize:'1rem',blockSize:'1rem',marginInlineEnd:vars.space[2],verticalAlign:'middle',accentColor:vars.color.accent});
 export const selectToggle=style({display:'inline-flex',alignItems:'center',justifyContent:'center',inlineSize:'2rem',minInlineSize:'2rem',padding:vars.space[1],flexShrink:0});
+
+const shimmer=keyframes({from:{backgroundPosition:'200% 0'},to:{backgroundPosition:'-200% 0'}});
+export const skeleton=style({minInlineSize:0,overflow:'hidden',flex:'1 1 auto',paddingBlockEnd:vars.space[4]});
+export const skeletonRow=style({display:'grid',gridTemplateColumns:'minmax(0, 2fr) repeat(2, minmax(0, .7fr)) repeat(2, minmax(0, 1.4fr)) minmax(0, 1fr)',gap:vars.space[4],padding:`${vars.space[3]} ${vars.space[4]}`,borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`,'@media':{'(max-width: 700px)':{gridTemplateColumns:'minmax(0, 2fr) minmax(0, 1fr)'}}});
+export const skeletonHeader=style([skeletonRow,{background:vars.color.bgAlt,color:vars.color.textDim,fontSize:'.875rem',fontWeight:vars.weight.bold}]);
+const placeholder=style({background:`linear-gradient(90deg, ${vars.color.bgAlt} 25%, color-mix(in srgb, ${vars.color.textDim} 18%, ${vars.color.bgAlt}) 50%, ${vars.color.bgAlt} 75%)`,backgroundSize:'200% 100%',animation:`${shimmer} 1.8s linear infinite`,borderRadius:vars.radius.sm,'@media':{'(prefers-reduced-motion: reduce)':{animation:'none'},'(forced-colors: active)':{background:'GrayText'}}});
+export const skeletonCell=style({display:'flex',alignItems:'center',gap:vars.space[2],minInlineSize:0,blockSize:'1.5rem'});
+export const skeletonIcon=style([placeholder,{inlineSize:'1.25rem',blockSize:'1.5rem',flexShrink:0}]);
+export const skeletonBar=style([placeholder,{blockSize:'.65rem',maxInlineSize:'100%'}]);
+globalStyle(`${selectionHost}[data-selection-active="true"] ${table} tbody`,{userSelect:'none',WebkitUserSelect:'none'});
+
+globalStyle(`${skeletonRow} > :nth-child(n+3)`,{'@media':{'(max-width: 700px)':{display:'none'}}});

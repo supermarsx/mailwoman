@@ -15,8 +15,9 @@ import {SelectionBar,type SelectionAction} from '../components/SelectionBar.tsx'
 import {toast} from '../components/toast/toast.ts';
 import {Icon} from '../components/Icon.tsx';
 import {inspectFile} from '../viewers/fileInfo.ts';
-import { AsyncError } from '../components/AsyncState.tsx';
-import { InlineLoading } from '../components/InlineLoading.tsx';
+import { AsyncError, createElapsed, PENDING_BOUND_MS } from '../components/AsyncState.tsx';
+import * as a11y from '../components/mailA11y.css.ts';
+import {useLoadingNotice} from '../components/useLoadingNotice.ts';
 import * as table from './attachmentsTable.css.ts';
 import '../viewers/viewers.css';
 import {
@@ -42,6 +43,7 @@ export interface AttachmentsProps {
   items?: AttachmentItem[];
   mailboxes?: readonly {id:string;name:string;parentId?:string|null;mailwomanSearchQuery?:string}[];
   onOpen?: (item: AttachmentItem) => void;
+  onOpenSplit?: (item:AttachmentItem)=>void;
   onOpenMessage?: (item: AttachmentItem) => void;
   onLocateMessage?: (item:AttachmentItem)=>void|Promise<void>;
   onForwardFiles?: (items:AttachmentItem[])=>void|Promise<void>;
@@ -66,6 +68,22 @@ const CATEGORIES: Array<TypeCategory | 'all'> = [
 ];
 const COLUMNS = ['name','type','size','sender','subject','date'] as const;
 type Column = typeof COLUMNS[number];
+
+function AttachmentsSkeleton(props:{onRetry?:(()=>void)|undefined}):JSX.Element {
+  const timedOut=createElapsed(PENDING_BOUND_MS);
+  useLoadingNotice(()=>!props.onRetry||!timedOut());
+  return <Show when={!props.onRetry||!timedOut()} fallback={<AsyncError onRetry={props.onRetry}/>}>
+    <div class={table.skeleton} role="status" aria-label={t('common-attach-loading')} data-testid="attachments-skeleton">
+      <span class={a11y.srOnly}>{t('common-attach-loading')}</span>
+      <div aria-hidden="true">
+        <div class={table.skeletonHeader}><For each={COLUMNS}>{column=><span>{t(`common-attach-column-${column}`)}</span>}</For></div>
+        <For each={Array.from({length:8},(_,i)=>i)}>{row=><div class={table.skeletonRow}>
+          <For each={COLUMNS}>{(_,column)=><span class={table.skeletonCell}><Show when={column()===0}><span class={table.skeletonIcon}/></Show><span class={table.skeletonBar} style={{'inline-size':`${55+(row*13+column()*17)%40}%`}}/></span>}</For>
+        </div>}</For>
+      </div>
+    </div>
+  </Show>;
+}
 
 /** Localised label for a type-filter category (falls back to the raw key). */
 function catLabel(c: TypeCategory | 'all'): string {
@@ -218,6 +236,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
   ] satisfies SelectionAction[];
   const rowMenu=createEntityContextMenu({items:filtered,id:key,name:item=>item.name,scope:()=>props.accountId,actions:item=>[
     {id:'open',label:t('common-open'),icon:'file',disabled:!props.onOpen,run:()=>props.onOpen?.(item)},
+    {id:'open-split',label:t('attach-action-open-split'),icon:'layoutColumns',disabled:!props.onOpenSplit,run:()=>props.onOpenSplit?.(item)},
     {id:'download',label:t('common-viewer-download'),icon:'download',disabled:!props.onDownload||!mailFeature('allowDownload'),run:()=>props.onDownload?.(item)},
     {id:'message',label:t('common-attach-open-message'),icon:'mail',disabled:!props.onOpenMessage,run:()=>props.onOpenMessage?.(item)},
     {id:'locate',label:t('attach-action-locate'),icon:'folder',disabled:!props.onLocateMessage,run:()=>props.onLocateMessage?.(item)},
@@ -270,16 +289,16 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
 
       <Show when={pinnedOnly()||!data.error} fallback={<AsyncError error={data.error} onRetry={()=>void refetch()}/> }><Show
         when={pinnedOnly()||!data.loading||all().length>0}
-        fallback={<InlineLoading message={t('common-attach-loading')} onRetry={()=>void refetch()}/>}
+        fallback={<AttachmentsSkeleton onRetry={()=>void refetch()}/>}
       >
         <Show
           when={filtered().length > 0}
-          fallback={<Show when={pinnedOnly()&&pinnedRows.error} fallback={<Show when={searching()||(pinnedOnly()&&pinnedRows.loading)} fallback={<p class="mw-attach__status">{t('common-attach-empty')}</p>}><InlineLoading message={t('common-attach-loading')}/></Show>}><p role="alert">{t('attach-pins-error')} <button type="button" onClick={()=>void retryPins()}>{t('common-retry')}</button></p></Show>}
+          fallback={<Show when={pinnedOnly()&&pinnedRows.error} fallback={<Show when={searching()||(pinnedOnly()&&pinnedRows.loading)} fallback={<p class="mw-attach__status">{t('common-attach-empty')}</p>}><AttachmentsSkeleton onRetry={pinnedOnly()?()=>void retryPins():undefined}/></Show>}><p role="alert">{t('attach-pins-error')} <button type="button" onClick={()=>void retryPins()}>{t('common-retry')}</button></p></Show>}
         >
           <div ref={region} class={table.wrap} role="region" aria-label={t('common-attach-title')} tabIndex={0}><table class={table.table} aria-label={t('common-attach-title')} aria-busy={data.loading||searching()}><thead><tr><For each={COLUMNS}>{key=><th scope="col" aria-sort={sort().column===key?(sort().ascending?'ascending':'descending'):'none'}><Show when={selectionMode()&&key==='name'}><input type="checkbox" class={table.selectionCheck} aria-label={t('selection-bar-select-all')} disabled={working()} checked={picked().length===filtered().length&&filtered().length>0} onChange={event=>event.currentTarget.checked?bulk.all():bulk.clear()}/></Show><button type="button" class={table.name} onClick={()=>setSort(old=>({column:key,ascending:old.column===key?!old.ascending:true}))}>{t(`common-attach-column-${key}`)}<Show when={sort().column===key}><Icon name={sort().ascending?'chevronUp':'chevronDown'}/></Show></button></th>}</For></tr></thead><tbody>
             <For each={filtered()}>
               {(item) => (
-                <tr data-selection-id={key(item)} tabIndex={0} aria-selected={selectionMode()?selected().has(key(item)):undefined} {...rowMenu.bind(key(item))} onClick={event=>{if(!(event.target as Element).closest('button,input,a')&&!working())bulk.click(key(item),event);}} onKeyDown={event=>{if(!bulk.keydown(key(item),event))rowMenu.bind(key(item)).onKeyDown(event);}}>
+                <tr data-selection-id={key(item)} tabIndex={0} onMouseDown={event=>{if(event.button===0&&(selectionMode()||event.shiftKey||event.ctrlKey||event.metaKey)){event.preventDefault();event.currentTarget.focus();}}} aria-selected={selectionMode()?selected().has(key(item)):undefined} {...rowMenu.bind(key(item))} onClick={event=>{if(!(event.target as Element).closest('button,input,a')&&!working())bulk.click(key(item),event);}} onKeyDown={event=>{if(!bulk.keydown(key(item),event))rowMenu.bind(key(item)).onKeyDown(event);}}>
                   <td>
                   <Show when={selectionMode()}><input type="checkbox" class={table.selectionCheck} aria-label={item.name} checked={selected().has(key(item))} disabled={working()} onClick={event=>bulk.checkbox(key(item),event)}/></Show>
                   <button
@@ -291,7 +310,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
                     <Icon name={inspectFile(item.name,item.mime).icon}/><span>{item.name}</span>
                   </button>
                   <For each={inspectFile(item.name,item.mime).warnings}>{warning=><span class={table.warning} title={t(`mail-file-warning-${warning}`)} aria-label={t(`mail-file-warning-${warning}`)}><Icon name="alert"/></span>}</For>
-                  </td><td title={item.mime}>{catLabel(categoryOf(item.mime,item.name))}</td><td>{formatSize(item.size)}</td><td>{item.from}</td><td><Show when={props.onOpenMessage} fallback={item.subject}><button type="button" class={table.name} onClick={()=>props.onOpenMessage?.(item)} title={t('common-attach-open-message')}>{item.subject}</button></Show></td><td>{Number.isNaN(Date.parse(item.receivedAt))?'—':formatDate(new Date(item.receivedAt))}</td>
+                  </td><td title={item.mime}>{catLabel(categoryOf(item.mime,item.name))}</td><td>{formatSize(item.size)}</td><td>{item.from}</td><td><Show when={props.onOpenMessage} fallback={item.subject}><button type="button" class={table.name} onClick={event=>{if(!working())bulk.click(key(item),event,()=>props.onOpenMessage?.(item));}} title={t('common-attach-open-message')}>{item.subject}</button></Show></td><td>{Number.isNaN(Date.parse(item.receivedAt))?'—':formatDate(new Date(item.receivedAt))}</td>
                 </tr>
               )}
             </For>

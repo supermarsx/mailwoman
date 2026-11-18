@@ -116,8 +116,10 @@ describe('Attachments module', () => {
     render(() => <Suspense fallback={<p>Whole app loading</p>}><aside>Mailbox navigation</aside><Attachments load={() => pending} /></Suspense>);
     expect(screen.getByText('Mailbox navigation')).toBeVisible();
     expect(screen.queryByText('Whole app loading')).not.toBeInTheDocument();
+    expect(screen.getByTestId('attachments-skeleton')).toHaveAttribute('role','status');
     finish(items);
     await screen.findByText('Q3-report.pdf');
+    expect(screen.queryByTestId('attachments-skeleton')).not.toBeInTheDocument();
     expect(screen.getByText('Mailbox navigation')).toBeVisible();
   });
   it('renders a table row per attachment', async () => {
@@ -199,6 +201,19 @@ describe('friendly attachment filters',()=>{
   expect(load.mock.calls.map(call=>call[0])).toContain(50);fireEvent.click(screen.getByRole('button',{name:'Browse pages'}));expect(screen.getByLabelText('Search in')).toHaveValue('page');expect(screen.getByText('No attachments match.')).toBeVisible();
   fireEvent.change(screen.getByLabelText('Search in'),{target:{value:'all'}});await screen.findByText('logo.png',{}, {timeout:3000});
  });
+});
+
+it('prevents text selection on modifier mouse-down and selects the attachment range',async()=>{
+ const open=vi.fn();
+ render(()=><Attachments items={items} onOpen={open}/>);
+ const first=(await screen.findByRole('button',{name:'Q3-report.pdf'})).closest('tr')!;
+ const rows=Array.from(first.parentElement!.querySelectorAll('tr'));
+ expect(fireEvent.mouseDown(rows[0]!,{button:0})).toBe(true);
+ fireEvent.click(rows[0]!,{ctrlKey:true});
+ expect(fireEvent.mouseDown(rows[2]!,{button:0,shiftKey:true})).toBe(false);
+ fireEvent.click(rows[2]!,{shiftKey:true});
+ expect(rows.every(row=>row.getAttribute('aria-selected')==='true')).toBe(true);
+ expect(open).not.toHaveBeenCalled();
 });
 
 it('exposes file, download and parent-message actions through a keyboard context menu',async()=>{
