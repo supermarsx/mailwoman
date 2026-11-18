@@ -16,6 +16,7 @@ import { NetworkError } from '../api/client.ts';
 import * as a11y from './mailA11y.css.ts';
 import * as loading from './asyncState.css.ts';
 import { Spinner } from './spinner/Spinner.tsx';
+import {useLoadingNotice} from './useLoadingNotice.ts';
 import {Icon} from './Icon.tsx';
 import { alignPulse, bootSplashActive, releaseBootSplash } from '../shell/bootSplash.ts';
 import { ErrorReference } from './ErrorReference.tsx';
@@ -123,6 +124,7 @@ export function AsyncPending(props: {
 }): JSX.Element {
   const timedOut = createElapsed(props.timeoutMs ?? PENDING_BOUND_MS);
   const elapsed = (): boolean => props.bounded !== false && timedOut();
+  useLoadingNotice(()=>!elapsed());
   // Mounted under the boot splash (t52): the splash has already waited and is
   // fading out over this, so this shows at once rather than fading in a second
   // time, and pulses in step with the splash instead of restarting.

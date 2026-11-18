@@ -8,6 +8,7 @@ import { Spinner } from './spinner/Spinner.tsx';
 import { createElapsed, PENDING_BOUND_MS, AsyncError } from './AsyncState.tsx';
 import { BUSY_DELAY_MS, useDelayedBusy } from './useDelayedBusy.ts';
 import * as css from './InlineLoading.css.ts';
+import {useLoadingNotice} from './useLoadingNotice.ts';
 
 export function InlineLoading(props: {
   message?: string;
@@ -20,6 +21,7 @@ export function InlineLoading(props: {
 }): JSX.Element {
   const visible = useDelayedBusy(() => props.active !== false, props.delayMs ?? BUSY_DELAY_MS);
   const timedOut = createElapsed(PENDING_BOUND_MS);
+  useLoadingNotice(()=>props.active!==false&&!(props.onRetry!==undefined&&timedOut()));
   return (
     <Show when={!(props.onRetry !== undefined && timedOut())} fallback={<AsyncError onRetry={props.onRetry} />}>
       <span class={`inline-loading ${css.root} ${props.class ?? ''}${visible() ? '' : ` ${css.quiet}`}`} role="status" aria-live="polite" data-testid="inline-loading" data-visible={visible() ? 'true' : 'false'}>

@@ -62,15 +62,13 @@ describe('InlineLoading', () => {
 });
 
 describe('MessageLoading (Loading…)', () => {
-  it('is a one-line inline label with no skeleton blocks', async () => {
+  it('draws the default skeleton after the configured delay and honors indicator/none choices', async () => {
     const { MessageLoading } = await import('./MessageLoading.tsx');
-    const { container } = render(() => <MessageLoading variant="skeleton" delayMs={150} />);
-    expect(container.querySelectorAll('[role="status"]').length).toBe(1);
-    expect(container.textContent).toContain('Loading');
-    expect(container.textContent).not.toContain('Sanitizing');
-    expect(container.querySelector('[class*="skeleton"]')).toBeNull();
-    expect(container.querySelector('[data-mw-spinner]')).toBeNull();
-    vi.advanceTimersByTime(160);
-    expect(container.querySelector('[data-mw-spinner]')).not.toBeNull();
+    const { container,unmount } = render(() => <MessageLoading variant="skeleton" delayMs={150} />);
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(container.textContent).toContain('Loading');expect(container.querySelector('[data-skeleton="viewer"]')).toBeNull();
+    vi.advanceTimersByTime(160);expect(container.querySelector('[data-skeleton="viewer"]')).not.toBeNull();expect(container.querySelector('[data-mw-spinner]')).toBeNull();unmount();
+    const indicator=render(()=><MessageLoading variant="indicator" delayMs={0}/>);expect(indicator.container.querySelector('[data-mw-spinner]')).not.toBeNull();indicator.unmount();
+    const quiet=render(()=><MessageLoading variant="none" delayMs={0}/>);vi.advanceTimersByTime(1000);expect(quiet.container.querySelector('[data-skeleton]')).toBeNull();expect(quiet.container.querySelector('[data-mw-spinner]')).toBeNull();
   });
 });
