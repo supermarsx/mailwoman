@@ -30,6 +30,10 @@ pub struct EditorState {
     pub body_text: String,
     #[serde(default)]
     pub inserted_signatures: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice_mode: Option<String>,
+    #[serde(default)]
+    pub notice_ids: Vec<String>,
     #[serde(default)]
     pub in_reply_to: Vec<String>,
     #[serde(default)]
@@ -137,6 +141,8 @@ impl EditorState {
                 .any(|s| s.len() > 16384)
             || self.body_html.len() > 786432
             || self.body_text.len() > 786432
+            || self.notice_mode.as_deref().is_some_and(|mode| !matches!(mode,"auto"|"none"|"manual"))
+            || !ids(&self.notice_ids,20)
             || !ids(&self.inserted_signatures, 128)
             || !ids(&self.in_reply_to, 100)
             || !ids(&self.references, 100)
@@ -240,6 +246,13 @@ fn recipients(value: &str) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn notices_choices_roundtrip_without_entering_draft_mime(){
+      let mut state:EditorState=serde_json::from_value(json!({"version":1,"bodyFormat":"plain","bodyText":"Unsent","noticeMode":"manual","noticeIds":["legal"]})).unwrap();
+      state.validate().unwrap();assert_eq!(serde_json::to_value(&state).unwrap()["noticeIds"],json!(["legal"]));
+      assert!(state.compose_spec().get("noticeIds").is_none());
+      state.notice_mode=Some("unknown".into());assert!(state.validate().is_err());
+    }
     #[test]
     fn quoted_utf8_draft_recipients_remain_complete_and_separate() {
         let raw = "Name <\"jörg,a<>@x\"@bücher.example>, unfinished";

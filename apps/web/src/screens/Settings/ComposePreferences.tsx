@@ -1,3 +1,5 @@
+import {MessageNotices} from './MessageNotices.tsx';
+void loadCatalog('notices');
 void loadCatalog('compose-features');
 void loadCatalog('compose-layout');
 import {SettingsSubtabs} from './SettingsSubtabs.tsx';
@@ -34,6 +36,7 @@ function CheckPolicyField(props: { settingKey: string; id: string; label: string
 
 /** Static description of this section for the cross-section search index. */
 export const COMPOSE_CARDS: readonly CardSpec[] = [
+  {id:'compose-card-notices',section:'compose',title:'notices-title',help:'notices-help',rows:[{id:'notices-enabled',label:'notices-enabled'}]},
   { id: 'compose-card-addressing', section: 'compose', title: 'settings-compose-card-addressing', help: 'settings-compose-card-addressing-help', rows: [
     { id: 'show-from', label: 'settings-show-from', help: 'settings-show-from-help' },
     { id: 'reply-from-mode', label: 'settings-reply-from', help: 'settings-reply-from-help' },
@@ -147,6 +150,7 @@ export function ComposePreferences(props:{drafts?:JSX.Element}): JSX.Element {
     </SettingsCard>},
       {id:'editor',label:'cf-card-title',cards:['compose-card-defaults','compose-card-features'],content:<><ComposeDefaults/><ComposerFeatures/></>},
       {id:'delivery',label:'cd-title',cards:['compose-card-delivery','compose-card-send-delay','compose-card-drafts'],content:<><ComposeDelivery/>{props.drafts}</>},
+      {id:'notices',label:'notices-title',cards:['compose-card-notices'],content:<MessageNotices/>},
       {id:'templates',label:'response-templates-title',cards:['compose-card-templates'],content:<ResponseTemplatePreferences/>},
     ]}/>
   </>;

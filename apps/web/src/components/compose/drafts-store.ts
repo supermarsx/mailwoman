@@ -56,6 +56,8 @@ export interface StoredDraft {
   editorMode?: 'rich'|'html';
   source?:DraftSource;
   insertedSignatures?: string[];
+  noticeMode?:'auto'|'none'|'manual';
+  noticeIds?:string[];
   to: string;
   /** Absent on a draft stored before Cc/Bcc and replies existed. */
   cc?: string;
@@ -166,6 +168,8 @@ function isDraft(d: unknown): d is StoredDraft {
     optional(r.editorMode, value => value === 'rich' || value === 'html') &&
     optional(r.source,isDraftSource) &&
     optional(r.insertedSignatures, isStringList) &&
+    optional(r.noticeMode,value=>value==='auto'||value==='none'||value==='manual') &&
+    optional(r.noticeIds,value=>Array.isArray(value)&&value.length<=20&&value.every(id=>typeof id==='string'&&/^[A-Za-z0-9_-]{1,80}$/.test(id))) &&
     typeof r.to === 'string' &&
     typeof r.subject === 'string' &&
     typeof r.bodyHtml === 'string' &&

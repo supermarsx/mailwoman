@@ -1,3 +1,5 @@
+void loadCatalog('notices');
+import {validMessageNotices} from '../../../components/compose/messageNotices.ts';
 import {validFilePreviews} from '../../../viewers/filePreviewPreferences.ts';
 import {validSnoozePresets} from '../../../state/snooze.ts';
 // Value helpers of the admin Settings section (worker f01): client-side checks
@@ -40,7 +42,7 @@ export function toDraft(kind: SettingKind, value: unknown): Draft {
 
 /** Whether a kind is edited as JSON text. */
 export function isJsonKind(kind: SettingKind): boolean {
-  return ['folderRole', 'localeMap', 'intList', 'stringList', 'quietHours', 'links', 'messageTemplates', 'snoozePresets','filePreviews'].includes(kind.type);
+  return ['folderRole', 'localeMap', 'intList', 'stringList', 'quietHours', 'links', 'messageNotices', 'messageTemplates', 'snoozePresets','filePreviews'].includes(kind.type);
 }
 
 /** Check a draft against the declared type and bounds; the server checks again. */
@@ -101,6 +103,7 @@ export function parseDraft(kind: SettingKind, draft: Draft, nullable: boolean): 
         const value:unknown=JSON.parse(text);
         if(kind.type==='filePreviews'&&!validFilePreviews(value))return {ok:false,error:t('preview-invalid')};
         if(kind.type==='snoozePresets'&&!validSnoozePresets(value))return {ok:false,error:t('snooze-invalid-presets')};
+        if(kind.type==='messageNotices'&&!validMessageNotices(value))return {ok:false,error:t('notices-invalid')};
         if(kind.type==='messageTemplates'&&!validResponseTemplates(value))return {ok:false,error:t('response-templates-invalid')};
         return { ok: true, value };
       } catch {

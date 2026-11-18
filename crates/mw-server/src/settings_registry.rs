@@ -151,6 +151,7 @@ pub enum Kind {
     FolderRole,
     /// Bounded plain-text response templates; never executable HTML.
     MessageTemplates,
+    MessageNotices,
     /// Editable, bounded message snooze rules.
     SnoozePresets,
     FilePreviews,
@@ -202,6 +203,7 @@ impl Kind {
         match *self {
             Kind::FilePreviews => json!({"type":"filePreviews"}),
             Kind::SnoozePresets => json!({"type":"snoozePresets","maxItems":32}),
+            Kind::MessageNotices => json!({"type":"messageNotices","maxItems":20}),
             Kind::MessageTemplates => {
                 json!({"type":"messageTemplates","maxItems":20,"maxTitleLength":80,"maxBodyLength":8000,"maxBytes":65536})
             }
@@ -725,6 +727,8 @@ pub static REGISTRY: &[SettingDef] = &[
         "mail",
         "Browser session mail cache: excludedFolders"
     ),
+    def!("mail.notices.enabled",Kind::Bool,"true",GDU,"mail","Enable separate post-signature message notices"),
+    def!("mail.notices.templates",Kind::MessageNotices,"[]",GDU,"mail","Notice templates and automatic applicability rules"),
     def!(
         "mail.templates.enabled",
         Kind::Bool,
@@ -9208,6 +9212,10 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
             }
             Ok(value.clone())
         }
+        Kind::MessageNotices => {
+            if !valid_message_notices(value){return bad("expected up to 20 bounded notice templates and applicability rules".into());}
+            Ok(value.clone())
+        }
         Kind::MessageTemplates => {
             let Some(items) = value.as_array() else {
                 return bad("must be a template list".into());
@@ -10003,6 +10011,24 @@ impl From<StoreError> for CeilingError {
     }
 }
 
+fn valid_message_notices(value:&Value)->bool {
+ let Some(rows)=value.as_array() else{return false;};
+ if rows.len()>20||value.to_string().len()>262144{return false;}
+ let mut ids=std::collections::HashSet::new();
+ rows.iter().all(|row|{
+  let Some(obj)=row.as_object() else{return false;};
+  if obj.keys().any(|key|!matches!(key.as_str(),"id"|"title"|"text"|"html"|"enabled"|"automatic"|"identities"|"kinds"|"audience"|"domains"|"subjectContains"|"bodyContains")){return false;}
+  let text=|key:&str,max:usize,required:bool|row.get(key).and_then(Value::as_str).is_some_and(|s|s.chars().count()<=max&&(!required||!s.trim().is_empty()));
+  let list=|key:&str,max:usize,length:usize|row.get(key).and_then(Value::as_array).is_some_and(|items|items.len()<=max&&items.iter().all(|item|item.as_str().is_some_and(|s|!s.is_empty()&&s.chars().count()<=length&&!s.chars().any(char::is_control))));
+  let Some(id)=row.get("id").and_then(Value::as_str) else{return false;};
+  !id.is_empty()&&id.len()<=80&&id.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'_'||b==b'-')&&ids.insert(id.to_owned())&&
+  text("title",80,true)&&text("text",8000,true)&&text("html",32000,false)&&text("subjectContains",200,false)&&text("bodyContains",500,false)&&
+  row.get("enabled").is_some_and(Value::is_boolean)&&row.get("automatic").is_some_and(Value::is_boolean)&&
+  list("identities",50,512)&&list("kinds",3,10)&&row["kinds"].as_array().is_some_and(|items|!items.is_empty()&&items.iter().all(|v|matches!(v.as_str(),Some("new"|"reply"|"forward"))))&&
+  matches!(row["audience"].as_str(),Some("all"|"internal"|"external"))&&list("domains",50,253)&&row["domains"].as_array().is_some_and(|items|items.iter().all(|v|v.as_str().is_some_and(|s|s.bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||b==b'.'||b==b'-')&&s.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)&&s.as_bytes().last().is_some_and(u8::is_ascii_alphanumeric))))
+ })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -10028,7 +10054,19 @@ mod tests {
     }
 
     #[test]
-    fn mail_cache_policy_is_bounded_and_speculation_opt_in() {
+    fn message_notices_are_bounded_and_user_admin_configurable(){
+      let row=json!({"id":"legal","title":"Legal","text":"Notice","html":"","enabled":true,"automatic":true,"identities":[],"kinds":["new","reply","forward"],"audience":"external","domains":[],"subjectContains":"private","bodyContains":""});
+      let def=lookup("mail.notices.templates").unwrap();assert_eq!(def.scopes,Scopes::GlobalDomainUser);
+      assert!(validate(def,&json!([row.clone()]),"/value").is_ok());
+      assert!(validate(def,&json!([row.clone(),row.clone()]),"/value").is_err());
+      let mut invalid=row.clone();invalid["unknown"]=json!(true);assert!(validate(def,&json!([invalid]),"/value").is_err());
+      let mut invalid=row.clone();invalid["text"]=json!("");assert!(validate(def,&json!([invalid]),"/value").is_err());
+      let mut invalid=row.clone();invalid["domains"]=json!(["https://example.test"]);assert!(validate(def,&json!([invalid]),"/value").is_err());
+      assert_eq!(lookup("mail.notices.enabled").unwrap().default_value(),json!(true));
+    }
+
+    #[test]
+    fn mail_cache_policy_is_bounded_and_bodies_remain_opt_in() {
         for key in [
             "keepIndefinitely",
             "enabled",

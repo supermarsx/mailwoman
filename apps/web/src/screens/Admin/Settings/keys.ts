@@ -100,6 +100,9 @@ export const KNOWN_KEYS: readonly string[] = [
   'mail.cache.idleDelayMs',
   'mail.cache.maxConcurrency',
   'mail.cache.maxQueued',
+  'mail.notices.enabled',
+  'mail.notices.templates',
+  'mail.cache.preloadHeaders',
   'mail.cache.preloadMessages',
   'mail.cache.excludedFolders',
 

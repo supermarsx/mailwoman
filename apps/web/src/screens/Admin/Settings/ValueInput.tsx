@@ -1,3 +1,5 @@
+import {NoticeTemplateEditor} from '../../../components/NoticeTemplateEditor.tsx';
+import type {MessageNotice} from '../../../components/compose/messageNotices.ts';
 import {FilePreviewEditor} from '../../../components/FilePreviewEditor.tsx';
 import {DEFAULT_FILE_PREVIEWS,validFilePreviews} from '../../../viewers/filePreviewPreferences.ts';
 import {SnoozePresetEditor} from '../../../components/SnoozePresetEditor.tsx';
@@ -31,7 +33,7 @@ export interface ValueInputProps {
 }
 
 export function ValueInput(props: ValueInputProps): JSX.Element {
-  void loadCatalog('admin-settings'); // t112: its ids show wherever it is mounted
+  void loadCatalog('admin-settings');void loadCatalog('notices'); // t112: its ids show wherever it is mounted
   const text = (): string => (typeof props.draft === 'string' ? props.draft : '');
   const options = (): readonly string[] => props.kind.values ?? [];
   const label = (v: string): string =>
@@ -105,6 +107,7 @@ export function ValueInput(props: ValueInputProps): JSX.Element {
       <Match when={props.kind.type==='snoozePresets'}>
         <SnoozePresetEditor value={(()=>{try{const rows:unknown=JSON.parse(text());return Array.isArray(rows)?rows as SnoozePreset[]:[];}catch{return [];}})()} onChange={rows=>props.onDraft(JSON.stringify(rows))} disabled={props.disabled} id={props.wiring.id} describedBy={props.wiring.describedBy}/>
       </Match>
+      <Match when={props.kind.type==='messageNotices'}><NoticeTemplateEditor value={(()=>{try{const value:unknown=JSON.parse(text());return Array.isArray(value)?value as MessageNotice[]:[];}catch{return [];}})()} onChange={rows=>props.onDraft(JSON.stringify(rows))} disabled={props.disabled} id={props.wiring.id} describedBy={props.wiring.describedBy}/></Match>
       <Match when={props.kind.type==='messageTemplates'}>
         <TemplateLibraryEditor value={(()=>{try{return templateRows(JSON.parse(text()));}catch{return [];}})()} onChange={rows=>props.onDraft(JSON.stringify(rows))} disabled={props.disabled===true} id={props.wiring.id} describedBy={props.wiring.describedBy}/>
       </Match>

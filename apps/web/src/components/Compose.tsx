@@ -1,3 +1,4 @@
+import {matchingNotices,validMessageNotices,appendNoticeHtml,type NoticeChoice} from './compose/messageNotices.ts';
 import {notifyEvent} from '../realtime/notificationEvents.ts';
 import {isOffline} from '../offline/runtime.ts';
 import {registerDraftPreview,requestDraftPreview} from './compose/draftPreview.ts';
@@ -822,7 +823,8 @@ export function Compose(props: {
   const hashKey=createMemo(()=>JSON.stringify([includeFileHashes(),attachments(),app.accountId(),composerAuthority(),downloadUrl()]));
   const hashesReady=()=>!includeFileHashes()||(hashResult()?.key===hashKey()&&!hashResult()?.error);
   const checksumText=()=>includeFileHashes()&&hashesReady()?hashResult()?.manifest??'':'';
-  const outgoingPlaintext=()=>body()+(checksumText()?`\n\n${checksumText()}`:'');
+  const basePlaintext=()=>body()+(checksumText()?`\n\n${checksumText()}`:'');
+  const outgoingPlaintext=()=>basePlaintext()+noticePlaintext();
   createEffect(()=>{
     const key=hashKey();if(!includeFileHashes()){setHashResult(null);return;}
     const files=attachments().map(file=>({...file}));const template=downloadUrl();const account=app.accountId();
@@ -847,7 +849,14 @@ export function Compose(props: {
     if (cs !== null && (cs.encrypt || cs.sign)) return null;
     return sig;
   });
-  const signatureScope=()=>JSON.stringify([identityId(),customFrom(),fromOverride(),replyContext(),autoSignature()]);
+  void loadCatalog('notices');
+  const [noticeMode,setNoticeMode]=createSignal<NoticeChoice['mode']>('auto');
+  const [noticeIds,setNoticeIds]=createSignal<string[]>([]);
+  const noticeTemplates=()=>{const rows=settings()['mail.notices.templates']?.value;return validMessageNotices(rows)?rows:[];};
+  const noticesEnabled=()=>settings()['mail.notices.enabled']?.value!==false;
+  const applicableNotices=createMemo(()=>noticesEnabled()?matchingNotices(noticeTemplates(),{identityId:identityId(),sender:customFrom()?fromOverride():identity()?.email??app.me()?.username??'',recipients:parseRecipients([to(),cc(),bcc()].join(',')).map(value=>value.email),kind:initial?.mode==='forward'?'forward':replyContext()?'reply':'new',subject:subject(),body:body(),internalDomains:Array.isArray(settings()['mail.trustedRecipientDomains']?.value)?settings()['mail.trustedRecipientDomains']!.value as string[]:[]},{mode:noticeMode(),ids:noticeIds()}):[]);
+  const noticePlaintext=()=>applicableNotices().map(row=>`\n\n${row.text}`).join('');
+  const signatureScope=()=>JSON.stringify([identityId(),customFrom(),fromOverride(),replyContext(),autoSignature(),applicableNotices()]);
   const sendingSelection=()=>JSON.stringify([app.accountId(),composerAuthority()?.generation,draftId,identityId(),customFrom(),fromOverride(),replyContext()]);
 
   /** "Record when this message is opened" is offered only when the server has
@@ -922,6 +931,7 @@ export function Compose(props: {
     setImportance(d.importance ?? 'normal');
     setCustomFrom(Boolean(d.fromOverride));
     setInsertedSignatures(new Set(d.insertedSignatures ?? []));
+    setNoticeMode(d.noticeMode??'auto');setNoticeIds(d.noticeIds??[]);
     setTo(d.to);
     setCc(d.cc ?? '');
     bccEdited=true;setBcc(d.bcc ?? '');
@@ -1224,7 +1234,7 @@ export function Compose(props: {
       ...(customFrom() ? {fromOverride: fromOverride()} : {}),
       bodyFormat: richMode() ? 'html' : 'plain',
       ...(richMode()?{editorMode:sourceMode()?'html' as const:'rich' as const}:{}),
-      insertedSignatures: [...insertedSignatures()],
+      insertedSignatures: [...insertedSignatures()],noticeMode:noticeMode(),noticeIds:[...noticeIds()],
       attachments: attachments().map(file => ({...file})),
       to: to(),
       cc: cc(),
@@ -1750,13 +1760,21 @@ export function Compose(props: {
         // `bodyHtml` does not hold their text — the body is built from `body`.
         const rich = richMode() && editorApi() !== null;
         htmlBody = rich ? joinLayout(layout(), stripEditorMarkers(bodyHtml())) : '';
-        if (!rich) textBody = outgoingPlaintext();
+        if (!rich) textBody = basePlaintext();
         else if(checksumText())htmlBody+=`<pre>${escapeHtml(checksumText())}</pre>`;
         const sig = autoSignature();
         if (sig !== null) {
           if (rich) htmlBody += `<br>${await signatureBlock(sig)}`;
           else textBody += `\n\n-- \n${await signaturePlain(sig)}`;
         }
+        if(rich){
+          let notices='';
+          for(const row of applicableNotices()){
+            const html=row.html?(await (await import('./compose/htmlSource.ts')).normalizeHtmlSource(await embedSignatureImages(row.html,uploadInline),ownedCids())).html:plainToHtml(row.text);
+            notices+=`<div>${html}</div>`;
+          }
+          htmlBody=appendNoticeHtml(htmlBody,notices);
+        }else textBody+=noticePlaintext();
         if (rich) htmlBody = htmlMessageDocument(stripSignatureMarker(htmlBody).replace(/\sdata-mw-shape="[^"]*"/g, ''));
       }
       const subjectToSend =
@@ -1922,6 +1940,11 @@ export function Compose(props: {
     return items;
   });
 
+  const NoticeOptions=(options:{ribbon?:boolean})=>(          <section class={options.ribbon?"compose-rib__form":"compose__signature"} aria-label={t('notices-title')}>
+            <label>{t('notices-title')} <select aria-label={t('notices-title')} value={noticeMode()} onChange={event=>setNoticeMode(event.currentTarget.value as NoticeChoice['mode'])}><option value="auto">{t('notices-auto')}</option><option value="none">{t('notices-none')}</option><option value="manual">{t('notices-manual')}</option></select></label>
+            <Show when={noticeMode()==='manual'}><For each={noticeTemplates().filter(row=>row.enabled)}>{row=><label class="compose__option"><input type="checkbox" checked={noticeIds().includes(row.id)} onChange={event=>setNoticeIds(ids=>event.currentTarget.checked?[...ids,row.id]:ids.filter(id=>id!==row.id))}/>{row.title}</label>}</For></Show>
+            <For each={applicableNotices()}>{row=><p data-testid="compose-notice-preview"><strong>{row.title}</strong> — {row.text}</p>}</For>
+          </section>);
   return (
     <div
       class={props.embedded ? "workspace-compose" : "compose__backdrop"}
@@ -2460,6 +2483,7 @@ export function Compose(props: {
           )}
         </Show>
 
+        <Show when={noticesEnabled()&&noticeTemplates().length>0}><NoticeOptions/></Show>
         {/* Asked once per composer, when a send would put the decrypted text of
             an encrypted original on the wire unencrypted. Confirming sends. */}
         <Show when={plaintextConfirmOpen()}>
