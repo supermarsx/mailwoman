@@ -10,6 +10,23 @@ test.describe('contacts, notices and inert reader parsing',()=>{
   server=await preview({build:options,preview:{host:'127.0.0.1',port:0}});origin=server.resolvedUrls!.local[0]!;
  });
  test.afterAll(async()=>{await new Promise<void>((resolve,reject)=>server?.httpServer.close(error=>error?reject(error):resolve())??resolve());});
+ test('folder icons stay searchable, selectable and visible on narrow screens',async({page})=>{
+  await page.goto(origin+'?folder-icons');const search=page.getByRole('searchbox',{name:'Search icons'});
+  await expect(page.getByRole('radio')).toHaveCount(160);
+  await search.fill('medical');await expect(page.getByRole('radio',{name:'Dental care'})).toBeVisible();
+  await page.screenshot({path:'.orchestration/folder-icons-medical.png'});
+  await search.fill('telecom router');await page.getByRole('radio',{name:'Internet and broadband'}).click();
+  await expect(page.getByRole('status',{name:'Selected icon'})).toHaveText('router');
+  await search.fill('');await page.getByRole('radio',{name:'Automatic folder role',exact:true}).focus();
+  await page.keyboard.press('End');await expect(page.getByRole('radio',{name:'Puzzles',exact:true})).toBeFocused();
+  const visible=await page.getByRole('radio',{name:'Puzzles',exact:true}).evaluate(node=>{
+   const rect=node.getBoundingClientRect(),clip=node.closest('[role="radiogroup"]')!.getBoundingClientRect();return rect.top>=clip.top&&rect.bottom<=clip.bottom;
+  });expect(visible).toBe(true);
+  await page.setViewportSize({width:390,height:844});await search.fill('platforms');
+  await expect(page.getByRole('radio',{name:'Linux',exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:'.orchestration/folder-icons-platforms-mobile.png'});
+ });
  test('contacts keep name, email and actions usable on desktop and mobile',async({page})=>{
   await page.goto(origin);
   await expect(page.getByText('Ada Lovelace')).toBeVisible();

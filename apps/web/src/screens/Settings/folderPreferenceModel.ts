@@ -46,11 +46,21 @@ export function moveFolder(ids: readonly string[], id: string, target: string): 
 
 /** Picker sections; every FOLDER_ICONS id sits in exactly one (tested). */
 export const FOLDER_ICON_GROUPS: ReadonlyArray<{id:string;icons:readonly FolderIcon[]}> = [
-  {id:'general',icons:['folder','star','flag','tag','clock','calendar','file','image','lock','unlock','pin','link','shield','check','alert','attachment','search','bookmark','globe','cloud']},
+  {id:'general',icons:['folder','star','flag','tag','clock','calendar','file','image','lock','unlock','pin','link','shield','check','alert','attachment','search','bookmark','globe','cloud','shapes']},
   {id:'mail',icons:['mail','inbox','sent','edit','delete','spam','archive','print','download','bell']},
-  {id:'work',icons:['briefcase','users','team','office','laptop','store','analytics','chart','dashboard','logs','preferences','crown','trophy','rocket','lightbulb','fileAudio','fileVideo','filePdf','fileCode']},
-  {id:'finance',icons:['bank','wallet','receipt','cart','shopping','package','twofactor','key']},
-  {id:'travel',icons:['travel','home','coffee','leaf']},
-  {id:'personal',icons:['heart','gift','book','education','family','music','film','camera','medical']},
-  {id:'tech',icons:['wrench','nextcloud','domains','assistant','integrations']},
+  {id:'work',icons:['briefcase','users','team','office','store','analytics','chart','dashboard','crown','clipboard','presentation','hardHat']},
+  {id:'projects',icons:['rocket','lightbulb','kanban','target','milestone']},
+  {id:'partners',icons:['handshake','personAdd','teamAdd']},
+  {id:'administration',icons:['logs','preferences','idCard','policy','audit','compliance','privacy','roles','admins','certificate','stamp','scales','ballot','passport']},
+  {id:'finance',icons:['bank','wallet','receipt','creditCard','coins','piggyBank','calculator']},
+  {id:'shopping',icons:['cart','shopping','package','gift','basket','barcode','truck','coupon']},
+  {id:'health',icons:['medical','heart','heartbeat','stethoscope','pill','hospital','firstAid','tooth']},
+  {id:'education',icons:['book','education','microscope','flask','atom','ruler']},
+  {id:'hobbies',icons:['camera','music','film','palette','gamepad','bicycle','dumbbell','guitar','scissors','ball']},
+  {id:'travel',icons:['travel','home','coffee','leaf','car','boat','tent']},
+  {id:'family',icons:['family','person','heartHome','paw','cat','dog','flower','tree']},
+  {id:'tech',icons:['fileAudio','fileVideo','filePdf','fileCode','wrench','domains','assistant','integrations','laptop','keyboard','terminal','database','code','chip','network','usb','bug','serverMetadata','diagnostics','bolt','twofactor','key']},
+  {id:'platforms',icons:['nextcloud','windows','linux','android','apple','github','docker']},
+  {id:'telecom',icons:['phone','smartphone','antenna','satellite','router','headset']},
+  {id:'personal',icons:['trophy','smile','planet','dice','puzzle']},
 ];

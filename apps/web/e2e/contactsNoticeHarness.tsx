@@ -1,3 +1,5 @@
+import {FolderIconPicker} from '../src/screens/Settings/FolderIconPicker.tsx';
+import type {FolderIcon} from '../src/api/accountPreferences.ts';
 import {createSignal} from 'solid-js';
 import {render} from 'solid-js/web';
 import {ContactsModule} from '../src/modules/contacts/index.tsx';
@@ -11,11 +13,12 @@ import {bodyFrameDoc} from '../src/viewers/sandbox.ts';
 import {loadCatalog} from '../src/i18n';
 import '../src/theme/themes.css.ts';
 import '../src/styles/app.css';
+const [folderIcon,setFolderIcon]=createSignal<FolderIcon|''>('');
 const [rows,setRows]=createSignal<MessageNotice[]>([]);
 (globalThis as unknown as {inertProbe:(html:string)=>string}).inertProbe=html=>{
  const doc=inertEmailDocument(html);
  return bodyFrameDoc('sanitized-no-media',{html:doc.body.innerHTML});
 };
-await Promise.all([loadCatalog('contacts'),loadCatalog('notices')]);
+await Promise.all([loadCatalog('contacts'),loadCatalog('notices'),loadCatalog('settings')]);
 const app=createAppState(makeContactsClient(defaultSeed()));
-render(()=>location.search.includes('notices')?<main><NoticeTemplateEditor value={rows()} onChange={setRows}/></main>:<AppContext.Provider value={app}><ContactsModule/></AppContext.Provider>,document.getElementById('root')!);
+render(()=>location.search.includes('folder-icons')?<main><FolderIconPicker label="Folder icon" value={folderIcon()} automaticIcon="folder" onChange={setFolderIcon}/><output aria-label="Selected icon">{folderIcon()}</output></main>:location.search.includes('notices')?<main><NoticeTemplateEditor value={rows()} onChange={setRows}/></main>:<AppContext.Provider value={app}><ContactsModule/></AppContext.Provider>,document.getElementById('root')!);

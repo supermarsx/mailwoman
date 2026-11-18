@@ -7,7 +7,7 @@ it('lists every icon once under named groups, each with an accessible name',()=>
  mount();
  const radios=screen.getAllByRole('radio');expect(radios).toHaveLength(FOLDER_ICONS.length+1);
  for(const r of radios)expect(r.getAttribute('aria-label')).toBeTruthy();
- expect(screen.getAllByRole('group').map(g=>g.getAttribute('aria-label'))).toEqual(['General','Mail','Work','Finance and shopping','Travel and home','Personal and fun','Tech and tools']);
+ expect(screen.getAllByRole('group').map(g=>g.getAttribute('aria-label'))).toEqual(['General','Mail','Work and companies','Projects and goals','Partners and contacts','Government and administration','Finance and banking','Shopping and deliveries','Health and medical','Education and research','Hobbies and sport','Travel and home','Family and pets','Tech and tools','Platforms','Telecom and support','Personal and fun']);
 });
 it('every new id is selectable',()=>{
  const onChange=vi.fn();mount(onChange);
@@ -27,4 +27,13 @@ it('arrow keys move across groups',()=>{
  const onChange=vi.fn();mount(onChange);
  const first=screen.getAllByRole('radio')[0]!;first.focus();fireEvent.keyDown(first,{key:'ArrowRight'});
  expect(onChange).toHaveBeenLastCalledWith('folder');expect(document.activeElement).toBe(screen.getAllByRole('radio')[1]);
+});
+
+it('searches category names and combines category and icon words',()=>{
+ const onChange=vi.fn();mount(onChange);const search=screen.getByRole('searchbox',{name:'Search icons'});
+ fireEvent.input(search,{target:{value:'government'}});expect(screen.getByRole('radio',{name:'Official documents'})).toBeVisible();
+ expect(screen.queryByRole('radio',{name:'Gaming'})).toBeNull();
+ fireEvent.input(search,{target:{value:'medical dental'}});fireEvent.click(screen.getByRole('radio',{name:'Dental care'}));expect(onChange).toHaveBeenLastCalledWith('tooth');
+ fireEvent.input(search,{target:{value:'telecom'}});expect(screen.getByRole('radio',{name:'Internet and broadband'})).toBeVisible();
+ fireEvent.input(search,{target:{value:'platforms'}});expect(screen.getByRole('radio',{name:'Linux'})).toBeVisible();
 });

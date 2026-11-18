@@ -6,7 +6,24 @@ import { withBase } from './basePath.ts';
 import { onPageHide, pendingWrite, type PendingWriteStore } from './unloadFlush.ts';
 import { observePreferenceAccount, preferenceAccount, preferenceAccountIsCurrent, type PreferenceAccount } from './accountPreferenceLifecycle.ts';
 
-export const FOLDER_ICONS = ['folder', 'star', 'flag', 'tag', 'clock', 'calendar', 'file', 'image', 'lock', 'users', 'archive', 'mail', 'attachment', 'check', 'alert', 'inbox', 'sent', 'edit', 'delete', 'spam', 'search', 'pin', 'link', 'shield', 'unlock', 'fileAudio', 'fileVideo', 'filePdf', 'fileCode', 'print', 'download', 'preferences', 'dashboard', 'analytics', 'nextcloud', 'domains', 'twofactor', 'assistant', 'integrations', 'logs', 'home', 'briefcase', 'heart', 'shopping', 'education', 'travel', 'coffee', 'gift', 'bank', 'book', 'camera', 'music', 'film', 'lightbulb', 'rocket', 'trophy', 'leaf', 'globe', 'cloud', 'bookmark', 'wallet', 'medical', 'bell', 'key', 'receipt', 'cart', 'package', 'wrench', 'chart', 'team', 'store', 'office', 'laptop', 'crown', 'family'] as const;
+export const FOLDER_ICONS = [
+  'folder','star','flag','tag','clock','calendar','file','image','lock','users',
+  'archive','mail','attachment','check','alert','inbox','sent','edit','delete','spam',
+  'search','pin','link','shield','unlock','fileAudio','fileVideo','filePdf','fileCode','print',
+  'download','preferences','dashboard','analytics','nextcloud','domains','twofactor','assistant','integrations','logs',
+  'home','briefcase','heart','shopping','education','travel','coffee','gift','bank','book',
+  'camera','music','film','lightbulb','rocket','trophy','leaf','globe','cloud','bookmark',
+  'wallet','medical','bell','key','receipt','cart','package','wrench','chart','team',
+  'store','office','laptop','crown','family','shapes','clipboard','presentation','hardHat','kanban',
+  'target','milestone','handshake','personAdd','teamAdd','idCard','policy','audit','compliance','privacy',
+  'roles','admins','certificate','stamp','scales','ballot','passport','creditCard','coins','piggyBank',
+  'calculator','basket','barcode','truck','coupon','heartbeat','stethoscope','pill','hospital','firstAid',
+  'tooth','microscope','flask','atom','ruler','palette','gamepad','bicycle','dumbbell','guitar',
+  'scissors','ball','car','boat','tent','person','heartHome','paw','cat','dog',
+  'flower','tree','keyboard','terminal','database','code','chip','network','usb','bug',
+  'serverMetadata','diagnostics','bolt','windows','linux','android','apple','github','docker','phone',
+  'smartphone','antenna','satellite','router','headset','smile','planet','dice','puzzle',
+] as const;
 export type FolderIcon = typeof FOLDER_ICONS[number];
 export interface AccountTag {name:string;color:string;icon:FolderIcon}
 export interface AccountUiPreferences {

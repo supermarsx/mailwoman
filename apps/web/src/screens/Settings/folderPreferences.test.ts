@@ -1,8 +1,8 @@
 import {expect,it} from 'vitest';
 import {FOLDER_ICONS} from '../../api/accountPreferences.ts';
 import {folderIcon,folderIsHidden,shownFolderIds,folderPathLabel,moveFolder,orderedFolders} from './folderPreferenceModel.ts';
-it('offers seventy-five native custom icons and role-specific defaults',()=>{
- expect(new Set(FOLDER_ICONS).size).toBe(75);
+it('offers 159 native custom icons and role-specific defaults',()=>{
+ expect(new Set(FOLDER_ICONS).size).toBe(159);
  expect(folderIcon({id:'a',name:'Inbox',role:'inbox'},{})).toBe('inbox');
  expect(folderIcon({id:'b',name:'Sent',role:'sent'},{})).toBe('sent');
  expect(folderIcon({id:'b',name:'Sent',role:'sent'},{folderIcons:{b:'star'}})).toBe('star');
@@ -43,4 +43,18 @@ it('adds 25 new icons, each drawn, grouped exactly once, and unknown stored ids 
  expect([...grouped].sort()).toEqual([...FOLDER_ICONS].sort());
  expect(folderIcon({id:'a',name:'A'},{folderIcons:{a:'nope' as never}})).toBe('folder');
  expect(folderIcon({id:'a',name:'A',role:'trash'},{folderIcons:{a:'rocket'}})).toBe('rocket');
+});
+
+import {readFileSync,readdirSync} from 'node:fs';
+import {resolve,join} from 'node:path';
+it('keeps persisted server choices and every translated picker label in sync',()=>{
+ const server=readFileSync(resolve(process.cwd(),'../../crates/mw-server/src/prefs_routes/ui_preferences.rs'),'utf8');
+ const list=server.match(/const FOLDER_ICONS:[\s\S]*?= &\[([\s\S]*?)\];/)![1]!;
+ expect([...list.matchAll(/"([^"\n]+)"/g)].map(match=>match[1])).toEqual([...FOLDER_ICONS]);
+ const locales=resolve(process.cwd(),'locales');
+ for(const locale of readdirSync(locales,{withFileTypes:true}).filter(entry=>entry.isDirectory())){
+  const text=readFileSync(join(locales,locale.name,'settings.ftl'),'utf8');
+  for(const id of FOLDER_ICONS)expect(text,`${locale.name}: ${id}`).toMatch(new RegExp(`^settings-folder-icon-${id} = .+`,'m'));
+  for(const group of FOLDER_ICON_GROUPS)expect(text,`${locale.name}: ${group.id}`).toMatch(new RegExp(`^settings-folder-icon-group-${group.id} = .+`,'m'));
+ }
 });

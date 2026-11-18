@@ -30,6 +30,8 @@ export const empty=style({textAlign:'center',color:vars.color.textDim,paddingBlo
 
 globalStyle(`.${wrap}:focus-visible`,{outline:`${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,outlineOffset:'-2px'});
 
+export const iconPicker=style({display:'grid',gap:vars.space[3],maxInlineSize:'32rem',minInlineSize:0});
+export const iconCollection=style({maxBlockSize:'min(32rem,65dvh)',overflowY:'auto',overflowX:'hidden',overscrollBehavior:'contain',padding:vars.space[2],border:`${vars.border.hair} solid ${vars.color.border}`,scrollbarGutter:'stable'});
 export const iconGrid=style({display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(44px,1fr))',gap:'4px',maxInlineSize:'28rem'});
 globalStyle(`.${iconGrid} button[aria-checked="true"]`,{outline:`2px solid ${vars.color.accent}`,outlineOffset:'-2px'});
 export const srOnly=style({position:'absolute',inlineSize:'1px',blockSize:'1px',overflow:'hidden',clipPath:'inset(50%)',whiteSpace:'nowrap'});
