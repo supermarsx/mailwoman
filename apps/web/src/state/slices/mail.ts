@@ -34,6 +34,7 @@ import {createMailReadCache, type PrefetchTrigger} from '../mailReadCache.ts';
 import {persistentMailStore} from '../../offline/persistentMail.ts';
 import {folderCachePredicate} from '../folderCache.ts';
 import {readMailCachePolicy} from '../mailCachePolicy.ts';
+import {keyedAttempt} from '../../api/recovery.ts';
 import { ApiError, NetworkError, PasswordChangeRequired, type Client, type LoginInput, type Me } from '../../api/client.ts';
 import {
   emailGetFull,
@@ -2408,7 +2409,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
 
     requireCurrent();
-    const res = await jmapCall(sendEnvelope(acct, outgoing));
+    const envelope=sendEnvelope(acct,outgoing);
+    const res=await keyedAttempt(JSON.stringify(['mail-send',acct,authority?.storageAuthority??user.username,envelope]),key=>jmapCall(envelope,{idempotencyKey:key}));
     if (!sendAuthorityCurrent()) return;
     ctx.broadcastChange?.();
     const setRes = responseFor<EmailSetResponse>(res, 'set');
@@ -2482,8 +2484,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       notifyEvent('sent',t('mail-toast-sent'),'success');
     }
 
-    const current = selectedMailboxId();
-    if (current !== null) await selectMailbox(current);
+    // Sending changes mailbox data, not the user's navigation. A post-send
+    // refresh must retain the reading pane, search, selection and loaded window.
+    // The accepted submission is never reported as failed because refreshing did.
+    try{await refreshFolders();}catch{/* Push/catch-up will retry reconciliation. */}
   }
 
   // Forced password change (t27, OH-1). While the account's admin flag is set

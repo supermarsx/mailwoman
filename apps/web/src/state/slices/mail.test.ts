@@ -1,3 +1,4 @@
+import {ApiError,type JmapCallOptions} from '../../api/client.ts';
 import {onMessagesMoved} from '../moveEvents.ts';
 import {onMessagesTrashed} from '../trashEvents.ts';
 import { clearSanitizeCache } from '../../sanitize/index.ts';
@@ -2112,5 +2113,34 @@ describe('session mail cache integration',()=>{
    expect(submission.methodCalls.find(([method])=>method==='EmailSubmission/set')?.[1]['onSuccessUpdateEmail']).toEqual({'#send':{mailboxIds:{archive:true},'keywords/$draft':null}});
    jmap.mockClear();await expect(mail.sendMessage({to:'recipient@example.org',subject:'Hi',htmlBody:'Hello',sentMailboxId:'unknown'})).rejects.toThrow();expect(jmap).not.toHaveBeenCalled();
   });
+ });
+});
+
+it('reconciles a successful send in place without clearing the reader or selected rows',async()=>{
+ await withInbox([email('a'),email('b')],async(mail)=>{
+  await mail.openMessage('a');mail.setSelection(['b']);
+  const selected=[...mail.selectedIds()];await mail.sendMessage({to:'you@example.org',subject:'Hi',htmlBody:'hello',holdSeconds:0});
+  expect(mail.openEmail()?.id).toBe('a');expect([...mail.selectedIds()]).toEqual(selected);
+ });
+});
+it('does not turn an accepted send into a failed send when post-send reconciliation fails',async()=>{
+ await withInbox([email('a')],async(mail,{jmap})=>{
+  const initial=jmap.getMockImplementation()!;let submitted=false;
+  jmap.mockImplementation(async (request:JmapRequest)=>{if(submitted)throw new Error('refresh failed');const response=await initial(request);if(request.methodCalls.some(call=>call[0]==='EmailSubmission/set'))submitted=true;return response;});
+  await expect(mail.sendMessage({to:'you@example.org',subject:'Hi',htmlBody:'hello',holdSeconds:0})).resolves.toBeUndefined();
+  expect(submitted).toBe(true);
+ });
+});
+
+it('retains the send idempotency key after an unacknowledged submission',async()=>{
+ await withInbox([email('a')],async(mail,{client})=>{
+  const initial=client.jmap,keys:Array<string|false|undefined>=[];let fail=true;
+  client.jmap=vi.fn(async(request:JmapRequest,options?:JmapCallOptions)=>{
+   if(request.methodCalls.some(call=>call[0]==='EmailSubmission/set')){keys.push(options?.idempotencyKey);if(fail){fail=false;throw new ApiError(503,'Acknowledgement lost',{code:'outcomeUnknown'});}}
+   return initial(request,options);
+  });
+  const input={to:'you@example.org',subject:'Only once',htmlBody:'hello',holdSeconds:0};
+  await expect(mail.sendMessage(input)).rejects.toMatchObject({code:'outcomeUnknown'});await mail.sendMessage(input);
+  expect(keys).toHaveLength(2);expect(keys[0]).toBeTruthy();expect(keys[1]).toBe(keys[0]);
  });
 });

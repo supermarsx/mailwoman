@@ -234,8 +234,8 @@ export interface JmapCallOptions {
 /**
  * t91: the `/set` methods whose `create` the client sends with an
  * `Idempotency-Key` and retries after a transient failure. Mail itself
- * (`Email/set`, `EmailSubmission/set`) is not here: a draft has its own save
- * loop, and a send is never repeated by the transport.
+ * (`Email/set`, `EmailSubmission/set`) is not here: drafts use their own
+ * revision fence, and the send caller supplies its own retained operation key.
  */
 export const KEYED_CREATE_METHODS: ReadonlySet<string> = new Set([
   'Mailbox/set', 'ContactCard/set', 'ContactGroup/set', 'AddressBook/set', 'CalendarEvent/set', 'Calendar/set',
