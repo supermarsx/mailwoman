@@ -134,7 +134,6 @@ export function LinkedAccountList(props:{
               <div class={table.who} title={nicknameOf(key)?`${nicknameOf(key)}\n${addressOf(key)}`:addressOf(key)}>
                 <HostBrandCell host={addressOf(key)}><span class={table.name} data-linked-name>{isolate(labelOf(key))}</span></HostBrandCell>
                 <Show when={labelOf(key)!==addressOf(key)}><span class={table.address}>{isolate(addressOf(key))}</span></Show>
-                <MailboxConnectionStatus linkId={linkId} root={props.value.primary.storageAuthority} available={linkId===null||account(key)?.status==='ready'} renew={expired()} detail/>
                 <Show when={expired()}><span class={a11y.srOnly}>{t('linked-accounts-expired')}</span></Show>
               </div>}>
               <div class={`${table.who} ${table.rename}`}>
@@ -150,6 +149,7 @@ export function LinkedAccountList(props:{
               </div>
             </Show>
             <div class={table.actions} data-linked-actions>
+              <MailboxConnectionStatus linkId={linkId} root={props.value.primary.storageAuthority} available={linkId===null||account(key)?.status==='ready'} renew={expired()} detail iconOnly/>
               <Show when={linkId!==null&&props.onLoginPolicy&&account(key)?.directLogin}>{policy=><button type="button" class={icon} data-linked-login-policy aria-label={`${t('linked-login-title')}: ${nameFor(key)}`} title={t('linked-login-title')} disabled={props.busy} onClick={()=>{setLoginChoice(policy().overridden?(policy().allowed?'allow':'block'):'inherit');setLoginPolicyId(linkId!);}}><Icon name="shield"/></button>}</Show>
               <Show when={props.onOpen}><button type="button" class={icon} data-linked-open disabled={props.busy||!ready()}
                 aria-label={t('linked-accounts-go-to',{address:nameFor(key)})} data-tooltip={t('linked-accounts-go-to-short')}

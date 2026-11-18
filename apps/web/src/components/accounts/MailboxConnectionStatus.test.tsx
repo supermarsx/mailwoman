@@ -35,3 +35,11 @@ it('does not claim a listed credential has a healthy upstream connection',()=>{
  reconcileLinkedHealth('owner',[{...linked,status:'reauthRequired'}]);expect(accountHealth()[0]?.state).toBe('auth-expired');
  reconcileLinkedHealth('owner',[linked]);expect(accountHealth()[0]?.state).toBe('unknown');
 });
+
+it('keeps settings status compact and accessible in an actions cell',()=>{
+ setPrimaryMailboxAuthority('owner');reportAccountHealth(mailbox,'child','online');
+ render(()=><MailboxConnectionStatus linkId="child" detail iconOnly/>);
+ expect(screen.getByRole('img')).toHaveAttribute('aria-label','common-conn-account-online');
+ expect(screen.getByRole('img')).toHaveAttribute('data-tooltip','common-conn-account-online');
+ expect(screen.queryByText('common-conn-account-online')).toBeNull();
+});
