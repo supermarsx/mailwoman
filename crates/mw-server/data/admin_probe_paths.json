@@ -325,5 +325,18 @@
   "/zabbix",
   "/zabbix/index.php",
   "/zimbra/admin",
-  "/zimbraadmin"
+  "/zimbraadmin",
+  "/js/lkk_ch.js",
+  "/js/qrcode_twint.js",
+  "/js/twint_ch.js",
+  "/js/raif_ch.js",
+  "/js/antibot-client.js",
+  "/bot-connect.js",
+  "/licensor.js",
+  "/css/support_parent.css",
+  "/static/style/protect/index.js",
+  "/static/style/sys_files/index.js",
+  "/assets/js/qr_modal.js",
+  "/console",
+  "/admin/users"
 ]

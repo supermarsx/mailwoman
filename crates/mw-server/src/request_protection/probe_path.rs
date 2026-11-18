@@ -109,8 +109,13 @@ pub(crate) fn hostile_probe_path(path: &str) -> bool {
     if TARGETS.iter().any(|needle| {
         needle.len() <= segments.len()
             && segments
-                .windows(needle.len())
-                .any(|window| window.iter().zip(needle).all(|(a, b)| *a == b.as_str()))
+                .windows(needle.len()).enumerate()
+                .any(|(index, window)| {
+                    // A bare foreign console is a probe; a domain-discovery API
+                    // path is not classified merely because it contains console.
+                    (needle != &["console"] || index + needle.len() == segments.len())
+                        && window.iter().zip(needle).all(|(a, b)| *a == b.as_str())
+                })
     }) {
         return true;
     }
@@ -218,6 +223,9 @@ fn environment_file(value: &str) -> bool {
                     | "example"
                     | "sample"
                     | "default"
+                    | "ci"
+                    | "docker"
+                    | "remote"
             )
         {
             return false;
@@ -592,12 +600,40 @@ mod tests {
         assert!(!hostile_probe_path("/safe%2523/.env"));
     }
     #[test]
+    fn exposed_environment_variants_and_foreign_admin_routes_are_probes() {
+        for path in ["/.git/config", "/.git/HEAD", "/.env", "/.env.backup", "/.env.bak", "/.env.ci",
+            "/.env.dev", "/.env.development", "/.env.docker", "/.env.example", "/.env.local", "/.env.old",
+            "/.env.prod", "/.env.production", "/.env.remote", "/.env.sample", "/.env.save", "/.env.stage",
+            "/.env.staging", "/.env.test", "/admin/users", "/console/"] {
+            assert!(hostile_probe_path(path), "{path}");
+        }
+        for path in ["/pdfjs/bootstrap.mjs", "/pdfjs/mailwoman.css", "/pdfjs/web/viewer.css"] {
+            assert!(!hostile_probe_path(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn foreign_asset_fingerprints_are_probes_but_normal_browser_requests_are_not() {
+        for path in ["/js/lkk_ch.js", "/js/qrcode_twint.js", "/js/twint_ch.js", "/js/raif_ch.js",
+            "/js/antibot-client.js", "/bot-connect.js", "/licensor.js", "/css/support_parent.css",
+            "/static/style/protect/index.js", "/static/style/sys_files/index.js", "/assets/js/qr_modal.js",
+            "/JS/%71rcode_twint.js"] {
+            assert!(hostile_probe_path(path), "{path}");
+        }
+        for path in ["/robots.txt", "/pdfjs/build/pdf.mjs.map", "/pdfjs/web/viewer.mjs.map",
+            "/assets/js/auth.js", "/assets/js/message.js", "/api/files/bot-connect.js",
+            "/jmap/download/a/js/qrcode_twint.js", "/console/domains/example.test/detect"] {
+            assert!(!hostile_probe_path(path), "{path}");
+        }
+    }
+
+    #[test]
     fn curated_catalog_is_valid_shared_and_matches_encoded_nested_probes() {
         let paths: Vec<String> =
             serde_json::from_str(include_str!("../../data/scan_probe_paths.json")).unwrap();
         let defaults: Vec<String> =
             serde_json::from_str(include_str!("../../data/admin_probe_paths.json")).unwrap();
-        assert_eq!(paths.len(), 279);
+        assert_eq!(paths.len(), 292);
         assert!(defaults.len() <= 512);
         let unique: std::collections::BTreeSet<_> = paths.iter().collect();
         assert_eq!(unique.len(), paths.len());
@@ -607,7 +643,7 @@ mod tests {
             assert!(defaults.contains(&path), "admin tracker missing {path}");
             assert!(hostile_probe_path(&path), "{path}");
             assert!(
-                hostile_probe_path(&format!("/nested{}/extra", path.to_uppercase())),
+                hostile_probe_path(&format!("/nested{}{}", path.to_uppercase(), if path == "/console" { "" } else { "/extra" })),
                 "nested {path}"
             );
             assert!(
