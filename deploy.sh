@@ -1122,7 +1122,7 @@ decrypt_snapshot() {
 # copy is complete (restore replaces it next, healthy or not); after a failed copy
 # it is resumed either way.
 snapshot() {
-    local cid running destination keep_stopped=${1:-}
+    local cid running destination keep_stopped=${1:-} started=$SECONDS
     cid=$(compose "$ACTIVE" ps -a -q mailwoman)
     [[ -n $cid ]] || die "No app container to back up"
     destination="$STATE/backups/$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"
@@ -1132,26 +1132,26 @@ snapshot() {
     running=$(docker inspect --format '{{.State.Running}}' "$cid")
     if [[ $running == true ]]; then
         RESUME_CONTAINER=$cid
-        docker stop -t 60 "$cid" >/dev/null
+        snapshot_progress "Stopping app for a consistent snapshot" "" docker stop -t 60 "$cid" >/dev/null
     fi
     log "Snapshotting /data to $destination"
-    docker cp -a "$cid:/data/." - > "$destination/data.tar"
+    snapshot_progress "Copying app data" "$destination/data.tar" docker cp -a "$cid:/data/." - > "$destination/data.tar"
     if grep -qx 'STACK=full' "$ACTIVE/deploy.env"; then stack_dump "$destination"; fi
-    tar -tf "$destination/data.tar" >/dev/null
-    (cd "$destination" && sha256sum data.tar compose.yaml app.env deploy.env release.env > SHA256SUMS)
+    snapshot_progress "Validating snapshot archive" "" tar -tf "$destination/data.tar" >/dev/null
+    (cd "$destination" && snapshot_progress "Calculating snapshot checksums" "" sha256sum data.tar compose.yaml app.env deploy.env release.env > SHA256SUMS)
     # A snapshot is usable only once COMPLETE exists; partial backups remain for diagnosis.
     printf 'mailwoman-deploy-snapshot-v1\n' > "$destination/COMPLETE"
     if [[ -n $RESUME_CONTAINER && -n $keep_stopped ]]; then
         RESUME_CONTAINER=
     elif [[ -n $RESUME_CONTAINER ]]; then
-        docker start "$RESUME_CONTAINER" >/dev/null
+        snapshot_progress "Resuming app after snapshot" "" docker start "$RESUME_CONTAINER" >/dev/null
         RESUME_CONTAINER=
         # Compose 2.30 supports waiting on `up`, but not on `start`. Keep the
         # existing container and its exact configuration while waiting for health.
-        compose "$ACTIVE" up -d --no-recreate --wait --wait-timeout "$TIMEOUT" mailwoman
+        snapshot_progress "Waiting for app health after snapshot" "" compose "$ACTIVE" up -d --no-recreate --wait --wait-timeout "$TIMEOUT" mailwoman
     fi
     LAST_BACKUP=$destination
-    log "Backup ready: $LAST_BACKUP"
+    log "Backup ready in $((SECONDS - started))s: $LAST_BACKUP"
 }
 
 activate() {

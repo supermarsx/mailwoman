@@ -18,6 +18,7 @@ for name in compose.yaml app.env deploy.env release.env; do printf 'fixture\n' >
 TRACE="$FIXTURE/trace"
 log() { printf '[deploy] %s\n' "$*" >&2; }
 die() { fail "$*"; }
+source "$ROOT/scripts/deploy-stack.sh"
 docker() {
     printf 'docker %s\n' "$*" >> "$TRACE"
     case "$1" in

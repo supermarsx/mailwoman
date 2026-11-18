@@ -100,13 +100,45 @@ stack_prepare() {
     docker volume create --label "mailwoman.deploy.project=$PROJECT" "$POSTGRES_VOLUME" >/dev/null
 }
 
+# Run a snapshot stage without touching its stdout (which may be an archive).
+# A local EXIT trap reaps the heartbeat on success, command failure or interruption;
+# the caller's normal recovery trap still resumes the app after a failed backup.
+snapshot_progress() (
+    local label=$1 output=$2 started=$SECONDS watcher result=0
+    shift 2
+    log "$label" >&2
+    (
+        local delay='' bytes elapsed
+        trap '[[ -z $delay ]] || kill "$delay" 2>/dev/null || true; exit 0' TERM INT
+        while :; do
+            sleep 5 & delay=$!
+            wait "$delay" || exit 0
+            elapsed=$((SECONDS - started))
+            if [[ -n $output && -f $output ]]; then
+                bytes=$(wc -c < "$output")
+                log "$label: $((bytes / 1048576)).$((bytes % 1048576 * 10 / 1048576)) MiB written; ${elapsed}s elapsed" >&2
+            else
+                log "$label: ${elapsed}s elapsed; still working" >&2
+            fi
+        done
+    ) & watcher=$!
+    trap 'kill "$watcher" 2>/dev/null || true; wait "$watcher" 2>/dev/null || true' EXIT
+    "$@" || result=$?
+    if ((result != 0)); then
+        log "$label: failed after $((SECONDS - started))s (exit $result)" >&2
+        exit "$result"
+    fi
+    log "$label: complete in $((SECONDS - started))s" >&2
+)
+
 stack_dump() {
     local destination=$1
     grep -qx 'STACK=full' "$ACTIVE/deploy.env" || return 0
     mkdir "$destination/.postgres"
-    compose "$ACTIVE" exec -T postgres pg_dump -U mailwoman -d mailwoman --format=custom > "$destination/.postgres/.deploy-postgres.dump"
+    snapshot_progress "Backing up PostgreSQL" "$destination/.postgres/.deploy-postgres.dump" \
+        compose "$ACTIVE" exec -T postgres pg_dump -U mailwoman -d mailwoman --format=custom > "$destination/.postgres/.deploy-postgres.dump"
     [[ -s $destination/.postgres/.deploy-postgres.dump ]] || die "PostgreSQL backup was empty"
-    tar -rf "$destination/data.tar" -C "$destination/.postgres" .deploy-postgres.dump
+    snapshot_progress "Adding PostgreSQL backup to snapshot" "" tar -rf "$destination/data.tar" -C "$destination/.postgres" .deploy-postgres.dump
     rm "$destination/.postgres/.deploy-postgres.dump"
     rmdir "$destination/.postgres"
 }
