@@ -2,6 +2,7 @@ import {chooseComposeFormat} from './compose/nativeHtmlTestHarness.ts';
 import {afterEach,beforeAll,expect,it,vi} from 'vitest';
 import {render,fireEvent,screen,waitFor,within} from '@solidjs/testing-library';
 import {Compose} from './Compose.tsx';
+import {ApiError} from '../api/errors.ts';
 import {makeClient} from './appHarness.tsx';
 import {createAppState} from '../state/store.ts';
 import {AppContext} from '../state/context.ts';
@@ -96,3 +97,42 @@ it('captures each input character in browser recovery without waiting for the se
  }
  fireEvent.input(subject,{target:{value:''}});expect(listDrafts('acct1','test-storage-authority-acct1')[0]?.subject).toBe('');
 });
+
+it.each([false,true])('keeps autosave paused through send preparation, reconnects and an uncertain outcome (%s)',async(uncertain)=>{
+ const {reportOffline}=await import('../offline/runtime.ts');
+ const closed=vi.fn();const writes:Record<string,unknown>[]=[];let finishSave:(()=>void)|undefined,finishSend:(()=>void)|undefined;
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  const path=String(input);
+  if(path.endsWith('/api/account/drafts'))return json({accountId:'acct1',storageAuthority:'test-storage-authority-acct1',supported:true,items:[]});
+  if(path.includes('/api/account/drafts/')&&init?.method==='PUT'){
+   const request=JSON.parse(String(init.body));writes.push(request);
+   if(writes.length===1)await new Promise<void>(resolve=>{finishSave=resolve;});
+   return json({accountId:'acct1',storageAuthority:'test-storage-authority-acct1',id:path.split('/').at(-1),revision:`r${writes.length}`,emailId:'stored-draft',savedAt:1,status:'saved',cleanupPending:false,summary:{},state:request.state});
+  }
+  return json({});
+ }));
+ const app=createAppState(makeClient());await app.login({username:'me@example.org',password:'p'});
+ await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.draftSaveMode':{value:'realtime',source:'user',locked:false},'mail.draftDebounceMs':{value:500,source:'user',locked:false}}})});
+ const send=vi.spyOn(app,'sendMessage').mockImplementation(async()=>await new Promise<void>((resolve,reject)=>{finishSend=()=>uncertain?reject(new ApiError(503,'Acknowledgement lost',{code:'outcomeUnknown'})):resolve();}));
+ const view=render(()=><AppContext.Provider value={app}><Compose embedded onClose={closed}/></AppContext.Provider>);
+ try{
+  await chooseComposeFormat('plain');fireEvent.input(await screen.findByLabelText('To'),{target:{value:'you@example.org'}});
+  fireEvent.input(screen.getByLabelText('Subject'),{target:{value:'First version'}});fireEvent.input(screen.getByLabelText('Body'),{target:{value:'A message to send'}});
+  await waitFor(()=>expect(finishSave).toBeDefined());
+  fireEvent.input(screen.getByLabelText('Subject'),{target:{value:'Final version'}});
+  fireEvent.click(within(view.container.querySelector<HTMLElement>('.compose__header')!).getByRole('button',{name:'Send'}));
+  expect(send).not.toHaveBeenCalled();finishSave!();
+  await waitFor(()=>expect(send).toHaveBeenCalledOnce());expect(send).toHaveBeenCalledWith(expect.objectContaining({subject:'Final version',accountDraft:expect.objectContaining({revision:'r1'})}));
+  reportOffline(true);reportOffline(false);await new Promise(resolve=>setTimeout(resolve,750));
+  expect(writes).toHaveLength(1);finishSend!();
+  if(uncertain){
+   await waitFor(()=>expect(listDrafts('acct1','test-storage-authority-acct1').some(draft=>draft.sendOutcomeUnknown===true)).toBe(true));
+   fireEvent.input(screen.getByLabelText('Subject'),{target:{value:'Keep my changed text locally'}});
+   await new Promise(resolve=>setTimeout(resolve,750));expect(writes).toHaveLength(1);
+   fireEvent.click(within(view.container.querySelector<HTMLElement>('.compose__header')!).getByRole('button',{name:'Send'}));
+   const dialog=await screen.findByRole('alertdialog',{name:'Delivery status unknown'});
+   expect(within(dialog).getByText(/Check Sent/)).toBeVisible();fireEvent.click(within(dialog).getByRole('button',{name:'Cancel'}));
+   expect(send).toHaveBeenCalledOnce();expect(closed).not.toHaveBeenCalled();
+  }else await waitFor(()=>expect(closed).toHaveBeenCalledOnce());
+ }finally{finishSave?.();finishSend?.();reportOffline(false);view.unmount();}
+},20000);

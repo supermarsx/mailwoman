@@ -7,8 +7,8 @@ vi.mock('../../offline/vault.ts',()=>({offlineVault:async()=>({
  async remove(_namespace:string,key:string){disk.rows.delete(key);},async clear(){disk.rows.clear();},
 })}));
 beforeEach(()=>{vi.resetModules();disk.rows.clear();disk.allowed=true;disk.block=false;disk.gates=[];disk.lists=0;localStorage.clear();});
-const draft=(bodyText:string)=>({id:'recover',accountId:'account',storageAuthority:'verified-test-authority',to:'unfinished@',subject:'Exact recovery',bodyText,bodyHtml:'<p>'+bodyText+'</p>',savedAt:1,serverStatus:'uncertain' as const});
-it('persists the latest exact edit and recovers it after a fresh module load',async()=>{
+const draft=(bodyText:string)=>({id:'recover',accountId:'account',storageAuthority:'verified-test-authority',to:'unfinished@',subject:'Exact recovery',bodyText,bodyHtml:'<p>'+bodyText+'</p>',savedAt:1,serverStatus:'uncertain' as const,sendOutcomeUnknown:true});
+it('persists exact edits and uncertain-send state across a fresh module load',async()=>{
  const first=await import('./drafts-store.ts');
  for(const value of ['A','A🙂','A🙂  \n','A🙂  \nNext line']){first.saveDraft(draft(value));expect(first.listDrafts('account','verified-test-authority')[0]?.bodyText).toBe(value);}
  await first.flushDrafts();expect(first.draftPersistenceState()).toBe('saved');expect(disk.lists).toBe(0);

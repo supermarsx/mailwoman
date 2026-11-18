@@ -56,6 +56,8 @@ export interface StoredDraft {
   editorMode?: 'rich'|'html';
   source?:DraftSource;
   insertedSignatures?: string[];
+  /** A dispatched send lost its acknowledgement; require review before retrying. */
+  sendOutcomeUnknown?:boolean;
   noticeMode?:'auto'|'none'|'manual';
   noticeIds?:string[];
   to: string;
@@ -170,6 +172,7 @@ function isDraft(d: unknown): d is StoredDraft {
     optional(r.insertedSignatures, isStringList) &&
     optional(r.noticeMode,value=>value==='auto'||value==='none'||value==='manual') &&
     optional(r.noticeIds,value=>Array.isArray(value)&&value.length<=20&&value.every(id=>typeof id==='string'&&/^[A-Za-z0-9_-]{1,80}$/.test(id))) &&
+    (r.sendOutcomeUnknown===undefined||typeof r.sendOutcomeUnknown==='boolean') &&
     typeof r.to === 'string' &&
     typeof r.subject === 'string' &&
     typeof r.bodyHtml === 'string' &&

@@ -120,3 +120,16 @@ separately in `crates/mw-server/tests/t32_h13_realtime_scope.rs`. Native replay
 contracts and desktop scheduler definitions have focused tests. Actual OS wake
 behavior still requires platform/device qualification; mobile scheduling is not
 implemented.
+
+## Interrupted send confirmation
+
+If a send loses its acknowledgement, the composer keeps your browser recovery
+copy and pauses server draft autosave. Check Sent and Outbox before retrying.
+Sending again asks for confirmation; an identical request retried within nine
+minutes in the same open app session reuses its retained idempotency key. The recovery copy remembers the
+unconfirmed-send warning when reopened. Editing an uncertain message keeps the
+new text in browser recovery until you review the send outcome.
+
+A successful send refreshes folder data in place without clearing the current
+reader, message selection or search. Background notification wakes resync a
+healthy live connection rather than disconnecting and reopening it.

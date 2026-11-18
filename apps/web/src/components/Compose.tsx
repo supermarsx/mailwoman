@@ -1,3 +1,5 @@
+import {createConfirm} from './confirm.tsx';
+import {ApiError,NetworkError} from '../api/errors.ts';
 import {matchingNotices,validMessageNotices,appendNoticeHtml,type NoticeChoice} from './compose/messageNotices.ts';
 import {notifyEvent} from '../realtime/notificationEvents.ts';
 import {isOffline} from '../offline/runtime.ts';
@@ -300,6 +302,7 @@ export function Compose(props: {
   const [remoteRevision,setRemoteRevision]=createSignal<string|null>(null);
   const [remoteReady,setRemoteReady]=createSignal(false);
   const [remoteStatus,setRemoteStatus]=createSignal<DraftSaveStatus>('idle');
+  const [remoteCleanupPending,setRemoteCleanupPending]=createSignal(false);
   const [remoteDrafts,setRemoteDrafts]=createSignal<AccountDraftDocument[]>([]);
   const [remoteListFailed,setRemoteListFailed]=createSignal(false);
   const [remoteLoading,setRemoteLoading]=createSignal(false);
@@ -346,6 +349,8 @@ export function Compose(props: {
   // the send does not append the same signature a second time.
   const [insertedSignatures, setInsertedSignatures] = createSignal<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = createSignal(false);
+  const [sendOutcomeUnknown,setSendOutcomeUnknown]=createSignal(false);
+  const retrySendConfirm=createConfirm();
   const [error, setError] = createSignal<string | null>(null);
   // The recipient field whose in-progress token the contact suggestions are
   // for, or `null` when no list is open.
@@ -926,7 +931,9 @@ export function Compose(props: {
     if (d.accountId !== app.accountId() || !owner || owner.id!==d.accountId || !preferenceAccountIsCurrent(owner) || !owner.storageAuthority || d.storageAuthority!==owner.storageAuthority) return;
     remoteWriter?.dispose();remoteWriter=undefined;remoteWriterId='';
     resumedUncertain=d.serverStatus==='uncertain';
+    setRemoteCleanupPending(false);
     draftId = d.id;
+    setSendOutcomeUnknown(d.sendOutcomeUnknown===true);
     setRemoteRevision(d.serverRevision??null);
     props.onDraftIdChange?.(draftId);
     setExpanded(true);
@@ -1116,7 +1123,7 @@ export function Compose(props: {
         if(!current()||remoteRevision()!==expectedRevision)return;
         deleteDraft(id,owner.id,owner.storageAuthority);
         setRemoteDrafts(rows=>rows.filter(row=>row.id!==id));
-        void app.refreshFolders();
+        if(!busy())void app.refreshFolders().catch(()=>undefined);
       }else{
         deleteDraft(id,draftAccount,draftAuthority?.storageAuthority);
       }
@@ -1134,6 +1141,7 @@ export function Compose(props: {
     remoteWriter?.dispose();remoteWriterId=draftId;
     remoteWriter=createDraftAutosave({id:draftId,transport:accountDraftApi(owner,remoteAbort?.signal),current:()=>ownsDraft()&&preferenceAccountIsCurrent(owner)&&!sent,status:setRemoteStatus,failure:remoteFailure,saved:(before,document)=>{
       setRemoteRevision(document.revision);
+      setRemoteCleanupPending(document.cleanupPending);
       void app.refreshFolders();
       const rebound=new Map<string,{blobId:string;size:number}>();
       before.attachments.forEach((file,index)=>{const saved=document.state?.attachments[index];if(saved)rebound.set(file.blobId,saved);});
@@ -1141,7 +1149,7 @@ export function Compose(props: {
       setAttachments(files=>files.map(file=>{const saved=rebound.get(file.blobId);return saved?{...file,blobId:saved.blobId,size:saved.size}:file;}));
       setInlineImages(files=>files.map(file=>{const saved=rebound.get(file.blobId);return saved?{...file,blobId:saved.blobId,size:saved.size}:file;}));
     }});
-    remoteWriter.suspend(isOffline());
+    remoteWriter.suspend(busy()||sendOutcomeUnknown()||isOffline());
     remoteWriter.seedRevision(remoteRevision());
     if(resumedUncertain)remoteWriter.seedUncertain();
   }
@@ -1238,6 +1246,7 @@ export function Compose(props: {
       ...(customFrom() ? {fromOverride: fromOverride()} : {}),
       bodyFormat: richMode() ? 'html' : 'plain',
       ...(richMode()?{editorMode:sourceMode()?'html' as const:'rich' as const}:{}),
+      ...(sendOutcomeUnknown()?{sendOutcomeUnknown:true}:{}),
       insertedSignatures: [...insertedSignatures()],noticeMode:noticeMode(),noticeIds:[...noticeIds()],
       attachments: attachments().map(file => ({...file})),
       to: to(),
@@ -1270,7 +1279,7 @@ export function Compose(props: {
     if(!sent&&ownsDraft()&&app.accountId()===snapshot.accountId&&app.me()!==null)saveDraft(snapshot);
   });
   createEffect(()=>{
-    const protectedNow=protectedDraft(),offline=isOffline();remoteWriter?.suspend(protectedNow||offline);
+    const protectedNow=protectedDraft(),offline=isOffline();remoteWriter?.suspend(busy()||sendOutcomeUnknown()||protectedNow||offline);
     if(protectedNow){pendingDraft=undefined;}
   });
   let remoteOwnerStarted=false;
@@ -1652,6 +1661,11 @@ export function Compose(props: {
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
     if(!mailFeature('allowSend')||busy()||uploading()||discardCurrentOpen()||discardCurrentBusy()||checkPrompt()!==null)return;
+    if(retrySendConfirm.open())return;
+    if(sendOutcomeUnknown()){
+      if(!await retrySendConfirm.ask({title:t('mail-outbox-uncertain'),body:t('mail-outbox-uncertain-note'),confirmLabel:t('mail-compose-send'),danger:false}))return;
+      if(!ownsDraft())return;setSendOutcomeUnknown(false);
+    }
     setAttempted(true);
     setBusy(true);
     const fellBack=sentResolution()?.result;
@@ -1669,6 +1683,8 @@ export function Compose(props: {
     const readyEditor=editorApi();if(readyEditor?.whenReady)await readyEditor.whenReady();
     remoteWriter?.suspend(true);
     if(remoteWriter?.isBusy())await remoteWriter.settled();
+    // Never bypass the saved-draft fence by omitting an uncertain reference.
+    if(remoteStatus()==='uncertain'||remoteStatus()==='conflict'||remoteCleanupPending()){setError(t(remoteCleanupPending()?'mail-draft-cleanup-pending':remoteStatus()==='conflict'?'mail-draft-conflict':'mail-draft-status-uncertain'));return;}
     if(!ownsDraft())return;
     setError(null);
     if(customFrom()&&!isMailbox(fromOverride().trim())){setError(t('mail-compose-from-invalid'));return;}
@@ -1736,6 +1752,7 @@ export function Compose(props: {
       return;
     }
     setBusy(true);
+    let submissionStarted=false;
     try {
       // Encrypt-on-send (plan §2.5): when encryption is on the worker has already
       // produced the armored ciphertext (signed in-place when `sign` is on, via
@@ -1802,6 +1819,7 @@ export function Compose(props: {
       if(requestDelivery()&&!deliveryAvailable())throw new Error(t('mail-compose-delivery-unavailable'));
       if (!ownsDraft()) throw new Error(t('mail-compose-account-changed'));
       if(sendingSelection()!==expectedSelection||signatureScope()!==expectedSignatureScope)throw new Error(t('mail-compose-send-failed'));
+      submissionStarted=true;
       await app.sendMessage({
         ...(remoteRevision()&&remoteStatus()!=='uncertain'&&remoteStatus()!=='conflict'?{accountDraft:{id:draftId,revision:remoteRevision()!}}:{}),
         to: to(),
@@ -1845,12 +1863,14 @@ export function Compose(props: {
       deleteDraft(draftId, draftAccount,draftAuthority?.storageAuthority);
       props.onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('mail-compose-send-failed'));
-      notifyEvent('failed',t('mail-compose-send-failed'),'error');
+      const uncertain=submissionStarted&&(err instanceof NetworkError||err instanceof ApiError&&err.code==='outcomeUnknown');
+      if(uncertain){setSendOutcomeUnknown(true);setError(t('mail-outbox-uncertain-note'));}
+      else setError(err instanceof Error?err.message:t('mail-compose-send-failed'));
+      notifyEvent('failed',t(uncertain?'mail-outbox-uncertain-note':'mail-compose-send-failed'),uncertain?'warning':'error');
     } finally {
       setBusy(false);
     }
-    } finally {setBusy(false);if(!sent)remoteWriter?.suspend(protectedDraft()||isOffline());else remoteWriter?.dispose();}
+    } finally {setBusy(false);if(!sent)remoteWriter?.suspend(sendOutcomeUnknown()||protectedDraft()||isOffline());else remoteWriter?.dispose();}
   }
 
   // ── Composer chrome: the bottom status bar and the collapsible header ──
@@ -1930,6 +1950,7 @@ export function Compose(props: {
     const held=app.cancelableOutbox().length;
     if(held>0)items.push({id:'recall',severity:'neutral',icon:'clock',label:t('mail-status-held',{count:held}),onClick:()=>openRecall()});
     if(!localDraftAuthority())items.push({id:'storage',severity:'warning',icon:'alert',label:t('mail-status-storage'),detail:t('mail-compose-private-storage-unavailable')});
+    if(sendOutcomeUnknown())items.push({id:'send-outcome',severity:'warning',icon:'alert',label:t('mail-outbox-uncertain'),detail:t('mail-outbox-uncertain-note')});
     const status=remoteStatus();
     if(pendingDraft&&draftPersistenceState()==='unavailable'&&status!=='saved')items.push({id:'local-storage',severity:'warning',icon:'alert',label:t('mail-status-storage'),detail:t('mail-compose-encrypted-storage-unavailable')});
     if(pendingDraft&&draftPersistenceState()==='saved'&&status!=='saved'&&!protectedDraft())items.push({id:'local-recovery',severity:'success',icon:'check',label:t('mail-draft-local-saved')});
@@ -1989,6 +2010,7 @@ export function Compose(props: {
       onKeyDown={(e)=>{insertKeys(e);onDialogKeyDown(e);}}
     >
       <form id={composeId} class="compose" classList={{'compose--compact':compact()}} onSubmit={(e) => void onSubmit(e)}>
+        <retrySendConfirm.Dialog/>
         <ComposeDropZone host={dropHost}/>
         <Show when={!centralizedCommands()}><header class="compose__header">
           <SendAction/>
