@@ -1,3 +1,7 @@
+import {CleanupMaintenance} from '../src/screens/Admin/CleanupMaintenance.tsx';
+import {TemplateLibraryEditor} from '../src/components/compose/TemplateLibraryEditor.tsx';
+import type {ResponseTemplate} from '../src/components/compose/responseTemplateModel.ts';
+import {DatabaseObservability} from '../src/screens/Admin/DatabaseObservability.tsx';
 import {FolderIconPicker} from '../src/screens/Settings/FolderIconPicker.tsx';
 import type {FolderIcon} from '../src/api/accountPreferences.ts';
 import {createSignal} from 'solid-js';
@@ -17,10 +21,12 @@ import '../src/styles/app.css';
 (globalThis as unknown as {localeProbe:()=>Promise<string>}).localeProbe=async()=>{setActiveLocale('pt-PT');await loadCatalog('settings');return t('settings-folder-icon-group-telecom');};
 const [folderIcon,setFolderIcon]=createSignal<FolderIcon|''>('');
 const [rows,setRows]=createSignal<MessageNotice[]>([]);
+const [templates,setTemplates]=createSignal<ResponseTemplate[]>([]);
+(globalThis as unknown as {editorDrafts:()=>unknown}).editorDrafts=()=>({notices:rows(),templates:templates()});
 (globalThis as unknown as {inertProbe:(html:string)=>string}).inertProbe=html=>{
  const doc=inertEmailDocument(html);
  return bodyFrameDoc('sanitized-no-media',{html:doc.body.innerHTML});
 };
 await Promise.all([loadCatalog('contacts'),loadCatalog('notices'),loadCatalog('settings')]);
 const app=createAppState(makeContactsClient(defaultSeed()));
-render(()=>location.search.includes('folder-icons')?<main><FolderIconPicker label="Folder icon" value={folderIcon()} automaticIcon="folder" onChange={setFolderIcon}/><output aria-label="Selected icon">{folderIcon()}</output></main>:location.search.includes('notices')?<main><NoticeTemplateEditor value={rows()} onChange={setRows}/></main>:<AppContext.Provider value={app}><ContactsModule/></AppContext.Provider>,document.getElementById('root')!);
+render(()=>location.search.includes('cleanup')?<CleanupMaintenance/>:location.search.includes('database')?<DatabaseObservability/>:location.search.includes('templates')?<TemplateLibraryEditor value={templates()} onChange={setTemplates}/>:location.search.includes('folder-icons')?<main><FolderIconPicker label="Folder icon" value={folderIcon()} automaticIcon="folder" onChange={setFolderIcon}/><output aria-label="Selected icon">{folderIcon()}</output></main>:location.search.includes('notices')?<main><NoticeTemplateEditor value={rows()} onChange={setRows}/></main>:<AppContext.Provider value={app}><ContactsModule/></AppContext.Provider>,document.getElementById('root')!);

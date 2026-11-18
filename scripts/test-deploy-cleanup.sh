@@ -58,4 +58,3 @@ for name in skip-deploy preview apply failure; do
  else [[ $result == 0 ]]; fi
 done
 printf 'PASS: skip-backup, read-only maintenance preview, offline cleanup, failure restart\n'
-

@@ -2,14 +2,15 @@ import {test,expect} from '@playwright/test';
 import {build,preview,type PreviewServer} from 'vite';
 
 test.describe('contacts, notices and inert reader parsing',()=>{
+ test.describe.configure({mode:'default'});
  let server:PreviewServer,origin:string;
- test.beforeAll(async()=>{
+ test.beforeAll(async({browserName})=>{
   test.setTimeout(180000);
-  const options={outDir:'.orchestration/contacts-notices-browser',emptyOutDir:true};
+  const options={outDir:`.orchestration/contacts-notices-${browserName}`,emptyOutDir:true};
   await build({logLevel:'warn',build:options,plugins:[{name:'contacts-notice-fixture',transformIndexHtml:{order:'pre',handler:()=>'<html data-theme="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/e2e/contactsNoticeHarness.tsx"></script></body></html>'}}]});
   server=await preview({build:options,preview:{host:'127.0.0.1',port:0}});origin=server.resolvedUrls!.local[0]!;
  });
- test.afterAll(async()=>{if(!server)return;await new Promise<void>((resolve,reject)=>{server.httpServer.close(error=>error?reject(error):resolve());server.httpServer.closeAllConnections();});});
+ test.afterAll(async()=>{if(!server)return;await new Promise<void>((resolve,reject)=>{server.httpServer.close(error=>error?reject(error):resolve());if('closeAllConnections' in server.httpServer)server.httpServer.closeAllConnections();});});
  test('production translations load as lazy same-origin text assets under a deployment prefix',async({page})=>{
   const catalogs:string[]=[];page.on('request',request=>{if(new URL(request.url()).pathname.endsWith('.ftl'))catalogs.push(request.url());});
   await page.route(origin+'mail/**',async route=>{const url=route.request().url().replace(origin+'mail/',origin);await route.fulfill({response:await route.fetch({url})});});
@@ -65,6 +66,50 @@ test.describe('contacts, notices and inert reader parsing',()=>{
   await page.getByLabel('Subject contains',{exact:true}).fill('private');await page.getByRole('button',{name:'Back',exact:true}).click();
   await expect(page.getByText('Confidential',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Edit Confidential',exact:true}).click();await expect(page.getByLabel('Subject contains',{exact:true})).toHaveValue('private');
+ });
+ test('notice and response-template editors preserve rich formatting after reopening',async({page})=>{
+  for(const entry of [
+   {path:'?notices',add:'New notice',name:'Notice name',body:'Notice text',title:'Rich notice',key:'notices'},
+   {path:'?templates',add:'Add template',name:'Template name',body:'Message text',title:'Rich template',key:'templates'},
+  ]){
+   await page.goto(origin+entry.path);await page.getByRole('button',{name:entry.add,exact:true}).click();
+   await page.getByLabel(entry.name,{exact:true}).fill(entry.title);
+   const body=page.getByRole('textbox',{name:entry.body,exact:true});
+   await expect(body).toHaveAttribute('contenteditable','true');
+   await body.fill('Formatted content');await body.press('ControlOrMeta+a');await body.press('ControlOrMeta+b');
+   await expect.poll(async()=>page.evaluate(key=>{
+    const rows=(globalThis as unknown as {editorDrafts:()=>Record<string,{html?:string}[]>}).editorDrafts()[key];return rows?.[0]?.html??'';
+   },entry.key)).toContain('<strong');
+   await page.getByRole('button',{name:'Back',exact:true}).click();
+   await page.getByRole('button',{name:entry.key==='notices'?`Edit ${entry.title}`:entry.title,exact:true}).click();
+   await expect(page.getByRole('textbox',{name:entry.body,exact:true}).locator('strong')).toHaveText('Formatted content');
+   await page.setViewportSize({width:390,height:844});
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+   await page.screenshot({path:`.orchestration/${entry.key}-rich-mobile.png`});
+   await page.setViewportSize({width:1280,height:900});
+  }
+ });
+ test('database observability loads cheap metrics before an explicit detailed inspection',async({page})=>{
+  let detailed=0;
+  const report={observedAt:'2026-11-18T12:00:00Z',driver:'SQLx',growth:{status:'rapid-growth',bytesPerMinute:100000000,thresholdBytesPerMinute:67108864,windowMinutes:15,samples:[{at:1700000000,dbBytes:100000000000,walBytes:0}],writeOrigins:[{origin:'INSERT bodies · cache.rs:1600',statements:3000,affectedRows:3000,inputBytes:1000000000}]},database:{backend:'sqlite',serverVersion:'3.49',name:'mailwoman.db',host:null,port:null,journalMode:'wal'},
+   diagnostics:{dbBytes:104854867968,walBytes:0,dbPingMs:1,migrationApplied:45,migrationExpected:45},
+   pool:{open:2,idle:1,busy:1,minimum:1,maximum:4,acquireTimeoutMs:30000,idleTimeoutMs:600000,maxLifetimeMs:1800000,closed:false},
+   storage:{pageSize:4096,pageCount:25600000,freePages:0,freeBytes:0,occupiedBytes:104857600000},migrations:{applied:45,expected:45,pending:[],failed:[],unknown:[]}};
+  await page.route('**/observability/database*',async route=>{const detail=new URL(route.request().url()).searchParams.get('detailed')==='true';if(detail)detailed++;await route.fulfill({json:{...report,details:detail?{observedAt:report.observedAt,limited:false,notes:[],bodies:{count:5000,bytes:100000000000,orphanCount:4900,orphanBytes:97000000000},tables:[{name:'bodies',bytes:100000000000,rows:5000,rowsEstimated:false}]}:null}});});
+  await page.goto(origin+'?database');await expect(page.getByText('mailwoman.db',{exact:true})).toBeVisible();expect(detailed).toBe(0);await expect(page.getByRole('alert')).toContainText('Sustained rapid growth');await expect(page.getByText('INSERT bodies · cache.rs:1600')).toBeVisible();
+  await page.getByRole('button',{name:'Inspect storage'}).click();await expect(page.getByText('Unreferenced bodies',{exact:true})).toBeVisible();expect(detailed).toBe(1);
+  await page.screenshot({path:'.orchestration/database-observability-desktop.png',fullPage:true});
+  await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:'.orchestration/database-observability-mobile.png'});
+ });
+ test('maintenance applies configured log limits only after the action is clicked',async({page})=>{
+  const requests:boolean[]=[];
+  await page.route('**/maintenance/logs',async route=>{requests.push((route.request().postDataJSON() as {rotate:boolean}).rotate);await route.fulfill({json:{removedFiles:0,rotationRequested:requests.at(-1)}});});
+  await page.goto(origin+'?cleanup');await expect(page.getByRole('heading',{name:'Application log files'})).toBeVisible();expect(requests).toEqual([]);
+  await page.getByRole('button',{name:'Rotate now'}).click();await expect.poll(()=>requests).toEqual([true]);
+  await expect(page.getByText('Log maintenance requested.')).toBeVisible();
+  await page.getByRole('button',{name:'Cleanup',exact:true}).click();await expect.poll(()=>requests).toEqual([true,false]);
+  await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  });
  test('reader transformations do not load resources or violate the parent style CSP',async({page})=>{
   await page.route(origin+'**',async route=>{if(route.request().resourceType()!=='document')return route.continue();const response=await route.fetch();await route.fulfill({response,headers:{...response.headers(),'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'"}});});
