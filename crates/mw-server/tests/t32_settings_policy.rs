@@ -1333,7 +1333,7 @@ async fn mail_cache_and_response_templates_obey_effective_user_policy() {
     let base = &s.base;
     assert_eq!(
         entry(&u, base, "mail.cache.prefetchEnabled").await["value"],
-        false
+        true
     );
     assert_eq!(
         send(

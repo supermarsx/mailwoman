@@ -647,7 +647,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "mail.cache.prefetchEnabled",
         Kind::Bool,
-        r#"false"#,
+        r#"true"#,
         GDU,
         "mail",
         "Browser session mail cache: prefetchEnabled"
@@ -679,7 +679,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "mail.cache.idleEnabled",
         Kind::Bool,
-        r#"false"#,
+        r#"true"#,
         GDU,
         "mail",
         "Browser session mail cache: idleEnabled"
@@ -707,6 +707,14 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "mail",
         "Browser session mail cache: maxQueued"
+    ),
+    def!(
+        "mail.cache.preloadHeaders",
+        Kind::Bool,
+        r#"true"#,
+        GDU,
+        "mail",
+        "Preload message envelope headers with message lists"
     ),
     def!(
         "mail.cache.preloadMessages",
@@ -10084,6 +10092,7 @@ mod tests {
             "idleDelayMs",
             "maxConcurrency",
             "maxQueued",
+            "preloadHeaders",
             "preloadMessages",
             "excludedFolders",
         ] {
@@ -10101,7 +10110,7 @@ mod tests {
             lookup("mail.cache.prefetchEnabled")
                 .unwrap()
                 .default_value(),
-            json!(false)
+            json!(true)
         );
         assert_eq!(
             lookup("mail.cache.preloadMessages")

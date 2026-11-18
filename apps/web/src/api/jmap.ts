@@ -156,10 +156,12 @@ export interface ListExtra {
 
 export function listMailbox(accountId: Id, mailboxId: Id, limit = 50, page: PageWindow = {}, extra: ListExtra = {}): JmapRequest {
   // The Events view's rows carry their event hint (read from the index, not the body).
-  const properties: string[] = mailboxId === EVENTS_VIEW_ID ? [...HEADER_PROPERTIES, 'mailwomanCalendar'] : [...HEADER_PROPERTIES];
+  const properties: string[] = mailboxId === EVENTS_VIEW_ID ? [...listHeaderProperties(), 'mailwomanCalendar'] : listHeaderProperties();
   // Expiry marks in the list need the Expires headers; they are read only while `mail.expiry.hideExpired` is on.
   const expiry = settings()['mail.expiry.hideExpired']?.value;
-  if (expiry === 'dim' || expiry === 'archive-suggestion' || expiry === 'hide') properties.push('header:Expires:asText', 'header:Expiry-Date:asText');
+  if (expiry === 'dim' || expiry === 'archive-suggestion' || expiry === 'hide') {
+    for(const property of ['header:Expires:asText', 'header:Expiry-Date:asText'])if(!properties.includes(property))properties.push(property);
+  }
   return request(MAIL_USING, [
     [
       'Email/query',
@@ -212,7 +214,7 @@ export function searchEmails(
     ],
     [
       'Email/get',
-      { accountId, '#ids': { resultOf: 'q', name: 'Email/query', path: '/ids' }, properties: [...HEADER_PROPERTIES] },
+      { accountId, '#ids': { resultOf: 'q', name: 'Email/query', path: '/ids' }, properties: listHeaderProperties() },
       'g',
     ],
   ]);
@@ -239,6 +241,12 @@ export const OPTIONAL_HEADER_PROPERTIES = [
   'header:Sensitivity:asText',
   'header:Supersedes:asText',
 ] as const;
+
+/** Envelope metadata is ready with the list; no body values or attachment bytes. */
+export function listHeaderProperties(): string[] {
+  if(settings()['mail.cache.preloadHeaders']?.value===false)return [...HEADER_PROPERTIES];
+  return [...HEADER_PROPERTIES,'cc','bcc','replyTo','sentAt','messageId','inReplyTo','references',...DELIVERY_HEADER_PROPERTIES,...OPTIONAL_HEADER_PROPERTIES];
+}
 
 export function emailGetFull(accountId: Id, id: Id, maxBodyValueBytes = 1_000_000): JmapRequest {
   return request(MAIL_USING, [
@@ -453,7 +461,7 @@ export function queryFromSender(accountId: Id, fromEmail: string, mailboxId?: Id
   if (mailboxId !== undefined) filter['inMailbox'] = mailboxId;
   return request(MAIL_USING, [
     ['Email/query', { accountId, filter, sort: [{ property: 'receivedAt', isAscending: false }], calculateTotal: true }, 'q'],
-    ['Email/get', { accountId, '#ids': { resultOf: 'q', name: 'Email/query', path: '/ids' }, properties: [...HEADER_PROPERTIES] }, 'g'],
+    ['Email/get', { accountId, '#ids': { resultOf: 'q', name: 'Email/query', path: '/ids' }, properties: listHeaderProperties() }, 'g'],
   ]);
 }
 

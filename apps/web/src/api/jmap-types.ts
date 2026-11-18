@@ -90,8 +90,8 @@ export interface Email {
   mailboxIds: Record<Id, boolean>;
   from: EmailAddress[] | null;
   to: EmailAddress[] | null;
-  /** `Cc`, `Bcc` and `Reply-To` of the message. Fetched for the open message
-   *  only (`BODY_PROPERTIES`), so absent on a list row. */
+  /** `Cc`, `Bcc` and `Reply-To`. Available on list rows when header
+   *  preloading is enabled, and always requested for the open message. */
   cc?: EmailAddress[] | null;
   bcc?: EmailAddress[] | null;
   replyTo?: EmailAddress[] | null;
@@ -107,7 +107,7 @@ export interface Email {
   inReplyTo?: string[] | null;
   references?: string[] | null;
   /** Delivery headers (`header:<Name>:asAddresses:all`): one address list per
-   *  instance of the header, newest first. Asked for by `emailGetFull` only. */
+   *  instance of the header, newest first. Included when preloading headers. */
   'header:Delivered-To:asAddresses:all'?: EmailAddress[][] | null;
   'header:X-Original-To:asAddresses:all'?: EmailAddress[][] | null;
   'header:Envelope-To:asAddresses:all'?: EmailAddress[][] | null;

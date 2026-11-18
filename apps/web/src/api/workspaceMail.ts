@@ -3,7 +3,7 @@ import {preferenceAccount,preferenceAccountIsCurrent} from './accountPreferenceL
 import {createLinkedAccountsApi} from './linkedAccounts.ts';
 import {withBase} from './basePath.ts';
 import {CAP_CORE,CAP_MAIL,type Email,type JmapRequest,type JmapResponse,type Mailbox} from './jmap-types.ts';
-import {HEADER_PROPERTIES,responseFor} from './jmap.ts';
+import {listHeaderProperties,responseFor} from './jmap.ts';
 import {messageSort} from '../state/messageSort.ts';
 import type {MessageListOrder} from '../components/messageOrder.ts';
 import type {Me} from './client.ts';
@@ -73,7 +73,7 @@ export async function workspaceMessages(target:WorkspaceMailbox,boxes:Mailbox[],
   const filter={...baseFilter,...(restricted?{inMailboxes:included}:{})};
   const response=await jmap(target,[
     ['Email/query',{accountId,filter,position,limit,calculateTotal:true,sort:messageSort(order,'none')},'query'],
-    ['Email/get',{accountId,'#ids':{resultOf:'query',name:'Email/query',path:'/ids'},properties:[...HEADER_PROPERTIES,'sentAt']},'rows'],
+    ['Email/get',{accountId,'#ids':{resultOf:'query',name:'Email/query',path:'/ids'},properties:[...new Set([...listHeaderProperties(),'sentAt'])]},'rows'],
     ['Email/query',{accountId,filter:{...filter,notKeyword:'$seen'},limit:1,calculateTotal:true},'unread'],
   ],signal);
   const query=responseFor<{ids:string[];position:number;total?:number}>(response,'query');
