@@ -6534,6 +6534,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "observability",
         "split saved statistics by client kind and device class"
     ),
+    def!("retention.requestMetrics.detailDays", int(0, 1095), "30", G, "privacy", "Keep normalized not-found path samples for this many days, then remove the paths while retaining request/404 counts and latency histograms for metrics.rollupDays. 0 keeps counters only after each hourly bucket closes."),
     def!(
         "retention.metrics.minuteBucketsHours",
         int(1, 8760),

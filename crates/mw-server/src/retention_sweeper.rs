@@ -387,6 +387,16 @@ pub(crate) async fn run_store(store: &Store, now: i64, dry_run: bool) -> Report 
         }
     }
     report.stores.push(r);
+    // Historical counts do not need their detailed URL samples forever.
+    if !dry_run {
+        let days=num(store,"retention.requestMetrics.detailDays").await;
+        for _ in 0..max_batches {
+            match store.minimize_request_metric_details(now,days).await {
+                Ok(rows) if rows>=200=>{}, Ok(_)=>break,
+                Err(error)=>{report.stores.push(StoreReport{id:"requestMetricDetails",rows:0,more:false,skipped:None,error:Some(error.to_string()),archived:false});break;}
+            }
+        }
+    }
     // Browser error reports: events past eventDays, groups past groupDays.
     let mut r = StoreReport { id: "clientErrors", rows: 0, more: false, skipped: None, error: None, archived: false };
     match crate::client_errors::prune(store, now, dry_run).await {

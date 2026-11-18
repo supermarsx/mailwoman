@@ -78,6 +78,7 @@ impl Recorder {
         tokio::spawn(async move {
             let mut timer = tokio::time::interval(Duration::from_secs(15));
             timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut last_minimized=0i64;
             loop {
                 timer.tick().await;
                 let Some(recorder) = weak.upgrade() else {
@@ -89,7 +90,14 @@ impl Recorder {
                     let policy = Policy::load(&store).await?;
                     store
                         .save_request_metrics(&instance, &buckets, now(), policy.retention_days)
-                        .await
+                        .await?;
+                    if now().saturating_sub(last_minimized)>=3600 {
+                    let detail_days=store.get_setting_policy("retention.requestMetrics.detailDays").await.ok().flatten().and_then(|p|p.global_value)
+                        .and_then(|v|serde_json::from_str::<i64>(&v).ok()).filter(|v|(0..=1095).contains(v)).unwrap_or(30);
+                    store.minimize_request_metric_details(now(),detail_days).await?;
+                    last_minimized=now();
+                    }
+                    Ok::<(),mw_store::StoreError>(())
                 };
                 match tokio::time::timeout(Duration::from_secs(5), work).await {
                     Ok(Ok(())) => {}

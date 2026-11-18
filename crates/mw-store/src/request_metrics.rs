@@ -437,6 +437,25 @@ impl Store {
         tx.commit().await?;
         Ok(())
     }
+    /// Drop historical path samples while preserving counts and latency sketches.
+    /// Each pass is bounded; already minimized buckets are not rewritten.
+    pub async fn minimize_request_metric_details(&self,now:i64,detail_days:i64)->Result<u64,StoreError>{
+        if !(0..=1095).contains(&detail_days){return Err(StoreError::Corrupt("invalid request detail retention".into()))}
+        let cutoff=now.saturating_sub(detail_days*86400);
+        let mut tx=self.backend.begin().await?;
+        let rows=q(r#"SELECT instance_id,bucket_seconds,bucket_start,counts_json FROM request_metrics_bucket WHERE bucket_start+bucket_seconds<=?1 AND counts_json LIKE '%"paths":%' ORDER BY bucket_start LIMIT 200"#)
+            .bind(cutoff).fetch_all_tx(&mut tx).await?;
+        let mut changed=0;
+        for row in rows{
+            let mut counts:Counts=serde_json::from_str(&row.get_string("counts_json")).map_err(|e|StoreError::Corrupt(e.to_string()))?;
+            let Some(detail)=counts.not_found.as_mut() else{continue};
+            if detail.paths.is_empty(){continue} detail.paths.clear();
+            let data=serde_json::to_string(&counts).map_err(|e|StoreError::Corrupt(e.to_string()))?;
+            changed+=q("UPDATE request_metrics_bucket SET counts_json=?4 WHERE instance_id=?1 AND bucket_seconds=?2 AND bucket_start=?3")
+                .bind(row.get_string("instance_id")).bind(row.get_i64("bucket_seconds")).bind(row.get_i64("bucket_start")).bind(data).execute_tx(&mut tx).await?;
+        }
+        tx.commit().await?;Ok(changed)
+    }
     /// Minute precision for recent ranges, hourly precision for older ranges.
     /// Fail closed when the bounded raw scan cannot represent all replicas.
     pub async fn request_metrics_history(
@@ -1037,4 +1056,20 @@ mod not_found_tests {
         value["notFound"]["count"] = serde_json::json!(99);
         assert!(!serde_json::from_value::<Counts>(value).unwrap().valid());
     }
+}
+
+#[cfg(test)]
+mod minimization_tests{
+ use super::*;
+ #[tokio::test]async fn removes_expired_paths_without_losing_long_term_counters(){
+  let store=Store::open(":memory:",crate::ServerKey::from_hex(&"11".repeat(32)).unwrap()).await.unwrap();
+  let start=1700000000/3600*3600;
+  let mut counts=Counts::default();for _ in 0..3{counts.record(200,1);}counts.not_found=Some(NotFound{count:2,paths:vec![NotFoundPath{method:"GET".into(),path:"/missing".into(),count:2,error:0}]});
+  let b=Bucket{seconds:3600,start,observed_from:start,observed_to:start+3600,counts};
+  store.save_request_metrics("minimize",&[b],start+40*86400,1095).await.unwrap();
+  assert_eq!(store.minimize_request_metric_details(start+40*86400,30).await.unwrap(),1);
+  assert_eq!(store.minimize_request_metric_details(start+40*86400,30).await.unwrap(),0);
+  let saved=store.request_metrics_history(start,start+3600,3600).await.unwrap();
+  assert_eq!(saved[0].counts.requests,3);assert_eq!(saved[0].counts.not_found.as_ref().unwrap().count,2);assert!(saved[0].counts.not_found.as_ref().unwrap().paths.is_empty());
+ }
 }
