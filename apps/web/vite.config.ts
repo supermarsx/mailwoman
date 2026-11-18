@@ -1,6 +1,8 @@
+import {buildTimings} from './scripts/buildTimings.ts';
+import {catalogAssets} from './scripts/catalogAssets.ts';
 import {build as bundleWorker} from 'esbuild';
 import { defineConfig } from 'vitest/config';
-import solid from 'vite-plugin-solid';
+import {cachedSolid} from './scripts/cachedSolid.ts';
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
 import wasm from 'vite-plugin-wasm';
 import { createHash } from 'node:crypto';
@@ -9,6 +11,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { transformWithEsbuild, type Plugin } from 'vite';
 import { bundledPackages } from './scripts/about-bundled-packages.mjs';
 
+const buildCacheStats={hits:0,misses:0};
 const UPSTREAM = 'http://localhost:8080';
 // The web client's version, sent as `browser/<version>` in `X-Mailwoman-Client`.
 const VERSION = (JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }).version;
@@ -125,7 +128,7 @@ export function assetIntegrity(): Plugin {
       const sw = readFileSync(swPath, 'utf8');
       const marker = '/* @mw-asset-digests */ null';
       if (!sw.includes(marker)) throw new Error('mw-asset-integrity: dist/sw.js has no asset-digest placeholder');
-      writeFileSync(swPath, sw.replace(marker, JSON.stringify(digests)).replace('/* @mw-offline-assets */ []',JSON.stringify(Object.keys(digests).filter(path=>(path.startsWith('/pdfjs/')||/\.(?:js|mjs|css|wasm)$/.test(path))&&!/^\/assets\/(?:admin|offline-background)/.test(path)))).replace('/* @mw-offline-background */',offlineBackgroundFile?`importScripts('./${offlineBackgroundFile}');`:''));
+      writeFileSync(swPath, sw.replace(marker, JSON.stringify(digests)).replace('/* @mw-offline-assets */ []',JSON.stringify(Object.keys(digests).filter(path=>(path.startsWith('/pdfjs/')||/\.(?:js|mjs|css|wasm|ftl)$/.test(path))&&!/^\/assets\/(?:admin|offline-background)/.test(path)))).replace('/* @mw-offline-background */',offlineBackgroundFile?`importScripts('./${offlineBackgroundFile}');`:''));
     },
   };
 }
@@ -157,10 +160,10 @@ export default defineConfig({
   // Top-level await in the wasm modules is native (target es2022) and the workers are built as
   // ES modules (`worker.format`), so there is no `vite-plugin-top-level-await`: it re-printed each
   // chunk after its source map was written and misaligned every hidden map (docs/admin/observability.md).
-  plugins: [solid(), vanillaExtractPlugin(), wasm(), bundledPackages({ main: true }), bootScript(), offlineBackground(), assetIntegrity()],
+  plugins: [catalogAssets(),cachedSolid({stats:buildCacheStats}), vanillaExtractPlugin(), wasm(), bundledPackages({ main: true }), bootScript(), offlineBackground(), assetIntegrity(),buildTimings(buildCacheStats)],
   // t32-e75: the bundle recorder also sees the worker builds; the main instance writes
   // node_modules/.cache/mailwoman-about/bundled-packages.json for the third-party list.
-  worker: { format: 'es', plugins: () => [bundledPackages()] },
+  worker: { format: 'es', plugins: () => [catalogAssets(),bundledPackages()] },
   server: {
     port: 5173,
     proxy: {
@@ -177,7 +180,7 @@ export default defineConfig({
     sourcemap: process.env['MW_SOURCEMAP'] === 'hidden' ? 'hidden' : false,
     // Small font subsets must remain same-origin files: the shell deliberately
     // permits font-src 'self', never data: font payloads in generated CSS.
-    assetsInlineLimit: (filePath) => /\.(?:woff2?|ttf|otf)(?:\?|$)/i.test(filePath) ? false : undefined,
+    assetsInlineLimit: (filePath) => /\.(?:woff2?|ttf|otf|ftl)(?:\?|$)/i.test(filePath) ? false : undefined,
   },
   test: {
     // ── FLAKE POLICY (t22-e10) — there is deliberately NO `retry` here ────────

@@ -22,9 +22,10 @@ function fixture(html: string): string {
   mkdirSync(join(out, 'assets', 'analytics'), { recursive: true });
   writeFileSync(join(out, 'assets', 'index-a1.js'), 'export{}');
   writeFileSync(join(out, 'assets', 'boot-b2.js'), 'void 0');
+  writeFileSync(join(out,'assets','mail-catalog.ftl'),'mail-title = Mail');
   writeFileSync(join(out, 'assets', 'index-c3.css'), 'a{src:url(/fonts/a.woff2)}');
   writeFileSync(join(out, 'assets', 'analytics', 'x.js'), 'ignored');
-  writeFileSync(join(out, 'sw.js'), "const ASSET_DIGESTS = /* @mw-asset-digests */ null;\n");
+  writeFileSync(join(out, 'sw.js'), "const ASSET_DIGESTS = /* @mw-asset-digests */ null;\nconst OFFLINE_ASSETS = /* @mw-offline-assets */ [];\n");
   writeFileSync(join(out, 'index.html'), html);
   return out;
 }
@@ -50,6 +51,8 @@ describe('mw-asset-integrity', () => {
     const sw = readFileSync(join(out, 'sw.js'), 'utf8');
     const manifest = JSON.parse(/const ASSET_DIGESTS = (\{.*\});/.exec(sw)![1]!) as Record<string, string>;
     expect(manifest['/assets/index-a1.js']).toBe(sha256('export{}'));
+    expect(manifest['/assets/mail-catalog.ftl']).toBe(sha256('mail-title = Mail'));
+    expect(JSON.parse(/const OFFLINE_ASSETS = (\[.*\]);/.exec(sw)![1]!)).toContain('/assets/mail-catalog.ftl');
     expect(manifest['/assets/index-c3.css']).toBe(sha256('a{src:url(/fonts/a.woff2)}'));
     expect(manifest['/index.html']).toBe(sha256(html));
     expect(manifest['/assets/analytics/x.js']).toBeUndefined();

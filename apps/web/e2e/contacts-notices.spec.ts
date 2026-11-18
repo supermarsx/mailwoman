@@ -9,7 +9,26 @@ test.describe('contacts, notices and inert reader parsing',()=>{
   await build({logLevel:'warn',build:options,plugins:[{name:'contacts-notice-fixture',transformIndexHtml:{order:'pre',handler:()=>'<html data-theme="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/e2e/contactsNoticeHarness.tsx"></script></body></html>'}}]});
   server=await preview({build:options,preview:{host:'127.0.0.1',port:0}});origin=server.resolvedUrls!.local[0]!;
  });
- test.afterAll(async()=>{await new Promise<void>((resolve,reject)=>server?.httpServer.close(error=>error?reject(error):resolve())??resolve());});
+ test.afterAll(async()=>{if(!server)return;await new Promise<void>((resolve,reject)=>{server.httpServer.close(error=>error?reject(error):resolve());server.httpServer.closeAllConnections();});});
+ test('production translations load as lazy same-origin text assets under a deployment prefix',async({page})=>{
+  const catalogs:string[]=[];page.on('request',request=>{if(new URL(request.url()).pathname.endsWith('.ftl'))catalogs.push(request.url());});
+  await page.route(origin+'mail/**',async route=>{const url=route.request().url().replace(origin+'mail/',origin);await route.fulfill({response:await route.fetch({url})});});
+  await page.goto(origin+'mail/?folder-icons');await expect(page.getByRole('searchbox')).toBeVisible();
+  const before=catalogs.length;
+  const label=await page.evaluate(()=> (globalThis as unknown as {localeProbe:()=>Promise<string>}).localeProbe());
+  expect(label).toBe('Telecomunica\u00e7\u00f5es e apoio');expect(catalogs.length).toBeGreaterThan(before);
+  expect(catalogs.every(url=>new URL(url).origin===new URL(origin).origin)).toBe(true);
+  expect(catalogs.every(url=>!url.startsWith('data:'))).toBe(true);
+  expect(catalogs.every(url=>new URL(url).pathname.startsWith('/mail/'))).toBe(true);
+ });
+ test('an unopened locale remains available after the browser goes offline',async({page,context})=>{
+  test.setTimeout(90000);
+  await page.goto(origin+'?folder-icons');await expect(page.getByRole('searchbox')).toBeVisible();
+  await page.evaluate(async()=>{await navigator.serviceWorker.register('./sw.js');await navigator.serviceWorker.ready;});
+  await expect.poll(()=>page.evaluate(()=>!!navigator.serviceWorker.controller),{timeout:60000}).toBe(true);
+  await context.setOffline(true);
+  expect(await page.evaluate(()=> (globalThis as unknown as {localeProbe:()=>Promise<string>}).localeProbe())).toBe('Telecomunica\u00e7\u00f5es e apoio');
+ });
  test('folder icons stay searchable, selectable and visible on narrow screens',async({page})=>{
   await page.goto(origin+'?folder-icons');const search=page.getByRole('searchbox',{name:'Search icons'});
   await expect(page.getByRole('radio')).toHaveCount(160);

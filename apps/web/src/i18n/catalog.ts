@@ -2,12 +2,12 @@
 //
 // Catalogs live at `apps/web/locales/<locale>/<module>.ftl`. Only the CRITICAL
 // `en/common` catalog is statically imported (rides the entry chunk); every
-// other module for every locale is a lazy `import()` pulled the first time a
+// other catalog for every locale is loaded only the first time a
 // screen asks for it, so translation weight never inflates the login→inbox
 // bundle the size gate measures.
 //
-// Vite turns `import.meta.glob(..., '?raw')` into a map of per-file dynamic
-// importers, each its own chunk — exactly the per-module code-split we want.
+// Development/tests use raw imports. Production loads individual catalogs
+// as hashed text assets without creating thousands of tiny JavaScript chunks.
 
 import { createResource, type Resource } from 'solid-js';
 import { registerResource, activeLocaleSignal } from './registry.ts';
@@ -18,10 +18,7 @@ import { fallbackChain, SOURCE_LOCALE, isKnownLocale, type Locale } from './loca
 import enCommon from '../../locales/en/common.ftl?raw';
 
 // Every OTHER catalog, lazily. Keys look like `../../locales/de/mail.ftl`.
-const lazyCatalogs = import.meta.glob<string>('../../locales/*/*.ftl', {
-  query: '?raw',
-  import: 'default',
-});
+import lazyCatalogs from './catalogSources.ts';
 
 /** Parse a glob key into its `{ locale, module }`. */
 function parseKey(key: string): { locale: string; module: string } | null {

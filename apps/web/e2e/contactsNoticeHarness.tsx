@@ -10,9 +10,11 @@ import {NoticeTemplateEditor} from '../src/components/NoticeTemplateEditor.tsx';
 import type {MessageNotice} from '../src/components/compose/messageNotices.ts';
 import {inertEmailDocument} from '../src/viewers/inertEmailDocument.ts';
 import {bodyFrameDoc} from '../src/viewers/sandbox.ts';
-import {loadCatalog} from '../src/i18n';
+import {loadCatalog,t} from '../src/i18n';
+import {setActiveLocale} from '../src/i18n/registry.ts';
 import '../src/theme/themes.css.ts';
 import '../src/styles/app.css';
+(globalThis as unknown as {localeProbe:()=>Promise<string>}).localeProbe=async()=>{setActiveLocale('pt-PT');await loadCatalog('settings');return t('settings-folder-icon-group-telecom');};
 const [folderIcon,setFolderIcon]=createSignal<FolderIcon|''>('');
 const [rows,setRows]=createSignal<MessageNotice[]>([]);
 (globalThis as unknown as {inertProbe:(html:string)=>string}).inertProbe=html=>{
