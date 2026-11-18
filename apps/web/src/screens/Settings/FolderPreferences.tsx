@@ -264,8 +264,8 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   <ControlRow controlId="folders-collapse-user" label={t('settings-folders-collapse-user')} help={t('settings-folders-hidden-help')} note={<p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>}>{describedBy=>
    <input id="folders-collapse-user" type="checkbox" checked={prefs().userFoldersCollapsed===true} disabled={!current()} aria-describedby={describedBy()} onChange={event=>update({userFoldersCollapsed:event.currentTarget.checked})}/>
   }</ControlRow>
-  <ControlRow controlId="folders-colour" group label={t('settings-folders-colour')} help={t('settings-folders-colour-help')} note={<LockNote id="folders-colour-lock" locked={defaultColour.locked()}/>}>{()=>
-   <><ColorField label={t('settings-folders-colour')} value={defaultColour.value()||null} fallback="#3366cc" emptyLabel={t('color-picker-default')} disabled={defaultColour.locked()||defaultColour.saving()} onChange={value=>void defaultColour.set(value??'')}/><Show when={defaultColour.error()}><span role="alert">{defaultColour.error()}</span></Show></>
+  <ControlRow controlId="folders-colour" label={t('settings-folders-colour')} help={t('settings-folders-colour-help')} note={<><LockNote id="folders-colour-lock" locked={defaultColour.locked()}/><Show when={defaultColour.error()}><span role="alert">{defaultColour.error()}</span></Show></>}>{describedBy=>
+   <ColorField id="folders-colour" describedBy={describedBy()} label={t('settings-folders-colour')} value={defaultColour.value()||null} fallback="#3366cc" emptyLabel={t('color-picker-default')} disabled={defaultColour.locked()||defaultColour.saving()} onChange={value=>void defaultColour.set(value??'')}/>
   }</ControlRow>
   <ToggleRow id="folders-unified-account" label={t('unified-mail-virtual-account')} help={t('unified-mail-virtual-account-help')} handle={unifiedAccount}/>
   <ToggleRow id="folders-unified-inbox" label={t('unified-mail-view-setting')} help={t('unified-mail-setting-help')} handle={unified}/>
