@@ -2,7 +2,7 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {createWebSocketActions,websocketAction,clearWebSocketActions} from './websocketActions.ts';
 class Socket{
  static latest:Socket;onmessage:((event:{data:string})=>void)|null=null;onclose:(()=>void)|null=null;onerror:(()=>void)|null=null;
- sent:string[]=[];constructor(){Socket.latest=this;}send(value:string){this.sent.push(value);}close(){}receive(value:unknown){this.onmessage?.({data:JSON.stringify(value)});}
+ closed=false;sent:string[]=[];constructor(){Socket.latest=this;}send(value:string){this.sent.push(value);}close(){this.closed=true;}receive(value:unknown){this.onmessage?.({data:JSON.stringify(value)});}
 }
 afterEach(()=>{clearWebSocketActions();vi.useRealTimers();vi.unstubAllGlobals();});
 const socketType=Socket as unknown as typeof WebSocket;
@@ -55,4 +55,19 @@ it('reports established action-socket losses without treating intentional closur
  await Promise.resolve();await Promise.resolve();
  Socket.latest.receive({id:JSON.parse(Socket.latest.sent[0]!).id,status:200,body:'{}'});await next;
  client.close();expect(changes.mock.calls).toEqual([[true],[false],[true]]);
+});
+
+it('drains in-flight sends before retiring a socket for a new CSRF proof',async()=>{
+ vi.stubGlobal('WebSocket',socketType);
+ const request=(proof:string)=>websocketAction('/jmap/api',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':proof},body:'{}'},location.origin);
+ const first=request('old');Socket.latest.receive({type:'ready',protocol:'mailwoman-actions-v1'});await Promise.resolve();await Promise.resolve();await Promise.resolve();
+ const old=Socket.latest;expect(old.sent).toHaveLength(1);
+ const second=request('new');const fresh=Socket.latest;expect(fresh).not.toBe(old);expect(old.closed).toBe(false);
+ fresh.receive({type:'ready',protocol:'mailwoman-actions-v1'});await Promise.resolve();await Promise.resolve();await Promise.resolve();
+ fresh.receive({id:JSON.parse(fresh.sent[0]!).id,status:200,body:'{}'});await expect(second).resolves.toHaveProperty('status',200);
+ old.receive({id:JSON.parse(old.sent[0]!).id,status:200,body:'{}'});await expect(first).resolves.toHaveProperty('status',200);expect(old.closed).toBe(true);
+});
+it('settles a request waiting for a handshake when its socket is closed',async()=>{
+ const client=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',WebSocketImpl:socketType});
+ const pending=client.send('/api/account/drafts',{});client.close();await expect(pending).resolves.toBeUndefined();expect(Socket.latest.closed).toBe(true);
 });
