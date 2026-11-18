@@ -9,7 +9,7 @@ import {RibbonPopover} from './ribbonParts.tsx';
 import {validResponseTemplates,type ResponseTemplate} from './responseTemplateModel.ts';
 import * as css from './responseTemplates.css.ts';
 
-export function ResponseTemplates(props:{disabled?:boolean;onInsert:(text:string,replace:boolean)=>void}):JSX.Element{
+export function ResponseTemplates(props:{disabled?:boolean;onInsert:(text:string,replace:boolean,html?:string)=>void}):JSX.Element{
  void loadCatalog('response-templates');
  const [open,setOpen]=createSignal(false),[query,setQuery]=createSignal(''),[selected,setSelected]=createSignal<string|null>(null);
  const confirm=createConfirm();
@@ -24,8 +24,8 @@ export function ResponseTemplates(props:{disabled?:boolean;onInsert:(text:string
  async function insert(replace:boolean):Promise<void>{
   const row=choice(),owner=preferenceAccount();if(props.disabled||!enabled()||!row)return;
   if(replace&&!await confirm.ask({title:t('response-templates-replace-title'),body:t('response-templates-replace-help'),confirmLabel:t('response-templates-replace'),danger:true}))return;
-  if(props.disabled||!enabled()||preferenceAccount()!==owner||choice()?.key!==row.key||choice()?.body!==row.body)return;
-  props.onInsert(row.body,replace);setOpen(false);toast.success(t('response-templates-inserted'));
+  if(props.disabled||!enabled()||preferenceAccount()!==owner||choice()?.key!==row.key||(choice()?.body!==row.body||choice()?.html!==row.html))return;
+  if(row.html)props.onInsert(row.body,replace,row.html);else props.onInsert(row.body,replace);setOpen(false);toast.success(t('response-templates-inserted'));
  }
  return <><RibbonPopover label={t('response-templates-title')} icon="book" keepSelection disabled={props.disabled||!enabled()} open={open()} onOpenChange={setOpen}>
   <div class={css.panel}>

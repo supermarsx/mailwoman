@@ -25,7 +25,7 @@ export default function Templates(props: { onCompose: (draft: ComposeInitial) =>
       ...(row.bcc ? { bcc: row.bcc } : {}),
       subject: row.subject ?? '',
       bodyText: row.body,
-      bodyHtml: `<p>${escapeHtml(row.body).replace(/\r\n?|\n/g, '<br>')}</p>`,
+      bodyHtml: row.html || `<p>${escapeHtml(row.body).replace(/\r\n?|\n/g, '<br>')}</p>`,
       inReplyTo: [],
       references: [],
       attachments: [],

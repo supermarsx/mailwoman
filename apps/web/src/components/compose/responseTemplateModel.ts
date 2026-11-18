@@ -1,4 +1,4 @@
-export interface ResponseTemplate { id:string; title:string; body:string; subject?:string; to?:string; cc?:string; bcc?:string }
+export interface ResponseTemplate { id:string; title:string; body:string; html?:string; subject?:string; to?:string; cc?:string; bcc?:string }
 export const TEMPLATE_LIMIT=20;
 export const TEMPLATE_HEADER_LIMITS = { subject: 998, to: 2000, cc: 2000, bcc: 2000 } as const;
 export const TEMPLATE_HEADERS = ['subject', 'to', 'cc', 'bcc'] as const;
@@ -15,9 +15,10 @@ export function validResponseTemplates(value:unknown):value is ResponseTemplate[
  if(!Array.isArray(value)||value.length>TEMPLATE_LIMIT)return false;
  const ids=new Set<string>();
  for(const row of value){
-  if(!row||typeof row!=='object'||Object.keys(row).some(key=>!['body','id','title',...TEMPLATE_HEADERS].includes(key))||typeof row.id!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(row.id)||ids.has(row.id))return false;
+  if(!row||typeof row!=='object'||Object.keys(row).some(key=>!['body','html','id','title',...TEMPLATE_HEADERS].includes(key))||typeof row.id!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(row.id)||ids.has(row.id))return false;
   if(typeof row.title!=='string'||!row.title.trim()||[...row.title].length>TEMPLATE_TITLE_LIMIT||hasControl(row.title,false))return false;
   if(typeof row.body!=='string'||!row.body.trim()||[...row.body].length>TEMPLATE_BODY_LIMIT||hasControl(row.body,true))return false;
+  if(Object.hasOwn(row,'html')&&(typeof row.html!=='string'||[...row.html].length>32000||hasControl(row.html,true)))return false;
   for (const field of TEMPLATE_HEADERS) {
    if (!Object.hasOwn(row, field)) continue;
    const value = row[field];

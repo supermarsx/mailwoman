@@ -1,5 +1,6 @@
 import {createSignal,For,Show,type JSX} from 'solid-js';
 import {loadCatalog,t} from '../i18n';
+import {TemplateBodyEditor} from './compose/TemplateBodyEditor.tsx';
 import {Icon} from './Icon.tsx';
 import type {MessageNotice,NoticeKind} from './compose/messageNotices.ts';
 import * as css from '../screens/Settings/styles.css.ts';
@@ -21,13 +22,13 @@ export function NoticeTemplateEditor(props:{value:readonly MessageNotice[];onCha
     <div class={table.actions}><button type="button" class={css.ghost} disabled={props.disabled} aria-label={`${t('common-edit')} ${row.title}`} onClick={()=>setSelected(row.id)}><Icon name="edit"/></button><button type="button" class={css.ghost} disabled={props.disabled} aria-label={`${t('common-delete')} ${row.title}`} onClick={()=>props.onChange(props.value.filter(item=>item.id!==row.id))}><Icon name="delete"/></button></div>
    </li>}</For></ul>
   </>}>{row=><>
-   <div class={table.header}><h3 class={css.heading}>{row().title}</h3><button type="button" class={css.ghost} onClick={()=>setSelected(null)}><Icon name="chevronLeft"/>{t('common-back')}</button></div>
+   <div class={table.header}><div class={css.actions}><button type="button" class={css.ghost} onClick={()=>setSelected(null)}><Icon name="chevronLeft"/>{t('common-back')}</button><h3 class={css.heading}>{row().title}</h3></div></div>
    <fieldset disabled={props.disabled} class={css.section}>
     <label class={css.field}>{t('notices-name')}<input class={css.input} maxLength={80} value={row().title} onInput={event=>change({title:event.currentTarget.value})}/></label>
-    <label class={css.field}>{t('notices-text')}<textarea class={css.textarea} maxLength={8000} value={row().text} onInput={event=>change({text:event.currentTarget.value})}/></label>
+    <Show when={row().id} keyed>{id=><TemplateBodyEditor id={`notice-${id}`} label={t('notices-text')} text={row().text} html={row().html} disabled={props.disabled} onChange={(text,html)=>change({text,html})}/>}</Show>
     <label class={css.row}><input type="checkbox" checked={row().enabled} onChange={event=>change({enabled:event.currentTarget.checked})}/>{t('notices-enabled')}</label>
     <label class={css.row}><input type="checkbox" checked={row().automatic} onChange={event=>change({automatic:event.currentTarget.checked})}/>{t('notices-automatic')}</label>
-    <details><summary>{t('notices-html')}</summary><label class={css.field}>{t('notices-html')}<textarea class={css.textarea} maxLength={32000} value={row().html} onInput={event=>change({html:event.currentTarget.value})}/></label></details>
+
    </fieldset>
    <fieldset disabled={props.disabled} class={css.section}><legend>{t('notices-rules')}</legend><p class={css.meta}>{t('notices-rule-help')}</p>
     <label class={css.field}>{t('notices-identities')}<input class={css.input} value={row().identities.join(', ')} onChange={event=>change({identities:csv(event.currentTarget.value)})}/></label>

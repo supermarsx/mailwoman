@@ -205,7 +205,7 @@ impl Kind {
             Kind::SnoozePresets => json!({"type":"snoozePresets","maxItems":32}),
             Kind::MessageNotices => json!({"type":"messageNotices","maxItems":20}),
             Kind::MessageTemplates => {
-                json!({"type":"messageTemplates","maxItems":20,"maxTitleLength":80,"maxBodyLength":8000,"maxBytes":65536})
+                json!({"type":"messageTemplates","maxItems":20,"maxTitleLength":80,"maxBodyLength":8000,"maxHtmlLength":32000,"maxBytes":65536})
             }
             Kind::FolderRole => json!({ "type": "folderRole", "maxLength": 512 }),
             Kind::Bool => json!({ "type": "bool" }),
@@ -9236,11 +9236,11 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                 let invalid = || {
                     Refusal::invalid(
                         &format!("{field}/{index}"),
-                        "expected a unique id, title, plain text body and optional subject and recipient fields within their limits",
+                        "expected a unique id, title, plain text alternative, optional HTML, subject and recipient fields within their limits",
                     )
                 };
                 let object = item.as_object().ok_or_else(invalid)?;
-                if object.keys().any(|key| !matches!(key.as_str(), "id" | "title" | "body" | "subject" | "to" | "cc" | "bcc"))
+                if object.keys().any(|key| !matches!(key.as_str(), "id" | "title" | "body" | "html" | "subject" | "to" | "cc" | "bcc"))
                     || !object.contains_key("id")
                     || !object.contains_key("title")
                     || !object.contains_key("body")
@@ -9254,6 +9254,10 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                             return Err(invalid());
                         }
                     }
+                }
+                if let Some(html) = object.get("html") {
+                    let html = html.as_str().ok_or_else(invalid)?;
+                    if html.chars().count()>32000 || html.chars().any(|c|c.is_control()&&!matches!(c,'\n'|'\r'|'\t')) { return Err(invalid()); }
                 }
                 let id = object["id"].as_str().ok_or_else(invalid)?;
                 let title = object["title"].as_str().ok_or_else(invalid)?;
@@ -10150,6 +10154,8 @@ mod tests {
         assert_eq!(validate(def, &value, "/value").unwrap(), value);
         let message = json!([{"id":"welcome","title":"Welcome","body":"Hello","subject":"Welcome!","to":"person@example.test","bcc":"copy@example.test"}]);
         assert_eq!(validate(def, &message, "/value").unwrap(), message);
+        let rich = json!([{"id":"rich","title":"Rich response","body":"Hello","html":"<p><strong>Hello</strong></p>"}]);
+        assert_eq!(validate(def,&rich,"/value").unwrap(),rich);
         let injected = json!([{"id":"welcome","title":"Welcome","body":"Hello","subject":"Hello\r\nBcc: injected@example.test"}]);
         assert!(validate(def, &injected, "/value").is_err());
         for bad in [

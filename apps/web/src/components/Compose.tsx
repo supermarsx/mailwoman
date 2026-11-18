@@ -796,10 +796,10 @@ export function Compose(props: {
 
   /** The rich editor reports HTML (for the send) + a plain-text projection (for
    *  crypto/DLP/dictation, which read `body()`). */
-  function insertResponseTemplate(text:string,replace:boolean):void {
+  function insertResponseTemplate(text:string,replace:boolean,html?:string):void {
     if(busy()||!ownsDraft())return;
     const api=editorApi();
-    if(richMode()&&api){if(replace)api.replaceHtml?.(plainToHtml(text));else api.appendHtml(plainToHtml(text));return;}
+    if(richMode()&&api){const markup=html||plainToHtml(text);if(replace)api.replaceHtml?.(markup);else api.appendHtml(markup);return;}
     const next=replace?text:body()+(body()?'\n\n':'')+text;setBody(next);setBodyHtml(plainToHtml(next));
   }
   function onEditorChange(html: string, text: string): void {
