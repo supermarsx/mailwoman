@@ -162,12 +162,12 @@ export function ComposeStatusBar(props: ComposeStatusBarProps): JSX.Element {
       <div id={popId} class="compose-status__pop" role="group" aria-label={t('mail-status-more-label')} hidden={!open()} data-testid="compose-status-pop">
         <For each={split().overflow}>{(item) => <ItemView item={item} {...shared} inPopover />}</For>
       </div>
-      <Show when={shownDetail()}>
+      <Show when={shownDetail()} keyed>
         {(item) => (
-          <div id={detailId} class="compose-status__pop compose-status__detail" role="dialog" aria-label={item().label} data-testid="compose-status-detail" onMouseEnter={() => setHovered(item().id)} onMouseLeave={() => setHovered(null)}>
-            <p>{item().detail}</p>
-            <Show when={item().actionLabel && item().onAction}>
-              <button type="button" class="compose-status__action" onClick={() => { item().onAction?.(); setPinned(null); setHovered(null); }}>{item().actionLabel}</button>
+          <div id={detailId} class="compose-status__pop compose-status__detail" role="dialog" aria-label={item.label} data-testid="compose-status-detail" onMouseEnter={() => setHovered(item.id)} onMouseLeave={() => setHovered(null)}>
+            <p>{item.detail}</p>
+            <Show when={item.actionLabel && item.onAction}>
+              <button type="button" class="compose-status__action" onClick={() => { item.onAction?.(); setPinned(null); setHovered(null); }}>{item.actionLabel}</button>
             </Show>
           </div>
         )}

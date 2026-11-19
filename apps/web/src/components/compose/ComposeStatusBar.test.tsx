@@ -107,3 +107,22 @@ describe('ComposeStatusBar notices on the right', () => {
     expect(dismiss).toHaveBeenCalledOnce();
   });
 });
+
+it('allows a draft retry to synchronously replace the open status detail',()=>{
+ const [items,setItems]=createSignal<StatusItem[]>([]);
+ setItems([make({id:'draft',label:'Waiting for confirmation',detail:'Retry safely',actionLabel:'Retry',onAction:()=>setItems([make({id:'draft',label:'Saving',severity:'busy'})])})]);
+ render(()=><ComposeStatusBar items={items}/>);
+ fireEvent.click(screen.getByRole('button',{name:/Waiting for confirmation/}));
+ const retry=within(screen.getByTestId('compose-status-detail')).getByRole('button',{name:'Retry'});
+ expect(()=>fireEvent.click(retry)).not.toThrow();expect(screen.queryByTestId('compose-status-detail')).toBeNull();
+});
+
+it('handles an already queued hover event after a send removes the draft status popover',()=>{
+ const [items,setItems]=createSignal<StatusItem[]>([make({id:'draft',label:'Waiting',detail:'Server confirmation'})]);
+ render(()=><ComposeStatusBar items={items}/>);
+ fireEvent.mouseEnter(screen.getByTestId('compose-status-draft'));
+ const detail=screen.getByTestId('compose-status-detail');
+ setItems([make({id:'draft',label:'Saved',severity:'success'})]);
+ expect(screen.queryByTestId('compose-status-detail')).toBeNull();
+ expect(()=>fireEvent.mouseEnter(detail)).not.toThrow();
+});
