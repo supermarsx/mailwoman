@@ -63,3 +63,9 @@ admin-db-apply-command = クリーンアップを適用
 admin-db-copy-command = コマンドをコピー
 admin-db-command-copied = コピーしました。
 admin-db-maintenance-requested = ログの保守を要求しました。
+
+admin-db-payload = テキスト / バイナリデータ
+admin-db-columns = 大きい列
+admin-db-live-bytes = 参照されているキャッシュ本文のバイト数
+admin-db-analysis-help = 自動の読み取り専用分析で、測定した使用量を並べます。データ量にはインデックスとページの管理領域を含みません。物理サイズが不明でも測定済みのデータ量を表示します。
+admin-db-breakdown = 容量の使用内訳

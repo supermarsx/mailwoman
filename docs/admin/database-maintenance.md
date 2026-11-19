@@ -7,8 +7,14 @@ up to 720 samples in memory, separately reporting file allocation and WAL size.
 Growth rates use occupied SQLite pages when available, so reuse of free pages does
 not conceal increasing live data. History starts again after a restart.
 
-**Inspect storage** performs a read-only, time-bounded inspection. It lists table
-sizes including indexes, row counts, cached-body bytes and unreferenced-body bytes.
+The page automatically performs one read-only, time-bounded storage analysis after
+loading its quick figures. **Inspect storage** repeats it. The report ranks measured
+table consumers and names their largest text/binary columns. Logical payload bytes
+are separate from physical sizes including indexes and page overhead. A physical
+scan hitting its limit does not hide a measured payload total. Cached-body totals,
+referenced bodies and unreferenced bodies are measured separately; unknown values
+stay unavailable. A large file alone does not establish ongoing uncontrolled growth.
+Old unreferenced bodies and reusable pages can remain after deduplication is deployed.
 Repeat an inspection to see each table's size change; select the growth heading to
 sort by that change. Unknown measurements stay unavailable rather than becoming zero.
 PostgreSQL row counts are estimates. SQLite inspection is interrupted after 30 seconds

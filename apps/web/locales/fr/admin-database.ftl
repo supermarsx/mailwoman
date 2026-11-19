@@ -63,3 +63,9 @@ admin-db-apply-command = Appliquer le nettoyage
 admin-db-copy-command = Copier la commande
 admin-db-command-copied = Commande copiée.
 admin-db-maintenance-requested = Maintenance des journaux demandée.
+
+admin-db-payload = Contenu texte / binaire
+admin-db-columns = Colonnes les plus grandes
+admin-db-live-bytes = Octets des corps en cache référencés
+admin-db-analysis-help = L’analyse automatique en lecture seule classe les consommations mesurées. Le contenu exclut les index et les surcoûts des pages ; une taille physique indisponible ne masque pas le contenu mesuré.
+admin-db-breakdown = Occupation de l’espace

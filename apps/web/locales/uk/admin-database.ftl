@@ -63,3 +63,9 @@ admin-db-apply-command = Застосувати очищення
 admin-db-copy-command = Копіювати команду
 admin-db-command-copied = Команду скопійовано.
 admin-db-maintenance-requested = Обслуговування журналів запитано.
+
+admin-db-payload = Текстові / двійкові дані
+admin-db-columns = Найбільші стовпці
+admin-db-live-bytes = Байти пов’язаних тіл листів у кеші
+admin-db-analysis-help = Автоматичний аналіз лише для читання впорядковує виміряне сховище. Дані не містять індексів і накладних витрат сторінок; відсутність фізичного розміру не приховує виміряні дані.
+admin-db-breakdown = Що займає місце

@@ -128,39 +128,104 @@ impl Store {
 }
 
 async fn sqlite_details(pool: sqlx::SqlitePool, budget: Duration) -> Result<Value, StoreError> {
-    let mut connection = pool.acquire().await?;
-    let deadline = Instant::now() + budget;
+    sqlite_details_with_physical_budget(pool, budget, Duration::from_secs(8)).await
+}
+async fn inspection_deadline(
+    connection: &mut sqlx::SqliteConnection,
+    deadline: Instant,
+) -> Result<(), sqlx::Error> {
     connection
         .lock_handle()
         .await?
-        .set_progress_handler(1000, move || Instant::now() < deadline);
-    let work = async {
-        let mut notes = Vec::new();
-        let names = sqlx::query_scalar::<_,String>(
-            "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY CASE WHEN name='bodies' THEN 1 ELSE 0 END,name LIMIT 513"
-        ).fetch_all(&mut *connection).await?;
-        let limited = names.len() > 512;
-        let bodies = match sqlx::query(BODY_USAGE).fetch_one(&mut *connection).await {
-            Ok(row) => json!({"count":row.try_get::<i64,_>("body_count")?,
-                "bytes":row.try_get::<i64,_>("total_bytes")?,"orphanCount":row.try_get::<i64,_>("orphan_count")?,
-                "orphanBytes":row.try_get::<i64,_>("orphan_bytes")?}),
-            Err(_) => { notes.push("body-usage-unavailable"); Value::Null }
-        };
-        let mut tables = Vec::new();
-        for name in names.into_iter().take(512) {
-            if Instant::now() >= deadline { notes.push("scan-time-budget-reached"); break; }
-            let bytes = sqlx::query_scalar::<_,i64>(
-                "SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name IN (SELECT name FROM sqlite_schema WHERE tbl_name=?1)"
-            ).bind(&name).fetch_one(&mut *connection).await.ok();
-            if bytes.is_none() && !notes.contains(&"table-sizes-unavailable") { notes.push("table-sizes-unavailable"); }
-            let count = if Instant::now() < deadline {
-                let statement = format!("SELECT COUNT(*) FROM \"{}\"",name.replace('"',"\"\""));
-                sqlx::query_scalar::<_,i64>(&statement).fetch_one(&mut *connection).await.ok()
-            } else { None };
-            tables.push(json!({"name":name,"bytes":bytes,"rows":count,"rowsEstimated":false}));
+        .set_progress_handler(100, move || Instant::now() < deadline);
+    Ok(())
+}
+fn quoted(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+async fn sqlite_details_with_physical_budget(
+    pool: sqlx::SqlitePool,
+    budget: Duration,
+    physical_budget: Duration,
+) -> Result<Value, StoreError> {
+    let mut connection = pool.acquire().await?;
+    let deadline = Instant::now() + budget;
+    inspection_deadline(&mut connection, deadline).await?;
+    let work=async {
+        let names=sqlx::query_scalar::<_,String>("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name LIMIT 513").fetch_all(&mut *connection).await?;
+        let mut notes=Vec::new();
+        let limited=names.len()>512;
+        let mut bodies=json!({"count":null,"bytes":null,"orphanCount":null,"orphanBytes":null,"liveCount":null,"liveBytes":null});
+        // BLOB byte lengths are read from record metadata, never transferred or decrypted as mail.
+        inspection_deadline(&mut connection,deadline.min(Instant::now()+Duration::from_secs(7))).await?;
+        match sqlx::query("SELECT COUNT(*) AS n,CAST(COALESCE(SUM(octet_length(sealed_bytes)),0) AS BIGINT) AS bytes FROM bodies").fetch_one(&mut *connection).await {
+            Ok(row)=>{bodies["count"]=json!(row.try_get::<i64,_>("n")?);bodies["bytes"]=json!(row.try_get::<i64,_>("bytes")?);},
+            Err(_)=>notes.push("body-totals-unavailable"),
         }
-        Ok::<_,StoreError>(json!({"observedAt":chrono::Utc::now().to_rfc3339(),"tables":tables,
-            "bodies":bodies,"limited":limited||!notes.is_empty(),"notes":notes}))
+        let logical_deadline=deadline.min(Instant::now()+Duration::from_secs(12));
+        let mut tables=Vec::new();
+        for name in names.into_iter().take(512){
+            let mut table=json!({"name":name,"bytes":null,"payloadBytes":null,"indexBytes":null,"rows":null,"rowsEstimated":false,"columns":[]});
+            if name=="bodies"&&!bodies["bytes"].is_null(){
+                table["payloadBytes"]=bodies["bytes"].clone();table["rows"]=bodies["count"].clone();
+                table["columns"]=json!([{"name":"sealed_bytes","bytes":bodies["bytes"]}]);
+            }else if Instant::now()<logical_deadline{
+                inspection_deadline(&mut connection,logical_deadline.min(Instant::now()+Duration::from_millis(750))).await?;
+                let metadata=match sqlx::query("SELECT name,type,hidden FROM pragma_table_xinfo(?1)").bind(&name).fetch_all(&mut *connection).await{
+                    Ok(rows)=>rows,Err(_)=>{if !notes.contains(&"payload-scan-limited"){notes.push("payload-scan-limited");}tables.push(table);continue;}
+                };
+                let columns:Vec<String>=metadata.into_iter().filter_map(|row|{
+                    let kind=row.try_get::<String,_>("type").ok()?.to_ascii_uppercase();
+                    if row.try_get::<i64,_>("hidden").ok()?!=0||!(kind.contains("TEXT")||kind.contains("BLOB")||kind.contains("CHAR")||kind.is_empty()){return None}
+                    row.try_get::<String,_>("name").ok()
+                }).take(64).collect();
+                let expressions=columns.iter().enumerate().map(|(i,col)|format!(",CAST(COALESCE(SUM(octet_length({})),0) AS BIGINT) AS c{i}",quoted(col))).collect::<String>();
+                let statement=format!("SELECT COUNT(*) AS n{expressions} FROM {}",quoted(&name));
+                match sqlx::query(&statement).fetch_one(&mut *connection).await{
+                    Ok(row)=>{
+                        let values:Vec<Value>=columns.iter().enumerate().map(|(i,col)|Ok(json!({"name":col,"bytes":row.try_get::<i64,_>(format!("c{i}").as_str())?}))).collect::<Result<_,sqlx::Error>>()?;
+                        let total:i64=values.iter().filter_map(|v|v["bytes"].as_i64()).sum();
+                        table["rows"]=json!(row.try_get::<i64,_>("n")?);table["payloadBytes"]=json!(total);table["columns"]=json!(values);
+                    },
+                    Err(_)=>{if !notes.contains(&"payload-scan-limited"){notes.push("payload-scan-limited");}},
+                }
+            }else if !notes.contains(&"payload-scan-limited"){notes.push("payload-scan-limited");}
+            tables.push(table);
+        }
+        // Separate orphan classification: a slow join must not hide total body storage.
+        inspection_deadline(&mut connection,deadline.min(Instant::now()+Duration::from_secs(5))).await?;
+        match sqlx::query("SELECT COUNT(*) AS n,CAST(COALESCE(SUM(octet_length(sealed_bytes)),0) AS BIGINT) AS bytes FROM bodies WHERE blob_ref NOT IN (SELECT blob_ref FROM messages WHERE blob_ref IS NOT NULL)").fetch_one(&mut *connection).await{
+            Ok(row)=>{
+                let n=row.try_get::<i64,_>("n")?;let bytes=row.try_get::<i64,_>("bytes")?;
+                bodies["orphanCount"]=json!(n);bodies["orphanBytes"]=json!(bytes);
+                bodies["liveCount"]=bodies["count"].as_i64().map(|v|json!(v-n)).unwrap_or(Value::Null);
+                bodies["liveBytes"]=bodies["bytes"].as_i64().map(|v|json!(v-bytes)).unwrap_or(Value::Null);
+            },Err(_)=>notes.push("body-usage-unavailable"),
+        }
+        // Exact-name constraints avoid rescanning every B-tree once per table.
+        // Keep page-mode SUM: aggregate dbstat can spend a long time inside one VM
+        // step, delaying the progress callback on huge overflow chains.
+        tables.sort_by_key(|v|std::cmp::Reverse(v["payloadBytes"].as_i64().unwrap_or(-1)));
+        let physical_deadline=deadline.min(Instant::now()+physical_budget);
+        for table in &mut tables{
+            if Instant::now()>=physical_deadline{if !notes.contains(&"physical-scan-limited"){notes.push("physical-scan-limited");}break}
+            let name=table["name"].as_str().unwrap_or_default().to_owned();
+            inspection_deadline(&mut connection,physical_deadline).await?;
+            let objects=match sqlx::query("SELECT name,type FROM sqlite_schema WHERE tbl_name=?1 AND type IN ('table','index') ORDER BY type").bind(&name).fetch_all(&mut *connection).await{
+                Ok(rows)=>rows,Err(_)=>{if !notes.contains(&"physical-scan-limited"){notes.push("physical-scan-limited");}break;}
+            };
+            let mut total=0i64;let mut indexes=0i64;let mut complete=true;let mut index_complete=true;
+            for object in objects{
+                inspection_deadline(&mut connection,physical_deadline.min(Instant::now()+Duration::from_millis(250))).await?;
+                let object_name=object.try_get::<String,_>("name")?;let is_index=object.try_get::<String,_>("type")?=="index";
+                match sqlx::query_scalar::<_,i64>("SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name=?1").bind(object_name).fetch_one(&mut *connection).await{
+                    Ok(bytes)=>{total+=bytes;if is_index{indexes+=bytes}},Err(_)=>{complete=false;if is_index{index_complete=false}},
+                }
+            }
+            if complete{table["bytes"]=json!(total)}else if !notes.contains(&"physical-scan-limited"){notes.push("physical-scan-limited");}
+            if index_complete{table["indexBytes"]=json!(indexes)}
+        }
+        Ok::<_,StoreError>(json!({"observedAt":chrono::Utc::now().to_rfc3339(),"tables":tables,"bodies":bodies,"limited":limited||!notes.is_empty(),"notes":notes}))
     }.await;
     connection.lock_handle().await?.remove_progress_handler();
     work
@@ -197,6 +262,43 @@ mod tests {
     use crate::{AccountKind, Credentials, NewAccount, ServerKey};
 
     #[tokio::test]
+    async fn reports_payloads_and_old_bodies_even_without_physical_scan_time() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE bodies(blob_ref TEXT PRIMARY KEY,sealed_bytes BLOB);CREATE TABLE messages(blob_ref TEXT);CREATE TABLE sample_log(detail TEXT);INSERT INTO bodies VALUES('live',zeroblob(1048576)),('old',zeroblob(2097152));INSERT INTO messages VALUES('live');INSERT INTO sample_log VALUES('DO-NOT-EXPOSE-SENSITIVE-BOUND-VALUE')").execute(&pool).await.unwrap();
+        let report = sqlite_details_with_physical_budget(
+            pool.clone(),
+            Duration::from_secs(5),
+            Duration::ZERO,
+        )
+        .await
+        .unwrap();
+        assert_eq!(report["bodies"]["bytes"], 3145728);
+        assert_eq!(report["bodies"]["liveBytes"], 1048576);
+        assert_eq!(report["bodies"]["orphanBytes"], 2097152);
+        let largest = &report["tables"][0];
+        assert_eq!(largest["name"], "bodies");
+        assert_eq!(largest["payloadBytes"], 3145728);
+        assert!(largest["bytes"].is_null());
+        assert_eq!(largest["columns"][0]["name"], "sealed_bytes");
+        assert!(
+            !report
+                .to_string()
+                .contains("DO-NOT-EXPOSE-SENSITIVE-BOUND-VALUE")
+        );
+        assert_eq!(report["limited"], true);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM bodies")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            2
+        );
+    }
+    #[tokio::test]
     async fn database_reports_file_pages_pool_and_unreferenced_payload_without_changing_it() {
         let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         let account = store
@@ -211,7 +313,7 @@ mod tests {
                 },
                 &Credentials {
                     username: "one@example.test".into(),
-                    password: "private".into(),
+                    password: "diagnostic-fixture-secret-314159".into(),
                 },
             )
             .await
@@ -237,7 +339,11 @@ mod tests {
             b"retained body"
         );
         assert!(!detailed.to_string().contains("one@example.test"));
-        assert!(!detailed.to_string().contains("private"));
+        assert!(
+            !detailed
+                .to_string()
+                .contains("diagnostic-fixture-secret-314159")
+        );
         assert!(!detailed.to_string().contains("retained body"));
         assert!(store.database_observability(false).await.is_ok());
         store

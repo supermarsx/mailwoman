@@ -8,7 +8,7 @@ export interface DatabaseReport {
  pool:{open:number;idle:number;busy:number;minimum:number;maximum:number;acquireTimeoutMs:number;idleTimeoutMs:number|null;maxLifetimeMs:number|null;closed:boolean};
  storage:{pageSize?:number;pageCount?:number;freePages?:number;freeBytes?:number;occupiedBytes?:number;autoVacuum?:number;synchronous?:number;busyTimeoutMs?:number;cacheSize?:number;foreignKeys?:number;mmapBytes?:number;tls?:boolean|null};
  migrations:{applied:number;expected:number;pending:unknown[];failed:unknown[];unknown:unknown[]};
- details:null|{observedAt:string;limited:boolean;notes:string[];bodies:null|{count:number;bytes:number;orphanCount:number;orphanBytes:number};tables:{name:string;bytes:number|null;rows:number|null;rowsEstimated:boolean;growthBytes?:number;growthSince?:string;deadRows?:number}[]};
+ details:null|{observedAt:string;limited:boolean;notes:string[];bodies:null|{count:number|null;bytes:number|null;orphanCount:number|null;orphanBytes:number|null;liveCount?:number|null;liveBytes?:number|null};tables:{name:string;bytes:number|null;rows:number|null;rowsEstimated:boolean;growthBytes?:number;growthSince?:string;payloadBytes?:number|null;indexBytes?:number|null;columns?:{name:string;bytes:number}[];deadRows?:number}[]};
 }
 export async function loadDatabaseReport(detailed=false):Promise<DatabaseReport>{
  return (await adminRequest<DatabaseReport>(`/observability/database${detailed?'?detailed=true':''}`)).data;

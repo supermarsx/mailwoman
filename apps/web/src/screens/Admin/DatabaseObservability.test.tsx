@@ -10,15 +10,15 @@ const fixture=():DatabaseReport=>({observedAt:'2026-11-18T12:00:00Z',driver:'SQL
  storage:{pageSize:4096,pageCount:25600000,freePages:0,freeBytes:0,occupiedBytes:104857600000},
  migrations:{applied:45,expected:45,pending:[],failed:[],unknown:[]},details:null});
 beforeEach(()=>{vi.mocked(loadDatabaseReport).mockReset();vi.mocked(loadDatabaseReport).mockResolvedValue(fixture());});
-it('shows quick measurements without automatically scanning cached emails',async()=>{
+it('loads the storage breakdown after quick measurements',async()=>{
  render(()=><DatabaseObservability/>);
  expect(await screen.findByText('SQLx · sqlite')).toBeVisible();
  expect(screen.getByText('mailwoman.db')).toBeVisible();
- expect(loadDatabaseReport).toHaveBeenCalledExactlyOnceWith(false);
+ await waitFor(()=>expect(loadDatabaseReport).toHaveBeenCalledTimes(2));expect(loadDatabaseReport).toHaveBeenNthCalledWith(1,false);expect(loadDatabaseReport).toHaveBeenNthCalledWith(2,true);
  expect(screen.queryByRole('columnheader',{name:'Table'})).toBeNull();
 });
 it('requests detailed inspection explicitly and searches the measured tables',async()=>{
- render(()=><DatabaseObservability/>);await screen.findByText('mailwoman.db');
+ render(()=><DatabaseObservability/>);await screen.findByText('mailwoman.db');await waitFor(()=>expect(screen.getByRole('button',{name:'Inspect storage'})).not.toBeDisabled());
  const next=fixture();next.details={observedAt:next.observedAt,limited:false,notes:[],
   bodies:{count:20,bytes:1000000,orphanCount:19,orphanBytes:950000},
   tables:[{name:'bodies',bytes:1000000,rows:20,rowsEstimated:false},{name:'sessions',bytes:4096,rows:1,rowsEstimated:false}]};
@@ -39,5 +39,5 @@ it('makes sustained growth and write origins visible without a payload scan',asy
  vi.mocked(loadDatabaseReport).mockResolvedValue(next);render(()=><DatabaseObservability/>);
  expect(await screen.findByRole('alert')).toHaveTextContent('Sustained rapid growth');
  expect(screen.getByText('INSERT bodies · cache.rs:1600')).toBeVisible();
- expect(loadDatabaseReport).toHaveBeenCalledExactlyOnceWith(false);
+ await waitFor(()=>expect(loadDatabaseReport).toHaveBeenCalledTimes(2));expect(loadDatabaseReport).toHaveBeenNthCalledWith(1,false);expect(loadDatabaseReport).toHaveBeenNthCalledWith(2,true);
 });

@@ -63,3 +63,9 @@ admin-db-apply-command = Bereinigung anwenden
 admin-db-copy-command = Befehl kopieren
 admin-db-command-copied = Befehl kopiert.
 admin-db-maintenance-requested = Protokollwartung angefordert.
+
+admin-db-payload = Text- / Binärdaten
+admin-db-columns = Größte Spalten
+admin-db-live-bytes = Referenzierte Nachrichtendaten im Cache
+admin-db-analysis-help = Die automatische schreibgeschützte Analyse sortiert den gemessenen Speicherverbrauch. Nutzdaten enthalten keine Indizes oder Seitenverwaltung; fehlende physische Größen verbergen keine gemessenen Nutzdaten.
+admin-db-breakdown = Speicherverbrauch

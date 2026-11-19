@@ -63,3 +63,9 @@ admin-db-apply-command = 应用清理
 admin-db-copy-command = 复制命令
 admin-db-command-copied = 命令已复制。
 admin-db-maintenance-requested = 已请求日志维护。
+
+admin-db-payload = 文本 / 二进制数据
+admin-db-columns = 最大的列
+admin-db-live-bytes = 仍被引用的缓存正文大小
+admin-db-analysis-help = 自动只读分析按测得的存储用量排序。数据量不含索引和页面开销；物理大小不可用时仍显示测得的数据量。
+admin-db-breakdown = 空间占用明细

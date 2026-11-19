@@ -63,3 +63,9 @@ admin-db-apply-command = Opschonen toepassen
 admin-db-copy-command = Opdracht kopiëren
 admin-db-command-copied = Opdracht gekopieerd.
 admin-db-maintenance-requested = Logboekonderhoud aangevraagd.
+
+admin-db-payload = Tekst- / binaire inhoud
+admin-db-columns = Grootste kolommen
+admin-db-live-bytes = Bytes van gekoppelde berichtinhoud in cache
+admin-db-analysis-help = De automatische alleen-lezenanalyse rangschikt gemeten opslag. Inhoud sluit indexen en paginaoverhead uit; ontbrekende fysieke groottes verbergen geen gemeten inhoud.
+admin-db-breakdown = Wat neemt ruimte in
