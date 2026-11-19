@@ -31,14 +31,21 @@ pub fn normalized_path(input: &str) -> Option<String> {
                 index += 1;
             }
         }
-        bytes = path_only(&decoded).to_vec();
+        let path_len = path_only(&decoded).len();
+        decoded.truncate(path_len);
+        bytes = decoded;
     }
     // Do not guess what another decoder would do with deeper encodings, bad
     // UTF-8 or control bytes. Matching work is bounded independently of input.
     if bytes.contains(&b'%') || bytes.iter().any(u8::is_ascii_control) {
         return None;
     }
-    let path = String::from_utf8(bytes).ok()?.replace('\\', "/");
+    let path = String::from_utf8(bytes).ok()?;
+    let path = if path.contains('\\') {
+        path.replace('\\', "/")
+    } else {
+        path
+    };
     if !path.starts_with('/') {
         return None;
     }
@@ -49,17 +56,23 @@ pub fn normalized_path(input: &str) -> Option<String> {
             ".." => {
                 segments.pop();
             }
-            _ => segments.push(segment.to_ascii_lowercase()),
+            _ => segments.push(segment),
         }
     }
-    Some(format!("/{}", segments.join("/")))
+    let mut normalized = String::with_capacity(path.len().max(1));
+    normalized.push('/');
+    for (index, segment) in segments.into_iter().enumerate() {
+        if index != 0 {
+            normalized.push('/');
+        }
+        normalized.push_str(segment);
+    }
+    normalized.make_ascii_lowercase();
+    Some(normalized)
 }
 
 fn path_only(bytes: &[u8]) -> &[u8] {
-    &bytes[..bytes
-        .iter()
-        .position(|byte| matches!(byte, b'?' | b'#'))
-        .unwrap_or(bytes.len())]
+    &bytes[..memchr::memchr2(b'?', b'#', bytes).unwrap_or(bytes.len())]
 }
 
 fn hex(byte: u8) -> Option<u8> {
@@ -90,34 +103,14 @@ pub fn hostile_probe_path(path: &str) -> bool {
     {
         return false;
     }
-    // Shared curated catalog: whole segments, with transport resource namespaces
-    // excluded above. Lazy parsing keeps matching bounded and allocation-free
-    // apart from the normalized request path and its segment vector.
-    static TARGETS: std::sync::LazyLock<Vec<Vec<String>>> = std::sync::LazyLock::new(|| {
-        serde_json::from_str::<Vec<String>>(crate::DEFAULT_SCAN_PATHS_JSON)
-            .expect("validated scanner path catalog")
-            .iter()
-            .map(|target| {
-                target
-                    .split('/')
-                    .filter(|part| !part.is_empty())
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .collect()
+    // One bounded automaton is built for the curated catalog. A match must
+    // still end at a whole segment, and a bare console remains terminal-only.
+    static TARGETS: std::sync::LazyLock<CatalogMatcher> = std::sync::LazyLock::new(|| {
+        let paths: Vec<String> = serde_json::from_str(crate::DEFAULT_SCAN_PATHS_JSON)
+            .expect("validated scanner path catalog");
+        CatalogMatcher::new(paths.iter().map(String::as_str))
     });
-    if TARGETS.iter().any(|needle| {
-        needle.len() <= segments.len()
-            && segments
-                .windows(needle.len())
-                .enumerate()
-                .any(|(index, window)| {
-                    // A bare foreign console is a probe; a domain-discovery API
-                    // path is not classified merely because it contains console.
-                    (needle != &["console"] || index + needle.len() == segments.len())
-                        && window.iter().zip(needle).all(|(a, b)| *a == b.as_str())
-                })
-    }) {
+    if TARGETS.matches(&path) {
         return true;
     }
     let Some(last) = segments.last().copied() else {
@@ -182,6 +175,49 @@ pub fn hostile_probe_path(path: &str) -> bool {
     }
     false
 }
+
+struct CatalogMatcher {
+    automaton: aho_corasick::AhoCorasick,
+    terminal_only: Vec<bool>,
+}
+impl CatalogMatcher {
+    fn new<'a>(paths: impl IntoIterator<Item = &'a str>) -> Self {
+        let patterns: Vec<String> = paths
+            .into_iter()
+            .map(|target| {
+                let segments: Vec<_> = target.split('/').filter(|part| !part.is_empty()).collect();
+                assert!(
+                    !segments.is_empty(),
+                    "scanner catalog must not contain an empty target"
+                );
+                format!("/{}", segments.join("/"))
+            })
+            .collect();
+        let terminal_only = patterns
+            .iter()
+            .map(|pattern| pattern == "/console")
+            .collect();
+        let automaton = aho_corasick::AhoCorasick::builder()
+            .match_kind(aho_corasick::MatchKind::Standard)
+            .build(patterns)
+            .expect("bounded built-in scanner catalog");
+        Self {
+            automaton,
+            terminal_only,
+        }
+    }
+    fn matches(&self, path: &str) -> bool {
+        self.automaton.find_overlapping_iter(path).any(|found| {
+            let end = found.end();
+            (end == path.len() || path.as_bytes().get(end) == Some(&b'/'))
+                && (!self.terminal_only[found.pattern().as_usize()] || end == path.len())
+        })
+    }
+}
+
+#[cfg(test)]
+#[path = "probe_path_legacy.rs"]
+mod legacy;
 
 fn config_file(value: &str, base: &str) -> bool {
     value == base
@@ -671,10 +707,8 @@ mod tests {
 
     #[test]
     fn curated_catalog_is_valid_shared_and_matches_encoded_nested_probes() {
-        let paths: Vec<String> =
-            serde_json::from_str(crate::DEFAULT_SCAN_PATHS_JSON).unwrap();
-        let defaults: Vec<String> =
-            serde_json::from_str(crate::DEFAULT_PROBE_PATHS_JSON).unwrap();
+        let paths: Vec<String> = serde_json::from_str(crate::DEFAULT_SCAN_PATHS_JSON).unwrap();
+        let defaults: Vec<String> = serde_json::from_str(crate::DEFAULT_PROBE_PATHS_JSON).unwrap();
         assert_eq!(paths.len(), 292);
         assert!(defaults.len() <= 512);
         let unique: std::collections::BTreeSet<_> = paths.iter().collect();
@@ -741,6 +775,222 @@ mod tests {
             "/jmap/download/a/wp-includes/js/jquery/jquery.js",
         ] {
             assert!(!hostile_probe_path(path), "{path}");
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "policy_benchmark.rs"]
+pub(crate) mod benchmark;
+
+#[cfg(test)]
+mod differential_tests {
+    use super::*;
+    #[test]
+    fn optimized_paths_preserve_frozen_classifier_and_normalization_decisions() {
+        let catalog: Vec<String> = serde_json::from_str(crate::DEFAULT_SCAN_PATHS_JSON).unwrap();
+        let mut cases = vec![
+            "/".to_owned(),
+            "/api/download/.env".into(),
+            "/api/../.git/config".into(),
+            "/api/cmd_sco".into(),
+            "/api/{token}/domains/example.test/detect".into(),
+            "/console/{token}/domains/example.test/detect".into(),
+            "/pdfjs/build/pdf.mjs.map".into(),
+            "/pdfjs/web/viewer.mjs.map".into(),
+            "/pdfjs/bootstrap.mjs".into(),
+            "/assets/index-Ab12.js".into(),
+            "/robots.txt".into(),
+            "/á/../wp-admin".into(),
+            "/./..//safe?name=wp-admin".into(),
+            "/.git/config%3Fsafe".into(),
+            "/%252eenv".into(),
+            "/bad%GG".into(),
+            "relative/path".into(),
+            "/nul\0byte".into(),
+        ];
+        for target in catalog {
+            for prefix in ["", "/nested", "/api", "/jmap", "/caldav", "/dav"] {
+                for suffix in ["", "/child", "x", ".js", "?x=/wp-admin", "#/.env"] {
+                    cases.push(format!("{prefix}{target}{suffix}"));
+                }
+            }
+            cases.push(target.to_ascii_uppercase());
+            cases.push(target.replace('/', "%2f"));
+            cases.push(target.replace('/', "%252f"));
+            cases.push(target.replace('/', "\\"));
+        }
+        cases.push(format!("/{}", "x".repeat(8191)));
+        cases.push(format!("/{}", "x".repeat(8192)));
+        cases.push(format!("/{}/.git/config", "x/".repeat(1800)));
+        cases.push(format!("/{}", "benign/".repeat(1000)));
+        let fragments = [
+            "safe",
+            ".",
+            "..",
+            ".env",
+            "wp-admin",
+            "wp-administration",
+            "api",
+            "jmap",
+            "cmd_sco",
+            "%2e",
+            "%252e",
+            "%25",
+            "%GG",
+            "console",
+            "/",
+            "\\",
+            "É",
+            "%2F",
+            "%25253F",
+            "config",
+            ".git",
+            "%00",
+        ];
+        let mut seed = 0x8f27_63a9u64;
+        for _ in 0..2000 {
+            let mut input = String::new();
+            for _ in 0..12 {
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                input.push('/');
+                input.push_str(fragments[(seed >> 32) as usize % fragments.len()]);
+            }
+            cases.push(input);
+        }
+        for input in cases {
+            assert_eq!(
+                normalized_path(&input),
+                legacy::normalized_path(&input),
+                "normalization: {input:?}"
+            );
+            assert_eq!(
+                hostile_probe_path(&input),
+                legacy::hostile_probe_path(&input),
+                "classification: {input:?}"
+            );
+        }
+    }
+    #[test]
+    fn compiled_catalog_keeps_overlaps_whole_segments_and_terminal_console() {
+        let matcher = CatalogMatcher::new(["/a", "/a/b", "/console", "/b/c"]);
+        for (path, wanted) in [
+            ("/a/b", true),
+            ("/x/b/c/next", true),
+            ("/console", true),
+            ("/x/console", true),
+            ("/console/legit", false),
+            ("/able", false),
+            ("/x/b/case", false),
+        ] {
+            assert_eq!(matcher.matches(path), wanted, "{path}");
+        }
+    }
+    fn legacy_catalog_match(paths: &[Vec<String>], path: &str) -> bool {
+        let segments: Vec<_> = path.split('/').filter(|s| !s.is_empty()).collect();
+        paths.iter().any(|needle| {
+            needle.len() <= segments.len()
+                && segments.windows(needle.len()).enumerate().any(|(i, w)| {
+                    (needle != &["console"] || i + needle.len() == segments.len())
+                        && w.iter().zip(needle).all(|(a, b)| *a == b.as_str())
+                })
+        })
+    }
+    #[test]
+    #[ignore = "manual release benchmark; run without concurrent builds"]
+    fn policy_match_benchmark_paths() {
+        assert!(
+            !cfg!(debug_assertions),
+            "use cargo test --release for performance measurements"
+        );
+        let ordinary = [
+            "/",
+            "/assets/index-Ab12.js",
+            "/pdfjs/web/viewer.css",
+            "/mail/inbox",
+            "/api/account/preferences",
+            "/api/account/drafts",
+            "/jmap/ws",
+            "/robots.txt",
+            "/console/{token}/domains/example.test/detect",
+        ]
+        .map(String::from);
+        benchmark::compare(
+            "paths/ordinary",
+            &ordinary,
+            legacy::hostile_probe_path,
+            hostile_probe_path,
+        );
+        let hostile = [
+            "/.git/config",
+            "/wp-includes/js/jquery/jquery.js",
+            "/app/actuator/heapdump",
+            "/media/system/js/core.js",
+            "/nested/.env.production",
+            "/nested/console",
+        ]
+        .map(String::from);
+        benchmark::compare(
+            "paths/hostile",
+            &hostile,
+            legacy::hostile_probe_path,
+            hostile_probe_path,
+        );
+        let adversarial = vec![
+            format!("/{}", "word/".repeat(1400)),
+            format!("/{}/wp-administration", "word/".repeat(1300)),
+            format!("/{}", "x".repeat(8191)),
+        ];
+        benchmark::compare(
+            "paths/long-negative",
+            &adversarial,
+            legacy::hostile_probe_path,
+            hostile_probe_path,
+        );
+        let encoded = [
+            "/%252eenv.production",
+            "/nested/%2577p-admin",
+            "/safe%3Fwp-admin",
+            "/a/../%2e%67it/config",
+        ]
+        .map(String::from);
+        benchmark::compare(
+            "paths/encoded",
+            &encoded,
+            legacy::hostile_probe_path,
+            hostile_probe_path,
+        );
+        for count in [1, 32, 256, 512] {
+            let patterns: Vec<_> = (0..count)
+                .map(|n| format!("/foreign-{n}/admin-{n}"))
+                .collect();
+            let old: Vec<Vec<String>> = patterns
+                .iter()
+                .map(|p| {
+                    p.split('/')
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .collect();
+            let matcher = CatalogMatcher::new(patterns.iter().map(String::as_str));
+            let inputs = vec![
+                "/safe/application/path".into(),
+                format!("/a/foreign-{}/admin-{}/child", count - 1, count - 1),
+                "/safe".repeat(100),
+            ];
+            benchmark::compare(
+                &format!("catalog/{count}-rules"),
+                &inputs,
+                |p| legacy_catalog_match(&old, p),
+                |p| {
+                    // Both production paths already construct these segments
+                    // for namespace/explicit-token checks before catalog lookup.
+                    let segments: Vec<_> = p.split('/').filter(|part| !part.is_empty()).collect();
+                    std::hint::black_box(&segments);
+                    matcher.matches(p)
+                },
+            );
         }
     }
 }

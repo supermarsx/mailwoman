@@ -5611,7 +5611,9 @@ dependencies = [
 name = "mw-protection"
 version = "26.19.0"
 dependencies = [
+ "aho-corasick",
  "http",
+ "memchr",
  "mw-store",
  "regex",
  "serde_json",

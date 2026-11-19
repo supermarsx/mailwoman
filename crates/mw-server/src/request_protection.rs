@@ -703,14 +703,18 @@ pub(crate) async fn guard(
     }
     let trust = crate::trust_tier::policy(&state.store).await;
     let mut ua_allowed = false;
+    let ua_claim = (ua_route || bot_route)
+        .then(|| {
+            config.user_agent.claimed_class(
+                request
+                    .headers()
+                    .get(header::USER_AGENT)
+                    .and_then(|value| value.to_str().ok()),
+            )
+        })
+        .flatten();
     if ua_route || bot_route {
-        let claimed = config.user_agent.claimed_class(
-            request
-                .headers()
-                .get(header::USER_AGENT)
-                .and_then(|v| v.to_str().ok()),
-        );
-        let mut claimed = claimed.map(|class| (class, trust.ua_action(class)));
+        let mut claimed = ua_claim.map(|class| (class, trust.ua_action(class)));
         if let Some((_, action)) = claimed.as_mut()
             && *action == crate::trust_tier::UaAction::Block
             && has_session(&state, request.headers(), request.uri().path()).await
@@ -739,16 +743,9 @@ pub(crate) async fn guard(
     if !config.enabled() {
         return next.run(request).await;
     }
-    let ua_category = (ua_route || bot_route)
-        .then(|| {
-            config.user_agent.classify(
-                request
-                    .headers()
-                    .get(header::USER_AGENT)
-                    .and_then(|v| v.to_str().ok()),
-            )
-        })
-        .flatten()
+    let ua_category = config
+        .user_agent
+        .monitored_class(ua_claim)
         .filter(|category| ua_route || config.user_agent.blocks_bot(category))
         .filter(|_| !ua_allowed);
     if (!legacy_route || !config.legacy_enabled()) && ua_category.is_none() {
