@@ -10,6 +10,8 @@ use std::{
 #[serde(rename_all = "camelCase")]
 pub struct ResourceSnapshot {
     pub observed_at: u64,
+    /// CPU/OS capabilities and the highest available implemented lowercase kernel.
+    pub cpu_capabilities: mw_cpu::CpuCapabilities,
     /// Affinity, cgroup quota and host capacity combined. Fractional cores are preserved.
     pub effective_cpu_cores: f64,
     pub effective_memory_limit_bytes: Option<u64>,
@@ -72,6 +74,7 @@ pub fn snapshot(data_path: &Path) -> ResourceSnapshot {
     let (host_total, host_available) = host_memory();
     let disk = disk_space(data_path);
     ResourceSnapshot {
+        cpu_capabilities: mw_cpu::capabilities().clone(),
         observed_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()

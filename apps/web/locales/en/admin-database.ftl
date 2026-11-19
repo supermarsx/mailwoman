@@ -127,3 +127,10 @@ admin-db-online-phase-recovery-required = Recovery review required
 admin-db-online-phase-completed = Completed
 admin-db-online-phase-cancelled = Cancelled
 admin-db-online-phase-failed = Failed
+
+admin-resources-cpu-capabilities = CPU capabilities
+admin-resources-cpu-architecture = Architecture
+admin-resources-cpu-kernel = Selected kernel for large inputs
+admin-resources-cpu-features = Available CPU features
+admin-resources-cpu-portable = Portable
+admin-resources-cpu-kernel-help = Applies to ASCII lowercasing. AVX2 starts at { $avx2 } bytes and AVX-512 at { $avx512 } bytes when supported. Short inputs use the portable path. Available features are not all used by the app.

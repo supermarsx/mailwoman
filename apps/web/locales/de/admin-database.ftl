@@ -127,3 +127,10 @@ admin-db-online-phase-recovery-required = Wiederherstellung muss geprüft werden
 admin-db-online-phase-completed = Abgeschlossen
 admin-db-online-phase-cancelled = Abgebrochen
 admin-db-online-phase-failed = Fehlgeschlagen
+
+admin-resources-cpu-capabilities = CPU-Funktionen
+admin-resources-cpu-architecture = Architektur
+admin-resources-cpu-kernel = Ausgewählter Kernel für große Eingaben
+admin-resources-cpu-features = Verfügbare CPU-Funktionen
+admin-resources-cpu-portable = Portabel
+admin-resources-cpu-kernel-help = Gilt für ASCII-Kleinschreibung. AVX2 ab { $avx2 } Bytes und AVX-512 ab { $avx512 } Bytes, sofern unterstützt. Kurze Eingaben verwenden den portablen Pfad. Die App nutzt nicht alle verfügbaren Funktionen.

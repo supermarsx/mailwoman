@@ -127,3 +127,10 @@ admin-db-online-phase-recovery-required = Потрібна перевірка в
 admin-db-online-phase-completed = Завершено
 admin-db-online-phase-cancelled = Скасовано
 admin-db-online-phase-failed = Помилка
+
+admin-resources-cpu-capabilities = Можливості процесора
+admin-resources-cpu-architecture = Архітектура
+admin-resources-cpu-kernel = Вибрана процедура для великих вхідних даних
+admin-resources-cpu-features = Доступні функції процесора
+admin-resources-cpu-portable = Переносна
+admin-resources-cpu-kernel-help = Для перетворення ASCII на нижній регістр. AVX2 від { $avx2 } байтів і AVX-512 від { $avx512 } байтів за наявності підтримки. Короткі дані обробляє переносна процедура. Застосунок використовує не всі доступні функції.

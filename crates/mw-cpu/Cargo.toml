@@ -1,0 +1,10 @@
+[package]
+name = "mw-cpu"
+description = "Runtime-dispatched, audited CPU kernels with portable fallbacks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true

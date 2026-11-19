@@ -127,3 +127,10 @@ admin-db-online-phase-recovery-required = 需要检查恢复状态
 admin-db-online-phase-completed = 已完成
 admin-db-online-phase-cancelled = 已取消
 admin-db-online-phase-failed = 失败
+
+admin-resources-cpu-capabilities = CPU 功能
+admin-resources-cpu-architecture = 架构
+admin-resources-cpu-kernel = 大输入使用的处理内核
+admin-resources-cpu-features = 可用的 CPU 功能
+admin-resources-cpu-portable = 通用
+admin-resources-cpu-kernel-help = 用于将 ASCII 转换为小写。支持时，AVX2 从 { $avx2 } 字节起使用，AVX-512 从 { $avx512 } 字节起使用。短输入使用通用处理。应用并非使用所有可用功能。

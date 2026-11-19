@@ -49,3 +49,20 @@ it('does not turn unavailable memory or disk values into zero',async()=>{
  expect(screen.getByText('Memory limit').closest('tr')).toHaveTextContent('Not available');
  expect(screen.getByText('Filesystem available').closest('tr')).toHaveTextContent('Not available');
 });
+
+it('shows available CPU features separately from the selected lowercase kernel',async()=>{
+ const report=fixture();report.cpuCapabilities={architecture:'x86_64',availableFeatures:['sse2','avx2','avx512f','avx512bw','aes'],selectedBackend:'avx512',avx2MinBytes:256,avx512MinBytes:512};
+ vi.mocked(loadResourceSnapshot).mockResolvedValue(report);
+ const {container}=render(()=><ResourceObservability/>);
+ const cpu=await screen.findByRole('region',{name:'CPU capabilities'});
+ expect(within(cpu).getByText('Architecture').closest('tr')).toHaveTextContent('x86_64');
+ expect(within(cpu).getByText('Selected kernel for large inputs').closest('tr')).toHaveTextContent('AVX-512F + BW');
+ expect(cpu).toHaveTextContent('sse2 · avx2 · avx512f · avx512bw · aes');
+ expect(cpu).toHaveTextContent('Available features are not all used by the app');
+ expect(cpu).toHaveTextContent('AVX2 starts at 256 bytes and AVX-512 at 512 bytes when supported');
+ await expectNoAxeViolations(container);expectNoInlineStyle(container);
+});
+it('keeps older resource responses usable without CPU capabilities',async()=>{
+ render(()=><ResourceObservability/>);await screen.findByRole('region',{name:'Server process'});
+ expect(screen.queryByRole('region',{name:'CPU capabilities'})).toBeNull();
+});

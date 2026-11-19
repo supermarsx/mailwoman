@@ -127,3 +127,10 @@ admin-db-online-phase-recovery-required = 復旧状態の確認が必要
 admin-db-online-phase-completed = 完了
 admin-db-online-phase-cancelled = キャンセル済み
 admin-db-online-phase-failed = 失敗
+
+admin-resources-cpu-capabilities = CPU の機能
+admin-resources-cpu-architecture = アーキテクチャ
+admin-resources-cpu-kernel = 大きな入力で選択される処理
+admin-resources-cpu-features = 利用可能な CPU 機能
+admin-resources-cpu-portable = ポータブル
+admin-resources-cpu-kernel-help = ASCII の小文字変換に適用されます。対応環境では AVX2 は { $avx2 } バイト以上、AVX-512 は { $avx512 } バイト以上で使用します。短い入力はポータブル処理を使用します。利用可能な機能すべてをアプリが使用するわけではありません。

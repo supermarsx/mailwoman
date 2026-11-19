@@ -127,3 +127,10 @@ admin-db-online-phase-recovery-required = Wymagana weryfikacja odzyskiwania
 admin-db-online-phase-completed = Ukończono
 admin-db-online-phase-cancelled = Anulowano
 admin-db-online-phase-failed = Niepowodzenie
+
+admin-resources-cpu-capabilities = Możliwości procesora
+admin-resources-cpu-architecture = Architektura
+admin-resources-cpu-kernel = Wybrana procedura dla dużych danych
+admin-resources-cpu-features = Dostępne funkcje procesora
+admin-resources-cpu-portable = Przenośna
+admin-resources-cpu-kernel-help = Dotyczy zamiany ASCII na małe litery. AVX2 od { $avx2 } bajtów, a AVX-512 od { $avx512 } bajtów, jeśli są obsługiwane. Krótkie dane korzystają z procedury przenośnej. Aplikacja nie używa wszystkich dostępnych funkcji.

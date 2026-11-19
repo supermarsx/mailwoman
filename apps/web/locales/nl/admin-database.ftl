@@ -127,3 +127,10 @@ admin-db-online-phase-recovery-required = Herstelcontrole vereist
 admin-db-online-phase-completed = Voltooid
 admin-db-online-phase-cancelled = Geannuleerd
 admin-db-online-phase-failed = Mislukt
+
+admin-resources-cpu-capabilities = CPU-mogelijkheden
+admin-resources-cpu-architecture = Architectuur
+admin-resources-cpu-kernel = Geselecteerde routine voor grote invoer
+admin-resources-cpu-features = Beschikbare CPU-functies
+admin-resources-cpu-portable = Draagbaar
+admin-resources-cpu-kernel-help = Geldt voor het omzetten van ASCII naar kleine letters. AVX2 vanaf { $avx2 } bytes en AVX-512 vanaf { $avx512 } bytes, indien ondersteund. Korte invoer gebruikt de draagbare routine. De app gebruikt niet alle beschikbare functies.

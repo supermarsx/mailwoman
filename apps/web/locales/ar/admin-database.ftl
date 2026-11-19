@@ -127,3 +127,10 @@ admin-db-online-phase-recovery-required = يلزم مراجعة الاستردا
 admin-db-online-phase-completed = مكتمل
 admin-db-online-phase-cancelled = ملغى
 admin-db-online-phase-failed = فشل
+
+admin-resources-cpu-capabilities = قدرات المعالج
+admin-resources-cpu-architecture = البنية
+admin-resources-cpu-kernel = الروتين المحدد للمدخلات الكبيرة
+admin-resources-cpu-features = ميزات المعالج المتاحة
+admin-resources-cpu-portable = محمول
+admin-resources-cpu-kernel-help = ينطبق على تحويل ASCII إلى أحرف صغيرة. يبدأ AVX2 من { $avx2 } بايت وAVX-512 من { $avx512 } بايت عند توفر الدعم. تستخدم المدخلات القصيرة الروتين المحمول. لا يستخدم التطبيق جميع الميزات المتاحة.

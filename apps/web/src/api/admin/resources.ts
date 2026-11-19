@@ -1,6 +1,15 @@
 import {adminRequest} from '../../screens/Admin/shell/adminApi.ts';
 
+export interface CpuCapabilities {
+ architecture:string;
+ availableFeatures:string[];
+ selectedBackend:'scalar'|'avx2'|'avx512';
+ avx2MinBytes:number;
+ avx512MinBytes:number;
+}
+
 export interface ResourceSnapshot {
+ cpuCapabilities?:CpuCapabilities;
  observedAt:number;
  effectiveCpuCores:number;
  effectiveMemoryLimitBytes:number|null;

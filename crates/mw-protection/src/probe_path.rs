@@ -67,7 +67,7 @@ pub fn normalized_path(input: &str) -> Option<String> {
         }
         normalized.push_str(segment);
     }
-    normalized.make_ascii_lowercase();
+    mw_cpu::lowercase_ascii_string(&mut normalized);
     Some(normalized)
 }
 
@@ -90,6 +90,13 @@ pub fn hostile_probe_path(path: &str) -> bool {
     let Some(path) = normalized_path(path) else {
         return false;
     };
+    hostile_normalized_probe_path(&path)
+}
+
+/// Classify a path returned by [`normalized_path`] without decoding it again.
+/// Callers must not pass raw URL paths: API namespace exclusions and segment
+/// boundaries are evaluated on the canonical path, including decoded delimiters.
+pub fn hostile_normalized_probe_path(path: &str) -> bool {
     let segments: Vec<_> = path.split('/').filter(|part| !part.is_empty()).collect();
     // Explicit operator-requested trigger, including nested/encoded variants.
     if segments.contains(&"cmd_sco") {
@@ -110,7 +117,7 @@ pub fn hostile_probe_path(path: &str) -> bool {
             .expect("validated scanner path catalog");
         CatalogMatcher::new(paths.iter().map(String::as_str))
     });
-    if TARGETS.matches(&path) {
+    if TARGETS.matches(path) {
         return true;
     }
     let Some(last) = segments.last().copied() else {
@@ -865,6 +872,11 @@ mod differential_tests {
                 "normalization: {input:?}"
             );
             assert_eq!(
+                normalized_path(&input).is_some_and(|path| hostile_normalized_probe_path(&path)),
+                legacy::hostile_probe_path(&input),
+                "canonical classification: {input:?}"
+            );
+            assert_eq!(
                 hostile_probe_path(&input),
                 legacy::hostile_probe_path(&input),
                 "classification: {input:?}"
@@ -885,6 +897,57 @@ mod differential_tests {
         ] {
             assert_eq!(matcher.matches(path), wanted, "{path}");
         }
+    }
+    #[test]
+    #[ignore = "manual release benchmark; run without concurrent builds"]
+    fn request_probe_single_normalization_benchmark() {
+        assert!(!cfg!(debug_assertions), "use cargo test --release");
+        let admin = "/Private-Control";
+        let normalized_admin = normalized_path(admin).unwrap();
+        let inputs = [
+            "/",
+            "/api/account/drafts",
+            "/assets/app.js",
+            "/.git/config",
+            "/PRIVATE-CONTROL",
+            "/private-control/assets/app.js",
+            "/private-control/nested/%2577p-admin",
+            "/private-control/wp-includes/jquery.js",
+            "/private-controls/wp-admin",
+            "/api/files/.env",
+            "/private-control/logout",
+        ]
+        .map(String::from);
+        benchmark::compare(
+            "request-probe/double-vs-single-normalization",
+            &inputs,
+            |input| {
+                let Some(path) = normalized_path(input) else {
+                    return false;
+                };
+                let admin = normalized_path(admin).unwrap();
+                if path == admin {
+                    return false;
+                }
+                if let Some(suffix) = path.strip_prefix(&admin).filter(|s| s.starts_with('/')) {
+                    return hostile_probe_path(suffix);
+                }
+                hostile_probe_path(input)
+            },
+            |input| {
+                let Some(path) = normalized_path(input) else {
+                    return false;
+                };
+                if path == normalized_admin {
+                    return false;
+                }
+                let path = path
+                    .strip_prefix(&normalized_admin)
+                    .filter(|s| s.starts_with('/'))
+                    .unwrap_or(&path);
+                hostile_normalized_probe_path(path)
+            },
+        );
     }
     fn legacy_catalog_match(paths: &[Vec<String>], path: &str) -> bool {
         let segments: Vec<_> = path.split('/').filter(|s| !s.is_empty()).collect();

@@ -38,6 +38,10 @@ export function ResourceObservability():JSX.Element{
    <p class={css.note}>{t('admin-db-observed',{time:formatDateTime(value().observedAt*1000)})}</p>
    <Show when={value().cgroupDetected}><p class={css.note}>{t('admin-resources-container')}</p></Show>
    <div class={css.grid}>
+    <Show when={value().cpuCapabilities}>{cpu=><section class={css.card} aria-label={t('admin-resources-cpu-capabilities')}><h3 class={css.heading}>{t('admin-resources-cpu-capabilities')}</h3>{fields(()=>[
+     [t('admin-resources-cpu-architecture'),cpu().architecture],
+     [t('admin-resources-cpu-kernel'),cpu().selectedBackend==='scalar'?t('admin-resources-cpu-portable'):cpu().selectedBackend==='avx512'?'AVX-512F + BW':'AVX2'],
+    ])}<h4 class={css.heading}>{t('admin-resources-cpu-features')}</h4><p class={css.note}>{cpu().availableFeatures.length?cpu().availableFeatures.join(' · '):absent()}</p><p class={css.note}>{t('admin-resources-cpu-kernel-help',{avx2:formatNumber(cpu().avx2MinBytes),avx512:formatNumber(cpu().avx512MinBytes)})}</p></section>}</Show>
     <section class={css.card} aria-label={t('admin-resources-allocation')}><h3 class={css.heading}>{t('admin-resources-allocation')}</h3>{fields(()=>[
      [t('admin-resources-cpu-cores'),formatNumber(value().effectiveCpuCores,{maximumFractionDigits:2})],
      [t('admin-resources-memory-limit'),bytes(value().effectiveMemoryLimitBytes)],

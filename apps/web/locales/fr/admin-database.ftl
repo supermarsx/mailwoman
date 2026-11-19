@@ -127,3 +127,10 @@ admin-db-online-phase-recovery-required = Vérification de la récupération req
 admin-db-online-phase-completed = Terminée
 admin-db-online-phase-cancelled = Annulée
 admin-db-online-phase-failed = Échec
+
+admin-resources-cpu-capabilities = Capacités du processeur
+admin-resources-cpu-architecture = Architecture
+admin-resources-cpu-kernel = Routine sélectionnée pour les grandes entrées
+admin-resources-cpu-features = Fonctions disponibles du processeur
+admin-resources-cpu-portable = Portable
+admin-resources-cpu-kernel-help = Concerne la conversion ASCII en minuscules. AVX2 dès { $avx2 } octets et AVX-512 dès { $avx512 } octets, si pris en charge. Les petites entrées utilisent la routine portable. L’application n’utilise pas toutes les fonctions disponibles.
