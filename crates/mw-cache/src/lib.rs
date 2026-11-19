@@ -296,6 +296,8 @@ pub struct Cache {
 struct Inner {
     matrix: RwLock<ScopeMatrix>,
     memory: MokaCache<String, MemEntry>,
+    // Mail versions are ephemeral: bounded bytes, bounded expiry, never settings rows.
+    mail_memory: MokaCache<String, MemEntry>,
     redis: Option<FredClient>,
     redis_configured: bool,
     redis_connected: AtomicBool,
@@ -370,11 +372,21 @@ impl Cache {
             .max_capacity(capacity)
             .expire_after(PerEntryExpiry)
             .build();
+        let minimum_entry_weight = MAIL_MEMORY_BYTES.div_ceil(capacity.max(1)).max(1) as u32;
+        let mail_memory = MokaCache::builder()
+            .max_capacity(if capacity == 0 { 0 } else { MAIL_MEMORY_BYTES })
+            .weigher(move |key: &String, value: &MemEntry| {
+                ((key.len() + value.bytes.len()).min(u32::MAX as usize) as u32)
+                    .max(minimum_entry_weight)
+            })
+            .expire_after(PerEntryExpiry)
+            .build();
         let connected = redis.is_some();
         Self {
             inner: Arc::new(Inner {
                 matrix: RwLock::new(matrix),
                 memory,
+                mail_memory,
                 redis,
                 redis_configured,
                 redis_connected: AtomicBool::new(connected),
@@ -454,17 +466,26 @@ impl Cache {
         Ok(())
     }
 
-    /// Invalidate `key` in `class` across every layer.
-    pub async fn invalidate(&self, class: CacheClass, key: &str) -> CacheResult<()> {
+    /// Evict advisory ephemeral entries without writing persistent tombstones.
+    pub async fn invalidate_ephemeral(&self, class: CacheClass, key: &str) -> CacheResult<()> {
         let policy = self.policy(class);
         let nk = namespaced(class, key);
         self.inner.memory.invalidate(&nk).await;
+        self.inner.mail_memory.invalidate(&nk).await;
         if policy.has(CacheLayer::Redis)
             && let Some(client) = &self.inner.redis
             && let Err(e) = client.del::<i64, _>(nk.clone()).await
         {
             self.note_redis_down(&e);
         }
+        Ok(())
+    }
+
+    /// Invalidate `key` in `class` across every layer.
+    pub async fn invalidate(&self, class: CacheClass, key: &str) -> CacheResult<()> {
+        self.invalidate_ephemeral(class, key).await?;
+        let policy = self.policy(class);
+        let nk = namespaced(class, key);
         if policy.has(CacheLayer::Store)
             && let Some(store) = &self.inner.store
         {
@@ -522,6 +543,104 @@ impl Cache {
         let bytes = serde_json::to_vec(&value.0)?;
         self.write_layers(class, key, bytes, false).await;
         Ok(())
+    }
+
+    /// Cache mail bytes only after the caller has obtained a fresh authoritative
+    /// Message snapshot and built its account/revision or immutable-blob key.
+    /// Database validation errors must be handled before calling this method;
+    /// Redis availability never substitutes for that validation. Missing values,
+    /// auth sessions and zero-access plaintext never enter shared tiers.
+    pub async fn get_mail_bytes<F, Fut>(
+        &self,
+        class: CacheClass,
+        key: &str,
+        account: AccountPosture,
+        loader: F,
+    ) -> CacheResult<PlaintextDerived<Option<Vec<u8>>>>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = CacheResult<Option<Vec<u8>>>>,
+    {
+        if account.is_zero_access()
+            || !matches!(class, CacheClass::HeaderWindows | CacheClass::MessageBodies)
+        {
+            return loader().await.map(PlaintextDerived);
+        }
+        let policy = self.policy(class);
+        let memory = policy.has(CacheLayer::Memory);
+        // A Store supplies the shared server key. Without it, Redis mail
+        // placement is bypassed rather than sending plaintext to another tier.
+        let redis = policy.has(CacheLayer::Redis) && self.inner.store.is_some();
+        if !memory && !redis {
+            return loader().await.map(PlaintextDerived);
+        }
+        let nk = namespaced(class, key);
+        let ttl = if policy.ttl_secs == 0 {
+            300
+        } else {
+            policy.ttl_secs.min(3600)
+        };
+        if memory && let Some(entry) = self.inner.mail_memory.get(&nk).await {
+            return Ok(PlaintextDerived(Some((*entry.bytes).clone())));
+        }
+        if redis && let Some(sealed) = self.redis_get(&nk).await {
+            if let Some(bytes) = self.open_mail_value(&nk, &sealed) {
+                if memory {
+                    self.mail_put(&nk, bytes.clone(), ttl).await;
+                }
+                return Ok(PlaintextDerived(Some(bytes)));
+            }
+        }
+        let value = loader().await?;
+        if let Some(bytes) = &value
+            && bytes.len() <= MAIL_ENTRY_BYTES
+        {
+            if memory {
+                self.mail_put(&nk, bytes.clone(), ttl).await;
+            }
+            if redis && let Some(sealed) = self.seal_mail_value(&nk, bytes) {
+                self.redis_put(&nk, &sealed, ttl).await;
+            }
+        }
+        Ok(PlaintextDerived(value))
+    }
+    fn seal_mail_value(&self, namespace: &str, bytes: &[u8]) -> Option<Vec<u8>> {
+        if bytes.len() > MAIL_ENTRY_BYTES {
+            return None;
+        }
+        self.inner
+            .store
+            .as_ref()?
+            .seal_mail_cache(namespace, bytes)
+            .ok()
+    }
+    fn open_mail_value(&self, namespace: &str, sealed: &[u8]) -> Option<Vec<u8>> {
+        // MWB1 + 24-byte nonce + 16-byte tag. Reject oversized values before
+        // allocating plaintext; corrupt/foreign envelopes are ordinary misses.
+        if sealed.len() > MAIL_ENTRY_BYTES + 44 {
+            return None;
+        }
+        self.inner
+            .store
+            .as_ref()?
+            .open_mail_cache(namespace, sealed)
+            .ok()
+    }
+    async fn mail_put(&self, key: &str, bytes: Vec<u8>, ttl: u64) {
+        self.inner
+            .mail_memory
+            .insert(
+                key.to_owned(),
+                MemEntry {
+                    bytes: Arc::new(bytes),
+                    ttl: Duration::from_secs(ttl),
+                },
+            )
+            .await;
+    }
+    /// Bounded mail-cache occupancy, in bytes, after pending eviction tasks run.
+    pub fn mail_memory_bytes(&self) -> u64 {
+        self.inner.mail_memory.weighted_size()
     }
 
     // ── Internals ────────────────────────────────────────────────────────────
@@ -662,6 +781,7 @@ impl Cache {
     /// `PlaintextDerived` value never lands in memory.
     pub fn memory_contains(&self, class: CacheClass, key: &str) -> bool {
         self.inner.memory.contains_key(&namespaced(class, key))
+            || self.inner.mail_memory.contains_key(&namespaced(class, key))
     }
 
     /// Whether the Redis tier holds `key` in `class`. `Ok(false)` when Redis is
@@ -684,6 +804,7 @@ impl Cache {
     /// hook so TTL-expiry assertions are deterministic.
     pub async fn run_pending_memory_tasks(&self) {
         self.inner.memory.run_pending_tasks().await;
+        self.inner.mail_memory.run_pending_tasks().await;
     }
 }
 
@@ -745,3 +866,21 @@ pub fn render_posture(posture: &CachePosture) -> String {
 
 #[cfg(test)]
 mod tests;
+
+const MAIL_MEMORY_BYTES: u64 = 64 * 1024 * 1024;
+const MAIL_ENTRY_BYTES: usize = 8 * 1024 * 1024;
+/// Account and message revision are unambiguously encoded; legacy stable-ID keys
+/// cannot collide with this namespace. The revision comes only from the store.
+pub fn envelope_cache_key(account: &str, stable_id: &str, revision: &str) -> String {
+    format!(
+        "mail-v2:envelope:{}",
+        serde_json::to_string(&(account, stable_id, revision)).expect("string tuple")
+    )
+}
+/// Bodies are immutable, account-scoped content addresses rather than message IDs.
+pub fn body_cache_key(account: &str, blob_ref: &str) -> String {
+    format!(
+        "mail-v2:body:{}",
+        serde_json::to_string(&(account, blob_ref)).expect("string tuple")
+    )
+}

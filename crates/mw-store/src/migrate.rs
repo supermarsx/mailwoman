@@ -794,8 +794,11 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "messages",
-        select: "SELECT stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id, internaldate, size, flags_json, envelope_json, blob_ref FROM messages",
-        insert: "INSERT INTO messages (stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id, internaldate, size, flags_json, envelope_json, blob_ref) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+        // 0105: carry the derived cache token too. PostgreSQL's write trigger
+        // intentionally assigns a fresh destination token; user data and sealed
+        // envelope/body bytes remain unchanged, while old replica keys miss.
+        select: "SELECT stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id, internaldate, size, flags_json, envelope_json, blob_ref, cache_revision FROM messages",
+        insert: "INSERT INTO messages (stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id, internaldate, size, flags_json, envelope_json, blob_ref, cache_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
         map: |r| {
             vec![
                 t(r, "stable_id"),
@@ -810,6 +813,7 @@ const TABLES: &[TableSpec] = &[
                 t(r, "flags_json"),
                 ob(r, "envelope_json"),
                 ot(r, "blob_ref"),
+                t(r, "cache_revision"),
             ]
         },
     },

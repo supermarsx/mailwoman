@@ -411,3 +411,271 @@ async fn live_zero_access_plaintext_never_reaches_redis() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn validated_mail_cache_does_not_persist_versions_or_negative_bodies() {
+    let store = new_store().await;
+    let cache = Cache::with_store(ScopeMatrix::spec_defaults(), store.clone());
+    let key = envelope_cache_key("account", "message", "revision");
+    assert_eq!(
+        cache
+            .get_mail_bytes(
+                CacheClass::HeaderWindows,
+                &key,
+                AccountPosture::Standard,
+                || async { Ok(Some(b"header".to_vec())) }
+            )
+            .await
+            .unwrap()
+            .into_inner(),
+        Some(b"header".to_vec())
+    );
+    assert!(cache.memory_contains(CacheClass::HeaderWindows, &key));
+    assert!(
+        store
+            .get_setting(&store_key(&namespaced(CacheClass::HeaderWindows, &key)))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    cache.apply_override(ClassPolicy {
+        class: CacheClass::MessageBodies,
+        layers: vec![CacheLayer::Memory, CacheLayer::Store],
+        ttl_secs: 0,
+    });
+    let body = body_cache_key("account", "blob");
+    assert!(
+        cache
+            .get_mail_bytes(
+                CacheClass::MessageBodies,
+                &body,
+                AccountPosture::Standard,
+                || async { Ok(None) }
+            )
+            .await
+            .unwrap()
+            .into_inner()
+            .is_none()
+    );
+    assert!(!cache.memory_contains(CacheClass::MessageBodies, &body));
+    assert_eq!(
+        cache
+            .get_mail_bytes(
+                CacheClass::MessageBodies,
+                &body,
+                AccountPosture::Standard,
+                || async { Ok(Some(b"arrived".to_vec())) }
+            )
+            .await
+            .unwrap()
+            .into_inner(),
+        Some(b"arrived".to_vec())
+    );
+    assert!(
+        store
+            .get_setting(&store_key(&namespaced(CacheClass::MessageBodies, &body)))
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn validated_mail_excludes_zero_access_and_sessions_and_is_byte_bounded() {
+    let cache = Cache::default();
+    for (class, posture) in [
+        (CacheClass::HeaderWindows, AccountPosture::ZeroAccess),
+        (CacheClass::Sessions, AccountPosture::Standard),
+    ] {
+        let calls = AtomicUsize::new(0);
+        for _ in 0..2 {
+            cache
+                .get_mail_bytes(class, "never-shared", posture, || async {
+                    calls.fetch_add(1, AtomicOrdering::SeqCst);
+                    Ok(Some(vec![1u8]))
+                })
+                .await
+                .unwrap();
+        }
+        assert_eq!(calls.load(AtomicOrdering::SeqCst), 2);
+        assert!(!cache.memory_contains(class, "never-shared"));
+    }
+    let large = vec![0u8; MAIL_ENTRY_BYTES + 1];
+    let got = cache
+        .get_mail_bytes(
+            CacheClass::HeaderWindows,
+            "oversized",
+            AccountPosture::Standard,
+            || async { Ok(Some(large)) },
+        )
+        .await
+        .unwrap();
+    assert_eq!(got.into_inner().unwrap().len(), MAIL_ENTRY_BYTES + 1);
+    assert!(!cache.memory_contains(CacheClass::HeaderWindows, "oversized"));
+    for id in 0..20 {
+        cache
+            .get_mail_bytes(
+                CacheClass::HeaderWindows,
+                &format!("bounded-{id}"),
+                AccountPosture::Standard,
+                || async { Ok(Some(vec![0u8; 4 * 1024 * 1024])) },
+            )
+            .await
+            .unwrap();
+    }
+    cache.run_pending_memory_tasks().await;
+    assert!(cache.mail_memory_bytes() <= MAIL_MEMORY_BYTES);
+}
+
+#[tokio::test]
+async fn validated_mail_respects_disabled_and_small_configured_memory_capacity() {
+    let disabled = Cache::build(ScopeMatrix::spec_defaults(), None, false, None, 0);
+    disabled
+        .get_mail_bytes(
+            CacheClass::HeaderWindows,
+            "disabled",
+            AccountPosture::Standard,
+            || async { Ok(Some(vec![1u8])) },
+        )
+        .await
+        .unwrap();
+    disabled.run_pending_memory_tasks().await;
+    assert!(!disabled.memory_contains(CacheClass::HeaderWindows, "disabled"));
+    let tiny = Cache::build(ScopeMatrix::spec_defaults(), None, false, None, 1);
+    for id in ["one", "two", "three"] {
+        tiny.get_mail_bytes(
+            CacheClass::HeaderWindows,
+            id,
+            AccountPosture::Standard,
+            || async { Ok(Some(vec![1u8])) },
+        )
+        .await
+        .unwrap();
+    }
+    tiny.run_pending_memory_tasks().await;
+    assert!(tiny.inner.mail_memory.entry_count() <= 1);
+    assert!(tiny.mail_memory_bytes() <= MAIL_MEMORY_BYTES);
+}
+
+#[tokio::test]
+async fn mail_ephemeral_invalidation_never_creates_store_tombstones() {
+    let store = new_store().await;
+    let cache = Cache::with_store(ScopeMatrix::spec_defaults(), store.clone());
+    cache
+        .invalidate_ephemeral(CacheClass::MessageBodies, "expunged-message")
+        .await
+        .unwrap();
+    assert!(
+        store
+            .get_setting(&store_key(&namespaced(
+                CacheClass::MessageBodies,
+                "expunged-message"
+            )))
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn mail_redis_envelopes_fail_closed_on_wrong_key_namespace_and_corruption() {
+    let source = Cache::with_store(ScopeMatrix::spec_defaults(), new_store().await);
+    let wrong_key = Cache::with_store(ScopeMatrix::spec_defaults(), new_store().await);
+    let namespace = namespaced(
+        CacheClass::MessageBodies,
+        &body_cache_key("account", "blob"),
+    );
+    let envelope = source
+        .seal_mail_value(&namespace, b"private message body")
+        .unwrap();
+    assert_eq!(
+        source.open_mail_value(&namespace, &envelope).unwrap(),
+        b"private message body"
+    );
+    assert!(wrong_key.open_mail_value(&namespace, &envelope).is_none());
+    assert!(
+        source
+            .open_mail_value("other-account-and-blob", &envelope)
+            .is_none()
+    );
+    assert!(
+        source
+            .open_mail_value(&namespace, b"private message body")
+            .is_none()
+    );
+    let mut corrupt = envelope;
+    corrupt[30] ^= 1;
+    assert!(source.open_mail_value(&namespace, &corrupt).is_none());
+    assert!(
+        Cache::default()
+            .seal_mail_value(&namespace, b"mail")
+            .is_none()
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires a live Redis/Valkey (MW_TEST_REDIS_URL); run with --include-ignored"]
+async fn live_validated_mail_is_encrypted_across_cache_instances() {
+    let Some(url) = live_redis_url("live_validated_mail_is_encrypted_across_cache_instances")
+    else {
+        return;
+    };
+    let store = new_store().await;
+    let mut matrix = ScopeMatrix::spec_defaults();
+    matrix.apply_override(ClassPolicy {
+        class: CacheClass::MessageBodies,
+        layers: vec![CacheLayer::Redis],
+        ttl_secs: 30,
+    });
+    let config = CacheConfig {
+        matrix,
+        redis_url: Some(url),
+        ..Default::default()
+    };
+    let first = Cache::connect(config.clone(), Some(store.clone())).await;
+    let second = Cache::connect(config, Some(store)).await;
+    let key = body_cache_key(
+        &format!("encrypted-{}", std::process::id()),
+        "immutable-blob",
+    );
+    first
+        .invalidate_ephemeral(CacheClass::MessageBodies, &key)
+        .await
+        .unwrap();
+    let plaintext = b"a private message body that must not be readable in Redis";
+    first
+        .get_mail_bytes(
+            CacheClass::MessageBodies,
+            &key,
+            AccountPosture::Standard,
+            || async { Ok(Some(plaintext.to_vec())) },
+        )
+        .await
+        .unwrap();
+    let raw = first
+        .inner
+        .redis
+        .as_ref()
+        .unwrap()
+        .get::<Option<Bytes>, _>(namespaced(CacheClass::MessageBodies, &key))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(raw.starts_with(b"MWB1"));
+    assert!(!raw.windows(plaintext.len()).any(|v| v == plaintext));
+    let hit = second
+        .get_mail_bytes(
+            CacheClass::MessageBodies,
+            &key,
+            AccountPosture::Standard,
+            || async { Err(CacheError::Store("unexpected cache miss".into())) },
+        )
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(hit, Some(plaintext.to_vec()));
+    first
+        .invalidate_ephemeral(CacheClass::MessageBodies, &key)
+        .await
+        .unwrap();
+}

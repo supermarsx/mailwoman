@@ -1632,8 +1632,8 @@ impl Engine {
         }
         // Cache-aside on the message-body read path (plan §3 e10). Inert without
         // an attached cache; a zero-access account bypasses every shared tier.
-        if let Some(blob) = &msg.blob_ref
-            && let Some(raw) = self.cached_body(account_id, stable_id, blob).await?
+        if msg.blob_ref.is_some()
+            && let Some(raw) = self.cached_body_for_message(&msg).await?
         {
             return Ok(Some(raw));
         }

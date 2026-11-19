@@ -284,14 +284,16 @@ async fn standard_account_populates_the_header_window_cache() {
     engine.resync(&account_id).await.unwrap();
     let id = first_email_id(&engine, &account_id).await;
 
+    let row = engine.store().get_message(&id).await.unwrap();
+    let cache_key = mw_cache::envelope_cache_key(&account_id, &id, &row.cache_revision);
     // Not cached until the first read.
-    assert!(!cache.memory_contains(CacheClass::HeaderWindows, &id));
+    assert!(!cache.memory_contains(CacheClass::HeaderWindows, &cache_key));
     let resp = email_get(&engine, &account_id, &id).await;
     assert_eq!(resp["methodResponses"][0][1]["list"][0]["id"], id);
 
     // A standard account's envelope is now cached (a hit on the next read).
     assert!(
-        cache.memory_contains(CacheClass::HeaderWindows, &id),
+        cache.memory_contains(CacheClass::HeaderWindows, &cache_key),
         "standard account envelope should populate the header-window cache"
     );
 }
@@ -314,6 +316,9 @@ async fn zero_access_account_never_materializes_plaintext_in_the_engine_cache() 
     engine.resync(&account_id).await.unwrap();
     let id = first_email_id(&engine, &account_id).await;
 
+    let row = engine.store().get_message(&id).await.unwrap();
+    let header_key = mw_cache::envelope_cache_key(&account_id, &id, &row.cache_revision);
+    let body_key = mw_cache::body_cache_key(&account_id, row.blob_ref.as_deref().unwrap());
     // Read through both the header-window (Email/get) and body (fetch_blob) paths.
     let _ = email_get(&engine, &account_id, &id).await;
     let _ = engine.fetch_blob(&account_id, &id).await.unwrap();
@@ -321,11 +326,11 @@ async fn zero_access_account_never_materializes_plaintext_in_the_engine_cache() 
 
     // Structural exclusion: no plaintext-derived value ever reached a cache tier.
     assert!(
-        !cache.memory_contains(CacheClass::HeaderWindows, &id),
+        !cache.memory_contains(CacheClass::HeaderWindows, &header_key),
         "zero-access header window must not be cached"
     );
     assert!(
-        !cache.memory_contains(CacheClass::MessageBodies, &id),
+        !cache.memory_contains(CacheClass::MessageBodies, &body_key),
         "zero-access message body must not be cached"
     );
 }
@@ -343,7 +348,20 @@ async fn message_body_read_path_is_cache_aside() {
     let blob = engine.fetch_blob(&account_id, &id).await.unwrap().unwrap();
     assert!(!blob.bytes.is_empty());
     assert!(
-        cache.memory_contains(CacheClass::MessageBodies, &id),
+        cache.memory_contains(
+            CacheClass::MessageBodies,
+            &mw_cache::body_cache_key(
+                &account_id,
+                engine
+                    .store()
+                    .get_message(&id)
+                    .await
+                    .unwrap()
+                    .blob_ref
+                    .as_deref()
+                    .unwrap()
+            )
+        ),
         "standard account body should populate the message-body cache"
     );
 }

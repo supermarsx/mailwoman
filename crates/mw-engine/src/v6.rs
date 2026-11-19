@@ -13,7 +13,7 @@
 //! The engine never decrypts a zero-access row: for a zero-access account the
 //! store already holds ciphertext (e1 metadata columns + e6 AAD) and the engine
 //! treats it as an opaque blob. The cache-aside helpers route header windows +
-//! message bodies through [`Cache::get_derived`] with the account's
+//! message bodies through [`Cache::get_mail_bytes`] with the account's
 //! [`AccountPosture`]; for a [`AccountPosture::ZeroAccess`] account that
 //! *structurally* forces the value to per-request scope — it is never placed in
 //! the memory, Redis, or store cache tiers (mw-cache enforces this by the
@@ -118,7 +118,7 @@ impl V6Hooks {
     /// Whether a cache is attached (26.20 t22-e3g).
     ///
     /// `Email/get` batches its envelope read straight from the store when no
-    /// cache is attached, and keeps the per-id [`Engine::cached_envelope`] path
+    /// cache is attached, and keeps the per-id [`Engine::cached_envelope_with_posture`] path
     /// when one is — because that call is what populates the header-window cache
     /// and what routes a zero-access account away from every shared tier. The
     /// batch cannot do either, so the branch has to be able to ask.
@@ -227,7 +227,9 @@ impl Engine {
     /// data stays stored and searchable by hand, and new mail is simply not
     /// processed into the index until the restriction is lifted.
     pub(crate) async fn index_paused(&self, account_id: &str) -> bool {
-        self.store().restriction_blocks(account_id, "indexing").await
+        self.store()
+            .restriction_blocks(account_id, "indexing")
+            .await
     }
 
     /// Whether a cache is currently attached (drives the `mailwoman doctor`
@@ -238,88 +240,177 @@ impl Engine {
 
     // ── Cache-aside read helpers (plan §3 e10) ───────────────────────────────
 
-    /// Read a message's stored envelope (the "header window" content, SPEC
-    /// §15.6 `HeaderWindows`) through the cache when one is attached, else
-    /// straight from the store (identical to the V5 path).
-    ///
-    /// The envelope is plaintext-derived, so it is routed through
-    /// [`Cache::get_derived`] with the account posture: a zero-access account's
-    /// envelope is loaded per-request and never cached (the store already holds
-    /// ciphertext the engine cannot read — this only guarantees no engine cache
-    /// tier ever holds a plaintext-derived copy).
-    pub(crate) async fn cached_envelope(
+    /// The supplied row must be loaded from Store during this request. Its
+    /// transactionally maintained revision validates all RAM/Redis hits without
+    /// adding per-message queries to Email/get's existing batched row lookup.
+    #[cfg(test)]
+    pub(crate) async fn cached_envelope_for_message(
         &self,
-        account_id: &str,
-        stable_id: &str,
+        message: &mw_store::Message,
+    ) -> Result<Option<Vec<u8>>> {
+        let posture = if self.cache_attached() {
+            self.account_posture_live(&message.account_id).await
+        } else {
+            AccountPosture::ZeroAccess
+        };
+        self.cached_envelope_with_posture(message, posture).await
+    }
+    pub(crate) async fn cached_envelope_with_posture(
+        &self,
+        message: &mw_store::Message,
+        posture: AccountPosture,
     ) -> Result<Option<Vec<u8>>> {
         let hooks = self.v6_hooks();
         let Some(cache) = hooks.cache else {
-            return Ok(self.store().get_envelope(stable_id).await?);
+            return Ok(self
+                .store()
+                .get_account_envelope(&message.account_id, &message.stable_id)
+                .await?);
         };
-        let posture = hooks.posture.posture(account_id);
+        let key = mw_cache::envelope_cache_key(
+            &message.account_id,
+            &message.stable_id,
+            &message.cache_revision,
+        );
         let store = self.store().clone();
-        let sid = stable_id.to_string();
-        let derived = cache
-            .get_derived::<Option<Vec<u8>>, _, _>(
+        let account = message.account_id.clone();
+        let id = message.stable_id.clone();
+        Ok(cache
+            .get_mail_bytes(
                 CacheClass::HeaderWindows,
-                stable_id,
+                &key,
                 posture,
                 move || async move {
                     store
-                        .get_envelope(&sid)
+                        .get_account_envelope(&account, &id)
                         .await
                         .map_err(|e| CacheError::Store(e.to_string()))
                 },
             )
             .await
-            .map_err(cache_err)?;
-        Ok(derived.into_inner())
+            .map_err(cache_err)?
+            .into_inner())
     }
 
-    /// Read a message's sealed body bytes (SPEC §15.6 `MessageBodies`) through
-    /// the cache when one is attached, else straight from the store. The body is
-    /// content-addressed by `blob_ref` and immutable, so a hit is always valid;
-    /// zero-access bodies bypass every shared tier via [`Cache::get_derived`].
+    /// Immutable account-bound body keys cannot mix two versions of the same
+    /// message. The fresh row is also the ownership/existence proof: expunged
+    /// messages have no row and never reach this cache. None is never cached.
+    pub(crate) async fn cached_body_for_message(
+        &self,
+        message: &mw_store::Message,
+    ) -> Result<Option<Vec<u8>>> {
+        let posture = if self.cache_attached() {
+            self.account_posture_live(&message.account_id).await
+        } else {
+            AccountPosture::ZeroAccess
+        };
+        self.cached_body_with_posture(message, posture).await
+    }
+    pub(crate) async fn cached_body_with_posture(
+        &self,
+        message: &mw_store::Message,
+        posture: AccountPosture,
+    ) -> Result<Option<Vec<u8>>> {
+        let Some(blob_ref) = &message.blob_ref else {
+            return Ok(None);
+        };
+        let hooks = self.v6_hooks();
+        let Some(cache) = hooks.cache else {
+            return Ok(self
+                .store()
+                .get_account_body(&message.account_id, blob_ref)
+                .await?);
+        };
+        let key = mw_cache::body_cache_key(&message.account_id, blob_ref);
+        let store = self.store().clone();
+        let account = message.account_id.clone();
+        let blob = blob_ref.clone();
+        Ok(cache
+            .get_mail_bytes(
+                CacheClass::MessageBodies,
+                &key,
+                posture,
+                move || async move {
+                    store
+                        .get_account_body(&account, &blob)
+                        .await
+                        .map_err(|e| CacheError::Store(e.to_string()))
+                },
+            )
+            .await
+            .map_err(cache_err)?
+            .into_inner())
+    }
+
+    /// Request-local posture proof; storage-backed sources fail closed. At most
+    /// one live posture read per account, reused for all headers and body repairs.
+    pub(crate) async fn mail_cache_postures(
+        &self,
+        messages: &[Option<mw_store::Message>],
+    ) -> std::collections::HashMap<String, AccountPosture> {
+        let hooks = self.v6_hooks();
+        let mut postures = std::collections::HashMap::new();
+        if hooks.cache.is_none() {
+            return postures;
+        }
+        for row in messages.iter().flatten() {
+            if !postures.contains_key(&row.account_id) {
+                let posture = hooks.posture.posture_live(&row.account_id).await;
+                postures.insert(row.account_id.clone(), posture);
+            }
+        }
+        postures
+    }
+
+    // Single-item oracle helpers keep their own authoritative lookup; production
+    // callers reuse Message rows they already fetched during the current request.
+    #[cfg(test)]
+    pub(crate) async fn cached_envelope(
+        &self,
+        account_id: &str,
+        stable_id: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        let row = match self.store().get_message(stable_id).await {
+            Ok(row) if row.account_id == account_id => row,
+            Ok(_) | Err(mw_store::StoreError::NotFound) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        self.cached_envelope_for_message(&row).await
+    }
+    #[cfg(test)]
     pub(crate) async fn cached_body(
         &self,
         account_id: &str,
         stable_id: &str,
         blob_ref: &str,
     ) -> Result<Option<Vec<u8>>> {
-        let hooks = self.v6_hooks();
-        let Some(cache) = hooks.cache else {
-            return Ok(self.store().get_body(blob_ref).await?);
+        let row = match self.store().get_message(stable_id).await {
+            Ok(row)
+                if row.account_id == account_id && row.blob_ref.as_deref() == Some(blob_ref) =>
+            {
+                row
+            }
+            Ok(_) | Err(mw_store::StoreError::NotFound) => return Ok(None),
+            Err(error) => return Err(error.into()),
         };
-        let posture = hooks.posture.posture(account_id);
-        let store = self.store().clone();
-        let blob = blob_ref.to_string();
-        let derived = cache
-            .get_derived::<Option<Vec<u8>>, _, _>(
-                CacheClass::MessageBodies,
-                stable_id,
-                posture,
-                move || async move {
-                    store
-                        .get_body(&blob)
-                        .await
-                        .map_err(|e| CacheError::Store(e.to_string()))
-                },
-            )
-            .await
-            .map_err(cache_err)?;
-        Ok(derived.into_inner())
+        self.cached_body_for_message(&row).await
     }
 
     /// Invalidate a message's cached envelope + body across every tier (called
-    /// when a message is re-ingested/updated or expunged so the cache-aside
-    /// helpers never serve a stale copy). A no-op when no cache is attached.
+    /// when a message is re-ingested/updated or expunged). Revision/content keys
+    /// make cross-replica correctness independent of this advisory eviction;
+    /// obsolete versions expire from bounded ephemeral tiers. A no-op without cache.
     pub(crate) async fn invalidate_message_cache(&self, stable_id: &str) {
         let hooks = self.v6_hooks();
         let Some(cache) = hooks.cache else {
             return;
         };
-        let _ = cache.invalidate(CacheClass::HeaderWindows, stable_id).await;
-        let _ = cache.invalidate(CacheClass::MessageBodies, stable_id).await;
+        let _ = cache
+            .invalidate_ephemeral(CacheClass::HeaderWindows, stable_id)
+            .await;
+        let _ = cache
+            .invalidate_ephemeral(CacheClass::MessageBodies, stable_id)
+            .await;
     }
 
     // ── Audit / webhook feed (plan §3 e10) ───────────────────────────────────
@@ -355,3 +446,7 @@ impl Engine {
 fn cache_err(e: CacheError) -> EngineError {
     EngineError::Protocol(format!("cache: {e}"))
 }
+
+#[cfg(test)]
+#[path = "v6_cache_tests.rs"]
+mod coherence_tests;

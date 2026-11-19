@@ -1276,7 +1276,7 @@ impl Engine {
     /// so it is deliberate rather than overlooked. `get_message` and
     /// `get_message_meta` were always direct store reads and batch
     /// unconditionally. The **envelope** is different: it goes through
-    /// [`Engine::cached_envelope`], which is what populates the header-window
+    /// [`Engine::cached_envelope_with_posture`], which is what populates the header-window
     /// cache and what routes a zero-access account away from every shared tier.
     /// Reading it straight from the store would silently stop both, and
     /// `crates/mw-engine/tests/v6.rs` asserts each
@@ -1437,14 +1437,19 @@ impl Engine {
         // Statements 1 and 2: everything that was never cache-aside.
         let msgs = self.store().get_messages(&unique).await?;
         let metas = self.store().get_message_metas(&unique).await?;
+        let cache_postures = self.mail_cache_postures(&msgs).await;
 
         // Statement 3, when no cache is attached — see `email_get` for why an
         // attached cache keeps the per-id path.
         let envelopes: Vec<Option<Vec<u8>>> = if self.v6_hooks().has_cache() {
             let mut out = Vec::with_capacity(unique.len());
-            for (id, msg) in unique.iter().zip(&msgs) {
+            for msg in &msgs {
                 out.push(match msg {
-                    Some(m) => self.cached_envelope(&m.account_id, id).await?,
+                    Some(m) => {
+                        let posture = cache_postures.get(&m.account_id).copied()
+                            .unwrap_or(crate::v6::AccountPosture::ZeroAccess);
+                        self.cached_envelope_with_posture(m, posture).await?
+                    }
                     None => None,
                 });
             }
@@ -1463,6 +1468,8 @@ impl Engine {
                 built.push(None);
                 continue;
             };
+            let cache_posture = cache_postures.get(&msg.account_id).copied()
+                .unwrap_or(crate::v6::AccountPosture::ZeroAccess);
             // Envelope-less and malformed cached rows use the same one-time
             // repair path as older MIME projections.
             let mut email = envelope
@@ -1474,11 +1481,12 @@ impl Engine {
             // persist the version, preserving the constant-cost current path.
             let mut repair_raw = None;
             if crate::attachment_metadata::needs_repair(&email)
-                && let Some(blob) = &msg.blob_ref
+                && msg.blob_ref.is_some()
             {
-                repair_raw = self.cached_body(&msg.account_id, id, blob).await?;
+                repair_raw = self.cached_body_with_posture(&msg, cache_posture).await?;
                 if let Some(raw) = &repair_raw
                     && crate::attachment_metadata::repair(&mut email, raw)
+                    && let Some(blob) = &msg.blob_ref
                 {
                     self.persist_attachment_metadata(&msg.account_id, id, blob, &email)
                         .await;
@@ -1488,10 +1496,10 @@ impl Engine {
                 && email
                     .as_object()
                     .is_some_and(|stored| !stored.contains_key("messageId"))
-                && let Some(blob) = &msg.blob_ref
+                && msg.blob_ref.is_some()
             {
                 if repair_raw.is_none() {
-                    repair_raw = self.cached_body(&msg.account_id, id, blob).await?;
+                    repair_raw = self.cached_body_with_posture(&msg, cache_posture).await?;
                 }
                 if let Some(raw) = &repair_raw
                     && let Ok(parsed) = mw_mime::parse(raw)
@@ -1501,11 +1509,9 @@ impl Engine {
                     email["references"] = json!(parsed.email.references);
                 }
             }
-            if fill.raw_derived
-                && let Some(blob) = &msg.blob_ref
-            {
+            if fill.raw_derived && msg.blob_ref.is_some() {
                 if repair_raw.is_none() {
-                    repair_raw = self.cached_body(&msg.account_id, id, blob).await?;
+                    repair_raw = self.cached_body_with_posture(&msg, cache_posture).await?;
                 }
                 if let Some(raw) = &repair_raw {
                     let (request, report) = mail_ext::mdn::email_properties(raw);
@@ -1522,11 +1528,9 @@ impl Engine {
                     email["mailwomanInlineParts"] = inline_parts_json(raw, id);
                 }
             }
-            if !fill.headers.is_empty()
-                && let Some(blob) = &msg.blob_ref
-            {
+            if !fill.headers.is_empty() && msg.blob_ref.is_some() {
                 if repair_raw.is_none() {
-                    repair_raw = self.cached_body(&msg.account_id, id, blob).await?;
+                    repair_raw = self.cached_body_with_posture(&msg, cache_posture).await?;
                 }
                 if let Some(raw) = &repair_raw {
                     for (property, value) in header_properties_json(raw, &fill.headers) {

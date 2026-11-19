@@ -149,6 +149,8 @@ pub struct Message {
     pub size: u64,
     pub flags_json: String,
     pub blob_ref: Option<String>,
+    /// Authoritative opaque cache identity, changed transactionally by database triggers.
+    pub cache_revision: String,
 }
 
 /// The backend coordinates a `stable_id` currently maps to (plan §1.6). The
@@ -887,7 +889,7 @@ impl Store {
     pub async fn get_message(&self, stable_id: &str) -> Result<Message, StoreError> {
         let row = q(
             "SELECT stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id,
-                    internaldate, size, flags_json, blob_ref
+                    internaldate, size, flags_json, blob_ref, cache_revision
              FROM messages WHERE stable_id = ?1",
         )
         .bind(stable_id)
@@ -923,12 +925,12 @@ impl Store {
         let sql = match self.backend.dialect() {
             Dialect::Sqlite => {
                 "SELECT stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id,
-                        internaldate, size, flags_json, blob_ref
+                        internaldate, size, flags_json, blob_ref, cache_revision
                  FROM messages WHERE stable_id IN (SELECT value FROM json_each(?1))"
             }
             Dialect::Postgres => {
                 "SELECT stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id,
-                        internaldate, size, flags_json, blob_ref
+                        internaldate, size, flags_json, blob_ref, cache_revision
                  FROM messages
                  WHERE stable_id IN (SELECT value FROM json_array_elements_text(?1::json))"
             }
@@ -1607,6 +1609,7 @@ impl Store {
             size: u64_from(row, "size"),
             flags_json: row.get_string("flags_json"),
             blob_ref: row.get_opt_string("blob_ref"),
+            cache_revision: row.get_string("cache_revision"),
         }
     }
 
@@ -2134,7 +2137,11 @@ mod tests {
                 .await
                 .unwrap()
         );
-        assert_eq!(s.get_message(&id).await.unwrap(), before);
+        let mut after = s.get_message(&id).await.unwrap();
+        assert_ne!(after.cache_revision, before.cache_revision);
+        // Repair changes the cache identity, while preserving message metadata.
+        after.cache_revision = before.cache_revision.clone();
+        assert_eq!(after, before);
         assert_eq!(
             s.get_envelope(&id).await.unwrap().as_deref(),
             Some(new.as_slice())

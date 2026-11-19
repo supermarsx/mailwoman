@@ -34,6 +34,7 @@ pub mod audit_identity;
 pub mod diag;
 pub mod database_observability;
 pub mod database_growth;
+mod message_cache;
 pub mod database_maintenance;
 pub mod background_maintenance;
 pub mod folder_target;
