@@ -813,21 +813,21 @@ mod tests {
         let young_unbound = open_token_hash("young-unbound");
         let old_bound = open_token_hash("old-bound");
         let ancient_bound = open_token_hash("ancient-bound");
-        s.create_open_token(&old_unbound, "a", "s", "[]", now - Duration::hours(25))
+        s.create_open_token(&old_unbound, "a", "s", "[]", now - Duration::hours(UNBOUND_TTL_HOURS + 1))
             .await
             .unwrap();
-        s.create_open_token(&young_unbound, "a", "s", "[]", now - Duration::hours(23))
+        s.create_open_token(&young_unbound, "a", "s", "[]", now - Duration::hours(UNBOUND_TTL_HOURS - 1))
             .await
             .unwrap();
-        s.create_open_token(&old_bound, "a", "s", "[]", now - Duration::days(89))
+        s.create_open_token(&old_bound, "a", "s", "[]", now - Duration::days(RETENTION_DAYS - 1))
             .await
             .unwrap();
-        s.create_open_token(&ancient_bound, "a", "s", "[]", now - Duration::days(91))
+        s.create_open_token(&ancient_bound, "a", "s", "[]", now - Duration::days(RETENTION_DAYS + 1))
             .await
             .unwrap();
         s.bind_open_token("a", &old_bound, "E1").await.unwrap();
         s.bind_open_token("a", &ancient_bound, "E2").await.unwrap();
-        s.record_open(&ancient_bound, now - Duration::days(90))
+        s.record_open(&ancient_bound, now - Duration::days(RETENTION_DAYS))
             .await
             .unwrap();
         // Precondition: the ancient token has an event to lose.
