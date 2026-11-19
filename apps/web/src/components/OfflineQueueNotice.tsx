@@ -31,14 +31,15 @@ export function describeQueued(item: QueuedItem): string {
   }
 }
 
-export function OfflineQueueNotice(): JSX.Element {
+export function OfflineQueueNotice(props: {items?: readonly QueuedItem[]} = {}): JSX.Element {
   const app = useApp();
+  const failed = () => props.items ?? app.offlineFailed();
   return (
-    <Show when={app.offlineFailed().length > 0}>
+    <Show when={failed().length > 0}>
       <section class={css.notice} aria-label={t('mail-queue-notice-label')} data-testid="offline-queue-failed">
-        <h3 class={css.title}>{t('mail-queue-notice-title', { count: app.offlineFailed().length })}</h3>
+        <h3 class={css.title}>{t('mail-queue-notice-title', { count: failed().length })}</h3>
         <ul class={css.list}>
-          <For each={app.offlineFailed()}>
+          <For each={failed()}>
             {(item) => (
               <li class={css.item} data-testid={`offline-failed-${item.id}`}>
                 <span class={css.what}>

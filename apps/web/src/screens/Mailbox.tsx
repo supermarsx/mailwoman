@@ -169,7 +169,7 @@ export function MailboxScreen(): JSX.Element {
   const [loadedViews,setLoadedViews]=createSignal<Set<string>>(new Set()),[attachmentNotable,setAttachmentNotable]=createSignal<number|null>(null);
   function notableCount(id:string):number|null {
     if(viewMode(id)==='notable'&&!loadedViews().has(id)&&!['notifications','templates'].includes(id))return null;
-    if(id==='notifications')return notificationUnread();
+    if(id==='notifications')return notificationUnread()+app.offlineFailed().length;
     if(id==='tasks')return app.tasks().filter(task=>!['completed','cancelled'].includes(task.status)).length;
     if(id==='notes')return app.notes().length;
     if(id==='contacts')return app.contacts().length;

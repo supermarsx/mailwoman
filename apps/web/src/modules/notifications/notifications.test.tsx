@@ -1,3 +1,7 @@
+import {createSignal} from 'solid-js';
+import {AppContext} from '../../state/context.ts';
+import type {AppState} from '../../state/store.ts';
+import type {QueuedItem} from '../../offline/outbox.ts';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {cleanup,fireEvent,render,screen,waitFor,within} from '@solidjs/testing-library';
 import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
@@ -64,4 +68,19 @@ it('refreshes the current principal on notification pushes keyed by the sign-in 
  await waitFor(()=>expect(notificationNotices()).toHaveLength(3));
  fixture.rows.push({...fixture.rows[0]!,id:'offline-notice'});fixture.connection?.('connecting');fixture.connection?.('online');
  await waitFor(()=>expect(notificationNotices()).toHaveLength(4));
+});
+
+it('shows account-scoped offline failures in Notifications with reasons and retry/discard actions',async()=>{
+ const item:QueuedItem={id:'failed-send',type:'send',state:'failed',createdAt:1,payload:{draft:{subject:'Invoice'}},lastError:'attachment blobId does not resolve'};
+ const [failed,setFailed]=createSignal<QueuedItem[]>([item]);
+ const retry=vi.fn(async()=>undefined),discard=vi.fn(async()=>{setFailed([]);});
+ const app={offlineFailed:failed,retryOffline:retry,discardOffline:discard} as unknown as AppState;
+ render(()=><AppContext.Provider value={app}><Notifications/></AppContext.Provider>);
+ await screen.findByText(/attachment blobId does not resolve/);
+ const notice=screen.getByTestId('offline-queue-failed');
+ fireEvent.click(within(notice).getByRole('button',{name:/Retry/}));expect(retry).toHaveBeenCalledWith('failed-send');
+ fireEvent.input(screen.getByRole('searchbox',{name:'Search'}),{target:{value:'unrelated'}});expect(screen.queryByTestId('offline-queue-failed')).toBeNull();
+ fireEvent.input(screen.getByRole('searchbox',{name:'Search'}),{target:{value:'Invoice'}});
+ fireEvent.click(within(screen.getByTestId('offline-queue-failed')).getByRole('button',{name:/Discard/}));expect(discard).toHaveBeenCalledWith('failed-send');
+ await waitFor(()=>expect(screen.queryByTestId('offline-queue-failed')).toBeNull());
 });
