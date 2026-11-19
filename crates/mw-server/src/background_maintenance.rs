@@ -1,7 +1,7 @@
 //! Online housekeeping is bounded, policy-controlled and observable without persisting a sample per run.
 use crate::AppState;
 use mw_store::background_maintenance::{MaintenanceOptions, MaintenanceReport};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     sync::{LazyLock, Mutex},
@@ -42,27 +42,62 @@ async fn setting(store: &mw_store::Store, key: &str) -> Value {
 async fn number(store: &mw_store::Store, key: &str) -> u64 {
     setting(store, key).await.as_u64().unwrap_or(0)
 }
+const KEYS: [&str; 11] = [
+    "maintenance.database.enabled",
+    "maintenance.database.orphanBodies",
+    "maintenance.database.incrementalVacuum",
+    "maintenance.database.intervalSeconds",
+    "maintenance.database.batchRows",
+    "maintenance.database.batchMiB",
+    "maintenance.database.graceHours",
+    "maintenance.database.batchPages",
+    "maintenance.database.maxRunMs",
+    "maintenance.database.minFreeMiB",
+    "maintenance.database.maxWalMiB",
+];
+/// One statement observes all global maintenance policies; no per-key database round trips.
+async fn settings_snapshot(store: &mw_store::Store) -> HashMap<&'static str, Value> {
+    let policies = store.get_setting_policies_batch(&KEYS).await;
+    KEYS.into_iter()
+        .map(|key| {
+            let value = match &policies {
+                Ok(rows) => rows
+                    .iter()
+                    .find(|row| row.key == key)
+                    .and_then(|row| row.global_value.as_deref())
+                    .map(|text| serde_json::from_str(text).unwrap_or(Value::Null))
+                    .unwrap_or_else(|| {
+                        crate::settings_registry::lookup(key)
+                            .expect("maintenance setting registered")
+                            .default_value()
+                    }),
+                Err(_) => Value::Null,
+            };
+            (key, value)
+        })
+        .collect()
+}
 pub(crate) async fn run_once(state: &AppState) -> Result<Value, String> {
     let _permit = RUN
         .try_acquire()
         .map_err(|_| "maintenance-busy".to_string())?;
     let store = &state.store;
-    let prefix = "maintenance.database";
-    let interval = number(store, &format!("{prefix}.intervalSeconds"))
-        .await
-        .clamp(15, 86400);
-    let enabled = setting(store, &format!("{prefix}.enabled")).await == true;
+    let settings = settings_snapshot(store).await;
+    let number = |key: &str| settings.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let enabled = settings.get("maintenance.database.enabled") == Some(&Value::Bool(true));
+    let interval = number("maintenance.database.intervalSeconds").clamp(15, 86400);
     let options = MaintenanceOptions {
-        collect_bodies: enabled && setting(store, &format!("{prefix}.orphanBodies")).await == true,
+        collect_bodies: enabled
+            && settings.get("maintenance.database.orphanBodies") == Some(&Value::Bool(true)),
         incremental_vacuum: enabled
-            && setting(store, &format!("{prefix}.incrementalVacuum")).await == true,
-        batch_rows: number(store, &format!("{prefix}.batchRows")).await as u32,
-        batch_bytes: number(store, &format!("{prefix}.batchMiB")).await * 1024 * 1024,
-        grace_seconds: number(store, &format!("{prefix}.graceHours")).await * 3600,
-        batch_pages: number(store, &format!("{prefix}.batchPages")).await as u32,
-        max_run_ms: number(store, &format!("{prefix}.maxRunMs")).await,
-        min_free_bytes: number(store, &format!("{prefix}.minFreeMiB")).await * 1024 * 1024,
-        max_wal_bytes: number(store, &format!("{prefix}.maxWalMiB")).await * 1024 * 1024,
+            && settings.get("maintenance.database.incrementalVacuum") == Some(&Value::Bool(true)),
+        batch_rows: number("maintenance.database.batchRows") as u32,
+        batch_bytes: number("maintenance.database.batchMiB") * 1024 * 1024,
+        grace_seconds: number("maintenance.database.graceHours") * 3600,
+        batch_pages: number("maintenance.database.batchPages") as u32,
+        max_run_ms: number("maintenance.database.maxRunMs"),
+        min_free_bytes: number("maintenance.database.minFreeMiB") * 1024 * 1024,
+        max_wal_bytes: number("maintenance.database.maxWalMiB") * 1024 * 1024,
     };
     let previous = status(store);
     let cursor = previous["lastReport"]["cursor"]
@@ -109,4 +144,49 @@ pub(crate) async fn reclaim_after_retention(state: &AppState) -> bool {
             serde_json::from_value::<MaintenanceReport>(value["lastReport"].clone()).ok()
         })
         .is_some_and(|report| report.reclaimed_pages > 0)
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::*;
+    #[tokio::test]
+    async fn batched_global_snapshot_preserves_defaults_overrides_and_fail_closed_values() {
+        let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        let defaults = settings_snapshot(&store).await;
+        assert_eq!(defaults["maintenance.database.enabled"], json!(true));
+        for (key, value) in [
+            ("maintenance.database.enabled", Some("false")),
+            ("maintenance.database.batchRows", Some("23")),
+            ("maintenance.database.maxRunMs", Some("malformed JSON")),
+            ("maintenance.database.graceHours", None),
+        ] {
+            store
+                .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+                    key: key.into(),
+                    global_value: value.map(str::to_owned),
+                    allow_user_override: false,
+                    global_locked: true,
+                    updated_by: "fixture".into(),
+                    updated_at: 1,
+                })
+                .await
+                .unwrap();
+        }
+        let loaded = settings_snapshot(&store).await;
+        assert_eq!(loaded["maintenance.database.enabled"], json!(false));
+        assert_eq!(loaded["maintenance.database.batchRows"], json!(23));
+        assert_eq!(loaded["maintenance.database.maxRunMs"], Value::Null);
+        assert_eq!(
+            loaded["maintenance.database.graceHours"],
+            defaults["maintenance.database.graceHours"]
+        );
+        for key in KEYS {
+            assert_eq!(loaded[key], setting(&store, key).await, "{key}");
+        }
+        store.close().await;
+        let unavailable = settings_snapshot(&store).await;
+        assert!(unavailable.values().all(Value::is_null));
+    }
 }

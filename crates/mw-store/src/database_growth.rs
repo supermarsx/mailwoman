@@ -13,12 +13,10 @@ struct Writes {
 }
 static WRITES: LazyLock<Mutex<Writes>> = LazyLock::new(|| Mutex::new(Writes::default()));
 
-pub(crate) fn record_write(sql: &str, origin: &Location<'_>, args: &[Arg], rows: u64) {
-    let Some(label) = write_label(sql, origin) else {
-        return;
-    };
-    let bytes: u64 = args
-        .iter()
+/// Count payload bytes before a backend consumes its owned arguments. As before,
+/// optional integers count their fixed-width slot even when SQL NULL is bound.
+pub(crate) fn input_bytes(args: &[Arg]) -> u64 {
+    args.iter()
         .map(|arg| match arg {
             Arg::Text(v) => v.len() as u64,
             Arg::OptText(v) => v.as_ref().map_or(0, |v| v.len() as u64),
@@ -26,7 +24,13 @@ pub(crate) fn record_write(sql: &str, origin: &Location<'_>, args: &[Arg], rows:
             Arg::OptBlob(v) => v.as_ref().map_or(0, |v| v.len() as u64),
             Arg::Int(_) | Arg::OptInt(_) => 8,
         })
-        .sum();
+        .sum()
+}
+
+pub(crate) fn record_write_bytes(sql: &str, origin: &Location<'_>, bytes: u64, rows: u64) {
+    let Some(label) = write_label(sql, origin) else {
+        return;
+    };
     let minute = chrono::Utc::now().timestamp() / 60;
     let mut writes = WRITES.lock().unwrap_or_else(|e| e.into_inner());
     if writes.buckets.back().map(|b| b.0) != Some(minute) {
@@ -192,6 +196,61 @@ mod tests {
             4
         );
     }
+    #[test]
+    fn input_bytes_preserves_utf8_blob_null_and_integer_accounting() {
+        let args = vec![
+            Arg::Text("é\0".into()),
+            Arg::OptText(Some("界".into())),
+            Arg::OptText(None),
+            Arg::Blob(vec![0, 255]),
+            Arg::OptBlob(Some(vec![0, 1, 2, 3])),
+            Arg::OptBlob(None),
+            Arg::Int(i64::MIN),
+            Arg::OptInt(Some(i64::MAX)),
+            Arg::OptInt(None),
+        ];
+        assert_eq!(input_bytes(&args), 3 + 3 + 2 + 4 + 3 * 8);
+        assert_eq!(input_bytes(&[]), 0);
+    }
+
+    #[test]
+    fn precomputed_write_bytes_reach_origin_counters() {
+        let origin = Location::caller();
+        let sql = "INSERT INTO growth_byte_fixture(value) VALUES (?1)";
+        let label = write_label(sql, origin).unwrap();
+        let before = write_snapshot(chrono::Utc::now().timestamp());
+        let previous = before
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["origin"] == label)
+            .cloned()
+            .unwrap_or_else(|| json!({"statements":0,"affectedRows":0,"inputBytes":0}));
+        let args = vec![Arg::Blob(vec![0, 255, 7]), Arg::OptInt(None)];
+        let bytes = input_bytes(&args);
+        drop(args);
+        record_write_bytes(sql, origin, bytes, 2);
+        let after = write_snapshot(chrono::Utc::now().timestamp());
+        let counters = after
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["origin"] == label)
+            .unwrap();
+        assert_eq!(
+            counters["statements"].as_u64().unwrap(),
+            previous["statements"].as_u64().unwrap() + 1
+        );
+        assert_eq!(
+            counters["affectedRows"].as_u64().unwrap(),
+            previous["affectedRows"].as_u64().unwrap() + 2
+        );
+        assert_eq!(
+            counters["inputBytes"].as_u64().unwrap(),
+            previous["inputBytes"].as_u64().unwrap() + 11
+        );
+    }
+
     #[test]
     fn origins_never_include_values_or_sql() {
         let label = write_label(

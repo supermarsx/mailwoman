@@ -236,8 +236,9 @@ impl Sql {
     }
 
     pub(crate) async fn execute(self, backend: &Backend) -> Result<u64, sqlx::Error> {
+        let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match backend {
-            Backend::Sqlite(p) => Ok(build_sqlite(self.sql, &self.args)
+            Backend::Sqlite(p) => Ok(build_sqlite(self.sql, self.args)
                 .execute(p)
                 .await?
                 .rows_affected()),
@@ -247,7 +248,7 @@ impl Sql {
             }
         };
         if let Ok(rows) = &result {
-            crate::database_growth::record_write(self.sql, self.origin, &self.args, *rows);
+            crate::database_growth::record_write_bytes(self.sql, self.origin, input_bytes, *rows);
         }
         result
     }
@@ -256,8 +257,9 @@ impl Sql {
         self,
         backend: &Backend,
     ) -> Result<Option<Row>, sqlx::Error> {
+        let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match backend {
-            Backend::Sqlite(p) => Ok(build_sqlite(self.sql, &self.args)
+            Backend::Sqlite(p) => Ok(build_sqlite(self.sql, self.args)
                 .fetch_optional(p)
                 .await?
                 .map(Row::Sqlite)),
@@ -270,10 +272,10 @@ impl Sql {
             }
         };
         if let Ok(rows) = &result {
-            crate::database_growth::record_write(
+            crate::database_growth::record_write_bytes(
                 self.sql,
                 self.origin,
-                &self.args,
+                input_bytes,
                 u64::from(rows.is_some()),
             );
         }
@@ -281,9 +283,10 @@ impl Sql {
     }
 
     pub(crate) async fn fetch_one(self, backend: &Backend) -> Result<Row, sqlx::Error> {
+        let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match backend {
             Backend::Sqlite(p) => Ok(Row::Sqlite(
-                build_sqlite(self.sql, &self.args).fetch_one(p).await?,
+                build_sqlite(self.sql, self.args).fetch_one(p).await?,
             )),
             Backend::Postgres(p) => {
                 let sql = dialect::placeholders(self.sql, Dialect::Postgres);
@@ -293,14 +296,15 @@ impl Sql {
             }
         };
         if result.is_ok() {
-            crate::database_growth::record_write(self.sql, self.origin, &self.args, 1);
+            crate::database_growth::record_write_bytes(self.sql, self.origin, input_bytes, 1);
         }
         result
     }
 
     pub(crate) async fn fetch_all(self, backend: &Backend) -> Result<Vec<Row>, sqlx::Error> {
+        let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match backend {
-            Backend::Sqlite(p) => Ok(build_sqlite(self.sql, &self.args)
+            Backend::Sqlite(p) => Ok(build_sqlite(self.sql, self.args)
                 .fetch_all(p)
                 .await?
                 .into_iter()
@@ -317,10 +321,10 @@ impl Sql {
             }
         };
         if let Ok(rows) = &result {
-            crate::database_growth::record_write(
+            crate::database_growth::record_write_bytes(
                 self.sql,
                 self.origin,
-                &self.args,
+                input_bytes,
                 rows.len() as u64,
             );
         }
@@ -359,8 +363,9 @@ impl Sql {
     // ---- transaction variants ------------------------------------------------
 
     pub(crate) async fn fetch_all_tx(self, tx: &mut Tx) -> Result<Vec<Row>, sqlx::Error> {
+        let input_bytes = crate::database_growth::input_bytes(&self.args);
         let rows: Vec<Row> = match tx {
-            Tx::Sqlite(t) => build_sqlite(self.sql, &self.args)
+            Tx::Sqlite(t) => build_sqlite(self.sql, self.args)
                 .fetch_all(&mut **t)
                 .await?
                 .into_iter()
@@ -376,13 +381,19 @@ impl Sql {
                     .collect()
             }
         };
-        crate::database_growth::record_write(self.sql, self.origin, &self.args, rows.len() as u64);
+        crate::database_growth::record_write_bytes(
+            self.sql,
+            self.origin,
+            input_bytes,
+            rows.len() as u64,
+        );
         Ok(rows)
     }
 
     pub(crate) async fn execute_tx(self, tx: &mut Tx) -> Result<u64, sqlx::Error> {
+        let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match tx {
-            Tx::Sqlite(t) => Ok(build_sqlite(self.sql, &self.args)
+            Tx::Sqlite(t) => Ok(build_sqlite(self.sql, self.args)
                 .execute(&mut **t)
                 .await?
                 .rows_affected()),
@@ -395,7 +406,7 @@ impl Sql {
             }
         };
         if let Ok(rows) = &result {
-            crate::database_growth::record_write(self.sql, self.origin, &self.args, *rows);
+            crate::database_growth::record_write_bytes(self.sql, self.origin, input_bytes, *rows);
         }
         result
     }
@@ -404,8 +415,9 @@ impl Sql {
         self,
         tx: &mut Tx,
     ) -> Result<Option<String>, sqlx::Error> {
+        let input_bytes = crate::database_growth::input_bytes(&self.args);
         let row = match tx {
-            Tx::Sqlite(t) => build_sqlite(self.sql, &self.args)
+            Tx::Sqlite(t) => build_sqlite(self.sql, self.args)
                 .fetch_optional(&mut **t)
                 .await?
                 .map(Row::Sqlite),
@@ -417,44 +429,48 @@ impl Sql {
                     .map(Row::Postgres)
             }
         };
-        crate::database_growth::record_write(
+        crate::database_growth::record_write_bytes(
             self.sql,
             self.origin,
-            &self.args,
+            input_bytes,
             u64::from(row.is_some()),
         );
         Ok(row.map(|r| r.get_string_idx(0)))
     }
 }
 
+// SQLite's worker needs owned arguments. Transfer the payload allocations into
+// SQLx instead of borrowing them (which SQLx would copy before worker dispatch).
 fn build_sqlite<'a>(
     sql: &'a str,
-    args: &[Arg],
+    args: Vec<Arg>,
 ) -> sqlx::query::Query<'a, Sqlite, SqliteArguments<'a>> {
     let mut q = sqlx::query::<Sqlite>(sql);
     for a in args {
         q = match a {
-            Arg::Text(s) => q.bind(s.clone()),
-            Arg::OptText(s) => q.bind(s.clone()),
-            Arg::Int(i) => q.bind(*i),
-            Arg::OptInt(i) => q.bind(*i),
-            Arg::Blob(b) => q.bind(b.clone()),
-            Arg::OptBlob(b) => q.bind(b.clone()),
+            Arg::Text(s) => q.bind(s),
+            Arg::OptText(s) => q.bind(s),
+            Arg::Int(i) => q.bind(i),
+            Arg::OptInt(i) => q.bind(i),
+            Arg::Blob(b) => q.bind(b),
+            Arg::OptBlob(b) => q.bind(b),
         };
     }
     q
 }
 
-fn build_pg<'a>(sql: &'a str, args: &[Arg]) -> sqlx::query::Query<'a, Postgres, PgArguments> {
+// PostgreSQL encodes borrowed payloads directly into its argument buffer while
+// the owning Sql remains alive through this terminal future.
+fn build_pg<'a>(sql: &'a str, args: &'a [Arg]) -> sqlx::query::Query<'a, Postgres, PgArguments> {
     let mut q = sqlx::query::<Postgres>(sql);
     for a in args {
         q = match a {
-            Arg::Text(s) => q.bind(s.clone()),
-            Arg::OptText(s) => q.bind(s.clone()),
+            Arg::Text(s) => q.bind(s.as_str()),
+            Arg::OptText(s) => q.bind(s.as_deref()),
             Arg::Int(i) => q.bind(*i),
             Arg::OptInt(i) => q.bind(*i),
-            Arg::Blob(b) => q.bind(b.clone()),
-            Arg::OptBlob(b) => q.bind(b.clone()),
+            Arg::Blob(b) => q.bind(b.as_slice()),
+            Arg::OptBlob(b) => q.bind(b.as_deref()),
         };
     }
     q
@@ -605,5 +621,112 @@ impl Tx {
             Tx::Sqlite(t) => t.commit().await,
             Tx::Postgres(t) => t.commit().await,
         }
+    }
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::*;
+    async fn exercise(backend: Backend, sqlite: bool) {
+        q("CREATE TEMP TABLE binding_probe(id BIGINT PRIMARY KEY,text_value TEXT,optional_text TEXT,blob_value BYTEA,optional_blob BYTEA,integer_value BIGINT,optional_integer BIGINT)").execute(&backend).await.unwrap();
+        let payload: Vec<u8> = (0..131_072).map(|n| (n % 256) as u8).collect();
+        let insert = {
+            let text = "owned café 😀".to_string();
+            let bytes = payload.clone();
+            q("INSERT INTO binding_probe VALUES(?1,?2,?3,?4,?5,?6,?7)")
+                .bind(1i64)
+                .bind(text)
+                .bind(None::<String>)
+                .bind(bytes)
+                .bind(None::<Vec<u8>>)
+                .bind(i64::MIN)
+                .bind(None::<i64>)
+        };
+        insert.execute(&backend).await.unwrap();
+        let mut tx = backend.begin().await.unwrap();
+        q("INSERT INTO binding_probe VALUES(?1,?2,?3,?4,?5,?6,?7)")
+            .bind(2i64)
+            .bind(String::new())
+            .bind(Some(String::new()))
+            .bind(Vec::<u8>::new())
+            .bind(Some(vec![0u8, 255, 17]))
+            .bind(i64::MAX)
+            .bind(Some(0i64))
+            .execute_tx(&mut tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        // The consumed query and its owned input strings/vectors are already gone.
+        let rows = q("SELECT * FROM binding_probe ORDER BY id")
+            .fetch_all(&backend)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].get_string("text_value"), "owned café 😀");
+        assert_eq!(rows[0].get_opt_string("optional_text"), None);
+        assert_eq!(rows[0].get_blob("blob_value"), payload);
+        assert_eq!(rows[0].get_opt_blob("optional_blob"), None);
+        assert_eq!(rows[0].get_i64("integer_value"), i64::MIN);
+        assert_eq!(rows[0].get_opt_i64("optional_integer"), None);
+        assert_eq!(rows[1].get_string("text_value"), "");
+        assert_eq!(rows[1].get_opt_string("optional_text"), Some(String::new()));
+        assert!(rows[1].get_blob("blob_value").is_empty());
+        assert_eq!(
+            rows[1].get_opt_blob("optional_blob"),
+            Some(vec![0u8, 255, 17])
+        );
+        assert_eq!(rows[1].get_i64("integer_value"), i64::MAX);
+        assert_eq!(rows[1].get_opt_i64("optional_integer"), Some(0));
+        let nul = q("INSERT INTO binding_probe(id,text_value) VALUES(?1,?2)")
+            .bind(3i64)
+            .bind("before\0after".to_string())
+            .execute(&backend)
+            .await;
+        if sqlite {
+            nul.unwrap();
+            let text = q("SELECT text_value FROM binding_probe WHERE id=3")
+                .fetch_opt_scalar_string(&backend)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(text.as_bytes(), b"before\0after");
+        } else {
+            // PostgreSQL TEXT forbids NUL; borrowing must preserve that refusal,
+            // while BYTEA above retains all 256 byte values unchanged.
+            assert!(nul.is_err());
+        }
+        match backend {
+            Backend::Sqlite(pool) => pool.close().await,
+            Backend::Postgres(pool) => pool.close().await,
+        };
+        // Owned result rows stay usable after all connections have closed.
+        assert_eq!(rows[0].get_string("text_value"), "owned café 😀");
+    }
+    #[tokio::test]
+    async fn driver_bindings_preserve_sqlite_nulls_bytes_and_owned_rows() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        exercise(Backend::Sqlite(pool.into()), true).await;
+    }
+    #[tokio::test]
+    async fn driver_bindings_preserve_postgres_nulls_bytes_and_owned_rows() {
+        let url = std::env::var("MW_TEST_PG")
+            .ok()
+            .or_else(|| std::env::var("DATABASE_URL_PG").ok());
+        let Some(url) = url else {
+            mw_test_gate::skip(
+                "backend binding PostgreSQL parity: DATABASE_URL_PG/MW_TEST_PG not configured",
+            );
+            return;
+        };
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap();
+        exercise(Backend::Postgres(pool), false).await;
     }
 }
