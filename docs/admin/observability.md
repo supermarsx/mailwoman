@@ -140,3 +140,23 @@ Each stored report writes one `info` log line with target `client_error` (finger
 
 For database growth, write origins, size inspections and repair commands, see
 [Database growth and maintenance](database-maintenance.md).
+
+
+## Automatic statistics compaction
+
+The scheduled retention job merges histogram bucket counts, totals and extrema;
+it does not average already-calculated percentiles. General performance metrics
+keep minute buckets for 48 hours, hourly buckets for 60 days and daily buckets for
+1,095 days by default. Administrators can change these under
+`retention.metrics.minuteBucketsHours`, `retention.metrics.hourBucketsDays` and
+`retention.metrics.dayBucketsDays`. The retention job is enabled by default and
+can also be run on demand.
+
+HTTP request history already maintains hourly histograms alongside minute detail.
+Its minute detail now follows the same configurable minute-retention setting,
+rather than a separate hardcoded 48-hour window. Older chart ranges automatically
+use hourly data, so expiring minutes does not remove the historical counters or
+latency distribution. Replayed flushes skip expired minute snapshots instead of
+recreating and deleting them repeatedly. Request hourly history and browser-load
+histograms retain their separate `metrics.rollupDays` limit; browser-load histograms
+are hourly from the outset. Text/audit logs are not converted into histogram buckets.

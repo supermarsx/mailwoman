@@ -400,15 +400,24 @@ impl Store {
         now: i64,
         retention_days: i64,
     ) -> Result<(), StoreError> {
+        self.save_request_metrics_with_minute_retention(instance,buckets,now,retention_days,48).await
+    }
+    /// Keep hourly snapshots while expiring minute detail under the shared policy.
+    pub async fn save_request_metrics_with_minute_retention(
+        &self,instance:&str,buckets:&[Bucket],now:i64,retention_days:i64,minute_hours:i64,
+    )->Result<(),StoreError>{
         if instance.is_empty()
             || instance.len() > 64
             || buckets.len() > 256
             || !(1..=1095).contains(&retention_days)
+            || !(1..=8760).contains(&minute_hours)
         {
             return Err(StoreError::Corrupt(
                 "invalid metrics snapshot bounds".into(),
             ));
         }
+        let cutoff=now.saturating_sub(retention_days*86400);
+        let minute_cutoff=now.saturating_sub(minute_hours*3600).max(cutoff);
         let mut tx = self.backend.begin().await?;
         for bucket in buckets {
             if ![60, 3600].contains(&bucket.seconds)
@@ -421,6 +430,8 @@ impl Store {
             {
                 return Err(StoreError::Corrupt("invalid metrics bucket".into()));
             }
+            // Retried snapshots must not resurrect minute rows already aged out.
+            if bucket.seconds==60&&bucket.start+60<=minute_cutoff {continue;}
             let data = serde_json::to_string(&bucket.counts)
                 .map_err(|e| StoreError::Corrupt(e.to_string()))?;
             if data.len() as i64 > MAX_BUCKET_JSON_BYTES {
@@ -431,8 +442,6 @@ impl Store {
             q("INSERT INTO request_metrics_bucket(instance_id,bucket_seconds,bucket_start,observed_from,observed_to,counts_json) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(instance_id,bucket_seconds,bucket_start) DO UPDATE SET observed_from=excluded.observed_from,observed_to=excluded.observed_to,counts_json=excluded.counts_json WHERE excluded.observed_to>request_metrics_bucket.observed_to")
                 .bind(instance).bind(bucket.seconds).bind(bucket.start).bind(bucket.observed_from).bind(bucket.observed_to).bind(data).execute_tx(&mut tx).await?;
         }
-        let cutoff = now.saturating_sub(retention_days * 86400);
-        let minute_cutoff = now.saturating_sub(48 * 3600).max(cutoff);
         q("DELETE FROM request_metrics_bucket WHERE (instance_id,bucket_seconds,bucket_start) IN (SELECT instance_id,bucket_seconds,bucket_start FROM request_metrics_bucket WHERE (bucket_seconds=3600 AND bucket_start<=?1-3600) OR (bucket_seconds=60 AND bucket_start<=?2-60) ORDER BY bucket_start LIMIT 1000)").bind(cutoff).bind(minute_cutoff).execute_tx(&mut tx).await?;
         tx.commit().await?;
         Ok(())
@@ -1071,5 +1080,26 @@ mod minimization_tests{
   assert_eq!(store.minimize_request_metric_details(start+40*86400,30).await.unwrap(),0);
   let saved=store.request_metrics_history(start,start+3600,3600).await.unwrap();
   assert_eq!(saved[0].counts.requests,3);assert_eq!(saved[0].counts.not_found.as_ref().unwrap().count,2);assert!(saved[0].counts.not_found.as_ref().unwrap().paths.is_empty());
+ }
+}
+
+#[cfg(test)]
+mod minute_retention_tests {
+ use super::*;
+ #[tokio::test]
+ async fn shorter_minute_retention_preserves_hourly_histograms_and_does_not_resurrect_detail(){
+  let store=Store::open_in_memory(crate::ServerKey::generate()).await.unwrap();let now=100*3600;
+  let mut counts=Counts::default();for status in [200,404,500]{counts.record(status,100);}
+  let old=now-90*60;let hour=old/3600*3600;
+  let snapshots=vec![Bucket{seconds:60,start:old,observed_from:old,observed_to:old+60,counts:counts.clone()},
+   Bucket{seconds:3600,start:hour,observed_from:old,observed_to:old+60,counts:counts.clone()},
+   Bucket{seconds:60,start:now-1800,observed_from:now-1800,observed_to:now-1740,counts:counts.clone()}];
+  store.save_request_metrics("retention-fixture",&snapshots,now,30).await.unwrap();
+  assert_eq!(store.request_metrics_history(old,old+60,60).await.unwrap().len(),1);
+  for _ in 0..2{store.save_request_metrics_with_minute_retention("retention-fixture",&snapshots,now,30,1).await.unwrap();}
+  assert!(store.request_metrics_history(old,old+60,60).await.unwrap().is_empty());
+  assert_eq!(store.request_metrics_history(now-1800,now-1740,60).await.unwrap().len(),1);
+  let saved=store.request_metrics_history(hour,hour+3600,3600).await.unwrap();assert_eq!(saved.len(),1);assert_eq!(saved[0].counts,counts);
+  assert!(store.save_request_metrics_with_minute_retention("retention-fixture",&[],now,30,0).await.is_err());
  }
 }

@@ -6,7 +6,7 @@ export interface RequestHistory {
  from:number;to:number;bucketSeconds:number;
  series:{t:number;requests:number|null;errors5xx:number|null;notFound?:number|null;notFoundCoverage?:'complete'|'partial'|'unavailable'|'notTracked';p50Ms:number|null;p95Ms:number|null;coverage:'complete'|'partial'|'unavailable';legacyLatencyEstimate?:boolean;p50ResolutionMs?:number|null;p95ResolutionMs?:number|null}[];
  coverage:{observedSeconds:number;requestedSeconds:number;gaps:RequestHistoryRange[];notFound?:NotFoundCoverage};
- policy:{defaultRangeSeconds:number;maxRangeSeconds:number;retentionDays:number};
+ policy:{defaultRangeSeconds:number;maxRangeSeconds:number;retentionDays:number;minuteRetentionHours?:number};
  scope:'server';timing:'response-ready';latencySampleUnit?:'integer-milliseconds'|'microseconds';
 }
 /** One redacted `method + path` pair; `count` is an upper and `minCount` a lower bound. */

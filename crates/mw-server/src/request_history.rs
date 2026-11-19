@@ -89,7 +89,7 @@ impl Recorder {
                 let work = async {
                     let policy = Policy::load(&store).await?;
                     store
-                        .save_request_metrics(&instance, &buckets, now(), policy.retention_days)
+                        .save_request_metrics_with_minute_retention(&instance, &buckets, now(), policy.retention_days, policy.minute_retention_hours)
                         .await?;
                     if now().saturating_sub(last_minimized)>=3600 {
                     let detail_days=store.get_setting_policy("retention.requestMetrics.detailDays").await.ok().flatten().and_then(|p|p.global_value)
@@ -158,6 +158,7 @@ struct Policy {
     default_range_seconds: i64,
     max_range_seconds: i64,
     retention_days: i64,
+    minute_retention_hours: i64,
 }
 impl Policy {
     async fn load(store: &Store) -> Result<Self, mw_store::StoreError> {
@@ -193,6 +194,7 @@ impl Policy {
             default_range_seconds,
             max_range_seconds,
             retention_days,
+            minute_retention_hours: read(store,"retention.metrics.minuteBucketsHours",48,1,8760).await?,
         })
     }
 }
@@ -453,7 +455,7 @@ fn validate(
         from,
         to,
         points,
-        if from < current - 48 * 3600 { 3600 } else { 60 },
+        if from < current - policy.minute_retention_hours * 3600 { 3600 } else { 60 },
     ))
 }
 fn union(intervals: &[(i64, i64)]) -> Vec<(i64, i64)> {
@@ -515,8 +517,12 @@ mod tests {
             default_range_seconds: 3600,
             max_range_seconds: 30 * 86400,
             retention_days: 30,
+            minute_retention_hours: 48,
         };
         let now = 40 * 86400;
+        let shorter=Policy{minute_retention_hours:1,..policy};
+        assert_eq!(validate(&Range{from:Some(now-2*3600),to:Some(now),max_points:None},&shorter,now).unwrap().3,3600);
+        assert_eq!(validate(&Range{from:Some(now-1800),to:Some(now),max_points:None},&shorter,now).unwrap().3,60);
         let range = Range {
             from: None,
             to: None,
