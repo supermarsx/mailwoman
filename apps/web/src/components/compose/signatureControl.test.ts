@@ -55,3 +55,11 @@ describe('managed signature control',()=>{
  });
 
 });
+
+it('follows late policy defaults and refuses per-message repositioning when locked',async()=>{
+ let placement:'above-quote'|'end'='above-quote',locked=false;
+ const h=setup(false,{defaultPosition:()=>placement,positionLocked:()=>locked});
+ expect(h.controller.position()).toBe('above-quote');placement='end';expect(h.controller.position()).toBe('end');
+ await h.controller.reposition('above-quote');expect(h.controller.position()).toBe('above-quote');
+ locked=true;expect(h.controller.position()).toBe('end');await h.controller.reposition('above-quote');expect(h.controller.position()).toBe('end');h.dispose();
+});

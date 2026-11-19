@@ -475,6 +475,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "mail",
         "Offer original folder for reply copies"
     ),
+    def!("mail.signaturePosition", Kind::Enum(&["above-quote", "end"]), "\"above-quote\"", GDU, "mail", "Default signature placement: after your text before quoted content, or at the end of the entire message"),
     def!(
         "mail.forwardMode",
         Kind::Enum(&["inline", "attachment"]),

@@ -14,7 +14,7 @@ import {ResponseTemplates} from './compose/ResponseTemplates.tsx';
 import {assignedSignature,signatureVariants} from './compose/signatureVariants.ts';
 import {SignatureGroup,type SignatureMenuGroup} from './compose/SignatureGroup.tsx';
 import {createSignatureController} from './compose/signatureControl.ts';
-import {stripSignatureMarker} from './compose/signatureRegion.ts';
+import {applySignatureHtml,applySignaturePlain,stripSignatureMarker} from './compose/signatureRegion.ts';
 import {SignatureManager} from './compose/SignatureManager.tsx';
 import {registerLiveReplyDraft} from './compose/liveReplyDrafts.ts';
 import {htmlMessageDocument, stripEditorMarkers} from './compose/htmlMessage.ts';
@@ -919,7 +919,8 @@ export function Compose(props: {
     renderPlain:signaturePlain,variants:signatures,
     defaultFor:id=>{if(customFrom())return null;const item=app.identities().find(value=>value.id===id);return item?assignedSignature(item,replyContext()):null;},
     identityId,quoteAnchor:()=>imageOffer?.anchor??(initial&&initial.mode!='new'?initial.bodyText.trim().split('\n')[0]:undefined),quoteKind:()=>imageOffer?.kind,
-    defaultPosition:()=>replyContext()?'above-quote':'end',
+    defaultPosition:()=>settings()['mail.signaturePosition']?.value==='end'?'end':'above-quote',
+    positionLocked:()=>settings()['mail.signaturePosition']?.locked===true,
     markInserted:sig=>setInsertedSignatures(prev=>new Set(prev).add(sig.id).add(sig.identityId??sig.id).add(identityId())),
     markRemoved:id=>setInsertedSignatures(prev=>new Set(prev).add(id).add(identityId())),
   });
@@ -1785,8 +1786,9 @@ export function Compose(props: {
         else if(checksumText())htmlBody+=`<pre>${escapeHtml(checksumText())}</pre>`;
         const sig = autoSignature();
         if (sig !== null) {
-          if (rich) htmlBody += `<br>${await signatureBlock(sig)}`;
-          else textBody += `\n\n-- \n${await signaturePlain(sig)}`;
+          const placement={position:signatureController.position(),quoteAnchor:imageOffer?.anchor??(initial&&initial.mode!=='new'?initial.bodyText.trim().split('\n')[0]:undefined)};
+          if (rich) htmlBody = applySignatureHtml(htmlBody,await signatureBlock(sig),sig.id,placement);
+          else textBody = applySignaturePlain(textBody??'',await signaturePlain(sig),placement);
         }
         if(rich){
           let notices='';

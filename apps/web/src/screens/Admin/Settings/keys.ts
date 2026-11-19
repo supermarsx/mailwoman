@@ -60,6 +60,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'mail.composeWindow',
   'mail.replyCopyToOriginal',
   'mail.forwardMode',
+  'mail.signaturePosition',
   'mail.allowSend',
   'mail.allowReply',
   'mail.allowForward',

@@ -1025,3 +1025,8 @@ settings-folder-icon-group-hobbies = Hobbies e esportes
 settings-folder-icon-group-family = Família e animais
 settings-folder-icon-group-platforms = Plataformas
 settings-folder-icon-group-telecom = Telecomunicações e suporte
+
+settings-signature-position = Posição da assinatura
+settings-signature-position-help = Por padrão, coloca a assinatura após seu texto e antes das mensagens citadas. Em novas mensagens, fica no final.
+settings-signature-position-own = Após meu texto, antes das mensagens citadas
+settings-signature-position-end = Final da mensagem completa

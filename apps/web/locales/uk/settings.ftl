@@ -1027,3 +1027,8 @@ settings-folder-icon-group-hobbies = Хобі й спорт
 settings-folder-icon-group-family = Сім’я й тварини
 settings-folder-icon-group-platforms = Платформи
 settings-folder-icon-group-telecom = Телекомунікації й підтримка
+
+settings-signature-position = Розташування підпису
+settings-signature-position-help = За замовчуванням підпис розташовується після вашого тексту перед цитованими повідомленнями. У нових повідомленнях — у кінці.
+settings-signature-position-own = Після мого тексту, перед цитованими повідомленнями
+settings-signature-position-end = У кінці всього повідомлення

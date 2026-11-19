@@ -1006,3 +1006,8 @@ settings-folder-icon-group-hobbies = Aficiones y deportes
 settings-folder-icon-group-family = Familia y mascotas
 settings-folder-icon-group-platforms = Plataformas
 settings-folder-icon-group-telecom = Telecomunicaciones y soporte
+
+settings-signature-position = Posición de la firma
+settings-signature-position-help = Por defecto, coloca la firma después de tu texto y antes de los mensajes citados. En mensajes nuevos, va al final.
+settings-signature-position-own = Después de mi texto, antes de los mensajes citados
+settings-signature-position-end = Final del mensaje completo

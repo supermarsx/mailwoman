@@ -1028,3 +1028,8 @@ settings-folder-icon-group-hobbies = الهوايات والرياضة
 settings-folder-icon-group-family = العائلة والحيوانات
 settings-folder-icon-group-platforms = المنصات
 settings-folder-icon-group-telecom = الاتصالات والدعم
+
+settings-signature-position = موضع التوقيع
+settings-signature-position-help = يوضع التوقيع افتراضيًا بعد نصك وقبل الرسائل المقتبسة. في الرسائل الجديدة، يوضع في النهاية.
+settings-signature-position-own = بعد نصي وقبل الرسائل المقتبسة
+settings-signature-position-end = نهاية الرسالة كاملة

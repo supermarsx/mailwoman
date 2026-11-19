@@ -2,6 +2,7 @@
 // signature) with a menu to choose, replace, copy at the caret, set the
 // position, create and edit. Insert tab, group "Signature".
 
+import {settings} from '../../api/settings.ts';
 import { createSignal, For, Show, type Accessor, type JSX } from 'solid-js';
 import { RibbonGroup, RibbonItem } from '../bars/index.ts';
 import { Icon, type IconName } from '../Icon.tsx';
@@ -39,7 +40,8 @@ const previewOf = (sig: ComposeSignature): string => (sig.text || '').replace(/\
 export function SignatureGroup(props: SignatureGroupProps): JSX.Element {
   const on = useComposeFeature('insert.signature');
   const canEditFlag = useComposeFeature('insert.signatureEdit');
-  const canPosition = useComposeFeature('options.signaturePosition');
+  const positionFeature = useComposeFeature('options.signaturePosition');
+  const canPosition = () => positionFeature() && settings()['mail.signaturePosition']?.locked !== true;
   const c = props.controller;
   const [open, setOpen] = createSignal(false);
   const editAllowed = (): boolean => canEditFlag();

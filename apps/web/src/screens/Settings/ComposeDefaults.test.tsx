@@ -17,3 +17,9 @@ it('uses the effective feature map to disable tracking when admin-only capabilit
  expect(screen.getByRole('button',{name:'Use inherited tracking default'})).toBeDisabled();
  expect(fixture.save).not.toHaveBeenCalled();
 });
+
+it('saves signature placement through shared settings with the own-message default',()=>{
+ render(()=><ComposeDefaults/>);
+ const input=screen.getByLabelText('Signature position');expect(input).toHaveValue('above-quote');
+ fireEvent.change(input,{target:{value:'end'}});expect(fixture.save).toHaveBeenCalledWith('mail.signaturePosition','end');
+});

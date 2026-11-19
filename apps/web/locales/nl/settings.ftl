@@ -1025,3 +1025,8 @@ settings-folder-icon-group-hobbies = Hobby’s en sport
 settings-folder-icon-group-family = Familie en huisdieren
 settings-folder-icon-group-platforms = Platforms
 settings-folder-icon-group-telecom = Telecommunicatie en ondersteuning
+
+settings-signature-position = Positie van handtekening
+settings-signature-position-help = Plaatst de handtekening standaard na je tekst en vóór geciteerde berichten. Bij nieuwe berichten staat deze aan het einde.
+settings-signature-position-own = Na mijn tekst, vóór geciteerde berichten
+settings-signature-position-end = Einde van het volledige bericht

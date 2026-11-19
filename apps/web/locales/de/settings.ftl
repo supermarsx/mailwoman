@@ -1006,3 +1006,8 @@ settings-folder-icon-group-hobbies = Hobbys und Sport
 settings-folder-icon-group-family = Familie und Haustiere
 settings-folder-icon-group-platforms = Plattformen
 settings-folder-icon-group-telecom = Telekommunikation und Support
+
+settings-signature-position = Position der Signatur
+settings-signature-position-help = Die Signatur steht standardmäßig nach Ihrem Text und vor zitierten Nachrichten. Bei neuen Nachrichten steht sie am Ende.
+settings-signature-position-own = Nach meinem Text, vor zitierten Nachrichten
+settings-signature-position-end = Ende der gesamten Nachricht

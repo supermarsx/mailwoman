@@ -11,10 +11,12 @@ export const COMPOSE_DEFAULTS_CARD: CardSpec = { id: 'compose-card-defaults', se
   { id: 'compose-window', label: 'settings-compose-window', help: 'settings-compose-window-help' },
   { id: 'compose-read-receipt', label: 'settings-compose-read-receipt' }, { id: 'compose-delivery-receipt', label: 'settings-compose-delivery-receipt' }, { id: 'compose-reply-copy', label: 'settings-compose-reply-copy' },
   { id: 'compose-tracking', label: 'settings-compose-open-tracking', help: 'settings-compose-open-tracking-help' },
+  { id: 'compose-signature-position', label: 'settings-signature-position', help: 'settings-signature-position-help' },
   { id: 'compose-forward', label: 'settings-compose-forward' },
 ] };
 export function ComposeDefaults():JSX.Element{
  const windowMode=useSetting('mail.composeWindow','tab',(v):v is string=>v==='tab'||v==='window');
+ const signaturePosition=useSetting('mail.signaturePosition','above-quote',(v):v is string=>v==='above-quote'||v==='end');
  const forward=useSetting('mail.forwardMode','inline',(v):v is string=>v==='inline'||v==='attachment');
  const tracking=useSetting('mail.openTracking',false),trackingCap=useSetting('cap.compose.open_tracking',true);
  const trackingAllowed=()=>trackingCap.value()&&featureOn('compose.open_tracking');
@@ -28,6 +30,7 @@ export function ComposeDefaults():JSX.Element{
   <For each={toggles}>{(item,i)=><ToggleRow id={['compose-read-receipt','compose-delivery-receipt','compose-reply-copy'][i()]!} label={t(item.label)} handle={item.handle} onChange={v=>void save(item.handle,v)}/>}</For>
   <SettingRow controlId="compose-tracking" label={t('settings-compose-open-tracking')} help={t('settings-compose-open-tracking-help')} handle={tracking} lockNote={tracking.locked()||!trackingAllowed()} resetLabel={t('settings-compose-open-tracking-inherit')} resetDisabled={disabled(tracking)||!trackingAllowed()} onReset={()=>void resetTracking()}>{describedBy=>
    <input id="compose-tracking" type="checkbox" checked={trackingAllowed()&&tracking.value()} disabled={disabled(tracking)||!trackingAllowed()} aria-describedby={describedBy()} onChange={e=>{if(trackingAllowed())void save(tracking,e.currentTarget.checked);}}/>}</SettingRow>
+  <SelectRow id="compose-signature-position" label={t('settings-signature-position')} help={t('settings-signature-position-help')} handle={signaturePosition} accept={(v):v is string=>v==='above-quote'||v==='end'} onPick={v=>void save(signaturePosition,v)} options={[{value:'above-quote',label:t('settings-signature-position-own')},{value:'end',label:t('settings-signature-position-end')}]}/>
   <SelectRow id="compose-forward" label={t('settings-compose-forward')} handle={forward} accept={(v):v is string=>v==='inline'||v==='attachment'} onPick={v=>void save(forward,v)} options={[{value:'inline',label:t('settings-compose-forward-inline')},{value:'attachment',label:t('settings-compose-forward-attachment')}]}/>
  </SettingsCard>;
 }

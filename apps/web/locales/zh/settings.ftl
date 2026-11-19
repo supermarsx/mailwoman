@@ -1015,3 +1015,8 @@ settings-folder-icon-group-hobbies = 爱好与运动
 settings-folder-icon-group-family = 家庭与宠物
 settings-folder-icon-group-platforms = 平台
 settings-folder-icon-group-telecom = 电信与支持
+
+settings-signature-position = 签名位置
+settings-signature-position-help = 默认将签名放在您的正文之后、引用邮件之前。新邮件的签名始终位于末尾。
+settings-signature-position-own = 我的正文之后，引用邮件之前
+settings-signature-position-end = 整封邮件末尾

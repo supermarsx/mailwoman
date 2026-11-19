@@ -39,6 +39,7 @@ export interface SignatureHost {
   quoteKind(): 'reply' | 'tail' | undefined;
   /** The position the settings give a new message. */
   defaultPosition(): SignaturePosition;
+  positionLocked?(): boolean;
   /** Stop the send from adding a signature of its own (`removed`: the user chose none). */
   markInserted(sig: ComposeSignature): void;
   markRemoved(identityId: string): void;
@@ -56,7 +57,8 @@ const sigText = (sig: ComposeSignature): string => (sig.html ? htmlText(sig.html
 const plainText = (sig: ComposeSignature): string => squash(sig.plainText?.trim() ? sig.plainText : sig.text);
 
 export function createSignatureController(host: SignatureHost) {
-  const [position, setPosition] = createSignal<SignaturePosition>(host.defaultPosition());
+  const [positionOverride, setPosition] = createSignal<SignaturePosition>();
+  const position = (): SignaturePosition => host.positionLocked?.() ? host.defaultPosition() : positionOverride() ?? host.defaultPosition();
   /** What this controller applied last: finds the region again when the editor dropped its marker. */
   const [last, setLast] = createSignal<ComposeSignature | null>(null);
   const [busy, setBusy] = createSignal(false);
@@ -130,6 +132,7 @@ export function createSignatureController(host: SignatureHost) {
 
   /** Move the applied signature to another position in one edit. */
   async function reposition(next: SignaturePosition): Promise<void> {
+    if (host.positionLocked?.()) return;
     setPosition(next);
     const a = applied();
     if (!a) return;

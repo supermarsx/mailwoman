@@ -996,3 +996,8 @@ settings-folder-icon-group-hobbies = 趣味とスポーツ
 settings-folder-icon-group-family = 家族とペット
 settings-folder-icon-group-platforms = プラットフォーム
 settings-folder-icon-group-telecom = 通信とサポート
+
+settings-signature-position = 署名の位置
+settings-signature-position-help = 既定では自分の本文の後、引用メッセージの前に署名を配置します。新規メッセージでは末尾に配置します。
+settings-signature-position-own = 自分の本文の後、引用の前
+settings-signature-position-end = メッセージ全体の末尾

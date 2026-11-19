@@ -1027,3 +1027,8 @@ settings-folder-icon-group-hobbies = Hobby i sport
 settings-folder-icon-group-family = Rodzina i zwierzęta
 settings-folder-icon-group-platforms = Platformy
 settings-folder-icon-group-telecom = Telekomunikacja i wsparcie
+
+settings-signature-position = Położenie podpisu
+settings-signature-position-help = Domyślnie umieszcza podpis po Twoim tekście, przed cytowanymi wiadomościami. W nowych wiadomościach podpis jest na końcu.
+settings-signature-position-own = Po moim tekście, przed cytowanymi wiadomościami
+settings-signature-position-end = Koniec całej wiadomości

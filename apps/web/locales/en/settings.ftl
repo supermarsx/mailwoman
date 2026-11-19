@@ -1094,3 +1094,8 @@ settings-folder-icon-group-hobbies = Hobbies and sport
 settings-folder-icon-group-family = Family and pets
 settings-folder-icon-group-platforms = Platforms
 settings-folder-icon-group-telecom = Telecom and support
+
+settings-signature-position = Signature position
+settings-signature-position-help = Place the signature after your text and before quoted messages by default. New messages always place it at the end.
+settings-signature-position-own = After my text, before quoted messages
+settings-signature-position-end = End of the entire message

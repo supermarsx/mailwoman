@@ -60,3 +60,12 @@ it.each(['ready','failed','changed'] as const)('waits for the original identity 
   await waitFor(()=>expect(screen.getByRole('button',{name:'Send'})).toBeEnabled());expect(close).not.toHaveBeenCalled();expect(screen.getByRole('alert')).toHaveTextContent(t(outcome==='failed'?'mail-compose-identities-failed':'mail-compose-send-failed'));expect(vi.mocked(client.jmap).mock.calls.some(call=>call[0].methodCalls.some(method=>method[0]==='EmailSubmission/set'))).toBe(false);
  }
 });
+
+it.each(['above-quote','end'] as const)('sends the automatic signature at the configured %s position',async position=>{
+ await allowSendChecks({'mail.signaturePosition':{value:position,source:'user',locked:false}});
+ const state=await open([primary()],{...initial(),bodyText:'Original message\nQuoted content',bodyHtml:'<p>Original message</p><blockquote>Quoted content</blockquote>'});
+ fireEvent.input(screen.getByLabelText(t('mail-compose-body')),{target:{value:'My answer\n\nOriginal message\nQuoted content'}});
+ const result=await send(state);expect(result.indexOf('REPLY BRAND')).toBeGreaterThan(result.indexOf('My answer'));
+ if(position==='above-quote')expect(result.indexOf('REPLY BRAND')).toBeLessThan(result.indexOf('Original message'));
+ else expect(result.indexOf('REPLY BRAND')).toBeGreaterThan(result.indexOf('Quoted content'));
+});
