@@ -15,6 +15,17 @@ required: the repository's Dockerfile builds the web app and binaries. Use the
 same local Docker daemon for every operation; remote Docker contexts are not
 supported by the localhost exposure and verification steps.
 
+### Pull source without deploying
+
+```sh
+sh deploy.sh --pull-only
+```
+
+Fast-forwards the current branch from its configured upstream, then exits. It does
+not build or pull images, create deployment state, copy backups, or restart services.
+Local edits are preserved; conflicting edits or diverged history stop the update.
+Use `--pull-only --dry-run` to preview without fetching or changing the checkout.
+
 ### Build reuse
 
 Deploy normally with `sh deploy.sh deploy` to pull and build the updated source.

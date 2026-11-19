@@ -16,7 +16,7 @@ git init -q -b main "$FIXTURE/author"
 AUTHOR="$FIXTURE/author"
 mkdir -p "$AUTHOR/scripts"
 cp "$ROOT/scripts/deploy-stack.sh" "$AUTHOR/scripts/deploy-stack.sh"
-awk '{ print } $0 == "update_checkout" { print "printf '\''%s\\n'\'' \"$STATE\" > \"$ROOT/reached\"; exit 0" }' "$ROOT/deploy.sh" > "$AUTHOR/deploy.sh"
+awk '{ print } $0 == "update_checkout" { print "if ! $PULL_ONLY; then printf '\''%s\\n'\'' \"$STATE\" > \"$ROOT/reached\"; exit 0; fi" }' "$ROOT/deploy.sh" > "$AUTHOR/deploy.sh"
 printf 'old\n' > "$AUTHOR/version"
 printf 'local defaults\n' > "$AUTHOR/local-settings"
 printf 'reached\n*.local/\n' > "$AUTHOR/.gitignore"
@@ -26,7 +26,7 @@ git -C "$AUTHOR" remote add origin "$FIXTURE/remote.git"
 git -C "$AUTHOR" push -qu origin main
 git --git-dir="$FIXTURE/remote.git" symbolic-ref HEAD refs/heads/main
 clone() { git clone -q "$FIXTURE/remote.git" "$FIXTURE/$1"; }
-for name in clean dirty staged dirty-unrelated staged-unrelated diverged detached untracked collision dry offline; do clone "$name"; done
+for name in clean dirty staged dirty-unrelated staged-unrelated diverged detached untracked collision dry offline pull-only pull-dry pull-conflict; do clone "$name"; done
 printf 'new\n' > "$AUTHOR/version"
 printf 'incoming\n' > "$AUTHOR/conflict"
 # A changed script must be reloaded, not continue executing old parsed code.
@@ -46,6 +46,21 @@ reject() {
     [[ ! -e $FIXTURE/$checkout/reached && ! -e $FIXTURE/$checkout/reached-new ]] || fail "$checkout crossed update boundary"
     [[ ! -d $FIXTURE/$checkout/.deploy.local ]] || fail "$checkout created deployment state"
 }
+# Pull-only must stop inside the parsed update function, before even re-exec.
+run pull-only --pull-only
+[[ $(git -C "$FIXTURE/pull-only" rev-parse HEAD) == "$LATEST" ]] || fail 'pull-only did not pull'
+[[ ! -e $FIXTURE/pull-only/reached && ! -e $FIXTURE/pull-only/reached-new && ! -d $FIXTURE/pull-only/.deploy.local ]] || fail 'pull-only crossed update boundary'
+grep -q 'Pull-only complete' "$FIXTURE/pull-only.log" || fail 'pull-only completion missing'
+run pull-only deploy --pull-only
+[[ ! -e $FIXTURE/pull-only/reached-new ]] || fail 'up-to-date pull-only crossed boundary'
+BEFORE=$(git -C "$FIXTURE/pull-dry" rev-parse HEAD)
+run pull-dry --pull-only --dry-run
+[[ $(git -C "$FIXTURE/pull-dry" rev-parse HEAD) == "$BEFORE" && ! -e $FIXTURE/pull-dry/reached ]] || fail 'pull-only dry run changed checkout or crossed boundary'
+printf 'local edit\n' >> "$FIXTURE/pull-conflict/version"
+reject pull-conflict --pull-only
+grep -q 'local edit' "$FIXTURE/pull-conflict/version" || fail 'pull-only lost edits'
+reject pull-dry --pull-only --no-pull
+reject pull-dry status --pull-only
 run clean --state-dir "$FIXTURE/state with spaces" --build-jobs 4 --no-incremental
 [[ $(git -C "$FIXTURE/clean" rev-parse HEAD) == "$LATEST" ]] || fail 'did not pull'
 [[ $(cat "$FIXTURE/clean/reached-new") == "$FIXTURE/state with spaces" ]] || fail 'did not re-exec with original arguments'

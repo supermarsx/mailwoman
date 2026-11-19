@@ -13,6 +13,7 @@ umask 077
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ORIGINAL_ARGS=("$@")
 GIT_PULL=true
+PULL_ONLY=false
 STATE="$ROOT/.deploy.local"
 ACTION=deploy
 ACTION_SET=false
@@ -146,6 +147,7 @@ Options:
   --build-jobs N    Limit concurrent Cargo jobs (default: Cargo auto-detects CPUs)
   --incremental     Opt in to cached incremental Rust compilation (off by default: stale incremental state in a reused target cache caused link failures)
   --no-incremental  Force incremental compilation off (the default)
+  --pull-only       Fast-forward the Git checkout, then exit without deploying
   --no-pull         Deploy the current checkout without updating Git
   --apply            Apply maintenance cleanup (otherwise preview only)
   --orphan-bodies    Reclaim cached message bodies with no message reference
@@ -280,6 +282,7 @@ while (($#)); do
         --incremental) BUILD_INCREMENTAL=1 ;;
         --no-incremental) BUILD_INCREMENTAL=0 ;;
         --no-pull) GIT_PULL=false ;;
+        --pull-only) PULL_ONLY=true ;;
         --no-auto-rollback) AUTO_ROLLBACK=false ;;
         --skip-backup) SKIP_BACKUP=true ;;
         --apply) MAINTENANCE_APPLY=true ;;
@@ -295,6 +298,11 @@ while (($#)); do
     esac
     shift
 done
+
+if $PULL_ONLY; then
+    [[ $ACTION == deploy ]] || die "--pull-only applies only to deploy"
+    $GIT_PULL || die "--pull-only cannot be combined with --no-pull"
+fi
 
 if $SKIP_BACKUP; then
     [[ $ACTION == deploy || $ACTION == maintenance && $MAINTENANCE_APPLY == true ]] || die "--skip-backup applies only to deploy or maintenance --apply"
@@ -328,7 +336,7 @@ if $GEOIP && [[ $ACTION != init && $ACTION != deploy ]]; then die "--geoip appli
 # this script. Re-exec the updated script with exactly the original arguments.
 update_checkout() {
     [[ $ACTION == deploy ]] || return 0
-    progress_start
+    if $PULL_ONLY; then log "Pull-only: updating source checkout"; else progress_start; fi
     if ! $GIT_PULL; then
         log "--no-pull: deploying the current checkout"
         if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -347,7 +355,7 @@ update_checkout() {
         die "Deployment needs a Git checkout; use --no-pull for a source archive"
     local before upstream status branch after incoming subject pull_output
     before=$(git -C "$ROOT" rev-parse HEAD) || die "Cannot read Git HEAD"
-    if [[ ${MW_DEPLOY_GIT_SYNCED:-} == "$before" ]]; then
+    if ! $PULL_ONLY && [[ ${MW_DEPLOY_GIT_SYNCED:-} == "$before" ]]; then
         unset MW_DEPLOY_GIT_SYNCED
         unset MW_DEPLOY_PROGRESS_STEP MW_DEPLOY_PROGRESS_STARTED MW_DEPLOY_PHASE_STARTED
         return 0
@@ -381,10 +389,16 @@ update_checkout() {
     while IFS= read -r subject; do
         [[ -z $subject ]] || colored_log "$LOG_DETAIL" "  $(printf '%s' "$subject" | git_subject)"
     done < <(git -C "$ROOT" -c log.showSignature=false log --no-decorate --format='%h %s' --reverse "$before..$after" --)
+    # Do not execute incoming deployment code in pull-only mode.
+    if $PULL_ONLY; then return 0; fi
     export MW_DEPLOY_PROGRESS_STEP=$PROGRESS_STEP MW_DEPLOY_PROGRESS_STARTED=$PROGRESS_STARTED MW_DEPLOY_PHASE_STARTED=$PHASE_STARTED
     exec bash "$ROOT/deploy.sh" "${ORIGINAL_ARGS[@]}"
 }
 update_checkout
+if $PULL_ONLY; then
+    log "Pull-only complete; no build, backup, configuration or containers touched"
+    exit 0
+fi
 phase "Validate configuration and prerequisites"
 
 read_config() {
