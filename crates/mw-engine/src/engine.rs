@@ -1024,12 +1024,11 @@ impl Engine {
 
         let (uidvalidity, uid, uidl) = coords(&raw.message_ref);
         let env_bytes = crate::attachment_metadata::encode(&email);
-        let blob_ref = self.store.put_body(account_id, &raw.raw).await?;
         let flags_json = flags_to_json(&raw.flags);
 
         let (sid, existed) = self
             .store
-            .upsert_message_with_status(&MessageUpsert {
+            .upsert_message_with_body(&MessageUpsert {
                 account_id,
                 mailbox_id,
                 uid,
@@ -1040,8 +1039,8 @@ impl Engine {
                 size: raw.raw.len() as u64,
                 flags_json: &flags_json,
                 envelope: Some(&env_bytes),
-                blob_ref: Some(&blob_ref),
-            })
+                blob_ref: None,
+            }, &raw.raw)
             .await?;
 
         if let Some(uidl) = &uidl {

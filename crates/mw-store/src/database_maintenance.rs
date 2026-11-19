@@ -12,13 +12,19 @@ pub async fn sqlite_maintenance(
     log_days: Option<u32>,
     compact: bool,
 ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+    sqlite_maintenance_with_incremental(path,apply,orphans,log_days,compact,false).await
+}
+
+/// Enable incremental auto-vacuum only during acknowledged offline maintenance.
+pub async fn sqlite_maintenance_with_incremental(path:&Path,apply:bool,orphans:bool,log_days:Option<u32>,compact:bool,enable_incremental:bool)->Result<Value,Box<dyn std::error::Error+Send+Sync>> {
     if !path.is_file() {
         return Err("database file does not exist".into());
     }
     encryption::source_key(path)?; // Fail cleanly before raw_options can panic.
     let options = encryption::raw_options(&path.to_string_lossy(), !apply);
-    maintain_with_options(path, apply, orphans, log_days, compact, &options).await
+    maintain_with_options_incremental(path, apply, orphans, log_days, compact, &options,enable_incremental).await
 }
+#[cfg(test)]
 async fn maintain_with_options(
     path: &Path,
     apply: bool,
@@ -27,6 +33,9 @@ async fn maintain_with_options(
     compact: bool,
     options: &sqlx::sqlite::SqliteConnectOptions,
 ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+    maintain_with_options_incremental(path,apply,orphans,log_days,compact,options,false).await
+}
+async fn maintain_with_options_incremental(path:&Path,apply:bool,orphans:bool,log_days:Option<u32>,compact:bool,options:&sqlx::sqlite::SqliteConnectOptions,enable_incremental:bool)->Result<Value,Box<dyn std::error::Error+Send+Sync>> {
     let mut connection = sqlx::SqliteConnection::connect_with(options).await?;
     let page =
         crate::database_observability::sqlite_pragma_i64(&mut connection, "PRAGMA page_size")
@@ -37,6 +46,7 @@ async fn maintain_with_options(
     let free =
         crate::database_observability::sqlite_pragma_i64(&mut connection, "PRAGMA freelist_count")
             .await?;
+    let auto_vacuum=crate::database_observability::sqlite_pragma_i64(&mut connection,"PRAGMA auto_vacuum").await?;
     let usage=sqlx::query("SELECT COUNT(*) AS n,COALESCE(SUM(length(sealed_bytes)),0) AS bytes FROM bodies WHERE blob_ref NOT IN (SELECT blob_ref FROM messages WHERE blob_ref IS NOT NULL)").fetch_one(&mut connection).await?;
     let orphan_count: i64 = usage.try_get("n")?;
     let orphan_bytes: i64 = usage.try_get("bytes")?;
@@ -98,7 +108,8 @@ async fn maintain_with_options(
         sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(&mut connection)
             .await?;
-        if compact {
+        if enable_incremental { sqlx::query("PRAGMA auto_vacuum=INCREMENTAL").execute(&mut connection).await?; }
+        if compact || enable_incremental && auto_vacuum==0 {
             sqlx::query("VACUUM").execute(&mut connection).await?;
         }
         sqlx::query("PRAGMA optimize")
@@ -111,7 +122,7 @@ async fn maintain_with_options(
     connection.close().await?;
     Ok(
         json!({"applied":apply,"bytesBefore":pages*page,"freeBytesBefore":free*page,"bytesAfter":std::fs::metadata(path)?.len(),
-        "orphanBodies":orphan_count,"orphanBytes":orphan_bytes,"removedBodies":removed,"operationalLogs":logs,"compacted":apply&&compact}),
+        "orphanBodies":orphan_count,"orphanBytes":orphan_bytes,"removedBodies":removed,"operationalLogs":logs,"compacted":apply&&(compact||enable_incremental&&auto_vacuum==0),"autoVacuumBefore":auto_vacuum,"incrementalVacuumEnabled":apply&&enable_incremental,"offlineConversionRequired":enable_incremental&&auto_vacuum==0&&!apply}),
     )
 }
 
@@ -138,6 +149,18 @@ mod tests {
         assert!(db.is_file());
         std::fs::remove_dir_all(dir).unwrap();
     }
+    #[tokio::test]
+    async fn offline_incremental_conversion_preserves_whole_database_encryption(){
+        encryption::init();
+        let dir=std::env::temp_dir().join(format!("mw-convert-incremental-{}",uuid::Uuid::new_v4()));std::fs::create_dir(&dir).unwrap();let path=dir.join("data.db");
+        let key=encryption::DbKey::generate();let options=sqlx::sqlite::SqliteConnectOptions::new().filename(&path).create_if_missing(true).pragma("key",encryption::key_pragma(&key));
+        let mut connection=sqlx::SqliteConnection::connect_with(&options).await.unwrap();
+        sqlx::query("CREATE TABLE bodies(blob_ref TEXT PRIMARY KEY,sealed_bytes BLOB);CREATE TABLE messages(blob_ref TEXT);INSERT INTO bodies VALUES('live',zeroblob(4096));INSERT INTO messages VALUES('live')").execute(&mut connection).await.unwrap();connection.close().await.unwrap();
+        let preview=maintain_with_options_incremental(&path,false,false,None,false,&options,true).await.unwrap();assert_eq!(preview["offlineConversionRequired"],true);
+        let result=maintain_with_options_incremental(&path,true,false,None,false,&options,true).await.unwrap();assert_eq!(result["incrementalVacuumEnabled"],true);assert_eq!(encryption::probe_file(&path).unwrap(),encryption::FileState::NotPlaintext);
+        let mut connection=sqlx::SqliteConnection::connect_with(&options).await.unwrap();assert_eq!(crate::database_observability::sqlite_pragma_i64(&mut connection,"PRAGMA auto_vacuum").await.unwrap(),2);assert_eq!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM bodies").fetch_one(&mut connection).await.unwrap(),1);connection.close().await.unwrap();std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[tokio::test]
     async fn compaction_preserves_whole_database_encryption() {
         encryption::init();

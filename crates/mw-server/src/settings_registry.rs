@@ -7881,6 +7881,17 @@ pub static REGISTRY: &[SettingDef] = &[
         "privacy",
         "Spread of the daily start time"
     ),
+    def!("maintenance.database.enabled",Kind::Bool,"true",G,"privacy","Enable bounded background database maintenance"),
+    def!("maintenance.database.orphanBodies",Kind::Bool,"true",G,"privacy","Collect unreferenced cached MIME bodies after a grace period; live message bodies are preserved"),
+    def!("maintenance.database.incrementalVacuum",Kind::Bool,"true",G,"privacy","Reclaim free SQLite pages incrementally; existing databases require offline conversion once"),
+    def!("maintenance.database.intervalSeconds",int(15,86400),"60",G,"privacy","Idle seconds between maintenance batches"),
+    def!("maintenance.database.batchRows",int(1,512),"64",G,"privacy","Maximum bodies scanned and collected per batch"),
+    def!("maintenance.database.batchMiB",int(1,256),"16",G,"privacy","Maximum sealed body payload deleted per batch; larger bodies require offline cleanup"),
+    def!("maintenance.database.graceHours",int(1,720),"24",G,"privacy","Minimum hours an unreferenced body remains eligible before deletion"),
+    def!("maintenance.database.batchPages",int(8,16384),"1024",G,"privacy","Maximum SQLite pages reclaimed per batch in eight-page steps"),
+    def!("maintenance.database.maxRunMs",int(25,2000),"250",G,"privacy","SQL execution budget per batch; lock waits and bounded passive checkpoints can add time"),
+    def!("maintenance.database.minFreeMiB",int(0,65536),"16",G,"privacy","Minimum SQLite free space before reclaiming pages"),
+    def!("maintenance.database.maxWalMiB",int(1,1024),"32",G,"privacy","Defer body collection, incremental vacuum and passive checkpoints when WAL files exceed this size"),
     def!(
         "retention.sweeper.vacuumAfterRows",
         int(0, 100000000),

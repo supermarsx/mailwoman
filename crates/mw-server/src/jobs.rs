@@ -1020,6 +1020,10 @@ pub(crate) async fn observe(
 /// `FULL`).
 async fn vacuum(ctx: JobCtx) -> Result<JobOutput, String> {
     let state = ctx.state()?;
+    if state.store.uses_sqlite(){
+        let report=crate::background_maintenance::run_once(state).await?;
+        return Ok(JobOutput::new("bounded SQLite maintenance batch finished",report));
+    }
     state
         .store
         .vacuum_database()

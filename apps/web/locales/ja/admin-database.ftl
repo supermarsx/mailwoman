@@ -73,3 +73,12 @@ admin-db-live-bytes = 参照されているキャッシュ本文のバイト数
 admin-db-analysis-help = 自動の読み取り専用分析で、測定した使用量を並べます。データ量にはインデックスとページの管理領域を含みません。物理サイズが不明でも測定済みのデータ量を表示します。
 admin-db-breakdown = 容量の使用内訳
 admin-db-history-period = { $from } — { $to }
+
+admin-db-background-title = バックグラウンドのデータベース保守
+admin-db-background-configure = 保守を設定
+admin-db-background-run = バッチを実行
+admin-db-background-help = 少量ずつ、猶予期間後に参照のない本文を削除し、対象のSQLiteページを回収します。参照のあるメールは保持されます。状態は再起動時にリセットされます。
+admin-db-background-result = 走査: { $scanned } · 削除: { $removed }（{ $bytes }）· 回収ページ: { $pages }
+admin-db-background-conversion = このデータベースには一度だけオフライン変換が必要です。まず --apply なしでコマンドを確認してください。
+admin-db-background-deferred = データベースの使用中、作業上限、またはWALの負荷により保守を延期しました。自動的に再試行します。
+admin-db-background-next = 次のバッチ: { $time }

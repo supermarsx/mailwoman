@@ -151,6 +151,7 @@ Options:
   --no-pull         Deploy the current checkout without updating Git
   --apply            Apply maintenance cleanup (otherwise preview only)
   --orphan-bodies    Reclaim cached message bodies with no message reference
+  --enable-incremental-vacuum  Enable background page reclamation (one offline rebuild if needed)
   --compact          Rebuild SQLite to reclaim free pages
   --purge-search-index  Remove the default index; rebuild from Maintenance afterwards
   --logs-older-than-days N  Purge operational diagnostics older than N days (0 = all)
@@ -286,7 +287,7 @@ while (($#)); do
         --no-auto-rollback) AUTO_ROLLBACK=false ;;
         --skip-backup) SKIP_BACKUP=true ;;
         --apply) MAINTENANCE_APPLY=true ;;
-        --orphan-bodies|--compact|--purge-search-index) MAINTENANCE_OPTIONS+=("$1") ;;
+        --orphan-bodies|--compact|--purge-search-index|--enable-incremental-vacuum) MAINTENANCE_OPTIONS+=("$1") ;;
         --logs-older-than-days) need_value "$@"; [[ $2 =~ ^[0-9]{1,6}$ ]] || die "Invalid log age in days"; MAINTENANCE_OPTIONS+=("$1" "$2"); shift ;;
         --replaced) PRUNE_REPLACED=true ;;
         --yes) ASSUME_YES=true ;;

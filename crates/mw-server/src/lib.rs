@@ -226,6 +226,7 @@ pub mod prefs_routes;
 // defaults, scopes, environment precedence, the limit ceiling) and its routes.
 mod admin_dashboard;
 mod admin_database;
+mod background_maintenance;
 pub mod application_logs;
 mod audit_projection;
 mod auth_logs;
@@ -1459,6 +1460,7 @@ async fn build_app_inner(
     compliance_mail::start(state.clone());
     operational_incidents::start(state.clone());
     admin_database::start(state.clone());
+    background_maintenance::start(state.clone());
     dsr::start(state.clone());
     breach::start(state.clone());
     image_proxy::remote_content::start_capacity_monitor(state.clone());

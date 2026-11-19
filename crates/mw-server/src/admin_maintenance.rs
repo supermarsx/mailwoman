@@ -72,6 +72,7 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
         search_index_status,
     );
     r.admin_endpoint(Method::POST,"/maintenance/logs",Capability::MaintenanceRun,maintain_logs);
+    r.admin_endpoint(Method::POST,"/maintenance/database-background",Capability::MaintenanceRun,background_database);
     // t76: the console's own address for the metadata passthrough. The admin
     // cookie is scoped to the console path, so the browser no longer sends it to
     // `/jmap/api`; the console posts the same JMAP request here instead.
@@ -81,6 +82,20 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
         Capability::ServerMetadataWrite,
         metadata_jmap,
     );
+}
+
+async fn background_database(State(state):State<AppState>,ctx:AdminCtx)->Result<Response,crate::admin_ctx::AdminApiError>{
+    ctx.require_unscoped(Capability::MaintenanceRun)?;
+    let actor=ctx.username.clone();
+    let result=tokio::spawn(async move {
+        let result=crate::background_maintenance::run_once(&state).await;
+        if let Ok(report)=&result{audit(&state,&actor,"background-database-maintenance","database",report.clone()).await;}
+        result
+    }).await.map_err(crate::admin_ctx::AdminApiError::internal)?;
+    match result {
+        Ok(report)=>Ok(([(axum::http::header::CACHE_CONTROL,"no-store")],Json(report)).into_response()),
+        Err(_)=>Ok((StatusCode::TOO_MANY_REQUESTS,[(axum::http::header::RETRY_AFTER,"5")],Json(json!({"code":"maintenanceBusy"}))).into_response()),
+    }
 }
 
 #[derive(Deserialize)]

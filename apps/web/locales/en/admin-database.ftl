@@ -73,3 +73,12 @@ admin-db-live-bytes = Referenced cached body bytes
 admin-db-analysis-help = Automatic read-only analysis ranks measured storage consumers. Payload excludes indexes and page overhead; unavailable physical sizes do not hide payload measurements.
 admin-db-breakdown = What uses the space
 admin-db-history-period = { $from } — { $to }
+
+admin-db-background-title = Background database maintenance
+admin-db-background-configure = Configure maintenance
+admin-db-background-run = Run a batch
+admin-db-background-help = Small batches collect unreferenced bodies after a grace period and reclaim eligible SQLite pages. Live mail stays referenced and is preserved. Status resets on restart.
+admin-db-background-result = Scanned: { $scanned } · Removed: { $removed } ({ $bytes }) · Reclaimed pages: { $pages }
+admin-db-background-conversion = This existing database needs a one-time offline conversion before incremental reclamation can run. Preview the command without --apply first.
+admin-db-background-deferred = Maintenance yielded to a busy database, its work budget, or WAL pressure. It will retry automatically.
+admin-db-background-next = Next batch: { $time }

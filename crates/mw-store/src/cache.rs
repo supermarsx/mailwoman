@@ -773,11 +773,31 @@ impl Store {
         &self,
         m: &MessageUpsert<'_>,
     ) -> Result<(String, bool), StoreError> {
+        let tx = self.backend.begin().await?;
+        self.upsert_message_tx(m, tx).await
+    }
+
+    /// Store the immutable MIME body and attach it atomically against background GC.
+    pub async fn upsert_message_with_body(&self, m: &MessageUpsert<'_>, raw: &[u8]) -> Result<(String, bool), StoreError> {
+        let (blob_ref, sealed) = self.prepare_body(m.account_id,raw).await?;
+        let mut tx = self.backend.begin().await?;
+        self.put_body_tx(m.account_id, &blob_ref, raw, sealed, false, &mut tx).await?;
+        let m = MessageUpsert { blob_ref: Some(&blob_ref), ..m.clone() };
+        self.upsert_message_tx(&m, tx).await
+    }
+
+    async fn upsert_message_tx(&self, m: &MessageUpsert<'_>, mut tx: crate::backend::Tx) -> Result<(String, bool), StoreError> {
+        crate::background_maintenance::lock_body_account(&mut tx, m.account_id).await?;
+        if let Some(blob) = m.blob_ref {
+            if q("SELECT blob_ref FROM bodies WHERE blob_ref=?1 AND account_id=?2").bind(blob).bind(m.account_id).fetch_opt_scalar_string_tx(&mut tx).await?.is_none() {
+                return Err(StoreError::NotFound);
+            }
+            q("DELETE FROM body_gc_candidate WHERE blob_ref=?1").bind(blob).execute_tx(&mut tx).await?;
+        }
         let sealed_env = match m.envelope {
             Some(bytes) => Some(self.key.seal(bytes)?),
             None => None,
         };
-        let mut tx = self.backend.begin().await?;
 
         // Portable row lock and ownership predicate in the write transaction.
         // A missing and a foreign mailbox have the same public outcome.
@@ -1596,22 +1616,33 @@ impl Store {
     /// account-bound reference prevents both cross-account correlation and an
     /// ever-growing duplicate blob on every authoritative resync.
     pub async fn put_body(&self, account_id: &str, plaintext: &[u8]) -> Result<String, StoreError> {
-        use sha2::{Digest, Sha256};
-        let account_key = seal::hmac_sha256(&self.key.derive("mw-body-reference-v1"), account_id.as_bytes());
-        let tag = seal::hmac_sha256(&account_key, &Sha256::digest(plaintext));
-        let blob_ref: String = tag.iter().map(|byte| format!("{byte:02x}")).collect();
-        if q("SELECT blob_ref FROM bodies WHERE blob_ref=?1 AND account_id=?2")
-            .bind(&blob_ref).bind(account_id).fetch_optional(&self.backend).await?.is_some() {
-            return Ok(blob_ref);
+        let (reference,sealed)=self.prepare_body(account_id,plaintext).await?;
+        let mut tx = self.backend.begin().await?;
+        self.put_body_tx(account_id,&reference,plaintext,sealed,true,&mut tx).await?;
+        tx.commit().await?;
+        Ok(reference)
+    }
+
+    // Hashing and normally sealing happen before taking the database write lock.
+    async fn prepare_body(&self,account_id:&str,plaintext:&[u8])->Result<(String,Option<Vec<u8>>),StoreError>{
+        use sha2::{Digest,Sha256};
+        let account_key=seal::hmac_sha256(&self.key.derive("mw-body-reference-v1"),account_id.as_bytes());
+        let tag=seal::hmac_sha256(&account_key,&Sha256::digest(plaintext));
+        let reference:String=tag.iter().map(|byte|format!("{byte:02x}")).collect();
+        let exists=q("SELECT blob_ref FROM bodies WHERE blob_ref=?1 AND account_id=?2").bind(&reference).bind(account_id).fetch_optional(&self.backend).await?.is_some();
+        Ok((reference,if exists {None}else{Some(self.key.seal(plaintext)?)}))
+    }
+    async fn put_body_tx(&self,account_id:&str,blob_ref:&str,plaintext:&[u8],prepared:Option<Vec<u8>>,lease:bool,tx:&mut crate::backend::Tx)->Result<(),StoreError>{
+        crate::background_maintenance::lock_body_account(tx,account_id).await?;
+        if q("SELECT blob_ref FROM bodies WHERE blob_ref=?1 AND account_id=?2").bind(blob_ref).bind(account_id).fetch_opt_scalar_string_tx(tx).await?.is_none(){
+            // GC may have removed an old unreferenced copy since prepare_body.
+            let sealed=match prepared {Some(bytes)=>bytes,None=>self.key.seal(plaintext)?};
+            q("INSERT INTO bodies(blob_ref,account_id,sealed_bytes) VALUES(?1,?2,?3) ON CONFLICT(blob_ref) DO NOTHING").bind(blob_ref).bind(account_id).bind(sealed).execute_tx(tx).await?;
         }
-        let sealed = self.key.seal(plaintext)?;
-        q("INSERT INTO bodies (blob_ref, account_id, sealed_bytes) VALUES (?1, ?2, ?3) ON CONFLICT(blob_ref) DO NOTHING")
-            .bind(&blob_ref)
-            .bind(account_id)
-            .bind(sealed)
-            .execute(&self.backend)
-            .await?;
-        Ok(blob_ref)
+        if lease {
+            q("INSERT INTO body_gc_candidate(blob_ref,first_seen) VALUES(?1,?2) ON CONFLICT(blob_ref) DO UPDATE SET first_seen=excluded.first_seen").bind(blob_ref).bind(Utc::now().timestamp()).execute_tx(tx).await?;
+        }
+        Ok(())
     }
 
     /// Open a stored body blob.

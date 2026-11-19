@@ -73,3 +73,12 @@ admin-db-live-bytes = Bytes van gekoppelde berichtinhoud in cache
 admin-db-analysis-help = De automatische alleen-lezenanalyse rangschikt gemeten opslag. Inhoud sluit indexen en paginaoverhead uit; ontbrekende fysieke groottes verbergen geen gemeten inhoud.
 admin-db-breakdown = Wat neemt ruimte in
 admin-db-history-period = { $from } — { $to }
+
+admin-db-background-title = Databaseonderhoud op de achtergrond
+admin-db-background-configure = Onderhoud instellen
+admin-db-background-run = Batch uitvoeren
+admin-db-background-help = Kleine batches verwijderen na een wachttijd inhoud zonder verwijzingen en maken geschikte SQLite-pagina’s vrij. Berichten met verwijzingen blijven behouden. De status wordt bij herstart gewist.
+admin-db-background-result = Gescand: { $scanned } · Verwijderd: { $removed } ({ $bytes }) · Vrijgemaakte pagina’s: { $pages }
+admin-db-background-conversion = Deze database vereist een eenmalige offline conversie. Bekijk de opdracht eerst zonder --apply.
+admin-db-background-deferred = Onderhoud is uitgesteld wegens databaseactiviteit, de werklimiet of WAL-druk. Het wordt automatisch opnieuw geprobeerd.
+admin-db-background-next = Volgende batch: { $time }

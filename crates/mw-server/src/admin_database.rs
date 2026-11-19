@@ -53,7 +53,9 @@ async fn report(
     };
     let value = tokio::spawn(async move {
         let _permit = permit;
-        state.store.database_observability(options.detailed).await
+        let mut value=state.store.database_observability(options.detailed).await?;
+        value["backgroundMaintenance"]=crate::background_maintenance::status(&state.store);
+        Ok::<_,mw_store::StoreError>(value)
     })
     .await
     .map_err(AdminApiError::internal)??;

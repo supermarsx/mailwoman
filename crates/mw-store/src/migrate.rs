@@ -820,6 +820,12 @@ const TABLES: &[TableSpec] = &[
         map: |r| vec![t(r, "blob_ref"), t(r, "account_id"), b(r, "sealed_bytes")],
     },
     TableSpec {
+        name: "body_gc_candidate",
+        select: "SELECT blob_ref,first_seen FROM body_gc_candidate",
+        insert: "INSERT INTO body_gc_candidate(blob_ref,first_seen) VALUES(?1,?2)",
+        map: |r| vec![t(r,"blob_ref"),i(r,"first_seen")],
+    },
+    TableSpec {
         name: "threads",
         select: "SELECT thread_id, account_id, root_message_id FROM threads",
         insert: "INSERT INTO threads (thread_id, account_id, root_message_id) VALUES (?1,?2,?3)",

@@ -140,3 +140,50 @@ also processes it using the configured batch limit.
 
 Do not infer that a counter replaces security evidence: sign-in, audit, incident,
 compliance and legal-hold retention keep their own policy and minimization rules.
+
+## Background maintenance
+
+The server starts bounded batches 30 seconds after startup. Defaults are one batch
+per minute, 64 bodies, at most 16 MiB of deleted sealed payload, a 24-hour orphan
+grace period, and 1,024 SQLite pages in eight-page steps. The SQL work budget is
+250 ms; a short lock wait and a size-limited passive checkpoint can add time.
+The worker uses a dedicated connection with a 50 ms lock timeout and yields when
+foreground work owns the database. It never runs a full SQLite `VACUUM` online.
+
+Observability → Database shows the last batch, scanned and removed bodies, freed
+pages, deferral reasons, and the next batch. **Run a batch** uses the same limits
+and policy as the scheduler. **Configure maintenance** opens the administrator
+settings. All `maintenance.database.*` controls are global and hot-reloaded for
+the next batch. Batch history and cursors are in memory; restarting starts a new
+scan. The orphan grace timestamps are durable and survive a restart.
+
+Orphan cleanup never deletes messages. It deletes only sealed cache bodies that
+still have no message reference at the point of deletion. A first observation
+starts the grace period, including for legacy rows. Ingestion stores a body and
+its reference in one transaction. PostgreSQL additionally serializes that
+lifecycle per account with transaction advisory locks. Standalone body writers
+renew a lease, and attaching a missing body is refused instead of creating a
+dangling reference. Oversized individual bodies are left for offline cleanup;
+raise the batch byte limit or use the existing offline orphan command.
+
+New SQLite databases use incremental auto-vacuum. An existing database in NONE
+mode needs one offline conversion, which rebuilds the database once and can need
+substantial temporary disk space. Preview first:
+
+```sh
+./deploy.sh maintenance --enable-incremental-vacuum
+./deploy.sh maintenance --apply --enable-incremental-vacuum
+```
+
+The apply command stops the app, takes a backup by default, converts, and resumes
+it. `--skip-backup` is an explicit operator opt-out. Whole-database encryption is
+preserved. No startup or background job performs this conversion automatically.
+Existing FULL auto-vacuum databases keep their mode. PostgreSQL uses its native
+autovacuum for physical reclamation; body collection uses the same grace policy.
+
+Free pages may be reused without making the file smaller. Both body collection and incremental reclamation
+are deferred when the WAL file exceeds `maintenance.database.maxWalMiB` (32 MiB by
+default), avoiding a background job checkpointing an arbitrarily large WAL.
+Long readers can delay physical shrinkage. No background checkpoint uses TRUNCATE
+or waits for readers. The daily retention and weekly vacuum jobs delegate SQLite reclamation to
+this worker; the explicit full-compaction maintenance command remains offline.

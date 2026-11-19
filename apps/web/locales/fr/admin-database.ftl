@@ -73,3 +73,12 @@ admin-db-live-bytes = Octets des corps en cache référencés
 admin-db-analysis-help = L’analyse automatique en lecture seule classe les consommations mesurées. Le contenu exclut les index et les surcoûts des pages ; une taille physique indisponible ne masque pas le contenu mesuré.
 admin-db-breakdown = Occupation de l’espace
 admin-db-history-period = { $from } — { $to }
+
+admin-db-background-title = Maintenance de la base en arrière-plan
+admin-db-background-configure = Configurer la maintenance
+admin-db-background-run = Exécuter un lot
+admin-db-background-help = De petits lots suppriment les corps sans référence après un délai de sécurité et récupèrent les pages SQLite admissibles. Les messages référencés sont conservés. Le statut est réinitialisé au redémarrage.
+admin-db-background-result = Analysés : { $scanned } · Supprimés : { $removed } ({ $bytes }) · Pages récupérées : { $pages }
+admin-db-background-conversion = Cette base nécessite une conversion hors ligne unique. Prévisualisez la commande sans --apply avant de l’appliquer.
+admin-db-background-deferred = La maintenance a cédé devant l’activité, sa limite de travail ou la pression du WAL. Elle réessaiera automatiquement.
+admin-db-background-next = Prochain lot : { $time }

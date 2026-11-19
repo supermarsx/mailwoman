@@ -73,3 +73,12 @@ admin-db-live-bytes = Bajty powiązanych treści w pamięci podręcznej
 admin-db-analysis-help = Automatyczna analiza tylko do odczytu porządkuje zmierzone zużycie. Dane nie obejmują indeksów i narzutu stron; brak rozmiaru fizycznego nie ukrywa zmierzonych danych.
 admin-db-breakdown = Co zajmuje miejsce
 admin-db-history-period = { $from } — { $to }
+
+admin-db-background-title = Konserwacja bazy danych w tle
+admin-db-background-configure = Konfiguruj konserwację
+admin-db-background-run = Uruchom partię
+admin-db-background-help = Małe partie usuwają treści bez odwołań po okresie ochronnym i odzyskują odpowiednie strony SQLite. Wiadomości z odwołaniami są zachowywane. Stan jest resetowany przy restarcie.
+admin-db-background-result = Sprawdzone: { $scanned } · Usunięte: { $removed } ({ $bytes }) · Odzyskane strony: { $pages }
+admin-db-background-conversion = Ta baza wymaga jednorazowej konwersji offline. Najpierw wyświetl podgląd polecenia bez --apply.
+admin-db-background-deferred = Konserwację odroczono z powodu zajętości bazy, limitu pracy lub obciążenia WAL. Próba zostanie ponowiona automatycznie.
+admin-db-background-next = Następna partia: { $time }

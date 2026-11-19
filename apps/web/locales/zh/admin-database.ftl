@@ -73,3 +73,12 @@ admin-db-live-bytes = 仍被引用的缓存正文大小
 admin-db-analysis-help = 自动只读分析按测得的存储用量排序。数据量不含索引和页面开销；物理大小不可用时仍显示测得的数据量。
 admin-db-breakdown = 空间占用明细
 admin-db-history-period = { $from } — { $to }
+
+admin-db-background-title = 后台数据库维护
+admin-db-background-configure = 配置维护
+admin-db-background-run = 运行一批
+admin-db-background-help = 以小批量在宽限期后清理无引用的正文并回收符合条件的SQLite页面。有引用的邮件会保留。状态在重启后重置。
+admin-db-background-result = 已扫描：{ $scanned } · 已移除：{ $removed }（{ $bytes }）· 已回收页面：{ $pages }
+admin-db-background-conversion = 此数据库需要进行一次离线转换。请先去掉 --apply 预览命令。
+admin-db-background-deferred = 因数据库忙碌、工作量限制或WAL压力，维护已推迟。系统会自动重试。
+admin-db-background-next = 下一批：{ $time }

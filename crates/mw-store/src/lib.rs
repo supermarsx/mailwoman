@@ -35,6 +35,7 @@ pub mod diag;
 pub mod database_observability;
 pub mod database_growth;
 pub mod database_maintenance;
+pub mod background_maintenance;
 pub mod diagnostics;
 mod directory_display;
 pub mod feature_governance;
@@ -333,6 +334,9 @@ impl Store {
         self.cache_id
     }
 
+    /// Whether live maintenance must use bounded SQLite reclamation.
+    pub fn uses_sqlite(&self) -> bool { matches!(self.backend, Backend::Sqlite(_)) }
+
     /// Open a store, selecting the backend by DSN (plan §1.1):
     ///
     /// * `postgres://…` / `postgresql://…` → the Postgres backend
@@ -447,6 +451,16 @@ impl Store {
     }
 
     async fn init_sqlite(pool: SqlitePool, key: ServerKey) -> Result<Self, StoreError> {
+        // Only new databases: existing NONE-mode databases need an explicit offline rebuild.
+        let mut initial=pool.acquire().await?;
+        let tables:i64=sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetch_one(&mut *initial).await?;
+        if tables==0 {
+            sqlx::query("PRAGMA auto_vacuum=INCREMENTAL").execute(&mut *initial).await?;
+            // WAL initializes a database header before any table is created, so
+            // SQLite needs this tiny EMPTY-database rebuild to install pointer maps.
+            sqlx::query("VACUUM").execute(&mut *initial).await?;
+        }
+        drop(initial);
         sqlx::migrate!("./migrations").run(&pool).await?;
         let store = Self {
             backend: Backend::Sqlite(pool),

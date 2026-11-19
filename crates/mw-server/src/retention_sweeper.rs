@@ -422,7 +422,7 @@ pub(crate) async fn run(state: &AppState, dry_run: bool, by: &str) -> Report {
     let total = report.total();
     let threshold = num(&state.store, "retention.sweeper.vacuumAfterRows").await;
     if threshold > 0 && total >= threshold as u64 {
-        report.vacuumed = state.store.vacuum_database().await.is_ok();
+        report.vacuumed = crate::background_maintenance::reclaim_after_retention(state).await;
     }
     for s in &report.stores {
         metrics::counter!("mw_retention_rows_deleted_total", "store" => s.id).increment(s.rows);

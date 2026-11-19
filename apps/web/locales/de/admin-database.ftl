@@ -73,3 +73,12 @@ admin-db-live-bytes = Referenzierte Nachrichtendaten im Cache
 admin-db-analysis-help = Die automatische schreibgeschützte Analyse sortiert den gemessenen Speicherverbrauch. Nutzdaten enthalten keine Indizes oder Seitenverwaltung; fehlende physische Größen verbergen keine gemessenen Nutzdaten.
 admin-db-breakdown = Speicherverbrauch
 admin-db-history-period = { $from } — { $to }
+
+admin-db-background-title = Datenbankwartung im Hintergrund
+admin-db-background-configure = Wartung konfigurieren
+admin-db-background-run = Stapel ausführen
+admin-db-background-help = Kleine Stapel entfernen nach einer Schonfrist nicht referenzierte Inhalte und geben geeignete SQLite-Seiten frei. Referenzierte Nachrichten bleiben erhalten. Der Status wird beim Neustart zurückgesetzt.
+admin-db-background-result = Geprüft: { $scanned } · Entfernt: { $removed } ({ $bytes }) · Freigegebene Seiten: { $pages }
+admin-db-background-conversion = Diese Datenbank benötigt einmalig eine Offline-Konvertierung. Zeigen Sie den Befehl zunächst ohne --apply an.
+admin-db-background-deferred = Die Wartung wurde wegen Datenbankaktivität, Arbeitslimit oder WAL-Auslastung verschoben. Sie wird automatisch wiederholt.
+admin-db-background-next = Nächster Stapel: { $time }

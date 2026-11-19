@@ -73,3 +73,12 @@ admin-db-live-bytes = بايتات أجسام الرسائل المرتبطة ف
 admin-db-analysis-help = يرتب التحليل التلقائي للقراءة فقط الاستهلاك المقاس. لا يشمل المحتوى الفهارس وتكاليف الصفحات؛ غياب الحجم الفعلي لا يخفي المحتوى المقاس.
 admin-db-breakdown = ما الذي يشغل المساحة
 admin-db-history-period = { $from } — { $to }
+
+admin-db-background-title = صيانة قاعدة البيانات في الخلفية
+admin-db-background-configure = إعداد الصيانة
+admin-db-background-run = تشغيل دفعة
+admin-db-background-help = تزيل دفعات صغيرة المحتوى غير المرتبط بعد فترة حماية وتستعيد صفحات SQLite المؤهلة. تُحفظ الرسائل المرتبطة. تُعاد الحالة عند إعادة التشغيل.
+admin-db-background-result = تم الفحص: { $scanned } · تمت الإزالة: { $removed } ({ $bytes }) · الصفحات المستعادة: { $pages }
+admin-db-background-conversion = تحتاج قاعدة البيانات إلى تحويل دون اتصال لمرة واحدة. عاين الأمر أولًا دون --apply.
+admin-db-background-deferred = أُجلت الصيانة لانشغال القاعدة أو بلوغ حد العمل أو ضغط WAL. ستُعاد المحاولة تلقائيًا.
+admin-db-background-next = الدفعة التالية: { $time }

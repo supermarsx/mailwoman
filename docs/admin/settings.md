@@ -4332,3 +4332,14 @@ Built-in default: `built-in ordered actions`. Administrator policy can hold the 
 
 
 The JSON action socket dispatches up to eight independent requests concurrently, preserving IDs and all normal HTTP authorization, account, CSRF and policy checks. Eligible account JSON reads (including drafts, preferences, receipt decisions and appearance configuration) use the socket when enabled; bootstrap/authentication, binary files and browser-native credential flows retain their HTTP transports. A socket that cannot open still permits pre-dispatch HTTP fallback. Lost mutation acknowledgements are not automatically replayed.
+
+### Background database maintenance
+
+Global-only, hot-reloaded controls: `maintenance.database.enabled`,
+`maintenance.database.orphanBodies`, `maintenance.database.incrementalVacuum`,
+`maintenance.database.intervalSeconds`, `maintenance.database.batchRows`,
+`maintenance.database.batchMiB`, `maintenance.database.graceHours`,
+`maintenance.database.batchPages`, `maintenance.database.maxRunMs`,
+`maintenance.database.minFreeMiB`, and `maintenance.database.maxWalMiB`.
+See [database maintenance](database-maintenance.md#background-maintenance) for
+limits, conversion requirements and live-system behavior.
