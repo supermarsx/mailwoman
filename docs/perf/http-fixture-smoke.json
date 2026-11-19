@@ -1,0 +1,582 @@
+{
+  "generatedAt": "2026-11-19T22:31:20.890Z",
+  "target": "isolated ephemeral loopback fixture",
+  "scenario": "simulated authenticated transport; NOT Mailwoman application capacity",
+  "model": "bounded open-loop fixed arrivals; includes generator drops",
+  "runtime": "v24.14.1",
+  "stages": [
+    {
+      "fixtureProtection": false,
+      "cache": "initially cold then warm",
+      "concurrency": 64,
+      "scheduledSeconds": 0.3,
+      "elapsedSeconds": 0.3050032,
+      "arrivalRate": 20000,
+      "offered": 6000,
+      "attempted": 256,
+      "attemptedRequestsPerSecond": 853.3333333333334,
+      "achievedRequestsPerSecond": 839.3354561525913,
+      "acceptedDuringScheduledWindow": 253,
+      "acceptedDuringScheduledWindowRps": 843.3333333333334,
+      "droppedCapacity": 5448,
+      "droppedScheduler": 296,
+      "peakOutstanding": 64,
+      "schedulingLagMs": {
+        "mean": 31.03176992187505,
+        "p50": 27,
+        "p95": 58,
+        "p99": 60,
+        "max": 60.22579999999999
+      },
+      "plannedArrivalLatencyMs": {
+        "mean": 82.7346671875,
+        "p50": 76,
+        "p95": 128,
+        "p99": 133,
+        "max": 134.1869
+      },
+      "requests": 256,
+      "requestsPerSecond": 839.3354561525913,
+      "bytes": 12671,
+      "accepted": 256,
+      "acceptedRequestsPerSecond": 839.3354561525913,
+      "errors": 0,
+      "throttled": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 256
+      },
+      "latencyMs": {
+        "mean": 51.70032578124998,
+        "p50": 37,
+        "p95": 104,
+        "p99": 108,
+        "max": 109.5378
+      },
+      "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100",
+      "byRequest": {
+        "fixture-read": {
+          "requests": 128,
+          "requestsPerSecond": 419.66772807629565,
+          "bytes": 6143,
+          "accepted": 128,
+          "acceptedRequestsPerSecond": 419.66772807629565,
+          "errors": 0,
+          "throttled": 0,
+          "timeouts": 0,
+          "statuses": {
+            "200": 128
+          },
+          "latencyMs": {
+            "mean": 51.71194921875001,
+            "p50": 37,
+            "p95": 104,
+            "p99": 108,
+            "max": 109.5378
+          },
+          "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100"
+        },
+        "fixture-concurrent-refresh": {
+          "requests": 128,
+          "requestsPerSecond": 419.66772807629565,
+          "bytes": 6528,
+          "accepted": 128,
+          "acceptedRequestsPerSecond": 419.66772807629565,
+          "errors": 0,
+          "throttled": 0,
+          "timeouts": 0,
+          "statuses": {
+            "200": 128
+          },
+          "latencyMs": {
+            "mean": 51.68870234375,
+            "p50": 36,
+            "p95": 104,
+            "p99": 107,
+            "max": 108.39760000000001
+          },
+          "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100"
+        }
+      }
+    },
+    {
+      "fixtureProtection": false,
+      "cache": "warm",
+      "concurrency": 64,
+      "scheduledSeconds": 0.3,
+      "elapsedSeconds": 0.3081818,
+      "arrivalRate": 50000,
+      "offered": 15000,
+      "attempted": 642,
+      "attemptedRequestsPerSecond": 2140,
+      "achievedRequestsPerSecond": 2083.1859636097915,
+      "acceptedDuringScheduledWindow": 578,
+      "acceptedDuringScheduledWindowRps": 1926.6666666666667,
+      "droppedCapacity": 14353,
+      "droppedScheduler": 5,
+      "peakOutstanding": 64,
+      "schedulingLagMs": {
+        "mean": 15.394027725856692,
+        "p50": 16,
+        "p95": 24,
+        "p99": 31,
+        "max": 31.68780000000004
+      },
+      "plannedArrivalLatencyMs": {
+        "mean": 35.41842585669783,
+        "p50": 34,
+        "p95": 50,
+        "p99": 56,
+        "max": 57.03360000000009
+      },
+      "requests": 642,
+      "requestsPerSecond": 2083.1859636097915,
+      "bytes": 31779,
+      "accepted": 642,
+      "acceptedRequestsPerSecond": 2083.1859636097915,
+      "errors": 0,
+      "throttled": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 642
+      },
+      "latencyMs": {
+        "mean": 20.023148753894073,
+        "p50": 21,
+        "p95": 29,
+        "p99": 30,
+        "max": 33.94719999999995
+      },
+      "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100",
+      "byRequest": {
+        "fixture-read": {
+          "requests": 321,
+          "requestsPerSecond": 1041.5929818048958,
+          "bytes": 15408,
+          "accepted": 321,
+          "acceptedRequestsPerSecond": 1041.5929818048958,
+          "errors": 0,
+          "throttled": 0,
+          "timeouts": 0,
+          "statuses": {
+            "200": 321
+          },
+          "latencyMs": {
+            "mean": 20.01312492211839,
+            "p50": 21,
+            "p95": 29,
+            "p99": 30,
+            "max": 33.573800000000006
+          },
+          "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100"
+        },
+        "fixture-concurrent-refresh": {
+          "requests": 321,
+          "requestsPerSecond": 1041.5929818048958,
+          "bytes": 16371,
+          "accepted": 321,
+          "acceptedRequestsPerSecond": 1041.5929818048958,
+          "errors": 0,
+          "throttled": 0,
+          "timeouts": 0,
+          "statuses": {
+            "200": 321
+          },
+          "latencyMs": {
+            "mean": 20.033172585669796,
+            "p50": 21,
+            "p95": 29,
+            "p99": 30,
+            "max": 33.94719999999995
+          },
+          "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100"
+        }
+      }
+    },
+    {
+      "fixtureProtection": false,
+      "cache": "warm",
+      "concurrency": 64,
+      "scheduledSeconds": 0.3,
+      "elapsedSeconds": 0.31855039999999996,
+      "arrivalRate": 100000,
+      "offered": 30000,
+      "attempted": 897,
+      "attemptedRequestsPerSecond": 2990,
+      "achievedRequestsPerSecond": 2815.8809406611954,
+      "acceptedDuringScheduledWindow": 833,
+      "acceptedDuringScheduledWindowRps": 2776.666666666667,
+      "droppedCapacity": 28674,
+      "droppedScheduler": 429,
+      "peakOutstanding": 64,
+      "schedulingLagMs": {
+        "mean": 11.316354515050145,
+        "p50": 12,
+        "p95": 16,
+        "p99": 18,
+        "max": 18.88900000000001
+      },
+      "plannedArrivalLatencyMs": {
+        "mean": 26.167012040133745,
+        "p50": 26,
+        "p95": 36,
+        "p99": 38,
+        "max": 38.538599999999974
+      },
+      "requests": 897,
+      "requestsPerSecond": 2815.8809406611954,
+      "bytes": 44400,
+      "accepted": 897,
+      "acceptedRequestsPerSecond": 2815.8809406611954,
+      "errors": 0,
+      "throttled": 0,
+      "timeouts": 0,
+      "statuses": {
+        "200": 897
+      },
+      "latencyMs": {
+        "mean": 14.849594202898556,
+        "p50": 14,
+        "p95": 22,
+        "p99": 26,
+        "max": 27.34030000000007
+      },
+      "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100",
+      "byRequest": {
+        "fixture-read": {
+          "requests": 449,
+          "requestsPerSecond": 1409.5100806654145,
+          "bytes": 21552,
+          "accepted": 449,
+          "acceptedRequestsPerSecond": 1409.5100806654145,
+          "errors": 0,
+          "throttled": 0,
+          "timeouts": 0,
+          "statuses": {
+            "200": 449
+          },
+          "latencyMs": {
+            "mean": 14.835173942093537,
+            "p50": 14,
+            "p95": 22,
+            "p99": 26,
+            "max": 27.037900000000036
+          },
+          "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100"
+        },
+        "fixture-concurrent-refresh": {
+          "requests": 448,
+          "requestsPerSecond": 1406.370859995781,
+          "bytes": 22848,
+          "accepted": 448,
+          "acceptedRequestsPerSecond": 1406.370859995781,
+          "errors": 0,
+          "throttled": 0,
+          "timeouts": 0,
+          "statuses": {
+            "200": 448
+          },
+          "latencyMs": {
+            "mean": 14.864046651785722,
+            "p50": 14,
+            "p95": 22,
+            "p99": 26,
+            "max": 27.34030000000007
+          },
+          "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100"
+        }
+      }
+    },
+    {
+      "fixtureProtection": true,
+      "cache": "initially cold then warm",
+      "concurrency": 64,
+      "scheduledSeconds": 0.3,
+      "elapsedSeconds": 0.3161005,
+      "arrivalRate": 20000,
+      "offered": 6000,
+      "attempted": 704,
+      "attemptedRequestsPerSecond": 2346.666666666667,
+      "achievedRequestsPerSecond": 2227.1397862388703,
+      "acceptedDuringScheduledWindow": 427,
+      "acceptedDuringScheduledWindowRps": 1423.3333333333335,
+      "droppedCapacity": 5130,
+      "droppedScheduler": 166,
+      "peakOutstanding": 64,
+      "schedulingLagMs": {
+        "mean": 9.851475568181838,
+        "p50": 10,
+        "p95": 16,
+        "p99": 18,
+        "max": 17.74389999999994
+      },
+      "plannedArrivalLatencyMs": {
+        "mean": 30.33495440340909,
+        "p50": 24,
+        "p95": 82,
+        "p99": 85,
+        "max": 85.36369999999988
+      },
+      "requests": 704,
+      "requestsPerSecond": 2227.1397862388703,
+      "bytes": 27008,
+      "accepted": 470,
+      "acceptedRequestsPerSecond": 1486.8688913810638,
+      "errors": 234,
+      "throttled": 234,
+      "timeouts": 0,
+      "statuses": {
+        "200": 470,
+        "429": 234
+      },
+      "latencyMs": {
+        "mean": 20.482196022727297,
+        "p50": 14,
+        "p95": 75,
+        "p99": 76,
+        "max": 77.24459999999999
+      },
+      "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100",
+      "byRequest": {
+        "fixture-read": {
+          "requests": 352,
+          "requestsPerSecond": 1113.5698931194352,
+          "bytes": 13151,
+          "accepted": 235,
+          "acceptedRequestsPerSecond": 743.4344456905319,
+          "errors": 117,
+          "throttled": 117,
+          "timeouts": 0,
+          "statuses": {
+            "200": 235,
+            "429": 117
+          },
+          "latencyMs": {
+            "mean": 20.47800710227272,
+            "p50": 14,
+            "p95": 75,
+            "p99": 76,
+            "max": 77.24459999999999
+          },
+          "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100"
+        },
+        "fixture-concurrent-refresh": {
+          "requests": 352,
+          "requestsPerSecond": 1113.5698931194352,
+          "bytes": 13857,
+          "accepted": 235,
+          "acceptedRequestsPerSecond": 743.4344456905319,
+          "errors": 117,
+          "throttled": 117,
+          "timeouts": 0,
+          "statuses": {
+            "200": 235,
+            "429": 117
+          },
+          "latencyMs": {
+            "mean": 20.486384943181807,
+            "p50": 14,
+            "p95": 75,
+            "p99": 76,
+            "max": 76.45270000000005
+          },
+          "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100"
+        }
+      }
+    },
+    {
+      "fixtureProtection": true,
+      "cache": "warm",
+      "concurrency": 64,
+      "scheduledSeconds": 0.3,
+      "elapsedSeconds": 0.30579179999999995,
+      "arrivalRate": 50000,
+      "offered": 15000,
+      "attempted": 832,
+      "attemptedRequestsPerSecond": 2773.3333333333335,
+      "achievedRequestsPerSecond": 2720.805463063431,
+      "acceptedDuringScheduledWindow": 522,
+      "acceptedDuringScheduledWindowRps": 1740,
+      "droppedCapacity": 14063,
+      "droppedScheduler": 105,
+      "peakOutstanding": 64,
+      "schedulingLagMs": {
+        "mean": 10.65176033653836,
+        "p50": 11,
+        "p95": 17,
+        "p99": 19,
+        "max": 28.181699999999864
+      },
+      "plannedArrivalLatencyMs": {
+        "mean": 26.543875600961425,
+        "p50": 25,
+        "p95": 44,
+        "p99": 48,
+        "max": 48.87129999999979
+      },
+      "requests": 832,
+      "requestsPerSecond": 2720.805463063431,
+      "bytes": 31871,
+      "accepted": 554,
+      "acceptedRequestsPerSecond": 1811.6901761263712,
+      "errors": 278,
+      "throttled": 278,
+      "timeouts": 0,
+      "statuses": {
+        "200": 554,
+        "429": 278
+      },
+      "latencyMs": {
+        "mean": 15.89105649038461,
+        "p50": 13,
+        "p95": 31,
+        "p99": 31,
+        "max": 30.49310000000014
+      },
+      "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100",
+      "byRequest": {
+        "fixture-read": {
+          "requests": 416,
+          "requestsPerSecond": 1360.4027315317155,
+          "bytes": 15520,
+          "accepted": 277,
+          "acceptedRequestsPerSecond": 905.8450880631856,
+          "errors": 139,
+          "throttled": 139,
+          "timeouts": 0,
+          "statuses": {
+            "200": 277,
+            "429": 139
+          },
+          "latencyMs": {
+            "mean": 15.911710096153852,
+            "p50": 13,
+            "p95": 31,
+            "p99": 31,
+            "max": 30.49310000000014
+          },
+          "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100"
+        },
+        "fixture-concurrent-refresh": {
+          "requests": 416,
+          "requestsPerSecond": 1360.4027315317155,
+          "bytes": 16351,
+          "accepted": 277,
+          "acceptedRequestsPerSecond": 905.8450880631856,
+          "errors": 139,
+          "throttled": 139,
+          "timeouts": 0,
+          "statuses": {
+            "200": 277,
+            "429": 139
+          },
+          "latencyMs": {
+            "mean": 15.870402884615372,
+            "p50": 13,
+            "p95": 31,
+            "p99": 31,
+            "max": 30.466300000000047
+          },
+          "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100"
+        }
+      }
+    },
+    {
+      "fixtureProtection": true,
+      "cache": "warm",
+      "concurrency": 64,
+      "scheduledSeconds": 0.3,
+      "elapsedSeconds": 0.3165234,
+      "arrivalRate": 100000,
+      "offered": 30000,
+      "attempted": 961,
+      "attemptedRequestsPerSecond": 3203.3333333333335,
+      "achievedRequestsPerSecond": 3036.1104423875136,
+      "acceptedDuringScheduledWindow": 598,
+      "acceptedDuringScheduledWindowRps": 1993.3333333333335,
+      "droppedCapacity": 28849,
+      "droppedScheduler": 190,
+      "peakOutstanding": 64,
+      "schedulingLagMs": {
+        "mean": 10.218275754422494,
+        "p50": 11,
+        "p95": 14,
+        "p99": 16,
+        "max": 16.61909999999989
+      },
+      "plannedArrivalLatencyMs": {
+        "mean": 24.066415504682656,
+        "p50": 24,
+        "p95": 33,
+        "p99": 36,
+        "max": 35.95470000000023
+      },
+      "requests": 961,
+      "requestsPerSecond": 3036.1104423875136,
+      "bytes": 36848,
+      "accepted": 641,
+      "acceptedRequestsPerSecond": 2025.1267362855322,
+      "errors": 320,
+      "throttled": 320,
+      "timeouts": 0,
+      "statuses": {
+        "200": 641,
+        "429": 320
+      },
+      "latencyMs": {
+        "mean": 13.847365348595211,
+        "p50": 13,
+        "p95": 24,
+        "p99": 24,
+        "max": 23.717200000000048
+      },
+      "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100",
+      "byRequest": {
+        "fixture-read": {
+          "requests": 481,
+          "requestsPerSecond": 1519.6348832345411,
+          "bytes": 17968,
+          "accepted": 321,
+          "acceptedRequestsPerSecond": 1014.1430301835504,
+          "errors": 160,
+          "throttled": 160,
+          "timeouts": 0,
+          "statuses": {
+            "200": 321,
+            "429": 160
+          },
+          "latencyMs": {
+            "mean": 13.831699584199589,
+            "p50": 13,
+            "p95": 24,
+            "p99": 24,
+            "max": 23.657400000000052
+          },
+          "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100"
+        },
+        "fixture-concurrent-refresh": {
+          "requests": 480,
+          "requestsPerSecond": 1516.4755591529724,
+          "bytes": 18880,
+          "accepted": 320,
+          "acceptedRequestsPerSecond": 1010.9837061019817,
+          "errors": 160,
+          "throttled": 160,
+          "timeouts": 0,
+          "statuses": {
+            "200": 320,
+            "429": 160
+          },
+          "latencyMs": {
+            "mean": 13.863063750000014,
+            "p50": 13,
+            "p95": 24,
+            "p99": 24,
+            "max": 23.717200000000048
+          },
+          "percentileResolutionMs": "1 through 1s; 10 through 10s; 100 thereafter; overflow 120100"
+        }
+      }
+    }
+  ]
+}
