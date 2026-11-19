@@ -48,6 +48,14 @@ import serviceAsset21 from './assets/mercedes-benz-io-site.png?url';
 import serviceAsset22 from './assets/workday-site.ico?url';
 import spaceshipAsset from './assets/spaceship-site.svg?url';
 import autodocAsset from './assets/autodoc-site.png?url';
+import mazarsAsset from './assets/mazars-site.png?url';
+import damiaAsset from './assets/damia-site.png?url';
+import teamlyzerAsset from './assets/teamlyzer-site.png?url';
+import coverflexAsset from './assets/coverflex-site.png?url';
+import indeedAsset from './assets/indeed-site.ico?url';
+import raciusAsset from './assets/racius-site.png?url';
+import womensecretAsset from './assets/womensecret-site.png?url';
+import lindafarrowAsset from './assets/lindafarrow-site.png?url';
 export const REGIONAL_SENDER_ICONS:readonly SenderIcon[]=[
  {"id": "cm-sintra", "name": "Câmara Municipal de Sintra", "category": "municipal", "domains": ["cm-sintra.pt"], "paths": [],asset:regionalAsset0},
  {"id": "siga-edubox", "name": "SIGA Edubox", "category": "service", "domains": ["edubox.pt"], "paths": [],asset:regionalAsset1},
@@ -97,4 +105,13 @@ export const REGIONAL_SENDER_ICONS:readonly SenderIcon[]=[
  {"id": "workday", "name": "Workday", "category": "service", "domains": ["workday.com", "myworkday.com", "myworkdayjobs.com"], "paths": [],asset:serviceAsset22},
  {id:"spaceship",name:"Spaceship",category:"service",domains:["spaceship.com"],paths:[],asset:spaceshipAsset},
  {id:"autodoc",name:"AUTODOC",category:"service",domains:["auto-doc.pt","autodoc.eu","autodoc.de"],paths:[],asset:autodocAsset},
+
+ {"id":"mazars","name":"Forvis Mazars","category":"consultancy","domains":["mazars.com","mazars.pt","forvismazars.com","forvismazars.us"],"paths":[],asset:mazarsAsset},
+ {"id":"damia","name":"Damia","category":"service","domains":["damia.pt","damiagroup.pt"],"paths":[],asset:damiaAsset},
+ {"id":"teamlyzer","name":"Teamlyzer","category":"service","domains":["teamlyzer.com"],"paths":[],asset:teamlyzerAsset},
+ {"id":"coverflex","name":"Coverflex","category":"service","domains":["coverflex.com"],"paths":[],asset:coverflexAsset},
+ {"id":"indeed","name":"Indeed","category":"service","domains":["indeed.com","indeedemail.com","indeedmail.com"],"paths":[],asset:indeedAsset},
+ {"id":"racius","name":"Racius","category":"service","domains":["racius.com"],"paths":[],asset:raciusAsset},
+ {"id":"womensecret","name":"Women'secret","category":"service","domains":["womensecret.com"],"paths":[],asset:womensecretAsset},
+ {"id":"linda-farrow","name":"Linda Farrow","category":"service","domains":["lindafarrow.com","lindafarrow.co.uk"],"paths":[],asset:lindafarrowAsset},
 ];

@@ -1,3 +1,4 @@
+import pwcSiteAsset from './assets/pwc-site.ico?url';
 import synologyAsset from './assets/synology.svg?url';
 import qnapAsset from './assets/qnap.svg?url';
 import truenasAsset from './assets/truenas.svg?url';
@@ -116,7 +117,7 @@ export const EXPANDED_SENDER_ICONS:readonly SenderIcon[]=[
  {"id":"gls","name":"GLS","category":"logistics","domains":["gls-portugal.pt","gls-group.com","gls-group.eu"],"paths":[],"asset":glsSiteAsset},
  {"id":"accenture","name":"Accenture","category":"consultancy","domains":["accenture.com"],"paths":["m.66 16.95 13.242-4.926L.66 6.852V0l22.68 9.132v5.682L.66 24Z"]},
  {"id":"deloitte","name":"Deloitte","category":"consultancy","domains":["deloitte.com"],"paths":[],"asset":deloitteSiteAsset},
- {"id":"pwc","name":"PwC","category":"consultancy","domains":["pwc.com","pwc.pt"],"paths":[],"monogram":"PwC"},
+ {"id":"pwc","name":"PwC","category":"consultancy","domains":["pwc.com","pwc.pt"],"paths":[],"asset":pwcSiteAsset},
  {"id":"ey","name":"EY","category":"consultancy","domains":["ey.com"],"paths":[],"asset":eySiteAsset},
  {"id":"kpmg","name":"KPMG","category":"consultancy","domains":["kpmg.com"],"paths":[],"monogram":"KPMG"},
  {"id":"capgemini","name":"Capgemini","category":"consultancy","domains":["capgemini.com"],"paths":[],"asset":capgeminiSiteAsset},

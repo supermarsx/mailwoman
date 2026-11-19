@@ -269,3 +269,23 @@ Cartão Continente publisher listing: https://play.google.com/store/apps/details
 ## AUTODOC, GLS and Synology notification mail (2026-11-17)
 
 AUTODOC: official publisher's icon from https://play.google.com/store/apps/details?id=de.autodoc.gmbh; domain attribution https://www.auto-doc.pt/services/toc. GLS retains its existing official bundled favicon, with the current `gls-group.eu` host added alongside `gls-group.com` and `gls-portugal.pt` (official redirect). Synology's existing logo also covers `synologynotification.com`, explicitly documented by https://account.synology.com/en-us/activation_assistance.
+
+## Professional services, recruitment and retail (2026-11-19)
+
+Official owner-hosted favicon/touch-icon files, bundled unchanged for sender identification; copyright and trademark rights remain with the owners. No runtime requests. PNG/ICO content signatures were checked before inclusion.
+
+| Brand | Bundled artwork source | Official referring site |
+| --- | --- | --- |
+| pwc | https://www.pwc.com/favicon.ico | https://www.pwc.com/ |
+| indeed | https://www.indeed.com/favicon.ico | https://www.indeed.com/ |
+| mazars | https://asset.forvismazars.com/assets/themes/mazars/images/favicons/apple-touch-icon.png | https://www.forvismazars.com/global |
+| damia | https://damia.pt/wp-content/uploads/favicons/favicon-192x192.png | https://damia.pt/ |
+| teamlyzer | https://pt.teamlyzer.com/static/img/favicon/xandroid-icon-192x192.png.pagespeed.ic.DYEMExPXtV.png | https://pt.teamlyzer.com/ |
+| coverflex | https://cdn.prod.website-files.com/6450e8b2d163837e6147f100/65a8fedb90bf40ac000f1ab6_favicon.png | https://www.coverflex.com/en-pt |
+| racius | https://www.racius.com/favicon/apple-touch-icon.png | https://www.racius.com/ |
+| womensecret | https://womensecret.com/on/demandware.static/Sites-WS-Site/-/default/dw2d0c3c81/img/favicon/apple-touch-icon-180x180.png | https://womensecret.com/ |
+| lindafarrow | https://lindafarrow.com/cdn/shop/files/512x512.png?v=1734430902&width=180 | https://lindafarrow.com/ |
+
+PwC replaces the previous text monogram. Mazars aliases retain the current Forvis Mazars mark: https://www.mazars.com/ redirects to https://www.forvismazars.com/group/en and https://www.mazars.pt/ redirects to https://www.forvismazars.com/pt/pt; that official site also links https://www.forvismazars.us/. Damia's https://www.damiagroup.pt/ redirects to https://damia.pt/; the UK Damia Group domain is not registered as the Portuguese brand. Linda Farrow's official stores cover https://lindafarrow.com/ and https://lindafarrow.co.uk/.
+
+Indeed's documented sender domains (`indeed.com`, `indeedemail.com`, `indeedmail.com`) are listed at https://indeed.zendesk.com/hc/en-us/articles/211829163-How-To-Verify-Emails-From-Indeed; https://www.indeed.com/help/employers/articles/recognizing-phishing-scams also confirms the first two. The existing `moey.pt` artwork and mapping remain in use, including its mail subdomains; its current official site is https://moey.pt/.

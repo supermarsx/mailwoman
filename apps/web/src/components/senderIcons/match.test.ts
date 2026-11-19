@@ -64,3 +64,23 @@ it('covers AUTODOC, GLS and official Synology notification senders without suffi
   expect(senderDomainIcon(`notice@${domain}`)?.id).toBe(id);expect(senderDomainIcon(`notice@${domain}.evil.test`)).toBeUndefined();
  }
 });
+
+it('recognises requested professional, recruitment, retail and moey sender domains with official artwork',()=>{
+ const examples:Record<string,string>={'pwc.com':'pwc','pwc.pt':'pwc','mazars.com':'mazars','mazars.pt':'mazars','forvismazars.com':'mazars','forvismazars.us':'mazars','damia.pt':'damia','damiagroup.pt':'damia','teamlyzer.com':'teamlyzer','coverflex.com':'coverflex','indeed.com':'indeed','indeedemail.com':'indeed','indeedmail.com':'indeed','racius.com':'racius','womensecret.com':'womensecret','lindafarrow.com':'linda-farrow','lindafarrow.co.uk':'linda-farrow','moey.pt':'moey'};
+ for(const [domain,id] of Object.entries(examples)){
+  for(const address of [`notice@${domain}`,`notice@MAIL.${domain.toUpperCase()}`]){
+   const icon=senderDomainIcon(address);expect(icon?.id,address).toBe(id);expect(icon?.asset,address).toBeTruthy();expect(icon?.monogram,address).toBeUndefined();
+  }
+  for(const address of [`notice@${domain}.evil.test`,`notice@not${domain}`,`${domain}@evil.test`])expect(senderDomainIcon(address),address).toBeUndefined();
+ }
+ expect(senderDomainIcon('notice@damiagroup.com')).toBeUndefined();
+ expect(senderDomainIcon('notice@customer.zendesk.com')).toBeUndefined();
+});
+it('bundles valid PNG and ICO responses rather than downloaded HTML errors',()=>{
+ const files=['pwc-site.ico','mazars-site.png','damia-site.png','teamlyzer-site.png','coverflex-site.png','indeed-site.ico','racius-site.png','womensecret-site.png','lindafarrow-site.png'];
+ for(const file of files){
+  const bytes=readFileSync(`src/components/senderIcons/assets/${file}`);
+  expect(bytes.length,file).toBeGreaterThan(100);expect(bytes.length,file).toBeLessThanOrEqual(1048576);
+  expect(bytes.subarray(0,file.endsWith('.png')?8:4).toString('hex'),file).toBe(file.endsWith('.png')?'89504e470d0a1a0a':'00000100');
+ }
+});

@@ -101,3 +101,16 @@ it('shows Microsoft tenant and MEO Empresas marks in list avatars and retains kn
  for(const address of ['a@tenant.onmicrosoft.com','billing@meoempresas.pt'])expect(row(address,{dkim:{result:'fail'},dmarc:{result:'fail'}}).querySelector('[data-sender-icon]')).toBeNull();
  for(const address of ['a@notonmicrosoft.com','a@tenant.onmicrosoft.com.evil.io','billing@notmeoempresas.pt','billing@meoempresas.pt.evil.io'])expect(row(address).querySelector('[data-sender-icon]')).toBeNull();
 });
+
+it('renders requested sender logos locally while preserving authentication and preference controls',()=>{
+ const examples:Record<string,string>={'pwc.com':'pwc','forvismazars.com':'mazars','damia.pt':'damia','teamlyzer.com':'teamlyzer','coverflex.com':'coverflex','indeedemail.com':'indeed','racius.com':'racius','womensecret.com':'womensecret','lindafarrow.co.uk':'linda-farrow','moey.pt':'moey'};
+ for(const [domain,id] of Object.entries(examples)){
+  const tile=row(`notice@${domain}`).querySelector(`[data-sender-icon="${id}"]`)!;
+  const image=tile.querySelector('img')!;
+  expect(image).toHaveClass('person-avatar__brand');expect(new URL(image.src,location.href).origin===location.origin||image.src.startsWith('data:image/')).toBe(true);
+  expect(row(`notice@${domain}`,{dkim:{result:'fail'},dmarc:{result:'fail'}}).querySelector('[data-sender-icon]')).toBeNull();
+ }
+ expect(state.fetch).not.toHaveBeenCalled();
+ state.icons=false;expect(row('notice@coverflex.com').querySelector('[data-sender-icon]')).toBeNull();
+ state.icons=true;state.brands=false;expect(row('notice@coverflex.com').querySelector('[data-sender-icon="coverflex"] img')).not.toBeNull();
+});

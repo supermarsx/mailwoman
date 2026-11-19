@@ -129,7 +129,7 @@
 .person-avatar[data-sender-icon="gls"] { background-color:#061AB1; color:#ffffff; border-color:#061AB1; }
 .person-avatar[data-sender-icon="accenture"] { background-color:#A100FF; color:#ffffff; border-color:#A100FF; }
 .person-avatar[data-sender-icon="deloitte"] { background-color:#86BC25; color:#000000; border-color:#86BC25; }
-.person-avatar[data-sender-icon="pwc"] { background-color:#D04A02; color:#000000; border-color:#D04A02; }
+.person-avatar[data-sender-icon="pwc"] { background-color:#ffffff; color:#111111; }
 .person-avatar[data-sender-icon="ey"] { background-color:#FFE600; color:#000000; border-color:#FFE600; }
 .person-avatar[data-sender-icon="kpmg"] { background-color:#00338D; color:#ffffff; border-color:#00338D; }
 .person-avatar[data-sender-icon="capgemini"] { background-color:#0070AD; color:#ffffff; border-color:#0070AD; }
@@ -295,3 +295,12 @@
 .person-avatar[data-sender-icon="workday"] { background-color:#ffffff; color:#111111; }
 .person-avatar[data-sender-icon="spaceship"] { background-color:#ffffff; color:#111111; }
 .person-avatar[data-sender-icon="autodoc"] { background-color:#ffffff; color:#111111; }
+
+.person-avatar[data-sender-icon="mazars"] { background-color:#ffffff; color:#111111; }
+.person-avatar[data-sender-icon="damia"] { background-color:#ffffff; color:#111111; }
+.person-avatar[data-sender-icon="teamlyzer"] { background-color:#ffffff; color:#111111; }
+.person-avatar[data-sender-icon="coverflex"] { background-color:#ffffff; color:#111111; }
+.person-avatar[data-sender-icon="indeed"] { background-color:#ffffff; color:#111111; }
+.person-avatar[data-sender-icon="racius"] { background-color:#ffffff; color:#111111; }
+.person-avatar[data-sender-icon="womensecret"] { background-color:#ffffff; color:#111111; }
+.person-avatar[data-sender-icon="linda-farrow"] { background-color:#ffffff; color:#111111; }
