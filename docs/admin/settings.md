@@ -4346,12 +4346,12 @@ limits, conversion requirements and live-system behavior.
 
 
 <a id="mail.signaturePosition"></a>
-`mail.signaturePosition` selects `beforeQuote` (default) or `messageEnd` for
+`mail.signaturePosition` selects `above-quote` (default) or `end` for
 signatures. Administrators can supply defaults and policy locks; users can
 configure it when allowed. A new message's signature follows the author's text.
 
 <a id="retention.requestMetrics.detailDays"></a>
-`retention.requestMetrics.detailDays` retains normalized request-path details for
+`retention.requestMetrics.detailDays` retains normalized not-found path details for
 30 days by default. Aggregate request counts and latency histograms retain their
 own retention policy. Zero removes path detail after the current bucket closes.
 
@@ -4362,7 +4362,7 @@ large file is actively growing.
 
 <a id="observability.database.growthMiBPerMinute"></a>
 `observability.database.growthMiBPerMinute` is the configured growth warning
-threshold in MiB/minute; the registry bounds the value and defines its default.
+threshold in MiB/minute (default 64); the registry bounds the value.
 
 <a id="compliance.mail.protocol"></a>
 `compliance.mail.protocol` selects SMTP (default) or JMAP for system notification

@@ -701,6 +701,8 @@ pub static CATALOGUE: &[Knob] = &[
     ),
     boot("MW_COMPLIANCE_SMTP_PASSWORD",Gr::Storage,Secret,R::Boot,"unset","Password for the compliance SMTP relay; never exposed in settings"),
     boot("MW_COMPLIANCE_SMTP_PASSWORD_FILE",Gr::Storage,Path,R::Boot,"unset","File containing the compliance SMTP password"),
+    boot("MW_COMPLIANCE_JMAP_PASSWORD",Gr::Storage,Secret,R::Boot,"unset","Password for JMAP compliance submission; never exposed in settings"),
+    boot("MW_COMPLIANCE_JMAP_PASSWORD_FILE",Gr::Storage,Path,R::Boot,"unset","File containing the JMAP compliance submission password"),
     // ── Storage and host paths ─────────────────────────────────────────────────
     boot(
         "MW_SERVER_KEY",
