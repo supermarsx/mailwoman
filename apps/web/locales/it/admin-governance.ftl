@@ -72,7 +72,7 @@ governance-mail-compliance-mail-host = Host del relay SMTP
 governance-mail-compliance-mail-port = Porta SMTP
 governance-mail-compliance-mail-security = Modalità TLS
 governance-mail-compliance-mail-from = Indirizzo del mittente
-governance-mail-compliance-mail-username = Nome utente SMTP
+governance-mail-compliance-mail-username = Nome utente di invio
 governance-mail-compliance-mail-allowPrivate = Consenti relay privato
 governance-mail-dsr-notify-emailAdmins = Notifica agli operatori le richieste di dati
 governance-mail-dsr-notify-operatorAddresses = Destinatari operatori
@@ -87,9 +87,9 @@ governance-mail-event = Evento
 governance-mail-time = Ora
 governance-mail-attempts = Tentativi
 governance-mail-result = Risultato
-governance-mail-help = Configura un relay SMTP con TLS. Le email usano il percorso proxy system_mail. Verifica le accettazioni incerte prima di reinviare.
+governance-mail-help = Configura SMTP con TLS o JMAP su HTTPS. Entrambi usano la rotta proxy system_mail. Un’accettazione sconosciuta richiede una verifica prima del reinvio.
 governance-mail-secret-help = Imposta la password tramite MW_COMPLIANCE_SMTP_PASSWORD o MW_COMPLIANCE_SMTP_PASSWORD_FILE. Non viene mai salvata nelle impostazioni.
-governance-mail-secret-ready = Origine della password SMTP configurata.
+governance-mail-secret-ready = Origine delle credenziali di invio configurata.
 governance-mail-compliance-mail-requireProxy = Richiedi percorso proxy
 governance-mail-retention-complianceMail-days = Conservazione delle email completate (giorni)
 governance-mail-dismiss = Archivia senza reinviare
@@ -123,3 +123,9 @@ governance-field-terminationNoticeDays = Preavviso di risoluzione (giorni)
 governance-field-exitPlan = Piano di uscita e transizione
 governance-field-continuityTesting = Test di continuità e resilienza
 governance-field-concentrationRisk = Rischio di concentrazione dei fornitori
+
+governance-mail-compliance-mail-protocol = Protocollo di invio
+
+governance-mail-compliance-mail-jmapSessionUrl = URL della sessione JMAP
+
+governance-mail-jmap-secret-help = Imposta la password JMAP con MW_COMPLIANCE_JMAP_PASSWORD / MW_COMPLIANCE_JMAP_PASSWORD_FILE.

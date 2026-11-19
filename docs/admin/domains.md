@@ -178,3 +178,36 @@ override; domain restrictions continue to apply to both authentication paths.
 The unauthenticated `/api/public-config` endpoint returns only branding, theme,
 accent, login notice, and the suggested login domain, with `Cache-Control: no-store`.
 It does not expose the domain inventory or upstream addresses.
+
+
+## JMAP submission with IMAP or POP3
+
+Engine accounts can receive through IMAP/POP3 and submit through JMAP instead of
+SMTP. In **Connections → Backends**, add a **JMAP** backend for the **Submission**
+service, enter the canonical session/discovery URL, and select it as preferred.
+Legacy JSON also accepts `jmapSubmission: {"sessionUrl":"https://mail.example/.well-known/jmap"}`;
+do not configure legacy `smtp` alongside it. Versioned backend lists can retain
+alternative services, with the usual deterministic selection rules.
+
+The configured account credentials and submission username format authenticate
+with HTTP Basic. Use HTTPS; no URL credentials or new OAuth authorization flow is
+introduced. Discovery, API and upload endpoints must have the same origin; bounded
+same-origin discovery redirects are supported. Requests use the account-scoped
+`plugins` egress policy, including configured proxies and private-host restrictions.
+
+All engine send paths use this transport: interactive mail, queued/scheduled mail,
+read receipts and generated messages. The client uploads the complete MIME,
+imports a temporary draft, then creates an `EmailSubmission` with the original
+SMTP envelope, including Bcc recipients. A writable upstream identity and Drafts
+mailbox are required; Drafts is created only when the account permits it. The
+temporary email is destroyed after successful queuing. Mailwoman keeps its normal
+Sent-folder filing; JMAP acceptance is not proof of final recipient delivery.
+
+Requested DSN/REQUIRETLS options must be advertised by the upstream submission
+account; unsupported options fail explicitly. A lost or malformed send
+acknowledgement is marked uncertain for operator/user review, with no automatic
+SMTP fallback or resend. An upstream staging draft can remain after an interrupted
+import/send; review it before retrying an uncertain send.
+
+In proxy mode the existing upstream JMAP API handles mail and submission together.
+Provider-native Graph/Gmail/EWS submission remains provider-native.

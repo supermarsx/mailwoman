@@ -156,3 +156,14 @@ it('keeps the failover flag when a backend is saved, and the list toggles it', a
   fireEvent.click(toggle);
   expect(setFailover).toHaveBeenCalledWith(true);
 });
+
+it('saves JMAP as an engine submission backend alongside IMAP',async()=>{
+ const save=vi.fn<typeof domainsApi.save>(async()=>domain);
+ renderInShell(()=><BackendEditor domain={domain} api={{...domainsApi,save}} advancedReady={false} onSaved={async()=>{}} onBack={()=>{}}/>);
+ fireEvent.input(await screen.findByLabelText(/^Backend ID/),{target:{value:'jmap-sender'}});
+ fireEvent.change(screen.getByLabelText(/^Protocol and service/),{target:{value:'jmap'}});
+ fireEvent.input(screen.getByLabelText(/^JMAP session URL/),{target:{value:'https://mail.example.org/.well-known/jmap'}});
+ fireEvent.submit(screen.getByRole('button',{name:'Save backend'}).closest('form')!);
+ await waitFor(()=>expect(save).toHaveBeenCalledTimes(1));
+ expect(save.mock.calls[0]?.[1].upstream?.backends).toEqual(expect.arrayContaining([expect.objectContaining({protocol:'jmap',role:'submission',sessionUrl:'https://mail.example.org/.well-known/jmap'}),expect.objectContaining({protocol:'imap'})]));
+});

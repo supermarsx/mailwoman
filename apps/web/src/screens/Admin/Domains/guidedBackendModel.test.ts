@@ -54,3 +54,12 @@ it('preserves legacy EWS configuration when upgrading to backend lists and bound
  rows[0]!.ews!.caPem='x'.repeat(65537);expect(guidedBackendProblem(rows,status)).toBe('backend-ews-invalid-ca');
  expect(config.caPem).toBe(cert);
 });
+
+it('accepts JMAP submission for engine accounts and preserves legacy submission endpoints',()=>{
+ const row={...newGuidedBackend('jmap','sender',true),sessionUrl:'https://mail.example.test/.well-known/jmap'};
+ expect(row.role).toBe('submission');
+ expect(guidedBackendProblem([valid(),row],status)).toBeNull();
+ expect(guidedBackendProblem([row],{...status,mode:'proxy'})).toContain('mode');
+ const legacy=domainBackends({jmapSubmission:{sessionUrl:row.sessionUrl}});
+ expect(legacy).toEqual([expect.objectContaining({protocol:'jmap',role:'submission',sessionUrl:row.sessionUrl})]);
+});

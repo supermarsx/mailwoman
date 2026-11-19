@@ -208,6 +208,17 @@ async fn deliver(state: &AppState, mail: &Mail, id: &str, event: &str) -> Result
     if gate.is_some_and(|key| cfg.get(key) != Some(&json!(true))) {
         return Ok(Delivery::Suppressed);
     }
+    if value("compliance.mail.protocol")=="jmap" {
+        let from=value("compliance.mail.from").trim();
+        mw_smtp::validate_mailbox(from).map_err(|_|"Configure a valid sender address")?;
+        let submitter=crate::jmap_submission::system(state.store.clone(),value("compliance.mail.jmapSessionUrl"),from)?;
+        let outgoing=mw_smtp::Outgoing{mail_from:from.into(),rcpt_to:vec![mail.recipient.clone()],raw:mime(from,mail,id)};
+        return match tokio::time::timeout(std::time::Duration::from_secs(30),submitter.submit(outgoing)).await {
+            Ok(Ok(result)) if result.accepted.contains(&mail.recipient)=>Ok(Delivery::Sent),
+            Ok(Err(mw_engine::backend::EngineError::SubmissionUncertain(_)))|Err(_)=>Ok(Delivery::Uncertain),
+            _=>Ok(Delivery::Retry),
+        };
+    }
     let host = value("compliance.mail.host").trim();
     let from = value("compliance.mail.from").trim();
     if host.is_empty() || host.contains(['/', ':', '@']) {
@@ -453,7 +464,9 @@ async fn status(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response
             rows.push(json!({"id":row.id,"event":row.name,"status":kind.rsplit(':').next(),"at":row.updated_at,"attempts":mail.as_ref().map(|m|m.attempts),"error":mail.map(|m|m.error)}));
         }
     }
-    Ok(([(axum::http::header::CACHE_CONTROL,"no-store")],Json(json!({"items":rows,"passwordConfigured":std::env::var_os("MW_COMPLIANCE_SMTP_PASSWORD").is_some()||std::env::var_os("MW_COMPLIANCE_SMTP_PASSWORD_FILE").is_some()}))).into_response())
+    let jmap=config(&state).await.ok().and_then(|cfg|cfg.get("compliance.mail.protocol").cloned())==Some(json!("jmap"));
+    let prefix=if jmap{"MW_COMPLIANCE_JMAP_PASSWORD"}else{"MW_COMPLIANCE_SMTP_PASSWORD"};
+    Ok(([(axum::http::header::CACHE_CONTROL,"no-store")],Json(json!({"items":rows,"passwordConfigured":std::env::var_os(prefix).is_some()||std::env::var_os(format!("{prefix}_FILE")).is_some()}))).into_response())
 }
 async fn test_mail(
     State(state): State<AppState>,

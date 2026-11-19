@@ -72,7 +72,7 @@ governance-mail-compliance-mail-host = Host przekaźnika SMTP
 governance-mail-compliance-mail-port = Port SMTP
 governance-mail-compliance-mail-security = Tryb TLS
 governance-mail-compliance-mail-from = Adres nadawcy
-governance-mail-compliance-mail-username = Nazwa użytkownika SMTP
+governance-mail-compliance-mail-username = Użytkownik wysyłania
 governance-mail-compliance-mail-allowPrivate = Zezwalaj na prywatny przekaźnik
 governance-mail-dsr-notify-emailAdmins = Powiadamiaj operatorów o żądaniach danych
 governance-mail-dsr-notify-operatorAddresses = Adresaci operatorzy
@@ -87,9 +87,9 @@ governance-mail-event = Zdarzenie
 governance-mail-time = Czas
 governance-mail-attempts = Próby
 governance-mail-result = Wynik
-governance-mail-help = Skonfiguruj przekaźnik SMTP z TLS. Poczta używa trasy proxy system_mail. Sprawdź niepewne przyjęcie przed ponowną wysyłką.
+governance-mail-help = Skonfiguruj SMTP z TLS lub JMAP przez HTTPS. Oba używają trasy proxy system_mail. Nieznane przyjęcie wymaga sprawdzenia przed ponowną wysyłką.
 governance-mail-secret-help = Ustaw hasło przez MW_COMPLIANCE_SMTP_PASSWORD lub MW_COMPLIANCE_SMTP_PASSWORD_FILE. Nie jest przechowywane w ustawieniach.
-governance-mail-secret-ready = Źródło hasła SMTP skonfigurowane.
+governance-mail-secret-ready = Skonfigurowano źródło danych uwierzytelniających wysyłania.
 governance-mail-compliance-mail-requireProxy = Wymagaj trasy proxy
 governance-mail-retention-complianceMail-days = Przechowywanie historii zakończonych wiadomości (dni)
 governance-mail-dismiss = Zamknij bez ponownej wysyłki
@@ -123,3 +123,9 @@ governance-field-terminationNoticeDays = Okres wypowiedzenia (dni)
 governance-field-exitPlan = Plan wyjścia i przejścia
 governance-field-continuityTesting = Testy ciągłości i odporności
 governance-field-concentrationRisk = Ryzyko koncentracji dostawców
+
+governance-mail-compliance-mail-protocol = Protokół wysyłania
+
+governance-mail-compliance-mail-jmapSessionUrl = URL sesji JMAP
+
+governance-mail-jmap-secret-help = Ustaw hasło JMAP przez MW_COMPLIANCE_JMAP_PASSWORD / MW_COMPLIANCE_JMAP_PASSWORD_FILE.

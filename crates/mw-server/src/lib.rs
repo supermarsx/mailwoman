@@ -227,6 +227,7 @@ pub mod prefs_routes;
 mod admin_dashboard;
 mod admin_database;
 mod background_maintenance;
+mod jmap_submission;
 pub mod application_logs;
 mod audit_projection;
 mod auth_logs;

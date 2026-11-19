@@ -13,7 +13,7 @@ import * as layout from './guidedDomain.css.ts';
 /** Every edit remains in the parent wizard draft until its final create request. */
 export function GuidedBackends(props:{value:readonly DomainBackend[];change:(rows:DomainBackend[])=>void;status:DomainStatus;domain:string;api:DomainsApi}):JSX.Element {
   const [selected,setSelected]=createSignal(-1),[preview,setPreview]=createSignal(''),[error,setError]=createSignal(''),[busy,setBusy]=createSignal(false);
-  const protocols=()=>props.status.mode==='proxy'?['jmap'] as const:['imap','pop3','smtp','sieve','ews'] as const;
+  const protocols=()=>props.status.mode==='proxy'?['jmap'] as const:['imap','pop3','smtp','jmap','sieve','ews'] as const;
   const row=()=>props.value[selected()];
   function patch(value:Partial<DomainBackend>):void {
     const index=selected(),current=row();if(!current)return;
@@ -25,8 +25,8 @@ export function GuidedBackends(props:{value:readonly DomainBackend[];change:(row
   const wire=():DomainEndpoint=>row()?.endpoint??newGuidedBackend('imap','').endpoint!;
   const username=():UsernameFormat=>row()?.username??{format:'fullEmail'};
   const endpoint=(value:Partial<DomainEndpoint>)=>patch({endpoint:{...wire(),...value}});
-  function add():void {const index=props.value.length;let n=1;while(props.value.some(r=>r.id===`backend-${n}`))n++;props.change([...props.value,newGuidedBackend(protocols()[0],`backend-${n}`)]);setSelected(index);}
-  function protocol(value:DomainBackend['protocol']):void {const current=row();if(current)patch({...newGuidedBackend(value,current.id),priority:current.priority??100,enabled:current.enabled!==false,preferred:current.preferred??false});}
+  function add():void {const index=props.value.length;let n=1;while(props.value.some(r=>r.id===`backend-${n}`))n++;props.change([...props.value,newGuidedBackend(protocols()[0],`backend-${n}`,props.status.mode==='engine')]);setSelected(index);}
+  function protocol(value:DomainBackend['protocol']):void {const current=row();if(current)patch({...newGuidedBackend(value,current.id,props.status.mode==='engine'),priority:current.priority??100,enabled:current.enabled!==false,preferred:current.preferred??false});}
   function format(value:UsernameFormat['format']):void {patch({username:value==='domainUser'?{format:value,domain:''}:value==='userRealm'?{format:value,realm:''}:value==='custom'?{format:value,template:'{email}'}:{format:value}});}
   async function previewUsername():Promise<void>{const source=JSON.stringify([props.domain,row()?.id,username()]);setBusy(true);setError('');try{const result=await (props.api.usernamePreview??domainsApi.usernamePreview)(`user@${props.domain}`,username());if(source===JSON.stringify([props.domain,row()?.id,username()]))setPreview(result.authenticationUsername);}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
   return <div class={css.stack}>

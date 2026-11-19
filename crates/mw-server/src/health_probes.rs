@@ -587,9 +587,11 @@ fn submission_backends(row: &mw_store::DomainConfigRow) -> Vec<crate::domain_sel
             .into_iter()
             .collect();
     }
-    crate::domain_config::UpstreamConfig::parse(&row.upstream_json)
-        .ok()
-        .and_then(|c| c.smtp)
+    let Ok(config)=crate::domain_config::UpstreamConfig::parse(&row.upstream_json)else{return Vec::new();};
+    if let Some(endpoint)=config.jmap_submission {
+        return vec![Backend{id:"jmap-submission".into(),role:ServiceRole::Submission,protocol:Protocol::Jmap,enabled:true,preferred:false,priority:100,endpoint:None,session_url:Some(endpoint.session_url),ews:None,username:Default::default()}];
+    }
+    config.smtp
         .map(|endpoint| Backend {
             id: "smtp".into(),
             role: ServiceRole::Submission,

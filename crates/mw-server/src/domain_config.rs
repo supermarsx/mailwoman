@@ -146,6 +146,8 @@ pub(crate) struct UpstreamConfig {
     pub pop3: Option<Endpoint>,
     pub smtp: Option<Endpoint>,
     pub jmap: Option<JmapEndpoint>,
+    #[serde(rename="jmapSubmission",skip_serializing_if="Option::is_none")]
+    pub jmap_submission: Option<JmapEndpoint>,
     #[serde(skip)]
     pub ews: Option<crate::domain_provider::config::EwsConfig>,
     pub sieve: Option<Endpoint>,
@@ -187,6 +189,8 @@ impl UpstreamConfig {
         if config.imap.is_some() && config.pop3.is_some() {
             return Err("choose either IMAP or POP3".into());
         }
+        if config.smtp.is_some() && config.jmap_submission.is_some() { return Err("choose SMTP or JMAP for submission".into()); }
+        if let Some(jmap) = &config.jmap_submission { validate_http_url(&jmap.session_url)?; }
         if let Some(jmap) = &config.jmap {
             validate_http_url(&jmap.session_url)?;
         }
@@ -214,7 +218,7 @@ impl UpstreamConfig {
     pub fn binding(&self) -> Result<Option<String>, String> {
         let bytes = if let Some(selection) = &self.selection {
             serde_json::to_vec(selection)
-        } else if [&self.imap, &self.pop3, &self.smtp, &self.sieve]
+        } else if self.jmap_submission.is_some() || [&self.imap, &self.pop3, &self.smtp, &self.sieve]
             .into_iter()
             .flatten()
             .any(|endpoint| endpoint.security.is_some() || endpoint.authentication.is_some())

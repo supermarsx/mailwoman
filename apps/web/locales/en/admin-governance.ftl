@@ -72,7 +72,7 @@ governance-mail-compliance-mail-host = SMTP relay host
 governance-mail-compliance-mail-port = SMTP port
 governance-mail-compliance-mail-security = TLS mode
 governance-mail-compliance-mail-from = Sender address
-governance-mail-compliance-mail-username = SMTP username
+governance-mail-compliance-mail-username = Submission username
 governance-mail-compliance-mail-allowPrivate = Allow private relay
 governance-mail-dsr-notify-emailAdmins = Email operators about data requests
 governance-mail-dsr-notify-operatorAddresses = Operator recipients
@@ -87,9 +87,9 @@ governance-mail-event = Event
 governance-mail-time = Time
 governance-mail-attempts = Attempts
 governance-mail-result = Result
-governance-mail-help = Configure a TLS SMTP relay. Mail uses the system_mail proxy route. Uncertain acceptance requires review before resending.
+governance-mail-help = Configure SMTP with TLS or JMAP over HTTPS. Both use the system_mail proxy route. Unknown acceptance requires review before resending.
 governance-mail-secret-help = Set the password with MW_COMPLIANCE_SMTP_PASSWORD or MW_COMPLIANCE_SMTP_PASSWORD_FILE. It is never stored in settings.
-governance-mail-secret-ready = SMTP password source configured.
+governance-mail-secret-ready = Submission credential source configured.
 governance-mail-compliance-mail-requireProxy = Require proxy route
 governance-mail-retention-complianceMail-days = Completed email history retention (days)
 governance-mail-dismiss = Dismiss without resending
@@ -123,3 +123,9 @@ governance-field-terminationNoticeDays = Termination notice (days)
 governance-field-exitPlan = Exit and transition plan
 governance-field-continuityTesting = Continuity and resilience testing
 governance-field-concentrationRisk = Supplier concentration risk
+
+governance-mail-compliance-mail-protocol = Submission protocol
+
+governance-mail-compliance-mail-jmapSessionUrl = JMAP session URL
+
+governance-mail-jmap-secret-help = Set the JMAP password with MW_COMPLIANCE_JMAP_PASSWORD / MW_COMPLIANCE_JMAP_PASSWORD_FILE.

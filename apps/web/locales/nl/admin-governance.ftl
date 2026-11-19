@@ -72,7 +72,7 @@ governance-mail-compliance-mail-host = SMTP-relayhost
 governance-mail-compliance-mail-port = SMTP-poort
 governance-mail-compliance-mail-security = TLS-modus
 governance-mail-compliance-mail-from = Afzenderadres
-governance-mail-compliance-mail-username = SMTP-gebruikersnaam
+governance-mail-compliance-mail-username = Gebruikersnaam voor verzending
 governance-mail-compliance-mail-allowPrivate = Privérelay toestaan
 governance-mail-dsr-notify-emailAdmins = Beheerders over gegevensverzoeken mailen
 governance-mail-dsr-notify-operatorAddresses = Beheerders als ontvangers
@@ -87,9 +87,9 @@ governance-mail-event = Gebeurtenis
 governance-mail-time = Tijd
 governance-mail-attempts = Pogingen
 governance-mail-result = Resultaat
-governance-mail-help = Configureer een SMTP-relay met TLS. E-mail gebruikt de proxyroute system_mail. Controleer onzekere acceptatie voordat u opnieuw verzendt.
+governance-mail-help = Stel SMTP met TLS of JMAP via HTTPS in. Beide gebruiken de proxyroute system_mail. Onbekende acceptatie vereist controle voordat opnieuw wordt verzonden.
 governance-mail-secret-help = Stel het wachtwoord in via MW_COMPLIANCE_SMTP_PASSWORD of MW_COMPLIANCE_SMTP_PASSWORD_FILE. Het wordt nooit in instellingen opgeslagen.
-governance-mail-secret-ready = SMTP-wachtwoordbron ingesteld.
+governance-mail-secret-ready = Bron voor verzendreferenties ingesteld.
 governance-mail-compliance-mail-requireProxy = Proxyroute vereisen
 governance-mail-retention-complianceMail-days = Bewaartermijn voltooide e-mails (dagen)
 governance-mail-dismiss = Afhandelen zonder opnieuw verzenden
@@ -123,3 +123,9 @@ governance-field-terminationNoticeDays = Opzegtermijn (dagen)
 governance-field-exitPlan = Exit- en transitieplan
 governance-field-continuityTesting = Continuïteits- en weerbaarheidstests
 governance-field-concentrationRisk = Leveranciersconcentratierisico
+
+governance-mail-compliance-mail-protocol = Verzendprotocol
+
+governance-mail-compliance-mail-jmapSessionUrl = JMAP-sessie-URL
+
+governance-mail-jmap-secret-help = Stel het JMAP-wachtwoord in met MW_COMPLIANCE_JMAP_PASSWORD / MW_COMPLIANCE_JMAP_PASSWORD_FILE.

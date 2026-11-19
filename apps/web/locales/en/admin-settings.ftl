@@ -2650,3 +2650,8 @@ admin-settings-key-dsr-notify-operator-addresses = Data request notification rec
 admin-settings-help-dsr-notify-operator-addresses = Operator email addresses for configured data request notifications.
 admin-settings-key-dsr-notify-email-requester = Email data request updates
 admin-settings-help-dsr-notify-email-requester = Send configured data request updates to the requester.
+
+admin-settings-key-compliance-mail-protocol = Notification submission protocol
+admin-settings-help-compliance-mail-protocol = Choose SMTP or JMAP for system compliance notifications. Both use the system_mail egress route and preserve uncertain-delivery review.
+admin-settings-key-compliance-mail-jmap-session-url = System-mail JMAP session URL
+admin-settings-help-compliance-mail-jmap-session-url = HTTPS discovery URL. Supply its password through MW_COMPLIANCE_JMAP_PASSWORD or MW_COMPLIANCE_JMAP_PASSWORD_FILE; the sender must be a permitted upstream identity.

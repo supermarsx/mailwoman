@@ -1138,6 +1138,7 @@ pub(crate) async fn send_hop_timed(
         if out.authorized_plugin.is_some() {
             metadata.record_authentication(resp.headers());
         }
+        metadata.record_redirect(resp.headers().get(header::LOCATION).and_then(|value|value.to_str().ok()));
         metadata.record(
             status.as_u16(),
             resp.headers()

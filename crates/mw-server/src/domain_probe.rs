@@ -141,6 +141,7 @@ async fn upstream(
             probes.push(probe_mail(protocol, endpoint, &domain, &plan).await);
         }
     }
+    if let Some(jmap) = &config.jmap_submission { probes.push(probe_http("jmap-submission", &jmap.session_url, &domain, &plan).await); }
     if let Some(jmap) = &config.jmap {
         probes.push(probe_http("jmap", &jmap.session_url, &domain, &plan).await);
     }
@@ -540,7 +541,7 @@ async fn probe_http(
         ..Default::default()
     };
     let request =
-        mw_egress::plan::Request::get(mw_egress::TrafficClass::AdminDetect).for_domain(domain);
+        mw_egress::plan::Request::get(if protocol=="jmap-submission" {mw_egress::TrafficClass::Plugins}else{mw_egress::TrafficClass::AdminDetect}).for_domain(domain);
     match tokio::time::timeout(
         Duration::from_secs(5),
         mw_egress::plan::send_with(plan, url, &request),
@@ -553,6 +554,7 @@ async fn probe_http(
                 result.greeting =
                     Some("Guarded HTTP request succeeded; no credentials sent".into());
             }
+            Err(mw_egress::Refusal::Status(401|403)) if protocol=="jmap-submission"=>{result.reachable=true;result.greeting=Some("JMAP endpoint reachable; authentication required".into());},
             Err(error) => result.error = Some(format!("Guarded HTTP request refused: {error:?}")),
         },
         Err(_) => result.error = Some("HTTP check timed out after five seconds".into()),
@@ -576,6 +578,7 @@ pub(crate) async fn diagnostic_backend(
     let protocol = match backend.protocol {
         Protocol::Imap => "imap",
         Protocol::Pop3 => "pop3",
+        Protocol::Jmap if backend.role==crate::domain_selection::ServiceRole::Submission=>"jmap-submission",
         Protocol::Jmap => "jmap",
         Protocol::Smtp => "smtp",
         Protocol::Sieve => "sieve",

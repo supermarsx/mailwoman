@@ -115,7 +115,7 @@ impl BackendConfig {
                     ServiceRole::Mail,
                     Protocol::Imap | Protocol::Pop3 | Protocol::Jmap | Protocol::Ews,
                 )
-                | (ServiceRole::Submission, Protocol::Smtp)
+                | (ServiceRole::Submission, Protocol::Smtp | Protocol::Jmap)
                 | (ServiceRole::Rules, Protocol::Sieve) => {}
                 _ => return Err("the backend protocol does not implement its service role".into()),
             }
@@ -132,7 +132,7 @@ impl BackendConfig {
                     .ok_or("EWS needs its endpoint configuration")?
                     .validate()?;
             } else if backend.protocol == Protocol::Jmap {
-                if backend.username != UsernameFormat::FullEmail {
+                if backend.role==ServiceRole::Mail && backend.username != UsernameFormat::FullEmail {
                     return Err(
                         "JMAP username formatting is not supported by the current proxy transport"
                             .into(),
@@ -281,6 +281,9 @@ impl BackendConfig {
                 }
                 _ => return Err("invalid mail backend".into()),
             }
+        }
+        if let Some(submission)=selection.submission.as_ref().filter(|backend|backend.protocol==Protocol::Jmap){
+            result.jmap_submission=Some(JmapEndpoint{session_url:submission.session_url.clone().ok_or("JMAP submission needs a session URL")?});
         }
         result.smtp = selection
             .submission

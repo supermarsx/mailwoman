@@ -145,6 +145,7 @@ fn configured(row: &mw_store::DomainConfigRow) -> Result<Vec<Target>, String> {
                 });
             }
         }
+        if let Some(jmap)=config.jmap_submission { result.push(Backend{id:"jmap-submission".into(),role:ServiceRole::Submission,protocol:Protocol::Jmap,enabled:true,preferred:false,priority:100,endpoint:None,session_url:Some(jmap.session_url),ews:None,username:Default::default()}); }
         if let Some(jmap) = config.jmap {
             result.push(Backend {
                 id: "jmap".into(),

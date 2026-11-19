@@ -72,7 +72,7 @@ governance-mail-compliance-mail-host = Сервер SMTP
 governance-mail-compliance-mail-port = Порт SMTP
 governance-mail-compliance-mail-security = Режим TLS
 governance-mail-compliance-mail-from = Адрес отправителя
-governance-mail-compliance-mail-username = Имя пользователя SMTP
+governance-mail-compliance-mail-username = Пользователь отправки
 governance-mail-compliance-mail-allowPrivate = Разрешить частный сервер
 governance-mail-dsr-notify-emailAdmins = Уведомлять операторов о запросах данных
 governance-mail-dsr-notify-operatorAddresses = Адресаты операторы
@@ -87,9 +87,9 @@ governance-mail-event = Событие
 governance-mail-time = Время
 governance-mail-attempts = Попытки
 governance-mail-result = Результат
-governance-mail-help = Настройте SMTP-сервер с TLS. Почта использует маршрут прокси system_mail. При неясном принятии проверьте результат перед повторной отправкой.
+governance-mail-help = Настройте SMTP с TLS или JMAP через HTTPS. Оба используют маршрут прокси system_mail. Неизвестное принятие требует проверки перед повторной отправкой.
 governance-mail-secret-help = Задайте пароль через MW_COMPLIANCE_SMTP_PASSWORD или MW_COMPLIANCE_SMTP_PASSWORD_FILE. Он не хранится в настройках.
-governance-mail-secret-ready = Источник пароля SMTP настроен.
+governance-mail-secret-ready = Источник учётных данных отправки настроен.
 governance-mail-compliance-mail-requireProxy = Требовать маршрут прокси
 governance-mail-retention-complianceMail-days = Хранение истории завершённых писем (дни)
 governance-mail-dismiss = Закрыть без повторной отправки
@@ -123,3 +123,9 @@ governance-field-terminationNoticeDays = Срок уведомления о ра
 governance-field-exitPlan = План выхода и перехода
 governance-field-continuityTesting = Тестирование непрерывности и устойчивости
 governance-field-concentrationRisk = Риск концентрации поставщиков
+
+governance-mail-compliance-mail-protocol = Протокол отправки
+
+governance-mail-compliance-mail-jmapSessionUrl = URL сеанса JMAP
+
+governance-mail-jmap-secret-help = Задайте пароль JMAP через MW_COMPLIANCE_JMAP_PASSWORD / MW_COMPLIANCE_JMAP_PASSWORD_FILE.

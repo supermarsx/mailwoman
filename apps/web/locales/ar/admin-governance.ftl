@@ -72,7 +72,7 @@ governance-mail-compliance-mail-host = مضيف ترحيل SMTP
 governance-mail-compliance-mail-port = منفذ SMTP
 governance-mail-compliance-mail-security = وضع TLS
 governance-mail-compliance-mail-from = عنوان المرسل
-governance-mail-compliance-mail-username = اسم مستخدم SMTP
+governance-mail-compliance-mail-username = اسم مستخدم الإرسال
 governance-mail-compliance-mail-allowPrivate = السماح بمرحل خاص
 governance-mail-dsr-notify-emailAdmins = إرسال إشعارات طلبات البيانات للمشغلين
 governance-mail-dsr-notify-operatorAddresses = عناوين المشغلين
@@ -87,9 +87,9 @@ governance-mail-event = الحدث
 governance-mail-time = الوقت
 governance-mail-attempts = المحاولات
 governance-mail-result = النتيجة
-governance-mail-help = اضبط مرحل SMTP مع TLS. يستخدم البريد مسار الوكيل system_mail. راجع القبول غير المؤكد قبل إعادة الإرسال.
+governance-mail-help = اضبط SMTP مع TLS أو JMAP عبر HTTPS. يستخدم كلاهما مسار الوكيل system_mail. يجب مراجعة القبول غير المعروف قبل إعادة الإرسال.
 governance-mail-secret-help = اضبط كلمة المرور باستخدام MW_COMPLIANCE_SMTP_PASSWORD أو MW_COMPLIANCE_SMTP_PASSWORD_FILE. لا تُحفظ في الإعدادات.
-governance-mail-secret-ready = تم ضبط مصدر كلمة مرور SMTP.
+governance-mail-secret-ready = تم إعداد مصدر بيانات اعتماد الإرسال.
 governance-mail-compliance-mail-requireProxy = اشتراط مسار وكيل
 governance-mail-retention-complianceMail-days = مدة حفظ سجل البريد المكتمل بالأيام
 governance-mail-dismiss = إغلاق دون إعادة إرسال
@@ -123,3 +123,9 @@ governance-field-terminationNoticeDays = مهلة الإنهاء (أيام)
 governance-field-exitPlan = خطة الخروج والانتقال
 governance-field-continuityTesting = اختبارات الاستمرارية والمرونة
 governance-field-concentrationRisk = مخاطر تركز الموردين
+
+governance-mail-compliance-mail-protocol = بروتوكول الإرسال
+
+governance-mail-compliance-mail-jmapSessionUrl = عنوان جلسة JMAP
+
+governance-mail-jmap-secret-help = اضبط كلمة مرور JMAP باستخدام MW_COMPLIANCE_JMAP_PASSWORD / MW_COMPLIANCE_JMAP_PASSWORD_FILE.

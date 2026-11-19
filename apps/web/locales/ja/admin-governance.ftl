@@ -72,7 +72,7 @@ governance-mail-compliance-mail-host = SMTP中継ホスト
 governance-mail-compliance-mail-port = SMTPポート
 governance-mail-compliance-mail-security = TLSモード
 governance-mail-compliance-mail-from = 送信者アドレス
-governance-mail-compliance-mail-username = SMTPユーザー名
+governance-mail-compliance-mail-username = 送信用ユーザー名
 governance-mail-compliance-mail-allowPrivate = プライベート中継を許可
 governance-mail-dsr-notify-emailAdmins = データ要求を運用者にメール通知
 governance-mail-dsr-notify-operatorAddresses = 運用者の宛先
@@ -87,9 +87,9 @@ governance-mail-event = イベント
 governance-mail-time = 日時
 governance-mail-attempts = 試行回数
 governance-mail-result = 結果
-governance-mail-help = TLS対応のSMTP中継を設定してください。メールはsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認してください。
+governance-mail-help = TLS対応SMTPまたはHTTPS経由のJMAPを設定します。どちらもsystem_mailプロキシ経路を使用します。受理状況が不明な場合は再送前に確認が必要です。
 governance-mail-secret-help = MW_COMPLIANCE_SMTP_PASSWORDまたはMW_COMPLIANCE_SMTP_PASSWORD_FILEでパスワードを設定してください。設定データには保存されません。
-governance-mail-secret-ready = SMTPパスワードの取得元を設定済み。
+governance-mail-secret-ready = 送信用の認証情報ソースが設定されています。
 governance-mail-compliance-mail-requireProxy = プロキシ経路を必須にする
 governance-mail-retention-complianceMail-days = 完了したメール履歴の保存日数
 governance-mail-dismiss = 再送せずに解決
@@ -123,3 +123,9 @@ governance-field-terminationNoticeDays = 解約予告期間（日）
 governance-field-exitPlan = 終了・移行計画
 governance-field-continuityTesting = 継続性・レジリエンステスト
 governance-field-concentrationRisk = 供給者集中リスク
+
+governance-mail-compliance-mail-protocol = 送信プロトコル
+
+governance-mail-compliance-mail-jmapSessionUrl = JMAPセッションURL
+
+governance-mail-jmap-secret-help = JMAPパスワードの設定: MW_COMPLIANCE_JMAP_PASSWORD / MW_COMPLIANCE_JMAP_PASSWORD_FILE.

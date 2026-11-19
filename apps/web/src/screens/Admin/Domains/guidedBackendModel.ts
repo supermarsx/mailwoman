@@ -1,8 +1,8 @@
 import {ewsBackendProblem,ewsSelectionProblem} from './ewsBackendModel.ts';
 import type {DomainBackend,DomainStatus} from '../../../api/admin/domains.ts';
 
-export function newGuidedBackend(protocol:DomainBackend['protocol'],id:string):DomainBackend {
-  return {id,protocol,role:protocol==='smtp'?'submission':protocol==='sieve'?'rules':'mail',enabled:true,preferred:false,priority:100,username:{format:'fullEmail'},...(protocol==='ews'?{ews:{endpointUrl:'',authentication:'basic' as const}}:protocol==='jmap'?{sessionUrl:''}:{endpoint:{host:'',port:protocol==='smtp'?465:protocol==='pop3'?995:protocol==='sieve'?4190:993,tls:protocol==='sieve'?'starttls' as const:'implicit' as const,auth:'password' as const,allowPrivate:false}})};
+export function newGuidedBackend(protocol:DomainBackend['protocol'],id:string,jmapSubmission=false):DomainBackend {
+  return {id,protocol,role:protocol==='smtp'||protocol==='jmap'&&jmapSubmission?'submission':protocol==='sieve'?'rules':'mail',enabled:true,preferred:false,priority:100,username:{format:'fullEmail'},...(protocol==='ews'?{ews:{endpointUrl:'',authentication:'basic' as const}}:protocol==='jmap'?{sessionUrl:''}:{endpoint:{host:'',port:protocol==='smtp'?465:protocol==='pop3'?995:protocol==='sieve'?4190:993,tls:protocol==='sieve'?'starttls' as const:'implicit' as const,auth:'password' as const,allowPrivate:false}})};
 }
 export function guidedHost(value:string):boolean {
   if(!value||value!==value.trim()||/[\s/@?#\\]/u.test(value))return false;
@@ -18,7 +18,7 @@ export function guidedBackendProblem(rows:readonly DomainBackend[],status:Domain
   const ids=new Set<string>(),preferred=new Set<string>();
   for(const row of rows){
     if(!/^[A-Za-z0-9_-]{1,64}$/u.test(row.id)||ids.has(row.id))return 'admin-domain-guided-backend-id';ids.add(row.id);
-    if((status.mode==='proxy')!==(row.protocol==='jmap'))return 'admin-domain-guided-backend-mode';
+    if(status.mode==='proxy'?(row.protocol!=='jmap'||row.role!=='mail'):(row.protocol==='jmap'&&row.role!=='submission'))return 'admin-domain-guided-backend-mode';
     if(!Number.isInteger(row.priority??100)||(row.priority??100)<0||(row.priority??100)>65535)return 'admin-domain-guided-backend-priority';
     if(row.preferred){if(row.enabled===false||preferred.has(row.role))return 'admin-domain-guided-backend-preferred';preferred.add(row.role);}
     if(row.protocol==='jmap'){if(!guidedSessionUrl(row.sessionUrl??''))return 'admin-domain-guided-invalid-url';}

@@ -72,7 +72,7 @@ governance-mail-compliance-mail-host = SMTP中继主机
 governance-mail-compliance-mail-port = SMTP端口
 governance-mail-compliance-mail-security = TLS模式
 governance-mail-compliance-mail-from = 发件人地址
-governance-mail-compliance-mail-username = SMTP用户名
+governance-mail-compliance-mail-username = 发送用户名
 governance-mail-compliance-mail-allowPrivate = 允许私有中继
 governance-mail-dsr-notify-emailAdmins = 向运营方发送数据请求通知
 governance-mail-dsr-notify-operatorAddresses = 运营方收件人
@@ -87,9 +87,9 @@ governance-mail-event = 事件
 governance-mail-time = 时间
 governance-mail-attempts = 尝试次数
 governance-mail-result = 结果
-governance-mail-help = 请配置支持TLS的SMTP中继。邮件使用system_mail代理路由。接受状态不明时，请先检查再重新发送。
+governance-mail-help = 配置启用TLS的SMTP或通过HTTPS的JMAP。两者均使用system_mail代理路由。接受状态未知时须先审核再重发。
 governance-mail-secret-help = 请通过MW_COMPLIANCE_SMTP_PASSWORD或MW_COMPLIANCE_SMTP_PASSWORD_FILE设置密码。密码不会存入设置。
-governance-mail-secret-ready = 已配置SMTP密码来源。
+governance-mail-secret-ready = 发送凭据来源已配置。
 governance-mail-compliance-mail-requireProxy = 要求代理路由
 governance-mail-retention-complianceMail-days = 已完成邮件历史保留天数
 governance-mail-dismiss = 不重发并结束处理
@@ -123,3 +123,9 @@ governance-field-terminationNoticeDays = 终止通知期（天）
 governance-field-exitPlan = 退出与过渡计划
 governance-field-continuityTesting = 连续性与韧性测试
 governance-field-concentrationRisk = 供应商集中风险
+
+governance-mail-compliance-mail-protocol = 发送协议
+
+governance-mail-compliance-mail-jmapSessionUrl = JMAP会话URL
+
+governance-mail-jmap-secret-help = 设置JMAP密码： MW_COMPLIANCE_JMAP_PASSWORD / MW_COMPLIANCE_JMAP_PASSWORD_FILE.

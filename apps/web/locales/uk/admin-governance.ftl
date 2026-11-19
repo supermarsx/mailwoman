@@ -72,7 +72,7 @@ governance-mail-compliance-mail-host = Сервер SMTP
 governance-mail-compliance-mail-port = Порт SMTP
 governance-mail-compliance-mail-security = Режим TLS
 governance-mail-compliance-mail-from = Адреса відправника
-governance-mail-compliance-mail-username = Ім’я користувача SMTP
+governance-mail-compliance-mail-username = Користувач надсилання
 governance-mail-compliance-mail-allowPrivate = Дозволити приватний сервер
 governance-mail-dsr-notify-emailAdmins = Сповіщати операторів про запити даних
 governance-mail-dsr-notify-operatorAddresses = Одержувачі оператори
@@ -87,9 +87,9 @@ governance-mail-event = Подія
 governance-mail-time = Час
 governance-mail-attempts = Спроби
 governance-mail-result = Результат
-governance-mail-help = Налаштуйте SMTP-сервер із TLS. Пошта використовує маршрут проксі system_mail. За невизначеного прийняття перевірте результат перед повторним надсиланням.
+governance-mail-help = Налаштуйте SMTP із TLS або JMAP через HTTPS. Обидва використовують маршрут проксі system_mail. Невідоме прийняття потребує перевірки перед повторним надсиланням.
 governance-mail-secret-help = Задайте пароль через MW_COMPLIANCE_SMTP_PASSWORD або MW_COMPLIANCE_SMTP_PASSWORD_FILE. Він не зберігається в налаштуваннях.
-governance-mail-secret-ready = Джерело пароля SMTP налаштовано.
+governance-mail-secret-ready = Джерело облікових даних надсилання налаштовано.
 governance-mail-compliance-mail-requireProxy = Вимагати маршрут проксі
 governance-mail-retention-complianceMail-days = Зберігання історії завершених листів (дні)
 governance-mail-dismiss = Закрити без повторного надсилання
@@ -123,3 +123,9 @@ governance-field-terminationNoticeDays = Строк повідомлення п�
 governance-field-exitPlan = План виходу й переходу
 governance-field-continuityTesting = Тестування безперервності та стійкості
 governance-field-concentrationRisk = Ризик концентрації постачальників
+
+governance-mail-compliance-mail-protocol = Протокол надсилання
+
+governance-mail-compliance-mail-jmapSessionUrl = URL сеансу JMAP
+
+governance-mail-jmap-secret-help = Задайте пароль JMAP через MW_COMPLIANCE_JMAP_PASSWORD / MW_COMPLIANCE_JMAP_PASSWORD_FILE.

@@ -3,6 +3,7 @@
 //! Only the surface Mailwoman V0 needs; grows with later milestones.
 
 pub mod client;
+pub mod submission;
 pub mod types;
 
 pub use client::{JmapClient, JmapError};

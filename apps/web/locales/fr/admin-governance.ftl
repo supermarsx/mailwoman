@@ -72,7 +72,7 @@ governance-mail-compliance-mail-host = Hôte du relais SMTP
 governance-mail-compliance-mail-port = Port SMTP
 governance-mail-compliance-mail-security = Mode TLS
 governance-mail-compliance-mail-from = Adresse d’expédition
-governance-mail-compliance-mail-username = Identifiant SMTP
+governance-mail-compliance-mail-username = Identifiant d’envoi
 governance-mail-compliance-mail-allowPrivate = Autoriser un relais privé
 governance-mail-dsr-notify-emailAdmins = Notifier les opérateurs des demandes de données
 governance-mail-dsr-notify-operatorAddresses = Destinataires opérateurs
@@ -87,9 +87,9 @@ governance-mail-event = Événement
 governance-mail-time = Heure
 governance-mail-attempts = Tentatives
 governance-mail-result = Résultat
-governance-mail-help = Configurez un relais SMTP avec TLS. Les e-mails utilisent la route proxy system_mail. Vérifiez les acceptations incertaines avant tout renvoi.
+governance-mail-help = Configurez SMTP avec TLS ou JMAP en HTTPS. Les deux utilisent la route proxy system_mail. Une acceptation inconnue exige une vérification avant le renvoi.
 governance-mail-secret-help = Définissez le mot de passe via MW_COMPLIANCE_SMTP_PASSWORD ou MW_COMPLIANCE_SMTP_PASSWORD_FILE. Il n’est jamais stocké dans les paramètres.
-governance-mail-secret-ready = Source du mot de passe SMTP configurée.
+governance-mail-secret-ready = Source des identifiants d’envoi configurée.
 governance-mail-compliance-mail-requireProxy = Exiger une route proxy
 governance-mail-retention-complianceMail-days = Conservation des e-mails terminés (jours)
 governance-mail-dismiss = Classer sans renvoyer
@@ -123,3 +123,9 @@ governance-field-terminationNoticeDays = Préavis de résiliation (jours)
 governance-field-exitPlan = Plan de sortie et de transition
 governance-field-continuityTesting = Tests de continuité et de résilience
 governance-field-concentrationRisk = Risque de concentration des fournisseurs
+
+governance-mail-compliance-mail-protocol = Protocole d’envoi
+
+governance-mail-compliance-mail-jmapSessionUrl = URL de session JMAP
+
+governance-mail-jmap-secret-help = Définissez le mot de passe JMAP avec MW_COMPLIANCE_JMAP_PASSWORD / MW_COMPLIANCE_JMAP_PASSWORD_FILE.

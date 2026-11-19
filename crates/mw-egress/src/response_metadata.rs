@@ -11,6 +11,7 @@ pub struct ResponseMetadata {
     progress: Mutex<Option<ResponseProgress>>,
     cache: Mutex<Option<CacheHeaders>>,
     authentication: Mutex<Vec<String>>,
+    redirect: Mutex<Option<String>>,
 }
 impl std::fmt::Debug for ResponseMetadata {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -41,6 +42,17 @@ pub struct ResponseProgress {
 }
 
 impl ResponseMetadata {
+    /// A bounded redirect target, validated again by its owning protocol before use.
+    pub fn redirect_location(&self) -> Option<String> {
+        self.redirect.lock().ok()?.clone()
+    }
+    pub(crate) fn record_redirect(&self, value: Option<&str>) {
+        if let Ok(mut held) = self.redirect.lock() {
+            *held = value
+                .filter(|value| value.len() <= 4096 && !value.chars().any(char::is_control))
+                .map(str::to_string);
+        }
+    }
     pub fn authentication_challenges(&self) -> Vec<String> {
         self.authentication
             .lock()
@@ -165,5 +177,16 @@ mod tests {
         assert_eq!(metadata.snapshot().unwrap().etag, None);
         metadata.record(200, Some("revision\r\nCookie: secret"));
         assert_eq!(metadata.snapshot().unwrap().etag, None);
+    }
+    #[test]
+    fn redirect_metadata_is_bounded_and_redacted() {
+        let metadata = ResponseMetadata::default();
+        metadata.record_redirect(Some("https://example.test/session?private-token"));
+        assert!(metadata.redirect_location().is_some());
+        assert!(!format!("{metadata:?}").contains("private-token"));
+        metadata.record_redirect(Some(&"x".repeat(4097)));
+        assert!(metadata.redirect_location().is_none());
+        metadata.record_redirect(Some("bad\nheader"));
+        assert!(metadata.redirect_location().is_none());
     }
 }

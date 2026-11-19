@@ -72,7 +72,7 @@ governance-mail-compliance-mail-host = SMTP-Relay-Host
 governance-mail-compliance-mail-port = SMTP-Port
 governance-mail-compliance-mail-security = TLS-Modus
 governance-mail-compliance-mail-from = Absenderadresse
-governance-mail-compliance-mail-username = SMTP-Benutzername
+governance-mail-compliance-mail-username = Versandbenutzername
 governance-mail-compliance-mail-allowPrivate = Privates Relay zulassen
 governance-mail-dsr-notify-emailAdmins = Betreiber über Datenanfragen benachrichtigen
 governance-mail-dsr-notify-operatorAddresses = Betreiberempfänger
@@ -87,9 +87,9 @@ governance-mail-event = Ereignis
 governance-mail-time = Zeit
 governance-mail-attempts = Versuche
 governance-mail-result = Ergebnis
-governance-mail-help = Konfigurieren Sie ein SMTP-Relay mit TLS. E-Mail nutzt die Proxyroute system_mail. Prüfen Sie eine ungewisse Annahme vor erneutem Versand.
+governance-mail-help = Konfigurieren Sie SMTP mit TLS oder JMAP über HTTPS. Beide nutzen die Proxyroute system_mail. Bei unbekannter Annahme ist vor erneutem Versand eine Prüfung erforderlich.
 governance-mail-secret-help = Setzen Sie das Passwort über MW_COMPLIANCE_SMTP_PASSWORD oder MW_COMPLIANCE_SMTP_PASSWORD_FILE. Es wird nie in Einstellungen gespeichert.
-governance-mail-secret-ready = SMTP-Passwortquelle konfiguriert.
+governance-mail-secret-ready = Quelle der Versandzugangsdaten konfiguriert.
 governance-mail-compliance-mail-requireProxy = Proxyroute verlangen
 governance-mail-retention-complianceMail-days = Aufbewahrung abgeschlossener E-Mails (Tage)
 governance-mail-dismiss = Ohne erneuten Versand abschließen
@@ -123,3 +123,9 @@ governance-field-terminationNoticeDays = Kündigungsfrist (Tage)
 governance-field-exitPlan = Ausstiegs- und Übergangsplan
 governance-field-continuityTesting = Kontinuitäts- und Resilienztests
 governance-field-concentrationRisk = Anbieterkonzentrationsrisiko
+
+governance-mail-compliance-mail-protocol = Versandprotokoll
+
+governance-mail-compliance-mail-jmapSessionUrl = JMAP-Sitzungs-URL
+
+governance-mail-jmap-secret-help = Setzen Sie das JMAP-Passwort mit MW_COMPLIANCE_JMAP_PASSWORD / MW_COMPLIANCE_JMAP_PASSWORD_FILE.

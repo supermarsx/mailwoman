@@ -66,7 +66,7 @@ pub async fn run(store: &Store, verb: DomainVerb) -> Result<String> {
             let config =
                 crate::domain_config::UpstreamConfig::parse(&json).map_err(|e| anyhow!(e))?;
             let engine = std::env::var("MW_MODE").is_ok_and(|mode| mode == "engine");
-            if (engine && config.jmap.is_some()) || (!engine && config.mail().is_some()) {
+            if (engine && config.jmap.is_some()) || (!engine && (config.mail().is_some() || config.jmap_submission.is_some())) {
                 bail!("upstream must match MW_MODE");
             }
             let previous = store

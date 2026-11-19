@@ -43,3 +43,17 @@ Legacy raw-account notification and push rows remain intact but are not attribut
 Background native-engine events use an actual native account and its verified personal subject. A raw proxy account ID alone is insufficient to select an owner's subscriptions; such background delivery is suppressed until a verified source can be established. Existing administrator setting ceilings still apply. This change does not establish realm isolation for every generic setting-policy subject or background integration.
 
 Editable sender profiles use the separate `personal_identity` table with the same verified ownership boundary. Old raw-account identity rows are retained without automatic attribution. A sender profile never grants permission to send: native submissions, saved drafts and receipts still validate the actual sender against the current upstream/operator authority. Supported database copy retains these typed rows; copying sealed credentials requires the matching server key.
+
+
+### JMAP for system and compliance email
+
+The administrator's outbound-mail settings support either SMTP (default) or JMAP.
+For JMAP configure **Protocol**, the HTTPS **JMAP session URL**, sender address and
+username. Supply the password through `MW_COMPLIANCE_JMAP_PASSWORD` or
+`MW_COMPLIANCE_JMAP_PASSWORD_FILE`; secrets are never stored in the settings form.
+The sender must match an upstream JMAP identity. Discovery/API/upload remain on
+the same origin. The `system_mail` egress route and the existing **Require proxy**
+policy apply to every HTTP operation; there is no direct-network fallback.
+SMTP host/port/security controls apply only when SMTP is selected. Lost JMAP
+submission acknowledgements stop automatic delivery retries for review, just as
+uncertain SMTP delivery does.

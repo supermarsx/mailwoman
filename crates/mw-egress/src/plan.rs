@@ -340,6 +340,29 @@ impl<'a> Request<'a> {
         })
     }
 
+    /// Host-owned JMAP submission using the same account-scoped route as provider APIs.
+    /// MIME uploads need the mail/download byte ceiling rather than the image ceiling.
+    pub fn mail_submission(
+        class: TrafficClass,
+        operation: crate::PluginHttp<'a>,
+        body: Option<OutBody<'a>>,
+    ) -> Result<Self, Refusal> {
+        operation.validate()?;
+        if !matches!(class, TrafficClass::Plugins | TrafficClass::SystemMail)
+            || !matches!(operation.method, "GET" | "POST")
+            || (operation.method == "GET" && body.is_some())
+            || body.is_some_and(|body| body.bytes.len() > crate::MAX_DOWNLOAD_BYTES)
+        {
+            return Err(Refusal::BadRequest("invalid JMAP submission request"));
+        }
+        Ok(Self {
+            authorized_plugin: Some(operation),
+            body,
+            response_limit: 4 * 1024 * 1024,
+            ..Self::get(class)
+        })
+    }
+
     /// Encrypted Web Push with fixed protocol headers, public HTTPS only.
     pub fn web_push(authorization: &'a str, bytes: &'a [u8]) -> Result<Self, Refusal> {
         let headers = crate::WebPushHeaders { authorization };
@@ -753,6 +776,18 @@ pub fn counts() -> Vec<(TrafficClass, ClassCounts)> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn jmap_submission_has_a_bounded_typed_mail_ceiling() {
+        let operation=|method|crate::PluginHttp {connection:None,method,headers:&[],additional_roots:&[]};
+        for class in [TrafficClass::Plugins,TrafficClass::SystemMail] {
+            assert!(Request::mail_submission(class,operation("GET"),None).is_ok());
+            assert!(Request::mail_submission(class,operation("POST"),Some(OutBody{content_type:"message/rfc822",bytes:b"mime"})).is_ok());
+            assert!(Request::mail_submission(class,operation("GET"),Some(OutBody{content_type:"message/rfc822",bytes:b"mime"})).is_err());
+        }
+        assert!(Request::mail_submission(TrafficClass::Push,operation("POST"),None).is_err());
+        assert!(Request::mail_submission(TrafficClass::Plugins,operation("DELETE"),None).is_err());
+    }
     use super::*;
     use crate::proxy::ProxyScheme;
     use crate::{AllowDestination, AllowEntry};
