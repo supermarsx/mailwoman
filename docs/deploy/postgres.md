@@ -147,14 +147,20 @@ identical results (`store-dual-backend`).
 
 `sqlx` manages the connection pool. Size the Postgres server's `max_connections` for
 your expected concurrency; a single Mailwoman instance holds a modest pool. For
-multiple instances against one database, no application coordination is required — the
-schema and all writes are transactional.
+multiple instances against one database, budget the combined foreground and worker
+connections against that limit. Transactional writes protect database operations;
+they do not coordinate upstream account ownership, local search indexes or
+cross-replica WebSocket notifications. Some scheduled jobs and submission attempts
+have durable claims, but several background loops and caches remain process-local.
+See [scaling and multi-location boundaries](scaling.md) before adding replicas.
 
 ## When to use Postgres
 
 - **SQLite** — single-user, evaluation, self-contained desktop mode, small
   single-operator installs. Zero-config, one file, fully featured.
-- **Postgres** — multi-instance / HA deployments, external backup/replication tooling,
-  or operators who already run Postgres and want the store there.
+- **Postgres** — a shared durable store, external backup/replication tooling, or
+  operators who already run Postgres. It is a foundation for HA; complete
+  multi-instance application coordination still needs the work described in the
+  [scaling guide](scaling.md).
 
 The choice is purely operational; feature parity is a CI gate, not an aspiration.

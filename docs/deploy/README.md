@@ -86,6 +86,10 @@ pluggable Postgres, layered Valkey/Redis cache, observability) adds:
   [observability](../security/observability.md) ·
   [zero-access](../security/zero-access.md)).
 
+For replica counts, distributed synchronization and multi-location plans, read the
+[scaling boundaries and qualification guide](scaling.md). Shared PostgreSQL and
+Valkey do not by themselves make the application horizontally coordinated.
+
 ## Configuration (environment)
 
 Valid sessions survive normal server restarts when the database and its sealing
