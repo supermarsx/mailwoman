@@ -1,0 +1,51 @@
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
+import {fireEvent,render,screen,waitFor,within} from '@solidjs/testing-library';
+import {ResourceObservability} from './ResourceObservability.tsx';
+import {loadResourceSnapshot,type ResourceSnapshot} from '../../api/admin/resources.ts';
+import {expectNoAxeViolations,expectNoInlineStyle} from './shell/uxTestkit.ts';
+vi.mock('../../api/admin/resources.ts',()=>({loadResourceSnapshot:vi.fn()}));
+const fixture=():ResourceSnapshot=>({observedAt:1700000000,effectiveCpuCores:4,effectiveMemoryLimitBytes:4294967296,effectiveMemoryAvailableBytes:3221225472,hostMemoryTotalBytes:17179869184,hostMemoryAvailableBytes:12884901888,processResidentBytes:536870912,processCpuPercent:null,cpuSampleSeconds:null,filesystemTotalBytes:1099511627776,filesystemAvailableBytes:549755813888,cgroupDetected:false});
+beforeEach(()=>{vi.mocked(loadResourceSnapshot).mockReset().mockResolvedValue(fixture());});
+afterEach(()=>{vi.useRealTimers();vi.restoreAllMocks();});
+it('distinguishes server entitlement, host and process and keeps CPU warmup unknown',async()=>{
+ const {container}=render(()=><ResourceObservability/>);
+ const process=await screen.findByRole('region',{name:'Server process'});
+ expect(within(process).getByText('CPU usage').closest('tr')).toHaveTextContent('Not available');
+ expect(process).toHaveTextContent('100% CPU means one logical core');
+ expect(process).toHaveTextContent('CPU usage needs two observations');
+ expect(screen.getByRole('region',{name:'Effective server capacity'})).toHaveTextContent('4');
+ expect(screen.getByRole('region',{name:'Host memory'})).toBeVisible();
+ expect(screen.getByRole('region',{name:'Data filesystem'})).toHaveTextContent('Remote database storage is not included');
+ expect(screen.queryByText(/Container isolation detected/)).toBeNull();
+ await expectNoAxeViolations(container);expectNoInlineStyle(container);
+});
+it('preserves CPU usage above one core and refreshes readings',async()=>{
+ const report=fixture();report.processCpuPercent=150;report.cpuSampleSeconds=2;report.cgroupDetected=true;
+ vi.mocked(loadResourceSnapshot).mockResolvedValue(report);render(()=><ResourceObservability/>);
+ const process=await screen.findByRole('region',{name:'Server process'});
+ expect(within(process).getByText('CPU usage').closest('tr')).toHaveTextContent('150%');
+ expect(screen.getByText(/Container isolation detected/)).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'Refresh'}));
+ await waitFor(()=>expect(loadResourceSnapshot).toHaveBeenCalledTimes(2));
+});
+it('polls only while visible and aborts and removes listeners on unmount',async()=>{
+ vi.useFakeTimers({toFake:['setInterval','clearInterval']});
+ let visible=true;vi.spyOn(document,'visibilityState','get').mockImplementation(()=>visible?'visible':'hidden');
+ const {unmount}=render(()=><ResourceObservability/>);
+ await screen.findByRole('region',{name:'Server process'});
+ await vi.advanceTimersByTimeAsync(10000);expect(loadResourceSnapshot).toHaveBeenCalledTimes(2);
+ visible=false;await vi.advanceTimersByTimeAsync(30000);expect(loadResourceSnapshot).toHaveBeenCalledTimes(2);
+ visible=true;document.dispatchEvent(new Event('visibilitychange'));
+ await waitFor(()=>expect(loadResourceSnapshot).toHaveBeenCalledTimes(3));
+ const signal=vi.mocked(loadResourceSnapshot).mock.calls.at(-1)?.[0];
+ unmount();expect(signal?.aborted).toBe(true);
+ await vi.advanceTimersByTimeAsync(30000);document.dispatchEvent(new Event('visibilitychange'));
+ expect(loadResourceSnapshot).toHaveBeenCalledTimes(3);
+});
+it('does not turn unavailable memory or disk values into zero',async()=>{
+ const report=fixture();report.effectiveMemoryLimitBytes=null;report.filesystemAvailableBytes=null;
+ vi.mocked(loadResourceSnapshot).mockResolvedValue(report);render(()=><ResourceObservability/>);
+ await screen.findByRole('region',{name:'Server process'});
+ expect(screen.getByText('Memory limit').closest('tr')).toHaveTextContent('Not available');
+ expect(screen.getByText('Filesystem available').closest('tr')).toHaveTextContent('Not available');
+});

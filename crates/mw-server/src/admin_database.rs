@@ -17,11 +17,32 @@ use std::sync::{Arc, LazyLock};
 pub(crate) fn register(registrar: &mut impl AdminRegistrar) {
     registrar.admin_endpoint(
         Method::GET,
+        "/observability/resources",
+        C::ObservabilityRead,
+        resources,
+    );
+    registrar.admin_endpoint(
+        Method::GET,
         "/observability/database",
         C::ObservabilityRead,
         report,
     );
 }
+/// Deployment-wide observations must never be exposed to domain-scoped administrators.
+async fn resources(
+    State(state): State<AppState>,
+    ctx: AdminCtx,
+) -> Result<Response, AdminApiError> {
+    ctx.require_unscoped(C::ObservabilityRead)?;
+    let path = state.resource_data_path.clone();
+    let value = tokio::task::spawn_blocking(move || {
+        mw_observability::resource_snapshot::snapshot(&path)
+    })
+    .await
+    .map_err(AdminApiError::internal)?;
+    Ok(([(header::CACHE_CONTROL, "no-store")], Json(value)).into_response())
+}
+
 #[derive(Deserialize, Default)]
 struct Options {
     #[serde(default)]

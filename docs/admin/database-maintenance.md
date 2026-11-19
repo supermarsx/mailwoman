@@ -187,3 +187,21 @@ default), avoiding a background job checkpointing an arbitrarily large WAL.
 Long readers can delay physical shrinkage. No background checkpoint uses TRUNCATE
 or waits for readers. The daily retention and weekly vacuum jobs delegate SQLite reclamation to
 this worker; the explicit full-compaction maintenance command remains offline.
+
+
+## Server resources
+
+Observability → Resources reports effective CPU capacity (including fractional
+container quotas), memory limits and available headroom, process RSS and CPU,
+host memory, and the local data filesystem's total/available space. CPU usage is
+interval-based: the first read is unavailable until a later sample, and 100%
+means one logical core. It covers the webmail process, not separate renderer
+children. Memory headroom is conservative and is not exact container memory usage.
+
+The page refreshes every ten seconds while visible and offers manual refresh.
+It requires an unscoped administrator with observability permission. Readings are
+not cached by the browser or persisted as a new database row on every poll.
+Unknown metrics stay unavailable. Filesystem readings describe the SQLite data
+folder, or the local working filesystem for non-file databases; they do not
+measure storage on a remote PostgreSQL server. Container detection is a hint,
+not proof that resource limits are absent when no container is detected.

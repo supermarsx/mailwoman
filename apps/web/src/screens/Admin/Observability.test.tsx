@@ -9,8 +9,10 @@ import { dashboardReturning, holding, renderInShell } from './shell/testkit.tsx'
 import { useShell } from './shell/context.ts';
 import type { Capability } from './shell/can.ts';
 import { engineDashboard } from './Dashboard/fixtures.ts';
+import {loadResourceSnapshot} from '../../api/admin/resources.ts';
 import { loadRequestHistory } from '../../api/admin/requestHistory.ts';
 
+vi.mock('../../api/admin/resources.ts',()=>({loadResourceSnapshot:vi.fn(async()=>({observedAt:1700000000,effectiveCpuCores:4,effectiveMemoryLimitBytes:null,effectiveMemoryAvailableBytes:null,hostMemoryTotalBytes:null,hostMemoryAvailableBytes:null,processResidentBytes:null,processCpuPercent:null,cpuSampleSeconds:null,filesystemTotalBytes:null,filesystemAvailableBytes:null,cgroupDetected:false}))}));
 vi.mock('../../api/admin/requestHistory.ts',()=>({loadRequestHistory:vi.fn(),loadNotFoundPaths:vi.fn(async()=>{throw new Error('not available');})}));
 beforeEach(()=>{
   vi.mocked(loadRequestHistory).mockClear().mockResolvedValue({from:0,to:3600,bucketSeconds:60,series:[{t:0,requests:1,errors5xx:0,p50Ms:5,p95Ms:10,coverage:'complete'}],coverage:{observedSeconds:3600,requestedSeconds:3600,gaps:[]},policy:{defaultRangeSeconds:3600,maxRangeSeconds:2592000,retentionDays:30},scope:'server',timing:'response-ready'});
@@ -48,7 +50,7 @@ describe('Admin › Observability', () => {
     expect(tiles.compareDocumentPosition(charts)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(charts.compareDocumentPosition(tables)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const tabs=screen.getByRole('navigation',{name:'Observability'});
-    expect(within(tabs).getAllByRole('link').map(link=>link.textContent)).toEqual(['Overview','Audit log','Configure operational telemetry','Client errors']);
+    expect(within(tabs).getAllByRole('link').map(link=>link.textContent)).toEqual(['Overview','Audit log','Configure operational telemetry','Client errors','Database','Resources']);
     expect(within(tabs).getByRole('link',{name:'Overview'})).toHaveAttribute('aria-current','page');
     expect(within(tabs).getByRole('link',{name:'Overview'})).toHaveAttribute('href','/admin#/observability');
     expect(api.listAudit).not.toHaveBeenCalled();
@@ -58,6 +60,13 @@ describe('Admin › Observability', () => {
     expect(await screen.findByText('user-provisioned')).toBeInTheDocument();
     expect(screen.getByRole('navigation',{name:'Observability'})).toBe(tabs);
     expect(screen.queryByTestId('statistics')).toBeNull();
+  });
+
+  it('opens Resources as a dedicated observability tab without loading audit',async()=>{
+    const {api}=openSection(['resources'],['observability.read']);
+    expect(await screen.findByRole('region',{name:'Server process'})).toBeVisible();
+    expect(screen.getByRole('link',{name:'Resources'})).toHaveAttribute('aria-current','page');
+    expect(loadResourceSnapshot).toHaveBeenCalled();expect(api.listAudit).not.toHaveBeenCalled();
   });
 
   it('keeps old Statistics links working as Overview',async()=>{

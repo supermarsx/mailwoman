@@ -966,6 +966,8 @@ pub(crate) struct AppState {
     started_at: std::time::SystemTime,
     started: std::time::Instant,
     config_snapshot: config_routes::BootConfigSnapshot,
+    /// Local filesystem whose capacity is shown in administrator resource observations.
+    resource_data_path: PathBuf,
     request_history: Arc<request_history::Recorder>,
     client_timing: Arc<client_timing::Recorder>,
     /// Keeps the persisted-statistics recorder (and its flush loop) alive.
@@ -1426,6 +1428,9 @@ async fn build_app_inner(
     let admin_probe = admin_probe::Runtime::start(store.clone());
     pdf_assets::log_startup_audit(config.web_dir.as_deref());
     let state = AppState {
+        resource_data_path: mw_store::encryption::sqlite_file_from_dsn(&config.db_path)
+            .and_then(|path| path.parent().filter(|parent| !parent.as_os_str().is_empty()).map(Path::to_path_buf))
+            .unwrap_or_else(|| PathBuf::from(".")),
         started_at: std::time::SystemTime::now(),
         started: std::time::Instant::now(),
         config_snapshot,
