@@ -322,8 +322,12 @@ limit, log rotation, and writable temporary space. No dev/test services start.
 
 `MEMORY_LIMIT` (a size such as `1g` or `768m`) and `CPU_LIMIT` (a number of CPUs
 such as `2` or `1.5`) in `deploy.env` become the app container's `mem_limit` and
-`cpus`. A new installation gets `MEMORY_LIMIT=1g` and `CPU_LIMIT=2`, the limits of
-the Helm chart. An empty or missing key means no limit; a `deploy.env` written
+`cpus`. A new installation gets `MEMORY_LIMIT=4g` (4 GiB) and `CPU_LIMIT=4`.
+These are runtime ceilings, not a reservation of host resources. Existing saved
+values, including smaller explicit limits, are preserved on upgrade. Edit both
+keys in `deploy.env` and deploy to change an existing installation. The Helm chart
+also defaults to four CPU cores and 4 GiB per webmail replica, with matching
+scheduler requests and runtime limits. An empty or missing key means no limit; a `deploy.env` written
 before these keys existed has neither, and every `deploy` says so in one line
 until they are added. A `CPU_LIMIT` above the number of CPUs Docker can use is
 lowered to that number, with a message, because Docker refuses it otherwise. When

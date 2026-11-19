@@ -156,13 +156,16 @@ env:
   MW_PLUGIN_DIR: "/usr/lib/mailwoman/plugins"
   RUST_LOG: "info"
 
+# Reserve four CPU cores and 4 GiB for each webmail server replica. Requests are
+# scheduler reservations; matching limits are runtime ceilings. Override both
+# explicitly in your own values file when sizing a deployment differently.
 resources:
   requests:
-    cpu: 100m
-    memory: 128Mi
+    cpu: "4"
+    memory: 4Gi
   limits:
-    cpu: "2"
-    memory: 1Gi
+    cpu: "4"
+    memory: 4Gi
 
 # Pod-level security context.
 podSecurityContext:

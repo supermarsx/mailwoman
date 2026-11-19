@@ -9,6 +9,8 @@ init() { bash "$ROOT/deploy.sh" init --no-pull --state-dir "$1" --port 18180; }
 value() { awk -F= -v key="$2" '$1 == key {print $2}' "$1/app.env"; }
 
 init "$work/first" > "$work/first.log" 2>&1
+grep -qx 'MEMORY_LIMIT=4g' "$work/first/deploy.env" || fail 'new installation lacks the 4 GiB memory default'
+grep -qx 'CPU_LIMIT=4' "$work/first/deploy.env" || fail 'new installation lacks the four CPU default'
 username=$(value "$work/first" MW_ADMIN_USER)
 password=$(value "$work/first" MW_ADMIN_PASSWORD)
 [[ $username =~ ^admin-[0-9a-f]{12}$ ]] || fail 'username lacks the readable secure suffix'
@@ -17,8 +19,12 @@ password=$(value "$work/first" MW_ADMIN_PASSWORD)
 grep -F "Admin username: $username" "$work/first.log" >/dev/null || fail 'operator was not told the username'
 if grep -F "$password" "$work/first.log" >/dev/null; then fail 'password leaked into setup output'; fi
 cp "$work/first/app.env" "$work/original.env"
+# Saved overrides remain authoritative, even below the new-install defaults.
+sed -i 's/^MEMORY_LIMIT=.*/MEMORY_LIMIT=768m/;s/^CPU_LIMIT=.*/CPU_LIMIT=1.5/' "$work/first/deploy.env"
+cp "$work/first/deploy.env" "$work/resources-original.env"
 init "$work/first" > "$work/repeat.log" 2>&1
 cmp -s "$work/original.env" "$work/first/app.env" || fail 'repeated init changed existing credentials'
+cmp -s "$work/resources-original.env" "$work/first/deploy.env" || fail 'repeated init changed saved resource overrides'
 
 init "$work/second" > "$work/second.log" 2>&1
 [[ $(value "$work/second" MW_ADMIN_USER) != "$username" ]] || fail 'new installs share a username'
@@ -30,6 +36,8 @@ printf 'PASS: new random identity, private credentials, safe guidance, stable re
 
 # Full-stack bootstrap keeps database/cache credentials stable and private too.
 bash "$ROOT/deploy.sh" init --full-stack --no-pull --state-dir "$work/full" --port 18183 > "$work/full.log" 2>&1
+grep -qx 'MEMORY_LIMIT=4g' "$work/full/deploy.env" || fail 'full-stack app lacks the 4 GiB memory default'
+grep -qx 'CPU_LIMIT=4' "$work/full/deploy.env" || fail 'full-stack app lacks the four CPU default'
 grep -qx 'STACK=full' "$work/full/deploy.env" || fail 'full stack was not saved'
 for key in MW_STACK_DB_PASSWORD MW_STACK_CACHE_PASSWORD; do
     [[ $(value "$work/full" "$key") =~ ^[0-9a-f]{64}$ ]] || fail "invalid $key"

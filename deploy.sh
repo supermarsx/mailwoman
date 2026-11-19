@@ -670,8 +670,8 @@ initialize() {
     [[ ${#key} == 64 && ${#password} == 48 && ${#metrics} == 64 && ${#admin_path} == 20 && $admin_user =~ ^admin-[0-9a-f]{12}$ ]] || die "Failed to generate secrets"
     # New installations get the Helm chart's limits; deploy.env files written
     # before these keys existed keep running without one.
-    MEMORY_LIMIT=1g
-    CPU_LIMIT=2
+    MEMORY_LIMIT=4g
+    CPU_LIMIT=4
     write_config > "$STATE/deploy.env"
     cat > "$STATE/app.env" <<EOF
 # Raw Docker environment: values are literal; do not quote or escape dollars.

@@ -41,6 +41,19 @@ The pod ships locked down out of the box:
 These map to the same confinement applied by the container overlay
 (`docker-compose.hardened.yml`) and the systemd unit (`docs/deploy/mailwoman.service`).
 
+## Server resources
+
+Each webmail replica requests **4 CPU cores and 4 GiB RAM**, with matching limits.
+Requests reserve schedulable node capacity; limits cap runtime consumption. A
+cluster without that spare capacity leaves the pod pending. Set
+`resources.requests` and `resources.limits` in an operator values file to override
+them. Existing explicit Helm values remain authoritative; review these defaults
+when upgrading a release that inherited the chart defaults.
+
+This sizes only the webmail server. PostgreSQL, Valkey and ingress resources are
+managed separately. For single-host `deploy.sh`, new installations use `4g` and
+four CPUs as container ceilings; existing `deploy.env` values are retained.
+
 ## Validate locally
 
 ```sh
