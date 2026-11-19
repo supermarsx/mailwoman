@@ -47,13 +47,13 @@ fn demands() -> &'static Mutex<Demands> {
     static DEMANDS: OnceLock<Mutex<Demands>> = OnceLock::new();
     DEMANDS.get_or_init(|| Mutex::new(Demands::default()))
 }
-pub(crate) fn record(key: [u8; 32], images: usize) {
+pub fn record(key: [u8; 32], images: usize) {
     demands()
         .lock()
         .expect("image demand lock")
         .record(key, images, Instant::now());
 }
-pub(crate) fn count(key: &[u8; 32]) -> Option<usize> {
+pub fn count(key: &[u8; 32]) -> Option<usize> {
     demands()
         .lock()
         .expect("image demand lock")

@@ -15,6 +15,12 @@ name = "mailwoman"
 path = "src/main.rs"
 
 [dependencies]
+mw-domain-config = { path = "../mw-domain-config" }
+mw-settings = { path = "../mw-settings" }
+mw-protection = { path = "../mw-protection" }
+mw-compliance = { path = "../mw-compliance" }
+mw-remote-content = { path = "../mw-remote-content" }
+mw-observability = { path = "../mw-observability" }
 regex = { workspace = true }
 # Reads and re-writes the media jail's own normalised PNG output when the optional
 # image resize is on (remote_image_resize.rs); hostile bytes are still decoded only in the jail.

@@ -2655,3 +2655,10 @@ admin-settings-key-compliance-mail-protocol = Notification submission protocol
 admin-settings-help-compliance-mail-protocol = Choose SMTP or JMAP for system compliance notifications. Both use the system_mail egress route and preserve uncertain-delivery review.
 admin-settings-key-compliance-mail-jmap-session-url = System-mail JMAP session URL
 admin-settings-help-compliance-mail-jmap-session-url = HTTPS discovery URL. Supply its password through MW_COMPLIANCE_JMAP_PASSWORD or MW_COMPLIANCE_JMAP_PASSWORD_FILE; the sender must be a permitted upstream identity.
+
+admin-settings-key-retention-request-metrics-detail-days = Request path detail retention
+admin-settings-help-retention-request-metrics-detail-days = Days to keep normalized path details while retaining aggregate request counts separately.
+admin-settings-key-observability-database-growth-alerts = Database growth alerts
+admin-settings-help-observability-database-growth-alerts = Alert on sustained database allocation growth; a large file alone does not trigger an alert.
+admin-settings-key-observability-database-growth-mi-bper-minute = Database growth warning threshold (MiB/minute)
+admin-settings-help-observability-database-growth-mi-bper-minute = Sustained database growth rate that should trigger an operator warning.

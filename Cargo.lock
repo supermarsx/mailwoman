@@ -5205,6 +5205,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mw-compliance"
+version = "26.19.0"
+dependencies = [
+ "chrono",
+ "mw-store",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mw-crypto"
 version = "26.19.0"
 dependencies = [
@@ -5279,6 +5290,23 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "mw-domain-config"
+version = "26.19.0"
+dependencies = [
+ "mw-egress",
+ "mw-mail-transport",
+ "mw-net",
+ "mw-store",
+ "reqwest 0.12.28",
+ "rustls",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tokio",
 ]
 
 [[package]]
@@ -5511,6 +5539,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mw-observability"
+version = "26.19.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "mw-egress",
+ "mw-store",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "mw-passwd"
 version = "26.19.0"
 dependencies = [
@@ -5562,6 +5605,34 @@ dependencies = [
  "tracing",
  "webpki-roots 1.0.11",
  "x509-cert 0.3.0",
+]
+
+[[package]]
+name = "mw-protection"
+version = "26.19.0"
+dependencies = [
+ "http",
+ "mw-store",
+ "regex",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "mw-remote-content"
+version = "26.19.0"
+dependencies = [
+ "bytes",
+ "chrono",
+ "mw-egress",
+ "mw-observability",
+ "mw-render",
+ "png 0.18.1",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tokio",
 ]
 
 [[package]]
@@ -5642,9 +5713,11 @@ dependencies = [
  "mw-assist",
  "mw-autoconfig",
  "mw-cache",
+ "mw-compliance",
  "mw-crypto",
  "mw-dav",
  "mw-directory",
+ "mw-domain-config",
  "mw-egress",
  "mw-engine",
  "mw-export",
@@ -5657,13 +5730,17 @@ dependencies = [
  "mw-mock-jmap",
  "mw-net",
  "mw-oauth",
+ "mw-observability",
  "mw-passwd",
  "mw-plugin",
  "mw-pop3",
+ "mw-protection",
+ "mw-remote-content",
  "mw-render",
  "mw-sandbox",
  "mw-sanitize",
  "mw-search",
+ "mw-settings",
  "mw-sieve",
  "mw-smtp",
  "mw-ssh-tunnel",
@@ -5705,6 +5782,24 @@ dependencies = [
  "webpki-roots 1.0.11",
  "windows-sys 0.61.2",
  "zeroize",
+]
+
+[[package]]
+name = "mw-settings"
+version = "26.19.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "mw-admin",
+ "mw-compliance",
+ "mw-protection",
+ "mw-remote-content",
+ "mw-smtp",
+ "mw-store",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

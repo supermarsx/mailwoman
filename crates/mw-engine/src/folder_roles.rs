@@ -6,40 +6,13 @@ use crate::{
     backend::{EngineError, Result},
 };
 use mw_store::Mailbox;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+#[cfg(test)]
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 
-pub const ROLES: [&str; 6] = ["inbox", "drafts", "sent", "trash", "junk", "archive"];
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(untagged, deny_unknown_fields)]
-pub enum RoleTarget {
-    Id { id: String },
-    Path { path: String },
-}
-impl RoleTarget {
-    fn matches(&self, mailbox: &Mailbox) -> bool {
-        match self {
-            Self::Id { id } => mailbox.id == *id,
-            Self::Path { path } => mailbox.name == *path,
-        }
-    }
-}
-pub fn parse_target(value: &Value) -> std::result::Result<Option<RoleTarget>, &'static str> {
-    let target: Option<RoleTarget> = serde_json::from_value(value.clone())
-        .map_err(|_| "must be null or exactly one mailbox id/path")?;
-    if let Some(target) = &target {
-        let text = match target {
-            RoleTarget::Id { id } => id,
-            RoleTarget::Path { path } => path,
-        };
-        if text.is_empty() || text.len() > 512 || text.chars().any(char::is_control) {
-            return Err("mailbox target must contain 1–512 bytes without control characters");
-        }
-    }
-    Ok(target)
-}
+pub use mw_store::folder_target::{ROLES, RoleTarget, parse_target};
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RoleProblem {

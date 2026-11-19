@@ -101,7 +101,6 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
-use sha2::{Digest, Sha256};
 
 use mw_egress::plan::{self, EgressPlan, PlanRoute, Request, RouteScope};
 use mw_egress::proxy::{ProxyAuth, ProxyRoute, ProxyScheme};
@@ -156,15 +155,7 @@ const MAX_CONCURRENT: usize = 128;
 // The cache is bounded by BYTES as well as entries: the cached value is the
 // re-encoded PNG, whose size is a function of the decoded image, not of the
 // source. The live bounds come from the policy (`privacy.image*` keys) and are
-// enforced together by [`tier::ImageTier`]; the constants below are the manual-mode
-// defaults.
-
-/// Total re-encoded RAM bytes in manual mode unless configured.
-pub(crate) const MAX_CACHE_BYTES: usize = 32 * 1024 * 1024;
-/// How long a cached re-encode stays servable. Bounds both staleness (the upstream
-/// bytes behind a URL can change) and retention of an image no one is reading any
-/// more; the `Cache-Control` we hand the browser is separate and unaffected.
-pub(crate) const CACHE_TTL: Duration = Duration::from_secs(3600);
+// enforced together by [`tier::ImageTier`]; the defaults live in `mw-remote-content`.
 
 /// The cache-key route token for a **direct** fetch — no egress route configured.
 ///
@@ -178,7 +169,7 @@ pub(crate) const CACHE_TTL: Duration = Duration::from_secs(3600);
 /// configured route are always distinguishable in the key space. An operator route
 /// literally named `direct` would collide — the consequence is that images cached
 /// before that route was activated could be served after, which is the same
-/// staleness [`CACHE_TTL`] already bounds, so it is not defended against further.
+/// staleness [`mw_remote_content::CACHE_TTL`] already bounds, so it is not defended against further.
 const DIRECT_ROUTE: &str = "direct";
 
 // ── the configured egress route (t22-e14) ─────────────────────────────────────
@@ -782,12 +773,8 @@ pub(crate) mod history;
 pub(crate) mod latency;
 #[path = "remote_image_capacity.rs"]
 pub(super) mod capacity;
-#[path = "remote_image_demand.rs"]
-pub(super) mod demand;
 #[path = "remote_image_resources.rs"]
 pub(super) mod resources;
-#[path = "remote_image_slots.rs"]
-pub(super) mod slots;
 
 /// Stable capacity is resized in place: a hot reduction drains existing work.
 fn fetch_semaphore() -> &'static Arc<capacity::Capacity> {
@@ -1014,17 +1001,7 @@ pub(crate) fn rate_limiter() -> &'static Mutex<AccountRateLimiter> {
     })
 }
 
-/// Quoted-hex `ETag` of the re-encoded bytes.
-fn etag_for(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut s = String::with_capacity(2 + digest.len() * 2 + 1);
-    s.push('"');
-    for b in digest {
-        s.push_str(&format!("{b:02x}"));
-    }
-    s.push('"');
-    s
-}
+use mw_remote_content::etag_for;
 
 // ── handlers ───────────────────────────────────────────────────────────────────
 

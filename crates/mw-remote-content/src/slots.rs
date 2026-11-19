@@ -3,7 +3,7 @@
 use super::{adaptive::Runtime, capacity::Capacity};
 use std::{collections::HashMap, sync::Arc};
 #[derive(Default)]
-pub(crate) struct Slots {
+pub struct Slots {
     entries: HashMap<[u8; 32], Slot>,
     runtime: Option<Runtime>,
 }
@@ -15,7 +15,7 @@ struct Slot {
     capacity: Arc<Capacity>,
 }
 impl Slots {
-    pub(crate) fn get(
+    pub fn get(
         &mut self,
         key: [u8; 32],
         requested: usize,
@@ -57,7 +57,7 @@ impl Slots {
         }
         slot.capacity.clone()
     }
-    pub(crate) fn advance(&mut self, runtime: Runtime) {
+    pub fn advance(&mut self, runtime: Runtime) {
         if self
             .runtime
             .is_some_and(|previous| previous.revision >= runtime.revision)
@@ -79,7 +79,7 @@ impl Slots {
             slot.revision = runtime.revision;
         }
     }
-    pub(crate) fn waiting(&self) -> usize {
+    pub fn waiting(&self) -> usize {
         self.entries
             .values()
             .map(|slot| slot.capacity.waiting())
@@ -88,8 +88,8 @@ impl Slots {
 }
 #[cfg(test)]
 mod tests {
-    use super::super::{adaptive::Limits, resources::ImageResources};
     use super::*;
+    use crate::{adaptive::Limits, resources::ImageResources};
     fn runtime(revision: u64, message: usize) -> Runtime {
         Runtime {
             revision,

@@ -3,7 +3,7 @@
 The **Settings** section of the admin console (`#/settings`) holds the values of the
 settings model: one value for the whole server, optional values per domain and per
 user, and whether users may choose their own. The server's registry
-(`crates/mw-server/src/settings_registry.rs`) lists every key with its type, bounds,
+(`crates/mw-settings/src/settings_registry.rs`) lists every key with its type, bounds,
 default and scopes; this page describes each one.
 
 ## Linked mailbox accounts
@@ -4343,3 +4343,48 @@ Global-only, hot-reloaded controls: `maintenance.database.enabled`,
 `maintenance.database.minFreeMiB`, and `maintenance.database.maxWalMiB`.
 See [database maintenance](database-maintenance.md#background-maintenance) for
 limits, conversion requirements and live-system behavior.
+
+
+<a id="mail.signaturePosition"></a>
+`mail.signaturePosition` selects `beforeQuote` (default) or `messageEnd` for
+signatures. Administrators can supply defaults and policy locks; users can
+configure it when allowed. A new message's signature follows the author's text.
+
+<a id="retention.requestMetrics.detailDays"></a>
+`retention.requestMetrics.detailDays` retains normalized request-path details for
+30 days by default. Aggregate request counts and latency histograms retain their
+own retention policy. Zero removes path detail after the current bucket closes.
+
+<a id="observability.database.growthAlerts"></a>
+`observability.database.growthAlerts` enables sustained database-growth warnings
+by default. Alerts describe observed allocation changes rather than assuming a
+large file is actively growing.
+
+<a id="observability.database.growthMiBPerMinute"></a>
+`observability.database.growthMiBPerMinute` is the configured growth warning
+threshold in MiB/minute; the registry bounds the value and defines its default.
+
+<a id="compliance.mail.protocol"></a>
+`compliance.mail.protocol` selects SMTP (default) or JMAP for system notification
+submission. Both retain proxy policy and uncertain-delivery handling.
+
+<a id="compliance.mail.jmapSessionUrl"></a>
+`compliance.mail.jmapSessionUrl` is the HTTPS session discovery URL for JMAP
+system notifications. It defaults to null; credentials come from the dedicated
+environment variables, not this setting. See [notifications](notifications.md).
+
+#### Background maintenance controls
+
+| Setting | Default and meaning |
+| --- | --- |
+| <a id="maintenance.database.enabled"></a>`maintenance.database.enabled` | `true`: run bounded background housekeeping. |
+| <a id="maintenance.database.orphanBodies"></a>`maintenance.database.orphanBodies` | `true`: collect bodies that remain unreferenced after the grace period. |
+| <a id="maintenance.database.incrementalVacuum"></a>`maintenance.database.incrementalVacuum` | `true`: reclaim free pages when SQLite incremental mode is available. |
+| <a id="maintenance.database.intervalSeconds"></a>`maintenance.database.intervalSeconds` | `60`: idle seconds between batches. |
+| <a id="maintenance.database.batchRows"></a>`maintenance.database.batchRows` | `64`: maximum bodies scanned and collected per batch. |
+| <a id="maintenance.database.batchMiB"></a>`maintenance.database.batchMiB` | `16`: maximum sealed body payload removed per batch. |
+| <a id="maintenance.database.graceHours"></a>`maintenance.database.graceHours` | `24`: minimum orphan observation grace before deletion. |
+| <a id="maintenance.database.batchPages"></a>`maintenance.database.batchPages` | `1024`: maximum pages reclaimed in eight-page steps. |
+| <a id="maintenance.database.maxRunMs"></a>`maintenance.database.maxRunMs` | `250`: SQL work budget; short waits/checkpoints can add time. |
+| <a id="maintenance.database.minFreeMiB"></a>`maintenance.database.minFreeMiB` | `16`: free-page threshold before physical reclamation. |
+| <a id="maintenance.database.maxWalMiB"></a>`maintenance.database.maxWalMiB` | `32`: defer background writes/reclamation while the WAL file exceeds this size. |

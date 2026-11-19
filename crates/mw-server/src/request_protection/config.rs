@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(super) const PREFIX: &str = "security.protection.";
+pub(super) use mw_protection::SETTINGS_PREFIX as PREFIX;
 const CACHE_TTL: Duration = Duration::from_secs(30);
 #[derive(Clone, Debug)]
 pub(super) struct Config {

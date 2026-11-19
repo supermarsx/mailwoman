@@ -1,0 +1,22 @@
+[package]
+name = "mw-domain-config"
+description = "Validated domain authorities, backend selection and authentication identity"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+rustls-pki-types.workspace = true
+mw-net.workspace = true
+mw-store.workspace = true
+mw-egress.workspace = true
+mw-mail-transport.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

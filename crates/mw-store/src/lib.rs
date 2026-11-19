@@ -36,6 +36,7 @@ pub mod database_observability;
 pub mod database_growth;
 pub mod database_maintenance;
 pub mod background_maintenance;
+pub mod folder_target;
 pub mod diagnostics;
 mod directory_display;
 pub mod feature_governance;

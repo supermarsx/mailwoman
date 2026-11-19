@@ -1,21 +1,4 @@
-// Exercise the actual hot-resizable limiter without code-generating the whole
-// server unit-test binary for this small concurrency regression suite.
-#[allow(dead_code)]
-#[path = "../src/remote_image_adaptive.rs"]
-mod adaptive;
-#[path = "../src/remote_image_capacity.rs"]
-#[allow(dead_code)]
-mod capacity;
-#[allow(dead_code)]
-#[path = "../src/remote_image_demand.rs"]
-mod demand;
-#[allow(dead_code)]
-#[path = "../src/remote_image_resources.rs"]
-mod resources;
-#[allow(dead_code)]
-#[path = "../src/remote_image_slots.rs"]
-mod slots;
-
+// Settings/admission integration contracts. Limiter unit tests live in mw-remote-content.
 #[test]
 fn proxy_controls_have_validated_defaults_and_reject_unbounded_values() {
     use mw_server::settings_registry::{lookup, validate};

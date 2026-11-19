@@ -182,7 +182,7 @@ pub(crate) fn parse_legacy(v: &str) -> Legacy {
 
 /// `requireRecoveryCodes` is the t39-e6 name of the rule that became `block`
 /// (t77): a config written before t77 keeps refusing the last removal.
-pub(crate) const LEGACY_BLOCK_ALIAS: &str = "requireRecoveryCodes";
+pub(crate) const LEGACY_BLOCK_ALIAS: &str = mw_settings::PASSKEY_LEGACY_BLOCK_ALIAS;
 
 pub(crate) fn parse_last_factor(v: &str) -> LastFactor {
     match v {

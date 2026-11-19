@@ -26,7 +26,7 @@ use std::{
 };
 
 /// Backends one connection attempt may check, the selected one included.
-pub(crate) const MAX_BACKENDS: usize = 3;
+pub(crate) use mw_domain_config::MAX_BACKENDS;
 const BASE_BACKOFF: Duration = Duration::from_secs(30);
 const MAX_BACKOFF: Duration = Duration::from_secs(15 * 60);
 const MAX_TRACKED: usize = 4096;

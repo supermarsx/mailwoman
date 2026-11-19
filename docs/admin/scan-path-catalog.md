@@ -17,7 +17,7 @@ other applications hosted on the same domain.
 | Data, monitoring and infrastructure | phpMyAdmin/phpPgAdmin/Adminer, SQLite/Redis/Mongo tools, Zabbix, Nagios, Icinga, Grafana/Kibana, Prometheus/Alertmanager, RabbitMQ, Portainer, Rancher, Consul, Vault, MinIO, Kubernetes dashboard, Harbor, Nexus/Artifactory, GitLab/Gitea/Gogs, TeamCity/Bamboo/SonarQube, Guacamole |
 | Appliances and exposed files | Fortinet/Pulse/Palo Alto/Cisco VPN namespaces, router CGI/management endpoints, VMware SDK, source-control metadata, environment files, PHP shells, SQL dumps, Java/Magento configuration, cloud/container/IDE credentials, procfs and passwd probes |
 
-`crates/mw-server/data/scan_probe_paths.json` holds the 279 immediate catalog
+`crates/mw-protection/data/scan_probe_paths.json` holds the 279 immediate catalog
 entries. Additional existing filename/environment rules cover known variants.
 `admin_probe_paths.json` contains the 327 editable administrative defaults and
 is checked to include every immediate entry. Whole path segments are matched,

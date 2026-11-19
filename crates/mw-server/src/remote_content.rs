@@ -2674,7 +2674,7 @@ mod tests {
         assert_eq!(refs, retryable);
         assert_eq!(retryable.len(), 1);
         assert!(
-            fetch_limits::remembered(&token.a, &token.u).is_none(),
+            fetch_limits::remembered_for(&token.a, &token.u, fetch_limits::NEGATIVE_TTL).is_none(),
             "admission saturation must not enter the negative cache"
         );
         record_image_response(&token, &unsupported("invalid image"));

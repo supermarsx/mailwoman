@@ -46,7 +46,7 @@ use std::{
 };
 
 /// The console route that owns every `rateLimit.*` key.
-pub const ROUTE: &str = "/rate-limits";
+pub const ROUTE: &str = mw_settings::REQUEST_BUDGET_ROUTE;
 
 /// Burst and sustained rate of one bucket.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

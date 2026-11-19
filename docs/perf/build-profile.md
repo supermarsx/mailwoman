@@ -400,3 +400,10 @@ The full release experiment was stopped without a completed runtime image; it
 is not evidence of a successful image build or of a measured server speedup.
 Boxed-future experiments were reverted because their release improvement was not
 established. The host library/binary check passed; Rust release settings remain unchanged.
+
+## Server crate extraction
+
+See [server crate boundaries](server-crates.md) for the six extracted libraries,
+their regression gates and controlled before/after measurement procedure.
+No release build-time improvement is claimed from the extraction without that
+comparison.

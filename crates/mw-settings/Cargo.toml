@@ -1,0 +1,23 @@
+[package]
+name = "mw-settings"
+description = "Mailwoman settings definitions, validation and policy resolution"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+reqwest.workspace = true
+mw-store.workspace = true
+mw-admin.workspace = true
+mw-smtp.workspace = true
+mw-protection = { path = "../mw-protection" }
+mw-compliance = { path = "../mw-compliance" }
+
+[dev-dependencies]
+mw-remote-content = { path = "../mw-remote-content" }
+tokio.workspace = true
