@@ -127,7 +127,9 @@ impl LiveSqlite {
             let mut registry = REGISTRY.lock().unwrap_or_else(|p| p.into_inner());
             if registry.len() > 256 {
                 registry.retain(|_, entry| {
-                    entry.gate.strong_count() > 0 || entry.live.strong_count() > 0
+                    entry.gate.strong_count() > 0
+                        || entry.live.strong_count() > 0
+                        || entry.generation.strong_count() > 0
                 });
             }
             let entry = registry.entry(logical.clone()).or_default();
@@ -141,12 +143,25 @@ impl LiveSqlite {
             }
         };
         let guard = gate.lock_owned().await;
-        let existing = REGISTRY
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get(&logical)
-            .and_then(|entry| entry.live.upgrade())
-            .map(|inner| Self { inner });
+        let (existing, generation) = {
+            let registry = REGISTRY.lock().unwrap_or_else(|p| p.into_inner());
+            let entry = registry.get(&logical).expect("opening registry entry");
+            (
+                entry.live.upgrade().map(|inner| Self { inner }),
+                entry.generation.upgrade(),
+            )
+        };
+        if existing.is_none() {
+            if let Some(generation) = generation {
+                // Last-owner Drop drains workers asynchronously. Shared process
+                // leases alone do not exclude a new same-process header probe:
+                // closing its std File could release the old workers' POSIX
+                // record locks. Complete that generation's drain before allowing
+                // any new pool/probe, without holding the registry mutex.
+                let closing = generation.write().await;
+                closing.pool.close().await;
+            }
+        }
         let files = match existing.as_ref().and_then(Self::files) {
             Some(files) => files,
             None => Arc::new(
@@ -206,6 +221,7 @@ impl LiveSqlite {
 struct RegistryEntry {
     gate: Weak<tokio::sync::Mutex<()>>,
     live: Weak<Inner>,
+    generation: Weak<RwLock<Generation>>,
 }
 static REGISTRY: LazyLock<Mutex<HashMap<PathBuf, RegistryEntry>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -233,7 +249,9 @@ impl Opening {
             }),
         };
         let mut registry = REGISTRY.lock().unwrap_or_else(|p| p.into_inner());
-        registry.entry(self.logical.clone()).or_default().live = Arc::downgrade(&live.inner);
+        let entry = registry.entry(self.logical.clone()).or_default();
+        entry.live = Arc::downgrade(&live.inner);
+        entry.generation = Arc::downgrade(&live.inner.generation);
         live
     }
 }
@@ -594,5 +612,43 @@ mod tests {
             .await
             .unwrap();
         reopened.close().await;
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn reopening_waits_for_last_owner_async_worker_drain() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mail.db");
+        let opening = LiveSqlite::opening(&path).await.unwrap();
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&path)
+                    .create_if_missing(true),
+            )
+            .await
+            .unwrap();
+        let live = opening.register(pool.clone(), false);
+        drop(opening);
+        // Deliberately bypass pin in this fixture to exercise SQLx's outstanding
+        // worker drain after the last production manager owner has disappeared.
+        let raw = pool.acquire().await.unwrap();
+        drop(live);
+        let reopen_path = path.clone();
+        let reopen = tokio::spawn(async move { LiveSqlite::opening(&reopen_path).await });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(
+            !reopen.is_finished(),
+            "opening must await old raw worker closure"
+        );
+        drop(raw);
+        let opening = tokio::time::timeout(Duration::from_secs(3), reopen)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(pool.is_closed());
+        assert!(opening.existing.is_none());
+        drop(opening);
+        drop(pool);
     }
 }
