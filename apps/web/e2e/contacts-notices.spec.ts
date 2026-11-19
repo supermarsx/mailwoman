@@ -89,15 +89,19 @@ test.describe('contacts, notices and inert reader parsing',()=>{
    await page.setViewportSize({width:1280,height:900});
   }
  });
- test('database observability loads cheap metrics before an explicit detailed inspection',async({page})=>{
+ test('database observability automatically reports storage and shows time-range graphs',async({page})=>{
   let detailed=0;
-  const report={observedAt:'2026-11-18T12:00:00Z',driver:'SQLx',growth:{status:'rapid-growth',bytesPerMinute:100000000,thresholdBytesPerMinute:67108864,windowMinutes:15,samples:[{at:1700000000,dbBytes:100000000000,walBytes:0}],writeOrigins:[{origin:'INSERT bodies · cache.rs:1600',statements:3000,affectedRows:3000,inputBytes:1000000000}]},database:{backend:'sqlite',serverVersion:'3.49',name:'mailwoman.db',host:null,port:null,journalMode:'wal'},
+  const report={observedAt:'2026-11-18T12:00:00Z',driver:'SQLx',growth:{status:'rapid-growth',bytesPerMinute:100000000,thresholdBytesPerMinute:67108864,windowMinutes:15,samples:[{at:1700000000,dbBytes:100000000000,occupiedBytes:98000000000,walBytes:1000000},{at:1700001800,dbBytes:101000000000,occupiedBytes:99000000000,walBytes:2000000},{at:1700003600,dbBytes:102000000000,occupiedBytes:100000000000,walBytes:1500000}],writeOrigins:[{origin:'INSERT bodies · cache.rs:1600',statements:3000,affectedRows:3000,inputBytes:1000000000}]},database:{backend:'sqlite',serverVersion:'3.49',name:'mailwoman.db',host:null,port:null,journalMode:'wal'},
    diagnostics:{dbBytes:104854867968,walBytes:0,dbPingMs:1,migrationApplied:45,migrationExpected:45},
    pool:{open:2,idle:1,busy:1,minimum:1,maximum:4,acquireTimeoutMs:30000,idleTimeoutMs:600000,maxLifetimeMs:1800000,closed:false},
    storage:{pageSize:4096,pageCount:25600000,freePages:0,freeBytes:0,occupiedBytes:104857600000},migrations:{applied:45,expected:45,pending:[],failed:[],unknown:[]}};
-  await page.route('**/observability/database*',async route=>{const detail=new URL(route.request().url()).searchParams.get('detailed')==='true';if(detail)detailed++;await route.fulfill({json:{...report,details:detail?{observedAt:report.observedAt,limited:false,notes:[],bodies:{count:5000,bytes:100000000000,orphanCount:4900,orphanBytes:97000000000},tables:[{name:'bodies',bytes:100000000000,rows:5000,rowsEstimated:false}]}:null}});});
-  await page.goto(origin+'?database');await expect(page.getByText('mailwoman.db',{exact:true})).toBeVisible();expect(detailed).toBe(0);await expect(page.getByRole('alert')).toContainText('Sustained rapid growth');await expect(page.getByText('INSERT bodies · cache.rs:1600')).toBeVisible();
-  await page.getByRole('button',{name:'Inspect storage'}).click();await expect(page.getByText('Unreferenced bodies',{exact:true})).toBeVisible();expect(detailed).toBe(1);
+  await page.route('**/observability/database*',async route=>{const detail=new URL(route.request().url()).searchParams.get('detailed')==='true';if(detail)detailed++;await route.fulfill({json:{...report,details:detail?{observedAt:report.observedAt,limited:false,notes:[],bodies:{count:5000,bytes:100000000000,orphanCount:4900,orphanBytes:97000000000},tables:[{name:'bodies',bytes:null,payloadBytes:100000000000,columns:[{name:'sealed_bytes',bytes:100000000000}],rows:5000,rowsEstimated:false}]}:null}});});
+  await page.goto(origin+'?database');await expect(page.getByText('mailwoman.db',{exact:true})).toBeVisible();await expect.poll(()=>detailed).toBe(1);await expect(page.getByRole('alert')).toContainText('Sustained rapid growth');await expect(page.getByText('INSERT bodies · cache.rs:1600')).toBeVisible();
+  await expect(page.getByText('Unreferenced bodies',{exact:true})).toBeVisible();
+  await expect(page.getByText('sealed_bytes',{exact:true})).toBeVisible();
+  await expect(page.getByTestId('database-size-history').locator('svg')).toBeVisible();await expect(page.getByRole('group',{name:'History period'})).not.toContainText('admin-dash-duration');
+  await page.getByRole('button',{name:'All available'}).click();await expect(page.getByRole('button',{name:'All available'})).toHaveAttribute('aria-pressed','true');
+  await page.getByRole('button',{name:'Inspect storage'}).click();await expect.poll(()=>detailed).toBe(2);
   await page.screenshot({path:'.orchestration/database-observability-desktop.png',fullPage:true});
   await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:'.orchestration/database-observability-mobile.png'});

@@ -64,8 +64,12 @@ admin-db-copy-command = Копировать команду
 admin-db-command-copied = Команда скопирована.
 admin-db-maintenance-requested = Обслуживание журналов запрошено.
 
+admin-db-history-range = Период истории
+admin-db-history-all = Все доступные данные
+admin-db-history-help = История начинается с этого процесса сервера. Вертикальная шкала подстраивается; WAL имеет отдельную шкалу.
 admin-db-payload = Текстовые / двоичные данные
 admin-db-columns = Крупнейшие столбцы
 admin-db-live-bytes = Байты используемых тел писем в кэше
 admin-db-analysis-help = Автоматический анализ только для чтения упорядочивает измеренное хранилище. Данные не включают индексы и накладные расходы страниц; отсутствие физического размера не скрывает измеренные данные.
 admin-db-breakdown = Что занимает место
+admin-db-history-period = { $from } — { $to }

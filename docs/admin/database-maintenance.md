@@ -2,6 +2,11 @@
 
 Open **Observability → Database** for file, occupied-page and reusable-page sizes,
 WAL size, connection details and pool usage. Quick reports do not scan mail bodies.
+The visible history graph has 15-minute, one-hour, six-hour and all-available
+ranges, regional date/time labels and hover readouts. Samples use elapsed-time
+positions; the file/occupied chart fits its vertical scale to show small changes.
+WAL is plotted in its own chart so its smaller values remain readable. A table
+alternative remains available for accessibility.
 A background sampler runs once a minute even when the console is closed. It keeps
 up to 720 samples in memory, separately reporting file allocation and WAL size.
 Growth rates use occupied SQLite pages when available, so reuse of free pages does

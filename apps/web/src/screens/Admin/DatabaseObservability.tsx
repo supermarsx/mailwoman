@@ -2,6 +2,7 @@ import {createMemo,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid
 import {loadCatalog,t} from '../../i18n';
 import {formatDateTime} from '../../i18n/format.ts';
 import {loadDatabaseReport,type DatabaseReport} from '../../api/admin/database.ts';
+import {DatabaseSizeHistory} from './DatabaseSizeHistory.tsx';
 import {SearchInput} from '../../components/SearchInput.tsx';
 import {Icon} from '../../components/Icon.tsx';
 import {InlineLoading} from '../../components/InlineLoading.tsx';
@@ -49,6 +50,7 @@ export function DatabaseObservability():JSX.Element{
      [t('admin-db-acquire'),formatMs(value().pool.acquireTimeoutMs)],
     ])}</section>
    </div>
+   <Show when={value().growth}>{growth=><DatabaseSizeHistory samples={growth().samples}/>}</Show>
    <section class={css.card}><div class={css.headingRow}><h3 class={css.heading}>{t('admin-db-breakdown')}</h3><button type="button" class="btn" disabled={loading()} onClick={()=>void reload(true)}><Icon name="search"/>{t('admin-db-inspect')}</button></div>
     <p class={css.note}>{t('admin-db-analysis-help')}</p><Show when={loading()}><InlineLoading/></Show>
     <Show when={value().details}>{details=><>
@@ -69,7 +71,6 @@ export function DatabaseObservability():JSX.Element{
     {fields(()=>[[t('admin-db-growth-rate'),growth().bytesPerMinute===null?absent():`${growth().bytesPerMinute!<0?'−':''}${bytes(Math.abs(growth().bytesPerMinute!))} / min`],[t('admin-db-growth-threshold'),`${bytes(growth().thresholdBytesPerMinute)} / min`]])}
     <p class={css.note}>{t('admin-db-write-help')}</p>
     <div class={css.tableWrap}><table class={css.table}><thead><tr><th>{t('admin-db-origin')}</th><th>{t('admin-db-writes')}</th><th>{t('admin-db-rows')}</th><th>{t('admin-db-input')}</th></tr></thead><tbody><For each={growth().writeOrigins}>{origin=><tr><th scope="row"><code>{origin.origin}</code></th><td>{count(origin.statements)}</td><td>{count(origin.affectedRows)}</td><td>{bytes(origin.inputBytes)}</td></tr>}</For></tbody></table></div>
-    <details><summary>{t('admin-db-growth-history')}</summary><div class={css.tableWrap}><table class={css.table}><thead><tr><th>{t('admin-db-observed',{time:''})}</th><th>{t('admin-db-file')}</th><th>{t('admin-db-wal')}</th></tr></thead><tbody><For each={[...growth().samples].reverse()}>{sample=><tr><td>{formatDateTime(new Date(sample.at*1000))}</td><td>{bytes(sample.dbBytes)}</td><td>{bytes(sample.walBytes)}</td></tr>}</For></tbody></table></div></details>
    </section>}</Show>
 
   </>}</Show>

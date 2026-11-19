@@ -64,8 +64,12 @@ admin-db-copy-command = Befehl kopieren
 admin-db-command-copied = Befehl kopiert.
 admin-db-maintenance-requested = Protokollwartung angefordert.
 
+admin-db-history-range = Zeitraum
+admin-db-history-all = Alle verfügbaren Daten
+admin-db-history-help = Der Verlauf beginnt mit diesem Serverprozess. Die vertikale Skala passt sich an; WAL hat eine eigene Skala.
 admin-db-payload = Text- / Binärdaten
 admin-db-columns = Größte Spalten
 admin-db-live-bytes = Referenzierte Nachrichtendaten im Cache
 admin-db-analysis-help = Die automatische schreibgeschützte Analyse sortiert den gemessenen Speicherverbrauch. Nutzdaten enthalten keine Indizes oder Seitenverwaltung; fehlende physische Größen verbergen keine gemessenen Nutzdaten.
 admin-db-breakdown = Speicherverbrauch
+admin-db-history-period = { $from } — { $to }

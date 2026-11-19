@@ -64,8 +64,12 @@ admin-db-copy-command = نسخ الأمر
 admin-db-command-copied = تم نسخ الأمر.
 admin-db-maintenance-requested = تم طلب صيانة السجلات.
 
+admin-db-history-range = فترة السجل
+admin-db-history-all = كل المتاح
+admin-db-history-help = يبدأ السجل مع عملية الخادم الحالية. يُضبط المقياس الرأسي للرسم؛ ولسجل WAL مقياس منفصل.
 admin-db-payload = محتوى نصي / ثنائي
 admin-db-columns = أكبر الأعمدة
 admin-db-live-bytes = بايتات أجسام الرسائل المرتبطة في الذاكرة المؤقتة
 admin-db-analysis-help = يرتب التحليل التلقائي للقراءة فقط الاستهلاك المقاس. لا يشمل المحتوى الفهارس وتكاليف الصفحات؛ غياب الحجم الفعلي لا يخفي المحتوى المقاس.
 admin-db-breakdown = ما الذي يشغل المساحة
+admin-db-history-period = { $from } — { $to }

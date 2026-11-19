@@ -64,8 +64,12 @@ admin-db-copy-command = Copiar comando
 admin-db-command-copied = Comando copiado.
 admin-db-maintenance-requested = Manutenção dos registos solicitada.
 
+admin-db-history-range = Período do histórico
+admin-db-history-all = Todo o disponível
+admin-db-history-help = O histórico começa com este processo do servidor. O gráfico ajusta a escala vertical; o WAL usa uma escala separada.
 admin-db-payload = Conteúdo de texto / binário
 admin-db-columns = Maiores colunas
 admin-db-live-bytes = Bytes de corpos em cache referenciados
 admin-db-analysis-help = A análise automática só de leitura ordena os consumos medidos. O conteúdo exclui índices e sobrecarga das páginas; os tamanhos físicos indisponíveis não ocultam o conteúdo medido.
 admin-db-breakdown = O que ocupa o espaço
+admin-db-history-period = { $from } — { $to }

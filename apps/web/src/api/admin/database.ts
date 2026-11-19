@@ -2,7 +2,7 @@ import {adminRequest} from '../../screens/Admin/shell/adminApi.ts';
 
 export interface DatabaseReport {
  observedAt:string;driver:string;
- growth?:{status:string;bytesPerMinute:number|null;thresholdBytesPerMinute:number;windowMinutes:number;samples:{at:number;dbBytes:number;walBytes:number}[];writeOrigins:{origin:string;statements:number;affectedRows:number;inputBytes:number}[]};
+ growth?:{status:string;bytesPerMinute:number|null;thresholdBytesPerMinute:number;windowMinutes:number;samples:{at:number;dbBytes:number;walBytes:number;occupiedBytes?:number}[];writeOrigins:{origin:string;statements:number;affectedRows:number;inputBytes:number}[]};
  database:{backend:string;serverVersion:string|null;name:string|null;host:string|null;port:number|null;journalMode:string|null};
  diagnostics:{dbBytes:number|null;walBytes:number|null;dbPingMs:number;migrationApplied:number;migrationExpected:number};
  pool:{open:number;idle:number;busy:number;minimum:number;maximum:number;acquireTimeoutMs:number;idleTimeoutMs:number|null;maxLifetimeMs:number|null;closed:boolean};

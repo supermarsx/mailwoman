@@ -29,21 +29,37 @@ export interface LineChartProps {
   /** Counts: the axis ticks stay whole numbers (0, 1, 2 rather than 0, 0.5, 1). */
   whole?: boolean | undefined;
   testId?: string | undefined;
+  /** Position samples by elapsed time rather than treating irregular samples as equal intervals. */
+  timeScale?: boolean | undefined;
+  /** Fit a non-zero axis to absolute values so small size changes remain visible. */
+  fitY?: boolean | undefined;
 }
 
 const W = 300;
 const H = 120;
 
 export function LineChart(props: LineChartProps): JSX.Element {
+  const bottom=createMemo(()=>{
+    if(!props.fitY)return 0;
+    const values=props.series.flatMap(s=>s.values.filter((v):v is number=>v!==null));
+    if(!values.length)return 0;
+    const min=Math.min(...values),max=Math.max(...values);
+    return Math.max(0,min-Math.max(1,(max-min)*.1,max*.001));
+  });
   const top = createMemo(() => {
     let max = 0;
     for (const s of props.series) for (const v of s.values) if (v !== null && v > max) max = v;
+    if(props.fitY)return Math.max(bottom()+1,max+Math.max(1,(max-bottom())*.1,max*.001));
     const top = niceMax(max);
     // Whole-number ticks need an even top of at least 2 (the middle tick is top / 2).
     return props.whole ? Math.max(2, Math.ceil(top / 2) * 2) : top;
   });
-  const x = (i: number): number => (props.times.length > 1 ? (i / (props.times.length - 1)) * W : W / 2);
-  const y = (v: number): number => H - (v / top()) * H;
+  const x = (i: number): number => {
+    const span=(props.times.at(-1)??0)-(props.times[0]??0);
+    if(props.timeScale&&span>0)return ((props.times[i]! - props.times[0]!)/span)*W;
+    return props.times.length>1?(i/(props.times.length-1))*W:W/2;
+  };
+  const y = (v: number): number => H - ((v-bottom()) / (top()-bottom())) * H;
   const segments = (values: readonly (number | null)[]): string[] => {
     const out: string[] = [];
     let seg: string[] = [];
@@ -64,16 +80,21 @@ export function LineChart(props: LineChartProps): JSX.Element {
     const n = props.times.length;
     if (box.width === 0 || n === 0) return;
     // SVG coordinates stay left-to-right in RTL pages too.
-    const i = Math.round(((e.clientX - box.left) / box.width) * (n - 1));
-    setHover(Math.min(n - 1, Math.max(0, i)));
+    const position=Math.min(1,Math.max(0,(e.clientX-box.left)/box.width));
+    if(props.timeScale){
+      const target=position*W;
+      let closest=0;
+      for(let i=1;i<n;i++)if(Math.abs(x(i)-target)<Math.abs(x(closest)-target))closest=i;
+      setHover(closest);
+    }else setHover(Math.min(n-1,Math.max(0,Math.round(position*(n-1)))));
   }
 
   return (
     <div class={css.plot} data-testid={props.testId} data-line-chart>
       <div class={css.yAxis} aria-hidden="true">
         <span>{props.format(top())}</span>
-        <span>{props.format(top() / 2)}</span>
-        <span>{props.format(0)}</span>
+        <span>{props.format(bottom()+(top()-bottom())/2)}</span>
+        <span>{props.format(bottom())}</span>
       </div>
       <div class={css.svgWrap}>
         <svg class={css.svg} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true" onPointerMove={onMove} onPointerLeave={() => setHover(null)}>

@@ -64,8 +64,12 @@ admin-db-copy-command = Copy command
 admin-db-command-copied = Command copied.
 admin-db-maintenance-requested = Log maintenance requested.
 
+admin-db-history-range = History period
+admin-db-history-all = All available
+admin-db-history-help = History starts with this server process. The database chart fits its vertical scale; WAL has a separate scale.
 admin-db-payload = Text / binary payload
 admin-db-columns = Largest columns
 admin-db-live-bytes = Referenced cached body bytes
 admin-db-analysis-help = Automatic read-only analysis ranks measured storage consumers. Payload excludes indexes and page overhead; unavailable physical sizes do not hide payload measurements.
 admin-db-breakdown = What uses the space
+admin-db-history-period = { $from } — { $to }

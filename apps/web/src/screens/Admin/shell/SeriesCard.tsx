@@ -24,6 +24,7 @@ export interface SeriesCardProps {
   about?: string | undefined;
   empty?: string | undefined;
   testId?: string | undefined;
+  timeScale?: boolean | undefined;
 }
 
 export function SeriesCard(props: SeriesCardProps): JSX.Element {
@@ -49,7 +50,7 @@ export function SeriesCard(props: SeriesCardProps): JSX.Element {
       }}
       empty={props.points.length === 0 || max() === null ? (props.empty ?? t('admin-stats-empty-chart')) : undefined}
     >
-      <LineChart times={props.points.map((p) => p.t)} series={[{ label: props.title, slot: 1, values: values() }]} format={(n) => set()(n)} formatTime={props.axisTime ?? time} />
+      <LineChart timeScale={props.timeScale} times={props.points.map((p) => p.t)} series={[{ label: props.title, slot: 1, values: values() }]} format={(n) => set()(n)} formatTime={props.axisTime ?? time} />
     </ChartCard>
   );
 }
