@@ -81,6 +81,7 @@
     { "path": "/api/nextcloud/share-link", "scope": "mailbox", "note": "t87 D6" },
     { "path": "/api/nextcloud/upload", "scope": "mailbox", "note": "t87 D6" },
     { "prefix": "/api/nextcloud/upload/", "segments": 2, "scope": "mailbox", "note": "t87 D6: chunk, finish and abort of a transfer" },
+    { "path": "/api/directory/status", "scope": "mailbox" },
     { "path": "/api/directory/search", "scope": "mailbox", "note": "t87 deployment directory (directory.rs, authed only as a gate)" },
     { "path": "/api/directory/cert", "scope": "mailbox", "note": "t87" },
     { "path": "/api/directory/photo", "scope": "mailbox", "note": "t87" },

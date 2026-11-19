@@ -45,6 +45,13 @@ export interface DirectoryCert {
 export class DirectoryService {
   constructor(private readonly fetcher: Fetcher = defaultFetcher) {}
 
+  /** Configuration discovery never searches the directory or exposes recipients. */
+  async configured(): Promise<boolean> {
+    const response=await this.fetcher(withBase('/api/directory/status'));
+    const result=await jsonOrThrow<{configured:boolean}>(response);
+    return result.configured===true;
+  }
+
   /** Paged GAL search for every recipient field (0-based `page`). */
   async searchGal(query: string, page = 0): Promise<GalSearchPage> {
     const q = query.trim();

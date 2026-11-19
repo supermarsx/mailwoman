@@ -37,10 +37,21 @@ pub(crate) type DirectoryHandle = Arc<dyn DirectorySource>;
 /// e14 merges this into `router()` and layers on the injected [`DirectoryHandle`].
 pub(crate) fn directory_router() -> Router<AppState> {
     Router::new()
+        .route("/api/directory/status", get(status))
         .route("/api/directory/search", get(search))
         .route("/api/directory/group/{dn}", get(expand_group))
         .route("/api/directory/cert", get(lookup_cert))
         .route("/api/directory/photo", get(lookup_photo))
+}
+
+/// Configuration discovery does not issue a synthetic LDAP search.
+async fn status(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Extension(dir): Extension<DirectoryHandle>,
+) -> Response {
+    if let Err(response) = crate::authed(&state, &headers).await { return response; }
+    ([(axum::http::header::CACHE_CONTROL, "private, no-store")], Json(json!({"configured":dir.configured()}))).into_response()
 }
 
 #[derive(Debug, Deserialize)]

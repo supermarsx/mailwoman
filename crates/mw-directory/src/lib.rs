@@ -145,6 +145,9 @@ impl Default for DirectoryOptions {
 /// `mw-cache::GalDirectory`.
 #[async_trait]
 pub trait DirectorySource: Send + Sync {
+    /// Whether the mounted source has a configured directory, without network I/O.
+    fn configured(&self) -> bool { true }
+
     /// Opaque startup configuration revision for truthful restart diagnostics.
     fn configuration_revision(&self) -> Option<&str> {
         None
@@ -447,6 +450,8 @@ impl Directory {
 
 #[async_trait]
 impl DirectorySource for Directory {
+    fn configured(&self) -> bool { !self.runtimes.is_empty() }
+
     fn configuration_revision(&self) -> Option<&str> {
         self.revision.as_deref()
     }
@@ -610,3 +615,12 @@ fn map_cache_err(e: CacheError) -> DirectoryError {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod configuration_status_tests {
+    use super::*;
+    #[test]
+    fn empty_directory_reports_unconfigured_without_a_search() {
+        assert!(!Directory::new(DirectoryConfig::default()).configured());
+    }
+}

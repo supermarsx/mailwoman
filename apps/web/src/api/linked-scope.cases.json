@@ -73,6 +73,7 @@
   "/api/nextcloud/upload/t1/0",
   "/api/nextcloud/upload/t1/finish",
   "/api/nextcloud/upload/t1/abort",
+  "/api/directory/status",
   "/api/directory/search",
   "/api/directory/cert",
   "/api/directory/photo",
