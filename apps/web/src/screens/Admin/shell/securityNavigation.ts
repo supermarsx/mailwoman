@@ -5,13 +5,13 @@ import type { AdminRoute } from './router.ts';
  *  only the tiles their capabilities allow, t97). */
 export const SECURITY_TABS: readonly { id: string; label: string; capability: Capability; anyOf?: readonly Capability[]; unscoped?: boolean }[] = [
   {id:'overview',label:'admin-security-tab-overview',capability:'security.read',anyOf:['security.read','bans.read','diagnostics.read','logs.read','admins.read','audit.read'],unscoped:true},
+  {id:'protection',label:'admin-protection-title',capability:'bans.read',unscoped:true},
   {id:'requirements',label:'admin-security-tab-requirements',capability:'security.read',unscoped:true},
   {id:'bans',label:'admin-obs-bans',capability:'bans.read',unscoped:true},
   {id:'locks',label:'admin-obs-locks-title',capability:'bans.read',unscoped:true},
   {id:'geography',label:'admin-obs-geo-title',capability:'bans.read',unscoped:true},
   {id:'geoip',label:'admin-security-tab-geoip',capability:'security.read',unscoped:true},
   {id:'signin',label:'admin-signin-title',capability:'settings.read',unscoped:false},
-  {id:'protection',label:'admin-protection-title',capability:'bans.read',unscoped:true},
   {id:'policy',label:'admin-nav-security-policy',capability:'security.read',unscoped:true},
   {id:'inbound',label:'admin-inbound-title',capability:'security.read',unscoped:true},
   {id:'deployment',label:'admin-security-tab-deployment',capability:'diagnostics.read',unscoped:true},
