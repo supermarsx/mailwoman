@@ -1874,7 +1874,7 @@ mod tests {
         before.migrations.to_mut().retain(|m| m.version < 35);
         before.run(&pool).await.unwrap();
         let pre = Store {
-            backend: crate::backend::Backend::Sqlite(pool.clone()),
+            backend: crate::backend::Backend::Sqlite(pool.clone().into()),
             key: ServerKey::from_bytes(&[5u8; 32]).unwrap(),
             cache_id: uuid::Uuid::new_v4(),
             uploads: crate::upload::fail_closed_backend(),

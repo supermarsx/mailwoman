@@ -2014,7 +2014,7 @@ mod tests {
             .await
             .unwrap();
         let before = crate::Store {
-            backend: crate::backend::Backend::Sqlite(pool.clone()),
+            backend: crate::backend::Backend::Sqlite(pool.clone().into()),
             key: ServerKey::from_bytes(&[9u8; 32]).unwrap(),
             cache_id: uuid::Uuid::new_v4(),
             uploads: crate::upload::fail_closed_backend(),

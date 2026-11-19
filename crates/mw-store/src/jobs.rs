@@ -379,7 +379,7 @@ impl Store {
         use sqlx::Executor as _;
         match &self.backend {
             Backend::Sqlite(pool) => {
-                pool.execute("VACUUM").await?;
+                pool.full_vacuum().await?;
             }
             Backend::Postgres(pool) => {
                 pool.execute("VACUUM").await?;

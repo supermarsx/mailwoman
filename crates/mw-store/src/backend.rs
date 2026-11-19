@@ -14,7 +14,7 @@
 // both decode to `Vec<u8>`).
 
 use sqlx::postgres::{PgArguments, PgPool, PgRow};
-use sqlx::sqlite::{SqliteArguments, SqlitePool, SqliteRow};
+use sqlx::sqlite::{SqliteArguments, SqliteRow};
 use sqlx::{Postgres, Row as _, Sqlite};
 
 use crate::dialect;
@@ -22,7 +22,7 @@ use crate::dialect;
 /// The store backend behind the (unchanged) `Store` façade (plan §1.1, §2.1).
 #[derive(Clone)]
 pub(crate) enum Backend {
-    Sqlite(SqlitePool),
+    Sqlite(crate::sqlite_live::LiveSqlite),
     Postgres(PgPool),
 }
 
@@ -56,23 +56,7 @@ impl Backend {
     /// WAL readers outside a transaction are not blocked by it.
     pub(crate) async fn begin(&self) -> Result<Tx, sqlx::Error> {
         Ok(match self {
-            Backend::Sqlite(p) => {
-                // SQLx 0.8 checks a custom BEGIN with another await after the
-                // worker has acknowledged it. Cancellation there occurs before
-                // Transaction's rollback-on-drop guard exists and returns a
-                // live transaction to the pool. Finish that short transition
-                // in an owned task; dropping its result then rolls back safely.
-                // Acquire first so detached work is bounded by pool capacity.
-                let connection = p.acquire().await?;
-                let transaction = tokio::spawn(async move {
-                    sqlx::Transaction::begin(connection, Some("BEGIN IMMEDIATE".into())).await
-                })
-                .await
-                .map_err(|error| {
-                    sqlx::Error::Protocol(format!("SQLite transaction task failed: {error}"))
-                })??;
-                Tx::Sqlite(transaction)
-            }
+            Backend::Sqlite(p) => Tx::Sqlite(p.begin().await?),
             Backend::Postgres(p) => Tx::Postgres(p.begin().await?),
         })
     }
@@ -97,7 +81,7 @@ mod cancellation_tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        let backend = Backend::Sqlite(pool.clone());
+        let backend = Backend::Sqlite(crate::sqlite_live::LiveSqlite::unmanaged(pool.clone()));
         for polls in 1..=8 {
             for _ in 0..8 {
                 let mut begin = Box::pin(backend.begin());
@@ -611,7 +595,7 @@ impl Row {
 
 /// A backend-tagged transaction (pool-derived, hence `'static`).
 pub(crate) enum Tx {
-    Sqlite(sqlx::Transaction<'static, Sqlite>),
+    Sqlite(crate::sqlite_live::LiveTransaction),
     Postgres(sqlx::Transaction<'static, Postgres>),
 }
 

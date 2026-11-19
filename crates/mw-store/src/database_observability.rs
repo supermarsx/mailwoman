@@ -57,7 +57,9 @@ impl Store {
             }};
         }
         match &self.backend {
-            Backend::Sqlite(pool) => {
+            Backend::Sqlite(live) => {
+                let pinned = live.pin().await;
+                let pool = pinned.pool();
                 result["pool"] = pool_info!(pool);
                 let mut connection = pool.acquire().await?;
                 let mut pragmas = serde_json::Map::new();
@@ -127,8 +129,9 @@ impl Store {
     }
 }
 
-async fn sqlite_details(pool: sqlx::SqlitePool, budget: Duration) -> Result<Value, StoreError> {
-    sqlite_details_with_physical_budget(pool, budget, Duration::from_secs(8)).await
+async fn sqlite_details(pool: crate::sqlite_live::LiveSqlite, budget: Duration) -> Result<Value, StoreError> {
+    let pinned = pool.pin().await;
+    sqlite_details_with_physical_budget(pinned.pool().clone(), budget, Duration::from_secs(8)).await
 }
 async fn inspection_deadline(
     connection: &mut sqlx::SqliteConnection,

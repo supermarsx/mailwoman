@@ -434,6 +434,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-stream"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5a71a6f37880a80d1d7f19efd781e4b5de42c88f0722cc13bcb6cc2cfe8476"
+dependencies = [
+ "async-stream-impl",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "async-stream-impl"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7c24de15d275a1ecfd47a380fb4d5ec9bfe0933f309ed5e705b775596a3574d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
 name = "async-task"
 version = "4.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5572,6 +5594,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mw-platform-fs"
+version = "26.19.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "mw-plugin"
 version = "26.19.0"
 dependencies = [
@@ -5887,12 +5916,14 @@ dependencies = [
 name = "mw-store"
 version = "26.19.0"
 dependencies = [
+ "async-stream",
  "async-trait",
  "chacha20poly1305",
  "chrono",
  "flate2",
  "futures-util",
  "libsqlite3-sys",
+ "mw-platform-fs",
  "mw-test-gate",
  "pbkdf2 0.13.0",
  "rand 0.8.7",
@@ -5900,6 +5931,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "sqlx",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "url",

@@ -98,6 +98,13 @@ mod v5;
 // dispatches every query through these helpers; the public `Store` API is
 // unchanged so `mw-engine`/`mw-server` are untouched.
 mod backend;
+mod sqlite_live;
+mod generation_files;
+mod lifecycle_copy_guard;
+pub mod online_copy;
+pub mod online_maintenance;
+pub mod online_control;
+pub mod generation_maintenance;
 mod dialect;
 mod migrate;
 mod migrate_complete;
@@ -242,6 +249,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use sqlx::postgres::PgPoolOptions;
+use sqlx::Connection as _;
 use sqlx::sqlite::{
     SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions, SqliteSynchronous,
 };
@@ -372,27 +380,78 @@ impl Store {
         } else {
             format!("sqlite://{path}?mode=rwc")
         };
+        // The logical path is stable across generation publication. Acquire one
+        // cooperative process lease and resolve CURRENT before touching SQLite.
+        let logical_file = encryption::sqlite_file_from_dsn(path);
+        let opening = match &logical_file {
+            Some(file) => Some(crate::sqlite_live::LiveSqlite::opening(file).await?),
+            None => None,
+        };
+        let existing = opening.as_ref().and_then(|entry| entry.existing.clone());
+        let mut existing_pin = match &existing {
+            Some(live) => Some(live.pin().await),
+            None => None,
+        };
+        if existing_pin.as_ref().is_some_and(|pin| pin.pool().is_closed()) {
+            if opening.as_ref().is_some_and(|entry| entry.files.conversion_active()) {
+                return Err(sqlx::Error::Protocol("Cannot reopen a closed SQLite manager while conversion ownership is retained; complete recovery or restart the process".into()).into());
+            }
+            existing_pin = None;
+        }
+        let db_file = if let Some(pin) = &existing_pin {
+            Some(pin.active_options().get_filename().to_path_buf())
+        } else if let Some(entry) = &opening {
+            Some(entry.active_path()?)
+        } else {
+            logical_file
+        };
         let mut opts = SqliteConnectOptions::from_str(&url)?
             .busy_timeout(Duration::from_secs(5))
             .journal_mode(SqliteJournalMode::Wal)
-            .synchronous(SqliteSynchronous::Normal);
-        // Whole-database encryption (SQLCipher): `PRAGMA key` is applied by sqlx as
-        // the first statement of every pooled connection, migrations included.
+            .synchronous(SqliteSynchronous::Normal)
+            .pragma("recursive_triggers", "ON");
+        if let Some(file) = &db_file { opts = opts.filename(file); }
+        // PRAGMA key is the first configured statement on every pooled connection.
         encryption::init();
-        let db_file = encryption::sqlite_file_from_dsn(path);
         let mut keyed = false;
         if let Some(file) = &db_file {
-            if let Some(k) = cfg.key_for_open(file)? {
-                let fresh = matches!(
-                    encryption::probe_file(file)?,
-                    encryption::FileState::Missing | encryption::FileState::Empty
-                );
-                opts = opts.pragma("key", encryption::key_pragma(k));
+            let requested_key = if existing_pin.is_some() {
+                // Never probe an active SQLite file with std::fs::File: closing
+                // that descriptor can release this process's POSIX SQLite locks.
+                // The live manager already knows whether this generation is keyed.
+                let encrypted = existing.as_ref().expect("pinned manager").is_encrypted();
+                use encryption::{EncryptionError as E, EncryptionMode as M};
+                match (cfg.mode, encrypted, cfg.key.as_ref()) {
+                    (M::Required, _, None) => return Err(E::KeyMissingButRequired.into()),
+                    (M::Required, false, Some(_)) => return Err(E::PlaintextButRequired(file.display().to_string()).into()),
+                    (M::Off, true, _) => return Err(E::Config("an encrypted live database cannot be opened with encryption off".into()).into()),
+                    (M::Optional, true, None) => return Err(E::EncryptedNoKey(file.display().to_string()).into()),
+                    (_, true, key) => key,
+                    _ => None,
+                }
+            } else {
+                cfg.key_for_open(file)?
+            };
+            if let Some(key) = requested_key {
+                opts = opts.pragma("key", encryption::key_pragma(key));
                 keyed = true;
-                if fresh {
-                    encryption::note_created(file, k);
+                if existing_pin.is_none() && matches!(encryption::probe_file(file)?,encryption::FileState::Missing|encryption::FileState::Empty) {
+                    encryption::note_created(file,key);
                 }
             }
+        }
+        if let Some(pin) = existing_pin {
+            // A second Store may share the generation manager, but never bypass
+            // the caller's SQLCipher key validation by borrowing an existing pool.
+            let mut check = sqlx::SqliteConnection::connect_with(&opts).await.map_err(|error| {
+                match &db_file {Some(file)=>StoreError::Encryption(encryption::classify_open_error(file,error,keyed)),None=>StoreError::Db(error)}
+            })?;
+            let checked = sqlx::query("SELECT schema_version FROM pragma_schema_version").execute(&mut check).await;
+            let closed = check.close().await;
+            checked?;
+            closed?;
+            drop(pin);
+            return Self::finish_sqlite(existing.expect("pinned existing generation"), key).await;
         }
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
@@ -402,7 +461,7 @@ impl Store {
                 Some(f) => StoreError::Encryption(encryption::classify_open_error(f, e, keyed)),
                 None => StoreError::Db(e),
             })?;
-        Self::init_sqlite(pool, key).await
+        Self::init_sqlite_with_opening(pool, key, opening.as_ref(), keyed).await
     }
 
     /// Open the Postgres backend at `dsn` (`postgres://…`) and migrate.
@@ -446,12 +505,15 @@ impl Store {
     pub async fn open_in_memory(key: ServerKey) -> Result<Self, StoreError> {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
-            .connect("sqlite::memory:")
+            .connect_with(SqliteConnectOptions::from_str("sqlite::memory:")?.pragma("recursive_triggers", "ON"))
             .await?;
         Self::init_sqlite(pool, key).await
     }
 
     async fn init_sqlite(pool: SqlitePool, key: ServerKey) -> Result<Self, StoreError> {
+        Self::init_sqlite_with_opening(pool,key,None,false).await
+    }
+    async fn init_sqlite_with_opening(pool:SqlitePool,key:ServerKey,opening:Option<&crate::sqlite_live::Opening>,encrypted:bool)->Result<Self,StoreError>{
         // Only new databases: existing NONE-mode databases need an explicit offline rebuild.
         let mut initial=pool.acquire().await?;
         let tables:i64=sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetch_one(&mut *initial).await?;
@@ -463,8 +525,12 @@ impl Store {
         }
         drop(initial);
         sqlx::migrate!("./migrations").run(&pool).await?;
+        let live=match opening {Some(entry)=>entry.register(pool,encrypted),None=>crate::sqlite_live::LiveSqlite::unmanaged(pool)};
+        Self::finish_sqlite(live,key).await
+    }
+    async fn finish_sqlite(live:crate::sqlite_live::LiveSqlite,key:ServerKey)->Result<Self,StoreError>{
         let store = Self {
-            backend: Backend::Sqlite(pool),
+            backend: Backend::Sqlite(live),
             key,
             cache_id: uuid::Uuid::new_v4(),
             uploads: upload::fail_closed_backend(),
@@ -533,7 +599,7 @@ impl Store {
         match &self.backend {
             // SQLite VACUUM is whole-database (it cannot target a single table).
             Backend::Sqlite(pool) => {
-                pool.execute("VACUUM").await?;
+                pool.full_vacuum().await?;
             }
             // Plain (non-FULL) VACUUM of just the notes table — the only table whose
             // in-place blanking left dead tuples to reclaim.

@@ -221,10 +221,11 @@ impl Store {
                                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(0),
                                 Err(_) => None,
                             });
+                    let pinned = pool.pin().await;
                     (
                         "sqlite",
-                        pool.size(),
-                        pool.num_idle(),
+                        pinned.pool().size(),
+                        pinned.pool().num_idle(),
                         db,
                         wal,
                         sqlx::migrate!("./migrations").migrations.len(),

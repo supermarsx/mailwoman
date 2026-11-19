@@ -86,7 +86,7 @@ impl Store {
             .max_connections(1)
             .connect_with(src_opts)
             .await?;
-        let src = Backend::Sqlite(src_pool);
+        let src = Backend::Sqlite(src_pool.into());
 
         let mut tx = self.backend.begin().await?;
         if self.backend.dialect() == backend::Dialect::Postgres {

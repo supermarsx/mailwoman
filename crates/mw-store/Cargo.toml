@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+mw-platform-fs = { path = "../mw-platform-fs" }
+async-stream = "0.3.6"
 tokio = { workspace = true }
 # V6 (t6-e1): enable the Postgres backend + pure-Rust rustls TLS ON TOP of the
 # workspace SQLite defaults. `tls-rustls` resolves to `tls-rustls-ring-webpki`
@@ -43,6 +45,7 @@ libsqlite3-sys = { version = "0.30", features = ["bundled-sqlcipher"] }
 pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
 
 [dev-dependencies]
+tempfile = "3"
 # The dual-backend parity + migrate-store integration tests open a raw Postgres
 # pool (to TRUNCATE between runs and read ciphertext columns directly) when
 # `DATABASE_URL_PG`/`MW_TEST_PG` is set; they run SQLite-only otherwise.

@@ -93,18 +93,22 @@ async fn run(
     options.batch_bytes = options.batch_bytes.clamp(1024 * 1024, 256 * 1024 * 1024);
     options.grace_seconds = options.grace_seconds.max(3600);
     let started = Instant::now();
+    let source_pin = match &original {
+        Backend::Sqlite(pool) => Some(pool.pin().await),
+        Backend::Postgres(_) => None,
+    };
     let backend = match original {
-        Backend::Sqlite(pool) => Backend::Sqlite(
+        Backend::Sqlite(_) => Backend::Sqlite(
             sqlx::sqlite::SqlitePoolOptions::new()
                 .max_connections(1)
                 .acquire_timeout(Duration::from_secs(2))
                 .connect_with(
-                    (*pool.connect_options())
+                    (*source_pin.as_ref().expect("SQLite source pin").active_options())
                         .clone()
                         .busy_timeout(Duration::from_millis(50))
                         .pragma("wal_autocheckpoint", "0"),
                 )
-                .await?,
+                .await?.into(),
         ),
         Backend::Postgres(pool) => Backend::Postgres(
             sqlx::postgres::PgPoolOptions::new()
@@ -262,7 +266,7 @@ fn wal_bytes(backend: &Backend) -> Option<u64> {
     let Backend::Sqlite(pool) = backend else {
         return None;
     };
-    let path = pool.connect_options().get_filename().to_path_buf();
+    let path = pool.logical_path().to_path_buf();
     Some(
         std::fs::metadata(format!("{}-wal", path.display()))
             .map(|meta| meta.len())
@@ -279,7 +283,7 @@ async fn vacuum(
         report.vacuum_status = "postgres-autovacuum".into();
         return Ok(());
     };
-    let path = pool.connect_options().get_filename().to_path_buf();
+    let path = pool.logical_path().to_path_buf();
     let wal = std::fs::metadata(format!("{}-wal", path.display()))
         .map(|m| m.len())
         .unwrap_or(0);
