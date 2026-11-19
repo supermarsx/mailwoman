@@ -24,7 +24,7 @@ describe('linked mailbox request scope',()=>{
     for(const path of cases.mailbox)expect([path,linkedUnsignedResource(path)]).toEqual([path,false]);
   });
   it('t87: the approved features run in the linked mailbox; D2 security and D9 masked addresses stay out',()=>{
-    for(const path of ['/api/account/mdn-senders','/api/push/subscribe','/api/account/contact-photo','/api/calendar/subscribe','/api/account/nextcloud','/api/account/packages','/api/import/eml','/api/assist/invoke','/api/keys','/api/keys/mw_x/revoke','/oauth/decision','/api/ui-plugins/p/rpc','/api/account/appearance/customization'])expect(linkedRoute(path)).toBe('mailbox');
+    for(const path of ['/api/account/mdn-senders','/api/push/subscribe','/api/account/contact-photo','/api/calendar/subscribe','/api/account/nextcloud','/api/account/packages','/api/import/eml','/api/assist/invoke','/api/keys','/api/keys/mw_x/revoke','/oauth/decision','/api/ui-plugins/p/rpc','/api/account/appearance/customization','/api/account/notification-center'])expect(linkedRoute(path)).toBe('mailbox');
     expect(linkedRoute('/api/analytics/status')).toBe('primary');
     for(const path of ['/api/password','/api/zeroaccess/enable','/api/account/2fa/totp/begin','/api/masked/x/state','/oauth/token'])expect(linkedRoute(path)).toBe('unsupported');
   });

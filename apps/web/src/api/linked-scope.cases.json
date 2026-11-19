@@ -15,6 +15,7 @@
   "/api/account/signatures",
   "/api/account/signatures/s1",
   "/api/account/notifications",
+  "/api/account/notification-center",
   "/api/account/saved-searches",
   "/api/account/saved-searches/q1",
   "/api/account/identities",

@@ -5,7 +5,7 @@ import {startNotificationCenter,notificationNotices,notificationUnread,changeCen
 import {settingsRequest} from '../../state/settingsRequest.ts';
 import Notifications from './index.tsx';
 import {toast} from '../../components/toast/toast.ts';
-vi.mock('../../components/toast/toast.ts',()=>({toast:{success:vi.fn(),error:vi.fn()},registerToastObstacle:()=>()=>undefined}));
+vi.mock('../../components/toast/toast.ts',()=>({toast:{show:vi.fn(),success:vi.fn(),error:vi.fn()},registerToastObstacle:()=>()=>undefined}));
 const fixture=vi.hoisted(()=>({rows:[] as CenterNotice[],fetch:vi.fn(),stateChange:undefined as undefined|((change:{changed:Record<string,Record<string,string>>})=>void),connection:undefined as undefined|((value:string)=>void)}));
 vi.mock('../../realtime/context.ts',async()=>{const {createSignal}=await import('solid-js');const [state,setState]=createSignal('idle');fixture.connection=setState;return {useRealtime:()=>({connection:{state},onStateChange:(fn:typeof fixture.stateChange)=>{fixture.stateChange=fn;return ()=>{fixture.stateChange=undefined;};}})};});
 vi.mock('../../api/http.ts',()=>({apiFetch:(...args:unknown[])=>fixture.fetch(...args)}));

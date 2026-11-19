@@ -24,6 +24,7 @@
     { "path": "/api/account/signatures", "scope": "mailbox" },
     { "prefix": "/api/account/signatures/", "segments": 1, "scope": "mailbox" },
     { "path": "/api/account/notifications", "scope": "mailbox" },
+    { "path": "/api/account/notification-center", "scope": "mailbox", "note": "notification_center resolves the verified personal owner through the selected session" },
     { "path": "/api/account/saved-searches", "scope": "mailbox" },
     { "prefix": "/api/account/saved-searches/", "segments": 1, "scope": "mailbox" },
     { "path": "/api/account/identities", "scope": "mailbox" },
