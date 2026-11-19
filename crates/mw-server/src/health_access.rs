@@ -182,7 +182,16 @@ pub(crate) async fn layer(
     let Some(ip) = proxy::client_ip(request.headers(), request.extensions()) else {
         return next.run(request).await;
     };
-    let config = state.request_protection.health.get(&state.store).await;
+    let config = match crate::settings_request_revision::get(&state.store, &mut request).await {
+        Ok(revision) => {
+            state
+                .request_protection
+                .health
+                .get_at_revision(&state.store, &revision)
+                .await
+        }
+        Err(_) => Arc::new(Config::default()),
+    };
     if admits(&config, ip, token_ok(&request)) {
         return next.run(request).await;
     }
@@ -206,43 +215,84 @@ pub(crate) async fn layer(
 struct Cached {
     at: Instant,
     epoch: u64,
+    store: uuid::Uuid,
+    revision: i64,
     value: Arc<Config>,
 }
 #[derive(Default)]
 pub(crate) struct Cache {
     value: RwLock<Option<Cached>>,
     epoch: std::sync::atomic::AtomicU64,
+    refresh: tokio::sync::Mutex<()>,
 }
 impl Cache {
     pub fn invalidate(&self) {
-        self.epoch
-            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        self.epoch.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
     }
-    /// A store failure yields the default (internal only), never "open".
-    pub async fn get(&self, store: &Store) -> Arc<Config> {
+    fn current(&self, store: &Store, revision: Option<i64>) -> Option<Arc<Config>> {
+        let revision = revision?;
         let epoch = self.epoch.load(std::sync::atomic::Ordering::Acquire);
-        if let Some(cached) = self
-            .value
+        self.value
             .read()
             .unwrap_or_else(|p| p.into_inner())
             .as_ref()
-            .filter(|c| c.epoch == epoch && c.at.elapsed() < CACHE_TTL)
-        {
-            return cached.value.clone();
+            .filter(|c| {
+                c.store == store.cache_scope()
+                    && c.revision == revision
+                    && c.epoch == epoch
+                    && c.at.elapsed() < CACHE_TTL
+            })
+            .map(|c| c.value.clone())
+    }
+    pub async fn get(&self, store: &Store) -> Arc<Config> {
+        match store.settings_read_revision().await {
+            Ok(revision) => self.get_at_revision(store, &revision).await,
+            Err(_) => Arc::new(Config::default()),
         }
-        let value = match crate::settings_registry::effective_all(store, &Default::default(), |def| {
-            def.key.starts_with(PREFIX)
-        })
+    }
+    pub async fn get_at_revision(
+        &self,
+        store: &Store,
+        revision: &mw_store::settings_policy::SettingsReadRevision,
+    ) -> Arc<Config> {
+        if revision.scope() != store.cache_scope() {
+            return Arc::new(Config::default());
+        }
+        if let Some(hit) = self.current(store, revision.number()) {
+            return hit;
+        }
+        let epoch = self.epoch.load(std::sync::atomic::Ordering::Acquire);
+        let _refresh = self.refresh.lock().await;
+        if let Some(hit) = self.current(store, revision.number()) {
+            return hit;
+        }
+        let value = match crate::settings_registry::effective_all_at_revision(
+            store,
+            &Default::default(),
+            |def| def.key.starts_with(PREFIX),
+            revision,
+        )
         .await
         {
             Ok(rows) => Arc::new(Config::parse(rows)),
-            Err(_) => Arc::new(Config::default()),
+            Err(_) => return Arc::new(Config::default()),
         };
-        *self.value.write().unwrap_or_else(|p| p.into_inner()) = Some(Cached {
-            at: Instant::now(),
-            epoch,
-            value: value.clone(),
-        });
+        if let Some(number) = revision.number() {
+            let mut guard = self.value.write().unwrap_or_else(|p| p.into_inner());
+            if epoch == self.epoch.load(std::sync::atomic::Ordering::Acquire)
+                && !guard
+                    .as_ref()
+                    .is_some_and(|c| c.store == store.cache_scope() && c.revision > number)
+            {
+                *guard = Some(Cached {
+                    at: Instant::now(),
+                    epoch,
+                    store: store.cache_scope(),
+                    revision: number,
+                    value: value.clone(),
+                });
+            }
+        }
         value
     }
 }
@@ -298,4 +348,99 @@ mod tests {
         c.mode = Mode::Open;
         assert!(admits(&c, ip("9.9.9.9"), false));
     }
+    async fn cache_store() -> Store {
+        Store::open_in_memory(mw_store::ServerKey::generate()).await.unwrap()
+    }
+    async fn cache_policy(store: &Store, value: &str) {
+        store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "security.health.mode".into(), global_value: Some(serde_json::to_string(value).unwrap()),
+            allow_user_override: false, global_locked: false,
+            updated_by: "revision-cache-test".into(), updated_at: 1,
+        }).await.unwrap();
+    }
+    async fn raw_cache_fixture() -> (Store, sqlx::SqlitePool, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("mw-health-revision-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("store.sqlite");
+        let store = Store::open_with_encryption(path.to_str().unwrap(), mw_store::ServerKey::generate(),
+            &mw_store::encryption::EncryptionConfig::off()).await.unwrap();
+        let raw = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
+            .connect_with(mw_store::encryption::connect_options(&path, None, false)).await.unwrap();
+        (store, raw, dir)
+    }
+    async fn raw_cache_value(raw: &sqlx::SqlitePool, value: &str) {
+        sqlx::query("UPDATE setting_policy SET global_value=?1 WHERE key='security.health.mode'")
+            .bind(serde_json::to_string(value).unwrap()).execute(raw).await.unwrap();
+    }
+    async fn close_raw_fixture(store: Store, raw: sqlx::SqlitePool, dir: std::path::PathBuf) {
+        raw.close().await;
+        store.close().await;
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn revision_cache_isolates_stores_and_refuses_foreign_proofs() {
+        let first = cache_store().await;
+        let second = cache_store().await;
+        cache_policy(&first, "open").await;
+        cache_policy(&second, "allowlist").await;
+        let cache = Cache::default();
+        let value = cache.get(&first).await;
+        assert_eq!(value.mode, Mode::Open);
+        let value = cache.get(&second).await;
+        assert_eq!(value.mode, Mode::Allowlist);
+        let proof = first.settings_read_revision().await.unwrap();
+        let value = cache.get_at_revision(&second, &proof).await;
+        assert_eq!(value.mode, Mode::InternalOnly);
+        first.close().await;
+        second.close().await;
+    }
+
+    #[tokio::test]
+    async fn raw_sql_policy_commit_is_visible_without_ttl_or_invalidation() {
+        let (store, raw, dir) = raw_cache_fixture().await;
+        cache_policy(&store, "open").await;
+        let cache = Cache::default();
+        let value = cache.get(&store).await;
+        assert_eq!(value.mode, Mode::Open);
+        let before = store.settings_revision().await.unwrap().unwrap();
+        raw_cache_value(&raw, "internal-only").await;
+        assert!(store.settings_revision().await.unwrap().unwrap() > before);
+        let value = cache.get(&store).await;
+        assert_eq!(value.mode, Mode::InternalOnly);
+        close_raw_fixture(store, raw, dir).await;
+    }
+
+    #[tokio::test]
+    async fn missing_revision_disables_cache_across_repeated_raw_sql_commits() {
+        let (store, raw, dir) = raw_cache_fixture().await;
+        cache_policy(&store, "open").await;
+        let cache = Cache::default();
+        let value = cache.get(&store).await;
+        assert_eq!(value.mode, Mode::Open);
+        sqlx::query("DELETE FROM settings_revision WHERE id=1").execute(&raw).await.unwrap();
+        assert_eq!(store.settings_revision().await.unwrap(), None);
+        raw_cache_value(&raw, "internal-only").await;
+        let value = cache.get(&store).await;
+        assert_eq!(value.mode, Mode::InternalOnly);
+        raw_cache_value(&raw, "allowlist").await;
+        let value = cache.get(&store).await;
+        assert_eq!(value.mode, Mode::Allowlist);
+        assert!(cache.current(&store, None).is_none());
+        close_raw_fixture(store, raw, dir).await;
+    }
+
+    #[tokio::test]
+    async fn closed_store_does_not_reuse_a_warm_permissive_policy() {
+        let store = cache_store().await;
+        cache_policy(&store, "open").await;
+        let cache = Cache::default();
+        let value = cache.get(&store).await;
+        assert_eq!(value.mode, Mode::Open);
+        store.close().await;
+        let value = cache.get(&store).await;
+        assert_eq!(value.mode, Mode::InternalOnly);
+    }
+
 }

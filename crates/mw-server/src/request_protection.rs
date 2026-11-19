@@ -2,10 +2,10 @@
 //! Never infer abuse from a generic HTTP status code.
 mod api;
 mod config;
-/// Per-minute counts behind the Aggregate and Adaptive charts.
-mod history;
 /// The Adaptive protection page's policy editor and simulator (t97).
 mod editor;
+/// Per-minute counts behind the Aggregate and Adaptive charts.
+mod history;
 mod probe_path;
 mod tier_sim;
 pub(crate) mod user_agent;
@@ -43,6 +43,9 @@ pub(crate) fn class_outcome(
 #[derive(Default)]
 pub(crate) struct Runtime {
     cache: Cache,
+    /// Keyed by the live configured path; a changed console prefix never uses
+    /// stale normalization, and ordinary requests do not decode it repeatedly.
+    normalized_admin: std::sync::RwLock<Option<(String, Arc<str>)>>,
     /// The protocol guard's policy cache (`security.protocol.*`), invalidated
     /// together with the request-protection policy.
     pub(crate) protocol: crate::protocol_guard::Cache,
@@ -73,6 +76,8 @@ impl Runtime {
         runtime
     }
     pub fn invalidate(&self) {
+        crate::trust_tier::invalidate();
+        crate::rate_leeway::forget_knobs();
         self.cache.invalidate();
         self.protocol.invalidate();
         self.health.invalidate();
@@ -86,13 +91,19 @@ pub(crate) async fn observe_source(
     source: std::net::IpAddr,
     signal: Signal,
 ) -> Option<Response> {
-    let config = state.request_protection.cache.get(&state.store).await.ok()?;
-    let source = source.to_canonical().to_string();
-    let policy = config.subject("client", &source)?;
+    let config = state
+        .request_protection
+        .cache
+        .get(&state.store)
+        .await
+        .ok()?;
+    let source = source.to_canonical();
+    let source_ip = source.to_string();
+    let policy = config.subject("client", &source_ip)?;
     if policy.adaptive_mode == mw_store::request_protection_model::Mode::Off {
         return None;
     }
-    let country = match mw_engine::security::country_lookup(source.parse().ok()) {
+    let country = match mw_engine::security::country_lookup(Some(source)) {
         mw_engine::security::CountryLookup::Known(country) => Some(country),
         _ => None,
     };
@@ -100,13 +111,13 @@ pub(crate) async fn observe_source(
         .store
         .request_protection_with_source(
             "client",
-            &source,
+            &source_ip,
             &policy,
             chrono::Utc::now().timestamp(),
             Some(signal),
             mw_store::request_protection::ProtectionSource {
                 country: country.as_deref(),
-                ip: Some(&source),
+                ip: Some(&source_ip),
             },
         )
         .await
@@ -579,25 +590,39 @@ fn probe_block_scope(path: &str) -> bool {
         )
     })
 }
-fn hostile_probe(path: &str) -> bool {
-    let Some(normalized) = probe_path::normalized_path(path) else {
-        return false;
-    };
-    let admin = mw_admin::config::admin_path();
-    let admin = probe_path::normalized_path(&admin).unwrap_or(admin);
-    // An operator may deliberately host the real console at a scanner-like
-    // name. Its own route continues using the normal authentication policy.
+fn normalized_admin(runtime: &Runtime, admin: &str) -> Arc<str> {
+    if let Some((_, normalized)) = runtime
+        .normalized_admin
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+        .filter(|(configured, _)| configured == admin)
+    {
+        return normalized.clone();
+    }
+    let normalized: Arc<str> = probe_path::normalized_path(admin)
+        .unwrap_or_else(|| admin.to_owned())
+        .into();
+    *runtime
+        .normalized_admin
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) =
+        Some((admin.to_owned(), normalized.clone()));
+    normalized
+}
+fn hostile_normalized_probe(normalized: &str, admin: &str) -> bool {
+    // A configured console can have a scanner-like name. Only foreign probes
+    // below that console are classified, with whole-segment prefix matching.
     if normalized == admin {
         return false;
     }
-    if let Some(suffix) = normalized
-        .strip_prefix(&admin)
+    let path = normalized
+        .strip_prefix(admin)
         .filter(|suffix| suffix.starts_with('/'))
-    {
-        return probe_path::hostile_probe_path(suffix);
-    }
-    probe_path::hostile_probe_path(path)
+        .unwrap_or(normalized);
+    probe_path::hostile_normalized_probe_path(path)
 }
+
 fn bot_protected(path: &str) -> bool {
     let admin = mw_admin::config::admin_path();
     !matches!(
@@ -625,7 +650,10 @@ pub(crate) async fn guard(
     let legacy_route = protected(request.uri().path());
     let ua_route = ua_protected(request.uri().path());
     let bot_route = bot_protected(request.uri().path());
-    let probe = hostile_probe(request.uri().path());
+    let admin = mw_admin::config::admin_path();
+    let normalized_admin = normalized_admin(&state.request_protection, &admin);
+    let probe = probe_path::normalized_path(request.uri().path())
+        .is_some_and(|path| hostile_normalized_probe(&path, &normalized_admin));
     let source_scope = probe || probe_block_scope(request.uri().path());
     if (request.method() == axum::http::Method::OPTIONS && !probe)
         || (!legacy_route && !ua_route && !source_scope && !bot_route)
@@ -642,22 +670,23 @@ pub(crate) async fn guard(
     {
         return next.run(request).await;
     }
-    let config = match state.request_protection.cache.get(&state.store).await {
+    let revision=match crate::settings_request_revision::get(&state.store,&mut request).await{Ok(value)=>value,Err(_)=>return response(unavailable())};
+    let config = match state.request_protection.cache.get_at_revision(&state.store,&revision).await {
         Ok(config) => config,
         Err(()) => return response(unavailable()),
     };
-    let source = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions());
+    let source = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions())
+        .map(|ip| ip.to_canonical());
     let source_country = match mw_engine::security::country_lookup(source) {
         mw_engine::security::CountryLookup::Known(country) => Some(country),
         _ => None,
     };
-    let source_ip = source.map(|ip| ip.to_canonical().to_string());
+    let source_ip = source.map(|ip| ip.to_string());
     if source_scope
-        && let Some(source) = source
-        && let Some(policy) = config.probe_policy(&source.to_canonical().to_string())
+        && let Some(source) = source_ip.as_deref()
+        && let Some(policy) = config.probe_policy(source)
         && policy.adaptive_mode != mw_store::request_protection_model::Mode::Off
     {
-        let source = source.to_canonical().to_string();
         let probe_subject = format!("probe-path:{source}");
         let now = chrono::Utc::now().timestamp();
         // Strong scanner evidence belongs to the transport source even when a
@@ -701,8 +730,11 @@ pub(crate) async fn guard(
             _ => {}
         }
     }
-    let trust = crate::trust_tier::policy(&state.store).await;
+    let trust = crate::trust_tier::policy_at_revision(&state.store,&revision).await;
     let mut ua_allowed = false;
+    // Successful evidence belongs only to this request. Handler authentication
+    // remains independent; no revocation/expiry decisions survive a request.
+    let mut session_evidence = None;
     let ua_claim = (ua_route || bot_route)
         .then(|| {
             config.user_agent.claimed_class(
@@ -717,9 +749,12 @@ pub(crate) async fn guard(
         let mut claimed = ua_claim.map(|class| (class, trust.ua_action(class)));
         if let Some((_, action)) = claimed.as_mut()
             && *action == crate::trust_tier::UaAction::Block
-            && has_session(&state, request.headers(), request.uri().path()).await
         {
-            *action = class_outcome(crate::trust_tier::UaAction::Block, true);
+            session_evidence =
+                session_evidence_for(&state, request.headers(), request.uri().path()).await;
+            if session_evidence.is_some() {
+                *action = class_outcome(crate::trust_tier::UaAction::Block, true);
+            }
         }
         match claimed {
             Some((class, crate::trust_tier::UaAction::Block)) => {
@@ -761,7 +796,9 @@ pub(crate) async fn guard(
         request.extensions_mut().insert(proof.clone());
     }
     let trusted_percent = if source.is_some_and(crate::trust_tier::is_known) {
-        crate::rate_leeway::knobs(&state.store, "").await.trusted_percent
+        crate::rate_leeway::knobs_at_revision(&state.store, "",&revision)
+            .await
+            .trusted_percent
     } else {
         100
     };
@@ -793,7 +830,14 @@ pub(crate) async fn guard(
             } else if anonymous_only {
                 false
             } else {
-                match identify(&context.state, request.headers(), request.uri().path()).await {
+                match identify(
+                    &context.state,
+                    request.headers(),
+                    request.uri().path(),
+                    session_evidence,
+                )
+                .await
+                {
                     Ok(found) => found,
                     Err(limited) => return limited,
                 }
@@ -809,19 +853,15 @@ pub(crate) async fn guard(
             history::note_tier(context.tier.load(Ordering::Relaxed) as usize);
             if legacy_route
                 && !identified
-                && let Some(source) = source
-                && let Err(error) = context
-                    .admit("client", &source.to_canonical().to_string())
-                    .await
+                && let Some(source) = context.source_ip.as_deref()
+                && let Err(error) = context.admit("client", source).await
             {
                 return response(error);
             }
             if (!identified || !context.config.user_agent.anonymous_only)
                 && let Some(kind) = ua_category.and_then(user_agent::kind)
-                && let Some(source) = source
-                && let Err(error) = context
-                    .admit(kind, &source.to_canonical().to_string())
-                    .await
+                && let Some(source) = context.source_ip.as_deref()
+                && let Err(error) = context.admit(kind, source).await
             {
                 return response(error);
             }
@@ -832,25 +872,41 @@ pub(crate) async fn guard(
         .await
 }
 
-/// Whether the request carries a valid session; charges nothing.
-async fn has_session(state: &AppState, headers: &axum::http::HeaderMap, path: &str) -> bool {
+/// Evidence from a lookup performed earlier in this request, never a cache.
+enum SessionEvidence {
+    Administrator(String),
+    Native(String),
+    Mailbox(mw_store::Session),
+}
+async fn session_evidence_for(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    path: &str,
+) -> Option<SessionEvidence> {
     let admin = mw_admin::config::admin_path();
     if path
         .strip_prefix(&admin)
         .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     {
-        return crate::admin_ctx::AdminCtx::resolve(state, headers)
+        let ctx = crate::admin_ctx::AdminCtx::resolve(state, headers)
             .await
-            .is_ok();
+            .ok()?;
+        return Some(SessionEvidence::Administrator(
+            ctx.account_id.unwrap_or(ctx.username),
+        ));
     }
     if let Some(token) = crate::push_relay::bearer_token(headers) {
         let hash = crate::push_relay::hash_token(&token);
-        return matches!(state.store.get_native_session(&hash).await, Ok(Some(_)));
+        return matches!(state.store.get_native_session(&hash).await, Ok(Some(_)))
+            .then_some(SessionEvidence::Native(token));
     }
-    match crate::cookie_value(headers) {
-        Some(id) => state.store.get_primary_session(&id).await.is_ok(),
-        None => false,
-    }
+    let id = crate::cookie_value(headers)?;
+    state
+        .store
+        .get_primary_session(&id)
+        .await
+        .ok()
+        .map(SessionEvidence::Mailbox)
 }
 
 /// Sign-in, second-factor, recovery, password and identity-confirmation routes:
@@ -880,7 +936,20 @@ async fn identify(
     state: &AppState,
     headers: &axum::http::HeaderMap,
     path: &str,
+    evidence: Option<SessionEvidence>,
 ) -> Result<bool, Response> {
+    let native_token = match evidence {
+        Some(SessionEvidence::Administrator(subject)) => {
+            administrator(&subject).await.map_err(response)?;
+            return Ok(true);
+        }
+        Some(SessionEvidence::Mailbox(row)) => {
+            session_account(&row).await?;
+            return Ok(true);
+        }
+        Some(SessionEvidence::Native(token)) => Some(token),
+        None => None,
+    };
     let admin = mw_admin::config::admin_path();
     if path
         .strip_prefix(&admin)
@@ -892,7 +961,9 @@ async fn identify(
             Err(_) => Ok(false),
         };
     }
-    let session = if let Some(token) = crate::push_relay::bearer_token(headers) {
+    let session = if let Some(token) = native_token {
+        token
+    } else if let Some(token) = crate::push_relay::bearer_token(headers) {
         let hash = crate::push_relay::hash_token(&token);
         if !matches!(state.store.get_native_session(&hash).await, Ok(Some(_))) {
             return Ok(false);
@@ -914,6 +985,85 @@ async fn identify(
 
 #[cfg(test)]
 mod identity_tests {
+    #[test]
+    fn cached_console_normalization_tracks_configuration_changes() {
+        let runtime = Runtime::default();
+        let first = normalized_admin(&runtime, "/Private-Control");
+        assert_eq!(&*first, "/private-control");
+        assert!(Arc::ptr_eq(
+            &first,
+            &normalized_admin(&runtime, "/Private-Control")
+        ));
+        let changed = normalized_admin(&runtime, "/wp-admin");
+        assert_eq!(&*changed, "/wp-admin");
+        assert!(!Arc::ptr_eq(&first, &changed));
+        // Operator recovery cannot inherit an exemption for the former path.
+        assert!(!hostile_normalized_probe("/wp-admin", &changed));
+        assert!(hostile_normalized_probe(
+            "/private-control/wp-admin",
+            &changed
+        ));
+    }
+    #[test]
+    fn normalized_probe_keeps_console_boundaries_and_resource_namespaces() {
+        for admin in ["/private-control", "/wp-admin", "/console"] {
+            for input in [
+                "/",
+                "/healthz",
+                "/api/download/.env",
+                "/jmap/files/wp-admin",
+                "/pdfjs/web/viewer.mjs.map",
+                "/assets/app.js",
+                "/robots.txt",
+                "/bad%GG",
+                "/.git/config",
+                "/api/cmd_sco",
+                "/nested/%2577p-admin",
+            ] {
+                let reference = probe_path::normalized_path(input).is_some_and(|path| {
+                    if path == admin {
+                        return false;
+                    }
+                    match path
+                        .strip_prefix(admin)
+                        .filter(|suffix| suffix.starts_with('/'))
+                    {
+                        Some(suffix) => probe_path::hostile_probe_path(suffix),
+                        None => probe_path::hostile_probe_path(input),
+                    }
+                });
+                assert_eq!(
+                    probe_path::normalized_path(input)
+                        .is_some_and(|path| hostile_normalized_probe(&path, admin)),
+                    reference,
+                    "{admin}: {input}"
+                );
+            }
+            assert!(!hostile_normalized_probe(admin, admin));
+            assert!(!hostile_normalized_probe(
+                &format!("{admin}/api/files/.env"),
+                admin
+            ));
+            assert!(hostile_normalized_probe(
+                &format!("{admin}/nested/wp-admin"),
+                admin
+            ));
+            assert!(hostile_normalized_probe(
+                &format!("{admin}-other/wp-admin"),
+                admin
+            ));
+        }
+        for path in [
+            "/healthz",
+            "/readyz",
+            "/api/logout",
+            "/api/public-config",
+            "/api/rc/frame",
+            "/assets/app.js",
+        ] {
+            assert!(!probe_block_scope(path), "{path}");
+        }
+    }
     #[test]
     fn ua_coverage_includes_documents_but_does_not_confuse_api_suffixes_with_assets() {
         assert!(super::ua_protected("/"));

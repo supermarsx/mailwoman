@@ -210,6 +210,8 @@ impl Config {
 struct Cached {
     at: Instant,
     epoch: u64,
+    store: uuid::Uuid,
+    revision: i64,
     value: Arc<Config>,
 }
 #[derive(Default)]
@@ -222,7 +224,8 @@ impl Cache {
     pub fn invalidate(&self) {
         self.epoch.fetch_add(1, Ordering::AcqRel);
     }
-    fn current(&self) -> Option<Arc<Config>> {
+    fn current(&self, store: uuid::Uuid, revision: Option<i64>) -> Option<Arc<Config>> {
+        let revision = revision?;
         let guard = self
             .value
             .read()
@@ -230,22 +233,39 @@ impl Cache {
         guard
             .as_ref()
             .filter(|value| {
-                value.epoch == self.epoch.load(Ordering::Acquire) && value.at.elapsed() < CACHE_TTL
+                value.store == store
+                    && value.revision == revision
+                    && value.epoch == self.epoch.load(Ordering::Acquire)
+                    && value.at.elapsed() < CACHE_TTL
             })
             .map(|value| value.value.clone())
     }
     pub async fn get(&self, store: &Store) -> Result<Arc<Config>, ()> {
-        if let Some(value) = self.current() {
+        let revision = store.settings_read_revision().await.map_err(|_| ())?;
+        self.get_at_revision(store, &revision).await
+    }
+    pub async fn get_at_revision(
+        &self,
+        store: &Store,
+        revision: &mw_store::settings_policy::SettingsReadRevision,
+    ) -> Result<Arc<Config>, ()> {
+        if revision.scope() != store.cache_scope() {
+            return Err(());
+        }
+        if let Some(value) = self.current(store.cache_scope(), revision.number()) {
             return Ok(value);
         }
         let _lock = self.refresh.lock().await;
-        if let Some(value) = self.current() {
+        if let Some(value) = self.current(store.cache_scope(), revision.number()) {
             return Ok(value);
         }
         let epoch = self.epoch.load(Ordering::Acquire);
-        let rows = settings_registry::effective_all(store, &Default::default(), |definition| {
-            definition.key.starts_with(PREFIX)
-        })
+        let rows = settings_registry::effective_all_at_revision(
+            store,
+            &Default::default(),
+            |definition| definition.key.starts_with(PREFIX),
+            revision,
+        )
         .await
         .map_err(|_| ())?;
         let value = Arc::new(Config::parse(rows)?);
@@ -254,14 +274,22 @@ impl Cache {
         if epoch != self.epoch.load(Ordering::Acquire) {
             return Err(());
         }
-        *self
-            .value
-            .write()
-            .unwrap_or_else(|poison| poison.into_inner()) = Some(Cached {
-            at: Instant::now(),
-            epoch,
-            value: value.clone(),
-        });
+        if let Some(number) = revision.number() {
+            let mut guard = self.value.write().unwrap_or_else(|p| p.into_inner());
+            // Check again while publishing. Entries retain their epoch, so a
+            // concurrent invalidation also prevents subsequent cache hits.
+            if epoch != self.epoch.load(Ordering::Acquire) {
+                return Err(());
+            }
+            if guard.as_ref().is_some_and(|cached|cached.store==store.cache_scope()&&cached.revision>number){return Ok(value);}
+            *guard = Some(Cached {
+                at: Instant::now(),
+                epoch,
+                store: store.cache_scope(),
+                revision: number,
+                value: value.clone(),
+            });
+        }
         Ok(value)
     }
 }
@@ -389,7 +417,7 @@ mod tests {
         assert!(config.subject("client", "198.51.100.1").is_some());
     }
     #[tokio::test]
-    async fn policy_cache_invalidates_locally_and_expires_for_other_replicas() {
+    async fn policy_cache_observes_revisions_immediately_and_invalidates_locally() {
         let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         let cache = Cache::default();
         assert!(!cache.get(&store).await.unwrap().legacy_enabled());
@@ -407,7 +435,8 @@ mod tests {
                 .await
                 .unwrap()
         );
-        assert!(!cache.get(&store).await.unwrap().legacy_enabled());
+        // Another replica can write without calling this process's invalidate.
+        assert!(cache.get(&store).await.unwrap().legacy_enabled());
         cache.invalidate();
         assert!(cache.get(&store).await.unwrap().legacy_enabled());
         assert!(

@@ -9834,26 +9834,27 @@ pub async fn effective_for_with(
     subject: &SettingSubject<'_>,
     extra: &[SettingValueRow],
 ) -> Result<Option<Effective>, StoreError> {
-    let canonical = store.canonical_setting_subject(subject).await?;
-    let subject = &canonical.as_subject();
+    let inputs = store.settings_resolution_inputs_for(subject, key).await?;
+    let subject = &inputs.canonical.as_subject();
     let Some(def) = lookup(key) else {
         return Ok(None);
     };
-    let policy = store.get_setting_policy(key).await?;
-    let mut values = store.setting_values_for_subject(subject).await?;
+    let policy = inputs.policies.iter().find(|row| row.key == key);
+    let mut values = inputs.values;
     values.extend_from_slice(extra);
     Ok(Some(resolve_loaded(
         def,
         key,
         subject,
-        policy.as_ref(),
+        policy,
         &values,
         &process_env,
     )))
 }
 
 /// The effective values of every registered (non-family) key that `filter`
-/// accepts, plus every stored family key, for one subject. Two store reads.
+/// accepts, plus every stored family key, for one subject. Uses one fresh
+/// revision read; unchanged policy and subject data come from bounded memos.
 pub async fn effective_all(
     store: &Store,
     subject: &SettingSubject<'_>,
@@ -9869,10 +9870,32 @@ pub async fn effective_all_with(
     filter: impl Fn(&SettingDef) -> bool,
     extra: &[SettingValueRow],
 ) -> Result<Vec<Effective>, StoreError> {
-    let canonical = store.canonical_setting_subject(subject).await?;
-    let subject = &canonical.as_subject();
-    let policies = store.list_setting_policies().await?;
-    let mut values = store.setting_values_for_subject(subject).await?;
+    let revision = store.settings_read_revision().await?;
+    effective_all_with_revision(store, subject, filter, extra, &revision).await
+}
+/// Resolve from a revision freshly obtained by this request, shared across its
+/// policy families. Callers must not retain revision proofs across requests.
+pub async fn effective_all_at_revision(
+    store: &Store,
+    subject: &SettingSubject<'_>,
+    filter: impl Fn(&SettingDef) -> bool,
+    revision: &mw_store::settings_policy::SettingsReadRevision,
+) -> Result<Vec<Effective>, StoreError> {
+    effective_all_with_revision(store, subject, filter, &[], revision).await
+}
+async fn effective_all_with_revision(
+    store: &Store,
+    subject: &SettingSubject<'_>,
+    filter: impl Fn(&SettingDef) -> bool,
+    extra: &[SettingValueRow],
+    revision: &mw_store::settings_policy::SettingsReadRevision,
+) -> Result<Vec<Effective>, StoreError> {
+    let inputs = store
+        .settings_resolution_inputs_at(subject, revision)
+        .await?;
+    let subject = &inputs.canonical.as_subject();
+    let policies = inputs.policies;
+    let mut values = inputs.values;
     values.extend_from_slice(extra);
     let mut out = Vec::new();
     for def in REGISTRY.iter().filter(|d| !d.is_family() && filter(d)) {
@@ -11374,3 +11397,7 @@ mod row_action_layout_tests {
  use super::*;
  #[test] fn validates_order_placement_and_unique_actions(){let def=lookup("mail.rowActions").unwrap();assert_eq!(def.scopes,GDU);for value in [json!([]),json!(["quick:delete","quick:pin","more:flag"]),def.default_value()]{assert!(validate(def,&value,"value").is_ok());}for value in [json!(["quick:pin","more:pin"]),json!(["quick:unknown"]),json!(["hidden:delete"]),json!([1])]{assert!(validate(def,&value,"value").is_err());}}
 }
+
+#[cfg(test)]
+#[path = "settings_resolution_tests.rs"]
+mod resolution_revision_tests;

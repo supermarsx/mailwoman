@@ -245,6 +245,7 @@ mod hosting_connections;
 mod hosting_operations;
 mod hosting_transport;
 pub mod settings_registry;
+mod settings_request_revision;
 pub mod settings_routes;
 mod ssh_tunnels;
 mod user_router;

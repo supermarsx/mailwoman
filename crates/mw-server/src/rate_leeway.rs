@@ -145,46 +145,122 @@ impl Knobs {
 const KNOB_TTL: Duration = Duration::from_secs(15);
 const KNOB_DOMAINS: usize = 256;
 
-fn knob_cache() -> &'static Mutex<HashMap<String, (Instant, Knobs)>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, (Instant, Knobs)>>> = OnceLock::new();
-    CACHE.get_or_init(Default::default)
+type KnobKey = (uuid::Uuid, String);
+#[derive(Default)]
+struct KnobCacheState {
+    epoch: u64,
+    values: HashMap<KnobKey, (Instant, Option<i64>, Knobs)>,
 }
-
-/// The knobs for `domain` (`""` is the global value), cached for a few seconds. A
-/// store error keeps the defaults rather than meaning "unlimited".
+#[derive(Default)]
+struct KnobCache {
+    state: Mutex<KnobCacheState>,
+    refresh: tokio::sync::Mutex<()>,
+}
+impl KnobCache {
+    fn fresh(&self, key: &KnobKey, revision: Option<i64>) -> Option<Knobs> {
+        revision?;
+        self.state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .values
+            .get(key)
+            .filter(|(at, cached_revision, _)| {
+                *cached_revision == revision && at.elapsed() < KNOB_TTL
+            })
+            .map(|(_, _, value)| *value)
+    }
+    fn forget(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.epoch = state.epoch.wrapping_add(1);
+        state.values.clear();
+    }
+    async fn get<F, Fut>(&self, key: KnobKey, revision: Option<i64>, mut load: F) -> Knobs
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<Knobs, ()>>,
+    {
+        let epoch = self.state.lock().unwrap_or_else(|p| p.into_inner()).epoch;
+        if let Some(value) = self.fresh(&key, revision) {
+            return value;
+        }
+        // One bounded refresh at a time, with a second check after waiting.
+        // Normal hits need only the short synchronous lock above.
+        let _refresh = self.refresh.lock().await;
+        if let Some(value) = self.fresh(&key, revision) {
+            return value;
+        }
+        let loaded = load().await;
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        let stale = loaded.is_err()
+            || epoch != state.epoch
+            || revision.is_none()
+            || state
+                .values
+                .get(&key)
+                .is_some_and(|(_, cached_revision, _)| *cached_revision > revision);
+        let value = loaded.unwrap_or_else(|()| {
+            state
+                .values
+                .get(&key)
+                .map_or_else(Knobs::default, |(_, _, value)| *value)
+        });
+        if stale {
+            return value;
+        }
+        if state.values.len() >= KNOB_DOMAINS && !state.values.contains_key(&key) {
+            state.values.clear();
+        }
+        state.values.insert(key, (Instant::now(), revision, value));
+        value
+    }
+}
+fn knob_cache() -> &'static KnobCache {
+    static CACHE: OnceLock<KnobCache> = OnceLock::new();
+    CACHE.get_or_init(KnobCache::default)
+}
+/// Settings are scoped to the Store identity and normalized domain, never just
+/// the domain. A failed read cannot borrow another installation's allowances.
 pub(crate) async fn knobs(store: &Store, domain: &str) -> Knobs {
-    let domain = domain.to_ascii_lowercase();
-    if let Some((at, value)) = knob_cache()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(&domain)
-        && at.elapsed() < KNOB_TTL
-    {
-        return *value;
-    }
-    let subject = SettingSubject {
-        domain: &domain,
-        ..Default::default()
-    };
-    let value = match settings_registry::effective_all(store, &subject, |def| {
-        def.key.starts_with("ratelimit.")
-    })
-    .await
-    {
-        Ok(rows) => Knobs::from_rows(&rows),
+    match store.settings_read_revision().await {
+        Ok(revision) => knobs_at_revision(store, domain, &revision).await,
         Err(_) => Knobs::default(),
-    };
-    let mut cache = knob_cache().lock().unwrap_or_else(|e| e.into_inner());
-    if cache.len() >= KNOB_DOMAINS {
-        cache.clear();
     }
-    cache.insert(domain, (Instant::now(), value));
-    value
 }
-
-/// Forget the cached values (tests and tools; they otherwise expire in seconds).
+pub(crate) async fn knobs_at_revision(
+    store: &Store,
+    domain: &str,
+    revision: &mw_store::settings_policy::SettingsReadRevision,
+) -> Knobs {
+    if revision.scope() != store.instance_id() {
+        return Knobs::default();
+    }
+    let domain = domain.to_ascii_lowercase();
+    knob_cache()
+        .get(
+            (store.instance_id(), domain.clone()),
+            revision.number(),
+            || async {
+                let subject = SettingSubject {
+                    domain: &domain,
+                    ..Default::default()
+                };
+                settings_registry::effective_all_at_revision(
+                    store,
+                    &subject,
+                    |def| def.key.starts_with("ratelimit."),
+                    revision,
+                )
+                .await
+                .map(|rows| Knobs::from_rows(&rows))
+                .map_err(|_| ())
+            },
+        )
+        .await
+}
+/// Epoch fencing prevents a refresh started before invalidation from
+/// repopulating the cache after a settings write.
 pub(crate) fn forget_knobs() {
-    knob_cache().lock().unwrap_or_else(|e| e.into_inner()).clear();
+    knob_cache().forget();
 }
 
 /// The domain of a session's username (`user@domain`), or `""`.
@@ -328,7 +404,8 @@ fn client_report() -> &'static ClientReport {
 pub(crate) fn note_client(seen: u32, retries: u32, exhausted: u32) {
     let r = client_report();
     r.reports.fetch_add(1, Ordering::Relaxed);
-    r.seen.fetch_add(u64::from(seen.min(1000)), Ordering::Relaxed);
+    r.seen
+        .fetch_add(u64::from(seen.min(1000)), Ordering::Relaxed);
     r.retries
         .fetch_add(u64::from(retries.min(1000)), Ordering::Relaxed);
     r.exhausted
@@ -566,7 +643,10 @@ fn route_class(path: &str) -> &'static str {
         "clientTiming"
     } else if path.starts_with("/api/cookie") || path.starts_with("/api/consent") {
         "cookieConsent"
-    } else if path.strip_prefix(&admin).is_some_and(|s| s.starts_with('/')) {
+    } else if path
+        .strip_prefix(&admin)
+        .is_some_and(|s| s.starts_with('/'))
+    {
         "admin"
     } else if path.starts_with("/api/") {
         "api"
@@ -582,7 +662,9 @@ pub(crate) async fn observe(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     let status = response.status();
     let refused = response.extensions().get::<Refused>().cloned();
-    if status != StatusCode::TOO_MANY_REQUESTS && !(status == StatusCode::SERVICE_UNAVAILABLE && refused.is_some()) {
+    if status != StatusCode::TOO_MANY_REQUESTS
+        && !(status == StatusCode::SERVICE_UNAVAILABLE && refused.is_some())
+    {
         return response;
     }
     let headers = response.headers_mut();
@@ -653,7 +735,9 @@ mod tests {
         let _x = gate.acquire("a", 5, 2, Duration::ZERO).await.unwrap();
         let _y = gate.acquire("b", 5, 2, Duration::ZERO).await.unwrap();
         assert_eq!(
-            gate.acquire("c", 5, 2, Duration::from_millis(20)).await.err(),
+            gate.acquire("c", 5, 2, Duration::from_millis(20))
+                .await
+                .err(),
             Some(Busy::Process { limit: 2 })
         );
     }
@@ -676,5 +760,201 @@ mod tests {
             let def = settings_registry::lookup(key).expect("registered");
             assert_eq!(def.default_value(), json!(value), "{key}");
         }
+    }
+}
+
+#[cfg(test)]
+mod knob_cache_tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+    fn value(queue_ms: u64) -> Knobs {
+        Knobs {
+            queue_ms,
+            ..Knobs::default()
+        }
+    }
+    #[tokio::test]
+    async fn concurrent_misses_are_single_flight() {
+        let cache = Arc::new(KnobCache::default());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let key = (uuid::Uuid::new_v4(), "example.test".to_owned());
+        let mut tasks = Vec::new();
+        for _ in 0..32 {
+            let cache = cache.clone();
+            let calls = calls.clone();
+            let key = key.clone();
+            tasks.push(tokio::spawn(async move {
+                cache
+                    .get(key, Some(1), || async {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                        Ok(value(456))
+                    })
+                    .await
+            }));
+        }
+        for task in tasks {
+            assert_eq!(task.await.unwrap().queue_ms, 456);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn forget_during_refresh_reloads_instead_of_repopulating_stale_knobs() {
+        let cache = Arc::new(KnobCache::default());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let key = (uuid::Uuid::new_v4(), "example.test".to_owned());
+        let task = {
+            let cache = cache.clone();
+            let calls = calls.clone();
+            let entered = entered.clone();
+            let release = release.clone();
+            let key = key.clone();
+            tokio::spawn(async move {
+                cache
+                    .get(key, Some(1), || async {
+                        if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                            entered.notify_one();
+                            release.notified().await;
+                            Ok(value(111))
+                        } else {
+                            Ok(value(888))
+                        }
+                    })
+                    .await
+            })
+        };
+        entered.notified().await;
+        cache.forget();
+        release.notify_one();
+        assert_eq!(task.await.unwrap().queue_ms, 111);
+        assert!(cache.fresh(&key, Some(1)).is_none());
+        assert_eq!(
+            cache
+                .get(key, Some(2), || async { Ok(value(888)) })
+                .await
+                .queue_ms,
+            888
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn revisions_change_immediately_and_unknown_revisions_do_not_cache() {
+        let cache = KnobCache::default();
+        let key = (uuid::Uuid::new_v4(), "example.test".to_owned());
+        cache
+            .get(key.clone(), Some(1), || async { Ok(value(222)) })
+            .await;
+        assert_eq!(
+            cache
+                .get(key.clone(), Some(2), || async { Ok(value(444)) })
+                .await
+                .queue_ms,
+            444
+        );
+        cache
+            .get(key.clone(), Some(1), || async { Ok(value(111)) })
+            .await;
+        assert_eq!(cache.fresh(&key, Some(2)).unwrap().queue_ms, 444);
+        cache
+            .get(key.clone(), None, || async { Ok(value(555)) })
+            .await;
+        assert_eq!(cache.fresh(&key, Some(2)).unwrap().queue_ms, 444);
+        assert!(cache.fresh(&key, None).is_none());
+    }
+    #[tokio::test]
+    async fn failed_new_revision_is_not_cached_and_recovers_without_waiting() {
+        let cache = KnobCache::default();
+        let key = (uuid::Uuid::new_v4(), "example.test".to_owned());
+        cache
+            .get(key.clone(), Some(1), || async { Ok(value(222)) })
+            .await;
+        assert_eq!(
+            cache
+                .get(key.clone(), Some(2), || async { Err(()) })
+                .await
+                .queue_ms,
+            222
+        );
+        assert!(cache.fresh(&key, Some(2)).is_none());
+        assert_eq!(
+            cache
+                .get(key, Some(2), || async { Ok(value(444)) })
+                .await
+                .queue_ms,
+            444
+        );
+        let empty_key = (uuid::Uuid::new_v4(), "example.test".to_owned());
+        cache
+            .get(empty_key.clone(), Some(2), || async { Err(()) })
+            .await;
+        assert!(cache.fresh(&empty_key, Some(2)).is_none());
+        assert_eq!(
+            cache
+                .get(empty_key, Some(2), || async { Ok(value(555)) })
+                .await
+                .queue_ms,
+            555
+        );
+    }
+    #[tokio::test]
+    async fn foreign_revision_proof_is_rejected_before_a_cache_hit() {
+        let first = Store::open(":memory:", mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        let second = Store::open(":memory:", mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        let revision = first.settings_read_revision().await.unwrap();
+        assert!(revision.number().is_some());
+        knob_cache()
+            .get(
+                (second.instance_id(), "example.test".into()),
+                revision.number(),
+                || async { Ok(value(123)) },
+            )
+            .await;
+        assert_eq!(
+            knobs_at_revision(&second, "example.test", &revision)
+                .await
+                .queue_ms,
+            Knobs::default().queue_ms
+        );
+        first.close().await;
+        second.close().await;
+    }
+    #[tokio::test]
+    async fn equal_domains_do_not_share_values_or_failure_fallback_between_stores() {
+        let cache = KnobCache::default();
+        let first = (uuid::Uuid::new_v4(), "example.test".to_owned());
+        let second = (uuid::Uuid::new_v4(), "example.test".to_owned());
+        cache
+            .get(first.clone(), Some(1), || async { Ok(value(123)) })
+            .await;
+        assert_eq!(
+            cache
+                .get(second, Some(1), || async { Err(()) })
+                .await
+                .queue_ms,
+            Knobs::default().queue_ms
+        );
+        assert_eq!(cache.fresh(&first, Some(1)).unwrap().queue_ms, 123);
+        let other_domain = (first.0, "other.test".to_owned());
+        assert_eq!(
+            cache
+                .get(other_domain, Some(1), || async { Err(()) })
+                .await
+                .queue_ms,
+            Knobs::default().queue_ms
+        );
+        cache.forget();
+        assert_eq!(
+            cache
+                .get(first, Some(1), || async { Err(()) })
+                .await
+                .queue_ms,
+            Knobs::default().queue_ms
+        );
     }
 }

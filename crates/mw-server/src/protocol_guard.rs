@@ -52,13 +52,16 @@ pub(crate) async fn summary(state: &AppState) -> serde_json::Value {
     stats::snapshot(&config)
 }
 
-pub(crate) async fn guard(State(state): State<AppState>, request: Request, next: Next) -> Response {
+pub(crate) async fn guard(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
     // In-process synthetic requests carry no peer; production always installs
     // `ConnectInfo`. Like `source_bans::guard`, nothing is assumed for them.
     if crate::scope_mw::proxy::peer_ip(request.extensions()).is_none() {
         return next.run(request).await;
     }
-    let config = state.request_protection.protocol.get(&state.store).await;
+    let config = match crate::settings_request_revision::get(&state.store,&mut request).await{
+        Ok(revision)=>state.request_protection.protocol.get_at_revision(&state.store,&revision).await,
+        Err(_)=>Arc::new(Config::default()),
+    };
     run(config, Some(&state), request, next).await
 }
 

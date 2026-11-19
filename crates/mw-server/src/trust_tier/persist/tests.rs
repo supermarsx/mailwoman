@@ -273,11 +273,17 @@ async fn persistence_off_writes_nothing_and_loads_nothing() {
         persist: false,
         ..(*on).clone()
     });
-    *cache().write().unwrap() = Some(Cached {
-        at: Instant::now(),
-        store: store.instance_id(),
-        value: off.clone(),
-    });
+    {
+        let mut state = cache().state.write().unwrap();
+        let epoch = state.epoch;
+        let revision = state.values.get(&store.instance_id()).and_then(|entry| entry.revision);
+        state.values.insert(store.instance_id(), Cached {
+            at: Instant::now(),
+            epoch,
+            revision,
+            value: off.clone(),
+        });
+    }
     record_success(ip("198.51.100.41"), "someone");
     let before = store.get_setting(SETTING_KEY).await.unwrap();
     assert_eq!(save(&store, true).await, Ok(Saved::Skipped));
@@ -287,11 +293,17 @@ async fn persistence_off_writes_nothing_and_loads_nothing() {
     assert_eq!(status().entries, 0);
     assert_eq!(status().restored_at_startup, 0);
     // Put the policy back for the other tests.
-    *cache().write().unwrap() = Some(Cached {
-        at: Instant::now(),
-        store: store.instance_id(),
-        value: on,
-    });
+    {
+        let mut state = cache().state.write().unwrap();
+        let epoch = state.epoch;
+        let revision = state.values.get(&store.instance_id()).and_then(|entry| entry.revision);
+        state.values.insert(store.instance_id(), Cached {
+            at: Instant::now(),
+            epoch,
+            revision,
+            value: on,
+        });
+    }
 }
 
 #[tokio::test]

@@ -18,9 +18,9 @@
 //! and loaded at startup, merged with a rebuild from the successful rows the
 //! authentication log still holds (its own retention applies).
 mod persist;
+use crate::settings_registry;
 pub use persist::flush_on_shutdown;
 pub(crate) use persist::{forget_all, start, status};
-use crate::settings_registry;
 use std::{
     collections::{BTreeSet, HashMap},
     net::{IpAddr, Ipv6Addr},
@@ -402,54 +402,156 @@ fn lock() -> std::sync::MutexGuard<'static, KnownStore> {
 
 struct Cached {
     at: Instant,
-    store: uuid::Uuid,
+    epoch: u64,
+    revision: Option<i64>,
     value: Arc<Policy>,
 }
-fn cache() -> &'static RwLock<Option<Cached>> {
-    static C: OnceLock<RwLock<Option<Cached>>> = OnceLock::new();
-    C.get_or_init(|| RwLock::new(None))
+#[derive(Default)]
+struct PolicyCacheState {
+    epoch: u64,
+    values: HashMap<uuid::Uuid, Cached>,
 }
-/// The last policy read, or the registry defaults. Never waits.
-pub(crate) fn snapshot() -> Arc<Policy> {
-    cache()
-        .read()
-        .unwrap_or_else(|p| p.into_inner())
-        .as_ref()
-        .map_or_else(|| Arc::new(Policy::default()), |c| c.value.clone())
+#[derive(Default)]
+struct PolicyCache {
+    state: RwLock<PolicyCacheState>,
+    refresh: tokio::sync::Mutex<()>,
 }
-/// Read (and cache for 30 s) the policy; also starts the one-time rebuild of
-/// the known table from the authentication log.
-pub(crate) async fn policy(store: &mw_store::Store) -> Arc<Policy> {
+impl PolicyCache {
+    fn fresh(&self, store: uuid::Uuid, revision: Option<i64>) -> Option<Arc<Policy>> {
+        revision?;
+        let state = self.state.read().unwrap_or_else(|p| p.into_inner());
+        state
+            .values
+            .get(&store)
+            .filter(|entry| {
+                entry.epoch == state.epoch
+                    && entry.revision == revision
+                    && entry.at.elapsed() < CACHE_TTL
+            })
+            .map(|entry| entry.value.clone())
+    }
+    fn last(&self, store: uuid::Uuid) -> Option<Arc<Policy>> {
+        self.state
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .values
+            .get(&store)
+            .map(|entry| entry.value.clone())
+    }
+    fn invalidate(&self) {
+        let mut state = self.state.write().unwrap_or_else(|p| p.into_inner());
+        state.epoch = state.epoch.wrapping_add(1);
+    }
+    async fn get<F, Fut>(
+        &self,
+        store: uuid::Uuid,
+        revision: Option<i64>,
+        mut load: F,
+    ) -> Arc<Policy>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = Result<Arc<Policy>, ()>>,
     {
-        let guard = cache().read().unwrap_or_else(|p| p.into_inner());
-        if let Some(c) = guard.as_ref()
-            && c.store == store.instance_id()
-            && c.at.elapsed() < CACHE_TTL
-        {
-            return c.value.clone();
+        let epoch = self.state.read().unwrap_or_else(|p| p.into_inner()).epoch;
+        if let Some(value) = self.fresh(store, revision) {
+            return value;
+        }
+        let _refresh = self.refresh.lock().await;
+        if let Some(value) = self.fresh(store, revision) {
+            return value;
+        }
+        let loaded = load().await;
+        let mut state = self.state.write().unwrap_or_else(|p| p.into_inner());
+        let stale = loaded.is_err()
+            || epoch != state.epoch
+            || revision.is_none()
+            || state
+                .values
+                .get(&store)
+                .is_some_and(|entry| entry.revision > revision);
+        let value = loaded.unwrap_or_else(|()| {
+            state
+                .values
+                .get(&store)
+                .map_or_else(|| Arc::new(Policy::default()), |entry| entry.value.clone())
+        });
+        if stale {
+            return value;
+        }
+        // A process normally has one Store. Bound test/multi-installation
+        // cache growth without ever borrowing another Store's fallback.
+        if state.values.len() >= 64 && !state.values.contains_key(&store) {
+            state.values.clear();
+        }
+        state.values.insert(
+            store,
+            Cached {
+                at: Instant::now(),
+                epoch,
+                revision,
+                value: value.clone(),
+            },
+        );
+        value
+    }
+}
+fn cache() -> &'static PolicyCache {
+    static CACHE: OnceLock<PolicyCache> = OnceLock::new();
+    CACHE.get_or_init(PolicyCache::default)
+}
+/// Keep the last known good value only for the known-source table's owner.
+/// A second Store's failed refresh must never adopt a different policy.
+pub(crate) fn snapshot() -> Arc<Policy> {
+    let owner = lock().owner;
+    owner
+        .and_then(|store| cache().last(store))
+        .unwrap_or_else(|| Arc::new(Policy::default()))
+}
+pub(crate) fn invalidate() {
+    cache().invalidate();
+}
+/// Read the policy with single-flight refresh. Invalidating during an awaited
+/// read prevents that read from publishing into the newer settings generation.
+pub(crate) async fn policy(store: &mw_store::Store) -> Arc<Policy> {
+    match store.settings_read_revision().await {
+        Ok(revision) => policy_at_revision(store, &revision).await,
+        Err(_) => {
+            let value = cache()
+                .last(store.instance_id())
+                .unwrap_or_else(|| Arc::new(Policy::default()));
+            lock().adopt(store.instance_id(), persist::salt(store));
+            hydrate_once(store, &value).await;
+            value
         }
     }
-    let rows = settings_registry::effective_all(store, &Default::default(), |d| {
-        d.key.starts_with(PREFIX)
-    })
-    .await;
-    let parsed = rows.map_err(|_| ()).and_then(Policy::parse);
-    let value = match parsed {
-        Ok(p) => Arc::new(p),
-        // Storage trouble keeps the last policy (or the defaults).
-        Err(()) => snapshot(),
-    };
-    *cache().write().unwrap_or_else(|p| p.into_inner()) = Some(Cached {
-        at: Instant::now(),
-        store: store.instance_id(),
-        value: value.clone(),
-    });
+}
+pub(crate) async fn policy_at_revision(
+    store: &mw_store::Store,
+    revision: &mw_store::settings_policy::SettingsReadRevision,
+) -> Arc<Policy> {
+    if revision.scope() != store.instance_id() {
+        return Arc::new(Policy::default());
+    }
+    let value = cache()
+        .get(store.instance_id(), revision.number(), || async {
+            settings_registry::effective_all_at_revision(
+                store,
+                &Default::default(),
+                |d| d.key.starts_with(PREFIX),
+                revision,
+            )
+            .await
+            .map_err(|_| ())
+            .and_then(Policy::parse)
+            .map(Arc::new)
+        })
+        .await;
     lock().adopt(store.instance_id(), persist::salt(store));
-    hydrate_once(store).await;
+    hydrate_once(store, &value).await;
     value
 }
 
-async fn hydrate_once(store: &mw_store::Store) {
+async fn hydrate_once(store: &mw_store::Store, policy: &Policy) {
     {
         let mut k = lock();
         if k.hydrated {
@@ -457,8 +559,7 @@ async fn hydrate_once(store: &mw_store::Store) {
         }
         k.hydrated = true;
     }
-    let policy = snapshot();
-    persist::restore(store, &policy).await;
+    persist::restore(store, policy).await;
     let cleared_at = lock().cleared_at;
     let mut before = None;
     for _ in 0..5 {
@@ -486,7 +587,7 @@ async fn hydrate_once(store: &mw_store::Store) {
                     .account_id
                     .as_deref()
                     .unwrap_or(&row.event.username_attempted);
-                insert(ip, who, row.last_seen, &policy);
+                insert(ip, who, row.last_seen, policy);
             }
         }
         if rows.len() < 100 {
@@ -523,12 +624,7 @@ pub(crate) fn record_success(ip: IpAddr, account: &str) {
 }
 pub(crate) fn is_known(ip: IpAddr) -> bool {
     let policy = snapshot();
-    policy.enabled
-        && lock().is_known(
-            ip,
-            chrono::Utc::now().timestamp(),
-            policy.known_ttl_secs,
-        )
+    policy.enabled && lock().is_known(ip, chrono::Utc::now().timestamp(), policy.known_ttl_secs)
 }
 pub(crate) fn country_known(country: &str) -> bool {
     let policy = snapshot();
@@ -624,7 +720,14 @@ mod tests {
     fn the_table_is_bounded_and_keeps_only_a_count_of_accounts() {
         let mut k = KnownStore::new();
         for i in 0..10u8 {
-            k.record_success(ip(&format!("192.0.2.{i}")), None, "a", i64::from(i), 1000, 4);
+            k.record_success(
+                ip(&format!("192.0.2.{i}")),
+                None,
+                "a",
+                i64::from(i),
+                1000,
+                4,
+            );
         }
         assert_eq!(k.len(), 4);
         // The oldest were dropped first.
@@ -679,10 +782,22 @@ mod tests {
         rules.countries.insert("DE".into());
         let seen = |c: &str| c == "PT";
         let v = |l: CountryLookup, r: &GeoRules| country_verdict(&l, r, seen);
-        assert_eq!(v(CountryLookup::Known("PT".into()), &rules), CountryVerdict::Known);
-        assert_eq!(v(CountryLookup::Known("DE".into()), &rules), CountryVerdict::Known);
-        assert_eq!(v(CountryLookup::Known("RU".into()), &rules), CountryVerdict::Unknown);
-        assert_eq!(v(CountryLookup::Unknown, &rules), CountryVerdict::Unresolved);
+        assert_eq!(
+            v(CountryLookup::Known("PT".into()), &rules),
+            CountryVerdict::Known
+        );
+        assert_eq!(
+            v(CountryLookup::Known("DE".into()), &rules),
+            CountryVerdict::Known
+        );
+        assert_eq!(
+            v(CountryLookup::Known("RU".into()), &rules),
+            CountryVerdict::Unknown
+        );
+        assert_eq!(
+            v(CountryLookup::Unknown, &rules),
+            CountryVerdict::Unresolved
+        );
         assert_eq!(
             v(CountryLookup::DatabaseUnavailable, &rules),
             CountryVerdict::Unresolved
@@ -726,5 +841,182 @@ mod tests {
         assert_eq!(p.geo.block_secs, [3600, 86_400, 604_800]);
         assert!(!p.geo.block_on_first);
         assert!(!p.geo.lookup_failure_unknown);
+    }
+}
+
+#[cfg(test)]
+mod policy_cache_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    fn value(percent: u32) -> Arc<Policy> {
+        Arc::new(Policy {
+            known_percent: percent,
+            ..Policy::default()
+        })
+    }
+    #[tokio::test]
+    async fn concurrent_cache_misses_have_one_loader() {
+        let cache = Arc::new(PolicyCache::default());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let store = uuid::Uuid::new_v4();
+        let mut tasks = Vec::new();
+        for _ in 0..32 {
+            let cache = cache.clone();
+            let calls = calls.clone();
+            tasks.push(tokio::spawn(async move {
+                cache
+                    .get(store, Some(1), || async {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                        Ok(value(345))
+                    })
+                    .await
+            }));
+        }
+        for task in tasks {
+            assert_eq!(task.await.unwrap().known_percent, 345);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn invalidation_during_refresh_cannot_publish_pre_write_policy() {
+        let cache = Arc::new(PolicyCache::default());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let store = uuid::Uuid::new_v4();
+        let task = {
+            let cache = cache.clone();
+            let calls = calls.clone();
+            let entered = entered.clone();
+            let release = release.clone();
+            tokio::spawn(async move {
+                cache
+                    .get(store, Some(1), || async {
+                        if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                            entered.notify_one();
+                            release.notified().await;
+                            Ok(value(111))
+                        } else {
+                            Ok(value(777))
+                        }
+                    })
+                    .await
+            })
+        };
+        entered.notified().await;
+        cache.invalidate();
+        release.notify_one();
+        assert_eq!(task.await.unwrap().known_percent, 111);
+        assert!(cache.fresh(store, Some(1)).is_none());
+        assert_eq!(
+            cache
+                .get(store, Some(2), || async { Ok(value(777)) })
+                .await
+                .known_percent,
+            777
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+    #[tokio::test]
+    async fn revisions_change_immediately_and_unknown_revisions_do_not_cache() {
+        let cache = PolicyCache::default();
+        let store = uuid::Uuid::new_v4();
+        cache.get(store, Some(1), || async { Ok(value(222)) }).await;
+        assert_eq!(
+            cache
+                .get(store, Some(2), || async { Ok(value(444)) })
+                .await
+                .known_percent,
+            444
+        );
+        // An older request finishing later cannot overwrite the newer revision.
+        cache.get(store, Some(1), || async { Ok(value(111)) }).await;
+        assert_eq!(cache.fresh(store, Some(2)).unwrap().known_percent, 444);
+        cache.get(store, None, || async { Ok(value(555)) }).await;
+        assert_eq!(cache.fresh(store, Some(2)).unwrap().known_percent, 444);
+        assert!(cache.fresh(store, None).is_none());
+    }
+    #[tokio::test]
+    async fn failed_new_revision_is_not_cached_and_recovers_without_waiting() {
+        let cache = PolicyCache::default();
+        let store = uuid::Uuid::new_v4();
+        cache.get(store, Some(1), || async { Ok(value(222)) }).await;
+        assert_eq!(
+            cache
+                .get(store, Some(2), || async { Err(()) })
+                .await
+                .known_percent,
+            222
+        );
+        assert!(cache.fresh(store, Some(2)).is_none());
+        assert_eq!(
+            cache
+                .get(store, Some(2), || async { Ok(value(444)) })
+                .await
+                .known_percent,
+            444
+        );
+        let empty_store = uuid::Uuid::new_v4();
+        cache.get(empty_store, Some(2), || async { Err(()) }).await;
+        assert!(cache.fresh(empty_store, Some(2)).is_none());
+        assert_eq!(
+            cache
+                .get(empty_store, Some(2), || async { Ok(value(555)) })
+                .await
+                .known_percent,
+            555
+        );
+    }
+    #[tokio::test]
+    async fn foreign_revision_proof_is_rejected_before_a_cache_hit() {
+        let first = mw_store::Store::open(":memory:", mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        let second = mw_store::Store::open(":memory:", mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        let revision = first.settings_read_revision().await.unwrap();
+        assert!(revision.number().is_some());
+        cache()
+            .get(second.instance_id(), revision.number(), || async {
+                Ok(value(987))
+            })
+            .await;
+        assert_eq!(
+            policy_at_revision(&second, &revision).await.known_percent,
+            Policy::default().known_percent
+        );
+        first.close().await;
+        second.close().await;
+    }
+    #[tokio::test]
+    async fn failure_uses_only_the_same_stores_previous_policy() {
+        let cache = PolicyCache::default();
+        let first = uuid::Uuid::new_v4();
+        let second = uuid::Uuid::new_v4();
+        cache.get(first, Some(1), || async { Ok(value(543)) }).await;
+        assert_eq!(
+            cache
+                .get(second, Some(1), || async { Err(()) })
+                .await
+                .known_percent,
+            Policy::default().known_percent
+        );
+        cache.invalidate();
+        assert_eq!(
+            cache
+                .get(first, Some(1), || async { Err(()) })
+                .await
+                .known_percent,
+            543
+        );
+        assert_eq!(
+            cache
+                .get(second, Some(1), || async { Err(()) })
+                .await
+                .known_percent,
+            Policy::default().known_percent
+        );
     }
 }

@@ -1362,3 +1362,70 @@ async fn cms_fingerprint_assets_enforce_on_the_first_request_with_default_policy
             .all(|event| event.reason == "probe-path" && event.enforced)
     );
 }
+
+
+/// A WebSocket upgrade's request extensions are connection-lived, while the
+/// policy revision proof is valid only for one dispatched action/request.
+#[tokio::test]
+async fn websocket_actions_refresh_settings_revision_for_each_frame() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
+
+    let (base, store) = fixture(&[
+        ("security.protocol.allowedMethods", json!(["GET"])),
+        ("security.protocol.methodMode", json!("off")),
+        ("security.protection.rateMode", json!("off")),
+        ("security.protection.adaptiveMode", json!("off")),
+        ("security.protection.userAgentMode", json!("off")),
+    ]).await;
+    let response = client(1).post(format!("{base}/api/login"))
+        .json(&json!({"username": mw_mock_jmap::USER, "password": mw_mock_jmap::PASS}))
+        .send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    let cookies = response.headers().get_all("set-cookie").iter()
+        .map(|header| header.to_str().unwrap().split(';').next().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    let csrf = cookies.iter().find_map(|cookie| cookie.strip_prefix("mw_csrf=")).unwrap().to_owned();
+    let _ = response.bytes().await.unwrap();
+    let mut request = format!("{}/jmap/actions", base.replacen("http://", "ws://", 1))
+        .into_client_request().unwrap();
+    request.headers_mut().insert("cookie", cookies.join("; ").parse().unwrap());
+    request.headers_mut().insert("origin", base.parse().unwrap());
+    let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+    let ready = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
+        .await.unwrap().unwrap().unwrap();
+    let ready: Value = serde_json::from_str(ready.to_text().unwrap()).unwrap();
+    assert_eq!(ready["type"], "ready");
+    let body = json!({"using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+        "methodCalls": [["Email/query", {"accountId": mw_mock_jmap::ACCOUNT_ID, "limit": 1}, "query"]]}).to_string();
+    let headers = json!({"content-type": "application/json", "x-csrf-token": csrf});
+    socket.send(Message::Text(json!({"id": "warm", "method": "POST", "path": "/jmap/api",
+        "headers": headers, "body": body}).to_string().into())).await.unwrap();
+    let warm = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
+        .await.unwrap().unwrap().unwrap();
+    let warm: Value = serde_json::from_str(warm.to_text().unwrap()).unwrap();
+    assert_eq!(warm["id"], "warm");
+    assert_eq!(warm["status"], 200, "control request must reach real JMAP: {warm}");
+    let payload: Value = serde_json::from_str(warm["body"].as_str().unwrap()).unwrap();
+    assert_eq!(payload["methodResponses"][0][0], "Email/query");
+    assert!(payload["methodResponses"][0][1]["ids"].as_array().is_some_and(|ids| !ids.is_empty()),
+        "control query must return a seeded message");
+
+    // Change the backing database while the socket remains open. Deliberately
+    // call no config-cache invalidation hook and perform no new handshake.
+    store.put_setting_policy(&SettingPolicyRow {
+        key: "security.protocol.methodMode".into(), global_value: Some(json!("enforce").to_string()),
+        allow_user_override: false, global_locked: false,
+        updated_by: "external-policy-writer".into(), updated_at: 2,
+    }).await.unwrap();
+    socket.send(Message::Text(json!({"id": "after-policy-change", "method": "POST", "path": "/jmap/api",
+        "headers": headers, "body": body}).to_string().into())).await.unwrap();
+    let refused = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
+        .await.unwrap().unwrap().unwrap();
+    let refused: Value = serde_json::from_str(refused.to_text().unwrap()).unwrap();
+    assert_eq!(refused["id"], "after-policy-change");
+    assert_eq!(refused["status"], 405,
+        "new frame must discard handshake revision and observe the new method policy: {refused}");
+    socket.close(None).await.unwrap();
+    store.close().await;
+}

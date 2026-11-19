@@ -199,6 +199,7 @@ impl<V: Clone> ReadMemo<V> {
             Some((value, at, when)) if *at == revision && when.elapsed() < READ_TTL => {
                 Some(value.clone())
             }
+            Some((_, at, when)) if *at > revision && when.elapsed() < READ_TTL => None,
             Some(_) => {
                 map.remove(&probe);
                 None
@@ -209,9 +210,25 @@ impl<V: Clone> ReadMemo<V> {
     /// `revision` is the one read BEFORE the store read, so a write that raced
     /// it leaves the entry already stale.
     fn put(&self, scope: uuid::Uuid, key: String, revision: i64, value: V) {
+        self.put_bounded(scope, key, revision, value, READ_CAPACITY);
+    }
+    fn put_bounded(
+        &self,
+        scope: uuid::Uuid,
+        key: String,
+        revision: i64,
+        value: V,
+        capacity: usize,
+    ) {
         let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
         let map = guard.get_or_insert_with(Default::default);
-        if map.len() >= READ_CAPACITY {
+        if map
+            .get(&(scope, key.clone()))
+            .is_some_and(|(_, at, when)| *at > revision && when.elapsed() < READ_TTL)
+        {
+            return;
+        }
+        if map.len() >= capacity {
             map.clear();
         }
         map.insert((scope, key), (value, revision, std::time::Instant::now()));
@@ -220,6 +237,29 @@ impl<V: Clone> ReadMemo<V> {
 static CANONICAL_MEMO: ReadMemo<CanonicalSettingSubject> = ReadMemo::new();
 static POLICY_MEMO: ReadMemo<Option<SettingPolicyRow>> = ReadMemo::new();
 static VALUES_MEMO: ReadMemo<Vec<SettingValueRow>> = ReadMemo::new();
+static ALL_POLICIES_MEMO: ReadMemo<Vec<SettingPolicyRow>> = ReadMemo::new();
+/// Fresh revision proof for one resolution/request boundary. Do not retain this
+/// across requests. Scope binding prevents reuse against a different database.
+#[derive(Clone, Debug)]
+pub struct SettingsReadRevision {
+    scope: uuid::Uuid,
+    revision: Option<i64>,
+}
+impl SettingsReadRevision {
+    pub fn scope(&self) -> uuid::Uuid {
+        self.scope
+    }
+    pub fn number(&self) -> Option<i64> {
+        self.revision
+    }
+}
+#[derive(Debug)]
+pub struct SettingsResolutionInputs {
+    pub canonical: CanonicalSettingSubject,
+    pub policies: Vec<SettingPolicyRow>,
+    pub values: Vec<SettingValueRow>,
+}
+
 fn subject_key(subject: &SettingSubject<'_>) -> String {
     format!(
         "{:?}\u{1f}{}\u{1f}{}\u{1f}{}",
@@ -246,6 +286,93 @@ impl Store {
 }
 
 impl Store {
+    pub async fn settings_read_revision(&self) -> Result<SettingsReadRevision, StoreError> {
+        Ok(SettingsReadRevision {
+            scope: self.cache_scope(),
+            revision: self.settings_revision().await?,
+        })
+    }
+    pub async fn settings_resolution_inputs(
+        &self,
+        subject: &SettingSubject<'_>,
+    ) -> Result<SettingsResolutionInputs, StoreError> {
+        let revision = self.settings_read_revision().await?;
+        self.settings_resolution_inputs_at(subject, &revision).await
+    }
+    /// Resolve one key without loading/cloning every administrative policy.
+    /// One fresh revision proof covers canonical identity, policy and values.
+    pub async fn settings_resolution_inputs_for(
+        &self,
+        subject: &SettingSubject<'_>,
+        key: &str,
+    ) -> Result<SettingsResolutionInputs, StoreError> {
+        let revision = self.settings_read_revision().await?;
+        let canonical = self
+            .canonical_setting_subject_at(subject, revision.number())
+            .await?;
+        let policy = self.get_setting_policy_at(key, revision.number()).await?;
+        let values = self
+            .setting_values_for_canonical_at(&canonical.as_subject(), revision.number())
+            .await?;
+        Ok(SettingsResolutionInputs {
+            canonical,
+            policies: policy.into_iter().collect(),
+            values,
+        })
+    }
+    pub async fn settings_resolution_inputs_at(
+        &self,
+        subject: &SettingSubject<'_>,
+        revision: &SettingsReadRevision,
+    ) -> Result<SettingsResolutionInputs, StoreError> {
+        if revision.scope != self.cache_scope() {
+            return Err(StoreError::Corrupt(
+                "settings revision belongs to another store".into(),
+            ));
+        }
+        let canonical = self
+            .canonical_setting_subject_at(subject, revision.number())
+            .await?;
+        let policies = if let Some(number) = revision.number() {
+            if let Some(hit) = ALL_POLICIES_MEMO.get(self.cache_scope(), "all", number) {
+                hit
+            } else {
+                let rows = self.list_setting_policies().await?;
+                let bytes = rows
+                    .iter()
+                    .map(|row| {
+                        row.key.len()
+                            + row.updated_by.len()
+                            + row.global_value.as_ref().map_or(0, String::len)
+                            + 64
+                    })
+                    .sum::<usize>();
+                // At most sixteen 2 MiB entries; oversized administrative data is
+                // resolved normally without retaining it in this memo.
+                if bytes <= 2 * 1024 * 1024 {
+                    ALL_POLICIES_MEMO.put_bounded(
+                        self.cache_scope(),
+                        "all".into(),
+                        number,
+                        rows.clone(),
+                        16,
+                    );
+                }
+                rows
+            }
+        } else {
+            self.list_setting_policies().await?
+        };
+        let values = self
+            .setting_values_for_canonical_at(&canonical.as_subject(), revision.number())
+            .await?;
+        Ok(SettingsResolutionInputs {
+            canonical,
+            policies,
+            values,
+        })
+    }
+
     /// Resolve only explicit domain aliases for policy. This deliberately never
     /// consults the preferred domain: an existing bare login has no domain.
     pub async fn canonical_policy_domain(&self, domain: &str) -> Result<String, StoreError> {
@@ -299,11 +426,19 @@ impl Store {
         &self,
         subject: &SettingSubject<'_>,
     ) -> Result<CanonicalSettingSubject, StoreError> {
-        let scope = self.cache_scope();
-        let key = subject_key(subject);
-        let Some(revision) = self.settings_revision().await? else {
+        let revision = self.settings_revision().await?;
+        self.canonical_setting_subject_at(subject, revision).await
+    }
+    async fn canonical_setting_subject_at(
+        &self,
+        subject: &SettingSubject<'_>,
+        revision: Option<i64>,
+    ) -> Result<CanonicalSettingSubject, StoreError> {
+        let Some(revision) = revision else {
             return self.canonical_setting_subject_uncached(subject).await;
         };
+        let scope = self.cache_scope();
+        let key = subject_key(subject);
         if let Some(hit) = CANONICAL_MEMO.get(scope, &key, revision) {
             return Ok(hit);
         }
@@ -332,9 +467,17 @@ impl Store {
         &self,
         key: &str,
     ) -> Result<Option<SettingPolicyRow>, StoreError> {
+        self.get_setting_policy_at(key, self.settings_revision().await?)
+            .await
+    }
+    async fn get_setting_policy_at(
+        &self,
+        key: &str,
+        revision: Option<i64>,
+    ) -> Result<Option<SettingPolicyRow>, StoreError> {
         let scope = self.cache_scope();
         let memo_key = key.to_owned();
-        let Some(revision) = self.settings_revision().await? else {
+        let Some(revision) = revision else {
             return self.get_setting_policy_uncached(key).await;
         };
         if let Some(hit) = POLICY_MEMO.get(scope, &memo_key, revision) {
@@ -613,25 +756,34 @@ impl Store {
         &self,
         subject: &SettingSubject<'_>,
     ) -> Result<Vec<SettingValueRow>, StoreError> {
+        let revision = self.settings_read_revision().await?;
+        let canonical = self
+            .canonical_setting_subject_at(subject, revision.number())
+            .await?;
+        self.setting_values_for_canonical_at(&canonical.as_subject(), revision.number())
+            .await
+    }
+    async fn setting_values_for_canonical_at(
+        &self,
+        subject: &SettingSubject<'_>,
+        revision: Option<i64>,
+    ) -> Result<Vec<SettingValueRow>, StoreError> {
+        let Some(revision) = revision else {
+            return self.setting_values_for_canonical_uncached(subject).await;
+        };
         let scope = self.cache_scope();
         let key = subject_key(subject);
-        let Some(revision) = self.settings_revision().await? else {
-            return self.setting_values_for_subject_uncached(subject).await;
-        };
         if let Some(hit) = VALUES_MEMO.get(scope, &key, revision) {
             return Ok(hit);
         }
-        let value = self.setting_values_for_subject_uncached(subject).await?;
+        let value = self.setting_values_for_canonical_uncached(subject).await?;
         VALUES_MEMO.put(scope, key, revision, value.clone());
         Ok(value)
     }
-
-    async fn setting_values_for_subject_uncached(
+    async fn setting_values_for_canonical_uncached(
         &self,
         subject: &SettingSubject<'_>,
     ) -> Result<Vec<SettingValueRow>, StoreError> {
-        let canonical = self.canonical_setting_subject(subject).await?;
-        let subject = &canonical.as_subject();
         let (profiles, groups) = self
             .setting_profile_and_group_ids(
                 subject.personal_owner.unwrap_or(subject.account_id),
@@ -1746,3 +1898,7 @@ mod t87_read_memo {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "settings_resolution_tests.rs"]
+mod resolution_input_tests;

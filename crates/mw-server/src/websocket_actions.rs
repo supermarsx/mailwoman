@@ -79,6 +79,9 @@ async fn execute(state:&AppState,context:&Context,dispatcher:&Dispatcher,action:
  headers.insert(axum::http::header::CONTENT_LENGTH,body.len().to_string().parse().map_err(|_|StatusCode::BAD_REQUEST)?);
  let mut request=Request::builder().method(action.method.as_str()).uri(action.path).body(Body::from(body)).map_err(|_|StatusCode::BAD_REQUEST)?;
  *request.headers_mut()=headers;*request.extensions_mut()=context.extensions.clone();
+ // Upgrade extensions live for the whole connection. Each action is a new
+ // request boundary and must validate the current policy revision again.
+ request.extensions_mut().remove::<mw_store::settings_policy::SettingsReadRevision>();
  request.extensions_mut().remove::<Dispatcher>();
  request.extensions_mut().remove::<axum::extract::OriginalUri>();
  request.extensions_mut().remove::<axum::extract::MatchedPath>();

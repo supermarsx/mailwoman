@@ -13,8 +13,8 @@ CPU target or a particular SIMD instruction set.
 
 Measured on the Windows development host on 19 November 2026, with the Rust
 release profile. The normal test run passed 31 tests, including differential
-fixtures against frozen pre-optimization classifiers. Both ignored release
-benchmark tests passed. Each workload below also checks reference/optimized
+fixtures against frozen pre-optimization classifiers. Both classifier release
+benchmarks passed. Each workload below also checks reference/optimized
 decision equality before timing.
 
 | Workload | Reference time / optimized time |
@@ -35,7 +35,46 @@ A ratio above 1 means the optimized classifier took less time for that fixture.
 The single-rule result is close to parity. These figures describe this host and
 these in-process fixtures; they do not establish end-to-end request throughput,
 server latency, Rust build speed, or performance on another architecture.
-No particular SIMD instruction execution was measured.
+Those classifier measurements did not identify particular SIMD instructions.
+The subsequent [CPU dispatch work](./cpu-dispatch.md) separately measures and
+inspects the emitted AVX-512 kernel.
+
+## Request validation and policy caches
+
+The request guard normalizes each path once and reuses the normalized console
+prefix, keyed by its live configured value. Source addresses are canonicalized
+once rather than converted to text and parsed back for country lookup. Verified
+session evidence stays local to that request; handlers still authenticate
+independently, and no authentication-result TTL cache is introduced.
+
+Health, protocol and request-protection middleware share one fresh, Store-bound
+settings revision within each HTTP request. Policy and subject memos are keyed
+by that revision, so a committed policy change is visible on the next request
+without waiting for a local TTL or invalidation event. Parsed trust and rate
+policy caches bound their entries and coalesce concurrent refreshes. Failed
+refreshes do not promote fallback data to a newer revision, and older refreshes
+cannot overwrite a newer cached revision. Missing revision rows disable reuse.
+The revision is a validation boundary, not an MVCC snapshot of all response data.
+
+Each WebSocket action is also a new request boundary. Its dispatcher removes
+the upgrade request's revision proof before invoking the HTTP router. A socket
+therefore cannot retain its handshake revision across later policy changes.
+The HTTP regression keeps one authenticated socket open, changes the stored
+method policy without invalidation, and checks enforcement on the next frame.
+
+The single-normalization benchmark compares the relevant helpers, including
+decision parity. It does not include the complete middleware, authentication,
+database or network pipeline:
+
+```sh
+cargo test -p mw-protection --release --lib request_probe_single_normalization_benchmark -- --ignored --nocapture --test-threads=1
+```
+
+The final seven-sample release run on the same development host measured
+1,335.24 ns/operation for the repeated-normalization reference and 630.67 ns for
+the single-normalization helper: **2.117x** reference/optimized. Decision parity
+passed before timing. The raw local log is
+`.orchestration/reports/optimization-validation/request-normalization-release-final.log`.
 
 ## Reproduce
 
