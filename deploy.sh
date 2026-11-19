@@ -62,6 +62,8 @@ BUILD_INCREMENTAL=0
 AUTO_ROLLBACK=true
 SKIP_BACKUP=false
 MAINTENANCE_APPLY=false
+MAINTENANCE_ONLINE=false
+MAINTENANCE_ONLINE_ACTION=start
 MAINTENANCE_OPTIONS=()
 REQUIRE_SIGNATURE=false
 DRY_RUN=false
@@ -152,6 +154,9 @@ Options:
   --apply            Apply maintenance cleanup (otherwise preview only)
   --orphan-bodies    Reclaim cached message bodies with no message reference
   --enable-incremental-vacuum  Enable background page reclamation (one offline rebuild if needed)
+  --online          Start SQLite conversion through the running app; no stop or snapshot
+  --online-status   Show the running app's latest online-conversion report
+  --online-cancel   Request cancellation of an online conversion before publication
   --compact          Rebuild SQLite to reclaim free pages
   --purge-search-index  Remove the default index; rebuild from Maintenance afterwards
   --logs-older-than-days N  Purge operational diagnostics older than N days (0 = all)
@@ -287,6 +292,9 @@ while (($#)); do
         --no-auto-rollback) AUTO_ROLLBACK=false ;;
         --skip-backup) SKIP_BACKUP=true ;;
         --apply) MAINTENANCE_APPLY=true ;;
+        --online) if $MAINTENANCE_ONLINE && [[ $MAINTENANCE_ONLINE_ACTION != start ]]; then die "Choose only one online maintenance action"; fi; MAINTENANCE_ONLINE=true ;;
+        --online-status) if $MAINTENANCE_ONLINE && [[ $MAINTENANCE_ONLINE_ACTION != status ]]; then die "Choose only one online maintenance action"; fi; MAINTENANCE_ONLINE=true; MAINTENANCE_ONLINE_ACTION=status ;;
+        --online-cancel) if $MAINTENANCE_ONLINE && [[ $MAINTENANCE_ONLINE_ACTION != cancel ]]; then die "Choose only one online maintenance action"; fi; MAINTENANCE_ONLINE=true; MAINTENANCE_ONLINE_ACTION=cancel ;;
         --orphan-bodies|--compact|--purge-search-index|--enable-incremental-vacuum) MAINTENANCE_OPTIONS+=("$1") ;;
         --logs-older-than-days) need_value "$@"; [[ $2 =~ ^[0-9]{1,6}$ ]] || die "Invalid log age in days"; MAINTENANCE_OPTIONS+=("$1" "$2"); shift ;;
         --replaced) PRUNE_REPLACED=true ;;
@@ -305,6 +313,12 @@ if $PULL_ONLY; then
     $GIT_PULL || die "--pull-only cannot be combined with --no-pull"
 fi
 
+if $MAINTENANCE_ONLINE; then
+    [[ $ACTION == maintenance ]] || die "--online options apply only to maintenance"
+    ! $MAINTENANCE_APPLY || die "--online is a live action; omit --apply"
+    ((${#MAINTENANCE_OPTIONS[@]} == 0)) || die "Online conversion cannot be combined with offline cleanup options"
+    ! $SKIP_BACKUP || die "--skip-backup does not apply to online conversion; its previous generation is retained"
+fi
 if $SKIP_BACKUP; then
     [[ $ACTION == deploy || $ACTION == maintenance && $MAINTENANCE_APPLY == true ]] || die "--skip-backup applies only to deploy or maintenance --apply"
     if [[ $ACTION == deploy ]]; then AUTO_ROLLBACK=false; fi
@@ -629,7 +643,7 @@ if $DRY_RUN; then
     esac
     case "$ACTION" in
         deploy) log "Prepare runtime image (${IMAGE:-$($NO_BUILD && printf 'last applied image' || printf 'build Dockerfile --target runtime-static')}${IMAGE:+; signature checked when it is fetched from its registry and cosign is installed}); $(if $SKIP_BACKUP; then printf 'skip backup copy (--skip-backup)'; else printf 'snapshot existing data'; fi); apply Compose; verify app and public HTTP(S)$($AUTO_ROLLBACK && printf '; if an update fails that check, restore the previous release and its data')." ;;
-        maintenance) log "Preview selected cleanup; --apply stops the app, optionally snapshots it, cleans selected stores, then resumes it." ;;
+        maintenance) if $MAINTENANCE_ONLINE; then log "Request online SQLite maintenance ($MAINTENANCE_ONLINE_ACTION) from the running app. No service stop or snapshot copy."; else log "Preview selected cleanup; --apply stops the app, optionally snapshots it, cleans selected stores, then resumes it."; fi ;;
         restore|rollback) log "Validate snapshot checksums; save current installation; restore snapshot to a new volume; apply and verify. Post-snapshot writes will not be in the restored app." ;;
         *) log "Would run $ACTION. No files, containers, networks or volumes changed." ;;
     esac
@@ -1580,6 +1594,16 @@ case "$ACTION" in
     restart) load_active; require_free_ports; ensure_proxy_network; compose "$ACTIVE" restart; compose "$ACTIVE" up -d --no-recreate --wait --wait-timeout "$TIMEOUT"; verify ;;
     maintenance)
         load_active
+        if ${MAINTENANCE_ONLINE:-false}; then
+            [[ $STACK == single ]] || die "Online conversion applies to SQLite installations only"
+            online_args=()
+            case $MAINTENANCE_ONLINE_ACTION in
+                status) online_args+=(--status) ;;
+                cancel) online_args+=(--cancel) ;;
+            esac
+            log "Online SQLite maintenance: $MAINTENANCE_ONLINE_ACTION; app remains running, no snapshot copy"
+            compose "$ACTIVE" exec -T mailwoman /usr/local/bin/mailwoman db online "${online_args[@]}"
+        else
         [[ $STACK == single ]] || die "This offline cleanup currently supports SQLite installations; use the PostgreSQL maintenance tools for full stack"
         ((${#MAINTENANCE_OPTIONS[@]})) || die "Choose --orphan-bodies, --compact, --purge-search-index and/or --logs-older-than-days N"
         if $MAINTENANCE_APPLY; then
@@ -1606,6 +1630,7 @@ case "$ACTION" in
             docker start "$RESUME_CONTAINER" >/dev/null
             RESUME_CONTAINER=
             compose "$ACTIVE" up -d --no-recreate --wait --wait-timeout "$TIMEOUT" mailwoman
+        fi
         fi
         ;;
     backup)

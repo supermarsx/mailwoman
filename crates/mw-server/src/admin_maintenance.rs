@@ -53,6 +53,9 @@ const ADMIN_JMAP_METHODS: &[&str] = &[
 
 /// The `/admin/maintenance/*` routes (registered by `admin_router`).
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(Method::GET,"/maintenance/database-online",Capability::MaintenanceRead,online_database_status);
+    r.admin_endpoint(Method::POST,"/maintenance/database-online",Capability::MaintenanceRun,online_database_start);
+    r.admin_endpoint(Method::DELETE,"/maintenance/database-online",Capability::MaintenanceRun,online_database_cancel);
     r.admin_endpoint(
         Method::POST,
         "/maintenance/rethread",
@@ -82,6 +85,30 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
         Capability::ServerMetadataWrite,
         metadata_jmap,
     );
+}
+
+async fn online_database_status(State(state):State<AppState>,ctx:AdminCtx)->Result<Response,crate::admin_ctx::AdminApiError>{
+    ctx.require_unscoped(Capability::MaintenanceRead)?;
+    Ok(([(axum::http::header::CACHE_CONTROL,"no-store")],Json(state.store.online_conversion_status())).into_response())
+}
+async fn online_database_start(State(state):State<AppState>,ctx:AdminCtx,Json(options):Json<mw_store::online_maintenance::ConversionOptions>)->Result<Response,crate::admin_ctx::AdminApiError>{
+    ctx.require_unscoped(Capability::MaintenanceRun)?;
+    let actor=ctx.username.clone();
+    let report=tokio::spawn(async move {
+        let report=state.store.start_online_conversion(options).await;
+        if let Ok(value)=&report{audit(&state,&actor,"online-database-conversion-start","database",serde_json::to_value(value).unwrap_or(Value::Null)).await;}
+        report
+    }).await.map_err(crate::admin_ctx::AdminApiError::internal)?;
+    Ok(match report{
+        Ok(report)=>(StatusCode::ACCEPTED,[(axum::http::header::CACHE_CONTROL,"no-store")],Json(json!(report))).into_response(),
+        Err(detail)=>(StatusCode::CONFLICT,[(axum::http::header::CACHE_CONTROL,"no-store")],Json(json!({"code":"databaseConversionUnavailable","detail":detail}))).into_response(),
+    })
+}
+async fn online_database_cancel(State(state):State<AppState>,ctx:AdminCtx)->Result<Response,crate::admin_ctx::AdminApiError>{
+    ctx.require_unscoped(Capability::MaintenanceRun)?;
+    let requested=state.store.cancel_online_conversion();
+    audit(&state,&ctx.username,"online-database-conversion-cancel","database",json!({"cancelRequested":requested})).await;
+    Ok(([(axum::http::header::CACHE_CONTROL,"no-store")],Json(json!({"cancelRequested":requested}))).into_response())
 }
 
 async fn background_database(State(state):State<AppState>,ctx:AdminCtx)->Result<Response,crate::admin_ctx::AdminApiError>{

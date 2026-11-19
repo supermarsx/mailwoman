@@ -1157,6 +1157,7 @@ async fn build_app_inner(
     observability::log_files::install_file_key(key.clone());
     encryption_status::remember_database(&config.db_path);
     let store = Store::open(&config.db_path, key.clone()).await?;
+    store.recover_online_conversion().await.map_err(anyhow::Error::msg)?;
     // Attachment upload store (t15): when `MW_UPLOAD_DIR` is configured, seal + write
     // uploaded blobs to that filesystem backend. Unset → the store keeps its default
     // fail-closed backend (an upload attempt returns an error, never a plaintext blob).
@@ -1468,6 +1469,7 @@ async fn build_app_inner(
     operational_incidents::start(state.clone());
     admin_database::start(state.clone());
     background_maintenance::start(state.clone());
+    state.store.start_online_conversion_control();
     dsr::start(state.clone());
     breach::start(state.clone());
     image_proxy::remote_content::start_capacity_monitor(state.clone());

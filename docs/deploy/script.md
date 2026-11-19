@@ -1,5 +1,8 @@
 # Root deployment script
 
+For converting an existing SQLite database while the server remains running,
+see [online SQLite maintenance](online-sqlite-maintenance.md).
+
 [`deploy.sh`](https://github.com/supermarsx/mailwoman/blob/master/deploy.sh) manages a single-host Docker deployment of the
 Mailwoman web app: packaged SPA, Rust server, render worker, first-party plugins,
 SQLite database and filesystem upload storage, or a full stack with PostgreSQL
