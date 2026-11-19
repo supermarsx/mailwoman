@@ -99,3 +99,10 @@ describe('the quote keeps the original layout', () => {
     expect(html).toContain('.mw-quote-body p{color:red}');
   });
 });
+
+it('removes local references and unusable source-map directives at the native editor boundary',()=>{
+ const body=nativeHtmlBody('<style>p{color:red}/*# sourceMappingURL= */</style><p style="color:red;background:url(file:///private)">Text</p><img src="file:///private"><a href="https://example.test">Link</a>');
+ expect(body.innerHTML).not.toMatch(/file:|sourceMappingURL/i);
+ expect(body.querySelector('style')?.textContent).toContain('color:red');
+ expect(body.querySelector('a')?.getAttribute('href')).toBe('https://example.test');
+});

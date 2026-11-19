@@ -22,6 +22,12 @@ export function nativeHtmlBody(safeHtml: string): HTMLElement {
   template.innerHTML = `<div>${renameStyleAttributes(safeHtml)}</div>`;
   const body = template.content.firstElementChild as HTMLElement;
   hydrateInlineStyles(body);
+  // Every native-editor input reaches this boundary, including restored drafts.
+  // Remove local URLs before its nodes can be imported into the live frame.
+  stripLocalUrls(body);
+  for (const style of body.querySelectorAll('style')) {
+    style.textContent=(style.textContent??'').replace(/\/\*[#@]\s*source(?:Mapping)?URL\s*=[\s\S]*?\*\//gi,'');
+  }
   return body;
 }
 
