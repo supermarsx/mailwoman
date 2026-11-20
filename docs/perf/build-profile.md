@@ -38,6 +38,21 @@ probe later reproduced the resulting missing-table error; this was a test-gate
 failure, not a successful complete image build. The timing HTML and logs are
 retained under `.orchestration/reports/perf-investigation/`.
 
+The subsequent `m5s6anyuqejzmve6rg8attidm` build, through source revision
+`72d9f20e`, completed the native release fixture image. Its compiler step took
+995.8 seconds; readiness (two tests), transport (one test), and WebSocket helper
+(seven tests) gates passed. Windows Cargo checks and load measurements were held
+until this build finished. Different source and cache state prevent treating the
+two build durations as a controlled speedup measurement.
+
+The optional `fixture-profile` target then took 36.9 seconds, including 28.38
+seconds reported by Cargo, to retain symbols in a separate executable. Its hash
+gate confirmed that `/out/request-load-fixture` remained byte-identical. The
+normal executable stays the default; `/out/request-load-fixture-profile` is for
+diagnostic profiling. This target does not change production release settings.
+Image and executable hashes, timing HTML, and gate logs are retained under
+`.orchestration/reports/perf-investigation/projection-release-build/`.
+
 ## 2026-11-18: web compilation and Docker inputs
 
 The current web build was profiled on Windows with Node 24.14.1 and pnpm
