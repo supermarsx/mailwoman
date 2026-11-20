@@ -243,7 +243,11 @@ refetch path. IMAP is the first supported source; local originals, POP3 messages
 drafts, queued submissions and other unproven sources remain protected. Opening
 an expired message fetches and caches its content again. Ordinary background
 ingestion cannot repeatedly refill the same expired copy. A shared body is
-deleted only after its final message reference is gone.
+deleted only after its final message reference is gone. Expiry also removes the
+parsed text/HTML body values from the encrypted message envelope, preserving
+headers and MIME part descriptors. A reader restores those values from the raw
+source with a revision check. This policy does not purge the separate search
+index, which can retain indexed message text.
 
 Orphan cleanup has a separate 24-hour grace period by default, controlled by
 `maintenance.database.graceHours`. Scanning an orphan does not renew that period.

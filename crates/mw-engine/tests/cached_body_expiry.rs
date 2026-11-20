@@ -15,7 +15,7 @@ struct Remote {
     store: Store,
     flag_on_fetch: std::sync::Mutex<Option<String>>,
 }
-const RAW:&[u8]=b"From: sender@example.invalid\r\nTo: reader@example.invalid\r\nSubject: Recoverable\r\n\r\nThe remote body.\r\n";
+const RAW:&[u8]=b"From: sender@example.invalid\r\nTo: reader@example.invalid\r\nSubject: Recoverable\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=recover\r\n\r\n--recover\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nThe remote body.\r\n--recover\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>The remote body.</p>\r\n--recover--\r\n";
 #[async_trait]
 impl AccountBackend for Remote {
     fn supports_cached_body_refetch(&self) -> bool {
@@ -122,6 +122,10 @@ async fn explicit_reader_restores_expired_body_and_background_download_does_not_
         })
         .await
         .unwrap();
+    let mut original = serde_json::to_value(mw_mime::parse(RAW).unwrap().email).unwrap();
+    original["_mailwomanAttachmentSchema"] = json!(1);
+    original["futureMetadata"] = json!({"retain":true});
+    let encoded = serde_json::to_vec(&original).unwrap();
     let id = store
         .upsert_message_with_body(
             &MessageUpsert {
@@ -134,7 +138,7 @@ async fn explicit_reader_restores_expired_body_and_background_download_does_not_
                 internaldate: None,
                 size: RAW.len() as u64,
                 flags_json: "[]",
-                envelope: Some(b"{\"subject\":\"Recoverable\"}"),
+                envelope: Some(&encoded),
                 blob_ref: None,
             },
             RAW,
@@ -178,6 +182,31 @@ async fn explicit_reader_restores_expired_body_and_background_download_does_not_
         "background body prefetch must not renew"
     );
     assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
+    for fetch_values in [None, Some(false)] {
+        let mut args = json!({"accountId":account,"ids":[id],"properties":["id","htmlBody","textBody","bodyValues"]});
+        if let Some(value) = fetch_values {
+            args["fetchHTMLBodyValues"] = json!(value);
+            args["fetchTextBodyValues"] = json!(value);
+            args["fetchAllBodyValues"] = json!(value);
+        }
+        let metadata = engine
+            .handle_jmap(
+                &account,
+                &json!({"methodCalls":[["Email/get",args,"metadata"]]}),
+            )
+            .await;
+        assert_eq!(metadata["methodResponses"][0][0], "Email/get");
+        assert_eq!(
+            store
+                .cached_body_expiry_stats()
+                .await
+                .unwrap()
+                .oldest_use_at,
+            Some(1),
+            "body-part descriptor polling must not renew an aged cache lease"
+        );
+        assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
+    }
     let report = store
         .expire_cached_bodies(
             CachedBodyExpiryOptions {
@@ -191,16 +220,89 @@ async fn explicit_reader_restores_expired_body_and_background_download_does_not_
         .unwrap();
     assert_eq!(report.detached_messages, 1, "{report:?}");
     assert!(store.get_message(&id).await.unwrap().blob_ref.is_none());
+    let expired: serde_json::Value = serde_json::from_slice(
+        &store
+            .get_account_envelope(&account, &id)
+            .await
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        expired.get("bodyValues").is_none(),
+        "expiry must remove the actual sealed payload"
+    );
+    for name in ["textBody", "htmlBody", "futureMetadata"] {
+        assert_eq!(expired[name], original[name], "expiry must preserve {name}");
+    }
     // Speculative/header reads never restore expired content.
     let headers=engine.handle_jmap(&account,&json!({"methodCalls":[["Email/get",{"accountId":account,"ids":[id],"properties":["id","subject"]},"h"]]})).await;
     assert_eq!(headers["methodResponses"][0][0], "Email/get");
     assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
+    for fetch_values in [None, Some(false)] {
+        let mut args = json!({"accountId":account,"ids":[id],"properties":["id","htmlBody","textBody","bodyValues"]});
+        if let Some(value) = fetch_values {
+            args["fetchHTMLBodyValues"] = json!(value);
+            args["fetchTextBodyValues"] = json!(value);
+            args["fetchAllBodyValues"] = json!(value);
+        }
+        let metadata = engine
+            .handle_jmap(
+                &account,
+                &json!({"methodCalls":[["Email/get",args,"metadata"]]}),
+            )
+            .await;
+        assert_eq!(metadata["methodResponses"][0][0], "Email/get");
+        assert!(
+            store.get_message(&id).await.unwrap().blob_ref.is_none(),
+            "metadata polling must not refill an expired body"
+        );
+        assert_eq!(
+            store
+                .cached_body_expiry_stats()
+                .await
+                .unwrap()
+                .oldest_use_at,
+            Some(1)
+        );
+        assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
+    }
     let prefetch=engine.handle_jmap(&account,&json!({"methodCalls":[["Email/get",{"accountId":account,"ids":[id],"properties":["id","bodyValues"],"fetchHTMLBodyValues":true,"mailwomanBodyUse":false},"p"]]})).await;
     assert_eq!(prefetch["methodResponses"][0][0], "Email/get");
     assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
+    let still_expired: serde_json::Value = serde_json::from_slice(
+        &store
+            .get_account_envelope(&account, &id)
+            .await
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        still_expired.get("bodyValues").is_none(),
+        "prefetch must not hydrate the sealed payload"
+    );
     *backend.flag_on_fetch.lock().unwrap() = Some(id.clone());
     let standard=engine.handle_jmap(&account,&json!({"methodCalls":[["Email/get",{"accountId":account,"ids":[id],"properties":["id","bodyValues"],"fetchHTMLBodyValues":true},"s"]]})).await;
     assert_eq!(standard["methodResponses"][0][0], "Email/get");
+    assert_eq!(
+        standard["methodResponses"][0][1]["list"][0]["bodyValues"], original["bodyValues"],
+        "the actual standard reader response must contain restored text and HTML"
+    );
+    let restored: serde_json::Value = serde_json::from_slice(
+        &store
+            .get_account_envelope(&account, &id)
+            .await
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    for name in ["textBody", "htmlBody", "futureMetadata", "bodyValues"] {
+        assert_eq!(
+            restored[name], original[name],
+            "reader hydration must restore/preserve {name}"
+        );
+    }
     assert_eq!(
         backend.calls.load(Ordering::SeqCst),
         1,

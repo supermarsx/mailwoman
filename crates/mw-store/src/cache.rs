@@ -788,7 +788,12 @@ impl Store {
         // cache_refetched_message_body and bypass this background suppression.
         let expired=q("SELECT m.stable_id FROM messages m JOIN message_body_cache_lease l ON l.stable_id=m.stable_id WHERE m.account_id=?1 AND m.mailbox_id=?2 AND m.uidvalidity=?3 AND m.uid=?4 AND m.blob_ref IS NULL AND l.blob_ref=?5 AND l.uidvalidity=m.uidvalidity AND l.uid=m.uid")
             .bind(m.account_id).bind(m.mailbox_id).bind(i64::from(m.uidvalidity)).bind(i64::from(m.uid)).bind(&blob_ref).fetch_optional(&self.backend).await?.is_some();
-        if expired{return self.upsert_message_with_status(&MessageUpsert{blob_ref:None,..m.clone()}).await;}
+        if expired {
+            // Identical immutable content cannot change its header/part metadata.
+            // Preserve the cleaned envelope; replaying the parsed input would put
+            // expired full bodyValues back, or erase a reader's concurrent refill.
+            return self.upsert_message_with_status(&MessageUpsert {blob_ref:None,envelope:None,..m.clone()}).await;
+        }
         let sealed=self.prepare_body_seal(m.account_id,raw,&blob_ref).await?;
         let mut tx = self.backend.begin().await?;
         self.put_body_tx(m.account_id, &blob_ref, raw, sealed, false, &mut tx).await?;
@@ -1745,6 +1750,27 @@ impl Store {
             .await? == 1)
     }
 
+    /// Merge a derived projection only while the caller's complete message
+    /// revision still matches. This also fences concurrent flags and metadata.
+    pub async fn repair_message_envelope_revision(
+        &self,
+        account_id: &str,
+        stable_id: &str,
+        expected_blob_ref: &str,
+        expected_revision: &str,
+        envelope: &[u8],
+    ) -> Result<bool, StoreError> {
+        if q("SELECT stable_id FROM messages WHERE account_id=?1 AND stable_id=?2 AND blob_ref=?3 AND cache_revision=?4")
+            .bind(account_id).bind(stable_id).bind(expected_blob_ref).bind(expected_revision)
+            .fetch_optional(&self.backend).await?.is_none() {
+            return Ok(false);
+        }
+        let sealed = self.key.seal(envelope)?;
+        Ok(q("UPDATE messages SET envelope_json=?1 WHERE account_id=?2 AND stable_id=?3 AND blob_ref=?4 AND cache_revision=?5")
+            .bind(sealed).bind(account_id).bind(stable_id).bind(expected_blob_ref).bind(expected_revision)
+            .execute(&self.backend).await? == 1)
+    }
+
     // ---- threads --------------------------------------------------------
 
     /// Look up (or create) the thread id for a root Message-ID within an
@@ -2125,6 +2151,31 @@ mod tests {
             envelope: None,
             blob_ref: None,
         }
+    }
+
+    #[tokio::test]
+    async fn envelope_revision_repair_preserves_concurrent_unknown_metadata_and_flags() {
+        let store=store().await;
+        let account=seed_account(&store).await;
+        let mailbox=seed_mailbox(&store,&account,"INBOX",100).await;
+        let body=store.put_body(&account,b"immutable raw").await.unwrap();
+        let mut row=msg(&account,&mailbox,1,100,"<revision@example.org>","2026-01-01T00:00:00Z");
+        row.blob_ref=Some(&body);
+        row.envelope=Some(br#"{"subject":"kept","unknown":"before"}"#);
+        let id=store.upsert_message(&row).await.unwrap();
+        let stale=store.get_message(&id).await.unwrap();
+        let current=br#"{"subject":"kept","unknown":"concurrent"}"#;
+        store.repair_message_envelope(&account,&id,&body,current).await.unwrap();
+        assert!(!store.repair_message_envelope_revision(&account,&id,&body,&stale.cache_revision,br#"{"bodyValues":{"1":{"value":"stale"}}}"#).await.unwrap());
+        assert_eq!(store.get_envelope(&id).await.unwrap().unwrap(),current);
+        let before_flags=store.get_message(&id).await.unwrap();
+        store.set_flags(&id,"[\"Seen\"]").await.unwrap();
+        assert!(!store.repair_message_envelope_revision(&account,&id,&body,&before_flags.cache_revision,current).await.unwrap());
+        let fresh=store.get_message(&id).await.unwrap();
+        let merged=br#"{"subject":"kept","unknown":"concurrent","bodyValues":{"1":{"value":"fresh"}}}"#;
+        assert!(!store.repair_message_envelope_revision("foreign",&id,&body,&fresh.cache_revision,merged).await.unwrap());
+        assert!(store.repair_message_envelope_revision(&account,&id,&body,&fresh.cache_revision,merged).await.unwrap());
+        assert_eq!(store.get_envelope(&id).await.unwrap().unwrap(),merged);
     }
 
     #[tokio::test]

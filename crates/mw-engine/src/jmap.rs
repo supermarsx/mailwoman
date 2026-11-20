@@ -1310,17 +1310,20 @@ impl Engine {
             .iter()
             .filter_map(Value::as_str)
             .collect();
+        // Part descriptors alone are metadata, not evidence of reading a body.
+        // Standards clients renew only when requesting actual body values;
+        // Mailwoman's explicit intent also distinguishes reads from prefetch.
         let body_use=args.get("mailwomanBodyUse").and_then(Value::as_bool).unwrap_or_else(||{
             args.get("fetchHTMLBodyValues").and_then(Value::as_bool)==Some(true)
                 || args.get("fetchTextBodyValues").and_then(Value::as_bool)==Some(true)
                 || args.get("fetchAllBodyValues").and_then(Value::as_bool)==Some(true)
-                || args.get("properties").and_then(Value::as_array).is_some_and(|properties|properties.iter().any(|property|matches!(property.as_str(),Some("bodyValues"|"htmlBody"|"textBody"))))
         });
         if body_use{
             for id in &requested{
                 match self.store().get_message(id).await{
                     Ok(message) if message.account_id==account_id=>{
                         if message.blob_ref.is_none(){if let Err(error)=self.message_raw(account_id,id).await{return server_fail(&error);}}
+                        if let Err(error)=self.hydrate_reader_body_values(account_id,id).await{return server_fail(&error);}
                         if let Err(error)=self.record_cached_body_use(account_id,id).await{return server_fail(&error);}
                     },
                     Ok(_)|Err(mw_store::StoreError::NotFound)=>{},Err(error)=>return server_fail(&EngineError::Store(error)),

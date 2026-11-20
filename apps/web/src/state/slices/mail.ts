@@ -488,6 +488,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   async function fetchFullMessage(account:string,id:Id,signal:AbortSignal,background=false):Promise<CachedMailRead> {
     const response=await jmapCall(emailGetFull(account,id,1_000_000,!background),background?{signal,pace:'background'}:{signal});
     const email=responseFor<EmailGetResponse>(response,'g').list[0]??null;
+    if(email&&missingBodyValues(email)){
+      if(background)throw new SpeculativeBodyMissing();
+      throw new Error(t('common-error-retry-help'));
+    }
     if(email&&!background)rememberBodyUse(account,id);
     const body=email?extractHtmlBody(email):'';
     // The reader's own mode, warmed at low priority so opening the message finds it cached.
@@ -498,14 +502,29 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const owner=cacheOwner();
     let fetched=false;
     const fetch=(s:AbortSignal)=>{fetched=true;return fetchFullMessage(account,id,s);};
-    const value=owner?await readCache.load(owner,messageCacheKey(id),'message',fetch,
-      {signal,force:readMailCachePolicy().refreshOnOpen}):await fetch(signal);
+    const reload=()=>owner?readCache.load(owner,messageCacheKey(id),'message',fetch,{signal,force:true}):fetch(signal);
+    let value:CachedMailRead;
+    try{value=owner?await readCache.load(owner,messageCacheKey(id),'message',fetch,
+      {signal,force:readMailCachePolicy().refreshOnOpen}):await fetch(signal);}
+    catch(error){
+      if(!(error instanceof SpeculativeBodyMissing)||signal.aborted||isOffline())throw error;
+      readCache.invalidate((key,kind)=>kind==='message'&&key===messageCacheKey(id),{abort:false});
+      value=await reload();
+    }
     if(value.kind!=='message')throw new Error(t('mail-toast-load-more-failed'));
+    if(value.email&&missingBodyValues(value.email)&&!isOffline()&&!signal.aborted){
+      readCache.invalidate((key,kind)=>kind==='message'&&key===messageCacheKey(id),{abort:false});
+      const refreshed=await reload();if(refreshed.kind!=='message')throw new Error(t('common-error-retry-help'));value=refreshed;
+    }
     if(!fetched&&value.email&&!isOffline()&&!signal.aborted)await renewBodyUse(account,id,signal);
     return value;
   }
   const bodyUseRequests=new Map<string,number>();
   const pendingBodyUse=new Map<string,Promise<void>>();
+  class SpeculativeBodyMissing extends Error{}
+  function missingBodyValues(email:Email):boolean{
+    return [...(email.htmlBody??[]),...(email.textBody??[])].some(part=>part.size>0&&part.partId!==null&&typeof email.bodyValues?.[part.partId]?.value!=='string');
+  }
   function bodyUseFresh(account:string,id:Id):boolean{
     const previous=bodyUseRequests.get(JSON.stringify([account,id]));
     const age=previous===undefined?-1:Date.now()-previous;
@@ -518,6 +537,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
   function cachedForReader(id:Id):Extract<CachedMailRead,{kind:'message'}>|undefined{
     const value=cachedMessage(id),account=accountId();
+    if(value?.email&&!isOffline()&&missingBodyValues(value.email))return;
     // The bounded CID/remote-content authorizer needs a server-side source.
     // Paint resource-free cached text immediately; hydrate media after renewal.
     if(value?.html&&!isOffline()&&account&&!bodyUseFresh(account,id)&&/<(?:img|source|video|audio)\b|\b(?:src|background)\s*=|url\s*\(/i.test(value.html))return;

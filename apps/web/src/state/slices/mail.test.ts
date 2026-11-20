@@ -2048,6 +2048,24 @@ describe('mail bootstrap authority', () => {
 });
 
 describe('session mail cache integration',()=>{
+ it('retries a promoted metadata-only prefetch as an actual reader request',async()=>{
+  const metadata=email('expired',{htmlBody:[part('body','text/html')]});
+  await withInbox([metadata],async(mail,{jmap,setSeed})=>{
+   await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{
+    'mail.cache.prefetchEnabled':{value:true,source:'user',locked:false},'mail.cache.preloadMessages':{value:true,source:'user',locked:false},
+    'mail.cache.dwellMs':{value:0,source:'user',locked:false},'mail.cache.refreshOnOpen':{value:false,source:'user',locked:false},
+   }}))});
+   let finish!:(value:JmapResponse)=>void;jmap.mockClear();jmap.mockImplementationOnce(()=>new Promise<JmapResponse>(resolve=>{finish=resolve;}));
+   const stop=mail.prefetchMessage('expired','hover');await vi.waitFor(()=>expect(mail.mailCacheStats().inflight).toBe(1));
+   setSeed([{...metadata,bodyValues:{body:{value:'<p>Restored content</p>'}}}]);
+   const opening=mail.openMessage('expired');
+   finish({methodResponses:[['Email/get',{accountId:'acct1',list:[metadata]},'g']],sessionState:'s'});
+   await opening;stop();expect(mail.sanitizedHtml()).toContain('Restored content');
+   const gets=jmap.mock.calls.flatMap(([body])=>(body as JmapRequest).methodCalls.filter(call=>call[0]==='Email/get'));
+   expect(gets.map(call=>call[1]['mailwomanBodyUse'])).toEqual([false,true]);
+   expect(mail.mailCacheStats().entries).toBe(1);
+  });
+ });
  it('restores the server body before painting prefetched inline media and coalesces renewed opens',async()=>{
   const message=email('media',{htmlBody:[part('body','text/html')],bodyValues:{body:{value:'<p>Hello</p><img src="cid:logo">'}}});
   await withInbox([message],async(mail,{jmap})=>{
@@ -2055,6 +2073,7 @@ describe('session mail cache integration',()=>{
     'mail.cache.prefetchEnabled':{value:true,source:'user',locked:false},'mail.cache.preloadMessages':{value:true,source:'user',locked:false},
     'mail.cache.dwellMs':{value:0,source:'user',locked:false},'mail.cache.refreshOnOpen':{value:false,source:'user',locked:false},
    }}))});
+   mail.clearMailCache();
    const stop=mail.prefetchMessage('media','hover');await vi.waitFor(()=>expect(mail.mailCacheStats().entries).toBe(1));stop();
    let finish!:(value:JmapResponse)=>void;
    jmap.mockClear();jmap.mockImplementationOnce(()=>new Promise<JmapResponse>(resolve=>{finish=resolve;}));
@@ -2071,7 +2090,7 @@ describe('session mail cache integration',()=>{
  it('prefetches full messages without opening, marking read, receipt, or signing operations',async()=>{
   await withInbox([email('a')],async(mail,{jmap})=>{
    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.cache.prefetchEnabled':{value:true,source:'user',locked:false},'mail.cache.preloadMessages':{value:true,source:'user',locked:false},'mail.cache.dwellMs':{value:0,source:'user',locked:false}}}))});
-   jmap.mockClear();const stop=mail.prefetchMessage('a','hover');
+   mail.clearMailCache();jmap.mockClear();const stop=mail.prefetchMessage('a','hover');
    await vi.waitFor(()=>expect(mail.mailCacheStats().entries).toBe(1));
    expect(mail.openEmail()).toBeNull();
    expect(jmap.mock.calls.flatMap(([body])=>(body as JmapRequest).methodCalls.map(([method])=>method))).toEqual(['Email/get']);
