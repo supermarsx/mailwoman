@@ -655,6 +655,38 @@ fn fixture_writer_options(raw: Option<&str>) -> std::result::Result<mw_search::W
     options.validate().map_err(|error|error.to_string())?;
     Ok(options)
 }
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+enum FixtureIndexMode { Sealed, Memory }
+fn fixture_index_mode(raw:Option<&str>)->std::result::Result<FixtureIndexMode,String>{
+    match raw {
+        None|Some("sealed")=>Ok(FixtureIndexMode::Sealed),
+        Some("memory")=>Ok(FixtureIndexMode::Memory),
+        Some(_)=>Err("MW_NATIVE_LOAD_INDEX_MODE must be sealed or memory".into()),
+    }
+}
+fn fixture_storage_proof(engine:&Engine,mode:FixtureIndexMode)->Value{
+    match mode {
+        FixtureIndexMode::Sealed=>{
+            use std::io::Read;
+            let dir=engine.search_index_dir().expect("sealed engine retains its index directory");
+            let mut marker=[0u8;4];
+            std::fs::File::open(dir.join("meta.json")).unwrap().read_exact(&mut marker).unwrap();
+            assert_eq!(&marker,b"MWB1","sealed index metadata must be authenticated ciphertext");
+            json!({"mode":"sealed-disk","encryptedAtRest":true,"verified":true,"proof":"sealed-constructor-and-encrypted-metadata"})
+        }
+        FixtureIndexMode::Memory=>{
+            assert!(engine.search_index_dir().is_none());
+            json!({"mode":"memory","encryptedAtRest":false,"verified":true,"proof":"explicit-in-memory-constructor"})
+        }
+    }
+}
+#[test]
+fn diagnostic_index_storage_defaults_sealed_and_rejects_unknown_modes(){
+    assert_eq!(fixture_index_mode(None).unwrap(),FixtureIndexMode::Sealed);
+    assert_eq!(fixture_index_mode(Some("sealed")).unwrap(),FixtureIndexMode::Sealed);
+    assert_eq!(fixture_index_mode(Some("memory")).unwrap(),FixtureIndexMode::Memory);
+    for mode in ["","disk","plain","Memory"," sealed","sealed "]{assert!(fixture_index_mode(Some(mode)).is_err());}
+}
 #[test]
 fn diagnostic_index_worker_override_is_strict_and_memory_bounded() {
     assert_eq!(fixture_writer_options(None).unwrap().indexing_workers,None);
@@ -670,6 +702,9 @@ async fn run(workers: usize) {
     let index_worker_env=std::env::var_os("MW_NATIVE_LOAD_INDEX_WORKERS")
         .map(|value|value.into_string().expect("index workers must be Unicode"));
     let writer_options=fixture_writer_options(index_worker_env.as_deref()).expect("valid diagnostic index writer options");
+    let index_mode_env=std::env::var_os("MW_NATIVE_LOAD_INDEX_MODE")
+        .map(|value|value.into_string().expect("index mode must be Unicode"));
+    let index_mode=fixture_index_mode(index_mode_env.as_deref()).expect("valid diagnostic index storage mode");
     let body_sample_bytes: usize = std::env::var("MW_NATIVE_LOAD_BODY_BYTES")
         .unwrap_or_else(|_| "4096".into())
         .parse()
@@ -786,6 +821,7 @@ async fn run(workers: usize) {
     let installed_engine = measured_engine.clone();
     let push_accounts = Arc::new(accounts.clone());
     let startup_started = Instant::now();
+    let fixture_index_dir=dir.join(if pg_cleanup.is_some(){"search-index"}else{"mailwoman.db.search-index"});
     let (router, push) = build_app_with_fixture_engine(
         AppConfig {
             db_path,
@@ -799,9 +835,22 @@ async fn run(workers: usize) {
         V6Config::default(),
         move |store| {
             assert!(installed_store.set(store.clone()).is_ok());
-            let index=mw_search::Index::open_in_ram_with_writer_options(writer_options)
-                .expect("construct diagnostic search index");
-            let engine = Arc::new(Engine::with_search(store.clone(),Arc::new(index)));
+            let engine = Arc::new(match index_mode {
+                FixtureIndexMode::Sealed=>{
+                    std::fs::create_dir_all(&fixture_index_dir).unwrap();
+                    #[cfg(unix)]{
+                        use std::os::unix::fs::PermissionsExt;
+                        std::fs::set_permissions(&fixture_index_dir,std::fs::Permissions::from_mode(0o700)).unwrap();
+                    }
+                    Engine::open_with_search_options(store.clone(),&fixture_index_dir,writer_options)
+                        .expect("construct sealed diagnostic search index")
+                }
+                FixtureIndexMode::Memory=>{
+                    let index=mw_search::Index::open_in_ram_with_writer_options(writer_options)
+                        .expect("construct explicit memory diagnostic search index");
+                    Engine::with_search(store.clone(),Arc::new(index))
+                }
+            });
             for account in accounts {
                 let backend: Arc<dyn AccountBackend> =
                     match representative_runtimes.remove(&account) {
@@ -882,6 +931,7 @@ async fn run(workers: usize) {
                 }
                 let mut snapshot = diagnostics_hook::snapshot(&store, &directory).await;
                 snapshot["searchIndex"] = json!({
+                    "storage":fixture_storage_proof(&engine,index_mode),
                     "writerConfiguration":engine.search().writer_configuration(),
                     "commitAttempts":mw_search::commit_count(),
                     "documentFetches":engine.search().doc_fetch_count(),
@@ -1084,6 +1134,7 @@ async fn run(workers: usize) {
     let handoff = PrivateFile(dir.join("campaign.private.json"));
     let data = json!({"base":base,"cookie":principals[0]["cookie"],"engineMode":"native","fixtureFeatures":["load-test-fixtures"],"uniquePrincipalCount":count,"clientSimulation":{"mode":"fixture-loopback-trusted-proxy","clientCount":count},"principals":principals,"backend":backend,"buildProfile":if cfg!(debug_assertions){"debug"}else{option_env!("MW_CARGO_BUILD_MODE").unwrap_or("release")},"runtimeWorkerThreads":workers,"runtimeWorkerStackBytes":worker_stack_bytes(),"startupReadiness":startup_readiness,"protection":"administrator defaults","budgets":budgets,"diagnostics":{"path":diagnostic_path,"token":diagnostic_token},"pushTrigger":{"path":push_path,"token":push_token}});
     let mut data = data;
+    data["searchStorage"]=fixture_storage_proof(measured_engine.get().unwrap(),index_mode);
     let configuration=measured_engine.get().unwrap().search().writer_configuration();
     data["searchWriter"]=json!({"requestedWorkers":writer_options.indexing_workers,"indexingWorkers":configuration.indexing_workers,"memoryBudgetBytes":configuration.memory_budget_bytes});
     data["policyEvidence"] = policy_evidence;

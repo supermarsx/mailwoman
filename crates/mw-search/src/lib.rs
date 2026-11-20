@@ -535,15 +535,21 @@ impl Index {
     /// Open a persistent index whose metadata and segments are authenticated
     /// ciphertext. Existing plaintext index files migrate before opening.
     pub fn open_sealed(data_dir:&Path,key:mw_store::ServerKey)->Result<Self>{
+        Self::open_sealed_with_writer_options(data_dir,key,WriterOptions::default())
+    }
+
+    /// Persistent authenticated encryption with explicit bounded writer options.
+    pub fn open_sealed_with_writer_options(data_dir:&Path,key:mw_store::ServerKey,options:WriterOptions)->Result<Self>{
+        options.validate()?;
         std::fs::create_dir_all(data_dir)?;
         let dir=sealed_directory::SealedDirectory::open(data_dir,key.clone())?;
         let (schema,fields)=build_schema();
         if TantivyIndex::exists(&dir).map_err(|e|SearchError::Io(e.to_string()))? && TantivyIndex::open(dir.clone())?.schema()!=schema {
             drop(dir);clear_index_files(data_dir)?;
             let dir=sealed_directory::SealedDirectory::open(data_dir,key)?;
-            return Self::from_index(TantivyIndex::open_or_create(dir,schema)?,fields);
+            return Self::from_index_with_writer_options(TantivyIndex::open_or_create(dir,schema)?,fields,options);
         }
-        Self::from_index(TantivyIndex::open_or_create(dir,schema)?,fields)
+        Self::from_index_with_writer_options(TantivyIndex::open_or_create(dir,schema)?,fields,options)
     }
 
     fn open_fresh(data_dir: &Path, schema: Schema, fields: Fields) -> Result<Self> {

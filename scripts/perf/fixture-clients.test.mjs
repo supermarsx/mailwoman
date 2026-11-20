@@ -1,11 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {prepareFixtureClients,fixturePrincipalIndex,startupReadinessReport,fixturePolicyReport,searchWriterReport,linkedLoginPolicyProbeReport} from './fixture-clients.mjs';
+import {prepareFixtureClients,fixturePrincipalIndex,startupReadinessReport,fixturePolicyReport,searchWriterReport,linkedLoginPolicyProbeReport,searchStorageReport,qualifiesSearchStorage} from './fixture-clients.mjs';
 import {measure,markdownReport} from './http-load.mjs';
 
 const principals=()=>Array.from({length:4},(_,index)=>({cookie:`mw_session=private-session-${index}; mw_csrf=fixture-csrf-${index}`,accountId:`private-account-${index}`,clientAddress:`198.18.0.${index+1}`}));
 const simulation={mode:'fixture-loopback-trusted-proxy',clientCount:4};
+
+test('storage proof reports only verified aggregate mode and excludes RAM or legacy from qualification',()=>{
+ const sealed={mode:'sealed-disk',encryptedAtRest:true,verified:true,proof:'sealed-constructor-and-encrypted-metadata'};
+ const memory={mode:'memory',encryptedAtRest:false,verified:true,proof:'explicit-in-memory-constructor'};
+ assert.deepEqual(searchStorageReport({...sealed,key:'private',path:'/private'}),sealed);
+ assert.equal(searchStorageReport(undefined),null);
+ assert.equal(qualifiesSearchStorage(null),false);
+ assert.equal(qualifiesSearchStorage(searchStorageReport(memory)),false);
+ assert.equal(qualifiesSearchStorage(searchStorageReport(sealed)),true);
+ for(const patch of [{mode:'plain'},{verified:false},{encryptedAtRest:false},{proof:'guessed'}])assert.throws(()=>searchStorageReport({...sealed,...patch}));
+});
 
 test('search writer reports validate effective resources and strip private handoff fields',()=>{
  const value={requestedWorkers:1,indexingWorkers:1,memoryBudgetBytes:50000000};

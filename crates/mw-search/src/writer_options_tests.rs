@@ -1,6 +1,50 @@
 use super::*;
 
 #[test]
+fn sealed_options_preserve_encryption_reopen_and_schema_recovery() {
+    let root=std::env::temp_dir().join(format!("mw-sealed-options-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    let key=mw_store::ServerKey::generate();
+    let options=|workers|WriterOptions{indexing_workers:Some(workers),..Default::default()};
+    let invalid=root.join("invalid");
+    assert!(Index::open_sealed_with_writer_options(&invalid,key.clone(),options(4)).is_err());
+    assert!(!invalid.exists(),"invalid options must not create files");
+    std::fs::create_dir_all(&root).unwrap();
+    // A genuine legacy stale schema must take the same encrypted recovery path.
+    {
+        let mut schema=Schema::builder();schema.add_text_field("old",TEXT);
+        let old=TantivyIndex::create_in_dir(&root,schema.build()).unwrap();
+        let mut writer=old.writer_with_num_threads::<TantivyDocument>(1,15_000_000).unwrap();
+        writer.commit().unwrap();
+    }
+    let expected=IndexDoc{stable_id:"private".into(),account_id:"owned".into(),body:"uniquesealedoptionssentinel".into(),..Default::default()};
+    {
+        let index=Index::open_sealed_with_writer_options(&root,key.clone(),options(1)).unwrap();
+        assert_eq!(index.writer_configuration().indexing_workers,1);
+        index.upsert(&expected).unwrap();
+    }
+    let meta=std::fs::read(root.join("meta.json")).unwrap();
+    assert!(meta.starts_with(b"MWB1"));
+    for entry in std::fs::read_dir(&root).unwrap(){
+        let entry=entry.unwrap();if !entry.file_type().unwrap().is_file(){continue;}
+        let bytes=std::fs::read(entry.path()).unwrap();
+        assert!(!bytes.windows(b"uniquesealedoptionssentinel".len()).any(|window|window==b"uniquesealedoptionssentinel"));
+    }
+    assert!(Index::open_sealed_with_writer_options(&root,mw_store::ServerKey::generate(),options(3)).is_err());
+    assert_eq!(std::fs::read(root.join("meta.json")).unwrap(),meta,"wrong key must not rewrite metadata");
+    {
+        let index=Index::open_sealed_with_writer_options(&root,key.clone(),options(3)).unwrap();
+        assert_eq!(index.writer_configuration().indexing_workers,3);
+        assert_eq!(index.fetch_doc("private").unwrap(),Some(expected));
+    }
+    let mut corrupt=std::fs::read(root.join("meta.json")).unwrap();
+    let last=corrupt.len()-1;corrupt[last]^=1;
+    std::fs::write(root.join("meta.json"),&corrupt).unwrap();
+    assert!(Index::open_sealed_with_writer_options(&root,key,options(1)).is_err());
+    assert_eq!(std::fs::read(root.join("meta.json")).unwrap(),corrupt);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn default_writer_resolution_matches_locked_tantivy_memory_clamp() {
     for (available, expected) in [(1, 1), (2, 2), (3, 3), (4, 3), (8, 3), (80, 3)] {
         assert_eq!(

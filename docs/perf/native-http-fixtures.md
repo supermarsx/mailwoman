@@ -202,3 +202,17 @@ count. This counts calls to commit, including calls that subsequently fail.
 Compare steady application throughput and latency with the same dataset and
 resource limits: an isolated mutation microprobe does not settle the tradeoff
 between bulk indexing, incremental changes and request handling.
+
+The native fixture defaults to a sealed disk index, using the same derived Store
+key and persistent Engine constructor path as SQLite deployments. Explicit
+`MW_NATIVE_LOAD_INDEX_MODE=memory` selects a RAM-only diagnostic; `sealed` selects
+the default. Invalid modes are rejected before database creation/seeding, and
+index-open errors fail the fixture without a plaintext or RAM fallback.
+Storage proof reports the constructor mode and an authenticated-ciphertext marker
+on the actual index metadata after startup readiness. It exports no paths or
+keys. This is a constructor/metadata proof, not an exhaustive runtime file audit.
+Legacy reports without storage proof remain unreported; RAM and unknown storage
+cannot qualify the new typical SQL capacity target. Earlier RAM comparisons
+remain diagnostics. Private temporary storage may use a container overlay rather
+than a deployment's named volume: matching the code path does not establish
+production filesystem or whole-host capacity.

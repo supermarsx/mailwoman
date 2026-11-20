@@ -17,6 +17,15 @@ export function searchWriterReport(value){
  return {requestedWorkers:value.requestedWorkers,indexingWorkers:value.indexingWorkers,memoryBudgetBytes:value.memoryBudgetBytes};
 }
 
+export function searchStorageReport(value){
+ if(value===undefined)return null;
+ if(!value||value.verified!==true||!(value.mode==='sealed-disk'&&value.encryptedAtRest===true&&value.proof==='sealed-constructor-and-encrypted-metadata'||value.mode==='memory'&&value.encryptedAtRest===false&&value.proof==='explicit-in-memory-constructor'))throw new Error('Invalid search storage proof');
+ return {mode:value.mode,encryptedAtRest:value.encryptedAtRest,verified:true,proof:value.proof};
+}
+export function qualifiesSearchStorage(value){
+ return value?.mode==='sealed-disk'&&value.encryptedAtRest===true&&value.verified===true&&value.proof==='sealed-constructor-and-encrypted-metadata';
+}
+
 export function startupReadinessReport(value,{required=false}={}){
  if(value===undefined){if(required)throw new Error('Native fixture startup readiness proof is required');return null;}
  const fields=['startupSeconds','indexWaitSeconds','seededMessages','expectedIndexDocuments','indexDocuments','zeroAccessExcludedMessages','rebuildDone','rebuildTotal'];
