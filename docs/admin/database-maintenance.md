@@ -259,9 +259,15 @@ explicit offline cleanup procedure for these cases.
 
 Mail sync history expires after 60 days by default, controlled by
 `maintenance.database.changeLogRetentionDays` (`0` disables pruning). Maintenance
-removes whole state batches within `maintenance.database.changeLogBatchRows`.
-Durable checkpoints preserve monotonic state numbers; an expired sync token
-returns `cannotCalculateChanges` so the client performs a full resync.
+removes at most `maintenance.database.changeLogBatchRows` rows in each bounded
+run, including chunks of a larger state. The checkpoint invalidates older
+state tokens before chunk deletion in the same transaction, so clients cannot
+read a partial state. An expired token returns `cannotCalculateChanges` and
+requires a full resync; state numbers remain monotonic. A recent or malformed
+timestamp visible in the sample protects that state's selected rows. Such a row
+found only in a later chunk remains protected, while previously expired chunks
+stay removed. Cleanup rotates across accounts/types and is gradual; sustained
+writes above its global batch capacity can extend the configured age window.
 
 Already-checkpointed, oversized allocated WAL files may be recycled by SQLite
 without checkpointing arbitrary pending data. A WAL that still needs recovery or

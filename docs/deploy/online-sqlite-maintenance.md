@@ -113,16 +113,20 @@ Background maintenance retains 60 days of mail delta history by default.
 `maintenance.database.changeLogRetentionDays` controls that window; zero keeps
 history indefinitely. The maintenance master switch also controls this job.
 `maintenance.database.changeLogBatchRows` limits each batch to 1,000 rows by
-default. A state containing more rows than that limit remains intact and is
-reported as an oversized batch; increase the limit deliberately to collect it.
-Recent or malformed timestamps protect their entire state and the later tail.
+default. Larger states are removed in bounded chunks. Before any chunk is
+removed, its whole state is fenced out of older-token deltas by the durable
+checkpoint in the same transaction. Clients cannot read a partial retained state.
+Recent or malformed timestamps visible in the bounded sample protect every
+selected row of that state and the later tail. An invalid row first discovered
+in a later chunk remains protected, but earlier valid old chunks stay expired;
+retention does not first certify an arbitrarily large state's entire contents.
 Each run rotates to the next account/type group, so a hot backlog cannot starve
 other accounts. Cleanup is gradual rather than a strict expiration deadline:
 large backlogs or sustained writes exceeding the configured cleanup capacity
 can extend the retention window. The default global limit is 1,000 rows per
 scheduled run, not 1,000 rows per account.
 
-Retention removes complete state batches, preserving a durable head counter and
+Retention preserves a durable head counter and
 the oldest resumable token. Email, mailbox, submission and thread changes, plus
 email query changes, refuse expired tokens with `cannotCalculateChanges` so
 clients refetch instead of silently missing changes. Current tokens and new

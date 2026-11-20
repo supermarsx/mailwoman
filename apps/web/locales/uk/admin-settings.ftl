@@ -2794,4 +2794,4 @@ admin-settings-help-maintenance-database-cached-body-retention-days = Дні з 
 admin-settings-key-maintenance-database-change-log-retention-days = Зберігання журналу змін пошти (дні)
 admin-settings-help-maintenance-database-change-log-retention-days = Зберігати історію вказану кількість днів, зазвичай 60. Нуль означає безстрокове зберігання. Клієнти із застарілими станами мають знову завантажити поточний список.
 admin-settings-key-maintenance-database-change-log-batch-rows = Ліміт пакета змін (рядки)
-admin-settings-help-maintenance-database-change-log-batch-rows = Максимум рядків змін, видалених за пакет обслуговування, зазвичай 1000. Стан, що перевищує ліміт, зберігається повністю та позначається для перевірки.
+admin-settings-help-maintenance-database-change-log-batch-rows = Максимум рядків змін, видалених за пакет обслуговування, зазвичай 1000. Великі стани видаляються обмеженими частинами; клієнтам зі старішими станами потрібна повна синхронізація.

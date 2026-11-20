@@ -2794,4 +2794,4 @@ admin-settings-help-maintenance-database-cached-body-retention-days = Dni od jaw
 admin-settings-key-maintenance-database-change-log-retention-days = Przechowywanie dziennika zmian poczty (dni)
 admin-settings-help-maintenance-database-change-log-retention-days = Przechowuj historię przez tyle dni, zwykle 60. Zero oznacza brak limitu czasu. Klienci z wygasłymi stanami muszą ponownie pobrać bieżącą listę.
 admin-settings-key-maintenance-database-change-log-batch-rows = Limit partii zmian (wiersze)
-admin-settings-help-maintenance-database-change-log-batch-rows = Maksymalna liczba usuwanych wierszy zmian na partię konserwacji, zwykle 1000. Pojedynczy stan większy niż limit pozostaje nienaruszony i jest zgłaszany do sprawdzenia.
+admin-settings-help-maintenance-database-change-log-batch-rows = Maksymalna liczba usuwanych wierszy zmian na partię konserwacji, zwykle 1000. Duże stany wygasają w ograniczonych częściach; klienci ze starszymi stanami muszą wykonać pełną synchronizację.

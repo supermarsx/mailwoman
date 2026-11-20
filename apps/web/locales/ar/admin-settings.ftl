@@ -2798,4 +2798,4 @@ admin-settings-help-maintenance-database-cached-body-retention-days = الأيا
 admin-settings-key-maintenance-database-change-log-retention-days = مدة الاحتفاظ بسجل تغييرات البريد (أيام)
 admin-settings-help-maintenance-database-change-log-retention-days = الاحتفاظ بسجل التغييرات لهذا العدد من الأيام، وعادة 60 يوماً. الصفر يعني الاحتفاظ دون حد زمني. يجب على العملاء ذوي الحالات المنتهية جلب القائمة الحالية مجدداً.
 admin-settings-key-maintenance-database-change-log-batch-rows = حد دفعة التغييرات (صفوف)
-admin-settings-help-maintenance-database-change-log-batch-rows = الحد الأقصى لصفوف التغييرات المحذوفة في كل دفعة صيانة، وعادة 1000. تبقى الحالة الواحدة التي تتجاوز الحد كاملة ويُبلغ عنها للمراجعة.
+admin-settings-help-maintenance-database-change-log-batch-rows = الحد الأقصى لصفوف التغييرات المحذوفة في كل دفعة صيانة، وعادة 1000. تنتهي الحالات الكبيرة على أجزاء محدودة؛ ويحتاج العملاء ذوو الحالات الأقدم إلى مزامنة كاملة.

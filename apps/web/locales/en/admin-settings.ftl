@@ -2695,4 +2695,4 @@ admin-settings-help-maintenance-database-cached-body-retention-days = Days since
 admin-settings-key-maintenance-database-change-log-retention-days = Mail change-log retention (days)
 admin-settings-help-maintenance-database-change-log-retention-days = Keep mail delta history for this many days, normally 60. Zero keeps it indefinitely. Clients with expired state tokens must fetch the current list again.
 admin-settings-key-maintenance-database-change-log-batch-rows = Change-log batch limit (rows)
-admin-settings-help-maintenance-database-change-log-batch-rows = Maximum change rows removed per maintenance batch, normally 1,000. A single state larger than this limit stays intact and is reported for review.
+admin-settings-help-maintenance-database-change-log-batch-rows = Maximum change rows removed per maintenance batch, normally 1,000. Large states expire in bounded chunks; older client tokens then require a full resync.

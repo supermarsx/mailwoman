@@ -2768,4 +2768,4 @@ admin-settings-help-maintenance-database-cached-body-retention-days = メッセ�
 admin-settings-key-maintenance-database-change-log-retention-days = メール変更履歴の保存期間（日）
 admin-settings-help-maintenance-database-change-log-retention-days = 指定した日数の変更履歴を保持します。通常は60日です。0は無期限です。状態が期限切れのクライアントは現在の一覧を再取得する必要があります。
 admin-settings-key-maintenance-database-change-log-batch-rows = 変更履歴のバッチ上限（行）
-admin-settings-help-maintenance-database-change-log-batch-rows = 保守バッチで削除する変更行数の上限です。通常は1,000行です。単一の状態が上限を超える場合は全体を保持し、確認対象として報告します。
+admin-settings-help-maintenance-database-change-log-batch-rows = 保守バッチで削除する変更行数の上限です。通常は1,000行です。大きな状態は上限のある単位で削除され、それより古い状態を持つクライアントは完全な再同期が必要になります。

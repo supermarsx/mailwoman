@@ -2782,4 +2782,4 @@ admin-settings-help-maintenance-database-cached-body-retention-days = Días desd
 admin-settings-key-maintenance-database-change-log-retention-days = Retención del registro de cambios del correo (días)
 admin-settings-help-maintenance-database-change-log-retention-days = Conservar el historial de cambios durante estos días, normalmente 60. Cero lo conserva indefinidamente. Los clientes con estados caducados deben obtener de nuevo la lista actual.
 admin-settings-key-maintenance-database-change-log-batch-rows = Límite del lote de cambios (filas)
-admin-settings-help-maintenance-database-change-log-batch-rows = Máximo de filas de cambios eliminadas por lote de mantenimiento, normalmente 1.000. Un estado que supere este límite se conserva intacto y se señala para revisión.
+admin-settings-help-maintenance-database-change-log-batch-rows = Máximo de filas de cambios eliminadas por lote de mantenimiento, normalmente 1.000. Los estados grandes caducan en bloques limitados; los clientes con estados anteriores deben realizar una sincronización completa.

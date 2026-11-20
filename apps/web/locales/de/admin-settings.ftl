@@ -2782,4 +2782,4 @@ admin-settings-help-maintenance-database-cached-body-retention-days = Tage seit 
 admin-settings-key-maintenance-database-change-log-retention-days = Aufbewahrung des E-Mail-Änderungsprotokolls (Tage)
 admin-settings-help-maintenance-database-change-log-retention-days = Änderungen für diese Anzahl Tage aufbewahren, normalerweise 60. Null bewahrt sie unbegrenzt auf. Clients mit abgelaufenen Zuständen müssen die aktuelle Liste erneut abrufen.
 admin-settings-key-maintenance-database-change-log-batch-rows = Grenze je Änderungslauf (Zeilen)
-admin-settings-help-maintenance-database-change-log-batch-rows = Maximale Anzahl gelöschter Änderungszeilen je Wartungslauf, normalerweise 1.000. Ein größerer einzelner Zustand bleibt vollständig erhalten und wird zur Prüfung gemeldet.
+admin-settings-help-maintenance-database-change-log-batch-rows = Maximale Anzahl gelöschter Änderungszeilen je Wartungslauf, normalerweise 1.000. Große Zustände verfallen in begrenzten Teilen; Clients mit älteren Zuständen müssen vollständig neu synchronisieren.

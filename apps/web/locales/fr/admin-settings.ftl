@@ -2782,4 +2782,4 @@ admin-settings-help-maintenance-database-cached-body-retention-days = Jours depu
 admin-settings-key-maintenance-database-change-log-retention-days = Conservation du journal des modifications du courrier (jours)
 admin-settings-help-maintenance-database-change-log-retention-days = Conserver cet historique pendant ce nombre de jours, normalement 60. Zéro le conserve indéfiniment. Les clients dont les états ont expiré doivent récupérer à nouveau la liste actuelle.
 admin-settings-key-maintenance-database-change-log-batch-rows = Limite du lot de modifications (lignes)
-admin-settings-help-maintenance-database-change-log-batch-rows = Nombre maximal de lignes supprimées par lot de maintenance, normalement 1 000. Un état dépassant cette limite reste intact et est signalé pour vérification.
+admin-settings-help-maintenance-database-change-log-batch-rows = Nombre maximal de lignes supprimées par lot de maintenance, normalement 1 000. Les grands états expirent par portions limitées ; les clients dont les états sont antérieurs doivent effectuer une synchronisation complète.

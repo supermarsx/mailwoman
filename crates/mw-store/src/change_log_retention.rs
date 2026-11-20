@@ -2,7 +2,7 @@
 //! rows, so old tokens are refused and future state counters never go backwards.
 use crate::{
     Store, StoreError,
-    backend::{Backend, Row},
+    backend::{Backend, Dialect, Row, Tx},
     q,
 };
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,10 @@ pub struct ChangeLogRetentionReport {
     pub cursor: ChangeLogRetentionCursor,
     pub scanned_rows: u64,
     pub removed_rows: u64,
+    /// Legacy report field retained for old persisted reports.
     pub oversized_batches: u64,
+    #[serde(default)]
+    pub chunked_states: u64,
     pub elapsed_ms: u64,
 }
 impl Store {
@@ -220,16 +223,31 @@ async fn collect(
         kind: kind.clone(),
     };
     let mut tx = backend.begin().await?;
-    let rows = q(
-        "SELECT state,at FROM changes WHERE account_id=?1 AND type=?2 ORDER BY state ASC LIMIT ?3",
-    )
-    .bind(&account)
-    .bind(&kind)
-    .bind(i64::from(options.batch_rows) + 1)
-    .fetch_all_tx(&mut tx)
-    .await?;
+    // Lock the parent first, matching account erasure's parent/child order.
+    if matches!(backend, Backend::Postgres(_)) {
+        q("SELECT id FROM accounts WHERE id=?1 FOR NO KEY UPDATE")
+            .bind(&account)
+            .execute_tx(&mut tx)
+            .await?;
+    }
+    let sql = match backend.dialect() {
+        Dialect::Sqlite => {
+            "SELECT CAST(rowid AS TEXT) AS locator,state,at FROM changes WHERE account_id=?1 AND type=?2 ORDER BY state ASC LIMIT ?3"
+        }
+        Dialect::Postgres => {
+            "SELECT CAST(ctid AS TEXT) AS locator,state,at FROM changes WHERE account_id=?1 AND type=?2 ORDER BY state ASC LIMIT ?3 FOR UPDATE SKIP LOCKED"
+        }
+    };
+    let rows = q(sql)
+        .bind(&account)
+        .bind(&kind)
+        .bind(i64::from(options.batch_rows) + 1)
+        .fetch_all_tx(&mut tx)
+        .await?;
     report.scanned_rows = rows.len() as u64;
     let mut floor = 0;
+    let mut locators = Vec::new();
+    let mut chunked = false;
     let mut index = 0;
     while index < rows.len() && index < (options.batch_rows as usize) && Instant::now() < deadline {
         let state = rows[index].get_i64("state");
@@ -237,45 +255,87 @@ async fn collect(
         while index < rows.len() && rows[index].get_i64("state") == state {
             index += 1;
         }
-        let complete = index < rows.len() || rows.len() <= options.batch_rows as usize;
-        if !complete {
-            if start == 0 {
-                report.oversized_batches += 1;
-            }
+        // A known recent/malformed row protects every selected row of its state,
+        // including when that row is the bounded lookahead. Unseen rows can only
+        // be checked by later chunks; the durable floor makes that sync-safe.
+        if !rows[start..index].iter().all(|row| older_than(row, cutoff)) {
             break;
         }
-        if !rows[start..index].iter().all(|r| older_than(r, cutoff)) {
-            break;
-        }
+        let end = index.min(options.batch_rows as usize);
+        locators.extend(rows[start..end].iter().map(|row| row.get_string("locator")));
         floor = state;
+        chunked = index > end;
     }
-    if floor > 0 && Instant::now() < deadline {
-        q("INSERT INTO change_log_checkpoint(account_id,type,head_state,pruned_through)
-           SELECT ?1,?2,COALESCE(MAX(state),0),?3 FROM changes WHERE account_id=?1 AND type=?2
-           ON CONFLICT(account_id,type) DO UPDATE SET
-           head_state=CASE WHEN change_log_checkpoint.head_state>excluded.head_state THEN change_log_checkpoint.head_state ELSE excluded.head_state END,
-           pruned_through=CASE WHEN change_log_checkpoint.pruned_through>excluded.pruned_through THEN change_log_checkpoint.pruned_through ELSE excluded.pruned_through END")
-            .bind(&account).bind(&kind).bind(floor).execute_tx(&mut tx).await?;
-        let removed = q("DELETE FROM changes WHERE account_id=?1 AND type=?2 AND state<=?3")
-            .bind(&account)
-            .bind(&kind)
-            .bind(floor)
-            .execute_tx(&mut tx)
-            .await?;
+    if !locators.is_empty() && Instant::now() < deadline {
+        persist_floor(&mut tx, &account, &kind, floor).await?;
+        let removed = delete_chunk(&mut tx, backend.dialect(), &account, &kind, &locators).await?;
         tx.commit().await?;
         report.removed_rows = removed;
+        report.chunked_states = u64::from(chunked && removed > 0);
     } else {
         tx.commit().await?;
     }
+
     if Instant::now() >= deadline {
         report.status = "budget".into();
     }
     Ok(())
 }
+async fn persist_floor(
+    tx: &mut Tx,
+    account: &str,
+    kind: &str,
+    floor: i64,
+) -> Result<(), StoreError> {
+    q("INSERT INTO change_log_checkpoint(account_id,type,head_state,pruned_through)
+       SELECT ?1,?2,COALESCE(MAX(state),0),?3 FROM changes WHERE account_id=?1 AND type=?2
+       ON CONFLICT(account_id,type) DO UPDATE SET
+       head_state=CASE WHEN change_log_checkpoint.head_state>excluded.head_state THEN change_log_checkpoint.head_state ELSE excluded.head_state END,
+       pruned_through=CASE WHEN change_log_checkpoint.pruned_through>excluded.pruned_through THEN change_log_checkpoint.pruned_through ELSE excluded.pruned_through END")
+        .bind(account).bind(kind).bind(floor).execute_tx(tx).await?;
+    Ok(())
+}
+async fn delete_chunk(
+    tx: &mut Tx,
+    dialect: Dialect,
+    account: &str,
+    kind: &str,
+    locators: &[String],
+) -> Result<u64, StoreError> {
+    let sql = delete_chunk_sql(dialect);
+    let ids = serde_json::to_string(locators).expect("row locator strings serialize");
+    Ok(q(sql)
+        .bind(account)
+        .bind(kind)
+        .bind(ids)
+        .execute_tx(tx)
+        .await?)
+}
+
+fn delete_chunk_sql(dialect: Dialect) -> &'static str {
+    match dialect {
+        Dialect::Sqlite => {
+            "DELETE FROM changes NOT INDEXED WHERE account_id=?1 AND type=?2 AND rowid IN(SELECT CAST(value AS INTEGER) FROM json_each(?3))"
+        }
+        Dialect::Postgres => {
+            "DELETE FROM changes WHERE ctid = ANY(ARRAY(
+                 WITH targets AS MATERIALIZED (
+                   SELECT ctid,account_id,type FROM changes
+                   WHERE ctid = ANY(ARRAY(SELECT CAST(value AS pg_catalog.tid) FROM jsonb_array_elements_text(?3::jsonb)))
+                 ) SELECT ctid FROM targets WHERE account_id=?1 AND type=?2
+               ))"
+        }
+    }
+}
+
 fn older_than(row: &Row, cutoff: i64) -> bool {
     chrono::DateTime::parse_from_rfc3339(&row.get_string("at"))
         .is_ok_and(|t| t.timestamp() < cutoff)
 }
+
+#[cfg(test)]
+#[path = "change_log_retention_chunk_tests.rs"]
+mod chunk_tests;
 
 #[cfg(test)]
 mod tests {
@@ -375,7 +435,7 @@ mod tests {
         assert_eq!(delta.last().unwrap().state, 4);
     }
     #[tokio::test]
-    async fn whole_state_batches_are_never_truncated_and_other_groups_progress() {
+    async fn chunked_states_are_fenced_from_deltas_and_other_groups_progress() {
         let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         let a = account(&store, "a").await;
         let ids = (0..500).map(|i| format!("m{i}")).collect::<Vec<_>>();
@@ -389,11 +449,18 @@ mod tests {
             .unwrap();
         aged(&store).await;
         let small = prune(&store, 64).await;
-        assert_eq!(small.removed_rows, 0);
-        assert_eq!(small.oversized_batches, 1);
-        assert_eq!(
-            store.changes_since(&a, "Email", 0).await.unwrap().len(),
-            500
+        assert_eq!(small.removed_rows, 64);
+        assert_eq!(small.chunked_states, 1);
+        assert!(matches!(
+            store.changes_since(&a, "Email", 0).await,
+            Err(StoreError::ChangeHistoryExpired)
+        ));
+        assert!(
+            store
+                .changes_since(&a, "Email", 1)
+                .await
+                .unwrap()
+                .is_empty()
         );
         let mut next = ChangeLogRetentionReport {
             at: chrono::Utc::now().timestamp(),
@@ -409,7 +476,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(next.removed_rows, 1);
-        assert_eq!(prune(&store, 500).await.removed_rows, 500);
+        assert_eq!(prune(&store, 500).await.removed_rows, 436);
         assert_eq!(store.current_state(&a, "Email").await.unwrap(), 1);
     }
     #[tokio::test]
@@ -571,12 +638,15 @@ mod tests {
         accounts.sort();
         let hot = &accounts[0];
         let next = &accounts[1];
-        for n in 0..3 {
-            store
-                .record_change(hot, "Email", &n.to_string(), "updated")
-                .await
-                .unwrap();
-        }
+        store
+            .record_changes(
+                hot,
+                "Email",
+                &["a".into(), "b".into(), "c".into()],
+                "updated",
+            )
+            .await
+            .unwrap();
         store
             .record_change(next, "Email", "other", "updated")
             .await
@@ -584,6 +654,7 @@ mod tests {
         aged(&store).await;
         let first = prune(&store, 1).await;
         assert_eq!(first.removed_rows, 1);
+        assert_eq!(first.chunked_states, 1);
         assert_eq!(first.cursor.account_id, *hot);
         let mut second = ChangeLogRetentionReport {
             at: chrono::Utc::now().timestamp(),
@@ -607,7 +678,14 @@ mod tests {
             store.changes_since(next, "Email", 0).await,
             Err(StoreError::ChangeHistoryExpired)
         ));
-        assert_eq!(store.changes_since(hot, "Email", 1).await.unwrap().len(), 2);
+        assert_eq!(
+            q("SELECT COUNT(*) FROM changes WHERE account_id=?1")
+                .bind(hot)
+                .fetch_scalar_i64(&store.backend)
+                .await
+                .unwrap(),
+            2
+        );
         let mut wrapped = ChangeLogRetentionReport {
             at: chrono::Utc::now().timestamp(),
             cursor: second.cursor,

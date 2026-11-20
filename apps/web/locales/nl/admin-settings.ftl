@@ -2776,4 +2776,4 @@ admin-settings-help-maintenance-database-cached-body-retention-days = Dagen sind
 admin-settings-key-maintenance-database-change-log-retention-days = Bewaartermijn voor het e-mailwijzigingslogboek (dagen)
 admin-settings-help-maintenance-database-change-log-retention-days = Bewaar wijzigingen zoveel dagen, normaal 60. Nul bewaart ze onbeperkt. Clients met verlopen statustokens moeten de huidige lijst opnieuw ophalen.
 admin-settings-key-maintenance-database-change-log-batch-rows = Limiet per wijzigingsbatch (rijen)
-admin-settings-help-maintenance-database-change-log-batch-rows = Maximaal aantal verwijderde wijzigingsrijen per onderhoudsbatch, normaal 1.000. Een afzonderlijke status boven deze limiet blijft intact en wordt gemeld ter controle.
+admin-settings-help-maintenance-database-change-log-batch-rows = Maximaal aantal verwijderde wijzigingsrijen per onderhoudsbatch, normaal 1.000. Grote statussen verlopen in begrensde delen; clients met oudere statustokens moeten volledig opnieuw synchroniseren.
