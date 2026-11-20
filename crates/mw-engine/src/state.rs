@@ -83,7 +83,7 @@ impl Engine {
     pub(crate) async fn session_state(&self, account_id: &str) -> String {
         let store = self.store();
         let (mail, pim, crypto) = tokio::join!(
-            store.current_states(account_id),
+            store.current_core_mail_states(account_id),
             store.current_pim_states(account_id),
             store.current_crypto_states(account_id),
         );
@@ -416,7 +416,7 @@ impl Engine {
         // `unwrap_or(0)` it replaces did.
         let store = self.store();
         let (mail, crypto) = tokio::join!(
-            store.current_states(account_id),
+            store.current_core_mail_states(account_id),
             store.current_crypto_states(account_id),
         );
         let (mail, crypto) = (mail.unwrap_or_default(), crypto.unwrap_or_default());

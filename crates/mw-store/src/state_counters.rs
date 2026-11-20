@@ -7,7 +7,8 @@
 //! that is a couple of milliseconds; on Postgres it is twelve round trips, and
 //! it is paid before any method does any work.
 //!
-//! These three readers return a whole log's counters in one statement each.
+//! The general readers return a whole log's counters in one statement each.
+//! The hot mail path has an indexed reader for its three fixed datatypes.
 //!
 //! **No `IN (…)` list, deliberately.** Two reasons. Mechanically, [`q`] takes a
 //! `&'static str`, so a placeholder list sized to the caller's slice cannot be
@@ -23,7 +24,33 @@ use std::collections::HashMap;
 use crate::backend::q;
 use crate::{Store, StoreError};
 
+const CORE_MAIL_STATES_SQL: &str = "SELECT 'Email' AS type, MAX(state) AS state FROM (
+                SELECT MAX(state) AS state FROM changes WHERE account_id=?1 AND type='Email'
+                UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type='Email'
+             ) email_head HAVING MAX(state) IS NOT NULL
+             UNION ALL
+             SELECT 'Mailbox' AS type, MAX(state) AS state FROM (
+                SELECT MAX(state) AS state FROM changes WHERE account_id=?1 AND type='Mailbox'
+                UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type='Mailbox'
+             ) mailbox_head HAVING MAX(state) IS NOT NULL
+             UNION ALL
+             SELECT 'EmailSubmission' AS type, MAX(state) AS state FROM (
+                SELECT MAX(state) AS state FROM changes WHERE account_id=?1 AND type='EmailSubmission'
+                UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type='EmailSubmission'
+             ) submission_head HAVING MAX(state) IS NOT NULL";
+
 impl Store {
+    /// The three mail counters consumed by JMAP session state and mail push.
+    /// One statement gives one snapshot; indexed MAX probes avoid scanning an
+    /// account's retained history. Untouched counters remain absent. Custom
+    /// datatype callers must continue using [`Store::current_states`].
+    pub async fn current_core_mail_states(
+        &self,
+        account_id: &str,
+    ) -> Result<HashMap<String, u64>, StoreError> {
+        self.counters(CORE_MAIL_STATES_SQL, account_id).await
+    }
+
     /// Every mail `(type → current state)` counter for one account, in one
     /// statement. Types with no rows are **absent** from the map; read them as
     /// `0`, exactly as [`Store::current_state`] returns `0` for them.
@@ -195,5 +222,222 @@ mod tests {
 
         assert_eq!(s.current_states(&acct).await.unwrap().len(), 1);
         assert!(s.current_states("other").await.unwrap().is_empty());
+    }
+    #[tokio::test]
+    async fn core_mail_reader_preserves_checkpoints_and_generic_custom_counters() {
+        let s = store().await;
+        let account = account(&s).await;
+        assert!(
+            s.current_core_mail_states(&account)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        for (kind, head) in [
+            ("Email", 13),
+            ("Mailbox", 7),
+            ("EmailSubmission", 2),
+            ("CustomKind", 9),
+        ] {
+            crate::q("INSERT INTO change_log_checkpoint(account_id,type,head_state,pruned_through) VALUES(?1,?2,?3,?3)").bind(&account).bind(kind).bind(head as i64).execute(&s.backend).await.unwrap();
+        }
+        let core = s.current_core_mail_states(&account).await.unwrap();
+        let all = s.current_states(&account).await.unwrap();
+        assert_eq!(core.len(), 3);
+        for kind in ["Email", "Mailbox", "EmailSubmission"] {
+            assert_eq!(core[kind], all[kind]);
+            assert_eq!(core[kind], s.current_state(&account, kind).await.unwrap());
+        }
+        assert_eq!(all["CustomKind"], 9);
+        assert!(!core.contains_key("CustomKind"));
+        assert!(
+            s.current_core_mail_states("foreign-account")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            s.record_change(&account, "Email", "next", "updated")
+                .await
+                .unwrap(),
+            14
+        );
+        assert_eq!(
+            s.current_core_mail_states(&account).await.unwrap()["Email"],
+            14
+        );
+        assert_eq!(s.current_states(&account).await.unwrap()["CustomKind"], 9);
+    }
+    #[tokio::test]
+    async fn core_mail_reader_uses_indexed_heads_without_scanning_retained_history() {
+        use super::CORE_MAIL_STATES_SQL;
+        use crate::backend::Backend;
+        use sqlx::Row;
+        use std::sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+        };
+        let s = store().await;
+        let account = account(&s).await;
+        s.record_changes(
+            &account,
+            "Email",
+            &(0..20000)
+                .map(|n| format!("message-{n}"))
+                .collect::<Vec<_>>(),
+            "updated",
+        )
+        .await
+        .unwrap();
+        s.record_changes(
+            &account,
+            "CustomKind",
+            &(0..5000).map(|n| format!("custom-{n}")).collect::<Vec<_>>(),
+            "updated",
+        )
+        .await
+        .unwrap();
+        s.record_change(&account, "Mailbox", "mailbox", "updated")
+            .await
+            .unwrap();
+        s.record_change(&account, "EmailSubmission", "submission", "updated")
+            .await
+            .unwrap();
+        let Backend::Sqlite(pool) = &s.backend else {
+            unreachable!()
+        };
+        let pin = pool.pin().await;
+        let plan = sqlx::query(&format!("EXPLAIN QUERY PLAN {CORE_MAIL_STATES_SQL}"))
+            .bind(&account)
+            .fetch_all(pin.pool())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.get::<String, _>("detail"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            plan.iter()
+                .filter(|line| line.contains("SEARCH changes USING"))
+                .count(),
+            3,
+            "{plan:?}"
+        );
+        assert_eq!(
+            plan.iter()
+                .filter(|line| line.contains("SEARCH change_log_checkpoint USING"))
+                .count(),
+            3,
+            "{plan:?}"
+        );
+        assert!(
+            !plan.iter().any(|line| line.contains("SCAN changes")),
+            "{plan:?}"
+        );
+        let count = Arc::new(AtomicU64::new(0));
+        let observed = count.clone();
+        let mut connection = pin.pool().acquire().await.unwrap();
+        connection
+            .lock_handle()
+            .await
+            .unwrap()
+            .set_progress_handler(1000, move || {
+                observed.fetch_add(1, Ordering::Relaxed);
+                true
+            });
+        drop(connection);
+        let core = s.current_core_mail_states(&account).await.unwrap();
+        let fast_steps = count.swap(0, Ordering::Relaxed);
+        let generic = s.current_states(&account).await.unwrap();
+        let generic_steps = count.load(Ordering::Relaxed);
+        pin.pool()
+            .acquire()
+            .await
+            .unwrap()
+            .lock_handle()
+            .await
+            .unwrap()
+            .remove_progress_handler();
+        assert!(
+            generic_steps > 100,
+            "control must prove the VM probe observes the retained scan: {generic_steps}"
+        );
+        assert!(
+            fast_steps <= 2,
+            "indexed heads must not scan retained rows: {fast_steps}"
+        );
+        for kind in ["Email", "Mailbox", "EmailSubmission"] {
+            assert_eq!(core[kind], generic[kind]);
+        }
+        assert_eq!(generic["CustomKind"], 1);
+        assert!(!core.contains_key("CustomKind"));
+    }
+    #[tokio::test]
+    async fn postgres_core_mail_reader_preserves_generic_and_checkpoint_contract() {
+        let Ok(dsn) = std::env::var("MW_BG_TEST_PG") else {
+            eprintln!("SKIP PostgreSQL core mail counters: MW_BG_TEST_PG is unset");
+            return;
+        };
+        let s = Store::open_postgres(&dsn, ServerKey::generate())
+            .await
+            .unwrap();
+        let name = format!("core-counters-{}", uuid::Uuid::new_v4());
+        let account = s
+            .create_account(
+                &NewAccount {
+                    kind: AccountKind::Imap,
+                    host: "fixture.invalid",
+                    port: 993,
+                    tls: "implicit",
+                    username: &name,
+                    sync_policy_json: "{}",
+                },
+                &Credentials {
+                    username: name.clone(),
+                    password: "fixture".into(),
+                },
+            )
+            .await
+            .unwrap();
+        assert!(
+            s.current_core_mail_states(&account)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        for kind in ["Email", "Mailbox", "EmailSubmission", "CustomKind"] {
+            s.record_change(&account, kind, "fixture", "updated")
+                .await
+                .unwrap();
+            crate::q("INSERT INTO change_log_checkpoint(account_id,type,head_state,pruned_through) VALUES(?1,?2,1,1)").bind(&account).bind(kind).execute(&s.backend).await.unwrap();
+        }
+        crate::q("DELETE FROM changes WHERE account_id=?1")
+            .bind(&account)
+            .execute(&s.backend)
+            .await
+            .unwrap();
+        let core = s.current_core_mail_states(&account).await.unwrap();
+        let generic = s.current_states(&account).await.unwrap();
+        assert_eq!(core.len(), 3);
+        for kind in ["Email", "Mailbox", "EmailSubmission"] {
+            assert_eq!(core[kind], generic[kind]);
+            assert_eq!(core[kind], 1);
+        }
+        assert_eq!(generic["CustomKind"], 1);
+        assert_eq!(
+            s.record_change(&account, "Email", "next", "updated")
+                .await
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            s.current_core_mail_states(&account).await.unwrap()["Email"],
+            2
+        );
+        crate::q("DELETE FROM accounts WHERE id=?1")
+            .bind(&account)
+            .execute(&s.backend)
+            .await
+            .unwrap();
+        s.close().await;
     }
 }
