@@ -1253,7 +1253,7 @@ fn account_names_key(account_id: &str) -> String {
     format!("{ACCOUNT_NAMES_PREFIX}{account_id}")
 }
 
-fn parse_account_names(raw: &str) -> Result<Vec<String>, StoreError> {
+pub(crate) fn parse_account_names(raw: &str) -> Result<Vec<String>, StoreError> {
     serde_json::from_str(raw)
         .map_err(|e| StoreError::Corrupt(format!("account names are not valid JSON: {e}")))
 }

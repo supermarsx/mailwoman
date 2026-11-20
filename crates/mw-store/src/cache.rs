@@ -568,7 +568,7 @@ impl Store {
         ))
     }
 
-    fn account_from_row(row: &Row) -> Result<Account, StoreError> {
+    pub(crate) fn account_from_row(row: &Row) -> Result<Account, StoreError> {
         Ok(Account {
             id: row.get_string("id"),
             kind: AccountKind::parse(row.get_string("kind").as_str())?,

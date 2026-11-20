@@ -63,7 +63,7 @@ macro_rules! rcols {
     };
 }
 
-fn restriction(r: &Row) -> RestrictionRow {
+pub(crate) fn restriction(r: &Row) -> RestrictionRow {
     RestrictionRow {
         id: r.get_string("id"),
         account_id: r.get_string("account_id"),

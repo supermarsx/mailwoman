@@ -1909,3 +1909,6 @@ mod resolution_input_tests;
 #[cfg(test)]
 #[path = "settings_presence_tests.rs"]
 mod presence_tests;
+
+#[path = "native_admission_warm_policy.rs"]
+mod native_admission_warm_policy;

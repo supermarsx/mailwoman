@@ -79,7 +79,7 @@ pub struct DomainAccount {
     pub seen_host: Option<String>,
 }
 
-fn domain(row: &Row) -> DomainConfigRow {
+pub(crate) fn domain(row: &Row) -> DomainConfigRow {
     DomainConfigRow {
         name: row.get_string("name"),
         upstream_json: row.get_string("upstream_json"),

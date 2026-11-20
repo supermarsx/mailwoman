@@ -7,6 +7,7 @@
 
 pub mod analytics_secret;
 pub mod primary_policy_snapshot;
+pub mod native_admission_snapshot;
 pub mod encryption;
 pub mod header_envelope;
 pub mod focus_contacts;
