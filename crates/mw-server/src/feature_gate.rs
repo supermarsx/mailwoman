@@ -32,6 +32,11 @@
 //! Assist, UI plugins, packages, push, the PIM families in
 //! [`crate::feature_jmap`]) are not repeated here.
 
+#[path = "feature_auth_boundary.rs"]
+mod auth_boundary;
+pub(crate) use auth_boundary::{BoundaryError, DeferredJmapFeatures, authenticate_deferred};
+#[cfg(test)]
+pub(crate) use auth_boundary::{record_auth as record_test_auth, pause_during_final_auth};
 use crate::{AppState, settings_registry as registry, settings_routes::UserSubject};
 use axum::{
     body::Body,
@@ -512,7 +517,7 @@ fn protocol_path(path: &str) -> bool {
 }
 
 /// The checks one request needs before any subject lookup.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Needs {
     features: BTreeSet<&'static str>,
     native: bool,
@@ -655,6 +660,15 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
         needs.protocol = false;
     }
     if !needs.any() {
+        return next.run(req).await;
+    }
+    // Cookie JMAP resolves feature requirements using an untrusted source hint,
+    // then performs ONE complete fresh authentication inside its handler.
+    // Other routes/credentials keep the original two-boundary behavior.
+    if auth_boundary::eligible(&state, &req) {
+        let revision=req.extensions().get::<mw_store::settings_policy::SettingsReadRevision>()
+            .expect("eligibility requires a current revision").clone();
+        req.extensions_mut().insert(DeferredJmapFeatures(needs, revision));
         return next.run(req).await;
     }
     // Unauthenticated: the handler answers as it always did.

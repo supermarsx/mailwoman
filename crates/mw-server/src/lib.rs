@@ -3477,6 +3477,7 @@ fn prefix_session_urls(mut session: Value, base: &str) -> Value {
 async fn jmap_api(
     State(state): State<AppState>,
     source: Option<Extension<scope_mw::RestSessionSource>>,
+    deferred_features: Option<Extension<feature_gate::DeferredJmapFeatures>>,
     headers: HeaderMap,
     body: Body,
 ) -> Response {
@@ -3506,7 +3507,14 @@ async fn jmap_api(
     };
     let authenticated = match source {
         Some(Extension(source)) => scope_mw::rest_session(&state, &headers, source).await,
-        None => authed(&state, &headers).await,
+        None => match deferred_features {
+            Some(Extension(features)) => match feature_gate::authenticate_deferred(&state, &headers, features).await {
+                Ok(session)=>Ok(session),
+                Err(feature_gate::BoundaryError::Authentication(response))=>Err(response),
+                Err(feature_gate::BoundaryError::Features(response))=>return response,
+            },
+            None => authed(&state, &headers).await,
+        },
     };
     let mut session = match authenticated {
         Ok(s) => s,
@@ -6162,6 +6170,8 @@ pub(crate) async fn authed_with_gate(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<(mw_store::Session, account_gate::AccountGate), Response> {
+    #[cfg(test)]
+    feature_gate::record_test_auth();
     fixture_profile::measure(fixture_profile::Phase::Auth, authed_with_gate_inner(state, headers)).await
 }
 async fn authed_with_gate_inner(
@@ -6180,6 +6190,8 @@ async fn authed_with_gate_inner(
         account_gate::stop_engine_work(state, &session.account_id);
         return Err(response);
     }
+    #[cfg(test)]
+    feature_gate::pause_during_final_auth(&session.id).await;
     let gate = fixture_profile::measure(fixture_profile::Phase::AccountGate, account_gate::for_session(&state.store, &session))
         .await
         .map_err(|e| account_gate::unavailable("session", e))?;
