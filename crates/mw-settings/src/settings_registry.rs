@@ -147,6 +147,8 @@ pub enum Text {
 /// A value's type and bounds.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Kind {
+    /// Startup-only, bounded SQLx connection pool policy.
+    DatabasePool,
     /// An exact owned mailbox ID or upstream folder path; null selects discovery.
     FolderRole,
     /// Bounded plain-text response templates; never executable HTML.
@@ -201,6 +203,7 @@ impl Kind {
     /// The wire description the admin UI validates against (UX5).
     pub fn describe(&self) -> Value {
         match *self {
+            Kind::DatabasePool => json!({"type":"databasePool","restartRequired":true}),
             Kind::FilePreviews => json!({"type":"filePreviews"}),
             Kind::SnoozePresets => json!({"type":"snoozePresets","maxItems":32}),
             Kind::MessageNotices => json!({"type":"messageNotices","maxItems":20}),
@@ -6576,6 +6579,12 @@ pub static REGISTRY: &[SettingDef] = &[
         "observability",
         "browser load time sample rate"
     ),
+    SettingDef {
+        env: Some(("MW_DB_POOL", Precedence::Pin)),
+        ..def!("database.pool", Kind::DatabasePool,
+            r#"{"minimumConnections":1,"sqliteMaxConnections":null,"postgresMaxConnections":null,"acquireTimeoutMs":30000,"idleTimeoutSeconds":60,"maxLifetimeSeconds":1800,"postgresConnectionBudget":100,"postgresReservedConnections":20,"replicaCount":1}"#,
+            G, "observability", "Startup SQLx pool budgets. Physical connections grow and retire with demand inside a bounded ceiling. Saved changes take effect after a complete process restart.")
+    },
     def!("observability.database.growthAlerts", Kind::Bool, "true", G, "observability", "Alert in audit and server logs after two consecutive rapid database growth samples; at most once per 30 minutes."),
     def!("observability.database.growthMiBPerMinute", int(1, 1048576), "64", G, "observability", "Database file growth threshold in MiB per minute. WAL is measured separately. History is bounded and held in memory."),
     def!(
@@ -9234,6 +9243,14 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
         return bad("use id:<folder ID> or role:inbox/drafts/sent/trash/junk/archive".into());
     }
     match def.kind {
+        Kind::DatabasePool => {
+            let policy = match serde_json::from_value::<mw_store::pool_policy::PoolPolicy>(value.clone()) {
+                Ok(policy) => policy,
+                Err(error) => return bad(format!("expected a bounded database pool policy: {error}")),
+            };
+            if let Err(error) = policy.validate() { return bad(error); }
+            Ok(value.clone())
+        }
         Kind::FilePreviews => { if !file_preview_preferences::valid(value){return bad("expected bounded file preview preferences and known tool placements".into());} Ok(value.clone()) },
         Kind::SnoozePresets => {
             if !snooze_presets::valid(value) {
@@ -9609,6 +9626,7 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
 fn parse_env(def: &SettingDef, raw: &str) -> Value {
     let raw = raw.trim();
     match def.kind {
+        Kind::DatabasePool => serde_json::from_str(raw).unwrap_or_else(|_| Value::String(raw.to_string())),
         Kind::Bool => match raw.to_ascii_lowercase().as_str() {
             "1" | "true" | "yes" | "on" => Value::Bool(true),
             "0" | "false" | "no" | "off" | "" => Value::Bool(false),
@@ -11405,3 +11423,7 @@ mod row_action_layout_tests {
 #[cfg(test)]
 #[path = "settings_resolution_tests.rs"]
 mod resolution_revision_tests;
+
+#[cfg(test)]
+#[path = "pool_policy_tests.rs"]
+mod pool_policy_tests;
