@@ -1396,9 +1396,18 @@ impl Engine {
         // twice, because de-duplicating it drops an entry the client asked for.
         let mut list = Vec::with_capacity(assembled.len());
         let mut not_found = Vec::new();
+        let properties = args.get("properties").and_then(Value::as_array).map(|named| {
+            named.iter().filter_map(Value::as_str).collect::<std::collections::HashSet<_>>()
+        });
         for (id, email) in requested.iter().zip(assembled) {
             match email {
-                Some(e) => list.push(e),
+                Some(mut email) => {
+                    if let Some(properties) = &properties {
+                        email.as_object_mut().expect("assembled email is an object")
+                            .retain(|key, _| key == "id" || properties.contains(key.as_str()));
+                    }
+                    list.push(email);
+                },
                 None => not_found.push(json!(id)),
             }
         }
@@ -7728,8 +7737,8 @@ mod email_get_batch_tests {
     async fn seed_legacy_projection(f: &Fixture, raw: Option<&[u8]>, envelope: &[u8]) {
         let row = f.store().get_message(&f.ids[0]).await.unwrap();
         let blob = match raw {
-            Some(raw) => f.store().put_body(&f.account, raw).await.unwrap(),
-            None => "missing-body-fixture".to_string(),
+            Some(raw) => Some(f.store().put_body(&f.account, raw).await.unwrap()),
+            None => None,
         };
         f.store()
             .upsert_message(&MessageUpsert {
@@ -7743,7 +7752,7 @@ mod email_get_batch_tests {
                 size: row.size,
                 flags_json: &row.flags_json,
                 envelope: Some(envelope),
-                blob_ref: Some(&blob),
+                blob_ref: blob.as_deref(),
             })
             .await
             .unwrap();
@@ -7798,7 +7807,7 @@ mod email_get_batch_tests {
         }
     }
     #[tokio::test]
-    async fn legacy_attachment_projection_without_raw_keeps_metadata_and_remains_retryable() {
+    async fn legacy_attachment_projection_without_cached_body_keeps_metadata_and_remains_retryable() {
         let f = Fixture::with(1).await;
         let stale = br#"{"subject":"Unavailable raw","messageId":null,"hasAttachment":true,"attachments":[{"partId":"2","name":"remember.pdf","type":"application/pdf"}]}"#;
         seed_legacy_projection(&f, None, stale).await;
@@ -7809,7 +7818,7 @@ mod email_get_batch_tests {
                 response["list"][0]["attachments"][0]["name"],
                 "remember.pdf"
             );
-            assert_eq!(reads.against("bodies"), 1);
+            assert_eq!(reads.against("bodies"), 0);
             assert_eq!(
                 f.store().get_envelope(&f.ids[0]).await.unwrap().as_deref(),
                 Some(stale.as_slice())

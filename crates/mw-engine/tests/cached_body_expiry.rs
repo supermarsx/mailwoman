@@ -306,6 +306,14 @@ async fn explicit_reader_restores_expired_body_and_background_download_does_not_
         standard["methodResponses"][0][1]["list"][0]["bodyValues"], original["bodyValues"],
         "the actual standard reader response must contain restored text and HTML"
     );
+    sqlx::query("UPDATE message_body_cache_lease SET last_used_at=1")
+        .execute(&pool).await.unwrap();
+    let only_id = engine.handle_jmap(&account, &json!({"methodCalls":[["Email/get",{
+        "accountId":account,"ids":[id],"properties":["id"],"mailwomanBodyUse":true
+    },"body-use"]]})).await;
+    assert_eq!(only_id["methodResponses"][0][1]["list"], json!([{"id":id}]));
+    assert!(store.cached_body_expiry_stats().await.unwrap().oldest_use_at.unwrap() > 1,
+        "id-only reader intent must still renew the body lease");
     let restored: serde_json::Value = serde_json::from_slice(
         &store
             .get_account_envelope(&account, &id)

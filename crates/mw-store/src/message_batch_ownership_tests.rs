@@ -135,6 +135,35 @@ async fn sqlite_account_scoped_batches_exclude_foreign_rows_before_decryption() 
 }
 
 #[tokio::test]
+async fn legacy_dangling_body_reference_still_exposes_owned_metadata_not_body() {
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let (account, id) = seed(&store, "kept legacy metadata").await;
+    // Simulate an old damaged database, bypassing the write API that correctly
+    // refuses to introduce new dangling body references.
+    q("UPDATE messages SET blob_ref='missing-legacy-body' WHERE stable_id=?1")
+        .bind(&id)
+        .execute(&store.backend)
+        .await
+        .unwrap();
+    let rows = store
+        .get_account_messages(&account, &[id.clone()])
+        .await
+        .unwrap();
+    let message = rows[0].as_ref().unwrap();
+    let (body, reads) = crate::pool_telemetry::measure_queries(
+        store.get_account_body(&account, message.blob_ref.as_deref().unwrap()),
+    )
+    .await;
+    assert!(body.unwrap().is_none());
+    assert_eq!(reads.read.calls, 1);
+    assert_eq!(
+        store.get_account_envelopes(&account, &[id]).await.unwrap(),
+        vec![Some(b"kept legacy metadata".to_vec())]
+    );
+    store.close().await;
+}
+
+#[tokio::test]
 async fn postgres_account_scoped_batches_exclude_foreign_rows_before_decryption() {
     let Ok(dsn) = std::env::var("MW_BG_TEST_PG") else {
         eprintln!("SKIP: MW_BG_TEST_PG absent");

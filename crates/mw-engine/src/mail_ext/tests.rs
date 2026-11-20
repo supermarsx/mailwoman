@@ -113,6 +113,45 @@ async fn ingest(
 // ---- Thread/get + Thread/changes (J1) -----------------------------------
 
 #[tokio::test]
+async fn email_get_projects_requested_properties_without_changing_default_or_extensions() {
+    let engine = engine().await;
+    let account = account(&engine).await;
+    let mailbox = mailbox(&engine, &account, "INBOX", Some("inbox")).await;
+    let raw = b"Message-ID: <projection@example.invalid>\r\nFrom: sender@example.invalid\r\nTo: recipient@example.invalid\r\nSubject: Projection\r\nExpires: Tue, 01 Jan 2030 00:00:00 +0000\r\nDisposition-Notification-To: receipt@example.invalid\r\nContent-Type: text/plain\r\n\r\nBody content".to_vec();
+    let id = ingest(&engine, &account, &mailbox, raw, 1, "2024-01-01T00:00:00Z").await;
+    let row = engine.store().get_message(&id).await.unwrap();
+    let mut envelope: Value = serde_json::from_slice(&engine.store().get_envelope(&id).await.unwrap().unwrap()).unwrap();
+    envelope["futureMetadata"] = json!({"preserved":true});
+    engine.store().repair_message_envelope(&account, &id, row.blob_ref.as_deref().unwrap(),
+        &serde_json::to_vec(&envelope).unwrap()).await.unwrap();
+    let all = engine.email_get(&account, &json!({"ids":[id]})).await;
+    assert!(all["list"][0]["bodyValues"].is_object());
+    assert_eq!(all["list"][0]["futureMetadata"], json!({"preserved":true}));
+    assert_eq!(engine.email_get(&account, &json!({"ids":[id],"properties":null})).await, all);
+    let headers = engine.email_get(&account, &json!({"ids":[id,id],"properties":["subject","from"]})).await;
+    let rows = headers["list"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0], rows[1]);
+    assert_eq!(rows[0].as_object().unwrap().keys().map(String::as_str).collect::<Vec<_>>(), ["from","id","subject"]);
+    for properties in [json!([]),json!(["unknownProperty"])] {
+        let only_id = engine.email_get(&account, &json!({"ids":[id],"properties":properties})).await;
+        assert_eq!(only_id["list"], json!([{"id":id}]));
+    }
+    let properties = ["bodyValues","attachments","mailwomanMentions","mailwomanCalendar","mailwomanAuth","mailwomanMdn","header:Expires:asText","futureMetadata"];
+    let selected = engine.email_get(&account, &json!({"ids":[id],"properties":properties})).await;
+    let object = selected["list"][0].as_object().unwrap();
+    assert_eq!(object.len(), properties.len() + 1);
+    for property in properties { assert!(object.contains_key(property), "missing {property}: {selected}"); }
+    assert_eq!(object["bodyValues"], all["list"][0]["bodyValues"]);
+    assert_eq!(object["futureMetadata"], json!({"preserved":true}));
+    assert!(object["mailwomanMdn"].is_object());
+    assert!(object["header:Expires:asText"].is_string());
+    assert!(!object.contains_key("mailwomanDsnReport"));
+    assert!(!object.contains_key("mailwomanInlineParts"));
+    engine.store().close().await;
+}
+
+#[tokio::test]
 async fn email_get_never_exposes_foreign_ids_in_headers_bodies_or_extensions() {
     let engine = engine().await;
     let owner = named_account(&engine, "owner@isolation.invalid").await;
