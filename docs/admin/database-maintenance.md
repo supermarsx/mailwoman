@@ -269,6 +269,19 @@ found only in a later chunk remains protected, while previously expired chunks
 stay removed. Cleanup rotates across accounts/types and is gradual; sustained
 writes above its global batch capacity can extend the configured age window.
 
+The `changes` table stores account/message IDs, operation names, state numbers
+and timestamps; it does not store message bodies. Identical ingest replays do
+not add history. Real ingest mutations and their Email/Mailbox history commit
+atomically, so a failed history write can be retried without losing a mutation.
+Index repair still runs on identical retries.
+
+At the default 1,000 rows per 60-second interval, the theoretical global ceiling
+is about 1.44 million removed rows per day. Actual cleanup is lower when groups
+have no expired rows, the cursor wraps, or idle/WAL/time budgets defer work. This
+is eventual retention, not a hard size cap or a guarantee for high-write loads.
+Deleting history frees logical database space; reclaiming the physical SQLite
+file requires the separate incremental/offline vacuum mechanisms described above.
+
 Already-checkpointed, oversized allocated WAL files may be recycled by SQLite
 without checkpointing arbitrary pending data. A WAL that still needs recovery or
 has blocking readers remains protected and reports that cleanup is deferred.

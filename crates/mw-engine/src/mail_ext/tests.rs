@@ -113,6 +113,33 @@ async fn ingest(
 // ---- Thread/get + Thread/changes (J1) -----------------------------------
 
 #[tokio::test]
+async fn identical_ingest_repairs_index_without_growing_change_history() {
+    let engine = engine().await;
+    let account = account(&engine).await;
+    let mailbox = mailbox(&engine, &account, "INBOX", Some("inbox")).await;
+    let bytes = raw_msg("<replayed@ingest.invalid>", "Replay", None, &[], "Body");
+    let id = ingest(&engine, &account, &mailbox, bytes.clone(), 1, "2024-01-01T00:00:00Z").await;
+    let email_state = engine.store().current_state(&account, "Email").await.unwrap();
+    let mailbox_state = engine.store().current_state(&account, "Mailbox").await.unwrap();
+    assert_eq!(email_state, 1);
+    assert_eq!(mailbox_state, 1);
+    assert!(engine.search().fetch_doc(&id).unwrap().is_some());
+    engine.search().delete(&id).unwrap();
+    assert!(engine.search().fetch_doc(&id).unwrap().is_none());
+    for _ in 0..2 {
+        assert_eq!(ingest(&engine, &account, &mailbox, bytes.clone(), 1, "2024-01-01T00:00:00Z").await, id);
+        assert_eq!(engine.store().current_state(&account, "Email").await.unwrap(), email_state);
+        assert_eq!(engine.store().current_state(&account, "Mailbox").await.unwrap(), mailbox_state);
+    }
+    assert!(engine.search().fetch_doc(&id).unwrap().is_some(), "unchanged retry must repair an incomplete index write");
+    let changed = raw_msg("<replayed@ingest.invalid>", "Replay", None, &[], "Changed body");
+    assert_eq!(ingest(&engine, &account, &mailbox, changed, 1, "2024-01-01T00:00:00Z").await, id);
+    assert_eq!(engine.store().current_state(&account, "Email").await.unwrap(), email_state + 1);
+    assert_eq!(engine.store().current_state(&account, "Mailbox").await.unwrap(), mailbox_state + 1);
+    engine.store().close().await;
+}
+
+#[tokio::test]
 async fn thread_get_returns_real_jwz_thread_oldest_first() {
     let e = engine().await;
     let acct = account(&e).await;

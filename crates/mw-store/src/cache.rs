@@ -20,6 +20,10 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+#[cfg(test)]
+#[path = "message_ingest_history_tests.rs"]
+mod ingest_history_tests;
+
 use chrono::Utc;
 
 use crate::backend::Dialect;
@@ -151,6 +155,24 @@ pub struct Message {
     pub blob_ref: Option<String>,
     /// Authoritative opaque cache identity, changed transactionally by database triggers.
     pub cache_revision: String,
+}
+
+/// Transactional result of a cached-body ingest. Cache-only replays need not
+/// advance the client-visible mail change log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageIngestOutcome {
+    pub stable_id: String,
+    pub existed: bool,
+    pub changed: bool,
+}
+
+fn same_ingest_flags(left: &str, right: &str) -> bool {
+    if left == right { return true; }
+    let values = |json: &str| -> Option<BTreeSet<String>> {
+        let flags: Vec<serde_json::Value> = serde_json::from_str(json).ok()?;
+        flags.into_iter().map(|flag| serde_json::to_string(&flag).ok()).collect()
+    };
+    matches!((values(left), values(right)), (Some(left), Some(right)) if left == right)
 }
 
 /// The backend coordinates a `stable_id` currently maps to (plan §1.6). The
@@ -776,11 +798,21 @@ impl Store {
         m: &MessageUpsert<'_>,
     ) -> Result<(String, bool), StoreError> {
         let tx = self.backend.begin().await?;
-        self.upsert_message_tx(m, tx).await
+        self.upsert_message_tx(m, tx, false).await.map(|outcome| (outcome.stable_id, outcome.existed))
     }
 
     /// Store the immutable MIME body and attach it atomically against background GC.
     pub async fn upsert_message_with_body(&self, m: &MessageUpsert<'_>, raw: &[u8]) -> Result<(String, bool), StoreError> {
+        self.upsert_body(m, raw, false).await.map(|outcome| (outcome.stable_id, outcome.existed))
+    }
+
+    /// Engine ingestion atomically records real Email and Mailbox changes with
+    /// the message. An identical retry repairs indexing without growing history.
+    pub async fn ingest_message_with_body(&self, m: &MessageUpsert<'_>, raw: &[u8]) -> Result<MessageIngestOutcome, StoreError> {
+        self.upsert_body(m, raw, true).await
+    }
+
+    async fn upsert_body(&self, m: &MessageUpsert<'_>, raw: &[u8], record_changes: bool) -> Result<MessageIngestOutcome, StoreError> {
         let blob_ref=self.body_reference(m.account_id,raw);
         // A header/full-sync replay must not refill an intentionally expired
         // immutable body and immediately expire it again. Changed content or
@@ -792,16 +824,17 @@ impl Store {
             // Identical immutable content cannot change its header/part metadata.
             // Preserve the cleaned envelope; replaying the parsed input would put
             // expired full bodyValues back, or erase a reader's concurrent refill.
-            return self.upsert_message_with_status(&MessageUpsert {blob_ref:None,envelope:None,..m.clone()}).await;
+            let tx = self.backend.begin().await?;
+            return self.upsert_message_tx(&MessageUpsert {blob_ref:None,envelope:None,..m.clone()}, tx, record_changes).await;
         }
         let sealed=self.prepare_body_seal(m.account_id,raw,&blob_ref).await?;
         let mut tx = self.backend.begin().await?;
         self.put_body_tx(m.account_id, &blob_ref, raw, sealed, false, &mut tx).await?;
         let m = MessageUpsert { blob_ref: Some(&blob_ref), ..m.clone() };
-        self.upsert_message_tx(&m, tx).await
+        self.upsert_message_tx(&m, tx, record_changes).await
     }
 
-    async fn upsert_message_tx(&self, m: &MessageUpsert<'_>, mut tx: crate::backend::Tx) -> Result<(String, bool), StoreError> {
+    async fn upsert_message_tx(&self, m: &MessageUpsert<'_>, mut tx: crate::backend::Tx, skip_unchanged: bool) -> Result<MessageIngestOutcome, StoreError> {
         crate::background_maintenance::lock_body_account(&mut tx, m.account_id).await?;
         if let Some(blob) = m.blob_ref {
             if q("SELECT blob_ref FROM bodies WHERE blob_ref=?1 AND account_id=?2").bind(blob).bind(m.account_id).fetch_opt_scalar_string_tx(&mut tx).await?.is_none() {
@@ -809,11 +842,6 @@ impl Store {
             }
             q("DELETE FROM body_gc_candidate WHERE blob_ref=?1").bind(blob).execute_tx(&mut tx).await?;
         }
-        let sealed_env = match m.envelope {
-            Some(bytes) => Some(self.key.seal(bytes)?),
-            None => None,
-        };
-
         // Portable row lock and ownership predicate in the write transaction.
         // A missing and a foreign mailbox have the same public outcome.
         if q("UPDATE mailboxes SET id=id WHERE id=?1 AND account_id=?2")
@@ -863,6 +891,42 @@ impl Store {
             }
         };
 
+        if existed && skip_unchanged {
+            let previous = q("SELECT mailbox_id,uid,uidvalidity,message_id,thread_id,internaldate,size,flags_json,blob_ref,envelope_json FROM messages WHERE stable_id=?1 AND account_id=?2")
+                .bind(&stable_id).bind(m.account_id).fetch_all_tx(&mut tx).await?;
+            if let Some(previous) = previous.first() {
+                let same_fields = previous.get_string("mailbox_id") == m.mailbox_id
+                    && previous.get_i64("uid") == i64::from(m.uid)
+                    && previous.get_i64("uidvalidity") == i64::from(m.uidvalidity)
+                    && previous.get_opt_string("message_id").as_deref() == m.message_id
+                    && previous.get_opt_string("thread_id").as_deref() == m.thread_id
+                    && previous.get_opt_string("internaldate").as_deref() == m.internaldate
+                    && previous.get_i64("size") == to_i64(m.size)
+                    && same_ingest_flags(&previous.get_string("flags_json"), m.flags_json)
+                    && m.blob_ref.is_none_or(|blob| previous.get_opt_string("blob_ref").as_deref() == Some(blob));
+                // Ciphertexts have randomized nonces. Compare plaintext only
+                // when every cheap field matches; missing input means preserve.
+                let same_envelope = if same_fields {
+                    match m.envelope {
+                        None => true,
+                        Some(incoming) => match previous.get_opt_blob("envelope_json") {
+                            Some(sealed) => self.key.open(&sealed).is_ok_and(|plaintext| {
+                                plaintext.as_slice() == incoming || matches!(
+                                    (serde_json::from_slice::<serde_json::Value>(&plaintext), serde_json::from_slice::<serde_json::Value>(incoming)),
+                                    (Ok(left), Ok(right)) if left == right
+                                )
+                            }),
+                            None => false,
+                        },
+                    }
+                } else { false };
+                if same_fields && same_envelope {
+                    tx.commit().await?;
+                    return Ok(MessageIngestOutcome { stable_id, existed, changed: false });
+                }
+            }
+        }
+        let sealed_env = m.envelope.map(|bytes| self.key.seal(bytes)).transpose()?;
         // Upsert the full row under the resolved stable_id.
         q("INSERT INTO messages
                  (stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id,
@@ -894,8 +958,23 @@ impl Store {
         .execute_tx(&mut tx)
         .await?;
 
+        if skip_unchanged {
+            let now = chrono::Utc::now().to_rfc3339();
+            for (kind, id, op) in [
+                ("Email", stable_id.as_str(), if existed { "updated" } else { "created" }),
+                ("Mailbox", m.mailbox_id, "updated"),
+            ] {
+                q("INSERT INTO changes(account_id,type,state,stable_id,op,at)
+                   VALUES(?1,?2,(SELECT COALESCE(MAX(state),0)+1 FROM (
+                     SELECT MAX(state) AS state FROM changes WHERE account_id=?1 AND type=?2
+                     UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type=?2
+                   ) heads),?3,?4,?5)")
+                    .bind(m.account_id).bind(kind).bind(id).bind(op).bind(&now)
+                    .execute_tx(&mut tx).await?;
+            }
+        }
         tx.commit().await?;
-        Ok((stable_id, existed))
+        Ok(MessageIngestOutcome { stable_id, existed, changed: true })
     }
 
     /// Fetch a message row by stable id.

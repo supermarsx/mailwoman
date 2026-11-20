@@ -1039,9 +1039,9 @@ impl Engine {
         let env_bytes = crate::attachment_metadata::encode(&email);
         let flags_json = flags_to_json(&raw.flags);
 
-        let (sid, existed) = self
+        let outcome = self
             .store
-            .upsert_message_with_body(&MessageUpsert {
+            .ingest_message_with_body(&MessageUpsert {
                 account_id,
                 mailbox_id,
                 uid,
@@ -1055,6 +1055,8 @@ impl Engine {
                 blob_ref: None,
             }, &raw.raw)
             .await?;
+        let sid = outcome.stable_id;
+        let existed = outcome.existed;
 
         if matches!(raw.message_ref,MessageRef::Imap{..}) && self.runtime(account_id).is_some_and(|runtime|runtime.backend.supports_cached_body_refetch()){
             self.store.register_refetchable_cached_body(account_id,&sid).await?;
@@ -1066,7 +1068,9 @@ impl Engine {
 
         // Drop any cached envelope/body for this id so the cache-aside read paths
         // never serve a pre-update copy (plan §3 e10). No-op without a cache.
-        self.invalidate_message_cache(&sid).await;
+        if outcome.changed {
+            self.invalidate_message_cache(&sid).await;
+        }
 
         // Index for search, unless the account is zero-access: its mail gets no
         // index document, and any it had from before the posture changed is
@@ -1131,21 +1135,8 @@ impl Engine {
             }
         }
 
-        // Record the change that advances Email state (+ the mailbox counter).
-        let op = if existed {
-            ChangeOp::Updated
-        } else {
-            ChangeOp::Created
-        };
-        self.record_change(account_id, ChangeType::Email, &sid, op)
-            .await?;
-        self.record_change(
-            account_id,
-            ChangeType::Mailbox,
-            mailbox_id,
-            ChangeOp::Updated,
-        )
-        .await?;
+        // Email/Mailbox history committed with the Store mutation above.
+        // Index repair remains idempotent, including unchanged retry ingests.
         if !existed && arrival {
             self.emit_event(
                 crate::change::EventKind::MessageReceived,
