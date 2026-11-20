@@ -60,10 +60,65 @@ Existing limitations remain explicit:
 - A failed commit may have reached durable storage. A failed reload is not a
   rollback. The owner remains closed until explicit recovery and source repair.
 
-No request-per-second improvement is established by this source change. Focused
-Store, real full-text publication, cancellation, race, erasure and integrated
-Engine gates, followed by a frozen policy-loaded sealed-storage comparison, are
-required before capacity claims.
+The frozen release comparison below establishes a diagnostic improvement for
+this workload. It does not establish the 40,000-RPS or 10,000-user capacity target.
+
+## Measured release comparison, 2026-11-20
+
+Four alternating baseline/candidate/candidate/baseline runs used 100 simulated
+authenticated users with 50 messages each, the representative UI property sets,
+encrypted SQLite and sealed search storage. The application had four CPU cores,
+4 GiB memory and no swap; two generator processes had separate CPU affinity and
+a combined two-core/1 GiB limit. Every measured window lasted 60 seconds with
+16 outstanding requests. No compiler or other owned load campaign ran alongside
+the comparison.
+
+| Diagnostic | Baseline | Publication owner |
+| --- | --- | --- |
+| Successful authenticated HTTP RPS, run 1 | 38.25 | 115.25 |
+| Successful authenticated HTTP RPS, run 2 | 37.93 | 114.23 |
+| Mean successful HTTP RPS | 38.09 | 114.74 |
+| Mean of the two run p95 latencies | 1,020 ms | 627 ms |
+| HTTP errors / throttled requests / timeouts | 0 / 0 / 0 | 0 / 0 / 0 |
+
+The successful throughput ratio was **3.01x**. Throughput counts only validated
+requests completed inside the scheduled window; requests drained afterward do
+not inflate it. The latency row averages per-run quantiles and is not a pooled
+percentile. All runs passed live policy revoke/restore, linked-login denial,
+cross-account isolation, scanner enforcement and encrypted-storage checks.
+
+The candidate also had to finish every required index publication without dirty,
+failed, queued or poisoned work or telemetry debt. In its first run, 2,772 real
+message changes produced 2,772 submitted/completed jobs and published changes,
+grouped into 393 commits. A zero-work or partially skipped publication path does
+not qualify as a throughput improvement.
+
+Frozen sources and artifacts:
+
+- Baseline revision: `426177bfcfaaf0ecfb7608cd3cead79379bd2b09`.
+- Candidate revision: `4501ef46be8f97d214d9b326255d6e8f23ac25b0`.
+- Baseline image: `sha256:544c8849784e251d3ae4b70e99d12f4f3efbdfe60c2b309c7b39b2bf56245c4f`.
+- Candidate image: `sha256:75d72e0599e9d13f400a7d1935adb43475b1f668802da6b791111211088fe3f2`.
+- Candidate normal executable: `e70d8c256bd3dc126e642af4920c18e64c054a5eb3460bdf395aeca700ab7651`.
+- Local retained comparison: `.orchestration/reports/perf-investigation/index-publication-comparison-v2.json`.
+
+The image's 13 Linux fixture checks passed and profiling did not change the
+normal executable's checksum. A separate 20-second instrumented run initially
+failed the harness's future-heartbeat timestamp check and produced no usable
+report. Its retained failure was excluded; a fresh retry with unchanged guards
+passed. Instrumented results are excluded from the throughput comparison.
+
+The retry observed 140 commits totaling 16.06 seconds and 140 reader reloads
+totaling 1.30 seconds. These process-wide elapsed counters include waits and
+overlapping background work; they cannot be added or read as CPU percentages.
+Commit/publication cost remains a priority for further measurement.
+
+This is a local diagnostic with 100 synthetic users, not a 10,000-user capacity
+test. The host differs from the target host despite enforced container limits.
+Upstream mail servers, successful sending, external physical generators and
+WebSocket capacity were not measured. The subsequent contact/header-cache and
+DLP-worker changes are not included in these numbers. The 40,000-RPS target
+remains unproven.
 
 ## Verification before the release benchmark
 
