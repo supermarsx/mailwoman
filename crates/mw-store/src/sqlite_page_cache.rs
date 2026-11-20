@@ -217,8 +217,8 @@ mod tests {
         let legacy = PoolPolicy::from_boot_values(Some("{}"), None).unwrap();
         assert_eq!(legacy.sqlite_page_cache_mib, None);
         assert_eq!(
-            serde_json::to_value(legacy).unwrap()["sqlitePageCacheMiB"],
-            serde_json::Value::Null
+            serde_json::to_value(legacy).unwrap().get("sqlitePageCacheMiB"),
+            Some(&serde_json::Value::Null)
         );
         for value in ["0", "15", "1025", "16.5", "\"256\""] {
             let encoded = format!("{{\"sqlitePageCacheMiB\":{value}}}");

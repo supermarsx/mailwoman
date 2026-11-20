@@ -20,6 +20,7 @@ pub struct PoolPolicy {
     pub minimum_connections: u32,
     pub sqlite_max_connections: Option<u32>,
     /// MAIN-database foreground pooled soft target; null preserves driver defaults.
+    #[serde(rename = "sqlitePageCacheMiB")]
     pub sqlite_page_cache_mib: Option<u32>,
     pub postgres_max_connections: Option<u32>,
     pub acquire_timeout_ms: u64,
