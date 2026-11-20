@@ -219,7 +219,23 @@ pub async fn run(args: DbArgs) -> anyhow::Result<()> {
                 let result=mw_store::database_maintenance::purge_default_search_index(&logical_path,apply).map_err(|e|anyhow::anyhow!(e.to_string()))?;
                 println!("Search index: {}",serde_json::to_string_pretty(&result)?);
             }
-            let result=mw_store::database_maintenance::sqlite_maintenance_with_incremental(&path,apply,orphan_bodies,logs_older_than_days,compact,enable_incremental_vacuum).await.map_err(|e|anyhow::anyhow!(e.to_string()))?;
+            let cancel=std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let requested=cancel.clone();
+            #[cfg(unix)]
+            let mut terminate=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            let signals=tokio::spawn(async move {
+                #[cfg(unix)]
+                tokio::select! {_=tokio::signal::ctrl_c()=>{},_=terminate.recv()=>{}}
+                #[cfg(not(unix))]
+                let _=tokio::signal::ctrl_c().await;
+                requested.store(true,std::sync::atomic::Ordering::Relaxed);
+                eprintln!("[maintenance] cancellation requested; waiting for SQLite to interrupt, roll back the active statement and close. Keep the app stopped until this command exits.");
+            });
+            // Keep polling the operation after a signal. Dropping a VACUUM
+            // future would not prove that its worker has released the file.
+            let result=mw_store::database_maintenance::sqlite_maintenance_with_control(&path,apply,orphan_bodies,logs_older_than_days,compact,enable_incremental_vacuum,cancel).await;
+            signals.abort();let _=signals.await;
+            let result=result.map_err(|e|anyhow::anyhow!(e.to_string()))?;
             println!("{}",serde_json::to_string_pretty(&result)?);
         }
         DbCommand::Keygen => {
