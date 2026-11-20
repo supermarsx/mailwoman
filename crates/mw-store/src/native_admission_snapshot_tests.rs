@@ -81,6 +81,11 @@ async fn contract(s: Store) {
     assert_eq!(source.session.api_url, old.0.api_url);
     assert_eq!(source.session.credentials, old.0.credentials);
     assert_eq!(source.last_seen, old.1);
+    let account_source = raw.account_credentials(&s).unwrap().unwrap();
+    let account_old = s.account_credentials_with_revision(&account).await.unwrap();
+    assert_eq!(account_source.credentials(), &account_old.0);
+    assert_eq!(account_source.revision(), account_old.1.as_slice());
+    assert!(!format!("{account_source:?}").contains("fixture-secret"));
     assert_eq!(
         raw.account().unwrap().unwrap(),
         s.get_account(&account).await.unwrap()
@@ -128,6 +133,7 @@ async fn contract(s: Store) {
     let other = Store::open_in_memory(ServerKey::generate()).await.unwrap();
     assert!(raw.revision(&other).is_err());
     assert!(raw.session(&other).is_err());
+    assert!(raw.account_credentials(&other).is_err());
     other.close().await;
     // Current SQL source, independent of any earlier result/revision, is returned.
     q("UPDATE sessions SET activity_at='2000-01-01T00:00:00Z' WHERE id=?1")
@@ -184,6 +190,7 @@ async fn contract(s: Store) {
             .all(|r| r.try_get_opt_string("username").unwrap().is_none())
     );
     assert!(over.session(&s).is_err());
+    assert!(over.account_credentials(&s).is_err());
     s.set_setting("fixture:exact:flag", "small").await.unwrap();
     q("UPDATE sessions SET linked_internal=2 WHERE id=?1")
         .bind(&id)
@@ -419,4 +426,130 @@ async fn alias_retarget_and_second_hop_are_fresh_data_not_a_prepared_identity_al
             .second_alias
     );
     s.close().await;
+}
+
+async fn credential_source_contract(s: Store) {
+    let (account, id) = seed(&s).await;
+    let before = s
+        .native_cookie_admission_snapshot(&id, &request())
+        .await
+        .unwrap();
+    let original = before.account_credentials(&s).unwrap().unwrap();
+    let next = Credentials {
+        username: "person@example.test".into(),
+        password: "replaced-secret-do-not-log".into(),
+    };
+    let sealed = s.key.seal(&crate::encode_creds(&next)).unwrap();
+    q("UPDATE accounts SET sealed_creds=?2 WHERE id=?1")
+        .bind(&account)
+        .bind(sealed.clone())
+        .execute(&s.backend)
+        .await
+        .unwrap();
+    // Simulate a writer committing during a connect/permit preparation wait:
+    // the final SELECT must obtain replacement credentials, not initial hint.
+    let fresh = s
+        .native_cookie_admission_snapshot(&id, &request())
+        .await
+        .unwrap();
+    let current = fresh.account_credentials(&s).unwrap().unwrap();
+    assert_eq!(current.credentials(), &next);
+    assert_eq!(current.revision(), sealed.as_slice());
+    assert_ne!(original.revision(), current.revision());
+    // Original CAS rejects only its exact source. A stale rejection cannot mark
+    // the independent replacement, while a matching current rejection is seen.
+    assert!(
+        !s.reject_account_credential_revision(&account, original.revision())
+            .await
+            .unwrap()
+    );
+    assert!(
+        s.reject_account_credential_revision(&account, current.revision())
+            .await
+            .unwrap()
+    );
+    let rejected = s
+        .native_cookie_admission_snapshot(&id, &request())
+        .await
+        .unwrap();
+    let policy: serde_json::Value =
+        serde_json::from_str(&rejected.account().unwrap().unwrap().sync_policy_json).unwrap();
+    assert_eq!(policy["credential_rejected"], true);
+    assert_eq!(
+        rejected
+            .account_credentials(&s)
+            .unwrap()
+            .unwrap()
+            .revision(),
+        current.revision()
+    );
+    // Malformed account ciphertext is deferred until the connector reader. It
+    // cannot make a good session magically authenticate or hide the old error.
+    q("UPDATE accounts SET sealed_creds=?2 WHERE id=?1")
+        .bind(&account)
+        .bind(vec![1u8, 2, 3])
+        .execute(&s.backend)
+        .await
+        .unwrap();
+    let corrupt = s
+        .native_cookie_admission_snapshot(&id, &request())
+        .await
+        .unwrap();
+    assert!(corrupt.session(&s).unwrap().is_some());
+    assert!(corrupt.account_credentials(&s).is_err());
+    assert!(s.account_credentials_with_revision(&account).await.is_err());
+    // Oversize is masked in SQL, before even the shared decoder sees ciphertext.
+    q("UPDATE accounts SET sealed_creds=?2 WHERE id=?1")
+        .bind(&account)
+        .bind(vec![7u8; MAX_PAYLOAD + 1])
+        .execute(&s.backend)
+        .await
+        .unwrap();
+    let oversized = s
+        .native_cookie_admission_snapshot(&id, &request())
+        .await
+        .unwrap();
+    assert!(!oversized.bounded_shape());
+    assert!(oversized.account_credentials(&s).is_err());
+    use sqlx::Row as _;
+    for row in &oversized.rows {
+        let value: Option<Vec<u8>> = match row {
+            Row::Sqlite(r) => r.try_get("account_sealed_creds").unwrap(),
+            Row::Postgres(r) => r.try_get("account_sealed_creds").unwrap(),
+        };
+        assert!(value.is_none());
+    }
+    s.close().await;
+}
+#[tokio::test]
+async fn sqlite_account_credentials_use_fresh_bound_source_and_original_rejection_cas() {
+    credential_source_contract(Store::open_in_memory(ServerKey::generate()).await.unwrap()).await;
+}
+#[tokio::test]
+async fn postgres_account_credentials_use_fresh_bound_source_and_original_rejection_cas() {
+    let Ok(dsn) = std::env::var("MW_TEST_PG") else {
+        eprintln!("SKIP: MW_TEST_PG absent; not actual PostgreSQL evidence");
+        return;
+    };
+    use sqlx::Connection;
+    let schema = format!("native_credential_{}", uuid::Uuid::new_v4().simple());
+    let mut admin = sqlx::PgConnection::connect(&dsn).await.unwrap();
+    sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    let mut scoped = url::Url::parse(&dsn).unwrap();
+    scoped
+        .query_pairs_mut()
+        .append_pair("options", &format!("-csearch_path={schema}"));
+    credential_source_contract(
+        Store::open(scoped.as_str(), ServerKey::generate())
+            .await
+            .unwrap(),
+    )
+    .await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
 }

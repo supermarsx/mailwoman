@@ -75,6 +75,27 @@ impl std::fmt::Debug for NativeSessionSource {
             .finish_non_exhaustive()
     }
 }
+/// Credential source from the account row in this SAME snapshot. This is not
+/// an authenticated context; never retain it as a credential-authority memo.
+pub struct NativeAccountCredentials {
+    credentials: crate::Credentials,
+    revision: Vec<u8>,
+}
+impl std::fmt::Debug for NativeAccountCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NativeAccountCredentials")
+            .finish_non_exhaustive()
+    }
+}
+impl NativeAccountCredentials {
+    pub fn credentials(&self) -> &crate::Credentials {
+        &self.credentials
+    }
+    /// Original randomized sealed-credential CAS bytes; never serialize/log.
+    pub fn revision(&self) -> &[u8] {
+        &self.revision
+    }
+}
 /// Raw fresh verified tuple: evaluation still must validate all owner/binding/
 /// principal/realm relations before deriving any settings/storage namespace.
 pub struct NativePrincipalSource {
@@ -196,6 +217,24 @@ impl NativeAdmissionSnapshot {
                 Store::account_from_row(row)
             })
             .transpose()
+    }
+    /// Decode only at the connector's ORIGINAL semantic point, after earlier
+    /// session/policy/account gates. The key/scope and full source byte budget
+    /// are checked before any plaintext is exposed. No lease or cache is touched.
+    pub fn account_credentials(
+        &self,
+        store: &Store,
+    ) -> Result<Option<NativeAccountCredentials>, StoreError> {
+        self.scoped(store)?;
+        let Some(row) = self.one("account-credentials")? else {
+            return Ok(None);
+        };
+        let (credentials, revision) =
+            store.decode_account_credentials_with_revision(row.get_blob("account_sealed_creds"))?;
+        Ok(Some(NativeAccountCredentials {
+            credentials,
+            revision,
+        }))
     }
     pub fn names(&self) -> Result<Vec<String>, StoreError> {
         match self.one("names")? {
@@ -443,6 +482,16 @@ fn build_sql(pg: bool) -> String {
                 t("username", "a.username"),
                 t("sync_policy_json", "a.sync_policy_json"),
             ],
+        ),
+        section(
+            "account-credentials",
+            owned,
+            vec![Field {
+                name: "account_sealed_creds",
+                expr: "a.sealed_creds".into(),
+                kind: Kind::Blob,
+                nullable: false,
+            }],
         ),
         section(
             "linked",

@@ -65,3 +65,29 @@ Before integration into routing, additional real-router independent-writer,
 body/permit-wait revocation, process/security guard parity and physical SQL trace
 verification are required. Static statement construction is finite (two pinned
 backend shapes); fewer roundtrips does not remove the joins, scans or sorts.
+
+## Connector credential source follow-up (source only)
+
+The snapshot now includes a separate deferred account sealed-credentials section
+joined through the SAME current primary session/account. It shares the original
+Store credential/revision decoder with `account_credentials_with_revision`.
+`NativeAccountCredentials` Debug is redacted; its revision is the existing opaque
+randomized sealed bytes, never a newly invented hash or a credential memo.
+Engine runtime rejection and the original conditional rejection update must use
+those exact bytes. Invalid ciphertext fails at the connector's original boundary;
+oversized bytes are masked by the SQL aggregate guard before decoder/transfer.
+
+Two additional source-authored cases cover SQLite and real UUID-schema
+PostgreSQL replacement during preparation, stale rejection CAS false versus
+current true, current credential_rejected policy visibility, malformed/deferred
+ciphertext and over-budget pre-transfer masking. The snapshot filter now has
+EIGHT cases (two actual-PG cases when MW_TEST_PG is configured); the warm-policy
+filter remains TWO. These follow-up changes have not executed. The earlier
+24-case root gate verifies the preceding source only and is not evidence for
+this follow-up or handler integration.
+
+No handler shortcut has landed. In particular, a registered runtime still runs
+the full existing `engine_mode::ensure_account`: account gate, complete account,
+credentials/rejection revision, configured upstream/account match and domain
+binding checks under connect_lock. A later candidate must replace those checks
+from this coherent source, not omit them because `is_registered` is true.

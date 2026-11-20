@@ -522,9 +522,16 @@ impl Store {
             .fetch_optional(&self.backend)
             .await?
             .ok_or(StoreError::NotFound)?;
-        let revision = row.get_blob("sealed_creds");
-        let credentials = crate::decode_creds(&self.key.open(&revision)?)?;
-        Ok((credentials, revision))
+        self.decode_account_credentials_with_revision(row.get_blob("sealed_creds"))
+    }
+
+    /// Shared pure decoder for one already owner-scoped source observation.
+    /// Sealed bytes ARE the existing opaque CAS revision, not a raw/body hash.
+    pub(crate) fn decode_account_credentials_with_revision(
+        &self, revision:Vec<u8>,
+    )->Result<(crate::Credentials,Vec<u8>),StoreError>{
+        let credentials=crate::decode_creds(&self.key.open(&revision)?)?;
+        Ok((credentials,revision))
     }
 
     /// Opaque randomized sealed-credential revision; never expose or log it.
