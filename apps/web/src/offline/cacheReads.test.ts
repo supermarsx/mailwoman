@@ -3,6 +3,8 @@ import {activateAccountPreferences,preferenceAccount,suspendAccountPreferences} 
 import {configureOfflinePolicy,DEFAULT_OFFLINE_POLICY,reportOffline} from './runtime.ts';
 import {offlineHttpRead} from './httpCache.ts';
 import {offlineBlobRead} from './blobCache.ts';
+// The shared setup can preload these caches through HTTP/session modules.
+vi.hoisted(()=>vi.resetModules());
 const state=vi.hoisted(()=>({rows:new Map<string,unknown>(),fail:false}));
 vi.mock('./vault.ts',()=>({offlineVault:async()=>{if(state.fail)throw new Error('Storage disabled');return {get:async(namespace:string,key:string)=>state.rows.get(namespace+key),put:async(namespace:string,key:string,value:unknown)=>{state.rows.set(namespace+key,value);return true;}};}}));
 beforeEach(()=>{vi.stubGlobal('Headers',new Response().headers.constructor);state.rows.clear();state.fail=false;reportOffline(false);activateAccountPreferences('a','verified_owner_123456');configureOfflinePolicy({...DEFAULT_OFFLINE_POLICY,enabled:true},preferenceAccount()!);});
