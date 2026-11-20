@@ -338,6 +338,69 @@ each on the same encrypted, policy-enforced workload. Moving a function into an
 contention; offloading also needs bounded admission and explicit failure,
 shutdown and recovery behavior. Security decisions remain authoritative.
 
+### First structural changes: controlled result
+
+Release source `426177bf` includes fresh final-admission query batching, a
+bounded HTTP aggregation worker, a bounded application-log writer, and opt-in
+index wall timings. Both server/native-fixture metadata checks passed, as did
+22 HTTP-telemetry, 20 log/redaction, two index-timing and 21 generator tests.
+The Linux release build executed all 13 fixture gates, including the strict
+timing-switch parser. Its immutable image is
+`544c8849784e251d3ae4b70e99d12f4f3efbdfe60c2b309c7b39b2bf56245c4f`.
+
+Four uninstrumented, 60-second runs used baseline/candidate/candidate/baseline
+order, the same 100-user/50-message encrypted corpus, default three index
+workers, 16 outstanding requests and the previous CPU/RAM limits. Actual UI
+property profiles matched. All HTTP, isolation, policy revoke/restore,
+linked-login and scanner checks passed. Candidate telemetry had zero drops
+and no pending aggregation debt at the final snapshots.
+
+| Release | Successful in-window RPS, each run | Mean RPS | SQL reads per completed HTTP, each run |
+| --- | --- | ---: | --- |
+| Baseline `7c0b4829` | 37.08, 35.58 | 36.33 | 67.49, 67.58 |
+| Candidate `426177bf` | 36.17, 37.18 | 36.68 | 62.04, 62.02 |
+
+The roughly one-percent throughput difference is within observed variation;
+there is **no demonstrated throughput gain**. Fewer SQL reads are verified,
+but the principal bottleneck remains. The fixture does not install the CLI's
+application-log writer, so this comparison cannot measure that writer's
+production I/O improvement. It measures the combined HTTP/authentication
+changes rather than isolating their individual effects.
+
+Two separate 20-second candidate diagnostics enabled request/index timings.
+At 16 outstanding requests, 834 responses completed in-window (41.7 RPS),
+850 completed including drain, and p95 was 898 ms. At 64 outstanding, the
+corresponding figures were 790 (39.5 RPS), 854 and 3,090 ms. Both passed the
+same security/coverage/resource gates without HTTP errors or telemetry loss.
+More concurrency did not demonstrate additional throughput. These instrumented,
+shorter runs are excluded from the uninstrumented comparison above.
+
+| Index wall counter | 16 outstanding | 64 outstanding |
+| --- | ---: | ---: |
+| Commit calls | 336 | 340 |
+| Summed commit time | 20.316 s | 21.783 s |
+| Mean commit time | 60.46 ms | 64.07 ms |
+| Summed writer-lock wait | 47.245 s | 50.272 s |
+| Summed underlying sealed-file writes | 15.578 s | 16.314 s |
+| Summed reader reload | 3.090 s | 3.710 s |
+| Summed sealed decode | 2.500 s | 2.848 s |
+
+The completed phase intervals including drain were 20.623 and 22.238 seconds.
+The serialized writer spent almost those entire intervals committing. App CPU
+was approximately 2.17/2.21 cores and post-phase RSS 346/348 MiB. These findings
+support index publication as the immediate throughput constraint. The write
+counter includes underlying durability work; it does not isolate `fsync`.
+Nested and concurrent times overlap and must never be added or interpreted as
+CPU percentages.
+
+The next diagnostic measures existing bulk updates before selecting publication
+batch sizes. Any new publisher must keep live source/posture checks at execution,
+preserve acknowledgements after commit/reload, and order mutations with rebuild
+and physical account erasure. Additional crash-recovery or early-acknowledgement
+guarantees require durable replay design. None of these index architecture
+changes is implemented by this measurement. The 40,000-RPS/10,000-user,
+simultaneous-WebSocket and whole-host capacity targets remain unproven.
+
 Native fixtures can opt into additional index wall-time diagnostics with
 `MW_NATIVE_LOAD_INDEX_TIMING=1` (`0` or absence keeps them disabled). This is
 validated before seeding; ordinary production constructors do not enable it.
