@@ -522,6 +522,10 @@ waits for the new container's health check, and the script checks `/healthz` and
 extends each startup/public-check deadline. These checks prove app/HTTP readiness,
 not mailbox login, SMTP delivery, external integrations or off-host reachability.
 
+After an interrupted SQLite write or maintenance operation, recovery may need a
+longer startup window. See [SQLite startup and recovery](../admin/database-startup.md)
+for recovery progress, the separate startup budget and `--timeout 3600`.
+
 When an update fails Compose's health wait or the public check, the script rolls
 it back: it keeps the failed release's files and its last 300 log lines in
 `failed/<time>-<pid>/`, stops it, and starts the previous release — its image,

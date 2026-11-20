@@ -100,6 +100,7 @@ mod v5;
 // unchanged so `mw-engine`/`mw-server` are untouched.
 mod backend;
 mod sqlite_live;
+mod sqlite_startup;
 mod generation_files;
 mod lifecycle_copy_guard;
 pub mod online_copy;
@@ -454,6 +455,12 @@ impl Store {
             drop(pin);
             return Self::finish_sqlite(existing.expect("pinned existing generation"), key).await;
         }
+        if db_file.is_some() {
+            sqlite_startup::prepare(&opts).await.map_err(|e| match &db_file {
+                Some(f) => StoreError::Encryption(encryption::classify_open_error(f, e, keyed)),
+                None => StoreError::Db(e),
+            })?;
+        }
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect_with(opts)
@@ -525,9 +532,13 @@ impl Store {
             sqlx::query("VACUUM").execute(&mut *initial).await?;
         }
         drop(initial);
+        if opening.is_some() { eprintln!("[mw-store] SQLite startup: normal pool ready; checking schema migrations"); }
         sqlx::migrate!("./migrations").run(&pool).await?;
+        if opening.is_some() { eprintln!("[mw-store] SQLite startup: schema ready; initializing metadata"); }
         let live=match opening {Some(entry)=>entry.register(pool,encrypted),None=>crate::sqlite_live::LiveSqlite::unmanaged(pool)};
-        Self::finish_sqlite(live,key).await
+        let store = Self::finish_sqlite(live,key).await?;
+        if opening.is_some() { eprintln!("[mw-store] SQLite startup: metadata and connection pool ready"); }
+        Ok(store)
     }
     async fn finish_sqlite(live:crate::sqlite_live::LiveSqlite,key:ServerKey)->Result<Self,StoreError>{
         let store = Self {
