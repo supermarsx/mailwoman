@@ -2283,6 +2283,7 @@ impl Engine {
             || patch.get("followUpAt").is_some()
         {
             let mut meta = self.store().get_message_meta(id).await?.unwrap_or_default();
+            let previous_meta = meta.clone();
             if let Some(v) = patch.get("pinned") {
                 meta.pinned = v.as_bool().unwrap_or(meta.pinned);
             }
@@ -2292,19 +2293,12 @@ impl Engine {
             if let Some(v) = patch.get("followUpAt") {
                 meta.follow_up_at = v.as_str().map(str::to_string);
             }
-            new_follow_up = Some(meta.follow_up_at.is_some());
-            self.store()
-                .upsert_message_meta(
-                    id,
-                    &StoredMeta {
-                        pinned: meta.pinned,
-                        snoozed_until: meta.snoozed_until,
-                        follow_up_at: meta.follow_up_at,
-                    },
-                )
-                .await?;
-            new_pinned = Some(meta.pinned);
-            touched = true;
+            if meta != previous_meta {
+                new_follow_up = Some(meta.follow_up_at.is_some());
+                new_pinned = Some(meta.pinned);
+                self.store().upsert_message_meta(id, &meta).await?;
+                touched = true;
+            }
         }
 
         let mut moved = false;

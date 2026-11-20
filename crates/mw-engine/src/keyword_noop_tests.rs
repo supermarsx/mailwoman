@@ -280,3 +280,140 @@ async fn malformed_cached_flags_are_repaired_even_when_requested_keywords_are_em
     );
     f.engine.store().close().await;
 }
+
+#[tokio::test]
+async fn unchanged_metadata_preserves_state_and_index_while_combined_changes_still_apply() {
+    let f = Fixture::new(r#"["Seen",{"Keyword":"label"}]"#).await;
+    let original = f.snapshot().await;
+    assert!(
+        f.engine
+            .store()
+            .get_message_meta(&f.id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    for patch in [
+        json!({"pinned":false,"snoozedUntil":null,"followUpAt":null}),
+        json!({"pinned":null,"snoozedUntil":42,"followUpAt":false}),
+    ] {
+        let response = f.patch(patch).await;
+        assert_eq!(response["oldState"], response["newState"]);
+        assert_eq!(f.snapshot().await, original);
+        assert!(
+            f.engine
+                .store()
+                .get_message_meta(&f.id)
+                .await
+                .unwrap()
+                .is_none(),
+            "default no-op must not materialize metadata row"
+        );
+    }
+    let snooze = "2026-12-01T10:00:00Z";
+    let follow = "2026-12-02T10:00:00Z";
+    let response = f
+        .patch(json!({"pinned":true,"snoozedUntil":snooze,"followUpAt":follow}))
+        .await;
+    assert_ne!(response["oldState"], response["newState"]);
+    let configured = f.snapshot().await;
+    assert_eq!(
+        configured.0, original.0,
+        "metadata retains the existing message-row revision semantics"
+    );
+    assert_eq!(configured.1, original.1 + 1);
+    assert_eq!(configured.2, original.2 + 1);
+    assert_eq!(configured.3, 0);
+    for patch in [
+        json!({"pinned":true,"snoozedUntil":snooze,"followUpAt":follow}),
+        json!({"pinned":true}),
+        json!({"snoozedUntil":snooze}),
+        json!({"followUpAt":follow}),
+        json!({"pinned":"keep existing value"}),
+    ] {
+        let response = f.patch(patch).await;
+        assert_eq!(response["oldState"], response["newState"]);
+        assert_eq!(f.snapshot().await, configured);
+    }
+    // Preserve prior coercion: invalid pin values keep the pin, while non-string
+    // snooze/follow-up values clear them rather than introducing validation here.
+    let response = f
+        .patch(json!({"pinned":"keep","snoozedUntil":42,"followUpAt":false}))
+        .await;
+    assert_ne!(response["oldState"], response["newState"]);
+    assert_eq!(
+        f.engine.store().get_message_meta(&f.id).await.unwrap(),
+        Some(StoredMeta {
+            pinned: true,
+            snoozed_until: None,
+            follow_up_at: None
+        })
+    );
+    let cleared = f.snapshot().await;
+    let response = f.patch(json!({"snoozedUntil":42,"followUpAt":false})).await;
+    assert_eq!(response["oldState"], response["newState"]);
+    assert_eq!(f.snapshot().await, cleared);
+    let response = f
+        .patch(json!({"pinned":true,"snoozedUntil":null,"followUpAt":follow}))
+        .await;
+    assert_ne!(response["oldState"], response["newState"]);
+    assert_eq!(
+        f.engine
+            .store()
+            .get_message_meta(&f.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .follow_up_at
+            .as_deref(),
+        Some(follow)
+    );
+    // No-op metadata must not suppress a real keyword delta.
+    let before = f.snapshot().await;
+    let response = f
+        .patch(json!({"pinned":true,"followUpAt":follow,"keywords/$seen":null}))
+        .await;
+    assert_ne!(response["oldState"], response["newState"]);
+    let after = f.snapshot().await;
+    assert_eq!(after.1, before.1 + 1);
+    assert_eq!(after.3, 1);
+    assert_ne!(after.0, before.0);
+    // A real pin change must still apply alongside unchanged keywords/time fields.
+    let response = f
+        .patch(json!({"pinned":false,"followUpAt":follow,"keywords/$seen":null}))
+        .await;
+    assert_ne!(response["oldState"], response["newState"]);
+    assert!(
+        !f.engine
+            .store()
+            .get_message_meta(&f.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .pinned
+    );
+    assert_eq!(f.remote.flags.load(Ordering::SeqCst), 1);
+    let before = f.snapshot().await;
+    let response=f.patch(json!({"pinned":false,"snoozedUntil":null,"followUpAt":follow,"mailboxIds":{f.archive.clone():true}})).await;
+    assert_ne!(response["oldState"], response["newState"]);
+    assert_eq!(
+        f.engine
+            .store()
+            .get_message(&f.id)
+            .await
+            .unwrap()
+            .mailbox_id,
+        f.archive
+    );
+    assert_eq!(
+        f.engine
+            .store()
+            .current_state(&f.account, "Email")
+            .await
+            .unwrap(),
+        before.1 + 1
+    );
+    assert_eq!(f.remote.flags.load(Ordering::SeqCst), 1);
+    assert_eq!(f.remote.moves.load(Ordering::SeqCst), 1);
+    f.engine.store().close().await;
+}
