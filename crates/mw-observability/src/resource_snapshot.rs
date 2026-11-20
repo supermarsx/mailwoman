@@ -12,6 +12,8 @@ pub struct ResourceSnapshot {
     pub observed_at: u64,
     /// CPU/OS capabilities and the highest available implemented lowercase kernel.
     pub cpu_capabilities: mw_cpu::CpuCapabilities,
+    /// Actual instrumented lowercase kernel work, cumulative since process start.
+    pub cpu_usage: mw_cpu::CpuUsage,
     /// Affinity, cgroup quota and host capacity combined. Fractional cores are preserved.
     pub effective_cpu_cores: f64,
     pub effective_memory_limit_bytes: Option<u64>,
@@ -75,6 +77,7 @@ pub fn snapshot(data_path: &Path) -> ResourceSnapshot {
     let disk = disk_space(data_path);
     ResourceSnapshot {
         cpu_capabilities: mw_cpu::capabilities().clone(),
+        cpu_usage: mw_cpu::usage(),
         observed_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -313,11 +316,18 @@ mod tests {
     }
     #[test]
     fn filesystem_and_capacity_snapshot_is_read_only_and_bounded() {
+        mw_cpu::make_ascii_lowercase(&mut [b'A'; 7]);
         let report = snapshot(&std::env::temp_dir());
         assert!(report.effective_cpu_cores > 0.0);
         assert!(report.filesystem_total_bytes.is_some());
         assert!(report.filesystem_available_bytes <= report.filesystem_total_bytes);
         let json = serde_json::to_value(report).unwrap();
         assert!(json.get("observedAt").is_some());
+        assert!(json["cpuUsage"]["scalar"]["calls"].as_u64().unwrap() >= 1);
+        assert!(json["cpuUsage"]["scalar"]["bytes"].as_u64().unwrap() >= 7);
+        for backend in ["avx2", "avx512"] {
+            assert!(json["cpuUsage"][backend]["calls"].is_u64());
+            assert!(json["cpuUsage"][backend]["bytes"].is_u64());
+        }
     }
 }

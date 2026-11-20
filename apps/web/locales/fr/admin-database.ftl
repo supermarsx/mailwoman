@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Échec
 
 admin-resources-cpu-capabilities = Capacités du processeur
 admin-resources-cpu-architecture = Architecture
-admin-resources-cpu-kernel = Routine sélectionnée pour les grandes entrées
+admin-resources-cpu-kernel = Routine la plus avancée disponible pour les grandes entrées
 admin-resources-cpu-features = Fonctions disponibles du processeur
 admin-resources-cpu-portable = Portable
 admin-resources-cpu-kernel-help = Concerne la conversion ASCII en minuscules. AVX2 dès { $avx2 } octets et AVX-512 dès { $avx512 } octets, si pris en charge. Les petites entrées utilisent la routine portable. L’application n’utilise pas toutes les fonctions disponibles.
@@ -144,10 +144,14 @@ admin-db-pool-max-wait = Acquisition la plus longue
 admin-db-pool-reads = Lectures mesurées
 admin-db-pool-writes = Écritures mesurées
 admin-db-pool-operation-help = Les compteurs couvrent les requêtes mesurées de ce processus serveur. Les appels SQLx directs et les autres réplicas sont exclus.
+admin-resources-cpu-usage = Utilisation observée de l’accélération
+admin-resources-cpu-path = Chemin de traitement
+admin-resources-cpu-calls = Appels
+admin-resources-cpu-bytes = Octets traités
+admin-resources-cpu-usage-help = Appels mesurés des routines de conversion ASCII en minuscules depuis le démarrage de ce processus serveur. Les octets vectoriels excluent les fins portables ; une opération peut utiliser les deux chemins. Zéro signifie aucune utilisation observée. L’accélération AES, TLS et du chiffrement de la base de données n’est pas mesurée ici.
 admin-db-sampled-help = Les valeurs marquées ≥ sont des limites inférieures mesurées sur au plus 512 lignes, pas des totaux estimés. Les analyses exactes ont atteint leur limite de temps.
 admin-db-physical-limited = Analyse physique limitée
 admin-db-body-help = Les corps mettent en cache les messages bruts chiffrés, images intégrées et pièces jointes comprises. Les corps référencés appartiennent à des messages ; les corps orphelins ne sont plus liés. Les octets de contenu diffèrent des pages allouées ou réutilisables du fichier.
-
 admin-db-retained-title = Bases de données conservées
 admin-db-retained-help = Anciennes copies conservées après la conversion en ligne. Seule la génération précédente vérifiée peut être supprimée. Conservez une sauvegarde indépendante.
 admin-db-retained-empty = Aucune base de données conservée et vérifiée disponible.

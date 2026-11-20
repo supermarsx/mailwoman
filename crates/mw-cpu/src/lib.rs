@@ -4,6 +4,75 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 use serde::Serialize;
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KernelUsage {
+    pub calls: u64,
+    pub bytes: u64,
+}
+
+/// Observed lowercase work in this process since startup, not third-party crypto
+/// or SQLite instruction usage. SIMD byte totals exclude portable tails.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CpuUsage {
+    pub scalar: KernelUsage,
+    pub avx2: KernelUsage,
+    pub avx512: KernelUsage,
+}
+
+#[repr(align(64))]
+struct UsageCounter {
+    calls: AtomicU64,
+    bytes: AtomicU64,
+}
+impl UsageCounter {
+    const fn new() -> Self {
+        Self {
+            calls: AtomicU64::new(0),
+            bytes: AtomicU64::new(0),
+        }
+    }
+    fn record(&self, bytes: usize) {
+        if bytes != 0 {
+            self.bytes.fetch_add(bytes as u64, Ordering::Relaxed);
+            self.calls.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    fn snapshot(&self) -> KernelUsage {
+        KernelUsage {
+            calls: self.calls.load(Ordering::Relaxed),
+            bytes: self.bytes.load(Ordering::Relaxed),
+        }
+    }
+}
+static SCALAR_USAGE: UsageCounter = UsageCounter::new();
+static AVX2_USAGE: UsageCounter = UsageCounter::new();
+static AVX512_USAGE: UsageCounter = UsageCounter::new();
+
+/// Lock-free approximate counters; concurrent calls may advance during sampling.
+pub fn usage() -> CpuUsage {
+    CpuUsage {
+        scalar: SCALAR_USAGE.snapshot(),
+        avx2: AVX2_USAGE.snapshot(),
+        avx512: AVX512_USAGE.snapshot(),
+    }
+}
+
+fn record_usage(backend: Backend, len: usize) {
+    let (counter, width) = match backend {
+        Backend::Scalar => {
+            SCALAR_USAGE.record(len);
+            return;
+        }
+        Backend::Avx2 => (&AVX2_USAGE, 32),
+        Backend::Avx512 => (&AVX512_USAGE, 64),
+    };
+    counter.record(len / width * width);
+    SCALAR_USAGE.record(len % width);
+}
 
 pub const AVX2_MIN_BYTES: usize = 256;
 pub const AVX512_MIN_BYTES: usize = 512;
@@ -137,6 +206,7 @@ pub fn make_ascii_lowercase(bytes: &mut [u8]) {
     // Keep tiny inputs independent of feature discovery and indirect dispatch.
     if bytes.len() < AVX2_MIN_BYTES {
         bytes.make_ascii_lowercase();
+        record_usage(Backend::Scalar, bytes.len());
         return;
     }
     // selected_backend_for_len checks CPU+OS support before entering any kernel.
@@ -178,6 +248,7 @@ fn dispatch_supported(bytes: &mut [u8], backend: Backend) {
         #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
         Backend::Avx2 | Backend::Avx512 => unreachable!("unsupported backend cannot be selected"),
     }
+    record_usage(backend, bytes.len());
 }
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod x86 {
@@ -224,6 +295,43 @@ mod x86 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn empty_work_is_not_counted_and_local_counter_totals_are_exact() {
+        let counter = UsageCounter::new();
+        counter.record(0);
+        assert_eq!(counter.snapshot().calls, 0);
+        counter.record(17);
+        counter.record(31);
+        assert_eq!(counter.snapshot().calls, 2);
+        assert_eq!(counter.snapshot().bytes, 48);
+    }
+    #[test]
+    fn executed_kernels_and_portable_tails_advance_runtime_counters() {
+        for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
+            if !backend.is_supported() {
+                continue;
+            }
+            let before = usage();
+            let mut bytes = vec![b'A'; 513];
+            make_ascii_lowercase_with_backend(&mut bytes, backend).unwrap();
+            let after = usage();
+            assert!(bytes.iter().all(|byte| *byte == b'a'));
+            let (first, last, byte_count) = match backend {
+                Backend::Scalar => (&before.scalar, &after.scalar, 513),
+                Backend::Avx2 => (&before.avx2, &after.avx2, 512),
+                Backend::Avx512 => (&before.avx512, &after.avx512, 512),
+            };
+            // Other tests may run concurrently; assert this call's minimum delta.
+            assert!(last.calls >= first.calls + 1);
+            assert!(last.bytes >= first.bytes + byte_count);
+            if backend != Backend::Scalar {
+                assert!(after.scalar.bytes >= before.scalar.bytes + 1);
+            }
+        }
+        let before = usage();
+        make_ascii_lowercase(&mut [b'A'; 17]);
+        assert!(usage().scalar.bytes >= before.scalar.bytes + 17);
+    }
     #[test]
     fn every_byte_unaligned_boundaries_and_tails_match_standard_library() {
         for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {

@@ -42,7 +42,11 @@ export function ResourceObservability():JSX.Element{
     <Show when={value().cpuCapabilities}>{cpu=><section class={resources.cpuCard} aria-label={t('admin-resources-cpu-capabilities')}><h3 class={resources.heading}>{t('admin-resources-cpu-capabilities')}</h3>{fields(()=>[
      [t('admin-resources-cpu-architecture'),cpu().architecture],
      [t('admin-resources-cpu-kernel'),cpu().selectedBackend==='scalar'?t('admin-resources-cpu-portable'):cpu().selectedBackend==='avx512'?'AVX-512F + BW':'AVX2'],
-    ])}<h4 class={resources.heading}>{t('admin-resources-cpu-features')}</h4><p class={css.note}>{cpu().availableFeatures.length?cpu().availableFeatures.join(' · '):absent()}</p><p class={css.note}>{t('admin-resources-cpu-kernel-help',{avx2:formatNumber(cpu().avx2MinBytes),avx512:formatNumber(cpu().avx512MinBytes)})}</p></section>}</Show>
+    ])}<h4 class={resources.heading}>{t('admin-resources-cpu-features')}</h4><p class={css.note}>{cpu().availableFeatures.length?cpu().availableFeatures.join(' · '):absent()}</p><p class={css.note}>{t('admin-resources-cpu-kernel-help',{avx2:formatNumber(cpu().avx2MinBytes),avx512:formatNumber(cpu().avx512MinBytes)})}</p>
+     <h4 class={resources.heading}>{t('admin-resources-cpu-usage')}</h4>
+     <Show when={value().cpuUsage} fallback={<p class={css.note}>{absent()}</p>}>{usage=><table class={resources.table} aria-label={t('admin-resources-cpu-usage')}><thead><tr><th scope="col">{t('admin-resources-cpu-path')}</th><th scope="col">{t('admin-resources-cpu-calls')}</th><th scope="col">{t('admin-resources-cpu-bytes')}</th></tr></thead><tbody><For each={['scalar','avx2','avx512'] as const}>{backend=><tr><th scope="row">{backend==='scalar'?t('admin-resources-cpu-portable'):backend==='avx512'?'AVX-512F + BW':'AVX2'}</th><td>{formatNumber(usage()[backend].calls)}</td><td>{bytes(usage()[backend].bytes)}</td></tr>}</For></tbody></table>}</Show>
+     <p class={css.note}>{t('admin-resources-cpu-usage-help')}</p>
+    </section>}</Show>
     <section class={resources.card} aria-label={t('admin-resources-allocation')}><h3 class={resources.heading}>{t('admin-resources-allocation')}</h3>{fields(()=>[
      [t('admin-resources-cpu-cores'),formatNumber(value().effectiveCpuCores,{maximumFractionDigits:2})],
      [t('admin-resources-memory-limit'),bytes(value().effectiveMemoryLimitBytes)],

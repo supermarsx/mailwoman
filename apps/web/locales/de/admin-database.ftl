@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Fehlgeschlagen
 
 admin-resources-cpu-capabilities = CPU-Funktionen
 admin-resources-cpu-architecture = Architektur
-admin-resources-cpu-kernel = Ausgewählter Kernel für große Eingaben
+admin-resources-cpu-kernel = Höchste verfügbare Routine für große Eingaben
 admin-resources-cpu-features = Verfügbare CPU-Funktionen
 admin-resources-cpu-portable = Portabel
 admin-resources-cpu-kernel-help = Gilt für ASCII-Kleinschreibung. AVX2 ab { $avx2 } Bytes und AVX-512 ab { $avx512 } Bytes, sofern unterstützt. Kurze Eingaben verwenden den portablen Pfad. Die App nutzt nicht alle verfügbaren Funktionen.
@@ -144,10 +144,14 @@ admin-db-pool-max-wait = Längste Anforderungszeit
 admin-db-pool-reads = Gemessene Lesezugriffe
 admin-db-pool-writes = Gemessene Schreibzugriffe
 admin-db-pool-operation-help = Zähler erfassen gemessene Abfragehelfer dieses Serverprozesses. Direkte SQLx-Aufrufe und andere Replikate sind ausgeschlossen.
+admin-resources-cpu-usage = Beobachtete Beschleunigungsnutzung
+admin-resources-cpu-path = Verarbeitungspfad
+admin-resources-cpu-calls = Aufrufe
+admin-resources-cpu-bytes = Verarbeitete Bytes
+admin-resources-cpu-usage-help = Gemessene Aufrufe der ASCII-Kleinschreibungsroutinen seit dem Start dieses Serverprozesses. Vektorbytes schließen portable Reststücke aus; ein Vorgang kann beide Pfade nutzen. Null bedeutet keine beobachtete Nutzung. Beschleunigung für AES, TLS und Datenbankverschlüsselung wird hier nicht gemessen.
 admin-db-sampled-help = Mit ≥ markierte Werte sind gemessene Untergrenzen aus höchstens 512 Zeilen, keine geschätzten Gesamtwerte. Exakte Scans haben ihr Zeitlimit erreicht.
 admin-db-physical-limited = Physischer Scan begrenzt
 admin-db-body-help = Bodies speichern verschlüsselte Originalnachrichten einschließlich eingebetteter Bilder und Anhänge. Referenzierte Bodies gehören zu Nachrichten; verwaiste haben keinen Nachrichtenverweis. Nutzdatenbytes unterscheiden sich von belegten oder wiederverwendbaren Dateiseiten.
-
 admin-db-retained-title = Aufbewahrte Datenbanken
 admin-db-retained-help = Alte Kopien nach der Online-Konvertierung. Nur die verifizierte vorherige Generation kann gelöscht werden. Bewahren Sie eine unabhängige Sicherung auf.
 admin-db-retained-empty = Keine verifizierte aufbewahrte Datenbank verfügbar.

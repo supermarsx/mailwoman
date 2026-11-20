@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Niepowodzenie
 
 admin-resources-cpu-capabilities = Możliwości procesora
 admin-resources-cpu-architecture = Architektura
-admin-resources-cpu-kernel = Wybrana procedura dla dużych danych
+admin-resources-cpu-kernel = Najwyższa dostępna procedura dla dużych danych
 admin-resources-cpu-features = Dostępne funkcje procesora
 admin-resources-cpu-portable = Przenośna
 admin-resources-cpu-kernel-help = Dotyczy zamiany ASCII na małe litery. AVX2 od { $avx2 } bajtów, a AVX-512 od { $avx512 } bajtów, jeśli są obsługiwane. Krótkie dane korzystają z procedury przenośnej. Aplikacja nie używa wszystkich dostępnych funkcji.
@@ -144,10 +144,14 @@ admin-db-pool-max-wait = Najdłuższe pobranie
 admin-db-pool-reads = Zmierzone odczyty
 admin-db-pool-writes = Zmierzone zapisy
 admin-db-pool-operation-help = Liczniki obejmują zmierzone zapytania tego procesu serwera. Bezpośrednie wywołania SQLx i inne repliki są wykluczone.
+admin-resources-cpu-usage = Zaobserwowane użycie przyspieszenia
+admin-resources-cpu-path = Ścieżka przetwarzania
+admin-resources-cpu-calls = Wywołania
+admin-resources-cpu-bytes = Przetworzone bajty
+admin-resources-cpu-usage-help = Zmierzone wywołania procedur zamiany ASCII na małe litery od uruchomienia tego procesu serwera. Bajty wektorowe nie obejmują przenośnych końcówek; jedna operacja może używać obu ścieżek. Zero oznacza brak zaobserwowanego użycia. Przyspieszenie AES, TLS i szyfrowania bazy danych nie jest tu mierzone.
 admin-db-sampled-help = Wartości oznaczone ≥ to zmierzone dolne granice dla maksymalnie 512 wierszy, a nie szacunkowe sumy. Dokładne skanowanie osiągnęło limit czasu.
 admin-db-physical-limited = Ograniczone skanowanie fizyczne
 admin-db-body-help = Treści przechowują zaszyfrowane oryginalne wiadomości, w tym obrazy osadzone i załączniki. Powiązane treści należą do wiadomości; osierocone nie mają powiązania. Bajty zawartości różnią się od przydzielonych lub wielokrotnego użytku stron pliku.
-
 admin-db-retained-title = Zachowane bazy danych
 admin-db-retained-help = Stare kopie zachowane po konwersji online. Można usunąć tylko zweryfikowaną poprzednią generację. Zachowaj niezależną kopię zapasową.
 admin-db-retained-empty = Brak zweryfikowanej zachowanej bazy danych.

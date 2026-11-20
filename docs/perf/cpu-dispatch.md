@@ -37,6 +37,19 @@ reports availability, **not that the app uses every listed feature**. AES, SHA,
 BMI and AVX-512VL detection does not imply those features are used by this kernel.
 Short inputs can use a different path from the large-input kernel shown there.
 
+The same screen reports actual portable, AVX2 and AVX-512 lowercase calls and
+processed bytes, refreshed every ten seconds while visible. Counters are local
+to the serving process and reset on restart; they are not cluster totals or
+instantaneous CPU utilization. SIMD totals count complete vector chunks only,
+and portable tails are counted separately. Empty work is not counted. Snapshots
+use relaxed atomic counters and can advance while being sampled. A supported
+kernel with zero observed work has not been observed running in this process.
+Most short scanner paths use the portable path even on AVX-512 machines.
+
+Usage inside third-party TLS, SQLCipher, compression and hashing libraries is
+not instrumented here. In particular, an available AES feature is not evidence
+that database maintenance or TLS has actually executed AES instructions.
+
 ## Verify and measure
 
 Run without a competing build or CPU-heavy workload:

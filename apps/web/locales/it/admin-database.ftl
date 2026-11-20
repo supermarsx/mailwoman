@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Non riuscita
 
 admin-resources-cpu-capabilities = Capacità della CPU
 admin-resources-cpu-architecture = Architettura
-admin-resources-cpu-kernel = Routine selezionata per input grandi
+admin-resources-cpu-kernel = Routine più avanzata disponibile per input grandi
 admin-resources-cpu-features = Funzionalità CPU disponibili
 admin-resources-cpu-portable = Portabile
 admin-resources-cpu-kernel-help = Si applica alla conversione ASCII in minuscolo. AVX2 da { $avx2 } byte e AVX-512 da { $avx512 } byte, se supportati. Gli input brevi usano la routine portabile. L’app non usa tutte le funzionalità disponibili.
@@ -144,10 +144,14 @@ admin-db-pool-max-wait = Acquisizione più lunga
 admin-db-pool-reads = Letture misurate
 admin-db-pool-writes = Scritture misurate
 admin-db-pool-operation-help = I contatori coprono le query misurate di questo processo. Sono escluse le chiamate SQLx dirette e le altre repliche.
+admin-resources-cpu-usage = Utilizzo osservato dell’accelerazione
+admin-resources-cpu-path = Percorso di elaborazione
+admin-resources-cpu-calls = Chiamate
+admin-resources-cpu-bytes = Byte elaborati
+admin-resources-cpu-usage-help = Chiamate misurate alle routine di conversione ASCII in minuscolo dall’avvio di questo processo server. I byte vettoriali escludono le parti finali portabili; un’operazione può usare entrambi i percorsi. Zero significa nessun utilizzo osservato. L’accelerazione AES, TLS e della cifratura del database non viene misurata qui.
 admin-db-sampled-help = I valori con ≥ sono limiti inferiori misurati su un massimo di 512 righe, non stime dei totali. Le scansioni esatte hanno raggiunto il limite di tempo.
 admin-db-physical-limited = Scansione fisica limitata
 admin-db-body-help = I corpi memorizzano messaggi originali cifrati, incluse immagini incorporate e allegati. I corpi referenziati appartengono a messaggi; quelli orfani non hanno un collegamento. I byte del contenuto differiscono dalle pagine allocate o riutilizzabili del file.
-
 admin-db-retained-title = Database conservati
 admin-db-retained-help = Vecchie copie conservate dopo la conversione online. È possibile eliminare solo la generazione precedente verificata. Conservare un backup indipendente.
 admin-db-retained-empty = Nessun database conservato e verificato disponibile.

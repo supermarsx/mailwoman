@@ -130,7 +130,7 @@ admin-db-online-phase-failed = فشل
 
 admin-resources-cpu-capabilities = قدرات المعالج
 admin-resources-cpu-architecture = البنية
-admin-resources-cpu-kernel = الروتين المحدد للمدخلات الكبيرة
+admin-resources-cpu-kernel = أعلى روتين متاح للمدخلات الكبيرة
 admin-resources-cpu-features = ميزات المعالج المتاحة
 admin-resources-cpu-portable = محمول
 admin-resources-cpu-kernel-help = ينطبق على تحويل ASCII إلى أحرف صغيرة. يبدأ AVX2 من { $avx2 } بايت وAVX-512 من { $avx512 } بايت عند توفر الدعم. تستخدم المدخلات القصيرة الروتين المحمول. لا يستخدم التطبيق جميع الميزات المتاحة.
@@ -144,10 +144,14 @@ admin-db-pool-max-wait = أطول وقت للحصول
 admin-db-pool-reads = عمليات القراءة المقاسة
 admin-db-pool-writes = عمليات الكتابة المقاسة
 admin-db-pool-operation-help = تغطي العدادات استعلامات هذا الخادم المقاسة فقط. تُستثنى استدعاءات SQLx المباشرة والنسخ الأخرى.
+admin-resources-cpu-usage = الاستخدام المرصود للتسريع
+admin-resources-cpu-path = مسار المعالجة
+admin-resources-cpu-calls = الاستدعاءات
+admin-resources-cpu-bytes = البايتات المعالجة
+admin-resources-cpu-usage-help = إجمالي الاستدعاءات المقاسة لروتينات تحويل ASCII إلى أحرف صغيرة منذ بدء عملية الخادم هذه. لا تشمل البايتات المتجهية الأجزاء النهائية المحمولة؛ قد تستخدم عملية واحدة كلا المسارين. الصفر يعني عدم رصد استخدام. لا يُقاس هنا تسريع AES أو TLS أو تشفير قاعدة البيانات.
 admin-db-sampled-help = القيم المميزة بالرمز ≥ هي حدود دنيا مقاسة من 512 صفًا كحد أقصى، وليست تقديرات للإجمالي. بلغ الفحص الدقيق الحد الزمني.
 admin-db-physical-limited = الفحص الفعلي محدود
 admin-db-body-help = تخزن الأجسام الرسائل الأصلية المشفرة مؤقتًا، بما فيها الصور المضمنة والمرفقات. ترتبط الأجسام المرجعية برسائل، بينما لا ترتبط الأجسام اليتيمة بأي رسالة. تختلف بايتات المحتوى عن صفحات الملف المخصصة أو القابلة لإعادة الاستخدام.
-
 admin-db-retained-title = قواعد البيانات المحتفظ بها
 admin-db-retained-help = نسخ قديمة محفوظة بعد التحويل أثناء التشغيل. يمكن حذف الجيل السابق الذي تم التحقق منه فقط. احتفظ بنسخة احتياطية مستقلة.
 admin-db-retained-empty = لا توجد قاعدة بيانات محتفظ بها وتم التحقق منها.

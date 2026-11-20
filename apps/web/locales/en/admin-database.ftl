@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Failed
 
 admin-resources-cpu-capabilities = CPU capabilities
 admin-resources-cpu-architecture = Architecture
-admin-resources-cpu-kernel = Selected kernel for large inputs
+admin-resources-cpu-kernel = Highest eligible kernel for large inputs
 admin-resources-cpu-features = Available CPU features
 admin-resources-cpu-portable = Portable
 admin-resources-cpu-kernel-help = Applies to ASCII lowercasing. AVX2 starts at { $avx2 } bytes and AVX-512 at { $avx512 } bytes when supported. Short inputs use the portable path. Available features are not all used by the app.
@@ -144,10 +144,14 @@ admin-db-pool-max-wait = Longest acquisition time
 admin-db-pool-reads = Measured reads
 admin-db-pool-writes = Measured writes
 admin-db-pool-operation-help = Counters cover this server process’s measured query helpers. Direct SQLx calls and other replicas are excluded.
+admin-resources-cpu-usage = Observed acceleration usage
+admin-resources-cpu-path = Processing path
+admin-resources-cpu-calls = Calls
+admin-resources-cpu-bytes = Processed bytes
+admin-resources-cpu-usage-help = Cumulative measured ASCII-lowercase kernel calls since this server process started. Vector bytes exclude portable tails; a single operation may use both paths. Zero means no observed use. AES, TLS and database-encryption acceleration are not measured here.
 admin-db-sampled-help = Values marked ≥ are measured lower bounds from up to 512 rows, not estimated totals. Exact scans reached their time limit.
 admin-db-physical-limited = Physical scan limited
 admin-db-body-help = Bodies cache encrypted raw messages, including inline images and attachments. Referenced bodies still belong to messages; orphaned bodies have no message link. Payload bytes differ from allocated or reusable file pages.
-
 admin-db-retained-title = Retained databases
 admin-db-retained-help = Old database copies retained after online conversion. Only the verified previous generation is eligible. Keep an independent backup before deleting.
 admin-db-retained-empty = No verified retained database is available.

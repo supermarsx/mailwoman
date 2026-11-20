@@ -56,10 +56,23 @@ it('shows available CPU features separately from the selected lowercase kernel',
  const {container}=render(()=><ResourceObservability/>);
  const cpu=await screen.findByRole('region',{name:'CPU capabilities'});
  expect(within(cpu).getByText('Architecture').closest('tr')).toHaveTextContent('x86_64');
- expect(within(cpu).getByText('Selected kernel for large inputs').closest('tr')).toHaveTextContent('AVX-512F + BW');
+ expect(within(cpu).getByText('Highest eligible kernel for large inputs').closest('tr')).toHaveTextContent('AVX-512F + BW');
  expect(cpu).toHaveTextContent('sse2 · avx2 · avx512f · avx512bw · aes');
  expect(cpu).toHaveTextContent('Available features are not all used by the app');
  expect(cpu).toHaveTextContent('AVX2 starts at 256 bytes and AVX-512 at 512 bytes when supported');
+ expect(within(cpu).queryByRole('table',{name:'Observed acceleration usage'})).toBeNull();
+ await expectNoAxeViolations(container);expectNoInlineStyle(container);
+});
+it('reports measured calls and bytes without equating available features with observed use',async()=>{
+ const report=fixture();report.cpuCapabilities={architecture:'x86_64',availableFeatures:['avx2','avx512f','avx512bw','aes'],selectedBackend:'avx512',avx2MinBytes:256,avx512MinBytes:512};
+ report.cpuUsage={scalar:{calls:321,bytes:100},avx2:{calls:2,bytes:4096},avx512:{calls:0,bytes:0}};
+ vi.mocked(loadResourceSnapshot).mockResolvedValue(report);
+ const {container}=render(()=><ResourceObservability/>);
+ const table=await screen.findByRole('table',{name:'Observed acceleration usage'});
+ expect(within(table).getByRole('row',{name:/Portable/})).toHaveTextContent('321');
+ expect(within(table).getByRole('row',{name:/^AVX2 /})).toHaveTextContent('4 kB');
+ expect(within(within(table).getByRole('row',{name:/AVX-512F/})).getAllByRole('cell')[0]).toHaveTextContent(/^0$/);
+ expect(screen.getByText(/Cumulative measured ASCII-lowercase/)).toHaveTextContent('AES, TLS and database-encryption acceleration are not measured here');
  await expectNoAxeViolations(container);expectNoInlineStyle(container);
 });
 it('keeps older resource responses usable without CPU capabilities',async()=>{

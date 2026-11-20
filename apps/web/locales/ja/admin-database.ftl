@@ -130,7 +130,7 @@ admin-db-online-phase-failed = 失敗
 
 admin-resources-cpu-capabilities = CPU の機能
 admin-resources-cpu-architecture = アーキテクチャ
-admin-resources-cpu-kernel = 大きな入力で選択される処理
+admin-resources-cpu-kernel = 大きな入力に利用可能な最上位の処理
 admin-resources-cpu-features = 利用可能な CPU 機能
 admin-resources-cpu-portable = ポータブル
 admin-resources-cpu-kernel-help = ASCII の小文字変換に適用されます。対応環境では AVX2 は { $avx2 } バイト以上、AVX-512 は { $avx512 } バイト以上で使用します。短い入力はポータブル処理を使用します。利用可能な機能すべてをアプリが使用するわけではありません。
@@ -144,10 +144,14 @@ admin-db-pool-max-wait = 最長の接続取得時間
 admin-db-pool-reads = 計測された読み取り
 admin-db-pool-writes = 計測された書き込み
 admin-db-pool-operation-help = このサーバープロセスの計測対象クエリのみを集計します。直接の SQLx 呼び出しと他のレプリカは含みません。
+admin-resources-cpu-usage = 確認された高速化の使用状況
+admin-resources-cpu-path = 処理経路
+admin-resources-cpu-calls = 呼び出し回数
+admin-resources-cpu-bytes = 処理バイト数
+admin-resources-cpu-usage-help = このサーバープロセスの起動以降に測定した ASCII 小文字変換処理の累計呼び出し回数です。ベクトル処理のバイト数にポータブル処理の端数は含みません。1 回の操作で両方の経路を使用する場合があります。ゼロは使用が確認されていないことを示します。AES、TLS、データベース暗号化の高速化はここでは測定しません。
 admin-db-sampled-help = ≥ の値は最大512行で測定した下限であり、合計の推定値ではありません。正確なスキャンは制限時間に達しました。
 admin-db-physical-limited = 物理スキャンは制限されました
 admin-db-body-help = Bodiesはインライン画像や添付ファイルを含む暗号化された元のメッセージをキャッシュします。参照中の本文はメッセージに関連付けられ、孤立した本文には関連付けがありません。内容のバイト数とファイルの割当済み・再利用可能ページは別の測定値です。
-
 admin-db-retained-title = 保持されたデータベース
 admin-db-retained-help = オンライン変換後に保持された古いコピーです。検証済みの直前の世代のみ削除できます。独立したバックアップを保管してください。
 admin-db-retained-empty = 検証済みの保持データベースはありません。

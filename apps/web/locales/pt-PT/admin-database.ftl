@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Falhou
 
 admin-resources-cpu-capabilities = Capacidades do processador
 admin-resources-cpu-architecture = Arquitetura
-admin-resources-cpu-kernel = Rotina selecionada para entradas grandes
+admin-resources-cpu-kernel = Rotina mais avançada disponível para entradas grandes
 admin-resources-cpu-features = Funcionalidades disponíveis do processador
 admin-resources-cpu-portable = Portátil
 admin-resources-cpu-kernel-help = Aplica-se à conversão de ASCII para minúsculas. AVX2 a partir de { $avx2 } bytes e AVX-512 a partir de { $avx512 } bytes, quando suportados. Entradas pequenas usam a rotina portátil. A aplicação não utiliza todas as funcionalidades disponíveis.
@@ -144,10 +144,14 @@ admin-db-pool-max-wait = Maior tempo de aquisição
 admin-db-pool-reads = Leituras medidas
 admin-db-pool-writes = Escritas medidas
 admin-db-pool-operation-help = Os contadores abrangem as consultas medidas deste processo do servidor. Chamadas SQLx diretas e outras réplicas estão excluídas.
+admin-resources-cpu-usage = Utilização observada de aceleração
+admin-resources-cpu-path = Via de processamento
+admin-resources-cpu-calls = Chamadas
+admin-resources-cpu-bytes = Bytes processados
+admin-resources-cpu-usage-help = Chamadas medidas das rotinas de conversão ASCII para minúsculas desde o início deste processo do servidor. Os bytes vetoriais excluem as partes finais portáveis; uma operação pode usar ambas as vias. Zero significa nenhuma utilização observada. A aceleração de AES, TLS e encriptação da base de dados não é medida aqui.
 admin-db-sampled-help = Os valores com ≥ são limites inferiores medidos em até 512 linhas, não estimativas do total. A análise exata atingiu o limite de tempo.
 admin-db-physical-limited = Análise física limitada
 admin-db-body-help = Os corpos guardam mensagens originais encriptadas, incluindo imagens incorporadas e anexos. Os corpos referenciados pertencem a mensagens; os órfãos não têm ligação a mensagens. Os bytes de conteúdo diferem das páginas alocadas ou reutilizáveis do ficheiro.
-
 admin-db-retained-title = Bases de dados retidas
 admin-db-retained-help = Cópias antigas retidas após a conversão em linha. Apenas a geração anterior verificada pode ser eliminada. Mantenha uma cópia de segurança independente.
 admin-db-retained-empty = Não existe nenhuma base de dados retida e verificada.

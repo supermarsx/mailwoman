@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Mislukt
 
 admin-resources-cpu-capabilities = CPU-mogelijkheden
 admin-resources-cpu-architecture = Architectuur
-admin-resources-cpu-kernel = Geselecteerde routine voor grote invoer
+admin-resources-cpu-kernel = Hoogste beschikbare routine voor grote invoer
 admin-resources-cpu-features = Beschikbare CPU-functies
 admin-resources-cpu-portable = Draagbaar
 admin-resources-cpu-kernel-help = Geldt voor het omzetten van ASCII naar kleine letters. AVX2 vanaf { $avx2 } bytes en AVX-512 vanaf { $avx512 } bytes, indien ondersteund. Korte invoer gebruikt de draagbare routine. De app gebruikt niet alle beschikbare functies.
@@ -144,10 +144,14 @@ admin-db-pool-max-wait = Langste aanvraagtijd
 admin-db-pool-reads = Gemeten leesacties
 admin-db-pool-writes = Gemeten schrijfacties
 admin-db-pool-operation-help = Tellers omvatten gemeten queryhelpers van dit serverproces. Directe SQLx-aanroepen en andere replica’s zijn uitgesloten.
+admin-resources-cpu-usage = Waargenomen gebruik van versnelling
+admin-resources-cpu-path = Verwerkingspad
+admin-resources-cpu-calls = Aanroepen
+admin-resources-cpu-bytes = Verwerkte bytes
+admin-resources-cpu-usage-help = Gemeten aanroepen van ASCII-kleineletterroutines sinds de start van dit serverproces. Vectorbytes sluiten draagbare reststukken uit; één bewerking kan beide paden gebruiken. Nul betekent geen waargenomen gebruik. Versnelling voor AES, TLS en databaseversleuteling wordt hier niet gemeten.
 admin-db-sampled-help = Waarden met ≥ zijn gemeten ondergrenzen van maximaal 512 rijen, geen geschatte totalen. Exacte scans hebben hun tijdslimiet bereikt.
 admin-db-physical-limited = Fysieke scan beperkt
 admin-db-body-help = Bodies bewaren versleutelde oorspronkelijke berichten, inclusief ingesloten afbeeldingen en bijlagen. Verwezen bodies horen bij berichten; verweesde bodies hebben geen berichtkoppeling. Inhoudsbytes verschillen van toegewezen of herbruikbare bestandspagina's.
-
 admin-db-retained-title = Bewaarde databases
 admin-db-retained-help = Oude kopieën die na de online conversie zijn bewaard. Alleen de geverifieerde vorige generatie kan worden verwijderd. Bewaar een onafhankelijke back-up.
 admin-db-retained-empty = Geen geverifieerde bewaarde database beschikbaar.

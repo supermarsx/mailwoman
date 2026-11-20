@@ -130,7 +130,7 @@ admin-db-online-phase-failed = 失败
 
 admin-resources-cpu-capabilities = CPU 功能
 admin-resources-cpu-architecture = 架构
-admin-resources-cpu-kernel = 大输入使用的处理内核
+admin-resources-cpu-kernel = 大输入可用的最高级处理内核
 admin-resources-cpu-features = 可用的 CPU 功能
 admin-resources-cpu-portable = 通用
 admin-resources-cpu-kernel-help = 用于将 ASCII 转换为小写。支持时，AVX2 从 { $avx2 } 字节起使用，AVX-512 从 { $avx512 } 字节起使用。短输入使用通用处理。应用并非使用所有可用功能。
@@ -144,10 +144,14 @@ admin-db-pool-max-wait = 最长获取时间
 admin-db-pool-reads = 已测量读取
 admin-db-pool-writes = 已测量写入
 admin-db-pool-operation-help = 计数器仅涵盖此服务器进程的已测量查询辅助方法。直接 SQLx 调用和其他副本不包括在内。
+admin-resources-cpu-usage = 已观测的加速使用情况
+admin-resources-cpu-path = 处理路径
+admin-resources-cpu-calls = 调用次数
+admin-resources-cpu-bytes = 已处理字节数
+admin-resources-cpu-usage-help = 此服务器进程启动以来测量到的 ASCII 小写转换内核累计调用次数。向量字节数不包含通用路径处理的尾部；一次操作可能使用两种路径。零表示尚未观测到使用。此处不测量 AES、TLS 和数据库加密的加速使用情况。
 admin-db-sampled-help = 标有 ≥ 的值是从最多512行测得的下限，并非估计总量。精确扫描已达到时间限制。
 admin-db-physical-limited = 物理扫描受限
 admin-db-body-help = Bodies缓存加密的原始邮件，包括内嵌图片和附件。被引用的正文仍关联邮件，孤立正文则没有邮件关联。内容字节数与文件已分配或可复用页面不同。
-
 admin-db-retained-title = 保留的数据库
 admin-db-retained-help = 在线转换后保留的旧副本。只能删除经过验证的上一代数据库。请保留独立备份。
 admin-db-retained-empty = 没有经过验证的保留数据库。

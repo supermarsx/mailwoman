@@ -10,6 +10,7 @@ export interface CpuCapabilities {
 
 export interface ResourceSnapshot {
  cpuCapabilities?:CpuCapabilities;
+ cpuUsage?:Record<'scalar'|'avx2'|'avx512',{calls:number;bytes:number}>;
  observedAt:number;
  effectiveCpuCores:number;
  effectiveMemoryLimitBytes:number|null;
