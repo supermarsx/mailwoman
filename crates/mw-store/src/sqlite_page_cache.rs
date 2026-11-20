@@ -341,7 +341,7 @@ mod tests {
         assert!(after.cache_spills.is_some());
         c.close().await.unwrap();
     }
-    async fn tuned_store() -> (
+    async fn tuned_store(legacy_none: bool) -> (
         tempfile::TempDir,
         crate::Store,
         crate::ServerKey,
@@ -378,17 +378,43 @@ mod tests {
             })
             .await
             .unwrap();
+        if legacy_none {
+            let crate::backend::Backend::Sqlite(live) = &first.backend else {
+                unreachable!()
+            };
+            let _rebuild = live.try_rebuild_guard().unwrap();
+            let mut connection = live.acquire().await.unwrap();
+            // auto_vacuum's pending mode is connection-local until VACUUM.
+            // Use this SAME handle, then close/reopen the pool so every handle
+            // observes the persisted legacy header rather than cached mode 2.
+            sqlx::query("PRAGMA auto_vacuum=NONE")
+                .execute(&mut *connection).await.unwrap();
+            sqlx::query("VACUUM")
+                .execute(&mut *connection).await.unwrap();
+            assert_eq!(crate::database_observability::sqlite_pragma_i64(
+                &mut connection, "PRAGMA auto_vacuum"
+            ).await.unwrap(), 0);
+        }
         first.close().await;
         drop(first);
         let store = crate::Store::open_with_encryption(path.to_str().unwrap(), key.clone(), &cfg)
             .await
             .unwrap();
+        if legacy_none {
+            let crate::backend::Backend::Sqlite(live) = &store.backend else {
+                unreachable!()
+            };
+            let mut connection = live.acquire().await.unwrap();
+            assert_eq!(crate::database_observability::sqlite_pragma_i64(
+                &mut connection, "PRAGMA auto_vacuum"
+            ).await.unwrap(), 0);
+        }
         (dir, store, key, cfg)
     }
     #[tokio::test]
     async fn keyed_startup_shared_reopen_and_maximum_change_keep_applied_aggregate_and_aux_scope() {
         use sqlx::Connection;
-        let (dir, mut store, key, cfg) = tuned_store().await;
+        let (dir, mut store, key, cfg) = tuned_store(false).await;
         let crate::backend::Backend::Sqlite(live) = store.backend.clone() else {
             unreachable!()
         };
@@ -469,20 +495,12 @@ mod tests {
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn online_conversion_reopens_tuned_foreground_not_small_copy_target() {
-        let (_dir, store, _key, _cfg) = tuned_store().await;
+        let (_dir, store, _key, _cfg) = tuned_store(true).await;
         // New databases are already INCREMENTAL. Model a genuine legacy NONE
         // database so this exercises the copy, cutover and target reopen paths.
         let crate::backend::Backend::Sqlite(live) = &store.backend else {
             unreachable!()
         };
-        {
-            let mut c = live.acquire().await.unwrap();
-            sqlx::query("PRAGMA auto_vacuum=NONE")
-                .execute(&mut *c)
-                .await
-                .unwrap();
-        }
-        live.full_vacuum().await.unwrap();
         {
             let mut c = live.acquire().await.unwrap();
             assert_eq!(
@@ -540,18 +558,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn failed_post_close_conversion_restores_keyed_source_and_foreground_cache() {
         use sqlx::Connection;
-        let (_dir, store, _key, _cfg) = tuned_store().await;
+        let (_dir, store, _key, _cfg) = tuned_store(true).await;
         let crate::backend::Backend::Sqlite(live) = &store.backend else {
             unreachable!()
         };
-        {
-            let mut c = live.acquire().await.unwrap();
-            sqlx::query("PRAGMA auto_vacuum=NONE")
-                .execute(&mut *c)
-                .await
-                .unwrap();
-        }
-        live.full_vacuum().await.unwrap();
         store
             .set_setting("pager-cache-restore-proof", "before-copy")
             .await
