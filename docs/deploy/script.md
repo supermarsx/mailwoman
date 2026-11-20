@@ -62,11 +62,11 @@ an `-ni` suffix so a cache poisoned by earlier incremental builds is not reused.
 Optimization remains release level 3 with 16 codegen units, overflow checks and
 stripping unchanged.
 
-`sh deploy.sh deploy --build-jobs 4` limits Cargo's concurrent jobs if compilation
-exhausts memory or causes swapping. Without it Cargo chooses concurrency from
-available CPUs. This is separate from `CPU_LIMIT`/`MEMORY_LIMIT`, which limit the
-running app. The corresponding direct Docker build arguments are
-`MW_BUILD_JOBS=4` and `MW_CARGO_INCREMENTAL=1` to opt in (default 0).
+Deployment and direct Docker builds default to four concurrent Cargo jobs.
+Use `sh deploy.sh deploy --build-jobs N` to override this if compilation
+exhausts memory or causes swapping. This is separate from `CPU_LIMIT`/`MEMORY_LIMIT`,
+which limit the running app. The corresponding direct Docker build argument is
+`MW_BUILD_JOBS=N`. Use `MW_CARGO_INCREMENTAL=1` to opt in to incremental builds (default 0).
 No build-time reduction is promised without measuring on the deployment host.
 
 GNU/distroless and musl/static builds use separate target caches. Their build
