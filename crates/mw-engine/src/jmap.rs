@@ -21,7 +21,7 @@ use crate::backend::{EngineError, Flag, MessageRef, RawMailboxRef, RawMessage, R
 use crate::change::{ChangeOp, ChangeType};
 use crate::engine::{Engine, IndexPatch};
 use crate::mapping::{
-    flag_delta, flags_from_json, flags_to_json, flags_to_keywords, keywords_to_flags,
+    cached_flags_match, flag_delta, flags_from_json, flags_to_json, flags_to_keywords, keywords_to_flags,
     role_sort_order,
 };
 use crate::query::{Comparator, EmailFilter};
@@ -70,6 +70,9 @@ mod mentions_jmap_tests;
 #[cfg(test)]
 #[path = "list_projection_tests.rs"]
 mod list_projection_tests;
+#[cfg(test)]
+#[path = "keyword_noop_tests.rs"]
+mod keyword_noop_tests;
 
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
@@ -2236,14 +2239,6 @@ impl Engine {
             let desired = keywords_to_flags(&kw_map);
             let (add, remove) = flag_delta(&current, &desired);
 
-            // The message row is already in hand, and it carries the same
-            // `mailbox_id`/`uidvalidity`/`uid` that `imap_ref_for` would re-read
-            // — so resolve the ref from it and only pay for the mailbox name,
-            // memoized across the batch.
-            if let Some(mref) = self.imap_ref_from(&msg, mailbox_names).await? {
-                // POP3 keeps flags engine-local, so an Unsupported here is fine.
-                tolerant(rt.backend.store_flags(&[mref], &add, &remove).await)?;
-            }
             // Preserve IMAP-internal flags the keyword set cannot express.
             let mut stored: Vec<Flag> = current
                 .iter()
@@ -2251,22 +2246,34 @@ impl Engine {
                 .cloned()
                 .collect();
             stored.extend(desired);
-            let flags_json = flags_to_json(&stored);
-            if moves_mailbox(patch, &msg.mailbox_id) {
-                // A patch that also moves must have its flags on disk *before*
-                // `move_email` runs, because `set_flags` adjusts the `unread`
-                // counter of whichever mailbox the message is in **at the time
-                // of the write** (t22-e1's V8 work). Deferring it into the
-                // post-loop batch would decrement the destination's counter
-                // instead of the source's, quietly corrupting both. Rare, and
-                // not the path this batching exists for — write it through and
-                // keep the ordering identical to pre-26.20.
-                self.store().set_flags(id, &flags_json).await?;
-            } else {
-                pending_flags.push((id.to_string(), flags_json));
+            // Replayed keyword patches are successful no-ops. Compare the final
+            // semantic set, while malformed cached JSON still requires repair.
+            if !cached_flags_match(&msg.flags_json, &stored) {
+                // The message row is already in hand, and it carries the same
+                // `mailbox_id`/`uidvalidity`/`uid` that `imap_ref_for` would re-read
+                // — so resolve the ref from it and only pay for the mailbox name,
+                // memoized across the batch.
+                if let Some(mref) = self.imap_ref_from(&msg, mailbox_names).await? {
+                    // POP3 keeps flags engine-local, so an Unsupported here is fine.
+                    tolerant(rt.backend.store_flags(&[mref], &add, &remove).await)?;
+                }
+                let flags_json = flags_to_json(&stored);
+                if moves_mailbox(patch, &msg.mailbox_id) {
+                    // A patch that also moves must have its flags on disk *before*
+                    // `move_email` runs, because `set_flags` adjusts the `unread`
+                    // counter of whichever mailbox the message is in **at the time
+                    // of the write** (t22-e1's V8 work). Deferring it into the
+                    // post-loop batch would decrement the destination's counter
+                    // instead of the source's, quietly corrupting both. Rare, and
+                    // not the path this batching exists for — write it through and
+                    // keep the ordering identical to pre-26.20.
+                    self.store().set_flags(id, &flags_json).await?;
+                } else {
+                    pending_flags.push((id.to_string(), flags_json));
+                }
+                new_flags = Some(stored);
+                touched = true;
             }
-            new_flags = Some(stored);
-            touched = true;
         }
 
         // Engine-local metadata (§2.1): pinned / snoozedUntil / followUpAt. A
