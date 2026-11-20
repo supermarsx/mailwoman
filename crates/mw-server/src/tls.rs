@@ -583,7 +583,7 @@ mod tests {
 
     fn fixture(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/tls")
+            .join("../mw-server/tests/fixtures/tls")
             .join(name)
     }
 

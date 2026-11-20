@@ -254,7 +254,10 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 
 | Name | Class | Value | Default | Precedence | What | Set in / reason |
 |---|---|---|---|---|---|---|
-| <a id="mw-build-sha"></a>`MW_BUILD_SHA` | build | plain |  |  | optional source revision embedded in the dashboard server metadata | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-build-revision"></a>`MW_BUILD_REVISION` | build | plain |  |  | immutable 40-character source commit; required for builds without Git metadata | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-build-release-tag"></a>`MW_BUILD_RELEASE_TAG` | build | plain |  |  | explicit source release tag, or undeclared when unavailable in an archive | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-build-sha"></a>`MW_BUILD_SHA` | build | plain |  |  | legacy full-commit alias of MW_BUILD_REVISION; conflicting provenance is refused | a CLI, build or test input, or a protocol or safety constant |
+| <a id="mw-product-support-until"></a>`MW_PRODUCT_SUPPORT_UNTIL` | build | plain |  |  | explicit YYYY-MM-DD product support end; absent means not declared | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-shell-server-url"></a>`MW_SHELL_SERVER_URL` | build | url |  |  | server URL baked into a shell build | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-shell-product-name"></a>`MW_SHELL_PRODUCT_NAME` | build | plain |  |  | product name of a shell build | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-shell-identifier"></a>`MW_SHELL_IDENTIFIER` | build | plain |  |  | bundle identifier of a shell build | a CLI, build or test input, or a protocol or safety constant |
@@ -276,6 +279,7 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 
 | Name | Class | Value | Default | Precedence | What | Set in / reason |
 |---|---|---|---|---|---|---|
+| <a id="mw-test-build-target"></a>`MW_TEST_BUILD_TARGET` | testOnly | plain |  |  | exact compiler target for a cross-target core unit fixture | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-test-pg"></a>`MW_TEST_PG` | testOnly | dsn |  |  | PostgreSQL for the store tests | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-test-redis"></a>`MW_TEST_REDIS` | testOnly | plain |  |  | run the Redis tests | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-test-redis-url"></a>`MW_TEST_REDIS_URL` | testOnly | url |  |  | Redis for the cache tests | a CLI, build or test input, or a protocol or safety constant |

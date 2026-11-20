@@ -16,6 +16,13 @@ Nothing here submits to a store or signs an artifact — every account/cert/subm
 step is a `# HUMAN:` gate. CI (`.github/workflows/packaging.yml`) only proves the
 artifacts **build** and meet the §16 size budgets.
 
+Source-only metadata-boundary prototype: builds in a Git checkout derive its
+exact commit. Docker/archive builds require
+`--build-arg MW_BUILD_REVISION="$(git rev-parse HEAD)"`; local Compose users set
+`MW_BUILD_REVISION` to that same full commit before building. The normal deploy
+script supplies it automatically. Missing or conflicting provenance fails;
+the CLI/binary/package names and complete product inventories stay unchanged.
+
 ---
 
 ## 1. Client shells — recipe index

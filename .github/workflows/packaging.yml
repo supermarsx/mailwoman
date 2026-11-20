@@ -254,6 +254,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          build-args: |
+            MW_BUILD_REVISION=${{ github.sha }}
           target: runtime
           push: false
           tags: mailwoman:packaging-smoke

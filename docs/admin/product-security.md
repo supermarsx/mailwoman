@@ -36,6 +36,13 @@ commitment is not inferred from that policy or an open-source licence.
 
 ## CI artifacts
 
+The metadata-boundary source prototype keeps these complete bytes in the thin
+`mw-server` host package and injects verified immutable build facts into the
+HTTP implementation. Metadata is not regenerated from deployment files on a
+request. A Docker/source-archive build supplies `MW_BUILD_REVISION` as its full
+40-character source commit; an unavailable Git checkout never produces a guessed
+revision. See [build metadata boundary](../perf/server-build-metadata.md).
+
 The Rust job runs `node scripts/about/export-product-security.mjs --out <dir>`.
 It uses the exact package ID and build-script output directory from Cargo,
 validates source/inventory digests and dependency references, then exports

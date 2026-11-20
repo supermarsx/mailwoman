@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1.7
 # Isolated Linux multi-user fixture. Build from the repository root, then run with
 # explicit CPU/memory limits and a bind mount for its synthetic reports.
+ARG MW_BUILD_REVISION
+ARG MW_BUILD_RELEASE_TAG=
 FROM scratch AS rust-source
 COPY Cargo.toml Cargo.lock rust-toolchain.toml SECURITY.md /src/
 COPY .cargo /src/.cargo
@@ -22,6 +24,9 @@ COPY scripts/perf /src/scripts/perf
 
 FROM node:24.20.0-bookworm@sha256:be23f54a88d34e8824c741b19b91064094f92c1c97b194144bfc8b50d67258e2 AS node
 FROM rust:1.98.1-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e AS compile-fixture
+ARG MW_BUILD_REVISION
+ARG MW_BUILD_RELEASE_TAG
+ENV MW_BUILD_REVISION=${MW_BUILD_REVISION} MW_BUILD_RELEASE_TAG=${MW_BUILD_RELEASE_TAG}
 ARG MW_BUILD_JOBS=8
 ARG MW_FIXTURE_KIND=native
 ARG MW_FIXTURE_PROFILE=release
@@ -35,11 +40,12 @@ COPY --from=node /usr/local/bin/node /usr/local/bin/node
 RUN --mount=type=bind,from=rust-source,source=/src,target=/mw-input,ro \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,id=mailwoman-source-target-gnu-v1-${TARGETPLATFORM},target=/mw-build-cache,sharing=locked \
-    python3 --version \
+    printf '%s' "$MW_BUILD_REVISION" | grep -Eq '^[0-9a-f]{40}$' \
+    && python3 --version \
     && mirror_cargo() { python3 /usr/local/lib/mailwoman-build/source_mirror.py --input /mw-input --cache-root /mw-build-cache -- "$@"; } \
     && mkdir -p /out \
     && case "$MW_FIXTURE_PROFILE" in release) set -- --release ;; debug) set -- ;; *) echo 'Choose release or debug profile' >&2; exit 1 ;; esac \
-    && case "$MW_BUILD_PROFILE" in release) export MW_CARGO_BUILD_MODE="$MW_FIXTURE_PROFILE" ;; fast) [ "$MW_FIXTURE_PROFILE" = release ] || exit 1; set -- "$@" --config 'profile.release.package.mw-server.opt-level=2'; export MW_CARGO_BUILD_MODE=fast ;; *) echo 'Choose release or fast build profile' >&2; exit 1 ;; esac \
+    && case "$MW_BUILD_PROFILE" in release) export MW_CARGO_BUILD_MODE="$MW_FIXTURE_PROFILE" ;; fast) [ "$MW_FIXTURE_PROFILE" = release ] || exit 1; set -- "$@" --config 'profile.release.package.mw-server-core.opt-level=2' --config 'profile.release.package.mw-server.opt-level=2'; export MW_CARGO_BUILD_MODE=fast ;; *) echo 'Choose release or fast build profile' >&2; exit 1 ;; esac \
     && case "$MW_FIXTURE_KIND" in native) fixture=native_load_fixture; set -- "$@" --features load-test-fixtures ;; proxy) fixture=request_load_fixture ;; *) echo 'Choose native or proxy fixture' >&2; exit 1 ;; esac \
     && export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-8}" \
     && { mirror_cargo cargo test --locked "$@" -p mw-server --test "$fixture" --no-run --timings --message-format=json > /out/artifacts.jsonl; status=$?; \
@@ -57,6 +63,7 @@ RUN mkdir -p /mw-build-cache && ln -s /src /mw-build-cache/source
 # Keep the compile/cache/diagnostic layer even when compilation fails, while the
 # public fixture target still fails the Docker build rather than shipping it.
 FROM compile-fixture AS fixture
+LABEL org.opencontainers.image.revision=${MW_BUILD_REVISION}
 RUN test "$(cat /out/build-status)" = 0
 RUN run_logged_test() { log_path="$1"; shift; "$@" > "$log_path" 2>&1; test_status=$?; cat "$log_path"; return "$test_status"; }; \
     if [ -x /out/websocket-load ]; then \
@@ -84,6 +91,9 @@ CMD ["/out/request-load-fixture", "--ignored", "--nocapture", "--test-threads=1"
 # cache, then retain symbols only in a separate diagnostic executable. The
 # ordinary release artifact remains byte-identical and is still the default.
 FROM fixture AS fixture-profile
+ARG MW_BUILD_REVISION
+ARG MW_BUILD_RELEASE_TAG
+ENV MW_BUILD_REVISION=${MW_BUILD_REVISION} MW_BUILD_RELEASE_TAG=${MW_BUILD_RELEASE_TAG}
 ARG MW_BUILD_JOBS=8
 ARG MW_FIXTURE_KIND=native
 ARG MW_FIXTURE_PROFILE=release
@@ -92,7 +102,8 @@ ARG TARGETPLATFORM
 RUN --mount=type=bind,from=rust-source,source=/src,target=/mw-input,ro \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,id=mailwoman-source-target-gnu-v1-${TARGETPLATFORM},target=/mw-build-cache,sharing=locked \
-    python3 --version \
+    printf '%s' "$MW_BUILD_REVISION" | grep -Eq '^[0-9a-f]{40}$' \
+    && python3 --version \
     && mirror_cargo() { python3 /usr/local/lib/mailwoman-build/source_mirror.py --input /mw-input --cache-root /mw-build-cache -- "$@"; } \
     && test "$MW_FIXTURE_KIND" = native \
     && test "$MW_FIXTURE_PROFILE" = release \

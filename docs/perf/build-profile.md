@@ -215,7 +215,7 @@ The report remains outside the runtime image. The final/default Docker target is
 still `runtime-static`.
 
 The Rust release profile is unchanged. Its earlier LTO measurements below still
-apply; enabling LTO would spend more build time. Rust source inputs remain
+apply to cross-crate `lto="thin"`; that measured arm spent more build time. Rust source inputs remain
 separate from the SPA, and the `rust-source` Docker stage was verified after the
 ignore changes. A source-stage check alone does not prove a full runtime build.
 
@@ -307,15 +307,27 @@ not `"*"`. Optimizing every dependency would have moved the cold-build number in
 wrong direction for a workspace this size, and the measurement above shows the win
 is concentrated in the primitives.
 
-## DQ-8 — thin LTO: **rejected**
+## DQ-8 — cross-crate thin LTO: **rejected**
 
 `Cargo.toml:344-355` had deferred this to a human since 26.9. It is now measured.
 All three variants were built back-to-back on the final settings, same host, same
 session, so they are mutually comparable.
 
+Terminology correction (2026-11-20): the original table called A "no LTO".
+The unchanged release profile leaves `lto` unspecified, which defaults to `false`:
+Cargo performs thin **local** LTO across a crate's codegen units. Only `lto="off"`
+disables that local work; `lto="thin"` also enables cross-crate optimization.
+Local LTO does not run with one codegen unit or optimization level zero. See the
+[Cargo profile reference](https://doc.rust-lang.org/cargo/reference/profiles.html#lto).
+The historical timings below are unchanged and were not remeasured. The live
+release build observed on 2026-11-20 also had `lto cgu.*` workers; their presence
+is compatible with the shipped default and does not establish cross-crate LTO.
+An explicit `"off"` arm remains unmeasured; consider it only after the throughput
+baseline, with matched runtime verification, because its runtime effect is unknown.
+
 | Variant | `mailwoman` build | `mailwoman` size | `mailwoman-desktop` build | `mailwoman-desktop` size |
 |---|---|---|---|---|
-| **A — shipped** (no LTO, default codegen-units) | **386 s** | **94 804 992 B** (90.41 MiB) | **157 s** | **15 861 760 B** (15.13 MiB) |
+| **A — shipped** (`lto=false`, thin local LTO, default codegen-units) | **386 s** | **94 804 992 B** (90.41 MiB) | **157 s** | **15 861 760 B** (15.13 MiB) |
 | B — `lto="thin"` + `codegen-units=1` | 1163 s (**+201%**) | 79 227 392 B (**−16.4%**) | 533 s (**+239%**) | 14 729 728 B (−7.1%) |
 | C — `lto="thin"` only | 627 s (**+62%**) | 96 760 320 B (**+2.1%**) | not built | not built |
 
@@ -325,12 +337,12 @@ and gains nothing.**
 Reasoning, against DQ-8's own stated bar ("adopt only if the size win is real and
 the clean-build regression is under ~25%"):
 
-1. **Thin LTO on its own is a straight loss.** Variant C is the one the planner did
+1. **Cross-crate thin LTO failed this historical build/size bar.** Variant C is the one the planner did
    not ask for and it is the one that settles the question: `lto="thin"` alone made
-   the build 62% slower *and* the binary 2% **larger**. There is no version of "adopt
-   thin LTO" that is defensible on this workspace.
-2. **The size win in B is `codegen-units = 1`, not LTO.** Attributing it to LTO would
-   have been the wrong lesson to write down. A future lane that genuinely needs the
+   the build 62% slower *and* the binary 2% **larger**. Those measurements do not justify adopting
+   cross-crate thin LTO; they do not compare local LTO against `"off"`.
+2. **B does not isolate the size effect of either setting.** C did not reproduce
+   its size win, but B combines cross-crate LTO with `codegen-units = 1`. A future lane that genuinely needs the
    ~16% should reach for codegen-units, not LTO. Its cost was not separately priced —
    only the combined B variant was measured — so treat "codegen-units=1 alone" as
    unmeasured rather than cheap.

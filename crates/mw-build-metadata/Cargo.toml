@@ -1,0 +1,14 @@
+[package]
+name = "mw-build-metadata"
+description = "Pure workspace product inventory generation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+build = false
+
+[dependencies]
+serde_json.workspace = true
+sha2.workspace = true
+toml = "0.8.23"

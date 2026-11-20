@@ -779,11 +779,21 @@ if [[ $ACTION != status && $ACTION != check && $ACTION != logs && $ACTION != doc
 fi
 
 build_local_image() {
+    local source_revision git_revision legacy_revision
+    legacy_revision=${MW_BUILD_SHA:-}
+    git_revision=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)
+    source_revision=${MW_BUILD_REVISION:-${MW_BUILD_SHA:-$git_revision}}
+    [[ $source_revision =~ ^[0-9a-fA-F]{40}$ ]] || die "A source archive requires immutable MW_BUILD_REVISION (40 hexadecimal characters)"
+    source_revision=${source_revision,,}
+    [[ -z $git_revision || ${git_revision,,} == "$source_revision" ]] || die "Build revision differs from source checkout"
+    [[ -z $legacy_revision || ${legacy_revision,,} == "$source_revision" ]] || die "Legacy build SHA differs from source revision"
     log "Rust build: profile=$BUILD_PROFILE, incremental=$BUILD_INCREMENTAL, jobs=${BUILD_JOBS:-automatic}; cache retained between builds"
     if [[ $BUILD_PROFILE == fast ]]; then
-        log "Fast profile: mw-server uses opt-level 2; dependencies remain optimized release. Build-time and runtime differences require measurement."
+        log "Fast profile: mw-server-core and mw-server use opt-level 2; dependencies remain optimized release. Build-time and runtime differences require measurement."
     fi
     docker build --target runtime-static \
+        --build-arg "MW_BUILD_REVISION=$source_revision" \
+        --build-arg "MW_BUILD_RELEASE_TAG=${MW_BUILD_RELEASE_TAG:-}" \
         --build-arg "MW_CARGO_INCREMENTAL=$BUILD_INCREMENTAL" \
         --build-arg "MW_BUILD_JOBS=$BUILD_JOBS" \
         --build-arg "MW_BUILD_PROFILE=$BUILD_PROFILE" --tag "$IMAGE" "$ROOT"

@@ -1,0 +1,221 @@
+[package]
+name = "mw-server-core"
+description = "Mailwoman HTTP implementation without revision-bearing build metadata"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+build = false
+publish = false
+autobins = false
+autotests = false
+autoexamples = false
+
+[lib]
+name = "mw_server"
+path = "../mw-server/src/lib.rs"
+
+[features]
+# Opt-in isolated load fixtures can inject deterministic provider runtimes;
+# normal builds retain the production engine construction path.
+load-test-fixtures = ["mw-store/sqlite-cache-diagnostics"]
+# Separate opt-in diagnostics: ordinary release fixture builds keep no trace hooks.
+sql-shape-diagnostics = ["load-test-fixtures", "mw-store/query-shape-diagnostics"]
+
+[dependencies]
+mw-domain-config = { path = "../mw-domain-config" }
+mw-settings = { path = "../mw-settings" }
+mw-protection = { path = "../mw-protection" }
+mw-compliance = { path = "../mw-compliance" }
+mw-remote-content = { path = "../mw-remote-content" }
+mw-observability = { path = "../mw-observability" }
+regex = { workspace = true }
+# Reads and re-writes the media jail's own normalised PNG output when the optional
+# image resize is on (remote_image_resize.rs); hostile bytes are still decoded only in the jail.
+png = "0.18"
+sqlx = { workspace = true }
+url = { workspace = true }
+hickory-resolver = "=0.26.1"
+quick-xml.workspace = true
+altcha = "=1.1.0"
+mw-jmap = { workspace = true }
+mw-store = { workspace = true }
+# t16 (26.16) login second-factor primitives: pure-Rust WebAuthn RP verify + RFC 6238
+# TOTP + Argon2id recovery codes (crate owned by t16-e2). Declared as a direct path
+# dep (not `workspace = true`) so wiring it does not touch the shared root Cargo.toml
+# that other 26.16 lanes are concurrently adding their crates to.
+mw-mfa = { path = "../mw-mfa" }
+# t16 (26.16) S6/S4 — kernel jail posture + fail-closed policy. Provides
+# `jail_expected()` (shared with the render child) for the in-process-fallback
+# refusal, and the sandbox posture for `mailwoman doctor`.
+mw-sandbox = { workspace = true }
+mw-sanitize = { workspace = true }
+# t22 (26.20, e6) — the deny-by-default egress policy the image proxy, the webcal
+# importer and the ManageSieve caller all run on. It used to be `pub(crate)` inside
+# `image_proxy.rs`; it now lives in its own crate so the surfaces that cannot depend
+# on mw-server can reuse it. `image_proxy.rs` re-exports the three items in-tree
+# callers already reach for, so no other module changed.
+mw-egress = { workspace = true }
+# t16 (26.16) S7 — the anonymizing image proxy re-encodes fetched bytes through the
+# wasm media jail (`mw_render::media_jail::reencode_image`, owned by t16-e5) before
+# serving them. Declared as a direct path dep (not `workspace = true`) so wiring it
+# does not touch the shared root Cargo.toml other 26.16 lanes are editing. No cycle:
+# mw-render → mw-sanitize/mw-export/wasmtime; nothing depends back on mw-server.
+mw-render = { path = "../mw-render" }
+mw-engine = { workspace = true }
+mw-mime = { workspace = true }
+mw-dav.workspace = true
+mw-export = { workspace = true }
+# t16 (26.16, e10) A5 inbound-webhook sink: evaluate an account's stored rules
+# (`mw_sieve::evaluate_all`) against a webhook envelope + translate a Sieve action
+# to a JMAP `Email/set`. In-tree crate (no external dep); mw-engine already links it.
+mw-sieve = { workspace = true }
+mw-imap = { workspace = true }
+mw-net = { workspace = true }
+mw-ssh-tunnel = { workspace = true }
+zeroize = { workspace = true }
+mw-crypto = { workspace = true }
+mw-pop3 = { workspace = true }
+mw-smtp = { workspace = true }
+mw-mail-transport = { workspace = true }
+mw-autoconfig = { workspace = true }
+# V6 MOUNT/WIRE (plan §3 e11): the four Batch-B crates whose traits + routers e11
+# backs with the 0007 tables and mounts into `router()`.
+mw-oauth = { workspace = true }
+mw-mcp = { workspace = true }
+mw-admin = { workspace = true }
+mw-cache = { workspace = true }
+# V7 route modules (plan §3 e9): directory/passwd/assist/plugins consumed by the
+# additive route files (directory.rs/passwd.rs/assist.rs/plugins.rs). e14 mounts them
+# and injects the built backends as request extensions.
+mw-directory = { workspace = true }
+mw-passwd = { workspace = true }
+mw-assist = { workspace = true }
+mw-plugin = { workspace = true }
+# V8 SSO route module (26.9, plan §3 e3): the `/api/sso/*` login routes drive the
+# frozen `mw-sso` `SsoLogin` trait (OIDC/SAML providers built from the 0009
+# `sso_config` rows). NOTE(coordinator/cargo-toml lock): this line + the Cargo.lock
+# reconcile are outside t9-e3's committed pathspec — please fold them in.
+mw-sso = { workspace = true }
+# V7 MOUNT (plan §3 e14): the RFC-3062 PasswordModify exop transport backs the
+# `mw-passwd` LDAP-3062 backend over ldap3(rustls) — mw-directory exposes no exop
+# passthrough, so e14 owns the transport. rustls-ring ONLY (no native-tls/openssl),
+# matching the mw-directory pin (root workspace `ldap3 = "0.12" tls-rustls-ring`).
+ldap3 = { workspace = true }
+# Constant-time admin password comparison uses argon2 verification when a hash is
+# configured; the store-adapter needs no extra crypto (ServerKey seals/unseals).
+argon2 = { workspace = true }
+# `ws` (backed by tokio-tungstenite) powers the `/jmap/ws` upgrade (§2.2).
+axum = { workspace = true, features = ["ws", "http2"] }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bytes = { workspace = true }
+reqwest = { workspace = true }
+hyper = { workspace = true, features = ["client", "server", "http1", "http2"] }
+hyper-util = { workspace = true, features = ["tokio", "server-auto", "server-graceful", "service", "http1", "http2"] }
+http-body-util = { workspace = true }
+mw-web-assets = { path = "../mw-web-assets" }
+mime_guess = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+base64 = { workspace = true }
+rand = { workspace = true }
+# WKD (Web Key Directory) local-part hashing (SHA-1 + z-base-32, §7.3 e7) and
+# ARF spool filenames (plan §3 e7).
+sha1 = { workspace = true }
+uuid = { workspace = true }
+# V5 push relay + native bearer auth (plan §1.7/§2.2/§2.3, §3 e5). Web Push is
+# built in push_relay.rs: RFC 8291 encryption (`p256` ECDH + `hkdf` + `aes-gcm`)
+# and the RFC 8292 VAPID JWT (`p256` ECDSA), sent over the in-tree `reqwest`
+# (26.20 f25: replaces `web-push-native`, whose p256 0.13 kept crypto-bigint 0.5 on
+# the VAPID signing path). `sha2` hashes bearer tokens for the `native_sessions`
+# marker; `chrono` timestamps the push/native-session `*_at` columns.
+p256 = { workspace = true, features = ["ecdh", "ecdsa"] }
+hkdf = "0.13"
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
+sha2 = { workspace = true }
+# t96: unpack the country database downloads (DB-IP `.mmdb.gz`, MaxMind
+# `.tar.gz`). Pure-Rust backend; already in the server's graph via mw-imap/mw-sso.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+# V2 push + ACME listener (plan §1.2/§1.10, §3 e10). `tokio-tungstenite` also
+# backs the WS test client; `tokio-rustls-acme` is the ACME/TLS listener;
+# `futures-util` drives the SSE + WS streams. `rustls`/`tokio-rustls`/pki-types
+# back the external-cert hot-reload listener (already in-tree, vetted by e0).
+tokio-tungstenite = { workspace = true }
+tokio-rustls-acme = { workspace = true }
+futures-util = { workspace = true }
+rustls = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+webpki-roots = { workspace = true }
+# V6 observability + webhooks + REST (plan §3 e9). All workspace-declared (plan §5),
+# pure-Rust + rustls throughout — NO openssl. `hmac` (+ in-tree `sha2`) signs
+# outbound webhooks (HMAC-SHA256). `metrics`/`metrics-exporter-prometheus` back the
+# auth-gated Prometheus `/metrics` (default-features off drops its HTTP listener —
+# we render through the recorder handle). The `opentelemetry*` stack exports OTLP
+# traces+metrics over `tonic` with rustls (`tls-roots`, verified openssl-free).
+# `opentelemetry_sdk` is the provider/runtime half of that stack (not separately
+# workspace-declared; pinned to the same 0.31 line, minimal `rt-tokio` feature).
+# HMAC-SHA256 webhook signing. Pinned to 0.13 (NOT the workspace `hmac = "0.12"`,
+# plan §5) because 0.12 targets `digest` 0.10 while the in-tree `sha2` is 0.11
+# (`digest` 0.11); 0.13 is the matching RustCrypto release and is already resolved
+# in Cargo.lock. TODO(e12): realign the workspace `hmac` pin to 0.13.
+hmac = "0.13"
+# `async-trait` backs the `WebhookRegistry` dyn-dispatch seam e11 fills against the
+# 0007 `webhooks` table (already a workspace dep — used in dev-deps for tests).
+async-trait = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "trace", "metrics"] }
+tracing-opentelemetry = { workspace = true }
+
+# `statvfs` for the image disk tier's automatic size (free space of the cache directory).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Security_Cryptography", "Win32_Foundation"] }
+
+[dev-dependencies]
+mw-build-metadata = { path = "../mw-build-metadata" }
+tempfile = "3"
+rcgen = "0.14"
+russh = { workspace = true }
+rand10 = { workspace = true }
+# t25-e1: `tests/common/gate.rs` is now a re-export of this crate, which is where the
+# skip/gate convention lives — it had to move out of `tests/` so `mw-engine`'s and
+# `mw-store`'s library `#[cfg(test)]` modules could reach it without a `#[path]`
+# include that breaks `cargo package`. No `version` key, so Cargo strips it from the
+# published manifest; it links nothing but `std`.
+mw-test-gate = { workspace = true }
+mw-mock-jmap = { workspace = true }
+# t16 (26.16, e3): the integration test computes valid TOTP codes + decodes the
+# base32 enrolment secret to prove the login 2FA gate end-to-end.
+mw-mfa = { path = "../mw-mfa" }
+reqwest = { workspace = true, features = ["cookies", "stream"] }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }
+# V5 push relay test: build a valid P-256 browser subscription key for the WebPush
+# dispatcher round-trip (plan §3 e5 acceptance).
+p256 = { workspace = true }
+base64 = { workspace = true }
+# t16 (26.16, e-e2e): drive the W19 attachment-search index end-to-end (build + query)
+# from the live-E2E route-wiring proofs (mw-export is already a normal dep, for W7).
+mw-search = { workspace = true }
+# t17 (26.17, e-e2e): the C8 note-seal live-E2E raw-inserts a *legacy* (pre-0019,
+# `title_sealed IS NULL`) notes row so the store-open backfill has something to seal,
+# and reads the raw sealed/plaintext columns back to prove at-rest sealing on live
+# Postgres. sqlx is already the mw-store backend (workspace crate) → NET-ZERO deps.
+sqlx = { workspace = true, features = ["postgres", "tls-rustls"] }

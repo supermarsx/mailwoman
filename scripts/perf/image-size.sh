@@ -28,7 +28,8 @@ TAG="${PERF_IMAGE_TAG:-mailwoman-perf:runtime}"
 
 if [ "${PERF_SKIP_BUILD:-0}" != "1" ]; then
   echo "[image-size] building runtime image ($TAG) from the existing Dockerfile..."
-  DOCKER_BUILDKIT=1 docker build --target runtime -t "$TAG" .
+  source_revision=${MW_BUILD_REVISION:-$(git rev-parse HEAD)}
+  DOCKER_BUILDKIT=1 docker build --build-arg "MW_BUILD_REVISION=$source_revision" --target runtime -t "$TAG" .
 fi
 
 # Primary metric: `docker image inspect .Size` (uncompressed on-disk bytes,

@@ -164,6 +164,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        MW_BUILD_REVISION: ${MW_BUILD_REVISION:-${GITHUB_SHA:-}}
+        MW_BUILD_RELEASE_TAG: ${MW_BUILD_RELEASE_TAG:-}
       target: mock
     environment:
       MW_MOCK_PORT: "8181"
@@ -186,6 +189,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        MW_BUILD_REVISION: ${MW_BUILD_REVISION:-${GITHUB_SHA:-}}
+        MW_BUILD_RELEASE_TAG: ${MW_BUILD_RELEASE_TAG:-}
       target: runtime
     environment:
       <<: *app-env
@@ -221,6 +227,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        MW_BUILD_REVISION: ${MW_BUILD_REVISION:-${GITHUB_SHA:-}}
+        MW_BUILD_RELEASE_TAG: ${MW_BUILD_RELEASE_TAG:-}
       target: runtime
     profiles: ["haproxy-l4"]
     environment:

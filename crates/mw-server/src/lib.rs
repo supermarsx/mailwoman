@@ -96,6 +96,14 @@ mod compliance;
 mod compliance_governance;
 mod operational_incidents;
 mod product_security;
+mod product_build_info;
+pub use product_build_info::ProductBuildInfo;
+#[cfg(test)]
+mod core_test_build_info;
+#[cfg(test)]
+pub use core_test_build_info::{build_app, build_app_full, build_app_with_push, build_app_with_sso_mock};
+#[cfg(all(test, feature = "load-test-fixtures"))]
+pub use core_test_build_info::build_app_with_fixture_engine;
 mod compliance_mail;
 mod compliance_dpia;
 mod compliance_policy;
@@ -980,6 +988,7 @@ impl std::ops::Deref for AppState {
 }
 
 pub(crate) struct AppStateInner {
+    product_build_info: ProductBuildInfo,
     started_at: std::time::SystemTime,
     started: std::time::Instant,
     config_snapshot: config_routes::BootConfigSnapshot,
@@ -1116,9 +1125,21 @@ pub(crate) struct V6State {
     pub(crate) pairing: std::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
+// Direct implementation-crate hosts must supply complete immutable build facts.
+// The stable mw-server facade retains the historical constructor signatures.
+#[cfg(not(test))]
+pub use build_app_with_info as build_app;
+#[cfg(not(test))]
+pub use build_app_with_push_and_info as build_app_with_push;
+#[cfg(not(test))]
+pub use build_app_full_with_info as build_app_full;
+#[cfg(not(test))]
+pub use build_app_with_sso_mock_and_info as build_app_with_sso_mock;
+#[cfg(all(not(test), feature = "load-test-fixtures"))]
+pub use build_app_with_fixture_engine_and_info as build_app_with_fixture_engine;
 /// Build the fully-wired axum application from configuration.
-pub async fn build_app(config: AppConfig) -> anyhow::Result<Router> {
-    Ok(build_app_with_push(config).await?.0)
+pub async fn build_app_with_info(config: AppConfig, info: ProductBuildInfo) -> anyhow::Result<Router> {
+    Ok(build_app_with_push_and_info(config, info).await?.0)
 }
 
 /// Build an [`mw_admin::Admin`] backed by the real 0007 store tables — the backing
@@ -1141,17 +1162,18 @@ pub async fn build_admin(
 /// channel. In engine mode the handle mirrors the `Engine` broadcast; tests use
 /// the returned handle to inject synthetic `StateChange`s and prove the WS/SSE
 /// wire path without a live engine. V6 config is sourced from the environment.
-pub async fn build_app_with_push(config: AppConfig) -> anyhow::Result<(Router, PushHandle)> {
-    build_app_full(config, V6Config::from_env()).await
+pub async fn build_app_with_push_and_info(config: AppConfig, info: ProductBuildInfo) -> anyhow::Result<(Router, PushHandle)> {
+    build_app_full_with_info(config, V6Config::from_env(), info).await
 }
 
 /// Build the fully-wired app with an explicit [`V6Config`] (tests inject admin
 /// credentials / redis without touching process env).
-pub async fn build_app_full(
+pub async fn build_app_full_with_info(
     config: AppConfig,
     v6config: V6Config,
+    info: ProductBuildInfo,
 ) -> anyhow::Result<(Router, PushHandle)> {
-    build_app_inner(config, v6config, sso::SsoProviderSource::Store, None).await
+    build_app_inner(config, v6config, sso::SsoProviderSource::Store, None, info).await
 }
 
 /// Isolated load fixtures may install deterministic backend runtimes while
@@ -1159,13 +1181,14 @@ pub async fn build_app_full(
 /// This seam is absent from ordinary builds and never adds an HTTP bypass.
 #[cfg(feature = "load-test-fixtures")]
 #[doc(hidden)]
-pub async fn build_app_with_fixture_engine(
+pub async fn build_app_with_fixture_engine_and_info(
     config: AppConfig,
     v6config: V6Config,
     factory: impl FnOnce(&Store) -> Arc<mw_engine::Engine> + Send + 'static,
+    info: ProductBuildInfo,
 ) -> anyhow::Result<(Router, PushHandle)> {
     anyhow::ensure!(config.mode == ServerMode::Engine, "fixture engine requires engine mode");
-    build_app_inner(config, v6config, sso::SsoProviderSource::Store, Some(Box::new(factory))).await
+    build_app_inner(config, v6config, sso::SsoProviderSource::Store, Some(Box::new(factory)), info).await
 }
 
 /// Test seam (t9-e3 `sso_e2e`): build the app with mock [`mw_sso::SsoLogin`]
@@ -1173,10 +1196,11 @@ pub async fn build_app_with_fixture_engine(
 /// the `/api/sso/*` routes can be driven end-to-end without a live IdP. Everything
 /// else — the store, sessions, `finish_login` — is the real path.
 #[doc(hidden)]
-pub async fn build_app_with_sso_mock(
+pub async fn build_app_with_sso_mock_and_info(
     config: AppConfig,
     v6config: V6Config,
     providers: Vec<(String, sso::SsoEntry)>,
+    info: ProductBuildInfo,
 ) -> anyhow::Result<(Router, PushHandle)> {
     let map: std::collections::HashMap<String, sso::SsoEntry> = providers.into_iter().collect();
     build_app_inner(
@@ -1184,6 +1208,7 @@ pub async fn build_app_with_sso_mock(
         v6config,
         sso::SsoProviderSource::Mock(Arc::new(map)),
         None,
+        info,
     )
     .await
 }
@@ -1193,6 +1218,7 @@ async fn build_app_inner(
     v6config: V6Config,
     sso_source: sso::SsoProviderSource,
     engine_factory: Option<Box<dyn FnOnce(&Store) -> Arc<mw_engine::Engine> + Send>>,
+    product_build_info: ProductBuildInfo,
 ) -> anyhow::Result<(Router, PushHandle)> {
     // Refuse the `MW_ADMIN_*` variables nothing applies, check the ones the security
     // policy overlay applies, and set the admin cookie name (t29-e6).
@@ -1485,6 +1511,7 @@ async fn build_app_inner(
     public_assets.refresh(&store).await;
     public_assets.start(store.clone());
     let state = AppState(Arc::new(AppStateInner {
+        product_build_info,
         resource_data_path: mw_store::encryption::sqlite_file_from_dsn(&config.db_path)
             .and_then(|path| path.parent().filter(|parent| !parent.as_os_str().is_empty()).map(Path::to_path_buf))
             .unwrap_or_else(|| PathBuf::from(".")),

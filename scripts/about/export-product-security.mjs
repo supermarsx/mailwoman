@@ -14,6 +14,11 @@ export function validateInventory(metadata,bom,lock){
  if(refs.size!==bom.components.length||metadata.componentCount!==refs.size)throw new Error('Duplicate or missing components');
  for(const edge of bom.dependencies??[])for(const ref of [edge.ref,...edge.dependsOn])if(!refs.has(ref))throw new Error('Unresolved component reference');
 }
+export function validatePublicSources(metadata,policy,pnpm){
+ const hash=value=>createHash('sha256').update(value).digest('hex');
+ if(metadata.securityPolicySha256!==hash(policy))throw new Error('Security policy digest mismatch');
+ if(metadata.pnpmLockSha256!==(pnpm===null?null:hash(pnpm)))throw new Error('Frontend lock digest mismatch');
+}
 export function main(args=process.argv.slice(2)){
  const at=args.indexOf('--out');if(at<0||!args[at+1])throw new Error('Use --out <artifact-directory>');
  const output=resolve(args[at+1]);
@@ -27,8 +32,12 @@ export function main(args=process.argv.slice(2)){
  const metadata=JSON.parse(readFileSync(join(built.out_dir,'product-security.json'),'utf8'));
  const bom=JSON.parse(raw);validateInventory(metadata,bom,readFileSync('Cargo.lock'));
  if(metadata.sbomSha256!==createHash('sha256').update(raw).digest('hex'))throw new Error('Inventory digest mismatch');
+ const policy=readFileSync(join(built.out_dir,'security-policy.txt'));
+ let pnpm=null;try{pnpm=readFileSync('apps/web/pnpm-lock.yaml');}catch(error){if(error.code!=='ENOENT')throw error;}
+ validatePublicSources(metadata,policy,pnpm);
+ if(!policy.equals(readFileSync('SECURITY.md')))throw new Error('Compiled security policy is stale');
  mkdirSync(output,{recursive:true});writeFileSync(join(output,'software-bom.cdx.json'),raw);writeFileSync(join(output,'product-security.json'),JSON.stringify(metadata,null,2)+'\n');
- writeFileSync(join(output,'SECURITY.md'),readFileSync('SECURITY.md'));
+ writeFileSync(join(output,'SECURITY.md'),policy);
  writeFileSync(join(output,'SHA256SUMS'),['software-bom.cdx.json','product-security.json','SECURITY.md'].map(file=>`${createHash('sha256').update(readFileSync(join(output,file))).digest('hex')}  ${file}`).join('\n')+'\n');
  process.stdout.write(`Exported ${metadata.componentCount} workspace components and build facts.\n`);
 }

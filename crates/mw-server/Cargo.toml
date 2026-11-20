@@ -8,7 +8,7 @@ repository.workspace = true
 
 [lib]
 name = "mw_server"
-path = "src/lib.rs"
+path = "src/facade.rs"
 
 [[bin]]
 name = "mailwoman"
@@ -17,9 +17,9 @@ path = "src/main.rs"
 [features]
 # Opt-in isolated load fixtures can inject deterministic provider runtimes;
 # normal builds retain the production engine construction path.
-load-test-fixtures = ["mw-store/sqlite-cache-diagnostics"]
+load-test-fixtures = ["server_core/load-test-fixtures", "mw-store/sqlite-cache-diagnostics"]
 # Separate opt-in diagnostics: ordinary release fixture builds keep no trace hooks.
-sql-shape-diagnostics = ["load-test-fixtures", "mw-store/query-shape-diagnostics"]
+sql-shape-diagnostics = ["load-test-fixtures", "server_core/sql-shape-diagnostics", "mw-store/query-shape-diagnostics"]
 
 [[example]]
 name = "websocket-load"
@@ -27,6 +27,7 @@ path = "examples/websocket-load.rs"
 required-features = ["load-test-fixtures"]
 
 [dependencies]
+server_core = { package = "mw-server-core", path = "../mw-server-core" }
 mw-domain-config = { path = "../mw-domain-config" }
 mw-settings = { path = "../mw-settings" }
 mw-protection = { path = "../mw-protection" }
@@ -224,6 +225,4 @@ mw-search = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "tls-rustls"] }
 
 [build-dependencies]
-serde_json.workspace = true
-sha2.workspace = true
-toml = "0.8.23"
+mw-build-metadata = { path = "../mw-build-metadata" }

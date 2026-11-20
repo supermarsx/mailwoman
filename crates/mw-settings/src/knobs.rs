@@ -1670,9 +1670,24 @@ pub static CATALOGUE: &[Knob] = &[
     ),
     // ── Build inputs ───────────────────────────────────────────────────────────
     build(
+        "MW_BUILD_REVISION",
+        Plain,
+        "immutable 40-character source commit; required for builds without Git metadata",
+    ),
+    build(
+        "MW_BUILD_RELEASE_TAG",
+        Plain,
+        "explicit source release tag, or undeclared when unavailable in an archive",
+    ),
+    build(
         "MW_BUILD_SHA",
         Plain,
-        "optional source revision embedded in the dashboard server metadata",
+        "legacy full-commit alias of MW_BUILD_REVISION; conflicting provenance is refused",
+    ),
+    build(
+        "MW_PRODUCT_SUPPORT_UNTIL",
+        Plain,
+        "explicit YYYY-MM-DD product support end; absent means not declared",
     ),
     build(
         "MW_SHELL_SERVER_URL",
@@ -1726,6 +1741,7 @@ pub static CATALOGUE: &[Knob] = &[
         "mock image of the proxy-conformance compose file",
     ),
     // ── Test inputs and markers ────────────────────────────────────────────────
+    test("MW_TEST_BUILD_TARGET", Plain, "exact compiler target for a cross-target core unit fixture"),
     test("MW_TEST_PG", Dsn, "PostgreSQL for the store tests"),
     test("MW_TEST_REDIS", Plain, "run the Redis tests"),
     test("MW_TEST_REDIS_URL", Url, "Redis for the cache tests"),

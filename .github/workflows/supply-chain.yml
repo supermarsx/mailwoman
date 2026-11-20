@@ -100,6 +100,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          build-args: |
+            MW_BUILD_REVISION=${{ github.sha }}
           target: runtime-static
           # PR: load locally for scanning. master: push to GHCR.
           load: ${{ github.event_name == 'pull_request' }}

@@ -2,30 +2,28 @@
 use crate::AppState;
 use axum::{
     Router,
+    extract::State,
     http::header,
     response::{IntoResponse, Response},
     routing::get,
 };
-const METADATA: &str = include_str!(concat!(env!("OUT_DIR"), "/product-security.json"));
-const SBOM: &str = include_str!(concat!(env!("OUT_DIR"), "/software-bom.cdx.json"));
-const POLICY: &str = include_str!("../../../SECURITY.md");
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/api/product-security", get(metadata))
         .route("/api/product-security/sbom", get(sbom))
         .route("/api/product-security/policy", get(policy))
 }
-async fn metadata() -> Response {
+async fn metadata(State(state): State<AppState>) -> Response {
     (
         [
             (header::CONTENT_TYPE, "application/json"),
             (header::CACHE_CONTROL, "no-cache"),
         ],
-        METADATA,
+        state.product_build_info.metadata(),
     )
         .into_response()
 }
-async fn sbom() -> Response {
+async fn sbom(State(state): State<AppState>) -> Response {
     (
         [
             (header::CONTENT_TYPE, "application/vnd.cyclonedx+json"),
@@ -35,11 +33,11 @@ async fn sbom() -> Response {
             ),
             (header::CACHE_CONTROL, "no-cache"),
         ],
-        SBOM,
+        state.product_build_info.sbom(),
     )
         .into_response()
 }
-async fn policy() -> Response {
+async fn policy(State(state): State<AppState>) -> Response {
     (
         [
             (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
@@ -48,7 +46,7 @@ async fn policy() -> Response {
                 "attachment; filename=SECURITY.md",
             ),
         ],
-        POLICY,
+        state.product_build_info.policy(),
     )
         .into_response()
 }

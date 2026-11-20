@@ -1,5 +1,11 @@
 # Server crate boundaries
 
+The source-only build-metadata boundary prototype keeps `mw-server` as the
+public facade/CLI and compiles the HTTP implementation as `mw-server-core` at
+its existing source paths. See [metadata boundary](server-build-metadata.md) for
+dependency/provenance constraints and the explicit unit-test gate mapping.
+This does not establish a measured build improvement.
+
 The server is split along independently testable service/model boundaries. This
 is a compile-time organization change, not a deployment into six processes.
 `mw-server` retains Axum routes, session authorization, application startup,
@@ -49,7 +55,7 @@ Run the extracted regression suites independently:
 
 ```sh
 cargo test -p mw-domain-config -p mw-settings -p mw-protection -p mw-compliance -p mw-remote-content -p mw-observability --lib -- --test-threads=1
-cargo check -p mw-server --all-targets --timings
+cargo check -p mw-server-core -p mw-server --all-targets --timings
 ```
 
 The workspace and Docker `rust-source` stage include all six crates. A server-only

@@ -7,10 +7,10 @@ trap 'rm -rf -- "$work"' EXIT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 if [[ ${1:-} == --cargo-probe ]]; then
-    mkdir -p "$work/probe/server/src" "$work/probe/dep/src"
+    mkdir -p "$work/probe/server/src" "$work/probe/core/src" "$work/probe/dep/src"
     cat > "$work/probe/Cargo.toml" <<'TOML'
 [workspace]
-members = ["server", "dep"]
+members = ["server", "core", "dep"]
 resolver = "3"
 [profile.release]
 overflow-checks = true
@@ -24,30 +24,66 @@ version = "0.1.0"
 edition = "2024"
 TOML
     printf 'pub fn value() -> usize { std::hint::black_box(42) }\n' > "$work/probe/dep/src/lib.rs"
+    cat > "$work/probe/core/Cargo.toml" <<'TOML'
+[package]
+name = "mw-server-core"
+version = "0.1.0"
+edition = "2024"
+[lib]
+name = "mw_server"
+path = "../server/src/core.rs"
+[dependencies]
+fixture-dep = { path = "../dep" }
+TOML
+    cat > "$work/probe/server/src/core.rs" <<'RS'
+pub fn value() -> usize { fixture_dep::value() }
+pub const LOG_TARGET: &str = module_path!();
+pub fn overflow() -> u8 {
+    let n = std::hint::black_box(u8::MAX);
+    std::hint::black_box(n + 1)
+}
+RS
     cat > "$work/probe/server/Cargo.toml" <<'TOML'
 [package]
 name = "mw-server"
 version = "0.1.0"
 edition = "2024"
 [dependencies]
-fixture-dep = { path = "../dep" }
+server_core = { package = "mw-server-core", path = "../core" }
 TOML
+    printf 'one\n' > "$work/probe/server/product-input.txt"
+    cat > "$work/probe/server/build.rs" <<'RS'
+fn main() {
+    println!("cargo:rerun-if-changed=product-input.txt");
+    std::fs::write(std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("info.txt"),
+        std::fs::read("product-input.txt").unwrap()).unwrap();
+}
+RS
+    cat > "$work/probe/server/src/lib.rs" <<'RS'
+pub use server_core::*;
+pub const BUILD_INFO: &str = include_str!(concat!(env!("OUT_DIR"), "/info.txt"));
+RS
     cat > "$work/probe/server/src/main.rs" <<'RS'
 fn main() {
-    assert_eq!(fixture_dep::value(), 42);
-    assert!(std::panic::catch_unwind(|| {
-        let n = std::hint::black_box(u8::MAX);
-        std::hint::black_box(n + 1)
-    }).is_err());
+    assert_eq!(mw_server::value(), 42);
+    assert_eq!(mw_server::LOG_TARGET, "mw_server");
+    assert_eq!(mw_server::BUILD_INFO.trim(), std::env::args().nth(1).unwrap());
+    assert!(std::panic::catch_unwind(mw_server::overflow).is_err());
     assert!(std::panic::catch_unwind(|| panic!("unwind remains enabled")).is_err());
 }
 RS
-    (cd "$work/probe" && CARGO_TARGET_DIR="$work/probe/target" cargo build --offline --release -vv --config 'profile.release.package.mw-server.opt-level=2') > "$work/probe.log" 2>&1
+    (cd "$work/probe" && CARGO_TARGET_DIR="$work/probe/target" cargo build --offline --release -vv --config 'profile.release.package.mw-server-core.opt-level=2' --config 'profile.release.package.mw-server.opt-level=2') > "$work/probe.log" 2>&1
+    ! grep -q 'output filename collision' "$work/probe.log" || fail 'facade/core library output filenames collide'
     grep -- '--crate-name fixture_dep' "$work/probe.log" | grep -q -- '-C opt-level=3' || fail 'dependency was not optimized at level 3'
     grep -- '--crate-name mw_server' "$work/probe.log" | grep -q -- '-C opt-level=2' || fail 'server override did not use opt-level 2'
     grep -- '--crate-name mw_server' "$work/probe.log" | grep -q -- '-C overflow-checks=on' || fail 'release overflow checking was lost'
-    "$work/probe/target/release/mw-server" > "$work/runtime.log" 2>&1 || fail 'overflow/unwind runtime invariants failed'
-    printf 'PASS: actual Cargo server opt-level 2, dependency opt-level 3, overflow checks and unwind\n'
+    "$work/probe/target/release/mw-server" one > "$work/runtime.log" 2>&1 || fail 'overflow/unwind runtime invariants failed'
+    printf 'two\n' > "$work/probe/server/product-input.txt"
+    (cd "$work/probe" && CARGO_TARGET_DIR="$work/probe/target" cargo build --offline --release -vv --config 'profile.release.package.mw-server-core.opt-level=2' --config 'profile.release.package.mw-server.opt-level=2') > "$work/warm.log" 2>&1
+    grep -q 'Fresh mw-server-core ' "$work/warm.log" || fail 'metadata-only edit recompiled the core'
+    ! grep -q 'output filename collision' "$work/warm.log" || fail 'warm facade/core library outputs collide'
+    "$work/probe/target/release/mw-server" two >> "$work/runtime.log" 2>&1 || fail 'metadata-only rebuild served stale facts'
+    printf 'PASS: core/facade opt-level 2, dependency opt-level 3, overflow/unwind, legacy log target and metadata-only core reuse\n'
     exit 0
 fi
 [[ $# == 0 ]] || fail 'unknown fixture option'
@@ -73,18 +109,32 @@ grep -qx 'profile=fast' "$work/fast.log" || fail 'fast CLI selection lost'
 source <(awk '/^build_local_image\(\)/{copy=1} /^initialize\(\)/{copy=0} copy{print}' "$ROOT/deploy.sh")
 docker() { printf '%s\n' "$@" > "$work/docker.args"; }
 log() { printf '%s\n' "$*" >> "$work/build.log"; }
+die() { fail "$@"; }
 BUILD_INCREMENTAL=0 BUILD_JOBS=8 IMAGE=fixture:build ROOT_CONTEXT=$ROOT
 ROOT="$work/context with spaces"
+MW_BUILD_REVISION=0123456789abcdef0123456789abcdef01234567
 for BUILD_PROFILE in release fast; do
     build_local_image
     grep -qx "MW_BUILD_PROFILE=$BUILD_PROFILE" "$work/docker.args" || fail 'profile Docker argument lost'
     grep -qx 'MW_BUILD_JOBS=8' "$work/docker.args" || fail 'eight-job default lost'
+    grep -qx "MW_BUILD_REVISION=$MW_BUILD_REVISION" "$work/docker.args" || fail 'immutable source revision lost'
     [[ $(tail -n 1 "$work/docker.args") == "$ROOT" ]] || fail 'Docker context was split'
 done
+cp "$work/docker.args" "$work/last-valid-docker.args"
+for invalid_revision in short 'fffffffffffffffffffffffffffffffffffffffz' ''; do
+    if (MW_BUILD_REVISION=$invalid_revision MW_BUILD_SHA= build_local_image) > "$work/revision-invalid.log" 2>&1; then
+        fail 'invalid or missing archive revision accepted'
+    fi
+    cmp -s "$work/docker.args" "$work/last-valid-docker.args" || fail 'invalid provenance reached Docker'
+done
+if (MW_BUILD_SHA=ffffffffffffffffffffffffffffffffffffffff build_local_image) > "$work/revision-conflict.log" 2>&1; then
+    fail 'conflicting revision aliases accepted'
+fi
+unset MW_BUILD_REVISION MW_BUILD_SHA
 ROOT=$ROOT_CONTEXT
 grep -q 'runtime differences require measurement' "$work/build.log" || fail 'fast profile tradeoff not logged'
 [[ $(grep -c '^ARG MW_BUILD_PROFILE=release$' "$ROOT/Dockerfile") == 2 ]] || fail 'GNU/musl release defaults differ'
-[[ $(grep -c "fast) set -- --config 'profile.release.package.mw-server.opt-level=2'" "$ROOT/Dockerfile") == 2 ]] || fail 'GNU/musl package overrides differ'
+[[ $(grep -c "fast) set -- --config 'profile.release.package.mw-server-core.opt-level=2' --config 'profile.release.package.mw-server.opt-level=2'" "$ROOT/Dockerfile") == 2 ]] || fail 'GNU/musl package overrides differ'
 [[ $(grep -c '&& mirror_cargo cargo build --locked --release "\$@"' "$ROOT/Dockerfile") == 2 ]] || fail 'Cargo arguments are not forwarded through the paired mirror safely'
 [[ $(grep -c '^RUN --mount=type=bind,from=rust-source,source=/src,target=/mw-input,ro ' "$ROOT/Dockerfile") == 2 ]] || fail 'GNU/musl inputs are not immutable source mounts'
 [[ $(grep -c 'target=/mw-build-cache,sharing=locked' "$ROOT/Dockerfile") == 2 ]] || fail 'GNU/musl source and target must share one locked cache root'
@@ -97,7 +147,7 @@ awk -v directory="$work" '/&& case "\$MW_BUILD_PROFILE" in/ {part++;copy=1} copy
 for stage in 1 2; do
     printf '\nprintf "%%s\\n" "$@"\n' >> "$work/stage-$stage.sh"
     MW_BUILD_PROFILE=fast sh "$work/stage-$stage.sh" > "$work/stage.args"
-    [[ $(sed -n '1p' "$work/stage.args") == --config && $(sed -n '2p' "$work/stage.args") == profile.release.package.mw-server.opt-level=2 ]] || fail 'actual Docker fast selection differs'
+    [[ $(sed -n '1p' "$work/stage.args") == --config && $(sed -n '2p' "$work/stage.args") == profile.release.package.mw-server-core.opt-level=2 && $(sed -n '3p' "$work/stage.args") == --config && $(sed -n '4p' "$work/stage.args") == profile.release.package.mw-server.opt-level=2 ]] || fail 'actual Docker fast core/facade selection differs'
     MW_BUILD_PROFILE=release sh "$work/stage-$stage.sh" > "$work/stage.args"
     [[ ! -s $work/stage.args || $(cat "$work/stage.args") == '' ]] || fail 'release unexpectedly adds Cargo overrides'
     if MW_BUILD_PROFILE=invalid sh "$work/stage-$stage.sh" > "$work/stage.args" 2>&1; then fail 'actual Docker stage accepted invalid profile'; fi

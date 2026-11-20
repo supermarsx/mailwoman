@@ -336,7 +336,7 @@ mod tests {
     use super::*;
 
     fn fixture_dir() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fonts")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../mw-server/tests/fixtures/fonts")
     }
 
     fn sample_css() -> String {

@@ -266,7 +266,7 @@ async fn summary(
         };
         let mut totals = counts(&snapshot, scope);
         totals["activeSessions"] = json!(active_sessions);
-        let value = json!({"server":global.then(||json!({"version":env!("CARGO_PKG_VERSION"),"buildSha":option_env!("MW_BUILD_SHA"),"mode":if state.engine.is_some(){"engine"}else{"proxy"},"uptimeSecs":state.started.elapsed().as_secs(),"startedAt":state.started_at.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),"basePath":state.base_path.as_ref()})),
+        let value = json!({"server":global.then(||json!({"version":env!("CARGO_PKG_VERSION"),"buildSha":state.product_build_info.revision(),"mode":if state.engine.is_some(){"engine"}else{"proxy"},"uptimeSecs":state.started.elapsed().as_secs(),"startedAt":state.started_at.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),"basePath":state.base_path.as_ref()})),
             "counts":totals,"security":null,
             "storage":store.as_ref().map(|s|json!({"dbBytes":s.db_bytes,"walBytes":s.wal_bytes,"searchIndexBytes":search_bytes,"dataVolume":null})),
             "health":health,

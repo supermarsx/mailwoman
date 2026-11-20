@@ -2002,7 +2002,7 @@ jobs:
         # while re-exposing this job to the same artifact. `--include-ignored` is
         # unaffected: the live-Postgres `#[ignore]`d tests are lib and integration
         # tests, which is precisely what `--lib --tests` selects.
-        run: cargo test -p mw-store -p mw-engine -p mw-server --no-fail-fast --lib --tests -- --include-ignored --test-threads=1
+        run: cargo test -p mw-store -p mw-engine -p mw-server-core -p mw-server --no-fail-fast --lib --tests -- --include-ignored --test-threads=1
       # MARKER ONLY — never fails the job. A skip whose reason names no gate
       # variable cannot be asserted by a list, so it is invisible to
       # MW_REQUIRE_LIVE; t24-e18's UNMATCHED line makes those countable, and this
@@ -3029,6 +3029,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          build-args: |
+            MW_BUILD_REVISION=${{ github.sha }}
           target: runtime-static
           push: false
           load: true
@@ -3039,6 +3041,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          build-args: |
+            MW_BUILD_REVISION=${{ github.sha }}
           target: runtime
           push: false
           load: true
@@ -3049,6 +3053,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          build-args: |
+            MW_BUILD_REVISION=${{ github.sha }}
           target: mock
           push: false
           load: true

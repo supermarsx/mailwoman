@@ -18,6 +18,8 @@ members = [
     "crates/mw-store",
     "crates/mw-mock-jmap",
     "crates/mw-server",
+    "crates/mw-server-core",
+    "crates/mw-build-metadata",
     "crates/mw-mime",
     "crates/mw-imap",
     "crates/mw-pop3",

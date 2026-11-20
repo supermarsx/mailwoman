@@ -19,6 +19,8 @@
 # Stage 1 — web: build the SPA. apps/web is a self-contained pnpm project
 # (its own pnpm-workspace.yaml + pnpm-lock.yaml live under apps/web/).
 # ---------------------------------------------------------------------------
+ARG MW_BUILD_REVISION
+ARG MW_BUILD_RELEASE_TAG=
 FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS web
 RUN corepack enable
 WORKDIR /web
@@ -81,6 +83,8 @@ ARG MW_CARGO_INCREMENTAL=0
 ARG MW_BUILD_JOBS=8
 ARG MW_BUILD_PROFILE=release
 ARG MW_PRODUCT_SUPPORT_UNTIL=
+ARG MW_BUILD_REVISION
+ARG MW_BUILD_RELEASE_TAG
 ARG TARGETPLATFORM
 # Select the already-installed compiler explicitly. Otherwise rustup reads the
 # checkout's developer component list and fetches clippy/rustfmt in this source-
@@ -90,7 +94,7 @@ ENV RUSTUP_TOOLCHAIN=1.98.1 \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 COPY --from=rust-source /src/ /src/
 COPY scripts/build/source_mirror.py /usr/local/lib/mailwoman-build/source_mirror.py
-ENV MW_PRODUCT_SUPPORT_UNTIL=${MW_PRODUCT_SUPPORT_UNTIL}
+ENV MW_PRODUCT_SUPPORT_UNTIL=${MW_PRODUCT_SUPPORT_UNTIL} MW_BUILD_REVISION=${MW_BUILD_REVISION} MW_BUILD_RELEASE_TAG=${MW_BUILD_RELEASE_TAG}
 # Immutable source is bound read-only; the versioned paired cache preserves
 # unchanged source mtimes and Cargo state under one outer BuildKit lock.
 # The first build in this new cache namespace is intentionally cold.
@@ -99,12 +103,13 @@ ENV MW_PRODUCT_SUPPORT_UNTIL=${MW_PRODUCT_SUPPORT_UNTIL}
 RUN --mount=type=bind,from=rust-source,source=/src,target=/mw-input,ro \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,id=mailwoman-source-target-gnu-v1-${TARGETPLATFORM},target=/mw-build-cache,sharing=locked \
-    python3 --version \
+    printf '%s' "$MW_BUILD_REVISION" | grep -Eq '^[0-9a-f]{40}$' \
+    && python3 --version \
     && mirror_cargo() { python3 /usr/local/lib/mailwoman-build/source_mirror.py --input /mw-input --cache-root /mw-build-cache -- "$@"; } \
     && export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-8}" \
     && case "$MW_BUILD_PROFILE" in \
          release) set -- ;; \
-         fast) set -- --config 'profile.release.package.mw-server.opt-level=2' ;; \
+         fast) set -- --config 'profile.release.package.mw-server-core.opt-level=2' --config 'profile.release.package.mw-server.opt-level=2' ;; \
          *) echo 'MW_BUILD_PROFILE must be release or fast' >&2; exit 2 ;; \
        esac \
     && mirror_cargo cargo build --locked --release "$@" --bin mailwoman --bin mw-render --bin mw-mock-jmap \
@@ -116,6 +121,8 @@ RUN --mount=type=bind,from=rust-source,source=/src,target=/mw-input,ro \
 # manager. Ships only the server and its render worker.
 # ---------------------------------------------------------------------------
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS runtime
+ARG MW_BUILD_REVISION
+LABEL org.opencontainers.image.revision=${MW_BUILD_REVISION}
 COPY --from=build /out/mailwoman   /usr/local/bin/mailwoman
 COPY --from=build /out/mw-render   /usr/local/bin/mw-render
 COPY --from=web /web/dist /usr/lib/mailwoman/web
@@ -147,6 +154,8 @@ CMD ["serve"]
 # shell or curl in the distroless image.
 # ---------------------------------------------------------------------------
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS mock
+ARG MW_BUILD_REVISION
+LABEL org.opencontainers.image.revision=${MW_BUILD_REVISION}
 COPY --from=build /out/mw-mock-jmap /usr/local/bin/mw-mock-jmap
 COPY --from=build /out/mailwoman    /usr/local/bin/mailwoman
 ENV MW_MOCK_PORT=8181
@@ -176,13 +185,15 @@ ARG MW_CARGO_INCREMENTAL=0
 ARG MW_BUILD_JOBS=8
 ARG MW_BUILD_PROFILE=release
 ARG MW_PRODUCT_SUPPORT_UNTIL=
+ARG MW_BUILD_REVISION
+ARG MW_BUILD_RELEASE_TAG
 ENV RUSTFLAGS="-C target-feature=+crt-static" \
     RUSTUP_TOOLCHAIN=1.98.1 \
     CARGO_INCREMENTAL=${MW_CARGO_INCREMENTAL} \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 COPY --from=rust-source /src/ /src/
 COPY scripts/build/source_mirror.py /usr/local/lib/mailwoman-build/source_mirror.py
-ENV MW_PRODUCT_SUPPORT_UNTIL=${MW_PRODUCT_SUPPORT_UNTIL}
+ENV MW_PRODUCT_SUPPORT_UNTIL=${MW_PRODUCT_SUPPORT_UNTIL} MW_BUILD_REVISION=${MW_BUILD_REVISION} MW_BUILD_RELEASE_TAG=${MW_BUILD_RELEASE_TAG}
 # Build a nonroot passwd/group and an empty data dir to carry into scratch.
 RUN printf 'nonroot:x:65532:65532:nonroot:/data:/sbin/nologin\n' > /etc/mw-passwd \
     && printf 'nonroot:x:65532:\n' > /etc/mw-group \
@@ -190,12 +201,13 @@ RUN printf 'nonroot:x:65532:65532:nonroot:/data:/sbin/nologin\n' > /etc/mw-passw
 RUN --mount=type=bind,from=rust-source,source=/src,target=/mw-input,ro \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,id=mailwoman-source-target-musl-v1,target=/mw-build-cache,sharing=locked \
-    python3 --version \
+    printf '%s' "$MW_BUILD_REVISION" | grep -Eq '^[0-9a-f]{40}$' \
+    && python3 --version \
     && mirror_cargo() { python3 /usr/local/lib/mailwoman-build/source_mirror.py --input /mw-input --cache-root /mw-build-cache -- "$@"; } \
     && export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-8}" \
     && case "$MW_BUILD_PROFILE" in \
          release) set -- ;; \
-         fast) set -- --config 'profile.release.package.mw-server.opt-level=2' ;; \
+         fast) set -- --config 'profile.release.package.mw-server-core.opt-level=2' --config 'profile.release.package.mw-server.opt-level=2' ;; \
          *) echo 'MW_BUILD_PROFILE must be release or fast' >&2; exit 2 ;; \
        esac \
     && mirror_cargo cargo build --locked --release "$@" --timings --target x86_64-unknown-linux-musl \
@@ -221,6 +233,8 @@ COPY --from=build-musl /out-musl/cargo-timing.html /cargo-timing.html
 # This final stage is also Docker's default when no target is specified.
 # ---------------------------------------------------------------------------
 FROM scratch AS runtime-static
+ARG MW_BUILD_REVISION
+LABEL org.opencontainers.image.revision=${MW_BUILD_REVISION}
 COPY --from=build-musl /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build-musl /etc/mw-passwd /etc/passwd
 COPY --from=build-musl /etc/mw-group  /etc/group
