@@ -1,8 +1,9 @@
 //! Bounded online cache collection and incremental SQLite reclamation.
 //! Dedicated connections never change the foreground pool's lock/deadline policy.
 use crate::{
+    Store, StoreError,
     backend::{Backend, Tx},
-    q, Store, StoreError,
+    q,
 };
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
@@ -49,6 +50,97 @@ pub struct MaintenanceReport {
     pub auto_vacuum: Option<i64>,
     pub vacuum_status: String,
     pub elapsed_ms: u64,
+    #[serde(default)]
+    pub wal_recovery: Option<WalRecovery>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WalRecovery {
+    pub before_bytes: u64,
+    pub after_bytes: u64,
+    pub status: String,
+}
+
+// A runtime abort must not release a generation pin before its PRIVATE worker
+// closes. Also retain a real foreground connection: pool ownership alone does
+// not prevent a last-connection close from checkpointing an arbitrarily big WAL.
+pub(crate) struct WorkerLease(
+    Option<(
+        sqlx::SqlitePool,
+        crate::sqlite_live::PinnedPool,
+        sqlx::pool::PoolConnection<sqlx::Sqlite>,
+    )>,
+);
+impl WorkerLease {
+    pub(crate) fn new(
+        pool: sqlx::SqlitePool,
+        pin: crate::sqlite_live::PinnedPool,
+        connection: sqlx::pool::PoolConnection<sqlx::Sqlite>,
+    ) -> Self {
+        Self(Some((pool, pin, connection)))
+    }
+    pub(crate) async fn close(&mut self) {
+        if let Some((pool, _, _)) = &self.0 {
+            pool.close().await;
+        }
+        if let Some((_, pin, mut connection)) = self.0.take() {
+            connection.return_to_pool().await;
+            drop(connection);
+            drop(pin);
+        }
+    }
+}
+impl Drop for WorkerLease {
+    fn drop(&mut self) {
+        let Some(payload) = self.0.take() else { return };
+        let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(payload)));
+        let owned = slot.clone();
+        if std::thread::Builder::new()
+            .name("mw-maintenance-close".into())
+            .spawn(move || {
+                let (pool, pin, mut connection) = owned
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take()
+                    .expect("private worker lease");
+                match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(runtime) => {
+                        runtime.block_on(async move {
+                            pool.close().await;
+                            connection.return_to_pool().await;
+                            drop(connection);
+                            drop(pin);
+                        });
+                    }
+                    Err(_) => std::mem::forget((pool, pin, connection)),
+                }
+            })
+            .is_err()
+        {
+            std::mem::forget(slot);
+        }
+    }
+}
+
+/// SQLx returns dropped borrows asynchronously. Give that return a bounded
+/// chance to complete without opening/cancelling a new physical connection.
+pub(crate) async fn idle_keepalive(
+    pin: &crate::sqlite_live::PinnedPool,
+) -> Option<sqlx::pool::PoolConnection<sqlx::Sqlite>> {
+    let deadline = Instant::now() + Duration::from_millis(50);
+    loop {
+        if let Some(connection) = pin.pool().try_acquire() {
+            return Some(connection);
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
 }
 /// SQLite BEGIN IMMEDIATE already serializes writers. PostgreSQL needs an
 /// account lifecycle lock shared by body insertion, reference attachment and GC.
@@ -93,23 +185,56 @@ async fn run(
     options.batch_bytes = options.batch_bytes.clamp(1024 * 1024, 256 * 1024 * 1024);
     options.grace_seconds = options.grace_seconds.max(3600);
     let started = Instant::now();
-    let source_pin = match &original {
+    let mut source_pin = match &original {
         Backend::Sqlite(pool) => Some(pool.pin().await),
         Backend::Postgres(_) => None,
     };
+    let mut source_connection = match &source_pin {
+        Some(pin) => match idle_keepalive(pin).await {
+            Some(connection) => Some(connection),
+            None => {
+                return Ok(MaintenanceReport {
+                    at: chrono::Utc::now().timestamp(),
+                    status: "busy".into(),
+                    vacuum_status: "busy".into(),
+                    cursor,
+                    elapsed_ms: started.elapsed().as_millis() as u64,
+                    ..Default::default()
+                });
+            }
+        },
+        None => None,
+    };
+    let mut worker_lease = None;
     let backend = match original {
-        Backend::Sqlite(_) => Backend::Sqlite(
-            sqlx::sqlite::SqlitePoolOptions::new()
+        Backend::Sqlite(_) => {
+            let options = (*source_pin
+                .as_ref()
+                .expect("SQLite source pin")
+                .active_options())
+            .clone()
+            .busy_timeout(Duration::from_millis(50))
+            .pragma("wal_autocheckpoint", "0");
+            let pool = sqlx::sqlite::SqlitePoolOptions::new()
                 .max_connections(1)
                 .acquire_timeout(Duration::from_secs(2))
-                .connect_with(
-                    (*source_pin.as_ref().expect("SQLite source pin").active_options())
-                        .clone()
-                        .busy_timeout(Duration::from_millis(50))
-                        .pragma("wal_autocheckpoint", "0"),
-                )
-                .await?.into(),
-        ),
+                .connect_lazy_with(options);
+            worker_lease = Some(WorkerLease::new(
+                pool.clone(),
+                source_pin.take().unwrap(),
+                source_connection.take().unwrap(),
+            ));
+            let opened = pool.acquire().await;
+            if let Err(error) = opened {
+                pool.close().await;
+                if let Some(lease) = &mut worker_lease {
+                    lease.close().await;
+                }
+                return Err(error.into());
+            }
+            drop(opened);
+            Backend::Sqlite(pool.into())
+        }
         Backend::Postgres(pool) => Backend::Postgres(
             sqlx::postgres::PgPoolOptions::new()
                 .max_connections(1)
@@ -145,10 +270,17 @@ async fn run(
         ..Default::default()
     };
     let result = async {
-        if wal_bytes(&backend).is_some_and(|bytes| bytes > options.max_wal_bytes) {
-            report.status = "wal-pressure".into();
-            report.vacuum_status = "wal-pressure".into();
-            return Ok(());
+        if (options.collect_bodies || options.incremental_vacuum)
+            && wal_bytes(&backend).is_some_and(|bytes| bytes > options.max_wal_bytes)
+        {
+            let recovery = recover_wal_pressure(&backend, options.max_wal_bytes, deadline).await?;
+            let pressured = recovery.after_bytes > options.max_wal_bytes;
+            report.wal_recovery = Some(recovery);
+            if pressured {
+                report.status = "wal-pressure".into();
+                report.vacuum_status = "wal-pressure".into();
+                return Ok(());
+            }
         }
         if options.collect_bodies {
             collect(&backend, &options, deadline, &mut report).await?;
@@ -179,6 +311,9 @@ async fn run(
         Backend::Sqlite(pool) => pool.close().await,
         Backend::Postgres(pool) => pool.close().await,
     };
+    if let Some(lease) = &mut worker_lease {
+        lease.close().await;
+    }
     report.elapsed_ms = started.elapsed().as_millis() as u64;
     if let Err(error) = result {
         let text = error.to_string().to_ascii_lowercase();
@@ -273,6 +408,59 @@ fn wal_bytes(backend: &Backend) -> Option<u64> {
             .unwrap_or(0),
     )
 }
+
+/// Recycle an already checkpointed WAL through SQLite's own restart rules.
+/// Never checkpoint an oversized pending WAL or truncate a journal directly.
+pub(crate) async fn recover_wal_pressure(
+    backend: &Backend,
+    max_bytes: u64,
+    deadline: Instant,
+) -> Result<WalRecovery, StoreError> {
+    let before = wal_bytes(backend).unwrap_or(0);
+    let mut result = WalRecovery {
+        before_bytes: before,
+        after_bytes: before,
+        status: "below-limit".into(),
+    };
+    if before <= max_bytes {
+        return Ok(result);
+    }
+    result.status = "recovery-required".into();
+    if Instant::now() >= deadline {
+        return Ok(result);
+    }
+    let Backend::Sqlite(pool) = backend else {
+        return Ok(result);
+    };
+    let mut connection = pool.acquire().await?;
+    // Foreign triggers (including an active online-copy capture) could turn the
+    // one-row pulse into broader work. Refuse instead of invoking them.
+    let triggers:i64=sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_schema WHERE type='trigger' AND tbl_name='identity_serialization'").fetch_one(&mut *connection).await?;
+    if triggers != 0 || Instant::now() >= deadline {
+        return Ok(result);
+    }
+    sqlx::query(&format!(
+        "PRAGMA journal_size_limit={}",
+        max_bytes.min(i64::MAX as u64)
+    ))
+    .execute(&mut *connection)
+    .await?;
+    // Migration 0043: one constrained INTEGER PRIMARY KEY, no audit/timestamps
+    // or referencing foreign keys. SQLite resets only fully backfilled WALs
+    // when its reader/writer locks permit; this is one small autocommit write.
+    let pulse = sqlx::query("UPDATE identity_serialization SET id=id WHERE id=1")
+        .execute(&mut *connection)
+        .await;
+    result.after_bytes = wal_bytes(backend).unwrap_or(before);
+    if let Ok(changed) = pulse {
+        if changed.rows_affected() == 1 && result.after_bytes <= max_bytes {
+            result.status = "recycled".into();
+        }
+    }
+    // A busy, reader-pinned or genuinely pending oversized WAL stays deferred.
+    // PASSIVE has no frame budget and is deliberately not attempted here.
+    Ok(result)
+}
 async fn vacuum(
     backend: &Backend,
     options: &MaintenanceOptions,
@@ -348,9 +536,10 @@ async fn vacuum(
 mod tests {
     use super::*;
     use crate::{
-        cache::{AccountKind, MailboxUpsert, MessageUpsert, NewAccount},
         Credentials, ServerKey,
+        cache::{AccountKind, MailboxUpsert, MessageUpsert, NewAccount},
     };
+    use sqlx::Connection;
     async fn seed(store: &Store) -> (String, String) {
         let username = format!("maintenance-{}@example.test", uuid::Uuid::new_v4());
         let account = store
@@ -672,6 +861,140 @@ mod tests {
         assert_eq!(report.removed, 0);
         assert!(store.get_body(&blob).await.unwrap().is_some());
         store.close().await;
+        clean(dir).await;
+    }
+
+    async fn fill_test_wal(store: &Store) -> sqlx::SqliteConnection {
+        let Backend::Sqlite(live) = &store.backend else {
+            unreachable!()
+        };
+        let pin = live.pin().await;
+        let options = (*pin.active_options())
+            .clone()
+            .pragma("wal_autocheckpoint", "0");
+        let mut writer = sqlx::SqliteConnection::connect_with(&options)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE wal_fixture(payload BLOB);INSERT INTO wal_fixture VALUES(zeroblob(262144))").execute(&mut writer).await.unwrap();
+        writer
+    }
+    #[tokio::test]
+    async fn checkpointed_allocated_wal_recycles_and_collection_resumes() {
+        for encrypted in [false, true] {
+            let (store, dir) = if encrypted {
+                let dir =
+                    std::env::temp_dir().join(format!("mw-bg-recycle-{}", uuid::Uuid::new_v4()));
+                std::fs::create_dir(&dir).unwrap();
+                let config = crate::encryption::EncryptionConfig::with_key(
+                    crate::encryption::EncryptionMode::Optional,
+                    crate::encryption::DbKey::generate(),
+                );
+                let store = Store::open_with_encryption(
+                    dir.join("data.db").to_str().unwrap(),
+                    ServerKey::generate(),
+                    &config,
+                )
+                .await
+                .unwrap();
+                (store, dir)
+            } else {
+                file_store(true).await
+            };
+            let mut writer = fill_test_wal(&store).await;
+            // Explicit bounded fixture checkpoint, leaving the allocated WAL file.
+            sqlx::query("PRAGMA wal_checkpoint(PASSIVE)")
+                .execute(&mut writer)
+                .await
+                .unwrap();
+            let before = std::fs::metadata(dir.join("data.db-wal")).unwrap().len();
+            assert!(before > 65536);
+            let mut options = gc();
+            options.max_wal_bytes = 65536;
+            options.max_run_ms = 2000;
+            let report = store
+                .background_maintenance(options, String::new())
+                .await
+                .unwrap();
+            assert_eq!(report.wal_recovery.as_ref().unwrap().status, "recycled");
+            assert!(report.wal_recovery.as_ref().unwrap().after_bytes <= 65536);
+            assert_eq!(report.status, "complete");
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT octet_length(payload) FROM wal_fixture")
+                    .fetch_one(&mut writer)
+                    .await
+                    .unwrap(),
+                262144
+            );
+            writer.close().await.unwrap();
+            store.close().await;
+            drop(store);
+            clean(dir).await;
+        }
+    }
+    #[tokio::test]
+    async fn pending_large_wal_is_not_checkpointed_by_cleanup_or_private_close() {
+        let (store, dir) = file_store(true).await;
+        let mut writer = fill_test_wal(&store).await;
+        let bytes = std::fs::metadata(dir.join("data.db")).unwrap().len();
+        let mut options = gc();
+        options.max_wal_bytes = 65536;
+        options.max_run_ms = 2000;
+        let report = store
+            .background_maintenance(options.clone(), String::new())
+            .await
+            .unwrap();
+        assert_eq!(report.status, "wal-pressure");
+        assert_eq!(
+            report.wal_recovery.as_ref().unwrap().status,
+            "recovery-required"
+        );
+        assert_eq!(
+            std::fs::metadata(dir.join("data.db")).unwrap().len(),
+            bytes,
+            "private close must not silently checkpoint the large pending WAL"
+        );
+        sqlx::query("PRAGMA wal_checkpoint(PASSIVE)")
+            .execute(&mut writer)
+            .await
+            .unwrap();
+        let next = store
+            .background_maintenance(options, String::new())
+            .await
+            .unwrap();
+        assert_eq!(next.status, "complete");
+        assert_eq!(next.wal_recovery.as_ref().unwrap().status, "recycled");
+        writer.close().await.unwrap();
+        store.close().await;
+        drop(store);
+        clean(dir).await;
+    }
+    #[tokio::test]
+    async fn wal_recovery_refuses_foreign_serialization_triggers() {
+        let (store, dir) = file_store(true).await;
+        let mut writer = fill_test_wal(&store).await;
+        sqlx::query("CREATE TABLE trigger_evidence(n INTEGER);CREATE TRIGGER foreign_pulse AFTER UPDATE ON identity_serialization BEGIN INSERT INTO trigger_evidence VALUES(1);END;").execute(&mut writer).await.unwrap();
+        sqlx::query("PRAGMA wal_checkpoint(PASSIVE)")
+            .execute(&mut writer)
+            .await
+            .unwrap();
+        let mut options = gc();
+        options.max_wal_bytes = 65536;
+        options.max_run_ms = 2000;
+        let report = store
+            .background_maintenance(options, String::new())
+            .await
+            .unwrap();
+        assert_eq!(report.status, "wal-pressure");
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM trigger_evidence")
+                .fetch_one(&mut writer)
+                .await
+                .unwrap(),
+            0
+        );
+        writer.close().await.unwrap();
+        store.close().await;
+        drop(store);
         clean(dir).await;
     }
     #[tokio::test]
