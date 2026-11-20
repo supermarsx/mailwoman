@@ -1319,15 +1319,17 @@ impl Engine {
                 || args.get("fetchAllBodyValues").and_then(Value::as_bool)==Some(true)
         });
         if body_use{
-            for id in &requested{
-                match self.store().get_message(id).await{
-                    Ok(message) if message.account_id==account_id=>{
-                        if message.blob_ref.is_none(){if let Err(error)=self.message_raw(account_id,id).await{return server_fail(&error);}}
-                        if let Err(error)=self.hydrate_reader_body_values(account_id,id).await{return server_fail(&error);}
-                        if let Err(error)=self.record_cached_body_use(account_id,id).await{return server_fail(&error);}
-                    },
-                    Ok(_)|Err(mw_store::StoreError::NotFound)=>{},Err(error)=>return server_fail(&EngineError::Store(error)),
-                }
+            let ids: Vec<String> = requested.iter().map(|id| (*id).to_owned())
+                .collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+            let messages = match self.store().get_account_messages(account_id, &ids).await {
+                Ok(messages) => messages,
+                Err(error) => return server_fail(&EngineError::Store(error)),
+            };
+            for message in messages.into_iter().flatten(){
+                let id = &message.stable_id;
+                if message.blob_ref.is_none(){if let Err(error)=self.message_raw(account_id,id).await{return server_fail(&error);}}
+                if let Err(error)=self.hydrate_reader_body_values(account_id,id).await{return server_fail(&error);}
+                if let Err(error)=self.record_cached_body_use(account_id,id).await{return server_fail(&error);}
             }
         }
 
@@ -1364,7 +1366,7 @@ impl Engine {
                 .is_none_or(|named| named.iter().any(|property| property == "mailwomanMentions")),
             headers: wanted_header_properties(args),
         };
-        let mut assembled = match self.build_emails(&requested, fill).await {
+        let mut assembled = match self.build_emails(account_id, &requested, fill).await {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
         };
@@ -1442,6 +1444,7 @@ impl Engine {
     /// no stored body keeps the three keys absent.
     async fn build_emails(
         &self,
+        account_id: &str,
         stable_ids: &[&str],
         fill: EmailFill,
     ) -> Result<Vec<Option<Value>>> {
@@ -1458,8 +1461,8 @@ impl Engine {
         }
 
         // Statements 1 and 2: everything that was never cache-aside.
-        let msgs = self.store().get_messages(&unique).await?;
-        let metas = self.store().get_message_metas(&unique).await?;
+        let msgs = self.store().get_account_messages(account_id, &unique).await?;
+        let metas = self.store().get_account_message_metas(account_id, &unique).await?;
         let cache_postures = self.mail_cache_postures(&msgs).await;
 
         // Statement 3, when no cache is attached — see `email_get` for why an
@@ -1478,7 +1481,7 @@ impl Engine {
             }
             out
         } else {
-            self.store().get_envelopes(&unique).await?
+            self.store().get_account_envelopes(account_id, &unique).await?
         };
 
         let mut built: Vec<Option<Value>> = Vec::with_capacity(unique.len());

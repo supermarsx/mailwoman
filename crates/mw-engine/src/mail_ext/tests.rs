@@ -113,6 +113,44 @@ async fn ingest(
 // ---- Thread/get + Thread/changes (J1) -----------------------------------
 
 #[tokio::test]
+async fn email_get_never_exposes_foreign_ids_in_headers_bodies_or_extensions() {
+    let engine = engine().await;
+    let owner = named_account(&engine, "owner@isolation.invalid").await;
+    let foreign = named_account(&engine, "foreign@isolation.invalid").await;
+    let own_box = mailbox(&engine, &owner, "INBOX", Some("inbox")).await;
+    let foreign_box = mailbox(&engine, &foreign, "INBOX", Some("inbox")).await;
+    let own_id = ingest(&engine, &owner, &own_box,
+        raw_msg("<own@isolation.invalid>", "Owner", None, &[], "owner body"), 1, "2024-01-01T00:00:00Z").await;
+    let foreign_id = ingest(&engine, &foreign, &foreign_box,
+        raw_msg("<foreign@isolation.invalid>", "FOREIGN SECRET", None, &[], "foreign body"), 1, "2024-01-01T00:00:00Z").await;
+    engine.store().register_refetchable_cached_body(&foreign, &foreign_id).await.unwrap();
+    let lease_before = engine.store().cached_body_expiry_stats().await.unwrap();
+    let foreign_envelope = engine.store().get_envelope(&foreign_id).await.unwrap();
+    for mut args in [
+        json!({"properties":["id","subject","from"]}),
+        json!({"properties":["id","bodyValues","attachments"],"fetchAllBodyValues":true,"mailwomanBodyUse":true}),
+        json!({"properties":["id","mailwomanMentions","mailwomanCalendar"]}),
+        json!({}),
+    ] {
+        args["ids"] = json!([own_id, foreign_id, foreign_id, "missing", own_id]);
+        let result = engine.email_get(&owner, &args).await;
+        assert!(result.get("type").is_none(), "{result}");
+        let rows = result["list"].as_array().unwrap();
+        assert_eq!(rows.len(), 2, "foreign IDs must be notFound: {result}");
+        assert!(rows.iter().all(|row| row["id"] == own_id));
+        assert_eq!(result["notFound"], json!([foreign_id,foreign_id,"missing"]));
+        assert_eq!(engine.store().get_envelope(&foreign_id).await.unwrap(), foreign_envelope);
+    }
+    assert_eq!(serde_json::to_value(engine.store().cached_body_expiry_stats().await.unwrap()).unwrap(), serde_json::to_value(lease_before).unwrap());
+    let before = engine.search().doc_fetch_count();
+    let result = engine.email_get(&owner, &json!({"ids":[foreign_id,foreign_id],"properties":["id","mailwomanMentions","mailwomanCalendar"]})).await;
+    assert_eq!(result["list"], json!([]));
+    assert_eq!(result["notFound"], json!([foreign_id,foreign_id]));
+    assert_eq!(engine.search().doc_fetch_count(), before, "foreign IDs must never reach the search index");
+    engine.store().close().await;
+}
+
+#[tokio::test]
 async fn identical_ingest_repairs_index_without_growing_change_history() {
     let engine = engine().await;
     let account = account(&engine).await;

@@ -235,6 +235,47 @@ impl Store {
         Ok(project_in_order(stable_ids, found))
     }
 
+    /// Account-scoped batch read for authenticated message projections. Foreign
+    /// IDs are absent before any envelope decryption; order/duplicates survive.
+    pub async fn get_account_message_metas(
+        &self,
+        account_id: &str,
+        stable_ids: &[String],
+    ) -> Result<Vec<Option<StoredMeta>>, StoreError> {
+        if stable_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sql = match self.backend.dialect() {
+            Dialect::Sqlite => {
+                "SELECT mm.stable_id, mm.pinned, mm.snoozed_until, mm.follow_up_at FROM message_meta mm JOIN messages m ON m.stable_id=mm.stable_id
+                 WHERE m.account_id=?2 AND mm.stable_id IN (SELECT value FROM json_each(?1))"
+            }
+            Dialect::Postgres => {
+                "SELECT mm.stable_id, mm.pinned, mm.snoozed_until, mm.follow_up_at FROM message_meta mm JOIN messages m ON m.stable_id=mm.stable_id
+                 WHERE m.account_id=?2 AND mm.stable_id IN (SELECT value FROM json_array_elements_text(?1::json))"
+            }
+        };
+        let rows = q(sql)
+            .bind(id_list_json(stable_ids))
+            .bind(account_id)
+            .fetch_all(&self.backend)
+            .await?;
+        let found: HashMap<String, StoredMeta> = rows
+            .iter()
+            .map(|r| {
+                (
+                    r.get_string("stable_id"),
+                    StoredMeta {
+                        pinned: r.get_i64("pinned") != 0,
+                        snoozed_until: r.get_opt_string("snoozed_until"),
+                        follow_up_at: r.get_opt_string("follow_up_at"),
+                    },
+                )
+            })
+            .collect();
+        Ok(project_in_order(stable_ids, found))
+    }
+
     /// Snoozed messages whose resurface time is at/behind `now` (RFC3339),
     /// joined to their account + current mailbox (the scheduler input).
     pub async fn due_snoozed(&self, now: &str) -> Result<Vec<SnoozeDue>, StoreError> {

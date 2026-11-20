@@ -24,6 +24,10 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 #[path = "message_ingest_history_tests.rs"]
 mod ingest_history_tests;
 
+#[cfg(test)]
+#[path = "message_batch_ownership_tests.rs"]
+mod batch_ownership_tests;
+
 use chrono::Utc;
 
 use crate::backend::Dialect;
@@ -1041,6 +1045,44 @@ impl Store {
         Ok(project_in_order(stable_ids, found))
     }
 
+    /// Account-scoped batch read for authenticated message projections. Foreign
+    /// IDs are absent before any envelope decryption; order/duplicates survive.
+    pub async fn get_account_messages(
+        &self,
+        account_id: &str,
+        stable_ids: &[String],
+    ) -> Result<Vec<Option<Message>>, StoreError> {
+        if stable_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sql = match self.backend.dialect() {
+            Dialect::Sqlite => {
+                "SELECT stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id,
+                        internaldate, size, flags_json, blob_ref, cache_revision
+                 FROM messages WHERE account_id=?2 AND stable_id IN (SELECT value FROM json_each(?1))"
+            }
+            Dialect::Postgres => {
+                "SELECT stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id,
+                        internaldate, size, flags_json, blob_ref, cache_revision
+                 FROM messages
+                 WHERE account_id=?2 AND stable_id IN (SELECT value FROM json_array_elements_text(?1::json))"
+            }
+        };
+        let rows = q(sql)
+            .bind(id_list_json(stable_ids))
+            .bind(account_id)
+            .fetch_all(&self.backend)
+            .await?;
+        let found: HashMap<String, Message> = rows
+            .iter()
+            .map(|r| {
+                let m = Self::message_from_row(r);
+                (m.stable_id.clone(), m)
+            })
+            .collect();
+        Ok(project_in_order(stable_ids, found))
+    }
+
     /// Open a whole page of sealed envelopes in **one** statement (26.20 t22-e1).
     ///
     /// The batch form of [`Store::get_envelope`], positionally aligned with
@@ -1074,6 +1116,40 @@ impl Store {
         };
         let rows = q(sql)
             .bind(id_list_json(stable_ids))
+            .fetch_all(&self.backend)
+            .await?;
+        let mut found: HashMap<String, Vec<u8>> = HashMap::with_capacity(rows.len());
+        for r in &rows {
+            if let Some(sealed) = r.get_opt_blob("envelope_json") {
+                found.insert(r.get_string("stable_id"), self.key.open(&sealed)?);
+            }
+        }
+        Ok(project_in_order(stable_ids, found))
+    }
+
+    /// Account-scoped batch read for authenticated message projections. Foreign
+    /// IDs are absent before any envelope decryption; order/duplicates survive.
+    pub async fn get_account_envelopes(
+        &self,
+        account_id: &str,
+        stable_ids: &[String],
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        if stable_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sql = match self.backend.dialect() {
+            Dialect::Sqlite => {
+                "SELECT stable_id, envelope_json FROM messages
+                 WHERE account_id=?2 AND stable_id IN (SELECT value FROM json_each(?1))"
+            }
+            Dialect::Postgres => {
+                "SELECT stable_id, envelope_json FROM messages
+                 WHERE account_id=?2 AND stable_id IN (SELECT value FROM json_array_elements_text(?1::json))"
+            }
+        };
+        let rows = q(sql)
+            .bind(id_list_json(stable_ids))
+            .bind(account_id)
             .fetch_all(&self.backend)
             .await?;
         let mut found: HashMap<String, Vec<u8>> = HashMap::with_capacity(rows.len());

@@ -170,6 +170,23 @@ async fn explicit_reader_restores_expired_body_and_background_download_does_not_
         .execute(&pool)
         .await
         .unwrap();
+    let other = store.create_account(&NewAccount {
+        kind: AccountKind::Imap, host: "example.invalid", port: 993,
+        tls: "implicit", username: "other@example.invalid", sync_policy_json: "{}",
+    }, &Credentials { username: "other@example.invalid".into(), password: "fixture".into() }).await.unwrap();
+    engine.register_backend(other.clone(), AccountRuntime::new(
+        backend.clone(), Arc::new(NoSend), "other@example.invalid",
+    ));
+    let foreign = engine.handle_jmap(&other, &json!({"methodCalls":[["Email/get",{
+        "accountId":other,"ids":[id,id],"properties":["id","bodyValues","mailwomanMentions"],
+        "fetchAllBodyValues":true,"mailwomanBodyUse":true
+    },"foreign"]]})).await;
+    let denied = &foreign["methodResponses"][0][1];
+    assert_eq!(denied["list"], json!([]));
+    assert_eq!(denied["notFound"], json!([id,id]));
+    assert_eq!(store.cached_body_expiry_stats().await.unwrap().oldest_use_at, Some(1),
+        "a foreign explicit reader must not renew the aged body lease");
+    assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
     let prefetch=engine.handle_jmap(&account,&json!({"methodCalls":[["Email/get",{"accountId":account,"ids":[id],"properties":["id","bodyValues"],"fetchHTMLBodyValues":true,"mailwomanBodyUse":false},"p"]]})).await;
     assert_eq!(prefetch["methodResponses"][0][0], "Email/get");
     assert_eq!(
