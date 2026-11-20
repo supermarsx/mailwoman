@@ -48,6 +48,44 @@ async fn independent_writer_changes_all_policy_namespaces_without_changing_sessi
     let key = ServerKey::generate();
     let reader = Store::open(&name, key.clone()).await.unwrap();
     let writer = Store::open(&name, key).await.unwrap();
+    // The dependency rows below name an account and a domain. Seed BOTH real
+    // parents before inserting membership and alias rows; retain FK checks.
+    let credentials = Credentials {
+        username: "person@example.test".into(),
+        password: "fixture-only".into(),
+    };
+    let generated = writer
+        .create_account(
+            &crate::NewAccount {
+                kind: crate::AccountKind::Imap,
+                host: "mail.example.test",
+                port: 143,
+                tls: "none",
+                username: &credentials.username,
+                sync_policy_json: "{}",
+            },
+            &credentials,
+        )
+        .await
+        .unwrap();
+    q("UPDATE accounts SET id='account-one' WHERE id=?1")
+        .bind(&generated)
+        .execute(&writer.backend)
+        .await
+        .unwrap();
+    writer
+        .put_domain_config(&crate::DomainConfigRow {
+            name: "example.test".into(),
+            upstream_json: "{}".into(),
+            allowlist_json: "[]".into(),
+            blocklist_json: "[]".into(),
+            enabled: true,
+            preferred: false,
+            settings_json: "{}".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
     let id = seed(&writer).await;
     // Every statement writes a real dependency covered by migration0078.
     let mutations = [
@@ -60,9 +98,12 @@ async fn independent_writer_changes_all_policy_namespaces_without_changing_sessi
         "INSERT INTO identity_principal(id,state,created_at) VALUES('principal','active',1)",
         "INSERT INTO identity_binding(id,principal_id,kind,authority,subject,created_at) VALUES('binding','principal','mailbox','fixture','one',1)",
     ];
-    for sql in mutations {
+    for (index, sql) in mutations.into_iter().enumerate() {
         let before = reader.primary_session_policy_snapshot(&id).await.unwrap();
-        q(sql).execute(&writer.backend).await.unwrap();
+        q(sql)
+            .execute(&writer.backend)
+            .await
+            .unwrap_or_else(|error| panic!("fixture dependency mutation {index} failed: {error}"));
         let after = reader.primary_session_policy_snapshot(&id).await.unwrap();
         assert!(!before.witness.matches(&after.witness));
         assert_eq!(before.session.username, after.session.username);
