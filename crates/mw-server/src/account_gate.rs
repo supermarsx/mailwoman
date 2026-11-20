@@ -401,8 +401,10 @@ async fn gate_for(store: &Store, ids: &[&str], names: &[&str]) -> Result<Account
         let identity = crate::domain_config::canonical(store, name, None)
             .await
             .map_err(StoreError::Corrupt)?;
-        for address in [flag_subject(name), identity.address.clone()] {
-            if store.directory_access_held(&address).await? {
+        let supplied = flag_subject(name);
+        let distinct = if supplied == identity.address { 1 } else { 2 };
+        for address in [&supplied, &identity.address].into_iter().take(distinct) {
+            if store.directory_access_held(address).await? {
                 gate.disabled = true;
             }
         }
@@ -505,7 +507,8 @@ async fn gate_for_names(
     account_id: &str,
     names: &[String],
 ) -> Result<AccountGate, StoreError> {
-    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut seen = std::collections::HashSet::new();
+    let names: Vec<&str> = names.iter().map(String::as_str).filter(|name| seen.insert(*name)).collect();
     gate_for(store, &[account_id], &names).await
 }
 
@@ -606,6 +609,66 @@ pub(crate) fn unavailable(what: &str, e: impl std::fmt::Display) -> Response {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn duplicate_names_do_not_repeat_live_security_reads() {
+        let store = Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        let one = vec!["alice@example.org".to_string()];
+        let duplicate = vec!["alice@example.org".to_string(); 3];
+        gate_for_names(&store, "acct", &one).await.unwrap();
+        let (unique, unique_queries) =
+            mw_store::pool_telemetry::measure_queries(gate_for_names(&store, "acct", &one)).await;
+        let (repeated, repeated_queries) =
+            mw_store::pool_telemetry::measure_queries(gate_for_names(&store, "acct", &duplicate))
+                .await;
+        assert_eq!(unique.unwrap(), repeated.unwrap());
+        assert_eq!(
+            unique_queries.read.calls, repeated_queries.read.calls,
+            "identical names must not multiply fresh database checks"
+        );
+        write_flags(&store, "alice@example.org", disabled())
+            .await
+            .unwrap();
+        assert!(
+            gate_for_names(&store, "acct", &duplicate)
+                .await
+                .unwrap()
+                .disabled
+        );
+        store.close().await;
+        assert!(gate_for_names(&store, "acct", &duplicate).await.is_err());
+    }
+    #[tokio::test]
+    async fn distinct_aliases_and_case_different_names_are_preserved() {
+        let store = Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        let names = vec![
+            "alice@example.org".into(),
+            "ALICE@example.org".into(),
+            "bob@other.org".into(),
+        ];
+        let duplicates = names
+            .iter()
+            .cloned()
+            .chain(names.iter().cloned())
+            .collect::<Vec<_>>();
+        write_flags(&store, "bob@other.org", disabled())
+            .await
+            .unwrap();
+        assert!(
+            gate_for_names(&store, "acct", &duplicates)
+                .await
+                .unwrap()
+                .disabled
+        );
+        store
+            .set_setting("v6:admin:flags:bob@other.org", "{broken")
+            .await
+            .unwrap();
+        assert!(gate_for_names(&store, "acct", &duplicates).await.is_err());
+    }
     use super::*;
     use mw_store::{Credentials, ServerKey};
 

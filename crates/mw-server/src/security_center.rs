@@ -31,6 +31,58 @@ fn error(what: &str, e: impl std::fmt::Display) -> Response {
     tracing::error!("security centre {what}: {e}");
     (StatusCode::SERVICE_UNAVAILABLE,Json(json!({"code":"securityUnavailable","error":"Security information is temporarily unavailable."}))).into_response()
 }
+/// Only the two live timeout settings needed by authenticated requests.
+/// The full login/2FA policy is deliberately kept for its existing callers.
+#[derive(Debug, PartialEq, Eq)]
+struct ClockPolicy {
+    idle_secs: u64,
+    absolute_secs: u64,
+}
+async fn clock_policy(
+    store: &mw_store::Store,
+    account: &str,
+    address: &str,
+    idle_cap: u64,
+    absolute_cap: u64,
+) -> Result<ClockPolicy, mw_store::StoreError> {
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
+        domain: address.rsplit_once('@').map_or("", |(_, domain)| domain),
+        account_id: account,
+        address,
+    };
+    // New database-backed witness on every call; never retained across requests.
+    let revision = store.settings_read_revision().await?;
+    let values = crate::settings_registry::effective_all_at_revision(
+        store,
+        &subject,
+        |def| matches!(def.key, "session.idleSecs" | "session.absoluteSecs"),
+        &revision,
+    )
+    .await?;
+    let value = |key: &str, fallback: Value| {
+        values
+            .iter()
+            .find(|value| value.key == key)
+            .map_or(fallback, |entry| entry.value.clone())
+    };
+    Ok(ClockPolicy {
+        idle_secs: value(
+            "session.idleSecs",
+            json!(crate::hardening::MAILBOX_IDLE_SECS),
+        )
+        .as_u64()
+        .unwrap_or(crate::hardening::MAILBOX_IDLE_SECS)
+        .min(idle_cap),
+        absolute_secs: crate::hardening::mailbox_absolute_secs(
+            value("session.absoluteSecs", json!(0))
+                .as_u64()
+                .unwrap_or(crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS),
+            absolute_cap,
+        ),
+    })
+}
+
 pub(crate) async fn policy(
     state: &AppState,
     account: &str,
@@ -371,7 +423,9 @@ pub(crate) async fn enforce_session_clock(
     state: &AppState,
     session: &mw_store::Session,
 ) -> Result<(), Response> {
-    let policy = policy(state, &session.account_id, &session.username).await?;
+    let policy = clock_policy(&state.store, &session.account_id, &session.username,
+        state.hardening.idle_timeout.as_secs(),state.hardening.absolute_timeout.as_secs())
+        .await.map_err(|cause|error("policy",cause))?;
     let Some((created, activity)) = state
         .store
         .session_activity_clock(&session.id)
@@ -1272,5 +1326,116 @@ mod admin_linked_origin_tests {
         for field in ["linkKind", "originEmail", "originAccountId", "targetEmail"] {
             assert!(plain.get(field).is_none(), "{field}");
         }
+    }
+}
+
+
+#[cfg(test)]
+mod clock_policy_tests {
+    use super::*;
+    use mw_store::{
+        ServerKey, Store,
+        settings_policy::{SettingPolicyRow, SettingScope, SettingValueRow},
+    };
+    async fn setting(store: &Store, key: &str, value: u64) {
+        store
+            .put_setting_policy(&SettingPolicyRow {
+                key: key.into(),
+                global_value: Some(value.to_string()),
+                allow_user_override: true,
+                global_locked: false,
+                updated_by: "fixture".into(),
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+    }
+    #[tokio::test]
+    async fn clock_policy_reads_one_fresh_revision_and_observes_next_call_changes() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let before = clock_policy(&store, "account", "user@example.org", 604800, 0)
+            .await
+            .unwrap();
+        assert_eq!(before.idle_secs, 604800);
+        let (policy, queries) = mw_store::pool_telemetry::measure_queries(clock_policy(
+            &store,
+            "account",
+            "user@example.org",
+            604800,
+            0,
+        ))
+        .await;
+        assert_eq!(policy.unwrap(), before);
+        assert_eq!(
+            queries.read.calls, 1,
+            "warm policy must still read exactly one fresh revision: {queries:?}"
+        );
+        setting(&store, "session.idleSecs", 120).await;
+        let after = clock_policy(&store, "account", "user@example.org", 604800, 0)
+            .await
+            .unwrap();
+        assert_eq!(after.idle_secs, 120);
+        store.close().await;
+        assert!(
+            clock_policy(&store, "account", "user@example.org", 604800, 0)
+                .await
+                .is_err()
+        );
+    }
+    #[tokio::test]
+    async fn clock_policy_keeps_domain_locks_and_deployment_caps() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        setting(&store, "session.idleSecs", 7200).await;
+        setting(&store, "session.absoluteSecs", 3600).await;
+        for (scope, id, value, locked) in [
+            (SettingScope::Domain, "example.org", "900", true),
+            (SettingScope::User, "account", "3600", false),
+        ] {
+            store
+                .put_setting_value(&SettingValueRow {
+                    scope,
+                    scope_id: id.into(),
+                    key: "session.idleSecs".into(),
+                    value: value.into(),
+                    locked,
+                    updated_by: "fixture".into(),
+                    updated_at: 1,
+                })
+                .await
+                .unwrap();
+        }
+        let policy = clock_policy(&store, "account", "user@example.org", 1800, 7200)
+            .await
+            .unwrap();
+        assert_eq!(
+            policy,
+            ClockPolicy {
+                idle_secs: 900,
+                absolute_secs: 3600
+            }
+        );
+        setting(&store, "session.absoluteSecs", 0).await;
+        assert_eq!(
+            clock_policy(&store, "account", "user@example.org", 1800, 7200)
+                .await
+                .unwrap()
+                .absolute_secs,
+            7200
+        );
+        assert_eq!(
+            clock_policy(&store, "account", "user@example.org", 1800, 0)
+                .await
+                .unwrap()
+                .absolute_secs,
+            0
+        );
+        setting(&store, "session.absoluteSecs", 2_000_000).await;
+        assert_eq!(
+            clock_policy(&store, "account", "user@example.org", 1800, 0)
+                .await
+                .unwrap()
+                .absolute_secs,
+            crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS
+        );
     }
 }
