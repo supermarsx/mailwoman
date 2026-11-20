@@ -182,62 +182,16 @@ async fn write_policy_tx(tx: &mut Tx, row: &SettingPolicyRow) -> Result<(), Stor
 /// while `settings_revision` (migration 0078: bumped by triggers in the same
 /// transaction as any write to a table these reads use) still has the value it
 /// was read under, so a change by this process, another process or raw SQL is
-/// seen by the next read. [`READ_TTL`] only bounds memory.
-type MemoEntries<V> = std::collections::HashMap<(uuid::Uuid, String), (V, i64, std::time::Instant)>;
-pub(crate) struct ReadMemo<V>(std::sync::Mutex<Option<MemoEntries<V>>>);
-const READ_TTL: std::time::Duration = std::time::Duration::from_secs(60);
-const READ_CAPACITY: usize = 8192;
-impl<V: Clone> ReadMemo<V> {
-    const fn new() -> Self {
-        Self(std::sync::Mutex::new(None))
-    }
-    fn get(&self, scope: uuid::Uuid, key: &str, revision: i64) -> Option<V> {
-        let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        let map = guard.get_or_insert_with(Default::default);
-        let probe = (scope, key.to_owned());
-        match map.get(&probe) {
-            Some((value, at, when)) if *at == revision && when.elapsed() < READ_TTL => {
-                Some(value.clone())
-            }
-            Some((_, at, when)) if *at > revision && when.elapsed() < READ_TTL => None,
-            Some(_) => {
-                map.remove(&probe);
-                None
-            }
-            None => None,
-        }
-    }
-    /// `revision` is the one read BEFORE the store read, so a write that raced
-    /// it leaves the entry already stale.
-    fn put(&self, scope: uuid::Uuid, key: String, revision: i64, value: V) {
-        self.put_bounded(scope, key, revision, value, READ_CAPACITY);
-    }
-    fn put_bounded(
-        &self,
-        scope: uuid::Uuid,
-        key: String,
-        revision: i64,
-        value: V,
-        capacity: usize,
-    ) {
-        let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        let map = guard.get_or_insert_with(Default::default);
-        if map
-            .get(&(scope, key.clone()))
-            .is_some_and(|(_, at, when)| *at > revision && when.elapsed() < READ_TTL)
-        {
-            return;
-        }
-        if map.len() >= capacity {
-            map.clear();
-        }
-        map.insert((scope, key), (value, revision, std::time::Instant::now()));
-    }
-}
+/// seen by the next read. Expiry only bounds memory; capacity evicts individual
+/// least-recently-used entries instead of flushing every user's cached data.
+#[path = "settings_memo.rs"]
+mod memo;
+use memo::ReadMemo;
 static CANONICAL_MEMO: ReadMemo<CanonicalSettingSubject> = ReadMemo::new();
 static POLICY_MEMO: ReadMemo<Option<SettingPolicyRow>> = ReadMemo::new();
 static VALUES_MEMO: ReadMemo<Vec<SettingValueRow>> = ReadMemo::new();
 static ALL_POLICIES_MEMO: ReadMemo<Vec<SettingPolicyRow>> = ReadMemo::new();
+static CONFIGURATION_MEMO: ReadMemo<bool> = ReadMemo::new();
 /// Fresh revision proof for one resolution/request boundary. Do not retain this
 /// across requests. Scope binding prevents reuse against a different database.
 #[derive(Clone, Debug)]
@@ -286,6 +240,30 @@ impl Store {
 }
 
 impl Store {
+    /// Whether a feature key has any administrator-controlled configuration.
+    /// This matches global policy presence plus domain/profile/group/admin-user
+    /// overrides; personal User rows deliberately do not activate these guards.
+    /// The proof must be freshly obtained for the current request.
+    pub async fn administrator_setting_present_at(
+        &self,
+        key: &str,
+        revision: &SettingsReadRevision,
+    ) -> Result<bool, StoreError> {
+        if revision.scope() != self.cache_scope() {
+            return Err(StoreError::Corrupt("settings revision belongs to another store".into()));
+        }
+        if let Some(number) = revision.number()
+            && let Some(hit) = CONFIGURATION_MEMO.get(self.cache_scope(), key, number)
+        { return Ok(hit); }
+        let row = q("SELECT CAST(CASE WHEN EXISTS(SELECT 1 FROM setting_policy WHERE key=?1) OR EXISTS(SELECT 1 FROM setting_value WHERE key=?1 AND scope_kind IN ('domain','profile','group','admin_user')) THEN 1 ELSE 0 END AS BIGINT) AS configured")
+            .bind(key).fetch_one(&self.backend).await?;
+        let value = row.get_i64("configured") != 0;
+        if let Some(number) = revision.number() {
+            CONFIGURATION_MEMO.put_bounded(self.cache_scope(), key.to_owned(), number, value, 256);
+        }
+        Ok(value)
+    }
+
     pub async fn settings_read_revision(&self) -> Result<SettingsReadRevision, StoreError> {
         Ok(SettingsReadRevision {
             scope: self.cache_scope(),
@@ -1902,3 +1880,7 @@ mod t87_read_memo {
 #[cfg(test)]
 #[path = "settings_resolution_tests.rs"]
 mod resolution_input_tests;
+
+#[cfg(test)]
+#[path = "settings_presence_tests.rs"]
+mod presence_tests;

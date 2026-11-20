@@ -5932,6 +5932,7 @@ dependencies = [
  "chrono",
  "flate2",
  "futures-util",
+ "hashlink",
  "libsqlite3-sys",
  "mw-platform-fs",
  "mw-test-gate",

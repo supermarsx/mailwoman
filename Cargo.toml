@@ -290,6 +290,7 @@ tauri-plugin-updater = { version = "2", default-features = false, features = ["r
 #            (mw-server, e9). Pure-Rust; MIT OR Apache-2.0.
 fred = "10"
 moka = { version = "0.12", features = ["future"] }
+hashlink = "0.10"
 argon2 = "0.5"
 rmcp = "0.9"
 hmac = "0.13"
