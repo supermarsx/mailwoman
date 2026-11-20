@@ -47,12 +47,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # public fixture target still fails the Docker build rather than shipping it.
 FROM compile-fixture AS fixture
 RUN test "$(cat /out/build-status)" = 0
-RUN if [ -x /out/websocket-load ]; then \
-      /out/request-load-fixture readiness_ --nocapture --test-threads=1 > /out/native-readiness-tests.log 2>&1 \
-      && cat /out/native-readiness-tests.log \
+RUN run_logged_test() { log_path="$1"; shift; "$@" > "$log_path" 2>&1; test_status=$?; cat "$log_path"; return "$test_status"; }; \
+    if [ -x /out/websocket-load ]; then \
+      run_logged_test /out/native-readiness-tests.log /out/request-load-fixture readiness_ --nocapture --test-threads=1 \
       && grep -q 'test result: ok. 2 passed;' /out/native-readiness-tests.log \
-      && /out/request-load-fixture representative_transport_mutations --nocapture --test-threads=1 > /out/native-transport-tests.log 2>&1 \
-      && cat /out/native-transport-tests.log \
+      && run_logged_test /out/native-transport-tests.log /out/request-load-fixture representative_transport_mutations --nocapture --test-threads=1 \
       && grep -q 'test result: ok. 1 passed;' /out/native-transport-tests.log; \
     fi
 ENV MW_RUN_HTTP_LOAD_FIXTURE=1 MW_RUN_NATIVE_HTTP_LOAD_FIXTURE=1
