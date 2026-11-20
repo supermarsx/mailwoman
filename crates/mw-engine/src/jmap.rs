@@ -67,6 +67,9 @@ mod focus_tests;
 #[cfg(test)]
 #[path = "mentions_jmap_tests.rs"]
 mod mentions_jmap_tests;
+#[cfg(test)]
+#[path = "list_projection_tests.rs"]
+mod list_projection_tests;
 
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
@@ -1358,24 +1361,23 @@ impl Engine {
             .get("properties")
             .and_then(Value::as_array)
             .is_some_and(|named| named.iter().any(|p| p == CALENDAR_PROPERTY));
+        let wants_focus = args.get("properties").and_then(Value::as_array)
+            .is_some_and(|named| named.iter().any(|property| property == crate::focus::FOCUS_PROPERTY));
         let fill = EmailFill {
             threading: wants_threading,
             raw_derived: wants_raw_derived,
             calendar: wants_calendar,
+            focus: wants_focus,
             mentions: args.get("properties").and_then(Value::as_array)
                 .is_none_or(|named| named.iter().any(|property| property == "mailwomanMentions")),
             headers: wanted_header_properties(args),
         };
-        let mut assembled = match self.build_emails(account_id, &requested, fill).await {
+        let EmailAssembly { emails: mut assembled, list_projections, index_allowed } = match self.build_emails(account_id, &requested, fill).await {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
         };
-        // t94: the Focused / Other decision, only when the request names it.
-        let wants_focus = args
-            .get("properties")
-            .and_then(Value::as_array)
-            .is_some_and(|named| named.iter().any(|p| p == crate::focus::FOCUS_PROPERTY));
-        if wants_focus && let Err(e) = self.fill_focus(account_id, &mut assembled).await {
+        // Focus shares the same account-bound projection snapshot as mentions.
+        if wants_focus && let Err(e) = self.fill_focus(account_id, &mut assembled, &list_projections, index_allowed).await {
             return server_fail(&e);
         }
         // The cached authentication summary a list row needs for a brand logo;
@@ -1456,9 +1458,9 @@ impl Engine {
         account_id: &str,
         stable_ids: &[&str],
         fill: EmailFill,
-    ) -> Result<Vec<Option<Value>>> {
+    ) -> Result<EmailAssembly> {
         if stable_ids.is_empty() {
-            return Ok(Vec::new());
+            return Ok(EmailAssembly {emails:Vec::new(),list_projections:HashMap::new(),index_allowed:false});
         }
         let mut unique: Vec<String> = Vec::with_capacity(stable_ids.len());
         let mut slot: HashMap<&str, usize> = HashMap::with_capacity(stable_ids.len());
@@ -1473,6 +1475,19 @@ impl Engine {
         let msgs = self.store().get_account_messages(account_id, &unique).await?;
         let metas = self.store().get_account_message_metas(account_id, &unique).await?;
         let cache_postures = self.mail_cache_postures(&msgs).await;
+        // The index never establishes ownership. Restrict the query to rows
+        // returned by the fresh account-scoped SQL read, then check live posture
+        // before any derived projection (including a stale pre-toggle index).
+        let owned_ids = msgs.iter().flatten().map(|message|message.stable_id.clone()).collect::<Vec<_>>();
+        let index_allowed = !owned_ids.is_empty() && (fill.mentions || fill.calendar || fill.focus)
+            && if self.v6_hooks().has_cache() {
+                cache_postures.get(account_id)==Some(&crate::v6::AccountPosture::Standard)
+            } else {
+                self.account_posture_live(account_id).await==crate::v6::AccountPosture::Standard
+            };
+        let list_projections = if index_allowed {
+            self.search().fetch_list_projections(account_id,&owned_ids).unwrap_or_default()
+        } else {HashMap::new()};
 
         // Statement 3, when no cache is attached — see `email_get` for why an
         // attached cache keeps the per-id path.
@@ -1576,18 +1591,13 @@ impl Engine {
             // Both properties are projections of the ingest/rebuild index; no raw
             // body fetch or HTML parse is needed per list page. Zero-access mail
             // has no index and therefore supplies no server-derived mention list.
-            let indexed = if fill.mentions || fill.calendar {
-                self.search().fetch_doc(id).ok().flatten()
-            } else { None };
+            let indexed = list_projections.get(id);
             if fill.mentions {
-                email["mailwomanMentions"] = json!(indexed.as_ref().map(|doc| crate::mentions::from_keywords(&doc.keywords)).unwrap_or_default());
+                email["mailwomanMentions"] = json!(indexed.map(|projection| crate::mentions::from_keywords(&projection.keywords)).unwrap_or_default());
             }
             if fill.calendar {
-                // t78: read from the message's index document, where ingest put
-                // it: no body read. `null` for no calendar content, and for an
-                // account whose mail is not indexed (zero-access).
                 email[CALENDAR_PROPERTY] = indexed
-                    .and_then(|doc| doc.calendar)
+                    .and_then(|projection| projection.calendar.as_ref())
                     .and_then(|hint| serde_json::to_value(hint).ok())
                     .unwrap_or(Value::Null);
             }
@@ -1600,10 +1610,11 @@ impl Engine {
         }
 
         // Project back onto the request, duplicates included.
-        Ok(stable_ids
-            .iter()
-            .map(|id| built[slot[id]].clone())
-            .collect())
+        Ok(EmailAssembly {
+            emails:stable_ids.iter().map(|id| built[slot[id]].clone()).collect(),
+            list_projections,
+            index_allowed,
+        })
     }
 
     // ---- Email/set ------------------------------------------------------
@@ -5736,6 +5747,12 @@ fn header_properties_json(raw: &[u8], wanted: &[WantedHeader]) -> Vec<(String, V
 /// when the request names it.
 const CALENDAR_PROPERTY: &str = "mailwomanCalendar";
 
+struct EmailAssembly {
+    emails:Vec<Option<Value>>,
+    list_projections:HashMap<String,mw_search::ListProjection>,
+    index_allowed:bool,
+}
+
 /// What [`Engine::build_emails`] adds to the stored envelope.
 #[derive(Debug, Clone)]
 struct EmailFill {
@@ -5748,6 +5765,8 @@ struct EmailFill {
     raw_derived: bool,
     /// Add [`CALENDAR_PROPERTY`].
     calendar: bool,
+    /// Share indexed list signals with the Focus projection.
+    focus: bool,
     /// Add indexed mention addresses only for explicit/default-all projection.
     mentions: bool,
 }

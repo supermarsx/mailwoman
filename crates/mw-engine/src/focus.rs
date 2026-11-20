@@ -26,7 +26,7 @@
 //! applied here: they are stored per user by `mw-server`
 //! (`/api/account/focused-senders`) and the client lays them over this result.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::{Value, json};
 
@@ -298,6 +298,8 @@ impl Engine {
         &self,
         account_id: &str,
         emails: &mut [Option<Value>],
+        projections: &HashMap<String, mw_search::ListProjection>,
+        index_allowed: bool,
     ) -> Result<()> {
         let senders: HashSet<String> = emails
             .iter()
@@ -308,7 +310,9 @@ impl Engine {
         if emails.iter().all(Option::is_none) {
             return Ok(());
         }
-        let ctx = self.focus_context(account_id, &senders).await?;
+        let ctx = self
+            .focus_context(account_id, &senders, index_allowed)
+            .await?;
         for email in emails.iter_mut().flatten() {
             let id = email
                 .get("id")
@@ -316,12 +320,9 @@ impl Engine {
                 .unwrap_or("")
                 .to_string();
             let sender = sender_of(email);
-            let list_header = self
-                .search()
-                .fetch_doc(&id)
-                .ok()
-                .flatten()
-                .and_then(|doc| doc.list_signal);
+            let list_header = projections
+                .get(&id)
+                .and_then(|projection| projection.list_signal.clone());
             let in_sent = ctx.sent_ids.contains(&id)
                 || ctx.sent_mailbox.as_ref().is_some_and(|sent| {
                     email
@@ -354,6 +355,7 @@ impl Engine {
         &self,
         account_id: &str,
         senders: &HashSet<String>,
+        index_allowed: bool,
     ) -> Result<FocusContext> {
         let mut ctx = FocusContext::default();
         let sent = self
@@ -367,7 +369,13 @@ impl Engine {
                 .store()
                 .list_message_ids(&sent.id, SENT_SCAN, 0)
                 .await?;
-            for msg in self.store().get_messages(&ids).await?.into_iter().flatten() {
+            for msg in self
+                .store()
+                .get_account_messages(account_id, &ids)
+                .await?
+                .into_iter()
+                .flatten()
+            {
                 if let Some(t) = msg.thread_id {
                     ctx.my_threads.insert(t);
                 }
@@ -388,7 +396,8 @@ impl Engine {
             {
                 ctx.contacts.insert(addr.clone());
             }
-            if let Some(sent) = &sent
+            if index_allowed
+                && let Some(sent) = &sent
                 && self.wrote_to(&sent.id, &ctx.sent_ids, addr)
             {
                 ctx.correspondents.insert(addr.clone());
@@ -441,7 +450,8 @@ mod tests {
     fn list_id_keyword_takes_the_angle_bracket_part_and_ignores_the_body() {
         let mail = |h: &str| format!("From: a@x\r\n{h}\r\nSubject: s\r\n\r\nbody\r\n");
         assert_eq!(
-            list_id_keyword(mail("List-Id: Rust Users <Users.Rust-Lang.org>").as_bytes()).as_deref(),
+            list_id_keyword(mail("List-Id: Rust Users <Users.Rust-Lang.org>").as_bytes())
+                .as_deref(),
             Some("$list:users.rust-lang.org")
         );
         assert_eq!(
@@ -450,7 +460,10 @@ mod tests {
         );
         assert_eq!(list_id_keyword(mail("X-Other: <a.b>").as_bytes()), None);
         assert_eq!(list_id_keyword(mail("List-Id: <>").as_bytes()), None);
-        assert_eq!(list_id_keyword(b"From: a@x\r\n\r\nList-Id: <x.y>\r\n"), None);
+        assert_eq!(
+            list_id_keyword(b"From: a@x\r\n\r\nList-Id: <x.y>\r\n"),
+            None
+        );
     }
 
     #[test]
@@ -460,9 +473,15 @@ mod tests {
             supersedes_keyword(mail("Supersedes: <Old.1@Example.org>").as_bytes()).as_deref(),
             Some("$supersedes:old.1@example.org")
         );
-        assert_eq!(supersedes_keyword(mail("Supersedes: nonsense").as_bytes()), None);
+        assert_eq!(
+            supersedes_keyword(mail("Supersedes: nonsense").as_bytes()),
+            None
+        );
         assert_eq!(supersedes_keyword(mail("X-Other: <a@b>").as_bytes()), None);
-        assert_eq!(supersedes_keyword(b"From: a@x\r\n\r\nSupersedes: <a@b>\r\n"), None);
+        assert_eq!(
+            supersedes_keyword(b"From: a@x\r\n\r\nSupersedes: <a@b>\r\n"),
+            None
+        );
     }
 
     #[test]

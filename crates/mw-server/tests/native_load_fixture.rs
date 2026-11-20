@@ -842,7 +842,11 @@ async fn run(workers: usize) {
                     );
                 }
                 let mut snapshot = diagnostics_hook::snapshot(&store, &directory).await;
-                snapshot["searchIndex"] = json!({"documentFetches":engine.search().doc_fetch_count()});
+                snapshot["searchIndex"] = json!({
+                    "documentFetches":engine.search().doc_fetch_count(),
+                    "listProjectionSearches":engine.search().list_projection_search_count(),
+                    "listProjectionDocumentReads":engine.search().list_projection_doc_read_count(),
+                });
                 (
                     axum::http::StatusCode::OK,
                     axum::Json(snapshot),

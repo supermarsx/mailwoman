@@ -186,16 +186,16 @@ async fn mentions_me_queries_all_pages_and_authorized_aliases_without_recipient_
     assert_eq!(engine.search().doc_fetch_count(), before,
         "unrequested mentions/calendar must not search/decode index documents");
     assert!(headers["list"].as_array().unwrap().iter().all(|email| email.get("mailwomanMentions").is_none()));
-    let before = engine.search().doc_fetch_count();
+    let before = engine.search().list_projection_search_count();
     let default = engine.email_get(&account, &json!({"ids": ids})).await;
     assert_eq!(default["list"][0]["mailwomanMentions"], json!(["me@example.org"]));
-    assert_eq!(engine.search().doc_fetch_count() - before, ids.len() as u64);
-    let before = engine.search().doc_fetch_count();
+    assert_eq!(engine.search().list_projection_search_count() - before, 1);
+    let before = engine.search().list_projection_search_count();
     let calendar = engine.email_get(&account, &json!({
         "ids": ids, "properties": ["id", "mailwomanCalendar"]
     })).await;
     assert!(calendar["list"].as_array().unwrap().iter().all(|email|
         email.get("mailwomanMentions").is_none() && email.get("mailwomanCalendar") == Some(&Value::Null)));
-    assert_eq!(engine.search().doc_fetch_count() - before, ids.len() as u64);
+    assert_eq!(engine.search().list_projection_search_count() - before, 1);
     engine.store().close().await;
 }

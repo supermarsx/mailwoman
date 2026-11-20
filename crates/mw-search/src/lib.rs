@@ -18,6 +18,8 @@
 
 mod query;
 mod sealed_directory;
+mod list_projection;
+pub use list_projection::{ListProjection, MAX_LIST_PROJECTION_IDS};
 /// A8 (26.19): cosine re-rank of an already-retrieved lexical hit list, behind the
 /// opt-in `semantic` flag. Pure vector math over `std` — retrieval is untouched, so
 /// the default search path is byte-identical to 26.18.
@@ -447,6 +449,8 @@ pub struct Index {
     writer: Mutex<IndexWriter>,
     fields: Fields,
     doc_fetches: AtomicU64,
+    list_projection_searches: AtomicU64,
+    list_projection_doc_reads: AtomicU64,
 }
 
 impl Index {
@@ -516,6 +520,8 @@ impl Index {
             writer: Mutex::new(writer),
             fields,
             doc_fetches: AtomicU64::new(0),
+            list_projection_searches: AtomicU64::new(0),
+            list_projection_doc_reads: AtomicU64::new(0),
         })
     }
 
