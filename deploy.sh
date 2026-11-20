@@ -77,6 +77,9 @@ LOCKED=false
 RESUME_CONTAINER=
 HELPER_CONTAINER=
 MAINTENANCE_CONTAINER=
+MAINTENANCE_ID=
+MAINTENANCE_TOKEN=
+MAINTENANCE_LOG_PID=
 WORK=
 LAST_BACKUP=
 PRUNE_REPLACED=false
@@ -572,21 +575,112 @@ validate_app_env() {
     $found || die "MW_SERVER_KEY is missing from app.env"
 }
 
+maintenance_rpc() (
+    # Bound the Docker CLIENT, never forcibly kill the database worker. If the
+    # daemon outcome is unknown the lifecycle checks below keep the app stopped.
+    local client watcher output result=0
+    umask 077
+    output=$(mktemp "$STATE/.maintenance-rpc.XXXXXX") || exit 1
+    # Compose can spawn a CLI-plugin child. A private file prevents an orphaned
+    # client/plugin from keeping command substitution's stdout pipe open.
+    "$@" > "$output" & client=$!
+    (
+        delay=
+        trap '[[ -z $delay ]] || kill "$delay" 2>/dev/null || true; exit 0' TERM INT
+        sleep "${MAINTENANCE_RPC_SECONDS:-10}" & delay=$!; wait "$delay" || exit 0
+        kill -TERM "$client" 2>/dev/null || true
+        sleep 1 & delay=$!; wait "$delay" || exit 0
+        kill -KILL "$client" 2>/dev/null || true
+    ) >/dev/null 2>&1 & watcher=$!
+    trap 'kill "$watcher" 2>/dev/null || true; wait "$watcher" 2>/dev/null || true; [[ -z $client ]] || kill -TERM "$client" 2>/dev/null || true; rm -f -- "$output"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    wait "$client" || result=$?
+    client=
+    cat "$output"
+    exit "$result"
+)
+
+maintenance_observe() {
+    local observed id token status code restart running pid
+    observed=$(maintenance_rpc docker inspect --format '{{.Id}}|{{index .Config.Labels "mailwoman.deploy.maintenance"}}|{{.State.Status}}|{{.State.ExitCode}}|{{.HostConfig.RestartPolicy.Name}}|{{.State.Running}}|{{.State.Pid}}' "$MAINTENANCE_CONTAINER" 2>/dev/null) || return 1
+    IFS='|' read -r id token status code restart running pid <<< "$observed"
+    [[ $id =~ ^[a-f0-9]{64}$ && -n $MAINTENANCE_TOKEN && $token == "$MAINTENANCE_TOKEN" && ( -z $MAINTENANCE_ID || $id == "$MAINTENANCE_ID" ) && $code =~ ^[0-9]+$ && ( $restart == no || -z $restart ) ]] || return 1
+    [[ $pid =~ ^[0-9]+$ ]] || return 1
+    MAINTENANCE_ID=$id MAINTENANCE_STATUS=$status MAINTENANCE_EXIT=$code MAINTENANCE_RUNNING=$running MAINTENANCE_PID=$pid
+}
+
+maintenance_confirm_stopped() {
+    maintenance_observe || return 1
+    [[ $MAINTENANCE_RUNNING == false && $MAINTENANCE_PID == 0 && ( $MAINTENANCE_STATUS == exited || $MAINTENANCE_STATUS == dead ) ]]
+}
+
+maintenance_stop() {
+    local started=$SECONDS last=$SECONDS
+    maintenance_observe || return 1
+    maintenance_confirm_stopped && return 0
+    [[ $MAINTENANCE_RUNNING == true && $MAINTENANCE_STATUS == running ]] || return 1
+    log "Requesting cooperative maintenance cancellation; waiting for SQLite rollback and worker exit"
+    maintenance_rpc docker kill --signal TERM "$MAINTENANCE_ID" >/dev/null 2>&1 || true
+    while ((SECONDS - started < TIMEOUT)); do
+        maintenance_confirm_stopped && return 0
+        if ((SECONDS - last >= 5)); then
+            log "Maintenance cancellation: $((SECONDS - started))s elapsed; app remains stopped until worker exit is confirmed"
+            last=$SECONDS
+        fi
+        sleep 1 & wait "$!" || true
+    done
+    return 1
+}
+
+maintenance_recovery_notice() {
+    log "Worker state is unknown or maintenance is still running; app remains stopped. Do not delete SQLite journal/WAL files."
+    log "Recovery: inspect 'docker inspect $MAINTENANCE_CONTAINER' and 'docker logs $MAINTENANCE_CONTAINER'. Request 'docker kill --signal TERM $MAINTENANCE_CONTAINER' if it is running; wait for confirmed exit before 'docker start $RESUME_CONTAINER'. No forced worker kill was attempted."
+}
+
+maintenance_run() {
+    local result=0 started=$SECONDS last=$SECONDS
+    MAINTENANCE_CONTAINER="${PROJECT}-maintenance-$$_$RANDOM"
+    MAINTENANCE_TOKEN="${PROJECT}-$$_$RANDOM-$RANDOM"
+    MAINTENANCE_ID=
+    # No --rm: retain state/exit code until the parent has proved the writer exited.
+    MAINTENANCE_ID=$(COMPOSE_PROFILES='' maintenance_rpc docker compose --project-name "$PROJECT" --env-file /dev/null --project-directory "$ACTIVE" -f "$ACTIVE/compose.yaml" run -d --name "$MAINTENANCE_CONTAINER" --label "mailwoman.deploy.maintenance=$MAINTENANCE_TOKEN" --no-deps -T mailwoman db cleanup --apply --offline "${MAINTENANCE_OPTIONS[@]}") || return $?
+    [[ $MAINTENANCE_ID =~ ^[a-f0-9]{64}$ ]] || return 1
+    maintenance_observe || return 1
+    docker logs --follow "$MAINTENANCE_ID" & MAINTENANCE_LOG_PID=$!
+    while :; do
+        maintenance_observe || return 1
+        if maintenance_confirm_stopped; then result=$MAINTENANCE_EXIT; break; fi
+        [[ $MAINTENANCE_RUNNING == true && $MAINTENANCE_STATUS == running ]] || return 1
+        if ((SECONDS - last >= 5)); then log "Applying offline maintenance: $((SECONDS - started))s elapsed; worker active"; last=$SECONDS; fi
+        sleep 1 & wait "$!"
+    done
+    kill "$MAINTENANCE_LOG_PID" 2>/dev/null || true; wait "$MAINTENANCE_LOG_PID" 2>/dev/null || true; MAINTENANCE_LOG_PID=
+    # rm without -f cannot terminate a writer that unexpectedly became active.
+    maintenance_rpc docker rm "$MAINTENANCE_ID" >/dev/null 2>&1 || return 1
+    MAINTENANCE_CONTAINER= MAINTENANCE_ID= MAINTENANCE_TOKEN=
+    log "Offline maintenance worker exited after $((SECONDS - started))s (exit $result)"
+    return "$result"
+}
+
 cleanup() {
     local result=$?
     trap - EXIT
+    trap '' INT TERM
     # Stop an interrupted one-off writer before the app can resume on this file.
     if [[ -n ${MAINTENANCE_CONTAINER:-} ]]; then
-        if ! docker rm -f "$MAINTENANCE_CONTAINER" >/dev/null 2>&1; then
-            if [[ $(docker inspect --format '{{.State.Running}}' "$MAINTENANCE_CONTAINER" 2>/dev/null || true) == true ]]; then
-                log "Maintenance is still running; app remains stopped. Stop $MAINTENANCE_CONTAINER before restarting the app"
-                RESUME_CONTAINER=
-            fi
+        if maintenance_stop && maintenance_rpc docker rm "$MAINTENANCE_ID" >/dev/null 2>&1; then
+            log "Maintenance writer exit confirmed and container removed"
+        else
+            maintenance_recovery_notice
+            RESUME_CONTAINER=
+            if ((result == 0)); then result=1; fi
         fi
     fi
+    if [[ -n ${MAINTENANCE_LOG_PID:-} ]]; then kill "$MAINTENANCE_LOG_PID" 2>/dev/null || true; wait "$MAINTENANCE_LOG_PID" 2>/dev/null || true; fi
     if [[ -n $RESUME_CONTAINER ]]; then
         log "Resuming app after snapshot or offline maintenance"
-        docker start "$RESUME_CONTAINER" >/dev/null || log "Recovery needed: docker start $RESUME_CONTAINER"
+        maintenance_rpc docker start "$RESUME_CONTAINER" >/dev/null || log "Recovery needed: docker start $RESUME_CONTAINER"
     fi
     if [[ -n $HELPER_CONTAINER ]]; then docker rm "$HELPER_CONTAINER" >/dev/null 2>&1 || true; fi
     # EXTRACT holds a decrypted snapshot while it is restored.
@@ -1648,15 +1742,13 @@ case "$ACTION" in
                     snapshot_progress "Stopping app for offline maintenance" "" docker stop -t 60 "$cid" >/dev/null
                 fi
             fi
-            MAINTENANCE_CONTAINER="${PROJECT}-maintenance-$$_$RANDOM"
-            snapshot_progress "Applying offline maintenance" "" compose "$ACTIVE" run --rm --name "$MAINTENANCE_CONTAINER" --no-deps -T mailwoman db cleanup --apply --offline "${MAINTENANCE_OPTIONS[@]}"
-            MAINTENANCE_CONTAINER=
+            maintenance_run
         else
             log "Read-only maintenance preview; no data will be removed"
             compose "$ACTIVE" run --rm --no-deps -T mailwoman db cleanup "${MAINTENANCE_OPTIONS[@]}"
         fi
         if [[ -n $RESUME_CONTAINER ]]; then
-            docker start "$RESUME_CONTAINER" >/dev/null
+            maintenance_rpc docker start "$RESUME_CONTAINER" >/dev/null
             RESUME_CONTAINER=
             compose "$ACTIVE" up -d --no-recreate --wait --wait-timeout "$TIMEOUT" mailwoman
         fi
