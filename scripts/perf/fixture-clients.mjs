@@ -11,6 +11,12 @@ export function fixturePolicyReport(value){
 
 // Whitelist measured aggregate readiness metadata; never copy arbitrary private
 // handoff fields into public reports, even for a fixture-controlled file.
+export function searchWriterReport(value){
+ if(value===undefined)return null;
+ if(!value||!Number.isSafeInteger(value.indexingWorkers)||value.indexingWorkers<1||value.indexingWorkers>8||!Number.isSafeInteger(value.memoryBudgetBytes)||value.memoryBudgetBytes<15000000||value.memoryBudgetBytes>128000000||Math.floor(value.memoryBudgetBytes/value.indexingWorkers)<15000000||!(value.requestedWorkers===null||Number.isSafeInteger(value.requestedWorkers)&&value.requestedWorkers===value.indexingWorkers))throw new Error('Invalid bounded search writer configuration');
+ return {requestedWorkers:value.requestedWorkers,indexingWorkers:value.indexingWorkers,memoryBudgetBytes:value.memoryBudgetBytes};
+}
+
 export function startupReadinessReport(value,{required=false}={}){
  if(value===undefined){if(required)throw new Error('Native fixture startup readiness proof is required');return null;}
  const fields=['startupSeconds','indexWaitSeconds','seededMessages','expectedIndexDocuments','indexDocuments','zeroAccessExcludedMessages','rebuildDone','rebuildTotal'];

@@ -441,12 +441,64 @@ pub fn commit_count() -> u64 {
     INDEX_COMMITS.load(Ordering::Relaxed)
 }
 
+const DEFAULT_WRITER_MEMORY_BYTES: usize = 50_000_000;
+const MIN_WRITER_MEMORY_PER_WORKER: usize = 15_000_000;
+
+/// Explicit constructor options; ordinary constructors retain their defaults.
+#[derive(Debug, Clone, Copy)]
+pub struct WriterOptions {
+    pub indexing_workers: Option<usize>,
+    pub memory_budget_bytes: usize,
+}
+impl Default for WriterOptions {
+    fn default() -> Self {
+        Self { indexing_workers: None, memory_budget_bytes: DEFAULT_WRITER_MEMORY_BYTES }
+    }
+}
+/// The exact configuration passed to Tantivy's writer constructor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriterConfiguration {
+    pub indexing_workers: usize,
+    pub memory_budget_bytes: usize,
+}
+impl WriterOptions {
+    /// Validate without allocating an index or writer.
+    pub fn validate(self) -> Result<()> {
+        if !(MIN_WRITER_MEMORY_PER_WORKER..=128_000_000).contains(&self.memory_budget_bytes)
+            || self.indexing_workers.is_some_and(|n| !(1..=8).contains(&n)
+                || self.memory_budget_bytes / n < MIN_WRITER_MEMORY_PER_WORKER)
+        {
+            return Err(SearchError::Tantivy("writer options require 15..128 MB, 1..8 workers and at least 15 MB per worker".into()));
+        }
+        Ok(())
+    }
+    fn resolve(self, available: usize) -> Result<WriterConfiguration> {
+        self.validate()?;
+        // Locked Tantivy0.27 Index::writer algorithm: cap at8, then reduce
+        // worker count if the per-thread allocation would be below15MB.
+        let indexing_workers = self.indexing_workers.unwrap_or_else(|| {
+            let mut count = available.clamp(1, 8);
+            if self.memory_budget_bytes / count < MIN_WRITER_MEMORY_PER_WORKER {
+                count = (self.memory_budget_bytes / MIN_WRITER_MEMORY_PER_WORKER).max(1);
+            }
+            count
+        });
+        Ok(WriterConfiguration { indexing_workers, memory_budget_bytes: self.memory_budget_bytes })
+    }
+}
+
+#[cfg(test)]
+#[path = "writer_options_tests.rs"]
+mod writer_options_tests;
+
 /// The search index handle: open once per store data dir, mutate at ingest /
 /// relocate / delete, query on `Email/query`.
 pub struct Index {
     inner: TantivyIndex,
     reader: IndexReader,
     writer: Mutex<IndexWriter>,
+    writer_configuration: WriterConfiguration,
     fields: Fields,
     doc_fetches: AtomicU64,
     list_projection_searches: AtomicU64,
@@ -503,13 +555,27 @@ impl Index {
 
     /// Open an ephemeral in-RAM index (tests + the 100k timing harness).
     pub fn open_in_ram() -> Result<Self> {
+        Self::open_in_ram_with_writer_options(WriterOptions::default())
+    }
+
+    /// Diagnostic/custom wiring with explicit bounded writer resources.
+    pub fn open_in_ram_with_writer_options(options: WriterOptions) -> Result<Self> {
+        options.validate()?;
         let (schema, fields) = build_schema();
         let inner = TantivyIndex::create_in_ram(schema);
-        Self::from_index(inner, fields)
+        Self::from_index_with_writer_options(inner, fields, options)
     }
 
     fn from_index(inner: TantivyIndex, fields: Fields) -> Result<Self> {
-        let writer: IndexWriter = inner.writer::<TantivyDocument>(50_000_000)?;
+        Self::from_index_with_writer_options(inner, fields, WriterOptions::default())
+    }
+
+    fn from_index_with_writer_options(inner: TantivyIndex, fields: Fields, options: WriterOptions) -> Result<Self> {
+        let available = if options.indexing_workers.is_none() { std::thread::available_parallelism()?.get() } else { 1 };
+        let writer_configuration = options.resolve(available)?;
+        let writer: IndexWriter = inner.writer_with_num_threads::<TantivyDocument>(
+            writer_configuration.indexing_workers, writer_configuration.memory_budget_bytes,
+        )?;
         let reader = inner
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
@@ -518,11 +584,16 @@ impl Index {
             inner,
             reader,
             writer: Mutex::new(writer),
+            writer_configuration,
             fields,
             doc_fetches: AtomicU64::new(0),
             list_projection_searches: AtomicU64::new(0),
             list_projection_doc_reads: AtomicU64::new(0),
         })
+    }
+
+    pub fn writer_configuration(&self) -> WriterConfiguration {
+        self.writer_configuration
     }
 
     fn lock_writer(&self) -> Result<std::sync::MutexGuard<'_, IndexWriter>> {

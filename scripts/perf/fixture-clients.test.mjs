@@ -1,11 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {prepareFixtureClients,fixturePrincipalIndex,startupReadinessReport,fixturePolicyReport} from './fixture-clients.mjs';
+import {prepareFixtureClients,fixturePrincipalIndex,startupReadinessReport,fixturePolicyReport,searchWriterReport} from './fixture-clients.mjs';
 import {measure,markdownReport} from './http-load.mjs';
 
 const principals=()=>Array.from({length:4},(_,index)=>({cookie:`mw_session=private-session-${index}; mw_csrf=fixture-csrf-${index}`,accountId:`private-account-${index}`,clientAddress:`198.18.0.${index+1}`}));
 const simulation={mode:'fixture-loopback-trusted-proxy',clientCount:4};
+
+test('search writer reports validate effective resources and strip private handoff fields',()=>{
+ const value={requestedWorkers:1,indexingWorkers:1,memoryBudgetBytes:50000000};
+ assert.deepEqual(searchWriterReport({...value,cookie:'private'}),value);
+ assert.equal(searchWriterReport(undefined),null);
+ assert.equal(searchWriterReport({...value,requestedWorkers:null,indexingWorkers:3}).indexingWorkers,3);
+ for(const patch of [{indexingWorkers:0},{indexingWorkers:9},{indexingWorkers:4},{requestedWorkers:2},{memoryBudgetBytes:14999999},{memoryBudgetBytes:128000001}])assert.throws(()=>searchWriterReport({...value,...patch}));
+});
 
 test('loaded policy proof requires exact deny and restored authorization controls and redacts private fields',()=>{
  const proof={mode:'loaded',verified:true,key:'access.protocols',allowedProtocols:['imap'],locked:true,primedRequests:2,revokedRequests:2,revokedStatus:403,restoredRequests:2};

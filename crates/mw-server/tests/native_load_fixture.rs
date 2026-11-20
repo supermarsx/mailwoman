@@ -643,7 +643,31 @@ fn worker_stack_bytes() -> usize {
         2 * 1024 * 1024
     }
 }
+fn fixture_writer_options(raw: Option<&str>) -> std::result::Result<mw_search::WriterOptions, String> {
+    let indexing_workers = match raw {
+        None => None,
+        Some(value) if value.len()==1 && matches!(value.as_bytes()[0],b'1'..=b'8') => Some(value.parse().unwrap()),
+        Some(_) => return Err("MW_NATIVE_LOAD_INDEX_WORKERS must be a single integer 1..8".into()),
+    };
+    let options=mw_search::WriterOptions {indexing_workers,..Default::default()};
+    options.validate().map_err(|error|error.to_string())?;
+    Ok(options)
+}
+#[test]
+fn diagnostic_index_worker_override_is_strict_and_memory_bounded() {
+    assert_eq!(fixture_writer_options(None).unwrap().indexing_workers,None);
+    for value in ["1","2","3"] {
+        assert_eq!(fixture_writer_options(Some(value)).unwrap().indexing_workers,Some(value.parse().unwrap()));
+    }
+    for value in ["","0","4","8","9","01","+1"," 1","1 ","many"] {
+        assert!(fixture_writer_options(Some(value)).is_err(),"{value}");
+    }
+}
 async fn run(workers: usize) {
+    // Validate diagnostic resources before any database creation or seeding.
+    let index_worker_env=std::env::var_os("MW_NATIVE_LOAD_INDEX_WORKERS")
+        .map(|value|value.into_string().expect("index workers must be Unicode"));
+    let writer_options=fixture_writer_options(index_worker_env.as_deref()).expect("valid diagnostic index writer options");
     let body_sample_bytes: usize = std::env::var("MW_NATIVE_LOAD_BODY_BYTES")
         .unwrap_or_else(|_| "4096".into())
         .parse()
@@ -773,7 +797,9 @@ async fn run(workers: usize) {
         V6Config::default(),
         move |store| {
             assert!(installed_store.set(store.clone()).is_ok());
-            let engine = Arc::new(Engine::new(store.clone()));
+            let index=mw_search::Index::open_in_ram_with_writer_options(writer_options)
+                .expect("construct diagnostic search index");
+            let engine = Arc::new(Engine::with_search(store.clone(),Arc::new(index)));
             for account in accounts {
                 let backend: Arc<dyn AccountBackend> =
                     match representative_runtimes.remove(&account) {
@@ -854,6 +880,8 @@ async fn run(workers: usize) {
                 }
                 let mut snapshot = diagnostics_hook::snapshot(&store, &directory).await;
                 snapshot["searchIndex"] = json!({
+                    "writerConfiguration":engine.search().writer_configuration(),
+                    "commitAttempts":mw_search::commit_count(),
                     "documentFetches":engine.search().doc_fetch_count(),
                     "listProjectionSearches":engine.search().list_projection_search_count(),
                     "listProjectionDocumentReads":engine.search().list_projection_doc_read_count(),
@@ -1053,6 +1081,8 @@ async fn run(workers: usize) {
     let handoff = PrivateFile(dir.join("campaign.private.json"));
     let data = json!({"base":base,"cookie":principals[0]["cookie"],"engineMode":"native","fixtureFeatures":["load-test-fixtures"],"uniquePrincipalCount":count,"clientSimulation":{"mode":"fixture-loopback-trusted-proxy","clientCount":count},"principals":principals,"backend":backend,"buildProfile":if cfg!(debug_assertions){"debug"}else{option_env!("MW_CARGO_BUILD_MODE").unwrap_or("release")},"runtimeWorkerThreads":workers,"runtimeWorkerStackBytes":worker_stack_bytes(),"startupReadiness":startup_readiness,"protection":"administrator defaults","budgets":budgets,"diagnostics":{"path":diagnostic_path,"token":diagnostic_token},"pushTrigger":{"path":push_path,"token":push_token}});
     let mut data = data;
+    let configuration=measured_engine.get().unwrap().search().writer_configuration();
+    data["searchWriter"]=json!({"requestedWorkers":writer_options.indexing_workers,"indexingWorkers":configuration.indexing_workers,"memoryBudgetBytes":configuration.memory_budget_bytes});
     data["policyEvidence"] = policy_evidence;
     data["workloadProfile"] = json!({"kind":workload,"messagesPerPrincipal":messages,"seededMessages":count as u64*messages as u64,"seedSeconds":seed_seconds,"transport":if representative {"deterministic-read-flag-move"} else {"read-only"},"sendsMeasured":false,"upstreamNetworkMeasured":false});
     if representative {

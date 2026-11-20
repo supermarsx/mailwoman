@@ -259,6 +259,7 @@ mod tests {
             let reader = inner.reader_builder().reload_policy(tantivy::ReloadPolicy::Manual).try_into().unwrap();
             let index = Index {
                 inner, reader, writer: std::sync::Mutex::new(writer), fields,
+                writer_configuration: crate::WriterConfiguration { indexing_workers: 1, memory_budget_bytes: 50_000_000 },
                 doc_fetches: Default::default(), list_projection_searches: Default::default(),
                 list_projection_doc_reads: Default::default(),
             };

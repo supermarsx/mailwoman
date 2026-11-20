@@ -67,6 +67,9 @@ test('raw histogram merge uses the same strict validator as the actual generator
 });
 test('global seed and loaded-policy proof stay global while partitions remain private',()=>{
  const value=handoff();const proof=validateAssignment(value,2);
+ const writer={requestedWorkers:1,indexingWorkers:1,memoryBudgetBytes:50000000};
+ assert.deepEqual(validateAssignment({...value,searchWriter:{...writer,cookie:'private'}},2).searchWriter,writer);
+ assert.throws(()=>validateAssignment({...value,searchWriter:{...writer,indexingWorkers:4}},2));
  assert.equal(proof.startupReadiness.seededMessages,8);assert.equal(proof.workloadProfile.seededMessages,8);assert.equal(proof.policyEvidence.verified,true);assert.deepEqual(proof.partitions.map(p=>p.count),[2,2]);
  for(const patch of [{base:'https://example.test'},{uniquePrincipalCount:5},{workloadProfile:{...value.workloadProfile,seededMessages:6}}])assert.throws(()=>validateAssignment({...value,...patch},2));
  const duplicate=handoff();duplicate.principals[2].cookie=duplicate.principals[0].cookie;assert.throws(()=>validateAssignment(duplicate,2));

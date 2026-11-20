@@ -190,3 +190,15 @@ regressed with eight segments. Account filtering, decoded ownership checks and
 duplicate-document rejection remain the same. This bounded query result does
 not establish an HTTP throughput gain; the representative campaign must measure
 that separately.
+
+`MW_NATIVE_LOAD_INDEX_WORKERS` is an optional diagnostic fixture override. Leave
+it unset for the ordinary Tantivy worker selection, or choose `1`, `2` or `3`
+with the fixture's unchanged 50 MB writer budget. Other values fail validation
+before database creation and message seeding. This setting is read only by the
+ignored native load fixture, and does not change production configuration.
+Reports include the requested/effective worker counts and exact memory budget;
+before/after diagnostic snapshots also include the monotonic index commit-attempt
+count. This counts calls to commit, including calls that subsequently fail.
+Compare steady application throughput and latency with the same dataset and
+resource limits: an isolated mutation microprobe does not settle the tradeoff
+between bulk indexing, incremental changes and request handling.
