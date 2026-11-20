@@ -56,6 +56,29 @@ fn same_session(hint: &Session, authenticated: &Session) -> bool {
         && hint.api_url == authenticated.api_url
         && hint.credentials == authenticated.credentials
 }
+const REFUSAL_TYPE: &str = "urn:mailwoman:problem:authorization-not-confirmed";
+const REFUSAL_CODE: &str = "authorizationNotConfirmedBeforeDispatch";
+/// Only this module's authenticated pre-dispatch source fence may mint this
+/// refusal. It says nothing about Engine/upstream/SMTP uncertainty or errors.
+fn auth_fence_refusal() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [
+            (header::CONTENT_TYPE, "application/problem+json"),
+            (header::RETRY_AFTER, "1"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        axum::Json(serde_json::json!({
+            "type": REFUSAL_TYPE,
+            "title": "Authorization could not be confirmed before dispatch",
+            "status": 503,
+            "code": REFUSAL_CODE,
+            "notDispatched": true,
+            "retryAfterSecs": 1,
+        })),
+    )
+        .into_response()
+}
 /// The first read is an untrusted resolution hint, NEVER an authenticated
 /// Session. Even a denied/error feature decision must cross the full final
 /// authentication chain before its response can be exposed.
@@ -66,6 +89,8 @@ pub(crate) async fn authenticate_deferred(
 ) -> Result<Session, BoundaryError> {
     let id = crate::cookie_value(headers)
         .ok_or_else(|| BoundaryError::Authentication(crate::unauthorized()))?;
+    #[cfg(test)]
+    wait_pause(PauseAt::BeforeHint, &id).await;
     let hinted = match state.store.primary_session_policy_snapshot(&id).await {
         Ok(hinted) if hinted.witness.matches_revision(&features.1) => hinted,
         _ => {
@@ -75,9 +100,7 @@ pub(crate) async fn authenticate_deferred(
             crate::authed(state, headers)
                 .await
                 .map_err(BoundaryError::Authentication)?;
-            return Err(BoundaryError::Features(
-                StatusCode::SERVICE_UNAVAILABLE.into_response(),
-            ));
+            return Err(BoundaryError::Features(auth_fence_refusal()));
         }
     };
     let decision = check(state, &hinted.session, &features.0).await;
@@ -86,6 +109,8 @@ pub(crate) async fn authenticate_deferred(
     let authenticated = crate::authed(state, headers)
         .await
         .map_err(BoundaryError::Authentication)?;
+    #[cfg(test)]
+    wait_pause(PauseAt::AfterAuthentication, &id).await;
     // This is the final authentication source fence, not another asynchronous
     // feature lookup. It observes policy/subject changes DURING domain/clock/
     // account guard awaits without reusing an earlier namespace proof.
@@ -93,14 +118,12 @@ pub(crate) async fn authenticate_deferred(
         .store
         .primary_session_policy_witness(&id)
         .await
-        .map_err(|_| BoundaryError::Features(StatusCode::SERVICE_UNAVAILABLE.into_response()))?;
+        .map_err(|_| BoundaryError::Features(auth_fence_refusal()))?;
     let matching_witness = hinted.witness.matches(&observed);
     // Domain upgrade can replace Session fields AFTER the cookie witness read.
     // No async lookup follows final auth; changed subject/source is retryable.
     if !matching_witness || !same_session(&hinted.session, &authenticated) {
-        return Err(BoundaryError::Features(
-            StatusCode::SERVICE_UNAVAILABLE.into_response(),
-        ));
+        return Err(BoundaryError::Features(auth_fence_refusal()));
     }
     decision.map_err(BoundaryError::Features)?;
     Ok(authenticated)
@@ -112,8 +135,10 @@ pub(super) struct ForceLegacy;
 #[cfg(test)]
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub(super) enum PauseAt {
+    BeforeHint,
     AfterFeatures,
     AfterDomain,
+    AfterAuthentication,
 }
 #[cfg(test)]
 static PAUSES: std::sync::LazyLock<

@@ -4,7 +4,7 @@ use super::*;
 use axum::{
     Router,
     body::{Body, to_bytes},
-    http::{Request as HttpRequest, StatusCode},
+    http::{HeaderMap, Request as HttpRequest, StatusCode},
 };
 use mw_store::{
     AccountKind, Credentials, NewAccount, ServerKey, Store, settings_policy::SettingPolicyRow,
@@ -171,6 +171,55 @@ async fn send(
         sql,
     )
 }
+async fn send_headered(
+    router: Router,
+    request: HttpRequest<Body>,
+) -> (
+    StatusCode,
+    Value,
+    u64,
+    mw_store::pool_telemetry::QuerySnapshot,
+    HeaderMap,
+) {
+    let ((response, auth_calls), sql) =
+        mw_store::pool_telemetry::measure_queries(count_auth(router.oneshot(request))).await;
+    let response = response.unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        auth_calls,
+        sql,
+        headers,
+    )
+}
+fn assert_pre_dispatch_refusal(
+    reply: &(
+        StatusCode,
+        Value,
+        u64,
+        mw_store::pool_telemetry::QuerySnapshot,
+        HeaderMap,
+    ),
+) {
+    assert_eq!(reply.0, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        reply.1["type"],
+        "urn:mailwoman:problem:authorization-not-confirmed"
+    );
+    assert_eq!(reply.1["code"], "authorizationNotConfirmedBeforeDispatch");
+    assert_eq!(reply.1["notDispatched"], true);
+    assert_eq!(reply.1["status"], 503);
+    assert_eq!(
+        reply.4.get("content-type").unwrap(),
+        "application/problem+json"
+    );
+    assert_eq!(reply.4.get("retry-after").unwrap(), "1");
+    assert_eq!(reply.4.get("cache-control").unwrap(), "no-store");
+    assert!(reply.1.get("methodResponses").is_none());
+}
 async fn paused<'a, F, Fut>(
     fixture: &'a Fixture,
     mutate: F,
@@ -179,6 +228,7 @@ async fn paused<'a, F, Fut>(
     Value,
     u64,
     mw_store::pool_telemetry::QuerySnapshot,
+    HeaderMap,
 )
 where
     F: FnOnce(&'a Fixture) -> Fut,
@@ -195,6 +245,7 @@ async fn paused_at<'a, F, Fut>(
     Value,
     u64,
     mw_store::pool_telemetry::QuerySnapshot,
+    HeaderMap,
 )
 where
     F: FnOnce(&'a Fixture) -> Fut,
@@ -203,7 +254,7 @@ where
     let pause = pause_at(stage, &fixture.session);
     let router = fixture.router.clone();
     let request = fixture.request(false);
-    let request = tokio::spawn(send(router, request));
+    let request = tokio::spawn(send_headered(router, request));
     tokio::time::timeout(Duration::from_secs(10), pause.entered.notified())
         .await
         .expect("request reached actual post-feature boundary");
@@ -284,6 +335,8 @@ fn revocation_after_feature_lookup_still_prevents_dispatch() {
         })
         .await;
         assert_eq!(r.0, StatusCode::UNAUTHORIZED);
+        assert!(r.1.get("notDispatched").is_none());
+        assert_ne!(r.1["code"], "authorizationNotConfirmedBeforeDispatch");
         assert_ne!(r.1["methodResponses"][0][0], "Core/echo");
         assert_eq!(r.2, 1);
     });
@@ -303,6 +356,7 @@ fn feature_denial_never_leaks_to_an_expired_cookie() {
         .await;
         assert_eq!(r.0, StatusCode::UNAUTHORIZED);
         assert_ne!(r.1["code"], "feature_disabled");
+        assert!(r.1.get("notDispatched").is_none());
         assert_eq!(r.2, 1);
     });
 }
@@ -315,11 +369,12 @@ fn changed_feature_policy_rejects_prepared_allow_then_next_request_denies() {
             policy(&f.writer, "access.protocols", json!([])).await;
         })
         .await;
-        assert_eq!(r.0, StatusCode::SERVICE_UNAVAILABLE);
+        assert_pre_dispatch_refusal(&r);
         assert_eq!(r.2, 1);
         let fresh = send(f.router.clone(), f.request(false)).await;
         assert_eq!(fresh.0, StatusCode::FORBIDDEN);
         assert_eq!(fresh.1["code"], "feature_disabled");
+        assert!(fresh.1.get("notDispatched").is_none());
     });
 }
 
@@ -432,7 +487,7 @@ fn subject_changes_during_final_auth_are_fenced_even_when_session_fields_do_not_
             if retire {f.sql("UPDATE identity_binding SET retired_at=1").await;}
             else {let mut target=f.writer.get_domain_config("auth-boundary.test").await.unwrap().unwrap();target.name="retarget.test".into();target.preferred=false;f.writer.put_domain_config(&target).await.unwrap();f.sql("INSERT INTO domain_alias(alias,domain) VALUES('auth-boundary.test','retarget.test')").await;assert_eq!(f.writer.canonical_policy_domain("auth-boundary.test").await.unwrap(),"retarget.test");}
         }).await;
-            assert_eq!(r.0, StatusCode::SERVICE_UNAVAILABLE);
+            assert_pre_dispatch_refusal(&r);
             assert_eq!(r.2, 1);
             let after = f.writer.get_primary_session(&f.session).await.unwrap();
             assert!(same_session(&before, &after));
@@ -547,5 +602,34 @@ fn late_linked_login_marker_still_runs_the_fresh_direct_login_guard() {
         assert_eq!(r.0, StatusCode::UNAUTHORIZED);
         assert_eq!(r.2, 1);
         assert_ne!(r.1["methodResponses"][0][0], "Core/echo");
+    });
+}
+
+#[test]
+fn initial_hint_mismatch_and_final_missing_source_have_exact_pre_dispatch_refusal() {
+    run_fixture(|| async {
+        for stage in [PauseAt::BeforeHint, PauseAt::AfterAuthentication] {
+            let f = Fixture::new().await;
+            let r = paused_at(&f, stage, |f| async move {
+                if stage == PauseAt::BeforeHint {
+                    policy(&f.writer, "access.protocols", json!([])).await;
+                } else {
+                    f.writer.delete_session(&f.session).await.unwrap();
+                }
+            })
+            .await;
+            assert_pre_dispatch_refusal(&r);
+            assert_eq!(r.2, 1);
+            let next = send(f.router.clone(), f.request(false)).await;
+            assert_eq!(
+                next.0,
+                if stage == PauseAt::BeforeHint {
+                    StatusCode::FORBIDDEN
+                } else {
+                    StatusCode::UNAUTHORIZED
+                }
+            );
+            assert!(next.1.get("notDispatched").is_none());
+        }
     });
 }

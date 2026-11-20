@@ -37,7 +37,17 @@ and native account kind/presence cover the other feature-subject dependencies.
 
 Focused verification sources are `primary_policy_snapshot::tests` (four cases,
 including an owned UUID PostgreSQL schema via MW_TEST_PG) and
-`feature_gate::auth_boundary::tests` (twelve production-router cases). The
+`feature_gate::auth_boundary::tests` (thirteen production-router cases). The
 successful count regression prints actual query and complete-auth counts for
 the legacy and candidate paths. Source preparation alone proves neither test
 success nor an application throughput improvement.
+
+
+The authenticated source-fence refusal is HTTP503 `application/problem+json`,
+with type `urn:mailwoman:problem:authorization-not-confirmed`, machine code
+`authorizationNotConfirmedBeforeDispatch`, `notDispatched:true`, `Retry-After:1`
+and `Cache-Control:no-store`. Only the new pre-dispatch source fence emits this
+contract. Actual authentication/feature refusals and downstream/Engine/SMTP
+outcomes retain their own semantics. Existing read-only transport pacing can
+honor Retry-After; this change adds no client mutation replay. A generic503,
+transport exception or `outcomeUnknown` is never relabeled as this refusal.
