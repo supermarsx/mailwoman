@@ -3,8 +3,9 @@ import {writeFile,mkdir} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {markdownReport} from './http-load.mjs';
 import {campaignOptions,runCampaign} from './http-campaign.mjs';
-import {prepareFixtureClients,fixturePrincipalIndex,startupReadinessReport,fixturePolicyReport} from './fixture-clients.mjs';
-import {representativeSpecs,workloadProfileReport} from './representative-workload.mjs';
+import {prepareFixtureClients,startupReadinessReport,fixturePolicyReport} from './fixture-clients.mjs';
+import {workloadProfileReport} from './representative-workload.mjs';
+import {jmapFixtureRequest as request,prepareFixtureRequests} from './fixture-requests.mjs';
 import {readPrivate,HANDOFF_LIMIT} from './external-control.mjs';
 
 try{
@@ -13,8 +14,8 @@ try{
  const policyEvidence=fixturePolicyReport(handoff.policyEvidence);
  if(base.protocol!=='http:'||base.hostname!=='127.0.0.1'||base.pathname!=='/'||base.username||base.password)throw new Error('Fixture must use literal ephemeral loopback');
  const principals=handoff.principals??[{cookie:handoff.cookie}];
- const clientModel=prepareFixtureClients(principals,handoff.clientSimulation);
- const first=principals[0],headers=clientModel.clients[0].headers;
+ const initialClients=prepareFixtureClients(principals,handoff.clientSimulation);
+ const first=principals[0],headers=initialClients.clients[0].headers;
  if(!first.accountId){
   const response=await fetch(new URL('/jmap/session',base),{headers,redirect:'error',signal:AbortSignal.timeout(10000)});
   if(!response.ok)throw new Error(`Fixture session refused (${response.status})`);
@@ -25,7 +26,6 @@ try{
   if(!response.ok)throw new Error(`Fixture identity refused (${response.status})`);
   first.ownerAccountId=(await response.json()).accountId;
  }
- const request=(p,name,args)=>({name,path:'/jmap/api',method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:[[name,{accountId:p.accountId,...args},'load']]}),validate:value=>value.methodResponses?.[0]?.[0]===name&&value.methodResponses?.[0]?.[1]?.accountId===p.accountId});
  if(!first.messageIds){
   const spec=request(first,'Email/query',{limit:2}),response=await fetch(new URL(spec.path,base),{method:spec.method,headers:{...headers,...spec.headers},body:spec.body,redirect:'error',signal:AbortSignal.timeout(10000)});
   if(!response.ok)throw new Error(`Fixture message discovery refused (${response.status})`);
@@ -37,26 +37,18 @@ try{
  const workloadProfile=workloadProfileReport(handoff.workloadProfile,principals.length);
  const representative=workloadProfile?.kind==='representative';
  if(representative&&(!native||principals.some(p=>p.messageIds.length!==workloadProfile.messagesPerPrincipal||p.bodySampleBytes!==workloadProfile.bodySampleBytes||p.attachmentSampleBytes!==workloadProfile.attachmentSampleBytes)))throw new Error('Invalid representative workload profile');
- const specs=p=>{
-  const ids=p.messageIds.slice(0,2),emailGet=request(p,'Email/get',{ids,properties:['id','subject','from','receivedAt','preview']}),valid=emailGet.validate;
-  emailGet.validate=value=>valid(value)&&Array.isArray(value.methodResponses[0][1].list)&&ids.every(id=>value.methodResponses[0][1].list.some(row=>row.id===id));
-  const baseline=[{name:'authenticated-identity',path:'/api/me',validate:v=>v.accountId===(p.ownerAccountId??p.accountId)},request(p,'Mailbox/get',{}),request(p,'Email/query',{limit:25}),emailGet,{name:'concurrent-refresh-handler',path:'/api/mail/refresh',method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:p.ownerAccountId??p.accountId}),validate:v=>v.accountId===(p.ownerAccountId??p.accountId)&&v.upstream===native}];
-  return representative?[...baseline,...representativeSpecs(p)].map(spec=>({...spec,serializePrincipal:true})):baseline;
- };
  // Prepare bounded request templates outside measured phases, avoiding five
  // JSON serializations per dispatch when exercising 10,000 principals.
- const prepared=principals.map((p,index)=>{const headers=clientModel.clients[index].headers;return specs(p).map(spec=>({...spec,headers:{...headers,...spec.headers}}));});
- const requests=prepared[0].map((spec,type)=>({...spec,materialize:(sequence,{requestCount})=>{const principalIndex=fixturePrincipalIndex(sequence,requestCount,principals.length);return {...prepared[principalIndex][type],principalIndex,clientIndex:clientModel.clients[principalIndex].clientIndex};}}));
+ const {requests,groups,clientModel,firstRequests}=prepareFixtureRequests({principals,clientSimulation:handoff.clientSimulation,engineMode:native?'native':'proxy',representative,workloadProfile});
  // Every endpoint must work before saturation. Seeded native fixtures additionally
  // prove their first/last account bindings in their Rust setup.
- for(const spec of specs(first)){
+ for(const spec of firstRequests){
   const response=await fetch(new URL(spec.path,base),{method:spec.method??'GET',headers:{...headers,...spec.headers},...(spec.body!==undefined?{body:spec.body}:{}),redirect:'error',signal:AbortSignal.timeout(10000)});
   if(response.status!==200){await response.body?.cancel();throw new Error(`Fixture ${spec.name} preflight refused (${response.status})`);}
   if(spec.validateBytes){if(!spec.validateBytes(Buffer.from(await response.arrayBuffer())))throw new Error(`Fixture ${spec.name} preflight failed content validation`);}
   else {const value=await response.json();if(spec.validate&&!spec.validate(value))throw new Error(`Fixture ${spec.name} preflight failed application validation`);}
  }
  const options=campaignOptions();
- const groups={mixed:requests.slice(0,5),identity:[requests[0]],mailboxes:[requests[1]],query:[requests[2]],headers:[requests[3]],refresh:[requests[4]],...(representative?{representative:requests}:{})};
  const diagnostics=async(phase)=>{
   if(!handoff.diagnostics)return null;
   const url=new URL(handoff.diagnostics.path,base),init={headers:{'x-fixture-token':handoff.diagnostics.token},redirect:'error',signal:AbortSignal.timeout(5000)};

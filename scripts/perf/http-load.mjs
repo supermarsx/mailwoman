@@ -15,13 +15,47 @@ export class Measurements {
     const bucket=ms<=1000?Math.ceil(ms):ms<=10000?Math.ceil(ms/10)*10:Math.min(120100,Math.ceil(ms/100)*100);this.histogram.set(bucket,(this.histogram.get(bucket)??0)+1);
   }
   percentile(fraction){let n=0;const target=Math.ceil(this.count*fraction);for(const [ms,count]of [...this.histogram].sort((a,b)=>a[0]-b[0])){n+=count;if(n>=target)return ms;}return 0;}
+  snapshot(){return {count:this.count,bytes:this.bytes,errors:this.errors,accepted:this.accepted,timeouts:this.timeouts,totalMs:this.totalMs,maximumMs:this.maximumMs,statuses:{...this.statuses},histogram:[...this.histogram].sort((a,b)=>a[0]-b[0])};}
+  merge(value){
+    const invalid=()=>{throw new Error('Invalid bounded raw measurements');};
+    if(!value||['count','bytes','errors','accepted','timeouts'].some(key=>!Number.isSafeInteger(value[key])||value[key]<0)||!Number.isFinite(value.totalMs)||value.totalMs<0||!Number.isFinite(value.maximumMs)||value.maximumMs<0||value.maximumMs>value.totalMs||value.errors>value.count||value.accepted>value.count-value.errors||value.timeouts>value.errors||!Array.isArray(value.histogram)||value.histogram.length>3002||!value.statuses||Array.isArray(value.statuses)||typeof value.statuses!=='object')invalid();
+    const bins=new Map();let samples=0;
+    for(const entry of value.histogram){
+      if(!Array.isArray(entry)||entry.length!==2)invalid();
+      const [bucket,count]=entry;
+      if(!Number.isInteger(bucket)||bucket<0||bucket>120100||(bucket>1000&&bucket<=10000&&bucket%10!==0)||(bucket>10000&&bucket%100!==0)||!Number.isSafeInteger(count)||count<1||bins.has(bucket))invalid();
+      bins.set(bucket,count);samples+=count;
+    }
+    const statuses=Object.entries(value.statuses);let responses=0,successResponses=0;
+    if(statuses.length>504)invalid();
+    for(const [status,count]of statuses){
+      if(!/^(?:[1-5][0-9]{2}|network|scheduled|campaign-aborted)$/.test(status)||!Number.isSafeInteger(count)||count<1)invalid();
+      responses+=count;if(Number(status)>=200&&Number(status)<300)successResponses+=count;
+    }
+    if(samples!==value.count||responses!==value.count||value.accepted>successResponses||value.count===0&&(value.totalMs!==0||value.maximumMs!==0||value.bytes!==0)||['count','bytes','errors','accepted','timeouts'].some(key=>!Number.isSafeInteger(this[key]+value[key]))||!Number.isFinite(this.totalMs+value.totalMs))invalid();
+    for(const key of ['count','bytes','errors','accepted','timeouts','totalMs'])this[key]+=value[key];
+    this.maximumMs=Math.max(this.maximumMs,value.maximumMs);
+    for(const [bucket,count]of bins)this.histogram.set(bucket,(this.histogram.get(bucket)??0)+count);
+    for(const [status,count]of statuses)this.statuses[status]=(this.statuses[status]??0)+count;
+    return this;
+  }
   report(seconds){return {requests:this.count,requestsPerSecond:this.count/seconds,bytes:this.bytes,accepted:this.accepted,acceptedRequestsPerSecond:this.accepted/seconds,errors:this.errors,throttled:this.statuses[429]??0,timeouts:this.timeouts,statuses:this.statuses,latencyMs:{mean:this.count?this.totalMs/this.count:0,p50:this.percentile(.5),p95:this.percentile(.95),p99:this.percentile(.99),max:this.maximumMs},percentileResolutionMs:'1 through 1s; 10 through 10s; 100 thereafter; overflow 120100'};}
 }
 
-export async function measure({base,requests,concurrency,seconds,timeoutMs=10000,headers={},arrivalRate}){
+export function mergeMeasurements(snapshots,seconds){
+  if(!Array.isArray(snapshots)||!snapshots.length||snapshots.length>16||!Number.isFinite(seconds)||seconds<=0||seconds>600)throw new Error('Invalid bounded measurement merge');
+  const merged=new Measurements();for(const snapshot of snapshots)merged.merge(snapshot);return merged.report(seconds);
+}
+
+export async function measure({base,requests,concurrency,seconds,timeoutMs=10000,headers={},arrivalRate,commonStartAtMs,includeRawMeasurements=false}){
   const aggregate=new Measurements(),byRequest=new Map(requests.map(request=>[request.name,new Measurements()]));
   if(!Number.isInteger(concurrency)||concurrency<1||concurrency>4096||!Number.isFinite(seconds)||seconds<=0||seconds>600||!requests.length||requests.length>100||!Number.isFinite(timeoutMs)||timeoutMs<1||timeoutMs>120000)throw new Error('Invalid bounded measurement parameters');
-  const start=performance.now(),deadline=start+seconds*1000;let sequence=0,acceptedWithinWindow=0,activeCount=0;
+  if(typeof includeRawMeasurements!=='boolean')throw new Error('Invalid raw measurement option');
+  const wallOrigin=Date.now(),monotonicOrigin=performance.now();
+  if(commonStartAtMs!==undefined&&(!Number.isSafeInteger(commonStartAtMs)||Math.abs(commonStartAtMs-wallOrigin)>60000))throw new Error('Common fixture start must be within sixty seconds');
+  const start=commonStartAtMs===undefined?monotonicOrigin:monotonicOrigin+(commonStartAtMs-wallOrigin),deadline=start+seconds*1000;
+  while(performance.now()<start)await sleep(Math.min(1000,start-performance.now()));
+  const actualStart=performance.now();let sequence=0,acceptedWithinWindow=0,activeCount=0;
   const cpuStart=process.cpuUsage(),memoryStart=process.memoryUsage();
   const participant=()=>({attempted:new Map(),accepted:new Map(),withinWindow:new Set()});
   const principals=participant(),clients=participant();
@@ -102,9 +136,14 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
   }else{
     await Promise.all(Array.from({length:concurrency},async()=>{while(!mutationStateTainted&&performance.now()<deadline)await send();}));
   }
-  const elapsed=(performance.now()-start)/1000;
+  const completedAt=performance.now(),elapsed=(completedAt-start)/1000;
   const cpu=process.cpuUsage(cpuStart),memoryEnd=process.memoryUsage();
-  return {mutationStateTainted,unknownMutationOutcomes,taintedPrincipals:taintedPrincipals.size,httpDispatchAttempts,blockedAfterMutationTaint,abortedUnscheduled,uniquePrincipalsAccepted:principals.accepted.size,uniquePrincipalsAttempted:principals.attempted.size,uniquePrincipalsAcceptedDuringScheduledWindow:principals.withinWindow.size,uniqueClientsAttempted:clients.attempted.size,uniqueClientsAccepted:clients.accepted.size,uniqueClientsAcceptedDuringScheduledWindow:clients.withinWindow.size,participantDistribution:{principals:{attempted:distribution(principals.attempted),accepted:distribution(principals.accepted)},simulatedClients:{attempted:distribution(clients.attempted),accepted:distribution(clients.accepted)}},peakOutstanding,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,generator:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,cpuLogicalCores:(cpu.user+cpu.system)/(elapsed*1000000),rssBeforeBytes:memoryStart.rss,rssAfterBytes:memoryEnd.rss,heapAfterBytes:memoryEnd.heapUsed},concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,droppedCapacity,droppedScheduler,peakOutstanding,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,value.report(elapsed)]))};
+  const cpuElapsed=commonStartAtMs===undefined?elapsed:Math.max(.000001,(completedAt-actualStart)/1000);
+  const hooks={
+    ...(commonStartAtMs===undefined?{}:{window:{requestedStartAtMs:commonStartAtMs,scheduledStartAtMs:commonStartAtMs,scheduledEndAtMs:commonStartAtMs+seconds*1000,actualStartAtMs:Math.round(wallOrigin+actualStart-monotonicOrigin),completedAtMs:Math.round(wallOrigin+completedAt-monotonicOrigin),startLagMs:Math.max(0,actualStart-start)}}),
+    ...(includeRawMeasurements?{rawMeasurements:{schema:1,aggregate:aggregate.snapshot(),byRequest:Object.fromEntries([...byRequest].map(([name,measurements])=>[name,measurements.snapshot()])),scheduling:scheduling.snapshot(),arrivalLatency:arrivalLatency.snapshot()}}:{}),
+  };
+  return {...hooks,mutationStateTainted,unknownMutationOutcomes,taintedPrincipals:taintedPrincipals.size,httpDispatchAttempts,blockedAfterMutationTaint,abortedUnscheduled,uniquePrincipalsAccepted:principals.accepted.size,uniquePrincipalsAttempted:principals.attempted.size,uniquePrincipalsAcceptedDuringScheduledWindow:principals.withinWindow.size,uniqueClientsAttempted:clients.attempted.size,uniqueClientsAccepted:clients.accepted.size,uniqueClientsAcceptedDuringScheduledWindow:clients.withinWindow.size,participantDistribution:{principals:{attempted:distribution(principals.attempted),accepted:distribution(principals.accepted)},simulatedClients:{attempted:distribution(clients.attempted),accepted:distribution(clients.accepted)}},peakOutstanding,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,generator:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,cpuLogicalCores:(cpu.user+cpu.system)/(cpuElapsed*1000000),rssBeforeBytes:memoryStart.rss,rssAfterBytes:memoryEnd.rss,heapAfterBytes:memoryEnd.heapUsed},concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,droppedCapacity,droppedScheduler,peakOutstanding,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,value.report(elapsed)]))};
 }
 
 export function markdownReport(report){
