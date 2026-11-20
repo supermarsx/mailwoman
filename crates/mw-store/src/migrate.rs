@@ -806,8 +806,10 @@ const TABLES: &[TableSpec] = &[
         // 0105: carry the derived cache token too. PostgreSQL's write trigger
         // intentionally assigns a fresh destination token; user data and sealed
         // envelope/body bytes remain unchanged, while old replica keys miss.
-        select: "SELECT stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id, internaldate, size, flags_json, envelope_json, blob_ref, cache_revision FROM messages",
-        insert: "INSERT INTO messages (stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id, internaldate, size, flags_json, envelope_json, blob_ref, cache_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+        // 0110: body import can renew the derived content epoch too; copied
+        // verdict proofs then conservatively miss and are recomputed on demand.
+        select: "SELECT stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id, internaldate, size, flags_json, envelope_json, blob_ref, cache_revision, content_revision FROM messages",
+        insert: "INSERT INTO messages (stable_id, account_id, mailbox_id, uid, uidvalidity, message_id, thread_id, internaldate, size, flags_json, envelope_json, blob_ref, cache_revision, content_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
         map: |r| {
             vec![
                 t(r, "stable_id"),
@@ -823,6 +825,7 @@ const TABLES: &[TableSpec] = &[
                 ob(r, "envelope_json"),
                 ot(r, "blob_ref"),
                 t(r, "cache_revision"),
+                t(r, "content_revision"),
             ]
         },
     },
@@ -1368,8 +1371,8 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "security_verdicts",
-        select: "SELECT email_id, account_id, raw_hash, verdict_json, computed_at FROM security_verdicts",
-        insert: "INSERT INTO security_verdicts (email_id, account_id, raw_hash, verdict_json, computed_at) VALUES (?1,?2,?3,?4,?5)",
+        select: "SELECT email_id, account_id, raw_hash, verdict_json, computed_at, source_revision FROM security_verdicts",
+        insert: "INSERT INTO security_verdicts (email_id, account_id, raw_hash, verdict_json, computed_at, source_revision) VALUES (?1,?2,?3,?4,?5,?6)",
         map: |r| {
             vec![
                 t(r, "email_id"),
@@ -1377,6 +1380,7 @@ const TABLES: &[TableSpec] = &[
                 t(r, "raw_hash"),
                 b(r, "verdict_json"),
                 t(r, "computed_at"),
+                ot(r, "source_revision"),
             ]
         },
     },

@@ -45,8 +45,6 @@ async fn batch_returns_only_cached_verdicts_of_the_account() {
     let ids: Vec<String> = ["m1", "m2", "m3", "m4"].iter().map(|s| s.to_string()).collect();
     let found = store.get_security_verdicts(&mine, &ids).await.unwrap();
 
-    assert_eq!(found.len(), 2, "m3 belongs to another account, m4 has no verdict");
-    assert_eq!(found["m1"], b"one");
-    assert_eq!(found["m2"], b"two");
+    assert!(found.is_empty(), "legacy unbound cache rows never establish current message ownership/content");
     assert!(store.get_security_verdicts(&mine, &[]).await.unwrap().is_empty());
 }

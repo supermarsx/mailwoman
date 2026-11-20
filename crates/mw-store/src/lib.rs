@@ -34,6 +34,7 @@ pub mod request_protection;
 pub mod request_protection_model;
 mod security_center;
 pub mod sec_state;
+pub mod verdict_source;
 mod signin_challenges;
 pub use auth_logs::{AuthLogEvent, AuthLogLimits, AuthLogQuery, AuthSurface};
 pub use hosting_connections::{HostingConnectionRow, HostingCredentialChange, HostingMutation};

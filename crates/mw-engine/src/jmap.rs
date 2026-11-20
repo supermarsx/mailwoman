@@ -1367,7 +1367,7 @@ impl Engine {
                 .is_none_or(|named| named.iter().any(|property| property == "mailwomanMentions")),
             headers: wanted_header_properties(args),
         };
-        let EmailAssembly { emails: mut assembled, list_projections, index_allowed } = match self.build_emails(account_id, &requested, fill).await {
+        let EmailAssembly { emails: mut assembled, list_projections, index_allowed, auth_sources } = match self.build_emails(account_id, &requested, fill).await {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
         };
@@ -1385,7 +1385,7 @@ impl Engine {
                     .iter()
                     .any(|p| p == crate::security::list_auth::AUTH_PROPERTY)
             });
-        if wants_auth && let Err(e) = self.fill_auth(account_id, &mut assembled).await {
+        if wants_auth && let Err(e) = self.fill_auth(account_id, &mut assembled, &auth_sources).await {
             return server_fail(&e);
         }
 
@@ -1455,7 +1455,7 @@ impl Engine {
         fill: EmailFill,
     ) -> Result<EmailAssembly> {
         if stable_ids.is_empty() {
-            return Ok(EmailAssembly {emails:Vec::new(),list_projections:HashMap::new(),index_allowed:false});
+            return Ok(EmailAssembly {emails:Vec::new(),list_projections:HashMap::new(),index_allowed:false,auth_sources:HashMap::new()});
         }
         let mut unique: Vec<String> = Vec::with_capacity(stable_ids.len());
         let mut slot: HashMap<&str, usize> = HashMap::with_capacity(stable_ids.len());
@@ -1468,6 +1468,7 @@ impl Engine {
 
         // Statements 1 and 2: everything that was never cache-aside.
         let msgs = self.store().get_account_messages(account_id, &unique).await?;
+        let auth_sources=msgs.iter().flatten().map(|message|(message.stable_id.clone(),message.cache_revision.clone())).collect();
         let metas = self.store().get_account_message_metas(account_id, &unique).await?;
         let cache_postures = self.mail_cache_postures(&msgs).await;
         // The index never establishes ownership. Restrict the query to rows
@@ -1643,6 +1644,7 @@ impl Engine {
             emails:stable_ids.iter().map(|id| built[slot[id]].clone()).collect(),
             list_projections,
             index_allowed,
+            auth_sources,
         })
     }
 
@@ -5836,6 +5838,7 @@ fn header_properties_from_pairs(pairs: &[(String, String)], wanted: &[WantedHead
 const CALENDAR_PROPERTY: &str = "mailwomanCalendar";
 
 struct EmailAssembly {
+    auth_sources:HashMap<String,String>,
     emails:Vec<Option<Value>>,
     list_projections:HashMap<String,mw_search::ListProjection>,
     index_allowed:bool,

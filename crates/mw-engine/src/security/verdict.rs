@@ -107,7 +107,8 @@ impl Engine {
         account_id: &str,
         _rt: &AccountRuntime,
         args: &Value,
-    ) -> Value {
+    ) -> Value { self.security_verdict_get_owned(account_id,args).await }
+    async fn security_verdict_get_owned(&self,account_id:&str,args:&Value)->Value {
         let ids: Vec<String> = args
             .get("ids")
             .and_then(Value::as_array)
@@ -119,64 +120,63 @@ impl Engine {
             })
             .unwrap_or_default();
 
-        // Build the system-resolver authenticator once (prod: real DNS). A build
-        // failure degrades every auth result to "none" rather than erroring.
-        let authenticator = MessageAuthenticator::new_system_conf().ok();
-
+        if ids.len()>crate::jmap::core::MAX_OBJECTS { return json!({"type":"invalidArguments","arguments":["ids"]}); }
         let mut list = Vec::new();
         let mut not_found = Vec::new();
+        let mut authenticator=None;
+        let mut resolver_initialized=false;
+        // Resolver creation and all DNS work happen only after an owned source
+        // has passed the raw/posture boundary, never for a foreign stable ID.
         for id in &ids {
-            match self.raw_for_email(account_id, id).await {
-                Some(raw) => {
-                    let verdict = self
-                        .verdict_for(account_id, id, &raw, authenticator.as_ref())
-                        .await;
-                    list.push(serde_json::to_value(verdict).unwrap_or(Value::Null));
+            let verdict = match self.raw_for_email(account_id,id).await {
+                Some((source,raw)) => {
+                    if !resolver_initialized {
+                        authenticator=MessageAuthenticator::new_system_conf().ok();
+                        resolver_initialized=true;
+                    }
+                    self.verdict_from_source(account_id,&source,&raw,|| async {
+                        compute_verdict(id,&raw,authenticator.as_ref(),None,authenticator.is_some()).await
+                    }).await
                 }
-                None => not_found.push(json!(id)),
+                None=>None,
+            };
+            match verdict {
+                Some(verdict)=>list.push(serde_json::to_value(verdict).unwrap_or(Value::Null)),
+                None=>not_found.push(json!(id)),
             }
         }
-        let state = self.session_state(account_id).await;
-        super::get_response(account_id, &state, list, not_found)
+        let state=self.session_state(account_id).await;
+        super::get_response(account_id,&state,list,not_found)
     }
 
-    /// The raw RFC5322 bytes for a stored message (draft or received), or `None`.
-    async fn raw_for_email(&self, _account_id: &str, email_id: &str) -> Option<Vec<u8>> {
-        let msg = self.store().get_message(email_id).await.ok()?;
-        let blob = msg.blob_ref.as_ref()?;
-        self.store().get_body(blob).await.ok().flatten()
+    async fn raw_for_email(&self, account: &str, email: &str) -> Option<(mw_store::verdict_source::VerdictSource,Vec<u8>)> {
+        if self.account_posture_live(account).await!=crate::v6::AccountPosture::Standard {return None}
+        self.store().security_verdict_source(account,email).await.ok().flatten()
+    }
+    /// Cached and computed responses both cross the same fresh source check
+    /// after all DNS awaits. A stale result is never returned or reattached.
+    async fn verdict_from_source<F,Fut>(&self, account: &str, source: &mw_store::verdict_source::VerdictSource, raw: &[u8], compute: F) -> Option<SecurityVerdict>
+    where F:FnOnce()->Fut, Fut:std::future::Future<Output=SecurityVerdict> {
+        if !source.matches_account(account) || self.account_posture_live(account).await!=crate::v6::AccountPosture::Standard {return None}
+        let raw_hash=hex_sha256(raw);
+        let cached=self.store().security_verdict_cached(source,&raw_hash).await.ok()?;
+        let verdict=match cached.and_then(|bytes|serde_json::from_slice::<SecurityVerdict>(&bytes).ok()).filter(|value|value.email_id==source.email_id()) {
+            Some(verdict)=>verdict,
+            None=>{
+                if !self.store().security_verdict_source_current(source).await.ok()? {return None}
+                if self.account_posture_live(account).await!=crate::v6::AccountPosture::Standard {return None}
+                let verdict=compute().await;
+                if verdict.email_id!=source.email_id(){return None}
+                let bytes=serde_json::to_vec(&verdict).ok()?;
+                if self.account_posture_live(account).await!=crate::v6::AccountPosture::Standard {return None}
+                if !self.store().security_verdict_cache_if_current(source,&raw_hash,&bytes).await.ok()? {return None}
+                verdict
+            }
+        };
+        if self.account_posture_live(account).await!=crate::v6::AccountPosture::Standard {return None}
+        self.store().security_verdict_source_current(source).await.ok()?.then_some(verdict)
     }
 
-    /// Compute (or read-through the cache) the verdict for one message.
-    async fn verdict_for(
-        &self,
-        account_id: &str,
-        email_id: &str,
-        raw: &[u8],
-        authenticator: Option<&MessageAuthenticator>,
-    ) -> SecurityVerdict {
-        let raw_hash = hex_sha256(raw);
-        if let Ok(Some(bytes)) = self.store().get_security_verdict(email_id, &raw_hash).await
-            && let Ok(v) = serde_json::from_slice::<SecurityVerdict>(&bytes)
-        {
-            return v;
-        }
-        let verdict =
-            compute_verdict(email_id, raw, authenticator, None, authenticator.is_some()).await;
-        if let Ok(bytes) = serde_json::to_vec(&verdict) {
-            let _ = self
-                .store()
-                .upsert_security_verdict(&mw_store::SecurityVerdictRow {
-                    email_id: email_id.to_string(),
-                    account_id: account_id.to_string(),
-                    raw_hash,
-                    verdict_json: bytes,
-                    computed_at: chrono::Utc::now().to_rfc3339(),
-                })
-                .await;
-        }
-        verdict
-    }
 }
 
 /// Compute the full §7.3 verdict for a raw message. `txt_cache` seeds an offline
@@ -1084,3 +1084,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path="verdict_source_tests.rs"]
+mod source_tests;

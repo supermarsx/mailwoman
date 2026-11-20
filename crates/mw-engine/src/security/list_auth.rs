@@ -32,19 +32,25 @@ impl Engine {
         &self,
         account_id: &str,
         emails: &mut [Option<Value>],
+        sources: &std::collections::HashMap<String,String>,
     ) -> Result<()> {
         let ids: Vec<String> = emails
             .iter()
             .flatten()
             .filter_map(|e| e.get("id").and_then(Value::as_str).map(String::from))
             .collect();
-        let cached = self.store().get_security_verdicts(account_id, &ids).await?;
+        let rows=ids.iter().filter_map(|id|sources.get(id).map(|revision|(id.clone(),revision.clone()))).collect::<Vec<_>>();
+        let mut cached=if self.account_posture_live(account_id).await==crate::v6::AccountPosture::Standard {
+            self.store().security_verdicts_for_rows(account_id,&rows).await?
+        } else {std::collections::HashMap::new()};
+        if self.account_posture_live(account_id).await!=crate::v6::AccountPosture::Standard {cached.clear();}
         for email in emails.iter_mut().flatten() {
             let summary = email
                 .get("id")
                 .and_then(Value::as_str)
                 .and_then(|id| cached.get(id))
                 .and_then(|bytes| serde_json::from_slice::<SecurityVerdict>(bytes).ok())
+                .filter(|verdict|email.get("id").and_then(Value::as_str)==Some(verdict.email_id.as_str()))
                 .map(|verdict| summary_json(&verdict))
                 .unwrap_or(Value::Null);
             email[AUTH_PROPERTY] = summary;
