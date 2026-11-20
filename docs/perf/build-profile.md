@@ -8,6 +8,36 @@ thin-LTO question `Cargo.toml` had deferred to a human since 26.9 (DQ-8).
 Every number here is wall-clock on the dev host. Nothing is estimated. Where a
 measurement is contaminated or does not transfer to the shipped platform, it says so.
 
+## 2026-11-20: native release fixture critical path
+
+Cargo's timing artifact from the GNU release fixture build
+`f8kztuvay0167r02m0q3d99gj` records the following units. The Docker compiler step
+took about 1,016 seconds with eight jobs and 16 release codegen units. Windows
+metadata checks overlapped part of this build, so these are diagnostic wall-time
+observations, not an isolated build-speed comparison or deployment guarantee.
+
+| Unit | Total | Frontend | Codegen |
+| --- | ---: | ---: | ---: |
+| `mw-server` library | 791.5 s | 573.4 s | 218.1 s |
+| `mw-engine` | 76.3 s | 18.6 s | 57.7 s |
+| `mw-store` | 37.7 s | 18.1 s | 19.7 s |
+| `mailwoman` binary | 52.2 s | not separated | not separated |
+| Native fixture executable | 40.7 s | not separated | not separated |
+
+Units overlap and their durations must not be summed. The library's frontend
+accounts for 72% of its recorded time; linking alone does not explain this run.
+Cargo's frontend category does not isolate borrow checking, macro expansion,
+type checking or individual compiler queries. A more specific attribution needs
+compiler profiling rather than guesses about borrowing or SIMD. Runtime
+throughput also requires separate measurements.
+
+The compile succeeded and seven WebSocket helper tests passed, but the subsequent
+readiness unit failed. Its zero-duration timeout could cancel an acquired
+connection in the single-connection in-memory test database. The actual Store
+probe later reproduced the resulting missing-table error; this was a test-gate
+failure, not a successful complete image build. The timing HTML and logs are
+retained under `.orchestration/reports/perf-investigation/`.
+
 ## 2026-11-18: web compilation and Docker inputs
 
 The current web build was profiled on Windows with Node 24.14.1 and pnpm
