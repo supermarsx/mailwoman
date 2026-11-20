@@ -537,4 +537,163 @@ mod tests {
         );
         store.close().await;
     }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn failed_post_close_conversion_restores_keyed_source_and_foreground_cache() {
+        use sqlx::Connection;
+        let (_dir, store, _key, _cfg) = tuned_store().await;
+        let crate::backend::Backend::Sqlite(live) = &store.backend else {
+            unreachable!()
+        };
+        {
+            let mut c = live.acquire().await.unwrap();
+            sqlx::query("PRAGMA auto_vacuum=NONE")
+                .execute(&mut *c)
+                .await
+                .unwrap();
+        }
+        live.full_vacuum().await.unwrap();
+        store
+            .set_setting("pager-cache-restore-proof", "before-copy")
+            .await
+            .unwrap();
+        let pin = live.pin().await;
+        let original_pool = pin.pool().clone();
+        let files = live.files().unwrap();
+        let original_generation = files.resolve_active().unwrap().id;
+        let auxiliary_options = pin.auxiliary_options();
+        store
+            .start_online_conversion(crate::online_maintenance::ConversionOptions {
+                pause_ms: 0,
+                batch_rows: 128,
+                max_cutover_ms: 10000,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(90), async {
+            loop {
+                let report = store.online_conversion_status().unwrap();
+                if report.phase == "waiting-for-cutover" {
+                    break;
+                }
+                assert!(
+                    !["failed", "completed", "cancelled"].contains(&report.phase.as_str()),
+                    "expected actual prepared conversion, got {}",
+                    report.phase
+                );
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("prepared copy reached owned cutover gate");
+        // The generation pin deterministically prevents old-pool closure until
+        // this independent source writer is ready. The transaction's Drop
+        // queues rollback on panic/cancellation; no new production fault hook.
+        let mut external = SqliteConnection::connect_with(&auxiliary_options)
+            .await
+            .unwrap();
+        let blocker = external.begin_with("BEGIN IMMEDIATE").await.unwrap();
+        drop(pin);
+        // Final source capture cleanup must write AFTER close_old. Holding the
+        // SQLite writer lock forces the real error/timeout → restore_source
+        // path, rather than the earlier busy-generation admission abort.
+        let failure = tokio::time::timeout(Duration::from_secs(40), async {
+            loop {
+                let report = store.online_conversion_status().unwrap();
+                if report.phase == "failed" {
+                    break;
+                }
+                if report.phase == "recovery-required"
+                    && report.error.as_deref()
+                        == Some("Reopening the selected source; database access remains fenced")
+                {
+                    break;
+                }
+                if ["completed", "cancelled"].contains(&report.phase.as_str()) {
+                    return Err(report.phase);
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            Ok::<_, String>(())
+        })
+        .await;
+        let old_pool_was_closed = original_pool.is_closed();
+        // Always release the injected writer before assertions, even if the
+        // bounded observation failed. A recovery-required intermediate state
+        // is NOT success: the final restored serving pool below is mandatory.
+        blocker.rollback().await.unwrap();
+        external.close().await.unwrap();
+        assert!(
+            failure.is_ok_and(|result| result.is_ok()),
+            "real post-close failure was not observed"
+        );
+        assert!(
+            old_pool_was_closed,
+            "a pre-cutover busy error does not exercise restoration"
+        );
+        let report = tokio::time::timeout(Duration::from_secs(90), async {
+            loop {
+                let report = store.online_conversion_status().unwrap();
+                if ["failed", "completed", "cancelled"].contains(&report.phase.as_str()) {
+                    break report;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("failed conversion automatically restored the original serving pool");
+        assert_eq!(report.phase, "failed");
+        assert!(
+            report
+                .error
+                .as_deref()
+                .is_some_and(|error| !error.contains("Busy operations"))
+        );
+        assert_eq!(
+            report.source_generation.as_deref(),
+            Some(original_generation.as_str())
+        );
+        assert!(report.target_generation.is_some());
+        assert!(!report.retained_previous);
+        assert_eq!(files.resolve_active().unwrap().id, original_generation);
+        let mut c = live.acquire().await.unwrap();
+        assert_eq!(
+            crate::database_observability::sqlite_pragma_i64(&mut c, "PRAGMA auto_vacuum")
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            crate::database_observability::sqlite_pragma_i64(&mut c, "PRAGMA cache_size")
+                .await
+                .unwrap(),
+            -8192
+        );
+        drop(c);
+        assert_eq!(
+            store
+                .get_setting("pager-cache-restore-proof")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("before-copy")
+        );
+        store
+            .set_setting("pager-cache-restore-proof", "after-restore")
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .get_setting("pager-cache-restore-proof")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("after-restore")
+        );
+        let snapshot = store.database_pool_snapshot().await;
+        assert_eq!(snapshot["sqlitePageCache"]["aggregateMiB"], 16);
+        assert_eq!(snapshot["sqlitePageCache"]["perConnectionKiB"], 8192);
+        assert!(!live.pin().await.pool().is_closed());
+        store.close().await;
+    }
 }
