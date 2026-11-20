@@ -67,6 +67,10 @@ use crate::{MigrationReport, Store, StoreError, backend, q};
 #[path = "migrate_cursor_tests.rs"]
 mod cursor_tests;
 
+#[cfg(test)]
+#[path = "migrate_mail_preferences_tests.rs"]
+mod mail_preferences_tests;
+
 use sqlx::sqlite::SqlitePoolOptions;
 
 impl Store {
@@ -329,8 +333,8 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "linked_layout",
-        select: "SELECT owner_principal_id,order_json,nicknames_json,revision,updated_at,avatars_json FROM linked_layout",
-        insert: "INSERT INTO linked_layout(owner_principal_id,order_json,nicknames_json,revision,updated_at,avatars_json) VALUES(?1,?2,?3,?4,?5,?6)",
+        select: "SELECT owner_principal_id,order_json,nicknames_json,revision,updated_at,avatars_json,hidden_json FROM linked_layout",
+        insert: "INSERT INTO linked_layout(owner_principal_id,order_json,nicknames_json,revision,updated_at,avatars_json,hidden_json) VALUES(?1,?2,?3,?4,?5,?6,?7)",
         map: |r| {
             vec![
                 t(r, "owner_principal_id"),
@@ -339,6 +343,7 @@ const TABLES: &[TableSpec] = &[
                 t(r, "revision"),
                 i(r, "updated_at"),
                 t(r, "avatars_json"),
+                t(r, "hidden_json"),
             ]
         },
     },
@@ -2626,6 +2631,18 @@ const TABLES: &[TableSpec] = &[
                 i(r, "updated_at"),
             ]
         },
+    },
+    TableSpec {
+        name: "scheduled_mdn",
+        select: "SELECT account_id,email_id,requested_by,send_at,lease_until,retry_at FROM scheduled_mdn",
+        insert: "INSERT INTO scheduled_mdn(account_id,email_id,requested_by,send_at,lease_until,retry_at) VALUES(?1,?2,?3,?4,?5,?6)",
+        map: |r| vec![t(r,"account_id"),t(r,"email_id"),t(r,"requested_by"),i(r,"send_at"),oi(r,"lease_until"),oi(r,"retry_at")],
+    },
+    TableSpec {
+        name: "mdn_sender_schedule",
+        select: "SELECT account_id,address,send_at FROM mdn_sender_schedule",
+        insert: "INSERT INTO mdn_sender_schedule(account_id,address,send_at) VALUES(?1,?2,?3)",
+        map: |r| vec![t(r,"account_id"),t(r,"address"),i(r,"send_at")],
     },
     TableSpec {
         name: "receipt_status",
