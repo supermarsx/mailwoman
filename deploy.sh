@@ -55,6 +55,7 @@ IMAGE_TAG=
 DEFAULT_SIGNATURE_IDENTITY=https://github.com/supermarsx/mailwoman/.github/workflows/supply-chain.yml@refs/heads/master
 DEFAULT_SIGNATURE_ISSUER=https://token.actions.githubusercontent.com
 IMAGE=
+PREBUILT=false
 PULL=false
 NO_BUILD=false
 BUILD_JOBS=8
@@ -141,6 +142,7 @@ Options:
                     (init only; default 172.30.70; choose an unused subnet)
   --image REF       Use a ready-built Mailwoman image instead of building source
   --pull            Refresh --image from its registry before deploying
+  --prebuilt        Pull the latest published master image from GHCR; skip local compilation
   --image-tag TAG   Deploy IMAGE_REPOSITORY:TAG from deploy.env, fetched from its
                     registry (as --image IMAGE_REPOSITORY:TAG --pull)
   --require-signature
@@ -281,6 +283,7 @@ while (($#)); do
         --http-protocols) need_value "$@"; CADDY_PROTOCOLS=$2; REQUESTED[CADDY_PROTOCOLS]=$2; INIT_OPTIONS=true; shift ;;
         --proxy-prefix) need_value "$@"; PROXY_PREFIX=$2; REQUESTED[PROXY_PREFIX]=$2; INIT_OPTIONS=true; shift ;;
         --image) need_value "$@"; IMAGE=$2; shift ;;
+        --prebuilt) PREBUILT=true ;;
         --image-tag) need_value "$@"; IMAGE_TAG=$2; shift ;;
         --timeout) need_value "$@"; TIMEOUT=$2; shift ;;
         --pull) PULL=true ;;
@@ -311,6 +314,11 @@ while (($#)); do
     shift
 done
 
+if $PREBUILT; then
+    [[ $ACTION == deploy ]] || die "--prebuilt applies only to deploy"
+    [[ -z $IMAGE$IMAGE_TAG && $NO_BUILD == false && $BUILD_PROFILE != fast && $PULL_ONLY == false ]] || die "--prebuilt cannot be combined with --image, --image-tag, --no-build, --build-profile fast or --pull-only"
+    PULL=true
+fi
 if $PULL_ONLY; then
     [[ $ACTION == deploy ]] || die "--pull-only applies only to deploy"
     $GIT_PULL || die "--pull-only cannot be combined with --no-pull"
@@ -339,8 +347,8 @@ TIMEOUT=$((10#$TIMEOUT))
 [[ -z $IMAGE_TAG || $IMAGE_TAG =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]] || die "Invalid image tag: $IMAGE_TAG"
 if [[ -n $IMAGE && -n $IMAGE_TAG ]]; then die "Give --image or --image-tag, not both"; fi
 if $NO_BUILD && { [[ -n $IMAGE$IMAGE_TAG ]] || $PULL; }; then die "--no-build cannot be combined with --image/--image-tag/--pull"; fi
-if $PULL && [[ -z $IMAGE$IMAGE_TAG ]]; then die "--pull requires --image"; fi
-if $REQUIRE_SIGNATURE && [[ -z $IMAGE$IMAGE_TAG ]]; then die "--require-signature requires --image or --image-tag"; fi
+if $PULL && [[ -z $IMAGE$IMAGE_TAG ]] && ! $PREBUILT; then die "--pull requires --image"; fi
+if $REQUIRE_SIGNATURE && [[ -z $IMAGE$IMAGE_TAG ]] && ! $PREBUILT; then die "--require-signature requires --image, --image-tag or --prebuilt"; fi
 if [[ $ACTION != deploy ]] && { [[ -n $IMAGE$IMAGE_TAG ]] || $NO_BUILD || $PULL || ! $AUTO_ROLLBACK; }; then
     die "Image and rollback options apply only to deploy"
 fi
@@ -632,6 +640,10 @@ else
     fi
 fi
 validate_config
+if $PREBUILT; then
+    IMAGE="${IMAGE_REPOSITORY:-ghcr.io/supermarsx/mailwoman}:master"
+    log "Prebuilt image: $IMAGE (latest published master build; may lag the Git checkout). No local compilation."
+fi
 if [[ -n $IMAGE_TAG ]]; then
     [[ -n $IMAGE_REPOSITORY ]] || die "--image-tag needs IMAGE_REPOSITORY in deploy.env, such as ghcr.io/supermarsx/mailwoman"
     IMAGE="$IMAGE_REPOSITORY:$IMAGE_TAG"
@@ -886,7 +898,9 @@ OPERATION_KEYS=(BACKUP_KEEP BACKUP_KEEP_DAYS BACKUP_RECIPIENT BACKUP_HOOK BACKUP
 image_digest() {
     local repository
     repository=$(image_repository "$IMAGE")
-    IMAGE_DIGEST=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE" | awk -F@ -v repository="$repository" '$1 == repository && $2 ~ /^sha256:[0-9a-f]+$/ {print; exit}')
+    # Resolve metadata from the exact selected image, not a tag another process
+    # could retarget between the earlier ID read and this digest lookup.
+    IMAGE_DIGEST=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${IMAGE_ID:-$IMAGE}" | awk -F@ -v repository="$repository" '$1 == repository && $2 ~ /^sha256:[0-9a-f]+$/ {print; exit}')
 }
 
 load_active() {

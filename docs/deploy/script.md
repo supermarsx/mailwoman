@@ -32,6 +32,30 @@ Use `--pull-only --dry-run` to preview without fetching or changing the checkout
 ### Build reuse
 
 Deploy normally with `sh deploy.sh deploy` to pull and build the updated source.
+
+To fetch the latest published GitHub Container Registry image and skip local
+compilation:
+
+```sh
+sh deploy.sh deploy --prebuilt
+```
+
+This explicitly pulls `ghcr.io/supermarsx/mailwoman:master`, or
+`IMAGE_REPOSITORY:master` when `IMAGE_REPOSITORY` is set in `deploy.env`. The
+published tag is `master`, not `latest`; a published image can lag the current
+Git checkout. This invocation follows the existing signature checks, resolves
+the selected image to its immutable ID/digest and retains normal backup,
+deployment, health-check and rollback behavior. Use `--require-signature` to
+require verification. Public GHCR pulls do not require GitHub CLI credentials.
+The script still updates its checkout normally; add `--no-pull` to keep the
+current checkout. `--dry-run` shows the selected published reference.
+
+`--prebuilt` is a deploy-only invocation option; it does not persist a new
+default or alter `IMAGE_REPOSITORY`. It cannot be combined with `--image`,
+`--image-tag`, `--no-build`, `--build-profile fast` or `--pull-only`. Existing
+`--image` remains available for a chosen exact tag or digest. Default deployments
+continue to build locally.
+
 Docker builds the web app separately from Rust and packages its files in the
 image at `MW_WEB_DIR`. With the same builder and its cache retained, a UI-only
 change reuses the completed Rust build layer. Rust source or dependency changes
