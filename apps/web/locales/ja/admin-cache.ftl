@@ -1,0 +1,24 @@
+admin-cache-title = キャッシュのメンテナンス
+admin-cache-help = 既定では、60日間使用されていないメール内容のキャッシュは期限切れになります。期限切れのメッセージを開くと、内容が再ダウンロードされます。元のメッセージ、下書き、保護されたローカル内容は保持されます。
+admin-cache-expiry = キャッシュされたメッセージの有効期間
+admin-cache-orphans = 参照されていない本文と容量の回収
+admin-cache-advanced = バッチの上限と実行間隔
+admin-cache-settings-help = 変更には通常の管理者設定ポリシー、検証、監査記録が適用されます。
+admin-cache-expiry-enabled = キャッシュされたメッセージ本文を自動で期限切れにする
+admin-cache-retention-days = 期限切れになるまでの未使用日数
+admin-cache-expiry-status = キャッシュ本文の有効期限
+admin-cache-expiry-result = スキャン済み: { $scanned } · 切り離されたキャッシュ参照: { $detached } · 保護対象: { $protected }
+admin-cache-expiry-help = 元のメールボックスから復元できることが確認された本文のみが対象です。スキャンやヘッダーの更新では未使用期間は更新されません。
+admin-cache-inspect = キャッシュストレージを調査
+admin-cache-inspect-help = データベースの可観測性を開いて、キャッシュ内容、参照中の本文、孤立したコピーを測定します。
+admin-cache-no-status = このサーバープロセスでは期限切れ処理のバッチがまだ完了していません。
+admin-cache-settings-unavailable = キャッシュ設定を読み込めませんでした。
+admin-cache-change-log = 同期履歴
+admin-cache-change-log-help = 既定では、古い変更記録は60日後に期限切れになります。古い同期トークンを使用するクライアントには、完全な再同期が必要であることを示す応答が返されます。
+admin-cache-no-sources = 現在、再取得経路が確認された接続済みメールボックスはありません。保護された内容は保持されます。
+admin-cache-wal-recycled = 割り当て済みWAL領域を再利用可能にしました。クリーンアップを続行できます。
+admin-cache-wal-recovery = クリーンアップはWALの復旧またはチェックポイントを待っています。処理待ちのジャーナルデータは保持されます。
+
+admin-cache-removed-payload = 削除したキャッシュ内容
+admin-cache-oversized = 削除を延期した大きな本文
+admin-cache-change-removed = 削除した同期履歴の行

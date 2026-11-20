@@ -161,3 +161,4 @@ admin-db-retained-deleted = Base de dados retida { $file } eliminada.
 admin-db-retained-busy = A manutenção da base de dados está em curso. Tente novamente quando terminar.
 admin-db-retained-sidecars = Ainda existem ficheiros de recuperação do SQLite. Feche outras ferramentas de base de dados e reveja a recuperação antes de eliminar.
 admin-db-retained-unavailable = Não foi possível verificar esta cópia para eliminação.
+admin-db-maintenance-title = Manutenção da base de dados

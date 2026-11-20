@@ -17,3 +17,5 @@ maintenance-mode-impact = Het inschakelen van de onderhoudsmodus pauzeert nieuwe
 maintenance-mode-saved = Configuratie van de onderhoudsmodus opgeslagen.
 maintenance-mode-jobs = Herstelopdrachten
 maintenance-mode-invalid = De opgeslagen configuratie kon niet worden gelezen. De gebruikerstoegang is gepauzeerd. Controleer deze vervangende instellingen en sla ze op om een geldige configuratie te herstellen.
+maintenance-tab-database = Database
+maintenance-tab-cache = Cache

@@ -8,7 +8,7 @@ import {formatBytes,formatCount} from './Dashboard/format.ts';
 import * as css from './admin.css.ts';
 const terminal=new Set(['completed','cancelled','failed']);
 const phases:Record<string,string>={preparing:'preparing',copying:'copying',verifying:'verifying','catching-up':'catching-up','waiting-for-cutover':'waiting-for-cutover',switching:'switching',publishing:'publishing','recovery-required':'recovery-required',completed:'completed',cancelled:'cancelled',failed:'failed'};
-export function OnlineDatabaseConversion():JSX.Element{
+export function OnlineDatabaseConversion(props:{onCompleted?:()=>void}={}):JSX.Element{
  void loadCatalog('admin-database');const shell=useContext(ShellContext);
  const canRead=()=>shell?.can.can('maintenance.read')===true;
  const canRun=()=>shell?.can.can('maintenance.run')===true;
@@ -21,6 +21,8 @@ export function OnlineDatabaseConversion():JSX.Element{
   try{const value=await loadOnlineConversion(request.signal);if(!disposed)setReport(value);}catch(error){if(!disposed)setFailure(describeAdminError(error));}finally{if(!disposed)setLoading(false);}
  }
  createEffect(()=>{if(canRead()&&!initialRequested){initialRequested=true;void reload();}});
+ let completedAt:number|undefined;
+ createEffect(()=>{const value=report();if(value?.phase==='completed'&&value.updatedAt!==completedAt){completedAt=value.updatedAt;props.onCompleted?.();}});
  onMount(()=>{const visible=()=>document.visibilityState!=='hidden';const timer=setInterval(()=>{if(visible()&&active())void reload();},2000);const visibility=()=>{if(visible()&&active())void reload();};document.addEventListener('visibilitychange',visibility);onCleanup(()=>{disposed=true;request?.abort();clearInterval(timer);document.removeEventListener('visibilitychange',visibility);});});
  async function start():Promise<void>{if(busy()||loading()||active()||!canRun())return;setBusy(true);setFailure(null);try{const value=await startOnlineConversion();if(!disposed)setReport(value);}catch(error){if(!disposed)setFailure(describeAdminError(error));}finally{if(!disposed)setBusy(false);}}
  async function cancel():Promise<void>{if(busy()||loading()||!cancellable()||!canRun())return;setBusy(true);setFailure(null);try{const requested=await cancelOnlineConversion();const value=await loadOnlineConversion();if(!disposed){setReport(value);if(!requested)setFailure(t('admin-db-online-cancel-unavailable'));}}catch(error){if(!disposed)setFailure(describeAdminError(error));}finally{if(!disposed)setBusy(false);}}

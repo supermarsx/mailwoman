@@ -161,3 +161,4 @@ admin-db-retained-deleted = Збережену базу даних { $file } в�
 admin-db-retained-busy = Триває обслуговування бази даних. Спробуйте ще раз після завершення.
 admin-db-retained-sidecars = Файли відновлення SQLite ще існують. Закрийте інші інструменти бази даних і перевірте відновлення перед видаленням.
 admin-db-retained-unavailable = Не вдалося перевірити цю копію для видалення.
+admin-db-maintenance-title = Обслуговування бази даних

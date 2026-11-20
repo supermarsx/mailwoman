@@ -2770,3 +2770,8 @@ admin-settings-key-maintenance-database-expire-cached-bodies = إنهاء صلا
 admin-settings-help-maintenance-database-expire-cached-bodies = أزل محتوى الرسائل غير النشط من الذاكرة المؤقتة فقط عندما تستطيع الخدمة النشطة تنزيل نسخة أخرى. تبقى النسخ الأصلية المحلية وبريد POP3 والمسودات محمية.
 admin-settings-key-maintenance-database-cached-body-retention-days = مدة الاحتفاظ بالمحتوى المؤقت بالأيام
 admin-settings-help-maintenance-database-cached-body-retention-days = الأيام منذ الاستخدام الصريح لمحتوى الرسالة، وعادةً 60 يوماً. لا تجدد مزامنة الترويسات أو الجلب المسبق في الخلفية هذه المدة؛ وتحصل الرسائل القديمة على فترة سماح كاملة.
+
+admin-settings-key-maintenance-database-change-log-retention-days = مدة الاحتفاظ بسجل تغييرات البريد (أيام)
+admin-settings-help-maintenance-database-change-log-retention-days = الاحتفاظ بسجل التغييرات لهذا العدد من الأيام، وعادة 60 يوماً. الصفر يعني الاحتفاظ دون حد زمني. يجب على العملاء ذوي الحالات المنتهية جلب القائمة الحالية مجدداً.
+admin-settings-key-maintenance-database-change-log-batch-rows = حد دفعة التغييرات (صفوف)
+admin-settings-help-maintenance-database-change-log-batch-rows = الحد الأقصى لصفوف التغييرات المحذوفة في كل دفعة صيانة، وعادة 1000. تبقى الحالة الواحدة التي تتجاوز الحد كاملة ويُبلغ عنها للمراجعة.

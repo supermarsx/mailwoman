@@ -2754,3 +2754,8 @@ admin-settings-key-maintenance-database-expire-cached-bodies = Inaktive zwischen
 admin-settings-help-maintenance-database-expire-cached-bodies = Inaktive zwischengespeicherte Nachrichten werden nur entfernt, wenn der aktive Dienst eine weitere Kopie herunterladen kann. Lokale Originale, POP3-Nachrichten und Entwürfe bleiben geschützt.
 admin-settings-key-maintenance-database-cached-body-retention-days = Aufbewahrung zwischengespeicherter Nachrichtentexte (Tage)
 admin-settings-help-maintenance-database-cached-body-retention-days = Tage seit der ausdrücklichen Nutzung des Nachrichtentexts, normalerweise 60. Kopfzeilenabgleich und Hintergrundvorladen verlängern diese Frist nicht; ältere Nachrichten erhalten eine vollständige Schonfrist.
+
+admin-settings-key-maintenance-database-change-log-retention-days = Aufbewahrung des E-Mail-Änderungsprotokolls (Tage)
+admin-settings-help-maintenance-database-change-log-retention-days = Änderungen für diese Anzahl Tage aufbewahren, normalerweise 60. Null bewahrt sie unbegrenzt auf. Clients mit abgelaufenen Zuständen müssen die aktuelle Liste erneut abrufen.
+admin-settings-key-maintenance-database-change-log-batch-rows = Grenze je Änderungslauf (Zeilen)
+admin-settings-help-maintenance-database-change-log-batch-rows = Maximale Anzahl gelöschter Änderungszeilen je Wartungslauf, normalerweise 1.000. Ein größerer einzelner Zustand bleibt vollständig erhalten und wird zur Prüfung gemeldet.

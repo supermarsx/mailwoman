@@ -2667,3 +2667,8 @@ admin-settings-key-maintenance-database-expire-cached-bodies = Expire inactive c
 admin-settings-help-maintenance-database-expire-cached-bodies = Remove inactive cached message bodies only when the active backend can download another copy. Local originals, POP3 mail and drafts remain protected.
 admin-settings-key-maintenance-database-cached-body-retention-days = Cached body lifetime (days)
 admin-settings-help-maintenance-database-cached-body-retention-days = Days since explicit message-body use, normally 60. Header sync and background prefetch do not renew this period; legacy cached messages receive a full grace period.
+
+admin-settings-key-maintenance-database-change-log-retention-days = Mail change-log retention (days)
+admin-settings-help-maintenance-database-change-log-retention-days = Keep mail delta history for this many days, normally 60. Zero keeps it indefinitely. Clients with expired state tokens must fetch the current list again.
+admin-settings-key-maintenance-database-change-log-batch-rows = Change-log batch limit (rows)
+admin-settings-help-maintenance-database-change-log-batch-rows = Maximum change rows removed per maintenance batch, normally 1,000. A single state larger than this limit stays intact and is reported for review.

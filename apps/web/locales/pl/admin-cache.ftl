@@ -1,0 +1,24 @@
+admin-cache-title = Konserwacja pamięci podręcznej
+admin-cache-help = Domyślnie treść poczty w pamięci podręcznej wygasa po 60 dniach bez użycia. Otwarcie wygasłej wiadomości pobiera jej treść ponownie. Oryginalne wiadomości, wersje robocze i chronione treści lokalne zostają zachowane.
+admin-cache-expiry = Czas przechowywania wiadomości w pamięci podręcznej
+admin-cache-orphans = Niepowiązane treści i odzyskiwanie miejsca
+admin-cache-advanced = Limity i harmonogram partii
+admin-cache-settings-help = Zmiany podlegają standardowym zasadom, walidacji i rejestrowaniu audytu ustawień administratora.
+admin-cache-expiry-enabled = Automatycznie usuwaj wygasłe treści wiadomości z pamięci podręcznej
+admin-cache-retention-days = Dni bez użycia przed wygaśnięciem
+admin-cache-expiry-status = Wygasanie treści w pamięci podręcznej
+admin-cache-expiry-result = Sprawdzono: { $scanned } · Odłączone odwołania do pamięci podręcznej: { $detached } · Chronione: { $protected }
+admin-cache-expiry-help = Kwalifikują się tylko treści, których odzyskanie ze źródłowej skrzynki zostało potwierdzone. Skanowanie i odświeżanie nagłówków nie odnawiają okresu bezczynności.
+admin-cache-inspect = Sprawdź przestrzeń pamięci podręcznej
+admin-cache-inspect-help = Otwórz obserwowalność bazy danych, aby zmierzyć zawartość pamięci podręcznej, powiązane treści i osierocone kopie.
+admin-cache-no-status = W tym procesie serwera nie ukończono jeszcze żadnej partii wygasania.
+admin-cache-settings-unavailable = Nie udało się wczytać ustawień pamięci podręcznej.
+admin-cache-change-log = Historia synchronizacji
+admin-cache-change-log-help = Stare wpisy zmian domyślnie wygasają po 60 dniach. Klienci ze starszymi tokenami synchronizacji otrzymują odpowiedź wymagającą pełnej ponownej synchronizacji.
+admin-cache-no-sources = Żadna połączona skrzynka nie ma obecnie potwierdzonej ścieżki ponownego pobrania. Chronione treści zostają zachowane.
+admin-cache-wal-recycled = Odzyskano przydzieloną przestrzeń WAL; czyszczenie może być kontynuowane.
+admin-cache-wal-recovery = Czyszczenie czeka na odzyskiwanie WAL lub punkt kontrolny. Oczekujące dane dziennika zostają zachowane.
+
+admin-cache-removed-payload = Usunięta zawartość pamięci podręcznej
+admin-cache-oversized = Odroczone czyszczenie dużej treści wiadomości
+admin-cache-change-removed = Usunięte wpisy historii synchronizacji

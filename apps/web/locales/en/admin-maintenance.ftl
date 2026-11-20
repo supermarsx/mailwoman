@@ -12,3 +12,5 @@ maintenance-mode-impact = Enabling maintenance mode pauses new user requests imm
 maintenance-mode-saved = Maintenance mode configuration saved.
 maintenance-mode-jobs = Repair jobs
 maintenance-mode-invalid = The stored configuration could not be read. User access is paused. Review these replacement settings and save them to restore a valid configuration.
+maintenance-tab-database = Database
+maintenance-tab-cache = Cache

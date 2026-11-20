@@ -17,3 +17,5 @@ maintenance-mode-impact = يوقف تفعيل وضع الصيانة طلبات �
 maintenance-mode-saved = تم حفظ إعدادات وضع الصيانة.
 maintenance-mode-jobs = مهام الإصلاح
 maintenance-mode-invalid = تعذّرت قراءة الإعدادات المخزَّنة. وصول المستخدمين متوقف. راجع هذه الإعدادات البديلة واحفظها لاستعادة إعدادات صالحة.
+maintenance-tab-database = قاعدة البيانات
+maintenance-tab-cache = التخزين المؤقت

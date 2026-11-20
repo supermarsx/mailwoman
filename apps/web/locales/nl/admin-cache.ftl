@@ -1,0 +1,24 @@
+admin-cache-title = Cacheonderhoud
+admin-cache-help = E-mailinhoud in de cache verloopt standaard na 60 dagen zonder gebruik. Bij het openen van een verlopen bericht wordt de inhoud opnieuw gedownload. Oorspronkelijke berichten, concepten en beschermde lokale inhoud blijven behouden.
+admin-cache-expiry = Levensduur van berichten in de cache
+admin-cache-orphans = Bodies zonder verwijzing en ruimte vrijmaken
+admin-cache-advanced = Batchlimieten en planning
+admin-cache-settings-help = Wijzigingen volgen het gebruikelijke beleid, de validatie en het auditspoor voor beheerdersinstellingen.
+admin-cache-expiry-enabled = Berichtinhoud in de cache automatisch laten verlopen
+admin-cache-retention-days = Dagen zonder gebruik vóór verval
+admin-cache-expiry-status = Verval van bodies in de cache
+admin-cache-expiry-result = Gescand: { $scanned } · Losgekoppelde cacheverwijzingen: { $detached } · Beschermd: { $protected }
+admin-cache-expiry-help = Alleen bodies waarvan herstel vanuit een bronpostvak is bevestigd, komen in aanmerking. Scans en het vernieuwen van berichtkoppen verlengen de inactiviteitstermijn niet.
+admin-cache-inspect = Cacheopslag inspecteren
+admin-cache-inspect-help = Open database-observatie om cache-inhoud, bodies met verwijzingen en verweesde kopieën te meten.
+admin-cache-no-status = In dit serverproces is nog geen vervalbatch voltooid.
+admin-cache-settings-unavailable = De cache-instellingen konden niet worden geladen.
+admin-cache-change-log = Synchronisatiegeschiedenis
+admin-cache-change-log-help = Oude wijzigingsrecords verlopen standaard na 60 dagen. Clients met oudere synchronisatietokens ontvangen een antwoord voor volledige hersynchronisatie.
+admin-cache-no-sources = Geen verbonden postvak heeft momenteel een bevestigde route om inhoud opnieuw op te halen. Beschermde inhoud blijft behouden.
+admin-cache-wal-recycled = Toegewezen WAL-ruimte is hergebruikt; het opruimen kan doorgaan.
+admin-cache-wal-recovery = Het opruimen wacht op WAL-herstel of een checkpoint. Openstaande journaalgegevens blijven behouden.
+
+admin-cache-removed-payload = Verwijderde cache-inhoud
+admin-cache-oversized = Opschonen van grote berichtinhoud uitgesteld
+admin-cache-change-removed = Verwijderde synchronisatiegeschiedenisregels

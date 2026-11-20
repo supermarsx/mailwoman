@@ -1,0 +1,24 @@
+admin-cache-title = 缓存维护
+admin-cache-help = 默认情况下，缓存的邮件内容在60天未使用后过期。打开已过期邮件会重新下载其内容。原始邮件、草稿和受保护的本地内容均会保留。
+admin-cache-expiry = 缓存邮件保留期限
+admin-cache-orphans = 未引用正文与空间回收
+admin-cache-advanced = 批次限制与时间安排
+admin-cache-settings-help = 更改遵循常规管理员设置策略、验证和审计记录。
+admin-cache-expiry-enabled = 自动使缓存的邮件正文过期
+admin-cache-retention-days = 过期前未使用的天数
+admin-cache-expiry-status = 缓存正文过期
+admin-cache-expiry-result = 已扫描：{ $scanned } · 已断开的缓存引用：{ $detached } · 受保护：{ $protected }
+admin-cache-expiry-help = 仅限已确认可从源邮箱恢复的正文。扫描和邮件头刷新不会延长未使用期限。
+admin-cache-inspect = 检查缓存存储
+admin-cache-inspect-help = 打开数据库可观测性，测量缓存内容、被引用的正文和孤立副本。
+admin-cache-no-status = 此服务器进程尚未完成任何过期处理批次。
+admin-cache-settings-unavailable = 无法加载缓存设置。
+admin-cache-change-log = 同步历史
+admin-cache-change-log-help = 默认情况下，旧的更改记录在60天后过期。使用较早同步令牌的客户端会收到需要完整重新同步的响应。
+admin-cache-no-sources = 目前没有已连接邮箱具备已确认的重新获取路径。受保护的内容会保留。
+admin-cache-wal-recycled = 已回收已分配的WAL空间；清理可以继续。
+admin-cache-wal-recovery = 清理正在等待WAL恢复或检查点处理。待处理的日志数据会保留。
+
+admin-cache-removed-payload = 已移除的缓存内容
+admin-cache-oversized = 已暂缓清理的大型正文
+admin-cache-change-removed = 已移除的同步历史记录

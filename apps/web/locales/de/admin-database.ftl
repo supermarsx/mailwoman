@@ -161,3 +161,4 @@ admin-db-retained-deleted = Aufbewahrte Datenbank { $file } gelöscht.
 admin-db-retained-busy = Die Datenbankwartung läuft. Versuchen Sie es nach Abschluss erneut.
 admin-db-retained-sidecars = SQLite-Wiederherstellungsdateien sind noch vorhanden. Schließen Sie andere Datenbankwerkzeuge und prüfen Sie die Wiederherstellung vor dem Löschen.
 admin-db-retained-unavailable = Diese Kopie konnte nicht für das Löschen verifiziert werden.
+admin-db-maintenance-title = Datenbankwartung

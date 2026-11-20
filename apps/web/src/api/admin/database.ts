@@ -1,7 +1,7 @@
 export interface BackgroundDatabaseReport {
  running:boolean;enabled?:boolean;nextRunAt?:number|null;lastError?:string|null;
  options?:Record<string,number|boolean>;
- lastReport?:{at:number;status:string;vacuumStatus:string;scanned:number;marked:number;removed:number;removedBytes:number;reclaimedPages:number;autoVacuum?:number;elapsedMs:number}|null;
+ lastReport?:{at:number;status:string;vacuumStatus:string;scanned:number;marked:number;removed:number;removedBytes:number;reclaimedPages:number;autoVacuum?:number;elapsedMs:number;cachedBodyExpiry?:import('./databaseMaintenance.ts').CachedBodyExpiryReport;walRecovery?:{beforeBytes:number;afterBytes:number;status:string}}|null;
 }
 import {adminRequest} from '../../screens/Admin/shell/adminApi.ts';
 

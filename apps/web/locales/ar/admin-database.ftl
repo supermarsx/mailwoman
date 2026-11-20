@@ -161,3 +161,4 @@ admin-db-retained-deleted = تم حذف قاعدة البيانات المحتف
 admin-db-retained-busy = تجري صيانة قاعدة البيانات. حاول مجددًا بعد انتهائها.
 admin-db-retained-sidecars = لا تزال ملفات استرداد SQLite موجودة. أغلق أدوات قواعد البيانات الأخرى وراجع الاسترداد قبل الحذف.
 admin-db-retained-unavailable = تعذر التحقق من هذه النسخة للحذف.
+admin-db-maintenance-title = صيانة قاعدة البيانات

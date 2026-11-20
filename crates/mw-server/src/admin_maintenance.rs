@@ -75,6 +75,7 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
         search_index_status,
     );
     r.admin_endpoint(Method::POST,"/maintenance/logs",Capability::MaintenanceRun,maintain_logs);
+    r.admin_endpoint(Method::GET,"/maintenance/database-background",Capability::MaintenanceRead,background_database_status);
     r.admin_endpoint(Method::POST,"/maintenance/database-background",Capability::MaintenanceRun,background_database);
     // t76: the console's own address for the metadata passthrough. The admin
     // cookie is scoped to the console path, so the browser no longer sends it to
@@ -109,6 +110,24 @@ async fn online_database_cancel(State(state):State<AppState>,ctx:AdminCtx)->Resu
     let requested=state.store.cancel_online_conversion();
     audit(&state,&ctx.username,"online-database-conversion-cancel","database",json!({"cancelRequested":requested})).await;
     Ok(([(axum::http::header::CACHE_CONTROL,"no-store")],Json(json!({"cancelRequested":requested}))).into_response())
+}
+
+async fn background_database_status(
+    State(state): State<AppState>,
+    ctx: AdminCtx,
+) -> Result<Response, crate::admin_ctx::AdminApiError> {
+    ctx.require_unscoped(Capability::MaintenanceRead)?;
+    let mut status = crate::background_maintenance::status(&state.store);
+    status["backend"] = json!(if state.store.uses_sqlite() {
+        "sqlite"
+    } else {
+        "postgres"
+    });
+    Ok((
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        Json(status),
+    )
+        .into_response())
 }
 
 async fn background_database(State(state):State<AppState>,ctx:AdminCtx)->Result<Response,crate::admin_ctx::AdminApiError>{

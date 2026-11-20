@@ -17,3 +17,5 @@ maintenance-mode-impact = Attivando la modalità manutenzione le nuove richieste
 maintenance-mode-saved = Configurazione della modalità manutenzione salvata.
 maintenance-mode-jobs = Attività di riparazione
 maintenance-mode-invalid = Impossibile leggere la configurazione memorizzata. L'accesso degli utenti è sospeso. Controlla queste impostazioni sostitutive e salvale per ripristinare una configurazione valida.
+maintenance-tab-database = Database
+maintenance-tab-cache = Cache

@@ -2748,3 +2748,8 @@ admin-settings-key-maintenance-database-expire-cached-bodies = Inactieve bericht
 admin-settings-help-maintenance-database-expire-cached-bodies = Verwijder inactieve berichtinhoud uit de cache alleen als de actieve dienst een andere kopie kan downloaden. Lokale originelen, POP3-berichten en concepten blijven beschermd.
 admin-settings-key-maintenance-database-cached-body-retention-days = Bewaartermijn van berichtinhoud in de cache (dagen)
 admin-settings-help-maintenance-database-cached-body-retention-days = Dagen sinds expliciet gebruik van de berichtinhoud, gewoonlijk 60. Koptekstsynchronisatie en vooraf laden op de achtergrond vernieuwen deze termijn niet; oudere berichten krijgen een volledige respijtperiode.
+
+admin-settings-key-maintenance-database-change-log-retention-days = Bewaartermijn voor het e-mailwijzigingslogboek (dagen)
+admin-settings-help-maintenance-database-change-log-retention-days = Bewaar wijzigingen zoveel dagen, normaal 60. Nul bewaart ze onbeperkt. Clients met verlopen statustokens moeten de huidige lijst opnieuw ophalen.
+admin-settings-key-maintenance-database-change-log-batch-rows = Limiet per wijzigingsbatch (rijen)
+admin-settings-help-maintenance-database-change-log-batch-rows = Maximaal aantal verwijderde wijzigingsrijen per onderhoudsbatch, normaal 1.000. Een afzonderlijke status boven deze limiet blijft intact en wordt gemeld ter controle.

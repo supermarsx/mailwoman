@@ -17,3 +17,5 @@ maintenance-mode-impact = L’activation du mode maintenance suspend immédiatem
 maintenance-mode-saved = Configuration du mode maintenance enregistrée.
 maintenance-mode-jobs = Tâches de réparation
 maintenance-mode-invalid = La configuration enregistrée n’a pas pu être lue. L’accès des utilisateurs est suspendu. Vérifiez ces paramètres de remplacement et enregistrez-les pour rétablir une configuration valide.
+maintenance-tab-database = Base de données
+maintenance-tab-cache = Cache

@@ -807,6 +807,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'maintenance.database.orphanBodies',
   'maintenance.database.expireCachedBodies',
   'maintenance.database.cachedBodyRetentionDays',
+  'maintenance.database.changeLogRetentionDays',
+  'maintenance.database.changeLogBatchRows',
   'maintenance.database.incrementalVacuum',
   'maintenance.database.intervalSeconds',
   'maintenance.database.batchRows',

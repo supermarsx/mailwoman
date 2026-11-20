@@ -17,3 +17,5 @@ maintenance-mode-impact = 启用维护模式会立即暂停新的用户请求。
 maintenance-mode-saved = 维护模式配置已保存。
 maintenance-mode-jobs = 修复任务
 maintenance-mode-invalid = 无法读取已存储的配置。用户访问已暂停。请检查这些替代设置并保存，以恢复有效的配置。
+maintenance-tab-database = 数据库
+maintenance-tab-cache = 缓存

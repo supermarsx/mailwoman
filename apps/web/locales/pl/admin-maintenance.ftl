@@ -17,3 +17,5 @@ maintenance-mode-impact = Włączenie trybu konserwacji natychmiast wstrzymuje n
 maintenance-mode-saved = Zapisano konfigurację trybu konserwacji.
 maintenance-mode-jobs = Zadania naprawcze
 maintenance-mode-invalid = Nie można odczytać zapisanej konfiguracji. Dostęp użytkowników jest wstrzymany. Sprawdź poniższe ustawienia zastępcze i zapisz je, aby przywrócić prawidłową konfigurację.
+maintenance-tab-database = Baza danych
+maintenance-tab-cache = Pamięć podręczna

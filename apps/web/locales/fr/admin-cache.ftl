@@ -1,0 +1,24 @@
+admin-cache-title = Maintenance du cache
+admin-cache-help = Par défaut, le contenu des courriels en cache expire après 60 jours sans utilisation. Ouvrir un message expiré télécharge à nouveau son contenu. Les messages originaux, brouillons et contenus locaux protégés sont conservés.
+admin-cache-expiry = Durée de vie des messages en cache
+admin-cache-orphans = Corps non référencés et récupération d’espace
+admin-cache-advanced = Limites et planification des lots
+admin-cache-settings-help = Les modifications suivent les règles, validations et journaux d’audit habituels des paramètres d’administration.
+admin-cache-expiry-enabled = Faire expirer automatiquement les corps des messages en cache
+admin-cache-retention-days = Jours sans utilisation avant expiration
+admin-cache-expiry-status = Expiration des corps en cache
+admin-cache-expiry-result = Analysés : { $scanned } · Références de cache détachées : { $detached } · Protégés : { $protected }
+admin-cache-expiry-help = Seuls les corps dont la récupération depuis une boîte aux lettres source est confirmée sont admissibles. Les analyses et actualisations des en-têtes ne renouvellent pas le délai d’inactivité.
+admin-cache-inspect = Inspecter le stockage du cache
+admin-cache-inspect-help = Ouvrez l’observabilité de la base de données pour mesurer le contenu en cache, les corps référencés et les copies orphelines.
+admin-cache-no-status = Aucun lot d’expiration ne s’est terminé dans ce processus serveur.
+admin-cache-settings-unavailable = Impossible de charger les paramètres du cache.
+admin-cache-change-log = Historique de synchronisation
+admin-cache-change-log-help = Par défaut, les anciens enregistrements de modification expirent après 60 jours. Les clients utilisant des jetons de synchronisation plus anciens reçoivent une réponse de resynchronisation complète.
+admin-cache-no-sources = Aucune boîte aux lettres connectée ne dispose actuellement d’un chemin de récupération confirmé. Le contenu protégé est conservé.
+admin-cache-wal-recycled = L’espace WAL alloué a été recyclé ; le nettoyage peut continuer.
+admin-cache-wal-recovery = Le nettoyage attend la récupération ou un point de contrôle du WAL. Les données du journal en attente sont conservées.
+
+admin-cache-removed-payload = Contenu en cache supprimé
+admin-cache-oversized = Nettoyage des corps volumineux reporté
+admin-cache-change-removed = Entrées d’historique de synchronisation supprimées

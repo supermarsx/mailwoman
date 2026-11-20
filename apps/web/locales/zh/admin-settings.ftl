@@ -2740,3 +2740,8 @@ admin-settings-key-maintenance-database-expire-cached-bodies = 清理长期未�
 admin-settings-help-maintenance-database-expire-cached-bodies = 仅当当前连接服务能够重新下载副本时，才删除长期未使用的缓存正文。本地原件、POP3 邮件和草稿仍受保护。
 admin-settings-key-maintenance-database-cached-body-retention-days = 缓存正文保留时间（天）
 admin-settings-help-maintenance-database-cached-body-retention-days = 自明确使用邮件正文以来的天数，通常为 60 天。邮件头同步和后台预取不会延长此期限；旧缓存邮件会获得完整的宽限期。
+
+admin-settings-key-maintenance-database-change-log-retention-days = 邮件变更日志保留期（天）
+admin-settings-help-maintenance-database-change-log-retention-days = 保留指定天数的变更历史，通常为60天。零表示永久保留。状态令牌过期的客户端必须重新获取当前列表。
+admin-settings-key-maintenance-database-change-log-batch-rows = 变更日志批次上限（行）
+admin-settings-help-maintenance-database-change-log-batch-rows = 每个维护批次最多删除的变更行数，通常为1,000行。超过上限的单个状态会完整保留，并报告以供检查。

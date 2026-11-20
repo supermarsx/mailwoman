@@ -161,3 +161,4 @@ admin-db-retained-deleted = Bewaarde database { $file } verwijderd.
 admin-db-retained-busy = Databaseonderhoud wordt uitgevoerd. Probeer het na afloop opnieuw.
 admin-db-retained-sidecars = Er zijn nog SQLite-herstelbestanden aanwezig. Sluit andere databasehulpmiddelen en controleer het herstel voordat u verwijdert.
 admin-db-retained-unavailable = Deze kopie kon niet worden geverifieerd voor verwijdering.
+admin-db-maintenance-title = Databaseonderhoud

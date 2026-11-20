@@ -161,3 +161,4 @@ admin-db-retained-deleted = Banco de dados retido { $file } excluído.
 admin-db-retained-busy = A manutenção do banco de dados está em andamento. Tente novamente quando terminar.
 admin-db-retained-sidecars = Ainda existem arquivos de recuperação do SQLite. Feche outras ferramentas de banco de dados e revise a recuperação antes de excluir.
 admin-db-retained-unavailable = Não foi possível verificar esta cópia para exclusão.
+admin-db-maintenance-title = Manutenção do banco de dados

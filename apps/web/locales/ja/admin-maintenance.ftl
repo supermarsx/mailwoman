@@ -17,3 +17,5 @@ maintenance-mode-impact = メンテナンスモードを有効にすると、新
 maintenance-mode-saved = メンテナンスモードの設定を保存しました。
 maintenance-mode-jobs = 修復ジョブ
 maintenance-mode-invalid = 保存されている設定を読み取れませんでした。ユーザーのアクセスは停止中です。代わりの設定を確認して保存し、有効な設定に戻してください。
+maintenance-tab-database = データベース
+maintenance-tab-cache = キャッシュ

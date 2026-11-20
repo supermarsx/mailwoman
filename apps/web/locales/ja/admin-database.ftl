@@ -161,3 +161,4 @@ admin-db-retained-deleted = 保持データベース { $file } を削除しま�
 admin-db-retained-busy = データベースのメンテナンス中です。完了後に再試行してください。
 admin-db-retained-sidecars = SQLite の復旧ファイルが残っています。他のデータベースツールを閉じ、復旧状況を確認してから削除してください。
 admin-db-retained-unavailable = このコピーを削除対象として検証できませんでした。
+admin-db-maintenance-title = データベースのメンテナンス

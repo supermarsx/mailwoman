@@ -2754,3 +2754,8 @@ admin-settings-key-maintenance-database-expire-cached-bodies = Caducar cuerpos e
 admin-settings-help-maintenance-database-expire-cached-bodies = Elimine cuerpos de mensajes en caché inactivos solo cuando el servicio activo pueda descargar otra copia. Los originales locales, el correo POP3 y los borradores siguen protegidos.
 admin-settings-key-maintenance-database-cached-body-retention-days = Duración de los cuerpos en caché (días)
 admin-settings-help-maintenance-database-cached-body-retention-days = Días desde el uso explícito del cuerpo del mensaje, normalmente 60. La sincronización de cabeceras y la precarga en segundo plano no renuevan este plazo; los mensajes antiguos reciben un período de gracia completo.
+
+admin-settings-key-maintenance-database-change-log-retention-days = Retención del registro de cambios del correo (días)
+admin-settings-help-maintenance-database-change-log-retention-days = Conservar el historial de cambios durante estos días, normalmente 60. Cero lo conserva indefinidamente. Los clientes con estados caducados deben obtener de nuevo la lista actual.
+admin-settings-key-maintenance-database-change-log-batch-rows = Límite del lote de cambios (filas)
+admin-settings-help-maintenance-database-change-log-batch-rows = Máximo de filas de cambios eliminadas por lote de mantenimiento, normalmente 1.000. Un estado que supere este límite se conserva intacto y se señala para revisión.

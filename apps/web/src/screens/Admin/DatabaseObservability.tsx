@@ -1,5 +1,3 @@
-import {OnlineDatabaseConversion} from './OnlineDatabaseConversion.tsx';
-import {BackgroundDatabaseMaintenance} from './BackgroundDatabaseMaintenance.tsx';
 import {createMemo,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {loadCatalog,t} from '../../i18n';
 import {formatDateTime} from '../../i18n/format.ts';
@@ -61,8 +59,6 @@ export function DatabaseObservability():JSX.Element{
      [t('admin-db-pool-writes'),count(operations().write.calls)],
     ])}<p class={css.note}>{t('admin-db-pool-operation-help')}</p></>}</Show></section>
    </div>
-   <Show when={value().database.backend==='sqlite'}><OnlineDatabaseConversion/></Show>
-   <Show when={value().backgroundMaintenance} keyed>{maintenance=><BackgroundDatabaseMaintenance report={maintenance} onRefresh={()=>void reload()}/>}</Show>
    <Show when={value().growth}>{growth=><DatabaseSizeHistory samples={growth().samples}/>}</Show>
    <section class={css.card}><div class={css.headingRow}><h3 class={css.heading}>{t('admin-db-breakdown')}</h3><button type="button" class="btn" disabled={loading()} onClick={()=>void reload(true)}><Icon name="search"/>{t('admin-db-inspect')}</button></div>
     <p class={css.note}>{t('admin-db-analysis-help')}</p><Show when={loading()}><InlineLoading/></Show>

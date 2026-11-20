@@ -17,3 +17,5 @@ maintenance-mode-impact = Das Aktivieren des Wartungsmodus pausiert neue Benutze
 maintenance-mode-saved = Konfiguration des Wartungsmodus gespeichert.
 maintenance-mode-jobs = Reparaturaufträge
 maintenance-mode-invalid = Die gespeicherte Konfiguration konnte nicht gelesen werden. Der Benutzerzugriff ist pausiert. Prüfen Sie diese Ersatzeinstellungen und speichern Sie sie, um eine gültige Konfiguration wiederherzustellen.
+maintenance-tab-database = Datenbank
+maintenance-tab-cache = Cache

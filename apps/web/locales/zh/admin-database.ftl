@@ -161,3 +161,4 @@ admin-db-retained-deleted = 已删除保留的数据库 { $file }。
 admin-db-retained-busy = 数据库正在维护。请在完成后重试。
 admin-db-retained-sidecars = SQLite 恢复文件仍然存在。请关闭其他数据库工具，并在删除前检查恢复情况。
 admin-db-retained-unavailable = 无法验证此副本是否可以删除。
+admin-db-maintenance-title = 数据库维护

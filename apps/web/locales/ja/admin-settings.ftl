@@ -2740,3 +2740,8 @@ admin-settings-key-maintenance-database-expire-cached-bodies = 未使用のキ�
 admin-settings-help-maintenance-database-expire-cached-bodies = 有効な接続先から別のコピーをダウンロードできる場合にのみ、未使用のキャッシュ本文を削除します。ローカルの原本、POP3 メール、下書きは保護されます。
 admin-settings-key-maintenance-database-cached-body-retention-days = キャッシュ本文の保持期間（日）
 admin-settings-help-maintenance-database-cached-body-retention-days = メッセージ本文を明示的に使用してからの日数です。通常は 60 日です。ヘッダー同期やバックグラウンドの先読みでは延長されません。既存のメールには保持期間全体の猶予が与えられます。
+
+admin-settings-key-maintenance-database-change-log-retention-days = メール変更履歴の保存期間（日）
+admin-settings-help-maintenance-database-change-log-retention-days = 指定した日数の変更履歴を保持します。通常は60日です。0は無期限です。状態が期限切れのクライアントは現在の一覧を再取得する必要があります。
+admin-settings-key-maintenance-database-change-log-batch-rows = 変更履歴のバッチ上限（行）
+admin-settings-help-maintenance-database-change-log-batch-rows = 保守バッチで削除する変更行数の上限です。通常は1,000行です。単一の状態が上限を超える場合は全体を保持し、確認対象として報告します。

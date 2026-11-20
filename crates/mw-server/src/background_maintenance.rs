@@ -42,9 +42,13 @@ async fn setting(store: &mw_store::Store, key: &str) -> Value {
 async fn number(store: &mw_store::Store, key: &str) -> u64 {
     setting(store, key).await.as_u64().unwrap_or(0)
 }
-const KEYS: [&str; 11] = [
+const KEYS: [&str; 15] = [
     "maintenance.database.enabled",
     "maintenance.database.orphanBodies",
+    "maintenance.database.expireCachedBodies",
+    "maintenance.database.cachedBodyRetentionDays",
+    "maintenance.database.changeLogRetentionDays",
+    "maintenance.database.changeLogBatchRows",
     "maintenance.database.incrementalVacuum",
     "maintenance.database.intervalSeconds",
     "maintenance.database.batchRows",
@@ -105,7 +109,18 @@ pub(crate) async fn run_once(state: &AppState) -> Result<Value, String> {
         .unwrap_or_default()
         .to_string();
     let next = chrono::Utc::now().timestamp() + interval as i64;
-    let mut current = json!({"running":enabled,"enabled":enabled,"options":options,"lastReport":previous["lastReport"],"nextRunAt":next,"lastError":null});
+    let cached_days=number("maintenance.database.cachedBodyRetentionDays");
+    let expiry_options = mw_store::body_cache_expiry::CachedBodyExpiryOptions {
+        enabled: enabled
+            && settings.get("maintenance.database.expireCachedBodies") == Some(&Value::Bool(true))
+            && (1..=3650).contains(&cached_days),
+        retention_days: cached_days.min(3650) as u32,
+        batch_rows: options.batch_rows,
+        batch_bytes: options.batch_bytes,
+        max_run_ms: options.max_run_ms,
+        max_wal_bytes: options.max_wal_bytes,
+    };
+    let mut current = json!({"running":enabled,"enabled":enabled,"options":options,"lastReport":previous["lastReport"],"cachedBodyExpiry":previous["cachedBodyExpiry"],"changeLogRetention":previous["changeLogRetention"],"nextRunAt":next,"lastError":null});
     save(store, current.clone());
     if enabled {
         match store.background_maintenance(options, cursor).await {
@@ -113,6 +128,46 @@ pub(crate) async fn run_once(state: &AppState) -> Result<Value, String> {
             Err(error) => {
                 tracing::warn!(%error,"Background database maintenance deferred");
                 current["lastError"] = json!("maintenance-unavailable");
+            }
+        }
+        let expiry_cursor = serde_json::from_value(previous["cachedBodyExpiry"]["cursor"].clone())
+            .unwrap_or_default();
+        let sources = state
+            .engine
+            .as_ref()
+            .map(|engine| engine.body_refetchable_accounts())
+            .unwrap_or_default();
+        match store
+            .expire_cached_bodies(expiry_options, expiry_cursor, sources)
+            .await
+        {
+            Ok(report) => {
+                // Keep expiry cursors independent of the orphan collector's body-key cursor.
+                let expiry = serde_json::to_value(report).unwrap();
+                current["cachedBodyExpiry"] = expiry.clone();
+                // A failed orphan pass must not invent a successful baseline report.
+                if current["lastReport"].is_object() {
+                    current["lastReport"]["cachedBodyExpiry"] = expiry;
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error,"Cached body expiry deferred");
+                current["lastError"] = json!("cache-expiry-unavailable");
+            }
+        }
+        let change_cursor=serde_json::from_value(previous["changeLogRetention"]["cursor"].clone()).unwrap_or_default();
+        let change_options=mw_store::change_log_retention::ChangeLogRetentionOptions{
+            enabled:number("maintenance.database.changeLogRetentionDays")>0,
+            retention_days:number("maintenance.database.changeLogRetentionDays") as u32,
+            batch_rows:number("maintenance.database.changeLogBatchRows") as u32,
+            max_run_ms:number("maintenance.database.maxRunMs"),
+            max_wal_bytes:number("maintenance.database.maxWalMiB")*1024*1024,
+        };
+        match store.expire_change_log(change_options,change_cursor).await{
+            Ok(report)=>current["changeLogRetention"]=serde_json::to_value(report).unwrap(),
+            Err(error)=>{
+                tracing::warn!(%error,"Sync history retention deferred");
+                current["lastError"]=json!("change-log-retention-unavailable");
             }
         }
     }

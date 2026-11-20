@@ -2766,3 +2766,8 @@ admin-settings-key-maintenance-database-expire-cached-bodies = Видаляти 
 admin-settings-help-maintenance-database-expire-cached-bodies = Видаляйте невикористовуваний вміст повідомлень із кешу лише тоді, коли активна служба може завантажити іншу копію. Локальні оригінали, пошта POP3 і чернетки залишаються захищеними.
 admin-settings-key-maintenance-database-cached-body-retention-days = Термін зберігання вмісту в кеші (дні)
 admin-settings-help-maintenance-database-cached-body-retention-days = Дні з моменту явного використання вмісту повідомлення, зазвичай 60. Синхронізація заголовків і фонове попереднє завантаження не поновлюють цей термін; старі повідомлення отримують повний пільговий період.
+
+admin-settings-key-maintenance-database-change-log-retention-days = Зберігання журналу змін пошти (дні)
+admin-settings-help-maintenance-database-change-log-retention-days = Зберігати історію вказану кількість днів, зазвичай 60. Нуль означає безстрокове зберігання. Клієнти із застарілими станами мають знову завантажити поточний список.
+admin-settings-key-maintenance-database-change-log-batch-rows = Ліміт пакета змін (рядки)
+admin-settings-help-maintenance-database-change-log-batch-rows = Максимум рядків змін, видалених за пакет обслуговування, зазвичай 1000. Стан, що перевищує ліміт, зберігається повністю та позначається для перевірки.

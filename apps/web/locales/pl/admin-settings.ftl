@@ -2766,3 +2766,8 @@ admin-settings-key-maintenance-database-expire-cached-bodies = Usuwaj nieużywan
 admin-settings-help-maintenance-database-expire-cached-bodies = Usuwaj nieużywaną treść wiadomości z pamięci podręcznej tylko wtedy, gdy aktywna usługa może pobrać kolejną kopię. Lokalne oryginały, poczta POP3 i szkice pozostają chronione.
 admin-settings-key-maintenance-database-cached-body-retention-days = Okres przechowywania treści w pamięci podręcznej (dni)
 admin-settings-help-maintenance-database-cached-body-retention-days = Dni od jawnego użycia treści wiadomości, zwykle 60. Synchronizacja nagłówków i pobieranie w tle nie odnawiają tego okresu; starsze wiadomości otrzymują pełny okres ochronny.
+
+admin-settings-key-maintenance-database-change-log-retention-days = Przechowywanie dziennika zmian poczty (dni)
+admin-settings-help-maintenance-database-change-log-retention-days = Przechowuj historię przez tyle dni, zwykle 60. Zero oznacza brak limitu czasu. Klienci z wygasłymi stanami muszą ponownie pobrać bieżącą listę.
+admin-settings-key-maintenance-database-change-log-batch-rows = Limit partii zmian (wiersze)
+admin-settings-help-maintenance-database-change-log-batch-rows = Maksymalna liczba usuwanych wierszy zmian na partię konserwacji, zwykle 1000. Pojedynczy stan większy niż limit pozostaje nienaruszony i jest zgłaszany do sprawdzenia.
