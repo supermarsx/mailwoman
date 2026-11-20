@@ -120,7 +120,16 @@ impl Store {
     ) -> Result<CachedBodyExpiryReport, StoreError> {
         let original = self.backend.clone();
         let key = self.key.clone();
-        tokio::spawn(async move { run(original, key, options, cursor, refetchable_accounts).await })
+        let id = self.instance_id();
+        tokio::spawn(async move {
+            let report = run(original, key, options, cursor, refetchable_accounts).await?;
+            crate::database_growth::record_cleanup(id, crate::database_growth::Cleanup {
+                removed_bodies: report.removed_bodies, removed_body_bytes: report.removed_bytes,
+                cleaned_envelopes: report.cleaned_envelopes, removed_envelope_bytes: report.removed_envelope_bytes,
+                ..Default::default()
+            });
+            Ok(report)
+        })
             .await
             .map_err(|error| StoreError::from(sqlx::Error::Protocol(error.to_string())))?
     }

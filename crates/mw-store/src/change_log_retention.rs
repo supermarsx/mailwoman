@@ -57,7 +57,14 @@ impl Store {
         cursor: ChangeLogRetentionCursor,
     ) -> Result<ChangeLogRetentionReport, StoreError> {
         let backend = self.backend.clone();
-        tokio::spawn(async move { run(backend, options, cursor, false).await })
+        let id = self.instance_id();
+        tokio::spawn(async move {
+            let report = run(backend, options, cursor, false).await?;
+            crate::database_growth::record_cleanup(id, crate::database_growth::Cleanup {
+                removed_change_rows: report.removed_rows, ..Default::default()
+            });
+            Ok(report)
+        })
             .await
             .map_err(|e| StoreError::Db(sqlx::Error::Protocol(e.to_string())))?
     }
@@ -69,8 +76,13 @@ impl Store {
         options: ChangeLogRetentionOptions,
     ) -> Result<ChangeLogRetentionReport, StoreError> {
         let backend = self.backend.clone();
+        let id = self.instance_id();
         tokio::spawn(async move {
-            run(backend, options, ChangeLogRetentionCursor::default(), true).await
+            let report = run(backend, options, ChangeLogRetentionCursor::default(), true).await?;
+            crate::database_growth::record_cleanup(id, crate::database_growth::Cleanup {
+                removed_change_rows: report.removed_rows, ..Default::default()
+            });
+            Ok(report)
         }).await.map_err(|e| StoreError::Db(sqlx::Error::Protocol(e.to_string())))?
     }
 }

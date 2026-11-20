@@ -171,7 +171,15 @@ impl Store {
         cursor: String,
     ) -> Result<MaintenanceReport, StoreError> {
         let backend = self.backend.clone();
-        tokio::spawn(async move { run(backend, options, cursor).await })
+        let id = self.instance_id();
+        tokio::spawn(async move {
+            let report = run(backend, options, cursor).await?;
+            crate::database_growth::record_cleanup(id, crate::database_growth::Cleanup {
+                removed_bodies: report.removed, removed_body_bytes: report.removed_bytes,
+                reclaimed_pages: report.reclaimed_pages, ..Default::default()
+            });
+            Ok(report)
+        })
             .await
             .map_err(|e| StoreError::from(sqlx::Error::Protocol(e.to_string())))?
     }
@@ -630,6 +638,9 @@ mod tests {
             .unwrap();
         assert_eq!(second.removed, 1);
         assert!(second.removed_bytes > 0);
+        let measured = crate::database_growth::observe(store.instance_id(),None,None,Some(0),Some(0),"fixture",100);
+        assert_eq!(measured["knownCleanupTotal"]["removedBodies"],second.removed);
+        assert_eq!(measured["knownCleanupTotal"]["removedBodyBytes"],second.removed_bytes);
         assert!(store.get_body(&orphan).await.unwrap().is_none());
         let reference = store.get_message(&live).await.unwrap().blob_ref.unwrap();
         assert_eq!(store.get_body(&reference).await.unwrap().unwrap(), b"live");

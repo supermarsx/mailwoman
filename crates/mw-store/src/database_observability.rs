@@ -1,7 +1,7 @@
 //! Read-only database measurements. Payload scans are explicit and time bounded.
 use crate::{Store, StoreError, backend::Backend};
 use serde_json::{Value, json};
-use sqlx::Row;
+use sqlx::{Acquire, Row};
 use std::time::{Duration, Instant};
 
 /// SQLCipher returns page_size as text; ordinary SQLite returns an integer.
@@ -45,12 +45,36 @@ impl Store {
             "details": null,
         });
         result["pool"] = self.database_pool_snapshot().await;
+        let mut generation = String::from("postgres");
         match &self.backend {
             Backend::Sqlite(live) => {
                 let pinned = live.pin().await;
                 let pool = pinned.pool();
                 let mut connection = pool.acquire().await?;
+                let options = pinned.active_options();
+                let path = options.get_filename();
+                // Pin file measurements to the SAME generation as the page
+                // measurements. The earlier general diagnostics may have raced
+                // an online switch. This private identity is never serialized.
+                generation = format!("{path:?}");
+                result["diagnostics"]["dbBytes"] =
+                    json!(std::fs::metadata(path).ok().map(|m| m.len()));
+                let mut wal_path = path.as_os_str().to_owned();
+                wal_path.push("-wal");
+                result["diagnostics"]["walBytes"] =
+                    json!(if result["diagnostics"]["dbBytes"].is_null() {
+                        None
+                    } else {
+                        match std::fs::metadata(wal_path) {
+                            Ok(m) => Some(m.len()),
+                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(0),
+                            Err(_) => None,
+                        }
+                    });
                 let mut pragmas = serde_json::Map::new();
+                // One short read snapshot for page_count/freelist_count; never
+                // hold it across detailed scans or cleanup/file operations.
+                let mut snapshot = connection.begin().await?;
                 for (name, statement) in [
                     ("pageSize", "PRAGMA page_size"),
                     ("pageCount", "PRAGMA page_count"),
@@ -62,23 +86,25 @@ impl Store {
                     ("foreignKeys", "PRAGMA foreign_keys"),
                     ("mmapBytes", "PRAGMA mmap_size"),
                 ] {
-                    if let Ok(value) = sqlite_pragma_i64(&mut connection, statement).await {
+                    if let Ok(value) = sqlite_pragma_i64(&mut snapshot, statement).await {
                         pragmas.insert(name.into(), json!(value));
                     }
                 }
-                let page = pragmas.get("pageSize").and_then(Value::as_u64).unwrap_or(0);
-                let pages = pragmas
-                    .get("pageCount")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0);
-                let free = pragmas
-                    .get("freePages")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0);
-                pragmas.insert("freeBytes".into(), json!(free.saturating_mul(page)));
+                snapshot.rollback().await?;
+                let page = pragmas.get("pageSize").and_then(Value::as_u64);
+                let pages = pragmas.get("pageCount").and_then(Value::as_u64);
+                let free = pragmas.get("freePages").and_then(Value::as_u64);
+                pragmas.insert(
+                    "freeBytes".into(),
+                    json!(free.zip(page).map(|(free, page)| free.saturating_mul(page))),
+                );
                 pragmas.insert(
                     "occupiedBytes".into(),
-                    json!(pages.saturating_sub(free).saturating_mul(page)),
+                    json!(pages.zip(free).zip(page).and_then(|((pages, free), page)| {
+                        pages
+                            .checked_sub(free)
+                            .map(|used| used.saturating_mul(page))
+                    })),
                 );
                 result["storage"] = Value::Object(pragmas);
                 drop(connection);
@@ -94,23 +120,29 @@ impl Store {
             result["diagnostics"]["dbBytes"].as_u64(),
             result["diagnostics"]["walBytes"].as_u64(),
             result["storage"]["occupiedBytes"].as_u64(),
+            result["storage"]["freeBytes"].as_u64(),
+            &generation,
             threshold * 1024 * 1024,
         );
         if detailed {
             // Keep the cleanup running if an HTTP client disconnects. The SQLite
             // progress callback interrupts work and is removed before pool reuse.
             let backend = self.backend.clone();
+            let id = self.instance_id();
             result["details"] = tokio::spawn(async move {
                 match backend {
-                    Backend::Sqlite(pool) => sqlite_details(pool, Duration::from_secs(30)).await,
-                    Backend::Postgres(pool) => postgres_details(pool).await,
+                    Backend::Sqlite(pool) => {
+                        sqlite_details(pool, Duration::from_secs(30), id).await
+                    }
+                    Backend::Postgres(pool) => {
+                        let mut details = postgres_details(pool).await?;
+                        crate::database_growth::observe_tables(id, "postgres", &mut details);
+                        Ok(details)
+                    }
                 }
             })
             .await
             .map_err(|error| StoreError::Corrupt(format!("database inspection task: {error}")))??;
-        }
-        if detailed {
-            crate::database_growth::observe_tables(self.instance_id(), &mut result["details"]);
         }
         Ok(result)
     }
@@ -119,9 +151,18 @@ impl Store {
 async fn sqlite_details(
     pool: crate::sqlite_live::LiveSqlite,
     budget: Duration,
+    id: uuid::Uuid,
 ) -> Result<Value, StoreError> {
     let pinned = pool.pin().await;
-    sqlite_details_with_physical_budget(pinned.pool().clone(), budget, Duration::from_secs(8)).await
+    let mut details =
+        sqlite_details_with_physical_budget(pinned.pool().clone(), budget, Duration::from_secs(8))
+            .await?;
+    crate::database_growth::observe_tables(
+        id,
+        &format!("{:?}", pinned.active_options().get_filename()),
+        &mut details,
+    );
+    Ok(details)
 }
 async fn inspection_deadline(
     connection: &mut sqlx::SqliteConnection,

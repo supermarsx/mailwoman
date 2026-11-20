@@ -64,3 +64,30 @@ it('explains demand-managed pools, restart boundaries and process acquisition co
  expect(screen.getByText(/Connection limits and timings change only after a full server restart/)).toBeVisible();
  expect(screen.getByText(/Counters cover this server process/)).toBeVisible();
 });
+
+it('shows signed net removal separately from file allocation and measured cleanup receipts',async()=>{
+ const report=fixture();report.growth={status:'normal',basis:'occupied-pages',bytesPerMinute:-4096,thresholdBytesPerMinute:67108864,windowMinutes:15,
+  samples:[{at:1000,dbBytes:16384,walBytes:0,occupiedBytes:12288,freeBytes:4096,segment:1},{at:1060,dbBytes:16384,walBytes:2048,occupiedBytes:8192,freeBytes:8192,segment:1}],
+  changes:{from:1000,to:1060,seconds:60,occupiedBytes:-4096,dbBytes:0,walBytes:2048,freeBytes:4096,knownCleanup:null},
+  knownCleanupTotal:{removedBodies:2,removedBodyBytes:12345,cleanedEnvelopes:1,removedEnvelopeBytes:200,removedChangeRows:17,reclaimedPages:0,retiredFileBytes:1000000},
+  writeOperations:[{operation:'DELETE',statements:3,affectedRows:19,inputBytes:24}],writeOrigins:[]};
+ vi.mocked(loadDatabaseReport).mockResolvedValue(report);render(()=><DatabaseObservability/>);
+ const occupied=await screen.findByText('Net occupied-page change');expect(occupied.closest('tr')).toHaveTextContent('−');
+ expect(screen.getByText('Active file allocation change').closest('tr')).not.toHaveTextContent('−');
+ expect(screen.getByText('Reusable space change').closest('tr')).toHaveTextContent('+');
+ const cleanup=screen.getByRole('region',{name:'Known completed cleanup (this process)'});
+ expect(within(cleanup).getByText('Sync-history rows removed').closest('tr')).toHaveTextContent('17');
+ expect(within(cleanup).getByText('Retained database files removed')).toBeVisible();
+ expect(within(cleanup).getByText(/Removed payload does not mean file shrink/)).toBeVisible();
+ const operations=screen.getByRole('table',{name:'Statement activity by operation'});
+ expect(within(operations).getByText('DELETE').closest('tr')).toHaveTextContent('19');
+ expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('keeps legacy unknown cleanup and allocation-only measurements honest',async()=>{
+ const report=fixture();report.growth={status:'warming-up',basis:'database-allocation',bytesPerMinute:null,thresholdBytesPerMinute:1,windowMinutes:15,samples:[],writeOrigins:[]};
+ vi.mocked(loadDatabaseReport).mockResolvedValue(report);render(()=><DatabaseObservability/>);
+ expect((await screen.findByText('Net database allocation rate')).closest('tr')).toHaveTextContent('Not available');
+ expect(screen.queryByText('Known completed cleanup (this process)')).toBeNull();
+ expect(screen.getByText(/Net change includes deletions and space reuse/)).toBeVisible();
+});

@@ -6,10 +6,19 @@ export interface BackgroundDatabaseReport {
 import {adminRequest} from '../../screens/Admin/shell/adminApi.ts';
 
 export interface DatabaseOperationSnapshot {calls:number;failures:number;totalMicros:number;maxMicros:number}
+export interface DatabaseCleanupReceipt {
+ removedBodies:number;removedBodyBytes:number;cleanedEnvelopes:number;removedEnvelopeBytes:number;
+ removedChangeRows:number;reclaimedPages:number;retiredFileBytes:number;
+}
 export interface DatabaseReport {
  observedAt:string;driver:string;
  backgroundMaintenance?:BackgroundDatabaseReport;
- growth?:{status:string;bytesPerMinute:number|null;thresholdBytesPerMinute:number;windowMinutes:number;samples:{at:number;dbBytes:number;walBytes:number;occupiedBytes?:number}[];writeOrigins:{origin:string;statements:number;affectedRows:number;inputBytes:number}[]};
+ growth?:{status:string;bytesPerMinute:number|null;thresholdBytesPerMinute:number;windowMinutes:number;
+  basis?:'occupied-pages'|'database-allocation';knownCleanupTotal?:DatabaseCleanupReceipt;
+  changes?:{from:number;to:number;seconds:number;occupiedBytes:number|null;dbBytes:number|null;walBytes:number|null;freeBytes:number|null;knownCleanup:DatabaseCleanupReceipt|null}|null;
+  samples:{at:number;dbBytes:number|null;walBytes:number|null;occupiedBytes?:number|null;freeBytes?:number|null;segment?:number;breakReason?:string|null}[];
+  writeOperations?:{operation:string;statements:number;affectedRows:number;inputBytes:number}[];
+  writeOrigins:{origin:string;statements:number;affectedRows:number;inputBytes:number}[]};
  database:{backend:string;serverVersion:string|null;name:string|null;host:string|null;port:number|null;journalMode:string|null};
  diagnostics:{dbBytes:number|null;walBytes:number|null;dbPingMs:number;migrationApplied:number;migrationExpected:number};
  pool:{open:number;idle:number;busy:number;minimum:number;maximum:number;acquireTimeoutMs:number;idleTimeoutMs:number|null;maxLifetimeMs:number|null;closed:boolean;scaling?:string;ceilingChangesRequireRestart?:boolean;dynamicCeilingResize?:boolean;telemetryScope?:string;operations?:Record<'read'|'write'|'other'|'acquire',DatabaseOperationSnapshot>};

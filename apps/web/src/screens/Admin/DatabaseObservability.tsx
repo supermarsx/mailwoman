@@ -22,6 +22,7 @@ export function DatabaseObservability():JSX.Element{
  onMount(()=>{let active=true;void reload().then(()=>{if(active&&report())void reload(true);});onCleanup(()=>{active=false;});const timer=setInterval(()=>void reload(),60000);onCleanup(()=>clearInterval(timer));});
  const absent=()=>t('admin-shell-not-available');
  const bytes=(value:number|null|undefined)=>typeof value==='number'?formatBytes(value):absent();
+ const signedBytes=(value:number|null|undefined)=>typeof value==='number'&&Number.isFinite(value)?`${value<0?'−':value>0?'+':''}${formatBytes(Math.abs(value))}`:absent();
  const count=(value:number|null|undefined)=>typeof value==='number'?formatCount(value):absent();
  const measuredBytes=(value:number|null|undefined,lowerBound=false)=>`${lowerBound&&typeof value==='number'?'≥ ':''}${bytes(value)}`;
  const measuredCount=(value:number|null|undefined,lowerBound=false)=>`${lowerBound&&typeof value==='number'?'≥ ':''}${count(value)}`;
@@ -79,7 +80,18 @@ export function DatabaseObservability():JSX.Element{
    <Show when={value().growth}>{growth=><section class={css.card}>
     <h3 class={css.heading}>{t('admin-db-growth')}</h3>
     <p role={growth().status==='rapid-growth'?'alert':undefined} class={growth().status==='rapid-growth'?css.error:css.note}>{t(growth().status==='rapid-growth'?'admin-db-growth-alert':growth().status==='warming-up'?'admin-db-growth-warming':'admin-db-growth-normal')}</p>
-    {fields(()=>[[t('admin-db-growth-rate'),growth().bytesPerMinute===null?absent():`${growth().bytesPerMinute!<0?'−':''}${bytes(Math.abs(growth().bytesPerMinute!))} / min`],[t('admin-db-growth-threshold'),`${bytes(growth().thresholdBytesPerMinute)} / min`]])}
+    {fields(()=>[[t(growth().basis==='database-allocation'?'admin-db-net-allocation-rate':'admin-db-growth-rate'),growth().bytesPerMinute===null?absent():`${signedBytes(growth().bytesPerMinute)} / min`],[t('admin-db-growth-threshold'),`${bytes(growth().thresholdBytesPerMinute)} / min`]])}
+    <p class={css.note}>{t('admin-db-net-help')}</p>
+    <Show when={growth().changes}>{changes=><>
+     <p class={css.note}>{t('admin-db-history-period',{from:formatDateTime(new Date(changes().from*1000)),to:formatDateTime(new Date(changes().to*1000))})}</p>
+     {fields(()=>[[t('admin-db-net-occupied'),signedBytes(changes().occupiedBytes)],[t('admin-db-net-file'),signedBytes(changes().dbBytes)],[t('admin-db-net-free'),signedBytes(changes().freeBytes)],[t('admin-db-wal'),signedBytes(changes().walBytes)]])}
+    </>}</Show>
+    <Show when={growth().knownCleanupTotal}>{cleanup=><section aria-label={t('admin-db-known-cleanup')}>
+     <h4 class={css.heading}>{t('admin-db-known-cleanup')}</h4>
+     {fields(()=>[[t('admin-db-cleaned-body-bytes'),bytes(cleanup().removedBodyBytes)],[t('admin-db-cleaned-envelope-bytes'),bytes(cleanup().removedEnvelopeBytes)],[t('admin-db-cleaned-history-rows'),count(cleanup().removedChangeRows)],[t('admin-db-cleaned-pages'),count(cleanup().reclaimedPages)],[t('admin-db-retired-file-bytes'),bytes(cleanup().retiredFileBytes)]])}
+     <p class={css.note}>{t('admin-db-cleanup-help')}</p>
+    </section>}</Show>
+    <Show when={growth().writeOperations}>{operations=><div class={css.tableWrap}><table class={css.table} aria-label={t('admin-db-operations')}><thead><tr><th>{t('admin-db-operation')}</th><th>{t('admin-db-writes')}</th><th>{t('admin-db-rows')}</th><th>{t('admin-db-input')}</th></tr></thead><tbody><For each={operations()}>{operation=><tr><th scope="row"><code>{operation.operation}</code></th><td>{count(operation.statements)}</td><td>{count(operation.affectedRows)}</td><td>{bytes(operation.inputBytes)}</td></tr>}</For></tbody></table></div>}</Show>
     <p class={css.note}>{t('admin-db-write-help')}</p>
     <div class={css.tableWrap}><table class={css.table}><thead><tr><th>{t('admin-db-origin')}</th><th>{t('admin-db-writes')}</th><th>{t('admin-db-rows')}</th><th>{t('admin-db-input')}</th></tr></thead><tbody><For each={growth().writeOrigins}>{origin=><tr><th scope="row"><code>{origin.origin}</code></th><td>{count(origin.statements)}</td><td>{count(origin.affectedRows)}</td><td>{bytes(origin.inputBytes)}</td></tr>}</For></tbody></table></div>
    </section>}</Show>

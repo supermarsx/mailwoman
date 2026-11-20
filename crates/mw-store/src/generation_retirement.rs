@@ -243,10 +243,15 @@ impl crate::Store {
             .ok_or("retained generations require a managed file database")?;
         // Detached blocking ownership outlives an aborted HTTP request. No pool
         // or connection is closed; the active database continues serving work.
+        let id = self.instance_id();
         tokio::task::spawn_blocking(move || {
             let _rebuild = rebuild;
             let _ownership = files.acquire_conversion().map_err(|e| e.to_string())?;
-            files.retire_database(&request).map_err(|e| e.to_string())
+            let report = files.retire_database(&request).map_err(|e| e.to_string())?;
+            crate::database_growth::record_cleanup(id, crate::database_growth::Cleanup {
+                retired_file_bytes: report.removed_bytes, ..Default::default()
+            });
+            Ok(report)
         })
         .await
         .map_err(|e| e.to_string())?
