@@ -397,22 +397,44 @@ async fn gate_for(store: &Store, ids: &[&str], names: &[&str]) -> Result<Account
     let listed = crate::settings_registry::effective_for(store, "signin.domainMode", &subject)
         .await?
         .is_some_and(|value| value.value == "listed");
+    let mut directory_addresses = Vec::new();
     for name in names {
-        let identity = crate::domain_config::canonical(store, name, None)
-            .await
-            .map_err(StoreError::Corrupt)?;
-        let supplied = flag_subject(name);
-        let distinct = if supplied == identity.address { 1 } else { 2 };
-        for address in [&supplied, &identity.address].into_iter().take(distinct) {
-            if store.directory_access_held(address).await? {
-                gate.disabled = true;
-            }
-        }
-        match store.domain_signin_state(&identity.domain).await? {
+        // Read a NEW snapshot at this admission boundary; an earlier domain
+        // upgrade check must not hide a subsequently disabled domain or alias.
+        let (identity, domain_state) = if name.trim().contains('@') {
+            let snapshot = crate::domain_config::identity_snapshot(store, name)
+                .await.map_err(StoreError::Corrupt)?;
+            let state = if snapshot.matches_existing_identity(name) {
+                match snapshot.row.as_ref() {
+                    Some(row) if row.enabled => mw_store::DomainSigninState::Enabled,
+                    Some(_) => mw_store::DomainSigninState::Disabled,
+                    None => mw_store::DomainSigninState::Unlisted,
+                }
+            } else {
+                // Login canonicalization follows one alias, while this existing
+                // gate historically follows one additional alias. Keep it for
+                // chains/noncanonical targets rather than changing that policy.
+                store.domain_signin_state(&snapshot.identity.domain).await?
+            };
+            (snapshot.identity, state)
+        } else {
+            // Existing bare-name preferred-domain semantics remain unchanged.
+            let identity = crate::domain_config::canonical(store, name, None)
+                .await.map_err(StoreError::Corrupt)?;
+            let state = store.domain_signin_state(&identity.domain).await?;
+            (identity, state)
+        };
+        directory_addresses.push(flag_subject(name));
+        directory_addresses.push(identity.address);
+        match domain_state {
             mw_store::DomainSigninState::Disabled => gate.disabled = true,
             mw_store::DomainSigninState::Unlisted if listed => gate.disabled = true,
             _ => {}
         }
+    }
+    let addresses = directory_addresses.iter().map(String::as_str).collect::<Vec<_>>();
+    if store.directory_access_held_any(&addresses).await? {
+        gate.disabled = true;
     }
     for record in applicable(store, ids, names).await? {
         gate.disabled |= record.flags.disabled;
@@ -609,6 +631,108 @@ pub(crate) fn unavailable(what: &str, e: impl std::fmt::Display) -> Response {
 
 #[cfg(test)]
 mod tests {
+    // Frozen pre-batch reference: this is retained only to prove security
+    // decisions and actual query reduction against the previous fresh readers.
+async fn legacy_gate_for(store: &Store, ids: &[&str], names: &[&str]) -> Result<AccountGate, StoreError> {
+    let mut gate = AccountGate::default();
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
+        domain: "",
+        account_id: "",
+        address: "",
+    };
+    let listed = crate::settings_registry::effective_for(store, "signin.domainMode", &subject)
+        .await?
+        .is_some_and(|value| value.value == "listed");
+    for name in names {
+        let identity = crate::domain_config::canonical(store, name, None)
+            .await
+            .map_err(StoreError::Corrupt)?;
+        let supplied = flag_subject(name);
+        let distinct = if supplied == identity.address { 1 } else { 2 };
+        for address in [&supplied, &identity.address].into_iter().take(distinct) {
+            if store.directory_access_held(address).await? {
+                gate.disabled = true;
+            }
+        }
+        match store.domain_signin_state(&identity.domain).await? {
+            mw_store::DomainSigninState::Disabled => gate.disabled = true,
+            mw_store::DomainSigninState::Unlisted if listed => gate.disabled = true,
+            _ => {}
+        }
+    }
+    for record in applicable(store, ids, names).await? {
+        gate.disabled |= record.flags.disabled;
+        gate.password_change_required |= record.flags.force_password_change;
+    }
+    Ok(gate)
+}
+
+
+    fn domain_row(name: &str) -> mw_store::DomainConfigRow {
+        mw_store::DomainConfigRow { name:name.into(), upstream_json:"unparsed upstream".into(),
+            allowlist_json:"unparsed allowlist".into(),blocklist_json:"[]".into(),enabled:true,
+            preferred:false,settings_json:"{}".into(),updated_at:1 }
+    }
+
+    #[tokio::test]
+    async fn fresh_domain_gate_reduces_reads_and_keeps_alias_bare_and_idna_decisions() {
+        let store=Store::open_in_memory(mw_store::ServerKey::generate()).await.unwrap();
+        for name in ["example.org","xn--bcher-kva.test"] {
+            store.put_domain_config(&domain_row(name)).await.unwrap();
+        }
+        store.put_domain_alias("alias.test","example.org").await.unwrap();
+        store.set_preferred_domain(Some("example.org")).await.unwrap();
+        // Prime only existing revision-memoized settings metadata; authorization
+        // inputs below are still freshly queried on both paths.
+        gate_for(&store,&["acct"],&["alice@example.org"]).await.unwrap();
+        let (legacy,old_reads)=mw_store::pool_telemetry::measure_queries(legacy_gate_for(&store,&["acct"],&["alice@example.org"])).await;
+        let (current,new_reads)=mw_store::pool_telemetry::measure_queries(gate_for(&store,&["acct"],&["alice@example.org"])).await;
+        assert_eq!(legacy.unwrap(),current.unwrap());
+        assert_eq!(old_reads.read.calls,new_reads.read.calls+2,"qualified domain reads must fall from three to one");
+        for names in [vec!["Alice@alias.test"],vec!["alice"],vec!["NÉW@BÜCHER.TEST"],vec!["alice@alias.test","alice@example.org"],vec!["user@absent.test"]] {
+            assert_eq!(legacy_gate_for(&store,&["acct"],&names).await.unwrap(),gate_for(&store,&["acct"],&names).await.unwrap());
+        }
+        let mut disabled=domain_row("example.org");disabled.enabled=false;
+        store.put_domain_config(&disabled).await.unwrap();
+        assert!(gate_for(&store,&["acct"],&["alice@alias.test"]).await.unwrap().disabled);
+        assert_eq!(legacy_gate_for(&store,&["acct"],&["alice@alias.test"]).await.unwrap(),gate_for(&store,&["acct"],&["alice@alias.test"]).await.unwrap());
+        assert!(gate_for(&store,&["acct"],&["bad@@example.org"]).await.is_err());
+        store.close().await;assert!(gate_for(&store,&["acct"],&["alice@example.org"]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn fresh_account_gate_observes_independent_domain_policy_and_flag_revocation() {
+        let directory=std::env::temp_dir().join(format!("mw-account-gate-{}",uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();let path=directory.join("gate.db");
+        let key=mw_store::ServerKey::generate();
+        let reader=Store::open(path.to_str().unwrap(),key.clone()).await.unwrap();
+        let writer=Store::open(path.to_str().unwrap(),key).await.unwrap();
+        writer.put_domain_config(&domain_row("example.org")).await.unwrap();
+        assert!(!gate_for(&reader,&["acct"],&["alice@example.org"]).await.unwrap().disabled);
+        let mut row=domain_row("example.org");row.enabled=false;writer.put_domain_config(&row).await.unwrap();
+        assert!(gate_for(&reader,&["acct"],&["alice@example.org"]).await.unwrap().disabled);
+        row.enabled=true;writer.put_domain_config(&row).await.unwrap();
+        write_flags(&writer,"alice@example.org",disabled()).await.unwrap();
+        assert!(gate_for(&reader,&["acct"],&["alice@example.org"]).await.unwrap().disabled);
+        writer.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key:"signin.domainMode".into(),global_value:Some("\"listed\"".into()),allow_user_override:false,
+            global_locked:true,updated_by:"fixture".into(),updated_at:1,
+        }).await.unwrap();
+        assert!(gate_for(&reader,&["other"],&["clear@unlisted.test"]).await.unwrap().disabled);
+        reader.close().await;writer.close().await;drop(reader);drop(writer);
+        // The last live-manager drop finishes its cooperative file lease on an
+        // owned close thread, even after the SQL pool itself has drained.
+        for attempt in 0..100 {
+            match std::fs::remove_dir_all(&directory) {
+                Ok(()) => break,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(_) if attempt < 99 => tokio::time::sleep(std::time::Duration::from_millis(10)).await,
+                Err(error) => panic!("fixture directory did not close: {error}"),
+            }
+        }
+    }
+
     #[tokio::test]
     async fn duplicate_names_do_not_repeat_live_security_reads() {
         let store = Store::open_in_memory(mw_store::ServerKey::generate())

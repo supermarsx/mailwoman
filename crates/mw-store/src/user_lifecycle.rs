@@ -101,9 +101,21 @@ impl Store {
             }))
     }
     pub async fn directory_access_held(&self, address: &str) -> Result<bool, StoreError> {
+        self.directory_access_held_any(&[address]).await
+    }
+
+    /// One fresh bounded scan for all names of an already-resolved principal.
+    /// No held rows, results or authentication decisions survive this call.
+    pub async fn directory_access_held_any(&self, addresses: &[&str]) -> Result<bool, StoreError> {
+        let folded = addresses
+            .iter()
+            .map(|address| access_identity(address))
+            .collect::<Result<std::collections::HashSet<_>, _>>()?;
+        if folded.is_empty() {
+            return Ok(false);
+        }
         // SQLite LOWER is ASCII-only. Match the same Unicode folding as login
-        // flags, and bound the status-indexed legacy-record scan fail-closed.
-        let folded = access_identity(address)?;
+        // flags, and retain the original status-indexed legacy scan and bound.
         let rows = q("SELECT address FROM mail_user WHERE status IN ('disabled','deleting','deleted') ORDER BY address LIMIT 5001")
             .fetch_all(&self.backend).await?;
         if rows.len() > 5000 {
@@ -112,7 +124,7 @@ impl Store {
             ));
         }
         for row in rows {
-            if access_identity(&row.get_string("address"))? == folded {
+            if folded.contains(&access_identity(&row.get_string("address"))?) {
                 return Ok(true);
             }
         }
@@ -242,6 +254,137 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn batched_directory_holds_preserve_unicode_errors_and_one_fresh_scan() {
+        let store = Store::open_in_memory(crate::ServerKey::generate())
+            .await
+            .unwrap();
+        q("INSERT INTO mail_user(address,domain,local_part,origin,status,created_at) VALUES('NÉW@BÜCHER.Test','xn--bcher-kva.test','néw','import','disabled',1)")
+            .execute(&store.backend).await.unwrap();
+        let (held, counts) =
+            crate::pool_telemetry::measure_queries(store.directory_access_held_any(&[
+                "clear@example.test",
+                "néw@xn--bcher-kva.test",
+                "NÉW@BÜCHER.TEST",
+            ]))
+            .await;
+        assert!(held.unwrap());
+        assert_eq!(counts.read.calls, 1);
+        assert!(
+            store
+                .directory_access_held("néw@xn--bcher-kva.test")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !store
+                .directory_access_held_any(&["clear@example.test", "other@example.test"])
+                .await
+                .unwrap()
+        );
+        q("INSERT INTO mail_user(address,domain,local_part,origin,status,created_at) VALUES('broken@bad/path','example.test','broken','import','deleted',1)")
+            .execute(&store.backend).await.unwrap();
+        assert!(
+            store
+                .directory_access_held_any(&["clear@example.test"])
+                .await
+                .is_err()
+        );
+        // Finding a valid hold before a corrupt later row may return true, but
+        // a corrupt legacy row must never turn a refusal into admission.
+        assert!(!matches!(
+            store
+                .directory_access_held_any(&["NÉW@BÜCHER.TEST", "clear@example.test"])
+                .await,
+            Ok(false)
+        ));
+        assert!(
+            store
+                .directory_access_held_any(&["user@bad/path"])
+                .await
+                .is_err()
+        );
+        let (empty, counts) =
+            crate::pool_telemetry::measure_queries(store.directory_access_held_any(&[])).await;
+        assert!(!empty.unwrap());
+        assert_eq!(counts.read.calls, 0);
+        store.close().await;
+        assert!(
+            store
+                .directory_access_held_any(&["clear@example.test"])
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn batched_directory_holds_keep_the_5001_fail_closed_bound() {
+        let store = Store::open_in_memory(crate::ServerKey::generate())
+            .await
+            .unwrap();
+        q("WITH RECURSIVE n(value) AS (SELECT 1 UNION ALL SELECT value+1 FROM n WHERE value<5000) INSERT INTO mail_user(address,domain,local_part,origin,status,created_at) SELECT 'held' || CAST(value AS TEXT) || '@example.test','example.test','held','import','disabled',1 FROM n")
+            .execute(&store.backend).await.unwrap();
+        assert!(
+            !store
+                .directory_access_held_any(&["clear@example.test"])
+                .await
+                .unwrap()
+        );
+        q("INSERT INTO mail_user(address,domain,local_part,origin,status,created_at) VALUES('extra@example.test','example.test','extra','import','disabled',1)")
+            .execute(&store.backend).await.unwrap();
+        assert!(
+            store
+                .directory_access_held_any(&["clear@example.test"])
+                .await
+                .is_err()
+        );
+        assert!(
+            store
+                .directory_access_held_any(&["held1@example.test"])
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn independent_directory_writer_revokes_without_invalidation() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("holds.db");
+        let key = crate::ServerKey::generate();
+        let reader = Store::open(path.to_str().unwrap(), key.clone())
+            .await
+            .unwrap();
+        let writer = Store::open(path.to_str().unwrap(), key).await.unwrap();
+        assert!(
+            !reader
+                .directory_access_held_any(&["user@example.test"])
+                .await
+                .unwrap()
+        );
+        q("INSERT INTO mail_user(address,domain,local_part,origin,status,created_at) VALUES('user@example.test','example.test','user','import','disabled',1)")
+            .execute(&writer.backend).await.unwrap();
+        assert!(
+            reader
+                .directory_access_held_any(&["USER@EXAMPLE.TEST"])
+                .await
+                .unwrap()
+        );
+        q("UPDATE mail_user SET status='active' WHERE address='user@example.test'")
+            .execute(&writer.backend)
+            .await
+            .unwrap();
+        assert!(
+            !reader
+                .directory_access_held_any(&["USER@EXAMPLE.TEST"])
+                .await
+                .unwrap()
+        );
+        reader.close().await;
+        writer.close().await;
+        drop(reader);
+        drop(writer);
+    }
+
     #[tokio::test]
     async fn lifecycle_cas_retains_data_revokes_proven_sessions_and_never_reenrolls() {
         exercise(
