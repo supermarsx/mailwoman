@@ -963,7 +963,8 @@ impl Store {
         let rows = q("WITH boundary AS (
              SELECT COALESCE((SELECT pruned_through FROM change_log_checkpoint WHERE account_id=?1 AND type=?2),0) AS floor
              ), tail AS (
-             SELECT state,stable_id,op FROM changes WHERE account_id=?1 AND type=?2 AND state>?3 ORDER BY state ASC LIMIT ?4
+             SELECT state,stable_id,op FROM changes WHERE account_id=?1 AND type=?2 AND state>?3 ORDER BY state ASC
+             LIMIT CASE WHEN ?3>=(SELECT floor FROM boundary) THEN ?4 ELSE 0 END
              ) SELECT b.floor,t.state,t.stable_id,t.op,CAST(CASE WHEN t.state IS NULL THEN 0 ELSE 1 END AS BIGINT) AS present
              FROM boundary b LEFT JOIN tail t ON b.floor<=?3 ORDER BY t.state ASC")
         .bind(account_id)

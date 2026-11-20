@@ -637,6 +637,73 @@ mod tests {
         assert_eq!(wrapped.removed_rows, 1);
     }
     #[tokio::test]
+    async fn expired_tokens_do_not_materialize_the_retained_tail() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+        };
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let a = account(&store, "tail-probe").await;
+        store
+            .record_change(&a, "Email", "old", "updated")
+            .await
+            .unwrap();
+        aged(&store).await;
+        let ids = (0..10000)
+            .map(|n| format!("retained-{n}"))
+            .collect::<Vec<_>>();
+        store
+            .record_changes(&a, "Email", &ids, "updated")
+            .await
+            .unwrap();
+        assert_eq!(prune(&store, 1).await.removed_rows, 1);
+        let Backend::Sqlite(pool) = &store.backend else {
+            unreachable!()
+        };
+        let pin = pool.pin().await;
+        let count = Arc::new(AtomicU64::new(0));
+        let observed = count.clone();
+        let mut connection = pin.pool().acquire().await.unwrap();
+        connection
+            .lock_handle()
+            .await
+            .unwrap()
+            .set_progress_handler(1000, move || {
+                observed.fetch_add(1, Ordering::Relaxed);
+                true
+            });
+        drop(connection);
+        assert!(matches!(
+            store
+                .changes_since_limited(&a, "Email", 0, i64::MAX - 1)
+                .await,
+            Err(StoreError::ChangeHistoryExpired)
+        ));
+        let expired_steps = count.swap(0, Ordering::Relaxed);
+        let tail = store
+            .changes_since_limited(&a, "Email", 1, i64::MAX - 1)
+            .await
+            .unwrap();
+        let valid_steps = count.load(Ordering::Relaxed);
+        pin.pool()
+            .acquire()
+            .await
+            .unwrap()
+            .lock_handle()
+            .await
+            .unwrap()
+            .remove_progress_handler();
+        assert_eq!(tail.0.len(), 10000);
+        assert!(
+            valid_steps > 50,
+            "control must prove the SQLite VM probe is active: {valid_steps}"
+        );
+        assert!(
+            expired_steps <= 2,
+            "expired state must not scan/materialize the retained tail: {expired_steps}"
+        );
+    }
+    #[tokio::test]
     async fn postgres_checkpoint_and_floor_preserve_resume_contract() {
         let Ok(dsn) = std::env::var("MW_BG_TEST_PG") else {
             eprintln!("SKIP live PostgreSQL retention: MW_BG_TEST_PG is unset");
