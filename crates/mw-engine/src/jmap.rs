@@ -1360,6 +1360,8 @@ impl Engine {
             threading: wants_threading,
             raw_derived: wants_raw_derived,
             calendar: wants_calendar,
+            mentions: args.get("properties").and_then(Value::as_array)
+                .is_none_or(|named| named.iter().any(|property| property == "mailwomanMentions")),
             headers: wanted_header_properties(args),
         };
         let mut assembled = match self.build_emails(&requested, fill).await {
@@ -1562,8 +1564,12 @@ impl Engine {
             // Both properties are projections of the ingest/rebuild index; no raw
             // body fetch or HTML parse is needed per list page. Zero-access mail
             // has no index and therefore supplies no server-derived mention list.
-            let indexed = self.search().fetch_doc(id).ok().flatten();
-            email["mailwomanMentions"] = json!(indexed.as_ref().map(|doc| crate::mentions::from_keywords(&doc.keywords)).unwrap_or_default());
+            let indexed = if fill.mentions || fill.calendar {
+                self.search().fetch_doc(id).ok().flatten()
+            } else { None };
+            if fill.mentions {
+                email["mailwomanMentions"] = json!(indexed.as_ref().map(|doc| crate::mentions::from_keywords(&doc.keywords)).unwrap_or_default());
+            }
             if fill.calendar {
                 // t78: read from the message's index document, where ingest put
                 // it: no body read. `null` for no calendar content, and for an
@@ -5730,6 +5736,8 @@ struct EmailFill {
     raw_derived: bool,
     /// Add [`CALENDAR_PROPERTY`].
     calendar: bool,
+    /// Add indexed mention addresses only for explicit/default-all projection.
+    mentions: bool,
 }
 
 /// The sender a message is submitted under: the first address of its `From`,

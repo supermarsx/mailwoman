@@ -446,6 +446,7 @@ pub struct Index {
     reader: IndexReader,
     writer: Mutex<IndexWriter>,
     fields: Fields,
+    doc_fetches: AtomicU64,
 }
 
 impl Index {
@@ -514,6 +515,7 @@ impl Index {
             reader,
             writer: Mutex::new(writer),
             fields,
+            doc_fetches: AtomicU64::new(0),
         })
     }
 
@@ -770,6 +772,7 @@ impl Index {
             Term::from_field_text(self.fields.stable_id, stable_id),
             IndexRecordOption::Basic,
         );
+        self.doc_fetches.fetch_add(1, Ordering::Relaxed);
         let hits = searcher.search(&q, &TopDocs::with_limit(1).order_by_score())?;
         let Some((_, addr)) = hits.first() else {
             return Ok(None);
@@ -779,6 +782,12 @@ impl Index {
             return Ok(None);
         };
         Ok(serde_json::from_str(json).ok())
+    }
+
+    /// Actual single-document index searches performed by this handle. A
+    /// fixed-size diagnostic counter; reading it never queries or changes mail.
+    pub fn doc_fetch_count(&self) -> u64 {
+        self.doc_fetches.load(Ordering::Relaxed)
     }
 
     /// Run a parsed query, returning matching stable ids in sort order. `limit`
