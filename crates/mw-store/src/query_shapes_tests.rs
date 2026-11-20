@@ -91,6 +91,10 @@ async fn concurrent_task_scopes_are_separate_and_fresh() {
     assert_eq!(b.operations_completed, 7);
     assert_eq!(a.shapes.len(), 1);
     assert_eq!(b.shapes.len(), 1);
+    assert_eq!(
+        a.shapes[0].template_sha256,
+        "e004ebd5b5532a4b85984a62f8ad48a81aa3460c1ca07701f386135d72cdecf5"
+    );
     assert_ne!(a.shapes[0].template_sha256, b.shapes[0].template_sha256);
     let (_, fresh) = measure(async {}).await;
     fresh.require_valid().unwrap();

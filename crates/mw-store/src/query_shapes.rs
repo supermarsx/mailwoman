@@ -6,6 +6,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
+    fmt::Write as _,
     future::Future,
     sync::{Arc, Mutex, OnceLock},
 };
@@ -151,10 +152,15 @@ pub(super) fn capture(sql: &'static str, class: Class) -> Option<Capture> {
                         .any(|word| word.eq_ignore_ascii_case(token))
                 })
                 .collect();
+            let mut template_sha256 = String::with_capacity(64);
+            for byte in Sha256::digest(sql.as_bytes()).iter() {
+                write!(&mut template_sha256, "{byte:02x}")
+                    .expect("writing a hash into a String cannot fail");
+            }
             data.shapes.insert(
                 sql,
                 Shape {
-                    template_sha256: format!("{:x}", Sha256::digest(sql.as_bytes())),
+                    template_sha256,
                     class: class_name(class),
                     static_token_families: tokens,
                     calls: 0,
