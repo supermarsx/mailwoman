@@ -285,5 +285,55 @@ regression to the header optimization. Worker-count defaults remain unchanged;
 the bulk-indexing tradeoff and broader workloads still need evaluation.
 Source review identifies repeated whole-file reads/decryption when sealed index
 readers reopen unchanged segment components during publication. Its contribution
-has not yet been profiled in this release; neither file-cache shortcuts nor
-weaker integrity/durability checks are justified by these measurements.
+has not yet been isolated by caller; neither file-cache shortcuts nor weaker
+integrity/durability checks are justified by these measurements.
+
+### Isolating reads from mutations
+
+A subsequent diagnostic used that same immutable encrypted-storage image,
+100 users, 50 messages each, three index workers, 16 outstanding requests,
+and the same application/generator resource limits. Each phase lasted 20 seconds
+with request-phase instrumentation enabled. All accounts participated; there
+were no HTTP errors, throttles or timeouts, and the loaded-policy and isolation
+checks passed.
+
+| HTTP workload | Successful in-window RPS | Mean latency | p95 | Scoped SQL reads per HTTP |
+| --- | ---: | ---: | ---: | ---: |
+| Identity | 1,176.2 | 13.6 ms | 21 ms | 23.0 |
+| Mixed reads and refresh | 287.1 | 55.6 ms | 80 ms | 47.6 |
+| Basic headers | 290.9 | 54.9 ms | 68 ms | 63.0 |
+| Query | 374.6 | 42.6 ms | 56 ms | 58.0 |
+
+No index commits occurred in these phases. Compared with the mutation-heavy
+representative mix, this identifies substantial contention introduced by
+mutations; it is not an optimization gain or a server throughput ceiling.
+At fixed closed-loop concurrency, throughput is constrained by request latency.
+The generator used about 0.1 CPU core and showed no scheduler/capacity drops in
+the earlier representative runs, while the app used about 2.3 of four cores.
+Memory exhaustion or generator CPU saturation is not supported by those runs.
+
+In the representative workload, `mark-read-and-restore` and `move-and-restore`
+are each one HTTP request containing two mutations and two readbacks. The
+default-worker first run averaged 915 ms and 1,014 ms respectively, compared
+with 517 ms for the two-page query/header batch. Its 856 commit attempts exactly
+match two commits for each of the 214 flag and 214 move requests. These counts
+do not establish duplicate requests. Batching across requests must preserve
+the intervening readbacks, ordering and account-erasure guarantees.
+
+A successful user-CPU profile of the same release recorded 2,885 samples with
+zero lost samples, wholly within the completed representative phase. Leading
+flat symbols included SHA-512 AVX2 (11.40%), FST registry entry (8.39%), FST
+stream iteration (4.16%), registry-vector extension (3.26%), ChaCha AVX2
+(2.88%), decompression (2.67%) and Poly1305 AVX2 (2.05%). These are executing
+symbols, not caller attribution or time blocked on locks/I/O. They do not
+establish which policy, query or mutation caused the work. Around the capture,
+a 24.5-second I/O observation recorded about 2.34 GB of logical reads but only
+106 KiB of physical reads, plus 243 MB of physical writes. Those counters also
+cannot assign the activity to particular files or functions.
+
+The next structural candidates are fewer fresh SQL round trips, bounded
+background telemetry, and reducing synchronous index publication work. Verify
+each on the same encrypted, policy-enforced workload. Moving a function into an
+`async` block alone does not remove synchronous CPU work, file I/O or mutex
+contention; offloading also needs bounded admission and explicit failure,
+shutdown and recovery behavior. Security decisions remain authoritative.
