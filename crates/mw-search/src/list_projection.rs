@@ -9,7 +9,7 @@ use serde::{
 use tantivy::{
     Term,
     collector::TopDocs,
-    query::{BooleanQuery, Occur, TermQuery, TermSetQuery},
+    query::{BooleanQuery, Occur, Query, TermQuery, TermSetQuery},
     schema::{IndexRecordOption, TantivyDocument, Value},
 };
 
@@ -18,6 +18,21 @@ use crate::{CalendarHint, Index, Result, SearchError};
 /// Matches the mail API's maximum objects per get; larger internal callers are
 /// chunked while retaining one searcher generation for the complete operation.
 pub const MAX_LIST_PROJECTION_IDS: usize = 5000;
+
+// Small exact-ID sets avoid constructing an FST for every reader/list request.
+// Larger sets retain the compact automaton rather than thousands of clauses.
+const SMALL_LIST_PROJECTION_IDS: usize = 32;
+fn projection_id_query(field: tantivy::schema::Field, ids: &[&str]) -> Box<dyn Query> {
+    if ids.len() <= SMALL_LIST_PROJECTION_IDS {
+        Box::new(BooleanQuery::new(ids.iter().map(|id| {
+            (Occur::Should, Box::new(TermQuery::new(
+                Term::from_field_text(field, id), IndexRecordOption::Basic,
+            )) as Box<dyn Query>)
+        }).collect()))
+    } else {
+        Box::new(TermSetQuery::new(ids.iter().map(|id| Term::from_field_text(field, id))))
+    }
+}
 
 #[derive(Debug, Default)]
 struct SkipString;
@@ -140,11 +155,7 @@ impl Index {
                 ),
                 (
                     Occur::Must,
-                    Box::new(TermSetQuery::new(
-                        chunk
-                            .iter()
-                            .map(|id| Term::from_field_text(self.fields.stable_id, id)),
-                    )),
+                    projection_id_query(self.fields.stable_id, chunk),
                 ),
             ]);
             self.list_projection_searches
@@ -237,6 +248,67 @@ mod tests {
         writer.commit().unwrap();
         drop(writer);
         index.reader.reload().unwrap();
+    }
+    #[test]
+    fn small_query_boundary_preserves_fst_results_across_segments() {
+        for segments in [1, 8] {
+            let (schema, fields) = crate::build_schema();
+            let inner = tantivy::Index::create_in_ram(schema);
+            let writer = inner.writer_with_num_threads::<TantivyDocument>(1, 50_000_000).unwrap();
+            writer.set_merge_policy(Box::new(tantivy::merge_policy::NoMergePolicy));
+            let reader = inner.reader_builder().reload_policy(tantivy::ReloadPolicy::Manual).try_into().unwrap();
+            let index = Index {
+                inner, reader, writer: std::sync::Mutex::new(writer), fields,
+                doc_fetches: Default::default(), list_projection_searches: Default::default(),
+                list_projection_doc_reads: Default::default(),
+            };
+            for segment in 0..segments {
+                let mut writer = index.lock_writer().unwrap();
+                for n in (segment..64).step_by(segments) {
+                    index.write_one(&writer, &doc(&format!("id-{n:03}"), "owned")).unwrap();
+                }
+                if segment == 0 {
+                    index.write_one(&writer, &doc("foreign", "other")).unwrap();
+                }
+                writer.commit().unwrap();
+            }
+            index.reader.reload().unwrap();
+            let searcher = index.reader.searcher();
+            assert_eq!(searcher.segment_readers().len(), segments);
+            for count in [1, 2, 25, 32, 33, 50] {
+                let mut ids = (0..count-1).map(|n| format!("id-{n:03}")).collect::<Vec<_>>();
+                ids.push("foreign".into());
+                let refs = ids.iter().map(String::as_str).collect::<Vec<_>>();
+                let selected = projection_id_query(index.fields.stable_id, &refs);
+                assert_eq!(selected.downcast_ref::<BooleanQuery>().is_some(), count <= 32);
+                assert_eq!(selected.downcast_ref::<TermSetQuery>().is_some(), count > 32);
+                let baseline = BooleanQuery::new(vec![
+                    (Occur::Must, Box::new(TermQuery::new(Term::from_field_text(index.fields.account_id, "owned"), IndexRecordOption::Basic))),
+                    (Occur::Must, Box::new(TermSetQuery::new(refs.iter().map(|id| Term::from_field_text(index.fields.stable_id, id))))),
+                ]);
+                let baseline_hits = searcher.search(&baseline, &TopDocs::with_limit(count+1).order_by_score()).unwrap();
+                let mut expected = baseline_hits.into_iter().map(|(_,address)| {
+                    searcher.doc::<TantivyDocument>(address).unwrap().get_first(index.fields.stable_id).unwrap().as_str().unwrap().to_owned()
+                }).collect::<Vec<_>>();
+                expected.sort();
+                // Repeated inputs must not change the distinct-ID branch or results.
+                ids.extend(ids.clone());
+                let actual = index.fetch_list_projections("owned", &ids).unwrap();
+                let mut actual_ids = actual.keys().cloned().collect::<Vec<_>>();
+                actual_ids.sort();
+                assert_eq!(actual_ids, expected, "segments={segments}, IDs={count}");
+                assert!(!actual.contains_key("foreign"));
+            }
+            drop(searcher);
+            let duplicate = serde_json::to_string(&doc("duplicate", "owned")).unwrap();
+            insert_raw(&index, "duplicate", "owned", Some(&duplicate));
+            insert_raw(&index, "duplicate", "owned", Some(&duplicate));
+            for count in [32, 33] {
+                let mut ids = (0..count-1).map(|n| format!("missing-{n}")).collect::<Vec<_>>();
+                ids.push("duplicate".into());
+                assert!(index.fetch_list_projections("owned", &ids).unwrap().is_empty());
+            }
+        }
     }
     #[test]
     fn thin_projection_keeps_index_doc_required_types_and_legacy_defaults() {

@@ -181,3 +181,12 @@ A production multi-user target also requires a mixed or representative endpoint
 stage; an identity-only result cannot establish that target. These campaigns
 measure the specified synthetic mix and never establish complete application
 capacity or delivery correctness by themselves.
+
+List-field projections use exact-term Boolean queries for at most 32 distinct
+message IDs, and retain the FST term-set query for larger chunks. A separate
+release microprobe compared both forms with one and eight index segments:
+32-ID projections improved in both fixtures, while 50–64-ID Boolean queries
+regressed with eight segments. Account filtering, decoded ownership checks and
+duplicate-document rejection remain the same. This bounded query result does
+not establish an HTTP throughput gain; the representative campaign must measure
+that separately.
