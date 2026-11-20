@@ -1466,10 +1466,14 @@ impl Engine {
             }
         }
 
-        // Statements 1 and 2: everything that was never cache-aside.
-        let msgs = self.store().get_account_messages(account_id, &unique).await?;
+        // One fresh owner-scoped snapshot; metadata never authorizes a row.
+        let (msgs, metas): (Vec<_>, Vec<_>) = self.store()
+            .get_account_messages_with_metas(account_id, &unique).await?
+            .into_iter().map(|row| match row {
+                Some((message, metadata)) => (Some(message), metadata),
+                None => (None, None),
+            }).unzip();
         let auth_sources=msgs.iter().flatten().map(|message|(message.stable_id.clone(),message.cache_revision.clone())).collect();
-        let metas = self.store().get_account_message_metas(account_id, &unique).await?;
         let cache_postures = self.mail_cache_postures(&msgs).await;
         // The index never establishes ownership. Restrict the query to rows
         // returned by the fresh account-scoped SQL read, then check live posture
@@ -8216,12 +8220,11 @@ mod email_get_batch_tests {
             stmts_50.len()
         );
         // Pinned exactly, so a future change that adds a read has to say so:
-        // the message rows, the envelopes, the engine-local metadata, and the
-        // state token.
+        // the joined message+metadata rows, the envelopes, and the state token.
         assert_eq!(
             stmts_50.len(),
-            4,
-            "the page costs four statements: {stmts_50:#?}"
+            3,
+            "the page costs three statements after the fresh metadata join: {stmts_50:#?}"
         );
         eprintln!(
             "[t22-e3g] Email/get: master 16 stmts for 5 ids / 151 for 50 -> {} / {}",

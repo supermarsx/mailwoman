@@ -30,6 +30,9 @@ mod ingest_history_tests;
 #[cfg(test)]
 #[path = "message_batch_ownership_tests.rs"]
 mod batch_ownership_tests;
+#[cfg(test)]
+#[path = "message_meta_projection_tests.rs"]
+mod message_meta_projection_tests;
 
 use chrono::Utc;
 
@@ -1089,6 +1092,36 @@ impl Store {
             })
             .collect();
         Ok(project_in_order(stable_ids, found))
+    }
+
+    /// Fresh owned message coordinates and optional local metadata in one read.
+    /// No envelope/body payload is selected or decrypted. Missing metadata stays
+    /// None; duplicate IDs and missing/foreign rows retain positional semantics.
+    /// Existing single-purpose getters remain unchanged for other callers.
+    pub async fn get_account_messages_with_metas(
+        &self,
+        account_id: &str,
+        stable_ids: &[String],
+    ) -> Result<Vec<Option<(Message, Option<crate::StoredMeta>)>>, StoreError> {
+        if stable_ids.len() > 5000 {
+            return Err(StoreError::Invalid("message projection batch exceeds 5000 IDs"));
+        }
+        if stable_ids.is_empty() { return Ok(Vec::new()); }
+        let sql = match self.backend.dialect() {
+            Dialect::Sqlite => "SELECT m.stable_id,m.account_id,m.mailbox_id,m.uid,m.uidvalidity,m.message_id,m.thread_id,m.internaldate,m.size,m.flags_json,m.blob_ref,m.cache_revision,mm.stable_id AS meta_stable_id,mm.pinned,mm.snoozed_until,mm.follow_up_at FROM messages m LEFT JOIN message_meta mm ON mm.stable_id=m.stable_id WHERE m.account_id=?2 AND m.stable_id IN(SELECT value FROM json_each(?1))",
+            Dialect::Postgres => "SELECT m.stable_id,m.account_id,m.mailbox_id,m.uid,m.uidvalidity,m.message_id,m.thread_id,m.internaldate,m.size,m.flags_json,m.blob_ref,m.cache_revision,mm.stable_id AS meta_stable_id,mm.pinned,mm.snoozed_until,mm.follow_up_at FROM messages m LEFT JOIN message_meta mm ON mm.stable_id=m.stable_id WHERE m.account_id=?2 AND m.stable_id IN(SELECT value FROM json_array_elements_text(?1::json))",
+        };
+        let rows=q(sql).bind(id_list_json(stable_ids)).bind(account_id).fetch_all(&self.backend).await?;
+        let found=rows.iter().map(|row| {
+            let message=Self::message_from_row(row);
+            let metadata=row.get_opt_string("meta_stable_id").map(|_|crate::StoredMeta {
+                pinned:row.get_i64("pinned")!=0,
+                snoozed_until:row.get_opt_string("snoozed_until"),
+                follow_up_at:row.get_opt_string("follow_up_at"),
+            });
+            (message.stable_id.clone(),(message,metadata))
+        }).collect();
+        Ok(project_in_order(stable_ids,found))
     }
 
     /// Open a whole page of sealed envelopes in **one** statement (26.20 t22-e1).

@@ -36,6 +36,7 @@ async fn exact_default_ui_profile_five_vs_fifty_has_no_hidden_per_message_body_o
         assert_eq!(response["list"].as_array().unwrap().len(),count,"{response}");
         assert_eq!(cold.against("message_list_envelope"),1,"{cold:#?}");
         assert_eq!(cold.against("bodies"),0,"{cold:#?}");
+        assert_eq!(cold.against("LEFT JOIN message_meta"),1,"fresh message+meta must share one read: {cold:#?}");
         assert!(cold.matching("envelope_json").is_empty(),"{cold:#?}");
         let (_,warm)=counted(&f.threads,f.engine.email_get(&f.account,&args)).await;
         assert_eq!(warm.against("message_list_envelope"),0,"{warm:#?}");
@@ -45,6 +46,7 @@ async fn exact_default_ui_profile_five_vs_fifty_has_no_hidden_per_message_body_o
     }
     assert!(totals[0].0>0&&totals[0].1>0,"physical recorder must see reads");
     assert_eq!(totals[0],totals[1],"default UI query count must stay page-independent");
+    assert_eq!(totals[0],(6,5),"one fresh join replaces the measured7cold/6warm physical statements");
 }
 #[tokio::test]
 async fn exact_reader_profile_exposes_current_full_cache_miss_and_body_use_query_families() {
