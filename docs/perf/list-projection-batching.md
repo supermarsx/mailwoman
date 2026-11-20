@@ -40,3 +40,38 @@ Counters distinguish legacy single-document searches, list-projection searches,
 and projection stored-document reads. They are structural work measurements,
 not RPS or latency claims. Application throughput requires a separate controlled
 run with the actual message-list properties and security policies.
+
+## Measured follow-up
+
+The 2026-11-20 follow-up used the same 100 users, 5,000 messages, UI-default
+property sets, 16 outstanding requests and two generator workers as the
+[previous diagnostic](ui-default-profile-baseline.md). Both ten-second phases
+completed with zero errors, throttles or timeouts. Account isolation, locked
+policy revocation/restoration and the enforced scanner probe passed; both
+containers exited zero and the paired report artifacts were verified.
+
+| Endpoint | Successful in-window RPS | p95 / p99 |
+| --- | ---: | ---: |
+| Identity | 1,108.3 | 23 / 28 ms |
+| UI-default read/write mix | 110.4 | 330 / 368 ms |
+
+In the mixed phase, legacy exact-document searches fell from about 10.9 to 0.396
+per HTTP request. The new path added 0.400 batch searches and 5.300 stored-document
+reads per request. SQL reads remained about 70.46 per request. App observations
+were 3.18 logical CPUs and 307 MiB RSS. The lower index search count did **not**
+produce a measured end-to-end throughput gain over the earlier 112.5 RPS. One
+short run per version does not establish a regression or a capacity result;
+optimized CPU profiling is needed to identify the remaining cost.
+
+The runtime image was
+`sha256:6aca3514a0120ecaca7a57963a1a754c29577f62f88180bf26a0d6a18893ab20`,
+with normal executable SHA-256
+`4cb3dec5767509ace10b4e366a2e21bda3ff10fc794d48979e0a28bd6bc59138`.
+Its source snapshot ends at `72d9f20e`; subsequent admission batching and
+change-history fixes were not included. Request profiling was enabled. The app
+was limited to 4 CPUs/4 GiB and the generator to 2 CPUs/1 GiB. Dataset, TLS,
+upstream, WebSocket and whole-host limitations from the previous diagnostic
+still apply. The 40k-RPS goal remains unachieved.
+
+Local evidence is under
+`.orchestration/reports/perf-investigation/sqlite-projection-ui-profile-100-workers2/`.

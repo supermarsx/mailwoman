@@ -45,6 +45,8 @@ searches per HTTP request. These counts support the next bounded projection
 batching work; timings include waiting and do not isolate CPU cost. The later
 shared projection `12dfdd75` and background-download intent `99b89bfd` were not in
 this measured server. Their gains and full HTTP behavior require later images.
+The [subsequent projection diagnostic](list-projection-batching.md#measured-follow-up)
+records fewer index searches without a measured throughput improvement.
 
 Local evidence is under
 `.orchestration/reports/perf-investigation/sqlite-scoped-ui-profile-100-workers2-complete/`.
