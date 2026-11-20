@@ -383,19 +383,28 @@ impl Engine {
             ctx.sent_ids = ids.into_iter().collect();
             ctx.sent_mailbox = Some(sent.id.clone());
         }
+        // One fresh bounded candidate query for the whole page. Each selected
+        // vCard is parsed once, while per-sender ranking/cutoff stays unchanged.
+        let inputs=senders.iter().cloned().collect::<Vec<_>>();
+        match self.store().focus_contact_candidates(account_id,&inputs).await? {
+            mw_store::focus_contacts::FocusContactLookup::Batched {cards,by_sender}=>{
+                let parsed=cards.iter().map(|card|vcard_emails(&card.vcard_raw)).collect::<Vec<_>>();
+                for (sender,candidates) in by_sender {
+                    if candidates.into_iter().any(|index|parsed[index].iter().any(|email|email==&sender)) {
+                        ctx.contacts.insert(sender);
+                    }
+                }
+            },
+            mw_store::focus_contacts::FocusContactLookup::LegacyFallback=>{
+                // Exceptional input/storage/output budgets retain the old
+                // per-sender behavior; they never fetch an entire address book.
+                for sender in senders {
+                    let cards=self.store().autocomplete_contacts(account_id,sender,20).await?;
+                    if cards.iter().any(|card|vcard_emails(&card.vcard_raw).iter().any(|email|email==sender)) {ctx.contacts.insert(sender.clone());}
+                }
+            },
+        }
         for addr in senders {
-            // Contacts: the store's own match over `vcard_raw`, confirmed on
-            // the card's EMAIL values so a substring never counts.
-            let cards = self
-                .store()
-                .autocomplete_contacts(account_id, addr, 20)
-                .await?;
-            if cards
-                .iter()
-                .any(|c| vcard_emails(&c.vcard_raw).iter().any(|e| e == addr))
-            {
-                ctx.contacts.insert(addr.clone());
-            }
             if index_allowed
                 && let Some(sent) = &sent
                 && self.wrote_to(&sent.id, &ctx.sent_ids, addr)
@@ -592,3 +601,7 @@ mod tests {
         assert_eq!(vcard_emails(card), vec!["ann@example.org", "two@x.test"]);
     }
 }
+
+#[cfg(test)]
+#[path="focus_contact_batch_tests.rs"]
+mod contact_batch_tests;

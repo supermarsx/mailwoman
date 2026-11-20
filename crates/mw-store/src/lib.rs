@@ -8,6 +8,7 @@
 pub mod analytics_secret;
 pub mod encryption;
 pub mod header_envelope;
+pub mod focus_contacts;
 pub mod index_publication;
 mod publication_mutations;
 pub use header_envelope::{HeaderEnvelope,HEADER_ENVELOPE_VERSION};

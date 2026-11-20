@@ -903,7 +903,7 @@ impl Store {
         prefix: &str,
         limit: i64,
     ) -> Result<Vec<ContactRow>, StoreError> {
-        let like = format!("%{}%", prefix.replace('%', "\\%").replace('_', "\\_"));
+        let like = contact_autocomplete_pattern(prefix);
         // SQLite `LIKE` is ASCII case-insensitive; Postgres needs `ILIKE` for the
         // same behaviour (plan §1.1). Two frozen static strings keep the authored
         // SQL a `&'static str` while matching each backend's semantics.
@@ -1937,4 +1937,9 @@ mod tests {
             .unwrap();
         assert_dav_0035(&s).await;
     }
+}
+
+/// Shared exact escaping for Focus and the legacy Compose/contact reader.
+pub(crate) fn contact_autocomplete_pattern(prefix:&str)->String {
+    format!("%{}%",prefix.replace('%',"\\%").replace('_',"\\_"))
 }
