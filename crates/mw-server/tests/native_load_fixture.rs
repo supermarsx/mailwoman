@@ -36,6 +36,11 @@ async fn startup_readiness(
     startup_started: Instant,
     timeout_seconds: u64,
 ) -> std::result::Result<Value, &'static str> {
+    // A zero deadline must not poll Store at all. Cancelling acquisition from a
+    // one-connection in-memory SQLx pool can drop its only database connection.
+    if timeout_seconds == 0 {
+        return Err("Startup index readiness deadline exceeded; campaign not started");
+    }
     let waiting = Instant::now();
     tokio::time::timeout(Duration::from_secs(timeout_seconds),async {
         let known=accounts.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
@@ -112,13 +117,19 @@ async fn readiness_waits_for_real_engine_rebuild_and_blocks_paused_indexing() {
     let seeded = seed(&store, 1).await;
     let accounts = vec![seeded[0]["accountId"].as_str().unwrap().to_string()];
     let engine = Arc::new(Engine::new(store.clone()));
+    let cold = engine.search_index_status().await.unwrap();
+    assert_eq!(cold.documents, 0);
+    assert!(!index_ready(&cold, 2), "a genuinely cold index is not ready");
+    let (expired, queries) = mw_store::pool_telemetry::measure_queries(
+        startup_readiness(&engine, &accounts, 2, Instant::now(), 0),
+    ).await;
     assert!(
-        startup_readiness(&engine, &accounts, 2, Instant::now(), 0)
-            .await
-            .unwrap_err()
-            .contains("deadline exceeded"),
-        "an index with no rebuild must not turn into a warmed readiness claim"
+        expired.unwrap_err().contains("deadline exceeded"),
+        "an expired readiness request must not turn into a warmed claim"
     );
+    assert_eq!(queries.read.calls, 0, "zero deadline must not acquire a Store connection");
+    assert_eq!(queries.write.calls, 0);
+    assert!(store.list_zeroaccess_enabled().await.is_ok());
     let rebuilding = engine.clone();
     let task = tokio::spawn(async move { rebuilding.rebuild_search_index_all().await.unwrap() });
     let report = startup_readiness(&engine, &accounts, 2, Instant::now(), 20)
