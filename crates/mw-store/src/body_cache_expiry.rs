@@ -369,6 +369,87 @@ async fn collect(
 mod tests {
     use super::*;
     use crate::{AccountKind, Credentials, MailboxUpsert, MessageUpsert, NewAccount, ServerKey};
+    #[tokio::test]
+    async fn postgres_expiry_preserves_headers_and_refetch_contract() {
+        let Ok(dsn) = std::env::var("MW_BG_TEST_PG") else {
+            eprintln!("SKIP live PostgreSQL expiry: MW_BG_TEST_PG is unset");
+            return;
+        };
+        let store = Store::open_postgres(&dsn, ServerKey::generate())
+            .await
+            .unwrap();
+        let username = format!("cache-{}@fixture.invalid", uuid::Uuid::new_v4());
+        let account = store
+            .create_account(
+                &NewAccount {
+                    kind: AccountKind::Imap,
+                    host: "fixture.invalid",
+                    port: 993,
+                    tls: "implicit",
+                    username: &username,
+                    sync_policy_json: "{}",
+                },
+                &Credentials {
+                    username: username.clone(),
+                    password: "disposable-fixture".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let mailbox = store
+            .upsert_mailbox(&MailboxUpsert {
+                account_id: &account,
+                name: "INBOX",
+                role: Some("inbox"),
+                uidvalidity: 1,
+                uidnext: 2,
+                highestmodseq: 1,
+                total: 1,
+                unread: 1,
+                parent_id: None,
+            })
+            .await
+            .unwrap();
+        let id = message(
+            &store,
+            &account,
+            &mailbox,
+            1,
+            1,
+            b"PostgreSQL refetchable MIME",
+        )
+        .await;
+        run(&store, &account).await;
+        q("UPDATE message_body_cache_lease SET last_used_at=1 WHERE account_id=?1")
+            .bind(&account)
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        let before = store.get_message(&id).await.unwrap();
+        let blob = before.blob_ref.clone().unwrap();
+        let report = run(&store, &account).await;
+        assert_eq!(report.detached_messages, 1);
+        assert_eq!(report.removed_bodies, 1);
+        let after = store.get_message(&id).await.unwrap();
+        assert!(after.blob_ref.is_none());
+        assert_ne!(before.cache_revision, after.cache_revision);
+        assert_eq!(
+            store.get_envelope(&id).await.unwrap().unwrap(),
+            b"{\"subject\":\"kept header\"}"
+        );
+        assert!(store.get_body(&blob).await.unwrap().is_none());
+        assert!(
+            store
+                .cache_refetched_message_body(&after, b"PostgreSQL refetchable MIME")
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            store.get_body(&blob).await.unwrap().unwrap(),
+            b"PostgreSQL refetchable MIME"
+        );
+        store.close().await;
+    }
     async fn fixture(kind: AccountKind) -> (Store, String, String) {
         let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         let account = store
