@@ -2761,3 +2761,8 @@ admin-settings-key-mail-notices-enabled = Włącz klauzule
 admin-settings-help-mail-notices-enabled = Treść wielokrotnego użytku dodawana niezależnie po podpisie. Szablony należą do tego konta. Tekst jest wymagany; opcjonalny HTML jest oczyszczany przed wysłaniem.
 admin-settings-key-mail-notices-templates = Powiadomienia w treści wiadomości
 admin-settings-help-mail-notices-templates = Wszystkie warunki muszą pasować. Puste pola pasują do wszystkiego. Temat i treść używają dosłownego tekstu bez rozróżniania wielkości liter. Odbiorcy wewnętrzni mają domenę nadawcy lub zaufaną domenę. Wybór ręczny zastępuje reguły.
+
+admin-settings-key-maintenance-database-expire-cached-bodies = Usuwaj nieużywaną treść z pamięci podręcznej
+admin-settings-help-maintenance-database-expire-cached-bodies = Usuwaj nieużywaną treść wiadomości z pamięci podręcznej tylko wtedy, gdy aktywna usługa może pobrać kolejną kopię. Lokalne oryginały, poczta POP3 i szkice pozostają chronione.
+admin-settings-key-maintenance-database-cached-body-retention-days = Okres przechowywania treści w pamięci podręcznej (dni)
+admin-settings-help-maintenance-database-cached-body-retention-days = Dni od jawnego użycia treści wiadomości, zwykle 60. Synchronizacja nagłówków i pobieranie w tle nie odnawiają tego okresu; starsze wiadomości otrzymują pełny okres ochronny.

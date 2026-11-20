@@ -2749,3 +2749,8 @@ admin-settings-key-mail-notices-enabled = Hinweise aktivieren
 admin-settings-help-mail-notices-enabled = Wiederverwendbarer Inhalt nach der Signatur, unabhängig davon. Vorlagen gehören zu diesem Konto. Text ist erforderlich; optionales HTML wird vor dem Senden bereinigt.
 admin-settings-key-mail-notices-templates = Nachrichtenhinweise
 admin-settings-help-mail-notices-templates = Alle Bedingungen müssen zutreffen. Leere Felder akzeptieren jeden Wert. Betreff und Text verwenden einfache Suche ohne Beachtung der Großschreibung. Interne Empfänger teilen die Absenderdomain oder eine vertrauenswürdige Domain. Manuelle Auswahl ersetzt die Regeln.
+
+admin-settings-key-maintenance-database-expire-cached-bodies = Inaktive zwischengespeicherte Nachrichtentexte entfernen
+admin-settings-help-maintenance-database-expire-cached-bodies = Inaktive zwischengespeicherte Nachrichten werden nur entfernt, wenn der aktive Dienst eine weitere Kopie herunterladen kann. Lokale Originale, POP3-Nachrichten und Entwürfe bleiben geschützt.
+admin-settings-key-maintenance-database-cached-body-retention-days = Aufbewahrung zwischengespeicherter Nachrichtentexte (Tage)
+admin-settings-help-maintenance-database-cached-body-retention-days = Tage seit der ausdrücklichen Nutzung des Nachrichtentexts, normalerweise 60. Kopfzeilenabgleich und Hintergrundvorladen verlängern diese Frist nicht; ältere Nachrichten erhalten eine vollständige Schonfrist.

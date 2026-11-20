@@ -38,6 +38,7 @@ import {keyedAttempt} from '../../api/recovery.ts';
 import { ApiError, NetworkError, PasswordChangeRequired, type Client, type LoginInput, type Me } from '../../api/client.ts';
 import {
   emailGetFull,
+  emailBodyUse,
   invalidRecipients,
   listMailbox,
   eventsViewCounts,
@@ -485,8 +486,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     return {...value,html};
   }
   async function fetchFullMessage(account:string,id:Id,signal:AbortSignal,background=false):Promise<CachedMailRead> {
-    const response=await jmapCall(emailGetFull(account,id),background?{signal,pace:'background'}:{signal});
+    const response=await jmapCall(emailGetFull(account,id,1_000_000,!background),background?{signal,pace:'background'}:{signal});
     const email=responseFor<EmailGetResponse>(response,'g').list[0]??null;
+    if(email&&!background)rememberBodyUse(account,id);
     const body=email?extractHtmlBody(email):'';
     // The reader's own mode, warmed at low priority so opening the message finds it cached.
     if(body)prefetchSanitized({op:'reader',html:body,blockTrackers:false,cleanLinks:true});
@@ -494,10 +496,44 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
   async function loadFullMessage(account:string,id:Id,signal:AbortSignal):Promise<Extract<CachedMailRead,{kind:'message'}>> {
     const owner=cacheOwner();
-    const value=owner?await readCache.load(owner,messageCacheKey(id),'message',s=>fetchFullMessage(account,id,s),
-      {signal,force:readMailCachePolicy().refreshOnOpen}):await fetchFullMessage(account,id,signal);
+    let fetched=false;
+    const fetch=(s:AbortSignal)=>{fetched=true;return fetchFullMessage(account,id,s);};
+    const value=owner?await readCache.load(owner,messageCacheKey(id),'message',fetch,
+      {signal,force:readMailCachePolicy().refreshOnOpen}):await fetch(signal);
     if(value.kind!=='message')throw new Error(t('mail-toast-load-more-failed'));
+    if(!fetched&&value.email&&!isOffline()&&!signal.aborted)await renewBodyUse(account,id,signal);
     return value;
+  }
+  const bodyUseRequests=new Map<string,number>();
+  const pendingBodyUse=new Map<string,Promise<void>>();
+  function bodyUseFresh(account:string,id:Id):boolean{
+    const previous=bodyUseRequests.get(JSON.stringify([account,id]));
+    const age=previous===undefined?-1:Date.now()-previous;
+    return age>=0&&age<3600000;
+  }
+  function rememberBodyUse(account:string,id:Id):void{
+    const key=JSON.stringify([account,id]);
+    if(bodyUseRequests.size>=512&&!bodyUseRequests.has(key))bodyUseRequests.delete(bodyUseRequests.keys().next().value!);
+    bodyUseRequests.set(key,Date.now());
+  }
+  function cachedForReader(id:Id):Extract<CachedMailRead,{kind:'message'}>|undefined{
+    const value=cachedMessage(id),account=accountId();
+    // The bounded CID/remote-content authorizer needs a server-side source.
+    // Paint resource-free cached text immediately; hydrate media after renewal.
+    if(value?.html&&!isOffline()&&account&&!bodyUseFresh(account,id)&&/<(?:img|source|video|audio)\b|\b(?:src|background)\s*=|url\s*\(/i.test(value.html))return;
+    return value;
+  }
+  async function renewBodyUse(account:string,id:Id,signal:AbortSignal):Promise<void>{
+    if(signal.aborted)return;
+    const key=JSON.stringify([account,id]);
+    if(bodyUseFresh(account,id))return;
+    const pending=pendingBodyUse.get(key);if(pending)return pending;
+    // Shared intent may serve several panes; closing one must not abort another.
+    // Transport deadlines still bound this small request.
+    const renewed=jmapCall(emailBodyUse(account,id),{pace:'background'}).then(()=>{
+      rememberBodyUse(account,id);
+    }).finally(()=>{if(pendingBodyUse.get(key)===renewed)pendingBodyUse.delete(key);});
+    pendingBodyUse.set(key,renewed);return renewed;
   }
   function prefetchMailbox(id:Id,trigger:PrefetchTrigger):()=>void {
     const owner=cacheOwner(),account=accountId(),box=mailboxes().find(value=>value.id===id);
@@ -519,7 +555,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   function createReaderView(): MessageView {
     const view = createMessageView({
       account: accountId,
-      cached:(_account,id)=>cachedMessage(id),
+      cached:(_account,id)=>cachedForReader(id),
       async load(account, id, signal) {
         try {
           if (isOffline()) throw new NetworkError('offline');
@@ -2029,7 +2065,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const acct=accountId();if(acct===null)return;
     cancelMarkRead();const generation=++legacyReadGeneration;legacyReadController?.abort();
     const controller=new AbortController();legacyReadController=controller;const current=captureMailAuthority();
-    const cached=cachedMessage(id);setOpenEmail(cached?.email??null);setSanitizedHtml(cached?.html??null);setReadLoading(!cached);
+    const cached=cachedForReader(id);setOpenEmail(cached?.email??null);setSanitizedHtml(cached?.html??null);setReadLoading(!cached);
     // Load-time measurement (perf/clientTiming.ts): this intent to the painted body.
     const probe=beginMessageLoad();if(cached?.email)probe.done(true);
     try{

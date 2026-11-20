@@ -314,6 +314,19 @@ impl Engine {
         }
     }
 
+    /// Current runtime proofs for automatic cache expiry. Persisted account kind
+    /// alone never grants permission to delete a cached original.
+    pub fn body_refetchable_accounts(&self)->Vec<String>{
+        self.accounts.lock().expect("accounts lock").iter().filter(|(_,runtime)|runtime.backend.supports_cached_body_refetch()).map(|(account,_)|account.clone()).collect()
+    }
+    pub(crate) async fn record_cached_body_use(&self,account:&str,id:&str)->Result<()>{
+        if self.runtime(account).is_some_and(|runtime|runtime.backend.supports_cached_body_refetch()){
+            self.store.register_refetchable_cached_body(account,id).await?;
+            self.store.renew_cached_body_use(account,id).await?;
+        }
+        Ok(())
+    }
+
     /// Install a guarded transport without replacing mailbox state or watch handles.
     pub fn configure_dav_transport(
         &self,
@@ -1043,6 +1056,10 @@ impl Engine {
             }, &raw.raw)
             .await?;
 
+        if matches!(raw.message_ref,MessageRef::Imap{..}) && self.runtime(account_id).is_some_and(|runtime|runtime.backend.supports_cached_body_refetch()){
+            self.store.register_refetchable_cached_body(account_id,&sid).await?;
+        }
+
         if let Some(uidl) = &uidl {
             self.store.record_uidl(account_id, uidl, &sid).await?;
         }
@@ -1463,7 +1480,7 @@ impl Engine {
         let Some(raw) = self.message_raw(account_id, stable_id).await? else {
             return Ok(None);
         };
-        match part_id {
+        let result = match part_id {
             None => Ok(Some(BlobData {
                 content_type: "message/rfc822".to_string(),
                 filename: format!("{stable_id}.eml"),
@@ -1485,7 +1502,9 @@ impl Engine {
                     bytes: part.bytes,
                 }))
             }
-        }
+        };
+        if result.as_ref().is_ok_and(|value|value.is_some()) { self.record_cached_body_use(account_id,stable_id).await?; }
+        result
     }
 
     /// Bounded CID path: only stored message parts, never uploads or an
@@ -1621,7 +1640,7 @@ impl Engine {
     /// Raw RFC822 bytes for a stable id, scoped to `account_id`: served from the
     /// sealed body cache, else pulled from the backend by the message's server
     /// coordinates. `Ok(None)` when the id is unknown or owned by another account.
-    async fn message_raw(&self, account_id: &str, stable_id: &str) -> Result<Option<Vec<u8>>> {
+    pub(crate) async fn message_raw(&self, account_id: &str, stable_id: &str) -> Result<Option<Vec<u8>>> {
         let msg = match self.store.get_message(stable_id).await {
             Ok(m) => m,
             Err(mw_store::StoreError::NotFound) => return Ok(None),
@@ -1642,7 +1661,25 @@ impl Engine {
         if let Some(mref) = self.imap_ref_for(stable_id).await? {
             let rt = self.require_runtime(account_id)?;
             let raws = rt.backend.fetch_raw(std::slice::from_ref(&mref)).await?;
+            if raws.len()>1 || raws.first().is_some_and(|raw|raw.message_ref!=mref){return Err(EngineError::Protocol("mismatched message-body refetch".into()));}
             if let Some(first) = raws.into_iter().next() {
+                if rt.backend.supports_cached_body_refetch(){
+                    let mut candidate=msg;
+                    let mut stored=false;
+                    for _ in 0..2 {
+                        self.require_runtime_generation(account_id,&rt)?;
+                        if self.store.cache_refetched_message_body(&candidate,&first.raw).await? {stored=true;break;}
+                        let current=self.store.get_message(stable_id).await?;
+                        if current.account_id!=account_id || current.mailbox_id!=candidate.mailbox_id || current.uidvalidity!=candidate.uidvalidity || current.uid!=candidate.uid {
+                            return Err(EngineError::Protocol("message moved during body refetch; retry the read".into()));
+                        }
+                        if let Some(raw)=self.cached_body_for_message(&current).await? {return Ok(Some(raw));}
+                        if current.blob_ref!=candidate.blob_ref {return Err(EngineError::Protocol("message body changed during refetch; retry the read".into()));}
+                        candidate=current;
+                    }
+                    if !stored{return Err(EngineError::Protocol("message kept changing during body refetch; retry the read".into()));}
+                    self.store.register_refetchable_cached_body(account_id,stable_id).await?;
+                }
                 return Ok(Some(first.raw));
             }
         }

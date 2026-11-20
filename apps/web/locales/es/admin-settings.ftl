@@ -2749,3 +2749,8 @@ admin-settings-key-mail-notices-enabled = Activar avisos
 admin-settings-help-mail-notices-enabled = Contenido reutilizable añadido después de la firma, de forma independiente. Las plantillas pertenecen a esta cuenta. El texto es obligatorio; el HTML opcional se sanea antes del envío.
 admin-settings-key-mail-notices-templates = Avisos de mensajes
 admin-settings-help-mail-notices-templates = Deben cumplirse todas las condiciones. Los campos vacíos aceptan cualquier valor. Asunto y cuerpo usan texto literal sin distinguir mayúsculas. Los internos comparten el dominio del remitente o uno de confianza. La selección manual sustituye las reglas.
+
+admin-settings-key-maintenance-database-expire-cached-bodies = Caducar cuerpos en caché inactivos
+admin-settings-help-maintenance-database-expire-cached-bodies = Elimine cuerpos de mensajes en caché inactivos solo cuando el servicio activo pueda descargar otra copia. Los originales locales, el correo POP3 y los borradores siguen protegidos.
+admin-settings-key-maintenance-database-cached-body-retention-days = Duración de los cuerpos en caché (días)
+admin-settings-help-maintenance-database-cached-body-retention-days = Días desde el uso explícito del cuerpo del mensaje, normalmente 60. La sincronización de cabeceras y la precarga en segundo plano no renuevan este plazo; los mensajes antiguos reciben un período de gracia completo.

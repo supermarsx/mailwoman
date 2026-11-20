@@ -248,7 +248,7 @@ export function listHeaderProperties(): string[] {
   return [...HEADER_PROPERTIES,'cc','bcc','replyTo','sentAt','messageId','inReplyTo','references',...DELIVERY_HEADER_PROPERTIES,...OPTIONAL_HEADER_PROPERTIES];
 }
 
-export function emailGetFull(accountId: Id, id: Id, maxBodyValueBytes = 1_000_000): JmapRequest {
+export function emailGetFull(accountId: Id, id: Id, maxBodyValueBytes = 1_000_000, bodyUse?:boolean): JmapRequest {
   return request(MAIL_USING, [
     [
       'Email/get',
@@ -259,10 +259,16 @@ export function emailGetFull(accountId: Id, id: Id, maxBodyValueBytes = 1_000_00
         fetchHTMLBodyValues: true,
         fetchTextBodyValues: true,
         maxBodyValueBytes,
+        ...(bodyUse!==undefined?{mailwomanBodyUse:bodyUse}:{}),
       },
       'g',
     ],
   ]);
+}
+
+/** Renew server cache inactivity after an actual reader open from the local cache. */
+export function emailBodyUse(accountId:Id,id:Id):JmapRequest{
+  return request(MAIL_USING,[['Email/get',{accountId,ids:[id],properties:['id'],mailwomanBodyUse:true},'body-use']]);
 }
 
 export * from './jmapCompose.ts';

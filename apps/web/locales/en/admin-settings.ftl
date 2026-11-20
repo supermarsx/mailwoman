@@ -2662,3 +2662,8 @@ admin-settings-key-observability-database-growth-alerts = Database growth alerts
 admin-settings-help-observability-database-growth-alerts = Alert on sustained database allocation growth; a large file alone does not trigger an alert.
 admin-settings-key-observability-database-growth-mi-bper-minute = Database growth warning threshold (MiB/minute)
 admin-settings-help-observability-database-growth-mi-bper-minute = Sustained database growth rate that should trigger an operator warning.
+
+admin-settings-key-maintenance-database-expire-cached-bodies = Expire inactive cached bodies
+admin-settings-help-maintenance-database-expire-cached-bodies = Remove inactive cached message bodies only when the active backend can download another copy. Local originals, POP3 mail and drafts remain protected.
+admin-settings-key-maintenance-database-cached-body-retention-days = Cached body lifetime (days)
+admin-settings-help-maintenance-database-cached-body-retention-days = Days since explicit message-body use, normally 60. Header sync and background prefetch do not renew this period; legacy cached messages receive a full grace period.

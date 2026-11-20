@@ -781,7 +781,15 @@ impl Store {
 
     /// Store the immutable MIME body and attach it atomically against background GC.
     pub async fn upsert_message_with_body(&self, m: &MessageUpsert<'_>, raw: &[u8]) -> Result<(String, bool), StoreError> {
-        let (blob_ref, sealed) = self.prepare_body(m.account_id,raw).await?;
+        let blob_ref=self.body_reference(m.account_id,raw);
+        // A header/full-sync replay must not refill an intentionally expired
+        // immutable body and immediately expire it again. Changed content or
+        // coordinates still get a normal cache fill; explicit reader refills use
+        // cache_refetched_message_body and bypass this background suppression.
+        let expired=q("SELECT m.stable_id FROM messages m JOIN message_body_cache_lease l ON l.stable_id=m.stable_id WHERE m.account_id=?1 AND m.mailbox_id=?2 AND m.uidvalidity=?3 AND m.uid=?4 AND m.blob_ref IS NULL AND l.blob_ref=?5 AND l.uidvalidity=m.uidvalidity AND l.uid=m.uid")
+            .bind(m.account_id).bind(m.mailbox_id).bind(i64::from(m.uidvalidity)).bind(i64::from(m.uid)).bind(&blob_ref).fetch_optional(&self.backend).await?.is_some();
+        if expired{return self.upsert_message_with_status(&MessageUpsert{blob_ref:None,..m.clone()}).await;}
+        let sealed=self.prepare_body_seal(m.account_id,raw,&blob_ref).await?;
         let mut tx = self.backend.begin().await?;
         self.put_body_tx(m.account_id, &blob_ref, raw, sealed, false, &mut tx).await?;
         let m = MessageUpsert { blob_ref: Some(&blob_ref), ..m.clone() };
@@ -1626,14 +1634,35 @@ impl Store {
         Ok(reference)
     }
 
+    /// Refill an expired cache only if the message still has the coordinates and
+    /// revision for which the backend returned bytes. Local originals never use
+    /// this entry point; the engine fences it with backend refetch capability.
+    pub async fn cache_refetched_message_body(&self, message:&Message, raw:&[u8])->Result<bool,StoreError>{
+        if message.uidvalidity==0 || message.uid==0{return Ok(false);}
+        let (reference,sealed)=self.prepare_body(&message.account_id,raw).await?;
+        let mut tx=self.backend.begin().await?;
+        self.put_body_tx(&message.account_id,&reference,raw,sealed,false,&mut tx).await?;
+        let n=q("UPDATE messages SET blob_ref=?1 WHERE stable_id=?2 AND account_id=?3 AND mailbox_id=?4 AND uidvalidity=?5 AND uid=?6 AND cache_revision=?7")
+            .bind(&reference).bind(&message.stable_id).bind(&message.account_id).bind(&message.mailbox_id).bind(i64::from(message.uidvalidity)).bind(i64::from(message.uid)).bind(&message.cache_revision).execute_tx(&mut tx).await?;
+        if n>0{q("DELETE FROM body_gc_candidate WHERE blob_ref=?1").bind(&reference).execute_tx(&mut tx).await?;}
+        tx.commit().await?;Ok(n>0)
+    }
+
     // Hashing and normally sealing happen before taking the database write lock.
-    async fn prepare_body(&self,account_id:&str,plaintext:&[u8])->Result<(String,Option<Vec<u8>>),StoreError>{
+    fn body_reference(&self,account_id:&str,plaintext:&[u8])->String{
         use sha2::{Digest,Sha256};
         let account_key=seal::hmac_sha256(&self.key.derive("mw-body-reference-v1"),account_id.as_bytes());
         let tag=seal::hmac_sha256(&account_key,&Sha256::digest(plaintext));
-        let reference:String=tag.iter().map(|byte|format!("{byte:02x}")).collect();
-        let exists=q("SELECT blob_ref FROM bodies WHERE blob_ref=?1 AND account_id=?2").bind(&reference).bind(account_id).fetch_optional(&self.backend).await?.is_some();
-        Ok((reference,if exists {None}else{Some(self.key.seal(plaintext)?)}))
+        tag.iter().map(|byte|format!("{byte:02x}")).collect()
+    }
+    async fn prepare_body(&self,account_id:&str,plaintext:&[u8])->Result<(String,Option<Vec<u8>>),StoreError>{
+        let reference=self.body_reference(account_id,plaintext);
+        let sealed=self.prepare_body_seal(account_id,plaintext,&reference).await?;
+        Ok((reference,sealed))
+    }
+    async fn prepare_body_seal(&self,account_id:&str,plaintext:&[u8],reference:&str)->Result<Option<Vec<u8>>,StoreError>{
+        let exists=q("SELECT blob_ref FROM bodies WHERE blob_ref=?1 AND account_id=?2").bind(reference).bind(account_id).fetch_optional(&self.backend).await?.is_some();
+        Ok(if exists {None}else{Some(self.key.seal(plaintext)?)} )
     }
     async fn put_body_tx(&self,account_id:&str,blob_ref:&str,plaintext:&[u8],prepared:Option<Vec<u8>>,lease:bool,tx:&mut crate::backend::Tx)->Result<(),StoreError>{
         crate::background_maintenance::lock_body_account(tx,account_id).await?;

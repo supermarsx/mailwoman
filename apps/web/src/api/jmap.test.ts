@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   draftCreateSpec,
   emailGetFull,
+  emailBodyUse,
   fetchThreadingHeaders,
   invalidRecipients,
   isMailbox,
@@ -45,6 +46,12 @@ describe('listMailbox', () => {
 });
 
 describe('emailGetFull', () => {
+  it('renews inactivity only for explicit reader intent, including local cache hits',()=>{
+    expect(emailGetFull('acct1','e5').methodCalls[0]![1]['mailwomanBodyUse']).toBeUndefined();
+    expect(emailGetFull('acct1','e5',1_000_000,true).methodCalls[0]![1]['mailwomanBodyUse']).toBe(true);
+    expect(emailGetFull('acct1','e5',1_000_000,false).methodCalls[0]![1]['mailwomanBodyUse']).toBe(false);
+    expect(emailBodyUse('acct1','e5').methodCalls).toEqual([['Email/get',{accountId:'acct1',ids:['e5'],properties:['id'],mailwomanBodyUse:true},'body-use']]);
+  });
   it('requests body values with bounded size', () => {
     const r = emailGetFull('acct1', 'e5');
     const [get] = r.methodCalls as [Invocation];

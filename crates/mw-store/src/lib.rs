@@ -39,6 +39,7 @@ pub mod pool_policy;
 mod message_cache;
 pub mod database_maintenance;
 pub mod background_maintenance;
+pub mod body_cache_expiry;
 pub mod folder_target;
 pub mod diagnostics;
 mod directory_display;

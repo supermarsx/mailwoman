@@ -805,6 +805,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'observability.database.growthMiBPerMinute',
   'maintenance.database.enabled',
   'maintenance.database.orphanBodies',
+  'maintenance.database.expireCachedBodies',
+  'maintenance.database.cachedBodyRetentionDays',
   'maintenance.database.incrementalVacuum',
   'maintenance.database.intervalSeconds',
   'maintenance.database.batchRows',

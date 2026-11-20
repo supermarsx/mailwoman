@@ -2735,3 +2735,8 @@ admin-settings-key-mail-notices-enabled = 注意書きを有効化
 admin-settings-help-mail-notices-enabled = 署名とは別に、その後に追加する再利用可能な内容です。テンプレートはこのアカウントに属します。テキストは必須で、任意のHTMLは送信前に安全化されます。
 admin-settings-key-mail-notices-templates = メッセージの注意書き
 admin-settings-help-mail-notices-templates = 設定した条件はすべて一致する必要があります。空欄はすべてに一致します。件名と本文は大文字小文字を区別しない文字列検索です。内部宛先は送信元または信頼済みのドメインを共有します。手動選択はルールを上書きします。
+
+admin-settings-key-maintenance-database-expire-cached-bodies = 未使用のキャッシュ本文を期限切れにする
+admin-settings-help-maintenance-database-expire-cached-bodies = 有効な接続先から別のコピーをダウンロードできる場合にのみ、未使用のキャッシュ本文を削除します。ローカルの原本、POP3 メール、下書きは保護されます。
+admin-settings-key-maintenance-database-cached-body-retention-days = キャッシュ本文の保持期間（日）
+admin-settings-help-maintenance-database-cached-body-retention-days = メッセージ本文を明示的に使用してからの日数です。通常は 60 日です。ヘッダー同期やバックグラウンドの先読みでは延長されません。既存のメールには保持期間全体の猶予が与えられます。

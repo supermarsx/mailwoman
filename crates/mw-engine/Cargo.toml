@@ -80,6 +80,7 @@ regex = { workspace = true }
 maxminddb = { workspace = true }
 
 [dev-dependencies]
+sqlx.workspace = true
 # The env-gated Radicale round-trip test names `mw_dav::DavConfig` (the public
 # type of `AccountRuntime.dav`); it is otherwise a normal dep of the lib.
 mw-dav = { workspace = true }

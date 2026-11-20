@@ -830,6 +830,12 @@ const TABLES: &[TableSpec] = &[
         map: |r| vec![t(r,"blob_ref"),i(r,"first_seen")],
     },
     TableSpec {
+        name: "message_body_cache_lease",
+        select: "SELECT stable_id,account_id,blob_ref,uidvalidity,uid,last_used_at FROM message_body_cache_lease",
+        insert: "INSERT INTO message_body_cache_lease(stable_id,account_id,blob_ref,uidvalidity,uid,last_used_at) VALUES(?1,?2,?3,?4,?5,?6)",
+        map: |r| vec![t(r,"stable_id"),t(r,"account_id"),t(r,"blob_ref"),i(r,"uidvalidity"),i(r,"uid"),i(r,"last_used_at")],
+    },
+    TableSpec {
         name: "threads",
         select: "SELECT thread_id, account_id, root_message_id FROM threads",
         insert: "INSERT INTO threads (thread_id, account_id, root_message_id) VALUES (?1,?2,?3)",

@@ -2761,3 +2761,8 @@ admin-settings-key-mail-notices-enabled = Включить примечания
 admin-settings-help-mail-notices-enabled = Повторно используемый текст после подписи, независимо от неё. Шаблоны относятся к этому аккаунту. Текст обязателен; необязательный HTML очищается перед отправкой.
 admin-settings-key-mail-notices-templates = Примечания к сообщениям
 admin-settings-help-mail-notices-templates = Должны выполняться все условия. Пустые поля подходят всем значениям. Тема и текст ищутся буквально без учёта регистра. Внутренние получатели используют домен отправителя или доверенный домен. Ручной выбор заменяет правила.
+
+admin-settings-key-maintenance-database-expire-cached-bodies = Удалять неиспользуемое содержимое из кэша
+admin-settings-help-maintenance-database-expire-cached-bodies = Удаляйте неиспользуемое содержимое сообщений из кэша, только если активная служба может загрузить другую копию. Локальные оригиналы, почта POP3 и черновики остаются защищёнными.
+admin-settings-key-maintenance-database-cached-body-retention-days = Срок хранения содержимого в кэше (дни)
+admin-settings-help-maintenance-database-cached-body-retention-days = Дни с момента явного использования содержимого сообщения, обычно 60. Синхронизация заголовков и фоновая предварительная загрузка не продлевают срок; старые сообщения получают полный льготный период.

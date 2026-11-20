@@ -2048,6 +2048,26 @@ describe('mail bootstrap authority', () => {
 });
 
 describe('session mail cache integration',()=>{
+ it('restores the server body before painting prefetched inline media and coalesces renewed opens',async()=>{
+  const message=email('media',{htmlBody:[part('body','text/html')],bodyValues:{body:{value:'<p>Hello</p><img src="cid:logo">'}}});
+  await withInbox([message],async(mail,{jmap})=>{
+   await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{
+    'mail.cache.prefetchEnabled':{value:true,source:'user',locked:false},'mail.cache.preloadMessages':{value:true,source:'user',locked:false},
+    'mail.cache.dwellMs':{value:0,source:'user',locked:false},'mail.cache.refreshOnOpen':{value:false,source:'user',locked:false},
+   }}))});
+   const stop=mail.prefetchMessage('media','hover');await vi.waitFor(()=>expect(mail.mailCacheStats().entries).toBe(1));stop();
+   let finish!:(value:JmapResponse)=>void;
+   jmap.mockClear();jmap.mockImplementationOnce(()=>new Promise<JmapResponse>(resolve=>{finish=resolve;}));
+   const opening=mail.openMessage('media');
+   await vi.waitFor(()=>expect(jmap).toHaveBeenCalledTimes(1));
+   expect((jmap.mock.calls[0]![0] as JmapRequest).methodCalls[0]![1]['mailwomanBodyUse']).toBe(true);
+   expect(mail.sanitizedHtml()).toBeNull();
+   finish({methodResponses:[['Email/get',{accountId:'acct1',list:[{id:'media'}]},'body-use']],sessionState:'s'});
+   await opening;expect(mail.sanitizedHtml()).toContain('cid:logo');
+   jmap.mockClear();await mail.openMessage('media');
+   expect(jmap.mock.calls.flatMap(([body])=>(body as JmapRequest).methodCalls).some(call=>call[2]==='body-use')).toBe(false);
+  });
+ });
  it('prefetches full messages without opening, marking read, receipt, or signing operations',async()=>{
   await withInbox([email('a')],async(mail,{jmap})=>{
    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.cache.prefetchEnabled':{value:true,source:'user',locked:false},'mail.cache.preloadMessages':{value:true,source:'user',locked:false},'mail.cache.dwellMs':{value:0,source:'user',locked:false}}}))});
@@ -2055,6 +2075,7 @@ describe('session mail cache integration',()=>{
    await vi.waitFor(()=>expect(mail.mailCacheStats().entries).toBe(1));
    expect(mail.openEmail()).toBeNull();
    expect(jmap.mock.calls.flatMap(([body])=>(body as JmapRequest).methodCalls.map(([method])=>method))).toEqual(['Email/get']);
+   expect((jmap.mock.calls[0]![0] as JmapRequest).methodCalls[0]![1]['mailwomanBodyUse']).toBe(false);
    stop();mail.clearMailCache();expect(mail.mailCacheStats().entries).toBe(0);
   });
  });

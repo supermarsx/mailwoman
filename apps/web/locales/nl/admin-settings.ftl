@@ -2743,3 +2743,8 @@ admin-settings-key-mail-notices-enabled = Mededelingen inschakelen
 admin-settings-help-mail-notices-enabled = Herbruikbare inhoud na de handtekening, onafhankelijk daarvan. Sjablonen horen bij dit account. Tekst is vereist; optionele HTML wordt vóór verzending opgeschoond.
 admin-settings-key-mail-notices-templates = Berichtmededelingen
 admin-settings-help-mail-notices-templates = Alle voorwaarden moeten overeenkomen. Lege velden passen overal bij. Onderwerp en tekst gebruiken letterlijke zoektekst zonder hoofdletterverschil. Interne ontvangers delen het afzenderdomein of een vertrouwd domein. Handmatige selectie vervangt de regels.
+
+admin-settings-key-maintenance-database-expire-cached-bodies = Inactieve berichtinhoud uit de cache laten verlopen
+admin-settings-help-maintenance-database-expire-cached-bodies = Verwijder inactieve berichtinhoud uit de cache alleen als de actieve dienst een andere kopie kan downloaden. Lokale originelen, POP3-berichten en concepten blijven beschermd.
+admin-settings-key-maintenance-database-cached-body-retention-days = Bewaartermijn van berichtinhoud in de cache (dagen)
+admin-settings-help-maintenance-database-cached-body-retention-days = Dagen sinds expliciet gebruik van de berichtinhoud, gewoonlijk 60. Koptekstsynchronisatie en vooraf laden op de achtergrond vernieuwen deze termijn niet; oudere berichten krijgen een volledige respijtperiode.

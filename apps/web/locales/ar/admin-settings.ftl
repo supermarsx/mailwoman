@@ -2765,3 +2765,8 @@ admin-settings-key-mail-notices-enabled = تفعيل الإشعارات
 admin-settings-help-mail-notices-enabled = محتوى قابل لإعادة الاستخدام يضاف بعد التوقيع بشكل مستقل. القوالب تخص هذا الحساب. النص مطلوب، وتُنقّى نسخة HTML الاختيارية قبل الإرسال.
 admin-settings-key-mail-notices-templates = إشعارات الرسائل
 admin-settings-help-mail-notices-templates = يجب تطابق جميع الشروط. الحقول الفارغة تقبل أي قيمة. البحث في الموضوع والنص حرفي ولا يميز حالة الأحرف. المستلمون الداخليون يشتركون في نطاق المرسل أو نطاق موثوق. الاختيار اليدوي يتجاوز القواعد.
+
+admin-settings-key-maintenance-database-expire-cached-bodies = إنهاء صلاحية محتوى الرسائل المخزّن غير النشط
+admin-settings-help-maintenance-database-expire-cached-bodies = أزل محتوى الرسائل غير النشط من الذاكرة المؤقتة فقط عندما تستطيع الخدمة النشطة تنزيل نسخة أخرى. تبقى النسخ الأصلية المحلية وبريد POP3 والمسودات محمية.
+admin-settings-key-maintenance-database-cached-body-retention-days = مدة الاحتفاظ بالمحتوى المؤقت بالأيام
+admin-settings-help-maintenance-database-cached-body-retention-days = الأيام منذ الاستخدام الصريح لمحتوى الرسالة، وعادةً 60 يوماً. لا تجدد مزامنة الترويسات أو الجلب المسبق في الخلفية هذه المدة؛ وتحصل الرسائل القديمة على فترة سماح كاملة.

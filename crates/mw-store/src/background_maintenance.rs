@@ -52,6 +52,8 @@ pub struct MaintenanceReport {
     pub elapsed_ms: u64,
     #[serde(default)]
     pub wal_recovery: Option<WalRecovery>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_body_expiry: Option<crate::body_cache_expiry::CachedBodyExpiryReport>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

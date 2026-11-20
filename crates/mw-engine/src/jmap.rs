@@ -1301,6 +1301,7 @@ impl Engine {
     /// here because one statement returning fifty message bodies trades a
     /// round-trip problem for a memory one, and nothing has measured that trade.
     async fn email_get(&self, account_id: &str, args: &Value) -> Value {
+        if args.get("mailwomanBodyUse").is_some_and(|value|!value.is_boolean()){return json!({"type":"invalidArguments"});}
         let empty = Vec::new();
         let requested: Vec<&str> = args
             .get("ids")
@@ -1309,6 +1310,23 @@ impl Engine {
             .iter()
             .filter_map(Value::as_str)
             .collect();
+        let body_use=args.get("mailwomanBodyUse").and_then(Value::as_bool).unwrap_or_else(||{
+            args.get("fetchHTMLBodyValues").and_then(Value::as_bool)==Some(true)
+                || args.get("fetchTextBodyValues").and_then(Value::as_bool)==Some(true)
+                || args.get("fetchAllBodyValues").and_then(Value::as_bool)==Some(true)
+                || args.get("properties").and_then(Value::as_array).is_some_and(|properties|properties.iter().any(|property|matches!(property.as_str(),Some("bodyValues"|"htmlBody"|"textBody"))))
+        });
+        if body_use{
+            for id in &requested{
+                match self.store().get_message(id).await{
+                    Ok(message) if message.account_id==account_id=>{
+                        if message.blob_ref.is_none(){if let Err(error)=self.message_raw(account_id,id).await{return server_fail(&error);}}
+                        if let Err(error)=self.record_cached_body_use(account_id,id).await{return server_fail(&error);}
+                    },
+                    Ok(_)|Err(mw_store::StoreError::NotFound)=>{},Err(error)=>return server_fail(&EngineError::Store(error)),
+                }
+            }
+        }
 
         // Whether the request reads the threading properties: it names one of
         // them, or names no properties at all. See `build_emails` for what that

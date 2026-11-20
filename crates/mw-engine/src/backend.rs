@@ -63,6 +63,9 @@ pub enum EngineError {
 /// the trait, so backends are developed fully in parallel against it.
 #[async_trait]
 pub trait AccountBackend: Send + Sync {
+    /// Explicit opt-in for expiring cached MIME with durable remote coordinates.
+    /// Local-only, destructive-retrieval and opaque plugin sources default safe.
+    fn supports_cached_body_refetch(&self) -> bool { false }
     /// Probe capabilities & special-use folders; called once per connect.
     async fn capabilities(&self) -> Result<BackendCaps>;
 

@@ -284,6 +284,8 @@ export interface EmailGetArgs {
   fetchHTMLBodyValues?: boolean;
   fetchTextBodyValues?: boolean;
   maxBodyValueBytes?: number;
+  /** Explicit reader intent; background prefetch and header sync omit this. */
+  mailwomanBodyUse?: boolean;
 }
 export interface EmailGetResponse {
   accountId: Id;

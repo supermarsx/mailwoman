@@ -2735,3 +2735,8 @@ admin-settings-key-mail-notices-enabled = 启用声明
 admin-settings-help-mail-notices-enabled = 独立于签名、添加在签名之后的可复用内容。模板属于此账户。纯文本为必填项；可选 HTML 会在发送前进行安全处理。
 admin-settings-key-mail-notices-templates = 邮件声明
 admin-settings-help-mail-notices-templates = 所有已配置条件均须匹配。空字段匹配任意值。主题和正文采用不区分大小写的字面文本匹配。内部收件人使用发件人域名或受信任域名。手动选择覆盖自动规则。
+
+admin-settings-key-maintenance-database-expire-cached-bodies = 清理长期未使用的缓存正文
+admin-settings-help-maintenance-database-expire-cached-bodies = 仅当当前连接服务能够重新下载副本时，才删除长期未使用的缓存正文。本地原件、POP3 邮件和草稿仍受保护。
+admin-settings-key-maintenance-database-cached-body-retention-days = 缓存正文保留时间（天）
+admin-settings-help-maintenance-database-cached-body-retention-days = 自明确使用邮件正文以来的天数，通常为 60 天。邮件头同步和后台预取不会延长此期限；旧缓存邮件会获得完整的宽限期。

@@ -163,6 +163,7 @@ async fn connect_session(
 
 #[async_trait]
 impl AccountBackend for ImapBackend {
+    fn supports_cached_body_refetch(&self) -> bool { true }
     async fn capabilities(&self) -> Result<BackendCaps> {
         Ok(self.caps.clone())
     }
