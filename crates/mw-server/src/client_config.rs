@@ -130,7 +130,7 @@ mod web_performance_tests {
         let thread=std::thread::Builder::new().stack_size(16*1024*1024).spawn(||{
             tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async{
                 let path=std::env::temp_dir().join(format!("mw-web-performance-{}.sqlite",uuid::Uuid::new_v4()));
-                let key=ServerKey::generate();let store=Store::open_file(&path,key.clone()).await.unwrap();
+                let key=ServerKey::generate();let store=Store::open(&path.to_string_lossy(),key.clone()).await.unwrap();
                 let (router,_)=crate::build_app_full(crate::AppConfig{db_path:path.to_string_lossy().into_owned(),server_key_hex:Some(key.to_hex()),web_dir:None,cookie_secure:false,mode:crate::ServerMode::Proxy,hardening:crate::HardeningConfig::default(),security:crate::SecurityConfig::default()},crate::V6Config{admin_enabled:false,..Default::default()}).await.unwrap();
                 let read=|router:axum::Router|async move{
                     let response=router.oneshot(Request::builder().uri("/api/public-config").header("host","localhost").body(Body::empty()).unwrap()).await.unwrap();
