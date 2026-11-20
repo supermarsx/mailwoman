@@ -1,4 +1,6 @@
 //! Real Email/set replay behavior: no phantom history, writes or upstream deltas.
+// Reuses this real backend fixture; no production query/publication switch.
+include!("mixed_query_contract_tests.rs");
 use super::*;
 use crate::account::MailSubmitter;
 use crate::backend::*;
