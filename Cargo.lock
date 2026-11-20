@@ -5664,6 +5664,7 @@ version = "26.19.0"
 dependencies = [
  "bytes",
  "chrono",
+ "libc",
  "mw-egress",
  "mw-observability",
  "mw-render",
