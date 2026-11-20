@@ -14,6 +14,16 @@ path = "src/lib.rs"
 name = "mailwoman"
 path = "src/main.rs"
 
+[features]
+# Opt-in isolated load fixtures can inject deterministic provider runtimes;
+# normal builds retain the production engine construction path.
+load-test-fixtures = []
+
+[[example]]
+name = "websocket-load"
+path = "examples/websocket-load.rs"
+required-features = ["load-test-fixtures"]
+
 [dependencies]
 mw-domain-config = { path = "../mw-domain-config" }
 mw-settings = { path = "../mw-settings" }

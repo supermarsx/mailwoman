@@ -561,6 +561,9 @@ async fn read_json(req: Request, limit: usize) -> Result<(Request, Option<Value>
 /// Whether anything is stored for `key` (a policy row, or a value at any admin
 /// scope, profiles included): with nothing stored every subject has the default.
 async fn key_in_use(state: &AppState, key: &str, request: &mut Request) -> bool {
+    crate::fixture_profile::measure(crate::fixture_profile::Phase::FeaturePresence, key_in_use_inner(state, key, request)).await
+}
+async fn key_in_use_inner(state: &AppState, key: &str, request: &mut Request) -> bool {
     let Ok(revision) = crate::settings_request_revision::get(&state.store, request).await else { return true; };
     state.store.administrator_setting_present_at(key, &revision).await.unwrap_or(true)
 }
@@ -674,6 +677,13 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
 }
 
 async fn check(
+    state: &AppState,
+    session: &mw_store::Session,
+    needs: &Needs,
+) -> Result<(), Response> {
+    crate::fixture_profile::measure(crate::fixture_profile::Phase::FeatureResolution, check_inner(state, session, needs)).await
+}
+async fn check_inner(
     state: &AppState,
     session: &mw_store::Session,
     needs: &Needs,

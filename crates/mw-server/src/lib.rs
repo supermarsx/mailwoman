@@ -235,6 +235,8 @@ mod retention_rules;
 mod retention_tiers;
 mod user_retention;
 mod diagnostics;
+#[doc(hidden)]
+pub mod fixture_profile;
 mod feature_gate;
 mod feature_jmap;
 mod delete_policy;
@@ -1121,7 +1123,21 @@ pub async fn build_app_full(
     config: AppConfig,
     v6config: V6Config,
 ) -> anyhow::Result<(Router, PushHandle)> {
-    build_app_inner(config, v6config, sso::SsoProviderSource::Store).await
+    build_app_inner(config, v6config, sso::SsoProviderSource::Store, None).await
+}
+
+/// Isolated load fixtures may install deterministic backend runtimes while
+/// exercising the production router, session checks and admission policies.
+/// This seam is absent from ordinary builds and never adds an HTTP bypass.
+#[cfg(feature = "load-test-fixtures")]
+#[doc(hidden)]
+pub async fn build_app_with_fixture_engine(
+    config: AppConfig,
+    v6config: V6Config,
+    factory: impl FnOnce(&Store) -> Arc<mw_engine::Engine> + Send + 'static,
+) -> anyhow::Result<(Router, PushHandle)> {
+    anyhow::ensure!(config.mode == ServerMode::Engine, "fixture engine requires engine mode");
+    build_app_inner(config, v6config, sso::SsoProviderSource::Store, Some(Box::new(factory))).await
 }
 
 /// Test seam (t9-e3 `sso_e2e`): build the app with mock [`mw_sso::SsoLogin`]
@@ -1139,6 +1155,7 @@ pub async fn build_app_with_sso_mock(
         config,
         v6config,
         sso::SsoProviderSource::Mock(Arc::new(map)),
+        None,
     )
     .await
 }
@@ -1147,6 +1164,7 @@ async fn build_app_inner(
     config: AppConfig,
     v6config: V6Config,
     sso_source: sso::SsoProviderSource,
+    engine_factory: Option<Box<dyn FnOnce(&Store) -> Arc<mw_engine::Engine> + Send>>,
 ) -> anyhow::Result<(Router, PushHandle)> {
     // Refuse the `MW_ADMIN_*` variables nothing applies, check the ones the security
     // policy overlay applies, and set the admin cookie name (t29-e6).
@@ -1209,7 +1227,10 @@ async fn build_app_inner(
     let engine = match config.mode {
         ServerMode::Engine => {
             tracing::info!("engine mode: driving IMAP/POP3 accounts behind the JMAP surface");
-            Some(engine_mode::build_engine(&store, &config.db_path))
+            Some(match engine_factory {
+                Some(factory) => factory(&store),
+                None => engine_mode::build_engine(&store, &config.db_path),
+            })
         }
         ServerMode::Proxy => None,
     };
@@ -1722,19 +1743,19 @@ fn router(
         // t98: feature profiles: refuse a feature that is off for the subject.
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            feature_gate::guard,
+            fixture_profile::features,
         ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            maintenance_mode::guard,
+            fixture_profile::maintenance,
         ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            linked_accounts::guard,
+            fixture_profile::linked_scope,
         ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            client_access::guard,
+            fixture_profile::client_access,
         ))
         // Admin console session id rotation (interval and after step-up).
         .layer(middleware::from_fn_with_state(
@@ -1748,30 +1769,30 @@ fn router(
         ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            signin_geography::session_guard,
+            fixture_profile::session_geo,
         ))
         // Session binding, theft detection and the country-change alert.
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            session_watch::guard,
+            fixture_profile::session_watch,
         ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            source_bans::guard,
+            fixture_profile::source_bans,
         ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            inbound_allowlist::guard,
+            fixture_profile::inbound_allowlist,
         ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            request_protection::guard,
+            fixture_profile::protection,
         ))
         // t100: a source blocked for probing for the console gets one answer for
         // every path, before any other source guard or route sees the request.
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            admin_probe::guard,
+            fixture_profile::probe,
         ))
         // V5 (plan §2.2; t31 D10): CORS/preflight for the native shell origins
         // (the Tauri origins plus `MW_NATIVE_ORIGINS`). Any other origin passes
@@ -1782,7 +1803,7 @@ fn router(
         // /readyz are never refused by it.
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            protocol_guard::guard,
+            fixture_profile::protocol,
         ))
         // Who may reach /healthz and /readyz. Outside every guard: a request it
         // does not admit becomes an unknown path, so no probe exemption applies.
@@ -1806,6 +1827,7 @@ fn router(
             state.clone(),
             http_metrics::layer,
         ))
+        .layer(middleware::from_fn(fixture_profile::request))
         .with_state(state.clone());
     // t20 B4: also serve the whole thing under `MW_BASE_PATH`. No-op when unset.
     let dispatcher=websocket_actions::Dispatcher(app.clone());
@@ -6101,19 +6123,25 @@ pub(crate) async fn authed_with_gate(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<(mw_store::Session, account_gate::AccountGate), Response> {
+    fixture_profile::measure(fixture_profile::Phase::Auth, authed_with_gate_inner(state, headers)).await
+}
+async fn authed_with_gate_inner(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(mw_store::Session, account_gate::AccountGate), Response> {
     let bearer = push_relay::bearer_token(headers);
     let mut session = match &bearer {
         Some(token) => authed_native(state, token).await?,
         None => authed_cookie(state, headers).await?,
     };
-    if linked_login::blocked(state,&session).await.map_err(|error|account_gate::unavailable("linked login policy",error))? {return Err(unauthorized());}
-    if let Err(response) = domain_upgrade::refresh_session(state, &mut session).await {
+    if fixture_profile::measure(fixture_profile::Phase::LinkedLogin, linked_login::blocked(state,&session)).await.map_err(|error|account_gate::unavailable("linked login policy",error))? {return Err(unauthorized());}
+    if let Err(response) = fixture_profile::measure(fixture_profile::Phase::DomainUpgrade, domain_upgrade::refresh_session(state, &mut session)).await {
         let _ = state.store.delete_session(&session.id).await;
         state.sessions.forget(&session.id);
         account_gate::stop_engine_work(state, &session.account_id);
         return Err(response);
     }
-    let gate = account_gate::for_session(&state.store, &session)
+    let gate = fixture_profile::measure(fixture_profile::Phase::AccountGate, account_gate::for_session(&state.store, &session))
         .await
         .map_err(|e| account_gate::unavailable("session", e))?;
     if gate.disabled {
@@ -6135,8 +6163,8 @@ pub(crate) async fn authed_with_gate(
         account_gate::stop_engine_work(state, &session.account_id);
         return Err(unauthorized());
     }
-    if let Some(context) = linked_accounts::resolve(state, headers, &session).await? {
-        let gate = account_gate::for_session(&state.store, &context)
+    if let Some(context) = fixture_profile::measure(fixture_profile::Phase::LinkedContext, linked_accounts::resolve(state, headers, &session)).await? {
+        let gate = fixture_profile::measure(fixture_profile::Phase::AccountGate, account_gate::for_session(&state.store, &context))
             .await
             .map_err(|e| account_gate::unavailable("linked session", e))?;
         request_protection::session_account(&context).await?;
@@ -6153,9 +6181,7 @@ async fn authed_cookie(
     headers: &HeaderMap,
 ) -> Result<mw_store::Session, Response> {
     let id = cookie_value(headers).ok_or_else(unauthorized)?;
-    let (session, last_seen) = state
-        .store
-        .get_primary_session_with_activity(&id)
+    let (session, last_seen) = fixture_profile::measure(fixture_profile::Phase::SessionRead, state.store.get_primary_session_with_activity(&id))
         .await
         .map_err(|_| unauthorized())?;
     if let Err(reason) = state.sessions.check(&id, &state.hardening) {
@@ -6164,10 +6190,13 @@ async fn authed_cookie(
         state.sessions.forget(&id);
         return Err(session_expired());
     }
-    security_center::enforce_session_clock(state, &session).await?;
+    fixture_profile::measure(fixture_profile::Phase::SessionClock, security_center::enforce_session_clock(state, &session)).await?;
     let flush_seconds = session_persistence::flush_seconds();
     if state.store.session_touch_may_be_due_at(last_seen.as_deref(), flush_seconds, chrono::Utc::now()) {
-        let _ = state.store.touch_session_throttled(&id, flush_seconds).await;
+        let _ = fixture_profile::measure(fixture_profile::Phase::SessionTouch,
+            state.store.touch_session_throttled(&id, flush_seconds)).await;
+    } else {
+        fixture_profile::measure(fixture_profile::Phase::SessionTouchSkipped, std::future::ready(())).await;
     }
     Ok(session)
 }
@@ -6178,13 +6207,11 @@ async fn authed_cookie(
 /// bearer token. Enforces the same idle/absolute timeouts as the cookie path.
 async fn authed_native(state: &AppState, token: &str) -> Result<mw_store::Session, Response> {
     let hash = push_relay::hash_token(token);
-    match state.store.get_native_session(&hash).await {
+    match fixture_profile::measure(fixture_profile::Phase::NativeRead, state.store.get_native_session(&hash)).await {
         Ok(Some(_)) => {}
         _ => return Err(unauthorized()),
     }
-    let session = state
-        .store
-        .get_primary_session(token)
+    let session = fixture_profile::measure(fixture_profile::Phase::SessionRead, state.store.get_primary_session(token))
         .await
         .map_err(|_| unauthorized())?;
     if let Err(reason) = state.sessions.check(token, &state.hardening) {
@@ -6194,11 +6221,9 @@ async fn authed_native(state: &AppState, token: &str) -> Result<mw_store::Sessio
         state.sessions.forget(token);
         return Err(session_expired());
     }
-    security_center::enforce_session_clock(state, &session).await?;
-    let _ = state
-        .store
-        .touch_session_throttled(token, session_persistence::flush_seconds())
-        .await;
+    fixture_profile::measure(fixture_profile::Phase::SessionClock, security_center::enforce_session_clock(state, &session)).await?;
+    let _ = fixture_profile::measure(fixture_profile::Phase::SessionTouch,
+        state.store.touch_session_throttled(token, session_persistence::flush_seconds())).await;
     Ok(session)
 }
 

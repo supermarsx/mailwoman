@@ -149,6 +149,9 @@ fn theft_action(s: &str) -> u8 {
     }
 }
 async fn config(state: &AppState) -> Config {
+    crate::fixture_profile::measure(crate::fixture_profile::Phase::SessionWatchConfig, config_inner(state)).await
+}
+async fn config_inner(state: &AppState) -> Config {
     let b = sec_cfg::values(&state.store, session_binding::PREFIX).await;
     let t = sec_cfg::values(&state.store, "security.theft.").await;
     let a = sec_cfg::values(&state.store, "security.alerts.").await;

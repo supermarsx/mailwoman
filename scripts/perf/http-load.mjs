@@ -21,23 +21,55 @@ export class Measurements {
 export async function measure({base,requests,concurrency,seconds,timeoutMs=10000,headers={},arrivalRate}){
   const aggregate=new Measurements(),byRequest=new Map(requests.map(request=>[request.name,new Measurements()]));
   if(!Number.isInteger(concurrency)||concurrency<1||concurrency>4096||!Number.isFinite(seconds)||seconds<=0||seconds>600||!requests.length||requests.length>100||!Number.isFinite(timeoutMs)||timeoutMs<1||timeoutMs>120000)throw new Error('Invalid bounded measurement parameters');
-  const start=performance.now(),deadline=start+seconds*1000;let sequence=0,acceptedWithinWindow=0;
+  const start=performance.now(),deadline=start+seconds*1000;let sequence=0,acceptedWithinWindow=0,activeCount=0;
+  const cpuStart=process.cpuUsage(),memoryStart=process.memoryUsage();
+  const participant=()=>({attempted:new Map(),accepted:new Map(),withinWindow:new Set()});
+  const principals=participant(),clients=participant();
+  const boundedIndex=value=>Number.isInteger(value)&&value>=0&&value<10000;
+  const increment=(counts,index)=>{if(boundedIndex(index))counts.set(index,(counts.get(index)??0)+1);};
+  const distribution=counts=>{let total=0,min=Infinity,max=0;for(const count of counts.values()){total+=count;min=Math.min(min,count);max=Math.max(max,count);}return {participants:counts.size,requests:total,min:counts.size?min:0,max,mean:counts.size?total/counts.size:0};};
   const scheduling=new Measurements(),arrivalLatency=new Measurements();
+  const principalQueues=new Map();
+  const taintedPrincipals=new Set();let mutationStateTainted=false,unknownMutationOutcomes=0,httpDispatchAttempts=0,blockedAfterMutationTaint=0,abortedUnscheduled=0;
   const send=async(planned=performance.now())=>{
-      const spec=requests[sequence++%requests.length],began=performance.now();
+      const index=sequence++,template=requests[index%requests.length],spec=template.materialize?{...template,...template.materialize(index,{requestCount:requests.length}),name:template.name}:template,began=performance.now();
+      increment(principals.attempted,spec.principalIndex);increment(clients.attempted,spec.clientIndex);
+      peakOutstanding=Math.max(peakOutstanding,++activeCount);
       scheduling.add(Math.max(0,began-planned),'scheduled',0,true);
       let status='network',bytes=0,ok=false,timedOut=false;
       const signal=AbortSignal.timeout(timeoutMs);
+      let unlock=null,dispatched=false;
       try{
+        if(spec.serializePrincipal){
+          if(!boundedIndex(spec.principalIndex))throw new Error('Serialized fixture requests require a bounded principal');
+          const previous=principalQueues.get(spec.principalIndex)??Promise.resolve();
+          let release;const current=new Promise(resolve=>{release=resolve;});
+          principalQueues.set(spec.principalIndex,current);
+          unlock=()=>{release();if(principalQueues.get(spec.principalIndex)===current)principalQueues.delete(spec.principalIndex);};
+          await previous;
+          if(mutationStateTainted){status='campaign-aborted';blockedAfterMutationTaint++;throw new Error('Mutation outcome is unknown; fixture state cannot be reused');}
+          signal.throwIfAborted();
+        }
+        if(mutationStateTainted){status='campaign-aborted';blockedAfterMutationTaint++;throw new Error('Mutation outcome is unknown; fixture state cannot be reused');}
+        dispatched=true;httpDispatchAttempts++;
         const response=await fetch(new URL(spec.path,base),{method:spec.method??'GET',headers:{...headers,...spec.headers},...(spec.body!==undefined?{body:spec.body}:{}),signal,redirect:'error'});
         status=String(response.status);const chunks=[];const reader=response.body?.getReader();
-        if(reader)for(;;){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(bytes>8*1024*1024){await reader.cancel();throw new Error('response too large');}if(spec.validate){if(bytes>65536){await reader.cancel();throw new Error('validation response too large');}chunks.push(part.value);}}
+        if(reader)for(;;){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(bytes>8*1024*1024){await reader.cancel();throw new Error('response too large');}if(spec.validate||spec.validateBytes){if(bytes>(spec.validate?65536:1024*1024)){await reader.cancel();throw new Error('validation response too large');}chunks.push(part.value);}}
         ok=(spec.statuses??[200]).includes(response.status);
         if(ok&&spec.validate&&response.status!==429)ok=spec.validate(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-      }catch{timedOut=signal.aborted;ok=false;}
+        if(ok&&spec.validateBytes&&response.status!==429)ok=spec.validateBytes(Buffer.concat(chunks));
+      }catch{timedOut=status!=='campaign-aborted'&&signal.aborted;ok=false;}finally{
+        // A client abort does not cancel a server mutation. Fence the queue
+        // before releasing it and never reuse an uncertain fixture state.
+        if(spec.statefulMutation&&dispatched&&!ok){mutationStateTainted=true;unknownMutationOutcomes++;if(boundedIndex(spec.principalIndex))taintedPrincipals.add(spec.principalIndex);}
+        unlock?.();
+      }
       const completed=performance.now(),elapsed=completed-began;
-      if(ok&&Number(status)>=200&&Number(status)<300&&completed<=deadline)acceptedWithinWindow++;
-      aggregate.add(elapsed,status,bytes,ok,timedOut);arrivalLatency.add(performance.now()-planned,status,bytes,ok,timedOut);byRequest.get(spec.name).add(elapsed,status,bytes,ok,timedOut);
+      if(ok&&Number(status)>=200&&Number(status)<300){
+        increment(principals.accepted,spec.principalIndex);increment(clients.accepted,spec.clientIndex);
+        if(completed<=deadline){acceptedWithinWindow++;if(boundedIndex(spec.principalIndex))principals.withinWindow.add(spec.principalIndex);if(boundedIndex(spec.clientIndex))clients.withinWindow.add(spec.clientIndex);}
+      }
+      aggregate.add(elapsed,status,bytes,ok,timedOut);arrivalLatency.add(performance.now()-planned,status,bytes,ok,timedOut);byRequest.get(spec.name).add(elapsed,status,bytes,ok,timedOut);activeCount--;
   };
   let offered=0,droppedCapacity=0,droppedScheduler=0,peakOutstanding=0;
   if(arrivalRate!==undefined){
@@ -46,6 +78,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
     // Batch due arrivals because JS timers cannot represent 10us slots. No
     // unbounded work queue: discard slots over 100ms late and cap outstanding.
     for(let slot=0;slot<total;){
+      if(mutationStateTainted){abortedUnscheduled=total-slot;break;}
       const now=performance.now(),due=start+slot*interval;
       if(now<due){await sleep(Math.max(1,due-now));continue;}
       if(now>=deadline){const missed=total-slot;droppedScheduler+=missed;offered+=missed;break;}
@@ -65,16 +98,19 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
       await sleep(1);
     }
     await Promise.all(pending);
-    if(performance.now()<deadline)await sleep(deadline-performance.now());
+    if(!mutationStateTainted&&performance.now()<deadline)await sleep(deadline-performance.now());
   }else{
-    await Promise.all(Array.from({length:concurrency},async()=>{while(performance.now()<deadline)await send();}));
+    await Promise.all(Array.from({length:concurrency},async()=>{while(!mutationStateTainted&&performance.now()<deadline)await send();}));
   }
   const elapsed=(performance.now()-start)/1000;
-  return {concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,droppedCapacity,droppedScheduler,peakOutstanding,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,value.report(elapsed)]))};
+  const cpu=process.cpuUsage(cpuStart),memoryEnd=process.memoryUsage();
+  return {mutationStateTainted,unknownMutationOutcomes,taintedPrincipals:taintedPrincipals.size,httpDispatchAttempts,blockedAfterMutationTaint,abortedUnscheduled,uniquePrincipalsAccepted:principals.accepted.size,uniquePrincipalsAttempted:principals.attempted.size,uniquePrincipalsAcceptedDuringScheduledWindow:principals.withinWindow.size,uniqueClientsAttempted:clients.attempted.size,uniqueClientsAccepted:clients.accepted.size,uniqueClientsAcceptedDuringScheduledWindow:clients.withinWindow.size,participantDistribution:{principals:{attempted:distribution(principals.attempted),accepted:distribution(principals.accepted)},simulatedClients:{attempted:distribution(clients.attempted),accepted:distribution(clients.accepted)}},peakOutstanding,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,generator:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,cpuLogicalCores:(cpu.user+cpu.system)/(elapsed*1000000),rssBeforeBytes:memoryStart.rss,rssAfterBytes:memoryEnd.rss,heapAfterBytes:memoryEnd.heapUsed},concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,droppedCapacity,droppedScheduler,peakOutstanding,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,value.report(elapsed)]))};
 }
 
 export function markdownReport(report){
- return `# HTTP load report\n\nTarget: ${report.target}\n\nScenario: ${report.scenario}; runtime: ${report.runtime}. ${report.model}.${report.protection?' Protection: '+report.protection+'.':''}\n\n| Fixture protection | Offered RPS | Attempted | Accepted | Completed RPS | Accepted RPS | p50/p95/p99 ms | Errors | 429 | Timeouts | Capacity/scheduler drops | Lag p99 ms |\n| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | ---: |\n`+report.stages.map(s=>`| ${s.fixtureProtection===undefined?'see scenario':s.fixtureProtection?'on (simulated)':'off (simulated)'} | ${s.arrivalRate??'closed-loop'} | ${s.requests} | ${s.accepted} | ${s.requestsPerSecond.toFixed(1)} | ${s.acceptedRequestsPerSecond.toFixed(1)} | ${s.latencyMs.p50}/${s.latencyMs.p95}/${s.latencyMs.p99} | ${s.errors} | ${s.throttled} | ${s.timeouts} | ${s.droppedCapacity??0}/${s.droppedScheduler??0} | ${s.schedulingLagMs?.p99??0} |`).join('\n')+'\n\nDropped arrivals have no response latency and must be evaluated alongside percentiles. This report alone is not a production capacity claim.\n';
+ const readiness=report.startupReadiness;
+ const startup=readiness?.verified===true?`Startup index readiness verified: ${readiness.indexDocuments}/${readiness.expectedIndexDocuments} documents; ${Number(readiness.startupSeconds).toFixed(1)} s startup, ${Number(readiness.indexWaitSeconds).toFixed(1)} s index wait; ${readiness.zeroAccessExcludedMessages} policy-excluded messages.`:'Startup index readiness was not measured in this report.';
+ return `# HTTP load report\n\nTarget: ${report.target}\n\nScenario: ${report.scenario}; runtime: ${report.runtime}. ${report.model}.${report.protection?' Protection: '+report.protection+'.':''}\n\n${startup}\n\n| Phase / endpoint / outstanding requests | Fixture protection | Offered RPS | Attempted | Accepted | Completed RPS | Accepted RPS | p50/p95/p99 ms | Errors | 429 | Timeouts | Capacity/scheduler drops | Lag p99 ms |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | ---: |\n`+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} / ${s.concurrency} | ${s.fixtureProtection===undefined?'see scenario':s.fixtureProtection?'on (simulated)':'off (simulated)'} | ${s.arrivalRate??'closed-loop'} | ${s.requests} | ${s.accepted} | ${s.requestsPerSecond.toFixed(1)} | ${s.acceptedRequestsPerSecond.toFixed(1)} | ${s.latencyMs.p50}/${s.latencyMs.p95}/${s.latencyMs.p99} | ${s.errors} | ${s.throttled} | ${s.timeouts} | ${s.droppedCapacity??0}/${s.droppedScheduler??0} | ${s.schedulingLagMs?.p99??0} |`).join('\n')+'\n\n| Phase / endpoint | Distinct users attempted / accepted | Simulated clients attempted / accepted | Accepted requests per user min / max |\n| --- | ---: | ---: | ---: |\n'+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} | ${s.uniquePrincipalsAttempted??0} / ${s.uniquePrincipalsAccepted??0} | ${s.uniqueClientsAttempted??0} / ${s.uniqueClientsAccepted??0} | ${s.participantDistribution?.principals.accepted.min??0} / ${s.participantDistribution?.principals.accepted.max??0} |`).join('\n')+'\n\nSimulated client addresses are a fixture proxy model, not separate physical generator hosts. Zero tracked identities is not evidence of multi-user load. Dropped arrivals have no response latency and must be evaluated alongside percentiles. This report alone is not a production capacity claim.\n';
 }
 
 async function main(){
@@ -111,10 +147,10 @@ async function main(){
  const profile=args.profile??'sustained',rates=(args.rates??'20000,50000,100000').split(',').map(Number);
  if(!['sustained','burst','peak'].includes(profile)||rates.length>10||!rates.length||rates.some(n=>!Number.isFinite(n)||n<1||n>100000))throw new Error('Invalid bounded profile/rates');
  const stages=args.profile?(profile==='sustained'?rates.map(rate=>({rate,duration:seconds})):profile==='burst'?[{rate:rates[0],duration:seconds},{rate:rates.at(-1),duration:Math.min(5,seconds)},{rate:rates[0],duration:seconds}]:[...rates,...rates.slice(0,-1).reverse()].map(rate=>({rate,duration:seconds}))):[{rate:arrivalRate,duration:seconds}];
- const report={profile:args.profile??'custom',generatedAt:new Date().toISOString(),target:base.origin,scenario,model:!args.profile&&arrivalRate===undefined?'closed-loop concurrent clients; not an open-loop capacity claim':'fixed arrival rate with bounded outstanding requests; dropped arrivals reported separately',runtime:process.version,stages:[]};
+ const report={profile:args.profile??'custom',generatedAt:new Date().toISOString(),target:base.origin,scenario,model:!args.profile&&arrivalRate===undefined?'single-session diagnostic; closed-loop concurrent requests; not multi-user capacity':'single-session diagnostic; fixed arrival rate with bounded outstanding requests; dropped arrivals reported separately',runtime:process.version,workload:'single-session-diagnostic',stages:[]};
  try{
    if(warmup)await measure({base,requests,headers,concurrency:1,seconds:warmup,timeoutMs});
-   for(const concurrency of levels)for(const stage of stages){const result=await measure({base,requests,headers,concurrency,seconds:stage.duration,timeoutMs,arrivalRate:stage.rate});report.stages.push(result);console.log(`${scenario}: clients=${concurrency}, requests=${result.requests}, rps=${result.requestsPerSecond.toFixed(1)}, p95=${result.latencyMs.p95}ms, p99=${result.latencyMs.p99}ms, errors=${result.errors}, throttled=${result.throttled}, timeouts=${result.timeouts}, dropped=${(result.droppedCapacity??0)+(result.droppedScheduler??0)}`);}
+   for(const concurrency of levels)for(const stage of stages){const result=await measure({base,requests,headers,concurrency,seconds:stage.duration,timeoutMs,arrivalRate:stage.rate});report.stages.push(result);console.log(`${scenario}: outstanding=${concurrency}, requests=${result.requests}, rps=${result.requestsPerSecond.toFixed(1)}, p95=${result.latencyMs.p95}ms, p99=${result.latencyMs.p99}ms, errors=${result.errors}, throttled=${result.throttled}, timeouts=${result.timeouts}, dropped=${(result.droppedCapacity??0)+(result.droppedScheduler??0)}`);}
    const health=await fetch(new URL('/healthz',base),{redirect:'error',signal:AbortSignal.timeout(timeoutMs)});report.healthyAfter=health.status===200;await health.body?.cancel();
  }finally{if(ownLogin){try{const response=await fetch(new URL('/api/logout',base),{method:'POST',headers,redirect:'error',signal:AbortSignal.timeout(timeoutMs)});await response.body?.cancel();}catch{/* Report measurements even if fixture-session cleanup fails. */}}}
  const output=resolve(args.output??'.orchestration/reports/http-load.json');await mkdir(dirname(output),{recursive:true});await writeFile(output,JSON.stringify(report,null,2)+'\n');await writeFile(output.replace(/\.json$/,'')+'.md',markdownReport(report));

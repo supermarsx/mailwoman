@@ -61,12 +61,24 @@ test('success completed during drain is excluded from actual in-window accepted 
   assert.ok(result.acceptedRequestsPerSecond>0);assert.ok(result.elapsedSeconds>result.scheduledSeconds);
  }finally{await host.close();}
 });
+
+test('principal rotation preserves fixed labels, validates each identity and redacts credentials',async()=>{
+ const server=createServer((req,res)=>{const p=req.headers['x-test-principal'];res.setHeader('content-type','application/json');res.end(JSON.stringify({principal:p,valid:req.headers.cookie===`private-cookie-${p}`}));});
+ await new Promise(done=>server.listen(0,'127.0.0.1',done));
+ try{
+  const result=await measure({base:`http://127.0.0.1:${server.address().port}`,concurrency:2,seconds:.2,arrivalRate:100,requests:[{name:'fixed-operation',path:'/',materialize:index=>{const principalIndex=index%3;return {name:'private-cookie-leak',principalIndex,headers:{cookie:`private-cookie-${principalIndex}`,'x-test-principal':String(principalIndex)},validate:v=>v.valid&&v.principal===String(principalIndex)};}}]});
+  assert.equal(result.uniquePrincipalsAttempted,3);assert.equal(result.uniquePrincipalsAccepted,3);assert.equal(result.errors,0);
+  assert.deepEqual(Object.keys(result.byRequest),['fixed-operation']);assert.ok(!JSON.stringify(result).includes('private-cookie'));
+ }finally{server.closeAllConnections();await new Promise(done=>server.close(done));}
+});
 test('actual concurrent HTTP run reports application errors despite HTTP200',async()=>{
  const server=createServer((req,res)=>{res.setHeader('content-type','application/json');res.end(JSON.stringify({ok:req.url==='/good'}));});
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  try{
  const result=await measure({base:`http://127.0.0.1:${server.address().port}`,concurrency:3,seconds:1,requests:[{name:'good',path:'/good',validate:body=>body.ok},{name:'bad',path:'/bad',validate:body=>body.ok}]});
  assert.ok(result.requests>10);assert.ok(result.errors>0);assert.equal(result.byRequest.good.errors,0);assert.equal(result.byRequest.bad.errors,result.byRequest.bad.requests);assert.equal(result.timeouts,0);
+ assert.ok(result.peakOutstanding<=3);assert.ok(result.peakOutstanding>0);
+ assert.ok(result.generator.cpuUserMs>=0);assert.ok(result.generator.rssAfterBytes>0);
  }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
 test('explicitly accepted throttling remains visible rather than counting as successful mail',async()=>{
