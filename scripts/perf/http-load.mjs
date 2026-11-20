@@ -132,7 +132,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
       await sleep(1);
     }
     await Promise.all(pending);
-    if(!mutationStateTainted&&performance.now()<deadline)await sleep(deadline-performance.now());
+    while(!mutationStateTainted&&performance.now()<deadline)await sleep(Math.max(1,deadline-performance.now()));
   }else{
     await Promise.all(Array.from({length:concurrency},async()=>{while(!mutationStateTainted&&performance.now()<deadline)await send();}));
   }
