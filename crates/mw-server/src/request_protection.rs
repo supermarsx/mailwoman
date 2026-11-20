@@ -196,11 +196,14 @@ impl Context {
             _ => crate::trust_tier::Tier::Unknown,
         }
     }
-    async fn admit(&self, kind: &'static str, value: &str) -> Result<(), AdminApiError> {
+    fn admission_policy(&self, kind: &'static str, value: &str) -> Option<Policy> {
         if !self.legacy_route && !kind.starts_with("ua-") {
-            return Ok(());
+            return None;
         }
-        let Some(mut policy) = self.config.subject(kind, value) else {
+        self.config.subject(kind, value)
+    }
+    async fn admit(&self, kind: &'static str, value: &str) -> Result<(), AdminApiError> {
+        let Some(mut policy) = self.admission_policy(kind, value) else {
             return Ok(());
         };
         // A verified image/inline-part capability belongs to the already
@@ -342,6 +345,16 @@ pub(crate) async fn session_account(session: &mw_store::Session) -> Result<(), R
             .map_err(|_| response(unavailable()))?
     };
     context.admit("account", &key).await.map_err(response)
+}
+/// Request-owned budget evidence only, never an authentication decision. A
+/// contended/uncharged context uses the existing complete admission path.
+pub(crate) fn native_account_already_admitted(account: &str) -> bool {
+    let Some(context) = REQUEST.try_with(Arc::clone).ok() else { return true; };
+    if context.state.engine.is_none() { return false; }
+    if context.admission_policy("account", account).is_none() { return true; }
+    context.charged.try_lock().is_ok_and(|charged| {
+        charged.iter().any(|subject| subject.kind == "account" && subject.value == account)
+    })
 }
 /// A legacy key carries no verified proxy service realm. Never choose an arbitrary
 /// session sharing its upstream-local ID to manufacture that missing authority.

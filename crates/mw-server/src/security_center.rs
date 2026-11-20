@@ -34,9 +34,9 @@ fn error(what: &str, e: impl std::fmt::Display) -> Response {
 /// Only the two live timeout settings needed by authenticated requests.
 /// The full login/2FA policy is deliberately kept for its existing callers.
 #[derive(Debug, PartialEq, Eq)]
-struct ClockPolicy {
-    idle_secs: u64,
-    absolute_secs: u64,
+pub(crate) struct ClockPolicy {
+    pub(crate) idle_secs: u64,
+    pub(crate) absolute_secs: u64,
 }
 async fn clock_policy(
     store: &mw_store::Store,
@@ -60,13 +60,22 @@ async fn clock_policy(
         &revision,
     )
     .await?;
+    Ok(clock_policy_from_values(&values, idle_cap, absolute_cap))
+}
+/// Shared pure timeout interpretation. Supplied policy data must already have
+/// been resolved at the fresh admission revision.
+pub(crate) fn clock_policy_from_values(
+    values: &[crate::settings_registry::Effective],
+    idle_cap: u64,
+    absolute_cap: u64,
+) -> ClockPolicy {
     let value = |key: &str, fallback: Value| {
         values
             .iter()
             .find(|value| value.key == key)
             .map_or(fallback, |entry| entry.value.clone())
     };
-    Ok(ClockPolicy {
+    ClockPolicy {
         idle_secs: value(
             "session.idleSecs",
             json!(crate::hardening::MAILBOX_IDLE_SECS),
@@ -80,8 +89,9 @@ async fn clock_policy(
                 .unwrap_or(crate::hardening::MAILBOX_ABSOLUTE_CAP_SECS),
             absolute_cap,
         ),
-    })
+    }
 }
+
 
 pub(crate) async fn policy(
     state: &AppState,

@@ -102,6 +102,36 @@ pub(crate) async fn resolve_snapshot(
         .await
         .map_err(|_| ResolveError::NotConfigured)?
         .is_some_and(|v| v.value == "listed");
+    let configured = match resolve_configured(snapshot, engine, listed)? {
+        Configured::Resolved(upstream, config) => return Ok((upstream, config)),
+        Configured::Fallback(config) => config,
+    };
+    if let Some(default) =
+        crate::settings_registry::effective_for(store, "upstream.default", &subject)
+            .await
+            .map_err(|_| ResolveError::NotConfigured)?
+            .and_then(|v| v.value.as_str().map(str::to_string))
+    {
+        return if fits_mode(engine, &default) {
+            Ok((wrap(engine, default), configured))
+        } else {
+            Err(ResolveError::NotConfigured)
+        };
+    }
+    resolve_from_config(security, engine).map(|upstream| (upstream, configured))
+}
+
+/// The ordinary resolver's configured-domain stage, with no SQL or fallback
+/// authority. Composite admission supports only Resolved, never Fallback.
+pub(crate) enum Configured {
+    Resolved(Upstream, Option<crate::domain_config::UpstreamConfig>),
+    Fallback(Option<crate::domain_config::UpstreamConfig>),
+}
+pub(crate) fn resolve_configured(
+    snapshot: &crate::domain_config::IdentitySnapshot,
+    engine: bool,
+    listed: bool,
+) -> Result<Configured, ResolveError> {
     let mut configured = None;
     match &snapshot.row {
         Some(row) => {
@@ -115,7 +145,7 @@ pub(crate) async fn resolve_snapshot(
             let config = configured.as_ref().expect("configuration parsed above");
             if let Some(ews) = &config.ews {
                 return if engine {
-                    Ok((
+                    Ok(Configured::Resolved(
                         Upstream::Ews(
                             ews.endpoint()
                                 .map_err(|_| ResolveError::NotConfigured)?
@@ -132,14 +162,14 @@ pub(crate) async fn resolve_snapshot(
             }
             if engine {
                 if let Some((endpoint, protocol)) = config.mail() {
-                    return Ok((Upstream::Mail(endpoint.mail_url(protocol)), configured));
+                    return Ok(Configured::Resolved(Upstream::Mail(endpoint.mail_url(protocol)), configured));
                 }
                 if config.jmap.is_some() {
                     return Err(ResolveError::NotConfigured);
                 }
             } else {
                 if let Some(jmap) = &config.jmap {
-                    return Ok((Upstream::Jmap(jmap.session_url.clone()), configured));
+                    return Ok(Configured::Resolved(Upstream::Jmap(jmap.session_url.clone()), configured));
                 }
                 if config.mail().is_some() {
                     return Err(ResolveError::NotConfigured);
@@ -149,19 +179,7 @@ pub(crate) async fn resolve_snapshot(
         None if listed => return Err(ResolveError::NotConfigured),
         None => {}
     }
-    if let Some(default) =
-        crate::settings_registry::effective_for(store, "upstream.default", &subject)
-            .await
-            .map_err(|_| ResolveError::NotConfigured)?
-            .and_then(|v| v.value.as_str().map(str::to_string))
-    {
-        return if fits_mode(engine, &default) {
-            Ok((wrap(engine, default), configured))
-        } else {
-            Err(ResolveError::NotConfigured)
-        };
-    }
-    resolve_from_config(security, engine).map(|upstream| (upstream, configured))
+    Ok(Configured::Fallback(configured))
 }
 
 /// Steps 2-4: the deployment-wide configuration.

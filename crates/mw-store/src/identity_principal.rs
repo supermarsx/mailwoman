@@ -70,6 +70,16 @@ fn personal_subject(parts: impl IntoIterator<Item = impl AsRef<str>>) -> String 
 }
 
 impl Store {
+    pub(crate) fn native_subjects_for_verified_account(&self, account: &str) -> VerifiedSessionSubjects {
+        let parts = ["native", account];
+        VerifiedSessionSubjects {
+            policy: VerifiedPolicySubject {
+                personal_subject: personal_subject(parts),
+                native_account: Some(account.to_owned()),
+            },
+            storage_authority: self.storage_authority_for_parts(&parts.map(str::to_owned)),
+        }
+    }
     /// Opaque browser-storage namespace. Raw upstream account IDs are not globally
     /// unique and must never serve as an authority for persisted private data.
     async fn verified_personal_parts(

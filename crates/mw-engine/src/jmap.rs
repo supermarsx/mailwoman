@@ -5686,7 +5686,7 @@ use crate::header_projection::TEXT_HEADERS as READABLE_TEXT_HEADERS;
 
 /// Positive routing guard: unknown extensions and explicit body properties keep
 /// their existing full-envelope semantics, even when body-fetch flags are false.
-fn metadata_envelope_only(args: &Value) -> bool {
+pub fn metadata_envelope_only(args: &Value) -> bool {
     if args.get("mailwomanBodyUse").and_then(Value::as_bool) == Some(true)
         || ["fetchHTMLBodyValues", "fetchTextBodyValues", "fetchAllBodyValues"]
             .iter().any(|key| args.get(*key).and_then(Value::as_bool) == Some(true))

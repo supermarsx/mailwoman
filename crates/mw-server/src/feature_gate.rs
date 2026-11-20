@@ -34,6 +34,9 @@
 
 #[path = "feature_auth_boundary.rs"]
 mod auth_boundary;
+#[path = "native_metadata_admission.rs"]
+mod native_metadata_admission;
+pub(crate) use native_metadata_admission::try_dispatch as try_composite_metadata;
 pub(crate) use auth_boundary::{BoundaryError, DeferredJmapFeatures, authenticate_deferred};
 #[cfg(test)]
 pub(crate) use auth_boundary::{record_auth as record_test_auth, pause_during_final_auth};
@@ -754,16 +757,7 @@ async fn check_inner(
     .await
     .map_err(|_| unavailable())?;
     let get = |key: &str| values.iter().find(|v| v.key == key).map(|v| &v.value);
-    for id in &features {
-        let Some(f) = crate::features::feature(id) else {
-            continue;
-        };
-        for key in f.capability_keys {
-            if get(key).and_then(Value::as_bool) != Some(true) {
-                return Err(disabled(id, key));
-            }
-        }
-    }
+    check_feature_values(&features, &values)?;
     if needs.protocol && session.jmap_url == "engine" {
         let allowed = get("access.protocols").and_then(Value::as_array);
         // A policy that cannot be read as a list never locks anyone out.
@@ -777,19 +771,10 @@ async fn check_inner(
                 Err(mw_store::StoreError::NotFound) => None,
                 Err(_) => return Err(unavailable()),
             };
-            if let Some(kind) = kind
-                && !allowed.iter().any(|p| p.as_str() == Some(kind))
-            {
-                return Err(disabled("access.protocols", "access.protocols"));
-            }
+            check_protocol_kind(allowed, kind)?;
         }
     }
-    for key in &needs.required {
-        // Absent means the default (on); only an explicit `false` refuses.
-        if get(key).and_then(Value::as_bool) == Some(false) {
-            return Err(setting_off(key));
-        }
-    }
+    check_required_values(&needs.required, &values)?;
     let limit = |key: &str| get(key).and_then(Value::as_u64).filter(|n| *n > 0);
     if needs.link_limit
         && let Some(max) = limit("limit.linked_mailboxes")
@@ -826,6 +811,40 @@ async fn check_inner(
             "limit.recipients_per_message",
             max,
         ));
+    }
+    Ok(())
+}
+
+fn check_protocol_kind(allowed: &[Value], kind: Option<&str>) -> Result<(), Response> {
+    if let Some(kind) = kind
+        && !allowed.iter().any(|entry| entry.as_str() == Some(kind))
+    {
+        return Err(disabled("access.protocols", "access.protocols"));
+    }
+    Ok(())
+}
+fn check_feature_values(features: &BTreeSet<&str>, values: &[registry::Effective]) -> Result<(), Response> {
+    let get = |key: &str| values.iter().find(|value| value.key == key).map(|value| &value.value);
+    for id in features {
+        let Some(f) = crate::features::feature(id) else {
+            continue;
+        };
+        for key in f.capability_keys {
+            if get(key).and_then(Value::as_bool) != Some(true) {
+                return Err(disabled(id, key));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn check_required_values(required: &[&str], values: &[registry::Effective]) -> Result<(), Response> {
+    let get = |key: &str| values.iter().find(|value| value.key == key).map(|value| &value.value);
+    for key in required {
+        // Absent means the default (on); only an explicit `false` refuses.
+        if get(key).and_then(Value::as_bool) == Some(false) {
+            return Err(setting_off(key));
+        }
     }
     Ok(())
 }

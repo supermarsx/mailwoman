@@ -48,7 +48,7 @@ pub(super) fn eligible(state: &AppState, request: &Request) -> bool {
         .get::<SettingsReadRevision>()
         .is_some_and(|proof| proof.scope() == state.store.cache_scope() && proof.number().is_some())
 }
-fn same_session(hint: &Session, authenticated: &Session) -> bool {
+pub(super) fn same_session(hint: &Session, authenticated: &Session) -> bool {
     hint.id == authenticated.id
         && hint.account_id == authenticated.account_id
         && hint.username == authenticated.username
@@ -60,7 +60,7 @@ const REFUSAL_TYPE: &str = "urn:mailwoman:problem:authorization-not-confirmed";
 const REFUSAL_CODE: &str = "authorizationNotConfirmedBeforeDispatch";
 /// Only this module's authenticated pre-dispatch source fence may mint this
 /// refusal. It says nothing about Engine/upstream/SMTP uncertainty or errors.
-fn auth_fence_refusal() -> Response {
+pub(super) fn auth_fence_refusal() -> Response {
     (
         StatusCode::SERVICE_UNAVAILABLE,
         [

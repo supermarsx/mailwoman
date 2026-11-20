@@ -9922,6 +9922,16 @@ async fn effective_all_with_revision(
     let inputs = store
         .settings_resolution_inputs_at(subject, revision)
         .await?;
+    Ok(effective_all_from_inputs(inputs, filter, extra))
+}
+
+/// Pure resolver shared by ordinary readers and exact-revision warm inputs.
+/// This function grants no authority to the subject or to the supplied data.
+pub fn effective_all_from_inputs(
+    inputs: mw_store::settings_policy::SettingsResolutionInputs,
+    filter: impl Fn(&SettingDef) -> bool,
+    extra: &[SettingValueRow],
+) -> Vec<Effective> {
     let subject = &inputs.canonical.as_subject();
     let policies = inputs.policies;
     let mut values = inputs.values;
@@ -9959,7 +9969,7 @@ async fn effective_all_with_revision(
             ));
         }
     }
-    Ok(out)
+    out
 }
 
 // ─── ceiling (t32-q A3) ───────────────────────────────────────────────────────
@@ -11457,5 +11467,34 @@ mod web_performance_tests {
             let def=lookup(key).unwrap();assert_eq!(def.scopes,G);assert_eq!(def.default_value(),json!(true));
             assert!(validate(def,&json!(false),"value").is_ok());assert!(validate(def,&json!("false"),"value").is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod feature_inputs_resolution_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn prepared_all_keeps_extras_locks_families_unknowns_and_order() {
+        let store = Store::open_in_memory(mw_store::ServerKey::generate()).await.unwrap();
+        let subject = SettingSubject { personal_owner:None, domain:"example.test", account_id:"", address:"" };
+        store.put_setting_policy(&SettingPolicyRow {
+            key:"mail.allowSend".into(), global_value:Some("false".into()), allow_user_override:false,
+            global_locked:true, updated_by:"test".into(), updated_at:1,
+        }).await.unwrap();
+        let extras = [
+            SettingValueRow { scope:SettingScope::Domain, scope_id:"example.test".into(), key:"serverText.z-last".into(), value:"\"last\"".into(), locked:false, updated_by:"test".into(), updated_at:1 },
+            SettingValueRow { scope:SettingScope::Domain, scope_id:"example.test".into(), key:"unregistered.ignored".into(), value:"true".into(), locked:false, updated_by:"test".into(), updated_at:1 },
+            SettingValueRow { scope:SettingScope::Domain, scope_id:"example.test".into(), key:"mail.allowSend".into(), value:"true".into(), locked:false, updated_by:"test".into(), updated_at:1 },
+            SettingValueRow { scope:SettingScope::Domain, scope_id:"example.test".into(), key:"serverText.a-first".into(), value:"\"first\"".into(), locked:false, updated_by:"test".into(), updated_at:1 },
+        ];
+        let filter = |d:&SettingDef| d.key=="mail.allowSend" || d.key=="serverText.*";
+        let old = effective_all_with(&store, &subject, filter, &extras).await.unwrap();
+        let inputs = store.settings_resolution_inputs(&subject).await.unwrap();
+        let prepared = effective_all_from_inputs(inputs, filter, &extras);
+        assert_eq!(old, prepared);
+        assert_eq!(prepared.iter().map(|e|e.key.as_str()).collect::<Vec<_>>(), vec!["mail.allowSend", "serverText.a-first", "serverText.z-last"]);
+        assert_eq!(prepared[0].value, json!(false));
+        assert!(prepared[0].locked());
     }
 }

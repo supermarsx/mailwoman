@@ -58,6 +58,14 @@ pub(crate) async fn request(
     username: &str,
 ) -> Result<Held, Response> {
     let knobs = rate_leeway::knobs(&state.store, rate_leeway::domain_of(username)).await;
+    request_with_knobs(account_id, knobs).await
+}
+/// Uses the same gate and accounting after fresh, exact-revision policy input
+/// resolution. No caller may reuse these knobs as an authorization cache.
+pub(crate) async fn request_with_knobs(
+    account_id: &str,
+    knobs: rate_leeway::Knobs,
+) -> Result<Held, Response> {
     requests()
         .acquire(account_id, knobs.jmap_per_account, knobs.jmap_global, knobs.queue())
         .await

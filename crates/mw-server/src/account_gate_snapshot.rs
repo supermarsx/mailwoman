@@ -6,14 +6,14 @@ struct PreparedName {
     typed: String,
     identity: crate::domain_config::QualifiedIdentityInput,
 }
-struct Prepared {
+pub(crate) struct Prepared {
     names: Vec<PreparedName>,
     domains: Vec<String>,
     ordered_subjects: Vec<String>,
     keys: Vec<String>,
 }
 impl Prepared {
-    fn new(ids: &[&str], names: &[&str]) -> Option<Self> {
+    pub(crate) fn new(ids: &[&str], names: &[&str]) -> Option<Self> {
         if names.is_empty() || names.len() > MAX_FINAL_GATE_KEYS || ids.len() > MAX_FINAL_GATE_KEYS
         {
             return None;
@@ -88,6 +88,39 @@ impl Prepared {
             ordered_subjects,
             keys,
         })
+    }
+
+    pub(crate) fn domains(&self) -> &[String] { &self.domains }
+    pub(crate) fn keys(&self) -> &[String] { &self.keys }
+
+    /// Shares the exact ordered gate evaluator. The snapshot's policy inputs
+    /// must have been resolved at its fresh revision before calling this seam.
+    pub(crate) fn from_native(
+        self,
+        store: &Store,
+        snapshot: &mw_store::native_admission_snapshot::NativeAdmissionSnapshot,
+        listed: bool,
+    ) -> Result<Option<AccountGate>, StoreError> {
+        if !snapshot.covers_domains(&self.domains) || !snapshot.covers_keys(&self.keys) {
+            return Ok(None);
+        }
+        let domains = snapshot.domains().into_iter().map(|(input, row)| {
+            (input, row.map(|row| mw_store::final_gate_snapshot::FinalGateDomain {
+                canonical_domain: row.canonical,
+                enabled: row.configuration.as_ref().map(|row| row.enabled),
+                second_alias: row.second_alias,
+                // The composite transferred and type-checked the bounded full
+                // configuration using the original domain decoder.
+                legacy_read_required: false,
+            }))
+        }).collect();
+        finish_gate(self, mw_store::final_gate_snapshot::FinalGateSnapshot {
+            revision: snapshot.revision(store)?,
+            global_policy: Ok(None),
+            domains,
+            held_addresses: snapshot.held_addresses(),
+            exact_flags: snapshot.exact_flags(),
+        }, listed)
     }
 }
 

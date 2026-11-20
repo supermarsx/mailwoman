@@ -821,7 +821,7 @@ impl Store {
     /// The credentials sealed in a session row, or `None` for a row that does
     /// not open under this key (see
     /// [`session_names_by_account`](Self::session_names_by_account)).
-    fn open_session_creds(&self, sealed: &[u8]) -> Option<Credentials> {
+    pub(crate) fn open_session_creds(&self, sealed: &[u8]) -> Option<Credentials> {
         let bytes = self.key.open(sealed).ok()?;
         decode_creds(&bytes).ok()
     }

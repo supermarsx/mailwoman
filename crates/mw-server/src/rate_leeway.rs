@@ -103,7 +103,7 @@ impl Default for Knobs {
 }
 
 impl Knobs {
-    fn from_rows(rows: &[settings_registry::Effective]) -> Self {
+    pub(crate) fn from_rows(rows: &[settings_registry::Effective]) -> Self {
         let mut out = Self::default();
         let num = |key: &str| {
             rows.iter()

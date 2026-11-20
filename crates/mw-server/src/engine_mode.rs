@@ -1182,6 +1182,26 @@ async fn engine_login_inner(
     Ok((account_id, username.to_string()))
 }
 
+/// Original connector checks shared by fresh composite inputs. These helpers
+/// inspect current data only; they neither register an account nor cache allow.
+pub(crate) fn stored_credentials_rejected(account: &mw_store::Account) -> bool {
+    serde_json::from_str::<serde_json::Value>(&account.sync_policy_json)
+        .ok()
+        .and_then(|policy| policy.get("credential_rejected").and_then(|value| value.as_bool()))
+        .unwrap_or(false)
+}
+pub(crate) fn checked_account_policy(
+    account: &mw_store::Account,
+    configured: Option<&crate::domain_config::UpstreamConfig>,
+) -> Result<AccountPolicy, String> {
+    let policy = AccountPolicy::from_json(&account.sync_policy_json);
+    let binding = configured.map(|config| config.binding()).transpose()?.flatten();
+    if policy.domain_binding != binding {
+        return Err("account authentication policy changed; sign in again".into());
+    }
+    Ok(policy)
+}
+
 /// Ensure a stored account is connected in the engine, reconnecting it from its
 /// sealed credentials if this process has not registered it yet (e.g. after a
 /// restart). Idempotent. A disabled account is refused and not dialled.
@@ -1213,11 +1233,7 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
         .get_account(account_id)
         .await
         .map_err(|e| e.to_string())?;
-    if serde_json::from_str::<serde_json::Value>(&account.sync_policy_json)
-        .ok()
-        .and_then(|p| p.get("credential_rejected").and_then(|v| v.as_bool()))
-        .unwrap_or(false)
-    {
+    if stored_credentials_rejected(&account) {
         return Err("authentication rejected; fresh sign-in required".into());
     }
     if account.kind == AccountKind::Ews {
@@ -1249,16 +1265,13 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
     {
         return Err("account upstream was replaced; sign in again".into());
     }
-    let mut policy = AccountPolicy::from_json(&account.sync_policy_json);
-    let binding = configured
-        .as_ref()
-        .map(|c| c.binding())
-        .transpose()?
-        .flatten();
-    if policy.domain_binding != binding {
-        engine.unregister(account_id);
-        return Err("account authentication policy changed; sign in again".into());
-    }
+    let mut policy = match checked_account_policy(&account, configured.as_ref()) {
+        Ok(policy) => policy,
+        Err(error) => {
+            engine.unregister(account_id);
+            return Err(error);
+        }
+    };
     if configured
         .as_ref()
         .is_some_and(|c| c.selection.is_some() && c.mail().is_none())

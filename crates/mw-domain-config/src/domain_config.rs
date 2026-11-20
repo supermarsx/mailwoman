@@ -334,6 +334,23 @@ pub struct IdentitySnapshot {
 }
 
 impl IdentitySnapshot {
+    /// Assemble the same qualified observation used by the ordinary reader.
+    /// The caller must obtain the alias and row together from fresh Store data.
+    pub fn from_qualified(
+        input: QualifiedIdentityInput,
+        domain: String,
+        row: Option<DomainConfigRow>,
+        second_alias: bool,
+    ) -> Self {
+        let existing_transport_compatible =
+            !second_alias && normalize_domain(&domain).is_ok_and(|normalized| normalized == domain);
+        Self {
+            typed: input.typed.clone(),
+            identity: input.canonical(domain),
+            row,
+            existing_transport_compatible,
+        }
+    }
     pub fn matches_existing_identity(&self, address: &str) -> bool {
         self.existing_transport_compatible && address.trim() == self.typed
     }
@@ -364,14 +381,7 @@ pub async fn identity_snapshot(store: &Store, typed: &str) -> Result<IdentitySna
         .domain_alias_config_snapshot(&input.domain)
         .await
         .map_err(|_| "domain lookup failed")?;
-    let existing_transport_compatible =
-        !second_alias && normalize_domain(&domain).is_ok_and(|normalized| normalized == domain);
-    Ok(IdentitySnapshot {
-        identity: input.canonical(domain),
-        row,
-        typed: typed.into(),
-        existing_transport_compatible,
-    })
+    Ok(IdentitySnapshot::from_qualified(input, domain, row, second_alias))
 }
 
 pub async fn canonical(

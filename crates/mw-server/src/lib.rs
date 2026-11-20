@@ -3495,6 +3495,12 @@ async fn jmap_api(
             };
         }
     };
+    if source.is_none()
+        && let Some(Extension(features)) = &deferred_features
+        && let Some(response) = feature_gate::try_composite_metadata(&state, &headers, &body, features).await
+    {
+        return response;
+    }
     let headless_key = matches!(
         &source,
         Some(Extension(scope_mw::RestSessionSource::Key { .. }))
@@ -6139,16 +6145,27 @@ pub(crate) async fn mailbox_target_fence(
     state: &AppState, session: &mw_store::Session, headers: &HeaderMap,
 ) -> Result<(), Response> {
     const AUTHORITY: &str = "x-mailwoman-storage-authority";
-    let Some(authority) = headers.get(AUTHORITY) else { return Ok(()); };
+    let Some(_authority) = headers.get(AUTHORITY) else { return Ok(()); };
     if headers.get("x-mailwoman-account").and_then(|value| value.to_str().ok()) != Some(session.account_id.as_str()) {
         return Err(StatusCode::CONFLICT.into_response());
     }
     let expected = state.store.session_storage_authority(&session.id).await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE.into_response())?;
-    if expected.is_none() || expected.as_deref() != authority.to_str().ok() {
+    if !mailbox_target_matches(session, headers, expected.as_deref()) {
         return Err(StatusCode::CONFLICT.into_response());
     }
     Ok(())
+}
+/// Same browser-target comparison for independently fresh native source inputs.
+/// Client headers only compare to observed ownership; they never select it.
+pub(crate) fn mailbox_target_matches(
+    session: &mw_store::Session,
+    headers: &HeaderMap,
+    expected: Option<&str>,
+) -> bool {
+    let Some(authority) = headers.get("x-mailwoman-storage-authority") else { return true; };
+    headers.get("x-mailwoman-account").and_then(|value| value.to_str().ok()) == Some(session.account_id.as_str())
+        && expected.is_some() && expected == authority.to_str().ok()
 }
 
 pub(crate) async fn authed(

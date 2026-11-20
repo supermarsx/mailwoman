@@ -91,3 +91,69 @@ the full existing `engine_mode::ensure_account`: account gate, complete account,
 credentials/rejection revision, configured upstream/account match and domain
 binding checks under connect_lock. A later candidate must replace those checks
 from this coherent source, not omit them because `is_registered` is true.
+
+
+## Isolated first handler integration (source only)
+
+The follow-up candidate attempts the actual `/jmap/api` handler only for an
+ordinary cookie with deferred feature requirements and one `Email/get` call:
+explicit 1..50 IDs, at most64 properties, and the production Engine metadata
+predicate. That predicate includes the real default36 properties, authentication,
+Focus, Mentions, priority and safe preloaded optional/delivery headers. Reader
+body properties, result references, bearer/API keys, linked selectors and SSO
+realms retain the original path. This is not whole-HTTP two-read delivery.
+
+The immediate warm common admission path performs a fresh primary hint and TWO
+composite statements: a preparation observation, then a final observation after
+original JMAP permit acquisition and connector mutex acquisition. A bounded
+extra shaping observation supports newly observed account/sibling names. The
+original permit-before-connector order is retained; no connector guard spans a
+permit queue. The proposed immediate two-read callback optimization is NOT
+implemented. Earlier middleware and Engine data/posture reads remain additional
+physical statements and must be measured separately.
+
+Up to32 same-account sessions are represented, with a33rd-row sentinel selecting
+the complete old path. This reuses the original optional login-name decoder:
+damaged ciphertext retains its clear username but contributes no invented
+credential name. The only transferred sibling fields are username and sealed
+credentials, within the same aggregate8MiB SQL guard; unrelated accounts cannot
+join or consume that budget. `idx_sessions_account` covers the account predicate.
+Window ordering/sorting and hidden subquery/pager cost are not constant-time
+claims; an actual full composite EXPLAIN regression is authored but unexecuted.
+
+Only fully warm, exact Store/revision inputs enter shared pure registry
+resolution. Global/domain clocks, both session and connector account gates,
+canonical domains, configured transport, active primary namespaces, account
+credentials and rejection revision, binding, registered runtime and existing
+process guard remain checked. Cold/unsupported/error/deny before permit
+acquisition returns to complete original authentication/connector handling.
+After permits are acquired, changed/unclear inputs cannot dispatch: ordinary
+fresh authentication preserves revocation/expiry handling, then the existing
+typed pre-dispatch refusal is returned if that chain succeeds. No authority,
+credential, Session or allow TTL cache is introduced.
+
+The existing request-protection admission is reused only if its own per-request
+context proves no account policy applies or the same native account has already
+been charged. An uncharged or contended context uses the complete old path.
+Actual Engine ownership-before-decrypt and fresh posture checks remain in the
+unchanged data handler; the composite is not a SQL mutation lease.
+
+Authored execution gates (not run for this follow-up):
+
+- Store `native_admission_snapshot::tests`:11 tests, including3 PostgreSQL
+  cases when `MW_TEST_PG` is privately configured; one actual SQLite full-query
+  EXPLAIN, sibling-name parity/cap/owner exclusion, and existing credential,
+  revision, corrupt-data and held-directory cases.
+- Settings `feature_inputs_resolution_tests`:1 pure-loop parity case with extras,
+  unknown keys, family discovery/order and locked override behavior.
+- Server `feature_gate::native_metadata_admission::tests`:8 cases, including a
+  real50-message/default36-property router oracle which must prove candidate
+  dispatch, equal answers and lower whole-request physical reads. It compares
+  to the current ordinary deferred route, not an artificially weaker guard.
+  Additional actual-router cases cover a really queued permit, connector waits,
+  independent writer disable/domain/kind/rejection changes, restrictive policy
+  changes and a sibling-only credential-name deny. Eligibility covers the full
+  fixture property source and rejects reader/result-reference requests.
+- Existing account-gate, domain parsing/resolver, connector binding and clock
+  policy suites must run because their original readers now invoke the same
+  extracted pure evaluators. Source parsing alone is not runtime verification.

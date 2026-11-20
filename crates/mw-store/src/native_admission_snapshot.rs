@@ -236,6 +236,21 @@ impl NativeAdmissionSnapshot {
             revision,
         }))
     }
+    /// Native namespace derivation from this observation's active, owner-bound
+    /// primary identity. This does not authenticate or approve the request.
+    pub fn native_subjects(&self, store: &Store) -> Result<Option<crate::identity_principal::VerifiedSessionSubjects>, StoreError> {
+        self.scoped(store)?;
+        let Some(source) = self.session(store)? else { return Ok(None); };
+        let Some(account) = self.account()? else { return Ok(None); };
+        let Some(principal) = self.principal()? else { return Ok(None); };
+        if source.session.jmap_url != "engine" || source.session.api_url != "engine"
+            || account.id != source.session.account_id
+            || principal.primary_account_id != account.id
+            || principal.principal_id != principal.binding_principal_id
+            || principal.state != "active" || principal.retired_at.is_some()
+        { return Ok(None); }
+        Ok(Some(store.native_subjects_for_verified_account(&account.id)))
+    }
     pub fn names(&self) -> Result<Vec<String>, StoreError> {
         match self.one("names")? {
             Some(r) => crate::v6::parse_account_names(&text(r, "setting_value")?),
@@ -247,6 +262,22 @@ impl NativeAdmissionSnapshot {
             .one("linked")?
             .ok_or_else(|| corrupt("linked section"))?;
         Ok(int(r, "required")? == Some(1))
+    }
+    /// Same account-only name decoder and SQL ordering as the connector's
+    /// ordinary reader. A 33rd row requires its complete original fallback.
+    /// Sealed credentials never leave this Store-bound snapshot as ciphertext
+    /// or password: only the same optional login-name projection is returned.
+    pub fn account_session_names(&self, store: &Store) -> Result<Option<Vec<crate::SessionNames>>, StoreError> {
+        self.scoped(store)?;
+        let rows = self.rows.iter().filter(|row| row.get_string("tag") == "account-session").collect::<Vec<_>>();
+        if rows.len() > 32 { return Ok(None); }
+        rows.into_iter().map(|row| {
+            check(row)?;
+            Ok(crate::SessionNames {
+                username: text(row, "sibling_username")?,
+                login_name: store.open_session_creds(&row.get_blob("sibling_sealed_creds")).map(|creds| creds.username),
+            })
+        }).collect::<Result<Vec<_>, StoreError>>().map(Some)
     }
     pub fn principal(&self) -> Result<Option<NativePrincipalSource>, StoreError> {
         let Some(r) = self.one("principal")? else {
@@ -527,6 +558,12 @@ fn build_sql(pg: bool) -> String {
             vec![n("enabled", "z.enabled")],
         ),
     ];
+    let mut account_sessions = section("account-session", "FROM account_sessions a_names LEFT JOIN sessions a_s ON a_s.id=a_names.source_id", vec![
+        t("sibling_username", "a_s.username"),
+        Field { name: "sibling_sealed_creds", expr: "a_s.sealed_creds".into(), kind: Kind::Blob, nullable: false },
+    ]);
+    account_sessions.order = if pg { "LPAD(CAST(a_names.ordinal AS TEXT),3,'0')" } else { "printf('%03d',a_names.ordinal)" }.into();
+    sections.push(account_sessions);
     let mut domains = section(
         "domain",
         "FROM domains_in i LEFT JOIN domain_alias al ON al.alias=i.name LEFT JOIN domains d ON d.name=COALESCE(al.domain,i.name) LEFT JOIN domain_alias al2 ON al2.alias=COALESCE(al.domain,i.name)",
@@ -612,7 +649,7 @@ fn build_sql(pg: bool) -> String {
     };
     let cols = columns.keys().copied().collect::<Vec<_>>().join(",");
     format!(
-        "SELECT tag,input,invalid,{cols} FROM (WITH {inputs},held AS (SELECT address FROM mail_user WHERE status IN ('disabled','deleting','deleted') ORDER BY address LIMIT 5001),restricted AS (SELECT x.id FROM account_restriction x JOIN sessions s ON s.account_id=x.account_id WHERE s.id=?1 AND s.linked_internal=0 AND x.lifted_at IS NULL ORDER BY x.created_at DESC LIMIT 65),sizes AS ({metadata}),budget AS (SELECT CASE WHEN SUM(bytes)<={MAX_PAYLOAD} THEN 1 ELSE 0 END AS ok FROM sizes) {frames}) native_inputs ORDER BY tag,hold_sort"
+        "SELECT tag,input,invalid,{cols} FROM (WITH {inputs},account_sessions AS (SELECT CASE WHEN octet_length(sibling.id)<=1024 THEN sibling.id ELSE NULL END AS source_id,ROW_NUMBER() OVER(ORDER BY sibling.last_seen DESC) AS ordinal FROM sessions sibling JOIN sessions owner ON owner.account_id=sibling.account_id WHERE owner.id=?1 AND owner.linked_internal=0 ORDER BY sibling.last_seen DESC LIMIT 33),held AS (SELECT address FROM mail_user WHERE status IN ('disabled','deleting','deleted') ORDER BY address LIMIT 5001),restricted AS (SELECT x.id FROM account_restriction x JOIN sessions s ON s.account_id=x.account_id WHERE s.id=?1 AND s.linked_internal=0 AND x.lifted_at IS NULL ORDER BY x.created_at DESC LIMIT 65),sizes AS ({metadata}),budget AS (SELECT CASE WHEN SUM(bytes)<={MAX_PAYLOAD} THEN 1 ELSE 0 END AS ok FROM sizes) {frames}) native_inputs ORDER BY tag,hold_sort"
     )
 }
 impl Store {

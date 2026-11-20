@@ -553,3 +553,79 @@ async fn postgres_account_credentials_use_fresh_bound_source_and_original_reject
         .await
         .unwrap();
 }
+
+
+async fn sibling_name_contract(s: Store) {
+    let (account, id) = seed(&s).await;
+    let creds = Credentials { username: "alias@example.test".into(), password: "same-owner-fixture-secret".into() };
+    let sibling = s.create_session(&account, "clear-alias@example.test", "engine", "engine", &creds).await.unwrap();
+    // Exactly the original reader semantics: a corrupt sealed credential loses
+    // only its login name, not its clear name or all sibling-name evidence.
+    let damaged = s.create_session(&account, "damaged@example.test", "engine", "engine", &creds).await.unwrap();
+    q("UPDATE sessions SET sealed_creds=?2 WHERE id=?1").bind(&damaged).bind(vec![1u8,2,3]).execute(&s.backend).await.unwrap();
+    let foreign_account = s.create_account(&NewAccount { kind:AccountKind::Imap,host:"mail.example.test",port:993,tls:"implicit",username:"foreign@foreign.test",sync_policy_json:"{}" },&creds).await.unwrap();
+    let foreign = s.create_session(&foreign_account, "foreign@example.test", "engine", "engine", &creds).await.unwrap();
+    q("UPDATE sessions SET sealed_creds=?2 WHERE id=?1").bind(&foreign).bind(vec![9u8; MAX_PAYLOAD+1]).execute(&s.backend).await.unwrap();
+    let snapshot = s.native_cookie_admission_snapshot(&id, &request()).await.unwrap();
+    assert!(snapshot.bounded_shape(), "unrelated account payload must not enter source budget");
+    assert_eq!(snapshot.account_session_names(&s).unwrap().unwrap(), s.session_names_by_account(&account).await.unwrap());
+    let names = snapshot.account_session_names(&s).unwrap().unwrap();
+    assert!(names.iter().any(|name| name.username == "clear-alias@example.test" && name.login_name.as_deref() == Some("alias@example.test")));
+    assert!(names.iter().any(|name| name.username == "damaged@example.test" && name.login_name.is_none()));
+    assert!(names.iter().all(|name| name.username != "foreign@example.test"));
+    assert_eq!(snapshot.native_subjects(&s).unwrap(), s.verified_session_subjects(&id).await.unwrap());
+    let other_scope = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    assert!(snapshot.account_session_names(&other_scope).is_err());
+    assert!(snapshot.native_subjects(&other_scope).is_err());
+    other_scope.close().await;
+    // Names and binding changes are fresh next observation, not an allow cache.
+    q("UPDATE sessions SET username='new-clear@example.test' WHERE id=?1").bind(&sibling).execute(&s.backend).await.unwrap();
+    let fresh = s.native_cookie_admission_snapshot(&id, &request()).await.unwrap();
+    assert!(fresh.account_session_names(&s).unwrap().unwrap().iter().any(|name| name.username == "new-clear@example.test"));
+    q("UPDATE identity_principal SET state='retired' WHERE id IN (SELECT principal_id FROM session_principal WHERE session_id=?1)").bind(&id).execute(&s.backend).await.unwrap();
+    assert!(s.native_cookie_admission_snapshot(&id, &request()).await.unwrap().native_subjects(&s).unwrap().is_none());
+    // Own oversized ciphertext is masked BEFORE any driver BLOB transfer.
+    q("UPDATE sessions SET sealed_creds=?2 WHERE id=?1").bind(&sibling).bind(vec![3u8;MAX_PAYLOAD+1]).execute(&s.backend).await.unwrap();
+    let oversized=s.native_cookie_admission_snapshot(&id,&request()).await.unwrap();
+    assert!(!oversized.bounded_shape());assert!(oversized.account_session_names(&s).is_err());
+    use sqlx::Row as _;
+    for row in &oversized.rows {
+        let bytes: Option<Vec<u8>>=match row { Row::Sqlite(row)=>row.try_get("sibling_sealed_creds").unwrap(),Row::Postgres(row)=>row.try_get("sibling_sealed_creds").unwrap() };
+        assert!(bytes.is_none());
+    }
+    q("UPDATE sessions SET sealed_creds=?2 WHERE id=?1").bind(&sibling).bind(s.key.seal(&crate::encode_creds(&creds)).unwrap()).execute(&s.backend).await.unwrap();
+    // A sentinel never silently drops a name that might carry a deny flag.
+    for n in 3..33 {
+        s.create_session(&account, &format!("sibling-{n}@example.test"), "engine", "engine", &creds).await.unwrap();
+    }
+    assert!(s.native_cookie_admission_snapshot(&id, &request()).await.unwrap().account_session_names(&s).unwrap().is_none());
+    s.close().await;
+}
+#[tokio::test]
+async fn sqlite_sibling_names_are_owned_bounded_fresh_and_match_original_decoder() {
+    sibling_name_contract(Store::open_in_memory(ServerKey::generate()).await.unwrap()).await;
+}
+#[tokio::test]
+async fn postgres_sibling_names_are_owned_bounded_fresh_and_match_original_decoder() {
+    let Ok(dsn) = std::env::var("MW_TEST_PG") else { eprintln!("SKIP: MW_TEST_PG absent; not actual PostgreSQL evidence"); return; };
+    use sqlx::Connection;
+    let schema = format!("native_siblings_{}", uuid::Uuid::new_v4().simple());
+    let mut admin = sqlx::PgConnection::connect(&dsn).await.unwrap();
+    sqlx::query(&format!("CREATE SCHEMA {schema}")).execute(&mut admin).await.unwrap();
+    let mut scoped = url::Url::parse(&dsn).unwrap();
+    scoped.query_pairs_mut().append_pair("options", &format!("-csearch_path={schema}"));
+    sibling_name_contract(Store::open(scoped.as_str(), ServerKey::generate()).await.unwrap()).await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE")).execute(&mut admin).await.unwrap();
+}
+#[tokio::test]
+async fn sqlite_sibling_join_uses_account_index_in_actual_composite_plan() {
+    let s = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let (_, id) = seed(&s).await;
+    static EXPLAIN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let explain = EXPLAIN.get_or_init(|| format!("EXPLAIN QUERY PLAN {}", sql(Dialect::Sqlite)));
+    let rows = q(explain).bind(id).bind("[]").bind("[]").fetch_all(&s.backend).await.unwrap();
+    let details = rows.iter().map(|row| row.get_string("detail")).collect::<Vec<_>>();
+    assert!(details.iter().any(|detail| detail.contains("sibling") && detail.contains("idx_sessions_account")), "owner predicate must use account index: {details:?}");
+    assert!(!details.iter().any(|detail| detail.contains("SCAN sibling")), "no unindexed full session scan: {details:?}");
+    s.close().await;
+}

@@ -124,7 +124,7 @@ use mw_store::{Session, Store, StoreError};
 
 use crate::AppState;
 #[path = "account_gate_snapshot.rs"]
-mod final_snapshot;
+pub(crate) mod final_snapshot;
 
 /// The settings-key prefix the flags are stored under (no dedicated table).
 const FLAGS_PREFIX: &str = "v6:admin:flags:";
