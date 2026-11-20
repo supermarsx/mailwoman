@@ -197,7 +197,10 @@ fn record_at(now: u64, class: RouteClass, status: u16, elapsed_ms: u64) {
     record_measurement(now, class, status, elapsed_ms, false);
 }
 pub fn record_us(class: RouteClass, status: u16, elapsed_us: u64) {
-    record_measurement(now_secs(), class, status, elapsed_us, true);
+    record_us_at(now_secs(),class,status,elapsed_us);
+}
+pub(crate) fn record_us_at(now:u64,class:RouteClass,status:u16,elapsed_us:u64) {
+    record_measurement(now,class,status,elapsed_us,true);
 }
 fn record_measurement(now: u64, class: RouteClass, status: u16, elapsed: u64, microseconds: bool) {
     let seconds = elapsed as f64 / if microseconds { 1_000_000.0 } else { 1000.0 };
@@ -241,6 +244,9 @@ pub(crate) async fn layer(
     req: Request,
     next: Next,
 ) -> Response {
+    with_recorders(&state.http_telemetry,&state.request_history,req,next).await
+}
+pub(crate) async fn with_recorders(worker:&crate::http_telemetry::Worker,history:&std::sync::Arc<crate::request_history::Recorder>,req:Request,next:Next)->Response {
     let class = classify(req.uri().path());
     // Cheap clones (shared bytes); the path is read again only for a counted 404.
     let (method, uri) = (req.method().clone(), req.uri().clone());
@@ -255,10 +261,7 @@ pub(crate) async fn layer(
     span.record("status", resp.status().as_u16());
     // Quantize only once, at one microsecond; never truncate sub-ms durations to zero.
     let micros = start.elapsed().as_micros().clamp(1, u64::MAX as u128) as u64;
-    record_us(class, resp.status().as_u16(), micros);
-    state
-        .request_history
-        .record_response(resp.status().as_u16(), micros, &method, uri.path());
+    worker.submit(history,class,resp.status().as_u16(),micros,&method,uri.path());
     resp
 }
 
@@ -316,6 +319,7 @@ pub struct Minute {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Summary {
+    pub telemetry: serde_json::Value,
     pub per_process: bool,
     /// When this process started counting, Unix seconds.
     pub since: u64,
@@ -373,6 +377,7 @@ fn summary_at(now: u64) -> Summary {
             });
         }
         Summary {
+            telemetry: serde_json::to_value(crate::http_telemetry::snapshot()).unwrap_or_default(),
             per_process: true,
             since: m.started_at,
             window_mins: WINDOW_MINS,
@@ -411,6 +416,7 @@ pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
 
 /// `GET /admin/metrics/summary` — [`summary`] as JSON.
 async fn summary_route(_ctx: crate::admin_ctx::AdminCtx) -> impl axum::response::IntoResponse {
+    let _ = crate::http_telemetry::flush().await;
     (
         [(axum::http::header::CACHE_CONTROL, "no-store")],
         axum::Json(summary()),

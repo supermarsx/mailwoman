@@ -41,6 +41,9 @@ fn now() -> i64 {
 }
 impl Memory {
     fn touch(&mut self, now: i64) {
+        // Many responses share one observed second. Initial creation and older
+        // queued/out-of-order timestamps must still take the original path.
+        if self.touched==now && !self.buckets.is_empty() {return;}
         let previous = self.touched.min(now);
         for seconds in [60, 3600] {
             let oldest = now.saturating_sub(120 * 60);
@@ -66,14 +69,11 @@ impl Memory {
     }
 }
 impl Recorder {
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new(Self {instance:uuid::Uuid::new_v4().to_string(),memory:Mutex::new(Memory {touched:now(),buckets:BTreeMap::new()})})
+    }
     pub(crate) fn start(store: Store) -> Arc<Self> {
-        let recorder = Arc::new(Self {
-            instance: uuid::Uuid::new_v4().to_string(),
-            memory: Mutex::new(Memory {
-                touched: now(),
-                buckets: BTreeMap::new(),
-            }),
-        });
+        let recorder = Self::new();
         let weak = Arc::downgrade(&recorder);
         tokio::spawn(async move {
             let mut timer = tokio::time::interval(Duration::from_secs(15));
@@ -109,7 +109,7 @@ impl Recorder {
         });
         recorder
     }
-    fn snapshot(&self, time: i64) -> Vec<Bucket> {
+    pub(crate) fn snapshot(&self, time: i64) -> Vec<Bucket> {
         let mut memory = self
             .memory
             .lock()
@@ -126,9 +126,7 @@ impl Recorder {
         method: &axum::http::Method,
         path: &str,
     ) {
-        let missing = (status == 404)
-            .then(|| not_found::counted(method, path))
-            .flatten();
+        let missing = redacted_not_found(status,method,path);
         self.record_at(
             now(),
             status,
@@ -136,7 +134,7 @@ impl Recorder {
             missing.as_ref().map(|(m, p)| (*m, p.as_str())),
         );
     }
-    fn record_at(&self, time: i64, status: u16, micros: u64, missing: Option<(&str, &str)>) {
+    pub(crate) fn record_at(&self, time: i64, status: u16, micros: u64, missing: Option<(&str, &str)>) {
         let mut memory = self
             .memory
             .lock()
@@ -151,6 +149,9 @@ impl Recorder {
             }
         }
     }
+}
+pub(crate) fn redacted_not_found(status:u16,method:&axum::http::Method,path:&str)->Option<(&'static str,String)> {
+    (status==404).then(||not_found::counted(method,path)).flatten()
 }
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

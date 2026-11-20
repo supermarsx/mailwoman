@@ -101,6 +101,7 @@ mod compliance_dpia;
 mod compliance_policy;
 mod cookie_inventory;
 mod request_history;
+mod http_telemetry;
 pub mod server_key;
 pub mod sharing;
 mod source_bans;
@@ -194,8 +195,14 @@ mod trust_tier;
 /// Best-effort final save of the known-source table at graceful shutdown.
 pub use session_persistence::{shutdown_grace, termination_signal};
 pub async fn flush_trust_tiers() {
+    let _ = http_telemetry::flush().await;
     trust_tier::flush_on_shutdown().await;
     metrics_persist::flush_on_shutdown().await;
+}
+pub async fn flush_http_telemetry() -> bool { http_telemetry::shutdown().await }
+/// Payload-free health of optional response-telemetry collection.
+pub fn http_telemetry_snapshot() -> serde_json::Value {
+    serde_json::to_value(http_telemetry::snapshot()).unwrap_or_default()
 }
 mod sec_cfg;
 mod security_alerts;
@@ -985,6 +992,7 @@ pub(crate) struct AppStateInner {
     /// Local filesystem whose capacity is shown in administrator resource observations.
     resource_data_path: PathBuf,
     request_history: Arc<request_history::Recorder>,
+    http_telemetry: Arc<http_telemetry::Worker>,
     client_timing: Arc<client_timing::Recorder>,
     /// Keeps the persisted-statistics recorder (and its flush loop) alive.
     #[allow(dead_code)]
@@ -1484,6 +1492,7 @@ async fn build_app_inner(
         started: std::time::Instant::now(),
         config_snapshot,
         request_history: request_history::Recorder::start(store.clone()),
+        http_telemetry: http_telemetry::start(),
         client_timing: client_timing::Recorder::start(store.clone()),
         metrics_recorder: metrics_persist::start(store.clone()),
         store,
