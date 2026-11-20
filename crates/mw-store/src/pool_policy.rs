@@ -6,10 +6,14 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::{Database, Pool, pool::PoolOptions, postgres::PgPoolOptions, sqlite::SqlitePoolOptions};
+use sqlx::{
+    Connection, Database, Pool, pool::PoolOptions, postgres::PgPoolOptions,
+    sqlite::SqlitePoolOptions,
+};
 use std::time::Duration;
 
 pub const POLICY_KEY: &str = "database.pool";
+const SQLITE_IDLE_HEALTH_WINDOW: Duration = Duration::from_secs(1);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct PoolPolicy {
@@ -171,7 +175,20 @@ impl PoolPolicy {
 }
 impl PoolPlan {
     pub fn sqlite_options(&self) -> SqlitePoolOptions {
-        self.options()
+        self.options::<sqlx::Sqlite>()
+            .test_before_acquire(false)
+            .before_acquire(|connection, metadata| {
+                Box::pin(async move {
+                    // SQLx already pings before returning a connection to its idle
+                    // queue, including flushing pending rollbacks. Avoid repeating
+                    // that worker round trip for a recently returned SQLite handle.
+                    // Actual queries still execute and propagate every error.
+                    if metadata.idle_for >= SQLITE_IDLE_HEALTH_WINDOW {
+                        connection.ping().await?;
+                    }
+                    Ok(true)
+                })
+            })
     }
     pub fn postgres_options(&self) -> PgPoolOptions {
         self.options()
@@ -225,7 +242,7 @@ impl Store {
                 tokio::spawn(async move {
                     let mut exclusive = live.exclusive().await;
                     let previous = exclusive.pool_options();
-                    if matches_plan(&previous, &plan) {
+                    if matches_plan(&previous, &plan) && !previous.get_test_before_acquire() {
                         return Ok::<_, sqlx::Error>(());
                     }
                     let connection = (*exclusive.connection_options()).clone();
@@ -315,6 +332,129 @@ fn snapshot<DB: Database>(pool: &Pool<DB>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn sqlite_idle_health_replaces_closed_workers_and_keeps_live_read_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(dir.path().join("health.db"))
+            .create_if_missing(true);
+        let policy = PoolPolicy {
+            minimum_connections: 0,
+            sqlite_max_connections: Some(1),
+            ..Default::default()
+        };
+        let plan = policy.sqlite_plan(1).unwrap();
+        assert!(!plan.sqlite_options().get_test_before_acquire());
+        assert!(
+            policy
+                .postgres_plan(
+                    1,
+                    PostgresCapacity {
+                        maximum: 100,
+                        reserved: 3
+                    }
+                )
+                .unwrap()
+                .postgres_options()
+                .get_test_before_acquire(),
+            "PostgreSQL health and transport behavior must remain unchanged"
+        );
+        let pool = connect_checked(plan.sqlite_options(), options.clone())
+            .await
+            .unwrap();
+        let mut connection = pool.acquire().await.unwrap();
+        sqlx::query("CREATE TABLE grants(id INTEGER PRIMARY KEY,allowed INTEGER NOT NULL);INSERT INTO grants VALUES(1,1);CREATE TEMP TABLE worker_identity(id INTEGER)").execute(&mut *connection).await.unwrap();
+        connection.close_on_drop();
+        drop(connection);
+        // An actual worker shutdown must produce a fresh connection, while
+        // persistent state remains available and no query is replayed.
+        let mut replacement = pool.acquire().await.unwrap();
+        assert!(
+            sqlx::query("SELECT id FROM temp.worker_identity")
+                .fetch_optional(&mut *replacement)
+                .await
+                .is_err()
+        );
+        assert!(
+            sqlx::query("INSERT INTO grants VALUES(1,1)")
+                .execute(&mut *replacement)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM grants")
+                .fetch_one(&mut *replacement)
+                .await
+                .unwrap(),
+            1
+        );
+        replacement.return_to_pool().await;
+        drop(replacement);
+        let mut writer = sqlx::SqliteConnection::connect_with(&options)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE grants SET allowed=0 WHERE id=1")
+            .execute(&mut writer)
+            .await
+            .unwrap();
+        assert!(
+            sqlx::query("SELECT id FROM grants WHERE id=1 AND allowed=1")
+                .fetch_optional(&pool)
+                .await
+                .unwrap()
+                .is_none(),
+            "hot acquisition must not reuse an earlier authorization result"
+        );
+        // Exercise the cold-idle branch as well as the frequent hot path.
+        tokio::time::sleep(SQLITE_IDLE_HEALTH_WINDOW + Duration::from_millis(100)).await;
+        assert!(
+            sqlx::query("SELECT id FROM grants WHERE id=1 AND allowed=1")
+                .fetch_optional(&pool)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        writer.close().await.unwrap();
+        pool.close().await;
+    }
+    #[tokio::test]
+    async fn sqlite_hot_reborrow_still_waits_for_cancelled_transaction_rollback() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(dir.path().join("rollback.db"))
+            .create_if_missing(true);
+        let plan = PoolPolicy {
+            minimum_connections: 0,
+            sqlite_max_connections: Some(1),
+            ..Default::default()
+        }
+        .sqlite_plan(1)
+        .unwrap();
+        let pool = connect_checked(plan.sqlite_options(), options)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE pending(id INTEGER PRIMARY KEY)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for id in 1..=3 {
+            let mut transaction = pool.begin().await.unwrap();
+            sqlx::query("INSERT INTO pending VALUES(?1)")
+                .bind(id)
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+            drop(transaction); // queues rollback; SQLx release ping must flush it
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM pending")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap(),
+                0
+            );
+        }
+        pool.close().await;
+    }
     #[test]
     fn backend_cpu_and_replica_budgets_are_bounded_and_never_zero() {
         let policy = PoolPolicy::default();

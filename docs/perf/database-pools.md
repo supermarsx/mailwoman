@@ -6,6 +6,22 @@ ceiling and time budgets. Physical occupancy adapts inside that ceiling; this is
 **not a live controller that changes the ceiling**. SQLx exposes no public setter
 for an existing pool's minimum/maximum connection counts.
 
+SQLite skips its redundant pre-acquire worker ping when an idle connection was
+returned less than one second ago. After a longer idle interval, the acquire hook
+pings before reuse. SQLx still performs its normal release-time ping, including
+flushing queued transaction rollbacks, and every actual SQL query still runs and
+returns its errors. PostgreSQL acquisition checks and TLS behavior are unchanged.
+
+A SQLite worker that dies during this short health window can make the next
+query fail rather than be replaced during the pre-acquire check. Such failures
+do not authorize a request or trigger automatic write replay; the release check
+discards the broken connection. Tests cover deliberate worker closure and
+replacement, fresh reads after an external change, failed SQL and cancellation
+rollback. They do not inject an abrupt crash into an idle worker. This reduces
+worker round trips; it does not reduce the number of SQL policy reads or establish
+an HTTP throughput target. Measure the complete request pipeline before claiming
+a performance improvement.
+
 ## Startup policy
 
 The global administrator policy `database.pool` is a JSON object. All fields have
