@@ -644,6 +644,22 @@ fn worker_stack_bytes() -> usize {
         2 * 1024 * 1024
     }
 }
+fn fixture_index_timing(raw: Option<&str>) -> std::result::Result<bool, String> {
+    match raw {
+        None | Some("0") => Ok(false),
+        Some("1") => Ok(true),
+        Some(_) => Err("MW_NATIVE_LOAD_INDEX_TIMING must be 0 or 1".into()),
+    }
+}
+
+#[test]
+fn index_timing_switch_is_explicit_and_bounded() {
+    assert!(!fixture_index_timing(None).unwrap());
+    assert!(!fixture_index_timing(Some("0")).unwrap());
+    assert!(fixture_index_timing(Some("1")).unwrap());
+    for raw in ["", "true", "yes", "2", "01", " 1"] { assert!(fixture_index_timing(Some(raw)).is_err()); }
+}
+
 fn fixture_writer_options(raw: Option<&str>) -> std::result::Result<mw_search::WriterOptions, String> {
     let indexing_workers = match raw {
         None => None,
@@ -698,6 +714,10 @@ fn diagnostic_index_worker_override_is_strict_and_memory_bounded() {
 }
 async fn run(workers: usize) {
     // Validate diagnostic resources before any database creation or seeding.
+    let index_timing_env = std::env::var_os("MW_NATIVE_LOAD_INDEX_TIMING")
+        .map(|value| value.into_string().expect("index timing switch must be Unicode"));
+    let index_timing = fixture_index_timing(index_timing_env.as_deref()).expect("valid diagnostic index timing switch");
+    mw_search::timing::set_enabled(index_timing);
     let index_worker_env=std::env::var_os("MW_NATIVE_LOAD_INDEX_WORKERS")
         .map(|value|value.into_string().expect("index workers must be Unicode"));
     let writer_options=fixture_writer_options(index_worker_env.as_deref()).expect("valid diagnostic index writer options");
@@ -929,6 +949,7 @@ async fn run(workers: usize) {
                     );
                 }
                 let mut snapshot = diagnostics_hook::snapshot(&store, &directory).await;
+                snapshot["httpTelemetry"] = mw_server::http_telemetry_snapshot();
                 snapshot["searchIndex"] = json!({
                     "storage":fixture_storage_proof(&engine,index_mode),
                     "writerConfiguration":engine.search().writer_configuration(),
@@ -936,6 +957,7 @@ async fn run(workers: usize) {
                     "documentFetches":engine.search().doc_fetch_count(),
                     "listProjectionSearches":engine.search().list_projection_search_count(),
                     "listProjectionDocumentReads":engine.search().list_projection_doc_read_count(),
+                    "timings":mw_search::timing::snapshot(),
                 });
                 (
                     axum::http::StatusCode::OK,

@@ -56,7 +56,9 @@ RUN run_logged_test() { log_path="$1"; shift; "$@" > "$log_path" 2>&1; test_stat
       && run_logged_test /out/native-writer-options-tests.log /out/request-load-fixture diagnostic_index_worker_override_is_strict_and_memory_bounded --exact --nocapture --test-threads=1 \
       && grep -q 'test result: ok. 1 passed;' /out/native-writer-options-tests.log \
       && run_logged_test /out/native-storage-options-tests.log /out/request-load-fixture diagnostic_index_storage_defaults_sealed_and_rejects_unknown_modes --exact --nocapture --test-threads=1 \
-      && grep -q 'test result: ok. 1 passed;' /out/native-storage-options-tests.log; \
+      && grep -q 'test result: ok. 1 passed;' /out/native-storage-options-tests.log \
+      && run_logged_test /out/native-index-timing-tests.log /out/request-load-fixture index_timing_switch_is_explicit_and_bounded --exact --nocapture --test-threads=1 \
+      && grep -q 'test result: ok. 1 passed;' /out/native-index-timing-tests.log; \
     fi
 ENV MW_RUN_HTTP_LOAD_FIXTURE=1 MW_RUN_NATIVE_HTTP_LOAD_FIXTURE=1
 CMD ["/out/request-load-fixture", "--ignored", "--nocapture", "--test-threads=1"]

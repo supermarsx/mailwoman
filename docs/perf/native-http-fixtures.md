@@ -337,3 +337,28 @@ each on the same encrypted, policy-enforced workload. Moving a function into an
 `async` block alone does not remove synchronous CPU work, file I/O or mutex
 contention; offloading also needs bounded admission and explicit failure,
 shutdown and recovery behavior. Security decisions remain authoritative.
+
+Native fixtures can opt into additional index wall-time diagnostics with
+`MW_NATIVE_LOAD_INDEX_TIMING=1` (`0` or absence keeps them disabled). This is
+validated before seeding; ordinary production constructors do not enable it.
+`diagnostics.searchIndex.timings` contains fixed process-wide cumulative calls,
+failures, total/max microseconds and bytes for writer-lock wait, commit, reader
+reload, sealed file read/decode/encode/write, and directory sync. Compare stage
+before/after snapshots; counters are never reset. No paths, identities or mail
+content are retained. Old fixture reports leave this information unreported.
+Fields are sampled independently while background work may continue; each
+snapshot is approximate, and overlapping field reads are not a transaction.
+
+These are overlapping wall timings: commit and reload include work also counted
+in the sealed-directory phases. Do not add them together or call them CPU
+attribution. Sealed read bytes count successfully returned ciphertext; decode
+and encode bytes count input buffers, including failed attempts; sealed write
+bytes count attempted ciphertext. Atomic-write timing includes the underlying
+durability work and does not separately identify fsync time. Enabled diagnostics
+can affect performance, so label measured runs as instrumented.
+
+Before/after `httpTelemetry` snapshots expose only worker queue counters and
+health. New capacity qualification requires the worker running and not closing
+at both snapshots, with no dropped-observation increase. Missing legacy health
+remains unreported and cannot establish this qualification. Queue depth includes
+pending work; it is visible separately and is not itself an HTTP error.

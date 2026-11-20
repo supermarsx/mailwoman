@@ -18,6 +18,7 @@
 
 mod query;
 mod sealed_directory;
+pub mod timing;
 mod list_projection;
 pub use list_projection::{ListProjection, MAX_LIST_PROJECTION_IDS};
 /// A8 (26.19): cosine re-rank of an already-retrieved lexical hit list, behind the
@@ -603,9 +604,9 @@ impl Index {
     }
 
     fn lock_writer(&self) -> Result<std::sync::MutexGuard<'_, IndexWriter>> {
-        self.writer
-            .lock()
-            .map_err(|_| SearchError::Io("index writer poisoned".to_string()))
+        timing::measure(timing::Stage::WriterLockWait, 0, || {
+            self.writer.lock().map_err(|_| SearchError::Io("index writer poisoned".to_string()))
+        })
     }
 
     /// **The single `IndexWriter::commit` call site in this crate.** Every
@@ -623,7 +624,7 @@ impl Index {
     /// write path. `Email/set` over a large id set must produce exactly one.
     fn commit_writer(&self, writer: &mut IndexWriter) -> Result<()> {
         INDEX_COMMITS.fetch_add(1, Ordering::Relaxed);
-        writer.commit()?;
+        timing::measure(timing::Stage::Commit, 0, || writer.commit())?;
         Ok(())
     }
 
@@ -692,7 +693,7 @@ impl Index {
             self.write_one(&w, doc)?;
             self.commit_writer(&mut w)?;
         }
-        self.reader.reload()?;
+        self.reload_reader()?;
         Ok(())
     }
 
@@ -713,7 +714,7 @@ impl Index {
             }
             self.commit_writer(&mut w)?;
         }
-        self.reader.reload()?;
+        self.reload_reader()?;
         Ok(())
     }
 
@@ -724,7 +725,7 @@ impl Index {
             w.delete_term(Term::from_field_text(self.fields.stable_id, stable_id));
             self.commit_writer(&mut w)?;
         }
-        self.reader.reload()?;
+        self.reload_reader()?;
         Ok(())
     }
 
@@ -741,7 +742,7 @@ impl Index {
             }
             self.commit_writer(&mut w)?;
         }
-        self.reader.reload()?;
+        self.reload_reader()?;
         Ok(())
     }
 
@@ -768,11 +769,11 @@ impl Index {
         // Reload before each step that deletes files: the reader maps the
         // segment files it searches, and a mapped file cannot be removed on
         // Windows.
-        self.reader.reload()?;
+        self.reload_reader()?;
         let segments = self.inner.searchable_segment_ids()?;
         if !segments.is_empty() {
             w.merge(&segments).wait()?;
-            self.reader.reload()?;
+            self.reload_reader()?;
         }
         w.garbage_collect_files().wait()?;
         Ok(had)
@@ -1038,9 +1039,14 @@ impl Index {
         Ok(SearchHits { ids, truncated })
     }
 
+    fn reload_reader(&self) -> Result<()> {
+        timing::measure(timing::Stage::ReaderReload, 0, || self.reader.reload())?;
+        Ok(())
+    }
+
     /// Force any pending writes to be visible to subsequent searches.
     pub fn reload(&self) -> Result<()> {
-        self.reader.reload()?;
+        self.reload_reader()?;
         Ok(())
     }
 

@@ -8,7 +8,7 @@ import {performance} from 'node:perf_hooks';
 import {readPrivate,HANDOFF_LIMIT} from './external-control.mjs';
 import {markdownReport} from './http-load.mjs';
 import {campaignOptions,runCampaign} from './http-campaign.mjs';
-import {prepareFixtureClients,startupReadinessReport,fixturePolicyReport,searchWriterReport,linkedLoginPolicyProbeReport,searchStorageReport,qualifiesSearchStorage} from './fixture-clients.mjs';
+import {qualifiesHttpTelemetry,fixtureDiagnosticsReport,prepareFixtureClients,startupReadinessReport,fixturePolicyReport,searchWriterReport,linkedLoginPolicyProbeReport,searchStorageReport,qualifiesSearchStorage} from './fixture-clients.mjs';
 import {workloadProfileReport} from './representative-workload.mjs';
 import {partitionPrincipals,validateStage,aggregateWorkers} from './http-multi-protocol.mjs';
 import {verifyFixtureIsolation} from './fixture-isolation.mjs';
@@ -51,7 +51,7 @@ function childChannel(child,index){
 }
 
 export function qualifiesHttpTarget(campaign,qualified){
- return qualified&&!campaign.mutationStateTainted&&campaign.stages.some(stage=>['mixed','representative'].includes(stage.endpoint)&&stage.phase==='offered-rate'&&stage.arrivalRate>=40000&&stage.acceptedDuringScheduledWindowRps>=40000&&stage.uniquePrincipalsAcceptedDuringScheduledWindow>=10000&&stage.uniqueClientsAcceptedDuringScheduledWindow>=10000&&stage.coordination.valid&&!stage.mutationStateTainted&&stage.scheduledSeconds>=30&&stage.errors===0&&stage.timeouts===0&&stage.throttled===0&&stage.droppedCapacity===0&&stage.droppedScheduler===0);
+ return qualified&&!campaign.mutationStateTainted&&campaign.stages.some(stage=>['mixed','representative'].includes(stage.endpoint)&&stage.phase==='offered-rate'&&stage.arrivalRate>=40000&&stage.acceptedDuringScheduledWindowRps>=40000&&stage.uniquePrincipalsAcceptedDuringScheduledWindow>=10000&&stage.uniqueClientsAcceptedDuringScheduledWindow>=10000&&stage.coordination.valid&&!stage.mutationStateTainted&&stage.scheduledSeconds>=30&&stage.errors===0&&stage.timeouts===0&&stage.throttled===0&&stage.droppedCapacity===0&&stage.droppedScheduler===0&&qualifiesHttpTelemetry(stage.diagnostics));
 }
 
 export async function runMultiCampaign({handoff,workers,options,launch=fork,startLeadMs=2000,maxStartLagMs=50,scannerProbe,isolationProbe}){
@@ -82,7 +82,7 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
    const path=handoff.diagnostics.path;if(typeof path!=='string'||!/^\/__fixture-diagnostic-[a-f0-9-]+$/.test(path))throw new Error('Invalid diagnostic control path');
    const init={headers:{'x-fixture-token':handoff.diagnostics.token},redirect:'error',signal:AbortSignal.timeout(5000)};
    if(phase==='before'){const reset=await fetch(new URL(path,verified.base),{...init,method:'POST'});if(!reset.ok)throw new Error('Diagnostic reset failed');await reset.body?.cancel();}
-   const response=await fetch(new URL(path,verified.base),init);if(!response.ok)throw new Error('Diagnostic snapshot failed');return response.json();
+   const response=await fetch(new URL(path,verified.base),init);if(!response.ok)throw new Error('Diagnostic snapshot failed');return fixtureDiagnosticsReport(await response.json());
   };
   const run=async requestedStage=>{
    // runCampaign warms at one outstanding request. A partitioned warmup needs
@@ -112,9 +112,10 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
   const elapsedSeconds=(performance.now()-controllerStarted)/1000,cpu=process.cpuUsage(cpuStarted);
   const policyQualified=handoff.buildProfile==='release'&&verified.policyEvidence.verified&&verified.startupReadiness.verified&&isolationEvidence.verified;
   const storageQualified=qualifiesSearchStorage(verified.searchStorage);
+  const telemetryQualified=campaign.stages.length>0&&campaign.stages.every(stage=>qualifiesHttpTelemetry(stage.diagnostics));
   const qualified=policyQualified&&storageQualified;
   const met=qualifiesHttpTarget(campaign,qualified);
-  return {schema:1,kind:'coordinated-native-http-fixture',generatedAt:new Date().toISOString(),target:'ephemeral loopback Mailwoman router + seeded native engine',scenario:'real authenticated middleware/HTTP/native-engine with '+handoff.backend+'; fixture data; no TLS/reverse proxy',runtime:process.version,model:'bounded coordinated processes with disjoint users and a shared measurement window; no capacity claim',protection:verified.policyEvidence.verified?'administrator defaults plus verified locked access.protocols policy':'administrator defaults; loaded policy not verified',uniqueAuthenticatedPrincipals:handoff.principals.length,principalCountMeaning:'configured distinct seeded principals; actual successful HTTP coverage is reported per stage',backend:handoff.backend,buildProfile:handoff.buildProfile,workers,configuredGlobalPrincipals:handoff.principals.length,scannerProbeStatus,isolationEvidence,partitionSizes:verified.partitions.map(part=>part.count),startupReadiness:verified.startupReadiness,searchWriter:verified.searchWriter,searchStorage:verified.searchStorage,linkedLoginPolicyProbe:verified.linkedLoginPolicyProbe,policyEvidence:verified.policyEvidence,workloadProfile:verified.workloadProfile,...campaign,controller:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,elapsedSeconds,rssBeforeBytes,rssAfterBytes:process.memoryUsage().rss},capacityTarget:{successfulRps:40000,simultaneousAuthenticatedUsers:10000,httpMultiUserTargetMet:met,productionPolicyQualified:policyQualified,productionStorageQualified:storageQualified,persistentWebSocketSessionsMeasured:false,met:false},distinctPhysicalGeneratorHostsMeasured:false};
+  return {schema:1,kind:'coordinated-native-http-fixture',generatedAt:new Date().toISOString(),target:'ephemeral loopback Mailwoman router + seeded native engine',scenario:'real authenticated middleware/HTTP/native-engine with '+handoff.backend+'; fixture data; no TLS/reverse proxy',runtime:process.version,model:'bounded coordinated processes with disjoint users and a shared measurement window; no capacity claim',protection:verified.policyEvidence.verified?'administrator defaults plus verified locked access.protocols policy':'administrator defaults; loaded policy not verified',uniqueAuthenticatedPrincipals:handoff.principals.length,principalCountMeaning:'configured distinct seeded principals; actual successful HTTP coverage is reported per stage',backend:handoff.backend,buildProfile:handoff.buildProfile,workers,configuredGlobalPrincipals:handoff.principals.length,scannerProbeStatus,isolationEvidence,partitionSizes:verified.partitions.map(part=>part.count),startupReadiness:verified.startupReadiness,searchWriter:verified.searchWriter,searchStorage:verified.searchStorage,linkedLoginPolicyProbe:verified.linkedLoginPolicyProbe,policyEvidence:verified.policyEvidence,workloadProfile:verified.workloadProfile,...campaign,controller:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,elapsedSeconds,rssBeforeBytes,rssAfterBytes:process.memoryUsage().rss},capacityTarget:{successfulRps:40000,simultaneousAuthenticatedUsers:10000,httpMultiUserTargetMet:met,productionPolicyQualified:policyQualified,productionStorageQualified:storageQualified,productionTelemetryQualified:telemetryQualified,persistentWebSocketSessionsMeasured:false,met:false},distinctPhysicalGeneratorHostsMeasured:false};
  }finally{
   const stopped=await Promise.allSettled(children.map(child=>child.stop()));
   if(stopped.some(value=>value.status==='rejected'))throw new Error('Worker shutdown unconfirmed; private files retained');

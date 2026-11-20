@@ -17,6 +17,35 @@ export function searchWriterReport(value){
  return {requestedWorkers:value.requestedWorkers,indexingWorkers:value.indexingWorkers,memoryBudgetBytes:value.memoryBudgetBytes};
 }
 
+const searchTimingPhases=['writerLockWait','commit','readerReload','sealedRead','sealedDecode','sealedEncode','sealedWrite','directorySync'];
+export function searchTimingReport(value){
+ if(value===undefined)return null;
+ if(!value||value.scope!=='process'||typeof value.enabled!=='boolean'||!value.phases)throw new Error('Invalid search timing diagnostics');
+ const fields=['calls','failures','totalMicros','maxMicros','bytes'];
+ const phases=Object.fromEntries(searchTimingPhases.map(name=>{
+  const sample=value.phases[name];
+  if(!sample||fields.some(field=>!Number.isSafeInteger(sample[field])||sample[field]<0))throw new Error('Invalid search timing sample');
+  return [name,Object.fromEntries(fields.map(field=>[field,sample[field]]))];
+ }));
+ return {scope:'process',enabled:value.enabled,phases};
+}
+export function fixtureDiagnosticsReport(value){
+ let result=value;
+ if(value?.searchIndex?.timings!==undefined)result={...result,searchIndex:{...value.searchIndex,timings:searchTimingReport(value.searchIndex.timings)}};
+ if(value?.httpTelemetry!==undefined)result={...result,httpTelemetry:httpTelemetryReport(value.httpTelemetry)};
+ return result;
+}
+export function httpTelemetryReport(value){
+ if(value===undefined)return null;
+ const fields=['submitted','applied','dropped','depth','queueDepth','capacity'];
+ if(!value||fields.some(field=>!Number.isSafeInteger(value[field])||value[field]<0)||value.capacity>8192||value.queueDepth>value.capacity||typeof value.running!=='boolean'||typeof value.closing!=='boolean')throw new Error('Invalid HTTP telemetry health');
+ return {...Object.fromEntries(fields.map(field=>[field,value[field]])),running:value.running,closing:value.closing};
+}
+export function qualifiesHttpTelemetry(diagnostics){
+ const before=diagnostics?.before?.httpTelemetry,after=diagnostics?.after?.httpTelemetry;
+ return Boolean(before&&after&&[before,after].every(value=>value.running===true&&value.closing===false&&value.capacity>0)&&Number.isSafeInteger(before.dropped)&&before.dropped>=0&&after.dropped===before.dropped);
+}
+
 export function searchStorageReport(value){
  if(value===undefined)return null;
  if(!value||value.verified!==true||!(value.mode==='sealed-disk'&&value.encryptedAtRest===true&&value.proof==='sealed-constructor-and-encrypted-metadata'||value.mode==='memory'&&value.encryptedAtRest===false&&value.proof==='explicit-in-memory-constructor'))throw new Error('Invalid search storage proof');

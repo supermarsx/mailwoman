@@ -57,7 +57,11 @@ test('an early mutation abort retains counts and a later taint invalidates earli
  const merged=aggregateWorkers({results:[aborted,result(1)],partitions,stage,startAtMs});
  assert.equal(merged.mutationStateTainted,true);assert.equal(merged.unknownMutationOutcomes,1);assert.equal(merged.abortedUnscheduled,40);assert.equal(merged.offered,60);assert.equal(merged.plannedArrivals,100);assert.equal(merged.requests,60);assert.equal(merged.errors,1);
  const eligible={endpoint:'mixed',phase:'offered-rate',arrivalRate:40000,acceptedDuringScheduledWindowRps:40000,uniquePrincipalsAcceptedDuringScheduledWindow:10000,uniqueClientsAcceptedDuringScheduledWindow:10000,coordination:{valid:true},mutationStateTainted:false,scheduledSeconds:30,errors:0,timeouts:0,throttled:0,droppedCapacity:0,droppedScheduler:0};
+ assert.equal(qualifiesHttpTarget({stages:[eligible],mutationStateTainted:false},true),false); // Legacy absent telemetry is unreported, not qualified.
+ const health={submitted:20,applied:20,dropped:0,depth:0,queueDepth:0,capacity:8192,running:true,closing:false};
+ eligible.diagnostics={before:{httpTelemetry:health},after:{httpTelemetry:{...health,submitted:40,applied:40}}};
  assert.equal(qualifiesHttpTarget({stages:[eligible],mutationStateTainted:false},true),true);
+ assert.equal(qualifiesHttpTarget({stages:[{...eligible,diagnostics:{before:{httpTelemetry:health},after:{httpTelemetry:{...health,dropped:1}}}}],mutationStateTainted:false},true),false);
  assert.equal(qualifiesHttpTarget({stages:[eligible],mutationStateTainted:true},true),false);
  assert.equal(qualifiesHttpTarget({stages:[eligible],mutationStateTainted:false},false),false);
 });

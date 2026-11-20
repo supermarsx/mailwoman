@@ -3,6 +3,32 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {prepareFixtureClients,fixturePrincipalIndex,startupReadinessReport,fixturePolicyReport,searchWriterReport,linkedLoginPolicyProbeReport,searchStorageReport,qualifiesSearchStorage} from './fixture-clients.mjs';
 import {measure,markdownReport} from './http-load.mjs';
+import {searchTimingReport,fixtureDiagnosticsReport} from './fixture-clients.mjs';
+import {httpTelemetryReport,qualifiesHttpTelemetry} from './fixture-clients.mjs';
+
+test('HTTP telemetry loss is visible and cannot qualify a new capacity result',()=>{
+ const value={submitted:20,applied:18,dropped:0,depth:2,queueDepth:1,capacity:8192,running:true,closing:false};
+ assert.deepEqual(httpTelemetryReport({...value,path:'/private',account:'private'}),value);
+ assert.equal(httpTelemetryReport(undefined),null);
+ assert.equal(qualifiesHttpTelemetry({}),false);
+ assert.equal(qualifiesHttpTelemetry({before:{httpTelemetry:value},after:{httpTelemetry:{...value,submitted:30}}}),true);
+ for(const patch of [{dropped:1},{running:false},{closing:true},{capacity:0}])assert.equal(qualifiesHttpTelemetry({before:{httpTelemetry:value},after:{httpTelemetry:{...value,...patch}}}),false);
+ for(const patch of [{depth:-1},{capacity:8193},{queueDepth:8193},{dropped:NaN},{running:'true'}])assert.throws(()=>httpTelemetryReport({...value,...patch}));
+ assert.deepEqual(fixtureDiagnosticsReport({httpTelemetry:{...value,secret:'private'}}).httpTelemetry,value);
+});
+
+test('search timing diagnostics are bounded aggregate fields and legacy remains unreported',()=>{
+ const names=['writerLockWait','commit','readerReload','sealedRead','sealedDecode','sealedEncode','sealedWrite','directorySync'];
+ const phases=Object.fromEntries(names.map(name=>[name,{calls:2,failures:1,totalMicros:20,maxMicros:15,bytes:12}]));
+ const value={scope:'process',enabled:true,phases};
+ assert.deepEqual(searchTimingReport({...value,secret:'private',phases:{...phases,privatePath:{}}}),value);
+ assert.equal(searchTimingReport(undefined),null);
+ assert.equal(searchTimingReport({...value,phases:{...phases,commit:{...phases.commit,failures:3,maxMicros:21}}}).phases.commit.failures,3); // Independently sampled atomics may cross during concurrent publication.
+ const legacy={searchIndex:{commitAttempts:2}};assert.equal(fixtureDiagnosticsReport(legacy),legacy);
+ assert.deepEqual(fixtureDiagnosticsReport({searchIndex:{timings:{...value,secret:'private'}}}).searchIndex.timings,value);
+ for(const patch of [{calls:-1},{failures:-1},{totalMicros:NaN},{bytes:Number.MAX_SAFE_INTEGER+1},{maxMicros:Infinity}])assert.throws(()=>searchTimingReport({...value,phases:{...phases,commit:{...phases.commit,...patch}}}));
+ for(const patch of [{enabled:'true'},{scope:'account'},{phases:{}}])assert.throws(()=>searchTimingReport({...value,...patch}));
+});
 
 const principals=()=>Array.from({length:4},(_,index)=>({cookie:`mw_session=private-session-${index}; mw_csrf=fixture-csrf-${index}`,accountId:`private-account-${index}`,clientAddress:`198.18.0.${index+1}`}));
 const simulation={mode:'fixture-loopback-trusted-proxy',clientCount:4};

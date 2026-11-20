@@ -1,5 +1,6 @@
 //! Tantivy files encrypted at rest; plaintext buffers never use temporary files.
 use mw_store::ServerKey;
+use crate::timing::{self, Stage};
 use std::{
     io::{self, BufWriter, Write},
     path::{Path, PathBuf},
@@ -58,18 +59,18 @@ impl SealedDirectory {
             let bytes = std::fs::read(dir.join(&path))?;
             result.atomic_write(&path, &bytes)?;
         }
-        result.inner.sync_directory()?;
+        timing::measure(Stage::DirectorySync, 0, || result.inner.sync_directory())?;
         Ok(result)
     }
     fn encode(&self, path: &Path, bytes: &[u8]) -> io::Result<Vec<u8>> {
-        self.key
+        timing::measure(Stage::SealedEncode, bytes.len() as u64, || self.key
             .seal_bound(bytes, "search-file-v1", &[&path.to_string_lossy()])
-            .map_err(invalid)
+            .map_err(invalid))
     }
     fn decode(&self, path: &Path, bytes: &[u8]) -> io::Result<Vec<u8>> {
-        self.key
+        timing::measure(Stage::SealedDecode, bytes.len() as u64, || self.key
             .open_bound(bytes, "search-file-v1", &[&path.to_string_lossy()])
-            .map_err(invalid)
+            .map_err(invalid))
     }
 }
 struct Writer {
@@ -91,7 +92,7 @@ impl TerminatingWrite for Writer {
         let bytes = self.directory.encode(&self.path, &self.bytes)?;
         // The underlying WORM writer reserved this name; only encrypted bytes are
         // exposed. atomic_write replaces that empty reservation durably.
-        self.directory.inner.atomic_write(&self.path, &bytes)
+        timing::measure(Stage::SealedWrite, bytes.len() as u64, || self.directory.inner.atomic_write(&self.path, &bytes))
     }
 }
 impl Directory for SealedDirectory {
@@ -116,15 +117,16 @@ impl Directory for SealedDirectory {
         })))
     }
     fn atomic_read(&self, path: &Path) -> Result<Vec<u8>, OpenReadError> {
-        let raw = self.inner.atomic_read(path)?;
+        let raw = timing::measure_read(|| self.inner.atomic_read(path))?;
         self.decode(path, &raw)
             .map_err(|e| OpenReadError::wrap_io_error(e, path.into()))
     }
     fn atomic_write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
-        self.inner.atomic_write(path, &self.encode(path, bytes)?)
+        let encoded = self.encode(path, bytes)?;
+        timing::measure(Stage::SealedWrite, encoded.len() as u64, || self.inner.atomic_write(path, &encoded))
     }
     fn sync_directory(&self) -> io::Result<()> {
-        self.inner.sync_directory()
+        timing::measure(Stage::DirectorySync, 0, || self.inner.sync_directory())
     }
     fn acquire_lock(&self, lock: &Lock) -> Result<DirectoryLock, LockError> {
         self.inner.acquire_lock(lock)
