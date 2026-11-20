@@ -8,6 +8,9 @@
 //! [`backend`] seam; the orchestration itself is filled in by e6.
 
 mod attachment_metadata;
+mod header_projection;
+mod header_metadata;
+pub use attachment_metadata::encode_message_envelope;
 mod mentions;
 pub mod account;
 pub mod acl;

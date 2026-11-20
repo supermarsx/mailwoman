@@ -1045,7 +1045,7 @@ impl Engine {
         email.thread_id = thread_id.clone();
 
         let (uidvalidity, uid, uidl) = coords(&raw.message_ref);
-        let env_bytes = crate::attachment_metadata::encode(&email);
+        let env_bytes = crate::encode_message_envelope(&email, &raw.raw);
         let flags_json = flags_to_json(&raw.flags);
 
         let outcome = self

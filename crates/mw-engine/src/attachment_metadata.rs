@@ -98,9 +98,12 @@ pub(crate) fn needs_repair(email: &Value) -> bool {
 pub(crate) fn stamp(email: &mut Value) {
     email[SCHEMA_KEY] = json!(SCHEMA_VERSION);
 }
-pub(crate) fn encode(email: &mw_jmap::Email) -> Vec<u8> {
+/// Encode the internal MIME envelope for sealed storage, using the same projections
+/// for production ingestion and faithful integration fixtures.
+pub fn encode_message_envelope(email: &mw_jmap::Email, raw: &[u8]) -> Vec<u8> {
     let mut value = serde_json::to_value(email).unwrap_or_else(|_| json!({}));
     stamp(&mut value);
+    crate::header_projection::stamp(&mut value, raw);
     serde_json::to_vec(&value).unwrap_or_default()
 }
 /// Keep unrelated envelope fields, and never erase metadata when parsing fails.

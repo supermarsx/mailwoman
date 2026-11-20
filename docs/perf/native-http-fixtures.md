@@ -191,6 +191,18 @@ duplicate-document rejection remain the same. This bounded query result does
 not establish an HTTP throughput gain; the representative campaign must measure
 that separately.
 
+Ingestion stores a versioned, bounded projection of the eleven supported
+delivery/optional headers inside the sealed envelope. Current list requests use
+that projection instead of loading the complete raw MIME BLOB. Legacy messages
+fall back to raw headers and attempt a source-bound revision-checked repair;
+oversized or invalid projections retain the fallback without truncating values.
+The private projection is removed from API responses. Representative fixtures
+use the same production encoder rather than constructing projection stamps.
+This avoids an additional raw-message read and scanning binary message bodies,
+but the existing envelope can still contain decoded text/HTML body values and
+is materialized in full. It is not yet a body-free metadata storage path, nor
+does this source change establish a new RPS measurement.
+
 `MW_NATIVE_LOAD_INDEX_WORKERS` is an optional diagnostic fixture override. Leave
 it unset for the ordinary Tantivy worker selection, or choose `1`, `2` or `3`
 with the fixture's unchanged 50 MB writer budget. Other values fail validation

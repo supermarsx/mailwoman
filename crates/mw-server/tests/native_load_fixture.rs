@@ -405,15 +405,14 @@ async fn seed_profile(
                 raw
             };
             let envelope = if representative {
-                let mut email =
-                    serde_json::to_value(mw_mime::parse(raw.as_bytes()).unwrap().email).unwrap();
+                let parsed = mw_mime::parse(raw.as_bytes()).unwrap();
+                let email = serde_json::to_value(&parsed.email).unwrap();
                 if uid == 1 {
                     attachment_part = email["attachments"][0]["partId"]
                         .as_str()
                         .map(str::to_owned);
                 }
-                email["_mailwomanAttachmentSchema"] = json!(1);
-                serde_json::to_vec(&email).unwrap()
+                mw_engine::encode_message_envelope(&parsed.email, raw.as_bytes())
             } else {
                 serde_json::to_vec(&json!({"subject":format!("Native fixture {index}/{uid}"),"from":[{"email":"sender@native-load.invalid"}],"to":[{"email":username}],"receivedAt":"2026-11-01T00:00:00Z","size":raw.len(),"hasAttachment":false})).unwrap()
             };

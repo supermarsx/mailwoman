@@ -1581,12 +1581,22 @@ impl Engine {
                     email["mailwomanInlineParts"] = inline_parts_json(raw, id);
                 }
             }
-            if !fill.headers.is_empty() && msg.blob_ref.is_some() {
-                if repair_raw.is_none() {
-                    repair_raw = self.cached_body_with_posture(&msg, cache_posture).await?;
-                }
-                if let Some(raw) = &repair_raw {
-                    for (property, value) in header_properties_json(raw, &fill.headers) {
+            if !fill.headers.is_empty() {
+                let pairs = match crate::header_projection::read(&email) {
+                    Some(pairs) => Some(pairs),
+                    None => {
+                        if repair_raw.is_none() {
+                            repair_raw = self.cached_body_with_posture(&msg, cache_posture).await?;
+                        }
+                        if let Some(raw) = &repair_raw {
+                            crate::header_projection::stamp(&mut email, raw);
+                            self.persist_header_projection(&msg, raw).await;
+                            Some(header_pairs(raw))
+                        } else { None }
+                    }
+                };
+                if let Some(pairs) = pairs {
+                    for (property, value) in header_properties_from_pairs(&pairs, &fill.headers) {
                         email[property] = value;
                     }
                 }
@@ -4643,6 +4653,7 @@ fn patch_engine_fields(
 ) -> Value {
     let obj = email.as_object_mut().expect("email is an object");
     obj.remove(crate::attachment_metadata::SCHEMA_KEY);
+    obj.remove(crate::header_projection::KEY);
     obj.insert("id".into(), json!(stable_id));
     // blobId scheme (e14): the whole message is `<stableId>`, each attachment
     // part is `<stableId>.<partId>` — both resolved by `Engine::fetch_blob`
@@ -5698,29 +5709,17 @@ fn parse_address_list(value: &str) -> Vec<Value> {
 /// The header block of `raw`, unfolded, as `(lower-case name, value)` pairs in
 /// message order.
 fn header_pairs(raw: &[u8]) -> Vec<(String, String)> {
-    let text = String::from_utf8_lossy(raw);
-    let mut pairs: Vec<(String, String)> = Vec::new();
-    for line in text.split('\n') {
-        let line = line.strip_suffix('\r').unwrap_or(line);
-        if line.is_empty() {
-            break;
-        }
-        if line.starts_with([' ', '\t']) {
-            if let Some((_, value)) = pairs.last_mut() {
-                value.push(' ');
-                value.push_str(line.trim());
-            }
-        } else if let Some((name, value)) = line.split_once(':') {
-            pairs.push((name.trim().to_ascii_lowercase(), value.trim().to_string()));
-        }
-    }
-    pairs
+    crate::header_projection::pairs(raw)
 }
 
 /// The answers to [`WantedHeader`]s for one message. A header the message does
 /// not have is `null`; with `:all` it is an empty list.
+#[cfg(test)]
 fn header_properties_json(raw: &[u8], wanted: &[WantedHeader]) -> Vec<(String, Value)> {
     let pairs = header_pairs(raw);
+    header_properties_from_pairs(&pairs, wanted)
+}
+fn header_properties_from_pairs(pairs: &[(String, String)], wanted: &[WantedHeader]) -> Vec<(String, Value)> {
     wanted
         .iter()
         .map(|w| {
@@ -7776,6 +7775,103 @@ mod email_get_batch_tests {
             })
             .await
             .unwrap();
+    }
+    const PROJECTED_HEADER_RAW: &[u8] = b"From: sender@example.org\r\nSubject: Header projection\r\nDelivered-To: first@example.org\r\nDelivered-To: Second <second@example.org>\r\nExpires: later\r\nContent-Type: text/plain\r\n\r\nMessage body.\r\n";
+    fn projected_header_args(id: &str) -> Value {
+        json!({"ids":[id],"properties":["id","messageId","subject","header:Delivered-To:asAddresses:all","header:Expires:asText","header:Reply-By:asText",crate::header_projection::KEY],"fetchTextBodyValues":false,"mailwomanBodyUse":false})
+    }
+    #[tokio::test]
+    async fn ingest_header_projection_is_persisted_and_listed_without_raw_reads() {
+        let f=Fixture::with(1).await;
+        let row=f.store().get_message(&f.ids[0]).await.unwrap();
+        let id=f.engine.ingest_import(&f.account,&row.mailbox_id,&RawMessage{
+            message_ref:MessageRef::Imap{mailbox:RawMailboxRef{name:"INBOX".into(),uidvalidity:100},uidvalidity:100,uid:row.uid},
+            raw:PROJECTED_HEADER_RAW.to_vec(),flags:vec![Flag::Seen],internaldate:None,
+        }).await.unwrap();
+        let stored:Value=serde_json::from_slice(&f.store().get_account_envelope(&f.account,&id).await.unwrap().unwrap()).unwrap();
+        assert!(crate::header_projection::read(&stored).is_some());
+        let (response,reads)=counted(&f.threads,f.engine.email_get(&f.account,&projected_header_args(&id))).await;
+        assert_eq!(response["list"][0]["header:Expires:asText"],"later");
+        assert_eq!(reads.against("bodies"),0,"real ingestion must supply projected headers: {reads:#?}");
+    }
+    #[tokio::test]
+    async fn current_header_projection_answers_without_body_reads_or_private_metadata() {
+        struct Zero;
+        impl crate::v6::AccountPostureSource for Zero {
+            fn posture(&self,_:&str)->crate::v6::AccountPosture {crate::v6::AccountPosture::ZeroAccess}
+        }
+        for mode in 0..3 {
+            let f=Fixture::with(1).await;
+            let parsed=mw_mime::parse(PROJECTED_HEADER_RAW).unwrap();
+            let envelope=crate::encode_message_envelope(&parsed.email,PROJECTED_HEADER_RAW);
+            seed_legacy_projection(&f,Some(PROJECTED_HEADER_RAW),&envelope).await;
+            if mode>0 {
+                let mut hooks=crate::v6::V6Hooks::new().with_cache(mw_cache::Cache::in_memory(mw_cache::ScopeMatrix::spec_defaults()));
+                if mode==2 {hooks=hooks.with_posture_source(std::sync::Arc::new(Zero));}
+                f.engine.attach_v6(hooks);
+            }
+            let (response,reads)=counted(&f.threads,f.engine.email_get(&f.account,&projected_header_args(&f.ids[0]))).await;
+            assert_eq!(reads.against("bodies"),0,"projected list headers must never read full MIME: {reads:#?}");
+            let email=&response["list"][0];
+            assert_eq!(email["header:Delivered-To:asAddresses:all"],json!([[{"name":null,"email":"first@example.org"}],[{"name":"Second","email":"second@example.org"}]]));
+            assert_eq!(email["header:Expires:asText"],"later");
+            assert_eq!(email["header:Reply-By:asText"],Value::Null);
+            assert!(email.get(crate::header_projection::KEY).is_none());
+            let response=f.engine.email_get(&f.account,&json!({"ids":[f.ids[0]]})).await;
+            assert!(response["list"][0].get(crate::header_projection::KEY).is_none(),"default properties must not leak private projection");
+        }
+    }
+    #[tokio::test]
+    async fn legacy_header_projection_repairs_once_preserves_metadata_and_rejects_foreign_ids() {
+        for cached in [false,true] {
+            let f=Fixture::with(1).await;
+            let parsed=mw_mime::parse(PROJECTED_HEADER_RAW).unwrap();
+            let mut envelope:Value=serde_json::from_slice(&crate::encode_message_envelope(&parsed.email,PROJECTED_HEADER_RAW)).unwrap();
+            envelope.as_object_mut().unwrap().remove(crate::header_projection::KEY);
+            envelope["futureMetadata"]=json!({"keep":true});
+            seed_legacy_projection(&f,Some(PROJECTED_HEADER_RAW),&serde_json::to_vec(&envelope).unwrap()).await;
+            if cached {f.engine.attach_v6(crate::v6::V6Hooks::new().with_cache(mw_cache::Cache::in_memory(mw_cache::ScopeMatrix::spec_defaults())));}
+            let args=projected_header_args(&f.ids[0]);
+            let (first,reads)=counted(&f.threads,f.engine.email_get(&f.account,&args)).await;
+            assert_eq!(reads.against("bodies"),1,"one legacy raw read: {reads:#?}");
+            let stored:Value=serde_json::from_slice(&f.store().get_account_envelope(&f.account,&f.ids[0]).await.unwrap().unwrap()).unwrap();
+            assert!(crate::header_projection::read(&stored).is_some());
+            assert_eq!(stored["futureMetadata"],json!({"keep":true}));
+            let (second,reads)=counted(&f.threads,f.engine.email_get(&f.account,&args)).await;
+            assert_eq!(first,second);assert_eq!(reads.against("bodies"),0,"repaired projection avoids body read: {reads:#?}");
+            let (foreign,reads)=counted(&f.threads,f.engine.email_get("foreign-account",&args)).await;
+            assert_eq!(foreign["list"],json!([]));assert_eq!(foreign["notFound"],json!([f.ids[0]]));
+            assert_eq!(reads.against("bodies"),0);
+        }
+    }
+    #[tokio::test]
+    async fn header_projection_survives_body_expiry_and_never_repairs_a_replaced_source() {
+        let f=Fixture::with(1).await;
+        let parsed=mw_mime::parse(PROJECTED_HEADER_RAW).unwrap();
+        let envelope=crate::encode_message_envelope(&parsed.email,PROJECTED_HEADER_RAW);
+        seed_legacy_projection(&f,Some(PROJECTED_HEADER_RAW),&envelope).await;
+        let source=f.store().get_message(&f.ids[0]).await.unwrap();
+        let mut latest:Value=serde_json::from_slice(&envelope).unwrap();
+        latest.as_object_mut().unwrap().remove(crate::header_projection::KEY);
+        latest["futureMetadata"]=json!({"newer":true});
+        seed_legacy_projection(&f,Some(PROJECTED_HEADER_RAW),&serde_json::to_vec(&latest).unwrap()).await;
+        f.engine.persist_header_projection(&source,PROJECTED_HEADER_RAW).await;
+        let merged:Value=serde_json::from_slice(&f.store().get_account_envelope(&f.account,&f.ids[0]).await.unwrap().unwrap()).unwrap();
+        assert_eq!(merged["futureMetadata"],latest["futureMetadata"]);
+        assert!(crate::header_projection::read(&merged).is_some());
+        seed_legacy_projection(&f,None,&envelope).await;
+        let (response,reads)=counted(&f.threads,f.engine.email_get(&f.account,&projected_header_args(&f.ids[0]))).await;
+        assert_eq!(response["list"][0]["header:Expires:asText"],"later");
+        assert_eq!(reads.against("bodies"),0);
+        let replacement=b"From: other@example.org\r\nExpires: replacement\r\n\r\nOther body.";
+        let parsed=mw_mime::parse(replacement).unwrap();
+        let mut new_envelope:Value=serde_json::from_slice(&crate::encode_message_envelope(&parsed.email,replacement)).unwrap();
+        new_envelope.as_object_mut().unwrap().remove(crate::header_projection::KEY);
+        new_envelope["futureMetadata"]=json!("new source");
+        seed_legacy_projection(&f,Some(replacement),&serde_json::to_vec(&new_envelope).unwrap()).await;
+        f.engine.persist_header_projection(&source,PROJECTED_HEADER_RAW).await;
+        let stored:Value=serde_json::from_slice(&f.store().get_account_envelope(&f.account,&f.ids[0]).await.unwrap().unwrap()).unwrap();
+        assert_eq!(stored,new_envelope,"old headers must never be persisted onto a replacement");
     }
     #[tokio::test]
     async fn legacy_attachment_projection_is_repaired_once_and_never_leaks_its_version() {
