@@ -284,6 +284,65 @@ pub struct Canonical {
     pub login_name: String,
 }
 
+/// Fresh request-local domain inputs, never retained as an authorization cache.
+/// Upstream JSON is deliberately unparsed: trusted header overrides still need
+/// address admission without consulting the ordinary configured upstream.
+pub struct IdentitySnapshot {
+    pub identity: Canonical,
+    pub row: Option<DomainConfigRow>,
+    typed: String,
+    existing_transport_compatible: bool,
+}
+
+impl IdentitySnapshot {
+    pub fn matches_existing_identity(&self, address: &str) -> bool {
+        self.existing_transport_compatible && address.trim() == self.typed
+    }
+
+    pub fn signin_allowed(&self) -> Result<bool, String> {
+        signin_allowed_row(&self.identity, self.row.as_ref())
+    }
+}
+
+pub async fn identity_snapshot(store: &Store, typed: &str) -> Result<IdentitySnapshot, String> {
+    let typed = typed.trim();
+    if typed.is_empty() || typed.chars().any(char::is_control) {
+        return Err("invalid login name".into());
+    }
+    let Some((local, raw_domain)) = typed.rsplit_once('@') else {
+        // Bare login expansion and existing bare transport lookup intentionally
+        // differ; preserve the old preferred-domain behavior and never reuse.
+        let identity = canonical(store, typed, None).await?;
+        let row = configured_row(store, &identity).await?;
+        return Ok(IdentitySnapshot {
+            identity,
+            row,
+            typed: typed.into(),
+            existing_transport_compatible: false,
+        });
+    };
+    if local.is_empty() || local.contains('@') {
+        return Err("invalid login name".into());
+    }
+    let raw_domain = normalize_domain(raw_domain)?;
+    let (domain, row, second_alias) = store
+        .domain_alias_config_snapshot(&raw_domain)
+        .await
+        .map_err(|_| "domain lookup failed")?;
+    let existing_transport_compatible =
+        !second_alias && normalize_domain(&domain).is_ok_and(|normalized| normalized == domain);
+    Ok(IdentitySnapshot {
+        identity: Canonical {
+            address: format!("{}@{domain}", local.to_lowercase()),
+            domain,
+            login_name: typed.into(),
+        },
+        row,
+        typed: typed.into(),
+        existing_transport_compatible,
+    })
+}
+
 pub async fn canonical(
     store: &Store,
     typed: &str,
@@ -384,7 +443,12 @@ pub async fn configured_row(
 /// Domain lists are checked only after credentials have been proved.
 pub async fn signin_allowed(store: &Store, username: &str) -> Result<bool, String> {
     let identity = canonical(store, username, None).await?;
-    let Some(row) = configured_row(store, &identity).await? else {
+    let row = configured_row(store, &identity).await?;
+    signin_allowed_row(&identity, row.as_ref())
+}
+
+fn signin_allowed_row(identity: &Canonical, row: Option<&DomainConfigRow>) -> Result<bool, String> {
+    let Some(row) = row else {
         return Ok(true);
     };
     let allowed: Vec<String> =
@@ -423,6 +487,90 @@ fn address_matches(pattern: &str, address: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn fresh_snapshot_matches_login_admission_without_parsing_upstream() {
+        let store = Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        let mut row = DomainConfigRow {
+            name: "example.test".into(),
+            upstream_json: "invalid upstream JSON".into(),
+            allowlist_json: "[\"*@example.test\"]".into(),
+            blocklist_json: "[\"blocked*@example.test\"]".into(),
+            enabled: true,
+            preferred: false,
+            settings_json: "{}".into(),
+            updated_at: 1,
+        };
+        store.put_domain_config(&row).await.unwrap();
+        store
+            .put_domain_alias("alias.test", "example.test")
+            .await
+            .unwrap();
+        for address in [
+            "User@Example.Test",
+            "User@ALIAS.TEST.",
+            "blocked-user@alias.test",
+            "user@missing.test",
+        ] {
+            let (snapshot, queries) =
+                mw_store::pool_telemetry::measure_queries(identity_snapshot(&store, address)).await;
+            let snapshot = snapshot.unwrap();
+            assert_eq!(queries.read.calls, 1);
+            assert_eq!(
+                snapshot.identity,
+                canonical(&store, address, None).await.unwrap()
+            );
+            assert_eq!(
+                snapshot.signin_allowed(),
+                signin_allowed(&store, address).await
+            );
+            assert!(snapshot.matches_existing_identity(address));
+            assert!(!snapshot.matches_existing_identity("other@example.test"));
+        }
+        // Header override admission must succeed even when ordinary routing JSON
+        // is unusable. It is parsed only if a resolver actually needs it.
+        assert!(
+            identity_snapshot(&store, "user@example.test")
+                .await
+                .unwrap()
+                .signin_allowed()
+                .unwrap()
+        );
+        row.blocklist_json = "invalid".into();
+        store.put_domain_config(&row).await.unwrap();
+        assert!(
+            identity_snapshot(&store, "user@example.test")
+                .await
+                .unwrap()
+                .signin_allowed()
+                .is_err()
+        );
+        row.blocklist_json = "[]".into();
+        row.enabled = false;
+        store.put_domain_config(&row).await.unwrap();
+        assert!(
+            !identity_snapshot(&store, "user@example.test")
+                .await
+                .unwrap()
+                .signin_allowed()
+                .unwrap()
+        );
+        row.enabled = true;
+        store.put_domain_config(&row).await.unwrap();
+        store
+            .set_preferred_domain(Some("example.test"))
+            .await
+            .unwrap();
+        let bare = identity_snapshot(&store, "user").await.unwrap();
+        assert_eq!(bare.identity.address, "user@example.test");
+        assert!(!bare.matches_existing_identity("user"));
+        assert!(upstream_for(&store, "user").await.unwrap().is_none());
+        for invalid in ["", "user@@example.test", "user@", "user\n@example.test"] {
+            assert!(identity_snapshot(&store, invalid).await.is_err());
+        }
+    }
+
     #[tokio::test]
     async fn existing_bare_upstream_never_uses_changed_preferred_but_new_login_and_alias_work() {
         let store = Store::open_in_memory(mw_store::ServerKey::generate())

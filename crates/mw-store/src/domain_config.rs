@@ -340,6 +340,23 @@ impl Store {
         Ok(row.as_ref().map(domain))
     }
 
+    /// Fresh one-hop login alias and its configuration in one statement. The
+    /// final flag reports a second alias hop, so callers can retain the distinct
+    /// recursive existing-identity transport lookup when necessary.
+    pub async fn domain_alias_config_snapshot(
+        &self,
+        name: &str,
+    ) -> Result<(String, Option<DomainConfigRow>, bool), StoreError> {
+        let row = q("SELECT COALESCE(a.domain,i.raw_domain) AS canonical_domain,d.name,d.upstream_json,d.allowlist,d.blocklist,d.enabled,d.preferred,d.settings_json,d.updated_at,a2.alias AS second_alias FROM (SELECT CAST(?1 AS TEXT) AS raw_domain) i LEFT JOIN domain_alias a ON a.alias=i.raw_domain LEFT JOIN domains d ON d.name=COALESCE(a.domain,i.raw_domain) LEFT JOIN domain_alias a2 ON a2.alias=COALESCE(a.domain,i.raw_domain)")
+            .bind(name).fetch_optional(&self.backend).await?
+            .ok_or_else(|| StoreError::Corrupt("domain lookup snapshot unavailable".into()))?;
+        Ok((
+            row.get_string("canonical_domain"),
+            row.get_opt_string("name").map(|_| domain(&row)),
+            row.get_opt_string("second_alias").is_some(),
+        ))
+    }
+
     pub async fn list_domain_configs(&self) -> Result<Vec<DomainConfigRow>, StoreError> {
         Ok(q("SELECT name, upstream_json, allowlist, blocklist, enabled, preferred, settings_json, updated_at FROM domains ORDER BY name")
             .fetch_all(&self.backend).await?.iter().map(domain).collect())
@@ -571,6 +588,147 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn independent_store_writers_immediately_change_domain_snapshots() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("domains.db");
+        let key = crate::ServerKey::generate();
+        let reader = Store::open(path.to_str().unwrap(), key.clone())
+            .await
+            .unwrap();
+        let writer = Store::open(path.to_str().unwrap(), key).await.unwrap();
+        writer.put_domain_config(&row("first.test")).await.unwrap();
+        writer.put_domain_config(&row("second.test")).await.unwrap();
+        writer
+            .put_domain_alias("alias.test", "first.test")
+            .await
+            .unwrap();
+        assert_eq!(
+            reader
+                .domain_alias_config_snapshot("alias.test")
+                .await
+                .unwrap()
+                .0,
+            "first.test"
+        );
+        q("UPDATE domain_alias SET domain='second.test' WHERE alias='alias.test'")
+            .execute(&writer.backend)
+            .await
+            .unwrap();
+        assert_eq!(
+            reader
+                .domain_alias_config_snapshot("alias.test")
+                .await
+                .unwrap()
+                .0,
+            "second.test"
+        );
+        let mut updated = row("second.test");
+        updated.enabled = false;
+        updated.upstream_json = "changed".into();
+        writer.put_domain_config(&updated).await.unwrap();
+        assert_eq!(
+            reader
+                .domain_alias_config_snapshot("alias.test")
+                .await
+                .unwrap()
+                .1,
+            Some(updated)
+        );
+        reader.close().await;
+        writer.close().await;
+        drop(reader);
+        drop(writer);
+    }
+
+    #[tokio::test]
+    async fn domain_snapshot_is_one_fresh_read_and_reports_alias_fallbacks() {
+        let store = Store::open_in_memory(crate::ServerKey::generate())
+            .await
+            .unwrap();
+        for name in ["first.test", "second.test"] {
+            store.put_domain_config(&row(name)).await.unwrap();
+        }
+        store
+            .put_domain_alias("alias.test", "first.test")
+            .await
+            .unwrap();
+        let (snapshot, metrics) = crate::pool_telemetry::measure_queries(
+            store.domain_alias_config_snapshot("alias.test"),
+        )
+        .await;
+        let (name, found, chained) = snapshot.unwrap();
+        assert_eq!(metrics.read.calls, 1);
+        assert_eq!(name, "first.test");
+        assert_eq!(found, store.get_domain_config("first.test").await.unwrap());
+        assert!(!chained);
+        assert_eq!(
+            store
+                .domain_alias_config_snapshot("absent.test")
+                .await
+                .unwrap(),
+            ("absent.test".into(), None, false)
+        );
+        // Raw writers are deliberately not hidden behind a process memo.
+        q("UPDATE domain_alias SET domain='second.test' WHERE alias='alias.test'")
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .domain_alias_config_snapshot("alias.test")
+                .await
+                .unwrap()
+                .0,
+            "second.test"
+        );
+        q("UPDATE domains SET enabled=0 WHERE name='second.test'")
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert!(
+            !store
+                .domain_alias_config_snapshot("alias.test")
+                .await
+                .unwrap()
+                .1
+                .unwrap()
+                .enabled
+        );
+        // A chain/cycle inserted outside validated admin APIs forces callers to
+        // retain the existing recursive transport lookup and its cycle denial.
+        q("INSERT INTO domain_alias(alias,domain) VALUES('second.test','first.test')")
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert!(
+            store
+                .domain_alias_config_snapshot("alias.test")
+                .await
+                .unwrap()
+                .2
+        );
+        q("INSERT INTO domain_alias(alias,domain) VALUES('first.test','second.test')")
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert!(
+            store
+                .domain_alias_config_snapshot("alias.test")
+                .await
+                .unwrap()
+                .2
+        );
+        assert!(store.canonical_policy_domain("alias.test").await.is_err());
+        store.close().await;
+        assert!(
+            store
+                .domain_alias_config_snapshot("alias.test")
+                .await
+                .is_err()
+        );
+    }
+
     fn row(name: &str) -> DomainConfigRow {
         DomainConfigRow {
             name: name.into(),

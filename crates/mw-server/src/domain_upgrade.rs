@@ -27,18 +27,27 @@ pub(crate) async fn refresh_session(
     } else {
         None
     };
-    if !domain_config::signin_allowed(&state.store, &session.credentials.username)
+    let snapshot = domain_config::identity_snapshot(&state.store, &session.credentials.username)
         .await
+        .map_err(|_| crate::unauthorized())?;
+    if !snapshot
+        .signin_allowed()
         .map_err(|_| crate::unauthorized())?
     {
         return Err(crate::unauthorized());
     }
-    let upstream = if let Some(url) = header_override {
-        upstream_resolve::Upstream::Jmap(url)
+    let (upstream, configured) = if let Some(url) = header_override {
+        // Do not parse ordinary upstream JSON on the explicit trusted override.
+        (upstream_resolve::Upstream::Jmap(url), None)
     } else {
-        upstream_resolve::resolve_upstream(state, &session.credentials.username)
-            .await
-            .map_err(|_| crate::unauthorized())?
+        upstream_resolve::resolve_snapshot(
+            &state.store,
+            &state.security,
+            state.engine.is_some(),
+            &snapshot,
+        )
+        .await
+        .map_err(|_| crate::unauthorized())?
     };
     if state.engine.is_some() {
         let account = state
@@ -46,10 +55,21 @@ pub(crate) async fn refresh_session(
             .get_account(&session.account_id)
             .await
             .map_err(|_| crate::unauthorized())?;
-        if !crate::engine_mode::account_matches_upstream(&state.store, &account, upstream.url())
-            .await
-            .unwrap_or(false)
+        let matches = if account.kind != AccountKind::Ews
+            && snapshot.matches_existing_identity(&account.username)
         {
+            crate::engine_mode::account_matches_mail_configuration(
+                &account,
+                upstream.url(),
+                configured.as_ref(),
+            )
+            .unwrap_or(false)
+        } else {
+            crate::engine_mode::account_matches_upstream(&state.store, &account, upstream.url())
+                .await
+                .unwrap_or(false)
+        };
+        if !matches {
             crate::account_gate::stop_engine_work(state, &session.account_id);
             return Err(crate::unauthorized());
         }

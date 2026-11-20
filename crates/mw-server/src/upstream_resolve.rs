@@ -75,9 +75,23 @@ pub(crate) async fn resolve_for(
     engine: bool,
     username: &str,
 ) -> Result<Upstream, ResolveError> {
-    let identity = crate::domain_config::canonical(store, username, None)
+    let snapshot = crate::domain_config::identity_snapshot(store, username)
         .await
         .map_err(|_| ResolveError::NotConfigured)?;
+    resolve_snapshot(store, security, engine, &snapshot)
+        .await
+        .map(|resolved| resolved.0)
+}
+
+/// Resolve from fresh request-local domain inputs. Settings are still evaluated
+/// on every invocation, and failures retain the existing denial behavior.
+pub(crate) async fn resolve_snapshot(
+    store: &mw_store::Store,
+    security: &SecurityConfig,
+    engine: bool,
+    snapshot: &crate::domain_config::IdentitySnapshot,
+) -> Result<(Upstream, Option<crate::domain_config::UpstreamConfig>), ResolveError> {
+    let identity = &snapshot.identity;
     let subject = mw_store::settings_policy::SettingSubject {
         personal_owner: None,
         domain: &identity.domain,
@@ -88,22 +102,26 @@ pub(crate) async fn resolve_for(
         .await
         .map_err(|_| ResolveError::NotConfigured)?
         .is_some_and(|v| v.value == "listed");
-    let row = crate::domain_config::configured_row(store, &identity)
-        .await
-        .map_err(|_| ResolveError::NotConfigured)?;
-    match row {
+    let mut configured = None;
+    match &snapshot.row {
         Some(row) => {
             if !row.enabled {
                 return Err(ResolveError::NotConfigured);
             }
-            let config = crate::domain_config::UpstreamConfig::parse(&row.upstream_json)
-                .map_err(|_| ResolveError::NotConfigured)?;
+            configured = Some(
+                crate::domain_config::UpstreamConfig::parse(&row.upstream_json)
+                    .map_err(|_| ResolveError::NotConfigured)?,
+            );
+            let config = configured.as_ref().expect("configuration parsed above");
             if let Some(ews) = &config.ews {
                 return if engine {
-                    Ok(Upstream::Ews(
-                        ews.endpoint()
-                            .map_err(|_| ResolveError::NotConfigured)?
-                            .to_string(),
+                    Ok((
+                        Upstream::Ews(
+                            ews.endpoint()
+                                .map_err(|_| ResolveError::NotConfigured)?
+                                .to_string(),
+                        ),
+                        configured,
                     ))
                 } else {
                     Err(ResolveError::NotConfigured)
@@ -114,14 +132,14 @@ pub(crate) async fn resolve_for(
             }
             if engine {
                 if let Some((endpoint, protocol)) = config.mail() {
-                    return Ok(Upstream::Mail(endpoint.mail_url(protocol)));
+                    return Ok((Upstream::Mail(endpoint.mail_url(protocol)), configured));
                 }
                 if config.jmap.is_some() {
                     return Err(ResolveError::NotConfigured);
                 }
             } else {
-                if let Some(jmap) = config.jmap {
-                    return Ok(Upstream::Jmap(jmap.session_url));
+                if let Some(jmap) = &config.jmap {
+                    return Ok((Upstream::Jmap(jmap.session_url.clone()), configured));
                 }
                 if config.mail().is_some() {
                     return Err(ResolveError::NotConfigured);
@@ -138,12 +156,12 @@ pub(crate) async fn resolve_for(
             .and_then(|v| v.value.as_str().map(str::to_string))
     {
         return if fits_mode(engine, &default) {
-            Ok(wrap(engine, default))
+            Ok((wrap(engine, default), configured))
         } else {
             Err(ResolveError::NotConfigured)
         };
     }
-    resolve_from_config(security, engine)
+    resolve_from_config(security, engine).map(|upstream| (upstream, configured))
 }
 
 /// Steps 2-4: the deployment-wide configuration.
@@ -201,6 +219,130 @@ mod tests {
             jmap_upstreams: list.map(|l| l.iter().map(|s| s.to_string()).collect()),
             ..SecurityConfig::default()
         }
+    }
+
+    #[tokio::test]
+    async fn qualified_domain_account_inputs_reduce_seven_reads_to_two_without_caching() {
+        let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        let mut row = mw_store::DomainConfigRow {
+            name: "example.test".into(),
+            upstream_json: r#"{"imap":{"host":"mail.test","port":993,"tls":"implicit"}}"#.into(),
+            allowlist_json: "[]".into(),
+            blocklist_json: "[]".into(),
+            enabled: true,
+            preferred: false,
+            settings_json: "{}".into(),
+            updated_at: 1,
+        };
+        store.put_domain_config(&row).await.unwrap();
+        let username = "user@example.test";
+        let account_id = store
+            .create_account(
+                &mw_store::NewAccount {
+                    kind: mw_store::AccountKind::Imap,
+                    host: "mail.test",
+                    port: 993,
+                    tls: "implicit",
+                    username,
+                    sync_policy_json: "{}",
+                },
+                &mw_store::Credentials {
+                    username: username.into(),
+                    password: "fixture".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let (_, old_reads) = mw_store::pool_telemetry::measure_queries(async {
+            assert!(
+                crate::domain_config::signin_allowed(&store, username)
+                    .await
+                    .unwrap()
+            );
+            let identity = crate::domain_config::canonical(&store, username, None)
+                .await
+                .unwrap();
+            assert!(
+                crate::domain_config::configured_row(&store, &identity)
+                    .await
+                    .unwrap()
+                    .is_some()
+            );
+            let account = store.get_account(&account_id).await.unwrap();
+            assert!(
+                engine_mode::account_matches_upstream(&store, &account, "imaps://mail.test:993")
+                    .await
+                    .unwrap()
+            );
+        })
+        .await;
+        let ((snapshot, account), fresh_reads) = mw_store::pool_telemetry::measure_queries(async {
+            (
+                crate::domain_config::identity_snapshot(&store, username)
+                    .await
+                    .unwrap(),
+                store.get_account(&account_id).await.unwrap(),
+            )
+        })
+        .await;
+        assert_eq!(old_reads.read.calls, 7);
+        assert_eq!(fresh_reads.read.calls, 2);
+        assert!(snapshot.signin_allowed().unwrap());
+        assert!(snapshot.matches_existing_identity(&account.username));
+        let security = security(None, None);
+        let (upstream, config) = resolve_snapshot(&store, &security, true, &snapshot)
+            .await
+            .unwrap();
+        assert!(
+            engine_mode::account_matches_mail_configuration(
+                &account,
+                upstream.url(),
+                config.as_ref()
+            )
+            .unwrap()
+        );
+        assert_eq!(
+            resolve_snapshot(&store, &security, false, &snapshot)
+                .await
+                .err(),
+            Some(ResolveError::NotConfigured)
+        );
+        row.upstream_json =
+            r#"{"imap":{"host":"changed.test","port":993,"tls":"implicit"}}"#.into();
+        store.put_domain_config(&row).await.unwrap();
+        let fresh = crate::domain_config::identity_snapshot(&store, username)
+            .await
+            .unwrap();
+        let (upstream, config) = resolve_snapshot(&store, &security, true, &fresh)
+            .await
+            .unwrap();
+        assert!(
+            !engine_mode::account_matches_mail_configuration(
+                &account,
+                upstream.url(),
+                config.as_ref()
+            )
+            .unwrap()
+        );
+        row.enabled = false;
+        store.put_domain_config(&row).await.unwrap();
+        let disabled = crate::domain_config::identity_snapshot(&store, username)
+            .await
+            .unwrap();
+        assert!(!disabled.signin_allowed().unwrap());
+        assert!(
+            resolve_snapshot(&store, &security, true, &disabled)
+                .await
+                .is_err()
+        );
+        store.close().await;
+        assert!(
+            crate::domain_config::identity_snapshot(&store, username)
+                .await
+                .is_err()
+        );
     }
 
     #[test]

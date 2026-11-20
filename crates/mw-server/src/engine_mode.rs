@@ -306,14 +306,20 @@ pub(crate) async fn account_matches_upstream(
                 .is_ok_and(|endpoint| endpoint.as_str() == url)
         }));
     }
-    let expected = parse_mail_url(url).ok_or("invalid configured mail URL")?;
     let configured = crate::domain_config::upstream_for(store, &account.username).await?;
-    let endpoint = configured
-        .as_ref()
-        .and_then(|c| c.mail())
-        .map(|(endpoint, _)| endpoint);
+    account_matches_mail_configuration(account, url, configured.as_ref())
+}
+
+/// Pure comparison against the same fresh domain configuration used by the
+/// resolver; callers must retain the ordinary path for other account identities.
+pub(crate) fn account_matches_mail_configuration(
+    account: &mw_store::Account,
+    url: &str,
+    configured: Option<&crate::domain_config::UpstreamConfig>,
+) -> Result<bool, String> {
+    let expected = parse_mail_url(url).ok_or("invalid configured mail URL")?;
+    let endpoint = configured.and_then(|config| config.mail()).map(|(endpoint, _)| endpoint);
     let binding = configured
-        .as_ref()
         .map(|c| c.binding())
         .transpose()?
         .flatten();
@@ -1388,6 +1394,31 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fresh_mail_configuration_checks_binding_kind_host_port_and_tls() {
+        let config = crate::domain_config::UpstreamConfig::parse(
+            r#"{"imap":{"host":"mail.test","port":993,"tls":"implicit"}}"#,
+        ).unwrap();
+        let mut account = mw_store::Account {
+            id: "a".into(), kind: AccountKind::Imap, host: "MAIL.TEST".into(),
+            port: 993, tls: "implicit".into(), username: "user@example.test".into(),
+            sync_policy_json: "{}".into(),
+        };
+        let matches = |account: &mw_store::Account| account_matches_mail_configuration(
+            account, "imaps://mail.test:993", Some(&config),
+        ).unwrap();
+        assert!(matches(&account));
+        account.host = "other.test".into(); assert!(!matches(&account));
+        account.host = "mail.test".into(); account.port = 143; assert!(!matches(&account));
+        account.port = 993; account.kind = AccountKind::Pop3; assert!(!matches(&account));
+        account.kind = AccountKind::Imap; account.tls = "plaintext".into(); assert!(!matches(&account));
+        account.tls = "implicit".into();
+        let mut policy = AccountPolicy::default(); policy.domain_binding = Some("stale".into());
+        account.sync_policy_json = serde_json::to_string(&policy).unwrap();
+        assert!(!matches(&account));
+        assert!(account_matches_mail_configuration(&account, "ftp://invalid", Some(&config)).is_err());
+    }
 
     #[test]
     fn parses_scheme_and_port() {
