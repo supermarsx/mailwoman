@@ -126,6 +126,31 @@ read-only baseline image. Evidence is under
 and recovered-gate logs in its parent directory. A broader representative
 read/write run and simultaneous WebSocket verification remain necessary.
 
+## Broader read/write diagnostic: 100 users, 5,000 messages
+
+The same frozen image subsequently passed a real HTTP preflight with one user,
+50 messages, all ten request types and no errors. A separate 100-user run then
+seeded 50 messages per user and verified all 5,000 search documents before load.
+It kept the same resource limits and loaded-policy controls. The equal-weight
+profile adds two-page queries with headers, a 4 KiB text body, a validated 64 KiB
+attachment download, mark-read/restore, and move/restore to the baseline requests.
+Each JMAP batch counts as **one HTTP request**, regardless of method count.
+
+| Outstanding | Successful in-window RPS | p95 / p99 latency | Users reached | Errors / throttles / timeouts |
+| ---: | ---: | ---: | ---: | ---: |
+| 16 | 125.6 | 244 / 294 ms | 100 | 0 / 0 / 0 |
+| 64 | 121.8 | 877 / 934 ms | 100 | 0 / 0 / 0 |
+
+Every request type completed at least 127 times in each phase; no unknown
+mutation outcome tainted either phase. These are ten-second diagnostic windows,
+not sustained capacity evidence. They have a larger dataset, response payloads
+and mutation workload than the earlier read-only mix, so the rates are not an
+equivalent-workload regression comparison. Sending, real upstream traffic and
+simultaneous persistent WebSockets remain unmeasured. The 40k target remains
+unmet. Evidence is under
+`.orchestration/reports/perf-investigation/sqlite-shared-representative-preflight/`
+and `sqlite-shared-representative-100/` in the same report parent directory.
+
 Local evidence is under
 `.orchestration/reports/perf-investigation/sqlite-current-loaded-100/` and
 `.orchestration/reports/perf-investigation/sqlite-current-loaded-profile-100/`.

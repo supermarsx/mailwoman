@@ -13,4 +13,5 @@
 - [Separate load-generator resource budgets](./external-generator-plan.md)
 - [Loaded-policy release baseline: 100 users](./loaded-policy-release-baseline.md)
 - [Generator and transport calibration](./generator-calibration.md)
+- [Coordinated multi-process generators](./coordinated-generator.md)
 - [Size-budget revisions (SPEC §23 — 26.9; SPEC §16 shells — 26.20; both — 2026-10-27 / t33)](./size-budget-revision.md)
