@@ -6,7 +6,7 @@ builds a compact replacement while the app continues serving requests. It keeps
 the same SQLCipher configuration and sealed data. PostgreSQL does not use this.
 
 After rebuilding and deploying a server containing this feature, start it from
-**Observability > Database > Online conversion**, or on the deployment host:
+**Maintenance > Database > Online conversion**, or on the deployment host:
 
 ```sh
 bash deploy.sh maintenance --online
@@ -23,6 +23,15 @@ An installation already using incremental vacuum completes without rebuilding.
 The CLI submits a private authenticated local command, bound to the server key
 and canonical database path, with a short lifetime and persisted replay guard.
 Status reports copied rows/bytes, the current table, pending changes and phase.
+New reports also include the start and finish timestamps, server-measured elapsed
+time, average baseline copy bytes/second and average replayed keys/second.
+Elapsed time freezes when the job stops. Copy rate covers the copy phase;
+replay rate covers catch-up, including the final drain. Neither includes baseline
+verification or waiting for cutover. These are logical copier measurements, not
+physical disk bandwidth or completion estimates. Pending changes count journal
+events, which can include repeated updates to the same key. Reports saved before
+these measurements were introduced show unavailable values rather than inferred
+historical timing.
 The admin UI reads lightweight status every two seconds while visible and active.
 No progress samples are appended to the database.
 
@@ -45,6 +54,15 @@ fails safely and the original stays authoritative. Slow filesystem operations
 and confirmed worker shutdown cannot be interrupted safely; the budget is not
 a hard maximum request latency. This is online conversion, not a promise of
 zero added latency. It has not been load-tested on the production 115 GB file.
+
+Finishing every baseline table does not mean conversion is ready to switch:
+the captured change journal must also drain. Catch-up currently stops after a
+bounded five-minute window if events remain. That failure alone does not prove
+new writes exceeded replay throughput. Baseline verification can accumulate a
+backlog while traffic continues; small replay batches and repeated changes to
+the same row can also delay draining it. This abort occurs before cutover and
+keeps the selected source authoritative. A failed unpublished copy is not
+resumable; a retry starts a fresh copy.
 
 Detailed tuning is available through the running container's CLI:
 

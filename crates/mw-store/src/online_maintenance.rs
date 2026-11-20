@@ -21,6 +21,10 @@ use std::{
     },
     time::{Duration, Instant},
 };
+#[path = "online_conversion_timing.rs"]
+mod timing;
+pub use timing::ConversionTiming;
+use timing::{JobTiming,Stage};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
@@ -72,12 +76,22 @@ pub struct ConversionReport {
     pub source_generation: Option<String>,
     #[serde(default)]
     pub target_generation: Option<String>,
+    #[serde(default, flatten)]
+    pub timing: ConversionTiming,
 }
 struct Job {
     report: Mutex<ConversionReport>,
     cancel: Arc<AtomicBool>,
     running: AtomicBool,
     last_write: Mutex<Instant>,
+    timing: Mutex<JobTiming>,
+}
+struct StageGuard<'a>(&'a Job);
+impl Drop for StageGuard<'_>{
+    fn drop(&mut self){self.0.timing.lock().unwrap_or_else(|p|p.into_inner()).enter(Stage::Idle,Instant::now());}
+}
+fn stage(job:&Job,stage:Stage)->StageGuard<'_>{
+    job.timing.lock().unwrap_or_else(|p|p.into_inner()).enter(stage,Instant::now());StageGuard(job)
 }
 static JOBS: LazyLock<Mutex<HashMap<PathBuf, Arc<Job>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -96,7 +110,11 @@ fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
 fn snapshot(job: &Job) -> ConversionReport {
-    job.report.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    let mut report=job.report.lock().unwrap_or_else(|p|p.into_inner()).clone();
+    if job.running.load(Ordering::Acquire) && !terminal(&report.phase){
+        report.timing=job.timing.lock().unwrap_or_else(|p|p.into_inner()).snapshot(Instant::now(),report.progress.as_ref());
+    }
+    report
 }
 fn publish_status(
     path: &Path,
@@ -113,6 +131,9 @@ fn publish_status(
             r.progress = progress;
         }
         r.error = error;
+        let mut timing=job.timing.lock().unwrap_or_else(|p|p.into_inner());
+        if terminal(phase){timing.finish(Instant::now(),r.updated_at);}
+        r.timing=timing.snapshot(Instant::now(),r.progress.as_ref());
         r.clone()
     };
     let mut at = job.last_write.lock().unwrap_or_else(|p| p.into_inner());
@@ -196,12 +217,14 @@ impl Store {
             retained_previous: false,
             source_generation: None,
             target_generation: None,
+            timing: ConversionTiming::default(),
         };
         let job = Arc::new(Job {
             report: Mutex::new(report.clone()),
             cancel: Arc::new(AtomicBool::new(false)),
             running: AtomicBool::new(true),
             last_write: Mutex::new(Instant::now() - Duration::from_secs(2)),
+            timing: Mutex::new(JobTiming::new(Instant::now())),
         });
         {
             let mut jobs = JOBS.lock().unwrap_or_else(|p| p.into_inner());
@@ -227,6 +250,9 @@ impl Store {
                 report.phase = "failed".into();
                 report.updated_at = now();
                 report.error = Some(error.chars().take(512).collect());
+                let mut timing=job.timing.lock().unwrap_or_else(|p|p.into_inner());
+                timing.finish(Instant::now(),report.updated_at);
+                report.timing=timing.snapshot(Instant::now(),report.progress.as_ref());
             }
             job.running.store(false, Ordering::Release);
             return Err(error);
@@ -471,6 +497,8 @@ async fn convert(
     let mut workers_closed = false;
     let mut worker_close_attempted = false;
     let result = async {
+        {
+        let _copy_clock=stage(job,Stage::Copy);
         loop {
             check_resources(&source.path, &target.path, options, job)?;
             let progress = session.seed_batch().await.map_err(|e| e.to_string())?;
@@ -479,9 +507,12 @@ async fn convert(
             if done { break; }
             tokio::time::sleep(Duration::from_millis(options.pause_ms)).await;
         }
+        }
         publish_status(path, job, "verifying", None, None)?;
         session.verify_bulk().await.map_err(|e| e.to_string())?;
         let catch_started = Instant::now();
+        {
+        let _replay_clock=stage(job,Stage::Replay);
         loop {
             check_resources(&source.path, &target.path, options, job)?;
             let progress = session.catch_up_batch().await.map_err(|e| e.to_string())?;
@@ -489,9 +520,10 @@ async fn convert(
             publish_status(path, job, "catching-up", Some(progress), None)?;
             if done { break; }
             if catch_started.elapsed() > Duration::from_secs(300) {
-                return Err("Foreground writes outpaced bounded catch-up; the source remains authoritative".into());
+                return Err("Changes remain after the bounded catch-up window; the source remains authoritative".into());
             }
             tokio::task::yield_now().await;
+        }
         }
         publish_status(path, job, "waiting-for-cutover", None, None)?;
         let mut exclusive = tokio::time::timeout(Duration::from_millis(options.max_cutover_ms), live.exclusive())
@@ -510,7 +542,10 @@ async fn convert(
         // private workers have actually closed and a usable selected pool exists.
         exclusive.close_old().await;
         let prepared = tokio::time::timeout(Duration::from_millis(options.max_cutover_ms), async {
-            loop { let p = session.catch_up_batch().await.map_err(|e| e.to_string())?; if p.pending == 0 { break; } }
+            {
+            let _replay_clock=stage(job,Stage::Replay);
+            loop { let p = session.catch_up_batch().await.map_err(|e| e.to_string())?; let done=p.pending==0; job.report.lock().unwrap_or_else(|p|p.into_inner()).progress=Some(p); if done { break; } }
+            }
             session.finalize().await.map_err(|e| e.to_string())?;
             session.cleanup_source().await.map_err(|e| e.to_string())?;
             Ok::<_, String>(())

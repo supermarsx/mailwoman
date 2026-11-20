@@ -1,5 +1,5 @@
 import {createEffect,createSignal,For,onCleanup,onMount,Show,useContext,type JSX} from 'solid-js';
-import {loadCatalog,t,formatDateTime} from '../../i18n';
+import {loadCatalog,t,formatDateTime,formatDurationMs} from '../../i18n';
 import {loadOnlineConversion,startOnlineConversion,cancelOnlineConversion,type OnlineConversionReport} from '../../api/admin/onlineDatabase.ts';
 import {Icon} from '../../components/Icon.tsx';
 import {ShellContext} from './shell/context.ts';
@@ -27,13 +27,17 @@ export function OnlineDatabaseConversion(props:{onCompleted?:()=>void}={}):JSX.E
  async function start():Promise<void>{if(busy()||loading()||active()||!canRun())return;setBusy(true);setFailure(null);try{const value=await startOnlineConversion();if(!disposed)setReport(value);}catch(error){if(!disposed)setFailure(describeAdminError(error));}finally{if(!disposed)setBusy(false);}}
  async function cancel():Promise<void>{if(busy()||loading()||!cancellable()||!canRun())return;setBusy(true);setFailure(null);try{const requested=await cancelOnlineConversion();const value=await loadOnlineConversion();if(!disposed){setReport(value);if(!requested)setFailure(t('admin-db-online-cancel-unavailable'));}}catch(error){if(!disposed)setFailure(describeAdminError(error));}finally{if(!disposed)setBusy(false);}}
  const fields=(entries:()=>[string,string][]) => <table class={css.table}><tbody><For each={entries()}>{([label,value])=><tr><th scope="row">{label}</th><td>{value}</td></tr>}</For></tbody></table>;
+ const measured=(value:number|null|undefined,format:(n:number)=>string):string=>typeof value==='number'&&Number.isFinite(value)&&value>=0?format(value):t('admin-db-online-unavailable');
  return <Show when={canRead()}><section class={css.card} aria-label={t('admin-db-online-title')}>
   <div class={css.headingRow}><h3 class={css.heading}>{t('admin-db-online-title')}</h3><div class={css.headingRow}><button type="button" class="btn" disabled={busy()||loading()||active()||!canRun()} onClick={()=>void start()}><Icon name="database"/>{t('admin-db-online-start')}</button><Show when={active()}><button type="button" class="btn btn--ghost" disabled={busy()||loading()||!cancellable()||!canRun()} onClick={()=>void cancel()}><Icon name="close"/>{t('admin-db-online-cancel')}</button></Show><button type="button" class="btn btn--ghost" disabled={loading()||busy()} onClick={()=>void reload()}><Icon name="refresh"/>{t('admin-db-refresh')}</button></div></div>
   <p class={css.note}>{t('admin-db-online-help')}</p><Feedback kind="error" as="toast" message={failure()}/>
   <Show when={report()} fallback={<p class={css.note}>{t('admin-db-online-none')}</p>}>{value=><>
    <p role="status">{t('admin-db-online-phase')}: {phases[value().phase]?t(`admin-db-online-phase-${phases[value().phase]}`):value().phase}</p>
    <p class={css.note}>{t('admin-db-observed',{time:formatDateTime(value().updatedAt*1000)})}</p>
-   <Show when={value().progress} keyed>{progress=>fields(()=>[[t('admin-db-table'),`${formatCount(progress.tableIndex)} / ${formatCount(progress.tableCount)}${progress.tableName?` · ${progress.tableName}`:''}`],[t('admin-db-online-copied-rows'),formatCount(progress.copiedRows)],[t('admin-db-online-copied-bytes'),formatBytes(progress.copiedBytes)],[t('admin-db-online-pending'),formatCount(progress.pending)]])}</Show>
+   {fields(()=>[[t('admin-db-online-started'),measured(value().startedAt,n=>formatDateTime(n*1000))],[t('admin-db-online-finished'),value().finishedAt==null&&!terminal.has(value().phase)?t('admin-db-online-not-finished'):measured(value().finishedAt,n=>formatDateTime(n*1000))],[t('admin-db-online-elapsed'),measured(value().elapsedMs,formatDurationMs)],[t('admin-db-online-copy-rate'),measured(value().averageCopyBytesPerSecond,n=>t('admin-db-online-bytes-per-second',{size:formatBytes(n)}))],[t('admin-db-online-replay-rate'),measured(value().averageReplayKeysPerSecond,n=>t('admin-db-online-keys-per-second',{count:formatCount(n)}))]])}
+   <Show when={value().progress} keyed>{progress=>fields(()=>[[t('admin-db-table'),`${formatCount(progress.tableIndex)} / ${formatCount(progress.tableCount)}${progress.tableName?` · ${progress.tableName}`:''}`],[t('admin-db-online-copied-rows'),formatCount(progress.copiedRows)],[t('admin-db-online-copied-bytes'),formatBytes(progress.copiedBytes)],[t('admin-db-online-replayed'),formatCount(progress.replayedKeys)],[t('admin-db-online-pending'),formatCount(progress.pending)]])}</Show>
+   <p class={css.note}>{t('admin-db-online-rates-help')}</p>
+   <p class={css.note}>{t('admin-db-online-metrics-help')} {t('admin-db-online-payload-help')}</p>
    <Show when={value().error}><p class={css.note}>{value().error}</p></Show>
    <Show when={value().retainedPrevious}><p class={css.note}>{t('admin-db-online-retained')}</p></Show>
   </>}</Show>

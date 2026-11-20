@@ -139,6 +139,28 @@ async fn full_schema_conversion_preserves_concurrent_writes_and_restart_generati
     let report = fixture.finish().await;
     writer.await.unwrap();
     assert_eq!(report.phase, "completed", "{report:?}");
+    assert!(report.timing.finished_at.is_some());
+    assert!(report.timing.elapsed_ms.is_some_and(|value|value>0));
+    assert!(report.timing.copy_elapsed_ms.is_some_and(|value|value>0));
+    assert!(report.timing.replay_elapsed_ms.is_some());
+    assert!(report.timing.average_copy_bytes_per_second.is_some_and(|value|value.is_finite()&&value>=0.0));
+    let persisted=crate::online_control::online_conversion_status_path(&fixture.path).unwrap();
+    assert_eq!(persisted.timing.finished_at,report.timing.finished_at);
+    assert_eq!(persisted.timing.elapsed_ms,report.timing.elapsed_ms);
+    assert_eq!(persisted.timing.copy_elapsed_ms,report.timing.copy_elapsed_ms);
+    assert_eq!(persisted.timing.replay_elapsed_ms,report.timing.replay_elapsed_ms);
+    // JSON parser round trips can differ by one floating-point ULP.
+    for (stored,observed) in [
+        (persisted.timing.average_copy_bytes_per_second,report.timing.average_copy_bytes_per_second),
+        (persisted.timing.average_replay_keys_per_second,report.timing.average_replay_keys_per_second),
+    ] {
+        match (stored,observed) {
+            (Some(stored),Some(observed))=>assert!((stored-observed).abs()<=observed.abs().max(1.0)*1e-12),
+            (None,None)=>{},_=>panic!("persisted rate availability changed"),
+        }
+    }
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    assert_eq!(serde_json::to_value(fixture.store.online_conversion_status().unwrap().timing).unwrap(),serde_json::to_value(&report.timing).unwrap(),"terminal duration must not grow during polling");
     assert!(report.retained_previous);
     assert_eq!(mode(&fixture.store).await, 2);
     let pool_after = fixture.store.database_pool_snapshot().await;
@@ -401,6 +423,7 @@ async fn same_process_recovery_updates_cached_nonterminal_report() {
         retained_previous: false,
         source_generation: Some("legacy".into()),
         target_generation: Some(uuid::Uuid::new_v4().to_string()),
+        timing: ConversionTiming::default(),
     };
     JOBS.lock().unwrap_or_else(|p| p.into_inner()).insert(
         path.clone(),
@@ -409,11 +432,14 @@ async fn same_process_recovery_updates_cached_nonterminal_report() {
             cancel: Arc::new(AtomicBool::new(false)),
             running: AtomicBool::new(false),
             last_write: Mutex::new(Instant::now()),
+            timing: Mutex::new(JobTiming::new(Instant::now())),
         }),
     );
     fixture.store.recover_online_conversion().await.unwrap();
     let cached = fixture.store.online_conversion_status().unwrap();
     assert_eq!(cached.phase, "failed");
+    assert_eq!(cached.timing.finished_at,None,"recovery cannot infer the interrupted worker's completion time");
+    assert_eq!(cached.timing.elapsed_ms,None,"legacy status has no measured duration");
     assert!(!fixture.store.cancel_online_conversion());
     let persisted: ConversionReport = serde_json::from_slice(
         &generation_files::bounded_read(&status_path(&path), 65536).unwrap(),
@@ -476,6 +502,7 @@ async fn startup_recovery_removes_only_closed_abandoned_shadow_and_capture() {
         retained_previous: false,
         source_generation: Some(source.id.clone()),
         target_generation: Some(target.id.clone()),
+        timing: ConversionTiming::default(),
     };
     generation_files::private_atomic_write(
         &status_path(live.logical_path()),
