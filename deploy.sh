@@ -58,6 +58,7 @@ IMAGE=
 PULL=false
 NO_BUILD=false
 BUILD_JOBS=4
+BUILD_PROFILE=release
 BUILD_INCREMENTAL=0
 AUTO_ROLLBACK=true
 SKIP_BACKUP=false
@@ -147,6 +148,7 @@ Options:
                     cosign, or used from the local image store without --pull)
   --no-build        Reuse the last applied app image (configuration-only deploy)
   --build-jobs N    Limit concurrent Cargo jobs (default: 4)
+  --build-profile release|fast  Release optimization, or opt-level 2 for mw-server only (default: release)
   --incremental     Opt in to cached incremental Rust compilation (off by default: stale incremental state in a reused target cache caused link failures)
   --no-incremental  Force incremental compilation off (the default)
   --pull-only       Fast-forward the Git checkout, then exit without deploying
@@ -285,6 +287,7 @@ while (($#)); do
         --require-signature) REQUIRE_SIGNATURE=true ;;
         --no-build) NO_BUILD=true ;;
         --build-jobs) need_value "$@"; BUILD_JOBS=$2; shift ;;
+        --build-profile) need_value "$@"; BUILD_PROFILE=$2; shift ;;
         --incremental) BUILD_INCREMENTAL=1 ;;
         --no-incremental) BUILD_INCREMENTAL=0 ;;
         --no-pull) GIT_PULL=false ;;
@@ -329,6 +332,7 @@ fi
 if [[ -n $BUILD_JOBS ]]; then
     [[ $BUILD_JOBS =~ ^[1-9][0-9]{0,2}$ ]] || die "--build-jobs must be an integer from 1 to 999"
 fi
+[[ $BUILD_PROFILE == release || $BUILD_PROFILE == fast ]] || die "--build-profile must be release or fast"
 if [[ ! $TIMEOUT =~ ^[0-9]{2,4}$ ]] || ((10#$TIMEOUT < 10 || 10#$TIMEOUT > 3600)); then die "Invalid timeout"; fi
 TIMEOUT=$((10#$TIMEOUT))
 [[ -z $IMAGE || $IMAGE != -* && $IMAGE != *[[:space:]]* ]] || die "Invalid image reference"
@@ -667,6 +671,17 @@ if [[ $ACTION != status && $ACTION != check && $ACTION != logs && $ACTION != doc
     mkdir "$STATE/.lock" 2>/dev/null || die "Another deployment operation holds $STATE/.lock; remove this empty lock only after verifying no operation is running"
     LOCKED=true
 fi
+
+build_local_image() {
+    log "Rust build: profile=$BUILD_PROFILE, incremental=$BUILD_INCREMENTAL, jobs=${BUILD_JOBS:-automatic}; cache retained between builds"
+    if [[ $BUILD_PROFILE == fast ]]; then
+        log "Fast profile: mw-server uses opt-level 2; dependencies remain optimized release. Build-time and runtime differences require measurement."
+    fi
+    docker build --target runtime-static \
+        --build-arg "MW_CARGO_INCREMENTAL=$BUILD_INCREMENTAL" \
+        --build-arg "MW_BUILD_JOBS=$BUILD_JOBS" \
+        --build-arg "MW_BUILD_PROFILE=$BUILD_PROFILE" --tag "$IMAGE" "$ROOT"
+}
 
 initialize() {
     [[ ! -e $STATE/deploy.env && ! -e $STATE/app.env ]] || die "Partial configuration found; retain the existing key and complete both deploy.env and app.env"
@@ -1716,10 +1731,7 @@ case "$ACTION" in
                 # runtime-static is the target CI scans, signs and publishes
                 # (.github/workflows/supply-chain.yml), so a built installation runs
                 # the same shape as the published image.
-                log "Rust build: optimized release, incremental=$BUILD_INCREMENTAL, jobs=${BUILD_JOBS:-automatic}; cache retained between builds"
-                docker build --target runtime-static \
-                    --build-arg "MW_CARGO_INCREMENTAL=$BUILD_INCREMENTAL" \
-                    --build-arg "MW_BUILD_JOBS=$BUILD_JOBS" --tag "$IMAGE" "$ROOT"
+                build_local_image
                 built=true
             fi
             IMAGE_ID=$(docker image inspect --format '{{.Id}}' "$IMAGE")

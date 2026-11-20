@@ -77,6 +77,7 @@ WORKDIR /src
 # Explicit 16 units preserves the release profile's previous codegen partitioning.
 ARG MW_CARGO_INCREMENTAL=0
 ARG MW_BUILD_JOBS=4
+ARG MW_BUILD_PROFILE=release
 ARG MW_PRODUCT_SUPPORT_UNTIL=
 ARG TARGETPLATFORM
 # Select the already-installed compiler explicitly. Otherwise rustup reads the
@@ -96,7 +97,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-4}" \
     && mkdir -p /src/apps/web/dist \
     && touch -t 200001010000 /src/apps/web/dist/.gitkeep \
-    && cargo build --locked --release --bin mailwoman --bin mw-render --bin mw-mock-jmap \
+    && case "$MW_BUILD_PROFILE" in \
+         release) set -- ;; \
+         fast) set -- --config 'profile.release.package.mw-server.opt-level=2' ;; \
+         *) echo 'MW_BUILD_PROFILE must be release or fast' >&2; exit 2 ;; \
+       esac \
+    && cargo build --locked --release "$@" --bin mailwoman --bin mw-render --bin mw-mock-jmap \
     && mkdir -p /out /data-empty \
     && cp target/release/mailwoman target/release/mw-render target/release/mw-mock-jmap /out/
 
@@ -163,6 +169,7 @@ RUN apk add --no-cache build-base ca-certificates
 WORKDIR /src
 ARG MW_CARGO_INCREMENTAL=0
 ARG MW_BUILD_JOBS=4
+ARG MW_BUILD_PROFILE=release
 ARG MW_PRODUCT_SUPPORT_UNTIL=
 ENV RUSTFLAGS="-C target-feature=+crt-static" \
     RUSTUP_TOOLCHAIN=1.98.1 \
@@ -179,7 +186,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-4}" \
     && mkdir -p /src/apps/web/dist \
     && touch -t 200001010000 /src/apps/web/dist/.gitkeep \
-    && cargo build --locked --release --timings --target x86_64-unknown-linux-musl \
+    && case "$MW_BUILD_PROFILE" in \
+         release) set -- ;; \
+         fast) set -- --config 'profile.release.package.mw-server.opt-level=2' ;; \
+         *) echo 'MW_BUILD_PROFILE must be release or fast' >&2; exit 2 ;; \
+       esac \
+    && cargo build --locked --release "$@" --timings --target x86_64-unknown-linux-musl \
         --bin mailwoman --bin mw-render \
     && mkdir -p /out-musl \
     && cp target/x86_64-unknown-linux-musl/release/mailwoman \

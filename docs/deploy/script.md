@@ -59,7 +59,7 @@ builds in a reused target cache left mw-mime objects that referenced generic
 instantiations missing from the freshly built crates, so the musl link failed
 with undefined references. Pass `--incremental` to opt in; the cache ids carry
 an `-ni` suffix so a cache poisoned by earlier incremental builds is not reused.
-Optimization remains release level 3 with 16 codegen units, overflow checks and
+By default optimization remains release level 3 with 16 codegen units, overflow checks and
 stripping unchanged.
 
 Deployment and direct Docker builds default to four concurrent Cargo jobs.
@@ -68,6 +68,23 @@ exhausts memory or causes swapping. This is separate from `CPU_LIMIT`/`MEMORY_LI
 which limit the running app. The corresponding direct Docker build argument is
 `MW_BUILD_JOBS=N`. Use `MW_CARGO_INCREMENTAL=1` to opt in to incremental builds (default 0).
 No build-time reduction is promised without measuring on the deployment host.
+
+`sh deploy.sh deploy --build-profile fast` optionally compiles only the `mw-server`
+package at release optimization level 2. Dependencies remain at release level 3;
+overflow checks, stripping, unwinding and codegen settings remain unchanged. The
+default is `--build-profile release`. GNU and musl builds both accept the direct
+Docker argument `--build-arg MW_BUILD_PROFILE=fast`. The implementation passes
+Cargo `--config 'profile.release.package.mw-server.opt-level=2'`, keeping the
+existing release target directory and cached dependencies. Cargo fingerprints
+the changed server optimization setting; switching back selects normal release
+artifacts. Build-time savings and runtime differences require measurement; this
+option does not guarantee a faster build or equivalent runtime performance.
+
+Using a previously verified published image through the existing `--image`
+deployment option avoids compiling locally altogether. Verify that the exact
+image digest is the intended CI build before using it; the normal signature and
+deployment checks still apply. This is generally the shortest deployment path
+when that verified image is already available.
 
 GNU/distroless and musl/static builds use separate target caches. Their build
 scripts and procedural macros run against different host libraries and compiler
