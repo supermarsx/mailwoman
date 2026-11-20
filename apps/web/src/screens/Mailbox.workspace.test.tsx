@@ -1,4 +1,5 @@
-import {createSignal} from 'solid-js';
+import {createRoot,createSignal} from 'solid-js';
+import {setImmediate as yieldToNode} from 'node:timers/promises';
 import {requestUnifiedMailbox,unifiedAvailable,unifiedMailboxActive,setUnifiedVirtualMode,setUnifiedFolderCounts,unifiedFolderRole} from '../state/unifiedMailbox.ts';
 import {setAdminLeetspeak} from '../i18n/presentation.ts';
 import * as workspaceAttachments from '../realtime/workspaceAttachment.ts';
@@ -22,11 +23,27 @@ import type { EmailGetResponse, JmapRequest } from '../api/jmap-types.ts';
 import { setReadingPane } from '../components/readingPane.ts';
 import {accountUiPreferences,setAccountUiPreferences} from '../api/accountPreferences.ts';
 
-// Preparing a reply quotes the original, which needs the sanitizer loaded.
-beforeAll(()=>initSync({module:readFileSync(resolve('src/wasm/mw-sanitize/mw_sanitize_bg.wasm'))}));
+// Workspace cases exercise retained real panes, not cold module delivery. Move
+// their Vite transform cost into setup, like Compose.test.tsx; the separate
+// LazyMailboxPanes cases retain cold/pending/rejected-import coverage. Preparing
+// a reply also quotes the original and needs the sanitizer loaded.
+beforeAll(async()=>{
+  initSync({module:readFileSync(resolve('src/wasm/mw-sanitize/mw_sanitize_bg.wasm'))});
+  await import('../components/Compose.tsx');
+  await import('./Settings.tsx');
+  await import('../components/compose/RichTextEditor.tsx');
+},60_000);
 beforeEach(async()=>{suspendAccountPreferences();localStorage.removeItem(WORKSPACE_STORAGE_KEY);history.replaceState(null,'','#/mail');await new Promise(resolve=>setTimeout(resolve,0));});
 
-afterEach(()=>vi.unstubAllGlobals());
+// Account-scoped slices unregister observers/dispose children through onCleanup.
+// A store created outside render still needs an explicit owner until test end.
+const fixtureDisposers:Array<()=>void>=[];
+afterEach(async()=>{
+  for(const dispose of fixtureDisposers.splice(0))dispose();
+  vi.unstubAllGlobals();
+  // Let task-update IPC and already-settled callbacks leave the microtask chain.
+  await yieldToNode();
+});
 
 function setup(attachment=false) {
   const first=mkEmail('a');
@@ -34,7 +51,10 @@ function setup(attachment=false) {
   const emails=[first,mkEmail('b')];const client=makeClient({emails});
   const original=client.jmap;
   client.jmap=vi.fn(async (request:JmapRequest)=>{const response=await original(request);for(const [method,args,id] of request.methodCalls){if(/^(AddressBook|ContactCard|ContactGroup)\//.test(method)){const index=response.methodResponses.findIndex(call=>call[2]===id);if(index>=0)response.methodResponses[index]=[method,{accountId:args['accountId'],state:'s',list:[],ids:[],notFound:[]},id];}}const ids=request.methodCalls.find(call=>call[0]==='Email/get')?.[1]['ids'];if(Array.isArray(ids)){for(const call of response.methodResponses)if(call[0]==='Email/get')(call[1] as unknown as EmailGetResponse).list=emails.filter(email=>ids.includes(email.id));}return response;});
-  const app=createAppState(client);const realtime=createRealtimeController();
+  const {app,realtime}=createRoot(dispose=>{
+    fixtureDisposers.push(dispose);
+    return {app:createAppState(client),realtime:createRealtimeController()};
+  });
   const show=()=>render(()=><AppContext.Provider value={app}><RealtimeContext.Provider value={realtime}><MailboxScreen/></RealtimeContext.Provider></AppContext.Provider>);
   return {app,realtime,show,client};
 }
@@ -256,7 +276,8 @@ describe('retained mailbox workspace',()=>{
     await app.login({username:'me@example.org',password:'p'});
     await waitFor(()=>expect(screen.getByRole('tab',{name:'Contacts'})).toHaveAttribute('aria-selected','true'));
     expect(location.hash).toBe('#/contacts/person-7');
-    expect(realtime.subTabs.tabs().some(tab=>tab.id==='settings:acct1')).toBe(true);
+    // Route activation can precede completion of asynchronous saved-tab restore.
+    await waitFor(()=>expect(realtime.subTabs.tabs().some(tab=>tab.id==='settings:acct1')).toBe(true));
   });
   it.each([true,false])('opens an initial module link with no saved tabs when resume is %s',async(resume)=>{
     history.replaceState(null,'','#/contacts/person-7');
