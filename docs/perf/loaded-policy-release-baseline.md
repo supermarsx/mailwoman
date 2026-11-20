@@ -88,8 +88,43 @@ adapter measured the following clone counts per request:
 Behavioral tests preserve request/response ordering, early denial, underlying
 readiness and errors, cancellation, and concurrent execution. This adapter is
 restricted to Axum's existing always-ready Route boundaries. These structural
-results motivate sharing application state and route templates; their RPS
-effect still requires a new release run with the same security controls.
+results motivated sharing application state and route templates.
+
+## Follow-up with shared state, routes and fresh domain-read batching
+
+A second unprofiled run used the same resource limits, 100 users, 200 messages,
+ten-second phases and loaded-policy revocation/restoration controls. All 100
+users were reached in each phase, with no errors, throttles or timeouts.
+
+| Requests | Outstanding | Successful in-window RPS | p95 / p99 latency |
+| --- | ---: | ---: | ---: |
+| Identity | 16 | 1,038.9 | 24 / 28 ms |
+| Identity | 64 | 1,080.8 | 77 / 85 ms |
+| Mixed mail reads | 16 | 308.6 | 78 / 86 ms |
+| Mixed mail reads | 64 | 315.7 | 270 / 280 ms |
+
+Application CPU observations were 3.05–3.47 logical cores, process RSS 205–206 MiB,
+and generator CPU 0.26–0.60 cores. The pool reported no acquisition failures.
+These short measurements show improvement for the combined changes, without
+isolating any one optimization or establishing the 40k/10k-user target.
+
+The image is
+`sha256:2050bc5f6372bcb754f3a6de00ad9e5d8852b72c613628f5c0f8d815936bb018`.
+Its fixture executable has SHA-256
+`50e29bb6baeae0313680312dd7a90928f4b73a127e26c7b530df648fb9d25415`.
+The release compile and seven WebSocket helper tests passed, but the original
+Docker readiness step failed with its redirected log unavailable. The compiled
+executable was recovered from that build's Cargo cache without recompilation;
+both readiness tests and the transport mutation test passed in a diagnostic
+container and again in the assembled image. This does not establish why the
+original readiness step failed. The recipe now prints failed test logs.
+
+Production code is the frozen `7a79b8c7` snapshot with the `345d4e9c` fixture
+handoff changes; the later no-op ingest/flag-delta fixes are **not** in this
+read-only baseline image. Evidence is under
+`.orchestration/reports/perf-investigation/sqlite-shared-loaded-100/`, with build
+and recovered-gate logs in its parent directory. A broader representative
+read/write run and simultaneous WebSocket verification remain necessary.
 
 Local evidence is under
 `.orchestration/reports/perf-investigation/sqlite-current-loaded-100/` and
