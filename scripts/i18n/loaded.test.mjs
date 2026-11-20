@@ -117,3 +117,20 @@ test('a file nothing reaches from main.tsx is not checked', async () => {
   });
   assert.deepEqual(r.unloaded, []);
 });
+
+test('a pane reached through shared demand and idle loaders must own its shared UI catalogs',async()=>{
+  const app={
+    'en/common.ftl':'common-action-ok = OK\n',
+    'en/mail.ftl':'mail-editor-tools = Tools\n',
+    'en/workspace-mail.ftl':'workspace-mail-order = Order\n',
+    'src/main.tsx':"import {Mailbox} from './Mailbox.tsx';import './boot/idlePrefetch.ts';export default Mailbox;",
+    'src/Mailbox.tsx':"import {loadCatalog} from './i18n';import {loadSettings} from './loaders.ts';loadCatalog('mail');loadCatalog('workspace-mail');export const Mailbox=loadSettings;",
+    'src/boot/idlePrefetch.ts':"import {loadSettings} from '../loaders.ts';export const warm=()=>loadSettings();",
+    'src/loaders.ts':"export const loadSettings=()=>import('./Settings.tsx');",
+    'src/Settings.tsx':"import {Editor} from './Editor.tsx';export const Settings=Editor;",
+    'src/Editor.tsx':"import {t} from './i18n';export const Editor=()=>[t('mail-editor-tools'),t('workspace-mail-order')];",
+  };
+  const missing=await run(app);assert.deepEqual(missing.unloaded.map(item=>item.id).sort(),['mail-editor-tools','workspace-mail-order']);
+  app['src/Settings.tsx']="import {loadCatalog} from './i18n';import {Editor} from './Editor.tsx';loadCatalog('mail');loadCatalog('workspace-mail');export const Settings=Editor;";
+  const loaded=await run(app);assert.deepEqual(loaded.unloaded,[]);assert.deepEqual(loaded.missing,[]);assert.deepEqual(loaded.stale,[]);
+});

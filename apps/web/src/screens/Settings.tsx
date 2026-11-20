@@ -180,6 +180,9 @@ export function Settings(props: SettingsProps): JSX.Element {
 
   let panel!: HTMLElement;
   onMount(() => {
+    // Settings can now arrive independently through idle/demand loaders. Its
+    // shared editor/folder controls must not rely on Mailbox's catalog ancestry.
+    void loadCatalog('mail'); void loadCatalog('workspace-mail');
     void loadCatalog('resilience'); void loadCatalog('settings');
     void loadCatalog('regional');
     void loadCatalog('linked-accounts');

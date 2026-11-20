@@ -50,7 +50,7 @@ it('a rejected chunk offers a real new import attempt and then mounts under its 
 it('keeps a loaded draft and reactive ribbon target while its retained pane is inactive',async()=>{
  loaders.compose.mockResolvedValue({Compose:Composer});const [active,setActive]=createSignal(true),[target,setTarget]=createSignal<HTMLElement>();
  let first!:HTMLDivElement,second!:HTMLDivElement,bridge!:ReturnType<typeof createCommandRibbon>;
- renderWithApp(()=>{bridge=createCommandRibbon(()=>true);return <CommandRibbonContext.Provider value={bridge}><div ref={first}/><div ref={second}/><LazyCompose active={active()} ribbonMount={target()} resumeDraftId="existing-draft" initial={{mode:'new',to:'',cc:'',subject:'Original',bodyHtml:'',bodyText:'',inReplyTo:[],references:[],attachments:[]}} onClose={()=>undefined}/></CommandRibbonContext.Provider>;});
+ renderWithApp(()=>{bridge=createCommandRibbon(()=>true);return <CommandRibbonContext.Provider value={bridge}><div ref={first}/><div ref={second}/><LazyCompose active={active()} ribbonMount={target()} resumeDraftId="existing-draft" initial={{mode:'new',to:'',cc:'',subject:'Original',bodyHtml:'',bodyText:'',inReplyTo:[],references:[],attachments:[],quotesDecrypted:false}} onClose={()=>undefined}/></CommandRibbonContext.Provider>;});
  setTarget(first);const input=await screen.findByLabelText('Fixture subject');fireEvent.input(input,{target:{value:'Unsaved retained subject'}});
  setActive(false);setTarget(second);setActive(true);
  expect(await screen.findByTestId('loaded-compose')).toHaveAttribute('data-draft','existing-draft');expect(input).toHaveValue('Unsaved retained subject');
