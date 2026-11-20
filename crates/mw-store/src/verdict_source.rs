@@ -3,7 +3,15 @@ use crate::{
     Store, StoreError,
     backend::{Dialect, Tx, q},
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::OnceLock};
+
+// Six finite query shapes per dialect; no caller data enters these strings.
+fn fixed_sql(kind: usize, dialect: Dialect, build: impl FnOnce() -> String) -> &'static str {
+    static QUERIES: [OnceLock<String>; 12] = [const { OnceLock::new() }; 12];
+    QUERIES[kind * 2 + usize::from(dialect == Dialect::Postgres)]
+        .get_or_init(build)
+        .as_str()
+}
 
 const MAX_RAW: usize = 64 * 1024 * 1024;
 const MAX_VERDICT: usize = 1024 * 1024;
@@ -43,10 +51,12 @@ impl Store {
         } else {
             "TRUE"
         };
-        let sql = format!(
-            "SELECT m.content_revision,m.blob_ref,CASE WHEN octet_length(b.sealed_bytes)<=?3 AND ({shape}) THEN b.sealed_bytes ELSE NULL END AS raw,CAST(CASE WHEN octet_length(b.sealed_bytes)<=?3 AND ({shape}) THEN 0 ELSE 1 END AS invalid FROM messages m JOIN accounts a ON a.id=m.account_id JOIN bodies b ON b.account_id=m.account_id AND b.blob_ref=m.blob_ref LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE m.account_id=?1 AND m.stable_id=?2 AND (z.account_id IS NULL OR z.enabled=0)"
-        );
-        let Some(row) = q(&sql)
+        let sql = fixed_sql(0, self.backend.dialect(), || {
+            format!(
+                "SELECT m.content_revision,m.blob_ref,CASE WHEN octet_length(b.sealed_bytes)<=?3 AND ({shape}) THEN b.sealed_bytes ELSE NULL END AS raw,CAST(CASE WHEN octet_length(b.sealed_bytes)<=?3 AND ({shape}) THEN 0 ELSE 1 END AS invalid FROM messages m JOIN accounts a ON a.id=m.account_id JOIN bodies b ON b.account_id=m.account_id AND b.blob_ref=m.blob_ref LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE m.account_id=?1 AND m.stable_id=?2 AND (z.account_id IS NULL OR z.enabled=0)"
+            )
+        });
+        let Some(row) = q(sql)
             .bind(account)
             .bind(email)
             .bind((MAX_RAW + 40) as i64)
@@ -93,10 +103,12 @@ impl Store {
         if source.scope != self.cache_scope() {
             return Ok(false);
         }
-        let sql = format!(
-            "SELECT m.stable_id FROM messages m JOIN accounts a ON a.id=m.account_id LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE {CURRENT}"
-        );
-        Ok(q(&sql)
+        let sql = fixed_sql(1, self.backend.dialect(), || {
+            format!(
+                "SELECT m.stable_id FROM messages m JOIN accounts a ON a.id=m.account_id LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE {CURRENT}"
+            )
+        });
+        Ok(q(sql)
             .bind(&source.account)
             .bind(&source.email)
             .bind(&source.revision)
@@ -118,10 +130,12 @@ impl Store {
         } else {
             "TRUE"
         };
-        let sql = format!(
-            "SELECT CASE WHEN octet_length(v.verdict_json)<=?6 AND ({shape}) THEN v.verdict_json ELSE NULL END AS verdict_json FROM security_verdicts v JOIN messages m ON m.stable_id=v.email_id AND m.account_id=v.account_id JOIN accounts a ON a.id=m.account_id LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE {CURRENT} AND v.source_revision=m.content_revision AND v.raw_hash=?5"
-        );
-        let row = q(&sql)
+        let sql = fixed_sql(2, self.backend.dialect(), || {
+            format!(
+                "SELECT CASE WHEN octet_length(v.verdict_json)<=?6 AND ({shape}) THEN v.verdict_json ELSE NULL END AS verdict_json FROM security_verdicts v JOIN messages m ON m.stable_id=v.email_id AND m.account_id=v.account_id JOIN accounts a ON a.id=m.account_id LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE {CURRENT} AND v.source_revision=m.content_revision AND v.raw_hash=?5"
+            )
+        });
+        let row = q(sql)
             .bind(&source.account)
             .bind(&source.email)
             .bind(&source.revision)
@@ -150,10 +164,12 @@ impl Store {
         } else {
             ""
         };
-        let sql = format!(
-            "SELECT m.stable_id FROM messages m JOIN accounts a ON a.id=m.account_id LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE {CURRENT}{lock}"
-        );
-        if q(&sql)
+        let sql = fixed_sql(3, self.backend.dialect(), || {
+            format!(
+                "SELECT m.stable_id FROM messages m JOIN accounts a ON a.id=m.account_id LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE {CURRENT}{lock}"
+            )
+        });
+        if q(sql)
             .bind(&source.account)
             .bind(&source.email)
             .bind(&source.revision)
@@ -204,6 +220,7 @@ impl Store {
                 "SELECT value->>0 AS id,value->>1 AS revision FROM json_array_elements(?2::json)"
             }
         };
+        let kind = 4 + usize::from(exact);
         let exact = if exact {
             "AND m.cache_revision=r.revision"
         } else {
@@ -216,10 +233,12 @@ impl Store {
         };
         // Materialize only eligible IDs and metadata lengths before the
         // aggregate guard; no verdict BLOB is selected into this CTE.
-        let sql = format!(
-            "WITH requested AS ({input}), eligible AS (SELECT DISTINCT m.stable_id,octet_length(v.verdict_json) AS bytes FROM requested r JOIN messages m ON m.stable_id=r.id AND m.account_id=?1 JOIN accounts a ON a.id=m.account_id JOIN security_verdicts v ON v.email_id=m.stable_id AND v.account_id=m.account_id AND v.source_revision=m.content_revision LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE (z.account_id IS NULL OR z.enabled=0) {exact}), budget AS (SELECT CASE WHEN COALESCE(SUM(bytes),0)<=?4 THEN 1 ELSE 0 END AS ok FROM eligible) SELECT '' AS stable_id,NULL AS verdict_json,CAST(1 AS BIGINT) AS oversized FROM budget WHERE ok=0 UNION ALL SELECT e.stable_id,CASE WHEN e.bytes<=?3 AND ({shape}) THEN v.verdict_json ELSE NULL END,CAST(0 AS BIGINT) FROM budget CROSS JOIN eligible e JOIN security_verdicts v ON v.email_id=e.stable_id AND v.account_id=?1 WHERE budget.ok=1"
-        );
-        let found = q(&sql)
+        let sql = fixed_sql(kind, self.backend.dialect(), || {
+            format!(
+                "WITH requested AS ({input}), eligible AS (SELECT DISTINCT m.stable_id,octet_length(v.verdict_json) AS bytes FROM requested r JOIN messages m ON m.stable_id=r.id AND m.account_id=?1 JOIN accounts a ON a.id=m.account_id JOIN security_verdicts v ON v.email_id=m.stable_id AND v.account_id=m.account_id AND v.source_revision=m.content_revision LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE (z.account_id IS NULL OR z.enabled=0) {exact}), budget AS (SELECT CASE WHEN COALESCE(SUM(bytes),0)<=?4 THEN 1 ELSE 0 END AS ok FROM eligible) SELECT '' AS stable_id,NULL AS verdict_json,CAST(1 AS BIGINT) AS oversized FROM budget WHERE ok=0 UNION ALL SELECT e.stable_id,CASE WHEN e.bytes<=?3 AND ({shape}) THEN v.verdict_json ELSE NULL END,CAST(0 AS BIGINT) FROM budget CROSS JOIN eligible e JOIN security_verdicts v ON v.email_id=e.stable_id AND v.account_id=?1 WHERE budget.ok=1"
+            )
+        });
+        let found = q(sql)
             .bind(account)
             .bind(serde_json::to_string(rows).expect("bounded string tuples"))
             .bind(MAX_VERDICT as i64)
