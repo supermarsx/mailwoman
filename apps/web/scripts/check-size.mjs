@@ -34,12 +34,23 @@
 // argument names another dist directory (default `apps/web/dist`).
 import { readdir, readFile } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
-import { join } from 'node:path';
+import { join,resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {createHash} from 'node:crypto';
+import {mailboxPaneGraphProof} from './bundleGraphContract.mjs';
 
 const BUDGET_BYTES = 250 * 1024;
 const distDir = process.argv[2] ?? fileURLToPath(new URL('../dist/', import.meta.url));
 const assetsDir = join(distDir, 'assets');
+// The graph is private build evidence, not an asset served to the browser. A
+// custom dist may provide its matching graph as the second positional argument.
+const graphPath=process.argv[3]??fileURLToPath(new URL('../node_modules/.cache/mailwoman-build/bundle-graph.json',import.meta.url));
+const graph=JSON.parse(await readFile(graphPath,'utf8'));
+if(resolve(graph.outDir)!==resolve(distDir))throw Error('Bundle graph belongs to another output directory');
+for(const [name,chunk]of Object.entries(graph.chunks)){
+ const bytes=await readFile(join(distDir,name));
+ if(bytes.length!==chunk.byteLength||createHash('sha256').update(bytes).digest('hex')!==chunk.sha256)throw Error('Bundle graph does not match current chunk bytes');
+}
 
 // A literal style attribute: `style="…"` anywhere, or `style='…'` / unquoted
 // `style=…` inside a template tag (`<tag … style=…`; minified code has no space
@@ -86,6 +97,8 @@ const preloadNames = [...html.matchAll(/<link[^>]*\brel="modulepreload"[^>]*\bhr
   (m) => toAssetName(m[1]),
 );
 const criticalNames = new Set([entryName, ...preloadNames]);
+if(graph.chunks[`assets/${entryName}`]?.entry!==true)throw Error('Rendered graph does not identify the actual HTML module entry');
+console.log('check-size: deferred mailbox UI graph',JSON.stringify(mailboxPaneGraphProof(graph,[...criticalNames].map(name=>`assets/${name}`))));
 
 // --- report every JS asset; classify critical vs lazy -----------------------
 let assetFiles;

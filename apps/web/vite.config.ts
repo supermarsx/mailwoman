@@ -1,4 +1,5 @@
 import {buildTimings} from './scripts/buildTimings.ts';
+import {bundleGraph} from './scripts/bundleGraph.ts';
 import {catalogAssets} from './scripts/catalogAssets.ts';
 import {build as bundleWorker} from 'esbuild';
 import { defineConfig } from 'vitest/config';
@@ -160,7 +161,7 @@ export default defineConfig({
   // Top-level await in the wasm modules is native (target es2022) and the workers are built as
   // ES modules (`worker.format`), so there is no `vite-plugin-top-level-await`: it re-printed each
   // chunk after its source map was written and misaligned every hidden map (docs/admin/observability.md).
-  plugins: [catalogAssets(),cachedSolid({stats:buildCacheStats}), vanillaExtractPlugin(), wasm(), bundledPackages({ main: true }), bootScript(), offlineBackground(), assetIntegrity(),buildTimings(buildCacheStats)],
+  plugins: [catalogAssets(),cachedSolid({stats:buildCacheStats}), vanillaExtractPlugin(), wasm(), bundledPackages({ main: true }), bootScript(), offlineBackground(), assetIntegrity(),buildTimings(buildCacheStats),bundleGraph()],
   // t32-e75: the bundle recorder also sees the worker builds; the main instance writes
   // node_modules/.cache/mailwoman-about/bundled-packages.json for the third-party list.
   worker: { format: 'es', plugins: () => [catalogAssets(),bundledPackages()] },

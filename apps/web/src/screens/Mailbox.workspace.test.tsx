@@ -108,7 +108,7 @@ describe('retained mailbox workspace',()=>{
     fireEvent.click(await screen.findByText('Subject a'));
     const reply=await screen.findByTestId('reader-reply');await waitFor(()=>expect(reply).toBeEnabled());fireEvent.click(reply);
     await waitFor(()=>expect(realtime.subTabs.activeId()).not.toBe('mail'));const composer=await screen.findByRole('tabpanel',{name:/Re: Subject a/}),id=realtime.subTabs.activeId();
-    fireEvent.input(within(composer).getByLabelText('Subject'),{target:{value:'Unsaved protected workspace'}});
+    fireEvent.input(await within(composer).findByLabelText('Subject'),{target:{value:'Unsaved protected workspace'}});
     realtime.subTabs.activate('mail');
     const viewDraft=await screen.findByTestId('reader-view-draft');await waitFor(()=>expect(viewDraft).toBeEnabled());fireEvent.click(viewDraft);
     const preview=await screen.findByTestId('draft-preview');expect(within(preview).getByRole('heading',{name:'Unsaved protected workspace'})).toBeVisible();
@@ -563,9 +563,9 @@ describe('retained mailbox workspace',()=>{
   it('keeps each composer mounted and opens sectioned Settings without a modal',async()=>{
     const {app,realtime}=mount();await app.login({username:'me@example.org',password:'p'});
     fireEvent.click(screen.getByRole('button',{name:/^Compose$/}));
-    const first=realtime.subTabs.activeId()!;fireEvent.input(within(screen.getByRole('tabpanel',{name:'Compose'})).getByLabelText('Subject'),{target:{value:'Draft alpha'}});
+    const first=realtime.subTabs.activeId()!;fireEvent.input(await within(screen.getByRole('tabpanel',{name:'Compose'})).findByLabelText('Subject'),{target:{value:'Draft alpha'}});
     fireEvent.click(screen.getByRole('button',{name:/^Compose$/}));
-    fireEvent.input(within(screen.getByRole('tabpanel',{name:'Compose'})).getByLabelText('Subject'),{target:{value:'Draft beta'}});
+    fireEvent.input(await within(screen.getByRole('tabpanel',{name:'Compose'})).findByLabelText('Subject'),{target:{value:'Draft beta'}});
     fireEvent.click(document.getElementById(`subtab-tab-${first}`)!);
     expect(within(screen.getByRole('tabpanel',{name:'Draft alpha'})).getByLabelText('Subject')).toHaveValue('Draft alpha');
     fireEvent.click(screen.getByRole('button',{name:/^Settings$/}));
@@ -604,7 +604,7 @@ describe('retained mailbox workspace',()=>{
     await app.login({username:'me@example.org',password:'p'});
     fireEvent.click(screen.getByRole('button',{name:'Contacts'}));await screen.findByRole('tab',{name:'Contacts'});
     fireEvent.click(screen.getByRole('button',{name:/^Compose$/}));
-    fireEvent.input(within(screen.getByRole('tabpanel',{name:'Compose'})).getByLabelText('Subject'),{target:{value:'Unstored draft'}});
+    fireEvent.input(await within(screen.getByRole('tabpanel',{name:'Compose'})).findByLabelText('Subject'),{target:{value:'Unstored draft'}});
     const composer=realtime.subTabs.activeId()!;
     fireEvent.click(screen.getByRole('button',{name:'Tasks'}));await screen.findByRole('tab',{name:'Tasks'});
     fireEvent.contextMenu(screen.getByRole('tab',{name:'Mail'}));fireEvent.click(screen.getByRole('menuitem',{name:'Close'}));

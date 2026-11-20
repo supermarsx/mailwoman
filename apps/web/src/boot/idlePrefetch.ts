@@ -11,6 +11,7 @@
 
 import { preloadCatalogs } from '../i18n/catalog.ts';
 import {webPerformancePolicy,webPerformanceReady} from './performancePolicy.ts';
+import {loadComposePane,loadSettingsPane} from '../screens/mailboxPaneLoaders.ts';
 
 /** Catalogs the first message open needs (reader, privacy banner, verdicts, receipts). */
 export const READER_CATALOGS = ['reader', 'privacy', 'remote-images', 'security', 'spam-score', 'mail-dsn', 'mailing-list', 'nextcloud', 'receipts'] as const;
@@ -26,6 +27,8 @@ export function prefetchSteps(): Step[] {
   return [
     () => preloadCatalogs(READER_CATALOGS),
     () => preloadCatalogs(SETTINGS_CATALOGS),
+    loadComposePane,
+    loadSettingsPane,
     () => preloadCatalogs(MODULE_CATALOGS),
     () => import('../shell/mounts.tsx'),
     () => import('../modules/contacts/index.tsx'),
