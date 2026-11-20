@@ -20,14 +20,31 @@ test('HTTP telemetry loss is visible and cannot qualify a new capacity result',(
 test('search timing diagnostics are bounded aggregate fields and legacy remains unreported',()=>{
  const names=['writerLockWait','commit','readerReload','sealedRead','sealedDecode','sealedEncode','sealedWrite','directorySync'];
  const phases=Object.fromEntries(names.map(name=>[name,{calls:2,failures:1,totalMicros:20,maxMicros:15,bytes:12}]));
- const value={scope:'process',enabled:true,phases};
- assert.deepEqual(searchTimingReport({...value,secret:'private',phases:{...phases,privatePath:{}}}),value);
+ const value={scope:'process',enabled:true,phases,writeCategories:null};
+ assert.deepEqual(searchTimingReport({...value,writeCategories:undefined,secret:'private',phases:{...phases,privatePath:{}}}),value);
  assert.equal(searchTimingReport(undefined),null);
- assert.equal(searchTimingReport({...value,phases:{...phases,commit:{...phases.commit,failures:3,maxMicros:21}}}).phases.commit.failures,3); // Independently sampled atomics may cross during concurrent publication.
+ assert.equal(searchTimingReport({...value,writeCategories:undefined,phases:{...phases,commit:{...phases.commit,failures:3,maxMicros:21}}}).phases.commit.failures,3); // Independently sampled atomics may cross during concurrent publication.
  const legacy={searchIndex:{commitAttempts:2}};assert.equal(fixtureDiagnosticsReport(legacy),legacy);
- assert.deepEqual(fixtureDiagnosticsReport({searchIndex:{timings:{...value,secret:'private'}}}).searchIndex.timings,value);
- for(const patch of [{calls:-1},{failures:-1},{totalMicros:NaN},{bytes:Number.MAX_SAFE_INTEGER+1},{maxMicros:Infinity}])assert.throws(()=>searchTimingReport({...value,phases:{...phases,commit:{...phases.commit,...patch}}}));
- for(const patch of [{enabled:'true'},{scope:'account'},{phases:{}}])assert.throws(()=>searchTimingReport({...value,...patch}));
+ assert.deepEqual(fixtureDiagnosticsReport({searchIndex:{timings:{...value,writeCategories:undefined,secret:'private'}}}).searchIndex.timings,value);
+ for(const patch of [{calls:-1},{failures:-1},{totalMicros:NaN},{bytes:Number.MAX_SAFE_INTEGER+1},{maxMicros:Infinity}])assert.throws(()=>searchTimingReport({...value,writeCategories:undefined,phases:{...phases,commit:{...phases.commit,...patch}}}));
+ for(const patch of [{enabled:'true'},{scope:'account'},{phases:{}}])assert.throws(()=>searchTimingReport({...value,writeCategories:undefined,...patch}));
+});
+
+test('search write categories retain only fixed samples and absent legacy is unreported',()=>{
+ const sample={calls:2,failures:1,totalMicros:40,maxMicros:30,bytes:80};
+ const phases=Object.fromEntries(['writerLockWait','commit','readerReload','sealedRead','sealedDecode','sealedEncode','sealedWrite','directorySync'].map(name=>[name,sample]));
+ const names=['managedMetadata','indexMetadata','segmentComponent','other'];
+ const writeCategories=Object.fromEntries(names.map(name=>[name,sample]));
+ const input={scope:'process',enabled:true,phases,writeCategories:{...writeCategories,privatePath:'secret'}};
+ const result=searchTimingReport(input);
+ assert.deepEqual(result.writeCategories,writeCategories);
+ assert.equal(JSON.stringify(result).includes('secret'),false);
+ assert.deepEqual(fixtureDiagnosticsReport({searchIndex:{timings:input}}).searchIndex.timings,result);
+ assert.equal(searchTimingReport({...input,writeCategories:undefined}).writeCategories,null);
+ const legacy=searchTimingReport({...input,writeCategories:undefined});
+ assert.deepEqual(searchTimingReport(legacy),legacy);
+ assert.deepEqual(fixtureDiagnosticsReport(fixtureDiagnosticsReport({searchIndex:{timings:legacy}})),{searchIndex:{timings:legacy}});
+ for(const bad of [{}, {...writeCategories,managedMetadata:{...sample,bytes:-1}}, {...writeCategories,indexMetadata:{...sample,calls:Number.MAX_SAFE_INTEGER+1}}])assert.throws(()=>searchTimingReport({...input,writeCategories:bad}));
 });
 
 const principals=()=>Array.from({length:4},(_,index)=>({cookie:`mw_session=private-session-${index}; mw_csrf=fixture-csrf-${index}`,accountId:`private-account-${index}`,clientAddress:`198.18.0.${index+1}`}));

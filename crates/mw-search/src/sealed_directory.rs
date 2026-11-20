@@ -92,7 +92,7 @@ impl TerminatingWrite for Writer {
         let bytes = self.directory.encode(&self.path, &self.bytes)?;
         // The underlying WORM writer reserved this name; only encrypted bytes are
         // exposed. atomic_write replaces that empty reservation durably.
-        timing::measure(Stage::SealedWrite, bytes.len() as u64, || self.directory.inner.atomic_write(&self.path, &bytes))
+        timing::measure_write(&self.path, bytes.len() as u64, || self.directory.inner.atomic_write(&self.path, &bytes))
     }
 }
 impl Directory for SealedDirectory {
@@ -123,7 +123,7 @@ impl Directory for SealedDirectory {
     }
     fn atomic_write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
         let encoded = self.encode(path, bytes)?;
-        timing::measure(Stage::SealedWrite, encoded.len() as u64, || self.inner.atomic_write(path, &encoded))
+        timing::measure_write(path, encoded.len() as u64, || self.inner.atomic_write(path, &encoded))
     }
     fn sync_directory(&self) -> io::Result<()> {
         timing::measure(Stage::DirectorySync, 0, || self.inner.sync_directory())

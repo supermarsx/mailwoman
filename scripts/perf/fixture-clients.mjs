@@ -28,7 +28,13 @@ export function searchTimingReport(value){
   if(!sample||fields.some(field=>!Number.isSafeInteger(sample[field])||sample[field]<0))throw new Error('Invalid search timing sample');
   return [name,Object.fromEntries(fields.map(field=>[field,sample[field]]))];
  }));
- return {scope:'process',enabled:value.enabled,phases};
+ const categoryNames=['managedMetadata','indexMetadata','segmentComponent','other'];
+ const writeCategories=value.writeCategories==null?null:Object.fromEntries(categoryNames.map(name=>{
+  const sample=value.writeCategories?.[name];
+  if(!sample||fields.some(field=>!Number.isSafeInteger(sample[field])||sample[field]<0))throw new Error('Invalid search write category');
+  return [name,Object.fromEntries(fields.map(field=>[field,sample[field]]))];
+ }));
+ return {scope:'process',enabled:value.enabled,phases,writeCategories};
 }
 export function fixtureDiagnosticsReport(value){
  let result=value;

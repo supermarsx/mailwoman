@@ -47,6 +47,40 @@ impl Stat {
     }
 }
 static STATS: [Stat; 8] = [const { Stat::new() }; 8];
+const WRITE_NAMES: [&str; 4] = [
+    "managedMetadata",
+    "indexMetadata",
+    "segmentComponent",
+    "other",
+];
+static WRITE_STATS: [Stat; 4] = [const { Stat::new() }; 4];
+fn sample(s: &Stat) -> Sample {
+    Sample {
+        calls: s.calls.load(Relaxed),
+        failures: s.failures.load(Relaxed),
+        total_micros: s.total_micros.load(Relaxed),
+        max_micros: s.max_micros.load(Relaxed),
+        bytes: s.bytes.load(Relaxed),
+    }
+}
+fn write_category(path: &std::path::Path) -> usize {
+    if path == std::path::Path::new(".managed.json") {
+        return 0;
+    }
+    if path == std::path::Path::new("meta.json") {
+        return 1;
+    }
+    if path.components().count() == 1
+        && let Some(name) = path.to_str()
+    {
+        let stem = name.split('.').next().unwrap_or("");
+        if stem.len() == 32 && stem.bytes().all(|byte| byte.is_ascii_hexdigit()) && name.len() > 33
+        {
+            return 2;
+        }
+    }
+    3
+}
 fn add(target: &AtomicU64, value: u64) {
     let _ = target.fetch_update(Relaxed, Relaxed, |old| Some(old.saturating_add(value)));
 }
@@ -69,32 +103,32 @@ pub struct Snapshot {
     pub scope: &'static str,
     pub enabled: bool,
     pub phases: BTreeMap<&'static str, Sample>,
+    #[serde(rename = "writeCategories")]
+    pub write_categories: BTreeMap<&'static str, Sample>,
 }
 pub fn snapshot() -> Snapshot {
     Snapshot {
         scope: "process",
         enabled: ENABLED.load(Relaxed),
-        phases: NAMES
+        phases: NAMES.into_iter().zip(STATS.iter().map(sample)).collect(),
+        write_categories: WRITE_NAMES
             .into_iter()
-            .zip(STATS.iter().map(|s| Sample {
-                calls: s.calls.load(Relaxed),
-                failures: s.failures.load(Relaxed),
-                total_micros: s.total_micros.load(Relaxed),
-                max_micros: s.max_micros.load(Relaxed),
-                bytes: s.bytes.load(Relaxed),
-            }))
+            .zip(WRITE_STATS.iter().map(sample))
             .collect(),
     }
 }
 pub(crate) struct Timer {
-    stage: Stage,
+    stat: &'static Stat,
     start: Option<Instant>,
     recorded: bool,
 }
 impl Timer {
     fn new(stage: Stage) -> Self {
+        Self::for_stat(&STATS[stage as usize])
+    }
+    fn for_stat(stat: &'static Stat) -> Self {
         Self {
-            stage,
+            stat,
             start: ENABLED.load(Relaxed).then(Instant::now),
             recorded: false,
         }
@@ -102,7 +136,7 @@ impl Timer {
     fn finish(&mut self, success: bool, bytes: u64) {
         if let Some(start) = self.start {
             let elapsed = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
-            let s = &STATS[self.stage as usize];
+            let s = self.stat;
             add(&s.calls, 1);
             if !success {
                 add(&s.failures, 1);
@@ -129,6 +163,21 @@ pub(crate) fn measure<T, E>(
     let mut timer = Timer::new(stage);
     let result = f();
     timer.finish(result.is_ok(), bytes);
+    result
+}
+/// Classify only while profiling; no identifiers are retained. Aggregate write
+/// timing still wraps the identical underlying operation; categories overlap it.
+pub(crate) fn measure_write<T, E>(
+    path: &std::path::Path,
+    bytes: u64,
+    f: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
+    if !ENABLED.load(Relaxed) {
+        return f();
+    }
+    let mut category = Timer::for_stat(&WRITE_STATS[write_category(path)]);
+    let result = measure(Stage::SealedWrite, bytes, f);
+    category.finish(result.is_ok(), bytes);
     result
 }
 pub(crate) fn measure_read<E>(f: impl FnOnce() -> Result<Vec<u8>, E>) -> Result<Vec<u8>, E> {
@@ -232,6 +281,87 @@ mod tests {
         assert!(after.phases["sealedRead"].bytes > before.phases["sealedRead"].bytes);
         assert!(after.phases["sealedWrite"].bytes > before.phases["sealedWrite"].bytes);
         assert!(dir.starts_with(std::env::temp_dir()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn sealed_write_categories_use_actual_writers_and_preserve_io_failures() {
+        use std::{io::Write, path::Path};
+        use tantivy::directory::{Directory, TerminatingWrite};
+        let _lock = TEST_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "mw-write-categories-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let directory =
+            crate::sealed_directory::SealedDirectory::open(&dir, mw_store::ServerKey::generate())
+                .unwrap();
+        set_enabled(false);
+        let disabled = snapshot();
+        directory
+            .atomic_write(Path::new(".managed.json"), b"[]")
+            .unwrap();
+        assert_eq!(
+            snapshot().write_categories["managedMetadata"].calls,
+            disabled.write_categories["managedMetadata"].calls
+        );
+        set_enabled(true);
+        let _enabled = Enabled;
+        let before = snapshot();
+        directory
+            .atomic_write(Path::new(".managed.json"), b"[]")
+            .unwrap();
+        directory
+            .atomic_write(Path::new("meta.json"), b"{}")
+            .unwrap();
+        let component = Path::new("0123456789abcdef0123456789abcdef.store");
+        let mut writer = directory.open_write(component).unwrap();
+        writer.write_all(b"component").unwrap();
+        writer.terminate().unwrap();
+        assert_eq!(directory.atomic_read(component).unwrap(), b"component");
+        directory
+            .atomic_write(Path::new("unclassified"), b"other")
+            .unwrap();
+        // Force an actual same-directory atomic rename failure after encoding.
+        std::fs::remove_file(dir.join("meta.json")).unwrap();
+        std::fs::create_dir(dir.join("meta.json")).unwrap();
+        assert!(
+            directory
+                .atomic_write(Path::new("meta.json"), b"failure")
+                .is_err()
+        );
+        let after = snapshot();
+        for (name, calls, failures, bytes) in [
+            ("managedMetadata", 1, 0, 2 + 44),
+            ("indexMetadata", 2, 1, 2 + 7 + 88),
+            ("segmentComponent", 1, 0, 9 + 44),
+            ("other", 1, 0, 5 + 44),
+        ] {
+            let a = &after.write_categories[name];
+            let b = &before.write_categories[name];
+            assert_eq!(a.calls - b.calls, calls, "{name}");
+            assert_eq!(a.failures - b.failures, failures, "{name}");
+            assert_eq!(a.bytes - b.bytes, bytes, "{name}");
+            assert!(a.total_micros >= b.total_micros);
+        }
+        assert_eq!(
+            after.phases["sealedWrite"].calls - before.phases["sealedWrite"].calls,
+            5
+        );
+        assert_eq!(
+            after.phases["sealedWrite"].failures - before.phases["sealedWrite"].failures,
+            1
+        );
+        let reported = serde_json::to_string(&after).unwrap();
+        assert!(!reported.contains("0123456789abcdef"));
+        assert!(!reported.contains("unclassified"));
+        assert!(!reported.contains("mw-write-categories"));
+        assert_eq!(write_category(Path::new("private/meta.json")), 3);
+        drop(directory);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
