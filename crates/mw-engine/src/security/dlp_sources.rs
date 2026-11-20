@@ -93,7 +93,7 @@ pub(super) async fn read(
         stored,
     })
 }
-pub(super) fn decode(source: &Snapshot) -> Result<Vec<DlpRule>, DlpError> {
+pub(super) fn decode(source: &Snapshot, merge_environment: bool) -> Result<Vec<DlpRule>, DlpError> {
     let mut rules = match &source.environment {
         Some(value) => validate_rules(value).map_err(|_| DlpError::PolicyUnavailable)?,
         None => Vec::new(),
@@ -110,7 +110,7 @@ pub(super) fn decode(source: &Snapshot) -> Result<Vec<DlpRule>, DlpError> {
                 return Err(DlpError::PolicyUnavailable);
             }
             for rule in validate_rules(text).map_err(|_| DlpError::PolicyUnavailable)? {
-                if !rules.iter().any(|prior| prior.id == rule.id) {
+                if !merge_environment || !rules.iter().any(|prior| prior.id == rule.id) {
                     rules.push(rule);
                 }
             }

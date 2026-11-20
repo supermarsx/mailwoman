@@ -22,7 +22,10 @@ network or DNS work. Explicit synchronous admin validation APIs remain synchrono
 
 Outgoing inspection takes and returns the same owned SMTP Outgoing value. The
 exact Bcc-stripped raw Vec and actual envelope recipients move through the CPU
-job without cloning the raw message. Draft parse jobs likewise consume owned
+job without cloning the raw message. A fresh, unchanged policy with no enabled
+rules preserves the original fast path: it returns the outgoing bytes without
+MIME parsing or applying inspection-only size/capacity limits. Active DLP still
+enforces those limits and fails closed. Draft parse jobs likewise consume owned
 body buffers. Index-publication parsing already has its own dedicated owner;
 this candidate does not send that work through a second executor.
 

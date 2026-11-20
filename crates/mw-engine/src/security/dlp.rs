@@ -218,7 +218,7 @@ async fn load_checked_rules(
 ) -> Result<Vec<DlpRule>, DlpError> {
     for _ in 0..2 {
         let source = sources::read(store, environment, budget).await?;
-        let (source, rules) = decode_owned_sources(source, budget.clone()).await?;
+        let (source, rules) = decode_owned_sources(source, budget.clone(), environment).await?;
         #[cfg(test)]
         test_after_inspection(store).await;
         // Includes the no-active-rules fast path: queue delay must not turn an
@@ -233,6 +233,7 @@ async fn load_checked_rules(
 async fn decode_owned_sources(
     source: sources::Snapshot,
     budget: super::cpu_work::InputBudget,
+    merge_environment: bool,
 ) -> Result<(sources::Snapshot, Vec<DlpRule>), DlpError> {
     let charge = source
         .bytes()
@@ -241,7 +242,7 @@ async fn decode_owned_sources(
     let (source, rules, _budget) = super::cpu_work::shared()
         .map_err(|_| DlpError::PolicyUnavailable)?
         .run(charge, move || {
-            let rules = sources::decode(&source)?;
+            let rules = sources::decode(&source, merge_environment)?;
             Ok::<_, DlpError>((source, rules, budget))
         })
         .await
@@ -711,6 +712,14 @@ pub(crate) async fn evaluate_outgoing_owned(
     account_id: &str,
     outgoing: mw_smtp::Outgoing,
 ) -> Result<(mw_smtp::Outgoing, Vec<DlpVerdict>), DlpError> {
+    // Disabled DLP historically accepts the unchanged outgoing buffer without
+    // MIME inspection/size limits. The fresh loader rechecks source after CPU
+    // decoding, so an old empty snapshot cannot escape after queue delay.
+    let rules = load_rules(engine.store()).await?;
+    if !rules.iter().any(|rule| rule.enabled) {
+        return Ok((outgoing, Vec::new()));
+    }
+    drop(rules);
     let (input, verdicts) = inspect_owned(engine.store(), WorkInput::Outgoing(outgoing)).await?;
     let WorkInput::Outgoing(outgoing) = input else {
         unreachable!("owned outgoing input remains outgoing")
@@ -764,7 +773,7 @@ async fn inspect_owned(
         let result = super::cpu_work::shared()
             .map_err(|_| DlpError::InputUnavailable)?
             .run(charge, move || {
-                let rules = sources::decode(&source)?;
+                let rules = sources::decode(&source, true)?;
                 let verdicts = if !rules.iter().any(|rule| rule.enabled) {
                     Vec::new()
                 } else {

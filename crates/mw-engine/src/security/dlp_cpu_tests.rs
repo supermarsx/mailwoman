@@ -170,3 +170,59 @@ async fn absent_policy_cannot_escape_as_stale_empty_allow_after_cpu_queue_delay(
     assert!(verdicts.iter().any(|verdict| verdict.blocked));
     store.close().await;
 }
+
+#[tokio::test]
+async fn disabled_policy_preserves_overallocated_outgoing_but_active_policy_enforces_budget() {
+    let store = Store::open_in_memory(mw_store::ServerKey::generate())
+        .await
+        .unwrap();
+    let engine = Engine::new(store.clone());
+    let mut original = outgoing();
+    original
+        .raw
+        .reserve_exact(MAX_INSPECT_BYTES + 2 * 1024 * 1024);
+    assert!(original.raw.capacity() > MAX_INSPECT_BYTES + 1024 * 1024);
+    let pointer = original.raw.as_ptr() as usize;
+    let capacity = original.raw.capacity();
+    let recipients = original.rcpt_to.clone();
+    let (returned, verdicts) = evaluate_outgoing_owned(&engine, "no-policy-account", original)
+        .await
+        .unwrap();
+    assert!(verdicts.is_empty());
+    assert_eq!(returned.raw.as_ptr() as usize, pointer);
+    assert_eq!(returned.raw.capacity(), capacity);
+    assert_eq!(returned.rcpt_to, recipients);
+    // Reuse the spare allocation to exercise visible length above the former
+    // inspection cap as well, without a second large buffer allocation.
+    let mut returned = returned;
+    returned.raw.resize(MAX_INSPECT_BYTES + 1, b'x');
+    let (returned, verdicts) = evaluate_outgoing_owned(&engine, "no-policy-account", returned)
+        .await
+        .unwrap();
+    assert!(verdicts.is_empty());
+    assert_eq!(returned.raw.as_ptr() as usize, pointer);
+    assert_eq!(returned.raw.len(), MAX_INSPECT_BYTES + 1);
+    assert_eq!(returned.rcpt_to, recipients);
+    policy(&store, "block").await;
+    assert!(matches!(
+        evaluate_outgoing_owned(&engine, "no-policy-account", returned).await,
+        Err(DlpError::InputUnavailable)
+    ));
+    store.close().await;
+}
+
+#[tokio::test]
+async fn stored_rule_view_preserves_duplicates_while_enforcement_keeps_first_id() {
+    let store = Store::open_in_memory(mw_store::ServerKey::generate())
+        .await
+        .unwrap();
+    store.set_setting(SECURITY_POLICY_SETTINGS_KEY,&json!({"dlp_rules_json":serde_json::to_string(&[rule("warn"),rule("block")]).unwrap()}).to_string()).await.unwrap();
+    let stored = stored_rules(&store).await.unwrap();
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].action, "warn");
+    assert_eq!(stored[1].action, "block");
+    let enforced = load_rules(&store).await.unwrap();
+    assert_eq!(enforced.len(), 1);
+    assert_eq!(enforced[0].action, "warn");
+    store.close().await;
+}
