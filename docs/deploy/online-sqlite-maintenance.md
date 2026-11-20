@@ -81,8 +81,21 @@ job's recovery record.
 The previous published database is deliberately retained. Conversion reduces
 the active database footprint, but total disk usage and subsequent full-volume
 snapshots still include this old copy. Never manually replace CURRENT or roll
-back to that copy after new writes. Retiring an old generation requires a
-separate reviewed cleanup after verifying the selected database and backup.
+back to that copy after new writes. After verifying the selected database and
+an independent backup, open **Maintenance → Database → Retained databases**.
+The table shows the verified predecessor's path, size and last modification.
+Deletion requires typing its exact filename in a confirmation dialog.
+
+Only the predecessor recorded by the selected manifest is eligible. Arbitrary
+neighbouring files and older unrecorded copies are not offered for deletion.
+Retirement rechecks the active generation and the selected file's identity,
+requires global maintenance permission and exclusive lifecycle ownership, and
+refuses conversion/rebuild conflicts, other cooperating database processes,
+linked files and any remaining SQLite WAL, SHM or rollback-journal sidecar.
+It does not remove recovery sidecars to make a copy eligible. Close external
+database tools and review recovery first; non-cooperating external writers are
+outside the supported online-maintenance contract. Successful deletion removes
+only the confirmed predecessor and records an admin audit event.
 Back up the data directory, including generation metadata and the server key;
 copying only the original `mailwoman.db` filename no longer captures current data.
 
@@ -93,3 +106,22 @@ external writers. Mutating offline `mailwoman db` operations take the same
 exclusive lifecycle lease and resolve CURRENT, so they refuse while the server
 is running. Read-only status and cleanup previews retain a shared inspection
 lease and remain available during ordinary service, but refuse during conversion.
+
+### Mail change-log retention
+
+Background maintenance retains 60 days of mail delta history by default.
+`maintenance.database.changeLogRetentionDays` controls that window; zero keeps
+history indefinitely. The maintenance master switch also controls this job.
+`maintenance.database.changeLogBatchRows` limits each batch to 1,000 rows by
+default. A state containing more rows than that limit remains intact and is
+reported as an oversized batch; increase the limit deliberately to collect it.
+Recent or malformed timestamps protect their entire state and the later tail.
+
+Retention removes complete state batches, preserving a durable head counter and
+the oldest resumable token. Email, mailbox, submission and thread changes, plus
+email query changes, refuse expired tokens with `cannotCalculateChanges` so
+clients refetch instead of silently missing changes. Current tokens and new
+appends remain monotonic after all historical rows have been removed. PIM and
+crypto change logs retain their existing behavior. Deleting history frees pages
+for reuse; bounded incremental vacuum can reclaim those pages on databases
+already configured for incremental vacuum.

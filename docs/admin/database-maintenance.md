@@ -181,6 +181,39 @@ preserved. No startup or background job performs this conversion automatically.
 Existing FULL auto-vacuum databases keep their mode. PostgreSQL uses its native
 autovacuum for physical reclamation; body collection uses the same grace policy.
 
+Offline cleanup reports each phase and a heartbeat every five seconds: phase
+elapsed time, approximate SQLite VM steps, and database/WAL sizes. These are
+activity measurements, not a completion percentage. SQLite cannot provide a
+reliable percentage for a full `VACUUM`; encrypted large databases can require
+substantial CPU, temporary disk space and disk I/O. A conversion-only request
+does not scan orphan bodies; that potentially expensive scan runs only when
+`--orphan-bodies` is selected. The final JSON report includes phase timings and
+marks unrequested orphan statistics as unmeasured.
+
+In versions with cooperative offline cancellation, Ctrl+C or SIGTERM requests a
+SQLite VM interruption. The command waits for the active statement to finish or
+roll back and for the database connection to close. Keep the app stopped until
+the maintenance worker has exited; never delete journal or WAL files. Cancellation
+does not undo cleanup batches that committed before the active statement. A
+blocked filesystem operation or SQLite lock wait can delay interruption because
+the progress callback runs at VM boundaries. Installing this version does not
+add progress or cooperative cancellation to an already-running older worker.
+
+The deployment wrapper launches a named detached maintenance worker and streams
+its logs while the app is stopped. Ctrl+C or SIGTERM asks only that owned worker
+to terminate cooperatively. The wrapper waits up to `--timeout` seconds for a
+verified stopped state, checks that its process ID is zero and restart policy
+is disabled, and removes the stopped container before resuming the app. Docker
+control requests have a separate ten-second client deadline. It never uses a
+forced worker removal as its normal cancellation path.
+
+If the worker remains active, Docker is unavailable, ownership/state cannot be
+verified, or removal fails, the wrapper leaves the app stopped and prints exact
+inspection/recovery commands. Keep the worker's journal/WAL files intact. Confirm
+that the named maintenance container has exited before manually restarting the
+app. Replacing files on disk does not change an already-running older deployment
+script or maintenance process.
+
 Free pages may be reused without making the file smaller. Both body collection and incremental reclamation
 are deferred when the WAL file exceeds `maintenance.database.maxWalMiB` (32 MiB by
 default), avoiding a background job checkpointing an arbitrarily large WAL.
@@ -188,6 +221,48 @@ Long readers can delay physical shrinkage. No background checkpoint uses TRUNCAT
 or waits for readers. The daily retention and weekly vacuum jobs delegate SQLite reclamation to
 this worker; the explicit full-compaction maintenance command remains offline.
 
+
+## Cache maintenance and inactivity expiry
+
+Maintenance → Cache contains the administrator policy controls for cached MIME
+bodies, orphan collection, sync-history retention and batch limits. Maintenance →
+Database contains online SQLite conversion, background page reclamation and
+verified retained-generation deletion. Observability → Database remains the
+read-only storage breakdown and growth view.
+
+Cached-body expiry is enabled by default with a 60-day inactivity lifetime,
+controlled by `maintenance.database.expireCachedBodies` and
+`maintenance.database.cachedBodyRetentionDays`. A first observation of a legacy
+cache entry starts a full grace period; its email's received date is not treated
+as evidence of when the cached copy was last used. Explicit reader opens and
+downloads renew the lease, with database writes throttled to once per hour.
+Header refreshes, scans and background prefetch do not renew it.
+
+Expiry preserves message headers and detaches only cached content with a proven
+refetch path. IMAP is the first supported source; local originals, POP3 messages,
+drafts, queued submissions and other unproven sources remain protected. Opening
+an expired message fetches and caches its content again. Ordinary background
+ingestion cannot repeatedly refill the same expired copy. A shared body is
+deleted only after its final message reference is gone.
+
+Orphan cleanup has a separate 24-hour grace period by default, controlled by
+`maintenance.database.graceHours`. Scanning an orphan does not renew that period.
+Existing duplicate copies are not removed just by installing the deduplication
+fix: they must be identified as unreferenced and pass this grace period. Batch
+payload limits still apply; oversized entries are reported rather than forcing
+an arbitrarily large live deletion. Use the Cache tab's batch controls or the
+explicit offline cleanup procedure for these cases.
+
+Mail sync history expires after 60 days by default, controlled by
+`maintenance.database.changeLogRetentionDays` (`0` disables pruning). Maintenance
+removes whole state batches within `maintenance.database.changeLogBatchRows`.
+Durable checkpoints preserve monotonic state numbers; an expired sync token
+returns `cannotCalculateChanges` so the client performs a full resync.
+
+Already-checkpointed, oversized allocated WAL files may be recycled by SQLite
+without checkpointing arbitrary pending data. A WAL that still needs recovery or
+has blocking readers remains protected and reports that cleanup is deferred.
+Checkpoint size limits are best-effort I/O safeguards, not hard wall-clock limits.
 
 ## Server resources
 
