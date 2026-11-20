@@ -7,6 +7,7 @@ import {prepareFixtureClients,startupReadinessReport,fixturePolicyReport} from '
 import {workloadProfileReport} from './representative-workload.mjs';
 import {jmapFixtureRequest as request,prepareFixtureRequests} from './fixture-requests.mjs';
 import {readPrivate,HANDOFF_LIMIT} from './external-control.mjs';
+import {verifyFixtureIsolation} from './fixture-isolation.mjs';
 
 try{
  const handoff=JSON.parse((await readPrivate(process.argv[2],HANDOFF_LIMIT)).toString('utf8')),base=new URL(handoff.base);
@@ -40,6 +41,7 @@ try{
  // Prepare bounded request templates outside measured phases, avoiding five
  // JSON serializations per dispatch when exercising 10,000 principals.
  const {requests,groups,clientModel,firstRequests}=prepareFixtureRequests({principals,clientSimulation:handoff.clientSimulation,engineMode:native?'native':'proxy',representative,workloadProfile});
+ const isolationEvidence=native?await verifyFixtureIsolation({base,principals,clients:clientModel.clients}):{verified:false,status:'not-measured',requests:0};
  // Every endpoint must work before saturation. Seeded native fixtures additionally
  // prove their first/last account bindings in their Rust setup.
  for(const spec of firstRequests){
@@ -57,11 +59,11 @@ try{
   if(!response.ok)throw new Error('Private fixture diagnostics unavailable');return response.json();
  };
  const report={generatedAt:new Date().toISOString(),target:native?'ephemeral loopback Mailwoman router + seeded native engine':'ephemeral loopback Mailwoman router + local JMAP mock',scenario:`real authenticated middleware/HTTP/${native?'native-engine':'proxy'} with ${handoff.backend??'sqlite'}; fixture data; no TLS/reverse proxy`,backend:handoff.backend??'sqlite',buildProfile:handoff.buildProfile??'unknown',uniqueAuthenticatedPrincipals:principals.length,engineMode:native?'native':'proxy',protection:typeof handoff.protection==='string'?handoff.protection:handoff.protection?'rate/adaptive/user-agent observe; scanner enforce':'rate/adaptive/user-agent/scanner off',refreshSemantics:native?'native fixture backend refresh; upstream:true':'authenticated refresh route only; proxy response upstream:false; no upstream reconciliation',effectiveFixtureBudgets:handoff.budgets??{},runtimeWorkerThreads:handoff.runtimeWorkerThreads??4,runtimeWorkerStackBytes:handoff.runtimeWorkerStackBytes??null,generatorPlacement:handoff.generatorPlacement??'child process in same resource group',runtime:process.version,model:options.mode==='smoke'?'bounded open-loop overload smoke':'warmed concurrency ramp, followed by rates bounded by observed successful throughput; no capacity claim',stages:[]};
- Object.assign(report,{startupReadiness,policyEvidence,workloadProfile},await runCampaign({base,headers,groups,options,diagnostics}));
+ Object.assign(report,{startupReadiness,policyEvidence,workloadProfile,isolationEvidence},await runCampaign({base,headers,groups,options,diagnostics}));
  report.clientModel={workload:clientModel.workload,simulationMode:clientModel.simulationMode,configuredPrincipals:principals.length,configuredSimulatedClients:clientModel.clientCount,distinctPhysicalGeneratorHostsMeasured:false,actualPrincipalCoverage:Math.max(0,...report.stages.map(s=>s.uniquePrincipalsAccepted??0)),actualSimulatedClientCoverage:Math.max(0,...report.stages.map(s=>s.uniqueClientsAccepted??0))};
  report.capacityTarget={successfulRps:40000,simultaneousAuthenticatedUsers:10000,verifiedUniquePrincipals:Math.max(0,...report.stages.map(s=>s.uniquePrincipalsAccepted??0)),httpRateMet:report.stages.some(s=>s.phase==='offered-rate'&&s.arrivalRate>=40000&&s.acceptedDuringScheduledWindowRps>=40000&&s.errors===0&&s.throttled===0&&s.timeouts===0&&(s.droppedCapacity+s.droppedScheduler)===0&&s.scheduledSeconds>=30)};
  report.capacityTarget.httpMultiUserTargetMet=report.stages.some(s=>['mixed','representative'].includes(s.endpoint)&&s.phase==='offered-rate'&&s.arrivalRate>=40000&&s.acceptedDuringScheduledWindowRps>=40000&&s.uniquePrincipalsAcceptedDuringScheduledWindow>=10000&&s.uniqueClientsAcceptedDuringScheduledWindow>=10000&&s.errors===0&&s.throttled===0&&s.timeouts===0&&(s.droppedCapacity+s.droppedScheduler)===0&&s.scheduledSeconds>=30);
- report.capacityTarget.productionPolicyQualified=native&&handoff.buildProfile==='release'&&startupReadiness?.verified===true&&policyEvidence.verified;
+ report.capacityTarget.productionPolicyQualified=native&&handoff.buildProfile==='release'&&startupReadiness?.verified===true&&policyEvidence.verified&&isolationEvidence.verified;
  report.capacityTarget.httpMultiUserTargetMet=report.capacityTarget.httpMultiUserTargetMet&&report.capacityTarget.productionPolicyQualified&&!report.mutationStateTainted;
  report.capacityTarget.httpRateMet=report.capacityTarget.httpRateMet&&!report.mutationStateTainted;
  report.capacityTarget.representativeWorkloadMeasured=report.stages.some(s=>s.endpoint==='representative');

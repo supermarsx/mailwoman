@@ -10,6 +10,7 @@ import {campaignOptions,runCampaign} from './http-campaign.mjs';
 import {prepareFixtureClients,startupReadinessReport,fixturePolicyReport} from './fixture-clients.mjs';
 import {workloadProfileReport} from './representative-workload.mjs';
 import {partitionPrincipals,validateStage,aggregateWorkers} from './http-multi-protocol.mjs';
+import {verifyFixtureIsolation} from './fixture-isolation.mjs';
 
 export function validateAssignment(handoff,workers){
  if(handoff?.engineMode!=='native'||!Number.isInteger(workers)||workers<1||workers>16)throw new Error('Explicit native fixture and 1–16 workers required');
@@ -52,12 +53,17 @@ export function qualifiesHttpTarget(campaign,qualified){
  return qualified&&!campaign.mutationStateTainted&&campaign.stages.some(stage=>['mixed','representative'].includes(stage.endpoint)&&stage.phase==='offered-rate'&&stage.arrivalRate>=40000&&stage.acceptedDuringScheduledWindowRps>=40000&&stage.uniquePrincipalsAcceptedDuringScheduledWindow>=10000&&stage.uniqueClientsAcceptedDuringScheduledWindow>=10000&&stage.coordination.valid&&!stage.mutationStateTainted&&stage.scheduledSeconds>=30&&stage.errors===0&&stage.timeouts===0&&stage.throttled===0&&stage.droppedCapacity===0&&stage.droppedScheduler===0);
 }
 
-export async function runMultiCampaign({handoff,workers,options,launch=fork,startLeadMs=2000,maxStartLagMs=50,scannerProbe}){
+export async function runMultiCampaign({handoff,workers,options,launch=fork,startLeadMs=2000,maxStartLagMs=50,scannerProbe,isolationProbe}){
  const verified=validateAssignment(handoff,workers);
  if(!Number.isInteger(startLeadMs)||startLeadMs<500||startLeadMs>5000)throw new Error('Invalid readiness lead');
  if(!Number.isInteger(options.warmupSeconds??0)||(options.warmupSeconds??0)<0||(options.warmupSeconds??0)>60)throw new Error('Coordinated warmup must use integer seconds');
  for(const concurrency of options.concurrency)validateStage({workers,concurrency,seconds:options.seconds,timeoutMs:options.timeoutMs});
  for(const arrivalRate of options.rates)validateStage({workers,concurrency:options.concurrency.at(-1),seconds:options.seconds,timeoutMs:options.timeoutMs,arrivalRate});
+ const observedIsolation=await (isolationProbe??verifyFixtureIsolation)({base:verified.base,principals:handoff.principals,clients:verified.clientModel.clients});
+ const isolated=observedIsolation?.verified===true&&observedIsolation.status==='verified'&&observedIsolation.requests===2&&observedIsolation.directions===2;
+ const singlePrincipal=handoff.principals.length===1&&observedIsolation?.verified===false&&observedIsolation.status==='insufficient-principals'&&observedIsolation.requests===0;
+ if(!isolated&&!singlePrincipal)throw new Error('Fixture account isolation was not observed');
+ const isolationEvidence=isolated?{verified:true,status:'verified',requests:2,directions:2}:{verified:false,status:'insufficient-principals',requests:0};
  const directory=await mkdtemp(join(tmpdir(),'mw-multi-http-')),files=[],children=[];let stageId=0;
  const cpuStarted=process.cpuUsage(),controllerStarted=performance.now(),rssBeforeBytes=process.memoryUsage().rss;
  try{
@@ -103,9 +109,9 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
   }))();
   if(![403,429].includes(scannerProbeStatus))throw new Error('Native scanner enforcement was not observed');
   const elapsedSeconds=(performance.now()-controllerStarted)/1000,cpu=process.cpuUsage(cpuStarted);
-  const qualified=handoff.buildProfile==='release'&&verified.policyEvidence.verified&&verified.startupReadiness.verified;
+  const qualified=handoff.buildProfile==='release'&&verified.policyEvidence.verified&&verified.startupReadiness.verified&&isolationEvidence.verified;
   const met=qualifiesHttpTarget(campaign,qualified);
-  return {schema:1,kind:'coordinated-native-http-fixture',generatedAt:new Date().toISOString(),backend:handoff.backend,buildProfile:handoff.buildProfile,workers,configuredGlobalPrincipals:handoff.principals.length,scannerProbeStatus,partitionSizes:verified.partitions.map(part=>part.count),startupReadiness:verified.startupReadiness,policyEvidence:verified.policyEvidence,workloadProfile:verified.workloadProfile,...campaign,controller:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,elapsedSeconds,rssBeforeBytes,rssAfterBytes:process.memoryUsage().rss},capacityTarget:{successfulRps:40000,simultaneousAuthenticatedUsers:10000,httpMultiUserTargetMet:met,productionPolicyQualified:qualified,persistentWebSocketSessionsMeasured:false,met:false},distinctPhysicalGeneratorHostsMeasured:false};
+  return {schema:1,kind:'coordinated-native-http-fixture',generatedAt:new Date().toISOString(),backend:handoff.backend,buildProfile:handoff.buildProfile,workers,configuredGlobalPrincipals:handoff.principals.length,scannerProbeStatus,isolationEvidence,partitionSizes:verified.partitions.map(part=>part.count),startupReadiness:verified.startupReadiness,policyEvidence:verified.policyEvidence,workloadProfile:verified.workloadProfile,...campaign,controller:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,elapsedSeconds,rssBeforeBytes,rssAfterBytes:process.memoryUsage().rss},capacityTarget:{successfulRps:40000,simultaneousAuthenticatedUsers:10000,httpMultiUserTargetMet:met,productionPolicyQualified:qualified,persistentWebSocketSessionsMeasured:false,met:false},distinctPhysicalGeneratorHostsMeasured:false};
  }finally{
   const stopped=await Promise.allSettled(children.map(child=>child.stop()));
   if(stopped.some(value=>value.status==='rejected'))throw new Error('Worker shutdown unconfirmed; private files retained');

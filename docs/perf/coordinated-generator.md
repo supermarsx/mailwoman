@@ -6,6 +6,15 @@ HTTP scheduler and raw histogram format with the default single-process driver.
 It adds no Mailwoman authentication or policy bypass. Proxy fixtures use the
 existing single-process driver.
 
+Native campaigns with multiple accounts first perform two untimed, authenticated
+`Email/get` checks across the first and last account. Owned duplicate IDs must
+remain readable and foreign IDs must appear only in `notFound`. Failure stops
+before traffic workers launch. Reports expose only aggregate isolation results;
+they never include message contents, IDs or credentials. Single-account
+diagnostics cannot verify this boundary and cannot qualify the production target.
+This sampled header check complements the engine's ownership regressions; it is
+not an exhaustive security test of every method or every account pair.
+
 The external sidecar selects multiple HTTP processes with either
 `MW_LOAD_GENERATOR_WORKERS=4` in **the sidecar environment**, or `--workers=4`:
 

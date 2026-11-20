@@ -151,6 +151,12 @@ unmet. Evidence is under
 `.orchestration/reports/perf-investigation/sqlite-shared-representative-preflight/`
 and `sqlite-shared-representative-100/` in the same report parent directory.
 
+These historical snapshots predate the account-scoped `Email/get` batch fix.
+A later negative test reproduced foreign-message disclosure by a known ID;
+the new load harness requires an actual cross-account isolation preflight and
+rejects an affected native server before measuring. The results above remain
+performance diagnostics, not security qualification or deployable acceptance.
+
 Local evidence is under
 `.orchestration/reports/perf-investigation/sqlite-current-loaded-100/` and
 `.orchestration/reports/perf-investigation/sqlite-current-loaded-profile-100/`.

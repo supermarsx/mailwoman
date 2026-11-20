@@ -77,7 +77,7 @@ test('controller rejects a crashed startup worker and confirms cleanup of its ex
   setImmediate(()=>child.emit('exit',1));return child;
  };
  const options={concurrency:[2],rates:[100],seconds:1,timeoutMs:1000};
- await assert.rejects(runMultiCampaign({handoff:handoff(),workers:2,options,launch}),/Worker/);
+ await assert.rejects(runMultiCampaign({handoff:handoff(),workers:2,options,launch,isolationProbe:async()=>({verified:true,status:'verified',requests:2,directions:2})}),/Worker/);
  assert.equal(children.length,2);for(const path of paths)await assert.rejects(access(path));
 });
 test('actual worker subprocess rejects invalid private assignment without network or secret output',async()=>{
@@ -93,9 +93,12 @@ test('actual worker subprocess rejects invalid private assignment without networ
 test('two actual subprocesses obey barrier, exact allocation and global proof without sending HTTP',async()=>{
  const options={mode:'smoke',concurrency:[2],rates:[100],seconds:1,timeoutMs:1000,endpoints:['query'],warmupSeconds:0,deadlineSeconds:10,maxErrorRate:0,maxThrottleRate:0,maxP99Ms:100,allowOverload:false,adaptive:true};
  const launch=(_script,args,options)=>fork(resolve('scripts/perf/test-fixtures/http-multi-protocol-child.mjs'),args,options);
- const report=await runMultiCampaign({handoff:handoff(),workers:2,options,launch,startLeadMs:500,scannerProbe:async()=>403});
+ const report=await runMultiCampaign({handoff:handoff(),workers:2,options,launch,startLeadMs:500,scannerProbe:async()=>403,isolationProbe:async()=>({verified:true,status:'verified',requests:2,directions:2})});
  assert.equal(report.scannerProbeStatus,403);assert.equal(report.stages.length,1);assert.equal(report.stages[0].offered,100);assert.equal(report.stages[0].acceptedDuringScheduledWindow,100);assert.equal(report.stages[0].uniquePrincipalsAccepted,4);
  assert.equal(report.stages[0].coordination.valid,true);assert.deepEqual(report.partitionSizes,[2,2]);assert.equal(report.startupReadiness.seededMessages,8);assert.equal(report.workloadProfile.seededMessages,8);assert.equal(report.policyEvidence.verified,true);assert.equal(report.capacityTarget.met,false);
  assert.ok(!JSON.stringify(report).includes('private-'));
- await assert.rejects(runMultiCampaign({handoff:handoff(),workers:2,options,launch,startLeadMs:500,scannerProbe:async()=>200}),/scanner enforcement/);
+ await assert.rejects(runMultiCampaign({handoff:handoff(),workers:2,options,launch,startLeadMs:500,scannerProbe:async()=>200,isolationProbe:async()=>({verified:true,status:'verified',requests:2,directions:2})}),/scanner enforcement/);
+ let launched=false;
+ await assert.rejects(runMultiCampaign({handoff:handoff(),workers:2,options,launch:()=>{launched=true;throw new Error('unexpected launch');},startLeadMs:500,isolationProbe:async()=>({verified:false,status:'failed',requests:2})}),/account isolation/);
+ assert.equal(launched,false,'failed isolation must stop before launching traffic workers');
 });
