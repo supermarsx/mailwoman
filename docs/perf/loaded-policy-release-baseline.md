@@ -61,6 +61,36 @@ The next work is to batch those fresh reads without removing policy checks,
 inspect CPU samples, validate generator headroom separately, and measure the
 larger read/write profile. No 40k capacity claim follows from this baseline.
 
+## CPU sample and middleware clone probe
+
+A separate diagnostic fixture retained function symbols without changing the
+original stripped executable. All 992 dependency artifacts were reused; only
+the final diagnostic fixture was relinked. Its profiler ran in a separate,
+bounded container attached only to that synthetic fixture's PID namespace.
+The 15-second user-CPU capture contains 3,447 samples and reports zero lost
+samples. It is not an unprofiled capacity measurement.
+
+Flat self samples attributed 8.71% to `AppState::clone` and 5.54% to dropping
+`AppState`. Those percentages describe sampled **user CPU**, excluding kernel
+time. They do not mean database waiting consumes the same CPU share. The state
+contains owned configuration and paths, so cloning it across middleware layers
+also copies configuration rather than only sharing runtime handles.
+
+An isolated probe using the installed Axum 0.8.9 and the production candidate
+adapter measured the following clone counts per request:
+
+| Middleware layers | Existing route chain | Shared route templates |
+| ---: | ---: | ---: |
+| 10 | 140 | 60 |
+| 20 | 480 | 120 |
+| 40 | 1,760 | 240 |
+
+Behavioral tests preserve request/response ordering, early denial, underlying
+readiness and errors, cancellation, and concurrent execution. This adapter is
+restricted to Axum's existing always-ready Route boundaries. These structural
+results motivate sharing application state and route templates; their RPS
+effect still requires a new release run with the same security controls.
+
 Local evidence is under
 `.orchestration/reports/perf-investigation/sqlite-current-loaded-100/` and
 `.orchestration/reports/perf-investigation/sqlite-current-loaded-profile-100/`.

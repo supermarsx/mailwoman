@@ -237,6 +237,7 @@ mod user_retention;
 mod diagnostics;
 #[doc(hidden)]
 pub mod fixture_profile;
+mod shared_route;
 mod feature_gate;
 mod feature_jmap;
 mod delete_policy;
@@ -1759,99 +1760,99 @@ fn router(
         })
         .fallback(static_handler)
         // t99: strong ETag + 304 on private JSON reads that set no caching posture.
-        .layer(axum::middleware::from_fn(private_etag::layer))
-        .layer(middleware::from_fn_with_state(state.clone(), security_center::device_recognition::layer))
+        .layer(shared_route::wrap(axum::middleware::from_fn(private_etag::layer)))
+        .layer(shared_route::wrap(middleware::from_fn_with_state(state.clone(), security_center::device_recognition::layer)))
         // t91: innermost, so it sees only requests every guard below admitted.
         // A request without `Idempotency-Key` passes through untouched.
-        .layer(middleware::from_fn(idempotency::layer))
+        .layer(shared_route::wrap(middleware::from_fn(idempotency::layer)))
         // t98: feature profiles: refuse a feature that is off for the subject.
-        .layer(middleware::from_fn_with_state(
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             fixture_profile::features,
-        ))
-        .layer(middleware::from_fn_with_state(
+        )))
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             fixture_profile::maintenance,
-        ))
-        .layer(middleware::from_fn_with_state(
+        )))
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             fixture_profile::linked_scope,
-        ))
-        .layer(middleware::from_fn_with_state(
+        )))
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             fixture_profile::client_access,
-        ))
+        )))
         // Admin console session id rotation (interval and after step-up).
-        .layer(middleware::from_fn_with_state(
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             admin_rotation::guard,
-        ))
+        )))
         // Innermost: reject cross-origin / missing-CSRF writes before handlers.
-        .layer(middleware::from_fn_with_state(
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             state_change_guard,
-        ))
-        .layer(middleware::from_fn_with_state(
+        )))
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             fixture_profile::session_geo,
-        ))
+        )))
         // Session binding, theft detection and the country-change alert.
-        .layer(middleware::from_fn_with_state(
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             fixture_profile::session_watch,
-        ))
-        .layer(middleware::from_fn_with_state(
+        )))
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             fixture_profile::source_bans,
-        ))
-        .layer(middleware::from_fn_with_state(
+        )))
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             fixture_profile::inbound_allowlist,
-        ))
-        .layer(middleware::from_fn_with_state(
+        )))
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             fixture_profile::protection,
-        ))
+        )))
         // t100: a source blocked for probing for the console gets one answer for
         // every path, before any other source guard or route sees the request.
-        .layer(middleware::from_fn_with_state(
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             fixture_profile::probe,
-        ))
+        )))
         // V5 (plan §2.2; t31 D10): CORS/preflight for the native shell origins
         // (the Tauri origins plus `MW_NATIVE_ORIGINS`). Any other origin passes
         // through untouched, so the browser path emits no `Access-Control-*` headers.
-        .layer(middleware::from_fn_with_state(state.clone(), native_cors))
+        .layer(shared_route::wrap(middleware::from_fn_with_state(state.clone(), native_cors)))
         // t49: HTTP protocol anomaly guard (framing, Host, request target, ...).
         // Outside every routing, auth and body-parsing layer; /healthz and
         // /readyz are never refused by it.
-        .layer(middleware::from_fn_with_state(
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             fixture_profile::protocol,
-        ))
+        )))
         // Who may reach /healthz and /readyz. Outside every guard: a request it
         // does not admit becomes an unknown path, so no probe exemption applies.
-        .layer(middleware::from_fn_with_state(
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             health_access::layer,
-        ))
+        )))
         // t32-h10: a handler panic becomes a plain 500 (inside the security
         // headers) instead of a dropped connection; its message is only logged.
-        .layer(middleware::from_fn_with_state(
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.base_path.clone(),
             error_pages::catch_panic,
-        ))
+        )))
         // Outermost: security headers on every response (incl. guard rejections).
-        .layer(middleware::from_fn_with_state(
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             security_headers,
-        ))
-        .layer(middleware::from_fn(rate_leeway::observe))
-        .layer(middleware::from_fn_with_state(
+        )))
+        .layer(shared_route::wrap(middleware::from_fn(rate_leeway::observe)))
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
             http_metrics::layer,
-        ))
-        .layer(middleware::from_fn(fixture_profile::request))
+        )))
+        .layer(shared_route::wrap(middleware::from_fn(fixture_profile::request)))
         .with_state(state.clone());
     // t20 B4: also serve the whole thing under `MW_BASE_PATH`. No-op when unset.
     let dispatcher=websocket_actions::Dispatcher(app.clone());
