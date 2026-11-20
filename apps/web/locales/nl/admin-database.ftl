@@ -196,3 +196,15 @@ admin-db-history-break = Onderbrekingen scheiden generatie-, meetbasis- of klokw
 admin-db-net-allocation-rate = Netto toewijzingssnelheid database
 admin-db-operations = Instructieactiviteit per bewerking
 admin-db-operation = Bewerking
+
+admin-db-page-cache = SQLite-paginacache
+admin-db-cache-per-connection = Toegepast doel per voorgrondverbinding
+admin-db-cache-foreground = Gepland doel voor de voorgrondpool
+admin-db-cache-auxiliary = Hulpdoel per verbinding
+admin-db-cache-observed = Waargenomen MAIN-doel (één verbinding)
+admin-db-cache-used = Cachebytes op bemonsterde inactieve verbindingen
+admin-db-cache-hit-miss = Bemonsterde treffers / missers
+admin-db-cache-write-spill = Bemonsterde schrijfacties / overloop
+admin-db-cache-coverage = { $sampled } van { $open } open voorgrondverbindingen bemonsterd; bezette verbindingen ontbreken.
+admin-db-cache-help = Zachte SQLite-MAIN-cachedoelen reserveren geen geheugen en begrenzen RSS niet. Hulpverbindingen staan apart. Tellers zijn cumulatief per fysieke verbinding en kunnen bij vervanging opnieuw beginnen; dit zijn cachegebeurtenissen, geen fysieke schijf-I/O. Tellers omvatten alle databases gekoppeld aan elke bemonsterde verbinding; gedeelde cachepagina’s kunnen meermaals worden geteld.
+admin-db-cache-default = Stuurprogrammastandaard

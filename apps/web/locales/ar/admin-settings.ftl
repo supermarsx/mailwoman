@@ -2815,3 +2815,7 @@ admin-settings-key-web-offline-precache-concurrency = التنزيلات الم�
 admin-settings-help-web-offline-precache-concurrency = من 1 إلى 4 تنزيلات متوازية عند تثبيت العامل، والافتراضي 4؛ يسري عند التثبيت التالي.
 admin-settings-key-web-offline-respect-save-data = احترام SaveData
 admin-settings-help-web-offline-respect-save-data = استخدام core عندما يشير المتصفح إلى SaveData.
+
+admin-pool-cache-target = هدف ذاكرة SQLite للاتصالات الأمامية (MiB)
+admin-pool-cache-default = القيمة الافتراضية لبرنامج التشغيل
+admin-pool-cache-help = هدف مرن اختياري بين 16 و1024 MiB لقاعدة MAIN، مقسوم على الحد الأقصى المخطط للاتصالات الأمامية. يتطلب إعادة تشغيل كاملة. تستخدم اتصالات الصيانة والتحويل المساعدة 2000 KiB لكل اتصال عند التفعيل؛ وإلا يبقى سلوك برنامج التشغيل دون تغيير. ليس حدًا لذاكرة العملية.

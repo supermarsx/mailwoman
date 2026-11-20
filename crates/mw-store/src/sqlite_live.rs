@@ -13,7 +13,7 @@ use std::{
     fmt,
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
-    sync::{Arc, LazyLock, Mutex, Weak},
+    sync::{Arc, LazyLock, Mutex, Weak, OnceLock},
 };
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
@@ -27,9 +27,12 @@ struct Inner {
     files: Option<Arc<crate::generation_files::GenerationFiles>>,
     encrypted: bool,
     rebuild: Arc<tokio::sync::Mutex<()>>,
+    cache_policy: OnceLock<Option<u32>>,
+    cache_registry: Arc<crate::sqlite_page_cache::Registry>,
 }
 struct Generation {
     pool: SqlitePool,
+    cache_kib: Option<u32>,
 }
 impl Drop for Inner {
     fn drop(&mut self) {
@@ -74,16 +77,22 @@ impl From<SqlitePool> for LiveSqlite {
     }
 }
 impl LiveSqlite {
+    pub(crate) fn select_page_cache_policy(&self,requested:Option<u32>)->Option<u32>{
+        *self.inner.cache_policy.get_or_init(||requested)
+    }
+    pub(crate) fn page_cache_registry(&self)->Arc<crate::sqlite_page_cache::Registry>{self.inner.cache_registry.clone()}
     /// Private/offline/test pools still use admission guards, without a filesystem owner lease.
     pub(crate) fn unmanaged(pool: SqlitePool) -> Self {
         let logical_path = pool.connect_options().get_filename().to_path_buf();
         Self {
             inner: Arc::new(Inner {
-                generation: Arc::new(RwLock::new(Generation { pool })),
+                generation: Arc::new(RwLock::new(Generation { pool, cache_kib:None })),
                 logical_path,
                 files: None,
                 encrypted: false,
                 rebuild: Arc::new(tokio::sync::Mutex::new(())),
+                cache_policy: OnceLock::new(),
+                cache_registry: Arc::new(Default::default()),
             }),
         }
     }
@@ -258,11 +267,13 @@ impl Opening {
     pub(crate) fn register(&self, pool: SqlitePool, encrypted: bool) -> LiveSqlite {
         let live = LiveSqlite {
             inner: Arc::new(Inner {
-                generation: Arc::new(RwLock::new(Generation { pool })),
+                generation: Arc::new(RwLock::new(Generation { pool, cache_kib:None })),
                 logical_path: self.logical.clone(),
                 files: Some(self.files.clone()),
                 encrypted,
                 rebuild: Arc::new(tokio::sync::Mutex::new(())),
+                cache_policy: OnceLock::new(),
+                cache_registry: Arc::new(Default::default()),
             }),
         };
         let mut registry = REGISTRY.lock().unwrap_or_else(|p| p.into_inner());
@@ -281,6 +292,12 @@ pub(crate) struct PinnedPool {
     _owner: Arc<Inner>,
 }
 impl PinnedPool {
+    pub(crate) fn auxiliary_options(&self)->SqliteConnectOptions {
+        crate::sqlite_page_cache::auxiliary((*self.active_options()).clone(),self._owner.cache_policy.get().copied().flatten().is_some())
+    }
+    pub(crate) fn page_cache_policy(&self)->Option<u32>{self._owner.cache_policy.get().copied().flatten()}
+    pub(crate) fn page_cache_kib(&self)->Option<u32>{self.generation.cache_kib}
+    pub(crate) fn page_cache_registry(&self)->Arc<crate::sqlite_page_cache::Registry>{self._owner.cache_registry.clone()}
     pub(crate) fn pool(&self) -> &SqlitePool {
         &self.generation.pool
     }
@@ -294,6 +311,8 @@ pub(crate) struct ExclusiveSqlite {
     _owner: Arc<Inner>,
 }
 impl ExclusiveSqlite {
+    pub(crate) fn page_cache_kib(&self)->Option<u32>{self.generation.cache_kib}
+    pub(crate) fn replace_with_page_cache(&mut self,pool:SqlitePool,kib:Option<u32>){self.generation.pool=pool;self.generation.cache_kib=kib;}
     #[cfg(test)]
     pub(crate) fn pool(&self) -> &SqlitePool {
         &self.generation.pool

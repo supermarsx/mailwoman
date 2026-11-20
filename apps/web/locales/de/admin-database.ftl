@@ -196,3 +196,15 @@ admin-db-history-break = Lücken trennen Änderungen der Generation, Messgrundla
 admin-db-net-allocation-rate = Netto-Zuweisungsrate der Datenbank
 admin-db-operations = Anweisungsaktivität nach Vorgang
 admin-db-operation = Vorgang
+
+admin-db-page-cache = SQLite-Seitencache
+admin-db-cache-per-connection = Angewandtes Ziel je Vordergrundverbindung
+admin-db-cache-foreground = Geplantes Ziel des Vordergrundpools
+admin-db-cache-auxiliary = Hilfsziel je Verbindung
+admin-db-cache-observed = Beobachtetes MAIN-Ziel (eine Verbindung)
+admin-db-cache-used = Cachebytes der erfassten Leerlaufverbindungen
+admin-db-cache-hit-miss = Erfasste Treffer / Fehltreffer
+admin-db-cache-write-spill = Erfasste Schreibvorgänge / Überläufe
+admin-db-cache-coverage = { $sampled } von { $open } offenen Vordergrundverbindungen erfasst; belegte Verbindungen fehlen.
+admin-db-cache-help = Weiche SQLite-MAIN-Cacheziele sind weder reservierter Speicher noch RSS-Limits. Hilfsverbindungen werden getrennt behandelt. Zähler gelten kumulativ je physischer Verbindung und können beim Austausch zurückgesetzt werden; sie messen Cacheereignisse, keine physischen Plattenzugriffe. Zähler umfassen alle an die erfasste Verbindung angehängten Datenbanken; gemeinsam genutzte Cacheseiten können mehrfach gezählt werden.
+admin-db-cache-default = Treibervorgabe

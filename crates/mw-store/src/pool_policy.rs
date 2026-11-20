@@ -19,6 +19,8 @@ const SQLITE_IDLE_HEALTH_WINDOW: Duration = Duration::from_secs(1);
 pub struct PoolPolicy {
     pub minimum_connections: u32,
     pub sqlite_max_connections: Option<u32>,
+    /// MAIN-database foreground pooled soft target; null preserves driver defaults.
+    pub sqlite_page_cache_mib: Option<u32>,
     pub postgres_max_connections: Option<u32>,
     pub acquire_timeout_ms: u64,
     pub idle_timeout_seconds: u64,
@@ -32,6 +34,7 @@ impl Default for PoolPolicy {
         Self {
             minimum_connections: 1,
             sqlite_max_connections: None,
+            sqlite_page_cache_mib: None,
             postgres_max_connections: None,
             acquire_timeout_ms: 30_000,
             idle_timeout_seconds: 60,
@@ -64,6 +67,7 @@ pub struct PoolPlan {
 impl PoolPolicy {
     pub fn validate(&self) -> Result<(), String> {
         if self.minimum_connections > 1024
+            || self.sqlite_page_cache_mib.is_some_and(|n|!(16..=1024).contains(&n))
             || self
                 .sqlite_max_connections
                 .is_some_and(|n| !(1..=32).contains(&n))
@@ -239,10 +243,18 @@ impl Store {
         match self.backend.clone() {
             Backend::Sqlite(live) => {
                 let plan = policy.sqlite_plan(cpus()).map_err(StoreError::Corrupt)?;
+                // First shared-manager startup selects the policy. A later
+                // Store open cannot silently apply a changed restart-only value.
+                let applied=live.select_page_cache_policy(policy.sqlite_page_cache_mib);
+                let cache_plan=crate::sqlite_page_cache::PageCachePlan::new(applied,plan.maximum)
+                    .map_err(|e|StoreError::Corrupt(e.into()))?;
+                let registry=live.page_cache_registry();
                 tokio::spawn(async move {
                     let mut exclusive = live.exclusive().await;
                     let previous = exclusive.pool_options();
-                    if matches_plan(&previous, &plan) && !previous.get_test_before_acquire() {
+                    let previous_cache_kib=exclusive.page_cache_kib();
+                    if matches_plan(&previous, &plan) && !previous.get_test_before_acquire()
+                        && previous_cache_kib==cache_plan.per_connection_kib && registry.has_connections() {
                         return Ok::<_, sqlx::Error>(());
                     }
                     let connection = (*exclusive.connection_options()).clone();
@@ -250,13 +262,16 @@ impl Store {
                     // Install the lazy pool before its first await. If runtime
                     // shutdown cancels startup, the manager's generation drain
                     // still owns every new worker and its filesystem lease.
-                    let pool = plan.sqlite_options().connect_lazy_with(connection.clone());
-                    exclusive.replace(pool.clone());
+                    let options=cache_plan.apply(connection.clone());
+                    let pool = plan.sqlite_options().after_connect(move|connection,_|{
+                        let registry=registry.clone();Box::pin(async move{registry.register(connection).await})
+                    }).connect_lazy_with(options);
+                    exclusive.replace_with_page_cache(pool.clone(),cache_plan.per_connection_kib);
                     let opened = pool.acquire().await.map(|connection| drop(connection));
                     if let Err(error) = opened {
                         pool.close().await;
                         let restored = previous.connect_lazy_with(connection);
-                        exclusive.replace(restored.clone());
+                        exclusive.replace_with_page_cache(restored.clone(),previous_cache_kib);
                         if restored.acquire().await.is_err() {
                             restored.close().await;
                         }
@@ -303,7 +318,17 @@ impl Store {
         match &self.backend {
             Backend::Sqlite(live) => {
                 let pin = live.pin().await;
-                snapshot(pin.pool())
+                let mut report=snapshot(pin.pool());
+                let maximum=pin.pool().options().get_max_connections();
+                let per_connection=pin.page_cache_kib();
+                report["sqlitePageCache"]=json!({
+                    "scope":"foreground pool; MAIN targets; whole-handle counters","aggregateMiB":pin.page_cache_policy(),
+                    "plannedMaximumConnections":maximum,"perConnectionKiB":per_connection,
+                    "plannedForegroundBytes":per_connection.map(|kib|u64::from(kib)*1024*u64::from(maximum)),
+                    "auxiliaryConnectionKiB":pin.page_cache_policy().map(|_|crate::sqlite_page_cache::AUXILIARY_KIB),
+                    "driverDefaultUnchanged":pin.page_cache_policy().is_none(),"hardMemoryLimit":false,"restartRequired":true,
+                    "idleSample":crate::sqlite_page_cache::sample_idle(pin.pool(),pin.page_cache_registry()).await,
+                });report
             }
             Backend::Postgres(pool) => snapshot(pool),
         }

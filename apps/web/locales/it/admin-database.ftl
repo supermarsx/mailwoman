@@ -196,3 +196,15 @@ admin-db-history-break = Le interruzioni separano cambi di generazione, misurazi
 admin-db-net-allocation-rate = Tasso netto di allocazione del database
 admin-db-operations = Attività delle istruzioni per operazione
 admin-db-operation = Operazione
+
+admin-db-page-cache = Cache pagine SQLite
+admin-db-cache-per-connection = Obiettivo applicato per connessione in primo piano
+admin-db-cache-foreground = Obiettivo previsto del pool in primo piano
+admin-db-cache-auxiliary = Obiettivo ausiliario per connessione
+admin-db-cache-observed = Obiettivo MAIN osservato (una connessione)
+admin-db-cache-used = Byte in cache delle connessioni inattive campionate
+admin-db-cache-hit-miss = Riscontri / mancanze campionati
+admin-db-cache-write-spill = Scritture / riversamenti campionati
+admin-db-cache-coverage = Campionate { $sampled } di { $open } connessioni aperte in primo piano; quelle occupate sono omesse.
+admin-db-cache-help = Gli obiettivi flessibili della cache MAIN SQLite non sono memoria riservata né limiti RSS. Le connessioni ausiliarie sono separate. I contatori sono cumulativi per connessione fisica e possono azzerarsi alla sostituzione; sono eventi di cache, non I/O fisico. I contatori includono tutti i database collegati a ogni connessione campionata; le pagine della cache condivisa possono essere contate più volte.
+admin-db-cache-default = Predefinito del driver

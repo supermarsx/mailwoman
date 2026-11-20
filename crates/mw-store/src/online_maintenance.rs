@@ -298,7 +298,7 @@ impl Store {
         if live.files().is_some_and(|files| files.conversion_active()) {
             return Err("Private conversion workers may still exist; restart the server process before recovery".into());
         }
-        let options = (*pin.active_options()).clone();
+        let options = pin.auxiliary_options();
         crate::online_copy::cleanup_abandoned(options)
             .await
             .map_err(|e| e.to_string())?;
@@ -404,9 +404,9 @@ async fn convert(
     let conversion_lease = files.acquire_conversion().map_err(|e| e.to_string())?;
     let _rebuild = live.try_rebuild_guard().map_err(|e| e.to_string())?;
     let source = files.resolve_active().map_err(|e| e.to_string())?;
-    let (source_options, source_pool_options) = {
+    let (source_options, source_pool_options, auxiliary_source_options, custom_cache) = {
         let pin = live.pin().await;
-        ((*pin.active_options()).clone(), pin.pool().options().clone())
+        ((*pin.active_options()).clone(), pin.pool().options().clone(),pin.auxiliary_options(),pin.page_cache_policy().is_some())
     };
     let mut initial = live.acquire().await.map_err(|e| e.to_string())?;
     let mode = crate::database_observability::sqlite_pragma_i64(&mut initial, "PRAGMA auto_vacuum")
@@ -445,7 +445,7 @@ async fn convert(
             "Insufficient free space for a complete replacement plus the safety reserve".into(),
         );
     }
-    crate::online_copy::cleanup_abandoned(source_options.clone())
+    crate::online_copy::cleanup_abandoned(auxiliary_source_options.clone())
         .await
         .map_err(|e| e.to_string())?;
     let target = files.reserve_generation().map_err(|e| e.to_string())?;
@@ -467,8 +467,8 @@ async fn convert(
         .journal_mode(SqliteJournalMode::Wal);
     let mut copy_fence = crate::lifecycle_copy_guard::CopyFence::new(conversion_lease);
     let mut session = match CopySession::prepare(
-        source_options.clone(),
-        target_options.clone(),
+        auxiliary_source_options.clone(),
+        crate::sqlite_page_cache::auxiliary(target_options.clone(),custom_cache),
         CopyOptions {
             batch_rows: options.batch_rows,
             batch_bytes: u64::from(options.batch_mib) * 1024 * 1024,
@@ -480,7 +480,7 @@ async fn convert(
     {
         Ok(session) => session,
         Err(error) => {
-            let _ = crate::online_copy::cleanup_abandoned(source_options.clone()).await;
+            let _ = crate::online_copy::cleanup_abandoned(auxiliary_source_options.clone()).await;
             let _ = files.discard_reserved(target);
             // prepare returns Cancelled only in its initial check, before
             // opening either private connection.
@@ -629,7 +629,7 @@ async fn convert(
             .resolve_active()
             .is_ok_and(|active| active.id == source.id)
         {
-            let _ = crate::online_copy::cleanup_abandoned(source_options.clone()).await;
+            let _ = crate::online_copy::cleanup_abandoned(auxiliary_source_options.clone()).await;
             if target_closed && target_cleanup_safe {
                 let _ = files.discard_closed_generation(&source, &target);
             }

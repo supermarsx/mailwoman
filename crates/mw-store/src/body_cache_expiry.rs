@@ -209,8 +209,7 @@ async fn run(
                 .max_connections(1)
                 .acquire_timeout(Duration::from_secs(2))
                 .connect_lazy_with(
-                    (*pin.as_ref().unwrap().active_options())
-                        .clone()
+                    pin.as_ref().unwrap().auxiliary_options()
                         .busy_timeout(Duration::from_millis(50))
                         .pragma("wal_autocheckpoint", "0"),
                 );

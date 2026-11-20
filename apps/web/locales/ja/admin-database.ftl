@@ -196,3 +196,15 @@ admin-db-history-break = 世代、測定基準、時計が変わった場所は�
 admin-db-net-allocation-rate = データベース割り当ての純増減速度
 admin-db-operations = 操作別のステートメント活動
 admin-db-operation = 操作
+
+admin-db-page-cache = SQLite ページキャッシュ
+admin-db-cache-per-connection = フォアグラウンド接続ごとの適用目標
+admin-db-cache-foreground = フォアグラウンドプールの計画目標
+admin-db-cache-auxiliary = 補助接続ごとの目標
+admin-db-cache-observed = 観測された MAIN 目標（1 接続）
+admin-db-cache-used = 取得したアイドル接続のキャッシュバイト
+admin-db-cache-hit-miss = 取得したヒット / ミス
+admin-db-cache-write-spill = 取得した書き込み / スピル
+admin-db-cache-coverage = 開いているフォアグラウンド接続 { $open } 件中 { $sampled } 件を取得。使用中の接続は除外します。
+admin-db-cache-help = SQLite MAIN キャッシュのソフト目標であり、予約メモリや RSS 上限ではありません。補助接続は別枠です。カウンターは物理接続ごとの累積値で、接続の交換時にリセットされます。物理ディスク I/O ではなくキャッシュイベントです。 カウンターは取得した接続に接続されている全データベースを含みます。共有キャッシュのページは複数回計上される場合があります。
+admin-db-cache-default = ドライバー既定値

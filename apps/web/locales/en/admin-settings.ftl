@@ -2712,3 +2712,7 @@ admin-settings-key-web-offline-precache-concurrency = Offline prewarm downloads
 admin-settings-help-web-offline-precache-concurrency = 1–4 parallel worker-install downloads, normally 4; applies at the next installation.
 admin-settings-key-web-offline-respect-save-data = Honor SaveData for prewarming
 admin-settings-help-web-offline-respect-save-data = Use core prewarming when the browser advertises SaveData.
+
+admin-pool-cache-target = SQLite foreground cache target (MiB)
+admin-pool-cache-default = Driver default
+admin-pool-cache-help = Optional 16–1024 MiB soft target for MAIN across the planned maximum foreground connections, divided per connection. A full server restart is required. Auxiliary maintenance and conversion connections use 2000 KiB each when enabled; otherwise driver behavior is unchanged. This is not a process memory limit.

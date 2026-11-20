@@ -1,0 +1,11 @@
+[package]
+name = "mw-sqlite-status"
+description = "Read-only SQLite status counters under an owned SQLx handle lock"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sqlx.workspace = true
+libsqlite3-sys = { version = "0.30", features = ["bundled-sqlcipher"] }

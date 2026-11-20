@@ -2785,3 +2785,7 @@ admin-settings-key-web-offline-precache-concurrency = 并行离线预热下载�
 admin-settings-help-web-offline-precache-concurrency = 安装 worker 时并行下载 1–4 个资源，默认为 4；下次安装时生效。
 admin-settings-key-web-offline-respect-save-data = 遵循 SaveData
 admin-settings-help-web-offline-respect-save-data = 浏览器启用 SaveData 时使用 core 预热。
+
+admin-pool-cache-target = SQLite 前台缓存目标 (MiB)
+admin-pool-cache-default = 驱动默认值
+admin-pool-cache-help = 可选的 MAIN 软目标为 16–1024 MiB，按计划的最大前台连接数分配。需要完全重启服务器。启用后，维护和转换辅助连接各使用 2000 KiB；否则保留驱动行为。这不是进程内存上限。

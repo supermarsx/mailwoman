@@ -17,6 +17,12 @@ export function DatabasePoolEditor(props:{id:string;describedBy?:string|undefine
   <fieldset class={css.fieldset} disabled={props.disabled}><legend class={css.legend}>{t('admin-pool-connections')}</legend><p class={css.fieldsetHelp}>{t('admin-pool-connections-help')}</p>
    {numeric('minimumConnections',t('admin-pool-minimum'),0,1024)}
    {maximum('sqliteMaxConnections',t('admin-pool-sqlite-maximum'),32,8)}
+   <FormField label={t('admin-pool-cache-target')} help={t('admin-pool-cache-help')}>{w=><div class={css.fieldBlock}>
+    <select id={w.id} class={css.control} aria-describedby={w.describedBy} disabled={props.disabled} value={value().sqlitePageCacheMiB===null?'driver':'custom'} onChange={e=>update('sqlitePageCacheMiB',e.currentTarget.value==='driver'?null:256)}>
+     <option value="driver">{t('admin-pool-cache-default')}</option><option value="custom">{t('admin-pool-custom')}</option>
+    </select>
+    <Show when={value().sqlitePageCacheMiB!==null}><input class={css.control} type="number" aria-label={t('admin-pool-cache-target')} aria-describedby={w.describedBy} disabled={props.disabled} min="16" max="1024" step="1" value={inputValue('sqlitePageCacheMiB')} onInput={e=>update('sqlitePageCacheMiB',Number.isFinite(e.currentTarget.valueAsNumber)?e.currentTarget.valueAsNumber:e.currentTarget.value)}/></Show>
+   </div>}</FormField>
    {maximum('postgresMaxConnections',t('admin-pool-postgres-maximum'),1024,32)}
   </fieldset>
   <fieldset class={css.fieldset} disabled={props.disabled}><legend class={css.legend}>{t('admin-pool-timing')}</legend>

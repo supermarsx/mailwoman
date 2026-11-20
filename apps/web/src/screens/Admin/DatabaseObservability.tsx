@@ -59,6 +59,21 @@ export function DatabaseObservability():JSX.Element{
      [t('admin-db-pool-reads'),count(operations().read.calls)],
      [t('admin-db-pool-writes'),count(operations().write.calls)],
     ])}<p class={css.note}>{t('admin-db-pool-operation-help')}</p></>}</Show></section>
+    <Show when={value().pool.sqlitePageCache}>{cache=>{
+     const total=(key:'cacheUsedBytes'|'cacheHits'|'cacheMisses'|'cacheWrites'|'cacheSpills')=>{
+      const rows=cache().idleSample.connections;
+      return !rows.length||rows.some(row=>row[key]===null)?null:rows.reduce((sum,row)=>sum+row[key]!,0);
+     };
+     const target=(kib:number|null)=>kib===null?(cache().driverDefaultUnchanged?t('admin-db-cache-default'):absent()):bytes(kib*1024);
+     const observed=()=>{const n=value().storage.cacheSize,p=value().storage.pageSize;return n===undefined?null:n<0?-n*1024:p===undefined?null:n*p;};
+     return <section class={css.card} aria-label={t('admin-db-page-cache')}><h3 class={css.heading}>{t('admin-db-page-cache')}</h3>
+      {fields(()=>[[t('admin-db-cache-per-connection'),target(cache().perConnectionKiB)],[t('admin-db-cache-foreground'),cache().plannedForegroundBytes===null?(cache().driverDefaultUnchanged?t('admin-db-cache-default'):absent()):bytes(cache().plannedForegroundBytes)],
+       [t('admin-db-cache-auxiliary'),target(cache().auxiliaryConnectionKiB)],[t('admin-db-cache-observed'),bytes(observed())],[t('admin-db-cache-used'),bytes(total('cacheUsedBytes'))],
+       [t('admin-db-cache-hit-miss'),`${count(total('cacheHits'))} / ${count(total('cacheMisses'))}`],[t('admin-db-cache-write-spill'),`${count(total('cacheWrites'))} / ${count(total('cacheSpills'))}`]])}
+      <p class={css.note}>{t('admin-db-cache-coverage',{sampled:count(cache().idleSample.sampledConnections),open:count(cache().idleSample.openAfter)})}</p>
+      <p class={css.note}>{t('admin-db-cache-help')}</p>
+     </section>;
+    }}</Show>
    </div>
    <Show when={value().growth}>{growth=><DatabaseSizeHistory samples={growth().samples}/>}</Show>
    <section class={css.card}><div class={css.headingRow}><h3 class={css.heading}>{t('admin-db-breakdown')}</h3><button type="button" class="btn" disabled={loading()} onClick={()=>void reload(true)}><Icon name="search"/>{t('admin-db-inspect')}</button></div>

@@ -196,3 +196,15 @@ admin-db-history-break = 间隔表示数据库代次、测量依据或时钟发�
 admin-db-net-allocation-rate = 数据库分配净变化速率
 admin-db-operations = 按操作分类的语句活动
 admin-db-operation = 操作
+
+admin-db-page-cache = SQLite 页缓存
+admin-db-cache-per-connection = 每个前台连接的已应用目标
+admin-db-cache-foreground = 前台连接池计划目标
+admin-db-cache-auxiliary = 每个辅助连接的目标
+admin-db-cache-observed = 观测到的 MAIN 目标（一个连接）
+admin-db-cache-used = 已采样空闲连接的缓存字节数
+admin-db-cache-hit-miss = 采样命中 / 未命中
+admin-db-cache-write-spill = 采样写入 / 溢出
+admin-db-cache-coverage = 已采样 { $open } 个打开的前台连接中的 { $sampled } 个；忙碌连接被省略。
+admin-db-cache-help = 这些是 SQLite MAIN 缓存软目标，不是预留内存或服务器 RSS 上限。辅助连接单独计算。计数器按物理连接累积，连接替换时可能重置；它们表示缓存事件而不是物理磁盘 I/O。 计数器涵盖每个采样连接附加的所有数据库；共享缓存页可能被重复计数。
+admin-db-cache-default = 驱动默认值

@@ -41,3 +41,19 @@ it('enforces explicit ceilings and the shared PostgreSQL replica budget',()=>{
  for(const value of [{minimumConnections:8,sqliteMaxConnections:4},{minimumConnections:8,postgresMaxConnections:4},{postgresConnectionBudget:20,postgresReservedConnections:20},{postgresConnectionBudget:2,postgresReservedConnections:1,replicaCount:2},{minimumConnections:2,postgresConnectionBudget:2,postgresReservedConnections:1}])expect(normalizeDatabasePool(value),JSON.stringify(value)).toBeNull();
  expect(normalizeDatabasePool({...DEFAULT_DATABASE_POOL,minimumConnections:0,sqliteMaxConnections:32,postgresMaxConnections:1024,acquireTimeoutMs:120000,idleTimeoutSeconds:3600,maxLifetimeSeconds:86400,postgresConnectionBudget:1000000,postgresReservedConnections:0,replicaCount:10000})).not.toBeNull();
 });
+
+it('keeps the cache opt-in, validates the aggregate bound and restores unchanged driver behavior',()=>{
+ const [draft,setDraft]=createSignal<Draft>('{}');
+ render(()=><ValueInput kind={{type:'databasePool'}} draft={draft()} onDraft={setDraft} wiring={{id:'pool',describedBy:undefined,invalid:false}}/>);
+ const select=screen.getByRole('combobox',{name:'SQLite foreground cache target (MiB)'});
+ expect(select).toHaveValue('driver');expect(screen.queryByRole('spinbutton',{name:'SQLite foreground cache target (MiB)'})).toBeNull();
+ fireEvent.change(select,{target:{value:'custom'}});
+ expect(JSON.parse(String(draft())).sqlitePageCacheMiB).toBe(256);
+ const input=screen.getByRole('spinbutton',{name:'SQLite foreground cache target (MiB)'});
+ fireEvent.input(input,{target:{value:''}});expect(parseDraft({type:'databasePool'},draft(),false).ok).toBe(false);
+ fireEvent.input(input,{target:{value:'16'}});expect(parseDraft({type:'databasePool'},draft(),false)).toMatchObject({ok:true,value:{sqlitePageCacheMiB:16}});
+ fireEvent.change(select,{target:{value:'driver'}});expect(JSON.parse(String(draft())).sqlitePageCacheMiB).toBeNull();
+ for(const value of [0,15,1025,16.5,'256'])expect(normalizeDatabasePool({sqlitePageCacheMiB:value})).toBeNull();
+ for(const value of [null,16,256,1024])expect(normalizeDatabasePool({sqlitePageCacheMiB:value})).not.toBeNull();
+ expect(screen.getByText(/not a process memory limit/)).toBeVisible();
+});

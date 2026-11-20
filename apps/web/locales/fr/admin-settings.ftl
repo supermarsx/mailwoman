@@ -2799,3 +2799,7 @@ admin-settings-key-web-offline-precache-concurrency = Téléchargements hors lig
 admin-settings-help-web-offline-precache-concurrency = 1–4 téléchargements parallèles à l’installation du worker, normalement 4 ; effet à la prochaine installation.
 admin-settings-key-web-offline-respect-save-data = Respecter SaveData
 admin-settings-help-web-offline-respect-save-data = Utiliser core lorsque le navigateur signale SaveData.
+
+admin-pool-cache-target = Cible du cache SQLite au premier plan (MiB)
+admin-pool-cache-default = Valeur du pilote
+admin-pool-cache-help = Cible facultative de 16–1024 MiB pour MAIN, répartie sur le maximum prévu de connexions au premier plan. Redémarrage complet requis. Les connexions auxiliaires de maintenance et conversion utilisent chacune 2000 KiB si activé ; sinon le pilote reste inchangé. Ce n’est pas une limite mémoire du processus.

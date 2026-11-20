@@ -2799,3 +2799,7 @@ admin-settings-key-web-offline-precache-concurrency = Descargas de preparación 
 admin-settings-help-web-offline-precache-concurrency = 1–4 descargas paralelas al instalar el worker, normalmente 4; se aplica en la próxima instalación.
 admin-settings-key-web-offline-respect-save-data = Respetar SaveData
 admin-settings-help-web-offline-respect-save-data = Usar core cuando el navegador indique SaveData.
+
+admin-pool-cache-target = Objetivo de caché SQLite en primer plano (MiB)
+admin-pool-cache-default = Valor del controlador
+admin-pool-cache-help = Objetivo opcional de 16–1024 MiB para MAIN, dividido entre el máximo previsto de conexiones en primer plano. Requiere reinicio completo. Las conexiones auxiliares de mantenimiento y conversión usan 2000 KiB cada una si se activa; en caso contrario se conserva el controlador. No limita la memoria del proceso.

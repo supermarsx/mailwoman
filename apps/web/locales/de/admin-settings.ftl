@@ -2799,3 +2799,7 @@ admin-settings-key-web-offline-precache-concurrency = Offline-Vorladevorgänge
 admin-settings-help-web-offline-precache-concurrency = 1–4 parallele Downloads bei der Worker-Installation, normalerweise 4; gilt bei der nächsten Installation.
 admin-settings-key-web-offline-respect-save-data = SaveData beim Vorladen beachten
 admin-settings-help-web-offline-respect-save-data = Bei aktiviertem SaveData des Browsers nur core vorladen.
+
+admin-pool-cache-target = SQLite-Cacheziel für Vordergrundverbindungen (MiB)
+admin-pool-cache-default = Treibervorgabe
+admin-pool-cache-help = Optionales weiches MAIN-Ziel von 16–1024 MiB, geteilt durch die geplante maximale Zahl der Vordergrundverbindungen. Vollständiger Serverneustart erforderlich. Hilfsverbindungen für Wartung und Konvertierung nutzen dann je 2000 KiB; sonst bleibt das Treiberverhalten unverändert. Kein Prozessspeicherlimit.

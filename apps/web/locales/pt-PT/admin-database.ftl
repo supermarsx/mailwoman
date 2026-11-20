@@ -196,3 +196,15 @@ admin-db-history-break = As lacunas separam mudanças de geração, medição ou
 admin-db-net-allocation-rate = Taxa líquida de alocação da base de dados
 admin-db-operations = Atividade de instruções por operação
 admin-db-operation = Operação
+
+admin-db-page-cache = Cache de páginas SQLite
+admin-db-cache-per-connection = Objetivo aplicado por ligação em primeiro plano
+admin-db-cache-foreground = Objetivo planeado do conjunto em primeiro plano
+admin-db-cache-auxiliary = Objetivo auxiliar por ligação
+admin-db-cache-observed = Objetivo MAIN observado (uma ligação)
+admin-db-cache-used = Bytes em cache nas ligações inativas amostradas
+admin-db-cache-hit-miss = Acertos / falhas amostrados
+admin-db-cache-write-spill = Escritas / extravasamentos amostrados
+admin-db-cache-coverage = Amostradas { $sampled } de { $open } ligações abertas em primeiro plano; as ocupadas são omitidas.
+admin-db-cache-help = Os objetivos são sugestões flexíveis da cache MAIN SQLite, não memória reservada nem um limite RSS do servidor. As ligações auxiliares são separadas. Os contadores são cumulativos por ligação física e podem reiniciar quando esta é substituída; são eventos de cache, não E/S física do disco. Os contadores incluem todas as bases anexadas a cada ligação amostrada; páginas de cache partilhada podem ser contadas mais de uma vez.
+admin-db-cache-default = Predefinição do controlador

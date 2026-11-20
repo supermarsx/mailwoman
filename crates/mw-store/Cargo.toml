@@ -12,6 +12,7 @@ query-shape-diagnostics = []
 
 [dependencies]
 mw-platform-fs = { path = "../mw-platform-fs" }
+mw-sqlite-status = { path = "../mw-sqlite-status" }
 async-stream = "0.3.6"
 tokio = { workspace = true }
 # V6 (t6-e1): enable the Postgres backend + pure-Rust rustls TLS ON TOP of the

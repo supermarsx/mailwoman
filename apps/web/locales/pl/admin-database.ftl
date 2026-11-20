@@ -196,3 +196,15 @@ admin-db-history-break = Przerwy oddzielają zmiany generacji, podstawy pomiaru 
 admin-db-net-allocation-rate = Tempo netto przydziału bazy danych
 admin-db-operations = Aktywność instrukcji według operacji
 admin-db-operation = Operacja
+
+admin-db-page-cache = Pamięć podręczna stron SQLite
+admin-db-cache-per-connection = Zastosowany cel na połączenie pierwszoplanowe
+admin-db-cache-foreground = Planowany cel puli pierwszoplanowej
+admin-db-cache-auxiliary = Cel pomocniczy na połączenie
+admin-db-cache-observed = Zaobserwowany cel MAIN (jedno połączenie)
+admin-db-cache-used = Bajty pamięci próbkowanych bezczynnych połączeń
+admin-db-cache-hit-miss = Próbkowane trafienia / chybienia
+admin-db-cache-write-spill = Próbkowane zapisy / przepełnienia
+admin-db-cache-coverage = Próbka { $sampled } z { $open } otwartych połączeń pierwszoplanowych; zajęte są pomijane.
+admin-db-cache-help = Miękkie cele pamięci MAIN SQLite nie rezerwują pamięci ani nie ograniczają RSS. Połączenia pomocnicze są oddzielne. Liczniki są kumulowane na połączenie fizyczne i mogą się zerować po wymianie; to zdarzenia pamięci podręcznej, nie fizyczne operacje dyskowe. Liczniki obejmują wszystkie bazy dołączone do próbkowanego połączenia; współdzielone strony pamięci mogą być liczone wielokrotnie.
+admin-db-cache-default = Domyślne ustawienie sterownika

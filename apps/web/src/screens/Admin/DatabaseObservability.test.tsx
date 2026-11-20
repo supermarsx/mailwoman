@@ -91,3 +91,29 @@ it('keeps legacy unknown cleanup and allocation-only measurements honest',async(
  expect(screen.queryByText('Known completed cleanup (this process)')).toBeNull();
  expect(screen.getByText(/Net change includes deletions and space reuse/)).toBeVisible();
 });
+
+it('separates soft aggregate targets from incomplete actual idle-handle measurements',async()=>{
+ const report=fixture();report.storage.cacheSize=-32768;
+ report.pool.sqlitePageCache={aggregateMiB:256,plannedMaximumConnections:8,perConnectionKiB:32768,plannedForegroundBytes:268435456,
+  auxiliaryConnectionKiB:2000,driverDefaultUnchanged:false,hardMemoryLimit:false,restartRequired:true,
+  idleSample:{openBefore:2,openAfter:2,sampledConnections:1,completeIdleCoverage:false,deadlineReached:false,
+   connections:[{connectionEpoch:1,cacheUsedBytes:4096,cacheHits:7,cacheMisses:3,cacheWrites:2,cacheSpills:0}]}};
+ vi.mocked(loadDatabaseReport).mockResolvedValue(report);render(()=><DatabaseObservability/>);
+ const title=await screen.findByText('SQLite page cache');const section=title.closest('section')!;
+ expect(within(section).getByText('Planned foreground pool target').closest('tr')).toHaveTextContent('256');
+ expect(within(section).getByText('Cache bytes on sampled idle connections').closest('tr')).toHaveTextContent('4');
+ expect(within(section).getByText('Sampled hits / misses').closest('tr')).toHaveTextContent('7 / 3');
+ expect(within(section).getByText('Sampled writes / spills').closest('tr')).toHaveTextContent('2 / 0');
+ expect(within(section).getByText(/Sampled 1 of 2 open foreground connections/)).toBeVisible();
+ expect(within(section).getByText(/not reserved memory or a server RSS limit/)).toBeVisible();
+});
+it('retains unknown idle counters instead of fabricating zero or an aggregate default',async()=>{
+ const report=fixture();report.pool.sqlitePageCache={aggregateMiB:null,plannedMaximumConnections:4,perConnectionKiB:null,plannedForegroundBytes:null,
+  auxiliaryConnectionKiB:null,driverDefaultUnchanged:true,hardMemoryLimit:false,restartRequired:true,
+  idleSample:{openBefore:2,openAfter:2,sampledConnections:0,completeIdleCoverage:false,deadlineReached:false,connections:[]}};
+ vi.mocked(loadDatabaseReport).mockResolvedValue(report);render(()=><DatabaseObservability/>);
+ const section=(await screen.findByText('SQLite page cache')).closest('section')!;
+ expect(within(section).getByText('Planned foreground pool target').closest('tr')).toHaveTextContent('Driver default');
+ expect(within(section).getByText('Cache bytes on sampled idle connections').closest('tr')).toHaveTextContent('Not available');
+ expect(within(section).getByText('Sampled hits / misses').closest('tr')).toHaveTextContent('Not available / Not available');
+});

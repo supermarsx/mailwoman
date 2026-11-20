@@ -196,3 +196,15 @@ admin-db-history-break = Les lacunes séparent les changements de génération, 
 admin-db-net-allocation-rate = Taux net d’allocation de la base
 admin-db-operations = Activité des instructions par opération
 admin-db-operation = Opération
+
+admin-db-page-cache = Cache de pages SQLite
+admin-db-cache-per-connection = Cible appliquée par connexion au premier plan
+admin-db-cache-foreground = Cible prévue du pool au premier plan
+admin-db-cache-auxiliary = Cible auxiliaire par connexion
+admin-db-cache-observed = Cible MAIN observée (une connexion)
+admin-db-cache-used = Octets en cache des connexions inactives échantillonnées
+admin-db-cache-hit-miss = Accès réussis / manqués échantillonnés
+admin-db-cache-write-spill = Écritures / débordements échantillonnés
+admin-db-cache-coverage = Échantillon de { $sampled } connexions sur { $open } ouvertes au premier plan ; les connexions occupées sont omises.
+admin-db-cache-help = Ces cibles souples du cache MAIN SQLite ne réservent pas de mémoire et ne limitent pas le RSS. Les connexions auxiliaires sont distinctes. Les compteurs sont cumulatifs par connexion physique et peuvent repartir de zéro à son remplacement ; ce ne sont pas des E/S physiques. Les compteurs couvrent toutes les bases attachées à chaque connexion échantillonnée ; les pages de cache partagé peuvent être comptées plusieurs fois.
+admin-db-cache-default = Valeur du pilote

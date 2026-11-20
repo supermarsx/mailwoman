@@ -6589,7 +6589,7 @@ pub static REGISTRY: &[SettingDef] = &[
     SettingDef {
         env: Some(("MW_DB_POOL", Precedence::Pin)),
         ..def!("database.pool", Kind::DatabasePool,
-            r#"{"minimumConnections":1,"sqliteMaxConnections":null,"postgresMaxConnections":null,"acquireTimeoutMs":30000,"idleTimeoutSeconds":60,"maxLifetimeSeconds":1800,"postgresConnectionBudget":100,"postgresReservedConnections":20,"replicaCount":1}"#,
+            r#"{"minimumConnections":1,"sqliteMaxConnections":null,"sqlitePageCacheMiB":null,"postgresMaxConnections":null,"acquireTimeoutMs":30000,"idleTimeoutSeconds":60,"maxLifetimeSeconds":1800,"postgresConnectionBudget":100,"postgresReservedConnections":20,"replicaCount":1}"#,
             G, "observability", "Startup SQLx pool budgets. Physical connections grow and retire with demand inside a bounded ceiling. Saved changes take effect after a complete process restart.")
     },
     def!("observability.database.growthAlerts", Kind::Bool, "true", G, "observability", "Alert in audit and server logs after two consecutive rapid database growth samples; at most once per 30 minutes."),

@@ -196,3 +196,15 @@ admin-db-history-break = Gaps separate generation, measurement-basis or clock ch
 admin-db-net-allocation-rate = Net database allocation rate
 admin-db-operations = Statement activity by operation
 admin-db-operation = Operation
+
+admin-db-page-cache = SQLite page cache
+admin-db-cache-per-connection = Applied target per foreground connection
+admin-db-cache-foreground = Planned foreground pool target
+admin-db-cache-auxiliary = Auxiliary target per connection
+admin-db-cache-observed = Observed MAIN target (one connection)
+admin-db-cache-used = Cache bytes on sampled idle connections
+admin-db-cache-hit-miss = Sampled hits / misses
+admin-db-cache-write-spill = Sampled writes / spills
+admin-db-cache-coverage = Sampled { $sampled } of { $open } open foreground connections; busy connections are omitted.
+admin-db-cache-help = Targets are soft SQLite MAIN cache suggestions, not reserved memory or a server RSS limit. Auxiliary connections are separate. Counters are cumulative per physical connection and may reset when it is replaced; these are cache events, not physical disk I/O. Counters cover all pagers attached to each sampled handle; shared-cache pages can be counted more than once.
+admin-db-cache-default = Driver default

@@ -2785,3 +2785,7 @@ admin-settings-key-web-offline-precache-concurrency = オフライン同時ダ�
 admin-settings-help-web-offline-precache-concurrency = worker のインストール時に 1–4 個を並行取得します。既定は 4。次回のインストール時に適用されます。
 admin-settings-key-web-offline-respect-save-data = SaveData を尊重
 admin-settings-help-web-offline-respect-save-data = ブラウザーが SaveData を通知した場合は core を使用します。
+
+admin-pool-cache-target = SQLite フォアグラウンドキャッシュ目標 (MiB)
+admin-pool-cache-default = ドライバー既定値
+admin-pool-cache-help = MAIN の任意のソフト目標 16–1024 MiB を、計画された最大フォアグラウンド接続数で分割します。サーバー全体の再起動が必要です。有効時は保守・変換の補助接続が各 2000 KiB を使用し、無効時はドライバーの動作を変更しません。プロセスメモリの上限ではありません。

@@ -2793,3 +2793,7 @@ admin-settings-key-web-offline-precache-concurrency = Gelijktijdige offline-down
 admin-settings-help-web-offline-precache-concurrency = 1–4 parallelle downloads bij worker-installatie, standaard 4; geldt bij de volgende installatie.
 admin-settings-key-web-offline-respect-save-data = SaveData respecteren
 admin-settings-help-web-offline-respect-save-data = core gebruiken wanneer de browser SaveData aangeeft.
+
+admin-pool-cache-target = SQLite-cachedoel voor voorgrondverbindingen (MiB)
+admin-pool-cache-default = Stuurprogrammastandaard
+admin-pool-cache-help = Optioneel zacht MAIN-doel van 16–1024 MiB, gedeeld door het geplande maximum voorgrondverbindingen. Volledige serverherstart vereist. Ingeschakeld gebruiken hulpverbindingen voor onderhoud en conversie elk 2000 KiB; anders blijft het stuurprogramma ongewijzigd. Geen procesgeheugenlimiet.

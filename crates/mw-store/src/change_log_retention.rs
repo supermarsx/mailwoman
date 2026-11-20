@@ -135,8 +135,7 @@ async fn run(
     let mut lease = None;
     let backend = match original {
         Backend::Sqlite(_) => {
-            let connect = (*pin.as_ref().unwrap().active_options())
-                .clone()
+            let connect = pin.as_ref().unwrap().auxiliary_options()
                 .busy_timeout(Duration::from_millis(50))
                 .pragma("wal_autocheckpoint", "0");
             let pool = sqlx::sqlite::SqlitePoolOptions::new()

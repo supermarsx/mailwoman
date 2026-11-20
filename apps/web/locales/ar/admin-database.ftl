@@ -196,3 +196,15 @@ admin-db-history-break = تفصل الفجوات تغييرات الجيل أو 
 admin-db-net-allocation-rate = صافي معدل تخصيص قاعدة البيانات
 admin-db-operations = نشاط العبارات حسب العملية
 admin-db-operation = العملية
+
+admin-db-page-cache = ذاكرة صفحات SQLite
+admin-db-cache-per-connection = الهدف المطبق لكل اتصال أمامي
+admin-db-cache-foreground = الهدف المخطط لمجموعة الاتصالات الأمامية
+admin-db-cache-auxiliary = الهدف لكل اتصال مساعد
+admin-db-cache-observed = هدف MAIN المرصود (اتصال واحد)
+admin-db-cache-used = بايتات الذاكرة للاتصالات الخاملة المأخوذة كعينة
+admin-db-cache-hit-miss = الإصابات / الإخفاقات في العينة
+admin-db-cache-write-spill = الكتابات / التجاوزات في العينة
+admin-db-cache-coverage = أُخذت عينة من { $sampled } من أصل { $open } اتصال أمامي مفتوح؛ تُستثنى الاتصالات المشغولة.
+admin-db-cache-help = الأهداف مرنة لذاكرة MAIN في SQLite وليست ذاكرة محجوزة أو حدًا لـ RSS. الاتصالات المساعدة منفصلة. العدادات تراكمية لكل اتصال فعلي وقد تُصفّر عند استبداله؛ وهي أحداث ذاكرة مؤقتة وليست عمليات قرص فعلية. تشمل العدادات جميع قواعد البيانات الملحقة بكل اتصال مأخوذ كعينة؛ وقد تُحسب صفحات الذاكرة المشتركة أكثر من مرة.
+admin-db-cache-default = القيمة الافتراضية لبرنامج التشغيل

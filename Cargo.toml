@@ -4,6 +4,7 @@ exclude = ["vendor/russh-0.64.1", "vendor/libsqlite3-sys-0.30.1"]
 members = [
     "crates/mw-cpu",
     "crates/mw-platform-fs",
+    "crates/mw-sqlite-status",
     "crates/mw-domain-config",
     "crates/mw-settings",
     "crates/mw-protection",

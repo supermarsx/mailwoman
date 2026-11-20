@@ -218,11 +218,10 @@ async fn run(
     let mut worker_lease = None;
     let backend = match original {
         Backend::Sqlite(_) => {
-            let options = (*source_pin
+            let options = source_pin
                 .as_ref()
                 .expect("SQLite source pin")
-                .active_options())
-            .clone()
+                .auxiliary_options()
             .busy_timeout(Duration::from_millis(50))
             .pragma("wal_autocheckpoint", "0");
             let pool = sqlx::sqlite::SqlitePoolOptions::new()

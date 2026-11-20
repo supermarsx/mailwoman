@@ -5898,6 +5898,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mw-sqlite-status"
+version = "26.19.0"
+dependencies = [
+ "libsqlite3-sys",
+ "sqlx",
+]
+
+[[package]]
 name = "mw-sso"
 version = "26.19.0"
 dependencies = [
@@ -5937,6 +5945,7 @@ dependencies = [
  "hashlink",
  "libsqlite3-sys",
  "mw-platform-fs",
+ "mw-sqlite-status",
  "mw-test-gate",
  "pbkdf2 0.13.0",
  "rand 0.8.7",

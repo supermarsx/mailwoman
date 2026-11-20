@@ -2811,3 +2811,7 @@ admin-settings-key-web-offline-precache-concurrency = Паралельні ав�
 admin-settings-help-web-offline-precache-concurrency = 1–4 паралельні завантаження під час установлення worker, зазвичай 4; діє з наступної інсталяції.
 admin-settings-key-web-offline-respect-save-data = Ураховувати SaveData
 admin-settings-help-web-offline-respect-save-data = Використовувати core, коли браузер повідомляє SaveData.
+
+admin-pool-cache-target = Ціль кешу SQLite основних з’єднань (МіБ)
+admin-pool-cache-default = Значення драйвера
+admin-pool-cache-help = Необов’язкова м’яка ціль MAIN 16–1024 МіБ ділиться на плановий максимум основних з’єднань. Потрібен повний перезапуск. Допоміжні з’єднання обслуговування та перетворення тоді використовують по 2000 КіБ; інакше драйвер не змінюється. Це не ліміт пам’яті процесу.
