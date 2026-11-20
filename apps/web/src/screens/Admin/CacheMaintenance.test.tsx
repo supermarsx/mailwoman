@@ -37,3 +37,12 @@ it('keeps cleanup disabled for read-only maintenance operators',async()=>{
  expect(screen.getByRole('button',{name:'Run a batch'})).toBeDisabled();
  expect(listAdminSettings).not.toHaveBeenCalled();expect(adminRequest).not.toHaveBeenCalled();
 });
+it('shows deferred sync-history cleanup even when body expiry completed',async()=>{
+ vi.mocked(loadDatabaseMaintenance).mockResolvedValue({...report,
+  cachedBodyExpiry:{status:'complete',at:1700000000,cutoffAt:1690000000,scannedMessages:10,initializedMessages:0,detachedMessages:0,removedBodies:0,removedBytes:0,protectedMessages:0,cursor:{scan:'',expire:''},elapsedMs:1},
+  changeLogRetention:{at:1700000000,status:'wal-pressure',scannedRows:0,removedRows:0,oversizedBatches:0,elapsedMs:1},
+ });
+ renderInShell(()=><CacheMaintenance/>);
+ expect(await screen.findByText('Maintenance yielded to a busy database, its work budget, or WAL pressure. It will retry automatically.')).toBeVisible();
+ expect(screen.getByText('Sync-history rows removed: 0')).toBeVisible();
+});

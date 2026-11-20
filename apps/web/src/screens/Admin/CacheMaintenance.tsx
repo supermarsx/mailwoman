@@ -68,8 +68,11 @@ export function CacheMaintenance():JSX.Element{
     </tbody></table>
    </>}</Show>
    <Show when={report()?.changeLogRetention}>{value=><>
+    <h3 class={css.heading}>{t('admin-cache-change-log')}</h3>
+    <p class={css.note}>{t('admin-db-observed',{time:formatDateTime(value().at*1000)})}</p>
     <p>{t('admin-cache-change-removed')}: {formatNumber(value().removedRows)}</p>
     <Show when={value().chunkedStates}><p class={css.note}>{t('admin-cache-change-chunked')}: {formatNumber(value().chunkedStates!)}</p></Show>
+    <Show when={['busy','budget','wal-pressure'].includes(value().status)}><p class={css.note}>{t('admin-db-background-deferred')}</p></Show>
    </>}</Show>
    <p class={css.note}>{t('admin-cache-expiry-help')}</p>
    <Show when={expiry()?.status==='no-refetchable-sources'}><p class={css.note}>{t('admin-cache-no-sources')}</p></Show>
