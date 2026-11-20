@@ -292,6 +292,72 @@ impl Engine {
             .into_inner())
     }
 
+    /// Smaller list envelopes have a distinct namespace: a cached metadata
+    /// projection must never satisfy a reader's full-envelope request.
+    pub(crate) async fn cached_header_envelope_with_posture(
+        &self,
+        message: &mw_store::Message,
+        posture: AccountPosture,
+    ) -> Result<Option<Vec<u8>>> {
+        let store = self.store().clone();
+        let account = message.account_id.clone();
+        let id = message.stable_id.clone();
+        let revision = message.cache_revision.clone();
+        let hooks = self.v6_hooks();
+        let Some(cache) = hooks.cache else {
+            return match store.get_account_header_envelope(&account, &id).await? {
+                Some(header) if header.cache_revision == revision => Ok(Some(header.envelope)),
+                Some(_) => Err(EngineError::Protocol(
+                    "message changed during header read; retry".into(),
+                )),
+                None => Ok(None),
+            };
+        };
+        let key = format!(
+            "mail-v3:header-envelope:{}:{}",
+            mw_store::HEADER_ENVELOPE_VERSION,
+            serde_json::to_string(&(&account, &id, &revision)).expect("string tuple")
+        );
+        // A legacy/over-cap full fallback is returned to this request only.
+        // None never enters cache, so it cannot poison the light namespace.
+        // get_mail_bytes invokes this request's loader directly on a miss;
+        // it does not coalesce loaders across requests. A future coalescing
+        // implementation must also preserve this per-request fallback result.
+        let fallback = std::sync::Mutex::new(None);
+        let fallback_slot = &fallback;
+        let value = cache
+            .get_mail_bytes(
+                CacheClass::HeaderWindows,
+                &key,
+                posture,
+                move || async move {
+                    let header = store
+                        .get_account_header_envelope(&account, &id)
+                        .await
+                        .map_err(|error| CacheError::Store(error.to_string()))?;
+                    let Some(header) = header else {
+                        return Ok(None);
+                    };
+                    if header.cache_revision != revision {
+                        return Err(CacheError::Store(
+                            "message changed during header read; retry".into(),
+                        ));
+                    }
+                    if header.projected {
+                        Ok(Some(header.envelope))
+                    } else {
+                        *fallback_slot.lock().expect("request-local fallback lock") =
+                            Some(header.envelope);
+                        Ok(None)
+                    }
+                },
+            )
+            .await
+            .map_err(cache_err)?
+            .into_inner();
+        Ok(value.or_else(|| fallback.into_inner().expect("request-local fallback lock")))
+    }
+
     /// Immutable account-bound body keys cannot mix two versions of the same
     /// message. The fresh row is also the ownership/existence proof: expunged
     /// messages have no row and never reach this cache. None is never cached.

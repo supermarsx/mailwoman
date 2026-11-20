@@ -6,21 +6,28 @@ use serde_json::{Value, json};
 use std::io::{self, Write};
 
 pub(crate) const KEY: &str = "_mailwomanHeaderProjection";
+// Any readable-header coverage or projection-semantics change must bump this
+// version: an older valid snapshot may legitimately omit newly supported data.
 const VERSION: u64 = 1;
 const MAX_ENCODED_BYTES: usize = 64 * 1024;
-const READABLE: [&str; 11] = [
+pub(crate) const ADDRESS_HEADERS: [&str; 6] = [
     "delivered-to",
     "x-original-to",
     "envelope-to",
     "x-envelope-to",
     "x-forwarded-to",
     "resent-to",
+];
+pub(crate) const TEXT_HEADERS: [&str; 5] = [
     "expires",
     "expiry-date",
     "reply-by",
     "sensitivity",
     "supersedes",
 ];
+fn readable(name: &str) -> bool {
+    ADDRESS_HEADERS.contains(&name) || TEXT_HEADERS.contains(&name)
+}
 
 /// The complete header block, excluding the first empty line and message body.
 fn header_bytes(raw: &[u8]) -> &[u8] {
@@ -122,7 +129,7 @@ fn bounded_pairs(raw: &[u8]) -> Option<Vec<(String, String)>> {
                 .trim()
                 .to_ascii_lowercase();
             current = None;
-            if !READABLE.contains(&name.as_str()) {
+            if !readable(&name) {
                 continue;
             }
             let raw_value = &line[colon + 1..];
@@ -179,7 +186,7 @@ pub(crate) fn read(email: &Value) -> Option<Vec<(String, String)>> {
         }
         let name = pair[0].as_str()?;
         let value = pair[1].as_str()?;
-        if !READABLE.contains(&name) {
+        if !readable(name) {
             return None;
         }
         bytes = bytes.checked_add(name.len())?.checked_add(value.len())?;

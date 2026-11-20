@@ -843,6 +843,7 @@ impl Store {
 
     async fn upsert_message_tx(&self, m: &MessageUpsert<'_>, mut tx: crate::backend::Tx, skip_unchanged: bool) -> Result<MessageIngestOutcome, StoreError> {
         crate::background_maintenance::lock_body_account(&mut tx, m.account_id).await?;
+        crate::header_envelope::lock_parent(&mut tx,m.account_id).await?;
         if let Some(blob) = m.blob_ref {
             if q("SELECT blob_ref FROM bodies WHERE blob_ref=?1 AND account_id=?2").bind(blob).bind(m.account_id).fetch_opt_scalar_string_tx(&mut tx).await?.is_none() {
                 return Err(StoreError::NotFound);
@@ -966,6 +967,7 @@ impl Store {
         .await?;
 
         if skip_unchanged {
+            crate::header_envelope::refresh_tx(&mut tx,&self.key,m.account_id,&stable_id,m.envelope).await?;
             let now = chrono::Utc::now().to_rfc3339();
             for (kind, id, op) in [
                 ("Email", stable_id.as_str(), if existed { "updated" } else { "created" }),
@@ -979,6 +981,9 @@ impl Store {
                     .bind(m.account_id).bind(kind).bind(id).bind(op).bind(&now)
                     .execute_tx(&mut tx).await?;
             }
+        }
+        if !skip_unchanged {
+            crate::header_envelope::refresh_tx(&mut tx,&self.key,m.account_id,&stable_id,m.envelope).await?;
         }
         tx.commit().await?;
         Ok(MessageIngestOutcome { stable_id, existed, changed: true })
@@ -1941,13 +1946,18 @@ impl Store {
         envelope: &[u8],
     ) -> Result<bool, StoreError> {
         let sealed = self.key.seal(envelope)?;
-        Ok(q("UPDATE messages SET envelope_json=?1 WHERE account_id=?2 AND stable_id=?3 AND blob_ref=?4")
+        let mut tx=self.backend.begin().await?;
+        crate::background_maintenance::lock_body_account(&mut tx,account_id).await?;
+        crate::header_envelope::lock_parent(&mut tx,account_id).await?;
+        let updated=q("UPDATE messages SET envelope_json=?1 WHERE account_id=?2 AND stable_id=?3 AND blob_ref=?4")
             .bind(sealed)
             .bind(account_id)
             .bind(stable_id)
             .bind(expected_blob_ref)
-            .execute(&self.backend)
-            .await? == 1)
+            .execute_tx(&mut tx)
+            .await? == 1;
+        if updated {crate::header_envelope::refresh_tx(&mut tx,&self.key,account_id,stable_id,Some(envelope)).await?;}
+        tx.commit().await?;Ok(updated)
     }
 
     /// Merge a derived projection only while the caller's complete message
@@ -1966,9 +1976,14 @@ impl Store {
             return Ok(false);
         }
         let sealed = self.key.seal(envelope)?;
-        Ok(q("UPDATE messages SET envelope_json=?1 WHERE account_id=?2 AND stable_id=?3 AND blob_ref=?4 AND cache_revision=?5")
+        let mut tx=self.backend.begin().await?;
+        crate::background_maintenance::lock_body_account(&mut tx,account_id).await?;
+        crate::header_envelope::lock_parent(&mut tx,account_id).await?;
+        let updated=q("UPDATE messages SET envelope_json=?1 WHERE account_id=?2 AND stable_id=?3 AND blob_ref=?4 AND cache_revision=?5")
             .bind(sealed).bind(account_id).bind(stable_id).bind(expected_blob_ref).bind(expected_revision)
-            .execute(&self.backend).await? == 1)
+            .execute_tx(&mut tx).await? == 1;
+        if updated {crate::header_envelope::refresh_tx(&mut tx,&self.key,account_id,stable_id,Some(envelope)).await?;}
+        tx.commit().await?;Ok(updated)
     }
 
     // ---- threads --------------------------------------------------------

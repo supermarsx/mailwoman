@@ -376,6 +376,7 @@ pub const RULES: &[Rule] = &[
     keep!("change_log_maintenance_cursor", "one global scheduler seek boundary, not message history; deleted account boundaries are replaced by the next reservation"),
     del!("crypto_changes", "account_id", Bind::Account),
     child!("message_body_cache_lease", "account_id=?1", Bind::Account),
+    child!("message_list_envelope", "account_id=?1", Bind::Account),
     child!("bodies", "account_id=?1", Bind::Account, export: Export::Code { section: "mail" }),
     child!("messages", "account_id=?1", Bind::Account, export: Export::Code { section: "mail" }),
     child!("mailboxes", "account_id=?1", Bind::Account),

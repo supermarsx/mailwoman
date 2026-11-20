@@ -827,6 +827,12 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "message_list_envelope",
+        select: "SELECT stable_id,account_id,sealed_envelope FROM message_list_envelope",
+        insert: "INSERT INTO message_list_envelope(stable_id,account_id,sealed_envelope) VALUES(?1,?2,?3)",
+        map: |r| vec![t(r,"stable_id"),t(r,"account_id"),b(r,"sealed_envelope")],
+    },
+    TableSpec {
         name: "bodies",
         select: "SELECT blob_ref, account_id, sealed_bytes FROM bodies",
         insert: "INSERT INTO bodies (blob_ref, account_id, sealed_bytes) VALUES (?1,?2,?3)",

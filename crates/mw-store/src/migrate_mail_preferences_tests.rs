@@ -2,7 +2,8 @@ use super::*;
 use crate::{AccountKind, Credentials, MailboxUpsert, MessageUpsert, NewAccount, ServerKey};
 
 async fn copy_contract(target: &Store) {
-    let source = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    // Store migration preserves the deployment key as well as stable IDs.
+    let source = Store::open_in_memory(target.key.clone()).await.unwrap();
     let principal = uuid::Uuid::new_v4().to_string();
     let username = format!("{principal}@migration.invalid");
     let account = source
@@ -75,6 +76,21 @@ async fn copy_contract(target: &Store) {
     q("INSERT INTO mdn_sender_schedule(account_id,address,send_at) VALUES(?1,'sender@fixture.invalid',1700000789)")
         .bind(&account).execute(&source.backend).await.unwrap();
 
+    let full_header=serde_json::to_vec(&serde_json::json!({"subject":"copied lightweight metadata","bodyValues":{"1":{"value":"private body"}}})).unwrap();
+    q("UPDATE messages SET envelope_json=?1 WHERE stable_id=?2")
+        .bind(source.key.seal(&full_header).unwrap())
+        .bind(&ids[0])
+        .execute(&source.backend)
+        .await
+        .unwrap();
+    assert!(
+        source
+            .get_account_header_envelope(&account, &ids[0])
+            .await
+            .unwrap()
+            .unwrap()
+            .projected
+    );
     let mut tx = target.backend.begin().await.unwrap();
     // These are the production copier's specs, including real FK parents.
     for (name, expected) in [
@@ -82,6 +98,7 @@ async fn copy_contract(target: &Store) {
         ("accounts", 1),
         ("mailboxes", 1),
         ("messages", 2),
+        ("message_list_envelope", 1),
         ("linked_layout", 1),
         ("scheduled_mdn", 2),
         ("mdn_sender_schedule", 1),
@@ -94,6 +111,23 @@ async fn copy_contract(target: &Store) {
         );
     }
     tx.commit().await.unwrap();
+    let copied_header = target
+        .get_account_header_envelope(&account, &ids[0])
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(copied_header.projected);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&copied_header.envelope).unwrap()["subject"],
+        "copied lightweight metadata"
+    );
+    assert_eq!(
+        target
+            .get_account_envelopes(&account, &[ids[0].clone()])
+            .await
+            .unwrap()[0],
+        Some(full_header)
+    );
 
     let layout =
         q("SELECT hidden_json,revision,updated_at FROM linked_layout WHERE owner_principal_id=?1")

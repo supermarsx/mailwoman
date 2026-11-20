@@ -7,6 +7,8 @@
 
 pub mod analytics_secret;
 pub mod encryption;
+pub mod header_envelope;
+pub use header_envelope::{HeaderEnvelope,HEADER_ENVELOPE_VERSION};
 pub mod encryption_report;
 // 0073 (t39-e11 N8): AI provider profiles (sealed key) and local-endpoint egress grants.
 pub mod assist_profiles;
@@ -265,6 +267,8 @@ use sqlx::sqlite::{
 pub enum StoreError {
     #[error("change history has expired; refetch the current state")]
     ChangeHistoryExpired,
+    #[error("message source changed while reading metadata; retry the read")]
+    SourceChanged,
     #[error("database error: {0}")]
     Db(#[from] sqlx::Error),
     #[error("migration error: {0}")]

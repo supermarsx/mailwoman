@@ -1367,6 +1367,7 @@ impl Engine {
         let wants_focus = args.get("properties").and_then(Value::as_array)
             .is_some_and(|named| named.iter().any(|property| property == crate::focus::FOCUS_PROPERTY));
         let fill = EmailFill {
+            metadata_only: metadata_envelope_only(args),
             threading: wants_threading,
             raw_derived: wants_raw_derived,
             calendar: wants_calendar,
@@ -1501,14 +1502,36 @@ impl Engine {
                     Some(m) => {
                         let posture = cache_postures.get(&m.account_id).copied()
                             .unwrap_or(crate::v6::AccountPosture::ZeroAccess);
-                        self.cached_envelope_with_posture(m, posture).await?
+                        if fill.metadata_only {
+                            self.cached_header_envelope_with_posture(m, posture).await?
+                        } else {
+                            self.cached_envelope_with_posture(m, posture).await?
+                        }
                     }
                     None => None,
                 });
             }
             out
         } else {
-            self.store().get_account_envelopes(account_id, &unique).await?
+            if fill.metadata_only {
+                let rows = self.store().get_account_header_envelopes(account_id, &unique).await?;
+                let mut envelopes = Vec::with_capacity(rows.len());
+                for (header, message) in rows.into_iter().zip(&msgs) {
+                    let envelope = match (header, message) {
+                        (Some(header), Some(message)) => {
+                            if header.cache_revision != message.cache_revision {
+                                return Err(EngineError::Protocol("message changed during header read; retry".into()));
+                            }
+                            Some(header.envelope)
+                        }
+                        _ => None,
+                    };
+                    envelopes.push(envelope);
+                }
+                envelopes
+            } else {
+                self.store().get_account_envelopes(account_id, &unique).await?
+            }
         };
 
         let mut built: Vec<Option<Value>> = Vec::with_capacity(unique.len());
@@ -5585,14 +5608,7 @@ const RAW_DERIVED_PROPERTIES: [&str; 4] = [
 /// (RFC 8621 §4.1.3): the ones a mail server writes to say which address a
 /// message was delivered to, so a reply can be sent from that address. Any
 /// other header name in a `header:` property is not answered.
-const READABLE_ADDRESS_HEADERS: [&str; 6] = [
-    "delivered-to",
-    "x-original-to",
-    "envelope-to",
-    "x-envelope-to",
-    "x-forwarded-to",
-    "resent-to",
-];
+use crate::header_projection::ADDRESS_HEADERS as READABLE_ADDRESS_HEADERS;
 
 /// One `header:` property of an `Email/get` request that will be answered.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -5609,7 +5625,28 @@ struct WantedHeader {
 
 /// Headers `Email/get` can return as `header:<Name>:asText`: the optional
 /// message headers the reader shows as badges (RFC 2156, RFC 4021).
-const READABLE_TEXT_HEADERS: [&str; 5] = ["expires", "expiry-date", "reply-by", "sensitivity", "supersedes"];
+use crate::header_projection::TEXT_HEADERS as READABLE_TEXT_HEADERS;
+
+/// Positive routing guard: unknown extensions and explicit body properties keep
+/// their existing full-envelope semantics, even when body-fetch flags are false.
+fn metadata_envelope_only(args: &Value) -> bool {
+    if args.get("mailwomanBodyUse").and_then(Value::as_bool) == Some(true)
+        || ["fetchHTMLBodyValues", "fetchTextBodyValues", "fetchAllBodyValues"]
+            .iter().any(|key| args.get(*key).and_then(Value::as_bool) == Some(true))
+    { return false; }
+    let Some(properties) = args.get("properties").and_then(Value::as_array) else { return false; };
+    let headers = wanted_header_properties(args);
+    properties.iter().all(|property| property.as_str().is_some_and(|property| {
+        matches!(property,
+            "id" | "blobId" | "threadId" | "mailboxIds" | "keywords" |
+            "from" | "to" | "cc" | "bcc" | "replyTo" | "messageId" |
+            "inReplyTo" | "references" | "subject" | "receivedAt" | "sentAt" |
+            "preview" | "size" | "hasAttachment" | "mailwomanPriority" |
+            "pinned" | "snoozedUntil" | "followUpAt" | "mailwomanFocus" |
+            "mailwomanAuth" | "mailwomanMentions" | "mailwomanCalendar"
+        ) || headers.iter().any(|header| header.property == property)
+    }))
+}
 
 /// The answerable `header:<Name>:asAddresses[:all]` properties of a request.
 fn wanted_header_properties(args: &Value) -> Vec<WantedHeader> {
@@ -5756,6 +5793,8 @@ struct EmailAssembly {
 /// What [`Engine::build_emails`] adds to the stored envelope.
 #[derive(Debug, Clone)]
 struct EmailFill {
+    /// Only explicit known metadata properties may use the smaller envelope.
+    metadata_only: bool,
     /// The `header:Name:asAddresses[:all]` properties the request names, for
     /// the delivery headers in [`READABLE_ADDRESS_HEADERS`].
     headers: Vec<WantedHeader>,
@@ -7645,6 +7684,7 @@ mod email_get_batch_tests {
 
     use super::*;
     use crate::state::session_state_tests::{Stmts, counted, db_threads};
+    include!("metadata_envelope_tests.rs");
 
     /// A fixture whose messages carry **envelopes**, which is what a synced
     /// mailbox looks like.

@@ -198,10 +198,26 @@ fall back to raw headers and attempt a source-bound revision-checked repair;
 oversized or invalid projections retain the fallback without truncating values.
 The private projection is removed from API responses. Representative fixtures
 use the same production encoder rather than constructing projection stamps.
-This avoids an additional raw-message read and scanning binary message bodies,
-but the existing envelope can still contain decoded text/HTML body values and
-is materialized in full. It is not yet a body-free metadata storage path, nor
-does this source change establish a new RPS measurement.
+Explicit requests containing only known list/preload metadata use a separate
+sealed envelope capped at 128 KiB. This excludes decoded body values and raw
+MIME, and has its own account/message/revision cache namespace. Ingestion and
+envelope repairs update it atomically; source changes invalidate it, while
+flags-only updates retain it and patch current flags from SQL. The additive
+cache table starts empty on existing installations, with bounded lazy repair
+instead of a full-mailbox startup sweep. Invalid or oversized projections retain
+the full-envelope fallback without entering the lightweight cache namespace.
+Reader intent, body-fetch flags, body/attachment properties, unknown extensions
+and omitted property lists retain their full-envelope behavior. Account and
+source checks still run before cache access. Neither optimization establishes a
+new RPS measurement; verify the next frozen release against the same workload.
+The SQL/bytecode checks prove that current metadata reads do not fetch full
+envelope/body column values into the application. They do not prove zero SQLite
+pager I/O: `blob_ref` and `cache_revision` occur after the full envelope in the
+existing message-row layout, so SQLite may walk overflow pages to reach them.
+Pointer maps can help on incremental-vacuum databases, but fragmentation or
+older NONE-mode databases can require page reads and SQLCipher work. Measure
+cold/warm pager behavior before attributing all remaining encryption costs or
+claiming that every body-bearing database page has been avoided.
 
 `MW_NATIVE_LOAD_INDEX_WORKERS` is an optional diagnostic fixture override. Leave
 it unset for the ordinary Tantivy worker selection, or choose `1`, `2` or `3`
