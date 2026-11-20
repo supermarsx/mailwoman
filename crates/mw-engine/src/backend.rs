@@ -42,6 +42,10 @@ pub enum EngineError {
     /// Transport-level failure (connect/TLS/socket).
     #[error("transport error: {0}")]
     Transport(String),
+    /// A local pre-dispatch inspection could not acquire capacity or finish.
+    /// SMTP has not been contacted; retry with backoff is safe.
+    #[error("message inspection is temporarily busy; nothing was sent")]
+    PreDispatchBusy,
     /// Submission content may have been accepted; automatic retry is unsafe.
     #[error("delivery status unknown; check Sent before sending again: {0}")]
     SubmissionUncertain(String),

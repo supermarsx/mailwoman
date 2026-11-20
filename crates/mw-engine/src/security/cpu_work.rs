@@ -32,7 +32,12 @@ struct Job {
     _admission: Admission,
 }
 impl CpuExecutor {
-    fn new(workers: usize, jobs: usize, bytes: usize, finish: Duration) -> Result<Self, CpuError> {
+    pub(crate) fn new(
+        workers: usize,
+        jobs: usize,
+        bytes: usize,
+        finish: Duration,
+    ) -> Result<Self, CpuError> {
         if workers == 0
             || workers > 2
             || jobs < workers

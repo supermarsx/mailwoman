@@ -25,7 +25,7 @@
 
 pub mod convert;
 pub mod dispatch;
-mod cpu_work;
+pub(crate) mod cpu_work;
 pub mod dlp;
 pub mod geoip;
 pub mod geoip_fixture;

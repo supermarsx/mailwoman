@@ -718,7 +718,7 @@ impl Engine {
                 response
             }
             Err(e) => {
-                if !matches!(e, EngineError::Auth(_) | EngineError::Unsupported(_)) {
+                if !matches!(e, EngineError::Auth(_) | EngineError::Unsupported(_) | EngineError::PreDispatchBusy) {
                     // An I/O/protocol error may occur after DATA was accepted.
                     // Keep both suppression mechanisms: replay is not safe.
                     return refusal(
@@ -735,7 +735,9 @@ impl Engine {
                 if let Err(e) = self.store().set_setting(&ledger, RELEASED).await {
                     tracing::warn!("could not release the receipt claim for {email_id}: {e}");
                 }
-                refusal("mdnNotSent", "the receipt was refused before sending")
+                let mut result=refusal("mdnNotSent", "the receipt was refused before sending");
+                if matches!(e,EngineError::PreDispatchBusy){result["retryable"]=json!(true);result["code"]=json!("dlpInspectionBusy");}
+                result
             }
         }
     }
@@ -930,7 +932,7 @@ impl Engine {
             outgoing,
         )
         .await
-        .map_err(|error| EngineError::Unsupported(error.code().into()))?;
+        .map_err(|error| if error.retryable(){EngineError::PreDispatchBusy}else{EngineError::Unsupported(error.code().into())})?;
         if verdicts.iter().any(|verdict| verdict.blocked) {
             return Err(EngineError::Unsupported("dlpBlocked".into()));
         }

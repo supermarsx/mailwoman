@@ -33,9 +33,20 @@ Every inspection reads current environment/file and stored policy sources. It
 validates/compiles them on CPU threads and rereads the authoritative sources after
 inspection. A change retries the exact same owned input at most twice; continuous
 changes, malformed/unavailable policy, parser failure, queue saturation, worker
-panic or timeout return the existing DLP error. Neither JMAP nor MDN submission
-continues on that error. There is no TTL policy cache or stale allow fallback.
+panic or timeout return a DLP error. Neither JMAP nor MDN submission continues
+unchecked. Temporary executor/input-admission saturation and inspection timeouts
+return retryable `dlpInspectionBusy`; queued submissions stay pending and use the
+existing bounded retry/backoff policy. Malformed, oversized or blocked policy
+and parser/panic failures remain permanent. Only a typed local pre-dispatch
+failure is retry-safe: transport or uncertain SMTP acceptance is never translated
+into Busy. There is no TTL policy cache or stale allow fallback.
 The unchanged-source check is optimistic, not a lease spanning SMTP/network I/O.
+
+For MDN, known pre-dispatch Busy releases suppression/ledger claims and retains a
+scheduled job for retry. This retry proof assumes healthy suppression/ledger
+cleanup. Existing cleanup-write failures remain logged and can leave conservative
+suppression state; this is not a crash- or database-failure-proof receipt protocol.
+Uncertain SMTP outcomes keep their suppression and never gain automatic retry.
 
 These limits bound admitted input and job counts, not a hard native allocator or
 CPU-time sandbox. A parser/regex can allocate intermediate decoded structures

@@ -73,6 +73,9 @@ mod list_projection_tests;
 #[cfg(test)]
 #[path = "keyword_noop_tests.rs"]
 mod keyword_noop_tests;
+#[cfg(test)]
+#[path = "dlp_retry_tests.rs"]
+mod dlp_retry_tests;
 
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
@@ -4238,7 +4241,7 @@ impl Engine {
             outgoing,
         )
         .await
-        .map_err(|error| NotSent::permanent(EngineError::Unsupported(error.code().into())))?;
+        .map_err(|error| if error.retryable(){NotSent::transient(EngineError::PreDispatchBusy)}else{NotSent::permanent(EngineError::Unsupported(error.code().into()))})?;
         if dlp_block_error(&verdicts).is_some() {
             return Err(NotSent::permanent(EngineError::Unsupported(
                 "dlpBlocked".into(),

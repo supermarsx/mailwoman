@@ -30,16 +30,40 @@ mod sources;
 pub enum DlpError {
     PolicyUnavailable,
     InputUnavailable,
+    Busy,
 }
 impl DlpError {
     pub fn code(self) -> &'static str {
         match self {
             Self::PolicyUnavailable => "dlpPolicyUnavailable",
             Self::InputUnavailable => "dlpInputUnavailable",
+            Self::Busy => "dlpInspectionBusy",
+        }
+    }
+    pub fn retryable(self) -> bool {
+        matches!(self, Self::Busy)
+    }
+    fn input_cpu(error: super::cpu_work::CpuError) -> Self {
+        Self::cpu(error, false)
+    }
+    fn policy_cpu(error: super::cpu_work::CpuError) -> Self {
+        Self::cpu(error, true)
+    }
+    fn cpu(error: super::cpu_work::CpuError, policy: bool) -> Self {
+        match error {
+            super::cpu_work::CpuError::Unavailable | super::cpu_work::CpuError::Timeout => {
+                Self::Busy
+            }
+            _ if policy => Self::PolicyUnavailable,
+            _ => Self::InputUnavailable,
         }
     }
     pub fn jmap_error(self) -> Value {
-        json!({"type":"serverFail","code":self.code(),"description":"DLP policy or authoritative message inspection is unavailable; the message was not submitted."})
+        let mut result = json!({"type":"serverFail","code":self.code(),"description":"DLP policy or authoritative message inspection is unavailable; the message was not submitted."});
+        if self.retryable() {
+            result["retryable"] = json!(true);
+        }
+        result
     }
 }
 impl std::fmt::Display for DlpError {
@@ -48,6 +72,43 @@ impl std::fmt::Display for DlpError {
     }
 }
 impl std::error::Error for DlpError {}
+fn cpu_executor(store: &Store) -> Result<super::cpu_work::CpuExecutor, DlpError> {
+    #[cfg(test)]
+    if let Some(executor) = CPU_EXECUTORS
+        .lock()
+        .unwrap()
+        .get(&store.instance_id().to_string())
+        .cloned()
+    {
+        return Ok(executor);
+    }
+    #[cfg(not(test))]
+    let _ = store;
+    super::cpu_work::shared()
+        .cloned()
+        .map_err(DlpError::policy_cpu)
+}
+#[cfg(test)]
+static CPU_EXECUTORS: std::sync::Mutex<
+    std::collections::BTreeMap<String, super::cpu_work::CpuExecutor>,
+> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+#[cfg(test)]
+pub(crate) struct ExecutorOverride(String);
+#[cfg(test)]
+impl Drop for ExecutorOverride {
+    fn drop(&mut self) {
+        CPU_EXECUTORS.lock().unwrap().remove(&self.0);
+    }
+}
+#[cfg(test)]
+pub(crate) fn override_executor(
+    store: &Store,
+    executor: super::cpu_work::CpuExecutor,
+) -> ExecutorOverride {
+    let key = store.instance_id().to_string();
+    CPU_EXECUTORS.lock().unwrap().insert(key.clone(), executor);
+    ExecutorOverride(key)
+}
 const MAX_POLICY_BYTES: usize = 2 * 1024 * 1024;
 const MAX_INSPECT_BYTES: usize = 64 * 1024 * 1024;
 // Old+fresh source snapshots can overlap decoded rule data during freshness
@@ -105,7 +166,7 @@ impl Engine {
     ) -> Result<DlpInput, DlpError> {
         // Reserve for the authoritative maximum BEFORE fetching body bytes.
         let budget = super::cpu_work::input_budget(MAX_INSPECT_BYTES + POLICY_WORKING_BYTES)
-            .map_err(|_| DlpError::InputUnavailable)?;
+            .map_err(DlpError::input_cpu)?;
         let msg = self
             .store()
             .get_message(email_id)
@@ -127,14 +188,13 @@ impl Engine {
             .checked_add(1024)
             .ok_or(DlpError::InputUnavailable)?;
         let worker_budget = budget.clone();
-        let (input, _worker_budget) = super::cpu_work::shared()
-            .map_err(|_| DlpError::InputUnavailable)?
+        let (input, _worker_budget) = cpu_executor(self.store())?
             .run(charge, move || {
                 let input = input_from_raw(&raw, None)?;
                 Ok::<_, DlpError>((input, worker_budget))
             })
             .await
-            .map_err(|_| DlpError::InputUnavailable)??;
+            .map_err(DlpError::input_cpu)??;
         Ok(input)
     }
 }
@@ -200,15 +260,15 @@ pub const SECURITY_POLICY_SETTINGS_KEY: &str = "v6:admin:security_policy";
 /// environment rule. `Dlp/getRules`, `Dlp/scan` and the `submit_email`
 /// enforcement hook all read this, so what is shown and what is enforced agree.
 pub(crate) async fn load_rules(store: &Store) -> Result<Vec<DlpRule>, DlpError> {
-    let budget = super::cpu_work::input_budget(POLICY_WORKING_BYTES)
-        .map_err(|_| DlpError::PolicyUnavailable)?;
+    let budget =
+        super::cpu_work::input_budget(POLICY_WORKING_BYTES).map_err(DlpError::policy_cpu)?;
     load_checked_rules(store, true, &budget).await
 }
 
 /// Stored-only admin view; policy decoding and regex validation stay off async workers.
 pub async fn stored_rules(store: &Store) -> Result<Vec<DlpRule>, DlpError> {
-    let budget = super::cpu_work::input_budget(POLICY_WORKING_BYTES)
-        .map_err(|_| DlpError::PolicyUnavailable)?;
+    let budget =
+        super::cpu_work::input_budget(POLICY_WORKING_BYTES).map_err(DlpError::policy_cpu)?;
     load_checked_rules(store, false, &budget).await
 }
 async fn load_checked_rules(
@@ -218,7 +278,8 @@ async fn load_checked_rules(
 ) -> Result<Vec<DlpRule>, DlpError> {
     for _ in 0..2 {
         let source = sources::read(store, environment, budget).await?;
-        let (source, rules) = decode_owned_sources(source, budget.clone(), environment).await?;
+        let (source, rules) =
+            decode_owned_sources(store, source, budget.clone(), environment).await?;
         #[cfg(test)]
         test_after_inspection(store).await;
         // Includes the no-active-rules fast path: queue delay must not turn an
@@ -231,6 +292,7 @@ async fn load_checked_rules(
 }
 
 async fn decode_owned_sources(
+    store: &Store,
     source: sources::Snapshot,
     budget: super::cpu_work::InputBudget,
     merge_environment: bool,
@@ -239,14 +301,13 @@ async fn decode_owned_sources(
         .bytes()
         .checked_add(16 * 1024 * 1024)
         .ok_or(DlpError::PolicyUnavailable)?;
-    let (source, rules, _budget) = super::cpu_work::shared()
-        .map_err(|_| DlpError::PolicyUnavailable)?
+    let (source, rules, _budget) = cpu_executor(store)?
         .run(charge, move || {
             let rules = sources::decode(&source, merge_environment)?;
             Ok::<_, DlpError>((source, rules, budget))
         })
         .await
-        .map_err(|_| DlpError::PolicyUnavailable)??;
+        .map_err(DlpError::policy_cpu)??;
     Ok((source, rules))
 }
 
@@ -761,7 +822,7 @@ async fn inspect_owned(
             .checked_add(POLICY_WORKING_BYTES)
             .ok_or(DlpError::InputUnavailable)?,
     )
-    .map_err(|_| DlpError::InputUnavailable)?;
+    .map_err(DlpError::input_cpu)?;
     for _ in 0..2 {
         let source = sources::read(store, true, &budget).await?;
         let charge = input
@@ -770,8 +831,7 @@ async fn inspect_owned(
             .and_then(|n| n.checked_add(16 * 1024 * 1024))
             .ok_or(DlpError::InputUnavailable)?;
         let worker_budget = budget.clone();
-        let result = super::cpu_work::shared()
-            .map_err(|_| DlpError::InputUnavailable)?
+        let result = cpu_executor(store)?
             .run(charge, move || {
                 let rules = sources::decode(&source, true)?;
                 let verdicts = if !rules.iter().any(|rule| rule.enabled) {
@@ -791,7 +851,7 @@ async fn inspect_owned(
                 Ok((source, input, verdicts, worker_budget))
             })
             .await
-            .map_err(|_| DlpError::InputUnavailable)??;
+            .map_err(DlpError::input_cpu)??;
         let (source, returned, verdicts, _worker_budget) = result;
         #[cfg(test)]
         test_after_inspection(store).await;

@@ -43,8 +43,8 @@ pub(super) async fn read(
                         .acquire_owned(),
                 )
                 .await
-                .map_err(|_| DlpError::PolicyUnavailable)?
-                .map_err(|_| DlpError::PolicyUnavailable)?;
+                .map_err(|_| DlpError::Busy)?
+                .map_err(|_| DlpError::Busy)?;
                 let worker_budget = budget.clone();
                 let task = tokio::task::spawn_blocking(move || {
                     let _permit = permit;
@@ -68,8 +68,14 @@ pub(super) async fn read(
                 });
                 let (text, _worker_budget) = tokio::time::timeout(Duration::from_secs(5), task)
                     .await
-                    .map_err(|_| DlpError::PolicyUnavailable)?
-                    .map_err(|_| DlpError::PolicyUnavailable)??;
+                    .map_err(|_| DlpError::Busy)?
+                    .map_err(|error| {
+                        if error.is_cancelled() {
+                            DlpError::Busy
+                        } else {
+                            DlpError::PolicyUnavailable
+                        }
+                    })??;
                 Some(text)
             }
             Err(std::env::VarError::NotPresent) => None,
