@@ -19,6 +19,10 @@
 mod query;
 mod sealed_directory;
 pub mod timing;
+mod publication;
+pub use publication::{PublicationChange, PublicationReceipt, PublicationOwnerClaim};
+#[cfg(test)]
+mod publication_contract_tests;
 mod list_projection;
 pub use list_projection::{ListProjection, MAX_LIST_PROJECTION_IDS};
 /// A8 (26.19): cosine re-rank of an already-retrieved lexical hit list, behind the
@@ -33,7 +37,7 @@ pub use rerank::{cosine, rerank_by_cosine};
 use std::ops::Bound;
 use std::path::Path;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use tantivy::collector::{Count, DocSetCollector, TopDocs};
@@ -101,6 +105,10 @@ pub struct IndexDoc {
     /// `#[serde(default)]` so an index doc written before this field still loads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub list_signal: Option<String>,
+    /// Internal content witness for metadata-only publication. Legacy documents
+    /// have no witness and must be rebuilt from current owned source first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_content_ref: Option<String>,
 }
 
 fn importance_rank(doc: &IndexDoc) -> u64 {
@@ -504,6 +512,12 @@ pub struct Index {
     doc_fetches: AtomicU64,
     list_projection_searches: AtomicU64,
     list_projection_doc_reads: AtomicU64,
+    publication_poisoned: AtomicBool,
+    publication_owner: AtomicBool,
+    #[cfg(test)]
+    publication_fault: Mutex<Option<publication::PublicationFault>>,
+    #[cfg(test)]
+    publication_lock_hook: Mutex<Option<std::sync::Arc<std::sync::Barrier>>>,
 }
 
 impl Index {
@@ -596,6 +610,12 @@ impl Index {
             doc_fetches: AtomicU64::new(0),
             list_projection_searches: AtomicU64::new(0),
             list_projection_doc_reads: AtomicU64::new(0),
+            publication_poisoned: AtomicBool::new(false),
+            publication_owner: AtomicBool::new(false),
+            #[cfg(test)]
+            publication_fault: Mutex::new(None),
+            #[cfg(test)]
+            publication_lock_hook: Mutex::new(None),
         })
     }
 
@@ -604,9 +624,14 @@ impl Index {
     }
 
     fn lock_writer(&self) -> Result<std::sync::MutexGuard<'_, IndexWriter>> {
-        timing::measure(timing::Stage::WriterLockWait, 0, || {
+        if self.publication_is_poisoned() { return Err(SearchError::Io("index publication requires recovery".into())); }
+        #[cfg(test)]
+        if let Some(hook)=self.publication_lock_hook.lock().unwrap().take(){hook.wait();}
+        let writer = timing::measure(timing::Stage::WriterLockWait, 0, || {
             self.writer.lock().map_err(|_| SearchError::Io("index writer poisoned".to_string()))
-        })
+        })?;
+        if self.publication_is_poisoned() { return Err(SearchError::Io("index publication requires recovery".into())); }
+        Ok(writer)
     }
 
     /// **The single `IndexWriter::commit` call site in this crate.** Every
@@ -623,9 +648,11 @@ impl Index {
     /// A commit here is a Tantivy segment commit — the expensive part of the
     /// write path. `Email/set` over a large id set must produce exactly one.
     fn commit_writer(&self, writer: &mut IndexWriter) -> Result<()> {
+        self.commit_writer_opstamp(writer).map(|_| ())
+    }
+    fn commit_writer_opstamp(&self, writer: &mut IndexWriter) -> Result<u64> {
         INDEX_COMMITS.fetch_add(1, Ordering::Relaxed);
-        timing::measure(timing::Stage::Commit, 0, || writer.commit())?;
-        Ok(())
+        Ok(timing::measure(timing::Stage::Commit, 0, || writer.commit())?)
     }
 
     fn to_document(&self, doc: &IndexDoc) -> Result<TantivyDocument> {
@@ -763,19 +790,38 @@ impl Index {
         if had == 0 {
             return Ok(0);
         }
+        self.delete_account_physical(account_id)
+    }
+
+    /// Physical-erasure barrier. Even zero live documents can have tombstoned
+    /// segments left by a prior failed merge/GC, so retries still perform cleanup.
+    pub fn delete_account_physical(&self, account_id:&str)->Result<u64> {
+        use tantivy::directory::Directory;
         let mut w = self.lock_writer()?;
+        // Refresh while holding the writer: legacy callers can release its
+        // mutex after commit but before reader reload. Count is advisory only;
+        // the tombstone is always committed, including zero-count retries.
+        if let Err(error)=self.reload_reader(){self.poison_publication();return Err(error);}
+        let had=self.account_doc_count(account_id)?;
+        let retired:Vec<_>=self.inner.directory().list_managed_files().into_iter().filter(|path|path.file_name().and_then(|name|name.to_str()).is_some_and(|name|{
+            let stem=name.split('.').next().unwrap_or("");stem.len()==32&&stem.bytes().all(|byte|byte.is_ascii_hexdigit())
+        })).collect();
         w.delete_term(Term::from_field_text(self.fields.account_id, account_id));
-        self.commit_writer(&mut w)?;
+        if let Err(error)=self.commit_writer(&mut w){self.poison_publication();return Err(error);}
         // Reload before each step that deletes files: the reader maps the
         // segment files it searches, and a mapped file cannot be removed on
         // Windows.
-        self.reload_reader()?;
-        let segments = self.inner.searchable_segment_ids()?;
+        if let Err(error)=self.reload_reader(){self.poison_publication();return Err(error);}
+        let segments = match self.inner.searchable_segment_ids(){Ok(segments)=>segments,Err(error)=>{self.poison_publication();return Err(error.into());}};
         if !segments.is_empty() {
-            w.merge(&segments).wait()?;
-            self.reload_reader()?;
+            if let Err(error)=w.merge(&segments).wait(){self.poison_publication();return Err(error.into());}
+            if let Err(error)=self.reload_reader(){self.poison_publication();return Err(error);}
         }
-        w.garbage_collect_files().wait()?;
+        let gc=match w.garbage_collect_files().wait(){Ok(gc)=>gc,Err(error)=>{self.poison_publication();return Err(error.into());}};
+        if !gc.failed_to_delete_files.is_empty(){self.poison_publication();return Err(SearchError::Io("physical index cleanup is pending retained readers".into()));}
+        for path in retired {
+            if !matches!(self.inner.directory().exists(&path),Ok(false)){self.poison_publication();return Err(SearchError::Io("retired index files remain after physical cleanup".into()));}
+        }
         Ok(had)
     }
 

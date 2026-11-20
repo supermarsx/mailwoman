@@ -262,6 +262,8 @@ mod tests {
                 writer_configuration: crate::WriterConfiguration { indexing_workers: 1, memory_budget_bytes: 50_000_000 },
                 doc_fetches: Default::default(), list_projection_searches: Default::default(),
                 list_projection_doc_reads: Default::default(),
+                publication_poisoned:Default::default(),publication_owner:Default::default(),
+                publication_fault:Default::default(),publication_lock_hook:Default::default(),
             };
             for segment in 0..segments {
                 let mut writer = index.lock_writer().unwrap();
