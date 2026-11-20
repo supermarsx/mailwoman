@@ -964,8 +964,19 @@ fn mount_under_base_path(app: Router, base: &str) -> Router {
     Router::new().nest(base, app.clone()).merge(app)
 }
 
+/// Cheap immutable handle shared by routers, extractors and background jobs.
+/// Mutable runtime services retain their existing interior synchronization.
 #[derive(Clone)]
-pub(crate) struct AppState {
+pub(crate) struct AppState(Arc<AppStateInner>);
+
+impl std::ops::Deref for AppState {
+    type Target = AppStateInner;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
+pub(crate) struct AppStateInner {
     started_at: std::time::SystemTime,
     started: std::time::Instant,
     config_snapshot: config_routes::BootConfigSnapshot,
@@ -1030,6 +1041,19 @@ pub(crate) struct AppState {
     /// an LDAP-bind pre-check (§18.3) when `MW_LDAP_BIND_AUTH` is set. Inert (never
     /// consulted) unless that env flag is on — the default login path is unchanged.
     pub(crate) directory: directory::DirectoryHandle,
+}
+
+#[cfg(test)]
+mod app_state_layout_tests {
+    #[test]
+    fn app_state_handle_remains_one_shared_pointer() {
+        fn require_clone_send_sync<T: Clone + Send + Sync>() {}
+        require_clone_send_sync::<super::AppState>();
+        assert_eq!(
+            std::mem::size_of::<super::AppState>(),
+            std::mem::size_of::<usize>()
+        );
+    }
 }
 
 /// V6 mount-time configuration (plan §3 e11). All fields default to "off" so a
@@ -1450,7 +1474,7 @@ async fn build_app_inner(
     let request_protection = request_protection::Runtime::start(store.clone());
     let admin_probe = admin_probe::Runtime::start(store.clone());
     pdf_assets::log_startup_audit(config.web_dir.as_deref());
-    let state = AppState {
+    let state = AppState(Arc::new(AppStateInner {
         resource_data_path: mw_store::encryption::sqlite_file_from_dsn(&config.db_path)
             .and_then(|path| path.parent().filter(|parent| !parent.as_os_str().is_empty()).map(Path::to_path_buf))
             .unwrap_or_else(|| PathBuf::from(".")),
@@ -1485,7 +1509,7 @@ async fn build_app_inner(
         analytics: Arc::new(analytics_runtime::Runtime::default()),
         inbound_allowlist: Arc::new(inbound_allowlist::Runtime::default()),
         directory: directory.clone(),
-    };
+    }));
     jobs::start(state.clone());
     compliance_mail::start(state.clone());
     operational_incidents::start(state.clone());
