@@ -49,7 +49,12 @@ export async function runClaimed({directory,ready,execute}){
   if(exitCode!==0){await privateJson(join(directory,'done.json'),{runId:ready.runId,status:'error',reason:'generator-failed',exitCode:Number.isInteger(exitCode)?exitCode:-1});throw new Error('External generator failed');}
   const bytes=await readPrivate(join(directory,ready.outputFile),REPORT_LIMIT);
   JSON.parse(bytes.toString('utf8'));
-  await privateJson(join(directory,'done.json'),{runId:ready.runId,status:'completed',reportHash:reportHash(bytes),reportBytes:bytes.length});
+  // Rust consumes both artifacts after completion. Never publish success while
+  // the Markdown report is missing, empty, non-private, oversized or non-UTF8.
+  const markdown=await readPrivate(join(directory,'report.md'),REPORT_LIMIT);
+  const rendered=new TextDecoder('utf-8',{fatal:true}).decode(markdown);
+  if(!rendered.trim())throw new Error('Missing external Markdown report');
+  await privateJson(join(directory,'done.json'),{runId:ready.runId,status:'completed',reportHash:reportHash(bytes),reportBytes:bytes.length,markdownHash:reportHash(markdown),markdownBytes:markdown.length});
  }catch{
   await privateJson(join(directory,'done.json'),{runId:ready.runId,status:'error',reason:'generator-failed'}).catch(()=>{});
   throw new Error('External generator failed; no secrets copied to logs');

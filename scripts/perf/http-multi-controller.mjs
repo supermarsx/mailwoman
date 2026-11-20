@@ -6,6 +6,7 @@ import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 import {readPrivate,HANDOFF_LIMIT} from './external-control.mjs';
+import {markdownReport} from './http-load.mjs';
 import {campaignOptions,runCampaign} from './http-campaign.mjs';
 import {prepareFixtureClients,startupReadinessReport,fixturePolicyReport} from './fixture-clients.mjs';
 import {workloadProfileReport} from './representative-workload.mjs';
@@ -111,7 +112,7 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
   const elapsedSeconds=(performance.now()-controllerStarted)/1000,cpu=process.cpuUsage(cpuStarted);
   const qualified=handoff.buildProfile==='release'&&verified.policyEvidence.verified&&verified.startupReadiness.verified&&isolationEvidence.verified;
   const met=qualifiesHttpTarget(campaign,qualified);
-  return {schema:1,kind:'coordinated-native-http-fixture',generatedAt:new Date().toISOString(),backend:handoff.backend,buildProfile:handoff.buildProfile,workers,configuredGlobalPrincipals:handoff.principals.length,scannerProbeStatus,isolationEvidence,partitionSizes:verified.partitions.map(part=>part.count),startupReadiness:verified.startupReadiness,policyEvidence:verified.policyEvidence,workloadProfile:verified.workloadProfile,...campaign,controller:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,elapsedSeconds,rssBeforeBytes,rssAfterBytes:process.memoryUsage().rss},capacityTarget:{successfulRps:40000,simultaneousAuthenticatedUsers:10000,httpMultiUserTargetMet:met,productionPolicyQualified:qualified,persistentWebSocketSessionsMeasured:false,met:false},distinctPhysicalGeneratorHostsMeasured:false};
+  return {schema:1,kind:'coordinated-native-http-fixture',generatedAt:new Date().toISOString(),target:'ephemeral loopback Mailwoman router + seeded native engine',scenario:'real authenticated middleware/HTTP/native-engine with '+handoff.backend+'; fixture data; no TLS/reverse proxy',runtime:process.version,model:'bounded coordinated processes with disjoint users and a shared measurement window; no capacity claim',protection:verified.policyEvidence.verified?'administrator defaults plus verified locked access.protocols policy':'administrator defaults; loaded policy not verified',uniqueAuthenticatedPrincipals:handoff.principals.length,principalCountMeaning:'configured distinct seeded principals; actual successful HTTP coverage is reported per stage',backend:handoff.backend,buildProfile:handoff.buildProfile,workers,configuredGlobalPrincipals:handoff.principals.length,scannerProbeStatus,isolationEvidence,partitionSizes:verified.partitions.map(part=>part.count),startupReadiness:verified.startupReadiness,policyEvidence:verified.policyEvidence,workloadProfile:verified.workloadProfile,...campaign,controller:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,elapsedSeconds,rssBeforeBytes,rssAfterBytes:process.memoryUsage().rss},capacityTarget:{successfulRps:40000,simultaneousAuthenticatedUsers:10000,httpMultiUserTargetMet:met,productionPolicyQualified:qualified,persistentWebSocketSessionsMeasured:false,met:false},distinctPhysicalGeneratorHostsMeasured:false};
  }finally{
   const stopped=await Promise.allSettled(children.map(child=>child.stop()));
   if(stopped.some(value=>value.status==='rejected'))throw new Error('Worker shutdown unconfirmed; private files retained');
@@ -119,12 +120,28 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
  }
 }
 
+export async function writeMultiArtifacts(output,report){
+ const markdownPath=output.replace(/\.json$/,'')+'.md';
+ if(markdownPath===output)throw new Error('Distinct JSON and Markdown report paths required');
+ await mkdir(dirname(resolve(output)),{recursive:true});
+ const markdown=markdownReport(report);
+ await writeFile(output,JSON.stringify(report,null,2)+'\n',{mode:0o600});
+ await writeFile(markdownPath,markdown,{mode:0o600});
+}
+
 async function main(){
  const args=Object.fromEntries(process.argv.slice(2).map(arg=>{const at=arg.indexOf('=');if(at<0)throw new Error();return [arg.slice(2,at),arg.slice(at+1)];}));
  if(Object.keys(args).some(key=>!['handoff','output','workers'].includes(key))||!args.handoff||!args.output)throw new Error('Explicit private handoff and output required');
  await mkdir(dirname(resolve(args.output)),{recursive:true});
  const workers=Number(args.workers??4),options=campaignOptions({...process.env,MW_LOAD_FIXTURE_CONCURRENCY:process.env.MW_LOAD_FIXTURE_CONCURRENCY??String(workers)});
- try{const report=await runMultiCampaign({handoff:JSON.parse(await readPrivate(args.handoff,HANDOFF_LIMIT)),workers,options});await mkdir(dirname(resolve(args.output)),{recursive:true});await writeFile(args.output,JSON.stringify(report,null,2)+'\n',{mode:0o600});if(report.mutationStateTainted||!report.stages.some(stage=>stage.accepted>0))process.exitCode=1;}
- catch{await writeFile(args.output,JSON.stringify({schema:1,kind:'coordinated-native-http-fixture',coordinationValid:false,capacityTarget:{httpMultiUserTargetMet:false,met:false},reason:'Worker coordination or measurement failed; no capacity qualification.'})+'\n',{mode:0o600});throw new Error('Coordinated generator failed');}
+ try{
+  const report=await runMultiCampaign({handoff:JSON.parse(await readPrivate(args.handoff,HANDOFF_LIMIT)),workers,options});
+  await writeMultiArtifacts(args.output,report);
+  if(report.mutationStateTainted||!report.stages.some(stage=>stage.accepted>0))process.exitCode=1;
+ }catch{
+  const failure={schema:1,kind:'coordinated-native-http-fixture',target:'coordinated native fixture (unverified)',scenario:'generator coordination failed',runtime:process.version,model:'no successful capacity qualification',protection:'not verified',uniqueAuthenticatedPrincipals:null,stages:[],coordinationValid:false,capacityTarget:{httpMultiUserTargetMet:false,met:false},reason:'Worker coordination or measurement failed; no capacity qualification.'};
+  await writeMultiArtifacts(args.output,failure);
+  throw new Error('Coordinated generator failed');
+ }
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)main().catch(()=>{console.error('Coordinated generator failed; no credentials logged.');process.exitCode=1;});

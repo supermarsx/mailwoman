@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fork} from 'node:child_process';
-import {mkdtemp,writeFile,unlink,rmdir,access} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,unlink,rmdir,access} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {EventEmitter} from 'node:events';
+import {randomUUID} from 'node:crypto';
+import {runClaimed,reportHash} from './external-control.mjs';
 import {Measurements} from './http-load.mjs';
 import {splitBudget,partitionPrincipals,validateStage,mergeSnapshots,aggregateWorkers} from './http-multi-protocol.mjs';
-import {validateAssignment,runMultiCampaign,qualifiesHttpTarget} from './http-multi-controller.mjs';
+import {validateAssignment,runMultiCampaign,qualifiesHttpTarget,writeMultiArtifacts} from './http-multi-controller.mjs';
 import {generatorWorkers,httpGeneratorLaunch} from './http-generator-launch.mjs';
 
 const stage={concurrency:4,seconds:1,timeoutMs:1000,arrivalRate:100},startAtMs=100000;
@@ -97,6 +99,16 @@ test('two actual subprocesses obey barrier, exact allocation and global proof wi
  assert.equal(report.scannerProbeStatus,403);assert.equal(report.stages.length,1);assert.equal(report.stages[0].offered,100);assert.equal(report.stages[0].acceptedDuringScheduledWindow,100);assert.equal(report.stages[0].uniquePrincipalsAccepted,4);
  assert.equal(report.stages[0].coordination.valid,true);assert.deepEqual(report.partitionSizes,[2,2]);assert.equal(report.startupReadiness.seededMessages,8);assert.equal(report.workloadProfile.seededMessages,8);assert.equal(report.policyEvidence.verified,true);assert.equal(report.capacityTarget.met,false);
  assert.ok(!JSON.stringify(report).includes('private-'));
+ const artifactDir=await mkdtemp(join(tmpdir(),'mw-multi-artifacts-'));
+ try{
+  await writeFile(join(artifactDir,'handoff.private.json'),JSON.stringify(handoff()),{mode:0o600});
+  const ready={version:1,runId:randomUUID(),expiresAtMs:Date.now()+60000,deadlineSeconds:10,handoffFile:'handoff.private.json',outputFile:'report.json',campaignEnv:{}};
+  await runClaimed({directory:artifactDir,ready,execute:async()=>{await writeMultiArtifacts(join(artifactDir,'report.json'),report);return 0;}});
+  const jsonBytes=await readFile(join(artifactDir,'report.json')),markdownBytes=await readFile(join(artifactDir,'report.md')),done=JSON.parse(await readFile(join(artifactDir,'done.json'),'utf8'));
+  assert.equal(done.status,'completed');assert.equal(done.reportHash,reportHash(jsonBytes));assert.equal(done.markdownHash,reportHash(markdownBytes));
+  const markdown=markdownBytes.toString('utf8');assert.match(markdown,/# HTTP load report/);assert.match(markdown,/not measured/);assert.ok(!markdown.includes('undefined'));assert.ok(!markdown.includes('private-'));
+  const exported=JSON.parse(jsonBytes);for(const key of ['target','scenario','runtime','model','protection'])assert.equal(typeof exported[key],'string');assert.equal(exported.uniqueAuthenticatedPrincipals,4);
+ }finally{for(const name of ['handoff.private.json','report.json','report.md','heartbeat.json','done.json'])await unlink(join(artifactDir,name));await rmdir(artifactDir);}
  await assert.rejects(runMultiCampaign({handoff:handoff(),workers:2,options,launch,startLeadMs:500,scannerProbe:async()=>200,isolationProbe:async()=>({verified:true,status:'verified',requests:2,directions:2})}),/scanner enforcement/);
  let launched=false;
  await assert.rejects(runMultiCampaign({handoff:handoff(),workers:2,options,launch:()=>{launched=true;throw new Error('unexpected launch');},startLeadMs:500,isolationProbe:async()=>({verified:false,status:'failed',requests:2})}),/account isolation/);

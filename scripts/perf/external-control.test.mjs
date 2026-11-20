@@ -73,11 +73,26 @@ test('completion binds exact report bytes and generator failures stay redacted',
  const f=await fixture();try{
   await privateJson(join(f.directory,'handoff.private.json'),{cookie:'private-secret'});
   const bytes=Buffer.from('{"accepted":10}');
-  await runClaimed({directory:f.directory,ready:f.value,execute:async()=>{await writeFile(join(f.directory,'report.json'),bytes,{mode:0o600});return 0;}});
+  await runClaimed({directory:f.directory,ready:f.value,execute:async()=>{await writeFile(join(f.directory,'report.json'),bytes,{mode:0o600});await writeFile(join(f.directory,'report.md'),'# Fixture report\n\nAccepted: 10.\n',{mode:0o600});return 0;}});
   let done=JSON.parse(await readFile(join(f.directory,'done.json'),'utf8'));assert.equal(done.status,'completed');assert.equal(done.reportHash,reportHash(bytes));assert.equal(done.reportBytes,bytes.length);
   await assert.rejects(runClaimed({directory:f.directory,ready:f.value,execute:async()=>{throw new Error('private-secret');}}),error=>!error.message.includes('private-secret'));
   done=JSON.parse(await readFile(join(f.directory,'done.json'),'utf8'));assert.equal(done.status,'error');assert.ok(!JSON.stringify(done).includes('private-secret'));
  }finally{await f.clean();}
+});
+
+test('missing, empty and invalid UTF8 Markdown never publish completed status',async()=>{
+ for(const content of [null,Buffer.from('  \n'),Buffer.from([255,254])]){
+  const f=await fixture();try{
+   await privateJson(join(f.directory,'handoff.private.json'),{cookie:'private-secret'});
+   await assert.rejects(runClaimed({directory:f.directory,ready:f.value,execute:async()=>{
+    await writeFile(join(f.directory,'report.json'),'{"accepted":1}',{mode:0o600});
+    if(content!==null)await writeFile(join(f.directory,'report.md'),content,{mode:0o600});
+    return 0;
+   }}));
+   const done=JSON.parse(await readFile(join(f.directory,'done.json'),'utf8'));
+   assert.equal(done.status,'error');assert.ok(!JSON.stringify(done).includes('private-secret'));
+  }finally{await f.clean();}
+ }
 });
 
 test('sidecar entrypoint runs the real Node driver through private handoff and completion',async()=>{
