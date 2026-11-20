@@ -21,6 +21,8 @@ const MAX_PRINCIPALS: usize = 10_000;
 const FIXTURE_WORKER_ENV: &str = "MW_NATIVE_LOAD_PROXY_WORKER";
 #[path = "common/native_fixture_backend.rs"]
 mod representative;
+#[path = "common/linked_login_preflight.rs"]
+mod linked_login_preflight;
 
 fn index_ready(status: &mw_engine::maintenance::SearchIndexStatus, expected: u64) -> bool {
     !status.rebuilding
@@ -983,6 +985,7 @@ async fn run(workers: usize) {
         .timeout(Duration::from_secs(30))
         .build()
         .unwrap();
+    let linked_login_policy_probe = linked_login_preflight::run(&store,&client,&base,&principals).await;
     let policy_evidence = if policy_mode == "loaded" {
         // Prime actual authorization caches; the same sessions must immediately
         // observe policy revocation and restoration without a TTL wait.
@@ -1084,6 +1087,7 @@ async fn run(workers: usize) {
     let configuration=measured_engine.get().unwrap().search().writer_configuration();
     data["searchWriter"]=json!({"requestedWorkers":writer_options.indexing_workers,"indexingWorkers":configuration.indexing_workers,"memoryBudgetBytes":configuration.memory_budget_bytes});
     data["policyEvidence"] = policy_evidence;
+    data["linkedLoginPolicyProbe"] = linked_login_policy_probe;
     data["workloadProfile"] = json!({"kind":workload,"messagesPerPrincipal":messages,"seededMessages":count as u64*messages as u64,"seedSeconds":seed_seconds,"transport":if representative {"deterministic-read-flag-move"} else {"read-only"},"sendsMeasured":false,"upstreamNetworkMeasured":false});
     if representative {
         data["workloadProfile"]["bodySampleBytes"] = json!(body_sample_bytes);

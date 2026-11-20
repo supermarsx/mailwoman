@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {prepareFixtureClients,fixturePrincipalIndex,startupReadinessReport,fixturePolicyReport,searchWriterReport} from './fixture-clients.mjs';
+import {prepareFixtureClients,fixturePrincipalIndex,startupReadinessReport,fixturePolicyReport,searchWriterReport,linkedLoginPolicyProbeReport} from './fixture-clients.mjs';
 import {measure,markdownReport} from './http-load.mjs';
 
 const principals=()=>Array.from({length:4},(_,index)=>({cookie:`mw_session=private-session-${index}; mw_csrf=fixture-csrf-${index}`,accountId:`private-account-${index}`,clientAddress:`198.18.0.${index+1}`}));
@@ -98,4 +98,13 @@ test('drain completions cannot establish in-window user or simulated-client cove
   assert.equal(result.uniquePrincipalsAccepted,1);assert.equal(result.uniqueClientsAccepted,1);
   assert.equal(result.uniquePrincipalsAcceptedDuringScheduledWindow,0);assert.equal(result.uniqueClientsAcceptedDuringScheduledWindow,0);
  }finally{server.closeAllConnections();await new Promise(done=>server.close(done));}
+});
+
+test('linked-login guard evidence requires real denial restoration and cleanup without private fields',()=>{
+ const valid={verified:true,testedPrincipals:2,deniedStatus:401,ownerStatus:200,restoredStatus:200,originalPolicyRestored:true,sourceRemoved:true,linksRemoved:true,measuredPrimariesUnchanged:true};
+ assert.deepEqual(linkedLoginPolicyProbeReport({...valid,cookie:'private-session',accountId:'private-account'}),valid);
+ assert.equal(linkedLoginPolicyProbeReport(undefined),null);
+ assert.deepEqual(linkedLoginPolicyProbeReport({verified:false,reason:'single-principal',testedPrincipals:0,cookie:'private'}),{verified:false,reason:'single-principal',testedPrincipals:0});
+ for(const patch of [{deniedStatus:403},{ownerStatus:401},{restoredStatus:401},{originalPolicyRestored:false},{sourceRemoved:false},{linksRemoved:false},{measuredPrimariesUnchanged:false},{testedPrincipals:1},{verified:false}])assert.throws(()=>linkedLoginPolicyProbeReport({...valid,...patch}));
+ assert.throws(()=>linkedLoginPolicyProbeReport({verified:false,reason:'single-principal',testedPrincipals:2}));
 });

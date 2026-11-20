@@ -111,6 +111,15 @@ pub struct LinkedSessionAuthority {
 }
 
 impl Store {
+    /// Fresh direct-login admission inputs at the caller's existing boundary.
+    /// Only retained source sessions (kind 1) bypass the mailbox's link policy.
+    /// Passed session/account coordinates retain their existing independent
+    /// meaning; this helper neither authenticates nor substitutes an account.
+    pub async fn linked_direct_login_policy_required(&self, session: &str, account: &str) -> Result<bool, StoreError> {
+        Ok(q("SELECT CAST(CASE WHEN (SELECT linked_internal FROM sessions WHERE id=?1)=1 THEN 0 WHEN EXISTS(SELECT 1 FROM linked_account WHERE account_id=?2) THEN 1 ELSE 0 END AS BIGINT) AS required")
+            .bind(session).bind(account).fetch_one(&self.backend).await?.get_i64("required") != 0)
+    }
+
     /// Whether this mailbox is a target of a verified primary-account link.
     pub async fn is_linked_mailbox(&self, account: &str) -> Result<bool, StoreError> {
         Ok(q("SELECT id FROM linked_account WHERE account_id=?1 LIMIT 1").bind(account).fetch_optional(&self.backend).await?.is_some())
@@ -1606,3 +1615,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "linked_login_snapshot_tests.rs"]
+mod linked_login_snapshot_tests;

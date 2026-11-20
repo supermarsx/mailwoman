@@ -62,3 +62,13 @@ export function prepareFixtureClients(principals,simulation){
  });
  return {clients,clientCount:addresses.size,simulationMode:simulated?simulation.mode:'single-loopback-peer',workload:principals.length===1?'single-user-diagnostic':'multi-user-fixture'};
 }
+
+// Optional additional guard evidence from new native fixtures. Never copy
+// credentials or imply a single-principal smoke exercised a two-user policy.
+export function linkedLoginPolicyProbeReport(value){
+ if(value===undefined)return null;
+ if(value?.verified===false&&value.reason==='single-principal'&&value.testedPrincipals===0)return {verified:false,reason:'single-principal',testedPrincipals:0};
+ const flags=['originalPolicyRestored','sourceRemoved','linksRemoved','measuredPrimariesUnchanged'];
+ if(!value||value.verified!==true||value.testedPrincipals!==2||value.deniedStatus!==401||value.ownerStatus!==200||value.restoredStatus!==200||flags.some(key=>value[key]!==true))throw new Error('Invalid linked-login policy preflight evidence');
+ return {verified:true,testedPrincipals:2,deniedStatus:401,ownerStatus:200,restoredStatus:200,...Object.fromEntries(flags.map(key=>[key,true]))};
+}
