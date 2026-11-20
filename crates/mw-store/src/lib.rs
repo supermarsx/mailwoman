@@ -19,6 +19,7 @@ pub mod config_backup_secret;
 mod hosting_connections;
 pub mod identity_principal;
 pub mod feature_subjects;
+pub mod final_gate_snapshot;
 pub mod linked_accounts;
 pub mod oidc_provider;
 pub mod personal_delivery;

@@ -30,6 +30,10 @@ pub(crate) fn access_identity(address: &str) -> Result<String, StoreError> {
         None => Ok(folded),
     }
 }
+/// Pure normalization shared by the fresh final gate; no cached hold decision.
+pub fn final_gate_access_identity(address: &str) -> Result<String, StoreError> {
+    access_identity(address)
+}
 fn key(address: &str) -> String {
     format!("mail-user-lifecycle:{address}")
 }

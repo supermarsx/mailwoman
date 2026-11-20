@@ -284,6 +284,45 @@ pub struct Canonical {
     pub login_name: String,
 }
 
+/// Pure qualified-name parsing shared by fresh domain admission readers.
+/// `None` retains the separate bare-name expansion path.
+pub struct QualifiedIdentityInput {
+    typed: String,
+    local: String,
+    pub domain: String,
+}
+impl QualifiedIdentityInput {
+    pub fn parse(typed: &str) -> Result<Option<Self>, String> {
+        let typed = typed.trim();
+        if typed.is_empty() || typed.chars().any(char::is_control) {
+            return Err("invalid login name".into());
+        }
+        let Some((local, domain)) = typed.rsplit_once('@') else { return Ok(None); };
+        if local.is_empty() || local.contains('@') { return Err("invalid login name".into()); }
+        Ok(Some(Self {typed:typed.into(),local:local.to_lowercase(),domain:normalize_domain(domain)?}))
+    }
+    pub fn canonical(&self, domain: String) -> Canonical {
+        Canonical {address:format!("{}@{domain}",self.local),domain,login_name:self.typed.clone()}
+    }
+}
+
+#[cfg(test)]
+mod qualified_identity_input_tests {
+    use super::*;
+    #[test]
+    fn shared_qualified_parser_preserves_canonical_identity_and_bare_fallback() {
+        let input=QualifiedIdentityInput::parse("  NÉW+Tag@BÜCHER.Test  ").unwrap().unwrap();
+        assert_eq!(input.domain,"xn--bcher-kva.test");
+        assert_eq!(input.canonical("canonical.test".into()),Canonical {
+            address:"néw+tag@canonical.test".into(),domain:"canonical.test".into(),login_name:"NÉW+Tag@BÜCHER.Test".into(),
+        });
+        assert!(QualifiedIdentityInput::parse("alice").unwrap().is_none());
+        for name in ["", "a@@example.test", "@example.test", "a@bad/path", "a\n@example.test"] {
+            assert!(QualifiedIdentityInput::parse(name).is_err(),"{name:?}");
+        }
+    }
+}
+
 /// Fresh request-local domain inputs, never retained as an authorization cache.
 /// Upstream JSON is deliberately unparsed: trusted header overrides still need
 /// address admission without consulting the ordinary configured upstream.
@@ -309,7 +348,7 @@ pub async fn identity_snapshot(store: &Store, typed: &str) -> Result<IdentitySna
     if typed.is_empty() || typed.chars().any(char::is_control) {
         return Err("invalid login name".into());
     }
-    let Some((local, raw_domain)) = typed.rsplit_once('@') else {
+    let Some(input) = QualifiedIdentityInput::parse(typed)? else {
         // Bare login expansion and existing bare transport lookup intentionally
         // differ; preserve the old preferred-domain behavior and never reuse.
         let identity = canonical(store, typed, None).await?;
@@ -321,22 +360,14 @@ pub async fn identity_snapshot(store: &Store, typed: &str) -> Result<IdentitySna
             existing_transport_compatible: false,
         });
     };
-    if local.is_empty() || local.contains('@') {
-        return Err("invalid login name".into());
-    }
-    let raw_domain = normalize_domain(raw_domain)?;
     let (domain, row, second_alias) = store
-        .domain_alias_config_snapshot(&raw_domain)
+        .domain_alias_config_snapshot(&input.domain)
         .await
         .map_err(|_| "domain lookup failed")?;
     let existing_transport_compatible =
         !second_alias && normalize_domain(&domain).is_ok_and(|normalized| normalized == domain);
     Ok(IdentitySnapshot {
-        identity: Canonical {
-            address: format!("{}@{domain}", local.to_lowercase()),
-            domain,
-            login_name: typed.into(),
-        },
+        identity: input.canonical(domain),
         row,
         typed: typed.into(),
         existing_transport_compatible,

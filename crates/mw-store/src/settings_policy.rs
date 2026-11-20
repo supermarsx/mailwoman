@@ -222,6 +222,31 @@ fn subject_key(subject: &SettingSubject<'_>) -> String {
 }
 
 impl Store {
+    /// No-I/O readiness check for the final gate's empty global subject.
+    /// This witnesses only existing bounded policy-data memos, never admission.
+    pub fn try_empty_global_resolution_ready(
+        &self,
+        key: &str,
+        revision: &SettingsReadRevision,
+    ) -> Result<bool, StoreError> {
+        if revision.scope != self.cache_scope() {
+            return Err(StoreError::Corrupt("settings revision belongs to another store".into()));
+        }
+        let Some(number) = revision.number() else { return Ok(false); };
+        let subject = SettingSubject { personal_owner:None, domain:"", account_id:"", address:"" };
+        let memo_key = subject_key(&subject);
+        let Some(canonical) = CANONICAL_MEMO.get(self.cache_scope(), &memo_key, number) else { return Ok(false); };
+        if canonical.personal_owner.is_some() || !canonical.domain.is_empty()
+            || !canonical.account_id.is_empty() || !canonical.address.is_empty()
+        { return Ok(false); }
+        if POLICY_MEMO.get(self.cache_scope(), key, number).is_none() { return Ok(false); }
+        Ok(VALUES_MEMO.get(self.cache_scope(), &memo_key, number).is_some_and(|values|values.is_empty()))
+    }
+
+    pub(crate) fn settings_revision_from_snapshot(&self, number: Option<i64>) -> SettingsReadRevision {
+        SettingsReadRevision { scope:self.cache_scope(), revision:number }
+    }
+
     /// Identifies this store instance (and its clones) within the process, for
     /// in-memory caches of resolved settings that must not be shared between two
     /// stores, such as two test servers on different databases (t87).

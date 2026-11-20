@@ -123,6 +123,8 @@ use mw_admin::{ActorKind, AuditEvent, AuditKind, UserFeatureFlags};
 use mw_store::{Session, Store, StoreError};
 
 use crate::AppState;
+#[path = "account_gate_snapshot.rs"]
+mod final_snapshot;
 
 /// The settings-key prefix the flags are stored under (no dedicated table).
 const FLAGS_PREFIX: &str = "v6:admin:flags:";
@@ -505,6 +507,11 @@ pub(crate) async fn for_session(
     session: &Session,
 ) -> Result<AccountGate, StoreError> {
     let names = session_names(store, session).await?;
+    let mut seen = std::collections::HashSet::new();
+    let unique: Vec<&str> = names.iter().map(String::as_str).filter(|name|seen.insert(*name)).collect();
+    if let Some(gate) = final_snapshot::try_gate(store, &[&session.account_id], &unique).await? {
+        return Ok(gate);
+    }
     gate_for_names(store, &session.account_id, &names).await
 }
 
