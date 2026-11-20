@@ -8,6 +8,7 @@
 pub mod analytics_secret;
 pub mod encryption;
 pub mod header_envelope;
+pub mod index_publication;
 pub use header_envelope::{HeaderEnvelope,HEADER_ENVELOPE_VERSION};
 pub mod encryption_report;
 // 0073 (t39-e11 N8): AI provider profiles (sealed key) and local-endpoint egress grants.
