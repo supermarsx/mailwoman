@@ -60,7 +60,12 @@ test('an early mutation abort retains counts and a later taint invalidates earli
  assert.equal(qualifiesHttpTarget({stages:[eligible],mutationStateTainted:false},true),false); // Legacy absent telemetry is unreported, not qualified.
  const health={submitted:20,applied:20,dropped:0,depth:0,queueDepth:0,capacity:8192,running:true,closing:false};
  eligible.diagnostics={before:{httpTelemetry:health},after:{httpTelemetry:{...health,submitted:40,applied:40}}};
+ assert.equal(qualifiesHttpTarget({stages:[eligible],mutationStateTainted:false},true),false);
+ const publication={running:true,poisoned:false,requiresFullRebuild:false,pendingJobs:0,pendingBytes:0,queuedJobs:0,submittedJobs:20,completedJobs:20,failedJobs:0,publishedBatches:8,publishedChanges:20,revalidations:0,pendingRepairMessages:0,erasingAccounts:0,maxPendingJobs:128,maxPendingBytes:16777216,maxBatchDocuments:4096};
+ eligible.diagnostics.before.searchIndex={publication};
+ eligible.diagnostics.after.searchIndex={publication:{...publication,submittedJobs:40,completedJobs:40}};
  assert.equal(qualifiesHttpTarget({stages:[eligible],mutationStateTainted:false},true),true);
+ assert.equal(qualifiesHttpTarget({stages:[{...eligible,diagnostics:{...eligible.diagnostics,after:{...eligible.diagnostics.after,searchIndex:{publication:{...publication,pendingRepairMessages:1}}}}}],mutationStateTainted:false},true),false);
  assert.equal(qualifiesHttpTarget({stages:[{...eligible,diagnostics:{before:{httpTelemetry:health},after:{httpTelemetry:{...health,dropped:1}}}}],mutationStateTainted:false},true),false);
  assert.equal(qualifiesHttpTarget({stages:[eligible],mutationStateTainted:true},true),false);
  assert.equal(qualifiesHttpTarget({stages:[eligible],mutationStateTainted:false},false),false);

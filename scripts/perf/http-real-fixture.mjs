@@ -1,3 +1,4 @@
+import {qualifiesIndexPublication} from './index-publication-health.mjs';
 // Invoked only by the ignored Rust integration fixture. No arbitrary remote URL.
 import {writeFile,mkdir} from 'node:fs/promises';
 import {dirname} from 'node:path';
@@ -65,12 +66,13 @@ try{
  Object.assign(report,{startupReadiness,policyEvidence,workloadProfile,isolationEvidence,searchWriter,searchStorage,linkedLoginPolicyProbe},await runCampaign({base,headers,groups,options,diagnostics}));
  report.clientModel={workload:clientModel.workload,simulationMode:clientModel.simulationMode,configuredPrincipals:principals.length,configuredSimulatedClients:clientModel.clientCount,distinctPhysicalGeneratorHostsMeasured:false,actualPrincipalCoverage:Math.max(0,...report.stages.map(s=>s.uniquePrincipalsAccepted??0)),actualSimulatedClientCoverage:Math.max(0,...report.stages.map(s=>s.uniqueClientsAccepted??0))};
  report.capacityTarget={successfulRps:40000,simultaneousAuthenticatedUsers:10000,verifiedUniquePrincipals:Math.max(0,...report.stages.map(s=>s.uniquePrincipalsAccepted??0)),httpRateMet:report.stages.some(s=>s.phase==='offered-rate'&&s.arrivalRate>=40000&&s.acceptedDuringScheduledWindowRps>=40000&&s.errors===0&&s.throttled===0&&s.timeouts===0&&(s.droppedCapacity+s.droppedScheduler)===0&&s.scheduledSeconds>=30)};
- report.capacityTarget.httpMultiUserTargetMet=report.stages.some(s=>['mixed','representative'].includes(s.endpoint)&&s.phase==='offered-rate'&&s.arrivalRate>=40000&&s.acceptedDuringScheduledWindowRps>=40000&&s.uniquePrincipalsAcceptedDuringScheduledWindow>=10000&&s.uniqueClientsAcceptedDuringScheduledWindow>=10000&&s.errors===0&&s.throttled===0&&s.timeouts===0&&(s.droppedCapacity+s.droppedScheduler)===0&&s.scheduledSeconds>=30&&qualifiesHttpTelemetry(s.diagnostics));
+ report.capacityTarget.httpMultiUserTargetMet=report.stages.some(s=>['mixed','representative'].includes(s.endpoint)&&s.phase==='offered-rate'&&s.arrivalRate>=40000&&s.acceptedDuringScheduledWindowRps>=40000&&s.uniquePrincipalsAcceptedDuringScheduledWindow>=10000&&s.uniqueClientsAcceptedDuringScheduledWindow>=10000&&s.errors===0&&s.throttled===0&&s.timeouts===0&&(s.droppedCapacity+s.droppedScheduler)===0&&s.scheduledSeconds>=30&&qualifiesHttpTelemetry(s.diagnostics)&&qualifiesIndexPublication(s.diagnostics));
  report.capacityTarget.productionPolicyQualified=native&&handoff.buildProfile==='release'&&startupReadiness?.verified===true&&policyEvidence.verified&&isolationEvidence.verified;
  report.capacityTarget.productionStorageQualified=qualifiesSearchStorage(searchStorage);
  report.capacityTarget.productionTelemetryQualified=report.stages.length>0&&report.stages.every(stage=>qualifiesHttpTelemetry(stage.diagnostics));
  report.capacityTarget.httpMultiUserTargetMet=report.capacityTarget.httpMultiUserTargetMet&&report.capacityTarget.productionPolicyQualified&&report.capacityTarget.productionStorageQualified&&!report.mutationStateTainted;
- report.capacityTarget.httpRateMet=report.capacityTarget.httpRateMet&&!report.mutationStateTainted&&report.capacityTarget.productionTelemetryQualified;
+ report.capacityTarget.productionIndexPublicationQualified=report.stages.length>0&&report.stages.every(stage=>qualifiesIndexPublication(stage.diagnostics));
+ report.capacityTarget.httpRateMet=report.capacityTarget.httpRateMet&&!report.mutationStateTainted&&report.capacityTarget.productionTelemetryQualified&&report.capacityTarget.productionIndexPublicationQualified;
  report.capacityTarget.representativeWorkloadMeasured=report.stages.some(s=>s.endpoint==='representative');
  report.capacityTarget.persistentWebSocketSessionsMeasured=false;report.capacityTarget.met=false;
  const probe=await fetch(new URL('/.env',base),{redirect:'error',signal:AbortSignal.timeout(5000)});

@@ -34,6 +34,7 @@ test('fixture request properties match the actual webmail default list and reade
  assert.match(preload[0],/Kind::Bool\s*,\s*(?:r#)?"true"#?/);
  const overlay=await readFile(new URL('./prepare-fixture-overlay.mjs',import.meta.url),'utf8');
  assert.ok(overlay.includes("'scripts/perf/fixture-properties.mjs'"),'runtime overlay must include the shared property module');
+ assert.ok(overlay.includes("'scripts/perf/index-publication-health.mjs'"),'runtime overlay must include publication qualification dependency');
 });
 
 test('profile reports explicitly distinguish minimal diagnostic and full UI request choices',()=>{
