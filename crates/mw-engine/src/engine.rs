@@ -116,6 +116,7 @@ pub struct Engine {
     /// re-keyed at move, deleted at expunge. Shared behind an `Arc` so the
     /// dispatcher/query paths can hold it cheaply.
     search: Arc<mw_search::Index>,
+    pub(crate) index_publisher: crate::index_publication::Publisher,
     /// Guards the single delayed dispatcher task (undo-send + snooze, §1.3/§1.5).
     dispatcher_started: AtomicBool,
     /// Confirmed SMTP acceptances awaiting persistence, scoped to this store/runtime.
@@ -124,7 +125,7 @@ pub struct Engine {
     /// on the read paths, the zero-access posture source, and the audit/webhook
     /// feed. Inert (no cache, standard posture, no feed) until e11 (MOUNT) calls
     /// [`Engine::attach_v6`], so the V5 path is byte-unchanged.
-    pub(crate) v6: std::sync::RwLock<crate::v6::V6Hooks>,
+    pub(crate) v6: Arc<std::sync::RwLock<crate::v6::V6Hooks>>,
     /// V7 additive hooks (plan §3 e8): the GAL address-book source, the bridge
     /// optional-capability source (reactions/voting/recall/focused-sync), the
     /// Assist hook, and the plugin-backed-account registry. Inert (no directory,
@@ -192,8 +193,15 @@ impl Engine {
 
     /// Build an engine over an explicit search index (tests / custom wiring).
     pub fn with_search(store: Store, search: Arc<mw_search::Index>) -> Self {
+        Self::with_search_and_publication_options(store,search,crate::PublicationOptions::default())
+            .expect("static bounded index publication options are valid")
+    }
+
+    pub fn with_search_and_publication_options(store:Store,search:Arc<mw_search::Index>,options:crate::PublicationOptions)->Result<Self> {
         let (changes, _rx) = broadcast::channel(256);
-        Self {
+        let hooks=Arc::new(std::sync::RwLock::new(crate::v6::V6Hooks::default()));
+        let index_publisher=crate::index_publication::Publisher::new(store.clone(),search.clone(),hooks.clone(),options)?;
+        Ok(Self {
             store,
             accounts: Mutex::new(HashMap::new()),
             pim_controls: Mutex::new(HashMap::new()),
@@ -201,17 +209,24 @@ impl Engine {
             cached_date_upgrade: date_upgrade::DateUpgrade::default(),
             changes,
             search,
+            index_publisher,
             search_dir: None,
             index_rebuild: IndexRebuild::default(),
             default_collections: tokio::sync::Mutex::new(()),
             sync_health: Default::default(),
             dispatcher_started: AtomicBool::new(false),
             accepted_submissions: Mutex::new(HashMap::new()),
-            v6: std::sync::RwLock::new(crate::v6::V6Hooks::default()),
+            v6: hooks,
             v7: std::sync::RwLock::new(crate::v7::V7Hooks::default()),
             embeddings: std::sync::RwLock::new(None),
-        }
+        })
     }
+
+    pub fn index_publication_status(&self)->crate::PublicationStatus {self.index_publisher.status()}
+    pub(crate) async fn reserve_index_publication(&self,account:&str,slots:usize)->Result<crate::index_publication::PublicationTicket>{self.index_publisher.reserve(account,slots).await}
+    pub async fn recover_index_publication(&self)->Result<()> {self.index_publisher.recover().await}
+    #[cfg(test)]
+    pub(crate) fn set_publication_test_hook(&self,hook:Option<crate::index_publication::PublicationTestHook>){self.index_publisher.set_test_hook(hook);}
 
     /// The underlying store (so the server can persist accounts/sessions).
     pub fn store(&self) -> &Store {
@@ -812,16 +827,14 @@ impl Engine {
                     let cached = self.store.get_message(&sid).await?;
                     self.require_runtime_generation(account_id, rt)?;
                     if !cached_flags_match(&cached.flags_json, flags) {
-                        self.store.set_flags(&sid, &next_flags).await?;
+                        let mut ticket=self.reserve_index_publication(account_id,1).await?;
+                        ticket.track_metadata_ids(vec![sid.clone()])?;
+                        if !self.store.set_flags_if_current(&cached, &next_flags).await? {
+                            return Err(EngineError::Protocol("sync flag source changed before update".into()));
+                        }
+                        let publication=ticket.submit(vec![sid.clone()],crate::index_publication::PublicationMode::Metadata);
                         self.invalidate_message_cache(&sid).await;
-                        self.reindex_messages(&[IndexPatch {
-                            stable_id: sid.clone(),
-                            flags: Some(flags.clone()),
-                            pinned: None,
-                            follow_up: None,
-                            moved: false,
-                        }])
-                        .await;
+                        match publication{Ok(waiter)=>{if let Err(error)=waiter.await{tracing::warn!("sync flag index publication deferred: {error}");}},Err(error)=>tracing::warn!("sync flag index handoff deferred: {error}")}
                         self.record_change(account_id, ChangeType::Email, &sid, ChangeOp::Updated)
                             .await?;
                         self.record_change(
@@ -887,9 +900,12 @@ impl Engine {
                 };
                 if let MessageRef::Imap { uidvalidity, uid, .. } = mref
                     && (current.uidvalidity != *uidvalidity || current.uid != *uid) { continue; }
+                let mut ticket=self.reserve_index_publication(account_id,1).await?;
+                ticket.track_ids(vec![sid.clone()])?;
                 if !self.store.delete_synced_message_if_source(&current).await? { continue; }
+                let publication=ticket.submit(vec![sid.clone()],crate::index_publication::PublicationMode::DeleteIfAbsent);
                 self.invalidate_message_cache(&sid).await;
-                let _ = self.search.delete(&sid);
+                match publication{Ok(waiter)=>{if let Err(error)=waiter.await{tracing::warn!("sync removal index publication deferred: {error}");}},Err(error)=>tracing::warn!("sync removal index handoff deferred: {error}")}
                 self.emit_event(
                     crate::change::EventKind::MessageDeleted,
                     account_id,
@@ -1007,6 +1023,7 @@ impl Engine {
         if self.store.get_mailbox(mailbox_id).await?.account_id != account_id {
             return Err(EngineError::Store(mw_store::StoreError::NotFound));
         }
+        let publication_ticket=self.reserve_index_publication(account_id,1).await?;
         let parsed = match mw_mime::parse(&raw.raw) {
             Ok(p) => p,
             Err(e) => {
@@ -1066,6 +1083,9 @@ impl Engine {
             .await?;
         let sid = outcome.stable_id;
         let existed = outcome.existed;
+        // Synchronous owned handoff before any further suspension after the
+        // authoritative ingest reports success. Cancellation only drops a waiter.
+        let publication=publication_ticket.submit(vec![sid.clone()],crate::index_publication::PublicationMode::Reconcile);
 
         if matches!(raw.message_ref,MessageRef::Imap{..}) && self.runtime(account_id).is_some_and(|runtime|runtime.backend.supports_cached_body_refetch()){
             self.store.register_refetchable_cached_body(account_id,&sid).await?;
@@ -1081,38 +1101,7 @@ impl Engine {
             self.invalidate_message_cache(&sid).await;
         }
 
-        // Index for search, unless the account is zero-access: its mail gets no
-        // index document, and any it had from before the posture changed is
-        // removed. Keywords + attachment filenames back `tag:`/`is:` and
-        // `filename:`; pin defaults false on a fresh document.
-        if self.index_paused(account_id).await {
-            // Art.18 restriction: the message is stored, not indexed. The index
-            // is rebuilt for this account when the restriction is lifted.
-        } else if self.index_allowed(account_id).await {
-            let mut keywords: Vec<String> = flags_to_keywords(&raw.flags).into_keys().collect();
-            // `list:<id>` search: the List-Id as an index-only keyword.
-            keywords.extend(crate::focus::list_id_keyword(&raw.raw));
-            keywords.extend(crate::focus::supersedes_keyword(&raw.raw));
-            let filenames = search_index::attachment_filenames(&raw.raw);
-            let attachment_text = search_index::attachment_text(&raw.raw);
-            let doc = search_index::build_index_doc(
-                &sid,
-                account_id,
-                mailbox_id,
-                &email,
-                keywords,
-                filenames,
-                attachment_text,
-                false,
-                crate::calendar_hint::calendar_hint(&raw.raw),
-                crate::focus::list_signal(&raw.raw),
-            );
-            if let Err(e) = self.search.upsert(&doc) {
-                tracing::warn!("search index upsert failed for {sid}: {e}");
-            }
-        } else {
-            self.drop_account_from_index(account_id);
-        }
+        match publication {Ok(waiter)=>{if let Err(error)=waiter.await{tracing::warn!("ingest index publication deferred: {error}");}},Err(error)=>tracing::warn!("ingest index handoff deferred: {error}")}
 
         // Rules run once, on genuinely new inbox arrivals (never on our own
         // drafts/sent, never on historical re-sync).
@@ -1202,134 +1191,54 @@ impl Engine {
 
     /// Remove every search-index document of `account_id` for a data-subject
     /// erasure; the number of documents removed.
-    pub fn erase_account_index(&self, account_id: &str) -> u64 {
-        self.search.delete_account(account_id).unwrap_or(0)
+    pub async fn erase_account_index(&self, account_id: &str) -> Result<crate::AccountIndexErasure> {
+        self.index_publisher.begin_erasure(account_id).await
     }
 
     /// Remove every search-index document of `account_id` (one commit; none
     /// when the account has no document). Called when a write finds the account
     /// zero-access, so documents indexed before the posture changed do not
     /// outlive it.
-    pub(crate) fn drop_account_from_index(&self, account_id: &str) {
-        match self.search.delete_account(account_id) {
-            Ok(0) => {}
-            Ok(n) => tracing::info!(
-                "search index: removed {n} document(s) of zero-access account {account_id}"
-            ),
+    pub(crate) async fn drop_account_from_index(&self, account_id: &str) {
+        match self.publish_current_index(account_id,vec![],crate::index_publication::PublicationMode::Reconcile).await {
+            Ok(_) => {},
             Err(e) => tracing::warn!(
                 "search index: removing the documents of zero-access account {account_id} failed: {e}"
             ),
         }
     }
+    pub(crate) async fn publish_current_index(&self,account:&str,ids:Vec<String>,mode:crate::index_publication::PublicationMode)->Result<crate::IndexPublicationReceipt>{
+        let ticket=if mode==crate::index_publication::PublicationMode::Rebuild{self.index_publisher.reserve_rebuild(account,ids.len()).await?}else{self.reserve_index_publication(account,ids.len()).await?};
+        ticket.submit(ids,mode)?.await
+    }
 
-    /// Rebuild a message's search-index document from the store (after a flag,
-    /// meta, or move change). Best-effort — a failure only degrades search, not
-    /// correctness. Loads the sealed body to recover attachment filenames.
-    ///
-    /// **One index commit per call.** For more than one message use
-    /// [`Engine::reindex_messages`], which commits once for the whole set — a
-    /// segment commit is the expensive part of the write path, not the document
-    /// write, so a loop over this method is what made `Email/set` over 500 ids
-    /// cost 9.5 s on SQLite and 26.5 s on Postgres before 26.20.
+    /// Best-effort reconciliation through the ordered owner. Acknowledgement
+    /// follows query-visible publication; independent requests may share a commit.
     pub(crate) async fn reindex_message(&self, stable_id: &str) {
         if let Err(e) = self.try_reindex_message(stable_id).await {
             tracing::warn!("re-index of {stable_id} failed: {e}");
         }
     }
 
-    /// Batched re-index: **one** `upsert_batch`, therefore exactly one Tantivy
-    /// commit and one reader reload, however many messages are passed.
-    ///
-    /// Each [`IndexPatch`] names the fields an `Email/set` update actually
-    /// changed. The document is patched onto the one the index already holds
-    /// rather than rebuilt from the store, because the only fields a non-move
-    /// `Email/set` can change are the keyword set and the pinned flag — every
-    /// other field (`from`/`subject`/`body`/attachment text) is derived from
-    /// bytes the update did not touch. The stored `doc_json` round-trips the
-    /// whole [`mw_search::IndexDoc`], which is the same property
-    /// [`mw_search::Index::relocate`] already relies on.
-    ///
-    /// An id the index does not know (never indexed, or indexed before the data
-    /// dir was rebuilt) falls back to the full store-backed rebuild for that id
-    /// alone, so a cold index still converges — it just costs its store reads.
-    ///
-    /// Best-effort in the same sense as [`Engine::reindex_message`]: the store
-    /// write has already committed by the time this runs (see t22 OQ-11 — a
-    /// stale index is recoverable by the next sync, a store write lost to a
-    /// committed index is not), so a failure here is logged and does not fail
-    /// the caller.
+    /// Reconcile current owned rows, not queued field patches. Publication may
+    /// be shared across requests; failures remain best-effort and observable.
     pub(crate) async fn reindex_messages(&self, patches: &[IndexPatch]) {
-        if patches.is_empty() {
-            return;
-        }
-        let mut docs: Vec<mw_search::IndexDoc> = Vec::with_capacity(patches.len());
-        // One posture read per account in the batch, not per message.
-        let mut allowed: HashMap<String, bool> = HashMap::new();
-        for patch in patches {
-            let doc = match self.search.fetch_doc(&patch.stable_id) {
-                Ok(Some(mut doc)) => {
-                    patch.apply(&mut doc);
-                    doc
-                }
-                // Not indexed under that id — rebuild it from the store.
-                Ok(None) => match self.build_index_doc(&patch.stable_id).await {
-                    Ok(doc) => doc,
-                    Err(e) => {
-                        tracing::warn!("re-index of {} failed: {e}", patch.stable_id);
-                        continue;
-                    }
-                },
-                Err(e) => {
-                    tracing::warn!("index read for {} failed: {e}", patch.stable_id);
-                    continue;
-                }
-            };
-            let ok = match allowed.get(&doc.account_id) {
-                Some(ok) => *ok,
-                None => {
-                    if self.index_paused(&doc.account_id).await {
-                        allowed.insert(doc.account_id.clone(), false);
-                        continue;
-                    }
-                    let ok = self.index_allowed(&doc.account_id).await;
-                    if !ok {
-                        self.drop_account_from_index(&doc.account_id);
-                    }
-                    allowed.insert(doc.account_id.clone(), ok);
-                    ok
-                }
-            };
-            if ok {
-                docs.push(doc);
-            }
-        }
-        if docs.is_empty() {
-            return;
-        }
-        let n = docs.len();
-        if let Err(e) = self.search.upsert_batch(&docs) {
-            tracing::warn!("batched re-index of {n} document(s) failed: {e}");
-        }
+        let ids:Vec<_>=patches.iter().map(|patch|patch.stable_id.clone()).collect();
+        let rows=match self.store.get_messages(&ids).await {Ok(rows)=>rows,Err(error)=>{tracing::warn!("index source lookup deferred: {error}");return;}};
+        let mut groups:HashMap<String,Vec<String>>=HashMap::new();
+        for message in rows.into_iter().flatten(){groups.entry(message.account_id).or_default().push(message.stable_id);}
+        for (account,ids) in groups {if let Err(error)=self.publish_current_index(&account,ids,crate::index_publication::PublicationMode::Reconcile).await{tracing::warn!("index publication deferred: {error}");}}
     }
 
     async fn try_reindex_message(&self, stable_id: &str) -> Result<()> {
-        let doc = self.build_index_doc(stable_id).await?;
-        if self.index_paused(&doc.account_id).await {
-            return Ok(());
-        }
-        if !self.index_allowed(&doc.account_id).await {
-            self.drop_account_from_index(&doc.account_id);
-            return Ok(());
-        }
-        self.search
-            .upsert(&doc)
-            .map_err(|e| EngineError::Protocol(format!("index upsert: {e}")))?;
+        let message=self.store.get_message(stable_id).await?;
+        self.publish_current_index(&message.account_id,vec![stable_id.into()],crate::index_publication::PublicationMode::Reconcile).await?;
         Ok(())
     }
-
     /// Rebuild a message's [`mw_search::IndexDoc`] from the store. Costs four
     /// statements per message (row, envelope, body, meta), which is why the
     /// batched path above avoids it when the index can supply the document.
+    #[cfg(test)]
     pub(crate) async fn build_index_doc(&self, stable_id: &str) -> Result<mw_search::IndexDoc> {
         let msg = self
             .store
@@ -1731,8 +1640,13 @@ impl Engine {
 
     /// [`Engine::rebuild_search_index`] for every account in the store.
     pub async fn rebuild_search_index_all(&self) -> Result<crate::maintenance::ReindexSummary> {
+        let publication_epoch = self.index_publisher.begin_full_rebuild();
         let accounts = crate::maintenance::all_account_ids(self).await?;
-        crate::maintenance::rebuild_accounts(self, &accounts).await
+        let summary = crate::maintenance::rebuild_accounts(self, &accounts).await?;
+        if summary.failed == 0 {
+            self.index_publisher.finish_full_rebuild(publication_epoch).await?;
+        }
+        Ok(summary)
     }
 
     /// What the search index holds against what the store says it should.

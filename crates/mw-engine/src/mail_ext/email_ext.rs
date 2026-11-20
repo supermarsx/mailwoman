@@ -210,8 +210,14 @@ impl Engine {
         }
         let dry = args.get("dryRun").and_then(Value::as_bool).unwrap_or(false);
         let opts = crate::strip::StripOptions {
-            min_bytes: args.get("minAttachmentBytes").and_then(Value::as_u64).unwrap_or(100 * 1024),
-            keep_inline_images: args.get("keepInlineImages").and_then(Value::as_bool).unwrap_or(true),
+            min_bytes: args
+                .get("minAttachmentBytes")
+                .and_then(Value::as_u64)
+                .unwrap_or(100 * 1024),
+            keep_inline_images: args
+                .get("keepInlineImages")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
             date: args
                 .get("date")
                 .and_then(Value::as_str)
@@ -260,7 +266,11 @@ impl Engine {
         dry: bool,
     ) -> Result<StripResult> {
         use crate::strip::{StripOutcome, strip_attachments};
-        let msg = self.store().get_message(id).await.map_err(EngineError::Store)?;
+        let msg = self
+            .store()
+            .get_message(id)
+            .await
+            .map_err(EngineError::Store)?;
         if msg.account_id != account_id {
             return Err(EngineError::Store(mw_store::StoreError::NotFound));
         }
@@ -282,9 +292,13 @@ impl Engine {
         if dry {
             return Ok(StripResult::Done(summary));
         }
-        let mailbox = self.owned_import_mailbox(account_id, &msg.mailbox_id).await?;
+        let mailbox = self
+            .owned_import_mailbox(account_id, &msg.mailbox_id)
+            .await?;
         let mut keywords = Map::new();
-        for (k, v) in crate::mapping::flags_to_keywords(&crate::mapping::flags_from_json(&msg.flags_json)) {
+        for (k, v) in
+            crate::mapping::flags_to_keywords(&crate::mapping::flags_from_json(&msg.flags_json))
+        {
             if v && !k.eq_ignore_ascii_case("$recent") && !k.eq_ignore_ascii_case("$deleted") {
                 keywords.insert(k, Value::Bool(true));
             }
@@ -294,7 +308,10 @@ impl Engine {
             .internaldate
             .as_deref()
             .and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
-            .map(|d| d.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+            .map(|d| {
+                d.with_timezone(&chrono::Utc)
+                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+            })
             .ok_or_else(|| EngineError::Protocol("invalid receivedAt".into()))?;
         let spec = json!({"keywords": Value::Object(keywords), "receivedAt": received});
         let sid = self.append_import(account_id, &mailbox, raw, &spec).await?;
@@ -336,6 +353,14 @@ impl Engine {
             .ok_or_else(|| EngineError::Protocol("copy entry missing source email id".into()))?;
         let mailbox_id = target_mailbox(spec)?;
         let mailbox = self.owned_import_mailbox(account_id, &mailbox_id).await?;
+        let original = self
+            .store()
+            .get_account_messages(from_account, &[source_id.into()])
+            .await?
+            .into_iter()
+            .next()
+            .flatten()
+            .ok_or(EngineError::Store(mw_store::StoreError::NotFound))?;
         // Source raw bytes from the other account's sealed cache (whole message).
         let blob = self
             .fetch_blob(from_account, source_id)
@@ -349,11 +374,25 @@ impl Engine {
             .ingest_blob_into(account_id, &mailbox, blob.bytes, spec)
             .await?;
         if destroy_original {
-            self.store()
-                .delete_message(source_id)
-                .await
-                .map_err(EngineError::Store)?;
-            let _ = self.search().delete(source_id);
+            let mut ticket = self.reserve_index_publication(from_account, 1).await?;
+            ticket.track_ids(vec![source_id.into()])?;
+            if !self.store().delete_message_if_current(&original).await? {
+                return Err(EngineError::Protocol(
+                    "copy source changed before deletion".into(),
+                ));
+            }
+            let publication = ticket.submit(
+                vec![source_id.into()],
+                crate::index_publication::PublicationMode::DeleteIfAbsent,
+            );
+            match publication {
+                Ok(waiter) => {
+                    if let Err(error) = waiter.await {
+                        tracing::warn!("copied source index removal deferred: {error}");
+                    }
+                }
+                Err(error) => tracing::warn!("copied source index handoff deferred: {error}"),
+            }
             self.record_change(
                 from_account,
                 ChangeType::Email,

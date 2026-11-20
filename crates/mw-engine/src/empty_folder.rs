@@ -349,7 +349,7 @@ impl Engine {
         ids: &[String],
     ) -> (u64, Map<String, Value>) {
         let mut not_processed = Map::new();
-        let rows = match self.store().get_messages(ids).await {
+        let rows = match self.store().get_account_messages(account_id,ids).await {
             Ok(rows) => rows,
             Err(error) => {
                 let why = set_error(&EngineError::Store(error));
@@ -360,6 +360,7 @@ impl Engine {
             }
         };
         let mut names: HashMap<String, String> = HashMap::new();
+        let mut observed: HashMap<String,mw_store::Message> = HashMap::new();
         // (stable id, message-id seed, upstream uid) — sorted by uid so the
         // destination UIDs of COPYUID pair with them (RFC 4315 orders both sets
         // the same way).
@@ -374,6 +375,7 @@ impl Engine {
                 );
                 continue;
             };
+            observed.insert(id.clone(),msg.clone());
             let seed = msg.message_id.clone().unwrap_or_else(|| id.clone());
             match self.imap_ref_from(&msg, &mut names).await {
                 Ok(Some(mref)) => {
@@ -390,6 +392,20 @@ impl Engine {
             }
         }
         upstream.sort_by_key(|(_, _, _, uid)| *uid);
+        let owned_ids: Vec<String> = local.iter().map(|(id, _)| id.clone())
+            .chain(upstream.iter().map(|(id, ..)| id.clone())).collect();
+        if owned_ids.is_empty() { return (0, not_processed); }
+        let mut publication = match self.reserve_index_publication(account_id, owned_ids.len()).await {
+            Ok(ticket) => ticket,
+            Err(error) => {
+                for id in owned_ids { not_processed.insert(id, set_error(&error)); }
+                return (0, not_processed);
+            }
+        };
+        if let Err(error) = publication.track_metadata_ids(owned_ids.clone()) {
+            for id in owned_ids { not_processed.insert(id, set_error(&error)); }
+            return (0, not_processed);
+        }
 
         let to = RawMailboxRef {
             name: trash.name.clone(),
@@ -433,13 +449,11 @@ impl Engine {
         for (id, uid, validity) in moved {
             match self
                 .store()
-                .relocate_message(&id, &trash.id, uid, validity)
+                .relocate_message_if_current(observed.get(&id).expect("only observed source ids are moved"), &trash.id, uid, validity)
                 .await
             {
-                Ok(()) => {
-                    let _ = self.search().relocate(&id, &trash.id);
-                    done.push(id);
-                }
+                Ok(true) => {done.push(id);}
+                Ok(false)=>{not_processed.insert(id,json!({"type":"serverFail","description":"the message changed while moving; refresh and retry"}));}
                 Err(error) => {
                     // The server moved it; the next sync of both folders puts
                     // the cache right. Reported, so the client stops here.
@@ -449,6 +463,12 @@ impl Engine {
                     not_processed.insert(id, set_error(&EngineError::Store(error)));
                 }
             }
+        }
+        // A cancellation before this point transfers tracked current-source
+        // work through the ticket's Drop; explicit handoff has no await.
+        match publication.submit(done.clone(), crate::index_publication::PublicationMode::Metadata) {
+            Ok(waiter) => { if let Err(error) = waiter.await { tracing::warn!("publishing Mailbox/empty moves failed: {error}"); } }
+            Err(error) => tracing::warn!("handing off Mailbox/empty moves failed: {error}"),
         }
         if !done.is_empty() {
             if let Err(error) = self

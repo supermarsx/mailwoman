@@ -872,34 +872,32 @@ impl Engine {
             name: m.name.clone(),
             uidvalidity: m.uidvalidity,
         };
-        rt.backend
-            .delete_mailbox(&mbref)
-            .await
-            .map_err(|e| set_error(&e))?;
-
-        let messages: Vec<(String, String)> = self
-            .store()
-            .list_message_ids(id, i64::MAX, 0)
-            .await
-            .map_err(|e| server_fail(&e))?
-            .into_iter()
-            .map(|sid| (sid, id.to_string()))
-            .collect();
-        let failed = self
-            .remove_emails_locally(account_id, &messages, false)
-            .await;
-        if let Some((_, why)) = failed.into_iter().next() {
-            return Err(set_err(
-                "serverFail",
-                format!(
-                    "deleted on the mail server, but the cached messages were not all removed: {why}"
-                ),
-            ));
+        let chunk = 200usize.min(self.index_publication_status().max_batch_documents);
+        let mut messages = self.folder_removal_page(account_id,id,chunk).await?;
+        let mut publication = if messages.is_empty() { None } else {
+            let mut ticket=self.reserve_index_publication(account_id,messages.len()).await.map_err(|e|set_error(&e))?;
+            ticket.track_metadata_ids(messages.iter().map(|message|message.stable_id.clone()).collect()).map_err(|e|set_error(&e))?;
+            Some(ticket)
+        };
+        match rt.backend.delete_mailbox(&mbref).await {
+            Ok(())|Err(EngineError::MailboxNotFound(_))=>{},
+            Err(error)=>return Err(set_error(&error)),
         }
-        self.store()
-            .delete_mailbox(id)
-            .await
-            .map_err(|e| server_fail(&e))?;
+        // Each page is bounded; an atomic empty-only deletion closes the final
+        // enumeration/cascade race. Continuous arrivals cannot loop forever.
+        let mut deleted=false;
+        for _ in 0..64 {
+            if !messages.is_empty() {
+                let failed=self.remove_emails_locally(account_id,&messages,false,publication.take()).await;
+                if let Some((_,why))=failed.into_iter().next() {
+                    return Err(set_err("serverFail",format!("deleted on the mail server, but cached cleanup must be retried: {why}")));
+                }
+            }
+            if self.store().delete_mailbox_if_empty(account_id,id).await.map_err(|e|server_fail(&e))? {deleted=true;break;}
+            messages=self.folder_removal_page(account_id,id,chunk).await?;
+            if messages.is_empty(){return Err(set_err("serverFail","the cached folder changed ownership during cleanup"));}
+        }
+        if !deleted {return Err(set_err("serverFail","the mail server deleted the folder; bounded cache cleanup is pending, retry to continue"));}
         if let Err(e) = self
             .record_change(account_id, ChangeType::Mailbox, id, ChangeOp::Destroyed)
             .await
@@ -921,6 +919,11 @@ impl Engine {
     /// and reported in `notDestroyed` with `mailwomanMovedTo`; when it is
     /// already in Trash, or there is no Trash on the server, it stays where it
     /// is and is reported as `forbidden`.
+    async fn folder_removal_page(&self,account:&str,mailbox:&str,limit:usize)->Result<Vec<mw_store::Message>,Value> {
+        let ids=self.store().list_message_ids(mailbox,limit as i64,0).await.map_err(|e|server_fail(&e))?;
+        Ok(self.store().get_account_messages(account,&ids).await.map_err(|e|server_fail(&e))?.into_iter().flatten().filter(|message|message.mailbox_id==mailbox).collect())
+    }
+
     pub(super) async fn destroy_emails(
         &self,
         account_id: &str,
@@ -928,8 +931,8 @@ impl Engine {
         ids: &[String],
     ) -> (Vec<Value>, Map<String, Value>) {
         let mut not_destroyed = Map::new();
-        let mut local: Vec<(String, String)> = Vec::new();
-        let mut upstream: Vec<(String, String, MessageRef)> = Vec::new();
+        let mut local: Vec<mw_store::Message> = Vec::new();
+        let mut upstream: Vec<(mw_store::Message, MessageRef)> = Vec::new();
         let mut names: HashMap<String, String> = HashMap::new();
         let mut seen: HashSet<&str> = HashSet::new();
         for id in ids {
@@ -948,20 +951,43 @@ impl Engine {
                 }
             };
             match self.imap_ref_from(&msg, &mut names).await {
-                Ok(Some(mref)) => upstream.push((id.clone(), msg.mailbox_id, mref)),
-                Ok(None) => local.push((id.clone(), msg.mailbox_id)),
+                Ok(Some(mref)) => upstream.push((msg, mref)),
+                Ok(None) => local.push(msg),
                 Err(e) => {
                     not_destroyed.insert(id.clone(), set_error(&e));
                 }
             }
         }
 
+        let owned_ids: Vec<String> = local.iter().map(|message|message.stable_id.clone())
+            .chain(upstream.iter().map(|(message,_)|message.stable_id.clone())).collect();
+        let mut publication = if owned_ids.is_empty() { None } else {
+            match self.reserve_index_publication(account_id, owned_ids.len()).await {
+                Ok(mut ticket) => {
+                    if let Err(error) = ticket.track_metadata_ids(owned_ids.clone()) {
+                        for id in owned_ids { not_destroyed.insert(id, set_error(&error)); }
+                        return (Vec::new(), not_destroyed);
+                    }
+                    Some(ticket)
+                }
+                Err(error) => {
+                    for id in owned_ids { not_destroyed.insert(id, set_error(&error)); }
+                    return (Vec::new(), not_destroyed);
+                }
+            }
+        };
         if !upstream.is_empty() {
-            let refs: Vec<MessageRef> = upstream.iter().map(|(_, _, r)| r.clone()).collect();
+            let refs: Vec<MessageRef> = upstream.iter().map(|(_, r)| r.clone()).collect();
             match rt.backend.expunge_messages(&refs).await {
-                Ok(()) => local.extend(upstream.into_iter().map(|(id, mb, _)| (id, mb))),
+                Ok(()) => local.extend(upstream.into_iter().map(|(message,_)|message)),
                 Err(EngineError::Unsupported(why)) => {
-                    for (id, mailbox_id, _) in upstream {
+                    // The fallback reserves its own move publication. Release
+                    // this ticket first even with a one-job admission budget.
+                    if let Some(ticket)=publication.as_mut() { let _=ticket.track_metadata_ids(Vec::new()); }
+                    drop(publication.take());
+                    for (message, _) in upstream {
+                        let id=message.stable_id;
+                        let mailbox_id=message.mailbox_id;
                         let outcome = self
                             .destroy_into_trash(account_id, rt, &id, &mailbox_id, &why)
                             .await;
@@ -969,16 +995,17 @@ impl Engine {
                     }
                 }
                 Err(e) => {
-                    for (id, ..) in upstream {
-                        not_destroyed.insert(id, set_error(&e));
+                    for (message, _) in upstream {
+                        not_destroyed.insert(message.stable_id, set_error(&e));
                     }
                 }
             }
         }
 
-        let failed = self.remove_emails_locally(account_id, &local, true).await;
+        let failed = self.remove_emails_locally(account_id, &local, true, publication).await;
         let mut destroyed = Vec::new();
-        for (id, _) in &local {
+        for message in &local {
+            let id=&message.stable_id;
             match failed.iter().find(|(f, _)| f == id) {
                 Some((_, why)) => {
                     not_destroyed.insert(id.clone(), set_err("serverFail", why.clone()));
@@ -1030,19 +1057,38 @@ impl Engine {
     async fn remove_emails_locally(
         &self,
         account_id: &str,
-        items: &[(String, String)],
+        items: &[mw_store::Message],
         touch_mailboxes: bool,
+        publication: Option<crate::index_publication::PublicationTicket>,
     ) -> Vec<(String, String)> {
+        if items.is_empty() { return Vec::new(); }
+        let mut publication = match publication {
+            Some(ticket) => ticket,
+            None => match self.reserve_index_publication(account_id, items.len()).await {
+                Ok(ticket) => ticket,
+                Err(error) => {
+                    tracing::warn!("index admission before message removal failed: {error}");
+                    return items.iter().map(|message| (message.stable_id.clone(), SERVER_FAIL_TEXT.to_string())).collect();
+                }
+            },
+        };
+        if let Err(error) = publication.track_metadata_ids(items.iter().map(|message|message.stable_id.clone()).collect()) {
+            tracing::warn!("index admission before message removal failed: {error}");
+            return items.iter().map(|message| (message.stable_id.clone(), SERVER_FAIL_TEXT.to_string())).collect();
+        }
         let mut gone: Vec<String> = Vec::new();
         let mut mailboxes: HashSet<&str> = HashSet::new();
         let mut failed = Vec::new();
-        for (id, mailbox_id) in items {
-            match self.store().delete_message(id).await {
-                Ok(()) => {
+        for message in items {
+            let id=&message.stable_id;
+            let mailbox_id=&message.mailbox_id;
+            match self.store().delete_message_if_current(message).await {
+                Ok(true) => {
                     self.invalidate_message_cache(id).await;
                     gone.push(id.clone());
                     mailboxes.insert(mailbox_id);
                 }
+                Ok(false)=>failed.push((id.clone(),"the message changed while the mail server processed removal; refresh and retry".into())),
                 Err(e) => {
                     tracing::warn!("removing message {id} from the cache failed: {e}");
                     failed.push((id.clone(), SERVER_FAIL_TEXT.to_string()));
@@ -1052,8 +1098,11 @@ impl Engine {
         if gone.is_empty() {
             return failed;
         }
-        if let Err(e) = self.search().delete_batch(&gone) {
-            tracing::warn!("removing destroyed messages from the search index failed: {e}");
+        // Owned handoff has no suspension after the final SQL deletion. A
+        // canceled waiter cannot discard the accepted current-source repair.
+        match publication.submit(gone.clone(), crate::index_publication::PublicationMode::Metadata) {
+            Ok(waiter) => { if let Err(e) = waiter.await { tracing::warn!("removing destroyed messages from the search index failed: {e}"); } }
+            Err(e) => tracing::warn!("handing off destroyed messages to the search index failed: {e}"),
         }
         if let Err(e) = self
             .store()

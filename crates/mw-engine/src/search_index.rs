@@ -166,6 +166,7 @@ pub(crate) fn build_index_doc(
         pinned,
         calendar,
         list_signal,
+        source_content_ref: None,
     }
 }
 

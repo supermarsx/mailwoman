@@ -1783,6 +1783,8 @@ impl Engine {
         // after the loop (3 statements for 500 ids, against 1 500 through
         // per-id `set_flags`).
         let mut pending_flags: Vec<(String, String)> = Vec::new();
+        let mut publication = None;
+        let mut publication_ids = Vec::new();
         if let Some(updates) = args.get("update").and_then(Value::as_object) {
             // One read for every id in the request. An id the batch does not
             // return falls back to `get_message` inside `update_email`, which
@@ -1790,7 +1792,7 @@ impl Engine {
             // costs a statement only for ids that are missing anyway.
             let update_ids: Vec<String> = updates.keys().cloned().collect();
             let mut rows: HashMap<String, mw_store::Message> = HashMap::new();
-            match self.store().get_messages(&update_ids).await {
+            match self.store().get_account_messages(account_id, &update_ids).await {
                 Ok(found) => {
                     for (id, msg) in update_ids.iter().zip(found) {
                         if let Some(msg) = msg {
@@ -1803,6 +1805,24 @@ impl Engine {
                 Err(e) => tracing::warn!("batched read for Email/set failed, per-id fallback: {e}"),
             }
 
+            // Resolve fallback rows before mutation so only this account's
+            // accepted source IDs enter bounded publication admission.
+            for id in &update_ids {
+                if !rows.contains_key(id) {
+                    if let Ok(row) = self.current_owned_message(account_id, id).await { rows.insert(id.clone(), row); }
+                }
+            }
+            publication_ids = update_ids.iter().filter(|id| !destroys.contains(id)
+                && rows.get(*id).is_some_and(|row| row.account_id == account_id)).cloned().collect();
+            if !publication_ids.is_empty() {
+                let mut ticket = match self.reserve_index_publication(account_id, publication_ids.len()).await {
+                    Ok(ticket) => ticket,
+                    Err(error) => return server_fail(&error),
+                };
+                if let Err(error) = ticket.track_metadata_ids(publication_ids.clone()) { return server_fail(&error); }
+                publication = Some(ticket);
+            }
+
             for (id, patch) in updates {
                 // RFC 8620 §5.3: an id this same call destroys is not updated.
                 if destroys.contains(id) {
@@ -1813,6 +1833,10 @@ impl Engine {
                             "description": "this call also destroys the Email",
                         }),
                     );
+                    continue;
+                }
+                if !rows.get(id).is_some_and(|row| row.account_id == account_id) {
+                    not_updated.insert(id.clone(), set_error(&EngineError::Store(mw_store::StoreError::NotFound)));
                     continue;
                 }
                 // A patch this method cannot apply in full fails the id, naming
@@ -1845,6 +1869,7 @@ impl Engine {
                 }
                 match self
                     .update_email(
+                        account_id,
                         rt,
                         id,
                         patch,
@@ -1902,8 +1927,20 @@ impl Engine {
             }
         }
 
-        if !patches.is_empty() {
-            self.reindex_messages(&patches).await;
+        // Retain Email/set's existing best-effort search semantics: source SQL
+        // successes remain updated if index repair fails. Only a successful
+        // owner receipt proves query visibility; diagnostics expose any debt.
+        if let Some(mut ticket) = publication {
+            if patches.is_empty() && not_updated.is_empty() {
+                // A successful no-op neither repairs unrelated legacy content
+                // nor publishes a document merely to attach a new witness.
+                let _ = ticket.track_metadata_ids(Vec::new());
+            } else {
+                match ticket.submit(publication_ids, crate::index_publication::PublicationMode::Metadata) {
+                    Ok(waiter) => { if let Err(error) = waiter.await { tracing::warn!("publishing Email/set updates failed: {error}"); } }
+                    Err(error) => tracing::warn!("handing off Email/set updates failed: {error}"),
+                }
+            }
         }
         // Only non-move ids contribute the batch's change rows; a moved id was
         // already recorded by `move_email`.
@@ -2230,6 +2267,7 @@ impl Engine {
     /// index round trips.
     async fn update_email(
         &self,
+        account_id: &str,
         rt: &AccountRuntime,
         id: &str,
         patch: &Value,
@@ -2239,12 +2277,9 @@ impl Engine {
     ) -> Result<Option<IndexPatch>> {
         let msg = match row {
             Some(msg) => msg,
-            None => self
-                .store()
-                .get_message(id)
-                .await
-                .map_err(EngineError::Store)?,
+            None => self.current_owned_message(account_id, id).await?,
         };
+        if msg.account_id != account_id { return Err(EngineError::Store(mw_store::StoreError::NotFound)); }
         let mut touched = false;
         let mut new_flags: Option<Vec<Flag>> = None;
         let mut new_pinned: Option<bool> = None;
@@ -2336,7 +2371,7 @@ impl Engine {
 
         let mut moved = false;
         if let Some(target) = move_target(patch, &msg.mailbox_id) {
-            self.move_email(rt, id, &target).await?;
+            self.move_email_inner(rt, id, &target, true).await?;
             moved = true;
         }
 
@@ -2346,13 +2381,18 @@ impl Engine {
         // patch that archives AND marks read would otherwise leave the index
         // asserting the message is still unread. It does not contribute the
         // batch's change row, because `move_email` recorded its own.
-        Ok(touched.then(|| IndexPatch {
+        Ok((touched || moved).then(|| IndexPatch {
             stable_id: id.to_string(),
             flags: new_flags,
             pinned: new_pinned,
             follow_up: new_follow_up,
             moved,
         }))
+    }
+
+    async fn current_owned_message(&self, account_id: &str, id: &str) -> Result<mw_store::Message> {
+        self.store().get_account_messages(account_id, &[id.to_string()]).await?
+            .pop().flatten().ok_or(EngineError::Store(mw_store::StoreError::NotFound))
     }
 
     /// The IMAP [`MessageRef`] for a message row already in hand, or `None` for
@@ -2407,6 +2447,12 @@ impl Engine {
         id: &str,
         target_mailbox_id: &str,
     ) -> Result<()> {
+        self.move_email_inner(rt, id, target_mailbox_id, false).await
+    }
+
+    async fn move_email_inner(
+        &self, rt: &AccountRuntime, id: &str, target_mailbox_id: &str, deferred: bool,
+    ) -> Result<()> {
         let msg = self
             .store()
             .get_message(id)
@@ -2418,6 +2464,12 @@ impl Engine {
             .get_mailbox(target_mailbox_id)
             .await
             .map_err(EngineError::Store)?;
+        if dest.account_id != msg.account_id { return Err(EngineError::Store(mw_store::StoreError::NotFound)); }
+        let publication = if deferred { None } else {
+            let mut ticket = self.reserve_index_publication(&msg.account_id, 1).await?;
+            ticket.track_metadata_ids(vec![id.to_string()])?;
+            Some(ticket)
+        };
 
         // Upstream move; UIDPLUS gives the destination coordinates, else derive a
         // deterministic pseudo-UID (engine-local / non-UIDPLUS servers).
@@ -2437,12 +2489,14 @@ impl Engine {
             }
         }
 
-        self.store()
-            .relocate_message(id, target_mailbox_id, new_uid, new_uidvalidity)
-            .await?;
+        if !self.store().relocate_message_if_current(&msg, target_mailbox_id, new_uid, new_uidvalidity).await? {
+            return Err(EngineError::Store(mw_store::StoreError::NotFound));
+        }
         // Re-key the search index onto the destination mailbox (preserves every
         // other indexed field via the stored doc).
-        let _ = self.search().relocate(id, target_mailbox_id);
+        if let Some(ticket) = publication {
+            ticket.submit(vec![id.to_string()], crate::index_publication::PublicationMode::Metadata)?.await?;
+        }
 
         self.record_change(&msg.account_id, ChangeType::Email, id, ChangeOp::Updated)
             .await?;
@@ -3899,13 +3953,12 @@ impl Engine {
         sent: &Transmitted,
     ) -> Result<Option<EngineError>> {
         check_update_patch(patch).map_err(|e| EngineError::Protocol(e.to_string()))?;
-        let msg = self
-            .store()
-            .get_message(email_id)
-            .await
-            .map_err(EngineError::Store)?;
+        let msg = self.current_owned_message(account_id, email_id).await?;
         check_mailbox_patch(patch, &msg.mailbox_id)
             .map_err(|e| EngineError::Protocol(e.to_string()))?;
+        if msg.account_id != account_id { return Err(EngineError::Store(mw_store::StoreError::NotFound)); }
+        let mut publication = self.reserve_index_publication(account_id, 1).await?;
+        publication.track_metadata_ids(vec![email_id.to_string()])?;
         let (source_mailbox, uid, local) = (msg.mailbox_id.clone(), msg.uid, msg.uidvalidity == 0);
         let dest = match move_target(patch, &msg.mailbox_id) {
             Some(id) => Some(
@@ -3926,12 +3979,12 @@ impl Engine {
         if let Some(fields) = rest.as_object_mut() {
             fields.retain(|k, _| k != "mailboxIds" && !k.starts_with("mailboxIds/"));
         }
-        let mut index_patch = None;
         if rest.as_object().is_some_and(|fields| !fields.is_empty()) {
             let mut names = HashMap::new();
             let mut pending_flags = Vec::new();
-            index_patch = self
+            self
                 .update_email(
+                    account_id,
                     rt,
                     email_id,
                     &rest,
@@ -3949,20 +4002,20 @@ impl Engine {
         let mut recorded = false;
         if let Some(dest) = &dest {
             if local {
-                self.store()
-                    .relocate_message(email_id, &dest.id, uid, 0)
-                    .await?;
-                let _ = self.search().relocate(email_id, &dest.id);
+                let current = self.current_owned_message(account_id, email_id).await?;
+                if current.account_id != account_id || current.mailbox_id != source_mailbox || current.uid != uid || current.uidvalidity != 0 {
+                    return Err(EngineError::Store(mw_store::StoreError::NotFound));
+                }
+                if !self.store().relocate_message_if_current(&current, &dest.id, uid, 0).await? {
+                    return Err(EngineError::Store(mw_store::StoreError::NotFound));
+                }
             } else {
                 // Records the Email and both Mailbox changes itself.
-                self.move_email(rt, email_id, &dest.id).await?;
+                self.move_email_inner(rt, email_id, &dest.id, true).await?;
                 recorded = true;
             }
         }
-        if let Some(mut index_patch) = index_patch {
-            index_patch.moved = dest.is_some();
-            self.reindex_messages(&[index_patch]).await;
-        }
+        publication.submit(vec![email_id.to_string()], crate::index_publication::PublicationMode::Metadata)?.await?;
         if !recorded {
             self.record_change(account_id, ChangeType::Email, email_id, ChangeOp::Updated)
                 .await?;
@@ -4335,19 +4388,25 @@ impl Engine {
         email_id: &str,
         mailbox_id: &str,
     ) -> Result<()> {
+        let expected = self.current_owned_message(account_id, email_id).await?;
+        if expected.account_id != account_id || expected.mailbox_id != mailbox_id {
+            return Err(EngineError::Store(mw_store::StoreError::NotFound));
+        }
+        let mut publication = self.reserve_index_publication(account_id, 1).await?;
+        publication.track_ids(vec![email_id.to_string()])?;
         let mut first_err: Option<EngineError> = None;
         let mut keep = |r: Result<()>| {
             if let Err(e) = r {
                 first_err.get_or_insert(e);
             }
         };
-        keep(
-            self.store()
-                .delete_message(email_id)
-                .await
-                .map_err(Into::into),
-        );
-        let _ = self.search().delete(email_id);
+        if !self.store().delete_message_if_current(&expected).await? {
+            return Err(EngineError::Store(mw_store::StoreError::NotFound));
+        }
+        keep(match publication.submit(vec![email_id.to_string()], crate::index_publication::PublicationMode::Reconcile) {
+            Ok(waiter) => waiter.await.map(|_| ()),
+            Err(error) => Err(error),
+        });
         keep(
             self.record_change(account_id, ChangeType::Email, email_id, ChangeOp::Destroyed)
                 .await

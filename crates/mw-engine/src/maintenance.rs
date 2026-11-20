@@ -378,6 +378,13 @@ pub(crate) async fn rebuild_accounts(
     state.done.store(0, Ordering::SeqCst);
     state.total.store(total, Ordering::SeqCst);
     state.running.store(true, Ordering::SeqCst);
+    // Rebuild callers may disappear while the owner finishes accepted work.
+    // Always release the visible running state when this future is dropped.
+    struct Running<'a>(&'a std::sync::atomic::AtomicBool);
+    impl Drop for Running<'_> {
+        fn drop(&mut self) { self.0.store(false, Ordering::SeqCst); }
+    }
+    let _running = Running(&state.running);
 
     let started = std::time::Instant::now();
     let mut summary = ReindexSummary::default();
@@ -391,7 +398,6 @@ pub(crate) async fn rebuild_accounts(
             }
         }
     }
-    state.running.store(false, Ordering::SeqCst);
     result?;
     tracing::info!(
         "search index rebuild finished in {:.1}s: {} account(s), {} message(s) read, {} document(s) written, {} removed, {} zero-access account(s) left unindexed, {} unreadable",
@@ -420,7 +426,8 @@ async fn rebuild_account(engine: &Engine, account_id: &str) -> Result<ReindexSum
     }
     if !engine.index_allowed(account_id).await {
         summary.zero_access = 1;
-        summary.removed = search.delete_account(account_id).map_err(index_err)? as usize;
+        let receipt = engine.publish_current_index(account_id, vec![], crate::index_publication::PublicationMode::Rebuild).await?;
+        summary.removed = receipt.removed_account_documents as usize;
         return Ok(summary);
     }
 
@@ -435,7 +442,8 @@ async fn rebuild_account(engine: &Engine, account_id: &str) -> Result<ReindexSum
         .collect();
 
     let mut stored: HashSet<String> = HashSet::new();
-    let mut batch: Vec<mw_search::IndexDoc> = Vec::with_capacity(REINDEX_CHUNK);
+    let chunk_size = REINDEX_CHUNK.min(engine.index_publication_status().max_batch_documents);
+    let mut batch: Vec<String> = Vec::with_capacity(chunk_size);
     for mb in store.list_mailboxes(account_id).await? {
         let mut offset = 0i64;
         loop {
@@ -453,18 +461,11 @@ async fn rebuild_account(engine: &Engine, account_id: &str) -> Result<ReindexSum
                         engine.index_rebuild.total.load(Ordering::SeqCst)
                     );
                 }
-                match engine.build_index_doc(&sid).await {
-                    Ok(doc) => batch.push(doc),
-                    // Deleted between the listing and the read.
-                    Err(EngineError::Store(mw_store::StoreError::NotFound)) => {
-                        stored.remove(&sid);
-                    }
-                    Err(e) => {
-                        summary.failed += 1;
-                        tracing::warn!("search index rebuild: message {sid} not indexed: {e}");
-                    }
-                }
-                if batch.len() == REINDEX_CHUNK
+                // The dedicated owner reconstructs from fresh owned source.
+                // A vanished/reassigned row is removed rather than rebuilt from
+                // bytes captured by this enumerator before a concurrent move.
+                batch.push(sid);
+                if batch.len() == chunk_size
                     && !flush(engine, account_id, &mut batch, &mut summary).await?
                 {
                     return Ok(summary);
@@ -481,8 +482,18 @@ async fn rebuild_account(engine: &Engine, account_id: &str) -> Result<ReindexSum
     }
 
     let stale: Vec<String> = indexed_before.difference(&stored).cloned().collect();
-    search.delete_batch(&stale).map_err(index_err)?;
-    summary.removed = stale.len();
+    for chunk in stale.chunks(chunk_size) {
+        // This is a rebuild barrier even when the enumerated ID is absent:
+        // ordinary admission remains closed throughout global repair. The
+        // owner still checks current ownership/source before deleting anything.
+        let receipt = engine.publish_current_index(account_id, chunk.to_vec(), crate::index_publication::PublicationMode::Rebuild).await?;
+        // A row inserted/moved after enumeration is reconciled, never blindly
+        // deleted. Do not count suppressed/restricted work as removed.
+        summary.removed += receipt.removed_account_documents as usize;
+        if !receipt.suppressed {
+            summary.removed += chunk.len().saturating_sub(receipt.considered_messages);
+        }
+    }
     Ok(summary)
 }
 
@@ -493,22 +504,29 @@ async fn rebuild_account(engine: &Engine, account_id: &str) -> Result<ReindexSum
 async fn flush(
     engine: &Engine,
     account_id: &str,
-    batch: &mut Vec<mw_search::IndexDoc>,
+    batch: &mut Vec<String>,
     summary: &mut ReindexSummary,
 ) -> Result<bool> {
-    let search = engine.search_handle();
     if !engine.index_allowed(account_id).await {
         batch.clear();
         summary.indexed = 0;
         summary.zero_access = 1;
-        summary.removed = search.delete_account(account_id).map_err(index_err)? as usize;
+        let receipt = engine.publish_current_index(account_id, vec![], crate::index_publication::PublicationMode::Rebuild).await?;
+        summary.removed = receipt.removed_account_documents as usize;
         return Ok(false);
     }
     let n = batch.len();
     if n > 0 {
-        search.upsert_batch(batch).map_err(index_err)?;
-        batch.clear();
-        summary.indexed += n;
+        let receipt = engine.publish_current_index(account_id, std::mem::take(batch), crate::index_publication::PublicationMode::Rebuild).await?;
+        summary.removed += receipt.removed_account_documents as usize;
+        if receipt.suppressed {
+            if !engine.index_allowed(account_id).await {
+                summary.indexed = 0;
+                summary.zero_access = 1;
+            }
+            return Ok(false);
+        }
+        summary.indexed += receipt.considered_messages;
     }
     Ok(true)
 }
@@ -876,6 +894,43 @@ mod tests {
             ));
         }
         assert!(engine.rebuild_search_index(&account).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn canceled_rebuild_clears_progress_and_finishes_accepted_publication() {
+        use std::sync::{Arc, atomic::AtomicBool};
+        use tokio::sync::Notify;
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let (account, mailbox) = account_with_inbox(&store, "me@x").await;
+        let id = seed(&store, &account, &mailbox, 1, "a@x", &raw_msg("a@x", &[], None, "Retained publication")).await;
+        let engine = Arc::new(Engine::new(store));
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let once = Arc::new(AtomicBool::new(true));
+        let (hook_entered, hook_release) = (entered.clone(), release.clone());
+        engine.set_publication_test_hook(Some(Arc::new(move |phase| {
+            let (entered, release, once) = (hook_entered.clone(), hook_release.clone(), once.clone());
+            Box::pin(async move {
+                if phase == crate::index_publication::PublicationTestPhase::BeforeExecution && once.swap(false, Ordering::SeqCst) {
+                    entered.notify_one();
+                    release.notified().await;
+                }
+            })
+        })));
+        let task_engine = engine.clone();
+        let task = tokio::spawn(async move { task_engine.rebuild_search_index(&account).await });
+        tokio::time::timeout(std::time::Duration::from_secs(10), entered.notified()).await.unwrap();
+        assert!(engine.index_rebuild.running.load(Ordering::SeqCst));
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(!engine.index_rebuild.running.load(Ordering::SeqCst));
+        release.notify_one();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while engine.index_publication_status().pending_jobs != 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        }).await.unwrap();
+        assert_eq!(engine.search().fetch_doc(&id).unwrap().unwrap().subject, "Retained publication");
     }
 
     #[test]

@@ -533,10 +533,20 @@ pub(crate) async fn erase(state: &AppState, s: &Subj, request_id: Option<&str>) 
             return out;
         }
     };
+    // Hold each ordered index-erasure fence across the authoritative purge and
+    // verification. Cancellation or a purge/verification failure leaves
+    // admission closed; final recording/scrubbing follows verified removal.
+    let mut index_erasures = Vec::new();
     // Search index and embeddings first: they key on the account ids.
     for id in &s.account_ids {
         if let Some(engine) = &state.engine {
-            add(&mut out, "search_index_documents", engine.erase_account_index(id));
+            match engine.erase_account_index(id).await {
+                Ok(erasure) => {
+                    add(&mut out, "search_index_documents", erasure.removed_documents);
+                    index_erasures.push(erasure);
+                }
+                Err(error) => out.errors.push(format!("search_index_documents: {error}")),
+            }
         }
         // In-memory sessions are dropped before the rows that name them go.
         match store.sessions_by_account(id).await {
@@ -580,6 +590,13 @@ pub(crate) async fn erase(state: &AppState, s: &Subj, request_id: Option<&str>) 
     out.errors.extend(verify_errors);
     out.remaining = left.values().sum();
     match crate::compliance_mail::subject_records(state,&s.address,false).await{Ok(rows)=>out.remaining+=rows.len() as u64,Err(error)=>out.errors.push(error)}
+    if out.errors.is_empty() && out.remaining == 0 {
+        for erasure in index_erasures {
+            if let Err(error) = erasure.complete().await {
+                out.errors.push(format!("search_index_fence: {error}"));
+            }
+        }
+    }
     if out.errors.is_empty() && out.remaining == 0 {
         let now = chrono::Utc::now().timestamp();
         match store.erasure_record(&s.address, "erasure", request_id, now).await {

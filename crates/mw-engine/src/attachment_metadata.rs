@@ -191,32 +191,48 @@ impl crate::engine::Engine {
         blob: &str,
         email: &Value,
     ) {
+        let mut ticket = match self.reserve_index_publication(account, 1).await {
+            Ok(ticket) => ticket,
+            Err(error) => {
+                tracing::warn!("attachment index admission deferred: {error}");
+                return;
+            }
+        };
+        if ticket.track_attachment_ids(vec![id.into()]).is_err() {
+            return;
+        }
         let mut pending = email.clone();
         pending.as_object_mut().unwrap().remove(SCHEMA_KEY);
         let Ok(bytes) = serde_json::to_vec(&pending) else {
             return;
         };
-        match self
+        let publication = match self
             .store()
             .repair_message_envelope(account, id, blob, &bytes)
             .await
         {
-            Ok(true) => self.invalidate_message_cache(id).await,
+            Ok(true) => ticket.submit(
+                vec![id.into()],
+                crate::index_publication::PublicationMode::AttachmentMetadata,
+            ),
             Ok(false) => return, // The raw source changed before this repair.
             Err(error) => {
                 tracing::warn!("attachment metadata persistence deferred: {error}");
                 return;
             }
-        }
-        if !self
-            .repair_attachment_index(
-                account,
-                id,
-                email["hasAttachment"].as_bool().unwrap_or(false),
-            )
-            .await
-        {
-            return;
+        };
+        self.invalidate_message_cache(id).await;
+        match publication {
+            Ok(waiter) => {
+                if let Err(error) = waiter.await {
+                    tracing::warn!("attachment index publication deferred: {error}");
+                    return;
+                }
+            }
+            Err(error) => {
+                tracing::warn!("attachment index handoff deferred: {error}");
+                return;
+            }
         }
         let Ok(bytes) = serde_json::to_vec(email) else {
             return;
@@ -231,26 +247,6 @@ impl crate::engine::Engine {
             Err(error) => {
                 tracing::warn!("attachment metadata version persistence deferred: {error}")
             }
-        }
-    }
-    async fn repair_attachment_index(&self, account: &str, id: &str, has_attachment: bool) -> bool {
-        if self.index_paused(account).await || !self.index_allowed(account).await {
-            return true;
-        }
-        let result = self.search().fetch_doc(id).and_then(|doc| {
-            if let Some(mut doc) = doc
-                && doc.has_attachment != has_attachment
-            {
-                doc.has_attachment = has_attachment;
-                self.search().upsert(&doc)?;
-            }
-            Ok(())
-        });
-        if let Err(error) = result {
-            tracing::warn!("attachment index repair deferred: {error}");
-            false
-        } else {
-            true
         }
     }
 }

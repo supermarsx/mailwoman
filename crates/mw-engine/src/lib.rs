@@ -10,6 +10,10 @@
 mod attachment_metadata;
 mod header_projection;
 mod header_metadata;
+mod index_publication;
+pub use index_publication::{PublicationOptions, PublicationStatus, IndexPublicationReceipt, AccountIndexErasure};
+#[cfg(test)]
+mod index_publication_tests;
 pub use attachment_metadata::encode_message_envelope;
 mod mentions;
 pub mod account;

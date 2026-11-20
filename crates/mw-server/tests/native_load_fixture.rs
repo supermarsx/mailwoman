@@ -958,6 +958,7 @@ async fn run(workers: usize) {
                     "listProjectionSearches":engine.search().list_projection_search_count(),
                     "listProjectionDocumentReads":engine.search().list_projection_doc_read_count(),
                     "timings":mw_search::timing::snapshot(),
+                    "publication":engine.index_publication_status(),
                 });
                 (
                     axum::http::StatusCode::OK,

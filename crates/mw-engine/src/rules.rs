@@ -182,6 +182,8 @@ impl Engine {
         if flags.contains(&kw) {
             return Ok(());
         }
+        let mut ticket = self.reserve_index_publication(&msg.account_id, 1).await?;
+        ticket.track_metadata_ids(vec![stable_id.into()])?;
         // Mirror upstream where addressable (best-effort).
         if let Some(mref) = self.imap_ref_for(stable_id).await?
             && let Err(e) = rt
@@ -193,10 +195,20 @@ impl Engine {
             return Err(e);
         }
         flags.push(kw);
-        self.store()
-            .set_flags(stable_id, &flags_to_json(&flags))
-            .await?;
-        self.reindex_message(stable_id).await;
+        if !self
+            .store()
+            .set_flags_if_current(&msg, &flags_to_json(&flags))
+            .await?
+        {
+            return Err(EngineError::Protocol(
+                "keyword source changed before update".into(),
+            ));
+        }
+        let publication = ticket.submit(
+            vec![stable_id.into()],
+            crate::index_publication::PublicationMode::Metadata,
+        )?;
+        publication.await?;
         Ok(())
     }
 }

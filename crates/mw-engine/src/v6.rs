@@ -115,6 +115,9 @@ pub struct V6Hooks {
 }
 
 impl V6Hooks {
+    pub(crate) fn publication_posture_source(&self) -> Arc<dyn AccountPostureSource> {
+        Arc::clone(&self.posture)
+    }
     /// Whether a cache is attached (26.20 t22-e3g).
     ///
     /// `Email/get` batches its envelope read straight from the store when no
