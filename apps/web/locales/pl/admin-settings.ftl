@@ -2815,3 +2815,17 @@ admin-settings-help-web-offline-respect-save-data = Użyj core, gdy przeglądark
 admin-pool-cache-target = Docelowa pamięć SQLite na pierwszym planie (MiB)
 admin-pool-cache-default = Domyślne ustawienie sterownika
 admin-pool-cache-help = Opcjonalny miękki cel 16–1024 MiB dla MAIN, dzielony przez planowaną maksymalną liczbę połączeń pierwszoplanowych. Wymaga pełnego restartu. Pomocnicze połączenia konserwacji i konwersji używają wtedy po 2000 KiB; w przeciwnym razie sterownik pozostaje bez zmian. To nie limit pamięci procesu.
+
+# Bounded public static representation cache.
+admin-settings-key-web-assets-cache-enabled = Pamięć publicznych zasobów statycznych
+admin-settings-help-web-assets-cache-enabled = Przechowuj publiczne zasoby statyczne w RAM serwera. Poczta, dane API i końcowy dynamiczny HTML są wykluczone.
+admin-settings-key-web-assets-cache-budget-mi-b = Budżet własnych danych (MiB)
+admin-settings-help-web-assets-cache-budget-mi-b = Tylko własne dane rezydentne; bez aktywnych odpowiedzi i wbudowanych bajtów statycznych. Nie jest to limit pamięci procesu.
+admin-settings-key-web-assets-cache-max-file-mi-b = Limit własnego pliku (MiB)
+admin-settings-help-web-assets-cache-max-file-mi-b = Ograniczony budżetem danych. Większe pliki nie są przechowywane, ale podlegają ograniczonemu ładowaniu.
+admin-settings-key-web-assets-cache-max-entries = Limit wpisów
+admin-settings-help-web-assets-cache-max-entries = Obejmuje odwołania do wbudowanych plików bez kopiowania ich surowych bajtów.
+admin-settings-key-web-assets-cache-revalidate-seconds = Ponowna weryfikacja zasobów (sekundy)
+admin-settings-help-web-assets-cache-revalidate-seconds = Maksymalny wiek buforowanych wdrożonych danych, w tym strony startowej i service workera. Wbudowane bajty są niezmienne.
+admin-settings-key-web-assets-cache-preload = Tryb ładowania wstępnego
+admin-settings-help-web-assets-cache-preload = off: brak; shell: strona startowa; core: strona i ograniczone skrypty/style. W miarę możliwości, po bieżących żądaniach.

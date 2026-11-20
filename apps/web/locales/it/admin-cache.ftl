@@ -26,3 +26,19 @@ admin-cache-change-removed = Voci della cronologia di sincronizzazione rimosse
 admin-cache-parsed-copies = Copie del corpo analizzato rimosse
 admin-cache-parsed-bytes = Dati del corpo analizzato rimossi
 admin-cache-change-chunked = Stati di sincronizzazione ripuliti in blocchi
+
+# Public static representations only; process-local counters.
+admin-cache-assets-title = Cache RAM delle risorse statiche pubbliche
+admin-cache-assets-clear = Svuota cache statica
+admin-cache-assets-help = Conserva solo risorse pubbliche. Il budget copre i dati residenti propri, non le risposte in corso né la memoria totale del processo. La pagina iniziale e il service worker distribuiti possono restare in cache durante l’intervallo di riconvalida.
+admin-cache-assets-clear-help = Lo svuotamento libera le voci conservate; le risposte attive terminano normalmente. Il precaricamento attivo può riempire nuovamente la cache. I contatori riguardano questo processo server.
+admin-cache-assets-stale = Aggiornamento dei criteri non riuscito; resta attiva l’ultima configurazione applicata.
+admin-cache-assets-applied = Configurazione applicata: { $time }
+admin-cache-assets-resident = Dati propri / budget
+admin-cache-assets-entries = Voci / limite
+admin-cache-assets-file = Limite effettivo per file proprio
+admin-cache-assets-loads = In esecuzione / limite; in coda / limite
+admin-cache-assets-hits = Riscontri / caricamenti accettati / attese condivise
+admin-cache-assets-evictions = Rimosse / scadute / troppo grandi
+admin-cache-assets-failures = Rifiuti per occupazione / attività non riuscite
+admin-cache-assets-preload = Modalità di precaricamento; conservate / ignorate

@@ -2797,3 +2797,17 @@ admin-settings-help-web-offline-respect-save-data = core gebruiken wanneer de br
 admin-pool-cache-target = SQLite-cachedoel voor voorgrondverbindingen (MiB)
 admin-pool-cache-default = Stuurprogrammastandaard
 admin-pool-cache-help = Optioneel zacht MAIN-doel van 16–1024 MiB, gedeeld door het geplande maximum voorgrondverbindingen. Volledige serverherstart vereist. Ingeschakeld gebruiken hulpverbindingen voor onderhoud en conversie elk 2000 KiB; anders blijft het stuurprogramma ongewijzigd. Geen procesgeheugenlimiet.
+
+# Bounded public static representation cache.
+admin-settings-key-web-assets-cache-enabled = Cache voor openbare statische bestanden
+admin-settings-help-web-assets-cache-enabled = Bewaar openbare statische weergaven in server-RAM. E-mail, API-gegevens en uiteindelijke dynamische HTML vallen erbuiten.
+admin-settings-key-web-assets-cache-budget-mi-b = Budget eigen gegevens (MiB)
+admin-settings-help-web-assets-cache-budget-mi-b = Alleen eigen residente gegevens; zonder actieve antwoorden en ingebedde statische bytes. Geen procesgeheugenlimiet.
+admin-settings-key-web-assets-cache-max-file-mi-b = Limiet per eigen bestand (MiB)
+admin-settings-help-web-assets-cache-max-file-mi-b = Beperkt door het gegevensbudget. Grotere bestanden worden niet bewaard, maar wel begrensd geladen.
+admin-settings-key-web-assets-cache-max-entries = Itemlimiet
+admin-settings-help-web-assets-cache-max-entries = Inclusief verwijzingen naar ingebedde bestanden zonder hun ruwe bytes te kopiëren.
+admin-settings-key-web-assets-cache-revalidate-seconds = Hercontrole uitgerolde bestanden (seconden)
+admin-settings-help-web-assets-cache-revalidate-seconds = Maximale cacheleeftijd van uitgerolde of bewaarde bytes, inclusief startpagina en service worker. Ingebedde bytes zijn onveranderlijk.
+admin-settings-key-web-assets-cache-preload = Voorlaadmodus
+admin-settings-help-web-assets-cache-preload = off: geen; shell: startpagina; core: startpagina en begrensde scripts/stijlen. Naar mogelijkheid, na actuele aanvragen.

@@ -26,3 +26,19 @@ admin-cache-change-removed = Видалені записи історії син
 admin-cache-parsed-copies = Видалені копії обробленого вмісту
 admin-cache-parsed-bytes = Видалені дані обробленого вмісту
 admin-cache-change-chunked = Стани синхронізації, очищені частинами
+
+# Public static representations only; process-local counters.
+admin-cache-assets-title = RAM-кеш публічних статичних ресурсів
+admin-cache-assets-clear = Очистити статичний кеш
+admin-cache-assets-help = Зберігає лише публічні ресурси. Бюджет охоплює власні резидентні дані, а не поточні відповіді чи всю пам’ять процесу. Розгорнута початкова сторінка та service worker можуть залишатися в кеші протягом інтервалу перевірки.
+admin-cache-assets-clear-help = Очищення звільняє збережені записи; активні відповіді завершуються звичайно. Увімкнене попереднє завантаження може знову наповнити кеш. Лічильники стосуються цього процесу сервера.
+admin-cache-assets-stale = Не вдалося оновити політику; остання застосована конфігурація залишається чинною.
+admin-cache-assets-applied = Конфігурацію застосовано: { $time }
+admin-cache-assets-resident = Власні дані / бюджет
+admin-cache-assets-entries = Записи / межа
+admin-cache-assets-file = Фактична межа власного файлу
+admin-cache-assets-loads = Активні / межа; у черзі / межа
+admin-cache-assets-hits = Влучання / прийняті завантаження / спільні очікування
+admin-cache-assets-evictions = Витіснені / прострочені / завеликі
+admin-cache-assets-failures = Відмови через зайнятість / невдалі завдання
+admin-cache-assets-preload = Режим попереднього завантаження; збережені / пропущені

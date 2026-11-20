@@ -2716,3 +2716,17 @@ admin-settings-help-web-offline-respect-save-data = Use core prewarming when the
 admin-pool-cache-target = SQLite foreground cache target (MiB)
 admin-pool-cache-default = Driver default
 admin-pool-cache-help = Optional 16–1024 MiB soft target for MAIN across the planned maximum foreground connections, divided per connection. A full server restart is required. Auxiliary maintenance and conversion connections use 2000 KiB each when enabled; otherwise driver behavior is unchanged. This is not a process memory limit.
+
+# Bounded public static representation cache.
+admin-settings-key-web-assets-cache-enabled = Public static asset cache
+admin-settings-help-web-assets-cache-enabled = Retain public static representations in server RAM. Mail, API data and dynamic final HTML are excluded.
+admin-settings-key-web-assets-cache-budget-mi-b = Owned payload budget (MiB)
+admin-settings-help-web-assets-cache-budget-mi-b = Resident owned payloads only; excludes active responses and embedded static bytes. This is not a process memory limit.
+admin-settings-key-web-assets-cache-max-file-mi-b = Owned file limit (MiB)
+admin-settings-help-web-assets-cache-max-file-mi-b = Capped by the payload budget. Larger files bypass retention but still use bounded loading.
+admin-settings-key-web-assets-cache-max-entries = Entry limit
+admin-settings-help-web-assets-cache-max-entries = Includes metadata references to embedded files, without copying their raw bytes.
+admin-settings-key-web-assets-cache-revalidate-seconds = Deployed asset revalidation (seconds)
+admin-settings-help-web-assets-cache-revalidate-seconds = Maximum cached age for deployed/retained bytes, including shell and service worker. Embedded build bytes are immutable.
+admin-settings-key-web-assets-cache-preload = Preload mode
+admin-settings-help-web-assets-cache-preload = off: none; shell: initial page; core: shell and a bounded set of its scripts/styles. Best effort, after foreground work.

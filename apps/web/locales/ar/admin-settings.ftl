@@ -2819,3 +2819,17 @@ admin-settings-help-web-offline-respect-save-data = استخدام core عندم
 admin-pool-cache-target = هدف ذاكرة SQLite للاتصالات الأمامية (MiB)
 admin-pool-cache-default = القيمة الافتراضية لبرنامج التشغيل
 admin-pool-cache-help = هدف مرن اختياري بين 16 و1024 MiB لقاعدة MAIN، مقسوم على الحد الأقصى المخطط للاتصالات الأمامية. يتطلب إعادة تشغيل كاملة. تستخدم اتصالات الصيانة والتحويل المساعدة 2000 KiB لكل اتصال عند التفعيل؛ وإلا يبقى سلوك برنامج التشغيل دون تغيير. ليس حدًا لذاكرة العملية.
+
+# Bounded public static representation cache.
+admin-settings-key-web-assets-cache-enabled = ذاكرة الموارد الثابتة العامة
+admin-settings-help-web-assets-cache-enabled = الاحتفاظ بالموارد الثابتة العامة في RAM الخادم. يستثني البريد وبيانات API وHTML الديناميكي النهائي.
+admin-settings-key-web-assets-cache-budget-mi-b = ميزانية البيانات المملوكة (MiB)
+admin-settings-help-web-assets-cache-budget-mi-b = البيانات المقيمة المملوكة فقط؛ دون الردود النشطة والبايتات الثابتة المضمنة. ليست حداً لذاكرة العملية.
+admin-settings-key-web-assets-cache-max-file-mi-b = حد الملف المملوك (MiB)
+admin-settings-help-web-assets-cache-max-file-mi-b = مقيد بميزانية البيانات. لا تُحتفظ الملفات الأكبر ولكن تظل عمليات تحميلها محدودة.
+admin-settings-key-web-assets-cache-max-entries = حد الإدخالات
+admin-settings-help-web-assets-cache-max-entries = يشمل مراجع الملفات المضمنة دون نسخ بايتاتها الأصلية.
+admin-settings-key-web-assets-cache-revalidate-seconds = إعادة التحقق من الموارد المنشورة (ثوانٍ)
+admin-settings-help-web-assets-cache-revalidate-seconds = أقصى عمر للبيانات المنشورة المخزنة، بما فيها الصفحة الأولية وعامل الخدمة. البايتات المضمنة ثابتة.
+admin-settings-key-web-assets-cache-preload = وضع التحميل المسبق
+admin-settings-help-web-assets-cache-preload = off: لا شيء؛ shell: الصفحة الأولية؛ core: الصفحة ومجموعة محدودة من النصوص والأنماط. بأفضل جهد مع أولوية الطلبات النشطة.

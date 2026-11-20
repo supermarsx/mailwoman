@@ -2595,3 +2595,17 @@ admin-settings-help-web-offline-respect-save-data = Usar core quando o navegador
 admin-pool-cache-target = Objetivo da cache SQLite em primeiro plano (MiB)
 admin-pool-cache-default = Predefinição do controlador
 admin-pool-cache-help = Objetivo opcional de 16–1024 MiB para MAIN, dividido pelo máximo planeado de ligações em primeiro plano. Exige reinício completo do servidor. As ligações auxiliares de manutenção e conversão usam 2000 KiB cada quando ativo; caso contrário, mantém-se o comportamento do controlador. Não é um limite de memória do processo.
+
+# Bounded public static representation cache.
+admin-settings-key-web-assets-cache-enabled = Cache de recursos estáticos públicos
+admin-settings-help-web-assets-cache-enabled = Guardar representações estáticas públicas na RAM do servidor. Exclui correio, dados da API e HTML dinâmico final.
+admin-settings-key-web-assets-cache-budget-mi-b = Orçamento de dados próprios (MiB)
+admin-settings-help-web-assets-cache-budget-mi-b = Apenas dados próprios residentes; exclui respostas ativas e bytes estáticos incorporados. Não é um limite de memória do processo.
+admin-settings-key-web-assets-cache-max-file-mi-b = Limite por ficheiro próprio (MiB)
+admin-settings-help-web-assets-cache-max-file-mi-b = Limitado pelo orçamento de dados. Ficheiros maiores não são retidos, mas usam carregamento limitado.
+admin-settings-key-web-assets-cache-max-entries = Limite de entradas
+admin-settings-help-web-assets-cache-max-entries = Inclui referências a ficheiros incorporados sem copiar os seus bytes originais.
+admin-settings-key-web-assets-cache-revalidate-seconds = Revalidação dos recursos publicados (segundos)
+admin-settings-help-web-assets-cache-revalidate-seconds = Idade máxima da cache para bytes publicados ou retidos, incluindo página inicial e service worker. Os bytes incorporados são imutáveis.
+admin-settings-key-web-assets-cache-preload = Modo de pré-carregamento
+admin-settings-help-web-assets-cache-preload = off: nenhum; shell: página inicial; core: página e conjunto limitado de scripts e estilos. Melhor esforço, com prioridade ao trabalho de primeiro plano.

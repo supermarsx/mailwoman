@@ -204,10 +204,10 @@ fn redirect_response(uri: &str, values: &[(&str, &str)]) -> Result<String, Respo
 }
 /// Deep consent pages must resolve entry assets at the deployment root, without
 /// receiving the administrator console marker.
-pub(crate) fn shell(state: &AppState, headers: &HeaderMap) -> Option<Response> {
+pub(crate) async fn shell(state: &AppState, headers: &HeaderMap) -> Option<Response> {
     let bytes = crate::adapt_asset_to_base(
         "index.html",
-        crate::read_asset(state, "index.html")?,
+        match crate::read_asset_async(state,"index.html").await {Ok(Some(bytes))=>bytes,Ok(None)=>return None,Err(error)=>return Some(error.response())},
         &state.base_path,
     );
     let html = String::from_utf8(bytes).ok()?;

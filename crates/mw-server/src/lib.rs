@@ -107,6 +107,7 @@ pub mod sharing;
 mod source_bans;
 mod health_access;
 mod static_resilience;
+mod public_asset_cache;
 pub mod tls;
 pub mod watermark;
 pub mod wkd;
@@ -999,8 +1000,7 @@ pub(crate) struct AppStateInner {
     /// this trusted process without the jail.
     render_jail_required: bool,
     web_dir: Option<PathBuf>,
-    /// t102: hashed files of earlier builds, served to tabs still running one.
-    retained_assets: Option<Arc<static_resilience::Retained>>,
+    public_assets: Arc<public_asset_cache::Cache>,
     /// The deployment's explicit cookie-`Secure` setting. A floor only — the
     /// effective value per response comes from
     /// [`ExternalBase::cookie_secure`], which raises it when the request
@@ -1477,6 +1477,12 @@ async fn build_app_inner(
     let request_protection = request_protection::Runtime::start(store.clone());
     let admin_probe = admin_probe::Runtime::start(store.clone());
     pdf_assets::log_startup_audit(config.web_dir.as_deref());
+    let retained_public_assets = retained_assets(&config.db_path, config.web_dir.as_deref()).await;
+    let public_assets = public_asset_cache::Cache::new(
+        config.web_dir.clone(), Arc::from(base_path.as_str()), retained_public_assets,
+    );
+    public_assets.refresh(&store).await;
+    public_assets.start(store.clone());
     let state = AppState(Arc::new(AppStateInner {
         resource_data_path: mw_store::encryption::sqlite_file_from_dsn(&config.db_path)
             .and_then(|path| path.parent().filter(|parent| !parent.as_os_str().is_empty()).map(Path::to_path_buf))
@@ -1492,7 +1498,7 @@ async fn build_app_inner(
         scheduler: jobs::new_scheduler(),
         render_bin,
         render_jail_required,
-        retained_assets: retained_assets(&config.db_path, config.web_dir.as_deref()).await,
+        public_assets,
         web_dir: config.web_dir,
         cookie_secure,
         external,
@@ -5480,6 +5486,29 @@ async fn static_handler(
     uri: Uri,
     headers: HeaderMap,
 ) -> Response {
+    let head = method == Method::HEAD;
+    let mut response = static_handler_inner(state, method, original, uri, headers).await;
+    if head {
+        if response.status() == StatusCode::OK
+            && !response.headers().contains_key(header::CONTENT_LENGTH)
+        {
+            if let Some(len) = axum::body::HttpBody::size_hint(response.body()).exact() {
+                response
+                    .headers_mut()
+                    .insert(header::CONTENT_LENGTH, HeaderValue::from(len));
+            }
+        }
+        *response.body_mut() = Body::empty();
+    }
+    response
+}
+async fn static_handler_inner(
+    state: AppState,
+    method: Method,
+    original: Uri,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
     // t20 B4: the bare prefix must redirect to the trailing-slash form. The SPA is
     // built with a relative asset base, so `./assets/index-*.js` in a document
     // served at `/mail` resolves to `/assets/…` — outside the prefix, and outside
@@ -5526,7 +5555,7 @@ async fn static_handler(
     // The PDF.js library is embedded, so a stale MW_WEB_DIR cannot skew it; a miss
     // is a plain-text 404, never the JSON error body a script/stylesheet can't load.
     if pdf_assets::owns(path) {
-        return pdf_assets::response(state.web_dir.as_deref(), &method, path, &headers);
+        return pdf_assets::response_cached(&state, &method, path, &headers).await;
     }
     // The detached workspace is a server-owned document, not an optional build
     // asset. A stale MW_WEB_DIR must never turn its mount target into a 404 page.
@@ -5562,15 +5591,20 @@ async fn static_handler(
     {
         return resp;
     }
-    if let Some(resp) = serve_asset(&state, path, &headers) {
-        return resp;
+    match serve_asset(&state, path, &headers).await {
+        Ok(Some(response)) => return response,
+        Ok(None) => {}
+        Err(error) => return error.response(),
     }
     // t102: a tab of an earlier build importing one of its chunks, or a browser
     // checking a worker registration this build does not serve.
-    if let Some(resp) = serve_retained_asset(&state, path, &headers)
-        .or_else(|| static_resilience::worker_fallback(path, &headers))
-    {
-        return resp;
+    match serve_retained_asset(&state, path, &headers).await {
+        Ok(Some(response)) => return response,
+        Err(error) => return error.response(),
+        Ok(None) => {}
+    }
+    if let Some(response) = static_resilience::worker_fallback(path, &headers) {
+        return response;
     }
     if let Some(resp) = redirect_page_trailing_slash(&original, app_path, base) {
         return resp;
@@ -5586,13 +5620,16 @@ async fn static_handler(
         return error(error_pages::ErrorKind::NotFound);
     }
     let shell = if path == console_page() {
-        serve_console_shell(&state, &headers)
+        serve_console_shell(&state, &headers).await
     } else if path == "oidc/consent" {
-        oidc_provider::shell(&state, &headers)
+        Ok(oidc_provider::shell(&state, &headers).await)
     } else {
-        serve_asset(&state, "index.html", &headers)
+        serve_asset(&state, "index.html", &headers).await
     };
-    shell.unwrap_or_else(|| error(error_pages::ErrorKind::Unavailable))
+    match shell {
+        Ok(value) => value.unwrap_or_else(|| error(error_pages::ErrorKind::Unavailable)),
+        Err(error) => error.response(),
+    }
 }
 
 /// The admin console's page relative to the deploy prefix, without the leading
@@ -5807,19 +5844,50 @@ async fn retained_assets(
 }
 
 /// A hashed file of an earlier build, with the same headers the build gave it.
-fn serve_retained_asset(state: &AppState, path: &str, req: &HeaderMap) -> Option<Response> {
-    let bytes = state.retained_assets.as_ref()?.read(path)?;
+async fn serve_retained_asset(
+    state: &AppState,
+    path: &str,
+    req: &HeaderMap,
+) -> Result<Option<Response>, public_asset_cache::Busy> {
+    let Some(asset) = state
+        .public_assets
+        .get(
+            public_asset_cache::Source::Retained,
+            public_asset_cache::Variant::Public,
+            path,
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
     let mime = mime_guess::from_path(path).first_or_octet_stream();
-    let bytes = adapt_asset_to_base(path, bytes, &state.base_path);
-    Some(asset_response(path, mime.as_ref(), bytes, req))
+    Ok(Some(asset_response_prepared(
+        path,
+        mime.as_ref(),
+        &asset,
+        req,
+    )))
 }
-
-fn serve_asset(state: &AppState, path: &str, req: &HeaderMap) -> Option<Response> {
+async fn serve_asset(
+    state: &AppState,
+    path: &str,
+    req: &HeaderMap,
+) -> Result<Option<Response>, public_asset_cache::Busy> {
+    let Some(asset) = state
+        .public_assets
+        .get(
+            public_asset_cache::Source::Web,
+            public_asset_cache::Variant::Public,
+            path,
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
     let mime = mime_guess::from_path(path).first_or_octet_stream();
-    let bytes = adapt_asset_to_base(path, read_asset(state, path)?, &state.base_path);
-    let mut resp = asset_response(path, mime.as_ref(), bytes, req);
-    allow_worker_scope(&mut resp, path, &state.base_path);
-    Some(resp)
+    let mut response = asset_response_prepared(path, mime.as_ref(), &asset, req);
+    allow_worker_scope(&mut response, path, &state.base_path);
+    Ok(Some(response))
 }
 
 /// The bytes of one file of the web build, from `MW_WEB_DIR` when set, else from
@@ -5841,6 +5909,22 @@ fn read_asset(state: &AppState, path: &str) -> Option<Vec<u8>> {
     }
     Some(mw_web_assets::web(path)?.into_owned())
 }
+/// Public pristine bytes for HTML adapters. Dynamic final HTML is never cached.
+async fn read_asset_async(
+    state: &AppState,
+    path: &str,
+) -> Result<Option<Vec<u8>>, public_asset_cache::Busy> {
+    Ok(state
+        .public_assets
+        .get(
+            public_asset_cache::Source::Web,
+            public_asset_cache::Variant::Raw,
+            path,
+        )
+        .await?
+        .map(|asset| asset.bytes.to_vec()))
+}
+
 
 /// The marker [`serve_console_shell`] puts in the console page, and only there.
 /// `apps/web/src/api/adminPath.ts` reads it; with it, the web app takes its own
@@ -5861,15 +5945,22 @@ const CONSOLE_MARKER: &str = r#"<meta name="mw-console" content="admin">"#;
 /// `/mail/ops/console`, `./assets/…` would resolve under `/mail/ops/`. Chunks
 /// imported from the entry resolve against the entry's own URL, so the entry and
 /// the stylesheet in this document are the only references that need it.
-fn serve_console_shell(state: &AppState, req: &HeaderMap) -> Option<Response> {
-    let base: &str = &state.base_path;
-    let bytes = adapt_asset_to_base("index.html", read_asset(state, "index.html")?, base);
-    let html = match String::from_utf8(bytes) {
-        Ok(html) => mark_console_shell(&html, base),
-        // Not UTF-8 ⇒ not the shell we shipped; there is no console to serve.
-        Err(_) => return None,
+async fn serve_console_shell(
+    state: &AppState,
+    req: &HeaderMap,
+) -> Result<Option<Response>, public_asset_cache::Busy> {
+    let Some(asset) = state
+        .public_assets
+        .get(
+            public_asset_cache::Source::Web,
+            public_asset_cache::Variant::Console,
+            "index.html",
+        )
+        .await?
+    else {
+        return Ok(None);
     };
-    let mut resp = asset_response("index.html", "text/html", html.into_bytes(), req);
+    let mut resp = asset_response_prepared("index.html", "text/html", &asset, req);
     // t76: the console is never framed (a second policy next to the shell's; the
     // browser enforces both), never indexed, and not kept by a shared cache, so
     // its address is not left in one.
@@ -5886,7 +5977,7 @@ fn serve_console_shell(state: &AppState, req: &HeaderMap) -> Option<Response> {
         "cache-control",
         HeaderValue::from_static("private, no-cache"),
     );
-    Some(resp)
+    Ok(Some(resp))
 }
 
 /// [`CONSOLE_MARKER`] at the top of `<head>`, and `="./` made `="{base}/`.
@@ -6004,7 +6095,16 @@ fn prefix_font_urls(bytes: Vec<u8>, base: &str) -> Vec<u8> {
 /// Both kinds carry a strong `ETag`, so a revalidated `no-cache` document answers
 /// 304 rather than resending the body.
 fn asset_response(path: &str, mime: &str, bytes: Vec<u8>, req: &HeaderMap) -> Response {
-    let etag = asset_etag(&bytes);
+    let prepared = public_asset_cache::Prepared::new(std::borrow::Cow::Owned(bytes));
+    asset_response_prepared(path, mime, &prepared, req)
+}
+fn asset_response_prepared(
+    path: &str,
+    mime: &str,
+    asset: &public_asset_cache::Prepared,
+    req: &HeaderMap,
+) -> Response {
+    let etag = asset.etag.to_str().expect("validated content hash");
     let cache_control = if is_content_hashed(path) {
         "public, max-age=31536000, immutable"
     } else {
@@ -6012,20 +6112,18 @@ fn asset_response(path: &str, mime: &str, bytes: Vec<u8>, req: &HeaderMap) -> Re
     };
 
     // A conditional request whose validator still matches: 304, no body.
-    if etag_matches(req, &etag) {
+    if etag_matches(req, etag) {
         let mut resp = StatusCode::NOT_MODIFIED.into_response();
         let h = resp.headers_mut();
         h.insert(
             header::CACHE_CONTROL,
             HeaderValue::from_static(cache_control),
         );
-        if let Ok(v) = HeaderValue::from_str(&etag) {
-            h.insert(header::ETAG, v);
-        }
+        h.insert(header::ETAG, asset.etag.clone());
         return resp;
     }
 
-    let mut resp = Response::new(Body::from(bytes));
+    let mut resp = Response::new(Body::from(asset.bytes.clone()));
     let h = resp.headers_mut();
     if let Ok(v) = HeaderValue::from_str(mime) {
         h.insert(header::CONTENT_TYPE, v);
@@ -6034,9 +6132,7 @@ fn asset_response(path: &str, mime: &str, bytes: Vec<u8>, req: &HeaderMap) -> Re
         header::CACHE_CONTROL,
         HeaderValue::from_static(cache_control),
     );
-    if let Ok(v) = HeaderValue::from_str(&etag) {
-        h.insert(header::ETAG, v);
-    }
+    h.insert(header::ETAG, asset.etag.clone());
     resp
 }
 

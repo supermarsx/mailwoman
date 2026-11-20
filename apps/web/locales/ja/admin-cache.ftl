@@ -26,3 +26,19 @@ admin-cache-change-removed = 削除した同期履歴の行
 admin-cache-parsed-copies = 解析済み本文の削除件数
 admin-cache-parsed-bytes = 削除した解析済み本文データ
 admin-cache-change-chunked = 分割して整理した同期状態
+
+# Public static representations only; process-local counters.
+admin-cache-assets-title = 公開静的アセットの RAM キャッシュ
+admin-cache-assets-clear = 静的キャッシュを消去
+admin-cache-assets-help = 公開アセットのみを保持します。予算は所有する常駐データが対象で、処理中の応答やプロセス全体のメモリではありません。配備された初期ページとサービスワーカーは再検証間隔中キャッシュに残る場合があります。
+admin-cache-assets-clear-help = 消去すると保持エントリが解放されます。実行中の応答は通常どおり完了します。事前読み込みが有効な場合は再び格納されます。カウンターはこのサーバープロセスが対象です。
+admin-cache-assets-stale = ポリシーの更新に失敗しました。最後に適用された設定が引き続き有効です。
+admin-cache-assets-applied = 設定の適用時刻: { $time }
+admin-cache-assets-resident = 所有データ / 予算
+admin-cache-assets-entries = エントリ / 上限
+admin-cache-assets-file = 所有ファイルの実効上限
+admin-cache-assets-loads = 実行中 / 上限、待機中 / 上限
+admin-cache-assets-hits = ヒット / 受理した読み込み / 共有待機
+admin-cache-assets-evictions = 削除 / 期限切れ / サイズ超過
+admin-cache-assets-failures = 混雑による拒否 / 失敗したジョブ
+admin-cache-assets-preload = 事前読み込みモード、保持 / スキップ

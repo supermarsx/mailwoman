@@ -2789,3 +2789,17 @@ admin-settings-help-web-offline-respect-save-data = 浏览器启用 SaveData 时
 admin-pool-cache-target = SQLite 前台缓存目标 (MiB)
 admin-pool-cache-default = 驱动默认值
 admin-pool-cache-help = 可选的 MAIN 软目标为 16–1024 MiB，按计划的最大前台连接数分配。需要完全重启服务器。启用后，维护和转换辅助连接各使用 2000 KiB；否则保留驱动行为。这不是进程内存上限。
+
+# Bounded public static representation cache.
+admin-settings-key-web-assets-cache-enabled = 公开静态资源缓存
+admin-settings-help-web-assets-cache-enabled = 在服务器 RAM 中保留公开静态表示。不包括邮件、API 数据及最终动态 HTML。
+admin-settings-key-web-assets-cache-budget-mi-b = 自有数据预算 (MiB)
+admin-settings-help-web-assets-cache-budget-mi-b = 仅自有常驻数据，不包括活动响应和嵌入式静态字节。这不是进程内存限制。
+admin-settings-key-web-assets-cache-max-file-mi-b = 自有文件上限 (MiB)
+admin-settings-help-web-assets-cache-max-file-mi-b = 受数据预算限制。较大文件不保留，但仍使用有界加载。
+admin-settings-key-web-assets-cache-max-entries = 条目上限
+admin-settings-help-web-assets-cache-max-entries = 包括嵌入式文件的引用，不复制其原始字节。
+admin-settings-key-web-assets-cache-revalidate-seconds = 已部署资源重新验证（秒）
+admin-settings-help-web-assets-cache-revalidate-seconds = 已部署缓存数据的最长保留时间，包括初始页面和服务工作线程。嵌入式字节不可变。
+admin-settings-key-web-assets-cache-preload = 预加载模式
+admin-settings-help-web-assets-cache-preload = off：不加载；shell：初始页面；core：页面及有界脚本和样式。尽力执行，优先处理前台请求。

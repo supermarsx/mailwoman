@@ -2803,3 +2803,17 @@ admin-settings-help-web-offline-respect-save-data = Usar core cuando el navegado
 admin-pool-cache-target = Objetivo de caché SQLite en primer plano (MiB)
 admin-pool-cache-default = Valor del controlador
 admin-pool-cache-help = Objetivo opcional de 16–1024 MiB para MAIN, dividido entre el máximo previsto de conexiones en primer plano. Requiere reinicio completo. Las conexiones auxiliares de mantenimiento y conversión usan 2000 KiB cada una si se activa; en caso contrario se conserva el controlador. No limita la memoria del proceso.
+
+# Bounded public static representation cache.
+admin-settings-key-web-assets-cache-enabled = Caché de recursos estáticos públicos
+admin-settings-help-web-assets-cache-enabled = Conservar representaciones estáticas públicas en la RAM del servidor. Excluye correo, datos de API y HTML dinámico final.
+admin-settings-key-web-assets-cache-budget-mi-b = Presupuesto de datos propios (MiB)
+admin-settings-help-web-assets-cache-budget-mi-b = Solo datos propios residentes; excluye respuestas activas y bytes estáticos integrados. No es un límite de memoria del proceso.
+admin-settings-key-web-assets-cache-max-file-mi-b = Límite por archivo propio (MiB)
+admin-settings-help-web-assets-cache-max-file-mi-b = Limitado por el presupuesto de datos. Los archivos mayores no se retienen, pero usan carga limitada.
+admin-settings-key-web-assets-cache-max-entries = Límite de entradas
+admin-settings-help-web-assets-cache-max-entries = Incluye referencias a archivos integrados sin copiar sus bytes originales.
+admin-settings-key-web-assets-cache-revalidate-seconds = Revalidación de recursos publicados (segundos)
+admin-settings-help-web-assets-cache-revalidate-seconds = Edad máxima en caché para bytes publicados o retenidos, incluida la página inicial y el service worker. Los bytes integrados son inmutables.
+admin-settings-key-web-assets-cache-preload = Modo de precarga
+admin-settings-help-web-assets-cache-preload = off: ninguna; shell: página inicial; core: página y un conjunto limitado de scripts y estilos. Mejor esfuerzo, con prioridad al trabajo activo.

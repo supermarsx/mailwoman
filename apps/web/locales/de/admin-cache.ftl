@@ -26,3 +26,19 @@ admin-cache-change-removed = Entfernte Einträge im Synchronisierungsverlauf
 admin-cache-parsed-copies = Gelöschte Kopien verarbeiteter Nachrichteninhalte
 admin-cache-parsed-bytes = Entfernte Daten verarbeiteter Nachrichteninhalte
 admin-cache-change-chunked = In Teilmengen bereinigte Synchronisationsstände
+
+# Public static representations only; process-local counters.
+admin-cache-assets-title = RAM-Cache für öffentliche statische Dateien
+admin-cache-assets-clear = Statischen Cache leeren
+admin-cache-assets-help = Speichert nur öffentliche Dateien. Das Budget umfasst eigene residente Nutzdaten, keine laufenden Antworten und nicht den gesamten Prozessspeicher. Bereitgestellte Startseiten und Service Worker können bis zum Prüfintervall im Cache bleiben.
+admin-cache-assets-clear-help = Leeren gibt gespeicherte Einträge frei; aktive Antworten laufen weiter. Aktives Vorladen kann den Cache erneut füllen. Die Zähler gelten für diesen Serverprozess.
+admin-cache-assets-stale = Die Richtlinienaktualisierung ist fehlgeschlagen; die zuletzt angewendete Konfiguration bleibt aktiv.
+admin-cache-assets-applied = Konfiguration angewendet: { $time }
+admin-cache-assets-resident = Eigene Nutzdaten / Budget
+admin-cache-assets-entries = Einträge / Grenze
+admin-cache-assets-file = Effektive Grenze je eigener Datei
+admin-cache-assets-loads = Aktiv / Grenze; wartend / Grenze
+admin-cache-assets-hits = Treffer / angenommene Ladevorgänge / geteilte Wartevorgänge
+admin-cache-assets-evictions = Verdrängt / abgelaufen / zu groß
+admin-cache-assets-failures = Überlastungsablehnungen / fehlgeschlagene Aufgaben
+admin-cache-assets-preload = Vorlademodus; gespeichert / übersprungen

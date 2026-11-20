@@ -26,3 +26,19 @@ admin-cache-change-removed = Sync-history rows removed
 admin-cache-parsed-copies = Parsed body copies cleared
 admin-cache-parsed-bytes = Parsed body data removed
 admin-cache-change-chunked = Sync states cleaned in chunks
+
+# Public static representations only; process-local counters.
+admin-cache-assets-title = Public static asset RAM cache
+admin-cache-assets-clear = Clear static cache
+admin-cache-assets-help = Retains public assets only. The budget covers owned resident payloads, not in-flight responses or process RSS. Deployed shell and service-worker bytes may remain cached for the configured revalidation interval.
+admin-cache-assets-clear-help = Clearing releases retained entries; active responses finish normally. Enabled preload may refill the cache. Counters cover this server process.
+admin-cache-assets-stale = Policy refresh failed; the last applied configuration remains active.
+admin-cache-assets-applied = Configuration applied: { $time }
+admin-cache-assets-resident = Owned payload / budget
+admin-cache-assets-entries = Entries / limit
+admin-cache-assets-file = Effective owned file limit
+admin-cache-assets-loads = Running / limit; queued / limit
+admin-cache-assets-hits = Hits / accepted loads / shared waiters
+admin-cache-assets-evictions = Evicted / expired / oversized bypasses
+admin-cache-assets-failures = Busy refusals / failed worker jobs
+admin-cache-assets-preload = Preload mode; retained / skipped

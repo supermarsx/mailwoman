@@ -2815,3 +2815,17 @@ admin-settings-help-web-offline-respect-save-data = Використовуват
 admin-pool-cache-target = Ціль кешу SQLite основних з’єднань (МіБ)
 admin-pool-cache-default = Значення драйвера
 admin-pool-cache-help = Необов’язкова м’яка ціль MAIN 16–1024 МіБ ділиться на плановий максимум основних з’єднань. Потрібен повний перезапуск. Допоміжні з’єднання обслуговування та перетворення тоді використовують по 2000 КіБ; інакше драйвер не змінюється. Це не ліміт пам’яті процесу.
+
+# Bounded public static representation cache.
+admin-settings-key-web-assets-cache-enabled = Кеш публічних статичних ресурсів
+admin-settings-help-web-assets-cache-enabled = Зберігати публічні статичні представлення в RAM сервера. Пошта, дані API та кінцевий динамічний HTML виключені.
+admin-settings-key-web-assets-cache-budget-mi-b = Бюджет власних даних (MiB)
+admin-settings-help-web-assets-cache-budget-mi-b = Лише власні резидентні дані; без активних відповідей і вбудованих статичних байтів. Це не межа пам’яті процесу.
+admin-settings-key-web-assets-cache-max-file-mi-b = Межа власного файлу (MiB)
+admin-settings-help-web-assets-cache-max-file-mi-b = Обмежується бюджетом даних. Великі файли не зберігаються, але завантажуються з обмеженням.
+admin-settings-key-web-assets-cache-max-entries = Межа записів
+admin-settings-help-web-assets-cache-max-entries = Включає посилання на вбудовані файли без копіювання їхніх байтів.
+admin-settings-key-web-assets-cache-revalidate-seconds = Повторна перевірка ресурсів (секунди)
+admin-settings-help-web-assets-cache-revalidate-seconds = Максимальний вік кешованих розгорнутих даних, включно з початковою сторінкою та service worker. Вбудовані байти незмінні.
+admin-settings-key-web-assets-cache-preload = Режим попереднього завантаження
+admin-settings-help-web-assets-cache-preload = off: немає; shell: початкова сторінка; core: сторінка та обмежені скрипти/стилі. За можливості, після поточних запитів.

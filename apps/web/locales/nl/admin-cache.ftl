@@ -26,3 +26,19 @@ admin-cache-change-removed = Verwijderde synchronisatiegeschiedenisregels
 admin-cache-parsed-copies = Gewiste kopieën van verwerkte berichtinhoud
 admin-cache-parsed-bytes = Verwijderde gegevens van verwerkte berichtinhoud
 admin-cache-change-chunked = In delen opgeschoonde synchronisatiestatussen
+
+# Public static representations only; process-local counters.
+admin-cache-assets-title = RAM-cache voor openbare statische bestanden
+admin-cache-assets-clear = Statische cache legen
+admin-cache-assets-help = Bewaart alleen openbare bestanden. Het budget omvat eigen residente gegevens, geen lopende antwoorden of het totale procesgeheugen. De uitgerolde startpagina en service worker kunnen gedurende het hercontrole-interval in de cache blijven.
+admin-cache-assets-clear-help = Legen maakt bewaarde items vrij; actieve antwoorden worden normaal afgerond. Actief vooraf laden kan de cache opnieuw vullen. De tellers gelden voor dit serverproces.
+admin-cache-assets-stale = Het vernieuwen van het beleid is mislukt; de laatst toegepaste configuratie blijft actief.
+admin-cache-assets-applied = Configuratie toegepast: { $time }
+admin-cache-assets-resident = Eigen gegevens / budget
+admin-cache-assets-entries = Items / limiet
+admin-cache-assets-file = Effectieve limiet per eigen bestand
+admin-cache-assets-loads = Actief / limiet; wachtend / limiet
+admin-cache-assets-hits = Treffers / aanvaarde laadacties / gedeelde wachters
+admin-cache-assets-evictions = Verwijderd / verlopen / te groot
+admin-cache-assets-failures = Weigeringen bij drukte / mislukte taken
+admin-cache-assets-preload = Voorlaadmodus; bewaard / overgeslagen

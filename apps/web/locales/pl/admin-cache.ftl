@@ -26,3 +26,19 @@ admin-cache-change-removed = Usunięte wpisy historii synchronizacji
 admin-cache-parsed-copies = Usunięte kopie przetworzonej treści
 admin-cache-parsed-bytes = Usunięte dane przetworzonej treści
 admin-cache-change-chunked = Stany synchronizacji oczyszczone partiami
+
+# Public static representations only; process-local counters.
+admin-cache-assets-title = Pamięć RAM publicznych zasobów statycznych
+admin-cache-assets-clear = Wyczyść pamięć statyczną
+admin-cache-assets-help = Przechowuje tylko publiczne zasoby. Budżet obejmuje własne dane rezydentne, a nie trwające odpowiedzi ani całą pamięć procesu. Wdrożona strona startowa i service worker mogą pozostać w pamięci przez okres ponownej weryfikacji.
+admin-cache-assets-clear-help = Czyszczenie zwalnia zachowane wpisy; aktywne odpowiedzi kończą się normalnie. Aktywne ładowanie wstępne może ponownie zapełnić pamięć. Liczniki dotyczą tego procesu serwera.
+admin-cache-assets-stale = Odświeżenie zasad nie powiodło się; ostatnia zastosowana konfiguracja pozostaje aktywna.
+admin-cache-assets-applied = Zastosowano konfigurację: { $time }
+admin-cache-assets-resident = Własne dane / budżet
+admin-cache-assets-entries = Wpisy / limit
+admin-cache-assets-file = Efektywny limit własnego pliku
+admin-cache-assets-loads = Aktywne / limit; w kolejce / limit
+admin-cache-assets-hits = Trafienia / przyjęte ładowania / wspólne oczekiwania
+admin-cache-assets-evictions = Usunięte / wygasłe / zbyt duże
+admin-cache-assets-failures = Odmowy przy przeciążeniu / błędne zadania
+admin-cache-assets-preload = Tryb ładowania wstępnego; zachowane / pominięte

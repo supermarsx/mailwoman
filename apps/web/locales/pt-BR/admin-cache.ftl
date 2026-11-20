@@ -26,3 +26,19 @@ admin-cache-change-removed = Registros do histórico de sincronização removido
 admin-cache-parsed-copies = Cópias do conteúdo processado removidas
 admin-cache-parsed-bytes = Dados de conteúdo processado removidos
 admin-cache-change-chunked = Estados de sincronização limpos em partes
+
+# Public static representations only; process-local counters.
+admin-cache-assets-title = Cache RAM de recursos estáticos públicos
+admin-cache-assets-clear = Limpar cache estático
+admin-cache-assets-help = Armazena apenas recursos públicos. O orçamento cobre dados próprios residentes, não respostas em andamento nem a memória total do processo. A página inicial e o service worker publicados podem permanecer em cache durante o intervalo de revalidação.
+admin-cache-assets-clear-help = A limpeza libera entradas retidas; as respostas ativas terminam normalmente. O pré-carregamento ativo pode preencher o cache novamente. Os contadores abrangem este processo do servidor.
+admin-cache-assets-stale = A atualização da política falhou; a última configuração aplicada permanece ativa.
+admin-cache-assets-applied = Configuração aplicada: { $time }
+admin-cache-assets-resident = Dados próprios / orçamento
+admin-cache-assets-entries = Entradas / limite
+admin-cache-assets-file = Limite efetivo por arquivo próprio
+admin-cache-assets-loads = Em execução / limite; na fila / limite
+admin-cache-assets-hits = Acertos / carregamentos aceitos / esperas compartilhadas
+admin-cache-assets-evictions = Removidas / expiradas / grandes demais
+admin-cache-assets-failures = Recusas por ocupação / tarefas com falha
+admin-cache-assets-preload = Modo de pré-carregamento; retidas / ignoradas

@@ -7,6 +7,7 @@ import {useShell} from './shell/context.ts';
 import {adminRequest} from './shell/adminApi.ts';
 import {Feedback,describeAdminError} from './shell/Feedback.tsx';
 import {InlineLoading} from '../../components/InlineLoading.tsx';
+import {PublicAssetCacheCard} from './PublicAssetCacheCard.tsx';
 import {Icon} from '../../components/Icon.tsx';
 import {formatBytes} from './Dashboard/format.ts';
 import * as css from './admin.css.ts';
@@ -55,6 +56,7 @@ export function CacheMaintenance():JSX.Element{
   <div class={css.headingRow}><h2 class={css.heading}>{t('admin-cache-title')}</h2><button type="button" class="btn btn--ghost" disabled={busy()||report()?.running||!shell.can.can('maintenance.run')} onClick={()=>void run()}><Icon name="refresh"/>{t('admin-db-background-run')}</button></div>
   <p class={css.note}>{t('admin-cache-help')}</p>
   <Feedback kind="error" as="toast" message={error()==='admin-cache-settings-unavailable'?t('admin-cache-settings-unavailable'):error()}/>
+  <PublicAssetCacheCard settings={settings()} onChanged={saved=>setSettings(rows=>rows?.map(row=>row.key===saved.key?saved:row))}/>
   <section class={css.card}><h3 class={css.heading}>{t('admin-cache-expiry-status')}</h3>
    <Show when={report()?.lastReport?.walRecovery?.status==='recycled'}><p class={css.note}>{t('admin-cache-wal-recycled')}</p></Show>
    <Show when={report()?.lastReport?.walRecovery?.status==='recovery-required'}><p class={css.note}>{t('admin-cache-wal-recovery')}</p></Show>

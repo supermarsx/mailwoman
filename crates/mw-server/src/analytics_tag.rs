@@ -933,7 +933,7 @@ pub(crate) async fn mail_shell(
     let csp = HeaderValue::from_str(&widen(crate::CSP, &plan)).ok()?;
     let base: &str = &state.base_path;
     let bytes =
-        crate::adapt_asset_to_base("index.html", crate::read_asset(state, "index.html")?, base);
+        crate::adapt_asset_to_base("index.html", match crate::read_asset_async(state,"index.html").await {Ok(Some(bytes))=>bytes,Ok(None)=>return None,Err(error)=>return Some(error.response())}, base);
     let html = String::from_utf8(bytes).ok()?;
     let mut response = crate::asset_response(
         "index.html",

@@ -53,6 +53,8 @@ const ADMIN_JMAP_METHODS: &[&str] = &[
 
 /// The `/admin/maintenance/*` routes (registered by `admin_router`).
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
+    r.admin_endpoint(Method::GET,"/maintenance/web-assets",Capability::MaintenanceRead,web_asset_status);
+    r.admin_endpoint(Method::POST,"/maintenance/web-assets/clear",Capability::MaintenanceRun,web_asset_clear);
     r.admin_endpoint(Method::GET,"/maintenance/database-online",Capability::MaintenanceRead,online_database_status);
     r.admin_endpoint(Method::POST,"/maintenance/database-online",Capability::MaintenanceRun,online_database_start);
     r.admin_endpoint(Method::DELETE,"/maintenance/database-online",Capability::MaintenanceRun,online_database_cancel);
@@ -730,4 +732,36 @@ mod tests {
             "admin metadata passthrough engaged (gate passed, backend unavailable)"
         );
     }
+}
+
+async fn web_asset_status(
+    State(state): State<AppState>,
+    ctx: AdminCtx,
+) -> Result<Response, crate::admin_ctx::AdminApiError> {
+    ctx.require_unscoped(Capability::MaintenanceRead)?;
+    Ok((
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        Json(state.public_assets.status()),
+    )
+        .into_response())
+}
+async fn web_asset_clear(
+    State(state): State<AppState>,
+    ctx: AdminCtx,
+) -> Result<Response, crate::admin_ctx::AdminApiError> {
+    ctx.require_unscoped(Capability::MaintenanceRun)?;
+    state.public_assets.clear();
+    audit(
+        &state,
+        &ctx.username,
+        "public-static-cache-clear",
+        "public-static-representations",
+        json!({"generation":state.public_assets.status()["generation"]}),
+    )
+    .await;
+    Ok((
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        Json(state.public_assets.status()),
+    )
+        .into_response())
 }

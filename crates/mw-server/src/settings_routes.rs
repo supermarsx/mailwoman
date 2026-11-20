@@ -607,6 +607,9 @@ async fn put_global(
     {
         state.request_protection.invalidate();
     }
+    if key.starts_with("web.assets.cache.") {
+        state.public_assets.refresh(&state.store).await;
+    }
     // t48: turning linking or credential storage off deployment-wide deletes
     // every stored linked-mailbox credential now, not at each link's next use.
     if (key == "accounts.linkingEnabled" || key == crate::linked_accounts::STORE_CREDENTIALS_KEY)
@@ -716,6 +719,9 @@ pub(crate) async fn write_global_values(
     {
             state.request_protection.invalidate();
         }
+        if key.starts_with("web.assets.cache.") {
+            state.public_assets.refresh(&state.store).await;
+        }
         audit(
             state,
             ctx,
@@ -762,6 +768,9 @@ async fn delete_global(
         || key.starts_with("security.health.")
     {
         state.request_protection.invalidate();
+    }
+    if key.starts_with("web.assets.cache.") {
+        state.public_assets.refresh(&state.store).await;
     }
     if current.is_some() {
         audit(

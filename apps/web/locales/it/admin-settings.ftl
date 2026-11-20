@@ -2797,3 +2797,17 @@ admin-settings-help-web-offline-respect-save-data = Usare core quando il browser
 admin-pool-cache-target = Obiettivo cache SQLite in primo piano (MiB)
 admin-pool-cache-default = Predefinito del driver
 admin-pool-cache-help = Obiettivo flessibile facoltativo di 16–1024 MiB per MAIN, diviso per il massimo previsto di connessioni in primo piano. Richiede riavvio completo. Se attivo, le connessioni ausiliarie di manutenzione e conversione usano 2000 KiB ciascuna; altrimenti il driver resta invariato. Non limita la memoria del processo.
+
+# Bounded public static representation cache.
+admin-settings-key-web-assets-cache-enabled = Cache delle risorse statiche pubbliche
+admin-settings-help-web-assets-cache-enabled = Conserva rappresentazioni statiche pubbliche nella RAM del server. Esclude posta, dati API e HTML dinamico finale.
+admin-settings-key-web-assets-cache-budget-mi-b = Budget dei dati propri (MiB)
+admin-settings-help-web-assets-cache-budget-mi-b = Solo dati residenti propri; esclude risposte attive e byte statici incorporati. Non è un limite alla memoria del processo.
+admin-settings-key-web-assets-cache-max-file-mi-b = Limite per file proprio (MiB)
+admin-settings-help-web-assets-cache-max-file-mi-b = Limitato dal budget dei dati. I file più grandi non sono conservati ma usano caricamento limitato.
+admin-settings-key-web-assets-cache-max-entries = Limite di voci
+admin-settings-help-web-assets-cache-max-entries = Include riferimenti ai file incorporati senza copiare i byte originali.
+admin-settings-key-web-assets-cache-revalidate-seconds = Riconvalida delle risorse distribuite (secondi)
+admin-settings-help-web-assets-cache-revalidate-seconds = Età massima in cache dei byte distribuiti o conservati, pagina iniziale e service worker inclusi. I byte incorporati sono immutabili.
+admin-settings-key-web-assets-cache-preload = Modalità di precaricamento
+admin-settings-help-web-assets-cache-preload = off: nessuno; shell: pagina iniziale; core: pagina e gruppo limitato di script e stili. Al meglio, dopo il lavoro attivo.

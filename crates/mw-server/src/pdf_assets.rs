@@ -19,10 +19,12 @@
 //! rate limits). The PDF bytes never come from here: the parent fetches them
 //! through the authenticated attachment route and hands them to the frame.
 use std::{
+    borrow::Cow,
     collections::HashMap,
+    io::Read,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
-    time::SystemTime,
+    time::{Duration, Instant, SystemTime},
 };
 
 use axum::{
@@ -84,7 +86,7 @@ fn deployed(dir: &Path, path: &str, pinned: &[String]) -> Option<Vec<u8>> {
     std::fs::read(dir.join(path)).ok()
 }
 
-type StampCache = Mutex<HashMap<PathBuf, (SystemTime, u64, bool)>>;
+type StampCache = Mutex<HashMap<PathBuf, (SystemTime, u64, Instant, bool)>>;
 
 /// Is the deployed `pdfjs/manifest.json` identical to the embedded one? Cached by
 /// (mtime, length) so a viewer load does not re-read it for every asset.
@@ -94,20 +96,39 @@ fn manifest_matches(dir: &Path) -> bool {
     let Ok(meta) = std::fs::metadata(&file) else {
         return false;
     };
-    let stamp = (meta.modified().unwrap_or(SystemTime::UNIX_EPOCH), meta.len());
+    let stamp = (
+        meta.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+        meta.len(),
+    );
     let cache = CACHE.get_or_init(Default::default);
     if let Ok(map) = cache.lock()
-        && let Some((m, l, ok)) = map.get(&file)
+        && let Some((m, l, checked, ok)) = map.get(&file)
         && (*m, *l) == stamp
+        && checked.elapsed() < Duration::from_secs(1)
     {
         return *ok;
     }
-    let ok = match (std::fs::read(&file), read_pdf_asset(MANIFEST)) {
-        (Ok(disk), Some(embedded)) => disk == embedded.as_ref(),
-        _ => false,
-    };
+    let ok = read_pdf_asset(MANIFEST).is_some_and(|embedded| {
+        let Ok(file) = std::fs::File::open(&file) else {
+            return false;
+        };
+        let mut disk = Vec::new();
+        file.take(embedded.len() as u64 + 1)
+            .read_to_end(&mut disk)
+            .is_ok()
+            && disk == embedded.as_ref()
+    });
     if let Ok(mut map) = cache.lock() {
-        map.insert(file, (stamp.0, stamp.1, ok));
+        if map.len() >= 32 && !map.contains_key(&file) {
+            if let Some(old) = map
+                .iter()
+                .min_by_key(|(_, value)| value.2)
+                .map(|(key, _)| key.clone())
+            {
+                map.remove(&old);
+            }
+        }
+        map.insert(file, (stamp.0, stamp.1, Instant::now(), ok));
     }
     ok
 }
@@ -133,7 +154,56 @@ fn miss(path: &str) -> Response {
     resp
 }
 
-/// Answer one `/pdfjs/*` (or `/pdf.worker.mjs`) request. Never a JSON body.
+/// Same pinned-source selection, executed only inside a bounded loader worker.
+pub(crate) fn load_public(web_dir: Option<&Path>, path: &str) -> Option<Cow<'static, [u8]>> {
+    let embedded = read_pdf_asset(path)?;
+    if let Some(dir) = web_dir {
+        let pinned = read_pdf_asset(MANIFEST)
+            .and_then(|manifest| manifest_files(&manifest))
+            .unwrap_or_default();
+        if let Some(bytes) = deployed(dir, path, &pinned) {
+            return Some(Cow::Owned(bytes));
+        }
+    }
+    Some(embedded)
+}
+fn method_refusal() -> Response {
+    (
+        StatusCode::METHOD_NOT_ALLOWED,
+        [
+            (header::ALLOW, "GET, HEAD"),
+            (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
+        ],
+        "Method not allowed\n",
+    )
+        .into_response()
+}
+pub(crate) async fn response_cached(
+    state: &crate::AppState,
+    method: &Method,
+    path: &str,
+    headers: &HeaderMap,
+) -> Response {
+    if !matches!(*method, Method::GET | Method::HEAD) {
+        return method_refusal();
+    }
+    match state
+        .public_assets
+        .get(
+            crate::public_asset_cache::Source::Pdf,
+            crate::public_asset_cache::Variant::Public,
+            path,
+        )
+        .await
+    {
+        Ok(Some(asset)) => prepared_response(method, path, headers, &asset),
+        Ok(None) => miss(path),
+        Err(error) => error.response(),
+    }
+}
+/// Compatibility oracle for existing PDF header/source tests; production uses
+/// the asynchronous cache path above and the SAME prepared response builder.
+#[cfg(test)]
 pub(crate) fn response(
     web_dir: Option<&Path>,
     method: &Method,
@@ -141,33 +211,26 @@ pub(crate) fn response(
     headers: &HeaderMap,
 ) -> Response {
     if !matches!(*method, Method::GET | Method::HEAD) {
-        return (
-            StatusCode::METHOD_NOT_ALLOWED,
-            [
-                (header::ALLOW, "GET, HEAD"),
-                (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
-            ],
-            "Method not allowed\n",
-        )
-            .into_response();
+        return method_refusal();
     }
-    let embedded = read_pdf_asset(path);
-    let bytes = match (&embedded, web_dir) {
-        (Some(_), Some(dir)) => {
-            let pinned = read_pdf_asset(MANIFEST)
-                .and_then(|m| manifest_files(&m))
-                .unwrap_or_default();
-            deployed(dir, path, &pinned)
-        }
-        _ => None,
+    let Some(bytes) = load_public(web_dir, path) else {
+        return miss(path);
     };
-    let bytes = match (bytes, embedded) {
-        (Some(b), _) => b,
-        (None, Some(e)) => e.into_owned(),
-        (None, None) => return miss(path),
-    };
-    let len = bytes.len();
-    let mut resp = super::asset_response(path, mime_for(path), bytes, headers);
+    prepared_response(
+        method,
+        path,
+        headers,
+        &crate::public_asset_cache::Prepared::new(bytes),
+    )
+}
+fn prepared_response(
+    method: &Method,
+    path: &str,
+    headers: &HeaderMap,
+    asset: &crate::public_asset_cache::Prepared,
+) -> Response {
+    let len = asset.bytes.len();
+    let mut resp = super::asset_response_prepared(path, mime_for(path), asset, headers);
     // The URLs carry no version, so a shared long lifetime could pair a new document
     // with an old library after an upgrade. Always revalidate; the ETag makes it a 304.
     resp.headers_mut()

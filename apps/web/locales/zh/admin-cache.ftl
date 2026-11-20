@@ -26,3 +26,19 @@ admin-cache-change-removed = 已移除的同步历史记录
 admin-cache-parsed-copies = 已清理的解析正文副本
 admin-cache-parsed-bytes = 已移除的解析正文数据
 admin-cache-change-chunked = 分批清理的同步状态
+
+# Public static representations only; process-local counters.
+admin-cache-assets-title = 公开静态资源 RAM 缓存
+admin-cache-assets-clear = 清空静态缓存
+admin-cache-assets-help = 仅保留公开资源。预算仅涵盖自有常驻数据，不包括正在传输的响应或进程总内存。已部署的初始页面和服务工作线程可能在重新验证间隔内保留在缓存中。
+admin-cache-assets-clear-help = 清空会释放保留的条目；活动响应会正常完成。启用预加载后可能再次填充缓存。计数器仅针对本服务器进程。
+admin-cache-assets-stale = 策略刷新失败；上次应用的配置继续生效。
+admin-cache-assets-applied = 配置应用时间：{ $time }
+admin-cache-assets-resident = 自有数据 / 预算
+admin-cache-assets-entries = 条目 / 上限
+admin-cache-assets-file = 自有文件的实际大小上限
+admin-cache-assets-loads = 运行中 / 上限；排队 / 上限
+admin-cache-assets-hits = 命中 / 已接受加载 / 共享等待者
+admin-cache-assets-evictions = 移除 / 过期 / 超大绕过
+admin-cache-assets-failures = 繁忙拒绝 / 工作任务失败
+admin-cache-assets-preload = 预加载模式；保留 / 跳过

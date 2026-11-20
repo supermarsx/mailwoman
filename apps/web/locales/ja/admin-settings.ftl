@@ -2789,3 +2789,17 @@ admin-settings-help-web-offline-respect-save-data = ブラウザーが SaveData 
 admin-pool-cache-target = SQLite フォアグラウンドキャッシュ目標 (MiB)
 admin-pool-cache-default = ドライバー既定値
 admin-pool-cache-help = MAIN の任意のソフト目標 16–1024 MiB を、計画された最大フォアグラウンド接続数で分割します。サーバー全体の再起動が必要です。有効時は保守・変換の補助接続が各 2000 KiB を使用し、無効時はドライバーの動作を変更しません。プロセスメモリの上限ではありません。
+
+# Bounded public static representation cache.
+admin-settings-key-web-assets-cache-enabled = 公開静的アセットのキャッシュ
+admin-settings-help-web-assets-cache-enabled = 公開静的データをサーバー RAM に保持します。メール、API データ、生成済み動的 HTML は対象外です。
+admin-settings-key-web-assets-cache-budget-mi-b = 所有データの予算 (MiB)
+admin-settings-help-web-assets-cache-budget-mi-b = 所有する常駐データのみ。実行中の応答と埋め込み静的バイトは含みません。プロセスメモリの上限ではありません。
+admin-settings-key-web-assets-cache-max-file-mi-b = 所有ファイルの上限 (MiB)
+admin-settings-help-web-assets-cache-max-file-mi-b = データ予算が上限です。大きなファイルは保持されませんが、制限付きで読み込まれます。
+admin-settings-key-web-assets-cache-max-entries = エントリ上限
+admin-settings-help-web-assets-cache-max-entries = 埋め込みファイルの参照を含み、元のバイトを複製しません。
+admin-settings-key-web-assets-cache-revalidate-seconds = 配備アセットの再検証 (秒)
+admin-settings-help-web-assets-cache-revalidate-seconds = 初期ページとサービスワーカーを含む配備データの最大キャッシュ期間です。埋め込みバイトは不変です。
+admin-settings-key-web-assets-cache-preload = 事前読み込みモード
+admin-settings-help-web-assets-cache-preload = off: なし、shell: 初期ページ、core: ページと制限内のスクリプト・スタイル。実行中の要求を優先したベストエフォートです。

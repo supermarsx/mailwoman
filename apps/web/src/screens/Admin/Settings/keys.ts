@@ -20,6 +20,12 @@ export function settingAnchorId(key: string): string {
 export const KNOWN_KEYS: readonly string[] = [
   'web.i18n.retainedLocales',
   'web.i18n.concurrentLoads',
+  'web.assets.cache.enabled',
+  'web.assets.cache.budgetMiB',
+  'web.assets.cache.maxFileMiB',
+  'web.assets.cache.maxEntries',
+  'web.assets.cache.revalidateSeconds',
+  'web.assets.cache.preload',
   'web.prefetch.enabled',
   'web.prefetch.idleDelayMs',
   'web.offline.precacheMode',

@@ -2803,3 +2803,17 @@ admin-settings-help-web-offline-respect-save-data = Bei aktiviertem SaveData des
 admin-pool-cache-target = SQLite-Cacheziel für Vordergrundverbindungen (MiB)
 admin-pool-cache-default = Treibervorgabe
 admin-pool-cache-help = Optionales weiches MAIN-Ziel von 16–1024 MiB, geteilt durch die geplante maximale Zahl der Vordergrundverbindungen. Vollständiger Serverneustart erforderlich. Hilfsverbindungen für Wartung und Konvertierung nutzen dann je 2000 KiB; sonst bleibt das Treiberverhalten unverändert. Kein Prozessspeicherlimit.
+
+# Bounded public static representation cache.
+admin-settings-key-web-assets-cache-enabled = Cache für öffentliche statische Dateien
+admin-settings-help-web-assets-cache-enabled = Öffentliche statische Darstellungen im Server-RAM speichern. E-Mails, API-Daten und fertiges dynamisches HTML sind ausgeschlossen.
+admin-settings-key-web-assets-cache-budget-mi-b = Budget eigener Nutzdaten (MiB)
+admin-settings-help-web-assets-cache-budget-mi-b = Nur eigene residente Nutzdaten; ohne aktive Antworten und eingebettete statische Bytes. Kein Prozessspeicherlimit.
+admin-settings-key-web-assets-cache-max-file-mi-b = Grenze je eigener Datei (MiB)
+admin-settings-help-web-assets-cache-max-file-mi-b = Durch das Nutzdatenbudget begrenzt. Größere Dateien werden nicht gespeichert, aber begrenzt geladen.
+admin-settings-key-web-assets-cache-max-entries = Eintragsgrenze
+admin-settings-help-web-assets-cache-max-entries = Beinhaltet Verweise auf eingebettete Dateien ohne Kopie ihrer Rohdaten.
+admin-settings-key-web-assets-cache-revalidate-seconds = Prüfintervall bereitgestellter Dateien (Sekunden)
+admin-settings-help-web-assets-cache-revalidate-seconds = Maximales Cachealter bereitgestellter Dateien, einschließlich Startseite und Service Worker. Eingebettete Bytes sind unveränderlich.
+admin-settings-key-web-assets-cache-preload = Vorlademodus
+admin-settings-help-web-assets-cache-preload = off: aus; shell: Startseite; core: Startseite und begrenzte Skripte/Stile. Nach Möglichkeit, mit Vorrang für aktuelle Anfragen.

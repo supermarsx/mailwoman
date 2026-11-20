@@ -2803,3 +2803,17 @@ admin-settings-help-web-offline-respect-save-data = Utiliser core lorsque le nav
 admin-pool-cache-target = Cible du cache SQLite au premier plan (MiB)
 admin-pool-cache-default = Valeur du pilote
 admin-pool-cache-help = Cible facultative de 16–1024 MiB pour MAIN, répartie sur le maximum prévu de connexions au premier plan. Redémarrage complet requis. Les connexions auxiliaires de maintenance et conversion utilisent chacune 2000 KiB si activé ; sinon le pilote reste inchangé. Ce n’est pas une limite mémoire du processus.
+
+# Bounded public static representation cache.
+admin-settings-key-web-assets-cache-enabled = Cache des ressources statiques publiques
+admin-settings-help-web-assets-cache-enabled = Conserver les représentations statiques publiques en RAM du serveur. Exclut courriels, données API et HTML dynamique final.
+admin-settings-key-web-assets-cache-budget-mi-b = Budget des données propres (MiB)
+admin-settings-help-web-assets-cache-budget-mi-b = Données résidentes propres uniquement ; exclut réponses actives et octets statiques intégrés. Ce n’est pas une limite mémoire du processus.
+admin-settings-key-web-assets-cache-max-file-mi-b = Limite par fichier propre (MiB)
+admin-settings-help-web-assets-cache-max-file-mi-b = Plafonnée par le budget des données. Les gros fichiers ne sont pas conservés mais utilisent un chargement borné.
+admin-settings-key-web-assets-cache-max-entries = Limite d’entrées
+admin-settings-help-web-assets-cache-max-entries = Inclut les références aux fichiers intégrés sans recopier leurs octets bruts.
+admin-settings-key-web-assets-cache-revalidate-seconds = Revalidation des ressources déployées (secondes)
+admin-settings-help-web-assets-cache-revalidate-seconds = Âge maximal en cache des octets déployés ou retenus, page initiale et service worker inclus. Les octets intégrés sont immuables.
+admin-settings-key-web-assets-cache-preload = Mode de préchargement
+admin-settings-help-web-assets-cache-preload = off : aucun ; shell : page initiale ; core : page et ensemble borné de scripts et styles. Au mieux, après les tâches de premier plan.

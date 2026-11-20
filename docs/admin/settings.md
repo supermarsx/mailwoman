@@ -4400,3 +4400,38 @@ environment variables, not this setting. See [notifications](notifications.md).
 <a id="web.offline.respectSaveData"></a>
 
 These global controls tune parsed translation retention, catalog concurrency, idle prefetch and service-worker installation prewarming. See [Web delivery controls](../perf/web-delivery-controls.md) for defaults, bounds, refresh behavior and reduced offline coverage in core mode. They do not change security policy or message cache retention.
+
+## Public static asset RAM cache
+
+These global controls apply only to public static representations; mail/API data
+and final dynamic HTML are excluded. Maintenance → Cache shows actual resident
+owned payloads, loader activity and process counters, and offers an authenticated
+clear action. Active responses finish normally and enabled preload may refill.
+
+<a id="web.assets.cache.enabled"></a>
+`web.assets.cache.enabled` defaults to `true`; disabling releases retained entries
+while preserving bounded asynchronous loading.
+
+<a id="web.assets.cache.budgetMiB"></a>
+`web.assets.cache.budgetMiB` defaults to 64 (8–512 MiB). This is an owned resident
+payload budget, excluding active responses, metadata and embedded static bytes;
+it is not a process RSS limit.
+
+<a id="web.assets.cache.maxFileMiB"></a>
+`web.assets.cache.maxFileMiB` defaults to 4 (1–16 MiB), capped by the budget. Larger
+owned files bypass retention but still use the bounded loader. Embedded borrowed
+bytes are referenced without a duplicate raw allocation.
+
+<a id="web.assets.cache.maxEntries"></a>
+`web.assets.cache.maxEntries` defaults to 1024 (16–4096), including embedded
+metadata references.
+
+<a id="web.assets.cache.revalidateSeconds"></a>
+`web.assets.cache.revalidateSeconds` defaults to 1 (1–60 seconds). Deployed and
+retained bytes, including unhashed shell and service worker, can remain stale for
+this interval. Embedded build bytes are immutable.
+
+<a id="web.assets.cache.preload"></a>
+`web.assets.cache.preload` is `off`, `shell` (default) or `core`. Preload is
+nonblocking and best effort, requiring an immediately available loader slot and
+no pending foreground work. Core includes a bounded set of shell scripts/styles.

@@ -7,6 +7,7 @@ import {loadDatabaseMaintenance} from '../../api/admin/databaseMaintenance.ts';
 import {listAdminSettings,type AdminSetting} from '../../api/admin/settings.ts';
 import {adminRequest} from './shell/adminApi.ts';
 import {useShell} from './shell/context.ts';
+vi.mock('./PublicAssetCacheCard.tsx',()=>({PublicAssetCacheCard:()=>null}));
 vi.mock('../../api/admin/databaseMaintenance.ts',()=>({loadDatabaseMaintenance:vi.fn()}));
 vi.mock('../../api/admin/settings.ts',()=>({listAdminSettings:vi.fn()}));
 vi.mock('./shell/adminApi.ts',async original=>({...await original<typeof import('./shell/adminApi.ts')>(),adminRequest:vi.fn()}));
