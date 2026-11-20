@@ -216,3 +216,22 @@ cannot qualify the new typical SQL capacity target. Earlier RAM comparisons
 remain diagnostics. Private temporary storage may use a container overlay rather
 than a deployment's named volume: matching the code path does not establish
 production filesystem or whole-host capacity.
+
+The latest completed RAM-index comparison used six alternating 60-second runs
+with 100 authenticated users, 50 messages per user, the representative request
+mix, 16 outstanding requests and two generator workers. The app was limited to
+four CPUs and 4 GiB; the generator had separate two-CPU/1-GiB limits. On the same
+release image (`9dd4c06c0d80a7ec506924688f0d16af6b3f1edd83c26c371d7ed00d02469781`),
+three indexing workers reached a median 117.9 successful HTTP requests/second;
+one worker reached 118.43. Both had median p95 latency of 260 ms. All runs had
+zero request errors, throttles or timeouts and passed the loaded-policy,
+cross-account isolation, linked-login revocation and scanner enforcement gates.
+These differences do not demonstrate a meaningful throughput improvement, so
+production worker defaults remain unchanged. The one-worker runs used less
+resident memory (median approximately 275 MiB versus 354 MiB).
+
+Those runs predate the sealed-index fixture default above and are RAM-index
+diagnostics only. They also use one sender and no Sent messages or contacts.
+They do not establish capacity for 10,000 users, 40,000 RPS, production storage,
+or simultaneous WebSocket connections. The verified sealed-storage source has
+not yet supplied a replacement capacity measurement.
