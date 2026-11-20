@@ -63,6 +63,10 @@
 use crate::backend::{Arg, Backend, IntoArg, Row, Tx};
 use crate::{MigrationReport, Store, StoreError, backend, q};
 
+#[cfg(test)]
+#[path = "migrate_cursor_tests.rs"]
+mod cursor_tests;
+
 use sqlx::sqlite::SqlitePoolOptions;
 
 impl Store {
@@ -1077,6 +1081,12 @@ const TABLES: &[TableSpec] = &[
         select: "SELECT account_id,type,head_state,pruned_through FROM change_log_checkpoint",
         insert: "INSERT INTO change_log_checkpoint(account_id,type,head_state,pruned_through) VALUES(?1,?2,?3,?4)",
         map: |r| vec![t(r,"account_id"),t(r,"type"),i(r,"head_state"),i(r,"pruned_through")],
+    },
+    TableSpec {
+        name: "change_log_maintenance_cursor",
+        select: "SELECT id,account_id,type,updated_at FROM change_log_maintenance_cursor",
+        insert: "INSERT INTO change_log_maintenance_cursor(id,account_id,type,updated_at) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id,type=excluded.type,updated_at=excluded.updated_at",
+        map: |r| vec![i(r,"id"),t(r,"account_id"),t(r,"type"),i(r,"updated_at")],
     },
     TableSpec {
         name: "calendars",

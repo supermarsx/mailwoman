@@ -192,6 +192,7 @@ index of a restored install, which is rebuilt from the restored cache.
 | `bridge_oauth_tokens` | `bridge_account_id IN (SELECT bridge_id FROM bridge_accounts WHERE account_id=id) OR bridge_account_id=id` | deleted | `integrations` (marker: present, not exported) | - |
 | `calendar_shares` | `calendar_id IN (SELECT id FROM calendars WHERE account_id=id)` | removed with its parent row | - | - |
 | `calendars` | `account_id=id` | deleted | `calendars` (built by code) | - |
+| `change_log_maintenance_cursor` | - | kept: one global scheduler seek boundary, not message history; deleted account boundaries are replaced by the next reservation | - | - |
 | `changes` | `account_id=id` | deleted | - | - |
 | `child_account` | `owner_account_id=id` | deleted | `integrations` | - |
 | `client_error_event` | - | kept: pseudonymous diagnostics: scrubbed stack frames and a coarse browser, OS and viewport class per occurrence; account_hash is a salted one-way hash, empty unless the administrator enabled it, and events expire with retention.clientErrors.eventDays | - | - |

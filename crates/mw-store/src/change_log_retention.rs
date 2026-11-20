@@ -57,15 +57,28 @@ impl Store {
         cursor: ChangeLogRetentionCursor,
     ) -> Result<ChangeLogRetentionReport, StoreError> {
         let backend = self.backend.clone();
-        tokio::spawn(async move { run(backend, options, cursor).await })
+        tokio::spawn(async move { run(backend, options, cursor, false).await })
             .await
             .map_err(|e| StoreError::Db(sqlx::Error::Protocol(e.to_string())))?
+    }
+
+    /// Background scheduling resumes across process/store restarts. Manual
+    /// callers of `expire_change_log` retain their explicit cursor semantics.
+    pub async fn expire_change_log_resumable(
+        &self,
+        options: ChangeLogRetentionOptions,
+    ) -> Result<ChangeLogRetentionReport, StoreError> {
+        let backend = self.backend.clone();
+        tokio::spawn(async move {
+            run(backend, options, ChangeLogRetentionCursor::default(), true).await
+        }).await.map_err(|e| StoreError::Db(sqlx::Error::Protocol(e.to_string())))?
     }
 }
 async fn run(
     original: Backend,
     mut options: ChangeLogRetentionOptions,
     cursor: ChangeLogRetentionCursor,
+    resumable: bool,
 ) -> Result<ChangeLogRetentionReport, StoreError> {
     let started = Instant::now();
     let mut report = ChangeLogRetentionReport {
@@ -153,7 +166,16 @@ async fn run(
                 .await?
                 .set_progress_handler(1000, move || Instant::now() < deadline);
         }
-        collect(&backend, &options, deadline, &mut report).await
+        if resumable {
+            let group = reserve_next_group(&backend, report.at).await?;
+            report.cursor = group.clone().unwrap_or_default();
+            match group {
+                Some(group) => collect_group(&backend, &options, deadline, &mut report, &group.account_id, &group.kind).await,
+                None => Ok(()),
+            }
+        } else {
+            collect(&backend, &options, deadline, &mut report).await
+        }
     }
     .await;
     if let Backend::Sqlite(pool) = &backend {
@@ -205,7 +227,6 @@ async fn collect(
     deadline: Instant,
     report: &mut ChangeLogRetentionReport,
 ) -> Result<(), StoreError> {
-    let cutoff = report.at - i64::from(options.retention_days) * 86400;
     // Skip directly to the next indexed account/type, without DISTINCT over the
     // whole history. Visit each account/type once per round, even with backlog.
     let groups=q("SELECT account_id,type FROM changes WHERE (account_id,type)>(?1,?2) ORDER BY account_id,type LIMIT 1")
@@ -222,11 +243,50 @@ async fn collect(
         account_id: account.clone(),
         kind: kind.clone(),
     };
+    collect_group(backend, options, deadline, report, &account, &kind).await
+}
+
+/// Reservation commits separately from deletion: a busy group or a crash during
+/// cleanup must not reset round-robin progress after every process restart.
+/// Both transactions use the same pinned worker generation and execution budget.
+async fn reserve_next_group(
+    backend: &Backend,
+    at: i64,
+) -> Result<Option<ChangeLogRetentionCursor>, StoreError> {
+    let mut tx = backend.begin().await?;
+    let select = match backend.dialect() {
+        Dialect::Sqlite => "SELECT account_id,type FROM change_log_maintenance_cursor WHERE id=1",
+        Dialect::Postgres => "SELECT account_id,type FROM change_log_maintenance_cursor WHERE id=1 FOR UPDATE",
+    };
+    let rows = q(select).fetch_all_tx(&mut tx).await?;
+    let previous = rows.first().ok_or_else(|| StoreError::Corrupt("change-log maintenance cursor missing".into()))?;
+    let groups = q("SELECT account_id,type FROM changes WHERE (account_id,type)>(?1,?2) ORDER BY account_id,type LIMIT 1")
+        .bind(previous.get_string("account_id")).bind(previous.get_string("type"))
+        .fetch_all_tx(&mut tx).await?;
+    let next = groups.first().map(|group| ChangeLogRetentionCursor {
+        account_id: group.get_string("account_id"), kind: group.get_string("type"),
+    });
+    let saved = next.clone().unwrap_or_default();
+    q("UPDATE change_log_maintenance_cursor SET account_id=?1,type=?2,updated_at=?3 WHERE id=1")
+        .bind(saved.account_id).bind(saved.kind).bind(at).execute_tx(&mut tx).await?;
+    tx.commit().await?;
+    Ok(next)
+}
+
+async fn collect_group(
+    backend: &Backend,
+    options: &ChangeLogRetentionOptions,
+    deadline: Instant,
+    report: &mut ChangeLogRetentionReport,
+    account: &str,
+    kind: &str,
+) -> Result<(), StoreError> {
+    let cutoff = report.at - i64::from(options.retention_days) * 86400;
     let mut tx = backend.begin().await?;
     // Lock the parent first, matching account erasure's parent/child order.
     if matches!(backend, Backend::Postgres(_)) {
         q("SELECT id FROM accounts WHERE id=?1 FOR NO KEY UPDATE")
-            .bind(&account)
+            .bind(account)
             .execute_tx(&mut tx)
             .await?;
     }
@@ -239,8 +299,8 @@ async fn collect(
         }
     };
     let rows = q(sql)
-        .bind(&account)
-        .bind(&kind)
+        .bind(account)
+        .bind(kind)
         .bind(i64::from(options.batch_rows) + 1)
         .fetch_all_tx(&mut tx)
         .await?;
@@ -267,8 +327,8 @@ async fn collect(
         chunked = index > end;
     }
     if !locators.is_empty() && Instant::now() < deadline {
-        persist_floor(&mut tx, &account, &kind, floor).await?;
-        let removed = delete_chunk(&mut tx, backend.dialect(), &account, &kind, &locators).await?;
+        persist_floor(&mut tx, account, kind, floor).await?;
+        let removed = delete_chunk(&mut tx, backend.dialect(), account, kind, &locators).await?;
         tx.commit().await?;
         report.removed_rows = removed;
         report.chunked_states = u64::from(chunked && removed > 0);
@@ -336,6 +396,10 @@ fn older_than(row: &Row, cutoff: i64) -> bool {
 #[cfg(test)]
 #[path = "change_log_retention_chunk_tests.rs"]
 mod chunk_tests;
+
+#[cfg(test)]
+#[path = "change_log_retention_cursor_tests.rs"]
+mod cursor_tests;
 
 #[cfg(test)]
 mod tests {

@@ -155,7 +155,6 @@ pub(crate) async fn run_once(state: &AppState) -> Result<Value, String> {
                 current["lastError"] = json!("cache-expiry-unavailable");
             }
         }
-        let change_cursor=serde_json::from_value(previous["changeLogRetention"]["cursor"].clone()).unwrap_or_default();
         let change_options=mw_store::change_log_retention::ChangeLogRetentionOptions{
             enabled:number("maintenance.database.changeLogRetentionDays")>0,
             retention_days:number("maintenance.database.changeLogRetentionDays") as u32,
@@ -163,7 +162,7 @@ pub(crate) async fn run_once(state: &AppState) -> Result<Value, String> {
             max_run_ms:number("maintenance.database.maxRunMs"),
             max_wal_bytes:number("maintenance.database.maxWalMiB")*1024*1024,
         };
-        match store.expire_change_log(change_options,change_cursor).await{
+        match store.expire_change_log_resumable(change_options).await{
             Ok(report)=>current["changeLogRetention"]=serde_json::to_value(report).unwrap(),
             Err(error)=>{
                 tracing::warn!(%error,"Sync history retention deferred");

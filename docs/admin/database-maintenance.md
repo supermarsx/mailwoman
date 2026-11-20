@@ -154,8 +154,9 @@ Observability → Database shows the last batch, scanned and removed bodies, fre
 pages, deferral reasons, and the next batch. **Run a batch** uses the same limits
 and policy as the scheduler. **Configure maintenance** opens the administrator
 settings. All `maintenance.database.*` controls are global and hot-reloaded for
-the next batch. Batch history and cursors are in memory; restarting starts a new
-scan. The orphan grace timestamps are durable and survive a restart.
+the next batch. Batch history and body-cleanup cursors are in memory; restarting
+starts a new body scan. Orphan grace timestamps and the background change-log
+cleanup cursor are durable and survive a restart.
 
 Orphan cleanup never deletes messages. It deletes only sealed cache bodies that
 still have no message reference at the point of deletion. A first observation
@@ -268,6 +269,15 @@ timestamp visible in the sample protects that state's selected rows. Such a row
 found only in a later chunk remains protected, while previously expired chunks
 stay removed. Cleanup rotates across accounts/types and is gradual; sustained
 writes above its global batch capacity can extend the configured age window.
+
+The background change-log cleanup position is durable across restarts and database
+copies. One global cursor row is updated in place; progress does not depend on the
+observability page's in-memory status. Each worker reserves the next account/type
+before attempting cleanup, so a busy group or interrupted cleanup cannot keep
+restarting the round at the first account. A crash after reservation can defer that
+group until its next round, while its history remains untouched. Checkpoint/floor
+updates still commit atomically with actual history deletion. Explicitly supplied
+cursors on the manual Store API remain independent of the background cursor.
 
 The `changes` table stores account/message IDs, operation names, state numbers
 and timestamps; it does not store message bodies. Identical ingest replays do
