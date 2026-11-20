@@ -320,219 +320,260 @@ impl Fixture {
         )
     }
 }
-#[tokio::test]
-async fn actual_default_fifty_header_router_uses_composite_and_matches_original_with_fewer_reads() {
-    let fixture = Fixture::new().await;
-    let candidate = fixture.send(false).await;
-    let original = fixture.send(true).await;
-    assert_eq!(candidate.0, StatusCode::OK);
-    assert_eq!(
-        candidate.2.dispatches, 1,
-        "actual default36 request must USE candidate, not silently fall back"
-    );
-    assert_eq!(candidate.2.hints, 1);
-    assert_eq!(
-        candidate.2.observations, 2,
-        "one preparation plus one final snapshot"
-    );
-    assert_eq!(candidate.1, original.1);
-    assert_eq!(
-        candidate.1["methodResponses"][0][1]["list"]
-            .as_array()
-            .unwrap()
-            .len(),
-        50
-    );
-    assert!(
-        candidate.3.read.calls < original.3.read.calls,
-        "physical whole-request read count must actually improve: candidate={:?}, original={:?}",
-        candidate.3,
-        original.3
-    );
-}
-#[tokio::test]
-async fn queued_permit_revalidates_independent_writer_disabled_flag_before_dispatch() {
-    let fixture = Fixture::new().await;
-    let warm = fixture.send(false).await;
-    assert_eq!(warm.2.dispatches, 1);
-    let revision = fixture.measured.settings_read_revision().await.unwrap();
-    let knobs = crate::rate_leeway::knobs_at_revision(
-        &fixture.measured,
-        "native-composite.test",
-        &revision,
-    )
-    .await;
-    let held = crate::jmap_limits::request_with_knobs(&fixture.account, knobs)
-        .await
-        .unwrap();
-    let pause = test_control::pause(test_control::Stage::AfterPrepared, &fixture.session);
-    let request = fixture.send(false);
-    tokio::pin!(request);
-    tokio::select! {_=pause.entered.notified()=>{},reply=&mut request=>panic!("candidate did not reach preparation: {}",reply.0)}
-    pause.release.notify_one();
-    std::future::poll_fn(|cx| match request.as_mut().poll(cx) {
-        std::task::Poll::Pending => std::task::Poll::Ready(()),
-        std::task::Poll::Ready(_) => panic!("request must really wait behind held JMAP permit"),
-    })
-    .await;
-    fixture
-        .writer
-        .set_setting(
-            &format!("v6:admin:flags:{}", fixture.account),
-            r#"{"disabled":true}"#,
-        )
-        .await
-        .unwrap();
-    drop(held);
-    let reply = tokio::time::timeout(Duration::from_secs(5), request)
-        .await
-        .unwrap();
-    assert_eq!(reply.0, StatusCode::UNAUTHORIZED);
-    assert_eq!(reply.2.dispatches, 0);
-    assert!(reply.1.get("methodResponses").is_none());
-}
-#[tokio::test]
-async fn connector_wait_revalidates_credential_rejection_and_domain_retarget_before_dispatch() {
-    let fixture = Fixture::new().await;
-    assert_eq!(fixture.send(false).await.2.dispatches, 1);
-    let lock = crate::engine_mode::connect_lock(&fixture.account);
-    let held = lock.lock().await;
-    let pause = test_control::pause(test_control::Stage::BeforeConnector, &fixture.session);
-    let request = fixture.send(false);
-    tokio::pin!(request);
-    tokio::select! {_=pause.entered.notified()=>{},reply=&mut request=>panic!("candidate did not reach connector wait: {}",reply.0)}
-    pause.release.notify_one();
-    std::future::poll_fn(|cx| match request.as_mut().poll(cx) {
-        std::task::Poll::Pending => std::task::Poll::Ready(()),
-        std::task::Poll::Ready(_) => panic!("request must really wait behind held connector mutex"),
-    })
-    .await;
-    let mut row = fixture
-        .writer
-        .get_domain_config("native-composite.test")
-        .await
-        .unwrap()
-        .unwrap();
-    row.upstream_json=json!({"imap":{"host":"different.native-composite.test","port":993,"tls":"implicit","auth":"password"}}).to_string();
-    fixture.writer.put_domain_config(&row).await.unwrap();
-    drop(held);
-    let reply = tokio::time::timeout(Duration::from_secs(5), request)
-        .await
-        .unwrap();
-    assert_eq!(reply.0, StatusCode::UNAUTHORIZED);
-    assert_eq!(reply.2.dispatches, 0);
-    assert!(reply.1.get("methodResponses").is_none());
-}
-#[tokio::test]
-async fn same_account_sibling_credential_name_flag_is_not_skipped_by_composite_connector() {
-    let fixture = Fixture::new().await;
-    let creds = Credentials {
-        username: "alias@native-composite.test".into(),
-        password: "sibling-fixture-secret".into(),
-    };
-    fixture
-        .writer
-        .create_session(
-            &fixture.account,
-            "person@native-composite.test",
-            "engine",
-            "engine",
-            &creds,
-        )
-        .await
-        .unwrap();
-    fixture
-        .writer
-        .set_setting(
-            "v6:admin:flags:alias@native-composite.test",
-            r#"{"disabled":true}"#,
-        )
-        .await
-        .unwrap();
-    let candidate = fixture.send(false).await;
-    let original = fixture.send(true).await;
-    assert_eq!(
-        candidate.2.dispatches, 0,
-        "sibling-only credential name must remain part of connector gate"
-    );
-    assert_ne!(candidate.0, StatusCode::OK);
-    assert_eq!(candidate.0, original.0);
-    assert_eq!(candidate.1, original.1);
-}
-#[tokio::test]
-async fn connector_wait_revalidates_current_credential_revision_rejection() {
-    let fixture = Fixture::new().await;
-    assert_eq!(fixture.send(false).await.2.dispatches, 1);
-    let lock = crate::engine_mode::connect_lock(&fixture.account);
-    let held = lock.lock().await;
-    let pause = test_control::pause(test_control::Stage::BeforeConnector, &fixture.session);
-    let request = fixture.send(false);
-    tokio::pin!(request);
-    tokio::select! {_=pause.entered.notified()=>{},reply=&mut request=>panic!("candidate did not reach connector wait: {}",reply.0)}
-    pause.release.notify_one();
-    std::future::poll_fn(|cx| match request.as_mut().poll(cx) {
-        std::task::Poll::Pending => std::task::Poll::Ready(()),
-        std::task::Poll::Ready(_) => panic!("must await held connector lock"),
-    })
-    .await;
-    let current = fixture
-        .writer
-        .account_credential_revision(&fixture.account)
-        .await
-        .unwrap();
-    assert!(
-        fixture
-            .writer
-            .reject_account_credential_revision(&fixture.account, &current)
-            .await
-            .unwrap()
-    );
-    drop(held);
-    let reply = tokio::time::timeout(Duration::from_secs(5), request)
-        .await
-        .unwrap();
-    assert_eq!(reply.0, StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(reply.1["code"], "authorizationNotConfirmedBeforeDispatch");
-    assert_eq!(reply.2.dispatches, 0);
-    assert!(reply.1.get("methodResponses").is_none());
+// Full production-router debug futures exceed ordinary libtest stack budgets.
+// Construct AND poll each future inside this bounded test-owned thread; the
+// caller hands over only a small factory closure, never a prebuilt large future.
+// Panics cross the join unchanged so assertion failures remain test failures.
+fn run_fixture<F, Fut>(factory: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()>,
+{
+    let test = std::thread::Builder::new()
+        .name("mw-native-admission-test".into())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("test runtime");
+            runtime.block_on(factory());
+        })
+        .expect("bounded fixture thread");
+    if let Err(panic) = test.join() {
+        std::panic::resume_unwind(panic);
+    }
 }
 
-#[tokio::test]
-async fn new_restrictive_policy_never_uses_prior_warm_inputs_or_changes_original_refusal() {
-    let fixture = Fixture::new().await;
-    assert_eq!(fixture.send(false).await.2.dispatches, 1);
-    policy(&fixture.writer, "access.protocols", json!([])).await;
-    let candidate = fixture.send(false).await;
-    let original = fixture.send(true).await;
-    assert_eq!(candidate.0, StatusCode::FORBIDDEN);
-    assert_eq!(candidate.2.dispatches, 0);
-    assert_eq!(candidate.0, original.0);
-    assert_eq!(candidate.1, original.1);
+#[test]
+fn actual_default_fifty_header_router_uses_composite_and_matches_original_with_fewer_reads() {
+    run_fixture(|| async {
+        let fixture = Fixture::new().await;
+        let candidate = fixture.send(false).await;
+        let original = fixture.send(true).await;
+        assert_eq!(candidate.0, StatusCode::OK);
+        assert_eq!(
+            candidate.2.dispatches, 1,
+            "actual default36 request must USE candidate, not silently fall back"
+        );
+        assert_eq!(candidate.2.hints, 1);
+        assert_eq!(
+            candidate.2.observations, 2,
+            "one preparation plus one final snapshot"
+        );
+        assert_eq!(candidate.1, original.1);
+        assert_eq!(
+            candidate.1["methodResponses"][0][1]["list"]
+                .as_array()
+                .unwrap()
+                .len(),
+            50
+        );
+        assert!(
+            candidate.3.read.calls < original.3.read.calls,
+            "physical whole-request read count must actually improve: candidate={:?}, original={:?}",
+            candidate.3,
+            original.3
+        );
+    });
 }
-#[tokio::test]
-async fn connector_wait_revalidates_independent_account_kind_change() {
-    let fixture = Fixture::new().await;
-    assert_eq!(fixture.send(false).await.2.dispatches, 1);
-    let lock = crate::engine_mode::connect_lock(&fixture.account);
-    let held = lock.lock().await;
-    let pause = test_control::pause(test_control::Stage::BeforeConnector, &fixture.session);
-    let request = fixture.send(false);
-    tokio::pin!(request);
-    tokio::select! {_=pause.entered.notified()=>{},reply=&mut request=>panic!("candidate did not reach connector wait: {}",reply.0)}
-    pause.release.notify_one();
-    std::future::poll_fn(|cx| match request.as_mut().poll(cx) {
-        std::task::Poll::Pending => std::task::Poll::Ready(()),
-        std::task::Poll::Ready(_) => panic!("must await held connector lock"),
-    })
-    .await;
-    fixture.replace_account_kind().await;
-    drop(held);
-    let reply = tokio::time::timeout(Duration::from_secs(5), request)
-        .await
-        .unwrap();
-    assert_eq!(reply.0, StatusCode::UNAUTHORIZED);
-    assert_eq!(reply.2.dispatches, 0);
-    assert!(reply.1.get("methodResponses").is_none());
+#[test]
+fn queued_permit_revalidates_independent_writer_disabled_flag_before_dispatch() {
+    run_fixture(|| async {
+        let fixture = Fixture::new().await;
+        let warm = fixture.send(false).await;
+        assert_eq!(warm.2.dispatches, 1);
+        let revision = fixture.measured.settings_read_revision().await.unwrap();
+        let knobs = crate::rate_leeway::knobs_at_revision(
+            &fixture.measured,
+            "native-composite.test",
+            &revision,
+        )
+        .await;
+        let held = crate::jmap_limits::request_with_knobs(&fixture.account, knobs)
+            .await
+            .unwrap();
+        let pause = test_control::pause(test_control::Stage::AfterPrepared, &fixture.session);
+        let request = fixture.send(false);
+        tokio::pin!(request);
+        tokio::select! {_=pause.entered.notified()=>{},reply=&mut request=>panic!("candidate did not reach preparation: {}",reply.0)}
+        pause.release.notify_one();
+        std::future::poll_fn(|cx| match request.as_mut().poll(cx) {
+            std::task::Poll::Pending => std::task::Poll::Ready(()),
+            std::task::Poll::Ready(_) => panic!("request must really wait behind held JMAP permit"),
+        })
+        .await;
+        fixture
+            .writer
+            .set_setting(
+                &format!("v6:admin:flags:{}", fixture.account),
+                r#"{"disabled":true}"#,
+            )
+            .await
+            .unwrap();
+        drop(held);
+        let reply = tokio::time::timeout(Duration::from_secs(5), request)
+            .await
+            .unwrap();
+        assert_eq!(reply.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(reply.2.dispatches, 0);
+        assert!(reply.1.get("methodResponses").is_none());
+    });
+}
+#[test]
+fn connector_wait_revalidates_credential_rejection_and_domain_retarget_before_dispatch() {
+    run_fixture(|| async {
+        let fixture = Fixture::new().await;
+        assert_eq!(fixture.send(false).await.2.dispatches, 1);
+        let lock = crate::engine_mode::connect_lock(&fixture.account);
+        let held = lock.lock().await;
+        let pause = test_control::pause(test_control::Stage::BeforeConnector, &fixture.session);
+        let request = fixture.send(false);
+        tokio::pin!(request);
+        tokio::select! {_=pause.entered.notified()=>{},reply=&mut request=>panic!("candidate did not reach connector wait: {}",reply.0)}
+        pause.release.notify_one();
+        std::future::poll_fn(|cx| match request.as_mut().poll(cx) {
+            std::task::Poll::Pending => std::task::Poll::Ready(()),
+            std::task::Poll::Ready(_) => {
+                panic!("request must really wait behind held connector mutex")
+            }
+        })
+        .await;
+        let mut row = fixture
+            .writer
+            .get_domain_config("native-composite.test")
+            .await
+            .unwrap()
+            .unwrap();
+        row.upstream_json=json!({"imap":{"host":"different.native-composite.test","port":993,"tls":"implicit","auth":"password"}}).to_string();
+        fixture.writer.put_domain_config(&row).await.unwrap();
+        drop(held);
+        let reply = tokio::time::timeout(Duration::from_secs(5), request)
+            .await
+            .unwrap();
+        assert_eq!(reply.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(reply.2.dispatches, 0);
+        assert!(reply.1.get("methodResponses").is_none());
+    });
+}
+#[test]
+fn same_account_sibling_credential_name_flag_is_not_skipped_by_composite_connector() {
+    run_fixture(|| async {
+        let fixture = Fixture::new().await;
+        let creds = Credentials {
+            username: "alias@native-composite.test".into(),
+            password: "sibling-fixture-secret".into(),
+        };
+        fixture
+            .writer
+            .create_session(
+                &fixture.account,
+                "person@native-composite.test",
+                "engine",
+                "engine",
+                &creds,
+            )
+            .await
+            .unwrap();
+        fixture
+            .writer
+            .set_setting(
+                "v6:admin:flags:alias@native-composite.test",
+                r#"{"disabled":true}"#,
+            )
+            .await
+            .unwrap();
+        let candidate = fixture.send(false).await;
+        let original = fixture.send(true).await;
+        assert_eq!(
+            candidate.2.dispatches, 0,
+            "sibling-only credential name must remain part of connector gate"
+        );
+        assert_ne!(candidate.0, StatusCode::OK);
+        assert_eq!(candidate.0, original.0);
+        assert_eq!(candidate.1, original.1);
+    });
+}
+#[test]
+fn connector_wait_revalidates_current_credential_revision_rejection() {
+    run_fixture(|| async {
+        let fixture = Fixture::new().await;
+        assert_eq!(fixture.send(false).await.2.dispatches, 1);
+        let lock = crate::engine_mode::connect_lock(&fixture.account);
+        let held = lock.lock().await;
+        let pause = test_control::pause(test_control::Stage::BeforeConnector, &fixture.session);
+        let request = fixture.send(false);
+        tokio::pin!(request);
+        tokio::select! {_=pause.entered.notified()=>{},reply=&mut request=>panic!("candidate did not reach connector wait: {}",reply.0)}
+        pause.release.notify_one();
+        std::future::poll_fn(|cx| match request.as_mut().poll(cx) {
+            std::task::Poll::Pending => std::task::Poll::Ready(()),
+            std::task::Poll::Ready(_) => panic!("must await held connector lock"),
+        })
+        .await;
+        let current = fixture
+            .writer
+            .account_credential_revision(&fixture.account)
+            .await
+            .unwrap();
+        assert!(
+            fixture
+                .writer
+                .reject_account_credential_revision(&fixture.account, &current)
+                .await
+                .unwrap()
+        );
+        drop(held);
+        let reply = tokio::time::timeout(Duration::from_secs(5), request)
+            .await
+            .unwrap();
+        assert_eq!(reply.0, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(reply.1["code"], "authorizationNotConfirmedBeforeDispatch");
+        assert_eq!(reply.2.dispatches, 0);
+        assert!(reply.1.get("methodResponses").is_none());
+    });
+}
+
+#[test]
+fn new_restrictive_policy_never_uses_prior_warm_inputs_or_changes_original_refusal() {
+    run_fixture(|| async {
+        let fixture = Fixture::new().await;
+        assert_eq!(fixture.send(false).await.2.dispatches, 1);
+        policy(&fixture.writer, "access.protocols", json!([])).await;
+        let candidate = fixture.send(false).await;
+        let original = fixture.send(true).await;
+        assert_eq!(candidate.0, StatusCode::FORBIDDEN);
+        assert_eq!(candidate.2.dispatches, 0);
+        assert_eq!(candidate.0, original.0);
+        assert_eq!(candidate.1, original.1);
+    });
+}
+#[test]
+fn connector_wait_revalidates_independent_account_kind_change() {
+    run_fixture(|| async {
+        let fixture = Fixture::new().await;
+        assert_eq!(fixture.send(false).await.2.dispatches, 1);
+        let lock = crate::engine_mode::connect_lock(&fixture.account);
+        let held = lock.lock().await;
+        let pause = test_control::pause(test_control::Stage::BeforeConnector, &fixture.session);
+        let request = fixture.send(false);
+        tokio::pin!(request);
+        tokio::select! {_=pause.entered.notified()=>{},reply=&mut request=>panic!("candidate did not reach connector wait: {}",reply.0)}
+        pause.release.notify_one();
+        std::future::poll_fn(|cx| match request.as_mut().poll(cx) {
+            std::task::Poll::Pending => std::task::Poll::Ready(()),
+            std::task::Poll::Ready(_) => panic!("must await held connector lock"),
+        })
+        .await;
+        fixture.replace_account_kind().await;
+        drop(held);
+        let reply = tokio::time::timeout(Duration::from_secs(5), request)
+            .await
+            .unwrap();
+        assert_eq!(reply.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(reply.2.dispatches, 0);
+        assert!(reply.1.get("methodResponses").is_none());
+    });
 }
 
 #[test]
