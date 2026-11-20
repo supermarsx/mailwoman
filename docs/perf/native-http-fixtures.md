@@ -401,6 +401,37 @@ guarantees require durable replay design. None of these index architecture
 changes is implemented by this measurement. The 40,000-RPS/10,000-user,
 simultaneous-WebSocket and whole-host capacity targets remain unproven.
 
+### Bulk publication amortization
+
+A further diagnostic kept the same frozen candidate server, sealed storage,
+policies, 100 accounts, 50 messages per account and resource limits. Additive
+generator helpers used the existing JMAP API; server/default workload modules
+were unchanged. Each successful HTTP cycle set `$seen` on the first N messages,
+read all N back, restored their flags, and verified that restoration. Thus each
+cycle contained four JMAP methods and two N-document publications. The
+helpers explicitly exported a bulk-diagnostic profile rather than claiming the
+ordinary representative request mix. Timing instrumentation was enabled.
+
+Each fresh, 20-second run independently verified all 5,000 message IDs, flags
+and original mailboxes before and after measurement. Unknown mutations,
+errors, telemetry loss, excessive aggregation debt or failed state restoration
+prevented a successful result. All four runs passed. Timed population coverage
+is reported separately from the complete before/after state validation.
+
+| Messages per update | Successful HTTP cycles/s | Validated document applications/s | Mean commit | Timed users |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 8.05 | 16.1 | 59.24 ms | 100/100 |
+| 8 | 5.70 | 91.2 | 84.24 ms | 100/100 |
+| 32 | 5.05 | 323.2 | 91.81 ms | 98/100 |
+| 50 | 5.10 | 510.0 | 88.92 ms | 100/100 |
+
+The 50-message case processed about 31.7 times as many validated document
+applications per second as the single-message case while retaining durable
+publication. This measures the amortization of the existing multi-ID update
+path; it is neither a 31.7-fold HTTP throughput gain nor verification of a new
+cross-request publisher. The measurements support implementing bounded,
+ordered cross-request coalescing and then remeasuring the original workload.
+
 Native fixtures can opt into additional index wall-time diagnostics with
 `MW_NATIVE_LOAD_INDEX_TIMING=1` (`0` or absence keeps them disabled). This is
 validated before seeding; ordinary production constructors do not enable it.
