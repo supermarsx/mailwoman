@@ -6153,9 +6153,9 @@ async fn authed_cookie(
     headers: &HeaderMap,
 ) -> Result<mw_store::Session, Response> {
     let id = cookie_value(headers).ok_or_else(unauthorized)?;
-    let session = state
+    let (session, last_seen) = state
         .store
-        .get_primary_session(&id)
+        .get_primary_session_with_activity(&id)
         .await
         .map_err(|_| unauthorized())?;
     if let Err(reason) = state.sessions.check(&id, &state.hardening) {
@@ -6165,10 +6165,10 @@ async fn authed_cookie(
         return Err(session_expired());
     }
     security_center::enforce_session_clock(state, &session).await?;
-    let _ = state
-        .store
-        .touch_session_throttled(&id, session_persistence::flush_seconds())
-        .await;
+    let flush_seconds = session_persistence::flush_seconds();
+    if state.store.session_touch_may_be_due_at(last_seen.as_deref(), flush_seconds, chrono::Utc::now()) {
+        let _ = state.store.touch_session_throttled(&id, flush_seconds).await;
+    }
     Ok(session)
 }
 

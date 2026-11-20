@@ -689,16 +689,25 @@ impl Store {
     /// Keep this predicate in the original row read, without adding a second
     /// policy/marker query to every ordinary request when linking is disabled.
     pub async fn get_primary_session(&self, id: &str) -> Result<Session, StoreError> {
-        let row=q("SELECT id,account_id,username,jmap_url,api_url,sealed_creds FROM sessions WHERE id=?1 AND linked_internal=0")
+        self.get_primary_session_with_activity(id).await.map(|(session, _)| session)
+    }
+
+    /// Same authoritative primary-session read and credential fences, with a
+    /// fresh telemetry timestamp from that SAME row. This is not an auth cache.
+    /// Unreadable/null last_seen is returned as None: telemetry must retain its
+    /// original UPDATE path instead of changing authentication behavior.
+    pub async fn get_primary_session_with_activity(&self, id: &str) -> Result<(Session, Option<String>), StoreError> {
+        let row=q("SELECT id,account_id,username,jmap_url,api_url,sealed_creds,last_seen FROM sessions WHERE id=?1 AND linked_internal=0")
             .bind(id).fetch_optional(&self.backend).await?.ok_or(StoreError::NotFound)?;
-        Ok(Session {
+        let session = Session {
             id: row.get_string("id"),
             account_id: row.get_string("account_id"),
             username: row.get_string("username"),
             jmap_url: row.get_string("jmap_url"),
             api_url: row.get_string("api_url"),
             credentials: decode_creds(&self.key.open(&row.get_blob("sealed_creds"))?)?,
-        })
+        };
+        Ok((session, row.try_get_opt_string("last_seen").ok().flatten()))
     }
 
     pub async fn touch_session(&self, id: &str) -> Result<(), StoreError> {
