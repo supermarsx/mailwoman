@@ -34,6 +34,14 @@ pub struct VerifiedPolicySubject {
     pub native_account: Option<String>,
 }
 
+/// Related namespaces derived from one fresh verified identity snapshot.
+/// This value is not an authentication cache or a reusable authorization proof.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedSessionSubjects {
+    pub policy: VerifiedPolicySubject,
+    pub storage_authority: String,
+}
+
 fn row(value: &Row) -> PrimaryPrincipal {
     PrimaryPrincipal {
         principal_id: value.get_string("principal_id"),
@@ -44,11 +52,12 @@ fn row(value: &Row) -> PrimaryPrincipal {
     }
 }
 
-fn personal_subject(parts: Vec<String>) -> String {
+fn personal_subject(parts: impl IntoIterator<Item = impl AsRef<str>>) -> String {
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
     digest.update(b"mailwoman-personal-subject-v1\0");
     for part in parts {
+        let part = part.as_ref();
         digest.update((part.len() as u64).to_be_bytes());
         digest.update(part.as_bytes());
     }
@@ -108,6 +117,10 @@ impl Store {
         let Some(parts) = self.verified_personal_parts(session).await? else {
             return Ok(None);
         };
+        Ok(Some(self.storage_authority_for_parts(&parts)))
+    }
+
+    fn storage_authority_for_parts(&self, parts: &[String]) -> String {
         // Length-prefixed fields prevent delimiter ambiguity. Neither realm URLs
         // nor external subjects are exposed to the browser.
         let mut message = Vec::new();
@@ -120,7 +133,28 @@ impl Store {
                 .iter()
                 .map(|byte| format!("{byte:02x}"))
                 .collect();
-        Ok(Some(format!("msa1_{digest}")))
+        format!("msa1_{digest}")
+    }
+
+    /// Resolve all settings namespaces together, without retaining identity state
+    /// across requests. Missing, retired or mismatched identities return None;
+    /// database failures propagate to the caller.
+    pub async fn verified_session_subjects(
+        &self,
+        session: &str,
+    ) -> Result<Option<VerifiedSessionSubjects>, StoreError> {
+        let Some(parts) = self.verified_personal_parts(session).await? else {
+            return Ok(None);
+        };
+        let native_account =
+            (parts.first().map(String::as_str) == Some("native")).then(|| parts[1].clone());
+        Ok(Some(VerifiedSessionSubjects {
+            policy: VerifiedPolicySubject {
+                personal_subject: personal_subject(&parts),
+                native_account,
+            },
+            storage_authority: self.storage_authority_for_parts(&parts),
+        }))
     }
 
     /// Durable database subject independent of the encryption key. Migration
@@ -164,10 +198,7 @@ impl Store {
         {
             return Ok(None);
         }
-        Ok(Some(personal_subject(vec![
-            "native".into(),
-            account.into(),
-        ])))
+        Ok(Some(personal_subject(["native", account])))
     }
 
     /// Atomically attach a verified primary identity, or refuse stale, retired,
@@ -265,12 +296,20 @@ impl Store {
             .execute_tx(&mut tx)
             .await?;
         // The countries seen in this identity's sign-ins go with it.
-        let accounts = q("SELECT DISTINCT primary_account_id FROM session_principal WHERE principal_id=?1")
-            .bind(principal).fetch_all_tx(&mut tx).await?;
+        let accounts =
+            q("SELECT DISTINCT primary_account_id FROM session_principal WHERE principal_id=?1")
+                .bind(principal)
+                .fetch_all_tx(&mut tx)
+                .await?;
         for row in &accounts {
             q("DELETE FROM settings WHERE key=?1")
-                .bind(format!("{}{}", crate::sec_state::ACCOUNT_GEO_PREFIX, row.get_string("primary_account_id")))
-                .execute_tx(&mut tx).await?;
+                .bind(format!(
+                    "{}{}",
+                    crate::sec_state::ACCOUNT_GEO_PREFIX,
+                    row.get_string("primary_account_id")
+                ))
+                .execute_tx(&mut tx)
+                .await?;
         }
         q("DELETE FROM sessions WHERE id IN (SELECT session_id FROM session_principal WHERE principal_id=?1)")
             .bind(principal).execute_tx(&mut tx).await?;
@@ -286,6 +325,161 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn combined_session_subjects_are_fresh_fail_closed_and_use_one_read() {
+        let store = Store::open_in_memory(crate::ServerKey::generate())
+            .await
+            .unwrap();
+        let id = store
+            .create_session(
+                "upstream-account",
+                "same@example.test",
+                "https://mail.test/session",
+                "https://mail.test/api",
+                &crate::Credentials {
+                    username: "same".into(),
+                    password: "synthetic".into(),
+                },
+            )
+            .await
+            .unwrap();
+        assert!(
+            store
+                .verified_session_subjects(&id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        store
+            .set_session_authentication(&id, "password")
+            .await
+            .unwrap();
+        let principal = store
+            .bind_verified_primary(&id, proof("upstream-account", "verified-realm"), 100)
+            .await
+            .unwrap()
+            .unwrap();
+        let ((policy, owner, storage), separate_reads) =
+            crate::pool_telemetry::measure_queries(async {
+                (
+                    store.session_policy_subject(&id).await.unwrap().unwrap(),
+                    store.session_personal_subject(&id).await.unwrap().unwrap(),
+                    store.session_storage_authority(&id).await.unwrap().unwrap(),
+                )
+            })
+            .await;
+        let (combined, combined_reads) =
+            crate::pool_telemetry::measure_queries(store.verified_session_subjects(&id)).await;
+        let combined = combined.unwrap().unwrap();
+        assert_eq!(combined.policy, policy);
+        assert_eq!(combined.policy.personal_subject, owner);
+        assert_eq!(combined.storage_authority, storage);
+        assert_eq!(separate_reads.read.calls, 3);
+        assert_eq!(combined_reads.read.calls, 1);
+
+        // Fresh endpoint changes must change both namespaces without invalidation.
+        q("UPDATE sessions SET api_url=?2 WHERE id=?1")
+            .bind(&id)
+            .bind("https://other.test/api")
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        let updated = store.verified_session_subjects(&id).await.unwrap().unwrap();
+        assert_ne!(
+            updated.policy.personal_subject,
+            combined.policy.personal_subject
+        );
+        assert_ne!(updated.storage_authority, combined.storage_authority);
+        q("UPDATE sessions SET api_url=?2 WHERE id=?1")
+            .bind(&id)
+            .bind("file:///private")
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert!(
+            store
+                .verified_session_subjects(&id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        q("UPDATE sessions SET api_url=?2,account_id=?3 WHERE id=?1")
+            .bind(&id)
+            .bind("https://mail.test/api")
+            .bind("wrong-account")
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert!(
+            store
+                .verified_session_subjects(&id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        q("UPDATE sessions SET account_id=?2 WHERE id=?1")
+            .bind(&id)
+            .bind("upstream-account")
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        q("UPDATE identity_principal SET state='retired' WHERE id=?1")
+            .bind(&principal.principal_id)
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert!(
+            store
+                .verified_session_subjects(&id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        q("UPDATE identity_principal SET state='active' WHERE id=?1")
+            .bind(&principal.principal_id)
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        q("UPDATE identity_binding SET retired_at=123 WHERE id=?1")
+            .bind(&principal.binding_id)
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert!(
+            store
+                .verified_session_subjects(&id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        q("UPDATE identity_binding SET retired_at=NULL WHERE id=?1")
+            .bind(&principal.binding_id)
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert!(
+            store
+                .verified_session_subjects(&id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        q("DELETE FROM sessions WHERE id=?1")
+            .bind(&id)
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert!(
+            store
+                .verified_session_subjects(&id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        store.close().await;
+        assert!(store.verified_session_subjects(&id).await.is_err());
+    }
 
     #[tokio::test]
     async fn storage_authority_separates_realms_and_survives_rotation() {
@@ -666,7 +860,13 @@ mod tests {
             .await
             .unwrap();
         assert!(store.get_setting("acct-geo:v1:1").await.unwrap().is_none());
-        assert!(store.get_setting("acct-geo:v1:other").await.unwrap().is_some());
+        assert!(
+            store
+                .get_setting("acct-geo:v1:other")
+                .await
+                .unwrap()
+                .is_some()
+        );
         assert!(
             store
                 .session_storage_authority(&sso)

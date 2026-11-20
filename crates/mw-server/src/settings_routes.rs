@@ -1208,7 +1208,7 @@ impl UserSubject {
         // verified for this account (`scope_mw::sieve_key_session`), which then
         // clears the id. Its subject is that native account, and only a native
         // account; a key for anything else still has no subject.
-        let (policy, record_owner) = if session.id.is_empty() {
+        let (policy, record_owner, personal_owner) = if session.id.is_empty() {
             let subject = store
                 .native_personal_subject(&session.account_id)
                 .await?
@@ -1219,15 +1219,15 @@ impl UserSubject {
                     native_account: Some(session.account_id.clone()),
                 },
                 Some(subject),
+                None,
             )
         } else {
-            (
-                store
-                    .session_policy_subject(&session.id)
-                    .await?
-                    .ok_or_else(unavailable)?,
-                store.session_personal_subject(&session.id).await?,
-            )
+            let subjects = store
+                .verified_session_subjects(&session.id)
+                .await?
+                .ok_or_else(unavailable)?;
+            let record_owner = Some(subjects.policy.personal_subject.clone());
+            (subjects.policy, record_owner, Some(subjects.storage_authority))
         };
         let raw = Self::of(session);
         let canonical = store.canonical_setting_subject(&raw.as_subject()).await?;
@@ -1236,11 +1236,7 @@ impl UserSubject {
                 .native_account
                 .is_none()
                 .then_some(policy.personal_subject),
-            personal_owner: if session.id.is_empty() {
-                None
-            } else {
-                store.session_storage_authority(&session.id).await?
-            },
+            personal_owner,
             record_owner,
             domain: canonical.domain,
             account_id: canonical.account_id,
