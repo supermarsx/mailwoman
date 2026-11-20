@@ -180,13 +180,29 @@ async fn sqlite_owned_messages_and_metadata_share_one_fresh_payload_free_read() 
     store.close().await;
 }
 #[tokio::test]
-#[ignore = "requires explicitly owned disposable PostgreSQL in MW_BG_TEST_PG"]
 async fn postgres_owned_messages_and_metadata_share_one_fresh_payload_free_read() {
-    let dsn =
-        std::env::var("MW_BG_TEST_PG").expect("explicit disposable PostgreSQL fixture required");
-    let store = Store::open_postgres(&dsn, ServerKey::generate())
+    use sqlx::Connection;
+    let Ok(dsn) = std::env::var("MW_TEST_PG") else {
+        eprintln!("SKIP: MW_TEST_PG absent");
+        return;
+    };
+    let schema = format!("owned_message_meta_{}", uuid::Uuid::new_v4().simple());
+    let mut admin = sqlx::PgConnection::connect(&dsn).await.unwrap();
+    sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
+    let mut scoped = url::Url::parse(&dsn).unwrap();
+    scoped
+        .query_pairs_mut()
+        .append_pair("options", &format!("-csearch_path={schema}"));
+    let store = Store::open(scoped.as_str(), ServerKey::generate())
         .await
         .unwrap();
     joined_contract(&store).await;
     store.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&mut admin)
+        .await
+        .unwrap();
 }
