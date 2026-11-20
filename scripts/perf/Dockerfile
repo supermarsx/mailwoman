@@ -56,3 +56,25 @@ RUN run_logged_test() { log_path="$1"; shift; "$@" > "$log_path" 2>&1; test_stat
     fi
 ENV MW_RUN_HTTP_LOAD_FIXTURE=1 MW_RUN_NATIVE_HTTP_LOAD_FIXTURE=1
 CMD ["/out/request-load-fixture", "--ignored", "--nocapture", "--test-threads=1"]
+
+# Optional profiling image: reuse the completed, gated release and its dependency
+# cache, then retain symbols only in a separate diagnostic executable. The
+# ordinary release artifact remains byte-identical and is still the default.
+FROM fixture AS fixture-profile
+ARG MW_BUILD_JOBS=8
+ARG MW_FIXTURE_KIND=native
+ARG MW_FIXTURE_PROFILE=release
+ARG MW_BUILD_PROFILE=release
+ARG TARGETPLATFORM
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=mailwoman-target-gnu-ni-${TARGETPLATFORM},target=/src/target,sharing=locked \
+    test "$MW_FIXTURE_KIND" = native \
+    && test "$MW_FIXTURE_PROFILE" = release \
+    && test "$MW_BUILD_PROFILE" = release \
+    && sha256sum /out/request-load-fixture > /out/release-before-profile.sha256 \
+    && export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-8}" MW_CARGO_BUILD_MODE=release \
+    && cargo rustc --locked --release --features load-test-fixtures -p mw-server \
+         --test native_load_fixture --message-format=json -- -Cstrip=none > /out/profile-artifacts.jsonl \
+    && node -e 'const fs=require("fs");const rows=fs.readFileSync("/out/profile-artifacts.jsonl","utf8").trim().split("\n").filter(Boolean).map(JSON.parse);const row=rows.findLast(r=>r.reason==="compiler-artifact"&&r.target.name==="native_load_fixture"&&r.executable);if(!row)throw Error("Missing symbol fixture executable");fs.copyFileSync(row.executable,"/out/request-load-fixture-profile");fs.chmodSync("/out/request-load-fixture-profile",0o755);' \
+    && sha256sum --check /out/release-before-profile.sha256 \
+    && sha256sum /out/request-load-fixture /out/request-load-fixture-profile > /out/fixture-executables.sha256

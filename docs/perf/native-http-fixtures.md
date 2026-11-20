@@ -1,5 +1,18 @@
 # Native mail HTTP load fixtures
 
+For CPU diagnosis, the Dockerfile also provides an optional `fixture-profile`
+target. It inherits the gated native release image, reuses its Cargo dependency
+cache, and invokes `cargo rustc` with symbol stripping disabled only for a
+separate `/out/request-load-fixture-profile` executable. The default command
+continues to use `/out/request-load-fixture`; a SHA-256 check fails the build if
+that normal release artifact changed during diagnostic linking. Both executable
+hashes are recorded in `/out/fixture-executables.sha256`. This target accepts only
+the normal native release profile. Check its actual compiler logs for artifact
+reuse; Dockerfile syntax validation alone does not prove a successful build.
+Use the symbol executable for diagnostic sampling, and the ordinary executable
+for unprofiled throughput measurements. Profiling requires a separate bounded
+fixture PID namespace, never host-wide access or production credentials.
+
 The opt-in `load-test-fixtures` Cargo feature adds an engine factory to the existing server builder. Ordinary builds do not expose that entry point. The factory supplies deterministic account runtimes; the HTTP router, authentication, verified principals, account/domain checks, settings and admission policies remain the production paths. There is no fixture login endpoint or HTTP authorization bypass.
 
 `native_multi_principal_http_load_fixture` creates a fresh disposable database, 1, 100 or 10,000 distinct durable accounts, verified principals and sessions, and an Inbox with two messages and cached bodies per account. Seeding uses public Store methods, runs outside the measured interval and reports progress every 1,000 accounts. Seeding is intentionally bounded and serial; it does not represent login throughput. Passwords and session cookies are generated only for this isolated fixture.
