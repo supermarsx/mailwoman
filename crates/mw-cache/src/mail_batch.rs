@@ -373,4 +373,241 @@ mod tests {
                 .is_err()
         );
     }
+
+    /// A real remote cache is required: an ignored test invoked explicitly
+    /// without its private fixture URL must fail rather than report a skip.
+    #[tokio::test]
+    #[ignore = "requires owned Redis/Valkey fixture via MW_TEST_REDIS_URL"]
+    async fn live_mail_batch_roundtrip_is_encrypted_scoped_and_expiring() {
+        let url = std::env::var("MW_TEST_REDIS_URL")
+            .expect("MW_TEST_REDIS_URL must name the owned live fixture");
+        let store = Store::open_in_memory(mw_store::ServerKey::generate())
+            .await
+            .unwrap();
+        let mut matrix = ScopeMatrix::spec_defaults();
+        matrix.apply_override(ClassPolicy {
+            class: CacheClass::HeaderWindows,
+            // No memory: the second instance must actually read Redis.
+            // Store here must never activate durable mail-cache fallback.
+            layers: vec![CacheLayer::Redis, CacheLayer::Store],
+            ttl_secs: 30,
+        });
+        let config = CacheConfig {
+            matrix,
+            redis_url: Some(url),
+            ..Default::default()
+        };
+        let first = Cache::connect(config.clone(), Some(store.clone())).await;
+        let second = Cache::connect(config.clone(), Some(store.clone())).await;
+        assert!(first.inner.redis.is_some(), "live fixture unavailable");
+        assert!(second.inner.redis.is_some(), "live fixture unavailable");
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let key = format!("batch-live-{}-{suffix}", std::process::id());
+        let denied_key = format!("{key}-denied");
+        let plaintext = b"private account-bound header metadata";
+        first
+            .insert_mail_bytes(
+                CacheClass::HeaderWindows,
+                &key,
+                AccountPosture::Standard,
+                PlaintextDerived::new(plaintext.as_slice()),
+                128,
+            )
+            .await
+            .unwrap();
+        assert!(!first.memory_contains(CacheClass::HeaderWindows, &key));
+        let namespace = namespaced(CacheClass::HeaderWindows, &key);
+        let raw = first
+            .inner
+            .redis
+            .as_ref()
+            .unwrap()
+            .get::<Option<Bytes>, _>(&namespace)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(raw.starts_with(b"MWB1"));
+        assert!(
+            !raw.windows(plaintext.len())
+                .any(|window| window == plaintext)
+        );
+        assert_eq!(
+            second
+                .probe_mail_bytes_batch(
+                    CacheClass::HeaderWindows,
+                    &[key.clone(), denied_key.clone()],
+                    AccountPosture::Standard,
+                    128,
+                )
+                .await
+                .unwrap()
+                .into_inner(),
+            vec![Some(plaintext.to_vec()), None]
+        );
+        // A different Store encryption key cannot authenticate the same Redis
+        // entry; corrupt/foreign sealed values remain ordinary misses.
+        let foreign = Cache::connect(
+            config,
+            Some(
+                Store::open_in_memory(mw_store::ServerKey::generate())
+                    .await
+                    .unwrap(),
+            ),
+        )
+        .await;
+        assert!(foreign.inner.redis.is_some(), "live fixture unavailable");
+        assert_eq!(
+            foreign
+                .probe_mail_bytes_batch(
+                    CacheClass::HeaderWindows,
+                    &[key.clone()],
+                    AccountPosture::Standard,
+                    128,
+                )
+                .await
+                .unwrap()
+                .into_inner(),
+            vec![None]
+        );
+        assert_eq!(
+            second
+                .probe_mail_bytes_batch(
+                    CacheClass::HeaderWindows,
+                    &[key.clone()],
+                    AccountPosture::ZeroAccess,
+                    128,
+                )
+                .await
+                .unwrap()
+                .into_inner(),
+            vec![None]
+        );
+        second
+            .insert_mail_bytes(
+                CacheClass::HeaderWindows,
+                &denied_key,
+                AccountPosture::ZeroAccess,
+                PlaintextDerived::new(plaintext.as_slice()),
+                128,
+            )
+            .await
+            .unwrap();
+        assert!(
+            first
+                .inner
+                .redis
+                .as_ref()
+                .unwrap()
+                .get::<Option<Bytes>, _>(namespaced(CacheClass::HeaderWindows, &denied_key))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            second
+                .probe_mail_bytes_batch(
+                    CacheClass::HeaderWindows,
+                    &[key.clone()],
+                    AccountPosture::Standard,
+                    2,
+                )
+                .await
+                .unwrap()
+                .into_inner(),
+            vec![None]
+        );
+        second.apply_override(ClassPolicy {
+            class: CacheClass::HeaderWindows,
+            layers: vec![CacheLayer::Store],
+            ttl_secs: 1,
+        });
+        assert_eq!(
+            second
+                .probe_mail_bytes_batch(
+                    CacheClass::HeaderWindows,
+                    &[key.clone()],
+                    AccountPosture::Standard,
+                    128,
+                )
+                .await
+                .unwrap()
+                .into_inner(),
+            vec![None]
+        );
+        second
+            .insert_mail_bytes(
+                CacheClass::HeaderWindows,
+                &denied_key,
+                AccountPosture::Standard,
+                PlaintextDerived::new(plaintext.as_slice()),
+                128,
+            )
+            .await
+            .unwrap();
+        for item in [&key, &denied_key] {
+            assert!(
+                store
+                    .get_setting(&store_key(&namespaced(CacheClass::HeaderWindows, item,)))
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        assert!(
+            first
+                .inner
+                .redis
+                .as_ref()
+                .unwrap()
+                .get::<Option<Bytes>, _>(namespaced(CacheClass::HeaderWindows, &denied_key))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        // Start a distinct short lifetime after all key-isolation checks;
+        // fixture startup/schema creation must not consume the TTL assertion.
+        first.apply_override(ClassPolicy {
+            class: CacheClass::HeaderWindows,
+            layers: vec![CacheLayer::Redis],
+            ttl_secs: 1,
+        });
+        first
+            .insert_mail_bytes(
+                CacheClass::HeaderWindows,
+                &key,
+                AccountPosture::Standard,
+                PlaintextDerived::new(plaintext.as_slice()),
+                128,
+            )
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        assert_eq!(
+            first
+                .probe_mail_bytes_batch(
+                    CacheClass::HeaderWindows,
+                    &[key.clone()],
+                    AccountPosture::Standard,
+                    128,
+                )
+                .await
+                .unwrap()
+                .into_inner(),
+            vec![None]
+        );
+        assert!(
+            first
+                .inner
+                .redis
+                .as_ref()
+                .unwrap()
+                .get::<Option<Bytes>, _>(&namespace)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
 }
