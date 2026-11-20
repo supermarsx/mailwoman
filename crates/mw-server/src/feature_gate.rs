@@ -25,7 +25,8 @@
 //! (a limit: `409`/`413 {"code":"limit_exceeded","limit":<key>,"max":<n>}`).
 //! An unauthenticated request passes through so the handler answers it as
 //! before (401). Values are resolved by [`crate::features::resolve_features`]'s
-//! chain, read live (no cache): a profile change applies to the next request.
+//! chain. Presence memos validate the shared revision on every new request, so
+//! profile changes apply to the next request, including WebSocket actions.
 //!
 //! Features checked inside their handlers already (import, export, Nextcloud,
 //! Assist, UI plugins, packages, push, the PIM families in
@@ -559,25 +560,9 @@ async fn read_json(req: Request, limit: usize) -> Result<(Request, Option<Value>
 /// A read failure counts as "in use", so the full check runs (and fails closed).
 /// Whether anything is stored for `key` (a policy row, or a value at any admin
 /// scope, profiles included): with nothing stored every subject has the default.
-async fn key_in_use(state: &AppState, key: &str) -> bool {
-    use mw_store::settings_policy::SettingScope;
-    match state.store.get_setting_policy(key).await {
-        Ok(Some(_)) => return true,
-        Ok(None) => {}
-        Err(_) => return true,
-    }
-    for scope in [
-        SettingScope::Domain,
-        SettingScope::Profile,
-        SettingScope::Group,
-        SettingScope::AdminUser,
-    ] {
-        match state.store.list_setting_values(key, scope, None, 1).await {
-            Ok(rows) if rows.is_empty() => {}
-            _ => return true,
-        }
-    }
-    false
+async fn key_in_use(state: &AppState, key: &str, request: &mut Request) -> bool {
+    let Ok(revision) = crate::settings_request_revision::get(&state.store, request).await else { return true; };
+    state.store.administrator_setting_present_at(key, &revision).await.unwrap_or(true)
 }
 
 /// Whether a `/jmap/download` query string carries `download=true`.
@@ -651,12 +636,19 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
         needs.avatars = body.and_then(|b| b.get("avatars").cloned());
         needs.features.remove("avatars");
     }
+    // Body parsing above may have waited while an administrator changed policy.
+    // Refresh here once; both presence checks share this feature-boundary proof.
+    if (needs.native || needs.protocol)
+        && crate::settings_request_revision::refresh(&state.store, &mut req).await.is_err()
+    {
+        return unavailable();
+    }
     // The two checks that touch most requests are skipped while nothing is
     // stored for their key (every subject then has the default: allowed).
-    if needs.native && !key_in_use(&state, "cap.apps.native").await {
+    if needs.native && !key_in_use(&state, "cap.apps.native", &mut req).await {
         needs.native = false;
     }
-    if needs.protocol && !key_in_use(&state, "access.protocols").await {
+    if needs.protocol && !key_in_use(&state, "access.protocols", &mut req).await {
         needs.protocol = false;
     }
     if !needs.any() {
