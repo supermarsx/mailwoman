@@ -1,19 +1,20 @@
 // Fixture-only controller: keep private heartbeat/control alive until every
 // workload finishes. No session credentials are arguments, stdout or reports.
-import {join,dirname,resolve} from 'node:path';
-import {fileURLToPath,pathToFileURL} from 'node:url';
+import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {lstat,realpath,writeFile} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {setTimeout as sleep} from 'node:timers/promises';
 import {findReady,privateJson,readPrivate,runClaimed,REPORT_LIMIT,HANDOFF_LIMIT} from './external-control.mjs';
 import {prepareFixtureClients,startupReadinessReport} from './fixture-clients.mjs';
+import {generatorWorkers,httpGeneratorLaunch} from './http-generator-launch.mjs';
 
-const scriptDirectory=dirname(fileURLToPath(import.meta.url));
 const number=(value,fallback,min,max)=>{const parsed=Number(value??fallback);if(!Number.isInteger(parsed)||parsed<min||parsed>max)throw new Error('WebSocket controller options exceed fixture bounds');return parsed;};
 export function options(args){
- if(!args.root||!args.binary||Object.keys(args).some(key=>!['root','binary','connections','hold-seconds','warm-seconds','ramp-per-second','max-pending','workers','with-http','wait-seconds'].includes(key)))throw new Error('Explicit private root and WebSocket binary are required');
+ if(!args.root||!args.binary||Object.keys(args).some(key=>!['root','binary','connections','hold-seconds','warm-seconds','ramp-per-second','max-pending','workers','http-workers','with-http','wait-seconds'].includes(key)))throw new Error('Explicit private root and WebSocket binary are required');
  if(args['with-http']!==undefined&&!['true','false'].includes(args['with-http']))throw new Error('Choose explicit true or false for with-http');
  const result={root:args.root,binary:args.binary,connections:number(args.connections,10000,1,10000),hold:number(args['hold-seconds'],60,1,1800),warm:number(args['warm-seconds'],10,0,300),ramp:number(args['ramp-per-second'],100,1,5000),pending:number(args['max-pending'],128,1,512),workers:number(args.workers,2,1,32),wait:number(args['wait-seconds'],1800,10,3600),withHttp:args['with-http']==='true'};
+ result.httpWorkers=generatorWorkers(args['http-workers']??process.env.MW_LOAD_GENERATOR_WORKERS??1);
  if(result.connections===10000&&result.hold<60)throw new Error('Ten-thousand-user campaigns require sixty steady seconds');
  return result;
 }
@@ -46,7 +47,8 @@ export async function runWorkloads({directory,ready,config,launch=spawn}){
    const now=Date.now();
    if(receipt.phase!=='steady-hold'||!Number.isSafeInteger(receipt.startedAtMs)||!Number.isSafeInteger(receipt.untilMs)||receipt.startedAtMs>now||receipt.untilMs<=now||receipt.authenticatedDistinctPrincipals!==config.connections||receipt.simulatedDistinctClients!==config.connections)throw new Error('Invalid WebSocket steady-phase receipt');
    httpWindow={startedAtMs:now,completedAtMs:null};
-   const http=child(process.execPath,[join(scriptDirectory,'http-real-fixture.mjs'),manifestPath,httpPath],env,launch);children.push(http);
+   const httpLaunch=httpGeneratorLaunch({directory,ready:{handoffFile:ready.handoffFile,outputFile:'http.report.json'},workers:config.httpWorkers??1});
+   const http=child(process.execPath,[httpLaunch.script,...httpLaunch.args],env,launch);children.push(http);
    httpExit=await http.done;httpWindow.completedAtMs=Date.now();
   }
   const wsExit=await ws.done;
