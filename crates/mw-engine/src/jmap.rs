@@ -4232,11 +4232,10 @@ impl Engine {
             return Err(NotSent::permanent(EngineError::Protocol(e.to_string())));
         }
 
-        let verdicts = crate::security::dlp::evaluate_outgoing(
+        let (outgoing, verdicts) = crate::security::dlp::evaluate_outgoing_owned(
             self,
             account_id,
-            &outgoing.raw,
-            &outgoing.rcpt_to,
+            outgoing,
         )
         .await
         .map_err(|error| NotSent::permanent(EngineError::Unsupported(error.code().into())))?;

@@ -924,11 +924,10 @@ impl Engine {
         // Receipts with custom content or an original-message attachment are
         // still outgoing mail. Inspect the exact bytes and envelope at dispatch,
         // including fail-closed policy/input errors and encryption requirements.
-        let verdicts = crate::security::dlp::evaluate_outgoing(
+        let (outgoing, verdicts) = crate::security::dlp::evaluate_outgoing_owned(
             self,
             &msg.account_id,
-            &outgoing.raw,
-            &outgoing.rcpt_to,
+            outgoing,
         )
         .await
         .map_err(|error| EngineError::Unsupported(error.code().into()))?;

@@ -22,6 +22,8 @@ use super::gen_id;
 
 #[path = "dlp_portugal.rs"]
 mod portugal;
+#[path = "dlp_sources.rs"]
+mod sources;
 
 /// Bounded, content-free failure at the authoritative DLP boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +50,9 @@ impl std::fmt::Display for DlpError {
 impl std::error::Error for DlpError {}
 const MAX_POLICY_BYTES: usize = 2 * 1024 * 1024;
 const MAX_INSPECT_BYTES: usize = 64 * 1024 * 1024;
+// Old+fresh source snapshots can overlap decoded rule data during freshness
+// revalidation. This shared allowance covers all three owned inputs.
+const POLICY_WORKING_BYTES: usize = 48 * 1024 * 1024;
 
 /// The compose/submit content a rule set is evaluated against.
 #[derive(Debug, Default, Clone)]
@@ -85,12 +90,10 @@ impl Engine {
         } else {
             dlp_input_from_args(args)
         };
-        let rules = match load_rules(self.store()).await {
-            Ok(rules) => rules,
-            Err(error) => return error.jmap_error(),
-        };
-        let verdicts = scan(&rules, &input);
-        json!({ "list": verdicts })
+        match inspect_owned(self.store(), WorkInput::Inline(input)).await {
+            Ok((_, verdicts)) => json!({"list":verdicts}),
+            Err(error) => error.jmap_error(),
+        }
     }
 
     /// Build the DLP input from a stored draft: recipients + subject from the
@@ -100,6 +103,9 @@ impl Engine {
         account_id: &str,
         email_id: &str,
     ) -> Result<DlpInput, DlpError> {
+        // Reserve for the authoritative maximum BEFORE fetching body bytes.
+        let budget = super::cpu_work::input_budget(MAX_INSPECT_BYTES + POLICY_WORKING_BYTES)
+            .map_err(|_| DlpError::InputUnavailable)?;
         let msg = self
             .store()
             .get_message(email_id)
@@ -116,32 +122,20 @@ impl Engine {
             .map_err(|_| DlpError::InputUnavailable)?
             .filter(|raw| !raw.is_empty())
             .ok_or(DlpError::InputUnavailable)?;
-        let parsed = mw_mime::parse(&raw)
+        let charge = raw
+            .capacity()
+            .checked_add(1024)
+            .ok_or(DlpError::InputUnavailable)?;
+        let worker_budget = budget.clone();
+        let (input, _worker_budget) = super::cpu_work::shared()
             .map_err(|_| DlpError::InputUnavailable)?
-            .email;
-        let recipients = crate::jmap::recipients(&parsed);
-        let subject = parsed.subject.clone().unwrap_or_default();
-        let body = parsed
-            .body_values
-            .values()
-            .map(|v| v.value.as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
-        let attachments = parsed
-            .attachments
-            .iter()
-            .map(|a| AttachmentMeta {
-                name: a.name.clone().unwrap_or_default(),
-                content_type: a.r#type.clone().unwrap_or_default(),
-                size: a.size as i64,
+            .run(charge, move || {
+                let input = input_from_raw(&raw, None)?;
+                Ok::<_, DlpError>((input, worker_budget))
             })
-            .collect();
-        Ok(DlpInput {
-            recipients,
-            subject,
-            body,
-            attachments,
-        })
+            .await
+            .map_err(|_| DlpError::InputUnavailable)??;
+        Ok(input)
     }
 }
 
@@ -206,33 +200,53 @@ pub const SECURITY_POLICY_SETTINGS_KEY: &str = "v6:admin:security_policy";
 /// environment rule. `Dlp/getRules`, `Dlp/scan` and the `submit_email`
 /// enforcement hook all read this, so what is shown and what is enforced agree.
 pub(crate) async fn load_rules(store: &Store) -> Result<Vec<DlpRule>, DlpError> {
-    let mut rules = env_rules()?;
-    for rule in stored_rules(store).await? {
-        if !rules.iter().any(|r| r.id == rule.id) {
-            rules.push(rule);
-        }
-    }
-    Ok(rules)
+    let budget = super::cpu_work::input_budget(POLICY_WORKING_BYTES)
+        .map_err(|_| DlpError::PolicyUnavailable)?;
+    load_checked_rules(store, true, &budget).await
 }
 
-/// Missing policy is an empty rule set; unavailable or malformed policy is an error.
+/// Stored-only admin view; policy decoding and regex validation stay off async workers.
 pub async fn stored_rules(store: &Store) -> Result<Vec<DlpRule>, DlpError> {
-    let Some(row) = store
-        .get_setting(SECURITY_POLICY_SETTINGS_KEY)
-        .await
-        .map_err(|_| DlpError::PolicyUnavailable)?
-    else {
-        return Ok(Vec::new());
-    };
-    let value: Value = serde_json::from_str(&row).map_err(|_| DlpError::PolicyUnavailable)?;
-    if !value.is_object() {
-        return Err(DlpError::PolicyUnavailable);
+    let budget = super::cpu_work::input_budget(POLICY_WORKING_BYTES)
+        .map_err(|_| DlpError::PolicyUnavailable)?;
+    load_checked_rules(store, false, &budget).await
+}
+async fn load_checked_rules(
+    store: &Store,
+    environment: bool,
+    budget: &super::cpu_work::InputBudget,
+) -> Result<Vec<DlpRule>, DlpError> {
+    for _ in 0..2 {
+        let source = sources::read(store, environment, budget).await?;
+        let (source, rules) = decode_owned_sources(source, budget.clone()).await?;
+        #[cfg(test)]
+        test_after_inspection(store).await;
+        // Includes the no-active-rules fast path: queue delay must not turn an
+        // old empty policy into an allow after a new rule has been installed.
+        if sources::read(store, environment, budget).await? == source {
+            return Ok(rules);
+        }
     }
-    let Some(field) = value.get("dlp_rules_json") else {
-        return Ok(Vec::new());
-    };
-    let text = field.as_str().ok_or(DlpError::PolicyUnavailable)?;
-    validate_rules(text).map_err(|_| DlpError::PolicyUnavailable)
+    Err(DlpError::PolicyUnavailable)
+}
+
+async fn decode_owned_sources(
+    source: sources::Snapshot,
+    budget: super::cpu_work::InputBudget,
+) -> Result<(sources::Snapshot, Vec<DlpRule>), DlpError> {
+    let charge = source
+        .bytes()
+        .checked_add(16 * 1024 * 1024)
+        .ok_or(DlpError::PolicyUnavailable)?;
+    let (source, rules, _budget) = super::cpu_work::shared()
+        .map_err(|_| DlpError::PolicyUnavailable)?
+        .run(charge, move || {
+            let rules = sources::decode(&source)?;
+            Ok::<_, DlpError>((source, rules, budget))
+        })
+        .await
+        .map_err(|_| DlpError::PolicyUnavailable)??;
+    Ok((source, rules))
 }
 
 /// Parse a rule list as the admin API accepts it: a JSON array of [`DlpRule`],
@@ -270,14 +284,6 @@ pub fn validate_rules(json: &str) -> Result<Vec<DlpRule>, String> {
 /// accepts. Inline JSON is tried first (a value starting with `[` after trimming);
 /// otherwise the value is read as a file path. Unset means no environment rules;
 /// unreadable or malformed configured policy refuses submission.
-fn env_rules() -> Result<Vec<DlpRule>, DlpError> {
-    match std::env::var("MW_DLP_RULES") {
-        Ok(value) => rules_from_source(&value),
-        Err(std::env::VarError::NotPresent) => Ok(Vec::new()),
-        Err(_) => Err(DlpError::PolicyUnavailable),
-    }
-}
-
 /// Inline JSON or a bounded local configuration file; never silent fallback.
 pub fn rules_from_source(source: &str) -> Result<Vec<DlpRule>, DlpError> {
     use std::io::Read;
@@ -683,32 +689,131 @@ pub(crate) async fn evaluate(
     account_id: &str,
     email_id: &str,
 ) -> Result<Vec<DlpVerdict>, DlpError> {
+    // Preserve the existing no-active-rules fast path; invalid/unavailable input
+    // cannot silently bypass an enabled policy.
     let rules = load_rules(engine.store()).await?;
     if !rules.iter().any(|rule| rule.enabled) {
         return Ok(Vec::new());
     }
+    drop(rules);
     let input = engine.dlp_input_for_email(account_id, email_id).await?;
-    let verdicts = scan(&rules, &input);
-    // A denied creation never reaches dispatch. Successful creations are
-    // audited at dispatch so warn/notify actions do not fire twice.
+    let (_, verdicts) = inspect_owned(engine.store(), WorkInput::Inline(input)).await?;
     if verdicts.iter().any(|verdict| verdict.blocked) {
         audit(engine, account_id, &verdicts).await;
     }
     Ok(verdicts)
 }
 
-/// Recheck the exact bytes and SMTP recipients immediately before dispatch.
-/// This closes queued-draft edits and envelope-only recipient overrides.
-pub(crate) async fn evaluate_outgoing(
+/// Own and return the exact SMTP bytes/envelope. No raw-message clone is needed
+/// to cross the CPU boundary, and the late dispatch policy is freshly rechecked.
+pub(crate) async fn evaluate_outgoing_owned(
     engine: &Engine,
     account_id: &str,
-    raw: &[u8],
-    recipients: &[String],
-) -> Result<Vec<DlpVerdict>, DlpError> {
-    let rules = load_rules(engine.store()).await?;
-    if !rules.iter().any(|rule| rule.enabled) {
-        return Ok(Vec::new());
+    outgoing: mw_smtp::Outgoing,
+) -> Result<(mw_smtp::Outgoing, Vec<DlpVerdict>), DlpError> {
+    let (input, verdicts) = inspect_owned(engine.store(), WorkInput::Outgoing(outgoing)).await?;
+    let WorkInput::Outgoing(outgoing) = input else {
+        unreachable!("owned outgoing input remains outgoing")
+    };
+    audit(engine, account_id, &verdicts).await;
+    Ok((outgoing, verdicts))
+}
+
+// Each attempt moves these buffers into the CPU job and back. Only small
+// parsed metadata is copied; large raw Vec allocations retain their ownership.
+enum WorkInput {
+    Inline(DlpInput),
+    Outgoing(mw_smtp::Outgoing),
+}
+impl WorkInput {
+    fn bytes(&self) -> Result<usize, DlpError> {
+        let bytes = match self {
+            Self::Inline(input) => input_bytes(input)?,
+            Self::Outgoing(value) => value
+                .raw
+                .capacity()
+                .checked_add(value.mail_from.capacity())
+                .and_then(|n| n.checked_add(strings_bytes(&value.rcpt_to)))
+                .ok_or(DlpError::InputUnavailable)?,
+        };
+        if bytes > MAX_INSPECT_BYTES + 1024 * 1024 {
+            return Err(DlpError::InputUnavailable);
+        }
+        Ok(bytes + 1024)
     }
+}
+async fn inspect_owned(
+    store: &Store,
+    mut input: WorkInput,
+) -> Result<(WorkInput, Vec<DlpVerdict>), DlpError> {
+    let budget = super::cpu_work::input_budget(
+        input
+            .bytes()?
+            .checked_add(POLICY_WORKING_BYTES)
+            .ok_or(DlpError::InputUnavailable)?,
+    )
+    .map_err(|_| DlpError::InputUnavailable)?;
+    for _ in 0..2 {
+        let source = sources::read(store, true, &budget).await?;
+        let charge = input
+            .bytes()?
+            .checked_add(source.bytes())
+            .and_then(|n| n.checked_add(16 * 1024 * 1024))
+            .ok_or(DlpError::InputUnavailable)?;
+        let worker_budget = budget.clone();
+        let result = super::cpu_work::shared()
+            .map_err(|_| DlpError::InputUnavailable)?
+            .run(charge, move || {
+                let rules = sources::decode(&source)?;
+                let verdicts = if !rules.iter().any(|rule| rule.enabled) {
+                    Vec::new()
+                } else {
+                    match &input {
+                        WorkInput::Inline(value) => scan(&rules, value),
+                        WorkInput::Outgoing(value) => {
+                            if value.raw.is_empty() || value.raw.len() > MAX_INSPECT_BYTES {
+                                return Err(DlpError::InputUnavailable);
+                            }
+                            let parsed = input_from_raw(&value.raw, Some(&value.rcpt_to))?;
+                            scan(&rules, &parsed)
+                        }
+                    }
+                };
+                Ok((source, input, verdicts, worker_budget))
+            })
+            .await
+            .map_err(|_| DlpError::InputUnavailable)??;
+        let (source, returned, verdicts, _worker_budget) = result;
+        #[cfg(test)]
+        test_after_inspection(store).await;
+        // No cached TTL: a changed/malformed/unavailable source never returns
+        // the old allow decision. Bounded retry retains the original raw Vec.
+        if sources::read(store, true, &budget).await? == source {
+            return Ok((returned, verdicts));
+        }
+        input = returned;
+    }
+    Err(DlpError::PolicyUnavailable)
+}
+#[cfg(test)]
+type InspectionHook = std::sync::Arc<
+    dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync,
+>;
+#[cfg(test)]
+static INSPECTION_HOOK: std::sync::Mutex<std::collections::BTreeMap<String, InspectionHook>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+#[cfg(test)]
+async fn test_after_inspection(store: &Store) {
+    let hook = INSPECTION_HOOK
+        .lock()
+        .unwrap()
+        .get(&store.instance_id().to_string())
+        .cloned();
+    if let Some(hook) = hook {
+        hook().await;
+    }
+}
+fn input_from_raw(raw: &[u8], recipients: Option<&[String]>) -> Result<DlpInput, DlpError> {
     if raw.is_empty() || raw.len() > MAX_INSPECT_BYTES {
         return Err(DlpError::InputUnavailable);
     }
@@ -716,7 +821,8 @@ pub(crate) async fn evaluate_outgoing(
         .map_err(|_| DlpError::InputUnavailable)?
         .email;
     let input = DlpInput {
-        recipients: recipients.to_vec(),
+        recipients: recipients
+            .map_or_else(|| crate::jmap::recipients(&parsed), |value| value.to_vec()),
         subject: parsed.subject.unwrap_or_default(),
         body: parsed
             .body_values
@@ -734,9 +840,66 @@ pub(crate) async fn evaluate_outgoing(
             })
             .collect(),
     };
-    let verdicts = scan(&rules, &input);
-    audit(engine, account_id, &verdicts).await;
-    Ok(verdicts)
+    input_bytes(&input)?;
+    Ok(input)
+}
+fn strings_bytes(values: &Vec<String>) -> usize {
+    values
+        .capacity()
+        .saturating_mul(std::mem::size_of::<String>())
+        .saturating_add(values.iter().map(String::capacity).sum::<usize>())
+}
+fn input_bytes(input: &DlpInput) -> Result<usize, DlpError> {
+    let bytes = strings_bytes(&input.recipients)
+        .saturating_add(input.subject.capacity())
+        .saturating_add(input.body.capacity())
+        .saturating_add(
+            input
+                .attachments
+                .capacity()
+                .saturating_mul(std::mem::size_of::<AttachmentMeta>()),
+        )
+        .saturating_add(
+            input
+                .attachments
+                .iter()
+                .map(|part| {
+                    part.name
+                        .capacity()
+                        .saturating_add(part.content_type.capacity())
+                })
+                .sum::<usize>(),
+        );
+    if bytes > MAX_INSPECT_BYTES + 1024 * 1024 {
+        return Err(DlpError::InputUnavailable);
+    }
+    Ok(bytes)
+}
+fn rules_bytes(rules: &Vec<DlpRule>) -> Result<usize, DlpError> {
+    let mut bytes = rules
+        .capacity()
+        .saturating_mul(std::mem::size_of::<DlpRule>());
+    for rule in rules {
+        for text in [&rule.id, &rule.name, &rule.action, &rule.message] {
+            bytes = bytes.saturating_add(text.capacity());
+        }
+        let c = &rule.conditions;
+        for list in [
+            &c.detectors,
+            &c.dictionaries,
+            &c.attachment_types,
+            &c.recipient_domains,
+        ] {
+            bytes = bytes.saturating_add(strings_bytes(list));
+        }
+        for text in [&c.custom_regex, &c.recipient_domain_mode, &c.classification] {
+            bytes = bytes.saturating_add(text.as_ref().map_or(0, String::capacity));
+        }
+    }
+    if bytes > 16 * 1024 * 1024 {
+        return Err(DlpError::PolicyUnavailable);
+    }
+    Ok(bytes)
 }
 
 async fn audit(engine: &Engine, account_id: &str, verdicts: &[DlpVerdict]) {
@@ -1073,3 +1236,7 @@ mod tests {
         assert_eq!(hostile[1], "To: admin@example.orgX-Injected: 1");
     }
 }
+
+#[cfg(test)]
+#[path = "dlp_cpu_tests.rs"]
+mod cpu_tests;
