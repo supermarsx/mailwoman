@@ -62,6 +62,9 @@ done
 if bash "$work/parser/deploy.sh" deploy --build-profile > "$work/missing.log" 2>&1; then fail 'missing profile value accepted'; fi
 bash "$work/parser/deploy.sh" deploy --no-pull > "$work/default.log" 2>&1
 grep -qx 'profile=release' "$work/default.log" || fail 'release default changed'
+grep -qx 'BUILD_JOBS=8' "$ROOT/deploy.sh" || fail 'deployment job default changed'
+[[ $(grep -c '^ARG MW_BUILD_JOBS=8$' "$ROOT/Dockerfile") == 2 ]] || fail 'GNU/musl job defaults differ'
+[[ $(grep -Fc 'export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-8}"' "$ROOT/Dockerfile") == 2 ]] || fail 'GNU/musl empty job fallbacks differ'
 bash "$work/parser/deploy.sh" deploy --no-pull --build-profile fast > "$work/fast.log" 2>&1
 grep -qx 'profile=fast' "$work/fast.log" || fail 'fast CLI selection lost'
 
@@ -70,12 +73,12 @@ grep -qx 'profile=fast' "$work/fast.log" || fail 'fast CLI selection lost'
 source <(awk '/^build_local_image\(\)/{copy=1} /^initialize\(\)/{copy=0} copy{print}' "$ROOT/deploy.sh")
 docker() { printf '%s\n' "$@" > "$work/docker.args"; }
 log() { printf '%s\n' "$*" >> "$work/build.log"; }
-BUILD_INCREMENTAL=0 BUILD_JOBS=4 IMAGE=fixture:build ROOT_CONTEXT=$ROOT
+BUILD_INCREMENTAL=0 BUILD_JOBS=8 IMAGE=fixture:build ROOT_CONTEXT=$ROOT
 ROOT="$work/context with spaces"
 for BUILD_PROFILE in release fast; do
     build_local_image
     grep -qx "MW_BUILD_PROFILE=$BUILD_PROFILE" "$work/docker.args" || fail 'profile Docker argument lost'
-    grep -qx 'MW_BUILD_JOBS=4' "$work/docker.args" || fail 'four-job default lost'
+    grep -qx 'MW_BUILD_JOBS=8' "$work/docker.args" || fail 'eight-job default lost'
     [[ $(tail -n 1 "$work/docker.args") == "$ROOT" ]] || fail 'Docker context was split'
 done
 ROOT=$ROOT_CONTEXT

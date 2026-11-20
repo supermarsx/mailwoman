@@ -62,7 +62,7 @@ an `-ni` suffix so a cache poisoned by earlier incremental builds is not reused.
 By default optimization remains release level 3 with 16 codegen units, overflow checks and
 stripping unchanged.
 
-Deployment and direct Docker builds default to four concurrent Cargo jobs.
+Deployment and direct Docker builds default to eight concurrent Cargo jobs.
 Use `sh deploy.sh deploy --build-jobs N` to override this if compilation
 exhausts memory or causes swapping. This is separate from `CPU_LIMIT`/`MEMORY_LIMIT`,
 which limit the running app. The corresponding direct Docker build argument is

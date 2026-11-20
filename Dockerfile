@@ -76,7 +76,7 @@ WORKDIR /src
 # Keep optimized workspace intermediates in the existing persistent target cache.
 # Explicit 16 units preserves the release profile's previous codegen partitioning.
 ARG MW_CARGO_INCREMENTAL=0
-ARG MW_BUILD_JOBS=4
+ARG MW_BUILD_JOBS=8
 ARG MW_BUILD_PROFILE=release
 ARG MW_PRODUCT_SUPPORT_UNTIL=
 ARG TARGETPLATFORM
@@ -94,7 +94,7 @@ ENV MW_PRODUCT_SUPPORT_UNTIL=${MW_PRODUCT_SUPPORT_UNTIL}
 # binaries OUT of the (non-persisted) cache mount so later stages can COPY them.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,id=mailwoman-target-gnu-ni-${TARGETPLATFORM},target=/src/target,sharing=locked \
-    export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-4}" \
+    export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-8}" \
     && mkdir -p /src/apps/web/dist \
     && touch -t 200001010000 /src/apps/web/dist/.gitkeep \
     && case "$MW_BUILD_PROFILE" in \
@@ -168,7 +168,7 @@ FROM rust:1.98.1-alpine@sha256:7cc1c22d77d9432f7fe012a70e6d3e555af54c2a6832700ed
 RUN apk add --no-cache build-base ca-certificates
 WORKDIR /src
 ARG MW_CARGO_INCREMENTAL=0
-ARG MW_BUILD_JOBS=4
+ARG MW_BUILD_JOBS=8
 ARG MW_BUILD_PROFILE=release
 ARG MW_PRODUCT_SUPPORT_UNTIL=
 ENV RUSTFLAGS="-C target-feature=+crt-static" \
@@ -183,7 +183,7 @@ RUN printf 'nonroot:x:65532:65532:nonroot:/data:/sbin/nologin\n' > /etc/mw-passw
     && mkdir -p /data-empty /tmp-empty
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,id=mailwoman-target-musl-ni,target=/src/target,sharing=locked \
-    export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-4}" \
+    export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-8}" \
     && mkdir -p /src/apps/web/dist \
     && touch -t 200001010000 /src/apps/web/dist/.gitkeep \
     && case "$MW_BUILD_PROFILE" in \

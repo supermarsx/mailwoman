@@ -57,7 +57,7 @@ DEFAULT_SIGNATURE_ISSUER=https://token.actions.githubusercontent.com
 IMAGE=
 PULL=false
 NO_BUILD=false
-BUILD_JOBS=4
+BUILD_JOBS=8
 BUILD_PROFILE=release
 BUILD_INCREMENTAL=0
 AUTO_ROLLBACK=true
@@ -147,7 +147,7 @@ Options:
                     Refuse an --image whose signature cannot be checked (no
                     cosign, or used from the local image store without --pull)
   --no-build        Reuse the last applied app image (configuration-only deploy)
-  --build-jobs N    Limit concurrent Cargo jobs (default: 4)
+  --build-jobs N    Limit concurrent Cargo jobs (default: 8)
   --build-profile release|fast  Release optimization, or opt-level 2 for mw-server only (default: release)
   --incremental     Opt in to cached incremental Rust compilation (off by default: stale incremental state in a reused target cache caused link failures)
   --no-incremental  Force incremental compilation off (the default)
