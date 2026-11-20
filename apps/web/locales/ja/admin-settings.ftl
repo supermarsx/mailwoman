@@ -2769,3 +2769,19 @@ admin-settings-key-maintenance-database-change-log-retention-days = メール変
 admin-settings-help-maintenance-database-change-log-retention-days = 指定した日数の変更履歴を保持します。通常は60日です。0は無期限です。状態が期限切れのクライアントは現在の一覧を再取得する必要があります。
 admin-settings-key-maintenance-database-change-log-batch-rows = 変更履歴のバッチ上限（行）
 admin-settings-help-maintenance-database-change-log-batch-rows = 保守バッチで削除する変更行数の上限です。通常は1,000行です。大きな状態は上限のある単位で削除され、それより古い状態を持つクライアントは完全な再同期が必要になります。
+
+## Web delivery performance
+admin-settings-key-web-i18n-retained-locales = 保持する翻訳言語数
+admin-settings-help-web-i18n-retained-locales = 解析済み言語を 2–8 個保持します。既定は 3。使用中の言語と英語はメモリに残ります。
+admin-settings-key-web-i18n-concurrent-loads = 翻訳の同時読み込み数
+admin-settings-help-web-i18n-concurrent-loads = カタログを同時に 1–8 個読み込みます。既定は 4。同じ保留中の要求は読み込みを共有します。
+admin-settings-key-web-prefetch-enabled = アイドル時の先読み
+admin-settings-help-web-prefetch-enabled = アイドル時に使用が見込まれるモジュールを先読みします。要求した画面は引き続き利用できます。
+admin-settings-key-web-prefetch-idle-delay-ms = 先読みの待ち時間
+admin-settings-help-web-prefetch-idle-delay-ms = 任意のアイドル処理まで 0–30000 ミリ秒待機します。既定は 2500。
+admin-settings-key-web-offline-precache-mode = オフライン準備モード
+admin-settings-help-web-offline-precache-mode = all は完全な事前準備を維持し、core は未使用の翻訳と PDF リソースを初回使用時に読み込みます。
+admin-settings-key-web-offline-precache-concurrency = オフライン同時ダウンロード数
+admin-settings-help-web-offline-precache-concurrency = worker のインストール時に 1–4 個を並行取得します。既定は 4。次回のインストール時に適用されます。
+admin-settings-key-web-offline-respect-save-data = SaveData を尊重
+admin-settings-help-web-offline-respect-save-data = ブラウザーが SaveData を通知した場合は core を使用します。

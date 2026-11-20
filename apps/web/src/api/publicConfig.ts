@@ -3,6 +3,7 @@ import { transportBase } from './transport.ts';
 import { createSwrCache, swrCachesEnabled } from './swrCache.ts';
 
 export interface PublicConfig {
+  webPerformance?:unknown;
   brandName: string;
   maintenance?: {enabled:boolean;message:string;retryAfterSecs:number};
   rememberSignins?: boolean;
@@ -20,8 +21,8 @@ export interface PublicConfig {
   usernameDomainHint: string | null;
 }
 
-async function fetchPublicConfig(base: string): Promise<PublicConfig> {
-  const response = await apiFetch(`${base}/api/public-config`, { cache: 'no-store' });
+async function fetchPublicConfig(base: string,signal?:AbortSignal): Promise<PublicConfig> {
+  const response = await apiFetch(`${base}/api/public-config`, { cache: 'no-store',...(signal?{signal}:{}) });
   if (!response.ok) throw new Error('Public configuration is unavailable');
   return response.json() as Promise<PublicConfig>;
 }
@@ -41,8 +42,10 @@ export async function publicConfig(): Promise<PublicConfig> {
 }
 
 /** Read it from the server now (and keep the answer). */
-export function refreshPublicConfig(): Promise<PublicConfig> {
+export function refreshPublicConfig(signal?:AbortSignal): Promise<PublicConfig> {
   const base = transportBase();
+  // A bounded caller owns its cancellation; do not cancel a shared SWR request.
+  if(signal)return fetchPublicConfig(base,signal);
   if (!swrCachesEnabled()) return fetchPublicConfig(base);
   return cache.refresh(base, () => fetchPublicConfig(base));
 }

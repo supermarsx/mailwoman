@@ -10,6 +10,7 @@
 // to the API is made. Skipped when the user asked to save data.
 
 import { preloadCatalogs } from '../i18n/catalog.ts';
+import {webPerformancePolicy,webPerformanceReady} from './performancePolicy.ts';
 
 /** Catalogs the first message open needs (reader, privacy banner, verdicts, receipts). */
 export const READER_CATALOGS = ['reader', 'privacy', 'remote-images', 'security', 'spam-score', 'mail-dsn', 'mailing-list', 'nextcloud', 'receipts'] as const;
@@ -52,7 +53,7 @@ let started = false;
  * step (offline, a removed chunk after a deploy) is skipped, the next one runs.
  */
 export function scheduleIdlePrefetch(steps: Step[] = prefetchSteps(), host: IdleHost = globalThis as unknown as IdleHost): boolean {
-  if (started || !prefetchAllowed(host)) return false;
+  if (started || !webPerformanceReady() || !webPerformancePolicy().prefetchEnabled || !prefetchAllowed(host)) return false;
   started = true;
   const idle = (fn: () => void): void => {
     if (typeof host.requestIdleCallback === 'function') host.requestIdleCallback(fn, { timeout: 4000 });
@@ -62,6 +63,7 @@ export function scheduleIdlePrefetch(steps: Step[] = prefetchSteps(), host: Idle
     const step = steps[index];
     if (!step) return;
     idle(() => {
+      if(!webPerformanceReady()||!webPerformancePolicy().prefetchEnabled||!prefetchAllowed(host)){started=false;return;}
       void Promise.resolve().then(step).catch(() => undefined).finally(() => run(index + 1));
     });
   };

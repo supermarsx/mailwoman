@@ -19,6 +19,7 @@ import { mapBundleSync } from '@fluent/sequence';
 import { SOURCE_LOCALE, fallbackChain, type Locale } from './locales.ts';
 import { pseudoLocalize } from './pseudo.ts';
 import {displayText} from './presentation.ts';
+import {observeWebPerformance,webPerformancePolicy} from '../boot/performancePolicy.ts';
 
 /** Args accepted by `t()` — Fluent variables (string | number | Date | …). */
 export type TArgs = Record<string, FluentVariable>;
@@ -34,6 +35,23 @@ function makeBundle(locale: Locale): FluentBundle {
 // One accumulating bundle per locale. Lazily created; catalogs `addResource`
 // into these as modules load.
 const bundlesByLocale = new Map<Locale, FluentBundle>();
+const generations=new Map<Locale,number>();
+const evictionListeners=new Set<(locale:Locale)=>void>();
+export function localeGeneration(locale:Locale):number{return generations.get(locale)??0;}
+export function onLocaleEvicted(listener:(locale:Locale)=>void):()=>void{evictionListeners.add(listener);return()=>evictionListeners.delete(listener);}
+/** Count bounds parsed locale retention, not parser scratch or a hard heap size. */
+function trimLocales():void {
+ const pinned=fallbackChain(activeLocale());
+ while(bundlesByLocale.size>webPerformancePolicy().retainedLocales){
+  const victim=[...bundlesByLocale.keys()].find(locale=>!pinned.includes(locale));
+  if(!victim)break;
+  bundlesByLocale.delete(victim);generations.set(victim,localeGeneration(victim)+1);
+  for(const listener of evictionListeners)listener(victim);
+ }
+}
+observeWebPerformance(trimLocales);
+/** Diagnostics/tests: locale names only; no translated content. */
+export function retainedLocales():Locale[]{return [...bundlesByLocale.keys()];}
 
 // The reactive fallback chain of bundles for the ACTIVE locale, [active, en].
 // A fresh array reference is published on every mutation so Solid re-runs `t`.
@@ -45,7 +63,7 @@ function bundleFor(locale: Locale): FluentBundle {
   if (b === undefined) {
     b = makeBundle(locale);
     bundlesByLocale.set(locale, b);
-  }
+  } else {bundlesByLocale.delete(locale);bundlesByLocale.set(locale,b);}
   return b;
 }
 
@@ -63,6 +81,7 @@ export function activeLocaleSignal(): Locale {
 export function setActiveLocale(locale: Locale): void {
   setActiveLocaleSignal(locale);
   publishChain();
+  trimLocales();
 }
 
 /**
@@ -78,6 +97,7 @@ export function registerResource(locale: Locale, source: string): void {
   // the catalog still loads. Duplicate-id "overrides" are expected on re-load.
   void errors;
   if (fallbackChain(activeLocale()).includes(locale)) publishChain();
+  trimLocales();
 }
 
 /**
@@ -126,6 +146,10 @@ export function seedLocaleSync(locale: Locale, sources: Iterable<string>): void 
 
 /** TEST ONLY: forget every loaded bundle (isolation between suites if needed). */
 export function _resetRegistry(): void {
+  for(const locale of bundlesByLocale.keys()){
+    generations.set(locale,localeGeneration(locale)+1);
+    for(const listener of evictionListeners)listener(locale);
+  }
   bundlesByLocale.clear();
   setActiveLocaleSignal(SOURCE_LOCALE);
   setChain([]);

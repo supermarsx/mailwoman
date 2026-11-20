@@ -10,7 +10,8 @@
 // as hashed text assets without creating thousands of tiny JavaScript chunks.
 
 import { createResource, type Resource } from 'solid-js';
-import { registerResource, activeLocaleSignal } from './registry.ts';
+import { registerResource, activeLocaleSignal, localeGeneration, onLocaleEvicted } from './registry.ts';
+import {observeWebPerformance,webPerformancePolicy} from '../boot/performancePolicy.ts';
 import { fallbackChain, SOURCE_LOCALE, isKnownLocale, type Locale } from './locales.ts';
 
 // CRITICAL PATH: the common `en` strings (buttons, generic errors) load
@@ -31,6 +32,40 @@ const globKey = (locale: string, module: string): string =>
 
 // `locale/module` pairs already registered (or eagerly bundled) — dedupes loads.
 const loaded = new Set<string>([`${SOURCE_LOCALE}/common`]);
+const knownModules=new Set(Object.keys(lazyCatalogs).map(key=>parseKey(key)?.module).filter((key):key is string=>!!key));
+const touched=new Set<string>(['common']);
+type Pending={generation:number;promise:Promise<void>};
+const pending=new Map<string,Pending>();
+const queue:Array<{locale:Locale;run:()=>void}>=[];
+let running=0;
+function pump():void{while(running<webPerformancePolicy().concurrentLoads&&queue.length){
+ const active=fallbackChain(activeLocaleSignal());
+ const preferred=queue.findIndex(job=>active.includes(job.locale));
+ running++;queue.splice(preferred<0?0:preferred,1)[0]!.run();
+}}
+observeWebPerformance(pump);
+onLocaleEvicted(locale=>{for(const key of loaded)if(key.startsWith(`${locale}/`))loaded.delete(key);});
+// Pending jobs are single-flight, with at most one entry per BUILT catalog key.
+// Arbitrary caller-supplied module names never grow any of these containers.
+function enqueue(locale:Locale,module:string):Pending {
+ const key=`${locale}/${module}`,generation=localeGeneration(locale);
+ let resolve!:()=>void,reject!:(error:unknown)=>void;
+ const promise=new Promise<void>((yes,no)=>{resolve=yes;reject=no;});
+ const entry={generation,promise};pending.set(key,entry);
+ queue.push({locale,run:()=>{void(async()=>{
+  try{
+   if(generation!==localeGeneration(locale)){resolve();return;}
+   const source=await lazyCatalogs[globKey(locale,module)]!();
+   if(generation!==localeGeneration(locale)){resolve();return;}
+   registerResource(locale,source);
+   // Registration may itself evict an inactive locale. Do not claim it loaded.
+   if(generation===localeGeneration(locale))loaded.add(key);
+  }catch(error){reject(error);return;}
+  finally{pending.delete(key);running--;queueMicrotask(pump);}
+  resolve();
+ })();}});
+ pump();return entry;
+}
 
 // Register the eagerly-bundled critical catalog immediately on import.
 registerResource(SOURCE_LOCALE, enCommon);
@@ -52,12 +87,16 @@ async function loadOne(locale: Locale, module: string): Promise<void> {
   if (loader === undefined) {
     // No catalog file for this locale/module (e.g. a locale not yet translated
     // for that screen). Mark done so we don't retry every render.
-    loaded.add(dedupeKey);
     return;
   }
-  const source = await loader();
-  registerResource(locale, source);
-  loaded.add(dedupeKey);
+  // One bounded follow-up handles an evicted generation's in-flight response.
+  // Continual user language changes never cause an internal infinite retry.
+  for(let attempt=0;attempt<2&&!loaded.has(dedupeKey);attempt++){
+   const entry=pending.get(dedupeKey)??enqueue(locale,module);
+   await entry.promise;
+   if(entry.generation===localeGeneration(locale))break;
+   if(!fallbackChain(activeLocaleSignal()).includes(locale))break;
+  }
 }
 
 /**
@@ -69,6 +108,8 @@ async function loadOne(locale: Locale, module: string): Promise<void> {
  * so your `t('mail-…')` ids resolve; strings fill in reactively as it settles.
  */
 export async function loadCatalog(module: string): Promise<void> {
+  if(!knownModules.has(module))return;
+  touched.add(module);
   const chain = fallbackChain(activeLocaleSignal());
   await Promise.all(chain.map((locale) => loadOne(locale, module)));
 }
@@ -101,14 +142,9 @@ export async function preloadCatalogs(modules: readonly string[]): Promise<void>
  */
 export async function reloadForActiveChain(): Promise<void> {
   const chain = fallbackChain(activeLocaleSignal());
-  const modules = new Set<string>();
-  for (const key of loaded) {
-    const module = key.split('/')[1];
-    if (module) modules.add(module);
-  }
   await Promise.all(
     chain
       .filter((l): l is Locale => isKnownLocale(l))
-      .flatMap((locale) => [...modules].map((module) => loadOne(locale, module))),
+      .flatMap((locale) => [...touched].map((module) => loadOne(locale, module))),
   );
 }

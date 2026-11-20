@@ -2777,3 +2777,19 @@ admin-settings-key-maintenance-database-change-log-retention-days = Bewaartermij
 admin-settings-help-maintenance-database-change-log-retention-days = Bewaar wijzigingen zoveel dagen, normaal 60. Nul bewaart ze onbeperkt. Clients met verlopen statustokens moeten de huidige lijst opnieuw ophalen.
 admin-settings-key-maintenance-database-change-log-batch-rows = Limiet per wijzigingsbatch (rijen)
 admin-settings-help-maintenance-database-change-log-batch-rows = Maximaal aantal verwijderde wijzigingsrijen per onderhoudsbatch, normaal 1.000. Grote statussen verlopen in begrensde delen; clients met oudere statustokens moeten volledig opnieuw synchroniseren.
+
+## Web delivery performance
+admin-settings-key-web-i18n-retained-locales = Bewaarde vertaaltalen
+admin-settings-help-web-i18n-retained-locales = 2–8 verwerkte talen, standaard 3; de actieve taal en Engels blijven in RAM.
+admin-settings-key-web-i18n-concurrent-loads = Gelijktijdige vertalingsladingen
+admin-settings-help-web-i18n-concurrent-loads = 1–8 gelijktijdige catalogusladingen, standaard 4; identieke verzoeken delen één lading.
+admin-settings-key-web-prefetch-enabled = Vooraf laden bij inactiviteit
+admin-settings-help-web-prefetch-enabled = Waarschijnlijke modules laden bij inactiviteit; gevraagde schermen blijven beschikbaar.
+admin-settings-key-web-prefetch-idle-delay-ms = Wachttijd voor vooraf laden
+admin-settings-help-web-prefetch-idle-delay-ms = 0–30000 milliseconden, standaard 2500, vóór optioneel achtergrondwerk.
+admin-settings-key-web-offline-precache-mode = Offline-voorlaadmodus
+admin-settings-help-web-offline-precache-mode = all laadt alles vooraf; core laadt ongeopende vertalingen en PDF-bronnen bij eerste gebruik.
+admin-settings-key-web-offline-precache-concurrency = Gelijktijdige offline-downloads
+admin-settings-help-web-offline-precache-concurrency = 1–4 parallelle downloads bij worker-installatie, standaard 4; geldt bij de volgende installatie.
+admin-settings-key-web-offline-respect-save-data = SaveData respecteren
+admin-settings-help-web-offline-respect-save-data = core gebruiken wanneer de browser SaveData aangeeft.

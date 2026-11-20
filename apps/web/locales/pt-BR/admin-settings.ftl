@@ -2777,3 +2777,19 @@ admin-settings-key-maintenance-database-change-log-retention-days = Retenção d
 admin-settings-help-maintenance-database-change-log-retention-days = Manter o histórico de alterações por este número de dias, normalmente 60. Zero mantém o histórico indefinidamente. Clientes com estados expirados precisam buscar novamente a lista atual.
 admin-settings-key-maintenance-database-change-log-batch-rows = Limite do lote de alterações (linhas)
 admin-settings-help-maintenance-database-change-log-batch-rows = Máximo de linhas de alterações removidas por lote de manutenção, normalmente 1.000. Estados grandes expiram em partes limitadas; clientes com estados anteriores precisam fazer uma sincronização completa.
+
+## Web delivery performance
+admin-settings-key-web-i18n-retained-locales = Idiomas de tradução mantidos
+admin-settings-help-web-i18n-retained-locales = 2–8 idiomas processados, normalmente 3; o idioma ativo e o inglês ficam na RAM.
+admin-settings-key-web-i18n-concurrent-loads = Carregamentos simultâneos de tradução
+admin-settings-help-web-i18n-concurrent-loads = 1–8 carregamentos simultâneos, normalmente 4; solicitações idênticas compartilham uma carga.
+admin-settings-key-web-prefetch-enabled = Pré-carregamento ocioso
+admin-settings-help-web-prefetch-enabled = Antecipar módulos prováveis durante a ociosidade; telas solicitadas continuam disponíveis.
+admin-settings-key-web-prefetch-idle-delay-ms = Espera do pré-carregamento
+admin-settings-help-web-prefetch-idle-delay-ms = 0–30000 milissegundos, normalmente 2500, antes do trabalho opcional.
+admin-settings-key-web-offline-precache-mode = Modo de preparação offline
+admin-settings-help-web-offline-precache-mode = all mantém a preparação completa; core carrega traduções e recursos PDF ainda não abertos no primeiro uso.
+admin-settings-key-web-offline-precache-concurrency = Downloads de preparação simultâneos
+admin-settings-help-web-offline-precache-concurrency = 1–4 downloads paralelos ao instalar o worker, normalmente 4; vale na próxima instalação.
+admin-settings-key-web-offline-respect-save-data = Respeitar SaveData
+admin-settings-help-web-offline-respect-save-data = Usar core quando o navegador informar SaveData.

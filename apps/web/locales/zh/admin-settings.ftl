@@ -2769,3 +2769,19 @@ admin-settings-key-maintenance-database-change-log-retention-days = 邮件变更
 admin-settings-help-maintenance-database-change-log-retention-days = 保留指定天数的变更历史，通常为60天。零表示永久保留。状态令牌过期的客户端必须重新获取当前列表。
 admin-settings-key-maintenance-database-change-log-batch-rows = 变更日志批次上限（行）
 admin-settings-help-maintenance-database-change-log-batch-rows = 每个维护批次最多删除的变更行数，通常为1,000行。较大的状态按有界批次清理；持有更早状态令牌的客户端随后需要完整重新同步。
+
+## Web delivery performance
+admin-settings-key-web-i18n-retained-locales = 保留的翻译语言
+admin-settings-help-web-i18n-retained-locales = 保留 2–8 种已解析语言，默认为 3；当前语言和英语始终保留在内存中。
+admin-settings-key-web-i18n-concurrent-loads = 并行翻译加载数
+admin-settings-help-web-i18n-concurrent-loads = 同时加载 1–8 个目录，默认为 4；相同的待处理请求共享一次加载。
+admin-settings-key-web-prefetch-enabled = 空闲预加载
+admin-settings-help-web-prefetch-enabled = 空闲时预加载可能使用的模块；主动请求的页面仍可使用。
+admin-settings-key-web-prefetch-idle-delay-ms = 空闲预加载延迟
+admin-settings-help-web-prefetch-idle-delay-ms = 可选空闲任务前等待 0–30000 毫秒，默认为 2500。
+admin-settings-key-web-offline-precache-mode = 离线预热模式
+admin-settings-help-web-offline-precache-mode = all 保留完整预热；core 在首次使用时加载尚未打开的翻译和 PDF 资源。
+admin-settings-key-web-offline-precache-concurrency = 并行离线预热下载数
+admin-settings-help-web-offline-precache-concurrency = 安装 worker 时并行下载 1–4 个资源，默认为 4；下次安装时生效。
+admin-settings-key-web-offline-respect-save-data = 遵循 SaveData
+admin-settings-help-web-offline-respect-save-data = 浏览器启用 SaveData 时使用 core 预热。

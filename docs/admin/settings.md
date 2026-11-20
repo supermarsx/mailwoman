@@ -4388,3 +4388,15 @@ environment variables, not this setting. See [notifications](notifications.md).
 | <a id="maintenance.database.maxRunMs"></a>`maintenance.database.maxRunMs` | `250`: SQL work budget; short waits/checkpoints can add time. |
 | <a id="maintenance.database.minFreeMiB"></a>`maintenance.database.minFreeMiB` | `16`: free-page threshold before physical reclamation. |
 | <a id="maintenance.database.maxWalMiB"></a>`maintenance.database.maxWalMiB` | `32`: defer background writes/reclamation while the WAL file exceeds this size. |
+
+## Web delivery and translation performance
+
+<a id="web.i18n.retainedLocales"></a>
+<a id="web.i18n.concurrentLoads"></a>
+<a id="web.prefetch.enabled"></a>
+<a id="web.prefetch.idleDelayMs"></a>
+<a id="web.offline.precacheMode"></a>
+<a id="web.offline.precacheConcurrency"></a>
+<a id="web.offline.respectSaveData"></a>
+
+These global controls tune parsed translation retention, catalog concurrency, idle prefetch and service-worker installation prewarming. See [Web delivery controls](../perf/web-delivery-controls.md) for defaults, bounds, refresh behavior and reduced offline coverage in core mode. They do not change security policy or message cache retention.

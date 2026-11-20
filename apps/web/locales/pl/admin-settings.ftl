@@ -2795,3 +2795,19 @@ admin-settings-key-maintenance-database-change-log-retention-days = Przechowywan
 admin-settings-help-maintenance-database-change-log-retention-days = Przechowuj historię przez tyle dni, zwykle 60. Zero oznacza brak limitu czasu. Klienci z wygasłymi stanami muszą ponownie pobrać bieżącą listę.
 admin-settings-key-maintenance-database-change-log-batch-rows = Limit partii zmian (wiersze)
 admin-settings-help-maintenance-database-change-log-batch-rows = Maksymalna liczba usuwanych wierszy zmian na partię konserwacji, zwykle 1000. Duże stany wygasają w ograniczonych częściach; klienci ze starszymi stanami muszą wykonać pełną synchronizację.
+
+## Web delivery performance
+admin-settings-key-web-i18n-retained-locales = Zachowane języki tłumaczeń
+admin-settings-help-web-i18n-retained-locales = 2–8 przetworzonych języków, zwykle 3; aktywny język i angielski pozostają w RAM.
+admin-settings-key-web-i18n-concurrent-loads = Równoległe ładowanie tłumaczeń
+admin-settings-help-web-i18n-concurrent-loads = 1–8 równoległych odczytów katalogów, zwykle 4; identyczne żądania współdzielą odczyt.
+admin-settings-key-web-prefetch-enabled = Wstępne ładowanie w bezczynności
+admin-settings-help-web-prefetch-enabled = Ładuj prawdopodobne moduły podczas bezczynności; żądane ekrany pozostają dostępne.
+admin-settings-key-web-prefetch-idle-delay-ms = Opóźnienie wstępnego ładowania
+admin-settings-help-web-prefetch-idle-delay-ms = 0–30000 milisekund, zwykle 2500, przed zadaniami opcjonalnymi.
+admin-settings-key-web-offline-precache-mode = Tryb przygotowania offline
+admin-settings-help-web-offline-precache-mode = all zachowuje pełne przygotowanie; core pobiera nieotwarte tłumaczenia i zasoby PDF przy pierwszym użyciu.
+admin-settings-key-web-offline-precache-concurrency = Równoległe pobieranie offline
+admin-settings-help-web-offline-precache-concurrency = 1–4 równoległe pobrania przy instalacji workera, zwykle 4; zmiana dotyczy następnej instalacji.
+admin-settings-key-web-offline-respect-save-data = Uwzględniaj SaveData
+admin-settings-help-web-offline-respect-save-data = Użyj core, gdy przeglądarka sygnalizuje SaveData.

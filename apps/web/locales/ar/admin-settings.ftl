@@ -2799,3 +2799,19 @@ admin-settings-key-maintenance-database-change-log-retention-days = مدة ال�
 admin-settings-help-maintenance-database-change-log-retention-days = الاحتفاظ بسجل التغييرات لهذا العدد من الأيام، وعادة 60 يوماً. الصفر يعني الاحتفاظ دون حد زمني. يجب على العملاء ذوي الحالات المنتهية جلب القائمة الحالية مجدداً.
 admin-settings-key-maintenance-database-change-log-batch-rows = حد دفعة التغييرات (صفوف)
 admin-settings-help-maintenance-database-change-log-batch-rows = الحد الأقصى لصفوف التغييرات المحذوفة في كل دفعة صيانة، وعادة 1000. تنتهي الحالات الكبيرة على أجزاء محدودة؛ ويحتاج العملاء ذوو الحالات الأقدم إلى مزامنة كاملة.
+
+## Web delivery performance
+admin-settings-key-web-i18n-retained-locales = لغات الترجمة المحتفظ بها
+admin-settings-help-web-i18n-retained-locales = من 2 إلى 8 لغات محللة، والافتراضي 3؛ تبقى اللغة النشطة والإنجليزية في الذاكرة.
+admin-settings-key-web-i18n-concurrent-loads = تحميلات الترجمة المتزامنة
+admin-settings-help-web-i18n-concurrent-loads = من 1 إلى 8 تحميلات متزامنة، والافتراضي 4؛ تشترك الطلبات المعلقة المتطابقة في تحميل واحد.
+admin-settings-key-web-prefetch-enabled = التحميل المسبق عند الخمول
+admin-settings-help-web-prefetch-enabled = تحميل الوحدات المحتملة أثناء الخمول؛ تبقى الشاشات المطلوبة متاحة.
+admin-settings-key-web-prefetch-idle-delay-ms = تأخير التحميل المسبق
+admin-settings-help-web-prefetch-idle-delay-ms = انتظار من 0 إلى 30000 مللي ثانية قبل العمل الاختياري، والافتراضي 2500.
+admin-settings-key-web-offline-precache-mode = وضع التجهيز دون اتصال
+admin-settings-help-web-offline-precache-mode = يحافظ all على التجهيز الكامل؛ ويحمّل core الترجمات وموارد PDF غير المفتوحة عند أول استخدام.
+admin-settings-key-web-offline-precache-concurrency = التنزيلات المتزامنة دون اتصال
+admin-settings-help-web-offline-precache-concurrency = من 1 إلى 4 تنزيلات متوازية عند تثبيت العامل، والافتراضي 4؛ يسري عند التثبيت التالي.
+admin-settings-key-web-offline-respect-save-data = احترام SaveData
+admin-settings-help-web-offline-respect-save-data = استخدام core عندما يشير المتصفح إلى SaveData.

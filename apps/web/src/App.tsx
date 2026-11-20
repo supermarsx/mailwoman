@@ -29,6 +29,8 @@ import { NewVersionToast } from './state/NewVersionToast.tsx';
 import { RestrictionBanner } from './components/RestrictionBanner.tsx';
 import { AsyncBoundary, LazyRoute } from './components/ErrorBoundary.tsx';
 import { scheduleIdlePrefetch } from './boot/idlePrefetch.ts';
+import {ensureWebPerformance,watchWebPerformance} from './boot/performanceBootstrap.ts';
+import {webPerformancePolicy,webPerformanceReady,observeWebPerformance} from './boot/performancePolicy.ts';
 import { AsyncError, AsyncPending } from './components/AsyncState.tsx';
 import { t, isolate } from './i18n/index.ts';
 import { clearSettings, loadSettings } from './api/settings.ts';
@@ -122,6 +124,12 @@ function isOAuthAuthorizeRoute(): boolean {
 }
 
 export function App(): JSX.Element {
+  const [performanceRevision,setPerformanceRevision]=createSignal(0);
+  onMount(()=>{
+    if(isNativeAuth()&&nativeServerBase()===null)return;
+    const stopObserver=observeWebPerformance(()=>setPerformanceRevision(value=>value+1));
+    const stop=watchWebPerformance();onCleanup(()=>{stopObserver();stop();});
+  });
   // Pages other than the mailbox and sign-in bring their own loading states;
   // the boot splash only has to get out of their way.
   const leaveSplash = (view: JSX.Element): JSX.Element => { releaseBootSplash(); return view; };
@@ -193,7 +201,8 @@ export function App(): JSX.Element {
     // mailbox shape), start fetching and evaluating the mailbox chunk now, while
     // /api/me, /api/accounts, /jmap/session and the first list are on the wire,
     // instead of after them. A signed-out visitor still never downloads it.
-    if (import.meta.env.MODE !== 'test' && document.documentElement.getAttribute('data-mw-boot') === 'mail') void loadMailboxScreen().catch(() => undefined);
+    let performanceDisposed=false;onCleanup(()=>{performanceDisposed=true;});
+    if (import.meta.env.MODE !== 'test' && document.documentElement.getAttribute('data-mw-boot') === 'mail') void ensureWebPerformance().then(policy=>{if(!performanceDisposed&&policy&&webPerformanceReady()&&webPerformancePolicy().prefetchEnabled)void loadMailboxScreen().catch(()=>undefined);});
     boot();
     // V7 Assist (plan §14): read the gateway config once at boot. A gateway that is
     // off/unreachable resolves to DISABLED_CONFIG, so every Assist surface stays
@@ -293,9 +302,14 @@ export function App(): JSX.Element {
   // the browser is idle, so the first open does not wait for them.
   createEffect(() => {
     // Not under the unit-test runner: its jsdom has no chunks to fetch.
+    performanceRevision();
     if (!inMail() || import.meta.env.MODE === 'test') return;
-    const timer = setTimeout(() => { scheduleIdlePrefetch(); }, 2500);
-    onCleanup(() => clearTimeout(timer));
+    let canceled=false;let timer:ReturnType<typeof setTimeout>|undefined;
+    void ensureWebPerformance().then(policy=>{
+      if(canceled||!policy||!policy.prefetchEnabled)return;
+      timer=setTimeout(()=>{if(!canceled&&inMail()&&webPerformancePolicy().prefetchEnabled)scheduleIdlePrefetch();},policy.idleDelayMs);
+    });
+    onCleanup(() => {canceled=true;if(timer!==undefined)clearTimeout(timer);});
   });
 
   // Keep the offline slice's cached header slice in sync with the visible list,

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { prefetchAllowed, resetIdlePrefetch, scheduleIdlePrefetch, READER_CATALOGS, SETTINGS_CATALOGS } from './idlePrefetch.ts';
+import {applyWebPerformance} from './performancePolicy.ts';
 
 function host(extra: Record<string, unknown> = {}) {
   const idle: (() => void)[] = [];
@@ -11,7 +12,7 @@ function host(extra: Record<string, unknown> = {}) {
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('idlePrefetch (t99)', () => {
-  beforeEach(() => resetIdlePrefetch());
+  beforeEach(() => {resetIdlePrefetch();applyWebPerformance({});});
 
   it('runs the steps one at a time, each in its own idle period, and only once per page', async () => {
     const { idle, host: h } = host();

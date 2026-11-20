@@ -2795,3 +2795,19 @@ admin-settings-key-maintenance-database-change-log-retention-days = Зберіг
 admin-settings-help-maintenance-database-change-log-retention-days = Зберігати історію вказану кількість днів, зазвичай 60. Нуль означає безстрокове зберігання. Клієнти із застарілими станами мають знову завантажити поточний список.
 admin-settings-key-maintenance-database-change-log-batch-rows = Ліміт пакета змін (рядки)
 admin-settings-help-maintenance-database-change-log-batch-rows = Максимум рядків змін, видалених за пакет обслуговування, зазвичай 1000. Великі стани видаляються обмеженими частинами; клієнтам зі старішими станами потрібна повна синхронізація.
+
+## Web delivery performance
+admin-settings-key-web-i18n-retained-locales = Збережені мови перекладу
+admin-settings-help-web-i18n-retained-locales = 2–8 оброблених мов, зазвичай 3; активна мова й англійська залишаються в оперативній пам’яті.
+admin-settings-key-web-i18n-concurrent-loads = Паралельні завантаження перекладів
+admin-settings-help-web-i18n-concurrent-loads = 1–8 паралельних завантажень каталогів, зазвичай 4; однакові запити використовують одне завантаження.
+admin-settings-key-web-prefetch-enabled = Попереднє завантаження під час простою
+admin-settings-help-web-prefetch-enabled = Завантажувати ймовірні модулі під час простою; потрібні екрани залишаються доступними.
+admin-settings-key-web-prefetch-idle-delay-ms = Затримка попереднього завантаження
+admin-settings-help-web-prefetch-idle-delay-ms = 0–30000 мілісекунд, зазвичай 2500, перед необов’язковою роботою.
+admin-settings-key-web-offline-precache-mode = Режим автономної підготовки
+admin-settings-help-web-offline-precache-mode = all зберігає повну підготовку; core завантажує невідкриті переклади й ресурси PDF під час першого використання.
+admin-settings-key-web-offline-precache-concurrency = Паралельні автономні завантаження
+admin-settings-help-web-offline-precache-concurrency = 1–4 паралельні завантаження під час установлення worker, зазвичай 4; діє з наступної інсталяції.
+admin-settings-key-web-offline-respect-save-data = Ураховувати SaveData
+admin-settings-help-web-offline-respect-save-data = Використовувати core, коли браузер повідомляє SaveData.

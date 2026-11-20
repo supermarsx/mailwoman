@@ -9,6 +9,7 @@
 import { Show, createEffect, createMemo, createResource, createSignal, on, useContext, type JSX } from 'solid-js';
 import { isolate, t } from '../../../i18n';
 import { deleteGlobal, getAdminSetting, previewGlobal, putGlobal, type AdminSetting, type GlobalWrite } from '../../../api/admin/settings.ts';
+import {refreshWebPerformanceAfterCommit} from '../../../boot/performanceBootstrap.ts';
 import { AdminProblemError } from '../shell/adminApi.ts';
 import { ShellContext } from '../shell/context.ts';
 import { adminDocsHref } from '../shell/docsLink.ts';
@@ -166,6 +167,7 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
       const out = await tag.write((ifMatch) => putGlobal(props.settingKey, body, ifMatch));
       mutate(out);
       reset(out.setting, out.etag);
+      if(props.settingKey.startsWith('web.'))void refreshWebPerformanceAfterCommit();
       setDone(t(out.setting.hot ? 'admin-settings-saved' : 'admin-settings-saved-restart'));
       props.onChanged?.();
     } catch (err) {
@@ -302,6 +304,7 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
                   const out = await tag.keepMine<{ setting: AdminSetting; etag: string | null }>();
                   mutate(out);
                   reset(out.setting, out.etag);
+                  if(props.settingKey.startsWith('web.'))void refreshWebPerformanceAfterCommit();
                   props.onChanged?.();
                 } catch (err) {
                   showError(err);
@@ -321,6 +324,7 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
                   const out = await tag.write((ifMatch) => deleteGlobal(props.settingKey, ifMatch));
                   mutate(out);
                   reset(out.setting, out.etag);
+                  if(props.settingKey.startsWith('web.'))void refreshWebPerformanceAfterCommit();
                   props.onChanged?.();
                 }}
               />

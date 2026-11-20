@@ -2795,3 +2795,19 @@ admin-settings-key-maintenance-database-change-log-retention-days = Хранен
 admin-settings-help-maintenance-database-change-log-retention-days = Хранить историю указанное число дней, обычно 60. Ноль означает бессрочное хранение. Клиенты с устаревшими состояниями должны повторно загрузить текущий список.
 admin-settings-key-maintenance-database-change-log-batch-rows = Лимит пакета изменений (строки)
 admin-settings-help-maintenance-database-change-log-batch-rows = Максимум удаляемых строк за пакет обслуживания, обычно 1000. Большие состояния удаляются ограниченными частями; клиентам с более старыми состояниями требуется полная синхронизация.
+
+## Web delivery performance
+admin-settings-key-web-i18n-retained-locales = Сохраняемые языки перевода
+admin-settings-help-web-i18n-retained-locales = 2–8 обработанных языков, обычно 3; активный язык и английский остаются в ОЗУ.
+admin-settings-key-web-i18n-concurrent-loads = Параллельные загрузки переводов
+admin-settings-help-web-i18n-concurrent-loads = 1–8 параллельных загрузок каталогов, обычно 4; одинаковые запросы используют одну загрузку.
+admin-settings-key-web-prefetch-enabled = Предзагрузка при простое
+admin-settings-help-web-prefetch-enabled = Загружать вероятные модули при простое; запрошенные экраны остаются доступными.
+admin-settings-key-web-prefetch-idle-delay-ms = Задержка предзагрузки
+admin-settings-help-web-prefetch-idle-delay-ms = 0–30000 миллисекунд, обычно 2500, перед необязательной работой.
+admin-settings-key-web-offline-precache-mode = Режим автономной предзагрузки
+admin-settings-help-web-offline-precache-mode = all сохраняет полную предзагрузку; core загружает неоткрытые переводы и ресурсы PDF при первом использовании.
+admin-settings-key-web-offline-precache-concurrency = Параллельные автономные загрузки
+admin-settings-help-web-offline-precache-concurrency = 1–4 параллельных загрузки при установке worker, обычно 4; действует при следующей установке.
+admin-settings-key-web-offline-respect-save-data = Учитывать SaveData
+admin-settings-help-web-offline-respect-save-data = Использовать core, когда браузер сообщает SaveData.

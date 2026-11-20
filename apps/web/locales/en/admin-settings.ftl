@@ -2696,3 +2696,19 @@ admin-settings-key-maintenance-database-change-log-retention-days = Mail change-
 admin-settings-help-maintenance-database-change-log-retention-days = Keep mail delta history for this many days, normally 60. Zero keeps it indefinitely. Clients with expired state tokens must fetch the current list again.
 admin-settings-key-maintenance-database-change-log-batch-rows = Change-log batch limit (rows)
 admin-settings-help-maintenance-database-change-log-batch-rows = Maximum change rows removed per maintenance batch, normally 1,000. Large states expire in bounded chunks; older client tokens then require a full resync.
+
+## Web delivery performance
+admin-settings-key-web-i18n-retained-locales = Retained translation languages
+admin-settings-help-web-i18n-retained-locales = 2–8 parsed languages, normally 3; active language and English stay in RAM.
+admin-settings-key-web-i18n-concurrent-loads = Concurrent translation loads
+admin-settings-help-web-i18n-concurrent-loads = 1–8 simultaneous catalog loads, normally 4; identical pending requests share one load.
+admin-settings-key-web-prefetch-enabled = Idle prefetch
+admin-settings-help-web-prefetch-enabled = Warm likely modules while idle; requested screens remain available.
+admin-settings-key-web-prefetch-idle-delay-ms = Idle prefetch delay
+admin-settings-help-web-prefetch-idle-delay-ms = 0–30000 milliseconds, normally 2500, before optional idle work.
+admin-settings-key-web-offline-precache-mode = Offline prewarm mode
+admin-settings-help-web-offline-precache-mode = all keeps full prewarming; core leaves unopened translations and PDF resources for first use.
+admin-settings-key-web-offline-precache-concurrency = Offline prewarm downloads
+admin-settings-help-web-offline-precache-concurrency = 1–4 parallel worker-install downloads, normally 4; applies at the next installation.
+admin-settings-key-web-offline-respect-save-data = Honor SaveData for prewarming
+admin-settings-help-web-offline-respect-save-data = Use core prewarming when the browser advertises SaveData.

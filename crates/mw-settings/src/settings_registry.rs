@@ -3600,6 +3600,13 @@ pub static REGISTRY: &[SettingDef] = &[
         "reader",
         "include inline (cid) images in the attachments bar's Download all ZIP"
     ),
+    def!("web.i18n.retainedLocales",int(2,8),"3",G,"interface","Maximum parsed translation locales retained in browser RAM, including pinned active and English fallback; applies on fresh bootstrap/foreground refresh"),
+    def!("web.i18n.concurrentLoads",int(1,8),"4",G,"interface","Maximum simultaneous lazy translation loads; identical pending catalog loads share one result"),
+    def!("web.prefetch.enabled",Kind::Bool,"true",G,"interface","Allow speculative mailbox/module/catalog prefetch; demanded navigation remains available"),
+    def!("web.prefetch.idleDelayMs",int(0,30000),"2500",G,"interface","Milliseconds after an authenticated mail session before scheduling optional idle prefetch"),
+    def!("web.offline.precacheMode",Kind::Enum(&["all","core"]),"\"all\"",G,"offline","Service worker install prewarm: all retains the existing full asset set; core omits unopened translation/PDF assets, which may need network on first use"),
+    def!("web.offline.precacheConcurrency",int(1,4),"4",G,"offline","Maximum parallel service worker install asset fetches; changed values apply at the next worker installation"),
+    def!("web.offline.respectSaveData",Kind::Bool,"true",G,"offline","Use core prewarm when the browser advertises SaveData; cached bytes retain manifest integrity checks"),
     def!(
         "ui.language",
         Kind::Locale,
@@ -11427,3 +11434,28 @@ mod resolution_revision_tests;
 #[cfg(test)]
 #[path = "pool_policy_tests.rs"]
 mod pool_policy_tests;
+
+#[cfg(test)]
+mod web_performance_tests {
+    use super::*;
+    #[test]
+    fn public_web_controls_are_global_and_validate_actual_limits() {
+        for (key,min,max,default) in [
+            ("web.i18n.retainedLocales",2,8,3),
+            ("web.i18n.concurrentLoads",1,8,4),
+            ("web.prefetch.idleDelayMs",0,30000,2500),
+            ("web.offline.precacheConcurrency",1,4,4),
+        ] {
+            let def=lookup(key).unwrap();assert_eq!(def.scopes,G);assert_eq!(def.default_value(),json!(default));
+            for value in [min,max,default]{assert!(validate(def,&json!(value),"value").is_ok());}
+            for value in [json!(min-1),json!(max+1),json!(1.5),json!("4")]{assert!(validate(def,&value,"value").is_err());}
+        }
+        let mode=lookup("web.offline.precacheMode").unwrap();assert_eq!(mode.default_value(),json!("all"));
+        for value in ["all","core"]{assert!(validate(mode,&json!(value),"value").is_ok());}
+        assert!(validate(mode,&json!("https://bad.test/"),"value").is_err());
+        for key in ["web.prefetch.enabled","web.offline.respectSaveData"]{
+            let def=lookup(key).unwrap();assert_eq!(def.scopes,G);assert_eq!(def.default_value(),json!(true));
+            assert!(validate(def,&json!(false),"value").is_ok());assert!(validate(def,&json!("false"),"value").is_err());
+        }
+    }
+}

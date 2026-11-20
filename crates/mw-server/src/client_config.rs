@@ -36,6 +36,13 @@ pub(crate) async fn public_config(
                 | "login.showRememberedHint"
                 | "login.showAccountHelpNotice"
                 | "signin.retryCooldownSecs"
+                | "web.i18n.retainedLocales"
+                | "web.i18n.concurrentLoads"
+                | "web.prefetch.enabled"
+                | "web.prefetch.idleDelayMs"
+                | "web.offline.precacheMode"
+                | "web.offline.precacheConcurrency"
+                | "web.offline.respectSaveData"
         )
     })
     .await
@@ -80,6 +87,16 @@ pub(crate) async fn public_config(
         Err(_) => return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
     let mut response = Json(json!({
+        // Public performance hints only: no authentication/security authority.
+        "webPerformance": {
+            "retainedLocales":value("web.i18n.retainedLocales"),
+            "concurrentLoads":value("web.i18n.concurrentLoads"),
+            "prefetchEnabled":value("web.prefetch.enabled"),
+            "idleDelayMs":value("web.prefetch.idleDelayMs"),
+            "precacheMode":value("web.offline.precacheMode"),
+            "precacheConcurrency":value("web.offline.precacheConcurrency"),
+            "respectSaveData":value("web.offline.respectSaveData"),
+        },
         "maintenance":maintenance,
         "antiBot":anti_bot,
         "retryCooldownSecs":value("signin.retryCooldownSecs"),
@@ -98,4 +115,37 @@ pub(crate) async fn public_config(
         axum::http::HeaderValue::from_static("no-store"),
     );
     response
+}
+
+#[cfg(test)]
+mod web_performance_tests {
+    use super::*;
+    use axum::{body::{Body,to_bytes},http::Request};
+    use mw_store::{Store,ServerKey,settings_policy::SettingPolicyRow};
+    use tower::ServiceExt;
+    #[test]
+    fn public_performance_controls_follow_committed_admin_values_without_exposing_private_settings() {
+        // Construct and poll build_app_full's debug future inside the bounded
+        // fixture thread, rather than overflowing libtest's default stack.
+        let thread=std::thread::Builder::new().stack_size(16*1024*1024).spawn(||{
+            tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async{
+                let path=std::env::temp_dir().join(format!("mw-web-performance-{}.sqlite",uuid::Uuid::new_v4()));
+                let key=ServerKey::generate();let store=Store::open_file(&path,key.clone()).await.unwrap();
+                let (router,_)=crate::build_app_full(crate::AppConfig{db_path:path.to_string_lossy().into_owned(),server_key_hex:Some(key.to_hex()),web_dir:None,cookie_secure:false,mode:crate::ServerMode::Proxy,hardening:crate::HardeningConfig::default(),security:crate::SecurityConfig::default()},crate::V6Config{admin_enabled:false,..Default::default()}).await.unwrap();
+                let read=|router:axum::Router|async move{
+                    let response=router.oneshot(Request::builder().uri("/api/public-config").header("host","localhost").body(Body::empty()).unwrap()).await.unwrap();
+                    assert_eq!(response.status(),200);assert_eq!(response.headers()[header::CACHE_CONTROL],"no-store");
+                    serde_json::from_slice::<serde_json::Value>(&to_bytes(response.into_body(),1024*1024).await.unwrap()).unwrap()
+                };
+                let before=read(router.clone()).await;assert_eq!(before["webPerformance"],json!({"retainedLocales":3,"concurrentLoads":4,"prefetchEnabled":true,"idleDelayMs":2500,"precacheMode":"all","precacheConcurrency":4,"respectSaveData":true}));
+                for(key,value)in [("web.i18n.retainedLocales",json!(2)),("web.i18n.concurrentLoads",json!(1)),("web.prefetch.enabled",json!(false)),("web.prefetch.idleDelayMs",json!(800)),("web.offline.precacheMode",json!("core")),("web.offline.precacheConcurrency",json!(1)),("web.offline.respectSaveData",json!(false))]{
+                    store.put_setting_policy(&SettingPolicyRow{key:key.into(),global_value:Some(value.to_string()),allow_user_override:false,global_locked:true,updated_by:"web-performance-fixture".into(),updated_at:chrono::Utc::now().timestamp()}).await.unwrap();
+                }
+                store.set_setting("web.private.not-public","must-not-leak").await.unwrap();
+                let after=read(router).await;assert_eq!(after["webPerformance"],json!({"retainedLocales":2,"concurrentLoads":1,"prefetchEnabled":false,"idleDelayMs":800,"precacheMode":"core","precacheConcurrency":1,"respectSaveData":false}));
+                assert!(!after.to_string().contains("must-not-leak"));
+            });
+        }).unwrap();
+        if let Err(panic)=thread.join(){std::panic::resume_unwind(panic);}
+    }
 }

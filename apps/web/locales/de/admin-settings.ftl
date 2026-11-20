@@ -2783,3 +2783,19 @@ admin-settings-key-maintenance-database-change-log-retention-days = Aufbewahrung
 admin-settings-help-maintenance-database-change-log-retention-days = Änderungen für diese Anzahl Tage aufbewahren, normalerweise 60. Null bewahrt sie unbegrenzt auf. Clients mit abgelaufenen Zuständen müssen die aktuelle Liste erneut abrufen.
 admin-settings-key-maintenance-database-change-log-batch-rows = Grenze je Änderungslauf (Zeilen)
 admin-settings-help-maintenance-database-change-log-batch-rows = Maximale Anzahl gelöschter Änderungszeilen je Wartungslauf, normalerweise 1.000. Große Zustände verfallen in begrenzten Teilen; Clients mit älteren Zuständen müssen vollständig neu synchronisieren.
+
+## Web delivery performance
+admin-settings-key-web-i18n-retained-locales = Gespeicherte Übersetzungssprachen
+admin-settings-help-web-i18n-retained-locales = 2–8 eingelesene Sprachen, normalerweise 3; aktive Sprache und Englisch bleiben im RAM.
+admin-settings-key-web-i18n-concurrent-loads = Gleichzeitige Übersetzungsladevorgänge
+admin-settings-help-web-i18n-concurrent-loads = 1–8 gleichzeitige Katalogladungen, normalerweise 4; identische Anfragen teilen einen Ladevorgang.
+admin-settings-key-web-prefetch-enabled = Vorausladen im Leerlauf
+admin-settings-help-web-prefetch-enabled = Wahrscheinliche Module im Leerlauf laden; angeforderte Ansichten bleiben verfügbar.
+admin-settings-key-web-prefetch-idle-delay-ms = Verzögerung beim Vorausladen
+admin-settings-help-web-prefetch-idle-delay-ms = 0–30000 Millisekunden, normalerweise 2500, vor optionalen Leerlaufaufgaben.
+admin-settings-key-web-offline-precache-mode = Offline-Vorlademodus
+admin-settings-help-web-offline-precache-mode = all lädt alle Ressourcen vor; core lädt ungeöffnete Übersetzungen und PDF-Ressourcen erst bei Bedarf.
+admin-settings-key-web-offline-precache-concurrency = Offline-Vorladevorgänge
+admin-settings-help-web-offline-precache-concurrency = 1–4 parallele Downloads bei der Worker-Installation, normalerweise 4; gilt bei der nächsten Installation.
+admin-settings-key-web-offline-respect-save-data = SaveData beim Vorladen beachten
+admin-settings-help-web-offline-respect-save-data = Bei aktiviertem SaveData des Browsers nur core vorladen.

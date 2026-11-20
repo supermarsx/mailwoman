@@ -490,6 +490,20 @@ function respond(request, strategy) {
   }
 }
 
+// Fresh public delivery hints are NOT security authority and are never cached.
+// Failure preserves the historical full-prewarm default. Core explicitly leaves
+// unopened catalogs/PDF resources to demand loading (then normal integrity cache).
+async function installPerformancePolicy() {
+  const defaults={precacheMode:'all',precacheConcurrency:4,respectSaveData:true};
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
+  try{
+    const response=await fetch(BASE+'/api/public-config',{cache:'no-store',credentials:'same-origin',signal:controller.signal});
+    if(!response.ok)return defaults;
+    const body=await response.json(),value=body&&body.webPerformance;
+    if(!value||typeof value!=='object')return defaults;
+    return {precacheMode:value.precacheMode==='core'?'core':'all',precacheConcurrency:Number.isInteger(value.precacheConcurrency)&&value.precacheConcurrency>=1&&value.precacheConcurrency<=4?value.precacheConcurrency:4,respectSaveData:typeof value.respectSaveData==='boolean'?value.respectSaveData:true};
+  }catch{return defaults;}finally{clearTimeout(timer);}
+}
 self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
@@ -509,10 +523,14 @@ self.addEventListener('install', (event) => {
       // includes workers and PIM views that the first window has not opened yet.
       // A bounded pool avoids flooding the server with parallel asset requests.
       if(cache){
+        const policy=await installPerformancePolicy();
+        const core=policy.precacheMode==='core'||(policy.respectSaveData&&self.navigator?.connection?.saveData===true);
+        // Only filter the BUILD'S fixed list; policy never supplies asset URLs.
+        const assets=core?OFFLINE_ASSETS.filter(path=>!path.startsWith('/pdfjs/')&&!path.endsWith('.ftl')):OFFLINE_ASSETS;
         let next=0;
-        await Promise.all(Array.from({length:4},async()=>{
-          while(next<OFFLINE_ASSETS.length){
-            const path=OFFLINE_ASSETS[next++],url=BASE+path;
+        await Promise.all(Array.from({length:policy.precacheConcurrency},async()=>{
+          while(next<assets.length){
+            const path=assets[next++],url=BASE+path;
             try{const response=await fetch(url);if(response.status===200&&!isAnalyticsTagged(response)&&await matchesManifest(path,response))await store(cache,url,response);}catch{/* Installation can finish with a partial shell when the connection drops. */}
           }
         }));
