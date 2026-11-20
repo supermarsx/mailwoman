@@ -20,7 +20,12 @@ use std::{
     io::{self, Write},
     net::{Ipv4Addr, Ipv6Addr},
     path::{Component, Path, PathBuf},
-    sync::{Mutex, OnceLock, RwLock},
+    sync::{
+        Arc, Mutex, OnceLock, RwLock, Weak,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        mpsc::{self, SyncSender, TrySendError},
+    },
+    time::{Duration, Instant},
 };
 
 // Each append is independently authenticated; rotation may rename/compress the
@@ -30,7 +35,17 @@ fn key_cell()->&'static RwLock<Option<mw_store::ServerKey>> {
     static K:OnceLock<RwLock<Option<mw_store::ServerKey>>>=OnceLock::new();
     K.get_or_init(||RwLock::new(None))
 }
-pub fn install_file_key(key:mw_store::ServerKey){*key_cell().write().unwrap_or_else(|e|e.into_inner())=Some(key);}
+pub fn install_file_key(key: mw_store::ServerKey) {
+    let _configuration = configuration_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    *key_cell().write().unwrap_or_else(|e| e.into_inner()) = Some(key.clone());
+    if let Some(worker) = OUTPUT.get() {
+        let mut state = worker.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.key = Some(key);
+        state.key_epoch = state.key_epoch.wrapping_add(1);
+    }
+}
 fn file_key()->Option<mw_store::ServerKey>{key_cell().read().unwrap_or_else(|e|e.into_inner()).clone()}
 fn crypto_error(error:impl std::fmt::Display)->io::Error{io::Error::new(io::ErrorKind::InvalidData,error.to_string())}
 fn encrypt_log(bytes:&[u8],key:&mw_store::ServerKey)->io::Result<Vec<u8>>{
@@ -92,15 +107,34 @@ impl Redaction {
 
 /// Migrate existing app-owned log files under the writer lock. Old files stay
 /// in place if encryption fails; no plaintext migration file is created.
-pub(crate) fn encrypt_legacy_logs()->io::Result<usize>{
-    let policy=policy();let Some(key)=file_key() else{return Err(crypto_error("server key unavailable"));};
-    let mut sink=sink_cell().lock().unwrap_or_else(|e|e.into_inner());*sink=None;
-    let mut count=0;
-    if !policy.directory.exists(){return Ok(0);}
-    for entry in fs::read_dir(&policy.directory)?{
-        let entry=entry?;if !entry.file_type()?.is_file(){continue;}
-        let name=entry.file_name().to_string_lossy().into_owned();
-        if name==CURRENT||(name.starts_with("mailwoman-")&&(name.ends_with(".log")||name.ends_with(".log.gz"))){migrate_log(&entry.path(),&key)?;count+=1;}
+pub(crate) fn encrypt_legacy_logs() -> io::Result<usize> {
+    let _maintenance = maintenance_lock().try_lock().map_err(|_| busy_error())?;
+    let (reply, receive) = mpsc::sync_channel(1);
+    submit_control(|snapshot| OutputCommand::Migrate { snapshot, reply })?;
+    receive
+        .recv_timeout(CONTROL_TIMEOUT)
+        .map_err(|_| control_timeout())?
+}
+fn encrypt_legacy_logs_direct(policy: &Policy, key: &mw_store::ServerKey) -> io::Result<usize> {
+    let mut sink = sink_cell().lock().unwrap_or_else(|e| e.into_inner());
+    *sink = None;
+    let mut count = 0;
+    if !policy.directory.exists() {
+        return Ok(0);
+    }
+    for entry in fs::read_dir(&policy.directory)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == CURRENT
+            || (name.starts_with("mailwoman-")
+                && (name.ends_with(".log") || name.ends_with(".log.gz")))
+        {
+            migrate_log(&entry.path(), &key)?;
+            count += 1;
+        }
     }
     Ok(count)
 }
@@ -148,9 +182,7 @@ impl Default for Policy {
 /// A directory the server may write logs to: no parent-directory segments.
 pub fn directory_is_valid(dir: &str) -> bool {
     let p = Path::new(dir);
-    !dir.trim().is_empty()
-        && p.components()
-            .all(|c| !matches!(c, Component::ParentDir))
+    !dir.trim().is_empty() && p.components().all(|c| !matches!(c, Component::ParentDir))
 }
 
 /// The level directives for `level` and the component entries, or `None` for the
@@ -158,7 +190,11 @@ pub fn directory_is_valid(dir: &str) -> bool {
 /// as `component=level` are dropped.
 pub fn directives(level: &str, components: &[String]) -> String {
     let valid = |l: &str| matches!(l, "error" | "warn" | "info" | "debug" | "trace");
-    let mut out = vec![if valid(level) { level.to_string() } else { "info".into() }];
+    let mut out = vec![if valid(level) {
+        level.to_string()
+    } else {
+        "info".into()
+    }];
     for c in components {
         if let Some((name, lvl)) = c.split_once('=') {
             let name = name.trim();
@@ -356,6 +392,7 @@ pub struct FileSink {
     size: u64,
     opened_at: i64,
     key: Option<mw_store::ServerKey>,
+    key_epoch: u64,
 }
 
 impl FileSink {
@@ -365,7 +402,8 @@ impl FileSink {
             file: None,
             size: 0,
             opened_at: 0,
-            key:None,
+            key: None,
+            key_epoch: 0,
         }
     }
 
@@ -399,8 +437,8 @@ impl FileSink {
         Ok(())
     }
 
-    /// Close the current file and move it aside; compression runs on a thread so
-    /// a large file does not stall logging.
+    /// Close the current file and move it aside. Production calls run on the
+    /// one output worker, including compression and retention cleanup.
     pub fn rotate(&mut self, now: i64, p: &Policy) -> io::Result<()> {
         self.file = None;
         let cur = self.dir.join(CURRENT);
@@ -419,17 +457,14 @@ impl FileSink {
         fs::rename(&cur, &target)?;
         self.size = 0;
         let (dir, policy) = (self.dir.clone(), p.clone());
-        let work = move || {
+        let work = move || -> io::Result<()> {
             if policy.compress {
-                let _ = gzip_file(&target);
+                gzip_file(&target)?;
             }
             enforce_limits(&dir, &policy, now, 0);
+            Ok(())
         };
-        if cfg!(test) {
-            work();
-        } else {
-            std::thread::spawn(work);
-        }
+        work()?;
         Ok(())
     }
 
@@ -465,10 +500,28 @@ fn sink_cell() -> &'static Mutex<Option<FileSink>> {
     S.get_or_init(|| Mutex::new(None))
 }
 
-/// Close the live file so the next write reopens it. Used before the file is
-/// rewritten (the per-person scrub), so no handle points at the replaced file.
-pub fn release_current() {
-    *sink_cell().lock().unwrap_or_else(|e| e.into_inner()) = None;
+/// Drain earlier file events and pause file writes for an external rewrite.
+/// Keep the returned guard alive only around synchronous filesystem work.
+pub fn release_current() -> io::Result<FilePauseGuard> {
+    let maintenance = maintenance_lock().try_lock().map_err(|_| busy_error())?;
+    let lease = Arc::new(());
+    let (reply, receive) = mpsc::sync_channel(1);
+    submit_control(|_| OutputCommand::Pause {
+        lease: lease.clone(),
+        reply,
+    })?;
+    receive
+        .recv_timeout(CONTROL_TIMEOUT)
+        .map_err(|_| control_timeout())??;
+    Ok(FilePauseGuard {
+        _lease: lease,
+        _maintenance: maintenance,
+    })
+}
+
+pub struct FilePauseGuard {
+    _lease: Arc<()>,
+    _maintenance: std::sync::MutexGuard<'static, ()>,
 }
 
 /// The policy in force.
@@ -482,30 +535,55 @@ pub fn policy() -> Policy {
 /// Replace the policy. A changed directory or a switched-off file closes the
 /// current sink.
 pub fn set_policy(p: Policy) {
+    let _configuration = configuration_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let mut cur = policy_cell().write().unwrap_or_else(|e| e.into_inner());
-    if cur.directory != p.directory || !p.file_enabled {
-        *sink_cell().lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *cur = p.clone();
+    if let Some(worker) = OUTPUT.get() {
+        worker
+            .state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .policy = Arc::new(p);
     }
-    *cur = p;
 }
 
 /// Apply the configured age/count/size limits immediately, with optional rotation.
 /// No caller-supplied path and no bypass of the configured retention policy.
-pub fn maintain_now(rotate:bool)->io::Result<serde_json::Value>{
-    let p=policy();
-    let now=chrono::Utc::now().timestamp();
-    let removed={
-        let mut cell=sink_cell().lock().unwrap_or_else(|e|e.into_inner());
-        if rotate&&p.file_enabled {
-            let key=file_key().ok_or_else(||crypto_error("server key unavailable for log maintenance"))?;
-            let sink=cell.get_or_insert_with(||FileSink::new(p.directory.clone()));
-            sink.key=Some(key);
-            sink.rotate(now,&p)?;
+pub fn maintain_now(rotate: bool) -> io::Result<serde_json::Value> {
+    let _maintenance = maintenance_lock().try_lock().map_err(|_| busy_error())?;
+    let (reply, receive) = mpsc::sync_channel(1);
+    submit_control(|snapshot| OutputCommand::Maintain {
+        rotate,
+        snapshot,
+        reply,
+    })?;
+    receive
+        .recv_timeout(CONTROL_TIMEOUT)
+        .map_err(|_| control_timeout())?
+}
+fn maintain_direct(rotate: bool, snapshot: &OutputSnapshot) -> io::Result<serde_json::Value> {
+    let p = &snapshot.policy;
+    let now = chrono::Utc::now().timestamp();
+    let removed = {
+        let mut cell = sink_cell().lock().unwrap_or_else(|e| e.into_inner());
+        if rotate && p.file_enabled {
+            let key = snapshot
+                .key
+                .clone()
+                .ok_or_else(|| crypto_error("server key unavailable for log maintenance"))?;
+            let sink = prepare_sink(&mut cell, snapshot, key);
+            sink.rotate(now, &p)?;
         }
-        let current=fs::metadata(p.directory.join(CURRENT)).map(|m|m.len()).unwrap_or(0);
-        enforce_limits(&p.directory,&p,now,current).len()
+        let current = fs::metadata(p.directory.join(CURRENT))
+            .map(|m| m.len())
+            .unwrap_or(0);
+        enforce_limits(&p.directory, &p, now, current).len()
     };
-    Ok(serde_json::json!({"removedFiles":removed,"rotationRequested":rotate&&p.file_enabled,"compressionMayBeRunning":rotate&&p.file_enabled&&p.compress,"status":status()}))
+    Ok(
+        serde_json::json!({"removedFiles":removed,"rotationRequested":rotate&&p.file_enabled,"compressionMayBeRunning":false,"status":status()}),
+    )
 }
 
 /// Bytes in the live file and the rotated files, for the console.
@@ -524,26 +602,430 @@ pub fn status() -> serde_json::Value {
         "rotatedBytes": rotated.iter().map(|f| f.bytes).sum::<u64>(),
         "oldestStamp": rotated.first().map(|f| f.stamp),
         "newestStamp": rotated.last().map(|f| f.stamp),
+        "outputWorker":output_status(),
     })
 }
 
-/// A `tracing_subscriber` writer factory: each event is buffered, redacted and
-/// written to stdout and, when enabled, to the rotating file.
+const MAX_EVENT_BYTES: usize = 16 * 1024;
+const MAX_REDACTED_BYTES: usize = 128 * 1024;
+const OUTPUT_QUEUE_CAPACITY: usize = 1024;
+const CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[derive(Default)]
+struct OutputCounters {
+    accepted: AtomicU64,
+    processed: AtomicU64,
+    queue_full: AtomicU64,
+    oversized: AtomicU64,
+    unavailable: AtomicU64,
+    contended: AtomicU64,
+    stdout_errors: AtomicU64,
+    file_errors: AtomicU64,
+    missing_key: AtomicU64,
+    paused_files: AtomicU64,
+    redacted_oversized: AtomicU64,
+    worker_panics: AtomicU64,
+    shutdown_timeouts: AtomicU64,
+    queued: AtomicUsize,
+    processing: AtomicBool,
+}
+fn counters() -> &'static Arc<OutputCounters> {
+    static C: OnceLock<Arc<OutputCounters>> = OnceLock::new();
+    C.get_or_init(|| Arc::new(OutputCounters::default()))
+}
+fn configuration_lock() -> &'static Mutex<()> {
+    static L: Mutex<()> = Mutex::new(());
+    &L
+}
+fn maintenance_lock() -> &'static Mutex<()> {
+    static L: Mutex<()> = Mutex::new(());
+    &L
+}
+fn busy_error() -> io::Error {
+    io::Error::new(io::ErrorKind::WouldBlock, "log output maintenance is busy")
+}
+fn control_timeout() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::TimedOut,
+        "log output did not acknowledge within the bounded wait",
+    )
+}
+
+#[derive(Clone)]
+struct OutputSnapshot {
+    policy: Arc<Policy>,
+    key: Option<mw_store::ServerKey>,
+    key_epoch: u64,
+}
+enum OutputCommand {
+    Record {
+        bytes: Vec<u8>,
+        snapshot: OutputSnapshot,
+    },
+    Pause {
+        lease: Arc<()>,
+        reply: SyncSender<io::Result<()>>,
+    },
+    Maintain {
+        rotate: bool,
+        snapshot: OutputSnapshot,
+        reply: SyncSender<io::Result<serde_json::Value>>,
+    },
+    Migrate {
+        snapshot: OutputSnapshot,
+        reply: SyncSender<io::Result<usize>>,
+    },
+}
+struct OutputState {
+    sender: Option<SyncSender<OutputCommand>>,
+    policy: Arc<Policy>,
+    key: Option<mw_store::ServerKey>,
+    key_epoch: u64,
+}
+impl OutputState {
+    fn snapshot(&self) -> OutputSnapshot {
+        OutputSnapshot {
+            policy: self.policy.clone(),
+            key: self.key.clone(),
+            key_epoch: self.key_epoch,
+        }
+    }
+}
+struct OutputWorker {
+    state: Mutex<OutputState>,
+    done: Arc<AtomicBool>,
+    join: Mutex<Option<std::thread::JoinHandle<()>>>,
+}
+static OUTPUT: OnceLock<OutputWorker> = OnceLock::new();
+
+/// Start before installing the tracing subscriber. Failure is returned to main;
+/// events never fall back to an unredacted synchronous destination.
+pub fn start_output_worker() -> io::Result<()> {
+    let _configuration = configuration_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(worker) = OUTPUT.get() {
+        return if !worker.done.load(Ordering::Acquire) {
+            Ok(())
+        } else {
+            Err(io::Error::other("log output worker has stopped"))
+        };
+    }
+    let (sender, receiver) = mpsc::sync_channel(OUTPUT_QUEUE_CAPACITY);
+    let done = Arc::new(AtomicBool::new(false));
+    let completed = done.clone();
+    let stats = counters().clone();
+    let join = std::thread::Builder::new()
+        .name("mw-log-output".into())
+        .spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                output_loop(receiver, &stats)
+            }));
+            if result.is_err() {
+                stats.worker_panics.fetch_add(1, Ordering::Relaxed);
+            }
+            completed.store(true, Ordering::Release);
+        })?;
+    let worker = OutputWorker {
+        state: Mutex::new(OutputState {
+            sender: Some(sender),
+            policy: Arc::new(policy()),
+            key: file_key(),
+            key_epoch: 0,
+        }),
+        done,
+        join: Mutex::new(Some(join)),
+    };
+    OUTPUT
+        .set(worker)
+        .map_err(|_| io::Error::other("log output worker already installed"))
+}
+
+fn submit_control(make: impl FnOnce(OutputSnapshot) -> OutputCommand) -> io::Result<()> {
+    let worker = OUTPUT.get().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotConnected,
+            "log output worker is not running",
+        )
+    })?;
+    let state = worker.state.lock().unwrap_or_else(|e| e.into_inner());
+    let sender = state.sender.as_ref().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotConnected, "log output is shutting down")
+    })?;
+    sender
+        .try_send(make(state.snapshot()))
+        .map_err(|error| match error {
+            TrySendError::Full(_) => busy_error(),
+            TrySendError::Disconnected(_) => io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "log output worker is unavailable",
+            ),
+        })
+}
+
+fn prepare_sink<'a>(
+    cell: &'a mut Option<FileSink>,
+    snapshot: &OutputSnapshot,
+    key: mw_store::ServerKey,
+) -> &'a mut FileSink {
+    if cell.as_ref().is_some_and(|sink| {
+        sink.dir != snapshot.policy.directory || sink.key_epoch != snapshot.key_epoch
+    }) {
+        *cell = None;
+    }
+    cell.get_or_insert_with(|| {
+        let mut sink = FileSink::new(snapshot.policy.directory.clone());
+        sink.key = Some(key);
+        sink.key_epoch = snapshot.key_epoch;
+        sink
+    })
+}
+fn flush_output() -> io::Result<()> {
+    io::stdout().flush()?;
+    if let Some(sink) = sink_cell()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_mut()
+        && let Some(file) = sink.file.as_mut()
+    {
+        file.flush()?;
+    }
+    Ok(())
+}
+fn output_loop(receiver: mpsc::Receiver<OutputCommand>, stats: &OutputCounters) {
+    let mut pause: Weak<()> = Weak::new();
+    while let Ok(command) = receiver.recv() {
+        match command {
+            OutputCommand::Record { bytes, snapshot } => {
+                stats.queued.fetch_sub(1, Ordering::Relaxed);
+                stats.processing.store(true, Ordering::Release);
+                output_record(&bytes, &snapshot, pause.upgrade().is_some(), stats);
+                stats.processed.fetch_add(1, Ordering::Relaxed);
+                stats.processing.store(false, Ordering::Release);
+            }
+            OutputCommand::Pause { lease, reply } => {
+                let result = flush_output().map(|()| {
+                    *sink_cell().lock().unwrap_or_else(|e| e.into_inner()) = None;
+                    pause = Arc::downgrade(&lease);
+                });
+                let _ = reply.send(result);
+                // Only the caller's returned guard keeps the pause alive. A
+                // timed-out/cancelled caller cannot leave a permanent pause.
+            }
+            OutputCommand::Maintain {
+                rotate,
+                snapshot,
+                reply,
+            } => {
+                let result = if pause.upgrade().is_some() {
+                    Err(busy_error())
+                } else {
+                    maintain_direct(rotate, &snapshot)
+                };
+                let _ = reply.send(result);
+            }
+            OutputCommand::Migrate { snapshot, reply } => {
+                let result = if pause.upgrade().is_some() {
+                    Err(busy_error())
+                } else {
+                    match snapshot.key.as_ref() {
+                        Some(key) => encrypt_legacy_logs_direct(&snapshot.policy, key),
+                        None => Err(crypto_error("server key unavailable")),
+                    }
+                };
+                let _ = reply.send(result);
+            }
+        }
+    }
+    if flush_output().is_err() {
+        stats.stdout_errors.fetch_add(1, Ordering::Relaxed);
+    }
+    *sink_cell().lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+fn output_record(bytes: &[u8], snapshot: &OutputSnapshot, paused: bool, stats: &OutputCounters) {
+    let mut cell = sink_cell().lock().unwrap_or_else(|e| e.into_inner());
+    output_record_to(bytes, snapshot, paused, stats, &mut io::stdout(), &mut cell);
+}
+fn output_record_to(
+    bytes: &[u8],
+    snapshot: &OutputSnapshot,
+    paused: bool,
+    stats: &OutputCounters,
+    stdout: &mut dyn Write,
+    cell: &mut Option<FileSink>,
+) {
+    let line = redact(&String::from_utf8_lossy(bytes), &snapshot.policy);
+    if line.len() > MAX_REDACTED_BYTES {
+        stats.redacted_oversized.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    if stdout.write_all(line.as_bytes()).is_err() {
+        stats.stdout_errors.fetch_add(1, Ordering::Relaxed);
+    }
+    if snapshot.policy.file_enabled {
+        if paused {
+            stats.paused_files.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        let Some(key) = snapshot.key.clone() else {
+            stats.missing_key.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
+        let plain = ansi_re().replace_all(&line, "");
+        if prepare_sink(cell, snapshot, key)
+            .write(
+                plain.as_bytes(),
+                chrono::Utc::now().timestamp(),
+                &snapshot.policy,
+            )
+            .is_err()
+        {
+            stats.file_errors.fetch_add(1, Ordering::Relaxed);
+            *cell = None;
+        }
+    } else {
+        *cell = None;
+    }
+}
+
+fn output_status() -> serde_json::Value {
+    let stats = counters();
+    let worker = OUTPUT.get();
+    serde_json::json!({"started":worker.is_some(),"running":worker.is_some_and(|worker|!worker.done.load(Ordering::Acquire)),
+        "queueCapacity":OUTPUT_QUEUE_CAPACITY,"maxEventBytes":MAX_EVENT_BYTES,"maxQueuedRawPayloadBytes":OUTPUT_QUEUE_CAPACITY*MAX_EVENT_BYTES,"queuedEvents":stats.queued.load(Ordering::Relaxed),"processingEvent":stats.processing.load(Ordering::Relaxed),
+        "acceptedEvents":stats.accepted.load(Ordering::Relaxed),"processedEvents":stats.processed.load(Ordering::Relaxed),
+        "queueFullDrops":stats.queue_full.load(Ordering::Relaxed),"oversizedEventDrops":stats.oversized.load(Ordering::Relaxed),
+        "workerUnavailableDrops":stats.unavailable.load(Ordering::Relaxed),"submissionContentionDrops":stats.contended.load(Ordering::Relaxed),
+        "stdoutWriteErrors":stats.stdout_errors.load(Ordering::Relaxed),"fileWriteErrors":stats.file_errors.load(Ordering::Relaxed),
+        "missingFileKeyEvents":stats.missing_key.load(Ordering::Relaxed),"pausedFileEvents":stats.paused_files.load(Ordering::Relaxed),
+        "oversizedRedactedEventDrops":stats.redacted_oversized.load(Ordering::Relaxed),"workerPanics":stats.worker_panics.load(Ordering::Relaxed),"shutdownTimeouts":stats.shutdown_timeouts.load(Ordering::Relaxed),
+        "processedMeaning":"completed output attempts, not guaranteed delivery; errors and suppressed file events are counted separately"})
+}
+
+/// Queue depth plus the current output attempt, without filesystem work.
+pub fn pending_output_events() -> usize {
+    counters()
+        .queued
+        .load(Ordering::Relaxed)
+        .saturating_add(usize::from(counters().processing.load(Ordering::Relaxed)))
+}
+
+/// Stop admission and drain in FIFO order. Waiting is asynchronous and bounded;
+/// a worker blocked by platform stdout is detached, never joined indefinitely.
+pub async fn shutdown_output_worker() -> bool {
+    let Some(worker) = OUTPUT.get() else {
+        return true;
+    };
+    stop_output_worker(worker, counters(), CONTROL_TIMEOUT).await
+}
+async fn stop_output_worker(
+    worker: &OutputWorker,
+    stats: &OutputCounters,
+    timeout: Duration,
+) -> bool {
+    worker
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .sender
+        .take();
+    let deadline = Instant::now() + timeout;
+    loop {
+        let finished = worker
+            .join
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map_or_else(
+                || worker.done.load(Ordering::Acquire),
+                std::thread::JoinHandle::is_finished,
+            );
+        if finished {
+            if let Some(join) = worker.join.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                if join.join().is_err() {
+                    return false;
+                }
+            }
+            return stats.queued.load(Ordering::Relaxed) == 0
+                && !stats.processing.load(Ordering::Relaxed)
+                && stats.worker_panics.load(Ordering::Relaxed) == 0;
+        }
+        if Instant::now() >= deadline {
+            stats.shutdown_timeouts.fetch_add(1, Ordering::Relaxed);
+            worker.join.lock().unwrap_or_else(|e| e.into_inner()).take();
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+fn enqueue_record(worker: &OutputWorker, stats: &OutputCounters, bytes: Vec<u8>) {
+    let Ok(state) = worker.state.try_lock() else {
+        stats.contended.fetch_add(1, Ordering::Relaxed);
+        return;
+    };
+    let Some(sender) = state.sender.as_ref() else {
+        stats.unavailable.fetch_add(1, Ordering::Relaxed);
+        return;
+    };
+    let command = OutputCommand::Record {
+        bytes,
+        snapshot: state.snapshot(),
+    };
+    stats.queued.fetch_add(1, Ordering::Relaxed);
+    match sender.try_send(command) {
+        Ok(()) => {
+            stats.accepted.fetch_add(1, Ordering::Relaxed);
+        }
+        Err(error) => {
+            stats.queued.fetch_sub(1, Ordering::Relaxed);
+            match error {
+                TrySendError::Full(_) => {
+                    stats.queue_full.fetch_add(1, Ordering::Relaxed);
+                }
+                TrySendError::Disconnected(_) => {
+                    stats.unavailable.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+    }
+}
+
+/// A tracing formatter writes only into a bounded event buffer on the caller.
+/// Redaction, encryption, compression and destination I/O belong to the worker.
 #[derive(Clone, Copy, Default)]
 pub struct LogWriter;
 
-pub struct EventBuffer(Vec<u8>);
+pub struct EventBuffer {
+    bytes: Vec<u8>,
+    oversized: bool,
+}
 
 impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogWriter {
     type Writer = EventBuffer;
     fn make_writer(&'a self) -> EventBuffer {
-        EventBuffer(Vec::with_capacity(256))
+        EventBuffer {
+            bytes: Vec::with_capacity(256),
+            oversized: false,
+        }
     }
 }
 
 impl Write for EventBuffer {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.extend_from_slice(buf);
+        if !self.oversized {
+            if self
+                .bytes
+                .len()
+                .checked_add(buf.len())
+                .is_none_or(|size| size > MAX_EVENT_BYTES)
+            {
+                self.oversized = true;
+                self.bytes.clear();
+            } else {
+                self.bytes.extend_from_slice(buf);
+            }
+        }
         Ok(buf.len())
     }
     fn flush(&mut self) -> io::Result<()> {
@@ -553,22 +1035,19 @@ impl Write for EventBuffer {
 
 impl Drop for EventBuffer {
     fn drop(&mut self) {
-        if self.0.is_empty() {
+        let stats = counters();
+        if self.oversized {
+            stats.oversized.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        let p = policy();
-        let text = String::from_utf8_lossy(&self.0);
-        let line = redact(&text, &p);
-        let _ = io::stdout().write_all(line.as_bytes());
-        if p.file_enabled {
-            let plain = ansi_re().replace_all(&line, "");
-            let now = chrono::Utc::now().timestamp();
-            let mut cell = sink_cell().lock().unwrap_or_else(|e| e.into_inner());
-            let Some(key)=file_key() else{return;};
-            let sink = cell.get_or_insert_with(|| {let mut sink=FileSink::new(p.directory.clone());sink.key=Some(key);sink});
-            // A file that cannot be written must not stop the server logging.
-            let _ = sink.write(plain.as_bytes(), now, &p);
+        if self.bytes.is_empty() {
+            return;
         }
+        let Some(worker) = OUTPUT.get() else {
+            stats.unavailable.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
+        enqueue_record(worker, stats, std::mem::take(&mut self.bytes));
     }
 }
 
@@ -632,6 +1111,295 @@ mod tests {
             compress: false,
             ..Policy::default()
         }
+    }
+
+    fn output_fixture(
+        capacity: usize,
+        snapshot: OutputSnapshot,
+    ) -> (OutputWorker, mpsc::Receiver<OutputCommand>) {
+        let (sender, receiver) = mpsc::sync_channel(capacity);
+        (
+            OutputWorker {
+                state: Mutex::new(OutputState {
+                    sender: Some(sender),
+                    policy: snapshot.policy,
+                    key: snapshot.key,
+                    key_epoch: snapshot.key_epoch,
+                }),
+                done: Arc::new(AtomicBool::new(false)),
+                join: Mutex::new(None),
+            },
+            receiver,
+        )
+    }
+    fn output_snapshot(directory: PathBuf, key: mw_store::ServerKey) -> OutputSnapshot {
+        OutputSnapshot {
+            policy: Arc::new(Policy {
+                file_enabled: true,
+                directory,
+                addresses: Redaction::None,
+                ips: Redaction::None,
+                compress: false,
+                ..Default::default()
+            }),
+            key: Some(key),
+            key_epoch: 1,
+        }
+    }
+    fn queue_control(worker: &OutputWorker, command: OutputCommand) {
+        worker
+            .state
+            .lock()
+            .unwrap()
+            .sender
+            .as_ref()
+            .unwrap()
+            .try_send(command)
+            .unwrap_or_else(|_| panic!("control fixture queue full"));
+    }
+
+    #[test]
+    fn output_event_cap_discards_whole_event_instead_of_sensitive_truncation() {
+        let before = counters().oversized.load(Ordering::Relaxed);
+        let mut event = EventBuffer {
+            bytes: Vec::new(),
+            oversized: false,
+        };
+        event.write_all(&vec![b'x'; MAX_EVENT_BYTES]).unwrap();
+        event
+            .write_all(b" authorization: Bearer do-not-keep-a-partial-secret")
+            .unwrap();
+        assert!(event.oversized);
+        assert!(event.bytes.is_empty());
+        event.write_all(b"must still be discarded").unwrap();
+        assert!(event.bytes.is_empty());
+        drop(event);
+        assert_eq!(counters().oversized.load(Ordering::Relaxed), before + 1);
+    }
+
+    #[test]
+    fn output_queue_is_bounded_nonblocking_and_fail_closed_when_full_or_down() {
+        let stats = OutputCounters::default();
+        let (worker, receiver) = output_fixture(
+            1,
+            output_snapshot(PathBuf::from("unused"), mw_store::ServerKey::generate()),
+        );
+        enqueue_record(&worker, &stats, b"first".to_vec());
+        enqueue_record(
+            &worker,
+            &stats,
+            b"full must not fall back to stdout".to_vec(),
+        );
+        assert_eq!(stats.accepted.load(Ordering::Relaxed), 1);
+        assert_eq!(stats.queue_full.load(Ordering::Relaxed), 1);
+        assert_eq!(stats.queued.load(Ordering::Relaxed), 1);
+        {
+            let _held = worker.state.lock().unwrap();
+            enqueue_record(&worker, &stats, b"contended".to_vec());
+        }
+        assert_eq!(stats.contended.load(Ordering::Relaxed), 1);
+        drop(receiver);
+        enqueue_record(&worker, &stats, b"disconnected".to_vec());
+        assert_eq!(stats.unavailable.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn output_queue_binds_redaction_policy_and_encryption_key_at_submission() {
+        let a = tmp("output-a");
+        let b = tmp("output-b");
+        let key_a = mw_store::ServerKey::generate();
+        let key_b = mw_store::ServerKey::generate();
+        let snapshot = output_snapshot(a.clone(), key_a.clone());
+        let (worker, receiver) = output_fixture(2, snapshot);
+        let stats = OutputCounters::default();
+        let raw = b"owner@example.org authorization: Bearer abcdefghijklmnop1234567890\n";
+        enqueue_record(&worker, &stats, raw.to_vec());
+        {
+            let mut state = worker.state.lock().unwrap();
+            let mut next = (*state.policy).clone();
+            next.addresses = Redaction::Full;
+            next.directory = b.clone();
+            state.policy = Arc::new(next);
+            state.key = Some(key_b.clone());
+            state.key_epoch = 2;
+        }
+        enqueue_record(&worker, &stats, raw.to_vec());
+        let mut sink = None;
+        let mut stdout = Vec::new();
+        for _ in 0..2 {
+            let OutputCommand::Record { bytes, snapshot } = receiver.recv().unwrap() else {
+                panic!("record expected")
+            };
+            output_record_to(&bytes, &snapshot, false, &stats, &mut stdout, &mut sink);
+        }
+        drop(sink);
+        let bytes_a = fs::read(a.join(CURRENT)).unwrap();
+        let bytes_b = fs::read(b.join(CURRENT)).unwrap();
+        let plain_a = String::from_utf8(decode_log_with_key(&bytes_a, &key_a).unwrap()).unwrap();
+        let plain_b = String::from_utf8(decode_log_with_key(&bytes_b, &key_b).unwrap()).unwrap();
+        assert!(plain_a.contains("[address]"));
+        assert!(!plain_a.contains("owner@example.org"));
+        assert!(plain_b.contains("owner@example.org"));
+        for text in [&plain_a, &plain_b] {
+            assert!(!text.contains("abcdefghijklmnop1234567890"));
+        }
+        assert!(decode_log_with_key(&bytes_a, &key_b).is_err());
+        assert!(decode_log_with_key(&bytes_b, &key_a).is_err());
+        fs::remove_dir_all(a).unwrap();
+        fs::remove_dir_all(b).unwrap();
+    }
+
+    #[test]
+    fn output_key_epoch_cannot_append_mixed_keys_and_write_errors_are_counted() {
+        let dir = tmp("output-key-epoch");
+        let key = mw_store::ServerKey::generate();
+        let first = output_snapshot(dir.clone(), key.clone());
+        let mut cell = None;
+        let mut stdout = Vec::new();
+        let stats = OutputCounters::default();
+        output_record_to(
+            b"first record\n",
+            &first,
+            false,
+            &stats,
+            &mut stdout,
+            &mut cell,
+        );
+        let before = fs::read(dir.join(CURRENT)).unwrap();
+        let mut second = output_snapshot(dir.clone(), mw_store::ServerKey::generate());
+        second.key_epoch = 2;
+        output_record_to(
+            b"must not append under a different key\n",
+            &second,
+            false,
+            &stats,
+            &mut stdout,
+            &mut cell,
+        );
+        assert_eq!(stats.file_errors.load(Ordering::Relaxed), 1);
+        assert_eq!(fs::read(dir.join(CURRENT)).unwrap(), before);
+        assert_eq!(
+            decode_log_with_key(&before, &key).unwrap(),
+            b"first record\n"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn output_pause_fences_files_and_expired_pause_does_not_stick() {
+        let dir = tmp("output-pause");
+        let key = mw_store::ServerKey::generate();
+        let snapshot = output_snapshot(dir.clone(), key.clone());
+        let (worker, receiver) = output_fixture(8, snapshot.clone());
+        let stats = Arc::new(OutputCounters::default());
+        let thread_stats = stats.clone();
+        let done = worker.done.clone();
+        *worker.join.lock().unwrap() = Some(std::thread::spawn(move || {
+            output_loop(receiver, &thread_stats);
+            done.store(true, Ordering::Release);
+        }));
+        enqueue_record(&worker, &stats, b"before pause\n".to_vec());
+        let lease = Arc::new(());
+        let (reply, receive) = mpsc::sync_channel(1);
+        queue_control(
+            &worker,
+            OutputCommand::Pause {
+                lease: lease.clone(),
+                reply,
+            },
+        );
+        receive
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .unwrap();
+        let before = fs::read(dir.join(CURRENT)).unwrap();
+        enqueue_record(&worker, &stats, b"during pause\n".to_vec());
+        let (reply, receive) = mpsc::sync_channel(1);
+        queue_control(
+            &worker,
+            OutputCommand::Maintain {
+                rotate: false,
+                snapshot: snapshot.clone(),
+                reply,
+            },
+        );
+        assert!(
+            receive
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap()
+                .is_err()
+        );
+        assert_eq!(fs::read(dir.join(CURRENT)).unwrap(), before);
+        assert_eq!(stats.paused_files.load(Ordering::Relaxed), 1);
+        drop(lease);
+        enqueue_record(&worker, &stats, b"after pause\n".to_vec());
+        assert!(stop_output_worker(&worker, &stats, Duration::from_secs(1)).await);
+        let plain = decode_log_with_key(&fs::read(dir.join(CURRENT)).unwrap(), &key).unwrap();
+        assert_eq!(plain, b"before pause\nafter pause\n");
+        fs::remove_dir_all(dir).unwrap();
+
+        let dir = tmp("output-expired-pause");
+        let snapshot = output_snapshot(dir.clone(), key.clone());
+        let (worker, receiver) = output_fixture(4, snapshot);
+        let stats = Arc::new(OutputCounters::default());
+        let lease = Arc::new(());
+        let (reply, receive) = mpsc::sync_channel(1);
+        queue_control(
+            &worker,
+            OutputCommand::Pause {
+                lease: lease.clone(),
+                reply,
+            },
+        );
+        drop(receive);
+        drop(lease);
+        enqueue_record(
+            &worker,
+            &stats,
+            b"cancelled pause must not suppress this\n".to_vec(),
+        );
+        let thread_stats = stats.clone();
+        let done = worker.done.clone();
+        *worker.join.lock().unwrap() = Some(std::thread::spawn(move || {
+            output_loop(receiver, &thread_stats);
+            done.store(true, Ordering::Release);
+        }));
+        assert!(stop_output_worker(&worker, &stats, Duration::from_secs(1)).await);
+        assert_eq!(stats.paused_files.load(Ordering::Relaxed), 0);
+        assert!(fs::read(dir.join(CURRENT)).unwrap().starts_with(SEALED_LOG));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn output_shutdown_is_async_bounded_and_does_not_join_a_blocked_sink() {
+        let snapshot = output_snapshot(PathBuf::from("unused"), mw_store::ServerKey::generate());
+        let (worker, receiver) = output_fixture(1, snapshot);
+        let stats = OutputCounters::default();
+        let (release, blocked) = mpsc::sync_channel(1);
+        let done = worker.done.clone();
+        *worker.join.lock().unwrap() = Some(std::thread::spawn(move || {
+            let _ = blocked.recv();
+            drop(receiver);
+            done.store(true, Ordering::Release);
+        }));
+        let heartbeat = Arc::new(AtomicBool::new(false));
+        let observed = heartbeat.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+            observed.store(true, Ordering::Release);
+        });
+        assert!(!stop_output_worker(&worker, &stats, Duration::from_millis(25)).await);
+        assert!(
+            heartbeat.load(Ordering::Acquire),
+            "shutdown must let the runtime keep polling"
+        );
+        assert!(
+            !stop_output_worker(&worker, &stats, Duration::from_millis(1)).await,
+            "a detached live worker is not a successful drain"
+        );
+        assert_eq!(stats.shutdown_timeouts.load(Ordering::Relaxed), 2);
+        release.send(()).unwrap();
+        assert!(stop_output_worker(&worker, &stats, Duration::from_secs(1)).await);
     }
 
     #[test]

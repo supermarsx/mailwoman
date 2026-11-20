@@ -465,6 +465,11 @@ struct HealthArgs {
 async fn main() -> std::process::ExitCode {
     use tracing_subscriber::prelude::*;
 
+    if mw_server::observability::log_files::start_output_worker().is_err() {
+        eprintln!("Mailwoman could not start its log output worker.");
+        return std::process::ExitCode::FAILURE;
+    }
+
     // Start with a disabled tracing bridge. Once build_app opens the store, its
     // persisted telemetry configuration creates the SDK and binds the real tracer.
     // CLI health checks and administrative commands never start exporters.
@@ -524,7 +529,11 @@ async fn main() -> std::process::ExitCode {
         Command::Db(args) => run(db_cmd::run(args).await),
         Command::Erasure(args) => run(mw_server::erasure_cmd::run(args).await),
     };
+    let _ = mw_server::flush_http_telemetry().await;
     mw_server::observability::shutdown_otlp();
+    if !mw_server::observability::log_files::shutdown_output_worker().await {
+        eprintln!("Mailwoman log output did not drain within 2 seconds; {} output events may remain unwritten.",mw_server::observability::log_files::pending_output_events());
+    }
     result
 }
 

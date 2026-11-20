@@ -161,10 +161,15 @@ pub(crate) async fn scrub_subject(
             .into_iter()
             .map(|n| (n, report.pseudonym.clone()))
             .collect();
-        if !dry_run {
-            crate::observability::log_files::release_current();
-        }
-        let r = scrub_log_dir(&dir, &pairs, dry_run);
+        let r = match tokio::task::spawn_blocking(move || -> Result<LogScrub,String> {
+            if dry_run { return Ok(scrub_log_dir(&dir, &pairs, true)); }
+            let _pause = crate::observability::log_files::release_current().map_err(|error|error.to_string())?;
+            Ok(scrub_log_dir(&dir, &pairs, false))
+        }).await {
+            Ok(Ok(report)) => report,
+            Ok(Err(error)) => LogScrub { errors: vec![format!("log scrub deferred: {error}")], ..Default::default() },
+            Err(error) => LogScrub { errors: vec![format!("log scrub worker failed: {error}")], ..Default::default() },
+        };
         if r.lines > 0 {
             counts.insert("log_lines".into(), r.lines);
         }
