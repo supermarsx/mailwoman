@@ -187,12 +187,12 @@ impl LiveSqlite {
     }
     pub(crate) async fn acquire(&self) -> Result<GuardedConnection, Error> {
         let pin = self.pin().await;
-        let connection = pin.pool().acquire().await?;
+        let connection = acquire_pinned(&pin).await?;
         Ok(GuardedConnection { connection, pin })
     }
     pub(crate) async fn begin(&self) -> Result<LiveTransaction, Error> {
         let pin = self.pin().await;
-        let connection = pin.pool().acquire().await?;
+        let connection = acquire_pinned(&pin).await?;
         // SQLx custom-BEGIN completion contains an await before its rollback guard
         // exists. An owning task covers both that transition and the admission lease.
         tokio::spawn(async move {
@@ -215,6 +215,23 @@ impl LiveSqlite {
     pub(crate) async fn close(&self) {
         self.exclusive().await.close_old().await;
     }
+}
+
+async fn acquire_pinned(pin: &PinnedPool) -> Result<PoolConnection<Sqlite>, Error> {
+    let pool = pin.pool();
+    let result = crate::pool_telemetry::acquire(pool).await;
+    if matches!(&result, Err(Error::PoolTimedOut)) {
+        // No SQL, account, path or credentials. PoolTimedOut also covers new
+        // connection setup, not just demand exceeding the connection ceiling.
+        eprintln!(
+            "[mw-store] SQLite acquisition timed out after generation admission: open={}, idle={}, maximum={}, closed={}; deadline includes connection setup and validation",
+            pool.size(),
+            pool.num_idle(),
+            pool.options().get_max_connections(),
+            pool.is_closed()
+        );
+    }
+    result
 }
 
 #[derive(Default)]
@@ -280,6 +297,12 @@ impl ExclusiveSqlite {
     #[cfg(test)]
     pub(crate) fn pool(&self) -> &SqlitePool {
         &self.generation.pool
+    }
+    pub(crate) fn pool_options(&self) -> sqlx::sqlite::SqlitePoolOptions {
+        self.generation.pool.options().clone()
+    }
+    pub(crate) fn connection_options(&self) -> Arc<SqliteConnectOptions> {
+        self.generation.pool.connect_options()
     }
     /// The gate is already exclusive, so there are no remaining guarded borrowers.
     pub(crate) async fn close_old(&self) {

@@ -34,6 +34,8 @@ pub mod audit_identity;
 pub mod diag;
 pub mod database_observability;
 pub mod database_growth;
+pub mod pool_telemetry;
+pub mod pool_policy;
 mod message_cache;
 pub mod database_maintenance;
 pub mod background_maintenance;
@@ -477,7 +479,7 @@ impl Store {
         // MW_DB_REQUIRE_TLS=1 refuses a DSN that does not force TLS.
         encryption_report::enforce_tls_policy(dsn)?;
         let pool = PgPoolOptions::new().max_connections(5).connect(dsn).await?;
-        let store = Self {
+        let mut store = Self {
             backend: Backend::Postgres(pool),
             key,
             cache_id: uuid::Uuid::new_v4(),
@@ -497,6 +499,7 @@ impl Store {
         if let Err(error) = store.backfill_feature_subjects().await {
             eprintln!("[mw-store] feature profile targets incomplete until fresh verified sign-in: {error}");
         }
+        store.configure_pool_at_startup().await?;
         Ok(store)
     }
 
@@ -536,7 +539,8 @@ impl Store {
         sqlx::migrate!("./migrations").run(&pool).await?;
         if opening.is_some() { eprintln!("[mw-store] SQLite startup: schema ready; initializing metadata"); }
         let live=match opening {Some(entry)=>entry.register(pool,encrypted),None=>crate::sqlite_live::LiveSqlite::unmanaged(pool)};
-        let store = Self::finish_sqlite(live,key).await?;
+        let mut store = Self::finish_sqlite(live,key).await?;
+        if opening.is_some() { store.configure_pool_at_startup().await?; }
         if opening.is_some() { eprintln!("[mw-store] SQLite startup: metadata and connection pool ready"); }
         Ok(store)
     }

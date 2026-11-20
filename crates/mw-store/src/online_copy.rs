@@ -1312,6 +1312,9 @@ mod tests {
         .await
         .unwrap();
         store.close().await;
+        // close() drains SQLite workers; the Store's lifecycle fence intentionally
+        // remains owned until Drop, including on Windows where it blocks removal.
+        drop(store);
         let mut writer = fixture.writer().await;
         sqlx::query("PRAGMA auto_vacuum=NONE")
             .execute(&mut writer)

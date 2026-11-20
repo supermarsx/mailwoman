@@ -55,10 +55,16 @@ impl Backend {
     /// (t33-e11). Taken up front, the lock is waited for like any other write.
     /// WAL readers outside a transaction are not blocked by it.
     pub(crate) async fn begin(&self) -> Result<Tx, sqlx::Error> {
-        Ok(match self {
+        let mut timer = crate::pool_telemetry::QueryTimer::start("BEGIN");
+        let transaction = match self {
             Backend::Sqlite(p) => Tx::Sqlite(p.begin().await?),
-            Backend::Postgres(p) => Tx::Postgres(p.begin().await?),
-        })
+            Backend::Postgres(p) => {
+                let connection = crate::pool_telemetry::acquire(p).await?;
+                Tx::Postgres(sqlx::Transaction::begin(connection, None).await?)
+            }
+        };
+        timer.success();
+        Ok(transaction)
     }
 }
 
@@ -220,6 +226,7 @@ impl Sql {
     }
 
     pub(crate) async fn execute(self, backend: &Backend) -> Result<u64, sqlx::Error> {
+        let mut query_timer = crate::pool_telemetry::QueryTimer::start(self.sql);
         let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match backend {
             Backend::Sqlite(p) => Ok(build_sqlite(self.sql, self.args)
@@ -227,12 +234,19 @@ impl Sql {
                 .await?
                 .rows_affected()),
             Backend::Postgres(p) => {
+                let mut connection = crate::pool_telemetry::acquire(p).await?;
                 let sql = dialect::placeholders(self.sql, Dialect::Postgres);
-                Ok(build_pg(&sql, &self.args).execute(p).await?.rows_affected())
+                Ok(build_pg(&sql, &self.args)
+                    .execute(&mut *connection)
+                    .await?
+                    .rows_affected())
             }
         };
         if let Ok(rows) = &result {
             crate::database_growth::record_write_bytes(self.sql, self.origin, input_bytes, *rows);
+        }
+        if result.is_ok() {
+            query_timer.success();
         }
         result
     }
@@ -241,6 +255,7 @@ impl Sql {
         self,
         backend: &Backend,
     ) -> Result<Option<Row>, sqlx::Error> {
+        let mut query_timer = crate::pool_telemetry::QueryTimer::start(self.sql);
         let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match backend {
             Backend::Sqlite(p) => Ok(build_sqlite(self.sql, self.args)
@@ -248,9 +263,10 @@ impl Sql {
                 .await?
                 .map(Row::Sqlite)),
             Backend::Postgres(p) => {
+                let mut connection = crate::pool_telemetry::acquire(p).await?;
                 let sql = dialect::placeholders(self.sql, Dialect::Postgres);
                 Ok(build_pg(&sql, &self.args)
-                    .fetch_optional(p)
+                    .fetch_optional(&mut *connection)
                     .await?
                     .map(Row::Postgres))
             }
@@ -263,29 +279,40 @@ impl Sql {
                 u64::from(rows.is_some()),
             );
         }
+        if result.is_ok() {
+            query_timer.success();
+        }
         result
     }
 
     pub(crate) async fn fetch_one(self, backend: &Backend) -> Result<Row, sqlx::Error> {
+        let mut query_timer = crate::pool_telemetry::QueryTimer::start(self.sql);
         let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match backend {
             Backend::Sqlite(p) => Ok(Row::Sqlite(
                 build_sqlite(self.sql, self.args).fetch_one(p).await?,
             )),
             Backend::Postgres(p) => {
+                let mut connection = crate::pool_telemetry::acquire(p).await?;
                 let sql = dialect::placeholders(self.sql, Dialect::Postgres);
                 Ok(Row::Postgres(
-                    build_pg(&sql, &self.args).fetch_one(p).await?,
+                    build_pg(&sql, &self.args)
+                        .fetch_one(&mut *connection)
+                        .await?,
                 ))
             }
         };
         if result.is_ok() {
             crate::database_growth::record_write_bytes(self.sql, self.origin, input_bytes, 1);
         }
+        if result.is_ok() {
+            query_timer.success();
+        }
         result
     }
 
     pub(crate) async fn fetch_all(self, backend: &Backend) -> Result<Vec<Row>, sqlx::Error> {
+        let mut query_timer = crate::pool_telemetry::QueryTimer::start(self.sql);
         let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match backend {
             Backend::Sqlite(p) => Ok(build_sqlite(self.sql, self.args)
@@ -295,9 +322,10 @@ impl Sql {
                 .map(Row::Sqlite)
                 .collect::<Vec<Row>>()),
             Backend::Postgres(p) => {
+                let mut connection = crate::pool_telemetry::acquire(p).await?;
                 let sql = dialect::placeholders(self.sql, Dialect::Postgres);
                 Ok(build_pg(&sql, &self.args)
-                    .fetch_all(p)
+                    .fetch_all(&mut *connection)
                     .await?
                     .into_iter()
                     .map(Row::Postgres)
@@ -311,6 +339,9 @@ impl Sql {
                 input_bytes,
                 rows.len() as u64,
             );
+        }
+        if result.is_ok() {
+            query_timer.success();
         }
         result
     }
@@ -347,6 +378,7 @@ impl Sql {
     // ---- transaction variants ------------------------------------------------
 
     pub(crate) async fn fetch_all_tx(self, tx: &mut Tx) -> Result<Vec<Row>, sqlx::Error> {
+        let mut query_timer = crate::pool_telemetry::QueryTimer::start(self.sql);
         let input_bytes = crate::database_growth::input_bytes(&self.args);
         let rows: Vec<Row> = match tx {
             Tx::Sqlite(t) => build_sqlite(self.sql, self.args)
@@ -371,10 +403,12 @@ impl Sql {
             input_bytes,
             rows.len() as u64,
         );
+        query_timer.success();
         Ok(rows)
     }
 
     pub(crate) async fn execute_tx(self, tx: &mut Tx) -> Result<u64, sqlx::Error> {
+        let mut query_timer = crate::pool_telemetry::QueryTimer::start(self.sql);
         let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match tx {
             Tx::Sqlite(t) => Ok(build_sqlite(self.sql, self.args)
@@ -392,6 +426,9 @@ impl Sql {
         if let Ok(rows) = &result {
             crate::database_growth::record_write_bytes(self.sql, self.origin, input_bytes, *rows);
         }
+        if result.is_ok() {
+            query_timer.success();
+        }
         result
     }
 
@@ -399,6 +436,7 @@ impl Sql {
         self,
         tx: &mut Tx,
     ) -> Result<Option<String>, sqlx::Error> {
+        let mut query_timer = crate::pool_telemetry::QueryTimer::start(self.sql);
         let input_bytes = crate::database_growth::input_bytes(&self.args);
         let row = match tx {
             Tx::Sqlite(t) => build_sqlite(self.sql, self.args)
@@ -419,6 +457,7 @@ impl Sql {
             input_bytes,
             u64::from(row.is_some()),
         );
+        query_timer.success();
         Ok(row.map(|r| r.get_string_idx(0)))
     }
 }
@@ -475,6 +514,16 @@ impl Row {
         match self {
             Row::Sqlite(r) => r.get(col),
             Row::Postgres(r) => r.get(col),
+        }
+    }
+
+    /// Optional non-authoritative metadata may be malformed without making the
+    /// authoritative row unavailable. Callers decide whether a decode failure
+    /// is an error or requires their original conservative path.
+    pub(crate) fn try_get_opt_string(&self, col: &str) -> Result<Option<String>, sqlx::Error> {
+        match self {
+            Row::Sqlite(row) => row.try_get(col),
+            Row::Postgres(row) => row.try_get(col),
         }
     }
 

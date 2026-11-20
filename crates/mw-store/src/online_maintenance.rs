@@ -331,10 +331,8 @@ impl Store {
         Ok(())
     }
 }
-async fn pool(options: SqliteConnectOptions) -> Result<SqlitePool, String> {
-    SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect_with(
+async fn pool(options: SqliteConnectOptions, sizing: SqlitePoolOptions) -> Result<SqlitePool, String> {
+    sizing.connect_with(
             options
                 .foreign_keys(true)
                 .pragma("recursive_triggers", "ON"),
@@ -380,9 +378,9 @@ async fn convert(
     let conversion_lease = files.acquire_conversion().map_err(|e| e.to_string())?;
     let _rebuild = live.try_rebuild_guard().map_err(|e| e.to_string())?;
     let source = files.resolve_active().map_err(|e| e.to_string())?;
-    let source_options = {
+    let (source_options, source_pool_options) = {
         let pin = live.pin().await;
-        (*pin.active_options()).clone()
+        ((*pin.active_options()).clone(), pin.pool().options().clone())
     };
     let mut initial = live.acquire().await.map_err(|e| e.to_string())?;
     let mode = crate::database_observability::sqlite_pragma_i64(&mut initial, "PRAGMA auto_vacuum")
@@ -529,15 +527,15 @@ async fn convert(
             Err(_) => Some("Cutover exceeded its SQL queue budget; the original database was reopened".into()),
         };
         if let Some(error) = preparation_error {
-            restore_source(&mut exclusive, source_options.clone(), path, job).await;
+            restore_source(&mut exclusive, source_options.clone(), &source_pool_options, path, job).await;
             return Err(error);
         }
         // If connecting fails, SQLx owns any asynchronous error-path teardown.
         // Preserve this unselected shadow rather than unlink unconfirmed handles.
         target_cleanup_safe = false;
-        let next = match pool(target_options.clone().foreign_keys(true).synchronous(SqliteSynchronous::Normal)).await {
+        let next = match pool(target_options.clone().foreign_keys(true).synchronous(SqliteSynchronous::Normal), source_pool_options.clone()).await {
             Ok(next) => next,
-            Err(error) => { restore_source(&mut exclusive, source_options.clone(), path, job).await; return Err(error); }
+            Err(error) => { restore_source(&mut exclusive, source_options.clone(), &source_pool_options, path, job).await; return Err(error); }
         };
         let mode = match next.acquire().await {
             Ok(mut conn) => crate::database_observability::sqlite_pragma_i64(&mut conn,"PRAGMA auto_vacuum").await,
@@ -545,12 +543,12 @@ async fn convert(
         };
         if !matches!(mode, Ok(2)) {
             next.close().await; target_cleanup_safe = true;
-            restore_source(&mut exclusive, source_options.clone(), path, job).await;
+            restore_source(&mut exclusive, source_options.clone(), &source_pool_options, path, job).await;
             return Err("Replacement database could not be verified in incremental mode".into());
         }
         if let Err(error) = publish_status(path, job, "publishing", None, None) {
             next.close().await; target_cleanup_safe = true;
-            restore_source(&mut exclusive, source_options.clone(), path, job).await;
+            restore_source(&mut exclusive, source_options.clone(), &source_pool_options, path, job).await;
             return Err(error);
         }
         let selected = match files.publish(&source, &target) {
@@ -568,7 +566,7 @@ async fn convert(
             job.report.lock().unwrap_or_else(|p|p.into_inner()).retained_previous = true;
         } else if selected.id == source.id {
             next.close().await; target_cleanup_safe = true;
-            restore_source(&mut exclusive, source_options.clone(), path, job).await;
+            restore_source(&mut exclusive, source_options.clone(), &source_pool_options, path, job).await;
             return Err("Publication did not select the replacement; the original database was reopened".into());
         } else {
             next.close().await;
@@ -617,11 +615,12 @@ async fn convert(
 async fn restore_source(
     exclusive: &mut ExclusiveSqlite,
     options: SqliteConnectOptions,
+    sizing: &SqlitePoolOptions,
     path: &Path,
     job: &Job,
 ) {
     loop {
-        match pool(options.clone()).await {
+        match pool(options.clone(), sizing.clone()).await {
             Ok(pool) => {
                 exclusive.replace(pool);
                 return;

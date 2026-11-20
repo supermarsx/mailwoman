@@ -106,6 +106,7 @@ async fn mode(store: &Store) -> i64 {
 async fn full_schema_conversion_preserves_concurrent_writes_and_restart_generation() {
     let fixture = Fixture::new(false, false).await;
     assert_eq!(mode(&fixture.store).await, 0);
+    let pool_before = fixture.store.database_pool_snapshot().await;
     let clone = fixture.store.clone();
     fixture
         .store
@@ -140,6 +141,19 @@ async fn full_schema_conversion_preserves_concurrent_writes_and_restart_generati
     assert_eq!(report.phase, "completed", "{report:?}");
     assert!(report.retained_previous);
     assert_eq!(mode(&fixture.store).await, 2);
+    let pool_after = fixture.store.database_pool_snapshot().await;
+    for key in [
+        "minimum",
+        "maximum",
+        "acquireTimeoutMs",
+        "idleTimeoutMs",
+        "maxLifetimeMs",
+    ] {
+        assert_eq!(
+            pool_after[key], pool_before[key],
+            "conversion preserves pool policy: {key}"
+        );
+    }
     assert_eq!(
         q("SELECT COUNT(*) FROM conversion_probe")
             .fetch_scalar_i64(&fixture.store.backend)
@@ -349,16 +363,27 @@ async fn initial_status_failure_is_terminal_in_cache_and_can_be_retried() {
 
 #[tokio::test]
 async fn retained_conversion_ownership_preserves_the_last_recovery_record() {
-    let fixture=Fixture::new(false,true).await;
-    fixture.store.start_online_conversion(fast_options()).await.unwrap();
-    let previous=fixture.finish().await;
-    let files=fixture.live().files().unwrap();
-    let exclusive=files.acquire_conversion().unwrap();
-    assert!(fixture.store.start_online_conversion(fast_options()).await.is_err());
-    let current=fixture.store.online_conversion_status().unwrap();
-    assert_eq!(current.id,previous.id);
-    assert_eq!(current.phase,previous.phase);
-    drop(exclusive);drop(files);
+    let fixture = Fixture::new(false, true).await;
+    fixture
+        .store
+        .start_online_conversion(fast_options())
+        .await
+        .unwrap();
+    let previous = fixture.finish().await;
+    let files = fixture.live().files().unwrap();
+    let exclusive = files.acquire_conversion().unwrap();
+    assert!(
+        fixture
+            .store
+            .start_online_conversion(fast_options())
+            .await
+            .is_err()
+    );
+    let current = fixture.store.online_conversion_status().unwrap();
+    assert_eq!(current.id, previous.id);
+    assert_eq!(current.phase, previous.phase);
+    drop(exclusive);
+    drop(files);
     fixture.clean().await;
 }
 
