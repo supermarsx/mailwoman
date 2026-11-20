@@ -18,6 +18,8 @@ path = "src/main.rs"
 # Opt-in isolated load fixtures can inject deterministic provider runtimes;
 # normal builds retain the production engine construction path.
 load-test-fixtures = []
+# Separate opt-in diagnostics: ordinary release fixture builds keep no trace hooks.
+sql-shape-diagnostics = ["load-test-fixtures", "mw-store/query-shape-diagnostics"]
 
 [[example]]
 name = "websocket-load"

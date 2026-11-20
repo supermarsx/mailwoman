@@ -23,6 +23,9 @@ const FIXTURE_WORKER_ENV: &str = "MW_NATIVE_LOAD_PROXY_WORKER";
 mod representative;
 #[path = "common/linked_login_preflight.rs"]
 mod linked_login_preflight;
+#[cfg(feature = "sql-shape-diagnostics")]
+#[path = "common/native_sql_shapes.rs"]
+mod native_sql_shapes;
 
 fn index_ready(status: &mw_engine::maintenance::SearchIndexStatus, expected: u64) -> bool {
     !status.rebuilding

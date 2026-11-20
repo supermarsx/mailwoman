@@ -244,6 +244,8 @@ impl Sql {
         };
         if let Ok(rows) = &result {
             crate::database_growth::record_write_bytes(self.sql, self.origin, input_bytes, *rows);
+            #[cfg(feature = "query-shape-diagnostics")]
+            query_timer.affected_rows(*rows);
         }
         if result.is_ok() {
             query_timer.success();
@@ -278,6 +280,8 @@ impl Sql {
                 input_bytes,
                 u64::from(rows.is_some()),
             );
+            #[cfg(feature = "query-shape-diagnostics")]
+            query_timer.returned_rows(u64::from(rows.is_some()));
         }
         if result.is_ok() {
             query_timer.success();
@@ -304,6 +308,8 @@ impl Sql {
         };
         if result.is_ok() {
             crate::database_growth::record_write_bytes(self.sql, self.origin, input_bytes, 1);
+            #[cfg(feature = "query-shape-diagnostics")]
+            query_timer.returned_rows(1);
         }
         if result.is_ok() {
             query_timer.success();
@@ -339,6 +345,8 @@ impl Sql {
                 input_bytes,
                 rows.len() as u64,
             );
+            #[cfg(feature = "query-shape-diagnostics")]
+            query_timer.returned_rows(rows.len() as u64);
         }
         if result.is_ok() {
             query_timer.success();
@@ -403,6 +411,8 @@ impl Sql {
             input_bytes,
             rows.len() as u64,
         );
+        #[cfg(feature = "query-shape-diagnostics")]
+        query_timer.returned_rows(rows.len() as u64);
         query_timer.success();
         Ok(rows)
     }
@@ -425,6 +435,8 @@ impl Sql {
         };
         if let Ok(rows) = &result {
             crate::database_growth::record_write_bytes(self.sql, self.origin, input_bytes, *rows);
+            #[cfg(feature = "query-shape-diagnostics")]
+            query_timer.affected_rows(*rows);
         }
         if result.is_ok() {
             query_timer.success();
@@ -457,6 +469,8 @@ impl Sql {
             input_bytes,
             u64::from(row.is_some()),
         );
+        #[cfg(feature = "query-shape-diagnostics")]
+        query_timer.returned_rows(u64::from(row.is_some()));
         query_timer.success();
         Ok(row.map(|r| r.get_string_idx(0)))
     }

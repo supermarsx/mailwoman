@@ -1,6 +1,10 @@
 //! Payload-free operation/acquisition counters. No SQL text, binds, IDs or
 //! credentials are retained. Query duration includes acquisition wait; timings
 //! overlap and must not be added together. Direct SQLx outside q() is excluded.
+#[cfg(feature = "query-shape-diagnostics")]
+#[path = "query_shapes.rs"]
+pub mod shapes;
+
 use serde::Serialize;
 use std::{
     future::Future,
@@ -118,9 +122,11 @@ pub(crate) struct QueryTimer {
     started: Instant,
     request: Option<Arc<Counters>>,
     success: bool,
+    #[cfg(feature = "query-shape-diagnostics")]
+    shape: Option<shapes::Capture>,
 }
 impl QueryTimer {
-    pub(crate) fn start(sql: &str) -> Self {
+    pub(crate) fn start(sql: &'static str) -> Self {
         let verb = sql.split_ascii_whitespace().next().unwrap_or("");
         let class = if verb.eq_ignore_ascii_case("SELECT") {
             Class::Read
@@ -132,14 +138,27 @@ impl QueryTimer {
         } else {
             Class::Other
         };
-        Self::new(class)
+        #[cfg(not(feature = "query-shape-diagnostics"))]
+        { Self::new(class) }
+        #[cfg(feature = "query-shape-diagnostics")]
+        {
+            let mut timer=Self::new(class);
+            timer.shape=shapes::capture(sql,class);
+            timer
+        }
     }
+    #[cfg(feature = "query-shape-diagnostics")]
+    pub(crate) fn returned_rows(&mut self,rows:u64){if let Some(shape)=&mut self.shape{shape.returned=Some(rows);}}
+    #[cfg(feature = "query-shape-diagnostics")]
+    pub(crate) fn affected_rows(&mut self,rows:u64){if let Some(shape)=&mut self.shape{shape.affected=Some(rows);}}
     fn new(class: Class) -> Self {
         Self {
             class,
             started: Instant::now(),
             request: REQUEST.try_with(Arc::clone).ok(),
             success: false,
+            #[cfg(feature = "query-shape-diagnostics")]
+            shape:None,
         }
     }
     pub(crate) fn success(&mut self) {
@@ -149,6 +168,8 @@ impl QueryTimer {
 impl Drop for QueryTimer {
     fn drop(&mut self) {
         let micros = self.started.elapsed().as_micros().min(u64::MAX as u128) as u64;
+        #[cfg(feature = "query-shape-diagnostics")]
+        if let Some(shape)=self.shape.take(){shape.finish(self.success,micros);}
         PROCESS.operation(self.class).add(micros, self.success);
         if let Some(counters) = &self.request {
             counters.operation(self.class).add(micros, self.success);

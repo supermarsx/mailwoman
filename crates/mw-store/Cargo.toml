@@ -6,6 +6,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# Explicit diagnostic fixture only; no trace hooks in default builds.
+query-shape-diagnostics = []
+
 [dependencies]
 mw-platform-fs = { path = "../mw-platform-fs" }
 async-stream = "0.3.6"
