@@ -240,6 +240,35 @@ impl Store {
         Ok(Some(IndexPublicationSource { envelope, raw }))
     }
 
+    /// Open only the unchanged owned envelope, without reading or joining raw
+    /// body storage. An oversized envelope is rejected in SQL before transfer.
+    pub async fn index_publication_envelope(
+        &self,
+        expected: &Message,
+        max_bytes: u64,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        if max_bytes > MAX_SOURCE_READ_BYTES
+            || expected.account_id.len() > 1024
+            || expected.stable_id.len() > 1024
+            || expected.cache_revision.len() > 1024
+        {
+            return Err(corrupt("publication envelope read limit exceeded"));
+        }
+        let limit = i64::try_from(max_bytes)
+            .map_err(|_| corrupt("publication envelope read limit exceeded"))?;
+        let row=q("SELECT CASE WHEN COALESCE(octet_length(m.envelope_json),0)<=?8 THEN m.envelope_json ELSE NULL END AS envelope,CAST(CASE WHEN COALESCE(octet_length(m.envelope_json),0)<=?8 THEN 0 ELSE 1 END AS BIGINT) AS oversized FROM messages m JOIN accounts a ON a.id=m.account_id WHERE m.account_id=?1 AND m.stable_id=?2 AND m.cache_revision=?3 AND m.uidvalidity=?4 AND m.uid=?5 AND (m.blob_ref=?6 OR (m.blob_ref IS NULL AND ?6 IS NULL)) AND m.mailbox_id=?7")
+            .bind(&expected.account_id).bind(&expected.stable_id).bind(&expected.cache_revision).bind(i64::from(expected.uidvalidity)).bind(i64::from(expected.uid)).bind(expected.blob_ref.as_deref()).bind(&expected.mailbox_id).bind(limit).fetch_optional(&self.backend).await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        if row.get_i64("oversized") != 0 {
+            return Err(corrupt("publication envelope byte budget exceeded"));
+        }
+        row.get_opt_blob("envelope")
+            .map(|bytes| self.key.open(&bytes).map_err(StoreError::from))
+            .transpose()
+    }
+
     async fn publication_generation(&self) -> Option<PathBuf> {
         match &self.backend {
             Backend::Sqlite(live) => Some(
@@ -259,6 +288,26 @@ impl Store {
         &self,
         requests: &[IndexPublicationRequest],
         now: i64,
+    ) -> Result<IndexPublicationSnapshot, StoreError> {
+        self.index_publication_snapshot_with_body(requests, now, true)
+            .await
+    }
+    /// Metadata-only variant for an owned metadata publication. It observes the
+    /// same message/owner/meta/posture/restriction/expiry identity, but never
+    /// joins raw body storage or reads its size. This is not a raw-source proof.
+    pub async fn index_publication_metadata_snapshot(
+        &self,
+        requests: &[IndexPublicationRequest],
+        now: i64,
+    ) -> Result<IndexPublicationSnapshot, StoreError> {
+        self.index_publication_snapshot_with_body(requests, now, false)
+            .await
+    }
+    async fn index_publication_snapshot_with_body(
+        &self,
+        requests: &[IndexPublicationRequest],
+        now: i64,
+        include_body: bool,
     ) -> Result<IndexPublicationSnapshot, StoreError> {
         if requests.len() > MAX_PUBLICATION_ACCOUNTS {
             return Err(corrupt("publication request limit exceeded"));
@@ -309,10 +358,13 @@ impl Store {
             return Err(corrupt("publication encoded input limit exceeded"));
         }
         let generation = self.publication_generation().await;
-        let rows = q(publication_sql(self.backend.dialect()))
-            .bind(input)
-            .fetch_all(&self.backend)
-            .await?;
+        let rows = q(publication_sql_variant(
+            self.backend.dialect(),
+            include_body,
+        ))
+        .bind(input)
+        .fetch_all(&self.backend)
+        .await?;
         if generation != self.publication_generation().await {
             return Err(StoreError::SourceChanged);
         }
@@ -404,15 +456,27 @@ impl Store {
     }
 }
 
+#[cfg(test)]
 fn publication_sql(dialect: Dialect) -> &'static str {
-    static SQLITE: LazyLock<String> = LazyLock::new(|| build_publication_sql(Dialect::Sqlite));
-    static POSTGRES: LazyLock<String> = LazyLock::new(|| build_publication_sql(Dialect::Postgres));
-    match dialect {
-        Dialect::Sqlite => SQLITE.as_str(),
-        Dialect::Postgres => POSTGRES.as_str(),
+    publication_sql_variant(dialect, true)
+}
+fn publication_sql_variant(dialect: Dialect, include_body: bool) -> &'static str {
+    static SQLITE: LazyLock<String> =
+        LazyLock::new(|| build_publication_sql(Dialect::Sqlite, true));
+    static POSTGRES: LazyLock<String> =
+        LazyLock::new(|| build_publication_sql(Dialect::Postgres, true));
+    static SQLITE_METADATA: LazyLock<String> =
+        LazyLock::new(|| build_publication_sql(Dialect::Sqlite, false));
+    static POSTGRES_METADATA: LazyLock<String> =
+        LazyLock::new(|| build_publication_sql(Dialect::Postgres, false));
+    match (dialect, include_body) {
+        (Dialect::Sqlite, true) => SQLITE.as_str(),
+        (Dialect::Postgres, true) => POSTGRES.as_str(),
+        (Dialect::Sqlite, false) => SQLITE_METADATA.as_str(),
+        (Dialect::Postgres, false) => POSTGRES_METADATA.as_str(),
     }
 }
-fn build_publication_sql(dialect: Dialect) -> String {
+fn build_publication_sql(dialect: Dialect, include_body: bool) -> String {
     const SCALAR: usize = 256 * 1024;
     const BATCH: usize = 8 * 1024 * 1024;
     const SCOPES: usize = 64 * 1024;
@@ -511,12 +575,22 @@ fn build_publication_sql(dialect: Dialect) -> String {
             "SELECT ar.ctid AS row_locator,ra.requested_account AS account_id,ar.created_at,octet_length(ar.id) AS id_bytes,octet_length(ar.account_id) AS account_bytes,octet_length(ar.scopes_json) AS scope_bytes,0 AS invalid_shape FROM account_restriction ar JOIN requested_accounts ra ON ra.requested_account=ar.account_id WHERE ar.lifted_at IS NULL ORDER BY ar.account_id,ar.created_at DESC LIMIT 4097"
         ),
     };
+    let body_join = if include_body {
+        "LEFT JOIN bodies b ON b.blob_ref=m.blob_ref AND b.account_id=m.account_id AND m.account_id=r.requested_account"
+    } else {
+        ""
+    };
+    let body_length = if include_body {
+        "CASE WHEN m.account_id=r.requested_account THEN octet_length(b.sealed_bytes) ELSE NULL END"
+    } else {
+        "NULL"
+    };
     let restriction_locator = match dialect {
         Dialect::Sqlite => "ar.rowid=restricted.row_locator",
         Dialect::Postgres => "ar.ctid=restricted.row_locator",
     };
     format!(
-        "WITH requested AS ({requested}), requested_accounts AS (SELECT DISTINCT requested_account FROM requested), restrictions AS ({restriction_rows}), source_budget AS (SELECT COALESCE(SUM({source_bytes}),0) AS bytes,COALESCE(MAX(CASE WHEN {source_big} OR ({source_bad}) THEN 1 ELSE 0 END),0) AS invalid FROM requested r LEFT JOIN messages m ON m.stable_id=r.requested_id LEFT JOIN message_meta mm ON mm.stable_id=m.stable_id AND m.account_id=r.requested_account LEFT JOIN message_body_cache_lease l ON l.stable_id=m.stable_id AND l.account_id=m.account_id AND l.uidvalidity=m.uidvalidity AND l.uid=m.uid), restriction_budget AS (SELECT COUNT(*) AS n,COALESCE(SUM({restriction_bytes}),0) AS bytes,COALESCE(MAX(CASE WHEN {restriction_big} OR ({restriction_bad}) THEN 1 ELSE 0 END),0) AS invalid FROM restrictions ar), posture_budget AS (SELECT COALESCE(MAX(CASE WHEN {posture_bad} THEN 1 ELSE 0 END),0) AS invalid FROM requested_accounts ra LEFT JOIN zeroaccess_accounts z ON z.account_id=ra.requested_account), budget AS (SELECT CASE WHEN sb.bytes+rb.bytes<={BATCH} AND sb.invalid=0 AND rb.invalid=0 AND rb.n<={MAX_RESTRICTIONS} AND pb.invalid=0 THEN 1 ELSE 0 END AS ok FROM source_budget sb CROSS JOIN restriction_budget rb CROSS JOIN posture_budget pb) SELECT tag,requested_account,stable_id,payload FROM (SELECT 'overflow' AS tag,'' AS requested_account,'' AS stable_id,CAST(0 AS BIGINT) AS created_at,'{{}}' AS payload FROM budget WHERE ok=0 UNION ALL SELECT 'account',ra.requested_account,'',CAST(0 AS BIGINT),{json}('exists',CASE WHEN a.id IS NULL THEN 0 ELSE 1 END,'zero_access_present',CASE WHEN z.account_id IS NULL THEN 0 ELSE 1 END,'zero_access',z.enabled){cast} FROM budget CROSS JOIN requested_accounts ra LEFT JOIN accounts a ON a.id=ra.requested_account LEFT JOIN zeroaccess_accounts z ON z.account_id=ra.requested_account WHERE budget.ok=1 UNION ALL SELECT 'restriction',ar.account_id,'',ar.created_at,{json}('id',ar.id,'scopes',ar.scopes_json,'created',ar.created_at,'expires',ar.expires_at){cast} FROM budget CROSS JOIN restrictions restricted JOIN account_restriction ar ON {restriction_locator} WHERE budget.ok=1 UNION ALL SELECT 'message',r.requested_account,r.requested_id,CAST(0 AS BIGINT),{json}('current_owner',m.account_id,'content_blob_ref',CASE WHEN m.account_id=r.requested_account THEN COALESCE(m.blob_ref,l.blob_ref) ELSE NULL END,{fields},'meta_present',CASE WHEN mm.stable_id IS NULL THEN 0 ELSE 1 END,'pinned',mm.pinned,'snoozed_until',mm.snoozed_until,'follow_up_at',mm.follow_up_at,'envelope_bytes',CASE WHEN m.account_id=r.requested_account THEN octet_length(m.envelope_json) ELSE NULL END,'raw_body_bytes',CASE WHEN m.account_id=r.requested_account THEN octet_length(b.sealed_bytes) ELSE NULL END){cast} FROM budget CROSS JOIN requested r LEFT JOIN messages m ON m.stable_id=r.requested_id LEFT JOIN message_meta mm ON mm.stable_id=m.stable_id AND m.account_id=r.requested_account LEFT JOIN message_body_cache_lease l ON l.stable_id=m.stable_id AND l.account_id=m.account_id AND l.uidvalidity=m.uidvalidity AND l.uid=m.uid LEFT JOIN bodies b ON b.blob_ref=m.blob_ref AND b.account_id=m.account_id AND m.account_id=r.requested_account WHERE budget.ok=1 AND r.requested_id IS NOT NULL) publication_rows ORDER BY tag,requested_account,created_at DESC,stable_id"
+        "WITH requested AS ({requested}), requested_accounts AS (SELECT DISTINCT requested_account FROM requested), restrictions AS ({restriction_rows}), source_budget AS (SELECT COALESCE(SUM({source_bytes}),0) AS bytes,COALESCE(MAX(CASE WHEN {source_big} OR ({source_bad}) THEN 1 ELSE 0 END),0) AS invalid FROM requested r LEFT JOIN messages m ON m.stable_id=r.requested_id LEFT JOIN message_meta mm ON mm.stable_id=m.stable_id AND m.account_id=r.requested_account LEFT JOIN message_body_cache_lease l ON l.stable_id=m.stable_id AND l.account_id=m.account_id AND l.uidvalidity=m.uidvalidity AND l.uid=m.uid), restriction_budget AS (SELECT COUNT(*) AS n,COALESCE(SUM({restriction_bytes}),0) AS bytes,COALESCE(MAX(CASE WHEN {restriction_big} OR ({restriction_bad}) THEN 1 ELSE 0 END),0) AS invalid FROM restrictions ar), posture_budget AS (SELECT COALESCE(MAX(CASE WHEN {posture_bad} THEN 1 ELSE 0 END),0) AS invalid FROM requested_accounts ra LEFT JOIN zeroaccess_accounts z ON z.account_id=ra.requested_account), budget AS (SELECT CASE WHEN sb.bytes+rb.bytes<={BATCH} AND sb.invalid=0 AND rb.invalid=0 AND rb.n<={MAX_RESTRICTIONS} AND pb.invalid=0 THEN 1 ELSE 0 END AS ok FROM source_budget sb CROSS JOIN restriction_budget rb CROSS JOIN posture_budget pb) SELECT tag,requested_account,stable_id,payload FROM (SELECT 'overflow' AS tag,'' AS requested_account,'' AS stable_id,CAST(0 AS BIGINT) AS created_at,'{{}}' AS payload FROM budget WHERE ok=0 UNION ALL SELECT 'account',ra.requested_account,'',CAST(0 AS BIGINT),{json}('exists',CASE WHEN a.id IS NULL THEN 0 ELSE 1 END,'zero_access_present',CASE WHEN z.account_id IS NULL THEN 0 ELSE 1 END,'zero_access',z.enabled){cast} FROM budget CROSS JOIN requested_accounts ra LEFT JOIN accounts a ON a.id=ra.requested_account LEFT JOIN zeroaccess_accounts z ON z.account_id=ra.requested_account WHERE budget.ok=1 UNION ALL SELECT 'restriction',ar.account_id,'',ar.created_at,{json}('id',ar.id,'scopes',ar.scopes_json,'created',ar.created_at,'expires',ar.expires_at){cast} FROM budget CROSS JOIN restrictions restricted JOIN account_restriction ar ON {restriction_locator} WHERE budget.ok=1 UNION ALL SELECT 'message',r.requested_account,r.requested_id,CAST(0 AS BIGINT),{json}('current_owner',m.account_id,'content_blob_ref',CASE WHEN m.account_id=r.requested_account THEN COALESCE(m.blob_ref,l.blob_ref) ELSE NULL END,{fields},'meta_present',CASE WHEN mm.stable_id IS NULL THEN 0 ELSE 1 END,'pinned',mm.pinned,'snoozed_until',mm.snoozed_until,'follow_up_at',mm.follow_up_at,'envelope_bytes',CASE WHEN m.account_id=r.requested_account THEN octet_length(m.envelope_json) ELSE NULL END,'raw_body_bytes',{body_length}){cast} FROM budget CROSS JOIN requested r LEFT JOIN messages m ON m.stable_id=r.requested_id LEFT JOIN message_meta mm ON mm.stable_id=m.stable_id AND m.account_id=r.requested_account LEFT JOIN message_body_cache_lease l ON l.stable_id=m.stable_id AND l.account_id=m.account_id AND l.uidvalidity=m.uidvalidity AND l.uid=m.uid {body_join} WHERE budget.ok=1 AND r.requested_id IS NOT NULL) publication_rows ORDER BY tag,requested_account,created_at DESC,stable_id"
     )
 }
 

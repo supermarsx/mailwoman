@@ -98,7 +98,40 @@ async fn contract(store: Store) {
     );
     assert!(current.envelope_bytes.is_some_and(|n| n > 0));
     assert!(current.raw_body_bytes.is_some_and(|n| n > 57));
+    let metadata = store
+        .index_publication_metadata_snapshot(&requests, 100)
+        .await
+        .unwrap();
+    assert_eq!(metadata.account(&a), before.account(&a));
+    let mut comparable = current.clone();
+    comparable.raw_body_bytes = None;
+    assert_eq!(metadata.message(&a, &id), Some(&comparable));
+    assert!(
+        metadata
+            .matches(
+                &store
+                    .index_publication_metadata_snapshot(&requests, 100)
+                    .await
+                    .unwrap()
+            )
+            .unwrap()
+    );
     let expected = current.message.as_ref().unwrap();
+    assert_eq!(
+        store
+            .index_publication_envelope(expected, 1024)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(b"{}".as_slice())
+    );
+    assert!(store.index_publication_envelope(expected, 1).await.is_err());
+    assert!(
+        store
+            .index_publication_envelope(expected, 64 * 1024 * 1024 + 1)
+            .await
+            .is_err()
+    );
     let source = store
         .index_publication_source(expected, 1024)
         .await
@@ -122,6 +155,13 @@ async fn contract(store: Store) {
     );
     let mut foreign_expected = expected.clone();
     foreign_expected.account_id = b.clone();
+    assert!(
+        store
+            .index_publication_envelope(&foreign_expected, 1024)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert!(
         store
             .index_publication_source(&foreign_expected, 1024)
@@ -326,6 +366,23 @@ async fn contract(store: Store) {
         .await
         .unwrap();
     assert!(!meta.matches(&flags).unwrap());
+    assert!(
+        !metadata
+            .matches(
+                &store
+                    .index_publication_metadata_snapshot(&requests, 100)
+                    .await
+                    .unwrap()
+            )
+            .unwrap()
+    );
+    assert!(
+        store
+            .index_publication_envelope(expected, 1024)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert!(
         store
             .index_publication_source(expected, 1024)
@@ -598,5 +655,91 @@ async fn publication_source_budget_precedes_decrypt_and_does_not_renew_lease() {
     assert!(
         store.index_publication_source(&source, 8192).await.is_err(),
         "fitting corrupt sealed source must fail decryption"
+    );
+}
+
+#[test]
+fn metadata_publication_sql_has_no_raw_body_relation_or_expression() {
+    for dialect in [Dialect::Sqlite, Dialect::Postgres] {
+        let sql = publication_sql_variant(dialect, false);
+        assert!(!sql.contains("JOIN bodies"));
+        assert!(!sql.contains("b.sealed_bytes"));
+        assert!(
+            publication_sql(dialect).contains("JOIN bodies"),
+            "the full snapshot retains its original raw-body witness"
+        );
+    }
+}
+#[tokio::test]
+async fn metadata_variants_ignore_corrupt_raw_and_envelope_guard_precedes_decrypt() {
+    let store = Store::open_in_memory(crate::ServerKey::generate())
+        .await
+        .unwrap();
+    let (a, _, id) = fixture(&store).await;
+    let requests = [request(&a, &[&id])];
+    let snapshot = store
+        .index_publication_metadata_snapshot(&requests, 100)
+        .await
+        .unwrap();
+    let message = snapshot.message(&a, &id).unwrap().message.as_ref().unwrap();
+    let blob = message.blob_ref.as_ref().unwrap();
+    q("UPDATE bodies SET sealed_bytes=?1 WHERE blob_ref=?2")
+        .bind(vec![0u8; 4096])
+        .bind(blob)
+        .execute(&store.backend)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .index_publication_envelope(message, 1024)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(b"{}".as_slice())
+    );
+    assert!(
+        snapshot
+            .matches(
+                &store
+                    .index_publication_metadata_snapshot(&requests, 100)
+                    .await
+                    .unwrap()
+            )
+            .unwrap()
+    );
+    q("UPDATE messages SET envelope_json=?1 WHERE stable_id=?2")
+        .bind(vec![0u8; 4096])
+        .bind(&id)
+        .execute(&store.backend)
+        .await
+        .unwrap();
+    let current = store
+        .get_account_messages(&a, &[id.clone()])
+        .await
+        .unwrap()
+        .pop()
+        .unwrap()
+        .unwrap();
+    let error = store
+        .index_publication_envelope(&current, 1024)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error,StoreError::Corrupt(ref text) if text=="publication envelope byte budget exceeded")
+    );
+    assert!(
+        store
+            .index_publication_envelope(&current, 8192)
+            .await
+            .is_err(),
+        "fitting malformed envelope fails decrypt rather than silently becoming metadata"
+    );
+    assert!(
+        store
+            .index_publication_envelope(message, 8192)
+            .await
+            .unwrap()
+            .is_none(),
+        "old revision cannot fetch replacement envelope"
     );
 }
