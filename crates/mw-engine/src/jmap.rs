@@ -1276,26 +1276,14 @@ impl Engine {
     /// It is **four** now, whatever the page size: the message rows, the
     /// envelopes, the engine-local metadata, and the state token.
     ///
-    /// # Why the envelope read is still per-id when a cache is attached
+    /// # Cache-aware metadata batches and full reader envelopes
     ///
-    /// This is the part that cannot be batched away without breaking something,
-    /// so it is deliberate rather than overlooked. `get_message` and
-    /// `get_message_meta` were always direct store reads and batch
-    /// unconditionally. The **envelope** is different: it goes through
-    /// [`Engine::cached_envelope_with_posture`], which is what populates the header-window
-    /// cache and what routes a zero-access account away from every shared tier.
-    /// Reading it straight from the store would silently stop both, and
-    /// `crates/mw-engine/tests/v6.rs` asserts each
-    /// (`standard_account_populates_the_header_window_cache`,
-    /// `zero_access_account_never_materializes_plaintext_in_the_engine_cache`).
-    /// Those tests are the reason this branch exists rather than an obstacle
-    /// to it.
-    ///
-    /// So: **no cache attached** — the default, and what the statement
-    /// assertions measure — one `get_envelopes` for the page. **Cache
-    /// attached** — per-id cache-aside as before, which costs SQL only on a miss
-    /// and nothing on a hit, so it remains strictly cheaper than what it
-    /// replaced.
+    /// Fresh account-scoped message and metadata rows always come from SQL.
+    /// With a cache, metadata-only requests probe their existing revision keys
+    /// and load misses in batches of at most64. Only projected envelopes enter
+    /// the cache, after every returned revision is validated. Zero-access rows
+    /// bypass shared tiers. Full reader requests retain per-ID cache-aside;
+    /// their complete envelopes never share the metadata namespace.
     ///
     /// # The one read that stays per-message, stated rather than glossed
     ///
@@ -1493,25 +1481,27 @@ impl Engine {
             self.search().fetch_list_projections(account_id,&owned_ids).unwrap_or_default()
         } else {HashMap::new()};
 
-        // Statement 3, when no cache is attached — see `email_get` for why an
-        // attached cache keeps the per-id path.
+        // Metadata cache misses share a scoped Store batch. Complete reader
+        // envelopes retain the existing per-ID cache-aside path.
         let envelopes: Vec<Option<Vec<u8>>> = if self.v6_hooks().has_cache() {
-            let mut out = Vec::with_capacity(unique.len());
-            for msg in &msgs {
-                out.push(match msg {
-                    Some(m) => {
-                        let posture = cache_postures.get(&m.account_id).copied()
-                            .unwrap_or(crate::v6::AccountPosture::ZeroAccess);
-                        if fill.metadata_only {
-                            self.cached_header_envelope_with_posture(m, posture).await?
-                        } else {
+            if fill.metadata_only {
+                let posture = cache_postures.get(account_id).copied()
+                    .unwrap_or(crate::v6::AccountPosture::ZeroAccess);
+                self.cached_header_envelopes_with_posture(account_id, &msgs, posture).await?
+            } else {
+                let mut out = Vec::with_capacity(unique.len());
+                for msg in &msgs {
+                    out.push(match msg {
+                        Some(m) => {
+                            let posture = cache_postures.get(&m.account_id).copied()
+                                .unwrap_or(crate::v6::AccountPosture::ZeroAccess);
                             self.cached_envelope_with_posture(m, posture).await?
                         }
-                    }
-                    None => None,
-                });
+                        None => None,
+                    });
+                }
+                out
             }
-            out
         } else {
             if fill.metadata_only {
                 let rows = self.store().get_account_header_envelopes(account_id, &unique).await?;
@@ -7744,6 +7734,7 @@ mod email_get_batch_tests {
     use super::*;
     use crate::state::session_state_tests::{Stmts, counted, db_threads};
     include!("metadata_envelope_tests.rs");
+    include!("header_cache_batch_tests.rs");
 
     /// A fixture whose messages carry **envelopes**, which is what a synced
     /// mailbox looks like.

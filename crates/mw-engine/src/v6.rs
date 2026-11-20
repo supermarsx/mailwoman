@@ -27,6 +27,8 @@
 //! second broadcast channel of its own (plan §3 e10 scope).
 
 use std::future::Future;
+#[path = "header_cache_batch.rs"]
+mod header_cache_batch;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -316,11 +318,7 @@ impl Engine {
                 None => Ok(None),
             };
         };
-        let key = format!(
-            "mail-v3:header-envelope:{}:{}",
-            mw_store::HEADER_ENVELOPE_VERSION,
-            serde_json::to_string(&(&account, &id, &revision)).expect("string tuple")
-        );
+        let key = header_cache_batch::key(message);
         // A legacy/over-cap full fallback is returned to this request only.
         // None never enters cache, so it cannot poison the light namespace.
         // get_mail_bytes invokes this request's loader directly on a miss;

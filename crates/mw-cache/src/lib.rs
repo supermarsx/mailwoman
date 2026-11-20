@@ -22,6 +22,9 @@
 //! or store cache tiers. The placement is gated by the value's type + the
 //! account posture, not by operator configuration.
 
+mod mail_batch;
+pub use mail_batch::MAX_MAIL_BATCH_KEYS;
+
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
@@ -561,25 +564,10 @@ impl Cache {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = CacheResult<Option<Vec<u8>>>>,
     {
-        if account.is_zero_access()
-            || !matches!(class, CacheClass::HeaderWindows | CacheClass::MessageBodies)
-        {
+        let Some((memory, redis, ttl)) = self.mail_placement(class, account) else {
             return loader().await.map(PlaintextDerived);
-        }
-        let policy = self.policy(class);
-        let memory = policy.has(CacheLayer::Memory);
-        // A Store supplies the shared server key. Without it, Redis mail
-        // placement is bypassed rather than sending plaintext to another tier.
-        let redis = policy.has(CacheLayer::Redis) && self.inner.store.is_some();
-        if !memory && !redis {
-            return loader().await.map(PlaintextDerived);
-        }
-        let nk = namespaced(class, key);
-        let ttl = if policy.ttl_secs == 0 {
-            300
-        } else {
-            policy.ttl_secs.min(3600)
         };
+        let nk = namespaced(class, key);
         if memory && let Some(entry) = self.inner.mail_memory.get(&nk).await {
             return Ok(PlaintextDerived(Some((*entry.bytes).clone())));
         }
