@@ -869,28 +869,32 @@ impl Engine {
         for mref in &delta.removed {
             if let Some(sid) = self.resolve_ref(account_id, mailbox_id, mref).await? {
                 self.require_runtime_generation(account_id, rt)?;
-                self.store.delete_message(&sid).await?;
-                if let MessageRef::Pop3 { uidl } = mref {
-                    // The UIDL left the maildrop: it is no longer "ingested",
-                    // or the next sync would report its removal again.
-                    self.store.forget_uidl(account_id, uidl).await?;
-                }
+                let current = match self.store.get_account_messages(account_id, std::slice::from_ref(&sid)).await?
+                    .into_iter().next().flatten() {
+                    Some(message) if message.mailbox_id == mailbox_id => message,
+                    None => {
+                        // A previous attempt may have committed the atomic delete
+                        // before UIDL cleanup failed. Repair that bookkeeping only.
+                        if let MessageRef::Pop3 { uidl } = mref { self.store.forget_uidl(account_id,uidl).await?; }
+                        continue;
+                    }
+                    Some(_) => continue,
+                };
+                if let MessageRef::Imap { uidvalidity, uid, .. } = mref
+                    && (current.uidvalidity != *uidvalidity || current.uid != *uid) { continue; }
+                if !self.store.delete_synced_message_if_source(&current).await? { continue; }
                 self.invalidate_message_cache(&sid).await;
                 let _ = self.search.delete(&sid);
-                self.record_change(account_id, ChangeType::Email, &sid, ChangeOp::Destroyed)
-                    .await?;
-                self.record_change(
-                    account_id,
-                    ChangeType::Mailbox,
-                    mailbox_id,
-                    ChangeOp::Updated,
-                )
-                .await?;
                 self.emit_event(
                     crate::change::EventKind::MessageDeleted,
                     account_id,
                     std::slice::from_ref(&sid),
                 );
+                if let MessageRef::Pop3 { uidl } = mref {
+                    // Publish the committed deletion before fallible bookkeeping.
+                    // A failed cleanup retains the cursor; missing-row retry repairs it.
+                    self.store.forget_uidl(account_id, uidl).await?;
+                }
             }
         }
 
@@ -2109,3 +2113,7 @@ mod upload_blob_tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 }
+
+#[cfg(test)]
+#[path = "plugin_tombstone_tests.rs"]
+mod plugin_tombstone_tests;

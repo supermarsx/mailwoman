@@ -21,6 +21,9 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[cfg(test)]
+#[path = "message_delete_source_tests.rs"]
+mod message_delete_source_tests;
+#[cfg(test)]
 #[path = "message_ingest_history_tests.rs"]
 mod ingest_history_tests;
 
@@ -1675,6 +1678,48 @@ impl Store {
             }
         }
         Ok(())
+    }
+
+    /// Delete only the source identity observed by synchronization. Same-source
+    /// flag/body changes remain eligible; moves and rekeys do not. Counters use
+    /// the flags returned by the actual deletion, never the caller's snapshot.
+    /// Email destruction and Mailbox update history commit atomically with it.
+    pub async fn delete_synced_message_if_source(&self, expected: &Message) -> Result<bool, StoreError> {
+        let mut tx = self.backend.begin().await?;
+        // Ingest locks mailbox before message. Match that order on PostgreSQL
+        // without a no-op write; SQLite's first DELETE obtains its writer lock.
+        if self.backend.dialect() == Dialect::Postgres {
+            q("SELECT id FROM mailboxes WHERE id=?1 AND account_id=?2 FOR UPDATE")
+                .bind(&expected.mailbox_id).bind(&expected.account_id)
+                .fetch_opt_scalar_string_tx(&mut tx).await?;
+        }
+        let rows = q("DELETE FROM messages WHERE stable_id=?1 AND account_id=?2
+            AND mailbox_id=?3 AND uidvalidity=?4 AND uid=?5 RETURNING mailbox_id,flags_json")
+            .bind(&expected.stable_id).bind(&expected.account_id).bind(&expected.mailbox_id)
+            .bind(expected.uidvalidity as i64).bind(expected.uid as i64)
+            .fetch_all_tx(&mut tx).await?;
+        let Some(row) = rows.first() else { tx.commit().await?; return Ok(false); };
+        let mailbox = row.get_string("mailbox_id");
+        q("DELETE FROM message_embeddings WHERE stable_id=?1 AND account_id=?2")
+            .bind(&expected.stable_id).bind(&expected.account_id).execute_tx(&mut tx).await?;
+        q("UPDATE mailboxes SET total=CASE WHEN total>0 THEN total-1 ELSE 0 END WHERE id=?1 AND account_id=?2")
+            .bind(&mailbox).bind(&expected.account_id).execute_tx(&mut tx).await?;
+        if flags_json_is_unread(&row.get_string("flags_json")) {
+            q("UPDATE mailboxes SET unread=unread-1 WHERE id=?1 AND account_id=?2 AND unread>0")
+                .bind(&mailbox).bind(&expected.account_id).execute_tx(&mut tx).await?;
+        }
+        let now=chrono::Utc::now().to_rfc3339();
+        for (kind,id,op) in [("Email",expected.stable_id.as_str(),"destroyed"),("Mailbox",mailbox.as_str(),"updated")] {
+            q("INSERT INTO changes(account_id,type,state,stable_id,op,at)
+               VALUES(?1,?2,(SELECT COALESCE(MAX(state),0)+1 FROM (
+                 SELECT MAX(state) AS state FROM changes WHERE account_id=?1 AND type=?2
+                 UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type=?2
+               ) heads),?3,?4,?5)")
+                .bind(&expected.account_id).bind(kind).bind(id).bind(op).bind(&now)
+                .execute_tx(&mut tx).await?;
+        }
+        tx.commit().await?;
+        Ok(true)
     }
 
     /// Move a message to a new mailbox **preserving its `stable_id`** (plan
