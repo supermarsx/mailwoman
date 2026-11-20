@@ -481,19 +481,72 @@ async fn mixed_contract_foreign_matching_content_never_enters_ids_totals_or_muta
     )
     .await;
     let before = s.f.engine.store().get_message(&id).await.unwrap();
+    let before_meta = s.f.engine.store().get_message_meta(&id).await.unwrap();
+    let owner_state =
+        s.f.engine
+            .type_state(&s.f.account, ChangeType::Email)
+            .await
+            .unwrap();
+    let foreign_state =
+        s.f.engine
+            .type_state(&other, ChangeType::Email)
+            .await
+            .unwrap();
+    let submitted = s.f.engine.index_publication_status().submitted_jobs;
+    let upstream_flags = s.f.remote.flags.load(Ordering::SeqCst);
+    let upstream_moves = s.f.remote.moves.load(Ordering::SeqCst);
+    let missing = "mixed-definitely-missing";
     let out =
         s.f.engine
             .email_set(
                 &s.f.account,
                 &s.f.runtime,
-                &json!({"update":{id.clone():{"keywords/$seen":true,"pinned":true}}}),
+                &json!({"update":{
+                    id.clone():{"keywords/$seen":true,"pinned":true},
+                    (missing):{"keywords/$seen":true,"pinned":true}
+                }}),
                 &mut HashMap::new(),
             )
             .await;
-    assert_eq!(out["notUpdated"][&id]["type"], "notFound", "{out}");
+    // Existing set_error deliberately maps both missing and foreign scoped
+    // Store errors to the same sanitized serverFail. Do not invent a new
+    // notFound public contract or reveal whether another owner has this ID.
+    assert_eq!(out["notUpdated"][&id]["type"], "serverFail", "{out}");
+    assert_eq!(out["notUpdated"][&id], out["notUpdated"][missing], "{out}");
+    assert_eq!(out["notUpdated"].as_object().unwrap().len(), 2);
+    assert!(
+        out.get("updated")
+            .and_then(Value::as_object)
+            .is_none_or(|rows| rows.is_empty()),
+        "{out}"
+    );
     let after = s.f.engine.store().get_message(&id).await.unwrap();
     assert_eq!(before.cache_revision, after.cache_revision);
     assert_eq!(before.flags_json, after.flags_json);
+    assert_eq!(
+        before_meta,
+        s.f.engine.store().get_message_meta(&id).await.unwrap()
+    );
+    assert_eq!(
+        owner_state,
+        s.f.engine
+            .type_state(&s.f.account, ChangeType::Email)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        foreign_state,
+        s.f.engine
+            .type_state(&other, ChangeType::Email)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        submitted,
+        s.f.engine.index_publication_status().submitted_jobs
+    );
+    assert_eq!(upstream_flags, s.f.remote.flags.load(Ordering::SeqCst));
+    assert_eq!(upstream_moves, s.f.remote.moves.load(Ordering::SeqCst));
     let foreign =
         s.f.engine
             .email_query(
