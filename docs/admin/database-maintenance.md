@@ -285,6 +285,16 @@ not add history. Real ingest mutations and their Email/Mailbox history commit
 atomically, so a failed history write can be retried without losing a mutation.
 Index repair still runs on identical retries.
 
+Repeating an already-applied keyword, pin, snooze or follow-up update is also a
+successful no-op: it does not rewrite flags/metadata, append history or reindex.
+Malformed cached flags still get repaired. Replayed upstream removals record
+history only when the matching account, folder and source message is actually
+deleted. That deletion, its counters and its Email/Mailbox history commit in one
+transaction; a failed history write leaves the message available for retry.
+These checks prevent new duplicate history. Existing rows still pass through the
+configured retention window and bounded cleanup; installing a fix does not
+immediately remove old history or shrink the physical SQLite file.
+
 At the default 1,000 rows per 60-second interval, the theoretical global ceiling
 is about 1.44 million removed rows per day. Actual cleanup is lower when groups
 have no expired rows, the cursor wraps, or idle/WAL/time budgets defer work. This
