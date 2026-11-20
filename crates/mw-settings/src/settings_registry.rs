@@ -7887,6 +7887,8 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("maintenance.database.orphanBodies",Kind::Bool,"true",G,"privacy","Collect unreferenced cached MIME bodies after a grace period; live message bodies are preserved"),
     def!("maintenance.database.expireCachedBodies",Kind::Bool,"true",G,"privacy","Expire inactive cached MIME bodies only when the active backend can fetch another durable copy; local originals, POP3 mail, drafts and queued messages are protected"),
     def!("maintenance.database.cachedBodyRetentionDays",int(1,3650),"60",G,"privacy","Days since explicit message-body use before a remotely recoverable cached body can expire; headers, sync and prefetch do not renew this lease"),
+    def!("maintenance.database.changeLogRetentionDays",int(0,3650),"60",G,"privacy","Days of mail delta history to retain; older client tokens require a full resync. Zero retains history indefinitely"),
+    def!("maintenance.database.changeLogBatchRows",int(1,10000),"1000",G,"privacy","Maximum change rows removed per maintenance batch; a larger single-state batch remains intact and is reported for review"),
     def!("maintenance.database.incrementalVacuum",Kind::Bool,"true",G,"privacy","Reclaim free SQLite pages incrementally; existing databases require offline conversion once"),
     def!("maintenance.database.intervalSeconds",int(15,86400),"60",G,"privacy","Idle seconds between maintenance batches"),
     def!("maintenance.database.batchRows",int(1,512),"64",G,"privacy","Maximum bodies scanned and collected per batch"),

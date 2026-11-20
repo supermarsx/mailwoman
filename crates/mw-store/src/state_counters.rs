@@ -32,8 +32,10 @@ impl Store {
         account_id: &str,
     ) -> Result<HashMap<String, u64>, StoreError> {
         self.counters(
-            "SELECT type, MAX(state) AS state FROM changes
-             WHERE account_id = ?1 GROUP BY type",
+            "SELECT type, MAX(state) AS state FROM (
+                SELECT type,state FROM changes WHERE account_id=?1
+                UNION ALL SELECT type,head_state AS state FROM change_log_checkpoint WHERE account_id=?1
+             ) counters GROUP BY type",
             account_id,
         )
         .await

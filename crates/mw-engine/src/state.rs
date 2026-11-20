@@ -235,8 +235,7 @@ impl Engine {
     /// datatype since `since_state` (frozen §2.1), returning the **whole** tail
     /// with `has_more_changes: false`.
     ///
-    /// The `changes` table is append-only — nothing in `crates/` deletes from it
-    /// — so "the whole tail" grows for the life of a deployment. Anything
+    /// Old history can expire. Anything
     /// answering a client should pass a cap via [`Engine::build_changes_limited`]
     /// instead (26.20 t22-e2, finding V6).
     pub(crate) async fn build_changes(
@@ -245,10 +244,9 @@ impl Engine {
         kind: ChangeType,
         since_state: &str,
     ) -> Result<Changes> {
-        Ok(self
-            .build_changes_limited(account_id, kind, since_state, None)
+        self.build_changes_limited(account_id, kind, since_state, None)
             .await?
-            .expect("the unbounded form never refuses: it has no cap to fail"))
+            .ok_or_else(|| mw_store::StoreError::ChangeHistoryExpired.into())
     }
 
     /// [`Engine::build_changes`] with JMAP's `maxChanges` reaching **SQL**
@@ -256,9 +254,9 @@ impl Engine {
     ///
     /// `max: None` is the unbounded form. `max: Some(n)` returns at most `n`
     /// change rows and sets `has_more_changes` when the tail continued past
-    /// them. `Ok(None)` means the cap **cannot** be honoured without losing
-    /// changes — see the state-boundary rule below — and is the caller's cue to
-    /// answer `cannotCalculateChanges`.
+    /// them. `Ok(None)` means history expired, the token is invalid, or the cap
+    /// cannot be honoured without losing changes. Callers must answer
+    /// `cannotCalculateChanges`.
     ///
     /// # `new_state` is a resume point, and it must land on a state BOUNDARY
     ///
@@ -307,24 +305,31 @@ impl Engine {
         since_state: &str,
         max: Option<i64>,
     ) -> Result<Option<Changes>> {
-        let since: u64 = since_state.parse().unwrap_or(0);
+        let Ok(since) = since_state.parse::<u64>() else {
+            return Ok(None);
+        };
         let current = self
             .store()
             .current_state(account_id, kind.as_str())
             .await?;
-        let (mut rows, has_more) = match max {
-            Some(n) => {
-                self.store()
-                    .changes_since_limited(account_id, kind.as_str(), since, n)
-                    .await?
-            }
-            None => (
-                self.store()
-                    .changes_since(account_id, kind.as_str(), since)
-                    .await?,
-                false,
-            ),
+        if since > current {
+            return Ok(None);
+        }
+        let result = self
+            .store()
+            .changes_since_limited(
+                account_id,
+                kind.as_str(),
+                since,
+                max.unwrap_or(i64::MAX - 1),
+            )
+            .await;
+        let (mut rows, has_more) = match result {
+            Ok(tail) => tail,
+            Err(mw_store::StoreError::ChangeHistoryExpired) => return Ok(None),
+            Err(error) => return Err(error.into()),
         };
+        let current = current.max(rows.last().map_or(0, |r| r.state));
 
         // The resume point, computed before the fold consumes `rows`: it is a
         // property of the rows read, not of the ids they folded into.

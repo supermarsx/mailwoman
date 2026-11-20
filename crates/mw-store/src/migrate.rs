@@ -1073,6 +1073,12 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "change_log_checkpoint",
+        select: "SELECT account_id,type,head_state,pruned_through FROM change_log_checkpoint",
+        insert: "INSERT INTO change_log_checkpoint(account_id,type,head_state,pruned_through) VALUES(?1,?2,?3,?4)",
+        map: |r| vec![t(r,"account_id"),t(r,"type"),i(r,"head_state"),i(r,"pruned_through")],
+    },
+    TableSpec {
         name: "calendars",
         select: "SELECT id, account_id, name, color, sort_order, is_visible, role, caldav_url, sync_token, ctag, is_overlay, component FROM calendars",
         insert: "INSERT INTO calendars (id, account_id, name, color, sort_order, is_visible, role, caldav_url, sync_token, ctag, is_overlay, component) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",

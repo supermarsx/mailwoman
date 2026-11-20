@@ -78,6 +78,9 @@ impl Engine {
             .await
         {
             Ok(c) => c,
+            Err(crate::backend::EngineError::Store(mw_store::StoreError::ChangeHistoryExpired)) => {
+                return json!({"type":"cannotCalculateChanges","description":"change history has expired; refetch the current threads"});
+            }
             Err(e) => return server_fail(e),
         };
         let mut updated: Vec<String> = Vec::new();

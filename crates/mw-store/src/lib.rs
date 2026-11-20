@@ -40,6 +40,7 @@ mod message_cache;
 pub mod database_maintenance;
 pub mod background_maintenance;
 pub mod body_cache_expiry;
+pub mod change_log_retention;
 pub mod folder_target;
 pub mod diagnostics;
 mod directory_display;
@@ -261,6 +262,8 @@ use sqlx::sqlite::{
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[error("change history has expired; refetch the current state")]
+    ChangeHistoryExpired,
     #[error("database error: {0}")]
     Db(#[from] sqlx::Error),
     #[error("migration error: {0}")]

@@ -370,6 +370,7 @@ pub const RULES: &[Rule] = &[
     del!("pop3_uidl", "account_id", Bind::Account),
     del!("changes", "account_id", Bind::Account),
     del!("pim_changes", "account_id", Bind::Account),
+    del!("change_log_checkpoint", "account_id", Bind::Account),
     del!("crypto_changes", "account_id", Bind::Account),
     child!("bodies", "account_id=?1", Bind::Account, export: Export::Code { section: "mail" }),
     child!("messages", "account_id=?1", Bind::Account, export: Export::Code { section: "mail" }),

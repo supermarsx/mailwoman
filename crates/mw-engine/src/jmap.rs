@@ -1076,7 +1076,7 @@ impl Engine {
             // `Email/set` over a large selection produces.
             Ok(None) => {
                 return cannot_calculate_changes(
-                    "one state holds more changes than maxChanges; refetch the query instead",
+                    "change history expired or a state exceeds maxChanges; refetch the query instead",
                 );
             }
             Err(e) => return server_fail(&e),
@@ -1143,8 +1143,8 @@ impl Engine {
     /// never reached — a client that invented one, or one from a database that
     /// has been replaced underneath it.
     ///
-    /// State `0` is always resumable: it is the "I have nothing" state every
-    /// client starts from, and it is below `current` by construction.
+    /// Old states can expire. The subsequent atomic log read also checks the
+    /// retention floor, including a concurrent maintenance prune.
     async fn resumable_from(&self, account_id: &str, since: &str) -> Result<bool> {
         let Ok(n) = since.parse::<u64>() else {
             return Ok(false);

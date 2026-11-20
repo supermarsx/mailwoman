@@ -798,7 +798,7 @@ impl Store {
             "INSERT INTO changes (account_id, type, state, stable_id, op, at)
              VALUES (
                  ?1, ?2,
-                 (SELECT COALESCE(MAX(state), 0) + 1 FROM changes WHERE account_id = ?1 AND type = ?2),
+                 (SELECT COALESCE(MAX(state), 0) + 1 FROM (SELECT MAX(state) AS state FROM changes WHERE account_id=?1 AND type=?2 UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type=?2) heads),
                  ?3, ?4, ?5
              )
              RETURNING state",
@@ -868,16 +868,20 @@ impl Store {
             Dialect::Sqlite => {
                 "INSERT INTO changes (account_id, type, state, stable_id, op, at)
                  SELECT ?1, ?2, s.next, j.value, ?4, ?5
-                 FROM (SELECT COALESCE(MAX(state), 0) + 1 AS next FROM changes
-                       WHERE account_id = ?1 AND type = ?2) s,
+                 FROM (SELECT COALESCE(MAX(state), 0) + 1 AS next FROM (
+                       SELECT MAX(state) AS state FROM changes WHERE account_id=?1 AND type=?2
+                       UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type=?2
+                       ) heads) s,
                       json_each(?3) j
                  RETURNING state"
             }
             Dialect::Postgres => {
                 "INSERT INTO changes (account_id, type, state, stable_id, op, at)
                  SELECT ?1, ?2, s.next, j.value, ?4, ?5
-                 FROM (SELECT COALESCE(MAX(state), 0) + 1 AS next FROM changes
-                       WHERE account_id = ?1 AND type = ?2) s,
+                 FROM (SELECT COALESCE(MAX(state), 0) + 1 AS next FROM (
+                       SELECT MAX(state) AS state FROM changes WHERE account_id=?1 AND type=?2
+                       UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type=?2
+                       ) heads) s,
                       json_array_elements_text(?3::json) j
                  RETURNING state"
             }
@@ -901,7 +905,7 @@ impl Store {
     /// The current (max) state for an `(account, type)`, `0` if none yet.
     pub async fn current_state(&self, account_id: &str, kind: &str) -> Result<u64, StoreError> {
         let n =
-            q("SELECT COALESCE(MAX(state), 0) FROM changes WHERE account_id = ?1 AND type = ?2")
+            q("SELECT COALESCE(MAX(state),0) FROM (SELECT MAX(state) AS state FROM changes WHERE account_id=?1 AND type=?2 UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type=?2) heads")
                 .bind(account_id)
                 .bind(kind)
                 .fetch_scalar_i64(&self.backend)
@@ -913,9 +917,9 @@ impl Store {
     ///
     /// Retained for the callers that genuinely want the whole tail. Anything
     /// answering a client (`*/changes`, `*/queryChanges`) should use
-    /// [`Store::changes_since_limited`] instead: the `changes` table is
-    /// append-only — nothing in `crates/` deletes from it — so "the whole tail"
-    /// grows for the life of a deployment and this method's result set with it.
+    /// [`Store::changes_since_limited`] instead. Expired history returns
+    /// [`StoreError::ChangeHistoryExpired`]; callers must refetch rather than
+    /// treating a pruned tail as an empty delta.
     pub async fn changes_since(
         &self,
         account_id: &str,
@@ -952,16 +956,29 @@ impl Store {
         since: u64,
         limit: i64,
     ) -> Result<(Vec<ChangeRow>, bool), StoreError> {
+        if since > i64::MAX as u64 {
+            return Err(StoreError::ChangeHistoryExpired);
+        }
         let want = limit.max(0);
-        let rows = q("SELECT state, stable_id, op FROM changes
-             WHERE account_id = ?1 AND type = ?2 AND state > ?3 ORDER BY state ASC
-             LIMIT ?4")
+        let rows = q("WITH boundary AS (
+             SELECT COALESCE((SELECT pruned_through FROM change_log_checkpoint WHERE account_id=?1 AND type=?2),0) AS floor
+             ), tail AS (
+             SELECT state,stable_id,op FROM changes WHERE account_id=?1 AND type=?2 AND state>?3 ORDER BY state ASC LIMIT ?4
+             ) SELECT b.floor,t.state,t.stable_id,t.op,CAST(CASE WHEN t.state IS NULL THEN 0 ELSE 1 END AS BIGINT) AS present
+             FROM boundary b LEFT JOIN tail t ON b.floor<=?3 ORDER BY t.state ASC")
         .bind(account_id)
         .bind(kind)
         .bind(since as i64)
         .bind(want.saturating_add(1))
         .fetch_all(&self.backend)
         .await?;
+        if rows
+            .first()
+            .is_some_and(|r| r.get_i64("floor") > since as i64)
+        {
+            return Err(StoreError::ChangeHistoryExpired);
+        }
+        let rows: Vec<_> = rows.iter().filter(|r| r.get_i64("present") != 0).collect();
         let has_more = rows.len() as i64 > want;
         Ok((
             rows.iter()

@@ -999,3 +999,128 @@ async fn a_write_through_the_engine_is_broadcast_to_other_sessions() {
         "a refused write must not broadcast"
     );
 }
+
+/// Retention is a resync boundary, never a successful empty delta or panic.
+#[tokio::test]
+async fn expired_change_history_requires_resync_for_all_mail_delta_methods() {
+    use mw_store::change_log_retention::{ChangeLogRetentionCursor, ChangeLogRetentionOptions};
+    use mw_store::encryption::{EncryptionConfig, EncryptionMode};
+    let dir = std::env::temp_dir().join(format!(
+        "mw-engine-change-retention-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    std::fs::create_dir(&dir).unwrap();
+    let path = dir.join("fixture.db");
+    let store = Store::open_with_encryption(
+        path.to_str().unwrap(),
+        ServerKey::generate(),
+        &EncryptionConfig {
+            mode: EncryptionMode::Off,
+            key: None,
+            source: None,
+        },
+    )
+    .await
+    .unwrap();
+    let account = store
+        .create_account(
+            &NewAccount {
+                kind: AccountKind::Imap,
+                host: "fixture.invalid",
+                port: 993,
+                tls: "implicit",
+                username: "fixture@example.invalid",
+                sync_policy_json: "{}",
+            },
+            &Credentials {
+                username: "fixture@example.invalid".into(),
+                password: "fixture".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let engine = Arc::new(Engine::new(store));
+    let h = Harness {
+        engine,
+        account_id: account,
+        submitter: Arc::new(FakeSubmitter {
+            calls: AtomicUsize::new(0),
+        }),
+    };
+    h.engine.register_backend(
+        h.account_id.clone(),
+        AccountRuntime::new(Arc::new(FakeBackend::new()), h.submitter.clone(), "fixture@example.invalid"),
+    );
+    for kind in ["Email", "Mailbox", "EmailSubmission"] {
+        h.engine
+            .store()
+            .record_change(&h.account_id, kind, "fixture-id", "updated")
+            .await
+            .unwrap();
+    }
+    let pool =
+        sqlx::SqlitePool::connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&path))
+            .await
+            .unwrap();
+    sqlx::query("UPDATE changes SET at='2000-01-01T00:00:00Z'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    let mut cursor = ChangeLogRetentionCursor::default();
+    for _ in 0..3 {
+        let report = h
+            .engine
+            .store()
+            .expire_change_log(
+                ChangeLogRetentionOptions {
+                    max_run_ms: 2000,
+                    ..Default::default()
+                },
+                cursor,
+            )
+            .await
+            .unwrap();
+        assert_eq!(report.removed_rows, 1, "{report:?}");
+        cursor = report.cursor;
+    }
+    for method in [
+        "Email/changes",
+        "Mailbox/changes",
+        "EmailSubmission/changes",
+        "Thread/changes",
+        "Email/queryChanges",
+    ] {
+        let args = if method == "Email/queryChanges" {
+            json!({"sinceQueryState":"0"})
+        } else {
+            json!({"sinceState":"0"})
+        };
+        let response = jmap(&h, json!([[method, args, "c"]])).await;
+        assert_eq!(
+            result(&response, "c")["type"],
+            "cannotCalculateChanges",
+            "{method}: {response}"
+        );
+    }
+    let valid = jmap(&h, json!([["Email/changes",{"sinceState":"1"},"c"]])).await;
+    assert_eq!(result(&valid, "c")["newState"], "1", "{valid}");
+    assert_eq!(
+        h.engine
+            .store()
+            .record_change(&h.account_id, "Email", "next", "updated")
+            .await
+            .unwrap(),
+        2
+    );
+    h.engine.store().close().await;
+    drop(h);
+    for attempt in 0..20 {
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => break,
+            Err(error) if attempt==19 => panic!("fixture cleanup: {error}"),
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(25)).await,
+        }
+    }
+}
