@@ -822,6 +822,7 @@ async fn run(workers: usize) {
     let reset_token = diagnostic_token.clone();
     let diag_store = store.clone();
     let diag_dir = dir.clone();
+    let diag_engine = measured_engine.get().unwrap().clone();
     // Fixture-only routes mounted after production layers. The random token is
     // private handoff data, and snapshots contain no session/account identities.
     let router = router.route(
@@ -830,6 +831,7 @@ async fn run(workers: usize) {
             let token = diag_token.clone();
             let store = diag_store.clone();
             let directory = diag_dir.clone();
+            let engine = diag_engine.clone();
             async move {
                 if headers.get("x-fixture-token").and_then(|v| v.to_str().ok())
                     != Some(token.as_str())
@@ -839,9 +841,11 @@ async fn run(workers: usize) {
                         axum::Json(json!({"error":"denied"})),
                     );
                 }
+                let mut snapshot = diagnostics_hook::snapshot(&store, &directory).await;
+                snapshot["searchIndex"] = json!({"documentFetches":engine.search().doc_fetch_count()});
                 (
                     axum::http::StatusCode::OK,
-                    axum::Json(diagnostics_hook::snapshot(&store, &directory).await),
+                    axum::Json(snapshot),
                 )
             }
         })
