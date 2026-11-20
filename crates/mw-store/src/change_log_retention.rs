@@ -204,7 +204,7 @@ async fn collect(
 ) -> Result<(), StoreError> {
     let cutoff = report.at - i64::from(options.retention_days) * 86400;
     // Skip directly to the next indexed account/type, without DISTINCT over the
-    // whole history. A hot account retains its cursor until its prefix is done.
+    // whole history. Visit each account/type once per round, even with backlog.
     let groups=q("SELECT account_id,type FROM changes WHERE (account_id,type)>(?1,?2) ORDER BY account_id,type LIMIT 1")
         .bind(&report.cursor.account_id).bind(&report.cursor.kind).fetch_all(backend).await?;
     let Some(group) = groups.first() else {
@@ -213,6 +213,12 @@ async fn collect(
     };
     let account = group.get_string("account_id");
     let kind = group.get_string("type");
+    // Advance before attempting SQL so a busy or oversized group cannot
+    // monopolize every run. A later round safely resumes its remaining prefix.
+    report.cursor = ChangeLogRetentionCursor {
+        account_id: account.clone(),
+        kind: kind.clone(),
+    };
     let mut tx = backend.begin().await?;
     let rows = q(
         "SELECT state,at FROM changes WHERE account_id=?1 AND type=?2 ORDER BY state ASC LIMIT ?3",
@@ -224,7 +230,6 @@ async fn collect(
     .await?;
     report.scanned_rows = rows.len() as u64;
     let mut floor = 0;
-    let mut complete_rows = 0;
     let mut index = 0;
     while index < rows.len() && index < (options.batch_rows as usize) && Instant::now() < deadline {
         let state = rows[index].get_i64("state");
@@ -243,7 +248,6 @@ async fn collect(
             break;
         }
         floor = state;
-        complete_rows = index;
     }
     if floor > 0 && Instant::now() < deadline {
         q("INSERT INTO change_log_checkpoint(account_id,type,head_state,pruned_through)
@@ -262,14 +266,6 @@ async fn collect(
         report.removed_rows = removed;
     } else {
         tx.commit().await?;
-    }
-    // Stay before this group only when a full eligible prefix was removed and
-    // more rows may fit next time. Oversized/young batches must not starve others.
-    if complete_rows == 0 || complete_rows < options.batch_rows as usize {
-        report.cursor = ChangeLogRetentionCursor {
-            account_id: account,
-            kind,
-        };
     }
     if Instant::now() >= deadline {
         report.status = "budget".into();
@@ -559,11 +555,86 @@ mod tests {
             for attempt in 0..20 {
                 match std::fs::remove_dir_all(&dir) {
                     Ok(()) => break,
-                    Err(error) if attempt==19 => panic!("fixture cleanup: {error}"),
+                    Err(error) if attempt == 19 => panic!("fixture cleanup: {error}"),
                     Err(_) => tokio::time::sleep(Duration::from_millis(25)).await,
                 }
             }
         }
+    }
+    #[tokio::test]
+    async fn a_hot_first_account_cannot_starve_the_next_account() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut accounts = [
+            account(&store, "first").await,
+            account(&store, "second").await,
+        ];
+        accounts.sort();
+        let hot = &accounts[0];
+        let next = &accounts[1];
+        for n in 0..3 {
+            store
+                .record_change(hot, "Email", &n.to_string(), "updated")
+                .await
+                .unwrap();
+        }
+        store
+            .record_change(next, "Email", "other", "updated")
+            .await
+            .unwrap();
+        aged(&store).await;
+        let first = prune(&store, 1).await;
+        assert_eq!(first.removed_rows, 1);
+        assert_eq!(first.cursor.account_id, *hot);
+        let mut second = ChangeLogRetentionReport {
+            at: chrono::Utc::now().timestamp(),
+            cursor: first.cursor,
+            ..Default::default()
+        };
+        collect(
+            &store.backend,
+            &ChangeLogRetentionOptions {
+                batch_rows: 1,
+                ..Default::default()
+            },
+            Instant::now() + Duration::from_secs(5),
+            &mut second,
+        )
+        .await
+        .unwrap();
+        assert_eq!(second.removed_rows, 1);
+        assert_eq!(second.cursor.account_id, *next);
+        assert!(matches!(
+            store.changes_since(next, "Email", 0).await,
+            Err(StoreError::ChangeHistoryExpired)
+        ));
+        assert_eq!(store.changes_since(hot, "Email", 1).await.unwrap().len(), 2);
+        let mut wrapped = ChangeLogRetentionReport {
+            at: chrono::Utc::now().timestamp(),
+            cursor: second.cursor,
+            ..Default::default()
+        };
+        collect(
+            &store.backend,
+            &ChangeLogRetentionOptions::default(),
+            Instant::now() + Duration::from_secs(5),
+            &mut wrapped,
+        )
+        .await
+        .unwrap();
+        assert_eq!(wrapped.cursor.account_id, "");
+        collect(
+            &store.backend,
+            &ChangeLogRetentionOptions {
+                batch_rows: 1,
+                ..Default::default()
+            },
+            Instant::now() + Duration::from_secs(5),
+            &mut wrapped,
+        )
+        .await
+        .unwrap();
+        assert_eq!(wrapped.cursor.account_id, *hot);
+        assert_eq!(wrapped.removed_rows, 1);
     }
     #[tokio::test]
     async fn postgres_checkpoint_and_floor_preserve_resume_contract() {

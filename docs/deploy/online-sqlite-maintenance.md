@@ -116,6 +116,11 @@ history indefinitely. The maintenance master switch also controls this job.
 default. A state containing more rows than that limit remains intact and is
 reported as an oversized batch; increase the limit deliberately to collect it.
 Recent or malformed timestamps protect their entire state and the later tail.
+Each run rotates to the next account/type group, so a hot backlog cannot starve
+other accounts. Cleanup is gradual rather than a strict expiration deadline:
+large backlogs or sustained writes exceeding the configured cleanup capacity
+can extend the retention window. The default global limit is 1,000 rows per
+scheduled run, not 1,000 rows per account.
 
 Retention removes complete state batches, preserving a durable head counter and
 the oldest resumable token. Email, mailbox, submission and thread changes, plus
