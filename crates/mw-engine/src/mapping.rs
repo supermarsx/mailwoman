@@ -24,6 +24,15 @@ pub fn flags_from_json(json: &str) -> Vec<Flag> {
     serde_json::from_str(json).unwrap_or_default()
 }
 
+/// Strict comparison for authoritative sync: order and duplicate flags are
+/// irrelevant, but a malformed cached value must be repaired, not read as empty.
+pub(crate) fn cached_flags_match(json: &str, incoming: &[Flag]) -> bool {
+    let Ok(cached) = serde_json::from_str::<Vec<Flag>>(json) else { return false; };
+    let cached: std::collections::HashSet<_> = cached.iter().collect();
+    let incoming: std::collections::HashSet<_> = incoming.iter().collect();
+    cached == incoming
+}
+
 /// Serialize a sync cursor to the opaque `cursor_json` the store keeps verbatim.
 pub fn cursor_to_json(cursor: &SyncCursor) -> String {
     serde_json::to_string(cursor).unwrap_or_default()
@@ -173,6 +182,18 @@ pub fn flag_delta(current: &[Flag], desired: &[Flag]) -> (Vec<Flag>, Vec<Flag>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_flags_match_ignores_order_and_duplicates_but_not_changes_or_corruption() {
+        let incoming = [Flag::Seen, Flag::Keyword("label".into())];
+        assert!(cached_flags_match(r#"[{"Keyword":"label"},"Seen","Seen"]"#, &incoming));
+        assert!(!cached_flags_match(r#"["Seen"]"#, &incoming));
+        assert!(!cached_flags_match(r#"[{"Keyword":"other"},"Seen"]"#, &incoming));
+        for bad in ["not-json", "null", "{}", r#"["UnknownFlag"]"#] {
+            assert!(!cached_flags_match(bad, &[]));
+        }
+        assert!(cached_flags_match("[]", &[]));
+    }
 
     #[test]
     fn flags_json_round_trips() {

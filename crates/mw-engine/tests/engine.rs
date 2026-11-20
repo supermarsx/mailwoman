@@ -1029,6 +1029,44 @@ async fn legacy_cursor_upgrade_removes_expunges_and_publishes_flag_changes() {
 }
 
 #[tokio::test]
+async fn equivalent_flag_delta_does_not_grow_history_but_changes_and_corruption_do() {
+    let h = setup().await;
+    h.backend.state.lock().unwrap().messages.get_mut("INBOX").unwrap()[0].2 =
+        vec![Flag::Seen, Flag::Keyword("label".into())];
+    h.engine.resync(&h.account_id).await.unwrap();
+    let inbox = h.engine.store().list_mailboxes(&h.account_id).await.unwrap()
+        .into_iter().find(|mailbox| mailbox.name == "INBOX").unwrap();
+    let ids = h.engine.store().list_message_ids(&inbox.id, 10, 0).await.unwrap();
+    let id = h.engine.store().get_messages(&ids).await.unwrap().into_iter().flatten()
+        .find(|message| message.uid == 1).unwrap().stable_id;
+    let baseline = h.engine.store().current_state(&h.account_id, "Email").await.unwrap();
+    let mailbox_baseline = h.engine.store().current_state(&h.account_id, "Mailbox").await.unwrap();
+    let revision = h.engine.store().get_message(&id).await.unwrap().cache_revision;
+    h.backend.snapshot.store(true, Ordering::SeqCst);
+    h.backend.state.lock().unwrap().messages.get_mut("INBOX").unwrap()[0].2 =
+        vec![Flag::Keyword("label".into()), Flag::Seen, Flag::Seen];
+    for _ in 0..2 {
+        h.engine.resync(&h.account_id).await.unwrap();
+        assert_eq!(h.engine.store().current_state(&h.account_id, "Email").await.unwrap(), baseline);
+        assert_eq!(h.engine.store().current_state(&h.account_id, "Mailbox").await.unwrap(), mailbox_baseline);
+        assert_eq!(h.engine.store().get_message(&id).await.unwrap().cache_revision, revision);
+    }
+    h.backend.state.lock().unwrap().messages.get_mut("INBOX").unwrap()[0].2 =
+        vec![Flag::Seen, Flag::Keyword("different".into())];
+    h.engine.resync(&h.account_id).await.unwrap();
+    assert_eq!(h.engine.store().current_state(&h.account_id, "Email").await.unwrap(), baseline + 1);
+    assert_eq!(h.engine.store().current_state(&h.account_id, "Mailbox").await.unwrap(), mailbox_baseline + 1);
+    // A malformed cache must not silently compare equal to an empty server set.
+    h.engine.store().set_flags(&id, "not-json").await.unwrap();
+    h.backend.state.lock().unwrap().messages.get_mut("INBOX").unwrap()[0].2 = vec![];
+    h.engine.resync(&h.account_id).await.unwrap();
+    assert_eq!(h.engine.store().get_message(&id).await.unwrap().flags_json, "[]");
+    assert_eq!(h.engine.store().current_state(&h.account_id, "Email").await.unwrap(), baseline + 2);
+    assert_eq!(h.engine.store().current_state(&h.account_id, "Mailbox").await.unwrap(), mailbox_baseline + 2);
+    h.engine.store().close().await;
+}
+
+#[tokio::test]
 async fn active_raw_sieve_runs_at_ingest_and_policy_refusal_preserves_it() {
     let h = setup().await;
     let policy = mw_sieve::policy::Policy {

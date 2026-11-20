@@ -27,7 +27,7 @@ use crate::backend::{
 };
 use crate::change::{ChangeOp, ChangeType, StateChange};
 use crate::mapping::{
-    cursor_from_json, cursor_to_json, flags_to_json, flags_to_keywords, initial_cursor,
+    cached_flags_match, cursor_from_json, cursor_to_json, flags_to_json, flags_to_keywords, initial_cursor,
     role_to_store,
 };
 use crate::search_index;
@@ -806,7 +806,7 @@ impl Engine {
                     let next_flags = flags_to_json(flags);
                     let cached = self.store.get_message(&sid).await?;
                     self.require_runtime_generation(account_id, rt)?;
-                    if cached.flags_json != next_flags {
+                    if !cached_flags_match(&cached.flags_json, flags) {
                         self.store.set_flags(&sid, &next_flags).await?;
                         self.invalidate_message_cache(&sid).await;
                         self.reindex_messages(&[IndexPatch {
