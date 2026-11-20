@@ -53,7 +53,7 @@ impl Store {
         };
         let sql = fixed_sql(0, self.backend.dialect(), || {
             format!(
-                "SELECT m.content_revision,m.blob_ref,CASE WHEN octet_length(b.sealed_bytes)<=?3 AND ({shape}) THEN b.sealed_bytes ELSE NULL END AS raw,CAST(CASE WHEN octet_length(b.sealed_bytes)<=?3 AND ({shape}) THEN 0 ELSE 1 END AS invalid FROM messages m JOIN accounts a ON a.id=m.account_id JOIN bodies b ON b.account_id=m.account_id AND b.blob_ref=m.blob_ref LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE m.account_id=?1 AND m.stable_id=?2 AND (z.account_id IS NULL OR z.enabled=0)"
+                "SELECT m.content_revision,m.blob_ref,CASE WHEN octet_length(b.sealed_bytes)<=?3 AND ({shape}) THEN b.sealed_bytes ELSE NULL END AS raw,CAST(CASE WHEN octet_length(b.sealed_bytes)<=?3 AND ({shape}) THEN 0 ELSE 1 END AS BIGINT) AS invalid FROM messages m JOIN accounts a ON a.id=m.account_id JOIN bodies b ON b.account_id=m.account_id AND b.blob_ref=m.blob_ref LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE m.account_id=?1 AND m.stable_id=?2 AND (z.account_id IS NULL OR z.enabled=0)"
             )
         });
         let Some(row) = q(sql)
