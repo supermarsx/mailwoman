@@ -1242,12 +1242,13 @@ pub(crate) mod session_state_tests {
         // mailbox count (asserted below).
         assert_eq!(
             stmts.len(),
-            14,
+            13,
             "a whole Mailbox/get request: 3 sessionState + 4 method statements + \
-             5 fixed account/policy resolution reads + 2 `settings_revision` reads \
-             (the settings memo's validity check, one per memoized read family). \
+             5 fixed account/policy resolution reads + 1 `settings_revision` read \
+             (one fresh revision validates the shared resolution inputs). \
              Got {stmts:#?}"
         );
+        assert_eq!(stmts.against("FROM settings_revision"), 1, "one fresh policy revision: {stmts:#?}");
         assert!(
             session_state >= 3,
             "three change-log statements are sessionState's; got {stmts:#?}"
