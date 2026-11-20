@@ -71,6 +71,12 @@ export function CacheMaintenance():JSX.Element{
    <Show when={['busy','budget','wal-pressure'].includes(expiry()?.status??'')}><p class={css.note}>{t('admin-db-background-deferred')}</p></Show>
    <p class={css.note}>{t('admin-cache-inspect-help')}</p><a href="#/observability/database">{t('admin-cache-inspect')}</a>
   </section>
+  <Show when={report()?.lastReport}>{value=><section class={css.card}>
+   <h3 class={css.heading}>{t('admin-db-background-title')}</h3>
+   <p class={css.note}>{t('admin-db-observed',{time:formatDateTime(value().at*1000)})}</p>
+   <p>{t('admin-db-background-result',{scanned:formatNumber(value().scanned),removed:formatNumber(value().removed),bytes:formatBytes(value().removedBytes),pages:formatNumber(value().reclaimedPages)})}</p>
+   <Show when={report()?.lastError||['busy','budget','wal-pressure'].includes(value().status)}><p class={css.note}>{t('admin-db-background-deferred')}</p></Show>
+  </section>}</Show>
   <Show when={settings()} fallback={<Show when={shell.can.can('settings.read')&&!error()}><InlineLoading/></Show>}>
    <h3 class={css.heading}>{t('admin-cache-expiry')}</h3><p class={css.note}>{t('admin-cache-settings-help')}</p>{editors(expiryKeys)}
    <h3 class={css.heading}>{t('admin-cache-orphans')}</h3>{editors(cleanupKeys)}
