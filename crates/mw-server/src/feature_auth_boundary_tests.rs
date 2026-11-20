@@ -214,276 +214,338 @@ where
         .unwrap()
         .unwrap()
 }
-#[tokio::test]
-async fn actual_cookie_jmap_uses_one_complete_auth_chain_and_fewer_sql_reads() {
-    let f = Fixture::new().await;
-    // Warm both normal settings paths before comparing the exact same request.
-    assert_eq!(
-        send(f.router.clone(), f.request(true)).await.0,
-        StatusCode::OK
-    );
-    assert_eq!(
-        send(f.router.clone(), f.request(false)).await.0,
-        StatusCode::OK
-    );
-    let legacy = send(f.router.clone(), f.request(true)).await;
-    let current = send(f.router.clone(), f.request(false)).await;
-    assert_eq!(legacy.0, StatusCode::OK);
-    assert_eq!(current.0, StatusCode::OK);
-    assert_eq!(legacy.1, current.1);
-    eprintln!(
-        "cookie JMAP boundary: legacy auth={} reads={} writes={}; candidate auth={} reads={} writes={}",
-        legacy.2,
-        legacy.3.read.calls,
-        legacy.3.write.calls,
-        current.2,
-        current.3.read.calls,
-        current.3.write.calls
-    );
-    assert_eq!(legacy.2, 2);
-    assert_eq!(current.2, 1);
-    assert!(
-        current.3.read.calls < legacy.3.read.calls,
-        "actual SQL reads must decrease"
-    );
-}
-#[tokio::test]
-async fn revocation_after_feature_lookup_still_prevents_dispatch() {
-    let f = Fixture::new().await;
-    let r = paused(&f, |f| async move {
-        f.writer.delete_session(&f.session).await.unwrap();
-    })
-    .await;
-    assert_eq!(r.0, StatusCode::UNAUTHORIZED);
-    assert_ne!(r.1["methodResponses"][0][0], "Core/echo");
-    assert_eq!(r.2, 1);
-}
-#[tokio::test]
-async fn feature_denial_never_leaks_to_an_expired_cookie() {
-    let f = Fixture::new().await;
-    policy(&f.writer, "access.protocols", json!([])).await;
-    let r = paused(&f, |f| async move {
-        f.writer
-            .record_session_activity(&f.session, "2000-01-01T00:00:00Z")
-            .await
-            .unwrap();
-    })
-    .await;
-    assert_eq!(r.0, StatusCode::UNAUTHORIZED);
-    assert_ne!(r.1["code"], "feature_disabled");
-    assert_eq!(r.2, 1);
-}
-#[tokio::test]
-async fn changed_feature_policy_rejects_prepared_allow_then_next_request_denies() {
-    let f = Fixture::new().await;
-    let r = paused(&f, |f| async move {
-        policy(&f.writer, "access.protocols", json!([])).await;
-    })
-    .await;
-    assert_eq!(r.0, StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(r.2, 1);
-    let fresh = send(f.router.clone(), f.request(false)).await;
-    assert_eq!(fresh.0, StatusCode::FORBIDDEN);
-    assert_eq!(fresh.1["code"], "feature_disabled");
-}
-#[tokio::test]
-async fn final_domain_and_malformed_account_flags_are_still_fresh() {
-    for malformed in [false, true] {
-        let f = Fixture::new().await;
-        let r = paused(&f, |f| async move {
-            if malformed {
-                f.writer
-                    .set_setting("v6:admin:flags:user@auth-boundary.test", "{")
-                    .await
-                    .unwrap();
-            } else {
-                let mut domain = f
-                    .writer
-                    .get_domain_config("auth-boundary.test")
-                    .await
-                    .unwrap()
-                    .unwrap();
-                domain.enabled = false;
-                f.writer.put_domain_config(&domain).await.unwrap();
-            }
+// Full production-router debug futures exceed ordinary libtest stack budgets.
+// Construct AND poll each future inside this bounded test-owned thread; the
+// caller hands over only a small factory closure, never a prebuilt large future.
+// Panics cross the join unchanged so assertion failures remain test failures.
+fn run_fixture<F, Fut>(factory: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()>,
+{
+    let test = std::thread::Builder::new()
+        .name("mw-auth-boundary-test".into())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("test runtime");
+            runtime.block_on(factory());
         })
-        .await;
-        assert!(!r.0.is_success());
-        assert_ne!(r.1["methodResponses"][0][0], "Core/echo");
-        assert_eq!(r.2, 1);
+        .expect("bounded fixture thread");
+    if let Err(panic) = test.join() {
+        std::panic::resume_unwind(panic);
     }
 }
-#[tokio::test]
-async fn credential_rotation_or_canonical_alias_change_cannot_reuse_feature_hint() {
-    for rotate in [false, true] {
+
+#[test]
+fn actual_cookie_jmap_uses_one_complete_auth_chain_and_fewer_sql_reads() {
+    run_fixture(|| async {
         let f = Fixture::new().await;
-        let r=paused(&f,|f|async move {
+        // Warm both normal settings paths before comparing the exact same request.
+        assert_eq!(
+            send(f.router.clone(), f.request(true)).await.0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            send(f.router.clone(), f.request(false)).await.0,
+            StatusCode::OK
+        );
+        let legacy = send(f.router.clone(), f.request(true)).await;
+        let current = send(f.router.clone(), f.request(false)).await;
+        assert_eq!(legacy.0, StatusCode::OK);
+        assert_eq!(current.0, StatusCode::OK);
+        assert_eq!(legacy.1, current.1);
+        eprintln!(
+            "cookie JMAP boundary: legacy auth={} reads={} writes={}; candidate auth={} reads={} writes={}",
+            legacy.2,
+            legacy.3.read.calls,
+            legacy.3.write.calls,
+            current.2,
+            current.3.read.calls,
+            current.3.write.calls
+        );
+        assert_eq!(legacy.2, 2);
+        assert_eq!(current.2, 1);
+        assert!(
+            current.3.read.calls < legacy.3.read.calls,
+            "actual SQL reads must decrease"
+        );
+    });
+}
+
+#[test]
+fn revocation_after_feature_lookup_still_prevents_dispatch() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        let r = paused(&f, |f| async move {
+            f.writer.delete_session(&f.session).await.unwrap();
+        })
+        .await;
+        assert_eq!(r.0, StatusCode::UNAUTHORIZED);
+        assert_ne!(r.1["methodResponses"][0][0], "Core/echo");
+        assert_eq!(r.2, 1);
+    });
+}
+
+#[test]
+fn feature_denial_never_leaks_to_an_expired_cookie() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        policy(&f.writer, "access.protocols", json!([])).await;
+        let r = paused(&f, |f| async move {
+            f.writer
+                .record_session_activity(&f.session, "2000-01-01T00:00:00Z")
+                .await
+                .unwrap();
+        })
+        .await;
+        assert_eq!(r.0, StatusCode::UNAUTHORIZED);
+        assert_ne!(r.1["code"], "feature_disabled");
+        assert_eq!(r.2, 1);
+    });
+}
+
+#[test]
+fn changed_feature_policy_rejects_prepared_allow_then_next_request_denies() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        let r = paused(&f, |f| async move {
+            policy(&f.writer, "access.protocols", json!([])).await;
+        })
+        .await;
+        assert_eq!(r.0, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(r.2, 1);
+        let fresh = send(f.router.clone(), f.request(false)).await;
+        assert_eq!(fresh.0, StatusCode::FORBIDDEN);
+        assert_eq!(fresh.1["code"], "feature_disabled");
+    });
+}
+
+#[test]
+fn final_domain_and_malformed_account_flags_are_still_fresh() {
+    run_fixture(|| async {
+        for malformed in [false, true] {
+            let f = Fixture::new().await;
+            let r = paused(&f, |f| async move {
+                if malformed {
+                    f.writer
+                        .set_setting("v6:admin:flags:user@auth-boundary.test", "{")
+                        .await
+                        .unwrap();
+                } else {
+                    let mut domain = f
+                        .writer
+                        .get_domain_config("auth-boundary.test")
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    domain.enabled = false;
+                    f.writer.put_domain_config(&domain).await.unwrap();
+                }
+            })
+            .await;
+            assert!(!r.0.is_success());
+            assert_ne!(r.1["methodResponses"][0][0], "Core/echo");
+            assert_eq!(r.2, 1);
+        }
+    });
+}
+
+#[test]
+fn credential_rotation_or_canonical_alias_change_cannot_reuse_feature_hint() {
+    run_fixture(|| async {
+        for rotate in [false, true] {
+            let f = Fixture::new().await;
+            let r=paused(&f,|f|async move {
             if rotate {f.writer.reseal_account_credentials(&f.account,"rotated-after-policy").await.unwrap();}
             else {let mut target=f.writer.get_domain_config("auth-boundary.test").await.unwrap().unwrap();target.name="retarget.test".into();target.preferred=false;f.writer.put_domain_config(&target).await.unwrap();f.sql("INSERT INTO domain_alias(alias,domain) VALUES('auth-boundary.test','retarget.test')").await;assert_eq!(f.writer.canonical_policy_domain("auth-boundary.test").await.unwrap(),"retarget.test");}
         }).await;
-        assert!(!r.0.is_success());
-        assert_eq!(r.2, 1);
-    }
-}
-#[tokio::test]
-async fn primary_policy_identity_retirement_is_fenced_with_session_row_unchanged() {
-    let f = Fixture::new().await;
-    let before = f.writer.get_primary_session(&f.session).await.unwrap();
-    let r = paused(&f, |f| async move {
-        f.sql("UPDATE identity_binding SET retired_at=1").await;
-    })
-    .await;
-    assert!(!r.0.is_success());
-    assert_eq!(r.2, 1);
-    let after = f.writer.get_primary_session(&f.session).await.unwrap();
-    assert_eq!(before.credentials, after.credentials);
-    assert_eq!(before.username, after.username);
-}
-#[tokio::test]
-async fn linked_selector_and_native_bearer_keep_original_independent_auth_boundaries() {
-    let f = Fixture::new().await;
-    for (header, value) in [
-        (crate::linked_accounts::SELECTOR, "missing-link"),
-        ("authorization", "Bearer nonexistent-native-token"),
-    ] {
-        let mut request = f.request(false);
-        request
-            .headers_mut()
-            .insert(header, axum::http::HeaderValue::from_static(value));
-        let r = send(f.router.clone(), request).await;
-        let mut legacy = f.request(true);
-        legacy
-            .headers_mut()
-            .insert(header, axum::http::HeaderValue::from_static(value));
-        let baseline = send(f.router.clone(), legacy).await;
-        assert!(!r.0.is_success());
-        assert_eq!(r.0, baseline.0);
-        assert_eq!(r.1["code"], baseline.1["code"]);
-        assert_eq!(r.2, baseline.2);
-    }
-}
-#[tokio::test]
-async fn missing_policy_revision_retains_legacy_path_instead_of_caching_authority() {
-    let f = Fixture::new().await;
-    f.sql("DELETE FROM settings_revision WHERE id=1").await;
-    let r = send(f.router.clone(), f.request(false)).await;
-    assert_eq!(r.0, StatusCode::OK);
-    assert_eq!(r.2, 2);
+            assert!(!r.0.is_success());
+            assert_eq!(r.2, 1);
+        }
+    });
 }
 
-#[tokio::test]
-async fn subject_changes_during_final_auth_are_fenced_even_when_session_fields_do_not_change() {
-    for retire in [false, true] {
+#[test]
+fn primary_policy_identity_retirement_is_fenced_with_session_row_unchanged() {
+    run_fixture(|| async {
         let f = Fixture::new().await;
         let before = f.writer.get_primary_session(&f.session).await.unwrap();
-        let r=paused_at(&f,PauseAt::AfterDomain,|f|async move {
+        let r = paused(&f, |f| async move {
+            f.sql("UPDATE identity_binding SET retired_at=1").await;
+        })
+        .await;
+        assert!(!r.0.is_success());
+        assert_eq!(r.2, 1);
+        let after = f.writer.get_primary_session(&f.session).await.unwrap();
+        assert_eq!(before.credentials, after.credentials);
+        assert_eq!(before.username, after.username);
+    });
+}
+
+#[test]
+fn linked_selector_and_native_bearer_keep_original_independent_auth_boundaries() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        for (header, value) in [
+            (crate::linked_accounts::SELECTOR, "missing-link"),
+            ("authorization", "Bearer nonexistent-native-token"),
+        ] {
+            let mut request = f.request(false);
+            request
+                .headers_mut()
+                .insert(header, axum::http::HeaderValue::from_static(value));
+            let r = send(f.router.clone(), request).await;
+            let mut legacy = f.request(true);
+            legacy
+                .headers_mut()
+                .insert(header, axum::http::HeaderValue::from_static(value));
+            let baseline = send(f.router.clone(), legacy).await;
+            assert!(!r.0.is_success());
+            assert_eq!(r.0, baseline.0);
+            assert_eq!(r.1["code"], baseline.1["code"]);
+            assert_eq!(r.2, baseline.2);
+        }
+    });
+}
+
+#[test]
+fn missing_policy_revision_retains_legacy_path_instead_of_caching_authority() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        f.sql("DELETE FROM settings_revision WHERE id=1").await;
+        let r = send(f.router.clone(), f.request(false)).await;
+        assert_eq!(r.0, StatusCode::OK);
+        assert_eq!(r.2, 2);
+    });
+}
+
+#[test]
+fn subject_changes_during_final_auth_are_fenced_even_when_session_fields_do_not_change() {
+    run_fixture(|| async {
+        for retire in [false, true] {
+            let f = Fixture::new().await;
+            let before = f.writer.get_primary_session(&f.session).await.unwrap();
+            let r=paused_at(&f,PauseAt::AfterDomain,|f|async move {
             if retire {f.sql("UPDATE identity_binding SET retired_at=1").await;}
             else {let mut target=f.writer.get_domain_config("auth-boundary.test").await.unwrap().unwrap();target.name="retarget.test".into();target.preferred=false;f.writer.put_domain_config(&target).await.unwrap();f.sql("INSERT INTO domain_alias(alias,domain) VALUES('auth-boundary.test','retarget.test')").await;assert_eq!(f.writer.canonical_policy_domain("auth-boundary.test").await.unwrap(),"retarget.test");}
         }).await;
-        assert_eq!(r.0, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(r.2, 1);
-        let after = f.writer.get_primary_session(&f.session).await.unwrap();
-        assert!(same_session(&before, &after));
-    }
+            assert_eq!(r.0, StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(r.2, 1);
+            let after = f.writer.get_primary_session(&f.session).await.unwrap();
+            assert!(same_session(&before, &after));
+        }
+    });
 }
 
-#[tokio::test]
-async fn session_revoked_while_real_request_body_is_waiting_never_dispatches() {
-    let f = Fixture::new().await;
-    let mut request = f.request(false);
-    let bytes = to_bytes(
-        std::mem::replace(request.body_mut(), Body::empty()),
-        1024 * 1024,
-    )
-    .await
-    .unwrap();
-    let (send_body, receive_body) = tokio::sync::oneshot::channel::<axum::body::Bytes>();
-    let entered = std::sync::Arc::new(tokio::sync::Notify::new());
-    let signalled = entered.clone();
-    *request.body_mut() = Body::from_stream(futures_util::stream::once(async move {
-        signalled.notify_one();
-        let body = receive_body
+#[test]
+fn session_revoked_while_real_request_body_is_waiting_never_dispatches() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        let mut request = f.request(false);
+        let bytes = to_bytes(
+            std::mem::replace(request.body_mut(), Body::empty()),
+            1024 * 1024,
+        )
+        .await
+        .unwrap();
+        let (send_body, receive_body) = tokio::sync::oneshot::channel::<axum::body::Bytes>();
+        let entered = std::sync::Arc::new(tokio::sync::Notify::new());
+        let signalled = entered.clone();
+        *request.body_mut() = Body::from_stream(futures_util::stream::once(async move {
+            signalled.notify_one();
+            let body = receive_body
+                .await
+                .map_err(|_| std::io::Error::other("fixture body canceled"))?;
+            Ok::<_, std::io::Error>(body)
+        }));
+        let pending = tokio::spawn(send(f.router.clone(), request));
+        tokio::time::timeout(Duration::from_secs(10), entered.notified())
             .await
-            .map_err(|_| std::io::Error::other("fixture body canceled"))?;
-        Ok::<_, std::io::Error>(body)
-    }));
-    let pending = tokio::spawn(send(f.router.clone(), request));
-    tokio::time::timeout(Duration::from_secs(10), entered.notified())
-        .await
-        .unwrap();
-    f.writer.delete_session(&f.session).await.unwrap();
-    send_body.send(bytes).unwrap();
-    let r = tokio::time::timeout(Duration::from_secs(10), pending)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(r.0, StatusCode::UNAUTHORIZED);
-    assert_ne!(r.1["methodResponses"][0][0], "Core/echo");
+            .unwrap();
+        f.writer.delete_session(&f.session).await.unwrap();
+        send_body.send(bytes).unwrap();
+        let r = tokio::time::timeout(Duration::from_secs(10), pending)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(r.0, StatusCode::UNAUTHORIZED);
+        assert_ne!(r.1["methodResponses"][0][0], "Core/echo");
+    });
 }
-#[tokio::test]
-async fn late_linked_login_marker_still_runs_the_fresh_direct_login_guard() {
-    let f = Fixture::new().await;
-    // Both identities are real verified primary principals. Only the late link
-    // marker is inserted independently; its credential is never read because
-    // direct sign-in must be denied BEFORE any linked context/backend access.
-    let credentials = Credentials {
-        username: "owner@auth-boundary.test".into(),
-        password: "fixture-owner".into(),
-    };
-    let account = f
-        .writer
-        .create_account(
-            &NewAccount {
-                kind: AccountKind::Imap,
-                host: "127.0.0.1",
-                port: 9,
-                tls: "starttls",
-                username: &credentials.username,
-                sync_policy_json: "{}",
-            },
-            &credentials,
-        )
-        .await
-        .unwrap();
-    let session = f
-        .writer
-        .create_session(
-            &account,
-            &credentials.username,
-            "engine",
-            "engine",
-            &credentials,
-        )
-        .await
-        .unwrap();
-    let owner = f
-        .writer
-        .bind_verified_primary(
-            &session,
-            mw_store::identity_principal::VerifiedPrimary {
-                account_id: &account,
-                kind: "mailbox",
-                authority: "auth-boundary-fixture",
-                subject: &account,
-            },
-            chrono::Utc::now().timestamp(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-    let child = f
-        .writer
-        .primary_principal(&f.session)
-        .await
-        .unwrap()
-        .unwrap();
-    policy(&f.writer, "accounts.linked.directLogin", json!(false)).await;
-    let r=paused(&f,move |f|async move {
+
+#[test]
+fn late_linked_login_marker_still_runs_the_fresh_direct_login_guard() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        // Both identities are real verified primary principals. Only the late link
+        // marker is inserted independently; its credential is never read because
+        // direct sign-in must be denied BEFORE any linked context/backend access.
+        let credentials = Credentials {
+            username: "owner@auth-boundary.test".into(),
+            password: "fixture-owner".into(),
+        };
+        let account = f
+            .writer
+            .create_account(
+                &NewAccount {
+                    kind: AccountKind::Imap,
+                    host: "127.0.0.1",
+                    port: 9,
+                    tls: "starttls",
+                    username: &credentials.username,
+                    sync_policy_json: "{}",
+                },
+                &credentials,
+            )
+            .await
+            .unwrap();
+        let session = f
+            .writer
+            .create_session(
+                &account,
+                &credentials.username,
+                "engine",
+                "engine",
+                &credentials,
+            )
+            .await
+            .unwrap();
+        f.writer
+            .set_session_authentication(&session, "password")
+            .await
+            .unwrap();
+        let owner = f
+            .writer
+            .bind_verified_primary(
+                &session,
+                mw_store::identity_principal::VerifiedPrimary {
+                    account_id: &account,
+                    kind: "mailbox",
+                    authority: "auth-boundary-fixture",
+                    subject: &account,
+                },
+                chrono::Utc::now().timestamp(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let child = f
+            .writer
+            .primary_principal(&f.session)
+            .await
+            .unwrap()
+            .unwrap();
+        policy(&f.writer, "accounts.linked.directLogin", json!(false)).await;
+        let r=paused(&f,move |f|async move {
         let pool=sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect_with(mw_store::encryption::connect_options(&f.db,f.db_key.as_ref(),false)).await.unwrap();
         sqlx::query("INSERT INTO linked_account(id,owner_principal_id,child_principal_id,child_subject,account_id,display_name,sealed_session,revision,created_at) VALUES('late-link',?1,?2,'verified-child',?3,'fixture',X'00','fixture-revision',1)")
             .bind(&owner.principal_id).bind(&child.principal_id).bind(&f.account).execute(&pool).await.unwrap();pool.close().await;
     }).await;
-    assert_eq!(r.0, StatusCode::UNAUTHORIZED);
-    assert_eq!(r.2, 1);
-    assert_ne!(r.1["methodResponses"][0][0], "Core/echo");
+        assert_eq!(r.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(r.2, 1);
+        assert_ne!(r.1["methodResponses"][0][0], "Core/echo");
+    });
 }
