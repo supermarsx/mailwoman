@@ -5,10 +5,12 @@ import {avatarPresentation,PersonAvatar} from './PersonAvatar.tsx';
 import {AVATAR_COLORS} from './senderIcons/palette.ts';
 const state=vi.hoisted(()=>({mode:'initials',icons:true,brands:true as boolean,requireAuth:undefined as string|undefined,fetch:vi.fn(),owner:{accountId:'one',generation:1}}));
 vi.mock('../api/settings.ts',()=>({settings:()=>({'contacts.avatarMode':{value:state.mode},'contacts.senderIcons':{value:state.icons},'mail.brandAvatars':{value:state.brands},'mail.brandAvatars.requireAuth':{value:state.requireAuth}})}));
+const mailboxLookup=vi.hoisted(()=>vi.fn());
+vi.mock('../api/mailboxLayout.ts',()=>({mailboxForAddress:(address:string)=>mailboxLookup(address)}));
 vi.mock('../api/http.ts',()=>({apiFetch:(...args:unknown[])=>state.fetch(...args)}));
 vi.mock('../api/accountPreferenceLifecycle.ts',()=>({observePreferenceAccount:(listener:(value:unknown)=>void)=>{listener(state.owner);return ()=>{};},preferenceAccount:()=>state.owner,preferenceAccountIsCurrent:(owner:unknown)=>owner===state.owner}));
 afterEach(()=>vi.unstubAllGlobals());
-beforeEach(()=>{state.mode='initials';state.icons=true;state.brands=true;state.requireAuth=undefined;state.fetch.mockReset();});
+beforeEach(()=>{state.mode='initials';state.icons=true;state.brands=true;state.requireAuth=undefined;state.fetch.mockReset();mailboxLookup.mockReset();});
 it('uses 192 stable colours with readable white initials and no inline style',()=>{
  expect(new Set(AVATAR_COLORS).size).toBe(192);
  for(const hex of AVATAR_COLORS){
@@ -130,4 +132,52 @@ it('renders health and finance artwork locally while retaining authentication an
  await waitFor(()=>expect(view.container.querySelector('img')?.getAttribute('src')).toBe('blob:local-contact-photo'));
  expect(view.container.querySelector('[data-sender-icon]')).toBeNull();
  view.unmount();
+});
+
+
+it('renders new services and existing Porkbun/IMT without weakening sender security',()=>{
+ const cases:Record<string,string>={'pandaplus.pt':'pandaplus','lovable.dev':'lovable','advancecare.com':'advancecare','vivapayments.com':'viva','viva.com':'viva','mail.alerts.bolt.eu':'bolt','proxydocs.com':'mediant','igest.pt':'igest','razersupport.com':'razer','porkbun.com':'porkbun','imt-ip.pt':'imt'};
+ for(const [domain,id] of Object.entries(cases)){
+  const address=`notice@${domain}`,tile=row(address).querySelector(`[data-sender-icon="${id}"]`)!;const image=tile.querySelector('img')!;
+  expect(image).not.toBeNull();expect(image.src.startsWith('data:image/')||new URL(image.src,location.href).origin===location.origin).toBe(true);
+  expect(row(address,{dkim:{result:'fail'},dmarc:{result:'fail'}}).querySelector('[data-sender-icon]')).toBeNull();
+ }
+ for(const address of ['notice@mj.pt','notice@dgrhdn.defesa.pt'])expect(row(address).querySelector('[data-sender-icon="government"] svg')).not.toBeNull();
+ expect(state.fetch).not.toHaveBeenCalled();
+});
+
+
+it('keeps canonical Porkbun and IMT marks under unknown or aligned auth and gives own mailbox priority',()=>{
+ for(const [domain,id] of [['porkbun.com','porkbun'],['imt-ip.pt','imt']]){
+  for(const host of [domain,`mail.${domain}`,`a.b.${domain}`]){
+   const address=`notice@${host}`;
+   expect(row(address).querySelector(`[data-sender-icon="${id}"] img`)).not.toBeNull();
+   state.requireAuth='always';
+   expect(row(address).querySelector('[data-sender-icon]')).toBeNull();
+   expect(row(address,{dkim:{result:'pass',domain:host},dmarc:{result:'pass',aligned:true}}).querySelector(`[data-sender-icon="${id}"] img`)).not.toBeNull();
+   state.requireAuth=undefined;
+  }
+  mailboxLookup.mockReturnValue({address:`notice@${domain}`,label:'Personal Mailbox',avatar:undefined});
+  const own=row(`notice@${domain}`);expect(own.querySelector('[data-sender-icon]')).toBeNull();expect(own.querySelector('[data-size="message"]')).not.toBeNull();
+  mailboxLookup.mockReset();
+ }
+});
+
+
+it('updates one recycled sender row across Porkbun, IMT, unknown sender and live authentication changes',async()=>{
+ const [address,setAddress]=createSignal('notice@porkbun.com');const [auth,setAuth]=createSignal<unknown>(undefined);
+ const view=render(()=><PersonAvatar name="Sender" address={address()} messageSender auth={auth() as never}/>);
+ const current=async(id:string,file:string)=>waitFor(()=>{
+  expect(view.container.querySelector('.person-avatar')?.getAttribute('data-sender-icon')).toBe(id);
+  expect(view.container.querySelector('img')?.getAttribute('src')).toContain(file);
+  expect(view.container.querySelectorAll('img')).toHaveLength(1);
+ });
+ await current('porkbun','porkbun-site.png');
+ setAddress('notice@mail.imt-ip.pt');await current('imt','imt-site.png');
+ setAddress('friend@unknown.example');await waitFor(()=>{expect(view.container.querySelector('[data-sender-icon]')).toBeNull();expect(view.container.querySelector('img')).toBeNull();expect(view.container).toHaveTextContent('S');});
+ setAddress('notice@porkbun.com');await current('porkbun','porkbun-site.png');
+ setAuth({dkim:{result:'fail'},dmarc:{result:'fail'}});
+ await waitFor(()=>{expect(view.container.querySelector('[data-sender-icon]')).toBeNull();expect(view.container.querySelector('img')).toBeNull();expect(view.container.querySelector('[data-unverified="true"]')).not.toBeNull();});
+ setAuth({dkim:{result:'pass',domain:'porkbun.com'},dmarc:{result:'pass',aligned:true}});await current('porkbun','porkbun-site.png');
+ expect(view.container.querySelector('[data-unverified="true"]')).toBeNull();expect(state.fetch).not.toHaveBeenCalled();
 });

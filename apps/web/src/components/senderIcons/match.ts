@@ -7,7 +7,8 @@ const government=(name:string,domains:string[]):SenderIcon=>({id:'government',na
 const GOVERNMENT_ICONS=[
  government('Autoridade Tributária e Aduaneira',['portaldasfinancas.gov.pt','at.gov.pt']),
  government('Segurança Social',['seg-social.pt','seg-social.gov.pt']),
- government('Justiça',['justica.gov.pt','irn.mj.pt']),
+ government('Justiça',['justica.gov.pt','irn.mj.pt','mj.pt']),
+ government('Defesa Nacional',['defesa.pt','defesa.gov.pt']),
  government('SNS 24',['sns24.gov.pt']),
  government('Instituto do Emprego e Formação Profissional',['iefp.pt']),
  government('Instituto da Mobilidade e dos Transportes',['imt-ip.pt']),

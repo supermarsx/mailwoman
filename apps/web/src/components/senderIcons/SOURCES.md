@@ -305,3 +305,23 @@ All artwork is bundled locally as passive image assets. Marks identify domains, 
 | miio | Existing https://www.miio.com/logo.ico | https://www.miio.com/fr/faq publishes card@miio.pt; https://www.miio.com/careers publishes human.resources@miio.com. Add miio.pt to the existing miio entry. |
 
 Specific domain matches take priority; subdomains match only at a dot boundary. External CDN asset downloads above occur only during development and are not runtime dependencies. Official trademarks remain owned by their respective organizations; inclusion does not imply endorsement.
+
+
+## Additional sender domains (2026-11-20)
+
+All assets below are bundled locally. Domains remain hints, never authentication evidence.
+
+| Sender | Official asset and domain evidence |
+| --- | --- |
+| Panda+ | https://pandapluslanding.pt/wp-content/uploads/2024/02/Logo-Panda-Plus.png (header logo); https://pandapluslanding.pt/ publishes apoio@pandaplus.pt; https://dreamia.pt/termos-e-condicoes-panda-plus/ establishes the Portuguese Dreamia service. Match pandaplus.pt and pandapluslanding.pt, not other Panda products. |
+| Lovable | https://lovable.dev/favicon.ico; https://lovable.dev/support publishes support@lovable.dev. Exclude user-hosted lovable.app sites. |
+| AdvanceCare | https://www.advancecare.pt/-/media/images/advancecare/favicon-16x16.png; advancecare.com redirects to https://www.advancecare.pt/para-si; https://www.advancecare.pt/institucional/informacoes-legais/codigo-de-conduta publishes linha.de.reporte@advancecare.com. |
+| Viva.com | https://www.viva.com/favicon.ico; https://developer.viva.com/apis-for-point-of-sale/card-terminals-devices/ documents viva.com and vivapayments.com. |
+| Bolt | https://assets.homepage.bolt.eu/1.26.0/public/common-assets/android-chrome-192x192.png (linked official homepage). Match mobility service bolt.eu and dot subdomains; exclude unrelated checkout company bolt.com. |
+| Mediant shareholder documents | https://www.proxydocs.com/favicon.ico (identical to mediantonline.com favicon); https://www.proxydocs.com/edocs/request displays Mediant; https://tradezero.com/support/questions/are-emails-from-prospectusdocs-com-and-proxydocs-com-legitimate confirms shareholder-document delivery. No broker identity inferred from email local part. |
+| iGEST | https://publico.igest.pt/icon.png?icon.3tzc0-0tjuzka.png (linked homepage); https://publico.igest.pt/pt/contactos publishes apoio@igest.pt. User clarified igest.pt; exclude unrelated ITGest/i-gest. |
+| Razer Support | Reuse official https://www.razer.com/favicon.png; https://dl.razer.com/master-guides/Krait/KraitOMG-ENG.pdf documents www.razersupport.com, now redirecting to mysupport.razer.com. |
+| Justiça | Original generic civic glyph, not a seal; https://www.citius.mj.pt/portal/linksministerio.aspx establishes Ministry family. Extend existing Justiça entry to mj.pt; retain specific domain priority. |
+| Defesa Nacional | Original generic civic glyph, not a seal; https://www.defesa.gov.pt/pt/Paginas/contactos.aspx publishes dscrp@defesa.pt and other Ministry contacts. Map defesa.pt and defesa.gov.pt with proper subdomains. |
+
+Porkbun and IMT were already correctly mapped. https://porkbun.com/security limits official email to @porkbun.com; the existing pink pig is the homepage-linked https://porkbun.com/images/favicons/apple-icon-180x180.png. Do not associate customer-hosted domains or shared abuse-provider domains with Porkbun. IMT's existing mark matches https://www.imt-ip.pt/wp-content/uploads/2025/01/cropped-favicon-imt-180x180.png; https://www.imt-ip.pt/contacto/sede/ publishes imt@imt-ip.pt. Added rendering/security regression coverage, without claiming artwork corrections for these already-covered domains.

@@ -1,3 +1,10 @@
+import igestSiteAsset from './assets/igest-site.png?url';
+import mediantSiteAsset from './assets/mediant-site.ico?url';
+import boltSiteAsset from './assets/bolt-site.png?url';
+import vivaSiteAsset from './assets/viva-site.ico?url';
+import advancecareSiteAsset from './assets/advancecare-site.png?url';
+import lovableSiteAsset from './assets/lovable-site.png?url';
+import pandaplusSiteAsset from './assets/pandaplus-site.png?url';
 import snsSiteAsset from './assets/sns-site.png?url';
 import bitfinexSiteAsset from './assets/bitfinex-site.ico?url';
 import exmoSiteAsset from './assets/exmo-site.png?url';
@@ -60,6 +67,13 @@ import raciusAsset from './assets/racius-site.png?url';
 import womensecretAsset from './assets/womensecret-site.png?url';
 import lindafarrowAsset from './assets/lindafarrow-site.png?url';
 export const REGIONAL_SENDER_ICONS:readonly SenderIcon[]=[
+ {id:"pandaplus",name:"Panda+",category:"service",domains:["pandaplus.pt", "pandapluslanding.pt"],paths:[],asset:pandaplusSiteAsset},
+ {id:"lovable",name:"Lovable",category:"service",domains:["lovable.dev"],paths:[],asset:lovableSiteAsset},
+ {id:"advancecare",name:"AdvanceCare",category:"service",domains:["advancecare.com", "advancecare.pt"],paths:[],asset:advancecareSiteAsset},
+ {id:"viva",name:"Viva.com",category:"service",domains:["viva.com", "vivapayments.com"],paths:[],asset:vivaSiteAsset},
+ {id:"bolt",name:"Bolt",category:"service",domains:["bolt.eu"],paths:[],asset:boltSiteAsset},
+ {id:"mediant",name:"Mediant shareholder documents",category:"service",domains:["proxydocs.com"],paths:[],asset:mediantSiteAsset},
+ {id:"igest",name:"iGEST",category:"service",domains:["igest.pt"],paths:[],asset:igestSiteAsset},
  {id:'sns', name:'Serviço Nacional de Saúde', category:'service', domains:['min-saude.pt','sns.gov.pt'], paths:[], asset:snsSiteAsset},
  {id:'bitfinex', name:'Bitfinex', category:'broker', domains:['bitfinex.com'], paths:[], asset:bitfinexSiteAsset},
  {id:'exmo', name:'EXMO', category:'broker', domains:['exmo.com','exmo.email'], paths:[], asset:exmoSiteAsset},
@@ -104,7 +118,7 @@ export const REGIONAL_SENDER_ICONS:readonly SenderIcon[]=[
  {"id": "imt", "name": "Instituto da Mobilidade e dos Transportes", "category": "service", "domains": ["imt-ip.pt"], "paths": [],asset:serviceAsset15},
  {"id": "generali-tranquilidade", "name": "Generali Tranquilidade", "category": "service", "domains": ["generalitranquilidade.pt", "tranquilidade.pt"], "paths": [],asset:serviceAsset16},
  {"id": "navegante", "name": "navegante", "category": "service", "domains": ["navegante.pt"], "paths": [],asset:serviceAsset17},
- {"id": "razer", "name": "Razer", "category": "service", "domains": ["razer.com"], "paths": [],asset:serviceAsset18},
+ {"id": "razer", "name": "Razer", "category": "service", "domains": ["razer.com", "razersupport.com"], "paths": [],asset:serviceAsset18},
  {"id": "sacoor", "name": "Sacoor Brothers", "category": "service", "domains": ["sacoorbrothers.com"], "paths": [],asset:serviceAsset19},
  {"id": "iefp", "name": "Instituto do Emprego e Formação Profissional", "category": "service", "domains": ["iefp.pt"], "paths": [],asset:serviceAsset20},
  {"id": "mercedes-benz-io", "name": "Mercedes-Benz.io", "category": "service", "domains": ["mercedes-benz.io"], "paths": [],asset:serviceAsset21},

@@ -107,3 +107,24 @@ it('bundles valid official health and finance favicon bytes',()=>{
   expect(bytes.subarray(0,file.endsWith('.png')?8:4).toString('hex')).toBe(file.endsWith('.png')?'89504e470d0a1a0a':'00000100');
  }
 });
+
+
+it('maps verified services and civic families without confusing clients, hosts or lookalikes',()=>{
+ const cases:Record<string,string>={'pandaplus.pt':'pandaplus','pandapluslanding.pt':'pandaplus','lovable.dev':'lovable','advancecare.com':'advancecare','advancecare.pt':'advancecare','viva.com':'viva','vivapayments.com':'viva','bolt.eu':'bolt','proxydocs.com':'mediant','igest.pt':'igest','mj.pt':'government','defesa.pt':'government','defesa.gov.pt':'government','razersupport.com':'razer','porkbun.com':'porkbun','imt-ip.pt':'imt'};
+ for(const [domain,id] of Object.entries(cases)){
+  for(const host of [domain,`mail.${domain}`,`a.b.${domain}`])expect(senderDomainIcon(`notice@${host}`)?.id,host).toBe(id);
+  for(const host of [`evil${domain}`,`${domain}.evil.test`]){
+   const icon=senderDomainIcon(`notice@${host}`);
+   if(domain.endsWith('.gov.pt'))expect(icon?.name,host).not.toBe('Defesa Nacional');else expect(icon,host).toBeUndefined();
+  }
+ }
+ for(const host of ['bolt.com','tenant.lovable.app','igestpt.com'])expect(senderDomainIcon(`notice@${host}`)).toBeUndefined();
+ for(const client of ['webull','interactivebrokers','tesla','santander'])expect(senderDomainIcon(`${client}@proxydocs.com`)?.id).toBe('mediant');
+ expect(senderDomainIcon('notice@razersupport.com')?.asset).toBe(senderDomainIcon('notice@razer.com')?.asset);
+});
+it('validates the newly bundled service image signatures',()=>{
+ for(const file of ['pandaplus-site.png','lovable-site.png','advancecare-site.png','viva-site.ico','bolt-site.png','mediant-site.ico','igest-site.png']){
+  const bytes=readFileSync(`src/components/senderIcons/assets/${file}`);expect(bytes.length).toBeGreaterThan(100);expect(bytes.length).toBeLessThan(300000);
+  expect(bytes.subarray(0,file.endsWith('.png')?8:4).toString('hex')).toBe(file.endsWith('.png')?'89504e470d0a1a0a':'00000100');
+ }
+});
