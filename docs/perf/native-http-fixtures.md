@@ -261,5 +261,29 @@ resident memory (median approximately 275 MiB versus 354 MiB).
 Those runs predate the sealed-index fixture default above and are RAM-index
 diagnostics only. They also use one sender and no Sent messages or contacts.
 They do not establish capacity for 10,000 users, 40,000 RPS, production storage,
-or simultaneous WebSocket connections. The verified sealed-storage source has
-not yet supplied a replacement capacity measurement.
+or simultaneous WebSocket connections. A later encrypted-storage baseline
+follows; neither series establishes full application capacity.
+
+The subsequent encrypted-disk comparison used release source `7c0b4829`,
+including the readable-header and lightweight-envelope changes. Six alternating
+60-second runs used the same 100-user/50-message request mix, limits and
+three/one/one/three/three/one worker order. Every run verified sealed index
+storage, loaded policy enforcement, linked-login restrictions, cross-account
+isolation and scanner blocking. All six had zero errors, throttles or timeouts.
+
+| Index workers | Median successful HTTP RPS | Median p95 | Median p99 | Median RSS |
+| --- | ---: | ---: | ---: | ---: |
+| 3 | 35.6 | 1,060 ms | 1,180 ms | 330.8 MiB |
+| 1 | 39.3 | 987 ms | 1,130 ms | 250.8 MiB |
+
+The frozen image was
+`caa4a604d65c26de173e1e7718cf91ac7ab45fe783727b3ddc3075ce87e07b4b`.
+This establishes a small synthetic encrypted-storage baseline, not the
+40,000-RPS/10,000-user target. The earlier RAM results are a different storage
+configuration, so these numbers cannot attribute a before/after gain or
+regression to the header optimization. Worker-count defaults remain unchanged;
+the bulk-indexing tradeoff and broader workloads still need evaluation.
+Source review identifies repeated whole-file reads/decryption when sealed index
+readers reopen unchanged segment components during publication. Its contribution
+has not yet been profiled in this release; neither file-cache shortcuts nor
+weaker integrity/durability checks are justified by these measurements.
