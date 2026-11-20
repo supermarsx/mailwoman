@@ -31,13 +31,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-use rust_embed::RustEmbed;
-
-#[derive(RustEmbed)]
-#[folder = "../../apps/web/public"]
-#[include = "pdfjs/**"]
-#[include = "pdf.worker.mjs"]
-struct PdfjsAssets;
+use mw_web_assets::pdf as read_pdf_asset;
 
 const WORKER: &str = "pdf.worker.mjs";
 const MANIFEST: &str = "pdfjs/manifest.json";
@@ -108,8 +102,8 @@ fn manifest_matches(dir: &Path) -> bool {
     {
         return *ok;
     }
-    let ok = match (std::fs::read(&file), PdfjsAssets::get(MANIFEST)) {
-        (Ok(disk), Some(embedded)) => disk == embedded.data.as_ref(),
+    let ok = match (std::fs::read(&file), read_pdf_asset(MANIFEST)) {
+        (Ok(disk), Some(embedded)) => disk == embedded.as_ref(),
         _ => false,
     };
     if let Ok(mut map) = cache.lock() {
@@ -157,11 +151,11 @@ pub(crate) fn response(
         )
             .into_response();
     }
-    let embedded = PdfjsAssets::get(path);
+    let embedded = read_pdf_asset(path);
     let bytes = match (&embedded, web_dir) {
         (Some(_), Some(dir)) => {
-            let pinned = PdfjsAssets::get(MANIFEST)
-                .and_then(|m| manifest_files(&m.data))
+            let pinned = read_pdf_asset(MANIFEST)
+                .and_then(|m| manifest_files(&m))
                 .unwrap_or_default();
             deployed(dir, path, &pinned)
         }
@@ -169,7 +163,7 @@ pub(crate) fn response(
     };
     let bytes = match (bytes, embedded) {
         (Some(b), _) => b,
-        (None, Some(e)) => e.data.into_owned(),
+        (None, Some(e)) => e.into_owned(),
         (None, None) => return miss(path),
     };
     let len = bytes.len();
@@ -224,12 +218,12 @@ fn required() -> Vec<String> {
         MANIFEST.into(),
         WORKER.into(),
     ];
-    if let Some(html) = PdfjsAssets::get("pdfjs/web/mailwoman.html")
-        && let Ok(html) = std::str::from_utf8(&html.data)
+    if let Some(html) = read_pdf_asset("pdfjs/web/mailwoman.html")
+        && let Ok(html) = std::str::from_utf8(&html)
     {
         out.extend(referenced(html));
     }
-    if let Some(m) = PdfjsAssets::get(MANIFEST).and_then(|m| manifest_files(&m.data)) {
+    if let Some(m) = read_pdf_asset(MANIFEST).and_then(|m| manifest_files(&m)) {
         out.extend(m.into_iter().map(|f| format!("pdfjs/{f}")));
     }
     out.sort();
@@ -272,7 +266,7 @@ pub(crate) fn referenced(html: &str) -> Vec<String> {
 /// Check the embedded set is complete and typed, and report whether a deployed
 /// `MW_WEB_DIR` copy of the library is current. Cheap enough for a diagnostics run.
 pub(crate) fn audit(web_dir: Option<&Path>) -> Audit {
-    let pinned = PdfjsAssets::get(MANIFEST).and_then(|m| manifest_files(&m.data));
+    let pinned = read_pdf_asset(MANIFEST).and_then(|m| manifest_files(&m));
     let Some(pinned) = pinned else {
         return Audit {
             status: "fail",
@@ -282,7 +276,7 @@ pub(crate) fn audit(web_dir: Option<&Path>) -> Audit {
     let needed = required();
     let missing: Vec<&String> = needed
         .iter()
-        .filter(|p| PdfjsAssets::get(p).is_none())
+        .filter(|p| read_pdf_asset(p).is_none())
         .collect();
     if !missing.is_empty() {
         return Audit {
@@ -372,7 +366,7 @@ mod tests {
             assert!(boot.contains(import), "bootstrap no longer names {import}");
         }
         for path in refs.iter().chain(&required()) {
-            assert!(PdfjsAssets::get(path).is_some(), "viewer references {path}, which is not vendored");
+            assert!(read_pdf_asset(path).is_some(), "viewer references {path}, which is not vendored");
         }
         let a = audit(None);
         assert_eq!(a.status, "pass", "{}", a.summary);

@@ -11,6 +11,7 @@ members = [
     "crates/mw-compliance",
     "crates/mw-remote-content",
     "crates/mw-observability",
+    "crates/mw-web-assets",
     "crates/mw-jmap",
     "crates/mw-sanitize",
     "crates/mw-render",

@@ -318,7 +318,7 @@ pub(crate) fn current_build(web_dir: Option<&Path>) -> Vec<(String, Vec<u8>)> {
                     .collect()
             })
             .unwrap_or_default(),
-        None => crate::WebAssets::iter()
+        None => mw_web_assets::web_paths()
             .filter_map(|path| {
                 let name = path.strip_prefix("assets/")?;
                 if name.contains('/') || !retainable(name) {
@@ -326,7 +326,7 @@ pub(crate) fn current_build(web_dir: Option<&Path>) -> Vec<(String, Vec<u8>)> {
                 }
                 Some((
                     name.to_string(),
-                    crate::WebAssets::get(&path)?.data.into_owned(),
+                    mw_web_assets::web(&path)?.into_owned(),
                 ))
             })
             .collect(),

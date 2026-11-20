@@ -51,7 +51,7 @@ pub(crate) fn web_build_id(web_dir: Option<&std::path::Path>) -> String {
                     .collect()
             })
             .unwrap_or_default(),
-        None => crate::WebAssets::iter()
+        None => mw_web_assets::web_paths()
             .filter_map(|p| p.strip_prefix("assets/").map(str::to_string))
             .collect(),
     };

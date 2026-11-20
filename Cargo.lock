@@ -5789,6 +5789,7 @@ dependencies = [
  "mw-sso",
  "mw-store",
  "mw-test-gate",
+ "mw-web-assets",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
@@ -5801,7 +5802,6 @@ dependencies = [
  "regex",
  "reqwest 0.12.28",
  "russh",
- "rust-embed",
  "rustls",
  "rustls-pki-types",
  "serde",
@@ -5964,6 +5964,14 @@ dependencies = [
 [[package]]
 name = "mw-test-gate"
 version = "26.19.0"
+
+[[package]]
+name = "mw-web-assets"
+version = "26.19.0"
+dependencies = [
+ "rust-embed",
+ "serde_json",
+]
 
 [[package]]
 name = "ndk"

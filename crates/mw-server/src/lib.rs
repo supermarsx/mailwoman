@@ -401,13 +401,6 @@ const MESSAGE_CSP: &str = "default-src 'none'; img-src blob: data:; \
 /// Cookie carrying the readable double-submit CSRF token.
 const CSRF_COOKIE: &str = hardening::CSRF_COOKIE;
 
-/// Embedded production assets. The folder must exist at compile time; a
-/// committed `.gitkeep` guarantees that before the web build runs. In dev,
-/// `MW_WEB_DIR` (see [`AppConfig::web_dir`]) serves from disk instead.
-#[derive(rust_embed::RustEmbed)]
-#[folder = "../../apps/web/dist"]
-struct WebAssets;
-
 /// Runtime configuration (populated from env by the CLI, or by tests).
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -5816,7 +5809,7 @@ fn read_asset(state: &AppState, path: &str) -> Option<Vec<u8>> {
         }
         return std::fs::read(dir.join(path)).ok();
     }
-    Some(WebAssets::get(path)?.data.into_owned())
+    Some(mw_web_assets::web(path)?.into_owned())
 }
 
 /// The marker [`serve_console_shell`] puts in the console page, and only there.

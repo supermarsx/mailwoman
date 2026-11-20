@@ -121,7 +121,7 @@ reqwest = { workspace = true }
 hyper = { workspace = true, features = ["client", "server", "http1", "http2"] }
 hyper-util = { workspace = true, features = ["tokio", "server-auto", "server-graceful", "service", "http1", "http2"] }
 http-body-util = { workspace = true }
-rust-embed = { workspace = true }
+mw-web-assets = { path = "../mw-web-assets" }
 mime_guess = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }

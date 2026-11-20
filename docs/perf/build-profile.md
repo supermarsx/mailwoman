@@ -10,6 +10,46 @@ measurement is contaminated or does not transfer to the shipped platform, it say
 
 ## 2026-11-20: native release fixture critical path
 
+### Embedded asset leaf candidate (source-only, not measured)
+
+The `mw-web-assets` candidate moves the existing two `RustEmbed` derives out of
+`mw-server`. Its public surface returns the same `Cow<'static, [u8]>` file bytes
+and web filenames; HTTP responses, path checks, PDF manifest validation, CSP,
+`MW_WEB_DIR` overrides and stale-asset retention remain server-owned. It has no
+build script, Git revision input, network access or new third-party dependency.
+The existing rust-embed debug filesystem lookup and release embedding behavior
+are retained.
+
+The locked rust-embed 8.12 implementation reads and hashes each selected file
+while generating its entry table and `include_bytes!` constants. A handler-only
+server rebuild currently includes that generated table in the large server
+compilation unit. The candidate moves this known work and its asset inputs into
+an independently reusable leaf. That can also schedule its cold compilation
+before the server's engine/store dependencies finish. This identifies work
+moved, not its share of the measured frontend time.
+
+Input sets must be distinguished. The existing local `apps/web/dist` artifact
+observed during the audit contained 2,694 files / 51,345,039 bytes, including its
+PDF files. It is an older build artifact, not a current web build measurement.
+Both Dockerfiles instead create only `dist/.gitkeep` for the Rust step, then
+ship the web build separately under `MW_WEB_DIR`. Their real embedded PDF input
+is `public/pdfjs/**` (400 files / 7,618,385 bytes in the audited checkout) plus
+`public/pdf.worker.mjs` (1,255,067 bytes). The large local dist table cannot
+explain the Docker timing below. Neither Cargo timing's frontend category nor
+these input sizes prove macro expansion is the dominant cost.
+
+Required verification is the new leaf's three byte/inventory/filter tests in
+debug **and release**, existing server PDF/static-response/client-policy/stale-
+asset tests, main/native fixture metadata, and an actual Docker build. A build
+comparison must use matched before/after source, toolchain, jobs, flags and input
+sets with no overlapping compiler/load. Record a clean build and a warm rebuild
+after the same handler-only edit, plus Cargo unit timings/fingerprints proving
+the asset leaf was reused. Measure local full-dist and Docker stub-dist paths
+separately. A first build with a new crate is not warm-cache improvement proof.
+Compiler query/self-profile attribution remains needed before selecting a larger
+type/async-boundary refactor. Release profile, LTO, codegen units and CPU target
+flags are unchanged.
+
 Cargo's timing artifact from the GNU release fixture build
 `f8kztuvay0167r02m0q3d99gj` records the following units. The Docker compiler step
 took about 1,016 seconds with eight jobs and 16 release codegen units. Windows
