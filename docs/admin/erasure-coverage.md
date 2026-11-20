@@ -192,6 +192,7 @@ index of a restored install, which is rebuilt from the restored cache.
 | `bridge_oauth_tokens` | `bridge_account_id IN (SELECT bridge_id FROM bridge_accounts WHERE account_id=id) OR bridge_account_id=id` | deleted | `integrations` (marker: present, not exported) | - |
 | `calendar_shares` | `calendar_id IN (SELECT id FROM calendars WHERE account_id=id)` | removed with its parent row | - | - |
 | `calendars` | `account_id=id` | deleted | `calendars` (built by code) | - |
+| `change_log_checkpoint` | `account_id=id` | deleted | - | - |
 | `change_log_maintenance_cursor` | - | kept: one global scheduler seek boundary, not message history; deleted account boundaries are replaced by the next reservation | - | - |
 | `changes` | `account_id=id` | deleted | - | - |
 | `child_account` | `owner_account_id=id` | deleted | `integrations` | - |
@@ -240,6 +241,8 @@ index of a restored install, which is rebuilt from the restored cache.
 | `mailboxes` | `account_id=id` | removed with its parent row | - | - |
 | `masked_email` | `account_id=id` | deleted | `mailstate` | - |
 | `mdn_sender_rule` | `account_id=id` | deleted | `mailstate` | - |
+| `mdn_sender_schedule` | `account_id=id` | removed with its parent row | - | - |
+| `message_body_cache_lease` | `account_id=id` | removed with its parent row | - | - |
 | `message_embeddings` | `account_id=id` | deleted | - | - |
 | `message_meta` | `stable_id IN (SELECT stable_id FROM messages WHERE account_id=id)` | removed with its parent row | `mailstate` | - |
 | `messages` | `account_id=id` | removed with its parent row | `mail` (built by code) | - |
@@ -284,6 +287,7 @@ index of a restored install, which is rebuilt from the restored cache.
 | `retention_archive_index` | `account_id=id` | deleted | - | - |
 | `retention_archive_segment` | - | kept: append-only sealed archive files hold rows of many people; an erased person's index entries are removed, and the segment content goes when its segment expires | - | - |
 | `saved_searches` | `"user"=id` | deleted | `mailstate` | - |
+| `scheduled_mdn` | `account_id=id` | removed with its parent row | - | - |
 | `scheduled_task` | - | kept: the lease owner is a server node name | - | - |
 | `scrub_key` | - | kept: the keyed-pseudonym secrets; destroyed after the configured retention | - | - |
 | `security_verdicts` | `account_id=id` | deleted | - | - |
