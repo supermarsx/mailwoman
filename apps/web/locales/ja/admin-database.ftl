@@ -147,3 +147,17 @@ admin-db-pool-operation-help = このサーバープロセスの計測対象ク�
 admin-db-sampled-help = ≥ の値は最大512行で測定した下限であり、合計の推定値ではありません。正確なスキャンは制限時間に達しました。
 admin-db-physical-limited = 物理スキャンは制限されました
 admin-db-body-help = Bodiesはインライン画像や添付ファイルを含む暗号化された元のメッセージをキャッシュします。参照中の本文はメッセージに関連付けられ、孤立した本文には関連付けがありません。内容のバイト数とファイルの割当済み・再利用可能ページは別の測定値です。
+
+admin-db-retained-title = 保持されたデータベース
+admin-db-retained-help = オンライン変換後に保持された古いコピーです。検証済みの直前の世代のみ削除できます。独立したバックアップを保管してください。
+admin-db-retained-empty = 検証済みの保持データベースはありません。
+admin-db-retained-modified = 最終更新
+admin-db-retained-actions = 操作
+admin-db-retained-delete = { $file } を削除
+admin-db-retained-confirm-title = 保持データベースを削除しますか？
+admin-db-retained-confirm-body = { $file }（{ $size }）を完全に削除しますか？この復旧用コピーは削除されます。検証済みの独立したバックアップを保管してください。
+admin-db-retained-confirm = データベースのコピーを削除
+admin-db-retained-deleted = 保持データベース { $file } を削除しました。
+admin-db-retained-busy = データベースのメンテナンス中です。完了後に再試行してください。
+admin-db-retained-sidecars = SQLite の復旧ファイルが残っています。他のデータベースツールを閉じ、復旧状況を確認してから削除してください。
+admin-db-retained-unavailable = このコピーを削除対象として検証できませんでした。

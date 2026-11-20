@@ -147,3 +147,17 @@ admin-db-pool-operation-help = Counters cover this server process’s measured q
 admin-db-sampled-help = Values marked ≥ are measured lower bounds from up to 512 rows, not estimated totals. Exact scans reached their time limit.
 admin-db-physical-limited = Physical scan limited
 admin-db-body-help = Bodies cache encrypted raw messages, including inline images and attachments. Referenced bodies still belong to messages; orphaned bodies have no message link. Payload bytes differ from allocated or reusable file pages.
+
+admin-db-retained-title = Retained databases
+admin-db-retained-help = Old database copies retained after online conversion. Only the verified previous generation is eligible. Keep an independent backup before deleting.
+admin-db-retained-empty = No verified retained database is available.
+admin-db-retained-modified = Last modified
+admin-db-retained-actions = Actions
+admin-db-retained-delete = Delete { $file }
+admin-db-retained-confirm-title = Delete retained database?
+admin-db-retained-confirm-body = Permanently delete { $file } ({ $size })? This recovery copy will be removed. Keep a verified independent backup.
+admin-db-retained-confirm = Delete database copy
+admin-db-retained-deleted = Deleted retained database { $file }.
+admin-db-retained-busy = Database maintenance is running. Try again after it finishes.
+admin-db-retained-sidecars = SQLite recovery files are still present. Close other database tools and review recovery before deleting.
+admin-db-retained-unavailable = This copy could not be verified for deletion.

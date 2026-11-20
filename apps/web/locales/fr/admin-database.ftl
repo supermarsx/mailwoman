@@ -147,3 +147,17 @@ admin-db-pool-operation-help = Les compteurs couvrent les requêtes mesurées de
 admin-db-sampled-help = Les valeurs marquées ≥ sont des limites inférieures mesurées sur au plus 512 lignes, pas des totaux estimés. Les analyses exactes ont atteint leur limite de temps.
 admin-db-physical-limited = Analyse physique limitée
 admin-db-body-help = Les corps mettent en cache les messages bruts chiffrés, images intégrées et pièces jointes comprises. Les corps référencés appartiennent à des messages ; les corps orphelins ne sont plus liés. Les octets de contenu diffèrent des pages allouées ou réutilisables du fichier.
+
+admin-db-retained-title = Bases de données conservées
+admin-db-retained-help = Anciennes copies conservées après la conversion en ligne. Seule la génération précédente vérifiée peut être supprimée. Conservez une sauvegarde indépendante.
+admin-db-retained-empty = Aucune base de données conservée et vérifiée disponible.
+admin-db-retained-modified = Dernière modification
+admin-db-retained-actions = Actions
+admin-db-retained-delete = Supprimer { $file }
+admin-db-retained-confirm-title = Supprimer la base de données conservée ?
+admin-db-retained-confirm-body = Supprimer définitivement { $file } ({ $size }) ? Cette copie de récupération sera supprimée. Conservez une sauvegarde indépendante vérifiée.
+admin-db-retained-confirm = Supprimer la copie de la base
+admin-db-retained-deleted = Base de données conservée { $file } supprimée.
+admin-db-retained-busy = La maintenance de la base de données est en cours. Réessayez une fois terminée.
+admin-db-retained-sidecars = Des fichiers de récupération SQLite sont encore présents. Fermez les autres outils de base de données et vérifiez la récupération avant la suppression.
+admin-db-retained-unavailable = Cette copie ne peut pas être vérifiée pour sa suppression.

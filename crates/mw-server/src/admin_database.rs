@@ -15,6 +15,7 @@ use serde::Deserialize;
 use std::sync::{Arc, LazyLock};
 
 pub(crate) fn register(registrar: &mut impl AdminRegistrar) {
+    retained::register(registrar);
     registrar.admin_endpoint(
         Method::GET,
         "/observability/resources",
@@ -28,6 +29,9 @@ pub(crate) fn register(registrar: &mut impl AdminRegistrar) {
         report,
     );
 }
+
+#[path = "admin_retained_databases.rs"]
+mod retained;
 /// Deployment-wide observations must never be exposed to domain-scoped administrators.
 async fn resources(
     State(state): State<AppState>,

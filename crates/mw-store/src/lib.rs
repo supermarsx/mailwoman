@@ -106,6 +106,7 @@ mod backend;
 mod sqlite_live;
 mod sqlite_startup;
 mod generation_files;
+pub use generation_files::retirement::{RetainedDatabase, RetainedDatabaseReport, RetireDatabaseRequest, RetiredDatabase};
 mod lifecycle_copy_guard;
 pub mod online_copy;
 pub mod online_maintenance;

@@ -147,3 +147,17 @@ admin-db-pool-operation-help = Tellers omvatten gemeten queryhelpers van dit ser
 admin-db-sampled-help = Waarden met ≥ zijn gemeten ondergrenzen van maximaal 512 rijen, geen geschatte totalen. Exacte scans hebben hun tijdslimiet bereikt.
 admin-db-physical-limited = Fysieke scan beperkt
 admin-db-body-help = Bodies bewaren versleutelde oorspronkelijke berichten, inclusief ingesloten afbeeldingen en bijlagen. Verwezen bodies horen bij berichten; verweesde bodies hebben geen berichtkoppeling. Inhoudsbytes verschillen van toegewezen of herbruikbare bestandspagina's.
+
+admin-db-retained-title = Bewaarde databases
+admin-db-retained-help = Oude kopieën die na de online conversie zijn bewaard. Alleen de geverifieerde vorige generatie kan worden verwijderd. Bewaar een onafhankelijke back-up.
+admin-db-retained-empty = Geen geverifieerde bewaarde database beschikbaar.
+admin-db-retained-modified = Laatst gewijzigd
+admin-db-retained-actions = Acties
+admin-db-retained-delete = { $file } verwijderen
+admin-db-retained-confirm-title = Bewaarde database verwijderen?
+admin-db-retained-confirm-body = { $file } ({ $size }) definitief verwijderen? Deze herstelkopie wordt verwijderd. Bewaar een geverifieerde onafhankelijke back-up.
+admin-db-retained-confirm = Databasekopie verwijderen
+admin-db-retained-deleted = Bewaarde database { $file } verwijderd.
+admin-db-retained-busy = Databaseonderhoud wordt uitgevoerd. Probeer het na afloop opnieuw.
+admin-db-retained-sidecars = Er zijn nog SQLite-herstelbestanden aanwezig. Sluit andere databasehulpmiddelen en controleer het herstel voordat u verwijdert.
+admin-db-retained-unavailable = Deze kopie kon niet worden geverifieerd voor verwijdering.

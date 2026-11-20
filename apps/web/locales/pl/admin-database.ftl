@@ -147,3 +147,17 @@ admin-db-pool-operation-help = Liczniki obejmują zmierzone zapytania tego proce
 admin-db-sampled-help = Wartości oznaczone ≥ to zmierzone dolne granice dla maksymalnie 512 wierszy, a nie szacunkowe sumy. Dokładne skanowanie osiągnęło limit czasu.
 admin-db-physical-limited = Ograniczone skanowanie fizyczne
 admin-db-body-help = Treści przechowują zaszyfrowane oryginalne wiadomości, w tym obrazy osadzone i załączniki. Powiązane treści należą do wiadomości; osierocone nie mają powiązania. Bajty zawartości różnią się od przydzielonych lub wielokrotnego użytku stron pliku.
+
+admin-db-retained-title = Zachowane bazy danych
+admin-db-retained-help = Stare kopie zachowane po konwersji online. Można usunąć tylko zweryfikowaną poprzednią generację. Zachowaj niezależną kopię zapasową.
+admin-db-retained-empty = Brak zweryfikowanej zachowanej bazy danych.
+admin-db-retained-modified = Ostatnia modyfikacja
+admin-db-retained-actions = Działania
+admin-db-retained-delete = Usuń { $file }
+admin-db-retained-confirm-title = Usunąć zachowaną bazę danych?
+admin-db-retained-confirm-body = Trwale usunąć { $file } ({ $size })? Ta kopia odzyskiwania zostanie usunięta. Zachowaj zweryfikowaną niezależną kopię zapasową.
+admin-db-retained-confirm = Usuń kopię bazy danych
+admin-db-retained-deleted = Usunięto zachowaną bazę danych { $file }.
+admin-db-retained-busy = Trwa konserwacja bazy danych. Spróbuj ponownie po jej zakończeniu.
+admin-db-retained-sidecars = Nadal istnieją pliki odzyskiwania SQLite. Zamknij inne narzędzia bazy danych i sprawdź odzyskiwanie przed usunięciem.
+admin-db-retained-unavailable = Nie można zweryfikować tej kopii do usunięcia.

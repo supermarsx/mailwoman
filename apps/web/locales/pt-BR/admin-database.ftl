@@ -147,3 +147,17 @@ admin-db-pool-operation-help = Os contadores abrangem as consultas medidas deste
 admin-db-sampled-help = Os valores com ≥ são limites inferiores medidos em até 512 linhas, não estimativas do total. A análise exata atingiu o limite de tempo.
 admin-db-physical-limited = Análise física limitada
 admin-db-body-help = Os corpos armazenam mensagens originais criptografadas, incluindo imagens incorporadas e anexos. Corpos referenciados pertencem a mensagens; corpos órfãos não têm vínculo com mensagens. Os bytes de conteúdo diferem das páginas alocadas ou reutilizáveis do arquivo.
+
+admin-db-retained-title = Bancos de dados retidos
+admin-db-retained-help = Cópias antigas retidas após a conversão online. Somente a geração anterior verificada pode ser excluída. Mantenha um backup independente.
+admin-db-retained-empty = Nenhum banco de dados retido e verificado está disponível.
+admin-db-retained-modified = Última alteração
+admin-db-retained-actions = Ações
+admin-db-retained-delete = Excluir { $file }
+admin-db-retained-confirm-title = Excluir o banco de dados retido?
+admin-db-retained-confirm-body = Excluir permanentemente { $file } ({ $size })? Esta cópia de recuperação será removida. Mantenha um backup independente e verificado.
+admin-db-retained-confirm = Excluir cópia do banco de dados
+admin-db-retained-deleted = Banco de dados retido { $file } excluído.
+admin-db-retained-busy = A manutenção do banco de dados está em andamento. Tente novamente quando terminar.
+admin-db-retained-sidecars = Ainda existem arquivos de recuperação do SQLite. Feche outras ferramentas de banco de dados e revise a recuperação antes de excluir.
+admin-db-retained-unavailable = Não foi possível verificar esta cópia para exclusão.

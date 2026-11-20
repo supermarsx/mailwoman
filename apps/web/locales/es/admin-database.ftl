@@ -147,3 +147,17 @@ admin-db-pool-operation-help = Los contadores cubren las consultas medidas de es
 admin-db-sampled-help = Los valores con ≥ son límites inferiores medidos en hasta 512 filas, no estimaciones del total. Los análisis exactos alcanzaron el límite de tiempo.
 admin-db-physical-limited = Análisis físico limitado
 admin-db-body-help = Los cuerpos almacenan mensajes originales cifrados, incluidas imágenes integradas y adjuntos. Los cuerpos referenciados pertenecen a mensajes; los huérfanos no tienen vínculo. Los bytes de contenido difieren de las páginas asignadas o reutilizables del archivo.
+
+admin-db-retained-title = Bases de datos conservadas
+admin-db-retained-help = Copias antiguas conservadas tras la conversión en línea. Solo se puede eliminar la generación anterior verificada. Mantenga una copia de seguridad independiente.
+admin-db-retained-empty = No hay ninguna base de datos conservada y verificada.
+admin-db-retained-modified = Última modificación
+admin-db-retained-actions = Acciones
+admin-db-retained-delete = Eliminar { $file }
+admin-db-retained-confirm-title = ¿Eliminar la base de datos conservada?
+admin-db-retained-confirm-body = ¿Eliminar permanentemente { $file } ({ $size })? Se eliminará esta copia de recuperación. Mantenga una copia de seguridad independiente y verificada.
+admin-db-retained-confirm = Eliminar copia de la base de datos
+admin-db-retained-deleted = Se eliminó la base de datos conservada { $file }.
+admin-db-retained-busy = El mantenimiento de la base de datos está en curso. Inténtelo de nuevo cuando termine.
+admin-db-retained-sidecars = Todavía hay archivos de recuperación de SQLite. Cierre otras herramientas de base de datos y revise la recuperación antes de eliminar.
+admin-db-retained-unavailable = No se pudo verificar esta copia para eliminarla.

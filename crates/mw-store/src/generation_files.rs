@@ -18,6 +18,9 @@ const LEGACY: &str = "legacy";
 const MANIFEST_LIMIT: u64 = 16384;
 const MARKER: &[u8] = b"mailwoman-sqlite-generations-v1\n";
 
+#[path = "generation_retirement.rs"]
+pub(crate) mod retirement;
+
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum GenerationError {
     #[error("the SQLite installation is already open or undergoing maintenance: {0}")]

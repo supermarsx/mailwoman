@@ -147,3 +147,17 @@ admin-db-pool-operation-help = Zähler erfassen gemessene Abfragehelfer dieses S
 admin-db-sampled-help = Mit ≥ markierte Werte sind gemessene Untergrenzen aus höchstens 512 Zeilen, keine geschätzten Gesamtwerte. Exakte Scans haben ihr Zeitlimit erreicht.
 admin-db-physical-limited = Physischer Scan begrenzt
 admin-db-body-help = Bodies speichern verschlüsselte Originalnachrichten einschließlich eingebetteter Bilder und Anhänge. Referenzierte Bodies gehören zu Nachrichten; verwaiste haben keinen Nachrichtenverweis. Nutzdatenbytes unterscheiden sich von belegten oder wiederverwendbaren Dateiseiten.
+
+admin-db-retained-title = Aufbewahrte Datenbanken
+admin-db-retained-help = Alte Kopien nach der Online-Konvertierung. Nur die verifizierte vorherige Generation kann gelöscht werden. Bewahren Sie eine unabhängige Sicherung auf.
+admin-db-retained-empty = Keine verifizierte aufbewahrte Datenbank verfügbar.
+admin-db-retained-modified = Zuletzt geändert
+admin-db-retained-actions = Aktionen
+admin-db-retained-delete = { $file } löschen
+admin-db-retained-confirm-title = Aufbewahrte Datenbank löschen?
+admin-db-retained-confirm-body = { $file } ({ $size }) dauerhaft löschen? Diese Wiederherstellungskopie wird entfernt. Bewahren Sie eine verifizierte unabhängige Sicherung auf.
+admin-db-retained-confirm = Datenbankkopie löschen
+admin-db-retained-deleted = Aufbewahrte Datenbank { $file } gelöscht.
+admin-db-retained-busy = Die Datenbankwartung läuft. Versuchen Sie es nach Abschluss erneut.
+admin-db-retained-sidecars = SQLite-Wiederherstellungsdateien sind noch vorhanden. Schließen Sie andere Datenbankwerkzeuge und prüfen Sie die Wiederherstellung vor dem Löschen.
+admin-db-retained-unavailable = Diese Kopie konnte nicht für das Löschen verifiziert werden.

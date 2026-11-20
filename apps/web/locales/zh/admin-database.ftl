@@ -147,3 +147,17 @@ admin-db-pool-operation-help = 计数器仅涵盖此服务器进程的已测量�
 admin-db-sampled-help = 标有 ≥ 的值是从最多512行测得的下限，并非估计总量。精确扫描已达到时间限制。
 admin-db-physical-limited = 物理扫描受限
 admin-db-body-help = Bodies缓存加密的原始邮件，包括内嵌图片和附件。被引用的正文仍关联邮件，孤立正文则没有邮件关联。内容字节数与文件已分配或可复用页面不同。
+
+admin-db-retained-title = 保留的数据库
+admin-db-retained-help = 在线转换后保留的旧副本。只能删除经过验证的上一代数据库。请保留独立备份。
+admin-db-retained-empty = 没有经过验证的保留数据库。
+admin-db-retained-modified = 最后修改
+admin-db-retained-actions = 操作
+admin-db-retained-delete = 删除 { $file }
+admin-db-retained-confirm-title = 删除保留的数据库？
+admin-db-retained-confirm-body = 永久删除 { $file }（{ $size }）？此恢复副本将被移除。请保留经过验证的独立备份。
+admin-db-retained-confirm = 删除数据库副本
+admin-db-retained-deleted = 已删除保留的数据库 { $file }。
+admin-db-retained-busy = 数据库正在维护。请在完成后重试。
+admin-db-retained-sidecars = SQLite 恢复文件仍然存在。请关闭其他数据库工具，并在删除前检查恢复情况。
+admin-db-retained-unavailable = 无法验证此副本是否可以删除。
