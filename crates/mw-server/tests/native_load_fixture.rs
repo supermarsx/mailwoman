@@ -998,6 +998,28 @@ async fn run(workers: usize) {
             "production guard must observe simulated source"
         );
     }
+    // Exercise the real authenticated download route, outside timed work.
+    // Intent changes cache age only; normal account/attachment policies still run.
+    let principal = &principals[0];
+    let account = principal["accountId"].as_str().unwrap();
+    let message = principal["messageIds"][0].as_str().unwrap();
+    let stored = store.get_message(message).await.unwrap();
+    let expected = store.get_account_body(account, stored.blob_ref.as_deref().unwrap())
+        .await.unwrap().unwrap();
+    let download = || client.get(format!("{base}/jmap/download/{account}/{message}/message.eml"))
+        .header("cookie", principal["cookie"].as_str().unwrap())
+        .header("x-forwarded-for", principal["clientAddress"].as_str().unwrap());
+    let background = download().header("x-mailwoman-body-use", "false")
+        .send().await.unwrap();
+    assert_eq!(background.status(), 200, "owned background download must pass normal policy");
+    assert!(background.bytes().await.unwrap().as_ref() == expected.as_slice(),
+        "background intent must preserve the actual message bytes");
+    let invalid = download().header("x-mailwoman-body-use", "invalid")
+        .send().await.unwrap();
+    assert_eq!(invalid.status(), 400, "malformed download intent must be rejected");
+    let duplicate = download().header("x-mailwoman-body-use", "false")
+        .header("x-mailwoman-body-use", "false").send().await.unwrap();
+    assert_eq!(duplicate.status(), 400, "duplicate download intent must be rejected");
     assert_eq!(
         client
             .get(format!("{base}/healthz"))

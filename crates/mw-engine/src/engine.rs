@@ -1447,6 +1447,12 @@ impl Engine {
     /// `U`-prefixed id never collides with one; an unknown or cross-account
     /// upload id resolves to `Ok(None)` exactly like an unknown message id.
     pub async fn fetch_blob(&self, account_id: &str, blob_id: &str) -> Result<Option<BlobData>> {
+        self.fetch_blob_with_body_use(account_id, blob_id, true).await
+    }
+
+    /// Explicit background downloads preserve inactivity age. Authorization,
+    /// source ownership and response bytes are identical to ordinary downloads.
+    pub async fn fetch_blob_with_body_use(&self, account_id: &str, blob_id: &str, body_use: bool) -> Result<Option<BlobData>> {
         // Reserved `U`-prefix upload namespace (plan §1, decision 4): route to
         // the account-scoped upload store before the message path. An unknown /
         // cross-account id → Ok(None), the same clean not-found the message
@@ -1494,7 +1500,7 @@ impl Engine {
                 }))
             }
         };
-        if result.as_ref().is_ok_and(|value|value.is_some()) { self.record_cached_body_use(account_id,stable_id).await?; }
+        if body_use && result.as_ref().is_ok_and(|value|value.is_some()) { self.record_cached_body_use(account_id,stable_id).await?; }
         result
     }
 

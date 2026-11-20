@@ -187,6 +187,19 @@ async fn explicit_reader_restores_expired_body_and_background_download_does_not_
     assert_eq!(store.cached_body_expiry_stats().await.unwrap().oldest_use_at, Some(1),
         "a foreign explicit reader must not renew the aged body lease");
     assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
+    let text_part = original["textBody"][0]["partId"].as_str().unwrap();
+    let text_blob = format!("{id}.{text_part}");
+    assert_eq!(engine.fetch_blob_with_body_use(&account, &id, false).await.unwrap().unwrap().bytes, RAW);
+    assert!(!engine.fetch_blob_with_body_use(&account, &text_blob, false).await.unwrap().unwrap().bytes.is_empty());
+    assert!(engine.fetch_blob_with_body_use(&other, &text_blob, false).await.unwrap().is_none());
+    assert_eq!(backend.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(store.cached_body_expiry_stats().await.unwrap().oldest_use_at, Some(1),
+        "background whole-message/part downloads must preserve aged inactivity");
+    assert_eq!(engine.fetch_blob(&account, &id).await.unwrap().unwrap().bytes, RAW);
+    assert!(store.cached_body_expiry_stats().await.unwrap().oldest_use_at.unwrap() > 1,
+        "ordinary downloads retain their default genuine-use renewal");
+    sqlx::query("UPDATE message_body_cache_lease SET last_used_at=1")
+        .execute(&pool).await.unwrap();
     let prefetch=engine.handle_jmap(&account,&json!({"methodCalls":[["Email/get",{"accountId":account,"ids":[id],"properties":["id","bodyValues"],"fetchHTMLBodyValues":true,"mailwomanBodyUse":false},"p"]]})).await;
     assert_eq!(prefetch["methodResponses"][0][0], "Email/get");
     assert_eq!(
@@ -361,6 +374,10 @@ async fn explicit_reader_restores_expired_body_and_background_download_does_not_
             .detached_messages,
         1
     );
+    assert!(!engine.fetch_blob_with_body_use(&account, &text_blob, false).await.unwrap().unwrap().bytes.is_empty());
+    assert_eq!(backend.calls.load(Ordering::SeqCst), 2);
+    assert_eq!(store.cached_body_expiry_stats().await.unwrap().oldest_use_at, Some(1),
+        "background download refill must not reset the existing source lease");
     let opened=engine.handle_jmap(&account,&json!({"methodCalls":[["Email/get",{"accountId":account,"ids":[id],"properties":["id","subject"],"mailwomanBodyUse":true},"r"]]})).await;
     assert_eq!(opened["methodResponses"][0][0], "Email/get");
     assert_eq!(backend.calls.load(Ordering::SeqCst), 2);

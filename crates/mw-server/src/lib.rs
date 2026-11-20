@@ -174,6 +174,7 @@ mod admin_rotation;
 pub(crate) mod alerts;
 pub(crate) mod audit;
 mod deployment_security;
+mod download_body_use;
 mod encryption_status;
 /// The local country database, managed from the console (t96).
 #[doc(hidden)]
@@ -4063,8 +4064,12 @@ async fn jmap_download(
     if !policy.download_allowed {
         return attachment_policy::refusal("downloadsDisabled");
     }
+    let body_use = match download_body_use::parse(&headers) {
+        Ok(value) => value,
+        Err(()) => return (StatusCode::BAD_REQUEST, Json(json!({"error":"invalid body-use intent"}))).into_response(),
+    };
     if let Some(engine) = &state.engine {
-        match engine.fetch_blob(&account_id, &blob_id).await {
+        match engine.fetch_blob_with_body_use(&account_id, &blob_id, body_use).await {
             Ok(Some(blob)) => {
                 if blob_id.starts_with('U')
                     && (!policy.allowed_extensions.is_empty()

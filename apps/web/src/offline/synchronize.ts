@@ -45,7 +45,7 @@ export async function synchronizeOffline(client:Client,owner:PreferenceAccount,p
      const configured=offlineServerBase(),root=new URL(configured.startsWith('native:')?configured.slice(7):configured);
      const url=new URL(target,root.href+'/');if(url.origin!==root.origin||!url.pathname.startsWith(root.pathname.replace(/\/$/,'')+'/jmap/'))continue;
      url.searchParams.set('emailId',email.id);url.searchParams.set('preview','true');
-     const response=await apiFetch(url.href,{credentials:'same-origin',signal,pace:'background'});
+     const response=await apiFetch(url.href,{credentials:'same-origin',headers:{'x-mailwoman-body-use':'false'},signal,pace:'background'});
      await response.body?.cancel();
     }
    }
