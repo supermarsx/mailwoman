@@ -131,6 +131,20 @@ one principal are serialized in the generator so concurrent batches cannot
 invalidate their own restoration checks. Waiting counts toward request latency
 and the bounded outstanding limit; it cannot improve accepted throughput.
 
+Representative requests use the actual default webmail property sets: all 36
+preloaded list-header properties, including mentions, focus, authentication and
+delivery/optional headers; the reader requests all 38 body/delivery/optional
+properties with HTML/text body values, a 1,000,000-byte value limit and explicit
+reader intent. The representative mode's baseline `Email/get` uses that same
+list-header set. A source-contract test checks the shared fixture copies against
+the UI arrays and default preload expansion without importing browser code.
+
+The separate `baseline` workload keeps its five-field header request as a minimal
+diagnostic. Reports record `workloadProfile.requestPropertySets`, naming both the
+profile and its exact property/body-fetch choices. Earlier representative results
+used five-field headers and a smaller reader projection; they measure that older
+minimal request mix and must not be compared as full webmail workload results.
+
 Body validation requires the exact configured ASCII payload and rejects shortened,
 extra or truncated content. It accepts only the single trailing MIME boundary
 line ending that the parser may preserve; that delimiter is excluded from the

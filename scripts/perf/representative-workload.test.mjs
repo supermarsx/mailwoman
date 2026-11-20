@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {representativeSpecs,workloadProfileReport,attachmentPatternValidator,attachmentPatternCacheStats} from './representative-workload.mjs';
+import {DEFAULT_HEADER_PROPERTIES,READER_PROPERTIES,READER_FETCH_OPTIONS,fixturePropertyProfile} from './fixture-properties.mjs';
 import {measure} from './http-load.mjs';
 import {runCampaign} from './http-campaign.mjs';
 
@@ -23,7 +24,9 @@ test('attachment pattern uses native exact comparison and shares at most four bo
 });
 test('workload metadata is bounded, internally consistent and aggregate only',()=>{
  const proof={kind:'representative',messagesPerPrincipal:50,seededMessages:500000,seedSeconds:30,bodySampleBytes:4096,attachmentSampleBytes:65536,ordinaryBodyPayloadBytes:26,sendsMeasured:false,upstreamNetworkMeasured:false};
- assert.deepEqual(workloadProfileReport({...proof,cookie:'private-secret'},10000),proof);
+ assert.deepEqual(workloadProfileReport({...proof,cookie:'private-secret'},10000),{...proof,requestPropertySets:fixturePropertyProfile('representative')});
+ const baseline=workloadProfileReport({kind:'baseline',messagesPerPrincipal:2,seededMessages:4,seedSeconds:1},2);
+ assert.deepEqual(baseline.requestPropertySets,fixturePropertyProfile('baseline'));
  for(const patch of [{kind:'unknown'},{messagesPerPrincipal:101},{seededMessages:500001},{seedSeconds:NaN},{kind:'baseline'}])assert.throws(()=>workloadProfileReport({...proof,...patch},10000));
 });
 function projection(spec,p=principal){
@@ -62,6 +65,15 @@ test('representative workload validates pages, actual bodies/attachment bytes, m
  const move=specs[4],notMoved=projection(move);notMoved.methodResponses[1][1].list[0].mailboxIds={[principal.inboxId]:true};assert.equal(move.validate(notMoved),false);
  assert.throws(()=>representativeSpecs({...principal,archiveId:principal.inboxId}));
  assert.throws(()=>representativeSpecs({...principal,attachmentBlobId:null}));
+});
+
+test('representative page and reader requests use the full default webmail property sets',()=>{
+ const specs=representativeSpecs(principal),page=JSON.parse(specs[0].body).methodCalls;
+ for(const call of page.filter(call=>call[0]==='Email/get'))assert.deepEqual(call[1].properties,DEFAULT_HEADER_PROPERTIES);
+ const reader=JSON.parse(specs[1].body).methodCalls[0][1];
+ assert.deepEqual(reader.properties,READER_PROPERTIES);
+ for(const [key,value]of Object.entries(READER_FETCH_OPTIONS))assert.equal(reader[key],value);
+ assert.equal(reader.fetchAllBodyValues,undefined);
 });
 
 test('body validation requires the configured exact payload, accepting only one MIME boundary ending',()=>{

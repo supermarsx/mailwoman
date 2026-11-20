@@ -2,6 +2,7 @@
 // No network, main entrypoint, preflight or reporting side effects.
 import {prepareFixtureClients,fixturePrincipalIndex} from './fixture-clients.mjs';
 import {representativeSpecs} from './representative-workload.mjs';
+import {DEFAULT_HEADER_PROPERTIES,MINIMAL_HEADER_PROPERTIES} from './fixture-properties.mjs';
 
 export function jmapFixtureRequest(p,name,args){
  return {name,path:'/jmap/api',method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:[[name,{accountId:p.accountId,...args},'load']]}),validate:value=>value.methodResponses?.[0]?.[0]===name&&value.methodResponses?.[0]?.[1]?.accountId===p.accountId};
@@ -13,7 +14,7 @@ export function prepareFixtureRequests({principals,clientSimulation,engineMode,r
  if(principals.some(p=>typeof p.accountId!=='string'||!p.accountId||!Array.isArray(p.messageIds)||p.messageIds.length<1||p.messageIds.length>100||p.messageIds.some(id=>typeof id!=='string'||!id))||new Set(principals.map(p=>p.accountId)).size!==principals.length)throw new Error('Fixture requests require distinct seeded account/message bindings');
  if(representative&&workloadProfile&&principals.some(p=>p.messageIds.length!==workloadProfile.messagesPerPrincipal||p.bodySampleBytes!==workloadProfile.bodySampleBytes||p.attachmentSampleBytes!==workloadProfile.attachmentSampleBytes))throw new Error('Representative principal does not match the global profile');
  const specs=p=>{
-  const ids=p.messageIds.slice(0,2),emailGet=jmapFixtureRequest(p,'Email/get',{ids,properties:['id','subject','from','receivedAt','preview']}),valid=emailGet.validate;
+  const ids=p.messageIds.slice(0,2),emailGet=jmapFixtureRequest(p,'Email/get',{ids,properties:representative?DEFAULT_HEADER_PROPERTIES:MINIMAL_HEADER_PROPERTIES}),valid=emailGet.validate;
   emailGet.validate=value=>valid(value)&&Array.isArray(value.methodResponses[0][1].list)&&ids.every(id=>value.methodResponses[0][1].list.some(row=>row.id===id));
   const baseline=[{name:'authenticated-identity',path:'/api/me',validate:v=>v.accountId===(p.ownerAccountId??p.accountId)},jmapFixtureRequest(p,'Mailbox/get',{}),jmapFixtureRequest(p,'Email/query',{limit:25}),emailGet,{name:'concurrent-refresh-handler',path:'/api/mail/refresh',method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:p.ownerAccountId??p.accountId}),validate:v=>v.accountId===(p.ownerAccountId??p.accountId)&&v.upstream===native}];
   return representative?[...baseline,...representativeSpecs(p)].map(spec=>({...spec,serializePrincipal:true})):baseline;
