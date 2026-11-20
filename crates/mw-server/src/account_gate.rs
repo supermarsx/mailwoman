@@ -345,11 +345,25 @@ async fn applicable(
     let mut out: Vec<Applies> = Vec::new();
     let all: Vec<&str> = ids.iter().chain(names).copied().collect();
     let (exact, scans) = spellings(&subjects(names));
+    let mut ordered = Vec::new();
     for subject in subjects(&all).into_iter().chain(exact) {
-        if out.iter().any(|a| a.subject == subject) {
-            continue;
-        }
-        let flags = read_flags(store, &subject).await?;
+        if !ordered.contains(&subject) { ordered.push(subject); }
+    }
+    // Keep this fresh read at the existing late flags boundary. Batch only
+    // exact keys; legacy bare/IDNA prefix scans retain their original behavior.
+    let mut keys = Vec::new();
+    for subject in &ordered {
+        keys.push(flags_key(&flag_subject(subject)));
+        if flag_subject(subject) != *subject { keys.push(flags_key(subject)); }
+    }
+    let stored = store.get_settings_exact(&keys).await?;
+    for subject in ordered {
+        let normalized = flag_subject(&subject);
+        // Parse in the original subject order. An existing normalized record
+        // wins even if its legacy exact-spelling counterpart is corrupt.
+        let raw = stored.get(&flags_key(&normalized))
+            .or_else(|| (normalized != subject).then(|| stored.get(&flags_key(&subject))).flatten());
+        let flags = raw.map(|value| parse_flags(value)).transpose()?.unwrap_or_default();
         out.push(Applies {
             subject,
             flags,
@@ -631,6 +645,24 @@ pub(crate) fn unavailable(what: &str, e: impl std::fmt::Display) -> Response {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn exact_flags_batch_is_one_fresh_read_and_preserves_precedence() {
+        let store = Store::open_in_memory(mw_store::ServerKey::generate()).await.unwrap();
+        write_flags(&store, "acct", disabled()).await.unwrap();
+        store.set_setting(&flags_key("Alice@EXAMPLE.ORG"), "corrupt ignored legacy row").await.unwrap();
+        write_flags(&store, "alice@example.org", UserFeatureFlags { force_password_change:true, ..Default::default() }).await.unwrap();
+        let (legacy, old_reads) = mw_store::pool_telemetry::measure_queries(async {
+            Ok::<_,StoreError>(vec![read_flags(&store,"acct").await?, read_flags(&store,"alice@example.org").await?])
+        }).await;
+        let (batch, new_reads) = mw_store::pool_telemetry::measure_queries(applicable(&store,&["acct"],&["Alice@EXAMPLE.ORG"])).await;
+        assert_eq!(old_reads.read.calls,2);
+        assert_eq!(new_reads.read.calls,1);
+        assert_eq!(legacy.unwrap(),batch.unwrap().into_iter().map(|row|row.flags).collect::<Vec<_>>());
+        store.set_setting(&flags_key("alice@example.org"), "corrupt normalized row").await.unwrap();
+        assert!(applicable(&store,&["acct"],&["Alice@EXAMPLE.ORG"]).await.is_err());
+        store.close().await;
+        assert!(applicable(&store,&["acct"],&["alice@example.org"]).await.is_err());
+    }
     // Frozen pre-batch reference: this is retained only to prove security
     // decisions and actual query reduction against the previous fresh readers.
 async fn legacy_gate_for(store: &Store, ids: &[&str], names: &[&str]) -> Result<AccountGate, StoreError> {
@@ -715,6 +747,13 @@ async fn legacy_gate_for(store: &Store, ids: &[&str], names: &[&str]) -> Result<
         row.enabled=true;writer.put_domain_config(&row).await.unwrap();
         write_flags(&writer,"alice@example.org",disabled()).await.unwrap();
         assert!(gate_for(&reader,&["acct"],&["alice@example.org"]).await.unwrap().disabled);
+        write_flags(&writer,"alice@example.org",UserFeatureFlags { force_password_change:true, ..Default::default() }).await.unwrap();
+        let fresh=gate_for(&reader,&["acct"],&["alice@example.org"]).await.unwrap();
+        assert!(!fresh.disabled);assert!(fresh.password_change_required);
+        writer.set_setting(&flags_key("Alice@EXAMPLE.ORG"),"ignored corrupt exact row").await.unwrap();
+        assert!(gate_for(&reader,&["acct"],&["Alice@EXAMPLE.ORG"]).await.unwrap().password_change_required);
+        writer.set_setting(&flags_key("alice@example.org"),"corrupt normalized row").await.unwrap();
+        assert!(gate_for(&reader,&["acct"],&["Alice@EXAMPLE.ORG"]).await.is_err());
         writer.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
             key:"signin.domainMode".into(),global_value:Some("\"listed\"".into()),allow_user_override:false,
             global_locked:true,updated_by:"fixture".into(),updated_at:1,

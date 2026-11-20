@@ -831,6 +831,25 @@ impl Store {
         Ok(row.map(|r| r.get_string("value")))
     }
 
+    /// Fresh exact-key reads, without policy memoization or name folding.
+    /// Bounded chunks avoid an unbounded SQL parameter/document allocation.
+    /// Callers retain responsibility for precedence and parse order.
+    pub async fn get_settings_exact(&self, keys: &[String]) -> Result<std::collections::HashMap<String, String>, StoreError> {
+        let sql = match self.backend.dialect() {
+            backend::Dialect::Sqlite => "SELECT key,value FROM settings WHERE key IN (SELECT value FROM json_each(?1))",
+            backend::Dialect::Postgres => "SELECT key,value FROM settings WHERE key IN (SELECT value FROM json_array_elements_text(?1::json))",
+        };
+        let mut found = std::collections::HashMap::new();
+        for chunk in keys.chunks(256) {
+            let encoded = serde_json::to_string(chunk)
+                .map_err(|error| StoreError::Corrupt(format!("setting keys could not serialize: {error}")))?;
+            for row in q(sql).bind(encoded).fetch_all(&self.backend).await? {
+                found.insert(row.get_string("key"), row.get_string("value"));
+            }
+        }
+        Ok(found)
+    }
+
     /// Every setting whose key, lowercased, starts with `prefix` (give it in
     /// lower case), as `(key, value)` pairs in key order. `%`, `_` and `\` in
     /// `prefix` match only themselves.
@@ -1259,5 +1278,39 @@ mod tests {
             store.get_setting("theme").await.unwrap().as_deref(),
             Some("grove-light")
         );
+    }
+
+    #[tokio::test]
+    async fn settings_exact_batch_is_fresh_case_sensitive_and_bounded() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let keys=(0..257).map(|index|format!("exact-{index}")).collect::<Vec<_>>();
+        store.set_setting(&keys[0],"nul\0value").await.unwrap();
+        store.set_setting(&keys[256],"last").await.unwrap();
+        store.set_setting("EXACT-0","different case").await.unwrap();
+        let (found,reads)=crate::pool_telemetry::measure_queries(store.get_settings_exact(&keys)).await;
+        let found=found.unwrap();assert_eq!(found.len(),2);assert_eq!(found[&keys[0]],"nul\0value");
+        assert_eq!(reads.read.calls,2);
+        store.set_setting(&keys[0],"fresh").await.unwrap();
+        assert_eq!(store.get_settings_exact(&keys[..1]).await.unwrap()[&keys[0]],"fresh");
+        let (empty,reads)=crate::pool_telemetry::measure_queries(store.get_settings_exact(&[])).await;
+        assert!(empty.unwrap().is_empty());assert_eq!(reads.read.calls,0);
+        store.close().await;assert!(store.get_settings_exact(&keys[..1]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn settings_exact_batch_postgres() {
+        let Ok(url)=std::env::var("MW_TEST_PG") else { eprintln!("SKIP: MW_TEST_PG absent"); return; };
+        let store=Store::open(&url,ServerKey::generate()).await.unwrap();
+        let prefix=format!("exact-fixture-{}",uuid::Uuid::new_v4());
+        let keys=(0..257).map(|index|format!("{prefix}-{index}")).collect::<Vec<_>>();
+        store.set_setting(&keys[0],"quote \" and Unicode é").await.unwrap();
+        store.set_setting(&keys[256],"last").await.unwrap();
+        let (found,reads)=crate::pool_telemetry::measure_queries(store.get_settings_exact(&keys)).await;
+        let found=found.unwrap();assert_eq!(found.len(),2);assert_eq!(found[&keys[0]],"quote \" and Unicode é");assert_eq!(reads.read.calls,2);
+        store.set_setting(&keys[0],"fresh").await.unwrap();
+        assert_eq!(store.get_settings_exact(&keys[..1]).await.unwrap()[&keys[0]],"fresh");
+        q("DELETE FROM settings WHERE key IN (SELECT value FROM json_array_elements_text(?1::json))")
+            .bind(serde_json::to_string(&keys).unwrap()).execute(&store.backend).await.unwrap();
+        store.close().await;
     }
 }
