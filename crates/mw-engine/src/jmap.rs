@@ -7737,6 +7737,7 @@ mod email_get_batch_tests {
     use crate::state::session_state_tests::{Stmts, counted, db_threads};
     include!("metadata_envelope_tests.rs");
     include!("header_cache_batch_tests.rs");
+    include!("real_profile_sql_tests.rs");
 
     /// A fixture whose messages carry **envelopes**, which is what a synced
     /// mailbox looks like.
