@@ -87,11 +87,11 @@ it('discards a late photo when the component address changes',async()=>{
 
 it('renders bundled official artwork or an honest compact monogram without external requests',()=>{
  const view=render(()=><><PersonAvatar address="mail@openrouter.ai"/><PersonAvatar address="mail@olx.pt"/><PersonAvatar address="mail@credibom.pt"/></>);
- for(const id of ['openrouter','olx']){
+ for(const id of ['openrouter','olx','credibom']){
   const tile=view.container.querySelector(`[data-sender-icon="${id}"]`)!;const img=tile.querySelector('img')!;
   expect(img).toHaveClass('person-avatar__brand');expect(img.src.startsWith('data:image/')||new URL(img.src,location.href).origin===location.origin).toBe(true);expect(tile).not.toHaveAttribute('style');
  }
- expect(view.container.querySelector('[data-sender-icon="credibom"] .person-avatar__monogram')).toHaveTextContent('CB');
+ expect(view.container.querySelector('[data-sender-icon="credibom"] .person-avatar__monogram')).toBeNull();
  expect(state.fetch).not.toHaveBeenCalled();
 });
 
@@ -113,4 +113,21 @@ it('renders requested sender logos locally while preserving authentication and p
  expect(state.fetch).not.toHaveBeenCalled();
  state.icons=false;expect(row('notice@coverflex.com').querySelector('[data-sender-icon]')).toBeNull();
  state.icons=true;state.brands=false;expect(row('notice@coverflex.com').querySelector('[data-sender-icon="coverflex"] img')).not.toBeNull();
+});
+
+
+it('renders health and finance artwork locally while retaining authentication and photo precedence',async()=>{
+ const cases:Record<string,string>={'credibom.pt':'credibom','jmellosaude.pt':'cuf','ulssm.min-saude.pt':'sns','bitfinex.com':'bitfinex','exmo.email':'exmo','miio.pt':'miio'};
+ for(const [domain,id] of Object.entries(cases)){
+  const address=`notice@${domain}`;const tile=row(address).querySelector(`[data-sender-icon="${id}"]`)!;
+  const img=tile.querySelector('img')!;expect(img).not.toBeNull();expect(img.src.startsWith('data:image/')||new URL(img.src,location.href).origin===location.origin).toBe(true);
+  expect(row(address,{dkim:{result:'fail'},dmarc:{result:'fail'}}).querySelector('[data-sender-icon]')).toBeNull();
+ }
+ expect(state.fetch).not.toHaveBeenCalled();
+ state.mode='contacts';state.fetch.mockResolvedValue(new Response(new Uint8Array([1,2]),{headers:{'content-type':'image/png'}}));
+ vi.stubGlobal('URL',class extends URL {static override createObjectURL=()=> 'blob:local-contact-photo';static override revokeObjectURL=vi.fn();});
+ const view=render(()=><PersonAvatar address="notice@credibom.pt"/>);
+ await waitFor(()=>expect(view.container.querySelector('img')?.getAttribute('src')).toBe('blob:local-contact-photo'));
+ expect(view.container.querySelector('[data-sender-icon]')).toBeNull();
+ view.unmount();
 });

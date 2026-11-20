@@ -84,3 +84,26 @@ it('bundles valid PNG and ICO responses rather than downloaded HTML errors',()=>
   expect(bytes.subarray(0,file.endsWith('.png')?8:4).toString('hex'),file).toBe(file.endsWith('.png')?'89504e470d0a1a0a':'00000100');
  }
 });
+
+
+it('maps verified health and finance domains to passive official artwork, rejecting lookalikes',()=>{
+ const cases:Record<string,string>={'credibom.pt':'credibom','jmellosaude.pt':'cuf','min-saude.pt':'sns','sns.gov.pt':'sns','bitfinex.com':'bitfinex','exmo.com':'exmo','exmo.email':'exmo','miio.pt':'miio','miio.com':'miio'};
+ for(const [domain,id] of Object.entries(cases)){
+  for(const host of [domain,`mail.${domain}`,`a.b.${domain}`]){
+   const icon=senderDomainIcon(`notice@${host}`);expect(icon?.id,host).toBe(id);expect(icon?.asset,host).toBeTruthy();expect(icon?.monogram,host).toBeUndefined();
+  }
+  for(const host of [`evil${domain}`,`${domain}.evil.test`])expect(senderDomainIcon(`notice@${host}`)?.id,host).not.toBe(id);
+ }
+ expect(senderDomainIcon('notice@cuf.pt')?.asset).toBe(senderDomainIcon('notice@jmellosaude.pt')?.asset);
+ expect(senderDomainIcon('notice@miio.pt')?.asset).toBe(senderDomainIcon('notice@miio.com')?.asset);
+ const mark=readFileSync('src/components/senderIcons/assets/credibom-site.svg','utf8');
+ expect(mark).toContain('#1AAEB7');expect(mark).not.toMatch(/<(?:script|image|foreignObject)\b|(?:href|onload)=/i);
+});
+
+it('bundles valid official health and finance favicon bytes',()=>{
+ for(const file of ['bitfinex-site.ico','exmo-site.png','sns-site.png']){
+  const bytes=readFileSync(`src/components/senderIcons/assets/${file}`);
+  expect(bytes.length).toBeGreaterThan(100);expect(bytes.length).toBeLessThan(200000);
+  expect(bytes.subarray(0,file.endsWith('.png')?8:4).toString('hex')).toBe(file.endsWith('.png')?'89504e470d0a1a0a':'00000100');
+ }
+});

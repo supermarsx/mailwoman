@@ -153,7 +153,7 @@ This is a curated coverage set, not a ranked list. Sender domains match only at 
 | Cetelem | cetelem.pt | https://cetelem.pt | Official bundled favicon/touch icon | https://www.cetelem.pt/etc.clientlibs/cetelem/clientlibs/clientlib-site/resources/icons/favicon-green.svg |
 | Cofidis | cofidis.pt | https://cofidis.pt | Original text monogram (not a logo) | No suitable compact licensed vector bundled |
 | Oney | oney.pt | https://oney.pt | Original text monogram (not a logo) | No suitable compact licensed vector bundled |
-| Credibom | credibom.pt | https://credibom.pt | Original text monogram (not a logo) | No suitable compact licensed vector bundled |
+| Credibom | credibom.pt | https://www.credibom.pt/ | Official inline compact `logo-mark` symbol, bundled as credibom-site.svg | Original paths, viewBox and explicit colours retained |
 | Universo | universo.pt | https://universo.pt | Official bundled favicon/touch icon | https://universo.pt/wp-content/uploads/2025/08/favicon-300x300.png |
 | Unicre | unicre.pt | https://unicre.pt | Official bundled favicon/touch icon | https://www.unicre.pt/media/2020/01/cropped-favicon-300x300.png |
 | WiZink | wizink.pt | https://wizink.pt | Official bundled favicon/touch icon | https://www.wizink.es/public/etc.clientlibs/wizink-catalog/clientlibs/clientlib-base/resources/fav-icons/favicon.ico |
@@ -289,3 +289,19 @@ Official owner-hosted favicon/touch-icon files, bundled unchanged for sender ide
 PwC replaces the previous text monogram. Mazars aliases retain the current Forvis Mazars mark: https://www.mazars.com/ redirects to https://www.forvismazars.com/group/en and https://www.mazars.pt/ redirects to https://www.forvismazars.com/pt/pt; that official site also links https://www.forvismazars.us/. Damia's https://www.damiagroup.pt/ redirects to https://damia.pt/; the UK Damia Group domain is not registered as the Portuguese brand. Linda Farrow's official stores cover https://lindafarrow.com/ and https://lindafarrow.co.uk/.
 
 Indeed's documented sender domains (`indeed.com`, `indeedemail.com`, `indeedmail.com`) are listed at https://indeed.zendesk.com/hc/en-us/articles/211829163-How-To-Verify-Emails-From-Indeed; https://www.indeed.com/help/employers/articles/recognizing-phishing-scams also confirms the first two. The existing `moey.pt` artwork and mapping remain in use, including its mail subdomains; its current official site is https://moey.pt/.
+
+
+## Health and finance sender corrections (2026-11-20)
+
+All artwork is bundled locally as passive image assets. Marks identify domains, not verified sender identity; existing message authentication and user-avatar precedence still apply. No runtime logo requests.
+
+| Sender | Official asset source | Domain association evidence |
+| --- | --- | --- |
+| Credibom | https://www.credibom.pt/ — inline `symbol#logo-mark`, viewBox `0 0 26 30`; extracted unchanged as standalone SVG (turquoise/green/red, replacing the incorrect red CB monogram) | https://www.credibom.pt/credito/pessoal-simples publishes creditodireto@credibom.pt |
+| CUF / José de Mello Saúde | Existing https://www.cuf.pt/themes/custom/cuf_theme/logo.svg | https://www.cuf.pt/cuf-academic-center/quem-somos publishes academiacuf@jmellosaude.pt; https://www.cuf.pt/sobre-nos/nossa-historia documents the 2020 rename to CUF |
+| Serviço Nacional de Saúde | https://www.sns.gov.pt/favicon-96x96.png (official homepage favicon) | https://www.spms.min-saude.pt/wp-content/uploads/2024/01/Circular_SPMS_DE_ULS_v2.0_signed_signed.pdf establishes ULS `.min-saude.pt` domains; https://www.sns.min-saude.pt/contactos/ publishes geral@sns.min-saude.pt. Generic SNS family mark, not a particular hospital/DE-SNS seal. |
+| Bitfinex | https://www.bitfinex.com/assets/favicons/bitfinex.ico (official homepage favicon) | https://support.bitfinex.com/hc/en-us/articles/4407584392857-How-to-protect-a-Bitfinex-account-from-phishing-scams; https://www.bitfinex.com/press/ |
+| EXMO | https://cache.exmoney.com/208288/_next/static/favicon/96.png (linked by official exmo.com redirect to exmowithdrawals.com) | https://exmo.com/blog/en/notifications/security-notice-phishing-attempts-have-become-more-frequent explicitly documents exmo.com and exmo.email sender domains. The withdrawal destination is not added as an inferred sender domain. |
+| miio | Existing https://www.miio.com/logo.ico | https://www.miio.com/fr/faq publishes card@miio.pt; https://www.miio.com/careers publishes human.resources@miio.com. Add miio.pt to the existing miio entry. |
+
+Specific domain matches take priority; subdomains match only at a dot boundary. External CDN asset downloads above occur only during development and are not runtime dependencies. Official trademarks remain owned by their respective organizations; inclusion does not imply endorsement.

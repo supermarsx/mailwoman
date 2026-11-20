@@ -1,3 +1,4 @@
+import credibomSiteAsset from './assets/credibom-site.svg?url';
 import pwcSiteAsset from './assets/pwc-site.ico?url';
 import synologyAsset from './assets/synology.svg?url';
 import qnapAsset from './assets/qnap.svg?url';
@@ -129,7 +130,7 @@ export const EXPANDED_SENDER_ICONS:readonly SenderIcon[]=[
  {"id":"cetelem","name":"Cetelem","category":"credit","domains":["cetelem.pt"],"paths":[],"asset":cetelemSiteAsset},
  {"id":"cofidis","name":"Cofidis","category":"credit","domains":["cofidis.pt"],"paths":[],"monogram":"CF"},
  {"id":"oney","name":"Oney","category":"credit","domains":["oney.pt"],"paths":[],"monogram":"O"},
- {"id":"credibom","name":"Credibom","category":"credit","domains":["credibom.pt"],"paths":[],"monogram":"CB"},
+ {"id":"credibom","name":"Credibom","category":"credit","domains":["credibom.pt"],"paths":[],"asset":credibomSiteAsset},
  {"id":"universo","name":"Universo","category":"credit","domains":["universo.pt"],"paths":[],"asset":universoSiteAsset},
  {"id":"unicre","name":"Unicre","category":"credit","domains":["unicre.pt"],"paths":[],"asset":unicreSiteAsset},
  {"id":"wizink","name":"WiZink","category":"credit","domains":["wizink.pt"],"paths":[],"asset":wizinkSiteAsset},

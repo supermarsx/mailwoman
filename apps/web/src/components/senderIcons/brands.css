@@ -141,7 +141,7 @@
 .person-avatar[data-sender-icon="cetelem"] { background-color:#008578; color:#000000; border-color:#008578; }
 .person-avatar[data-sender-icon="cofidis"] { background-color:#D71920; color:#ffffff; border-color:#D71920; }
 .person-avatar[data-sender-icon="oney"] { background-color:#78BE20; color:#000000; border-color:#78BE20; }
-.person-avatar[data-sender-icon="credibom"] { background-color:#D71920; color:#ffffff; border-color:#D71920; }
+.person-avatar[data-sender-icon="credibom"] { background-color:#ffffff; color:#004C44; border-color:#ffffff; }
 .person-avatar[data-sender-icon="universo"] { background-color:#00A9CE; color:#000000; border-color:#00A9CE; }
 .person-avatar[data-sender-icon="unicre"] { background-color:#004B87; color:#ffffff; border-color:#004B87; }
 .person-avatar[data-sender-icon="wizink"] { background-color:#502D7F; color:#ffffff; border-color:#502D7F; }
@@ -304,3 +304,7 @@
 .person-avatar[data-sender-icon="racius"] { background-color:#ffffff; color:#111111; }
 .person-avatar[data-sender-icon="womensecret"] { background-color:#ffffff; color:#111111; }
 .person-avatar[data-sender-icon="linda-farrow"] { background-color:#ffffff; color:#111111; }
+
+.person-avatar[data-sender-icon="sns"] { background-color:#ffffff; color:#111111; }
+.person-avatar[data-sender-icon="bitfinex"] { background-color:#ffffff; color:#111111; }
+.person-avatar[data-sender-icon="exmo"] { background-color:#ffffff; color:#111111; }

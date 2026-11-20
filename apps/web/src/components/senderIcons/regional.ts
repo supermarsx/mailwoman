@@ -1,3 +1,6 @@
+import snsSiteAsset from './assets/sns-site.png?url';
+import bitfinexSiteAsset from './assets/bitfinex-site.ico?url';
+import exmoSiteAsset from './assets/exmo-site.png?url';
 // Official bundled artwork; provenance and trademarks: SOURCES.md. No runtime requests.
 import type {SenderIcon} from './catalog.ts';
 import regionalAsset0 from './assets/cm-sintra-site.png?url';
@@ -57,6 +60,9 @@ import raciusAsset from './assets/racius-site.png?url';
 import womensecretAsset from './assets/womensecret-site.png?url';
 import lindafarrowAsset from './assets/lindafarrow-site.png?url';
 export const REGIONAL_SENDER_ICONS:readonly SenderIcon[]=[
+ {id:'sns', name:'Serviço Nacional de Saúde', category:'service', domains:['min-saude.pt','sns.gov.pt'], paths:[], asset:snsSiteAsset},
+ {id:'bitfinex', name:'Bitfinex', category:'broker', domains:['bitfinex.com'], paths:[], asset:bitfinexSiteAsset},
+ {id:'exmo', name:'EXMO', category:'broker', domains:['exmo.com','exmo.email'], paths:[], asset:exmoSiteAsset},
  {"id": "cm-sintra", "name": "Câmara Municipal de Sintra", "category": "municipal", "domains": ["cm-sintra.pt"], "paths": [],asset:regionalAsset0},
  {"id": "siga-edubox", "name": "SIGA Edubox", "category": "service", "domains": ["edubox.pt"], "paths": [],asset:regionalAsset1},
  {"id": "mun-setubal", "name": "Câmara Municipal de Setúbal", "category": "municipal", "domains": ["mun-setubal.pt"], "paths": [],asset:regionalAsset2},
@@ -68,7 +74,7 @@ export const REGIONAL_SENDER_ICONS:readonly SenderIcon[]=[
  {"id": "cartao-continente", "name": "Cartão Continente", "category": "service", "domains": ["cartaocontinente.pt"], "paths": [],asset:regionalAsset8},
  {"id": "viaverde", "name": "Via Verde", "category": "service", "domains": ["viaverde.pt"], "paths": [],asset:regionalAsset9},
  {"id": "viacard", "name": "ViaCard", "category": "service", "domains": ["viacard.pt"], "paths": [],asset:regionalAsset10},
- {"id": "cuf", "name": "CUF", "category": "service", "domains": ["cuf.pt"], "paths": [],asset:regionalAsset11},
+ {"id": "cuf", "name": "CUF", "category": "service", "domains": ["cuf.pt", "jmellosaude.pt"], "paths": [],asset:regionalAsset11},
  {"id": "lusiadas", "name": "Lusíadas Saúde", "category": "service", "domains": ["lusiadas.pt"], "paths": [],asset:regionalAsset12},
  {"id": "santa-madalena", "name": "Clínica Santa Madalena", "category": "service", "domains": ["santamadalena.pt"], "paths": [],asset:regionalAsset13},
  {"id": "fidelidade", "name": "Fidelidade", "category": "service", "domains": ["fidelidade.pt"], "paths": [],asset:regionalAsset14},
@@ -87,7 +93,7 @@ export const REGIONAL_SENDER_ICONS:readonly SenderIcon[]=[
  {"id": "affinity", "name": "Affinity", "category": "service", "domains": ["affinity.studio", "affinity.serif.com"], "paths": [],asset:serviceAsset1},
  {"id": "serif", "name": "Serif", "category": "service", "domains": ["serif.com"], "paths": [],asset:serviceAsset2},
  {"id": "tally-forms", "name": "Tally", "category": "service", "domains": ["tally.so"], "paths": [],asset:serviceAsset3},
- {"id": "miio", "name": "miio", "category": "service", "domains": ["miio.com"], "paths": [],asset:serviceAsset5},
+ {"id": "miio", "name": "miio", "category": "service", "domains": ["miio.com", "miio.pt"], "paths": [],asset:serviceAsset5},
  {"id": "e-redes", "name": "E-REDES", "category": "service", "domains": ["e-redes.pt"], "paths": [],asset:serviceAsset6},
  {"id": "porkbun", "name": "Porkbun", "category": "service", "domains": ["porkbun.com"], "paths": [],asset:serviceAsset7},
  {"id": "godaddy", "name": "GoDaddy", "category": "service", "domains": ["godaddy.com"], "paths": [],asset:serviceAsset10},
