@@ -418,6 +418,8 @@ describe('retained mailbox workspace',()=>{
     const {app,realtime}=mount(true);await app.login({username:'me@example.org',password:'p'});
     fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
     fireEvent.click(await screen.findByRole('button',{name:'Show attachments'}));
+    // Allow the real asynchronous policy/import work to finish its Node event turn.
+    await yieldToNode();
     // The pending policy strip is deliberately inert; wait for the real controls.
     await waitFor(()=>expect(document.querySelector('[data-policy="ready"]')).toBeInTheDocument());
     const item=await screen.findByRole('option',{name:/report.txt/});fireEvent.click(item);
