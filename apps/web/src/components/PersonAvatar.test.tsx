@@ -181,3 +181,14 @@ it('updates one recycled sender row across Porkbun, IMT, unknown sender and live
  setAuth({dkim:{result:'pass',domain:'porkbun.com'},dmarc:{result:'pass',aligned:true}});await current('porkbun','porkbun-site.png');
  expect(view.container.querySelector('[data-unverified="true"]')).toBeNull();expect(state.fetch).not.toHaveBeenCalled();
 });
+
+
+it('renders recruitment, publisher, clinical and legacy aliases without bypassing failed auth',()=>{
+ const cases:Record<string,string>={'workablemail.com':'workable','vivawallet.com':'viva','trustinnews.pt':'trustinnews','imed.pt':'imed','telecom.pt':'meo','agap2.pt':'agap2it'};
+ for(const [domain,id] of Object.entries(cases)){
+  const address=`notice@${domain}`,tile=row(address).querySelector(`[data-sender-icon="${id}"]`)!;const image=tile.querySelector('img')!;
+  expect(image).not.toBeNull();expect(image.src.startsWith('data:image/')||new URL(image.src,location.href).origin===location.origin).toBe(true);
+  expect(row(address,{dkim:{result:'fail'},dmarc:{result:'fail'}}).querySelector('[data-sender-icon]')).toBeNull();
+ }
+ expect(state.fetch).not.toHaveBeenCalled();
+});

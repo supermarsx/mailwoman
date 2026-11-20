@@ -325,3 +325,15 @@ All assets below are bundled locally. Domains remain hints, never authentication
 | Defesa Nacional | Original generic civic glyph, not a seal; https://www.defesa.gov.pt/pt/Paginas/contactos.aspx publishes dscrp@defesa.pt and other Ministry contacts. Map defesa.pt and defesa.gov.pt with proper subdomains. |
 
 Porkbun and IMT were already correctly mapped. https://porkbun.com/security limits official email to @porkbun.com; the existing pink pig is the homepage-linked https://porkbun.com/images/favicons/apple-icon-180x180.png. Do not associate customer-hosted domains or shared abuse-provider domains with Porkbun. IMT's existing mark matches https://www.imt-ip.pt/wp-content/uploads/2025/01/cropped-favicon-imt-180x180.png; https://www.imt-ip.pt/contacto/sede/ publishes imt@imt-ip.pt. Added rendering/security regression coverage, without claiming artwork corrections for these already-covered domains.
+
+
+## Recruitment, media and clinical services (2026-11-20)
+
+| Sender | Official bundled source and domain evidence |
+| --- | --- |
+| Workable | https://www.workable.com/static/android-chrome-192x192.png (linked homepage icon); https://help.workable.com/hc/en-us/requests/new publishes support@workable.com; https://help.workable.com/hc/en-us/articles/44352144599831-Accepting-an-invitation-to-join-Workable explicitly identifies invitation emails from @workablemail.com. This mark identifies the recruiting platform, not the employer. |
+| Viva Wallet | Existing Viva.com artwork; https://www.vivawallet.com/ redirects to https://www.viva.com/en-eu; https://developer.viva.com/webhooks-for-payments/ documents vivawallet.com service domain. |
+| Trust in News | https://www.trustinnews.pt/apple-touch-icon-144x144.png (official homepage touch icon); homepage publishes recursoshumanos@trustinnews.pt and https://www.trustinnews.pt/politica.html publishes dpo@trustinnews.pt. This is the publisher's mark, not a particular magazine. |
+| iMED | https://imed.pt/imed/favicon.ico (linked official /imed/home page); https://imed.pt/imed/Manuais/manual_adesao_medico.pdf publishes apoio@imed.pt. |
+| MEO legacy telecom.pt | Existing MEO artwork; https://www.meo.pt/suporte/seguranca-online-phishing publishes csirt@telecom.pt; https://conteudos.meo.pt/meo/Documentos/Privacidade-e-Protecao-de-Dados/regulamento-protecao-dados-pessoais.pdf identifies MEO and its DPOAlticePortugal@telecom.pt contact. |
+| agap2IT | https://cdn.prod.website-files.com/67e591483ead28bd0bd6e18a/68603d67ba58e3032dade616_Frame%2010.png (official agap2-it.pt homepage touch icon); https://www.agap2-it.pt/pt/contacto publishes lisboa@agap2.pt. Match only the verified Portuguese web/email domain family, not similarly named businesses. |

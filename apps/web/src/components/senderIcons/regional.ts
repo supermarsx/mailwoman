@@ -1,3 +1,7 @@
+import agap2itSiteAsset from './assets/agap2it-site.png?url';
+import imedSiteAsset from './assets/imed-site.ico?url';
+import trustinnewsSiteAsset from './assets/trustinnews-site.png?url';
+import workableSiteAsset from './assets/workable-site.png?url';
 import igestSiteAsset from './assets/igest-site.png?url';
 import mediantSiteAsset from './assets/mediant-site.ico?url';
 import boltSiteAsset from './assets/bolt-site.png?url';
@@ -67,10 +71,14 @@ import raciusAsset from './assets/racius-site.png?url';
 import womensecretAsset from './assets/womensecret-site.png?url';
 import lindafarrowAsset from './assets/lindafarrow-site.png?url';
 export const REGIONAL_SENDER_ICONS:readonly SenderIcon[]=[
+ {id:"workable",name:"Workable",category:"service",domains:["workable.com", "workablemail.com"],paths:[],asset:workableSiteAsset},
+ {id:"trustinnews",name:"Trust in News",category:"service",domains:["trustinnews.pt"],paths:[],asset:trustinnewsSiteAsset},
+ {id:"imed",name:"iMED",category:"service",domains:["imed.pt"],paths:[],asset:imedSiteAsset},
+ {id:"agap2it",name:"agap2IT",category:"service",domains:["agap2-it.pt", "agap2.pt"],paths:[],asset:agap2itSiteAsset},
  {id:"pandaplus",name:"Panda+",category:"service",domains:["pandaplus.pt", "pandapluslanding.pt"],paths:[],asset:pandaplusSiteAsset},
  {id:"lovable",name:"Lovable",category:"service",domains:["lovable.dev"],paths:[],asset:lovableSiteAsset},
  {id:"advancecare",name:"AdvanceCare",category:"service",domains:["advancecare.com", "advancecare.pt"],paths:[],asset:advancecareSiteAsset},
- {id:"viva",name:"Viva.com",category:"service",domains:["viva.com", "vivapayments.com"],paths:[],asset:vivaSiteAsset},
+ {id:"viva",name:"Viva.com",category:"service",domains:["viva.com", "vivapayments.com", "vivawallet.com"],paths:[],asset:vivaSiteAsset},
  {id:"bolt",name:"Bolt",category:"service",domains:["bolt.eu"],paths:[],asset:boltSiteAsset},
  {id:"mediant",name:"Mediant shareholder documents",category:"service",domains:["proxydocs.com"],paths:[],asset:mediantSiteAsset},
  {id:"igest",name:"iGEST",category:"service",domains:["igest.pt"],paths:[],asset:igestSiteAsset},

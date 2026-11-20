@@ -128,3 +128,18 @@ it('validates the newly bundled service image signatures',()=>{
   expect(bytes.subarray(0,file.endsWith('.png')?8:4).toString('hex')).toBe(file.endsWith('.png')?'89504e470d0a1a0a':'00000100');
  }
 });
+
+
+it('matches verified recruitment, media, clinical and legacy service aliases only',()=>{
+ const cases:Record<string,string>={'workable.com':'workable','workablemail.com':'workable','vivawallet.com':'viva','trustinnews.pt':'trustinnews','imed.pt':'imed','telecom.pt':'meo','agap2-it.pt':'agap2it','agap2.pt':'agap2it'};
+ for(const [domain,id] of Object.entries(cases)){
+  for(const host of [domain,`mail.${domain}`,`a.b.${domain}`]){const icon=senderDomainIcon(`notice@${host}`);expect(icon?.id,host).toBe(id);expect(icon?.asset,host).toBeTruthy();}
+  for(const host of [`evil${domain}`,`${domain}.evil.test`])expect(senderDomainIcon(`notice@${host}`),host).toBeUndefined();
+ }
+ expect(senderDomainIcon('a@vivawallet.com')?.asset).toBe(senderDomainIcon('a@viva.com')?.asset);
+ expect(senderDomainIcon('a@telecom.pt')?.asset).toBe(senderDomainIcon('a@meo.pt')?.asset);
+ for(const file of ['workable-site.png','trustinnews-site.png','imed-site.ico','agap2it-site.png']){
+  const bytes=readFileSync(`src/components/senderIcons/assets/${file}`);expect(bytes.length).toBeGreaterThan(100);expect(bytes.length).toBeLessThan(250000);
+  expect(bytes.subarray(0,file.endsWith('.png')?8:4).toString('hex')).toBe(file.endsWith('.png')?'89504e470d0a1a0a':'00000100');
+ }
+});
