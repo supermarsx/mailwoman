@@ -250,7 +250,7 @@ pub(crate) fn project_in_order<T: Clone>(
 /// never collide). Anything that does not parse as a JSON array counts as
 /// unread, mirroring `flags_from_json`'s `unwrap_or_default` — a corrupt value
 /// must not fail a flag write.
-fn flags_json_is_unread(flags_json: &str) -> bool {
+pub(crate) fn flags_json_is_unread(flags_json: &str) -> bool {
     !serde_json::from_str::<Vec<serde_json::Value>>(flags_json)
         .map(|flags| flags.iter().any(|f| f.as_str() == Some("Seen")))
         .unwrap_or(false)
