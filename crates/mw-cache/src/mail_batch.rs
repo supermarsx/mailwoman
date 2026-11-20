@@ -584,7 +584,30 @@ mod tests {
             )
             .await
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(1100)).await;
+        let remote = first.inner.redis.as_ref().unwrap();
+        let initial_pttl = remote.pttl::<i64, _>(&namespace).await.unwrap();
+        assert!(
+            initial_pttl > 0 && initial_pttl <= 1000,
+            "configured one-second TTL was not applied: PTTL={initial_pttl}ms"
+        );
+        // Expiry belongs to Valkey's clock, not the Windows host timer. Prove
+        // its actual expiry within a bounded deadline rather than assuming a
+        // host sleep advances a Docker VM clock by precisely the same amount.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let remaining = remote.pttl::<i64, _>(&namespace).await.unwrap();
+                if remaining == -2 {
+                    break;
+                }
+                assert!(
+                    (0..=1000).contains(&remaining),
+                    "remote TTL disappeared or increased unexpectedly: PTTL={remaining}ms"
+                );
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("Valkey did not expire the confirmed one-second entry within five seconds");
         assert_eq!(
             first
                 .probe_mail_bytes_batch(
