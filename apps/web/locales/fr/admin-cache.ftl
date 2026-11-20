@@ -22,3 +22,7 @@ admin-cache-wal-recovery = Le nettoyage attend la récupération ou un point de 
 admin-cache-removed-payload = Contenu en cache supprimé
 admin-cache-oversized = Nettoyage des corps volumineux reporté
 admin-cache-change-removed = Entrées d’historique de synchronisation supprimées
+
+admin-cache-parsed-copies = Copies du corps analysé supprimées
+admin-cache-parsed-bytes = Données du corps analysé supprimées
+admin-cache-change-chunked = États de synchronisation nettoyés par lots

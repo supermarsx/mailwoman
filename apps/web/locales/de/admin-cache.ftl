@@ -22,3 +22,7 @@ admin-cache-wal-recovery = Die Bereinigung wartet auf WAL-Wiederherstellung oder
 admin-cache-removed-payload = Entfernter Cache-Inhalt
 admin-cache-oversized = Bereinigung großer Nachrichtentexte verschoben
 admin-cache-change-removed = Entfernte Einträge im Synchronisierungsverlauf
+
+admin-cache-parsed-copies = Gelöschte Kopien verarbeiteter Nachrichteninhalte
+admin-cache-parsed-bytes = Entfernte Daten verarbeiteter Nachrichteninhalte
+admin-cache-change-chunked = In Teilmengen bereinigte Synchronisationsstände

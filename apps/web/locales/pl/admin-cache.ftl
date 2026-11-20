@@ -22,3 +22,7 @@ admin-cache-wal-recovery = Czyszczenie czeka na odzyskiwanie WAL lub punkt kontr
 admin-cache-removed-payload = Usunięta zawartość pamięci podręcznej
 admin-cache-oversized = Odroczone czyszczenie dużej treści wiadomości
 admin-cache-change-removed = Usunięte wpisy historii synchronizacji
+
+admin-cache-parsed-copies = Usunięte kopie przetworzonej treści
+admin-cache-parsed-bytes = Usunięte dane przetworzonej treści
+admin-cache-change-chunked = Stany synchronizacji oczyszczone partiami

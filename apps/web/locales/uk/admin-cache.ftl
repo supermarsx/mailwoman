@@ -22,3 +22,7 @@ admin-cache-wal-recovery = Очищення очікує відновлення 
 admin-cache-removed-payload = Видалений вміст кешу
 admin-cache-oversized = Очищення великих повідомлень відкладено
 admin-cache-change-removed = Видалені записи історії синхронізації
+
+admin-cache-parsed-copies = Видалені копії обробленого вмісту
+admin-cache-parsed-bytes = Видалені дані обробленого вмісту
+admin-cache-change-chunked = Стани синхронізації, очищені частинами

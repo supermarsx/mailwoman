@@ -62,10 +62,15 @@ export function CacheMaintenance():JSX.Element{
     <p class={css.note}>{t('admin-db-observed',{time:formatDateTime(value().at*1000)})}</p>
     <p>{t('admin-cache-expiry-result',{scanned:formatNumber(value().scannedMessages),detached:formatNumber(value().detachedMessages),protected:formatNumber(value().protectedMessages)})}</p>
     <table class={css.table}><tbody><tr><th scope="row">{t('admin-cache-removed-payload')}</th><td>{formatBytes(value().removedBytes)}</td></tr>
+     <Show when={typeof value().cleanedEnvelopes==='number'}><tr><th scope="row">{t('admin-cache-parsed-copies')}</th><td>{formatNumber(value().cleanedEnvelopes!)}</td></tr></Show>
+     <Show when={typeof value().removedEnvelopeBytes==='number'}><tr><th scope="row">{t('admin-cache-parsed-bytes')}</th><td>{formatBytes(value().removedEnvelopeBytes!)}</td></tr></Show>
      <Show when={typeof value().oversizedBodies==='number'}><tr><th scope="row">{t('admin-cache-oversized')}</th><td>{formatNumber(value().oversizedBodies!)}</td></tr></Show>
     </tbody></table>
    </>}</Show>
-   <Show when={report()?.changeLogRetention}>{value=><p>{t('admin-cache-change-removed')}: {formatNumber(value().removedRows)}</p>}</Show>
+   <Show when={report()?.changeLogRetention}>{value=><>
+    <p>{t('admin-cache-change-removed')}: {formatNumber(value().removedRows)}</p>
+    <Show when={value().chunkedStates}><p class={css.note}>{t('admin-cache-change-chunked')}: {formatNumber(value().chunkedStates!)}</p></Show>
+   </>}</Show>
    <p class={css.note}>{t('admin-cache-expiry-help')}</p>
    <Show when={expiry()?.status==='no-refetchable-sources'}><p class={css.note}>{t('admin-cache-no-sources')}</p></Show>
    <Show when={['busy','budget','wal-pressure'].includes(expiry()?.status??'')}><p class={css.note}>{t('admin-db-background-deferred')}</p></Show>

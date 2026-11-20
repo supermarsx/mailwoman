@@ -22,3 +22,7 @@ admin-cache-wal-recovery = Het opruimen wacht op WAL-herstel of een checkpoint. 
 admin-cache-removed-payload = Verwijderde cache-inhoud
 admin-cache-oversized = Opschonen van grote berichtinhoud uitgesteld
 admin-cache-change-removed = Verwijderde synchronisatiegeschiedenisregels
+
+admin-cache-parsed-copies = Gewiste kopieën van verwerkte berichtinhoud
+admin-cache-parsed-bytes = Verwijderde gegevens van verwerkte berichtinhoud
+admin-cache-change-chunked = In delen opgeschoonde synchronisatiestatussen

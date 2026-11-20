@@ -22,3 +22,7 @@ admin-cache-wal-recovery = 清理正在等待WAL恢复或检查点处理。待�
 admin-cache-removed-payload = 已移除的缓存内容
 admin-cache-oversized = 已暂缓清理的大型正文
 admin-cache-change-removed = 已移除的同步历史记录
+
+admin-cache-parsed-copies = 已清理的解析正文副本
+admin-cache-parsed-bytes = 已移除的解析正文数据
+admin-cache-change-chunked = 分批清理的同步状态

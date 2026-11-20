@@ -22,3 +22,7 @@ admin-cache-wal-recovery = Cleanup is waiting for WAL recovery or checkpointing.
 admin-cache-removed-payload = Cached payload removed
 admin-cache-oversized = Large bodies deferred
 admin-cache-change-removed = Sync-history rows removed
+
+admin-cache-parsed-copies = Parsed body copies cleared
+admin-cache-parsed-bytes = Parsed body data removed
+admin-cache-change-chunked = Sync states cleaned in chunks

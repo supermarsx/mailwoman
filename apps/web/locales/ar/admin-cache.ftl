@@ -22,3 +22,7 @@ admin-cache-wal-recovery = ينتظر التنظيف استعادة WAL أو إ�
 admin-cache-removed-payload = المحتوى المؤقت الذي أزيل
 admin-cache-oversized = تأجيل تنظيف محتوى الرسائل الكبير
 admin-cache-change-removed = سجلات محفوظات المزامنة التي أزيلت
+
+admin-cache-parsed-copies = نسخ محتوى الرسائل المعالج التي أزيلت
+admin-cache-parsed-bytes = بيانات محتوى الرسائل المعالج التي أزيلت
+admin-cache-change-chunked = حالات المزامنة التي نُظفت على دفعات

@@ -22,3 +22,7 @@ admin-cache-wal-recovery = クリーンアップはWALの復旧またはチェ�
 admin-cache-removed-payload = 削除したキャッシュ内容
 admin-cache-oversized = 削除を延期した大きな本文
 admin-cache-change-removed = 削除した同期履歴の行
+
+admin-cache-parsed-copies = 解析済み本文の削除件数
+admin-cache-parsed-bytes = 削除した解析済み本文データ
+admin-cache-change-chunked = 分割して整理した同期状態
