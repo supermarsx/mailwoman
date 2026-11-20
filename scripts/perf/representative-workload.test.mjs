@@ -1,11 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {representativeSpecs,workloadProfileReport} from './representative-workload.mjs';
+import {representativeSpecs,workloadProfileReport,attachmentPatternValidator,attachmentPatternCacheStats} from './representative-workload.mjs';
 import {measure} from './http-load.mjs';
 import {runCampaign} from './http-campaign.mjs';
 
 const principal={accountId:'private-account',messageIds:Array.from({length:50},(_,i)=>`private-message-${i}`),inboxId:'private-inbox',archiveId:'private-archive',attachmentBlobId:'private-message-0.2'};
+
+test('attachment pattern uses native exact comparison and shares at most four bounded golden buffers',()=>{
+ for(const size of [65536,262144]){
+  const validate=attachmentPatternValidator(size),good=Buffer.alloc(size,'ABCD');
+  assert.equal(validate(good),true);
+  for(const offset of [0,Math.floor(size/2),size-1]){const bad=Buffer.from(good);bad[offset]^=1;assert.equal(validate(bad),false);}
+  assert.equal(validate(good.subarray(1)),false);
+ }
+ const good=Buffer.alloc(65536,'ABCD'),before=attachmentPatternCacheStats().allocations;
+ for(let principal=0;principal<10000;principal++)assert.equal(attachmentPatternValidator(65536)(good),true);
+ assert.ok(attachmentPatternCacheStats().allocations-before<=1,'ten thousand validators must share the same size buffer');
+ for(const size of [4,5,6,7,8,9])assert.equal(attachmentPatternValidator(size)(Buffer.alloc(size,'ABCD')),true);
+ const stats=attachmentPatternCacheStats();assert.ok(stats.entries<=4);assert.ok(stats.bytes<=4*262144);
+ for(const size of [3,262145,NaN,4.5])assert.throws(()=>attachmentPatternValidator(size));
+});
 test('workload metadata is bounded, internally consistent and aggregate only',()=>{
  const proof={kind:'representative',messagesPerPrincipal:50,seededMessages:500000,seedSeconds:30,bodySampleBytes:4096,attachmentSampleBytes:65536,ordinaryBodyPayloadBytes:26,sendsMeasured:false,upstreamNetworkMeasured:false};
  assert.deepEqual(workloadProfileReport({...proof,cookie:'private-secret'},10000),proof);

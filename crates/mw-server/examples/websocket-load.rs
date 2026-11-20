@@ -27,7 +27,7 @@ use tokio_tungstenite::{
         protocol::{Message, WebSocketConfig},
     },
 };
-const MAX_MANIFEST: u64 = 32 * 1024 * 1024;
+const MAX_MANIFEST: u64 = 64 * 1024 * 1024;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Protocol {
     Push,
@@ -167,7 +167,10 @@ fn validate_manifest(
 ) -> Result<reqwest::Url, &'static str> {
     if manifest.engine_mode != "native"
         || !matches!(manifest.backend.as_str(), "sqlite" | "postgres")
-        || !matches!(manifest.build_profile.as_str(), "debug" | "release" | "fast")
+        || !matches!(
+            manifest.build_profile.as_str(),
+            "debug" | "release" | "fast"
+        )
         || manifest.principals.len() < config.connections
         || manifest.principals.len() > 10000
     {

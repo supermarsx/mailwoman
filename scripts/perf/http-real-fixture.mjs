@@ -1,13 +1,14 @@
 // Invoked only by the ignored Rust integration fixture. No arbitrary remote URL.
-import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {writeFile,mkdir} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {markdownReport} from './http-load.mjs';
 import {campaignOptions,runCampaign} from './http-campaign.mjs';
 import {prepareFixtureClients,fixturePrincipalIndex,startupReadinessReport,fixturePolicyReport} from './fixture-clients.mjs';
 import {representativeSpecs,workloadProfileReport} from './representative-workload.mjs';
+import {readPrivate,HANDOFF_LIMIT} from './external-control.mjs';
 
 try{
- const handoff=JSON.parse(await readFile(process.argv[2],'utf8')),base=new URL(handoff.base);
+ const handoff=JSON.parse((await readPrivate(process.argv[2],HANDOFF_LIMIT)).toString('utf8')),base=new URL(handoff.base);
  const startupReadiness=startupReadinessReport(handoff.startupReadiness,{required:handoff.engineMode==='native'});
  const policyEvidence=fixturePolicyReport(handoff.policyEvidence);
  if(base.protocol!=='http:'||base.hostname!=='127.0.0.1'||base.pathname!=='/'||base.username||base.password)throw new Error('Fixture must use literal ephemeral loopback');

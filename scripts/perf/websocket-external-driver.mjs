@@ -5,7 +5,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {lstat,realpath,writeFile} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {setTimeout as sleep} from 'node:timers/promises';
-import {findReady,privateJson,readPrivate,runClaimed,REPORT_LIMIT} from './external-control.mjs';
+import {findReady,privateJson,readPrivate,runClaimed,REPORT_LIMIT,HANDOFF_LIMIT} from './external-control.mjs';
 import {prepareFixtureClients,startupReadinessReport} from './fixture-clients.mjs';
 
 const scriptDirectory=dirname(fileURLToPath(import.meta.url));
@@ -24,7 +24,7 @@ function child(command,args,env,launch){
  return {done,stop:()=>{if(!settled)process.kill('SIGKILL');},settled:()=>settled};
 }
 export async function runWorkloads({directory,ready,config,launch=spawn}){
- const manifestPath=join(directory,ready.handoffFile),manifest=JSON.parse(await readPrivate(manifestPath,32*1024*1024));
+ const manifestPath=join(directory,ready.handoffFile),manifest=JSON.parse(await readPrivate(manifestPath,HANDOFF_LIMIT));
  const clients=prepareFixtureClients(manifest.principals,manifest.clientSimulation);
  const startupReadiness=startupReadinessReport(manifest.startupReadiness,{required:manifest.engineMode==='native'});
  if(manifest.engineMode!=='native'||clients.clientCount<config.connections||clients.simulationMode!=='fixture-loopback-trusted-proxy')throw new Error('Independent multi-client WebSockets require the native proxy fixture');

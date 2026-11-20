@@ -503,6 +503,11 @@ async fn protocol_probe(
 
 fn write_private(path: &Path, value: &Value) {
     use std::io::Write;
+    let encoded = serde_json::to_vec(value).unwrap();
+    assert!(
+        encoded.len() as u64 <= external_control::HANDOFF_LIMIT,
+        "private handoff exceeds bounded size"
+    );
     let mut options = std::fs::OpenOptions::new();
     options.create_new(true).write(true);
     #[cfg(unix)]
@@ -511,7 +516,7 @@ fn write_private(path: &Path, value: &Value) {
         options.mode(0o600);
     }
     let mut file = options.open(path).unwrap();
-    file.write_all(&serde_json::to_vec(value).unwrap()).unwrap();
+    file.write_all(&encoded).unwrap();
     file.sync_all().unwrap();
 }
 struct PrivateFile(std::path::PathBuf);

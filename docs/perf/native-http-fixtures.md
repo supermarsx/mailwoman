@@ -52,6 +52,10 @@ changed, and per-user/per-source admission policies remain active. The private
 handoff explicitly declares this simulation and contains the client address
 bound to each principal. The driver sends forwarded addresses only for this
 declared fixture mode, and reports actual participating/accepted client counts.
+Private handoffs have a 64 MiB ceiling across the publisher, HTTP controller and
+WebSocket readers, sufficient for the supported 10,000-account / 500,000-ID
+representative profile. Ordinary lifecycle controls retain their 64 KiB ceiling;
+larger handoffs and linked/non-private files are refused before dispatch.
 Endpoint operations stay interleaved, with early arrivals spread across the user
 pool. Every endpoint visits every principal over a complete cycle. The 100-user
 and 10,000-user profiles reach their full population in the first 100 or 10,000
@@ -131,6 +135,10 @@ Body validation requires the exact configured ASCII payload and rejects shortene
 extra or truncated content. It accepts only the single trailing MIME boundary
 line ending that the parser may preserve; that delimiter is excluded from the
 configured payload length. Attachment validation checks every decoded byte.
+It uses native buffer equality against a shared golden pattern, caching at most
+four sample sizes (at most 1 MiB total), rather than allocating an attachment
+buffer for every principal. Private per-principal lengths must agree with the
+global workload profile.
 
 If a dispatched stateful batch times out, disconnects or fails validation, its
 server-side outcome is unknown even after the browser request has stopped.

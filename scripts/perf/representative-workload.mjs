@@ -1,5 +1,20 @@
 // Separate read/write profile. Every item is ONE actual authenticated HTTP
 // request; a JMAP batch's methods are not misreported as additional HTTP RPS.
+const goldenAttachments=new Map();let goldenAllocations=0;
+export function attachmentPatternCacheStats(){return {entries:goldenAttachments.size,bytes:[...goldenAttachments.values()].reduce((sum,bytes)=>sum+bytes.length,0),allocations:goldenAllocations};}
+export function attachmentPatternValidator(size){
+ if(!Number.isInteger(size)||size<4||size>262144)throw new Error('Invalid bounded attachment sample size');
+ // Validators retain only the size, never an evicted buffer per principal.
+ return bytes=>{
+  if(!Buffer.isBuffer(bytes)||bytes.length!==size)return false;
+  let expected=goldenAttachments.get(size);
+  if(!expected){
+   if(goldenAttachments.size===4)goldenAttachments.delete(goldenAttachments.keys().next().value);
+   expected=Buffer.alloc(size,'ABCD');goldenAttachments.set(size,expected);goldenAllocations++;
+  }
+  return bytes.equals(expected);
+ };
+}
 export function workloadProfileReport(value,principalCount){
  if(value===undefined)return null;
  if(!value||!['baseline','representative'].includes(value.kind)||!Number.isInteger(value.messagesPerPrincipal)||value.messagesPerPrincipal<2||value.messagesPerPrincipal>100||value.kind==='baseline'&&value.messagesPerPrincipal!==2||value.seededMessages!==value.messagesPerPrincipal*principalCount||value.seededMessages>500000||!Number.isFinite(value.seedSeconds)||value.seedSeconds<0)throw new Error('Invalid fixture workload profile');
@@ -34,7 +49,7 @@ export function representativeSpecs(p){
    call('Email/get',{'#ids':{resultOf:'page2',name:'Email/query',path:'/ids'},properties:['id','subject','from','receivedAt','preview']},'headers2'),
   ],([first,headers1,second,headers2])=>Array.isArray(first.ids)&&Array.isArray(second.ids)&&first.ids.length===pageSize&&second.ids.length===nextSize&&first.total===known.size&&second.total===known.size&&first.position===0&&second.position===pageSize&&new Set([...first.ids,...second.ids]).size===pageSize+nextSize&&[...first.ids,...second.ids].every(id=>known.has(id))&&owned(headers1,first.ids)&&owned(headers2,second.ids)),
   batch('body-and-attachment-metadata',[call('Email/get',{ids:[id],properties:['id','bodyValues','textBody','htmlBody','attachments'],fetchAllBodyValues:true,mailwomanBodyUse:true},'body')],([row])=>owned(row,[id])&&Object.values(row.list[0].bodyValues??{}).some(bodyMatches)&&row.list[0].attachments?.some(part=>part.blobId===p.attachmentBlobId&&part.name==='sample.txt')),
-  {name:'attachment-download',path:`/jmap/download/${encodeURIComponent(p.accountId)}/${encodeURIComponent(p.attachmentBlobId)}/sample.txt`,serializePrincipal:true,validateBytes:bytes=>bytes.length===(p.attachmentSampleBytes??4)&&bytes.every((value,index)=>value===[65,66,67,68][index%4])},
+  {name:'attachment-download',path:`/jmap/download/${encodeURIComponent(p.accountId)}/${encodeURIComponent(p.attachmentBlobId)}/sample.txt`,serializePrincipal:true,validateBytes:attachmentPatternValidator(p.attachmentSampleBytes??4)},
   batch('mark-read-and-restore',[
    call('Email/set',{update:{[id]:{'keywords/$seen':true}}},'read'),get(['id','keywords'],'readback'),
    call('Email/set',{update:{[id]:{'keywords/$seen':null}}},'restore'),get(['id','keywords'],'restored'),

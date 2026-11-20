@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,rm,link,chmod} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,rm,link,chmod,open} from 'node:fs/promises';
 import {join,resolve,sep,basename} from 'node:path';
 import {tmpdir} from 'node:os';
 import {randomUUID} from 'node:crypto';
 import {createServer} from 'node:http';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {validateReady,readPrivate,privateJson,findReady,runClaimed,reportHash} from './external-control.mjs';
+import {validateReady,readPrivate,privateJson,findReady,runClaimed,reportHash,CONTROL_LIMIT,HANDOFF_LIMIT} from './external-control.mjs';
 const ready=()=>({version:1,runId:randomUUID(),expiresAtMs:Date.now()+120000,deadlineSeconds:90,handoffFile:'handoff.private.json',outputFile:'report.json',campaignEnv:{}});
 async function fixture(){
  const root=await mkdtemp(join(tmpdir(),'mw-load-control-')),value=ready(),directory=join(root,`run-${value.runId}`);await mkdir(directory,{mode:0o700});
@@ -23,6 +23,42 @@ test('private reads reject hardlinks, oversized records and public Unix permissi
   await assert.rejects(readPrivate(path,2));
   await link(path,join(f.directory,'alias'));await assert.rejects(readPrivate(path));
   await rm(join(f.directory,'alias'));if(process.platform!=='win32'){await chmod(path,0o644);await assert.rejects(readPrivate(path));}
+ }finally{await f.clean();}
+});
+
+test('largest supported representative handoff fits64MiB while exceeding the old32MiB cap',()=>{
+ const identifier=index=>index.toString(16).padStart(8,'0')+'a'.repeat(56);
+ const principals=Array.from({length:10000},(_,index)=>{
+  const accountId=identifier(index),token=identifier(index+10000),csrfToken=identifier(index+20000);
+  return {cookie:`mw_session=${token}; mw_csrf=${csrfToken}`,csrfToken,accountId,ownerAccountId:accountId,messageIds:Array.from({length:50},(_,uid)=>index.toString(16).padStart(8,'0')+uid.toString(16).padStart(8,'0')+'e'.repeat(48)),inboxId:identifier(index+30000),archiveId:identifier(index+40000),attachmentBlobId:`${identifier(index+50000)}.2`,attachmentSampleBytes:65536,bodySampleBytes:4096,clientAddress:`198.18.${Math.floor((index+1)/256)}.${(index+1)%256}`};
+ });
+ const bytes=Buffer.byteLength(JSON.stringify({base:'http://127.0.0.1:1234/',engineMode:'native',clientSimulation:{mode:'fixture-loopback-trusted-proxy',clientCount:10000},principals}));
+ assert.equal(principals.length*principals[0].messageIds.length,500000);
+ assert.ok(bytes>32*1024*1024,'maximum supported shape must exercise the former failure');
+ assert.ok(bytes<=HANDOFF_LIMIT,'maximum supported shape must fit the shared handoff cap');
+ assert.equal(CONTROL_LIMIT,65536,'ordinary controls keep their original64KiB cap');
+});
+
+test('Rust publisher and WebSocket reader share the bounded private handoff contract',async()=>{
+ const publisher=await readFile('crates/mw-server/tests/common/request_load_control.rs','utf8');
+ const reader=await readFile('crates/mw-server/examples/websocket-load.rs','utf8');
+ assert.match(publisher,/HANDOFF_LIMIT:\s*u64\s*=\s*64\s*\*\s*1024\s*\*\s*1024/);
+ assert.match(publisher,/CONTROL_LIMIT:\s*u64\s*=\s*65536/);
+ assert.match(reader,/MAX_MANIFEST:\s*u64\s*=\s*64\s*\*\s*1024\s*\*\s*1024/);
+ assert.equal(HANDOFF_LIMIT,64*1024*1024);
+});
+
+test('private handoff accepts exactly64MiB and refuses the next byte before executing the generator',async()=>{
+ const f=await fixture();try{
+  const path=join(f.directory,'handoff.private.json'),file=await open(path,'wx',0o600);
+  try{await file.truncate(HANDOFF_LIMIT);}finally{await file.close();}
+  assert.equal((await readPrivate(path,HANDOFF_LIMIT)).length,HANDOFF_LIMIT);
+  await assert.rejects(readPrivate(path),error=>error.message==='Invalid external fixture file');
+  await assert.rejects(privateJson(join(f.directory,'control.json'),{padding:'x'.repeat(CONTROL_LIMIT)}),/control record too large/);
+  const larger=await open(path,'r+');try{await larger.truncate(HANDOFF_LIMIT+1);}finally{await larger.close();}
+  let executed=false;
+  await assert.rejects(runClaimed({directory:f.directory,ready:f.value,execute:async()=>{executed=true;return 0;}}),error=>error.message==='Invalid external fixture file');
+  assert.equal(executed,false);
  }finally{await f.clean();}
 });
 test('discovery claims no stale run and refuses directory/run identity mismatch',async()=>{

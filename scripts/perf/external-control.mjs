@@ -1,7 +1,7 @@
 import {lstat,open,rename,readdir} from 'node:fs/promises';
 import {join,dirname,basename} from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
-export const CONTROL_LIMIT=65536,REPORT_LIMIT=64*1024*1024;
+export const CONTROL_LIMIT=65536,HANDOFF_LIMIT=64*1024*1024,REPORT_LIMIT=64*1024*1024;
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export function validateReady(value,now=Date.now()){
  if(value?.version!==1||!uuid.test(value.runId??'')||!Number.isSafeInteger(value.expiresAtMs)||value.expiresAtMs<=now||value.expiresAtMs>now+2000000)throw new Error('Invalid or expired external fixture control');
@@ -41,7 +41,7 @@ export async function findReady(root,now=Date.now()){
 export function reportHash(bytes){return createHash('sha256').update(bytes).digest('hex');}
 export async function runClaimed({directory,ready,execute}){
  validateReady(ready);
- await readPrivate(join(directory,ready.handoffFile),32*1024*1024);
+ await readPrivate(join(directory,ready.handoffFile),HANDOFF_LIMIT);
  const heartbeat=()=>privateJson(join(directory,'heartbeat.json'),{runId:ready.runId,atMs:Date.now()});
  await heartbeat();const timer=setInterval(()=>{void heartbeat().catch(()=>{});},5000);
  try{

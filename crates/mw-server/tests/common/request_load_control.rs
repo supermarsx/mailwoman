@@ -7,6 +7,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 const CONTROL_LIMIT: u64 = 65536;
+pub const HANDOFF_LIMIT: u64 = 64 * 1024 * 1024;
 const REPORT_LIMIT: u64 = 64 * 1024 * 1024;
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -165,7 +166,7 @@ pub async fn run(
     handoff["generatorPlacement"] =
         "separate container/cgroup sharing private network namespace".into();
     let secret = directory.join("handoff.private.json");
-    private_new(&secret, &handoff, 32 * 1024 * 1024)?;
+    private_new(&secret, &handoff, HANDOFF_LIMIT)?;
     let published = now_ms();
     let expires = published + (deadline_secs + startup + 10) * 1000;
     if let Err(error) = private_new(
