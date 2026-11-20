@@ -134,3 +134,16 @@ admin-resources-cpu-kernel = 大输入使用的处理内核
 admin-resources-cpu-features = 可用的 CPU 功能
 admin-resources-cpu-portable = 通用
 admin-resources-cpu-kernel-help = 用于将 ASCII 转换为小写。支持时，AVX2 从 { $avx2 } 字节起使用，AVX-512 从 { $avx512 } 字节起使用。短输入使用通用处理。应用并非使用所有可用功能。
+
+admin-db-pool-demand-help = 连接按需求增长，并在空闲时减少，范围为显示的最小值和最大值。
+admin-db-pool-restart-help = 连接上限和时间仅在完整重启服务器后更改，不会实时调整。
+admin-db-pool-acquisitions = 连接获取次数
+admin-db-pool-acquire-failures = 获取失败次数
+admin-db-pool-total-wait = 累计获取时间
+admin-db-pool-max-wait = 最长获取时间
+admin-db-pool-reads = 已测量读取
+admin-db-pool-writes = 已测量写入
+admin-db-pool-operation-help = 计数器仅涵盖此服务器进程的已测量查询辅助方法。直接 SQLx 调用和其他副本不包括在内。
+admin-db-sampled-help = 标有 ≥ 的值是从最多512行测得的下限，并非估计总量。精确扫描已达到时间限制。
+admin-db-physical-limited = 物理扫描受限
+admin-db-body-help = Bodies缓存加密的原始邮件，包括内嵌图片和附件。被引用的正文仍关联邮件，孤立正文则没有邮件关联。内容字节数与文件已分配或可复用页面不同。

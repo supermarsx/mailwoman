@@ -134,3 +134,16 @@ admin-resources-cpu-kernel = Wybrana procedura dla dużych danych
 admin-resources-cpu-features = Dostępne funkcje procesora
 admin-resources-cpu-portable = Przenośna
 admin-resources-cpu-kernel-help = Dotyczy zamiany ASCII na małe litery. AVX2 od { $avx2 } bajtów, a AVX-512 od { $avx512 } bajtów, jeśli są obsługiwane. Krótkie dane korzystają z procedury przenośnej. Aplikacja nie używa wszystkich dostępnych funkcji.
+
+admin-db-pool-demand-help = Połączenia rosną z zapotrzebowaniem i maleją przy bezczynności w pokazanych granicach.
+admin-db-pool-restart-help = Limity i czasy zmieniają się dopiero po pełnym restarcie serwera, nie na żywo.
+admin-db-pool-acquisitions = Pobrania połączeń
+admin-db-pool-acquire-failures = Nieudane pobrania
+admin-db-pool-total-wait = Łączny czas pobierania
+admin-db-pool-max-wait = Najdłuższe pobranie
+admin-db-pool-reads = Zmierzone odczyty
+admin-db-pool-writes = Zmierzone zapisy
+admin-db-pool-operation-help = Liczniki obejmują zmierzone zapytania tego procesu serwera. Bezpośrednie wywołania SQLx i inne repliki są wykluczone.
+admin-db-sampled-help = Wartości oznaczone ≥ to zmierzone dolne granice dla maksymalnie 512 wierszy, a nie szacunkowe sumy. Dokładne skanowanie osiągnęło limit czasu.
+admin-db-physical-limited = Ograniczone skanowanie fizyczne
+admin-db-body-help = Treści przechowują zaszyfrowane oryginalne wiadomości, w tym obrazy osadzone i załączniki. Powiązane treści należą do wiadomości; osierocone nie mają powiązania. Bajty zawartości różnią się od przydzielonych lub wielokrotnego użytku stron pliku.

@@ -25,6 +25,8 @@ export function DatabaseObservability():JSX.Element{
  const absent=()=>t('admin-shell-not-available');
  const bytes=(value:number|null|undefined)=>typeof value==='number'?formatBytes(value):absent();
  const count=(value:number|null|undefined)=>typeof value==='number'?formatCount(value):absent();
+ const measuredBytes=(value:number|null|undefined,lowerBound=false)=>`${lowerBound&&typeof value==='number'?'≥ ':''}${bytes(value)}`;
+ const measuredCount=(value:number|null|undefined,lowerBound=false)=>`${lowerBound&&typeof value==='number'?'≥ ':''}${count(value)}`;
  const rows=createMemo(()=>[...(report()?.details?.tables??[])].filter(row=>row.name.toLowerCase().includes(query().toLowerCase())).sort((a,b)=>sortGrowth()?(b.growthBytes??-Infinity)-(a.growthBytes??-Infinity):Math.max(b.bytes??-1,b.payloadBytes??-1)-Math.max(a.bytes??-1,a.payloadBytes??-1)));
  const fields=(entries:()=>[string,string][]) => <table class={css.table}><tbody><For each={entries()}>{([label,value])=><tr><th scope="row">{label}</th><td>{value}</td></tr>}</For></tbody></table>;
  return <section class={css.section} aria-label={t('admin-db-title')}>
@@ -50,7 +52,14 @@ export function DatabaseObservability():JSX.Element{
      [t('admin-db-open'),count(value().pool.open)],[t('admin-db-idle'),count(value().pool.idle)],[t('admin-db-busy'),count(value().pool.busy)],
      [t('admin-db-limits'),`${value().pool.minimum} / ${value().pool.maximum}`],
      [t('admin-db-acquire'),formatMs(value().pool.acquireTimeoutMs)],
-    ])}</section>
+    ])}<Show when={value().pool.scaling}><p class={css.note}>{t('admin-db-pool-demand-help')}</p></Show><Show when={value().pool.ceilingChangesRequireRestart}><p class={css.note}>{t('admin-db-pool-restart-help')}</p></Show><Show when={value().pool.operations}>{operations=><>{fields(()=>[
+     [t('admin-db-pool-acquisitions'),count(operations().acquire.calls)],
+     [t('admin-db-pool-acquire-failures'),count(operations().acquire.failures)],
+     [t('admin-db-pool-total-wait'),formatMs(operations().acquire.totalMicros/1000)],
+     [t('admin-db-pool-max-wait'),formatMs(operations().acquire.maxMicros/1000)],
+     [t('admin-db-pool-reads'),count(operations().read.calls)],
+     [t('admin-db-pool-writes'),count(operations().write.calls)],
+    ])}<p class={css.note}>{t('admin-db-pool-operation-help')}</p></>}</Show></section>
    </div>
    <Show when={value().database.backend==='sqlite'}><OnlineDatabaseConversion/></Show>
    <Show when={value().backgroundMaintenance} keyed>{maintenance=><BackgroundDatabaseMaintenance report={maintenance} onRefresh={()=>void reload()}/>}</Show>
@@ -60,13 +69,15 @@ export function DatabaseObservability():JSX.Element{
     <Show when={value().details}>{details=><>
      <p class={css.note}>{t('admin-db-observed',{time:formatDateTime(details().observedAt)})}</p>
      <Show when={details().limited}><p class={css.note}>{t('admin-db-limited')}</p></Show>
+     <Show when={details().bodies?.bytesLowerBound||details().tables.some(row=>row.payloadBytesLowerBound||row.rowsLowerBound)}><p class={css.note}>{t('admin-db-sampled-help')}</p></Show>
      <Show when={details().bodies}>{bodies=><>
-      {fields(()=>[[t('admin-db-body-count'),count(bodies().count)],[t('admin-db-body-bytes'),bytes(bodies().bytes)],
-       [t('admin-db-live-bytes'),bytes(bodies().liveBytes??(bodies().bytes!==null&&bodies().orphanBytes!==null?bodies().bytes!-bodies().orphanBytes!:null))],[t('admin-db-orphan-count'),count(bodies().orphanCount)],[t('admin-db-orphan-bytes'),bytes(bodies().orphanBytes)]])}
+      <p class={css.note}>{t('admin-db-body-help')}</p>
+      {fields(()=>[[t('admin-db-body-count'),measuredCount(bodies().count,bodies().countLowerBound)],[t('admin-db-body-bytes'),measuredBytes(bodies().bytes,bodies().bytesLowerBound)],
+       [t('admin-db-live-bytes'),bytes(bodies().liveBytes??(!bodies().bytesLowerBound&&bodies().bytes!==null&&bodies().orphanBytes!==null?bodies().bytes!-bodies().orphanBytes!:null))],[t('admin-db-orphan-count'),count(bodies().orphanCount)],[t('admin-db-orphan-bytes'),bytes(bodies().orphanBytes)]])}
       <p class={css.note}>{t('admin-db-orphan-help')}</p>
      </>}</Show>
      <label>{t('admin-db-search')}<SearchInput value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
-     <div class={css.tableWrap}><table class={css.table}><thead><tr><th>{t('admin-db-table')}</th><th>{t('admin-db-payload')}</th><th>{t('admin-db-size')}</th><th>{t('admin-db-columns')}</th><th>{t('admin-db-rows')}</th><th><button class="btn btn--ghost" type="button" aria-pressed={sortGrowth()} onClick={()=>setSortGrowth(v=>!v)}>{t('admin-db-growth')}</button></th></tr></thead><tbody><For each={rows()}>{row=><tr><th scope="row"><code>{row.name}</code></th><td>{bytes(row.payloadBytes)}</td><td>{bytes(row.bytes)}</td><td><For each={[...(row.columns??[])].sort((a,b)=>b.bytes-a.bytes).slice(0,3)} fallback={<span>{absent()}</span>}>{column=><div><code>{column.name}</code> · {bytes(column.bytes)}</div>}</For></td><td>{count(row.rows)}{row.rowsEstimated?` · ${t('admin-db-estimated')}`:''}</td><td title={row.growthSince?formatDateTime(row.growthSince):undefined}>{typeof row.growthBytes==='number'?`${row.growthBytes<0?'−':row.growthBytes>0?'+':''}${bytes(Math.abs(row.growthBytes))}`:absent()}</td></tr>}</For></tbody></table></div>
+     <div class={css.tableWrap}><table class={css.table}><thead><tr><th>{t('admin-db-table')}</th><th>{t('admin-db-payload')}</th><th>{t('admin-db-size')}</th><th>{t('admin-db-columns')}</th><th>{t('admin-db-rows')}</th><th><button class="btn btn--ghost" type="button" aria-pressed={sortGrowth()} onClick={()=>setSortGrowth(v=>!v)}>{t('admin-db-growth')}</button></th></tr></thead><tbody><For each={rows()}>{row=><tr><th scope="row"><code>{row.name}</code></th><td>{measuredBytes(row.payloadBytes,row.payloadBytesLowerBound)}</td><td>{row.bytes==null&&row.payloadBytes!=null?t('admin-db-physical-limited'):bytes(row.bytes)}</td><td><For each={[...(row.columns??[])].sort((a,b)=>b.bytes-a.bytes).slice(0,3)} fallback={<span>{absent()}</span>}>{column=><div><code>{column.name}</code> · {measuredBytes(column.bytes,column.bytesLowerBound)}</div>}</For></td><td>{measuredCount(row.rows,row.rowsLowerBound)}{row.rowsEstimated?` · ${t('admin-db-estimated')}`:''}</td><td title={row.growthSince?formatDateTime(row.growthSince):undefined}>{typeof row.growthBytes==='number'?`${row.growthBytes<0?'−':row.growthBytes>0?'+':''}${bytes(Math.abs(row.growthBytes))}`:absent()}</td></tr>}</For></tbody></table></div>
     </>}</Show>
    </section>
    <Show when={value().growth}>{growth=><section class={css.card}>

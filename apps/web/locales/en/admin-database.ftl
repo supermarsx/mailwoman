@@ -134,3 +134,16 @@ admin-resources-cpu-kernel = Selected kernel for large inputs
 admin-resources-cpu-features = Available CPU features
 admin-resources-cpu-portable = Portable
 admin-resources-cpu-kernel-help = Applies to ASCII lowercasing. AVX2 starts at { $avx2 } bytes and AVX-512 at { $avx512 } bytes when supported. Short inputs use the portable path. Available features are not all used by the app.
+
+admin-db-pool-demand-help = Connections grow with demand and shrink when idle, within the displayed minimum and maximum.
+admin-db-pool-restart-help = Connection limits and timings change only after a full server restart; this is not live ceiling resizing.
+admin-db-pool-acquisitions = Pool acquisitions
+admin-db-pool-acquire-failures = Acquisition failures
+admin-db-pool-total-wait = Cumulative acquisition time
+admin-db-pool-max-wait = Longest acquisition time
+admin-db-pool-reads = Measured reads
+admin-db-pool-writes = Measured writes
+admin-db-pool-operation-help = Counters cover this server process’s measured query helpers. Direct SQLx calls and other replicas are excluded.
+admin-db-sampled-help = Values marked ≥ are measured lower bounds from up to 512 rows, not estimated totals. Exact scans reached their time limit.
+admin-db-physical-limited = Physical scan limited
+admin-db-body-help = Bodies cache encrypted raw messages, including inline images and attachments. Referenced bodies still belong to messages; orphaned bodies have no message link. Payload bytes differ from allocated or reusable file pages.

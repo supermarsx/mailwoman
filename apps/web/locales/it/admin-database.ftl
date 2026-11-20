@@ -134,3 +134,16 @@ admin-resources-cpu-kernel = Routine selezionata per input grandi
 admin-resources-cpu-features = Funzionalità CPU disponibili
 admin-resources-cpu-portable = Portabile
 admin-resources-cpu-kernel-help = Si applica alla conversione ASCII in minuscolo. AVX2 da { $avx2 } byte e AVX-512 da { $avx512 } byte, se supportati. Gli input brevi usano la routine portabile. L’app non usa tutte le funzionalità disponibili.
+
+admin-db-pool-demand-help = Le connessioni crescono con la domanda e diminuiscono quando inattive, entro i limiti mostrati.
+admin-db-pool-restart-help = I limiti e i tempi cambiano solo dopo un riavvio completo del server, non a caldo.
+admin-db-pool-acquisitions = Acquisizioni di connessioni
+admin-db-pool-acquire-failures = Acquisizioni non riuscite
+admin-db-pool-total-wait = Tempo cumulativo di acquisizione
+admin-db-pool-max-wait = Acquisizione più lunga
+admin-db-pool-reads = Letture misurate
+admin-db-pool-writes = Scritture misurate
+admin-db-pool-operation-help = I contatori coprono le query misurate di questo processo. Sono escluse le chiamate SQLx dirette e le altre repliche.
+admin-db-sampled-help = I valori con ≥ sono limiti inferiori misurati su un massimo di 512 righe, non stime dei totali. Le scansioni esatte hanno raggiunto il limite di tempo.
+admin-db-physical-limited = Scansione fisica limitata
+admin-db-body-help = I corpi memorizzano messaggi originali cifrati, incluse immagini incorporate e allegati. I corpi referenziati appartengono a messaggi; quelli orfani non hanno un collegamento. I byte del contenuto differiscono dalle pagine allocate o riutilizzabili del file.

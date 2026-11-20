@@ -134,3 +134,16 @@ admin-resources-cpu-kernel = 大きな入力で選択される処理
 admin-resources-cpu-features = 利用可能な CPU 機能
 admin-resources-cpu-portable = ポータブル
 admin-resources-cpu-kernel-help = ASCII の小文字変換に適用されます。対応環境では AVX2 は { $avx2 } バイト以上、AVX-512 は { $avx512 } バイト以上で使用します。短い入力はポータブル処理を使用します。利用可能な機能すべてをアプリが使用するわけではありません。
+
+admin-db-pool-demand-help = 接続は表示された最小数と最大数の間で需要に応じて増え、アイドル時に減ります。
+admin-db-pool-restart-help = 接続上限と時間の変更はサーバー全体の再起動後にのみ適用されます。実行中の上限変更ではありません。
+admin-db-pool-acquisitions = 接続取得回数
+admin-db-pool-acquire-failures = 接続取得の失敗
+admin-db-pool-total-wait = 接続取得の累積時間
+admin-db-pool-max-wait = 最長の接続取得時間
+admin-db-pool-reads = 計測された読み取り
+admin-db-pool-writes = 計測された書き込み
+admin-db-pool-operation-help = このサーバープロセスの計測対象クエリのみを集計します。直接の SQLx 呼び出しと他のレプリカは含みません。
+admin-db-sampled-help = ≥ の値は最大512行で測定した下限であり、合計の推定値ではありません。正確なスキャンは制限時間に達しました。
+admin-db-physical-limited = 物理スキャンは制限されました
+admin-db-body-help = Bodiesはインライン画像や添付ファイルを含む暗号化された元のメッセージをキャッシュします。参照中の本文はメッセージに関連付けられ、孤立した本文には関連付けがありません。内容のバイト数とファイルの割当済み・再利用可能ページは別の測定値です。

@@ -33,6 +33,20 @@ it('requests detailed inspection explicitly and searches the measured tables',as
  expect(within(table).getByText('bodies')).toBeVisible();
 });
 
+it('labels sampled byte lower bounds and never subtracts them into referenced totals',async()=>{
+ const next=fixture();next.details={observedAt:next.observedAt,limited:true,notes:['body-totals-unavailable'],
+ bodies:{count:800,bytes:524288,bytesLowerBound:true,orphanCount:800,orphanBytes:819200},
+ tables:[{name:'bodies',bytes:null,payloadBytes:524288,payloadBytesLowerBound:true,payloadSampleRows:512,rows:800,rowsEstimated:false,columns:[{name:'sealed_bytes',bytes:524288,bytesLowerBound:true}]}]};
+ vi.mocked(loadDatabaseReport).mockResolvedValue(next);render(()=><DatabaseObservability/>);
+ expect(await screen.findByText(/not estimated totals/)).toBeVisible();
+ const table=screen.getByRole('columnheader',{name:'Table'}).closest('table')!;
+ const row=within(table).getByText('bodies').closest('tr')!;
+ expect(row).toHaveTextContent('≥');expect(row).toHaveTextContent('Physical scan limited');expect(row).toHaveTextContent('800');
+ expect(screen.getByText(/including inline images and attachments/)).toBeVisible();
+ const referenced=screen.getByText('Referenced cached body bytes').closest('tr')!;
+ expect(referenced).toHaveTextContent('Not available');
+});
+
 it('makes sustained growth and write origins visible without a payload scan',async()=>{
  const next=fixture();next.growth={status:'rapid-growth',bytesPerMinute:100000000,thresholdBytesPerMinute:67108864,windowMinutes:15,
   samples:[{at:1700000000,dbBytes:100000000,walBytes:0}],writeOrigins:[{origin:'INSERT bodies · cache.rs:1600',statements:30,affectedRows:30,inputBytes:100000000}]};
@@ -40,4 +54,13 @@ it('makes sustained growth and write origins visible without a payload scan',asy
  expect(await screen.findByRole('alert')).toHaveTextContent('Sustained rapid growth');
  expect(screen.getByText('INSERT bodies · cache.rs:1600')).toBeVisible();
  await waitFor(()=>expect(loadDatabaseReport).toHaveBeenCalledTimes(2));expect(loadDatabaseReport).toHaveBeenNthCalledWith(1,false);expect(loadDatabaseReport).toHaveBeenNthCalledWith(2,true);
+});
+
+it('explains demand-managed pools, restart boundaries and process acquisition counters',async()=>{
+ const report=fixture();report.pool.scaling='sqlx-demand-managed';report.pool.ceilingChangesRequireRestart=true;report.pool.dynamicCeilingResize=false;
+ const operation={calls:20,failures:0,totalMicros:2000,maxMicros:100};report.pool.operations={read:operation,write:{...operation,calls:2},other:operation,acquire:{calls:42,failures:1,totalMicros:12000,maxMicros:5000}};
+ vi.mocked(loadDatabaseReport).mockResolvedValue(report);render(()=><DatabaseObservability/>);await screen.findByText('mailwoman.db');
+ expect(screen.getByText('Pool acquisitions').closest('tr')).toHaveTextContent('42');expect(screen.getByText('Acquisition failures').closest('tr')).toHaveTextContent('1');
+ expect(screen.getByText(/Connection limits and timings change only after a full server restart/)).toBeVisible();
+ expect(screen.getByText(/Counters cover this server process/)).toBeVisible();
 });

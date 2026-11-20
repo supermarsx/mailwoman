@@ -134,3 +134,16 @@ admin-resources-cpu-kernel = Ausgewählter Kernel für große Eingaben
 admin-resources-cpu-features = Verfügbare CPU-Funktionen
 admin-resources-cpu-portable = Portabel
 admin-resources-cpu-kernel-help = Gilt für ASCII-Kleinschreibung. AVX2 ab { $avx2 } Bytes und AVX-512 ab { $avx512 } Bytes, sofern unterstützt. Kurze Eingaben verwenden den portablen Pfad. Die App nutzt nicht alle verfügbaren Funktionen.
+
+admin-db-pool-demand-help = Verbindungen wachsen mit der Nachfrage und sinken bei Leerlauf innerhalb der angezeigten Grenzen.
+admin-db-pool-restart-help = Verbindungsgrenzen und Zeiten ändern sich erst nach einem vollständigen Serverneustart, nicht im laufenden Betrieb.
+admin-db-pool-acquisitions = Verbindungsanforderungen
+admin-db-pool-acquire-failures = Fehlgeschlagene Anforderungen
+admin-db-pool-total-wait = Gesamte Anforderungszeit
+admin-db-pool-max-wait = Längste Anforderungszeit
+admin-db-pool-reads = Gemessene Lesezugriffe
+admin-db-pool-writes = Gemessene Schreibzugriffe
+admin-db-pool-operation-help = Zähler erfassen gemessene Abfragehelfer dieses Serverprozesses. Direkte SQLx-Aufrufe und andere Replikate sind ausgeschlossen.
+admin-db-sampled-help = Mit ≥ markierte Werte sind gemessene Untergrenzen aus höchstens 512 Zeilen, keine geschätzten Gesamtwerte. Exakte Scans haben ihr Zeitlimit erreicht.
+admin-db-physical-limited = Physischer Scan begrenzt
+admin-db-body-help = Bodies speichern verschlüsselte Originalnachrichten einschließlich eingebetteter Bilder und Anhänge. Referenzierte Bodies gehören zu Nachrichten; verwaiste haben keinen Nachrichtenverweis. Nutzdatenbytes unterscheiden sich von belegten oder wiederverwendbaren Dateiseiten.

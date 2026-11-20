@@ -134,3 +134,16 @@ admin-resources-cpu-kernel = Routine sélectionnée pour les grandes entrées
 admin-resources-cpu-features = Fonctions disponibles du processeur
 admin-resources-cpu-portable = Portable
 admin-resources-cpu-kernel-help = Concerne la conversion ASCII en minuscules. AVX2 dès { $avx2 } octets et AVX-512 dès { $avx512 } octets, si pris en charge. Les petites entrées utilisent la routine portable. L’application n’utilise pas toutes les fonctions disponibles.
+
+admin-db-pool-demand-help = Les connexions augmentent selon la demande et diminuent au repos, dans les limites affichées.
+admin-db-pool-restart-help = Les limites et délais changent uniquement après un redémarrage complet du serveur, pas à chaud.
+admin-db-pool-acquisitions = Acquisitions de connexions
+admin-db-pool-acquire-failures = Échecs d’acquisition
+admin-db-pool-total-wait = Temps d’acquisition cumulé
+admin-db-pool-max-wait = Acquisition la plus longue
+admin-db-pool-reads = Lectures mesurées
+admin-db-pool-writes = Écritures mesurées
+admin-db-pool-operation-help = Les compteurs couvrent les requêtes mesurées de ce processus serveur. Les appels SQLx directs et les autres réplicas sont exclus.
+admin-db-sampled-help = Les valeurs marquées ≥ sont des limites inférieures mesurées sur au plus 512 lignes, pas des totaux estimés. Les analyses exactes ont atteint leur limite de temps.
+admin-db-physical-limited = Analyse physique limitée
+admin-db-body-help = Les corps mettent en cache les messages bruts chiffrés, images intégrées et pièces jointes comprises. Les corps référencés appartiennent à des messages ; les corps orphelins ne sont plus liés. Les octets de contenu diffèrent des pages allouées ou réutilisables du fichier.

@@ -134,3 +134,16 @@ admin-resources-cpu-kernel = Geselecteerde routine voor grote invoer
 admin-resources-cpu-features = Beschikbare CPU-functies
 admin-resources-cpu-portable = Draagbaar
 admin-resources-cpu-kernel-help = Geldt voor het omzetten van ASCII naar kleine letters. AVX2 vanaf { $avx2 } bytes en AVX-512 vanaf { $avx512 } bytes, indien ondersteund. Korte invoer gebruikt de draagbare routine. De app gebruikt niet alle beschikbare functies.
+
+admin-db-pool-demand-help = Verbindingen groeien met de vraag en nemen bij inactiviteit af binnen de getoonde grenzen.
+admin-db-pool-restart-help = Verbindingslimieten en tijden wijzigen pas na een volledige serverherstart, niet live.
+admin-db-pool-acquisitions = Verbindingsaanvragen
+admin-db-pool-acquire-failures = Mislukte aanvragen
+admin-db-pool-total-wait = Totale aanvraagtijd
+admin-db-pool-max-wait = Langste aanvraagtijd
+admin-db-pool-reads = Gemeten leesacties
+admin-db-pool-writes = Gemeten schrijfacties
+admin-db-pool-operation-help = Tellers omvatten gemeten queryhelpers van dit serverproces. Directe SQLx-aanroepen en andere replica’s zijn uitgesloten.
+admin-db-sampled-help = Waarden met ≥ zijn gemeten ondergrenzen van maximaal 512 rijen, geen geschatte totalen. Exacte scans hebben hun tijdslimiet bereikt.
+admin-db-physical-limited = Fysieke scan beperkt
+admin-db-body-help = Bodies bewaren versleutelde oorspronkelijke berichten, inclusief ingesloten afbeeldingen en bijlagen. Verwezen bodies horen bij berichten; verweesde bodies hebben geen berichtkoppeling. Inhoudsbytes verschillen van toegewezen of herbruikbare bestandspagina's.

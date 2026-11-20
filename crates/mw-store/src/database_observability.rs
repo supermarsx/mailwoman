@@ -44,23 +44,11 @@ impl Store {
             "migrations": self.migration_detail().await?,
             "details": null,
         });
-        macro_rules! pool_info {
-            ($pool:expr) => {{
-                let options = $pool.options();
-                json!({"open":$pool.size(),"idle":$pool.num_idle(),
-                    "busy":$pool.size().saturating_sub($pool.num_idle() as u32),
-                    "minimum":options.get_min_connections(),"maximum":options.get_max_connections(),
-                    "acquireTimeoutMs":options.get_acquire_timeout().as_millis() as u64,
-                    "idleTimeoutMs":options.get_idle_timeout().map(|v|v.as_millis() as u64),
-                    "maxLifetimeMs":options.get_max_lifetime().map(|v|v.as_millis() as u64),
-                    "closed":$pool.is_closed()})
-            }};
-        }
+        result["pool"] = self.database_pool_snapshot().await;
         match &self.backend {
             Backend::Sqlite(live) => {
                 let pinned = live.pin().await;
                 let pool = pinned.pool();
-                result["pool"] = pool_info!(pool);
                 let mut connection = pool.acquire().await?;
                 let mut pragmas = serde_json::Map::new();
                 for (name, statement) in [
@@ -96,7 +84,6 @@ impl Store {
                 drop(connection);
             }
             Backend::Postgres(pool) => {
-                result["pool"] = pool_info!(pool);
                 result["storage"] = json!({"tls":sqlx::query_scalar::<_,bool>(
                     "SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()"
                 ).fetch_optional(pool).await.ok().flatten()});
@@ -129,7 +116,10 @@ impl Store {
     }
 }
 
-async fn sqlite_details(pool: crate::sqlite_live::LiveSqlite, budget: Duration) -> Result<Value, StoreError> {
+async fn sqlite_details(
+    pool: crate::sqlite_live::LiveSqlite,
+    budget: Duration,
+) -> Result<Value, StoreError> {
     let pinned = pool.pin().await;
     sqlite_details_with_physical_budget(pinned.pool().clone(), budget, Duration::from_secs(8)).await
 }
@@ -151,6 +141,75 @@ async fn sqlite_details_with_physical_budget(
     budget: Duration,
     physical_budget: Duration,
 ) -> Result<Value, StoreError> {
+    sqlite_details_with_scan_budgets(pool, budget, physical_budget, Duration::from_secs(7)).await
+}
+
+// Return measured prefix bytes, never extrapolate a biased prefix into a total.
+async fn logical_sample(
+    connection: &mut sqlx::SqliteConnection,
+    name: &str,
+    columns: &[String],
+    deadline: Instant,
+) -> Result<Value, sqlx::Error> {
+    inspection_deadline(
+        connection,
+        deadline.min(Instant::now() + Duration::from_millis(500)),
+    )
+    .await?;
+    let count = sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM {}", quoted(name)))
+        .fetch_one(&mut *connection)
+        .await
+        .ok();
+    inspection_deadline(
+        connection,
+        deadline.min(Instant::now() + Duration::from_millis(750)),
+    )
+    .await?;
+    let expressions = columns
+        .iter()
+        .enumerate()
+        .map(|(i, col)| format!("octet_length({}) AS c{i}", quoted(col)))
+        .collect::<Vec<_>>();
+    let selected = if expressions.is_empty() {
+        "1 AS present".into()
+    } else {
+        expressions.join(",")
+    };
+    let sums = columns
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!(",CAST(COALESCE(SUM(c{i}),0) AS BIGINT) AS c{i}"))
+        .collect::<String>();
+    let statement = format!(
+        "SELECT COUNT(*) AS n{sums} FROM (SELECT {selected} FROM {} LIMIT 512)",
+        quoted(name)
+    );
+    let sampled = sqlx::query(&statement).fetch_one(&mut *connection).await;
+    match sampled {
+        Ok(row) => {
+            let n = row.try_get::<i64, _>("n")?;
+            let complete = n < 512 || count == Some(n);
+            let values=columns.iter().enumerate().map(|(i,col)|Ok(json!({"name":col,"bytes":row.try_get::<i64,_>(format!("c{i}").as_str())?,"bytesLowerBound":!complete}))).collect::<Result<Vec<_>,sqlx::Error>>()?;
+            let bytes = values
+                .iter()
+                .filter_map(|v| v["bytes"].as_i64())
+                .fold(0i64, i64::saturating_add);
+            Ok(
+                json!({"rows":if n<512{Some(n)}else{count.or(Some(n))},"rowsEstimated":false,"rowsLowerBound":count.is_none()&&!complete,"payloadBytes":bytes,"payloadBytesLowerBound":!complete,"payloadSampleRows":n,"measurementSource":if complete{"bounded-complete-scan"}else{"sample-lower-bound"},"columns":values}),
+            )
+        }
+        Err(_) => Ok(
+            json!({"rows":count,"rowsEstimated":false,"measurementSource":"scan-budget-exceeded"}),
+        ),
+    }
+}
+
+async fn sqlite_details_with_scan_budgets(
+    pool: sqlx::SqlitePool,
+    budget: Duration,
+    physical_budget: Duration,
+    body_totals_budget: Duration,
+) -> Result<Value, StoreError> {
     let mut connection = pool.acquire().await?;
     let deadline = Instant::now() + budget;
     inspection_deadline(&mut connection, deadline).await?;
@@ -159,10 +218,15 @@ async fn sqlite_details_with_physical_budget(
         let mut notes=Vec::new();
         let limited=names.len()>512;
         let mut bodies=json!({"count":null,"bytes":null,"orphanCount":null,"orphanBytes":null,"liveCount":null,"liveBytes":null});
+        // COUNT may use the narrow primary-key index. Preserve it independently
+        // from BLOB-table totals, then collect bounded metadata-only bytes first.
+        let sample=logical_sample(&mut connection,"bodies",&["sealed_bytes".into()],deadline).await?;
+        bodies["count"]=sample["rows"].clone();bodies["countLowerBound"]=sample["rowsLowerBound"].clone();
+        bodies["bytes"]=sample["payloadBytes"].clone();bodies["bytesLowerBound"]=sample["payloadBytesLowerBound"].clone();bodies["sampleRows"]=sample["payloadSampleRows"].clone();
         // BLOB byte lengths are read from record metadata, never transferred or decrypted as mail.
-        inspection_deadline(&mut connection,deadline.min(Instant::now()+Duration::from_secs(7))).await?;
+        inspection_deadline(&mut connection,deadline.min(Instant::now()+body_totals_budget)).await?;
         match sqlx::query("SELECT COUNT(*) AS n,CAST(COALESCE(SUM(octet_length(sealed_bytes)),0) AS BIGINT) AS bytes FROM bodies").fetch_one(&mut *connection).await {
-            Ok(row)=>{bodies["count"]=json!(row.try_get::<i64,_>("n")?);bodies["bytes"]=json!(row.try_get::<i64,_>("bytes")?);},
+            Ok(row)=>{bodies["count"]=json!(row.try_get::<i64,_>("n")?);bodies["bytes"]=json!(row.try_get::<i64,_>("bytes")?);bodies["countLowerBound"]=json!(false);bodies["bytesLowerBound"]=json!(false);},
             Err(_)=>notes.push("body-totals-unavailable"),
         }
         let logical_deadline=deadline.min(Instant::now()+Duration::from_secs(12));
@@ -171,7 +235,9 @@ async fn sqlite_details_with_physical_budget(
             let mut table=json!({"name":name,"bytes":null,"payloadBytes":null,"indexBytes":null,"rows":null,"rowsEstimated":false,"columns":[]});
             if name=="bodies"&&!bodies["bytes"].is_null(){
                 table["payloadBytes"]=bodies["bytes"].clone();table["rows"]=bodies["count"].clone();
-                table["columns"]=json!([{"name":"sealed_bytes","bytes":bodies["bytes"]}]);
+                table["payloadBytesLowerBound"]=bodies["bytesLowerBound"].clone();table["rowsLowerBound"]=bodies["countLowerBound"].clone();table["payloadSampleRows"]=bodies["sampleRows"].clone();
+                table["measurementSource"]=json!(if bodies["bytesLowerBound"]==true{"sample-lower-bound"}else{"complete-scan"});
+                table["columns"]=json!([{"name":"sealed_bytes","bytes":bodies["bytes"],"bytesLowerBound":bodies["bytesLowerBound"]}]);
             }else if Instant::now()<logical_deadline{
                 inspection_deadline(&mut connection,logical_deadline.min(Instant::now()+Duration::from_millis(750))).await?;
                 let metadata=match sqlx::query("SELECT name,type,hidden FROM pragma_table_xinfo(?1)").bind(&name).fetch_all(&mut *connection).await{
@@ -190,7 +256,11 @@ async fn sqlite_details_with_physical_budget(
                         let total:i64=values.iter().filter_map(|v|v["bytes"].as_i64()).sum();
                         table["rows"]=json!(row.try_get::<i64,_>("n")?);table["payloadBytes"]=json!(total);table["columns"]=json!(values);
                     },
-                    Err(_)=>{if !notes.contains(&"payload-scan-limited"){notes.push("payload-scan-limited");}},
+                    Err(_)=>{
+                        if !notes.contains(&"payload-scan-limited"){notes.push("payload-scan-limited");}
+                        let fallback=logical_sample(&mut connection,&name,&columns,logical_deadline).await?;
+                        if let Some(fields)=fallback.as_object(){for(key,value)in fields{table[key]=value.clone();}}
+                    },
                 }
             }else if !notes.contains(&"payload-scan-limited"){notes.push("payload-scan-limited");}
             tables.push(table);
@@ -201,8 +271,8 @@ async fn sqlite_details_with_physical_budget(
             Ok(row)=>{
                 let n=row.try_get::<i64,_>("n")?;let bytes=row.try_get::<i64,_>("bytes")?;
                 bodies["orphanCount"]=json!(n);bodies["orphanBytes"]=json!(bytes);
-                bodies["liveCount"]=bodies["count"].as_i64().map(|v|json!(v-n)).unwrap_or(Value::Null);
-                bodies["liveBytes"]=bodies["bytes"].as_i64().map(|v|json!(v-bytes)).unwrap_or(Value::Null);
+                if bodies["countLowerBound"]!=true {bodies["liveCount"]=bodies["count"].as_i64().map(|v|json!(v-n)).unwrap_or(Value::Null);}
+                if bodies["bytesLowerBound"]!=true {bodies["liveBytes"]=bodies["bytes"].as_i64().map(|v|json!(v-bytes)).unwrap_or(Value::Null);}
             },Err(_)=>notes.push("body-usage-unavailable"),
         }
         // Exact-name constraints avoid rescanning every B-tree once per table.
@@ -263,6 +333,86 @@ async fn postgres_details(pool: sqlx::PgPool) -> Result<Value, StoreError> {
 mod tests {
     use super::*;
     use crate::{AccountKind, Credentials, NewAccount, ServerKey};
+    use sqlx::Connection;
+
+    #[tokio::test]
+    async fn interrupted_body_totals_keep_index_count_and_measured_prefix_bytes() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE bodies(blob_ref TEXT PRIMARY KEY,sealed_bytes BLOB);CREATE TABLE messages(blob_ref TEXT);WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<800) INSERT INTO bodies SELECT printf('%08d',i),zeroblob(1024) FROM n").execute(&pool).await.unwrap();
+        let report = sqlite_details_with_scan_budgets(
+            pool.clone(),
+            Duration::from_secs(5),
+            Duration::ZERO,
+            Duration::ZERO,
+        )
+        .await
+        .unwrap();
+        assert_eq!(report["bodies"]["count"], 800);
+        assert_eq!(report["bodies"]["bytes"], 512 * 1024);
+        assert_eq!(report["bodies"]["bytesLowerBound"], true);
+        assert!(
+            report["bodies"]["liveBytes"].is_null(),
+            "a sampled total cannot be subtracted from exact orphan bytes"
+        );
+        let body = report["tables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|table| table["name"] == "bodies")
+            .unwrap();
+        assert_eq!(body["rows"], 800);
+        assert_eq!(body["payloadSampleRows"], 512);
+        assert_eq!(body["payloadBytes"], 512 * 1024);
+        assert_eq!(body["payloadBytesLowerBound"], true);
+        assert!(body["bytes"].is_null(), "physical bytes were not scanned");
+        assert_eq!(body["columns"][0]["bytesLowerBound"], true);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM bodies")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            800,
+            "inspection must preserve all bodies"
+        );
+        pool.close().await;
+    }
+    #[tokio::test]
+    async fn bounded_sample_supports_sqlcipher_and_never_exposes_values() {
+        crate::encryption::init();
+        let dir = tempfile::tempdir().unwrap();
+        let key = crate::encryption::DbKey::generate();
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(dir.path().join("encrypted.db"))
+            .create_if_missing(true)
+            .pragma("key", crate::encryption::key_pragma(&key));
+        let mut connection = sqlx::SqliteConnection::connect_with(&options)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE sample_log(detail TEXT,raw BLOB); INSERT INTO sample_log VALUES('NEVER-EXPOSE-THIS',zeroblob(2048)),('abc',zeroblob(1024))").execute(&mut connection).await.unwrap();
+        let sample = logical_sample(
+            &mut connection,
+            "sample_log",
+            &["detail".into(), "raw".into()],
+            Instant::now() + Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+        assert_eq!(sample["rows"], 2);
+        assert_eq!(sample["payloadBytes"], 3072 + 20);
+        assert_eq!(sample["payloadBytesLowerBound"], false);
+        assert_eq!(sample["columns"][1]["bytes"], 3072);
+        assert!(!sample.to_string().contains("NEVER-EXPOSE-THIS"));
+        connection
+            .lock_handle()
+            .await
+            .unwrap()
+            .remove_progress_handler();
+        connection.close().await.unwrap();
+    }
 
     #[tokio::test]
     async fn reports_payloads_and_old_bodies_even_without_physical_scan_time() {
