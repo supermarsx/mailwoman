@@ -1,3 +1,4 @@
+import {campaignCacheExperiment,assertSqliteCacheWitness,cacheExperimentEvidence} from './sqlite-page-cache-witness.mjs';
 import {qualifiesIndexPublication} from './index-publication-health.mjs';
 // Invoked only by the ignored Rust integration fixture. No arbitrary remote URL.
 import {writeFile,mkdir} from 'node:fs/promises';
@@ -12,6 +13,8 @@ import {verifyFixtureIsolation} from './fixture-isolation.mjs';
 
 try{
  const handoff=JSON.parse((await readPrivate(process.argv[2],HANDOFF_LIMIT)).toString('utf8')),base=new URL(handoff.base);
+ const options=campaignOptions();
+ const cacheExperiment=campaignCacheExperiment(handoff,options);
  const startupReadiness=startupReadinessReport(handoff.startupReadiness,{required:handoff.engineMode==='native'});
  const policyEvidence=fixturePolicyReport(handoff.policyEvidence);
  const searchWriter=searchWriterReport(handoff.searchWriter);
@@ -54,16 +57,16 @@ try{
   if(spec.validateBytes){if(!spec.validateBytes(Buffer.from(await response.arrayBuffer())))throw new Error(`Fixture ${spec.name} preflight failed content validation`);}
   else {const value=await response.json();if(spec.validate&&!spec.validate(value))throw new Error(`Fixture ${spec.name} preflight failed application validation`);}
  }
- const options=campaignOptions();
  const diagnostics=async(phase)=>{
   if(!handoff.diagnostics)return null;
   const url=new URL(handoff.diagnostics.path,base),init={headers:{'x-fixture-token':handoff.diagnostics.token},redirect:'error',signal:AbortSignal.timeout(5000)};
   if(phase==='before'){const reset=await fetch(url,{...init,method:'POST'});if(!reset.ok)throw new Error('Private fixture diagnostic reset unavailable');await reset.body?.cancel();}
   const response=await fetch(url,init);
-  if(!response.ok)throw new Error('Private fixture diagnostics unavailable');return fixtureDiagnosticsReport(await response.json());
+  if(!response.ok)throw new Error('Private fixture diagnostics unavailable');const snapshot=fixtureDiagnosticsReport(await response.json());if(cacheExperiment)assertSqliteCacheWitness(snapshot,cacheExperiment);return snapshot;
  };
  const report={generatedAt:new Date().toISOString(),target:native?'ephemeral loopback Mailwoman router + seeded native engine':'ephemeral loopback Mailwoman router + local JMAP mock',scenario:`real authenticated middleware/HTTP/${native?'native-engine':'proxy'} with ${handoff.backend??'sqlite'}; fixture data; no TLS/reverse proxy`,backend:handoff.backend??'sqlite',buildProfile:handoff.buildProfile??'unknown',uniqueAuthenticatedPrincipals:principals.length,engineMode:native?'native':'proxy',protection:typeof handoff.protection==='string'?handoff.protection:handoff.protection?'rate/adaptive/user-agent observe; scanner enforce':'rate/adaptive/user-agent/scanner off',refreshSemantics:native?'native fixture backend refresh; upstream:true':'authenticated refresh route only; proxy response upstream:false; no upstream reconciliation',effectiveFixtureBudgets:handoff.budgets??{},runtimeWorkerThreads:handoff.runtimeWorkerThreads??4,runtimeWorkerStackBytes:handoff.runtimeWorkerStackBytes??null,generatorPlacement:handoff.generatorPlacement??'child process in same resource group',runtime:process.version,model:options.mode==='smoke'?'bounded open-loop overload smoke':'warmed concurrency ramp, followed by rates bounded by observed successful throughput; no capacity claim',stages:[]};
  Object.assign(report,{startupReadiness,policyEvidence,workloadProfile,isolationEvidence,searchWriter,searchStorage,linkedLoginPolicyProbe},await runCampaign({base,headers,groups,options,diagnostics}));
+ if(cacheExperiment)report.sqliteCacheExperiment=cacheExperimentEvidence(cacheExperiment,report.stages);
  report.clientModel={workload:clientModel.workload,simulationMode:clientModel.simulationMode,configuredPrincipals:principals.length,configuredSimulatedClients:clientModel.clientCount,distinctPhysicalGeneratorHostsMeasured:false,actualPrincipalCoverage:Math.max(0,...report.stages.map(s=>s.uniquePrincipalsAccepted??0)),actualSimulatedClientCoverage:Math.max(0,...report.stages.map(s=>s.uniqueClientsAccepted??0))};
  report.capacityTarget={successfulRps:40000,simultaneousAuthenticatedUsers:10000,verifiedUniquePrincipals:Math.max(0,...report.stages.map(s=>s.uniquePrincipalsAccepted??0)),httpRateMet:report.stages.some(s=>s.phase==='offered-rate'&&s.arrivalRate>=40000&&s.acceptedDuringScheduledWindowRps>=40000&&s.errors===0&&s.throttled===0&&s.timeouts===0&&(s.droppedCapacity+s.droppedScheduler)===0&&s.scheduledSeconds>=30)};
  report.capacityTarget.httpMultiUserTargetMet=report.stages.some(s=>['mixed','representative'].includes(s.endpoint)&&s.phase==='offered-rate'&&s.arrivalRate>=40000&&s.acceptedDuringScheduledWindowRps>=40000&&s.uniquePrincipalsAcceptedDuringScheduledWindow>=10000&&s.uniqueClientsAcceptedDuringScheduledWindow>=10000&&s.errors===0&&s.throttled===0&&s.timeouts===0&&(s.droppedCapacity+s.droppedScheduler)===0&&s.scheduledSeconds>=30&&qualifiesHttpTelemetry(s.diagnostics)&&qualifiesIndexPublication(s.diagnostics));

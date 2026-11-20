@@ -7,7 +7,7 @@ export function validateReady(value,now=Date.now()){
  if(value?.version!==1||!uuid.test(value.runId??'')||!Number.isSafeInteger(value.expiresAtMs)||value.expiresAtMs<=now||value.expiresAtMs>now+2000000)throw new Error('Invalid or expired external fixture control');
  if(value.handoffFile!=='handoff.private.json'||value.outputFile!=='report.json')throw new Error('Invalid external fixture filenames');
  if(!Number.isInteger(value.deadlineSeconds)||value.deadlineSeconds<10||value.deadlineSeconds>1800)throw new Error('Invalid external fixture deadline');
- const allowed=new Set(['MW_LOAD_FIXTURE_MODE','MW_LOAD_FIXTURE_LONG','MW_LOAD_FIXTURE_SECONDS','MW_LOAD_FIXTURE_WARMUP_SECONDS','MW_LOAD_FIXTURE_DEADLINE_SECONDS','MW_LOAD_FIXTURE_CONCURRENCY','MW_LOAD_FIXTURE_ENDPOINTS','MW_LOAD_FIXTURE_RATES','MW_LOAD_FIXTURE_TIMEOUT_MS','MW_LOAD_FIXTURE_MAX_ERROR_RATE','MW_LOAD_FIXTURE_MAX_THROTTLE_RATE','MW_LOAD_FIXTURE_MAX_P99_MS','MW_LOAD_FIXTURE_ALLOW_OVERLOAD','MW_LOAD_FIXTURE_ADAPTIVE']);
+ const allowed=new Set(['MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT','MW_LOAD_FIXTURE_MODE','MW_LOAD_FIXTURE_LONG','MW_LOAD_FIXTURE_SECONDS','MW_LOAD_FIXTURE_WARMUP_SECONDS','MW_LOAD_FIXTURE_DEADLINE_SECONDS','MW_LOAD_FIXTURE_CONCURRENCY','MW_LOAD_FIXTURE_ENDPOINTS','MW_LOAD_FIXTURE_RATES','MW_LOAD_FIXTURE_TIMEOUT_MS','MW_LOAD_FIXTURE_MAX_ERROR_RATE','MW_LOAD_FIXTURE_MAX_THROTTLE_RATE','MW_LOAD_FIXTURE_MAX_P99_MS','MW_LOAD_FIXTURE_ALLOW_OVERLOAD','MW_LOAD_FIXTURE_ADAPTIVE']);
  if(!value.campaignEnv||Object.entries(value.campaignEnv).some(([key,text])=>!allowed.has(key)||typeof text!=='string'||text.length>256))throw new Error('Invalid external fixture environment');
  return value;
 }

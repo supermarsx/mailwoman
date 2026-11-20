@@ -140,6 +140,7 @@ pub async fn run(
     }
     let mut env = serde_json::Map::new();
     for key in [
+        "MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT",
         "MW_LOAD_FIXTURE_MODE",
         "MW_LOAD_FIXTURE_LONG",
         "MW_LOAD_FIXTURE_SECONDS",

@@ -1,3 +1,4 @@
+import {cacheExperimentFromEnv} from './sqlite-page-cache-witness.mjs';
 // Bounded plans for an explicitly opted-in, isolated application fixture.
 import {measure} from './http-load.mjs';
 
@@ -28,7 +29,7 @@ export function campaignOptions(env=process.env){
   maxErrorRate:number(env,'MW_LOAD_FIXTURE_MAX_ERROR_RATE',.001,0,1),
   maxThrottleRate:number(env,'MW_LOAD_FIXTURE_MAX_THROTTLE_RATE',0,0,1),
   maxP99Ms:number(env,'MW_LOAD_FIXTURE_MAX_P99_MS',2000,1,120000),
-  allowOverload:env.MW_LOAD_FIXTURE_ALLOW_OVERLOAD==='1',adaptive:env.MW_LOAD_FIXTURE_ADAPTIVE!=='0'};
+  allowOverload:env.MW_LOAD_FIXTURE_ALLOW_OVERLOAD==='1',adaptive:env.MW_LOAD_FIXTURE_ADAPTIVE!=='0',...(env.MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT===undefined?{}:{sqliteCacheExperiment:cacheExperimentFromEnv(env.MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT)})};
 }
 export function stopReason(stage,options){
  if(stage.mutationStateTainted)return 'unknown-mutation-outcome';

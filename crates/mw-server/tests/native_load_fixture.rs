@@ -715,7 +715,29 @@ fn diagnostic_index_worker_override_is_strict_and_memory_bounded() {
         assert!(fixture_writer_options(Some(value)).is_err(),"{value}");
     }
 }
+fn fixture_cache_experiment(raw: Option<&str>) -> std::result::Result<Option<Value>, &'static str> {
+    let Some(raw)=raw else{return Ok(None)};
+    let requested=if raw=="null" {None} else {
+        let valid= !raw.is_empty() && raw.bytes().all(|b|b.is_ascii_digit()) && !raw.starts_with('0');
+        if !valid {return Err("invalid SQLite cache experiment expectation")}
+        let value=raw.parse::<u32>().map_err(|_|"invalid SQLite cache experiment expectation")?;
+        if !(16..=1024).contains(&value) {return Err("invalid SQLite cache experiment expectation")}
+        Some(value)
+    };
+    Ok(Some(json!({"kind":"sqlite-page-cache","requestedAggregateMiB":requested})))
+}
+#[test]
+fn cache_experiment_expectation_is_explicit_and_bounded() {
+    assert_eq!(fixture_cache_experiment(None).unwrap(),None);
+    assert_eq!(fixture_cache_experiment(Some("null")).unwrap().unwrap()["requestedAggregateMiB"],Value::Null);
+    assert_eq!(fixture_cache_experiment(Some("256")).unwrap().unwrap()["requestedAggregateMiB"],256);
+    for raw in ["","NULL","0","15","1025","0256","256.0","+256"," 256"] {assert!(fixture_cache_experiment(Some(raw)).is_err());}
+}
 async fn run(workers: usize) {
+    let cache_expectation_env=std::env::var_os("MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT")
+        .map(|value|value.into_string().unwrap_or_else(|_|panic!("cache experiment expectation must be Unicode")));
+    let cache_experiment=fixture_cache_experiment(cache_expectation_env.as_deref()).expect("valid cache experiment expectation");
+    let audit_cache=cache_experiment.is_some();
     // Validate diagnostic resources before any database creation or seeding.
     let index_timing_env = std::env::var_os("MW_NATIVE_LOAD_INDEX_TIMING")
         .map(|value| value.into_string().expect("index timing switch must be Unicode"));
@@ -800,6 +822,7 @@ async fn run(workers: usize) {
     } else {
         "sqlite"
     };
+    assert!(!audit_cache||backend=="sqlite","cache experiments require SQLite");
     let key = ServerKey::generate();
     let key_hex = key.to_hex();
     let store = Store::open(&db_path, key).await.unwrap();
@@ -951,7 +974,10 @@ async fn run(workers: usize) {
                         axum::Json(json!({"error":"denied"})),
                     );
                 }
-                let mut snapshot = diagnostics_hook::snapshot(&store, &directory).await;
+                let mut snapshot = match diagnostics_hook::snapshot_with_cache_audit(&store,&directory,audit_cache).await {
+                    Ok(snapshot)=>snapshot,
+                    Err(_)=>return (axum::http::StatusCode::SERVICE_UNAVAILABLE,axum::Json(json!({"error":"cache-audit-unavailable"}))),
+                };
                 snapshot["httpTelemetry"] = mw_server::http_telemetry_snapshot();
                 snapshot["searchIndex"] = json!({
                     "storage":fixture_storage_proof(&engine,index_mode),
@@ -1159,6 +1185,7 @@ async fn run(workers: usize) {
     let handoff = PrivateFile(dir.join("campaign.private.json"));
     let data = json!({"base":base,"cookie":principals[0]["cookie"],"engineMode":"native","fixtureFeatures":["load-test-fixtures"],"uniquePrincipalCount":count,"clientSimulation":{"mode":"fixture-loopback-trusted-proxy","clientCount":count},"principals":principals,"backend":backend,"buildProfile":if cfg!(debug_assertions){"debug"}else{option_env!("MW_CARGO_BUILD_MODE").unwrap_or("release")},"runtimeWorkerThreads":workers,"runtimeWorkerStackBytes":worker_stack_bytes(),"startupReadiness":startup_readiness,"protection":"administrator defaults","budgets":budgets,"diagnostics":{"path":diagnostic_path,"token":diagnostic_token},"pushTrigger":{"path":push_path,"token":push_token}});
     let mut data = data;
+    if let Some(experiment)=cache_experiment {data["sqliteCacheExperiment"]=experiment;}
     data["searchStorage"]=fixture_storage_proof(measured_engine.get().unwrap(),index_mode);
     let configuration=measured_engine.get().unwrap().search().writer_configuration();
     data["searchWriter"]=json!({"requestedWorkers":writer_options.indexing_workers,"indexingWorkers":configuration.indexing_workers,"memoryBudgetBytes":configuration.memory_budget_bytes});

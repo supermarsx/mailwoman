@@ -9,6 +9,8 @@ repository.workspace = true
 [features]
 # Explicit diagnostic fixture only; no trace hooks in default builds.
 query-shape-diagnostics = []
+# Owned idle-handle audit, callable only by explicit diagnostic fixture builds.
+sqlite-cache-diagnostics = []
 
 [dependencies]
 mw-platform-fs = { path = "../mw-platform-fs" }

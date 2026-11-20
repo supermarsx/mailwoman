@@ -183,6 +183,78 @@ pub(crate) async fn sample_idle(pool: &SqlitePool, registry: Arc<Registry>) -> I
     }
 }
 
+/// Explicit fixture-only audit: no default-build route or ordinary request hook.
+#[cfg(any(test, feature = "sqlite-cache-diagnostics"))]
+impl crate::Store {
+    pub async fn sqlite_page_cache_audit(&self) -> Result<serde_json::Value, crate::StoreError> {
+        use serde_json::json;
+        let crate::backend::Backend::Sqlite(live) = &self.backend else {
+            return Err(crate::StoreError::Corrupt(
+                "SQLite cache audit requires SQLite".into(),
+            ));
+        };
+        // Hold the SAME serving generation through target and actual-handle
+        // reads. A conversion/reconfiguration cannot swap underneath this audit.
+        let pin = live.pin().await;
+        let pool = pin.pool();
+        let registry = pin.page_cache_registry();
+        let open_before = pool.size();
+        let maximum = pool.options().get_max_connections();
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(25);
+        let mut held = Vec::new();
+        let mut connections = Vec::new();
+        let (mut failed, mut deadline_reached) = (0usize, false);
+        for _ in 0..open_before.min(32) {
+            if tokio::time::Instant::now() >= deadline {
+                deadline_reached = true;
+                break;
+            }
+            let Some(mut c) = pool.try_acquire() else {
+                break;
+            };
+            let observed = tokio::time::timeout_at(deadline, async {
+                let counters = status(&mut c, &registry).await?;
+                let target = crate::database_observability::sqlite_pragma_i64(
+                    &mut c,
+                    "PRAGMA main.cache_size",
+                )
+                .await?;
+                Ok::<_, sqlx::Error>((counters, target))
+            })
+            .await;
+            match observed {
+                Ok(Ok((counters, target))) => {
+                    let mut row = serde_json::to_value(counters)
+                        .expect("fixed numeric cache counters serialize");
+                    row["mainCacheSize"] = json!(target);
+                    connections.push(row);
+                }
+                Ok(Err(_)) => failed += 1,
+                Err(_) => {
+                    deadline_reached = true;
+                    held.push(c);
+                    break;
+                }
+            }
+            // Leases remain owned even on a failed query, so no duplicate handle
+            // is sampled. Future cancellation drops all held leases and pin.
+            held.push(c);
+        }
+        let open_after = pool.size();
+        Ok(
+            json!({"schema":1,"scope":"foreground-pool-main-target","generationPinned":true,
+            "aggregateMiB":pin.page_cache_policy(),"plannedMaximumConnections":maximum,
+            "perConnectionKiB":pin.page_cache_kib(),
+            "auxiliaryConnectionKiB":pin.page_cache_policy().map(|_|AUXILIARY_KIB),
+            "driverDefaultUnchanged":pin.page_cache_policy().is_none(),"hardMemoryLimit":false,
+            "deadlineMs":25,"deadlineIsCooperative":true,"counterScope":"all-attached-pagers-per-handle",
+            "sample":{"openBefore":open_before,"openAfter":open_after,"sampledConnections":connections.len(),
+            "completeIdleCoverage":!deadline_reached&&failed==0&&connections.len()==open_before as usize&&open_before==open_after,
+            "deadlineReached":deadline_reached,"failedConnections":failed,"connections":connections}}),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,7 +289,9 @@ mod tests {
         let legacy = PoolPolicy::from_boot_values(Some("{}"), None).unwrap();
         assert_eq!(legacy.sqlite_page_cache_mib, None);
         assert_eq!(
-            serde_json::to_value(legacy).unwrap().get("sqlitePageCacheMiB"),
+            serde_json::to_value(legacy)
+                .unwrap()
+                .get("sqlitePageCacheMiB"),
             Some(&serde_json::Value::Null)
         );
         for value in ["0", "15", "1025", "16.5", "\"256\""] {
@@ -341,7 +415,9 @@ mod tests {
         assert!(after.cache_spills.is_some());
         c.close().await.unwrap();
     }
-    async fn tuned_store(legacy_none: bool) -> (
+    async fn tuned_store(
+        legacy_none: bool,
+    ) -> (
         tempfile::TempDir,
         crate::Store,
         crate::ServerKey,
@@ -388,12 +464,22 @@ mod tests {
             // Use this SAME handle, then close/reopen the pool so every handle
             // observes the persisted legacy header rather than cached mode 2.
             sqlx::query("PRAGMA auto_vacuum=NONE")
-                .execute(&mut *connection).await.unwrap();
+                .execute(&mut *connection)
+                .await
+                .unwrap();
             sqlx::query("VACUUM")
-                .execute(&mut *connection).await.unwrap();
-            assert_eq!(crate::database_observability::sqlite_pragma_i64(
-                &mut connection, "PRAGMA auto_vacuum"
-            ).await.unwrap(), 0);
+                .execute(&mut *connection)
+                .await
+                .unwrap();
+            assert_eq!(
+                crate::database_observability::sqlite_pragma_i64(
+                    &mut connection,
+                    "PRAGMA auto_vacuum"
+                )
+                .await
+                .unwrap(),
+                0
+            );
         }
         first.close().await;
         drop(first);
@@ -405,9 +491,15 @@ mod tests {
                 unreachable!()
             };
             let mut connection = live.acquire().await.unwrap();
-            assert_eq!(crate::database_observability::sqlite_pragma_i64(
-                &mut connection, "PRAGMA auto_vacuum"
-            ).await.unwrap(), 0);
+            assert_eq!(
+                crate::database_observability::sqlite_pragma_i64(
+                    &mut connection,
+                    "PRAGMA auto_vacuum"
+                )
+                .await
+                .unwrap(),
+                0
+            );
         }
         (dir, store, key, cfg)
     }
@@ -704,6 +796,35 @@ mod tests {
         assert_eq!(snapshot["sqlitePageCache"]["aggregateMiB"], 16);
         assert_eq!(snapshot["sqlitePageCache"]["perConnectionKiB"], 8192);
         assert!(!live.pin().await.pool().is_closed());
+        store.close().await;
+    }
+    #[tokio::test]
+    async fn fixture_audit_reads_actual_targets_and_rejects_complete_coverage_of_busy_handles() {
+        let (_dir, store, _key, _cfg) = tuned_store(false).await;
+        let crate::backend::Backend::Sqlite(live) = &store.backend else {
+            unreachable!()
+        };
+        let pin = live.pin().await;
+        let mut first = pin.pool().acquire().await.unwrap();
+        let mut second = pin.pool().acquire().await.unwrap();
+        first.return_to_pool().await;
+        let partial = store.sqlite_page_cache_audit().await.unwrap();
+        assert_eq!(partial["sample"]["openBefore"], 2);
+        assert_eq!(partial["sample"]["sampledConnections"], 1);
+        assert_eq!(partial["sample"]["completeIdleCoverage"], false);
+        second.return_to_pool().await;
+        let audit = store.sqlite_page_cache_audit().await.unwrap();
+        assert_eq!(audit["generationPinned"], true);
+        assert_eq!(audit["perConnectionKiB"], 8192);
+        assert_eq!(audit["sample"]["sampledConnections"], 2);
+        assert_eq!(audit["sample"]["completeIdleCoverage"], true);
+        let rows = audit["sample"]["connections"].as_array().unwrap();
+        assert_ne!(rows[0]["connectionEpoch"], rows[1]["connectionEpoch"]);
+        for row in rows {
+            assert_eq!(row["mainCacheSize"], -8192);
+            assert!(row["cacheUsedBytes"].is_u64());
+        }
+        drop(pin);
         store.close().await;
     }
 }

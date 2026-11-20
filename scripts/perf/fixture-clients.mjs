@@ -2,6 +2,7 @@
 // in the public load CLI, or copy session/address identifiers into reports.
 import {isIP} from 'node:net';
 import {indexPublicationReport} from './index-publication-health.mjs';
+import {sqlitePageCacheReport,sqlitePageCacheAuditReport} from './sqlite-page-cache-witness.mjs';
 
 export function fixturePolicyReport(value){
  if(value===undefined)return {mode:'unverified',verified:false};
@@ -38,6 +39,8 @@ export function searchTimingReport(value){
 }
 export function fixtureDiagnosticsReport(value){
  let result=value;
+ if(value?.pool?.sqlitePageCache!==undefined)result={...result,pool:{...value.pool,sqlitePageCache:sqlitePageCacheReport(value.pool.sqlitePageCache)}};
+ if(value?.sqlitePageCacheAudit!==undefined)result={...result,sqlitePageCacheAudit:sqlitePageCacheAuditReport(value.sqlitePageCacheAudit)};
  if(value?.searchIndex?.timings!==undefined)result={...result,searchIndex:{...value.searchIndex,timings:searchTimingReport(value.searchIndex.timings)}};
  if(value?.httpTelemetry!==undefined)result={...result,httpTelemetry:httpTelemetryReport(value.httpTelemetry)};
  if(value?.searchIndex?.publication!==undefined)result={...result,searchIndex:{...result.searchIndex,publication:indexPublicationReport(value.searchIndex.publication)}};
