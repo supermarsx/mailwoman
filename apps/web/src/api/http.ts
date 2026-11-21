@@ -301,7 +301,7 @@ async function sendApiFetch(input: string, given: RequestInit|undefined, assertA
   const fresh = await refreshToken(tokenSource(input));
   if (fresh === null) return res;
   assertAuthority();
-  return fetch(input, withToken(init, fresh));
+  return ordinarySend(withToken(init, fresh));
 }
 
 
