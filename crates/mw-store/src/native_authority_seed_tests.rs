@@ -255,7 +255,11 @@ async fn publication_bounds_contract(s: Store) {
     source
         .replace_publication_part(account_index, own_part)
         .unwrap();
-    let (_, other_session) = seed(&s).await;
+    // A distinct owner must also have a distinct UNIQUE account identity; using
+    // seed() twice duplicates host/port/user/backend on both SQLite and PG.
+    let other_credentials = Credentials { username:"other-owner@authority.test".into(), password:"owned-second-source".into() };
+    let other_account = s.create_account(&NewAccount {kind:AccountKind::Imap,host:"other-owner.authority.test",port:993,tls:"implicit",username:&other_credentials.username,sync_policy_json:"{}"}, &other_credentials).await.unwrap();
+    let other_session = s.create_session(&other_account,&other_credentials.username,"engine","engine",&other_credentials).await.unwrap();
     let mut other = publication_source(&s, &other_session).await;
     other.split_publication_parts();
     let foreign_part = other
