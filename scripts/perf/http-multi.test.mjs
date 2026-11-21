@@ -16,7 +16,7 @@ const stage={concurrency:4,seconds:1,timeoutMs:1000,arrivalRate:100},startAtMs=1
 const partitions=[{index:0,count:2},{index:1,count:2}];
 function result(index){
  const aggregate=new Measurements(),scheduling=new Measurements();
- for(let n=0;n<50;n++){aggregate.add(index?100:1,'200',4,true);scheduling.add(1,'scheduled',0,true);}
+ for(let n=0;n<50;n++){aggregate.add(index?100:1,'200',4,true,false,true);scheduling.add(1,'scheduled',0,true);}
  return {schema:1,workerIndex:index,partitionCount:2,measurement:{window:{requestedStartAtMs:startAtMs,scheduledStartAtMs:startAtMs,scheduledEndAtMs:startAtMs+1000,actualStartAtMs:startAtMs+1,completedAtMs:startAtMs+1010,startLagMs:1},rawMeasurements:{schema:1,aggregate:aggregate.snapshot(),byRequest:{'Email/query':aggregate.snapshot()},scheduling:scheduling.snapshot(),arrivalLatency:aggregate.snapshot()},concurrency:2,scheduledSeconds:1,arrivalRate:50,offered:50,droppedCapacity:0,droppedScheduler:0,acceptedDuringScheduledWindow:50,uniquePrincipalsAttempted:2,uniquePrincipalsAccepted:2,uniquePrincipalsAcceptedDuringScheduledWindow:2,uniqueClientsAttempted:2,uniqueClientsAccepted:2,uniqueClientsAcceptedDuringScheduledWindow:2,peakOutstanding:2,mutationStateTainted:false,unknownMutationOutcomes:0,taintedPrincipals:0,httpDispatchAttempts:50,blockedAfterMutationTaint:0,abortedUnscheduled:0,generator:{cpuUserMs:20,cpuSystemMs:10,rssBeforeBytes:1000,rssAfterBytes:1200,heapAfterBytes:500}}};
 }
 function handoff(count=4){return {base:'http://127.0.0.1:12345',engineMode:'native',backend:'sqlite',buildProfile:'release',uniquePrincipalCount:count,principals:Array.from({length:count},(_,i)=>({cookie:`mw_session=private-session-${i}; mw_csrf=safe-${i}`,csrfToken:`safe-${i}`,accountId:`private-account-${i}`,messageIds:[`private-mail-${i}-1`,`private-mail-${i}-2`],inboxId:`private-inbox-${i}`,clientAddress:`198.18.0.${i+1}`})),clientSimulation:{mode:'fixture-loopback-trusted-proxy',clientCount:count},startupReadiness:{verified:true,state:'ready',startupSeconds:1,indexWaitSeconds:0,seededMessages:count*2,expectedIndexDocuments:count*2,indexDocuments:count*2,zeroAccessExcludedMessages:0,rebuildRunning:false,rebuildDone:count*2,rebuildTotal:count*2},policyEvidence:{mode:'loaded',verified:true,key:'access.protocols',allowedProtocols:['imap'],locked:true,primedRequests:2,revokedRequests:2,revokedStatus:403,restoredRequests:2},workloadProfile:{kind:'baseline',messagesPerPrincipal:2,seededMessages:count*2,seedSeconds:1}};}
@@ -50,7 +50,7 @@ test('missing, duplicate, skewed, malformed or overstated worker results cannot 
 });
 test('an early mutation abort retains counts and a later taint invalidates earlier eligible stages',()=>{
  const aborted=result(0),aggregate=new Measurements(),scheduling=new Measurements();
- for(let i=0;i<10;i++){aggregate.add(1,i===9?'network':'200',i===9?0:4,i!==9,i===9);scheduling.add(1,'scheduled',0,true);}
+ for(let i=0;i<10;i++){aggregate.add(1,i===9?'network':'200',i===9?0:4,i!==9,i===9,true);scheduling.add(1,'scheduled',0,true);}
  Object.assign(aborted.measurement,{mutationStateTainted:true,unknownMutationOutcomes:1,taintedPrincipals:1,httpDispatchAttempts:10,abortedUnscheduled:40,offered:10,acceptedDuringScheduledWindow:9});
  aborted.measurement.window.completedAtMs=startAtMs+500;
  aborted.measurement.rawMeasurements={schema:1,aggregate:aggregate.snapshot(),byRequest:{'Email/query':aggregate.snapshot()},scheduling:scheduling.snapshot(),arrivalLatency:aggregate.snapshot()};

@@ -5,20 +5,27 @@ import {dirname,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as sleep} from 'node:timers/promises';
 
+// Fetch exposes decoded body chunks, never TLS/header/on-wire byte counts.
+export function acceptedInScheduledWindow(status,ok,completed,deadline){
+ return Boolean(ok&&Number(status)>=200&&Number(status)<300&&completed<=deadline);
+}
 export class Measurements {
-  count=0; bytes=0; errors=0; accepted=0; timeouts=0; totalMs=0; maximumMs=0;
+  count=0; bytes=0; acceptedDecodedBytes=0; acceptedDuringScheduledWindow=0; acceptedDuringScheduledWindowDecodedBytes=0; errors=0; accepted=0; timeouts=0; totalMs=0; maximumMs=0;
   histogram=new Map(); statuses={};
-  add(ms,status,bytes,ok,timeout=false){
+  add(ms,status,bytes,ok,timeout=false,inWindow=false){
+    const accepted=ok&&Number(status)>=200&&Number(status)<300;
+    if(!Number.isSafeInteger(bytes)||bytes<0||typeof inWindow!=='boolean'||!Number.isSafeInteger(this.bytes+bytes)||!Number.isSafeInteger(this.acceptedDecodedBytes+bytes)||!Number.isSafeInteger(this.acceptedDuringScheduledWindowDecodedBytes+bytes))throw new Error('Response decoded-byte counter overflow');
+    if(accepted){this.acceptedDecodedBytes+=bytes;if(inWindow){this.acceptedDuringScheduledWindow++;this.acceptedDuringScheduledWindowDecodedBytes+=bytes;}}
     this.count++;this.bytes+=bytes;this.totalMs+=ms;this.maximumMs=Math.max(this.maximumMs,ms);
     if(!ok)this.errors++;if(ok&&Number(status)>=200&&Number(status)<300)this.accepted++;if(timeout)this.timeouts++;
     this.statuses[status]=(this.statuses[status]??0)+1;
     const bucket=ms<=1000?Math.ceil(ms):ms<=10000?Math.ceil(ms/10)*10:Math.min(120100,Math.ceil(ms/100)*100);this.histogram.set(bucket,(this.histogram.get(bucket)??0)+1);
   }
   percentile(fraction){let n=0;const target=Math.ceil(this.count*fraction);for(const [ms,count]of [...this.histogram].sort((a,b)=>a[0]-b[0])){n+=count;if(n>=target)return ms;}return 0;}
-  snapshot(){return {count:this.count,bytes:this.bytes,errors:this.errors,accepted:this.accepted,timeouts:this.timeouts,totalMs:this.totalMs,maximumMs:this.maximumMs,statuses:{...this.statuses},histogram:[...this.histogram].sort((a,b)=>a[0]-b[0])};}
+  snapshot(){return {count:this.count,bytes:this.bytes,acceptedDecodedBytes:this.acceptedDecodedBytes,acceptedDuringScheduledWindow:this.acceptedDuringScheduledWindow,acceptedDuringScheduledWindowDecodedBytes:this.acceptedDuringScheduledWindowDecodedBytes,errors:this.errors,accepted:this.accepted,timeouts:this.timeouts,totalMs:this.totalMs,maximumMs:this.maximumMs,statuses:{...this.statuses},histogram:[...this.histogram].sort((a,b)=>a[0]-b[0])};}
   merge(value){
     const invalid=()=>{throw new Error('Invalid bounded raw measurements');};
-    if(!value||['count','bytes','errors','accepted','timeouts'].some(key=>!Number.isSafeInteger(value[key])||value[key]<0)||!Number.isFinite(value.totalMs)||value.totalMs<0||!Number.isFinite(value.maximumMs)||value.maximumMs<0||value.maximumMs>value.totalMs||value.errors>value.count||value.accepted>value.count-value.errors||value.timeouts>value.errors||!Array.isArray(value.histogram)||value.histogram.length>3002||!value.statuses||Array.isArray(value.statuses)||typeof value.statuses!=='object')invalid();
+    if(!value||['count','bytes','errors','accepted','timeouts','acceptedDecodedBytes','acceptedDuringScheduledWindow','acceptedDuringScheduledWindowDecodedBytes'].some(key=>!Number.isSafeInteger(value[key])||value[key]<0)||!Number.isFinite(value.totalMs)||value.totalMs<0||!Number.isFinite(value.maximumMs)||value.maximumMs<0||value.maximumMs>value.totalMs||value.acceptedDuringScheduledWindow>value.accepted||(value.acceptedDuringScheduledWindow===value.accepted&&value.acceptedDuringScheduledWindowDecodedBytes!==value.acceptedDecodedBytes)||value.acceptedDecodedBytes>value.bytes||value.acceptedDuringScheduledWindowDecodedBytes>value.acceptedDecodedBytes||(value.accepted===0&&value.acceptedDecodedBytes!==0)||(value.acceptedDuringScheduledWindow===0&&value.acceptedDuringScheduledWindowDecodedBytes!==0)||value.errors>value.count||value.accepted>value.count-value.errors||value.timeouts>value.errors||!Array.isArray(value.histogram)||value.histogram.length>3002||!value.statuses||Array.isArray(value.statuses)||typeof value.statuses!=='object')invalid();
     const bins=new Map();let samples=0;
     for(const entry of value.histogram){
       if(!Array.isArray(entry)||entry.length!==2)invalid();
@@ -32,14 +39,14 @@ export class Measurements {
       if(!/^(?:[1-5][0-9]{2}|network|scheduled|campaign-aborted)$/.test(status)||!Number.isSafeInteger(count)||count<1)invalid();
       responses+=count;if(Number(status)>=200&&Number(status)<300)successResponses+=count;
     }
-    if(samples!==value.count||responses!==value.count||value.accepted>successResponses||value.count===0&&(value.totalMs!==0||value.maximumMs!==0||value.bytes!==0)||['count','bytes','errors','accepted','timeouts'].some(key=>!Number.isSafeInteger(this[key]+value[key]))||!Number.isFinite(this.totalMs+value.totalMs))invalid();
-    for(const key of ['count','bytes','errors','accepted','timeouts','totalMs'])this[key]+=value[key];
+    if(samples!==value.count||responses!==value.count||value.accepted>successResponses||value.count===0&&(value.totalMs!==0||value.maximumMs!==0||value.bytes!==0)||['count','bytes','errors','accepted','timeouts','acceptedDecodedBytes','acceptedDuringScheduledWindow','acceptedDuringScheduledWindowDecodedBytes'].some(key=>!Number.isSafeInteger(this[key]+value[key]))||!Number.isFinite(this.totalMs+value.totalMs))invalid();
+    for(const key of ['count','bytes','errors','accepted','timeouts','totalMs','acceptedDecodedBytes','acceptedDuringScheduledWindow','acceptedDuringScheduledWindowDecodedBytes'])this[key]+=value[key];
     this.maximumMs=Math.max(this.maximumMs,value.maximumMs);
     for(const [bucket,count]of bins)this.histogram.set(bucket,(this.histogram.get(bucket)??0)+count);
     for(const [status,count]of statuses)this.statuses[status]=(this.statuses[status]??0)+count;
     return this;
   }
-  report(seconds){return {requests:this.count,requestsPerSecond:this.count/seconds,bytes:this.bytes,accepted:this.accepted,acceptedRequestsPerSecond:this.accepted/seconds,errors:this.errors,throttled:this.statuses[429]??0,timeouts:this.timeouts,statuses:this.statuses,latencyMs:{mean:this.count?this.totalMs/this.count:0,p50:this.percentile(.5),p95:this.percentile(.95),p99:this.percentile(.99),max:this.maximumMs},percentileResolutionMs:'1 through 1s; 10 through 10s; 100 thereafter; overflow 120100'};}
+  report(seconds){return {requests:this.count,requestsPerSecond:this.count/seconds,bytes:this.bytes,acceptedDecodedBytes:this.acceptedDecodedBytes,acceptedDuringScheduledWindow:this.acceptedDuringScheduledWindow,acceptedDuringScheduledWindowDecodedBytes:this.acceptedDuringScheduledWindowDecodedBytes,responseByteMeasurement:'fetch-decoded-body',wireResponseBytes:null,accepted:this.accepted,acceptedRequestsPerSecond:this.accepted/seconds,errors:this.errors,throttled:this.statuses[429]??0,timeouts:this.timeouts,statuses:this.statuses,latencyMs:{mean:this.count?this.totalMs/this.count:0,p50:this.percentile(.5),p95:this.percentile(.95),p99:this.percentile(.99),max:this.maximumMs},percentileResolutionMs:'1 through 1s; 10 through 10s; 100 thereafter; overflow 120100'};}
 }
 
 export function mergeMeasurements(snapshots,seconds){
@@ -98,12 +105,12 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
         if(spec.statefulMutation&&dispatched&&!ok){mutationStateTainted=true;unknownMutationOutcomes++;if(boundedIndex(spec.principalIndex))taintedPrincipals.add(spec.principalIndex);}
         unlock?.();
       }
-      const completed=performance.now(),elapsed=completed-began;
+      const completed=performance.now(),elapsed=completed-began,inWindow=acceptedInScheduledWindow(status,ok,completed,deadline);
       if(ok&&Number(status)>=200&&Number(status)<300){
         increment(principals.accepted,spec.principalIndex);increment(clients.accepted,spec.clientIndex);
-        if(completed<=deadline){acceptedWithinWindow++;if(boundedIndex(spec.principalIndex))principals.withinWindow.add(spec.principalIndex);if(boundedIndex(spec.clientIndex))clients.withinWindow.add(spec.clientIndex);}
+        if(inWindow){acceptedWithinWindow++;if(boundedIndex(spec.principalIndex))principals.withinWindow.add(spec.principalIndex);if(boundedIndex(spec.clientIndex))clients.withinWindow.add(spec.clientIndex);}
       }
-      aggregate.add(elapsed,status,bytes,ok,timedOut);arrivalLatency.add(performance.now()-planned,status,bytes,ok,timedOut);byRequest.get(spec.name).add(elapsed,status,bytes,ok,timedOut);activeCount--;
+      aggregate.add(elapsed,status,bytes,ok,timedOut,inWindow);arrivalLatency.add(performance.now()-planned,status,bytes,ok,timedOut,inWindow);byRequest.get(spec.name).add(elapsed,status,bytes,ok,timedOut,inWindow);activeCount--;
   };
   let offered=0,droppedCapacity=0,droppedScheduler=0,peakOutstanding=0;
   if(arrivalRate!==undefined){
