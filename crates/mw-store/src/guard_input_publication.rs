@@ -45,6 +45,10 @@ impl fmt::Debug for NativeGuardInputSnapshot {
     }
 }
 impl NativeGuardInputSnapshot {
+    /// Store identity binding only, never an authority/admission decision.
+    pub fn belongs_to(&self,store:&Store)->bool {self.fence.versions().store==store.cache_scope()}
+    /// Logical raw section bytes only; no privacy-bearing source value escapes.
+    pub fn logical_section_bytes(&self)->usize {self.sections.values().filter_map(|v|v.as_ref().ok().and_then(|v|v.as_ref())).map(String::len).sum()}
     pub fn source(&self) -> &NativeAuthorityFence {
         &self.fence
     }

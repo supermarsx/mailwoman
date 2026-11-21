@@ -44,7 +44,7 @@ use crate::{AppState, settings_registry as registry, settings_routes::UserSubjec
 use axum::{
     body::Body,
     extract::{Request, State},
-    http::{Method, StatusCode},
+    http::{HeaderMap, Method, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -562,6 +562,7 @@ async fn read_json(req: Request, limit: usize) -> Result<(Request, Option<Value>
         }
     };
     let value = serde_json::from_slice(&bytes).ok();
+    crate::published_guard_context::validate_parsed_body(&bytes,value.as_ref())?;
     let length = bytes.len();
     Ok((Request::from_parts(parts, Body::from(bytes)), value, length))
 }
@@ -1072,4 +1073,12 @@ mod tests {
         assert_eq!(percent_decode("reader%2Ezoom"), "reader.zoom");
         assert_eq!(percent_decode("a%"), "a%");
     }
+}
+
+/// Fixed read-shape feature requirements are DATA selectors only. Actual body
+/// validation still happens at its original point before any app dispatch.
+pub(crate) async fn current_declared_guard_source(state:&AppState,headers:&HeaderMap)->Option<(std::sync::Arc<native_metadata_admission::publication::Published>,std::sync::Arc<mw_store::authority_publication::NativeAuthorityFence>)> {
+    static NEEDS:std::sync::OnceLock<Needs>=std::sync::OnceLock::new();
+    let needs=NEEDS.get_or_init(||{let sample=crate::published_guard_context::sample_request();metadata_read_restart_needs(&serde_json::to_vec(&sample).expect("static metadata shape")).expect("static metadata requirements")});
+    native_metadata_admission::guard_source(state,headers,needs).await
 }

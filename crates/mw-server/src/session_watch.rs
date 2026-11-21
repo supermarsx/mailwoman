@@ -134,7 +134,7 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
     }
 }
 
-struct Config {
+pub(crate) struct Config {
     binding: session_binding::Policy,
     rules: theft::Rules,
     webmail_action: u8,
@@ -148,16 +148,26 @@ fn theft_action(s: &str) -> u8 {
         _ => 0,
     }
 }
-async fn config(state: &AppState) -> Config {
+async fn config(state: &AppState) -> std::sync::Arc<Config> {
     crate::fixture_profile::measure(crate::fixture_profile::Phase::SessionWatchConfig, config_inner(state)).await
 }
-async fn config_inner(state: &AppState) -> Config {
+async fn config_inner(state: &AppState) -> std::sync::Arc<Config> {
+    if let Some(current)=crate::published_guard_context::current().await {
+        current.used(crate::published_guard_context::Guard::Watch);return current.inputs.watch();
+    }
     let b = sec_cfg::values(&state.store, session_binding::PREFIX).await;
     let t = sec_cfg::values(&state.store, "security.theft.").await;
     let a = sec_cfg::values(&state.store, "security.alerts.").await;
+    std::sync::Arc::new(from_values(&b,&t,&a))
+}
+pub(crate) fn prepare_published_inputs(rows:&[crate::settings_registry::Effective])->std::sync::Arc<Config> {
+    let values=sec_cfg::Values::from_pairs(rows.iter().map(|r|(r.key.clone(),r.value.clone())));
+    std::sync::Arc::new(from_values(&values,&values,&values))
+}
+fn from_values(b:&sec_cfg::Values,t:&sec_cfg::Values,a:&sec_cfg::Values)->Config {
     Config {
-        binding: session_binding::Policy::from_values(&b),
-        rules: theft::Rules::from_values(&t, &a),
+        binding: session_binding::Policy::from_values(b),
+        rules: theft::Rules::from_values(t, a),
         webmail_action: theft_action(&t.text("security.theft.webmailAction")),
         admin_action: theft_action(&t.text("security.theft.adminAction")),
     }

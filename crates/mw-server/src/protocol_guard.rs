@@ -58,10 +58,13 @@ pub(crate) async fn guard(State(state): State<AppState>, mut request: Request, n
     if crate::scope_mw::proxy::peer_ip(request.extensions()).is_none() {
         return next.run(request).await;
     }
-    let config = match crate::settings_request_revision::get(&state.store,&mut request).await{
+    let config = if let Some(current)=crate::published_guard_context::current().await {
+        current.used(crate::published_guard_context::Guard::Protocol);
+        current.inputs.protocol()
+    }else {match crate::settings_request_revision::get(&state.store,&mut request).await{
         Ok(revision)=>state.request_protection.protocol.get_at_revision(&state.store,&revision).await,
         Err(_)=>Arc::new(Config::default()),
-    };
+    }};
     run(config, Some(&state), request, next).await
 }
 

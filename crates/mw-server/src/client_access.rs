@@ -503,10 +503,14 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
     if exempt(&path) || path == UNLOCK {
         return next.run(request).await;
     }
-    let cfg = match load(&state.store).await {
-        Ok((_, cfg)) => cfg,
+    let prepared=crate::published_guard_context::current().await.and_then(|current| {
+        let value=current.inputs.client().ok()?.0.clone();
+        current.used(crate::published_guard_context::Guard::Client);Some(value)
+    });
+    let cfg = if let Some(value)=prepared {value}else {match load(&state.store).await {
+        Ok((_, cfg)) => std::sync::Arc::new(cfg),
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
-    };
+    }};
     if !cfg.enabled() {
         return next.run(request).await;
     }

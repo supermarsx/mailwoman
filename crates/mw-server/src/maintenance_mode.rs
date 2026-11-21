@@ -213,7 +213,12 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
     ) {
         return next.run(request).await;
     }
-    match config(&state).await {
+    let prepared=crate::published_guard_context::current().await.and_then(|current| {
+        let config=current.inputs.maintenance_arc()?;
+        current.used(crate::published_guard_context::Guard::Maintenance);Some(config)
+    });
+    let config=if let Some(config)=prepared {Ok(config)}else {config(&state).await.map(std::sync::Arc::new)};
+    match config {
         Ok(value) if !value.enabled => next.run(request).await,
         Ok(value) => refusal(Some(&value)),
         Err(_) => refusal(None),

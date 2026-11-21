@@ -512,7 +512,16 @@ pub(crate) fn invalidate() {
 }
 /// Read the policy with single-flight refresh. Invalidating during an awaited
 /// read prevents that read from publishing into the newer settings generation.
+async fn published_policy(store:&mw_store::Store)->Option<Arc<Policy>> {
+    let current=crate::published_guard_context::current_for(store).await?;
+    let value=current.inputs.trust()?;
+    current.used(crate::published_guard_context::Guard::Trust);
+    lock().adopt(store.instance_id(),persist::salt(store));
+    hydrate_once(store,&value).await;
+    Some(value)
+}
 pub(crate) async fn policy(store: &mw_store::Store) -> Arc<Policy> {
+    if let Some(value)=published_policy(store).await {return value;}
     match store.settings_read_revision().await {
         Ok(revision) => policy_at_revision(store, &revision).await,
         Err(_) => {
@@ -532,6 +541,7 @@ pub(crate) async fn policy_at_revision(
     if revision.scope() != store.instance_id() {
         return Arc::new(Policy::default());
     }
+    if let Some(value)=published_policy(store).await {return value;}
     let value = cache()
         .get(store.instance_id(), revision.number(), || async {
             settings_registry::effective_all_at_revision(

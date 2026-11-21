@@ -22,7 +22,7 @@
     "accept", "accept-language", "content-type", "x-csrf-token",
     "x-mailwoman-link", "x-mailwoman-account", "x-mailwoman-storage-authority",
     "x-mailwoman-client", "x-mw-session-peek", "idempotency-key",
-    "if-match", "if-none-match", "if-modified-since", "if-unmodified-since"
+    "if-match", "if-none-match", "if-modified-since", "if-unmodified-since", "x-mailwoman-read-shape"
   ],
   "webmail": {
     "endpoint": "/jmap/actions",

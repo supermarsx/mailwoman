@@ -45,7 +45,7 @@ struct PolicyRows {
     rows: Vec<(&'static registry::SettingDef, registry::Effective)>,
     bytes: usize,
 }
-pub(super) struct Published {
+pub(crate) struct Published {
     pub snapshot: NativeAdmissionSnapshot,
     pub domains: Vec<String>,
     pub subjects: Vec<String>,
@@ -54,6 +54,8 @@ pub(super) struct Published {
     policies: HashMap<String, Arc<PolicyRows>>,
     pub gates: [account_gate::final_snapshot::PublishedGateInputs; 2],
     pub directory: Arc<account_gate::final_snapshot::PublishedDirectoryInputs>,
+    pub guard:Option<Arc<crate::published_guard_inputs::PreparedGuardInputs>>,
+    pub guard_authority:String,
     own_bytes: usize,
 }
 impl Published {
@@ -96,6 +98,7 @@ struct Memory {
     >,
     parts: HashMap<PartKey, Weak<Part>>,
     policies: HashMap<PolicyKey, Weak<PolicyRows>>,
+    guards:HashMap<(AuthorityVersions,String),Weak<crate::published_guard_inputs::PreparedGuardInputs>>,
     clock: u64,
     validated_schema: Option<(AuthorityVersions, String)>,
 }
@@ -108,12 +111,13 @@ impl Memory {
             directories: HashMap::new(),
             parts: HashMap::new(),
             policies: HashMap::new(),
+            guards:HashMap::new(),
             clock: 0,
             validated_schema: None,
         }
     }
     fn retained(&self) -> usize {
-        self.entries
+        self.guards.values().filter_map(Weak::upgrade).map(|g|g.retained_bytes()).sum::<usize>() + self.entries
             .values()
             .map(|c| c.entry.own_bytes)
             .sum::<usize>()
@@ -140,9 +144,10 @@ impl Memory {
         self.directories.retain(|_, v| v.strong_count() > 0);
         self.parts.retain(|_, v| v.strong_count() > 0);
         self.policies.retain(|_, v| v.strong_count() > 0);
+        self.guards.retain(|_,v|v.strong_count()>0);
         while self.entries.len() > MAX_ENTRIES
             || self.retained() > MAX_BYTES
-            || self.directories.len() + self.parts.len() + self.policies.len() > MAX_COMPONENTS
+            || self.directories.len() + self.parts.len() + self.policies.len()+self.guards.len() > MAX_COMPONENTS
         {
             let Some(key) = self
                 .entries
@@ -156,6 +161,7 @@ impl Memory {
             self.directories.retain(|_, v| v.strong_count() > 0);
             self.parts.retain(|_, v| v.strong_count() > 0);
             self.policies.retain(|_, v| v.strong_count() > 0);
+        self.guards.retain(|_,v|v.strong_count()>0);
         }
     }
 }
@@ -463,6 +469,14 @@ impl Worker {
             prepared_policies.insert(identity.clone(), prepared.clone());
             policy_inputs.push((subject_key(&raw.as_subject()), identity, prepared));
         }
+        let guard_key=crate::published_guard_inputs::PreparedGuardInputs::configuration_key(&before)?;
+        let mut guard=self.memory.lock().ok().and_then(|m|m.guards.get(&guard_key).and_then(Weak::upgrade));
+        if guard.is_none() {
+            // Optional guarded-read DATA. Unsupported/missing114 coverage does
+            // not disable the existing native auth publication/ordinary path.
+            guard=crate::published_guard_inputs::PreparedGuardInputs::prepare(store,&hint.cookie,&known_domains,&subjects).await.ok().flatten();
+        }
+        if guard.as_ref().is_some_and(|g|!g.matches_configuration(store,&before).unwrap_or(false)){guard=None;}
         #[cfg(test)]
         test_control::wait(test_control::Stage::PublicationBeforeFinal, &hint.cookie).await;
         let Some(after) = store
@@ -474,6 +488,8 @@ impl Worker {
         if !before.same_published_source(&after)? {
             return Ok(None);
         }
+        if guard.as_ref().is_some_and(|g|!g.matches_configuration(store,&after).unwrap_or(false)){return Ok(None);}
+        let guard_authority=source.native_subjects(store)?.ok_or(StoreError::SourceChanged)?.storage_authority;
         let versions = after.versions().clone();
         source.split_publication_parts();
         let directory_key = (
@@ -509,7 +525,7 @@ impl Worker {
             .insert(directory_key, Arc::downgrade(&directory));
         if memory.directories.len()
             + memory.parts.len()
-            + memory.policies.len()
+            + memory.policies.len()+memory.guards.len()+usize::from(guard.is_some())
             + source.publication_parts().len()
             + policy_inputs.len()
             > MAX_COMPONENTS
@@ -557,6 +573,7 @@ impl Worker {
             memory.policies.insert(identity, Arc::downgrade(&data));
             policies.insert(raw, data);
         }
+        if let Some(guard)=&guard {memory.guards.insert(guard_key,Arc::downgrade(guard));}
         let own_bytes = gates.iter().map(|g| g.retained_bytes()).sum::<usize>()
             + source.publication_own_bytes()
             + names
@@ -576,6 +593,7 @@ impl Worker {
             gates,
             directory,
             own_bytes,
+            guard,guard_authority,
         }))
     }
 }

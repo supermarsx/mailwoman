@@ -1,3 +1,4 @@
+import {nativeReadIntentHeaders} from './nativeReadIntent.ts';
 import {ApiError,NetworkError,terminalActionError,type ApiErrorDetails} from './errors.ts';
 export {ApiError,NetworkError,type ApiErrorDetails} from './errors.ts';
 import { withLoginTimeout } from './loginTimeout.ts';
@@ -484,7 +485,7 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
           const key = opts?.idempotencyKey === false ? undefined : opts?.idempotencyKey ?? (isKeyedCreate(body) ? newIdempotencyKey() : undefined);
           const send = (): Promise<Response> => req(auth&&discoveredApi?.base===currentBase()&&discoveredApi.epoch===linkedMailboxEpoch()?discoveredApi.path:'/jmap/api', {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers: { 'content-type': 'application/json', ...(!auth&&!activeLinkedMailbox()?nativeReadIntentHeaders(body):{}) },
             body: text,
             ...(opts?.signal !== undefined ? { signal: opts.signal } : {}),
             ...(keepalive ? { keepalive: true } : {}),

@@ -807,3 +807,5 @@ async fn encrypted_restart_cross_store_and_mail_writes_preserve_scope_contracts(
 include!("native_authority_seed_tests.rs");
 
 include!("guard_input_publication_tests.rs");
+
+include!("native_last_seen_settlement_tests.rs");

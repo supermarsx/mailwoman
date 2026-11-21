@@ -78,6 +78,58 @@ pub(super) fn fence_sql(dialect: Dialect) -> &'static str {
     &all[usize::from(dialect == Dialect::Postgres)]
 }
 impl Store {
+    /// Settle telemetry only, using an opaque current native source. Neither a
+    /// successful update nor zero affected rows authorizes a request. Another
+    /// legitimate request may already have touched the row; the caller MUST
+    /// obtain its final fresh source/clock fence after this operation.
+    /// This never changes activity_at, deadlines or a missing session.
+    pub async fn settle_native_last_seen(
+        &self, source: &NativeAuthorityFence, min_age_secs: i64,
+        idle_secs:u64, absolute_secs:u64,
+    ) -> Result<bool, StoreError> {
+        if source.versions.store != self.cache_scope() {
+            return Err(invalid("foreign native session telemetry source"));
+        }
+        if min_age_secs <= 0 || !self.uses_sqlite() {
+            return Err(invalid("unsupported native telemetry settlement"));
+        }
+        let now=chrono::Utc::now();
+        if !self.session_touch_may_be_due_at(source.last_seen(), min_age_secs, now) {
+            return Ok(false);
+        }
+        let age=chrono::Duration::try_seconds(min_age_secs).ok_or_else(||invalid("invalid native telemetry age"))?;
+        let idle=i64::try_from(idle_secs).map_err(|_|invalid("invalid native telemetry idle"))?;
+        let absolute=i64::try_from(absolute_secs).map_err(|_|invalid("invalid native telemetry absolute"))?;
+        let stamps=source.versions.stamps.values().map(|s|
+            (s.scope.kind.as_str(), &s.scope.id, &s.incarnation, s.version)
+        ).collect::<Vec<_>>();
+        let epochs=serde_json::to_string(&stamps)
+            .map_err(|_|invalid("invalid native telemetry source"))?;
+        // The write transaction pins the generation; no transaction escapes
+        // across connector waits, a response, or an index publication.
+        let mut tx=self.backend.begin().await?;
+        if source.versions.generation != tx.generation_path() {
+            tx.rollback().await?; return Ok(false);
+        }
+        // Re-sample after acquiring the write transaction, never using a time
+        // captured before a writer wait. Clock policy is DATA resolved at the
+        // exact source epochs; the UPDATE also fences those epochs and clocks.
+        let now=chrono::Utc::now();
+        let valid_clock=|value:&str,secs:i64|->bool {
+            let Some(time)=chrono::DateTime::parse_from_rfc3339(value).ok().map(|v|v.with_timezone(&chrono::Utc)) else{return false;};
+            time<=now && (secs==0 || chrono::Duration::try_seconds(secs).and_then(|age|time.checked_add_signed(age)).is_some_and(|end|now<end))
+        };
+        if idle==0 || !valid_clock(&source.activity,idle) || !valid_clock(&source.created,absolute) {
+            tx.rollback().await?;return Ok(false);
+        }
+        let cutoff=now.checked_sub_signed(age).ok_or_else(||invalid("invalid native telemetry cutoff"))?;
+        let changed=q("UPDATE sessions SET last_seen=?1 WHERE id=?2 AND account_id=?3 AND created_at=?4 AND COALESCE(activity_at,created_at)=?9 AND julianday(created_at)<=julianday('now') AND julianday(COALESCE(activity_at,created_at))<=julianday('now') AND (?10=0 OR julianday(created_at)>julianday('now')-(?10/86400.0)) AND julianday(COALESCE(activity_at,created_at))>julianday('now')-(?11/86400.0) AND last_seen<?5 AND linked_internal=0 AND jmap_url='engine' AND api_url='engine' AND EXISTS(SELECT 1 FROM accounts a JOIN session_principal sp ON sp.primary_account_id=a.id JOIN identity_principal p ON p.id=sp.principal_id JOIN identity_binding ib ON ib.id=sp.binding_id AND ib.principal_id=p.id WHERE a.id=sessions.account_id AND a.kind IN ('imap','pop3') AND COALESCE(a.backend_kind,'')<>'ews' AND sp.session_id=sessions.id AND sp.principal_id=?6 AND sp.binding_id=?7 AND p.state='active' AND ib.retired_at IS NULL) AND NOT EXISTS(SELECT 1 FROM json_each(?8) j WHERE NOT EXISTS(SELECT 1 FROM authority_epoch e WHERE e.scope_kind=json_extract(j.value,'$[0]') AND e.scope_id=json_extract(j.value,'$[1]') AND e.incarnation=json_extract(j.value,'$[2]') AND e.version=json_extract(j.value,'$[3]')))")
+            .bind(now.to_rfc3339()).bind(&source.session).bind(&source.account)
+            .bind(&source.created).bind(cutoff.to_rfc3339()).bind(&source.principal)
+            .bind(&source.binding).bind(epochs).bind(&source.activity).bind(absolute).bind(idle).execute_tx(&mut tx).await?;
+        tx.commit().await?;
+        Ok(changed==1)
+    }
     /// One current statement, NOT an allow decision. Missing/unsupported source
     /// or epoch returns None and requires full original authentication. No
     /// account/principal ID from cached data or client arguments drives a join.

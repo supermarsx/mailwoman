@@ -221,6 +221,9 @@ fn knob_cache() -> &'static KnobCache {
 /// Settings are scoped to the Store identity and normalized domain, never just
 /// the domain. A failed read cannot borrow another installation's allowances.
 pub(crate) async fn knobs(store: &Store, domain: &str) -> Knobs {
+    if domain.is_empty() && let Some(current)=crate::published_guard_context::current_for(store).await {
+        current.used(crate::published_guard_context::Guard::GlobalKnobs);return current.inputs.global_knobs();
+    }
     match store.settings_read_revision().await {
         Ok(revision) => knobs_at_revision(store, domain, &revision).await,
         Err(_) => Knobs::default(),
@@ -233,6 +236,9 @@ pub(crate) async fn knobs_at_revision(
 ) -> Knobs {
     if revision.scope() != store.instance_id() {
         return Knobs::default();
+    }
+    if domain.is_empty() && let Some(current)=crate::published_guard_context::current_for(store).await {
+        current.used(crate::published_guard_context::Guard::GlobalKnobs);return current.inputs.global_knobs();
     }
     let domain = domain.to_ascii_lowercase();
     knob_cache()

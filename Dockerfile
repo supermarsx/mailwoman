@@ -68,6 +68,7 @@ COPY apps/web/public/pdf.worker.mjs /src/apps/web/public/pdf.worker.mjs
 COPY apps/web/src/api/linked-scope.json /src/apps/web/src/api/linked-scope.json
 # JSON action socket routing/header/resource contract is shared with the client.
 COPY apps/web/src/api/websocket-action-contract.json /src/apps/web/src/api/websocket-action-contract.json
+COPY apps/web/src/api/native-read-intent-contract.json /src/apps/web/src/api/native-read-intent-contract.json
 # File preview validation shares the client tool manifest.
 COPY apps/web/src/viewers/previewTools.json /src/apps/web/src/viewers/previewTools.json
 

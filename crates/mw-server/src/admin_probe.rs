@@ -29,7 +29,7 @@
 //! own scores; a block is only seen by the instance that made it (and by every
 //! instance after a restart).
 mod api;
-mod config;
+pub(crate) mod config;
 mod geo;
 mod tracker;
 
@@ -459,14 +459,18 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
     else {
         return next.run(request).await;
     };
-    let policy = match runtime.config.get(&state.store).await {
+    let prepared=crate::published_guard_context::current().await.and_then(|current| {
+        let policy=current.inputs.probe()?;
+        current.used(crate::published_guard_context::Guard::Probe);Some(policy)
+    });
+    let policy = if let Some(policy)=prepared {policy}else {match runtime.config.get(&state.store).await {
         Ok(policy) => policy,
         // Storage trouble never takes the server down; the last policy (if any) holds.
         Err(()) => match runtime.config.last() {
             Some(policy) => policy,
             None => return next.run(request).await,
         },
-    };
+    }};
     if !policy.enabled
         || policy.allowlisted(ip)
         || crate::scope_mw::proxy::ProxyConfig::from_env().is_trusted(ip.to_canonical())

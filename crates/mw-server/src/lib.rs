@@ -195,6 +195,7 @@ mod protocol_guard;
 mod request_protection;
 #[allow(dead_code)]
 mod published_guard_inputs;
+mod published_guard_context;
 mod sanitize_gate;
 mod security_center;
 mod server_text;
@@ -1908,6 +1909,9 @@ fn router(
             http_metrics::layer,
         )))
         .layer(shared_route::wrap(middleware::from_fn(fixture_profile::request)))
+        // Header-only scope setup. No policy read/body parse until an existing
+        // owning guard asks for its configuration.
+        .layer(shared_route::wrap(middleware::from_fn_with_state(state.clone(),published_guard_context::layer)))
         .with_state(state.clone());
     // t20 B4: also serve the whole thing under `MW_BASE_PATH`. No-op when unset.
     let dispatcher=websocket_actions::Dispatcher(app.clone());
@@ -3554,6 +3558,7 @@ async fn jmap_api(
             };
         }
     };
+    if let Err(response)=published_guard_context::validate_body(&body){return response;}
     #[cfg(feature = "sql-shape-diagnostics")]
     {
     if source.is_none()
@@ -3572,6 +3577,7 @@ async fn jmap_api(
         return response;
     }
     }
+    if let Some(response)=published_guard_context::fallback_refusal(&state,&headers).await{return response;}
     let read_restart=deferred_features.as_ref().map(|Extension(features)|feature_gate::restart_observer(features));
     let headless_key = matches!(
         &source,
@@ -6342,8 +6348,11 @@ pub(crate) fn mailbox_target_matches(
     headers: &HeaderMap,
     expected: Option<&str>,
 ) -> bool {
+    mailbox_target_matches_account(&session.account_id,headers,expected)
+}
+pub(crate) fn mailbox_target_matches_account(account:&str,headers:&HeaderMap,expected:Option<&str>)->bool {
     let Some(authority) = headers.get("x-mailwoman-storage-authority") else { return true; };
-    headers.get("x-mailwoman-account").and_then(|value| value.to_str().ok()) == Some(session.account_id.as_str())
+    headers.get("x-mailwoman-account").and_then(|value| value.to_str().ok()) == Some(account)
         && expected.is_some() && expected == authority.to_str().ok()
 }
 

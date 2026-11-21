@@ -78,16 +78,23 @@ impl Runtime {
         admin: bool,
         ip: Option<IpAddr>,
     ) -> Result<bool, ()> {
+        let prepared=crate::published_guard_context::current_for(store).await.and_then(|current| {
+            let value=current.inputs.inbound().ok()?.0.clone();Some((current,value))
+        });
         // Serialize with local CAS edits so an older read cannot restore revoked entries.
         let mut snapshot = tokio::time::timeout(Duration::from_secs(2), self.inner.lock())
             .await
             .map_err(|_| ())?;
-        let raw = tokio::time::timeout(Duration::from_secs(2), store.get_setting(KEY))
-            .await
-            .map_err(|_| ())?
-            .map_err(|_| ())?;
-        let config = Config::parse(raw.as_deref())?;
-        snapshot.replace(config.clone());
+        // A shared source may not overwrite newer locally CAS-ed runtime/DNS
+        // state. Only an already identical configuration takes the no-read arm.
+        let config=if let Some((current,config))=prepared.filter(|(_,c)|snapshot.config.as_ref()==Some(c.as_ref())) {
+            current.used(crate::published_guard_context::Guard::Inbound);config
+        }else {
+            let raw = tokio::time::timeout(Duration::from_secs(2), store.get_setting(KEY))
+                .await.map_err(|_| ())?.map_err(|_| ())?;
+            let config=Config::parse(raw.as_deref())?;
+            snapshot.replace(config.clone());Arc::new(config)
+        };
         self.refresh(&mut snapshot, &config);
         Ok(snapshot.allows(
             if admin {

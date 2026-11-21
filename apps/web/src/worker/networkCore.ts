@@ -1,3 +1,4 @@
+import {nativeReadIntentHeaders} from '../api/nativeReadIntent.ts';
 import {clearWebSocketActions} from '../api/websocketActions.ts';
 import {jmapReadsOnly} from '../api/jmapReadOnly.ts';
 import {workerHttp} from '../api/workerHttp.ts';
@@ -86,6 +87,7 @@ export function createNetworkCore(){
     const session=await (await workerHttp(context.base,`${prefix}/jmap/session`,{headers,allowWebSocket:context.preferWebSocket===true,assertAuthority:()=>{if(admitted!==generation)throw new ApiError(409,'Shared session changed',{code:'actionNotDispatched'});}})).json() as JmapSession;
     const path=jmapApiPath(session.apiUrl,context.base);
     if(message.idempotencyKey)headers.set('Idempotency-Key',message.idempotencyKey);
+    if(!context.linkId)for(const [key,value]of Object.entries(nativeReadIntentHeaders(message.body)))headers.set(key,value);
     value=await (await workerHttp(context.base,`${prefix}${path}`,{method:'POST',headers,body:JSON.stringify(message.body),allowWebSocket:context.preferWebSocket===true,assertAuthority:()=>{if(admitted!==generation)throw new ApiError(409,'Shared session changed',{code:'actionNotDispatched'});}})).json() as JmapResponse;
    }
    if(admitted!==generation)throw new ApiError(401,'Shared session changed');

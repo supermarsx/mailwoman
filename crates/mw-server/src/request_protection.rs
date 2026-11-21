@@ -1,7 +1,7 @@
 //! Explainable aggregate admission and typed adaptive observations.
 //! Never infer abuse from a generic HTTP status code.
 mod api;
-mod config;
+pub(crate) mod config;
 /// The Adaptive protection page's policy editor and simulator (t97).
 mod editor;
 /// Per-minute counts behind the Aggregate and Adaptive charts.
@@ -683,11 +683,17 @@ pub(crate) async fn guard(
     {
         return next.run(request).await;
     }
-    let revision=match crate::settings_request_revision::get(&state.store,&mut request).await{Ok(value)=>value,Err(_)=>return response(unavailable())};
-    let config = match state.request_protection.cache.get_at_revision(&state.store,&revision).await {
+    let prepared=crate::published_guard_context::current().await.and_then(|current| {
+        let value=current.inputs.protection()?;
+        current.used(crate::published_guard_context::Guard::Protection);Some(value)
+    });
+    // No synthetic legacy revision: published DATA is independently scoped and
+    // fenced. Unconsumed readers keep their exact request-revision/cache path.
+    let revision=if prepared.is_some(){None}else {Some(match crate::settings_request_revision::get(&state.store,&mut request).await{Ok(value)=>value,Err(_)=>return response(unavailable())})};
+    let config = if let Some(config)=prepared {config}else {match state.request_protection.cache.get_at_revision(&state.store,revision.as_ref().expect("original protection revision")).await {
         Ok(config) => config,
         Err(()) => return response(unavailable()),
-    };
+    }};
     let source = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions())
         .map(|ip| ip.to_canonical());
     let source_country = match mw_engine::security::country_lookup(source) {
@@ -743,7 +749,8 @@ pub(crate) async fn guard(
             _ => {}
         }
     }
-    let trust = crate::trust_tier::policy_at_revision(&state.store,&revision).await;
+    let trust = match revision.as_ref() {Some(revision)=>crate::trust_tier::policy_at_revision(&state.store,revision).await,
+        None=>crate::trust_tier::policy(&state.store).await};
     let mut ua_allowed = false;
     // Successful evidence belongs only to this request. Handler authentication
     // remains independent; no revocation/expiry decisions survive a request.
@@ -809,9 +816,10 @@ pub(crate) async fn guard(
         request.extensions_mut().insert(proof.clone());
     }
     let trusted_percent = if source.is_some_and(crate::trust_tier::is_known) {
-        crate::rate_leeway::knobs_at_revision(&state.store, "",&revision)
-            .await
-            .trusted_percent
+        match revision.as_ref() {
+            Some(revision)=>crate::rate_leeway::knobs_at_revision(&state.store,"",revision).await,
+            None=>crate::rate_leeway::knobs(&state.store,"").await,
+        }.trusted_percent
     } else {
         100
     };

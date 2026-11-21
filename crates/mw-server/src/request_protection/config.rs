@@ -18,7 +18,7 @@ use std::{
 pub(super) use mw_protection::SETTINGS_PREFIX as PREFIX;
 const CACHE_TTL: Duration = Duration::from_secs(30);
 #[derive(Clone, Debug)]
-pub(super) struct Config {
+pub(crate) struct Config {
     base: Policy,
     probe_path_mode: Mode,
     pub user_agent: super::user_agent::Rules,
@@ -119,7 +119,7 @@ impl Config {
     }
     /// Also used by the policy editor (t97) to refuse a write that would leave an
     /// unusable policy, and by its simulator to try a draft.
-    pub(super) fn parse(rows: Vec<settings_registry::Effective>) -> Result<Self, ()> {
+    pub(crate) fn parse(rows: Vec<settings_registry::Effective>) -> Result<Self, ()> {
         let values: BTreeMap<String, Value> =
             rows.into_iter().map(|row| (row.key, row.value)).collect();
         let get = |key: &str| values.get(&format!("{PREFIX}{key}")).ok_or(());

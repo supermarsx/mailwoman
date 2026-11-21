@@ -120,6 +120,7 @@ fn listed(
 }
 
 struct Loaded {
+    clock:crate::security_center::ClockPolicy,
     session: Session,
     knobs: rate_leeway::Knobs,
     authority: String,
@@ -186,6 +187,16 @@ fn evaluate_inputs(
     published:Option<&publication::Published>,
     current:Option<&mw_store::authority_publication::NativeAuthorityFence>,
 ) -> Result<Loaded, Unsupported> {
+    evaluate_inputs_touch(state,snapshot,needs,published,current,false)
+}
+/// The settlement arm runs every existing pure source/clock/policy check but
+/// cannot authorize dispatch: only its subsequent fresh observation can do so.
+fn evaluate_inputs_touch(
+    state:&AppState,snapshot:&NativeAdmissionSnapshot,needs:&Needs,
+    published:Option<&publication::Published>,
+    current:Option<&mw_store::authority_publication::NativeAuthorityFence>,
+    settling_due:bool,
+)->Result<Loaded,Unsupported> {
     if (published.is_none() && !snapshot.bounded_shape())
         || needs.native
         || needs.link_limit
@@ -206,11 +217,11 @@ fn evaluate_inputs(
             .expired(&session.id, &state.hardening)
             .is_some()
         || !crate::request_protection::native_account_already_admitted(&session.account_id)
-        || state.store.session_touch_may_be_due_at(
+        || (!settling_due && state.store.session_touch_may_be_due_at(
             current.map(|f|f.last_seen()).unwrap_or(source.last_seen.as_deref()),
             crate::session_persistence::flush_seconds(),
             chrono::Utc::now(),
-        )
+        ))
         || unsupported(snapshot.linked_policy_required())?
     {
         return Err(());
@@ -385,6 +396,7 @@ fn evaluate_inputs(
     };
     if !prepared_mail.valid() {return Err(());}
     Ok(Loaded {
+        clock,
         session,
         knobs: rate_leeway::Knobs::from_rows(&rate_values),
         authority: subjects.storage_authority,
@@ -419,6 +431,10 @@ async fn late_refusal(state: &AppState, headers: &HeaderMap) -> Response {
 }
 
 async fn restart_or_refuse(state:&AppState,headers:&HeaderMap,body:&[u8],deferred:&DeferredJmapFeatures)->Option<Response> {
+    // Outer published guards are not rerun by the inner auth-only restart.
+    // Failure-only ordinary authentication preserves terminal cleanup/status;
+    // it must NEVER authorize an application dispatch using consumed inputs.
+    if crate::published_guard_context::consumed() {return Some(late_refusal(state,headers).await);}
     #[cfg(test)]
     if test_control::legacy_late_refusal() {return Some(late_refusal(state,headers).await);}
     if deferred.restart_metadata_read(body) {
@@ -483,6 +499,33 @@ pub(super) fn record_restart_dispatch() {test_control::record_restart_dispatch()
 #[cfg(test)]
 pub(crate) fn record_ordinary_dispatch() {test_control::record_ordinary_dispatch();}
 
+/// Normal requests keep one observation at this seam. Only a newly observed
+/// due telemetry timestamp permits one exact-source settlement and ONE repeat
+/// of the same joint statement. The repeat is always the last source await.
+async fn observe_published_guard(
+    state:&AppState,cookie:&str,entry:&publication::Published,needs:&Needs,
+    data:Option<&mw_store::mail_data_publication::MailDataDescriptor>,
+)->Result<Option<mw_store::authority_publication::NativeAuthorityFence>,mw_store::StoreError> {
+    async fn read(state:&AppState,cookie:&str,entry:&publication::Published,data:Option<&mw_store::mail_data_publication::MailDataDescriptor>)->Result<Option<mw_store::authority_publication::NativeAuthorityFence>,mw_store::StoreError> {
+        match data {Some(data)=>state.store.native_publication_fence_with_mail_data(cookie,&entry.domains,&entry.subjects,data).await,
+            None=>state.store.native_publication_fence(cookie,&entry.domains,&entry.subjects).await}
+    }
+    let observed=read(state,cookie,entry,data).await?;
+    if crate::published_guard_context::consumed() && let Some(source)=observed.as_ref() {
+        let age=crate::session_persistence::flush_seconds();
+        if state.store.session_touch_may_be_due_at(source.last_seen(),age,chrono::Utc::now()) {
+            if !entry.matches(source) || !crate::published_guard_context::verify_source(source) {return Ok(None);}
+            let Ok(checked)=evaluate_inputs_touch(state,&entry.snapshot,needs,Some(entry),Some(source),true) else{return Ok(None);};
+            // Zero affected rows may be a concurrent same-actor touch. Never
+            // infer acceptance from it; the final read and ordinary evaluator
+            // require the current source and a no-longer-due timestamp.
+            state.store.settle_native_last_seen(source,age,checked.clock.idle_secs,checked.clock.absolute_secs).await?;
+            return read(state,cookie,entry,data).await;
+        }
+    }
+    Ok(observed)
+}
+
 pub(crate) async fn try_dispatch(
     state: &AppState,
     headers: &HeaderMap,
@@ -524,9 +567,9 @@ pub(crate) async fn try_dispatch(
         if let Some(worker)=&state.native_publication {
             if let Some(entry)=worker.get(&id,&deferred.0) {
                 observed_published=true;
-                if let Ok(Some(fence))=state.store.native_publication_fence(&id,&entry.domains,&entry.subjects).await {
+                if let Ok(Some(fence))=observe_published_guard(state,&id,&entry,&deferred.0,None).await {
                     #[cfg(test)] test_control::record_fence();
-                    if entry.matches(&fence) {
+                    if entry.matches(&fence) && crate::published_guard_context::verify_source(&fence) {
                         published_current=true;
                         if let Ok(loaded)=evaluate_inputs(state,&entry.snapshot,&deferred.0,Some(&entry),Some(&fence)) {
                             first=Some(loaded);published=Some(entry);
@@ -545,6 +588,7 @@ pub(crate) async fn try_dispatch(
     let first=match first {
         Some(first)=>first,
         None=>{
+            if crate::published_guard_context::consumed(){return None;}
             let mut snapshot = observe(state, &id, &query).await.ok()?;
             let source = snapshot.session(&state.store).ok()??;
             let (session_names, account_names) = names_for(&snapshot, state, &source.session).ok()?;
@@ -599,13 +643,11 @@ pub(crate) async fn try_dispatch(
     let connecting = lock.lock().await;
     let mut final_data=None;
     let final_source=if let Some(entry)=&published {
-        let observed=if let Some(candidate)=&candidate {
-            state.store.native_publication_fence_with_mail_data(&id,&entry.domains,&entry.subjects,candidate.descriptor()).await
-        }else {state.store.native_publication_fence(&id,&entry.domains,&entry.subjects).await};
+        let observed=observe_published_guard(state,&id,entry,&deferred.0,candidate.as_ref().map(|c|c.descriptor())).await;
         match observed {
             Ok(Some(fence))=>{
                 #[cfg(test)] test_control::record_fence();
-                if entry.matches(&fence) {
+                if entry.matches(&fence) && crate::published_guard_context::verify_final(&fence) {
                     final_data=fence.mail_data().cloned();
                     evaluate_inputs(state,&entry.snapshot,&deferred.0,Some(entry),Some(&fence)).ok()
                 } else {None}
@@ -774,3 +816,18 @@ mod test_control {
 #[cfg(test)]
 #[path = "native_metadata_admission_tests.rs"]
 mod tests;
+
+/// No auth/decryption/queue operation: select existing immutable DATA and
+/// compare it to one current narrow DB source frame at the owning guard point.
+pub(super) async fn guard_source(state:&AppState,headers:&HeaderMap,needs:&Needs)->Option<(std::sync::Arc<publication::Published>,std::sync::Arc<mw_store::authority_publication::NativeAuthorityFence>)> {
+    if !publication_enabled(){return None;}
+    let cookie=crate::cookie_value(headers)?;if cookie.is_empty()||cookie.len()>1024{return None;}
+    let entry=state.native_publication.as_ref()?.get(&cookie,needs)?;
+    let inputs=entry.guard.as_ref()?;
+    let source=state.store.native_publication_fence(&cookie,&entry.domains,&entry.subjects).await.ok()??;
+    if source.last_seen().and_then(|t|chrono::DateTime::parse_from_rfc3339(t).ok()).is_none()
+        || chrono::DateTime::parse_from_rfc3339(source.clocks().0).is_err()
+        || chrono::DateTime::parse_from_rfc3339(source.clocks().1).is_err() {return None;}
+    if !entry.matches(&source)||!inputs.matches_configuration(&state.store,&source).ok()?||headers.get("x-mailwoman-account").is_some_and(|v|v.to_str().ok()!=Some(source.account_id()))||!crate::mailbox_target_matches_account(source.account_id(),headers,Some(&entry.guard_authority)){return None;}
+    Some((entry,std::sync::Arc::new(source)))
+}

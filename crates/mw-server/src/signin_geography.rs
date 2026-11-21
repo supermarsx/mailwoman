@@ -18,7 +18,7 @@ use std::net::IpAddr;
 /// `security.signin.geoScope` values (the registry's `Kind::Enum` for that key).
 const GEO_SCOPES: [&str; 4] = ["off", "mailbox", "admin", "all"];
 #[derive(Clone)]
-struct Policy {
+pub(crate) struct Policy {
     scope: String,
     mode: String,
     countries: Vec<String>,
@@ -34,8 +34,25 @@ fn unavailable() -> AdminApiError {
         "Sign-in country policy is temporarily unavailable",
     )
 }
+/// Same typed fields and final validation as the ordinary sequential reader.
+/// No geo source decision or location result is published.
+pub(crate) fn prepare_published_inputs(rows:&[crate::settings_registry::Effective])->Result<std::sync::Arc<Policy>,()> {
+    let get=|key:&str|rows.iter().find(|row|row.key==key).map(|row|&row.value).ok_or(());
+    let enforce_sessions=get("security.signin.geoEnforceSessions")?.as_bool().ok_or(())?;
+    let scope=get("security.signin.geoScope")?.as_str().ok_or(())?.to_owned();
+    let mode=get("security.signin.geoMode")?.as_str().ok_or(())?.to_owned();
+    let unknown=get("security.signin.geoUnknown")?.as_str().ok_or(())?.to_owned();
+    let no_database=get("security.signin.geoNoDatabase")?.as_str().ok_or(())?.to_owned();
+    let countries=get("security.signin.geoCountries")?.as_array().ok_or(())?.iter()
+        .map(|v|v.as_str().map(str::to_owned).ok_or(())).collect::<Result<Vec<_>,_>>()?;
+    Policy {scope,mode,countries,unknown,no_database,enforce_sessions}.checked().map(std::sync::Arc::new).map_err(|_|())
+}
 impl Policy {
-    async fn load(state: &AppState) -> Result<Self, AdminApiError> {
+    async fn load(state: &AppState) -> Result<std::sync::Arc<Self>, AdminApiError> {
+        if let Some(current)=crate::published_guard_context::current().await {
+            current.used(crate::published_guard_context::Guard::Geography);
+            return current.inputs.geography().ok_or_else(unavailable);
+        }
         async fn value(state: &AppState, key: &str) -> Result<Value, AdminApiError> {
             crate::settings_registry::effective_for(&state.store, key, &Default::default())
                 .await
@@ -74,6 +91,10 @@ impl Policy {
             .iter()
             .map(|v| v.as_str().map(str::to_owned).ok_or_else(unavailable))
             .collect::<Result<Vec<_>, _>>()?;
+        Self {scope,mode,countries,unknown,no_database,enforce_sessions}.checked().map(std::sync::Arc::new)
+    }
+    fn checked(self)->Result<Self,AdminApiError> {
+        let Self {scope,mode,countries,unknown,no_database,enforce_sessions}=self;
         if !GEO_SCOPES.contains(&scope.as_str())
             || !matches!(mode.as_str(), "allow" | "deny")
             || !matches!(unknown.as_str(), "allow" | "deny")
@@ -84,14 +105,7 @@ impl Policy {
         {
             return Err(unavailable());
         }
-        Ok(Self {
-            scope,
-            mode,
-            countries,
-            unknown,
-            no_database,
-            enforce_sessions,
-        })
+        Ok(Self {scope,mode,countries,unknown,no_database,enforce_sessions})
     }
     fn applies(&self, surface: AuthSurface) -> bool {
         self.scope == "all"
@@ -205,15 +219,12 @@ pub(crate) async fn session_guard(
     } else {
         request
     };
-    let enabled = crate::settings_registry::effective_for(
-        &state.store,
-        "security.signin.geoEnforceSessions",
-        &Default::default(),
-    )
-    .await
-    .ok()
-    .flatten()
-    .and_then(|effective| effective.value.as_bool());
+    let enabled = if let Some(current)=crate::published_guard_context::current().await {
+        current.used(crate::published_guard_context::Guard::Geography);
+        current.inputs.global("security.signin.geoEnforceSessions").and_then(|r|r.value.as_bool())
+    }else {crate::settings_registry::effective_for(
+        &state.store,"security.signin.geoEnforceSessions",&Default::default(),
+    ).await.ok().flatten().and_then(|effective|effective.value.as_bool())};
     match enabled {
         Some(false) => return next.run(request).await,
         Some(true) => {}
