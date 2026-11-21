@@ -42,3 +42,7 @@ admin-cache-assets-hits = Hits / accepted loads / shared waiters
 admin-cache-assets-evictions = Evicted / expired / oversized bypasses
 admin-cache-assets-failures = Busy refusals / failed worker jobs
 admin-cache-assets-preload = Preload mode; retained / skipped
+
+admin-cache-assets-encoded = Encoded payload / owned portion
+admin-cache-assets-encoding-loads = Verified sidecars / generated encodings
+admin-cache-assets-encoding-help = Public static encodings share the cache budget. Sidecars are checked against raw bytes; adapted assets may be encoded once on a bounded cache miss. Mail, API data and private HTML are excluded.

@@ -63,6 +63,9 @@ pub(crate) struct Config {
     pub max_entries: usize,
     pub revalidate_seconds: u64,
     pub preload: Preload,
+    pub compression_enabled: bool,
+    pub brotli_enabled: bool,
+    pub compression_min_bytes: usize,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -73,6 +76,9 @@ impl Default for Config {
             max_entries: 1024,
             revalidate_seconds: 1,
             preload: Preload::Shell,
+            compression_enabled: true,
+            brotli_enabled: true,
+            compression_min_bytes: 1024,
         }
     }
 }
@@ -115,6 +121,9 @@ impl Config {
             Some("core") => Preload::Core,
             _ => Preload::Shell,
         };
+        out.compression_enabled = v("compression.enabled").and_then(serde_json::Value::as_bool).unwrap_or(true);
+        out.brotli_enabled = v("compression.brotli").and_then(serde_json::Value::as_bool).unwrap_or(true);
+        out.compression_min_bytes = v("compression.minBytes").and_then(serde_json::Value::as_u64).filter(|n|(256..=65536).contains(n)).unwrap_or(1024) as usize;
         out
     }
 }
@@ -122,6 +131,8 @@ impl Config {
 pub(crate) struct Prepared {
     pub bytes: Bytes,
     pub etag: HeaderValue,
+    pub encodings: crate::public_asset_compression::Encodings,
+    pub compressible: bool,
     charge: usize,
     immutable: bool,
 }
@@ -142,6 +153,8 @@ impl Prepared {
         Self {
             bytes,
             etag,
+            encodings: Default::default(),
+            compressible: false,
             charge,
             immutable,
         }
@@ -191,6 +204,8 @@ struct Counters {
     clears: u64,
     preload_loaded: u64,
     preload_skipped: u64,
+    generated_encodings: u64,
+    validated_sidecars: u64,
 }
 struct Inner {
     config: Config,
@@ -339,7 +354,7 @@ impl Cache {
     }
     pub(crate) fn status(&self) -> serde_json::Value {
         let s = self.lock();
-        serde_json::json!({"scope":"public-static-representations-only","config":s.config,"effectivePreload":if s.config.enabled { s.config.preload } else { Preload::Off },"generation":s.generation,"residentOwnedBytes":s.bytes,"entries":s.entries.len(),"effectiveMaxFileBytes":s.config.file(),"pendingUnique":s.pending.len(),"runningLoads":s.running,"queuedUnique":s.pending.len().saturating_sub(s.running),"maxQueuedUnique":QUEUED,"maxRunningLoads":WORKERS,"configurationStale":s.configuration_stale,"lastConfigAt":s.last_config_at,"counters":s.stats,"hardRssLimit":false,"embeddedRawBytesDuplicated":false})
+        serde_json::json!({"scope":"public-static-representations-only","config":s.config,"effectivePreload":if s.config.enabled { s.config.preload } else { Preload::Off },"generation":s.generation,"residentOwnedBytes":s.bytes,"compressionEffectiveEnabled":s.config.enabled&&s.config.compression_enabled,"encodedResidentBytes":s.entries.values().map(|entry|entry.value.encodings.bytes()).sum::<usize>(),"ownedEncodedResidentBytes":s.entries.values().map(|entry|entry.value.encodings.charge()).sum::<usize>(),"entries":s.entries.len(),"effectiveMaxFileBytes":s.config.file(),"pendingUnique":s.pending.len(),"runningLoads":s.running,"queuedUnique":s.pending.len().saturating_sub(s.running),"maxQueuedUnique":QUEUED,"maxRunningLoads":WORKERS,"configurationStale":s.configuration_stale,"lastConfigAt":s.last_config_at,"counters":s.stats,"hardRssLimit":false,"embeddedRawBytesDuplicated":false})
     }
     pub(crate) async fn refresh(&self, store: &mw_store::Store) {
         let ticket = self.begin_refresh();
@@ -445,7 +460,7 @@ impl Cache {
             || !std::path::Path::new(path)
                 .components()
                 .all(|part| matches!(part, std::path::Component::Normal(_)))
-            || path.ends_with(".map")
+            || path.ends_with(".map") || path.ends_with(".map.gz") || path.ends_with(".map.br")
             || variant == Variant::Console && path != "index.html"
         {
             return Ok(None);
@@ -511,6 +526,7 @@ impl Cache {
                     s.running += 1;
                 }
                 let mut job = Job {
+                    config: s.config,
                     cache: self.clone(),
                     key,
                     flight,
@@ -568,6 +584,7 @@ impl Cache {
     }
 }
 struct Job {
+    config: Config,
     cache: Arc<Cache>,
     key: Key,
     flight: Arc<Flight>,
@@ -622,6 +639,28 @@ impl Job {
         };
         let mut prepared = Prepared::new(raw);
         prepared.immutable = immutable;
+        prepared.compressible = self.key.variant == Variant::Public && crate::public_asset_compression::eligible(&self.key.path);
+        if prepared.compressible && self.config.enabled && self.config.compression_enabled && prepared.bytes.len()>=self.config.compression_min_bytes && prepared.bytes.len()<=self.config.file() {
+            prepared.encodings = crate::public_asset_compression::prepare(&prepared.bytes,self.config.brotli_enabled,self.config.budget().saturating_sub(prepared.charge),|coding|{
+                let sidecar=format!("{}{}",self.key.path,coding.suffix());
+                match (&self.key.source,&self.cache.web_dir) {
+                    (Source::Web|Source::Pdf,Some(root))=>{
+                        use std::io::Read;
+                        let path=root.join(sidecar);
+                        if !std::fs::metadata(&path).ok()?.is_file(){return None;}
+                        let file=std::fs::File::open(path).ok()?;
+                        let max=prepared.bytes.len();
+                        if file.metadata().ok()?.len()>max as u64{return None;}
+                        let mut bytes=Vec::new();file.take(max as u64+1).read_to_end(&mut bytes).ok()?;
+                        (bytes.len()<=max).then_some(Cow::Owned(bytes))
+                    }
+                    (Source::Web,None)=>mw_web_assets::web(&sidecar).filter(|bytes|bytes.len()<=prepared.bytes.len()),
+                    (Source::Pdf,None)=>mw_web_assets::pdf(&sidecar).filter(|bytes|bytes.len()<=prepared.bytes.len()),
+                    _=>None,
+                }
+            });
+            prepared.charge += prepared.encodings.charge();
+        }
         Some(prepared)
     }
     fn finish(&mut self, value: Option<Prepared>, failed: bool) {
@@ -639,9 +678,13 @@ impl Job {
             s.stats.load_failures = s.stats.load_failures.saturating_add(1);
         }
         if let Some(value) = &value {
+            for encoded in [value.encodings.gzip.as_ref(),value.encodings.brotli.as_ref()].into_iter().flatten() {
+                if encoded.generated {s.stats.generated_encodings=s.stats.generated_encodings.saturating_add(1);}else{s.stats.validated_sidecars=s.stats.validated_sidecars.saturating_add(1);}
+            }
             if s.generation != self.key.generation {
                 s.stats.stale_inserts = s.stats.stale_inserts.saturating_add(1);
             } else if s.config.enabled
+                && value.charge <= s.config.budget()
                 && (value.charge == 0 || value.bytes.len() <= s.config.file())
             {
                 while s.entries.len() >= s.config.max_entries

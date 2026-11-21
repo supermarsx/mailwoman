@@ -42,3 +42,7 @@ admin-cache-assets-hits = Acertos / carregamentos aceites / esperas partilhadas
 admin-cache-assets-evictions = Expulsas / expiradas / demasiado grandes
 admin-cache-assets-failures = Recusas por ocupação / tarefas falhadas
 admin-cache-assets-preload = Modo de pré-carregamento; retidas / ignoradas
+
+admin-cache-assets-encoded = Dados comprimidos / parte própria
+admin-cache-assets-encoding-loads = Ficheiros verificados / codificações geradas
+admin-cache-assets-encoding-help = Os ficheiros públicos comprimidos partilham o orçamento da cache. São verificados com os bytes originais; os ficheiros adaptados podem ser codificados uma vez num carregamento limitado da cache. Excluem-se correio, dados da API e HTML privado.

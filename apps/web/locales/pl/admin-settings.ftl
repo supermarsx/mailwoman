@@ -2829,3 +2829,10 @@ admin-settings-key-web-assets-cache-revalidate-seconds = Ponowna weryfikacja zas
 admin-settings-help-web-assets-cache-revalidate-seconds = Maksymalny wiek buforowanych wdrożonych danych, w tym strony startowej i service workera. Wbudowane bajty są niezmienne.
 admin-settings-key-web-assets-cache-preload = Tryb ładowania wstępnego
 admin-settings-help-web-assets-cache-preload = off: brak; shell: strona startowa; core: strona i ograniczone skrypty/style. W miarę możliwości, po bieżących żądaniach.
+
+admin-settings-key-web-assets-cache-compression-enabled = Kompresja plików publicznych
+admin-settings-help-web-assets-cache-compression-enabled = Skompresowane pliki publiczne korzystają z tego samego budżetu pamięci podręcznej. Są porównywane z bajtami źródłowymi; zmienione pliki mogą być kodowane raz podczas ograniczonego ładowania. Poczta, dane API i prywatny HTML są wykluczone.
+admin-settings-key-web-assets-cache-compression-brotli = Włącz Brotli
+admin-settings-help-web-assets-cache-compression-brotli = Używaj Brotli, jeśli klient je akceptuje; gzip i identity pozostają dostępne. Wykluczenia q=0 są respektowane.
+admin-settings-key-web-assets-cache-compression-min-bytes = Minimalna liczba bajtów źródłowych
+admin-settings-help-web-assets-cache-compression-min-bytes = Domyślnie: 1024 bajty; zakres: 256–65536. Zachowuj tylko warianty oszczędzające co najmniej 5% i 128 bajtów.

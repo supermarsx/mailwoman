@@ -2803,3 +2803,10 @@ admin-settings-key-web-assets-cache-revalidate-seconds = 配備アセットの�
 admin-settings-help-web-assets-cache-revalidate-seconds = 初期ページとサービスワーカーを含む配備データの最大キャッシュ期間です。埋め込みバイトは不変です。
 admin-settings-key-web-assets-cache-preload = 事前読み込みモード
 admin-settings-help-web-assets-cache-preload = off: なし、shell: 初期ページ、core: ページと制限内のスクリプト・スタイル。実行中の要求を優先したベストエフォートです。
+
+admin-settings-key-web-assets-cache-compression-enabled = 公開静的ファイルの圧縮
+admin-settings-help-web-assets-cache-compression-enabled = 公開静的ファイルの圧縮データはキャッシュ予算を共有します。元のバイト列と照合し、調整したファイルは上限付きのキャッシュ読み込み時に一度エンコードできます。メール、APIデータ、非公開HTMLは対象外です。
+admin-settings-key-web-assets-cache-compression-brotli = Brotliを有効にする
+admin-settings-help-web-assets-cache-compression-brotli = クライアントが対応していればBrotliを使用します。gzipとidentityも利用でき、q=0の除外指定を守ります。
+admin-settings-key-web-assets-cache-compression-min-bytes = 元データの最小バイト数
+admin-settings-help-web-assets-cache-compression-min-bytes = 既定値は1024バイト、範囲は256～65536です。5%以上かつ128バイト以上小さい形式のみ保持します。

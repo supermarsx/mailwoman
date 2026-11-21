@@ -42,3 +42,7 @@ admin-cache-assets-hits = إصابات / تحميلات مقبولة / طلبا�
 admin-cache-assets-evictions = محذوفة / منتهية / أكبر من الحد
 admin-cache-assets-failures = رفض بسبب الانشغال / مهام فاشلة
 admin-cache-assets-preload = وضع التحميل المسبق؛ المحتفظ بها / المتخطاة
+
+admin-cache-assets-encoded = البيانات المضغوطة / الجزء المملوك
+admin-cache-assets-encoding-loads = الملفات المتحققة / الترميزات المنشأة
+admin-cache-assets-encoding-help = تشارك الملفات العامة المضغوطة ميزانية التخزين المؤقت. تُقارن بالبايتات الأصلية، ويمكن ترميز الملفات المعدّلة مرة واحدة أثناء تحميل محدود. يُستثنى البريد وبيانات API وHTML الخاص.

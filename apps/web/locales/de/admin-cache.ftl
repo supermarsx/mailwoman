@@ -42,3 +42,7 @@ admin-cache-assets-hits = Treffer / angenommene Ladevorgänge / geteilte Wartevo
 admin-cache-assets-evictions = Verdrängt / abgelaufen / zu groß
 admin-cache-assets-failures = Überlastungsablehnungen / fehlgeschlagene Aufgaben
 admin-cache-assets-preload = Vorlademodus; gespeichert / übersprungen
+
+admin-cache-assets-encoded = Komprimierte Nutzdaten / eigener Anteil
+admin-cache-assets-encoding-loads = Geprüfte Begleitdateien / erzeugte Kodierungen
+admin-cache-assets-encoding-help = Komprimierte öffentliche Dateien teilen sich das Cache-Budget. Begleitdateien werden mit den Rohdaten verglichen; angepasste Dateien werden bei einem begrenzten Cache-Fehlzugriff einmal kodiert. E-Mails, API-Daten und privates HTML sind ausgeschlossen.

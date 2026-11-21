@@ -2803,3 +2803,10 @@ admin-settings-key-web-assets-cache-revalidate-seconds = 已部署资源重新�
 admin-settings-help-web-assets-cache-revalidate-seconds = 已部署缓存数据的最长保留时间，包括初始页面和服务工作线程。嵌入式字节不可变。
 admin-settings-key-web-assets-cache-preload = 预加载模式
 admin-settings-help-web-assets-cache-preload = off：不加载；shell：初始页面；core：页面及有界脚本和样式。尽力执行，优先处理前台请求。
+
+admin-settings-key-web-assets-cache-compression-enabled = 公共静态文件压缩
+admin-settings-help-web-assets-cache-compression-enabled = 公共静态文件的压缩数据共享缓存预算。压缩文件会与原始字节核对；调整后的文件可在有界缓存加载时编码一次。邮件、API 数据和私有 HTML 不在范围内。
+admin-settings-key-web-assets-cache-compression-brotli = 启用 Brotli
+admin-settings-help-web-assets-cache-compression-brotli = 客户端接受时使用 Brotli；gzip 和 identity 仍可用，并遵守 q=0 排除规则。
+admin-settings-key-web-assets-cache-compression-min-bytes = 原始数据最小字节数
+admin-settings-help-web-assets-cache-compression-min-bytes = 默认值：1024 字节；范围：256–65536。仅保留至少节省 5% 且不少于 128 字节的编码。

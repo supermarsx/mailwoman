@@ -42,3 +42,7 @@ admin-cache-assets-hits = Trafienia / przyjęte ładowania / wspólne oczekiwani
 admin-cache-assets-evictions = Usunięte / wygasłe / zbyt duże
 admin-cache-assets-failures = Odmowy przy przeciążeniu / błędne zadania
 admin-cache-assets-preload = Tryb ładowania wstępnego; zachowane / pominięte
+
+admin-cache-assets-encoded = Dane skompresowane / własna część
+admin-cache-assets-encoding-loads = Zweryfikowane pliki / wygenerowane kodowania
+admin-cache-assets-encoding-help = Skompresowane pliki publiczne korzystają z tego samego budżetu pamięci podręcznej. Są porównywane z bajtami źródłowymi; zmienione pliki mogą być kodowane raz podczas ograniczonego ładowania. Poczta, dane API i prywatny HTML są wykluczone.

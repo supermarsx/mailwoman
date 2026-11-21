@@ -2811,3 +2811,10 @@ admin-settings-key-web-assets-cache-revalidate-seconds = Revalidação dos recur
 admin-settings-help-web-assets-cache-revalidate-seconds = Idade máxima do cache para bytes publicados ou retidos, incluindo página inicial e service worker. Os bytes incorporados são imutáveis.
 admin-settings-key-web-assets-cache-preload = Modo de pré-carregamento
 admin-settings-help-web-assets-cache-preload = off: nenhum; shell: página inicial; core: página e conjunto limitado de scripts e estilos. Melhor esforço, com prioridade ao trabalho em primeiro plano.
+
+admin-settings-key-web-assets-cache-compression-enabled = Compressão de arquivos públicos
+admin-settings-help-web-assets-cache-compression-enabled = Os arquivos públicos comprimidos compartilham o orçamento do cache. São verificados com os bytes originais; arquivos adaptados podem ser codificados uma vez em um carregamento limitado do cache. Correio, dados da API e HTML privado são excluídos.
+admin-settings-key-web-assets-cache-compression-brotli = Ativar Brotli
+admin-settings-help-web-assets-cache-compression-brotli = Usar Brotli quando aceito pelo cliente; gzip e identity continuam disponíveis. As exclusões q=0 são respeitadas.
+admin-settings-key-web-assets-cache-compression-min-bytes = Mínimo de bytes originais
+admin-settings-help-web-assets-cache-compression-min-bytes = Padrão: 1024 bytes; intervalo: 256–65536. Reter apenas variantes que economizem pelo menos 5% e 128 bytes.

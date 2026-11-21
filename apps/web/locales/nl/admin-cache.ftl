@@ -42,3 +42,7 @@ admin-cache-assets-hits = Treffers / aanvaarde laadacties / gedeelde wachters
 admin-cache-assets-evictions = Verwijderd / verlopen / te groot
 admin-cache-assets-failures = Weigeringen bij drukte / mislukte taken
 admin-cache-assets-preload = Voorlaadmodus; bewaard / overgeslagen
+
+admin-cache-assets-encoded = Gecodeerde gegevens / eigen deel
+admin-cache-assets-encoding-loads = Gecontroleerde bestanden / gemaakte coderingen
+admin-cache-assets-encoding-help = Gecomprimeerde openbare bestanden delen het cachebudget. Ze worden met de bronbytes vergeleken; aangepaste bestanden kunnen eenmaal bij een begrensde cachemisser worden gecodeerd. E-mail, API-gegevens en privé-HTML zijn uitgesloten.

@@ -142,6 +142,7 @@ sha2 = { workspace = true }
 # t96: unpack the country database downloads (DB-IP `.mmdb.gz`, MaxMind
 # `.tar.gz`). Pure-Rust backend; already in the server's graph via mw-imap/mw-sso.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+brotli = "=8.0.4"
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
 # V2 push + ACME listener (plan §1.2/§1.10, §3 e10). `tokio-tungstenite` also

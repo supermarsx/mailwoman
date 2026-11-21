@@ -233,8 +233,10 @@ fn prepared_response(
     let mut resp = super::asset_response_prepared(path, mime_for(path), asset, headers);
     // The URLs carry no version, so a shared long lifetime could pair a new document
     // with an old library after an upgrade. Always revalidate; the ETag makes it a 304.
-    resp.headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    if resp.status().is_success() || resp.status() == StatusCode::NOT_MODIFIED {
+        resp.headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    }
     // The viewer document is sandboxed without `allow-same-origin`, so everything it
     // loads is a cross-origin request from the opaque origin `null`: module scripts,
     // the worker's import, fonts, wasm and `fetch` need CORS, and the stylesheet
@@ -252,7 +254,7 @@ fn prepared_response(
         );
     }
     if *method == Method::HEAD {
-        if resp.status() == StatusCode::OK {
+        if resp.status() == StatusCode::OK && !resp.headers().contains_key(header::CONTENT_LENGTH) {
             resp.headers_mut()
                 .insert(header::CONTENT_LENGTH, HeaderValue::from(len));
         }
@@ -453,5 +455,29 @@ mod tests {
         let a = audit(Some(&dir));
         assert_eq!(a.status, "warn");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod encoding_contract {
+    use super::*;
+    #[tokio::test]
+    async fn compressed_library_head_keeps_selected_length_cors_and_revalidation() {
+        let raw=b"export const pdfLibraryFixture='public';\n".repeat(256);
+        let mut asset=crate::public_asset_cache::Prepared::new(std::borrow::Cow::Owned(raw.clone()));
+        asset.compressible=true;
+        asset.encodings=crate::public_asset_compression::prepare(&raw,true,1024*1024,|_|None);
+        let mut headers=HeaderMap::new();headers.insert(header::ACCEPT_ENCODING,HeaderValue::from_static("gzip"));
+        let response=prepared_response(&Method::HEAD,"pdfjs/build/pdf.mjs",&headers,&asset);
+        assert_eq!(response.status(),StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_ENCODING],"gzip");
+        assert_eq!(response.headers()[header::CONTENT_LENGTH],asset.encodings.gzip.as_ref().unwrap().bytes.len().to_string());
+        assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN],"*");
+        assert_eq!(response.headers()[header::CACHE_CONTROL],"no-cache");
+        assert!(axum::body::to_bytes(response.into_body(),1).await.unwrap().is_empty());
+        headers.insert(header::ACCEPT_ENCODING,HeaderValue::from_static("*;q=0"));
+        let refused=prepared_response(&Method::GET,"pdfjs/build/pdf.mjs",&headers,&asset);
+        assert_eq!(refused.status(),StatusCode::NOT_ACCEPTABLE);
+        assert_eq!(refused.headers()[header::CACHE_CONTROL],"no-store");
     }
 }

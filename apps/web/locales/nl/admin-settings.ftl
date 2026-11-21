@@ -2811,3 +2811,10 @@ admin-settings-key-web-assets-cache-revalidate-seconds = Hercontrole uitgerolde 
 admin-settings-help-web-assets-cache-revalidate-seconds = Maximale cacheleeftijd van uitgerolde of bewaarde bytes, inclusief startpagina en service worker. Ingebedde bytes zijn onveranderlijk.
 admin-settings-key-web-assets-cache-preload = Voorlaadmodus
 admin-settings-help-web-assets-cache-preload = off: geen; shell: startpagina; core: startpagina en begrensde scripts/stijlen. Naar mogelijkheid, na actuele aanvragen.
+
+admin-settings-key-web-assets-cache-compression-enabled = Compressie van openbare bestanden
+admin-settings-help-web-assets-cache-compression-enabled = Gecomprimeerde openbare bestanden delen het cachebudget. Ze worden met de bronbytes vergeleken; aangepaste bestanden kunnen eenmaal bij een begrensde cachemisser worden gecodeerd. E-mail, API-gegevens en privé-HTML zijn uitgesloten.
+admin-settings-key-web-assets-cache-compression-brotli = Brotli inschakelen
+admin-settings-help-web-assets-cache-compression-brotli = Gebruik Brotli als de client dit accepteert; gzip en identity blijven beschikbaar. Uitsluitingen met q=0 worden gerespecteerd.
+admin-settings-key-web-assets-cache-compression-min-bytes = Minimaal aantal bronbytes
+admin-settings-help-web-assets-cache-compression-min-bytes = Standaard: 1024 bytes; bereik: 256–65536. Bewaar alleen varianten die minstens 5% en 128 bytes besparen.

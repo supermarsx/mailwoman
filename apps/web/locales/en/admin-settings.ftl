@@ -2730,3 +2730,10 @@ admin-settings-key-web-assets-cache-revalidate-seconds = Deployed asset revalida
 admin-settings-help-web-assets-cache-revalidate-seconds = Maximum cached age for deployed/retained bytes, including shell and service worker. Embedded build bytes are immutable.
 admin-settings-key-web-assets-cache-preload = Preload mode
 admin-settings-help-web-assets-cache-preload = off: none; shell: initial page; core: shell and a bounded set of its scripts/styles. Best effort, after foreground work.
+
+admin-settings-key-web-assets-cache-compression-enabled = Public static compression
+admin-settings-help-web-assets-cache-compression-enabled = Public static encodings share the cache budget. Sidecars are checked against raw bytes; adapted assets may be encoded once on a bounded cache miss. Mail, API data and private HTML are excluded.
+admin-settings-key-web-assets-cache-compression-brotli = Enable Brotli
+admin-settings-help-web-assets-cache-compression-brotli = Use Brotli when accepted by the client; gzip and identity remain available. Client q=0 exclusions are respected.
+admin-settings-key-web-assets-cache-compression-min-bytes = Minimum raw bytes
+admin-settings-help-web-assets-cache-compression-min-bytes = Default: 1024 bytes; range: 256–65536. Retain only variants saving at least 5% and 128 bytes.

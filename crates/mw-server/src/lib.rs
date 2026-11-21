@@ -116,6 +116,7 @@ mod source_bans;
 mod health_access;
 mod static_resilience;
 mod public_asset_cache;
+mod public_asset_compression;
 pub mod tls;
 pub mod watermark;
 pub mod wkd;
@@ -5581,7 +5582,7 @@ async fn static_handler_inner(
     }
     // Hidden source maps ride in the asset set for the admin symbolicator only
     // (client_errors_symbolicate); a browser never gets one.
-    if path.ends_with(".map") {
+    if path.ends_with(".map") || path.ends_with(".map.gz") || path.ends_with(".map.br") {
         return error(error_pages::ErrorKind::NotFound);
     }
     // The base shim is generated, not bundled: served at every prefix (including
@@ -5929,7 +5930,8 @@ async fn serve_asset(
         return Ok(None);
     };
     let mime = mime_guess::from_path(path).first_or_octet_stream();
-    let mut response = asset_response_prepared(path, mime.as_ref(), &asset, req);
+    let mime = if path.ends_with(".ftl") {"text/plain; charset=utf-8"} else {mime.as_ref()};
+    let mut response = asset_response_prepared(path, mime, &asset, req);
     allow_worker_scope(&mut response, path, &state.base_path);
     Ok(Some(response))
 }
@@ -6148,36 +6150,34 @@ fn asset_response_prepared(
     asset: &public_asset_cache::Prepared,
     req: &HeaderMap,
 ) -> Response {
-    let etag = asset.etag.to_str().expect("validated content hash");
-    let cache_control = if is_content_hashed(path) {
-        "public, max-age=31536000, immutable"
-    } else {
-        "no-cache"
-    };
-
-    // A conditional request whose validator still matches: 304, no body.
-    if etag_matches(req, etag) {
-        let mut resp = StatusCode::NOT_MODIFIED.into_response();
-        let h = resp.headers_mut();
-        h.insert(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static(cache_control),
-        );
-        h.insert(header::ETAG, asset.etag.clone());
-        return resp;
+    let mime = if path.ends_with(".ftl") {"text/plain; charset=utf-8"}else{mime};
+    let selected = if asset.compressible {
+        match public_asset_compression::negotiate(req,&asset.encodings) {
+            Ok(coding)=>coding,
+            Err(())=>{
+                let mut response=(StatusCode::NOT_ACCEPTABLE,"No acceptable static representation.\n").into_response();
+                response.headers_mut().insert(header::VARY,HeaderValue::from_static("Accept-Encoding"));
+                response.headers_mut().insert(header::CACHE_CONTROL,HeaderValue::from_static("no-store"));
+                return response;
+            }
+        }
+    }else{public_asset_compression::Coding::Identity};
+    let encoded=asset.encodings.get(selected);
+    let bytes=encoded.map_or(&asset.bytes,|value|&value.bytes);
+    let etag=encoded.map_or(&asset.etag,|value|&value.etag);
+    let cache_control=if is_content_hashed(path){"public, max-age=31536000, immutable"}else{"no-cache"};
+    let unchanged=etag_matches(req,etag.to_str().expect("content hash header"));
+    let mut response=if unchanged {StatusCode::NOT_MODIFIED.into_response()}else{Response::new(Body::from(bytes.clone()))};
+    let h=response.headers_mut();
+    h.insert(header::CACHE_CONTROL,HeaderValue::from_static(cache_control));
+    h.insert(header::ETAG,etag.clone());
+    if asset.compressible {h.append(header::VARY,HeaderValue::from_static("Accept-Encoding"));}
+    if let Some(encoding)=selected.name(){h.insert(header::CONTENT_ENCODING,HeaderValue::from_static(encoding));}
+    if !unchanged {
+        if let Ok(value)=HeaderValue::from_str(mime){h.insert(header::CONTENT_TYPE,value);}
+        h.insert(header::CONTENT_LENGTH,HeaderValue::from(bytes.len()));
     }
-
-    let mut resp = Response::new(Body::from(asset.bytes.clone()));
-    let h = resp.headers_mut();
-    if let Ok(v) = HeaderValue::from_str(mime) {
-        h.insert(header::CONTENT_TYPE, v);
-    }
-    h.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static(cache_control),
-    );
-    h.insert(header::ETAG, asset.etag.clone());
-    resp
+    response
 }
 
 /// A strong `ETag` over the exact bytes served. Content-derived, so it is right

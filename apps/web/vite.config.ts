@@ -1,3 +1,4 @@
+import {assetCompression} from './scripts/assetCompression.ts';
 import {buildTimings} from './scripts/buildTimings.ts';
 import {bundleGraph} from './scripts/bundleGraph.ts';
 import {catalogAssets} from './scripts/catalogAssets.ts';
@@ -101,12 +102,13 @@ export function assetIntegrity(): Plugin {
         if (rel.startsWith('/assets/analytics/')) continue;
         // Hidden source maps (MW_SOURCEMAP=hidden) are for the server's stack
         // symbolicator only: never served, never precached.
-        if (rel.endsWith('.map')) continue;
+        if (rel.endsWith('.map') || rel.endsWith('.gz') || rel.endsWith('.br')) continue;
         digests[rel] = createHash('sha256').update(readFileSync(file)).digest('hex');
       }
       const pdf = join(outDir,'pdfjs');
       if(existsSync(pdf))for(const file of walk(pdf)){
         const rel=`/pdfjs/${relative(pdf,file).split(sep).join('/')}`;
+        if(rel.endsWith('.gz')||rel.endsWith('.br'))continue;
         if(rel.endsWith('.html')&&rel!=='/pdfjs/web/mailwoman.html')continue;
         digests[rel]=createHash('sha256').update(readFileSync(file)).digest('hex');
       }
@@ -161,7 +163,7 @@ export default defineConfig({
   // Top-level await in the wasm modules is native (target es2022) and the workers are built as
   // ES modules (`worker.format`), so there is no `vite-plugin-top-level-await`: it re-printed each
   // chunk after its source map was written and misaligned every hidden map (docs/admin/observability.md).
-  plugins: [catalogAssets(),cachedSolid({stats:buildCacheStats}), vanillaExtractPlugin(), wasm(), bundledPackages({ main: true }), bootScript(), offlineBackground(), assetIntegrity(),buildTimings(buildCacheStats),bundleGraph()],
+  plugins: [catalogAssets(),cachedSolid({stats:buildCacheStats}), vanillaExtractPlugin(), wasm(), bundledPackages({ main: true }), bootScript(), offlineBackground(), assetIntegrity(),assetCompression(),buildTimings(buildCacheStats),bundleGraph()],
   // t32-e75: the bundle recorder also sees the worker builds; the main instance writes
   // node_modules/.cache/mailwoman-about/bundled-packages.json for the third-party list.
   worker: { format: 'es', plugins: () => [catalogAssets(),bundledPackages()] },

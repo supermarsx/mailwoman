@@ -2833,3 +2833,10 @@ admin-settings-key-web-assets-cache-revalidate-seconds = إعادة التحقق
 admin-settings-help-web-assets-cache-revalidate-seconds = أقصى عمر للبيانات المنشورة المخزنة، بما فيها الصفحة الأولية وعامل الخدمة. البايتات المضمنة ثابتة.
 admin-settings-key-web-assets-cache-preload = وضع التحميل المسبق
 admin-settings-help-web-assets-cache-preload = off: لا شيء؛ shell: الصفحة الأولية؛ core: الصفحة ومجموعة محدودة من النصوص والأنماط. بأفضل جهد مع أولوية الطلبات النشطة.
+
+admin-settings-key-web-assets-cache-compression-enabled = ضغط الملفات العامة الثابتة
+admin-settings-help-web-assets-cache-compression-enabled = تشارك الملفات العامة المضغوطة ميزانية التخزين المؤقت. تُقارن بالبايتات الأصلية، ويمكن ترميز الملفات المعدّلة مرة واحدة أثناء تحميل محدود. يُستثنى البريد وبيانات API وHTML الخاص.
+admin-settings-key-web-assets-cache-compression-brotli = تفعيل Brotli
+admin-settings-help-web-assets-cache-compression-brotli = يُستخدم Brotli عندما يقبله العميل؛ يبقى gzip وidentity متاحين. تُحترم استثناءات q=0.
+admin-settings-key-web-assets-cache-compression-min-bytes = الحد الأدنى للبايتات الأصلية
+admin-settings-help-web-assets-cache-compression-min-bytes = القيمة الافتراضية: 1024 بايت؛ النطاق: 256–65536. تُحتفظ فقط بالترميزات التي توفر 5% و128 بايت على الأقل.

@@ -42,3 +42,7 @@ admin-cache-assets-hits = ヒット / 受理した読み込み / 共有待機
 admin-cache-assets-evictions = 削除 / 期限切れ / サイズ超過
 admin-cache-assets-failures = 混雑による拒否 / 失敗したジョブ
 admin-cache-assets-preload = 事前読み込みモード、保持 / スキップ
+
+admin-cache-assets-encoded = 圧縮データ / 所有部分
+admin-cache-assets-encoding-loads = 検証済みファイル / 生成したエンコード
+admin-cache-assets-encoding-help = 公開静的ファイルの圧縮データはキャッシュ予算を共有します。元のバイト列と照合し、調整したファイルは上限付きのキャッシュ読み込み時に一度エンコードできます。メール、APIデータ、非公開HTMLは対象外です。

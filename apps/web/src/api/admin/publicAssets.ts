@@ -1,11 +1,12 @@
 import {adminRequest} from '../../screens/Admin/shell/adminApi.ts';
 export interface PublicAssetCacheStatus {
  scope:'public-static-representations-only';
- config:{enabled:boolean;budgetMiB:number;maxFileMiB:number;maxEntries:number;revalidateSeconds:number;preload:'off'|'shell'|'core'};
+ config:{enabled:boolean;budgetMiB:number;maxFileMiB:number;maxEntries:number;revalidateSeconds:number;preload:'off'|'shell'|'core';compressionEnabled?:boolean;brotliEnabled?:boolean;compressionMinBytes?:number};
+ compressionEffectiveEnabled?:boolean;encodedResidentBytes?:number;ownedEncodedResidentBytes?:number;
  effectivePreload:'off'|'shell'|'core';generation:number;residentOwnedBytes:number;entries:number;effectiveMaxFileBytes:number;
  pendingUnique:number;runningLoads:number;queuedUnique:number;maxQueuedUnique:number;maxRunningLoads:number;
  configurationStale:boolean;lastConfigAt:number|null;
- counters:{hits:number;misses:number;loads:number;coalesced:number;evictions:number;expired:number;oversize:number;busy:number;loadFailures:number;staleInserts:number;clears:number;preloadLoaded:number;preloadSkipped:number};
+ counters:{hits:number;misses:number;loads:number;coalesced:number;evictions:number;expired:number;oversize:number;busy:number;loadFailures:number;staleInserts:number;clears:number;preloadLoaded:number;preloadSkipped:number;generatedEncodings?:number;validatedSidecars?:number};
  hardRssLimit:false;embeddedRawBytesDuplicated:false;
 }
 export async function loadPublicAssetCache(signal?:AbortSignal):Promise<PublicAssetCacheStatus>{

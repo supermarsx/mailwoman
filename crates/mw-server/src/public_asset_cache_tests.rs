@@ -368,6 +368,9 @@ fn actual_static_router_keeps_head_etag_csp_console_and_admin_auth() {
                         b"<!doctype html><html><head></head><body>owned shell</body></html>",
                     )
                     .unwrap();
+                    std::fs::create_dir(web.join("assets")).unwrap();
+                    let public_js=b"export const publicStaticFixture='content';\n".repeat(512);
+                    std::fs::write(web.join("assets/public-ABC12345.js"),&public_js).unwrap();
                     let (router, _) = crate::build_app_full(
                         crate::AppConfig {
                             db_path: directory
@@ -430,6 +433,27 @@ fn actual_static_router_keeps_head_etag_csp_console_and_admin_auth() {
                     let unchanged = router.clone().oneshot(conditional).await.unwrap();
                     assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
                     assert!(to_bytes(unchanged.into_body(), 1).await.unwrap().is_empty());
+                    // The actual production router must select the SAME encoding
+                    // for GET/HEAD/304, not a raw-length HEAD over encoded bytes.
+                    let encoded_request=|method:Method|Request::builder().method(method)
+                        .uri("/assets/public-ABC12345.js").header(header::ACCEPT_ENCODING,"gzip")
+                        .body(Body::empty()).unwrap();
+                    let encoded=router.clone().oneshot(encoded_request(Method::GET)).await.unwrap();
+                    assert_eq!(encoded.status(),StatusCode::OK);
+                    assert_eq!(encoded.headers()[header::CONTENT_ENCODING],"gzip");
+                    assert!(encoded.headers().get_all(header::VARY).iter().any(|v|v.to_str().unwrap().contains("Accept-Encoding")));
+                    let encoded_tag=encoded.headers()[header::ETAG].clone();
+                    let encoded_length=encoded.headers()[header::CONTENT_LENGTH].clone();
+                    let encoded_body=to_bytes(encoded.into_body(),public_js.len()).await.unwrap();
+                    let mut decoded=Vec::new();std::io::Read::read_to_end(&mut flate2::read::MultiGzDecoder::new(encoded_body.as_ref()),&mut decoded).unwrap();
+                    assert_eq!(decoded,public_js);
+                    let encoded_head=router.clone().oneshot(encoded_request(Method::HEAD)).await.unwrap();
+                    assert_eq!(encoded_head.status(),StatusCode::OK);assert_eq!(encoded_head.headers()[header::CONTENT_LENGTH],encoded_length);
+                    assert_eq!(encoded_head.headers()[header::ETAG],encoded_tag);
+                    assert!(to_bytes(encoded_head.into_body(),1).await.unwrap().is_empty());
+                    let mut revalidate=encoded_request(Method::GET);revalidate.headers_mut().insert(header::IF_NONE_MATCH,encoded_tag.clone());
+                    let encoded_304=router.clone().oneshot(revalidate).await.unwrap();assert_eq!(encoded_304.status(),StatusCode::NOT_MODIFIED);
+                    assert_eq!(encoded_304.headers()[header::CONTENT_ENCODING],"gzip");assert!(to_bytes(encoded_304.into_body(),1).await.unwrap().is_empty());
                     let console_path = format!("/{}", crate::console_page());
                     // An extensionless console page is a real navigation only
                     // with browser navigation metadata (or an HTML Accept).
@@ -591,4 +615,34 @@ async fn pdf_embedded_fallback_revalidates_into_matching_deployed_override() {
     assert_eq!(&replaced.bytes[..], b"fixture permitted override");
     assert_ne!(replaced.etag, fallback.etag);
     assert_eq!(cache.status()["counters"]["expired"], 1);
+}
+
+#[tokio::test]
+async fn adapted_prefix_css_is_encoded_once_on_miss_and_policy_changes_clear_variants() {
+    use crate::public_asset_compression::Coding;
+    let (directory,cache)=fixture();
+    let raw=b".fixture{background:url('/fonts/fixture.woff2')}\n".repeat(512);
+    let expected=crate::adapt_asset_to_base("fixture.css",raw.clone(),"/mail");
+    assert_ne!(expected,raw,"fixture must actually exercise prefix adaptation");
+    std::fs::write(directory.path().join("fixture.css"),&raw).unwrap();
+    let sidecar=crate::public_asset_compression::prepare(&raw,true,1024*1024,|_|None);
+    std::fs::write(directory.path().join("fixture.css.gz"),&sidecar.gzip.unwrap().bytes).unwrap();
+    let first=get(&cache,"fixture.css").await;
+    let gzip=first.encodings.gzip.as_ref().unwrap();
+    assert!(gzip.generated,"the old unadapted sidecar cannot certify prefix CSS");
+    let mut decoder=flate2::read::MultiGzDecoder::new(gzip.bytes.as_ref());
+    let mut decoded=Vec::new();std::io::Read::read_to_end(&mut decoder,&mut decoded).unwrap();
+    assert_eq!(decoded,expected);
+    let before=cache.status();let second=get(&cache,"fixture.css").await;let after=cache.status();
+    assert_eq!(before["counters"]["generatedEncodings"],after["counters"]["generatedEncodings"]);
+    assert_eq!(first.encodings.get(Coding::Gzip).unwrap().bytes.as_ptr(),second.encodings.get(Coding::Gzip).unwrap().bytes.as_ptr());
+    assert!(after["residentOwnedBytes"].as_u64().unwrap()<=after["config"]["budgetMiB"].as_u64().unwrap()*1024*1024);
+    cache.apply(Config {preload:Preload::Off,compression_enabled:false,..Default::default()});
+    let disabled=get(&cache,"fixture.css").await;
+    assert!(disabled.encodings.gzip.is_none()&&disabled.encodings.brotli.is_none());
+    cache.apply(Config {enabled:false,preload:Preload::Off,..Default::default()});
+    let generated=cache.status()["counters"]["generatedEncodings"].clone();
+    for _ in 0..2 {let uncached=get(&cache,"fixture.css").await;assert!(uncached.encodings.gzip.is_none()&&uncached.encodings.brotli.is_none());}
+    assert_eq!(cache.status()["compressionEffectiveEnabled"],false);
+    assert_eq!(cache.status()["counters"]["generatedEncodings"],generated,"cache-off cannot generate on every request");
 }

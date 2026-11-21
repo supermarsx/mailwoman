@@ -38,3 +38,11 @@ it('aborts outstanding observation on unmount and does not dispatch without read
  vi.mocked(loadPublicAssetCache).mockClear();const Ready=()=>{const shell=useShell();return <Show when={shell.can.grants().kind==='listed'}><PublicAssetCacheCard settings={undefined} onChanged={()=>{}}/></Show>;};
  renderInShell(()=><Ready/>,{loadMe:holding([])});await screen.findByRole('heading',{name:'Public static asset RAM cache'});expect(loadPublicAssetCache).not.toHaveBeenCalled();
 });
+
+it('displays encoded resident payloads and verified/generated load counts with mechanical controls',async()=>{
+ vi.mocked(loadPublicAssetCache).mockResolvedValue({...report,encodedResidentBytes:2048,ownedEncodedResidentBytes:1024,counters:{...report.counters,validatedSidecars:7,generatedEncodings:2}});
+ const settings=[{key:'web.assets.cache.compression.enabled'},{key:'web.assets.cache.compression.brotli'},{key:'web.assets.cache.compression.minBytes'}] as AdminSetting[];
+ renderInShell(()=><PublicAssetCacheCard settings={settings} onChanged={()=>{}}/>);
+ expect(await screen.findByText('7 / 2')).toBeVisible();
+ for(const setting of settings)expect(screen.getByTestId(setting.key)).toBeVisible();
+});

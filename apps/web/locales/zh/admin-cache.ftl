@@ -42,3 +42,7 @@ admin-cache-assets-hits = 命中 / 已接受加载 / 共享等待者
 admin-cache-assets-evictions = 移除 / 过期 / 超大绕过
 admin-cache-assets-failures = 繁忙拒绝 / 工作任务失败
 admin-cache-assets-preload = 预加载模式；保留 / 跳过
+
+admin-cache-assets-encoded = 压缩数据 / 自有部分
+admin-cache-assets-encoding-loads = 已验证文件 / 已生成编码
+admin-cache-assets-encoding-help = 公共静态文件的压缩数据共享缓存预算。压缩文件会与原始字节核对；调整后的文件可在有界缓存加载时编码一次。邮件、API 数据和私有 HTML 不在范围内。

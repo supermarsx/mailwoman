@@ -2829,3 +2829,10 @@ admin-settings-key-web-assets-cache-revalidate-seconds = Повторна пер
 admin-settings-help-web-assets-cache-revalidate-seconds = Максимальний вік кешованих розгорнутих даних, включно з початковою сторінкою та service worker. Вбудовані байти незмінні.
 admin-settings-key-web-assets-cache-preload = Режим попереднього завантаження
 admin-settings-help-web-assets-cache-preload = off: немає; shell: початкова сторінка; core: сторінка та обмежені скрипти/стилі. За можливості, після поточних запитів.
+
+admin-settings-key-web-assets-cache-compression-enabled = Стиснення загальнодоступних файлів
+admin-settings-help-web-assets-cache-compression-enabled = Стиснені загальнодоступні файли використовують спільний бюджет кешу. Їх перевіряють за початковими байтами; змінені файли можуть кодуватися один раз під час обмеженого завантаження кешу. Пошта, дані API та приватний HTML виключені.
+admin-settings-key-web-assets-cache-compression-brotli = Увімкнути Brotli
+admin-settings-help-web-assets-cache-compression-brotli = Використовувати Brotli, якщо клієнт його приймає; gzip та identity залишаються доступними. Виключення q=0 дотримуються.
+admin-settings-key-web-assets-cache-compression-min-bytes = Мінімум початкових байтів
+admin-settings-help-web-assets-cache-compression-min-bytes = Типово: 1024 байти; діапазон: 256–65536. Зберігаються лише варіанти з економією щонайменше 5% і 128 байтів.

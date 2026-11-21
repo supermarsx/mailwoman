@@ -31,6 +31,8 @@ export function PublicAssetCacheCard(props:{settings:AdminSetting[]|undefined;on
    <Show when={value().lastConfigAt!==null}><p class={css.note}>{t('admin-cache-assets-applied',{time:formatDateTime(value().lastConfigAt!*1000)})}</p></Show>
    <table class={css.table}><tbody>
     <tr><th scope="row">{t('admin-cache-assets-resident')}</th><td>{formatBytes(value().residentOwnedBytes)} / {formatBytes(value().config.budgetMiB*1024*1024)}</td></tr>
+    <Show when={value().encodedResidentBytes!==undefined&&value().ownedEncodedResidentBytes!==undefined}><tr><th scope="row">{t('admin-cache-assets-encoded')}</th><td>{formatBytes(value().encodedResidentBytes!)} / {formatBytes(value().ownedEncodedResidentBytes!)}</td></tr></Show>
+    <Show when={value().counters.generatedEncodings!==undefined&&value().counters.validatedSidecars!==undefined}><tr><th scope="row">{t('admin-cache-assets-encoding-loads')}</th><td>{formatNumber(value().counters.validatedSidecars!)} / {formatNumber(value().counters.generatedEncodings!)}</td></tr></Show>
     <tr><th scope="row">{t('admin-cache-assets-entries')}</th><td>{formatNumber(value().entries)} / {formatNumber(value().config.maxEntries)}</td></tr>
     <tr><th scope="row">{t('admin-cache-assets-file')}</th><td>{formatBytes(value().effectiveMaxFileBytes)}</td></tr>
     <tr><th scope="row">{t('admin-cache-assets-loads')}</th><td>{formatNumber(value().runningLoads)} / {formatNumber(value().maxRunningLoads)}; {formatNumber(value().queuedUnique)} / {formatNumber(value().maxQueuedUnique)}</td></tr>
@@ -40,6 +42,7 @@ export function PublicAssetCacheCard(props:{settings:AdminSetting[]|undefined;on
     <tr><th scope="row">{t('admin-cache-assets-preload')}</th><td>{value().effectivePreload}; {formatNumber(value().counters.preloadLoaded)} / {formatNumber(value().counters.preloadSkipped)}</td></tr>
    </tbody></table>
   </>}</Show>
+  <p class={css.note}>{t('admin-cache-assets-encoding-help')}</p>
   <p class={css.note}>{t('admin-cache-assets-clear-help')}</p>
   <For each={rows()}>{row=><InlineSettingEditor settingKey={row.key} setting={row} noScoped onChanged={saved=>{props.onChanged(saved);void request();}}/>}</For>
  </section></Show>;
