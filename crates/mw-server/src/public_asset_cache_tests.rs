@@ -473,12 +473,22 @@ fn actual_static_router_keeps_head_etag_csp_console_and_admin_auth() {
                         .await
                         .unwrap();
                     assert_eq!(map.status(), StatusCode::NOT_FOUND);
+                    let cross_origin = router.clone().oneshot(request(
+                        Method::POST,
+                        "/admin/maintenance/web-assets/clear",
+                    )).await.unwrap();
+                    assert_eq!(cross_origin.status(), StatusCode::FORBIDDEN);
                     for (method, path) in [
                         (Method::GET, "/admin/maintenance/web-assets"),
                         (Method::POST, "/admin/maintenance/web-assets/clear"),
                     ] {
-                        let denied = router.clone().oneshot(request(method, path)).await.unwrap();
-                        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+                        // Pass the existing origin guard so this request actually
+                        // reaches the independent administrator authentication gate.
+                        let mut incoming = request(method.clone(), path);
+                        incoming.headers_mut().insert(header::HOST, "localhost".parse().unwrap());
+                        incoming.headers_mut().insert(header::ORIGIN, "http://localhost".parse().unwrap());
+                        let denied = router.clone().oneshot(incoming).await.unwrap();
+                        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED, "{method} {path}");
                     }
                 });
         })
