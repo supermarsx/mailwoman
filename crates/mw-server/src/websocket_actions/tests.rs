@@ -774,9 +774,21 @@ fn real_webmail_duplicate_inflight_id_closes_without_false_predispatch_receipt()
         let (mut socket, _) = tokio::time::timeout(std::time::Duration::from_secs(5), tokio_tungstenite::connect_async(request)).await.unwrap().unwrap();
         let ready = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next()).await.unwrap().unwrap().unwrap().into_text().unwrap();
         assert_eq!(serde_json::from_str::<Value>(&ready).unwrap()["type"], "ready");
+        // Settings writes require the same browser owner proof as the actual
+        // client. Check that precondition without performing an application write.
+        let mut mutation_headers=HeaderMap::new();
+        mutation_headers.insert("content-type","application/json".parse().unwrap());
+        mutation_headers.insert("x-csrf-token",csrf.parse().unwrap());
+        let missing=crate::prefs_routes::personal_storage::owner(&fixture.state,&authenticated,&mutation_headers,true).await;
+        assert!(matches!(missing,Err(ref response) if response.status()==StatusCode::PRECONDITION_REQUIRED),"real personal-write owner proof must be required");
+        let storage_authority=fixture.state.store.session_storage_authority(&session).await.unwrap().expect("verified native storage authority");
+        mutation_headers.insert("x-mailwoman-storage-authority",storage_authority.parse().unwrap());
+        mutation_headers.insert("x-mailwoman-account",account.parse().unwrap());
+        let owner=crate::prefs_routes::personal_storage::owner(&fixture.state,&authenticated,&mutation_headers,true).await.unwrap_or_else(|response|panic!("wire fixture personal owner preflight HTTP{}",response.status()));
+        assert!(owner==storage_authority,"wire fixture owner proof must match the actual session realm");
         const ID: &str = "owned-duplicate-id";
         let lease = test_control::pause_wire(&fixture.state, ID);
-        let frame = json!({"id":ID,"method":"PUT","path":format!("/api/settings/{KEY}"),"headers":{"content-type":"application/json","x-csrf-token":csrf},"body":"{\"value\":75}"});
+        let frame = json!({"id":ID,"method":"PUT","path":format!("/api/settings/{KEY}"),"headers":{"content-type":"application/json","x-csrf-token":csrf,"x-mailwoman-storage-authority":storage_authority,"x-mailwoman-account":account},"body":"{\"value\":75}"});
         tokio::time::timeout(std::time::Duration::from_secs(5), socket.send(WireMessage::Text(frame.to_string().into()))).await.unwrap().unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             tokio::select! {

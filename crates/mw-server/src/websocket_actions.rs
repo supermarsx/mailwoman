@@ -586,7 +586,7 @@ pub(crate) mod test_control {
                 .and_then(std::sync::Weak::upgrade)
         });
         let Some(pause) = pause else { return };
-        assert!(status.is_success(), "real fixture mutation must succeed");
+        assert!(status.is_success(), "real fixture mutation must succeed, HTTP{}",status);
         pause.calls.fetch_add(1, Ordering::SeqCst);
         pause.entered.notify_one();
         let _ = pause.release.acquire().await;
