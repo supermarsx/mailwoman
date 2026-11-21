@@ -303,10 +303,20 @@ impl Fixture {
         test_control::Counts,
         mw_store::pool_telemetry::QuerySnapshot,
     ) {
-        let ((response, counts), sql) = mw_store::pool_telemetry::measure_queries(
-            test_control::count(original, self.router.clone().oneshot(self.request())),
-        )
-        .await;
+        let measured = test_control::count(original, self.router.clone().oneshot(self.request()));
+        #[cfg(feature = "sql-shape-diagnostics")]
+        let ((response, counts), sql) = {
+            // One counter scope only: shapes owns the existing query counter.
+            // These fixture-only records contain hashes and fixed token/phase
+            // labels, never SQL text, parameters, identities or credentials.
+            let (result, report) = mw_store::pool_telemetry::shapes::measure(measured).await;
+            report.require_valid().expect("whole-router attribution must be complete");
+            eprintln!("native-admission-query-phases original={original} {}",
+                serde_json::to_string(&report).unwrap());
+            (result, report.query_counts)
+        };
+        #[cfg(not(feature = "sql-shape-diagnostics"))]
+        let ((response, counts), sql) = mw_store::pool_telemetry::measure_queries(measured).await;
         let response = response.unwrap();
         let status = response.status();
         let bytes = to_bytes(response.into_body(), 4 * 1024 * 1024)
