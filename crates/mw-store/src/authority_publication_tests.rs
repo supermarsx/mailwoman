@@ -750,8 +750,7 @@ async fn encrypted_restart_cross_store_and_mail_writes_preserve_scope_contracts(
             blob_ref: None,
         })
         .await
-        .unwrap()
-        .0;
+        .unwrap();
     let mail_before = reader
         .native_authority_fence(&session, &domains)
         .await
