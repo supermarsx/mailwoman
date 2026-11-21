@@ -313,6 +313,27 @@ impl MailSubmitter for NoSend {
 async fn seed(store: &Store, count: usize) -> Vec<Value> {
     seed_profile(store, count, 2, false, 26, 4).await.0
 }
+// Validation chooses chunks BEFORE a write. A failed write is terminal and is
+// never retried as smaller batches: its commit outcome may be uncertain.
+async fn seed_message_batches(store:&Store,inputs:&[(MessageUpsert<'_>,&[u8])])->Vec<String> {
+    let mut result=Vec::with_capacity(inputs.len());
+    let mut batch=Vec::new();
+    for input in inputs {
+        batch.push(input.clone());
+        if Store::validate_message_body_batch(&batch).is_err() {
+            let next=batch.pop().unwrap();
+            assert!(!batch.is_empty(),"one fixture row exceeds the checked Store batch admission bound");
+            result.extend(store.upsert_message_bodies_batch(&batch).await.expect("fixture message batch write must succeed once").into_iter().map(|(id,existed)|{assert!(!existed,"fresh fixture coordinates must not overwrite messages");id}));
+            batch.clear();batch.push(next);
+            Store::validate_message_body_batch(&batch).expect("a fixture row must fit bounded Store admission before writes");
+        }
+    }
+    if !batch.is_empty() {
+        result.extend(store.upsert_message_bodies_batch(&batch).await.expect("fixture message batch write must succeed once").into_iter().map(|(id,existed)|{assert!(!existed,"fresh fixture coordinates must not overwrite messages");id}));
+    }
+    result
+}
+
 async fn seed_profile(
     store: &Store,
     count: usize,
@@ -366,7 +387,6 @@ async fn seed_profile(
             })
             .await
             .unwrap();
-        let mut ids = Vec::new();
         let mut attachment_part: Option<String> = None;
         let archive = if representative {
             Some(
@@ -388,7 +408,12 @@ async fn seed_profile(
         } else {
             None
         };
+        // One principal only: the transport already retains these exact raw
+        // messages. Store batching borrows them, rather than cloning all input
+        // rows or allocating the whole campaign in advance.
         let mut raws = Vec::new();
+        let mut envelopes = Vec::new();
+        let mut message_ids = Vec::new();
         for uid in 1..=messages {
             let message_id = format!("<{index}-{uid}@native-load.invalid>");
             let raw = format!(
@@ -421,32 +446,20 @@ async fn seed_profile(
             } else {
                 serde_json::to_vec(&json!({"subject":format!("Native fixture {index}/{uid}"),"from":[{"email":"sender@native-load.invalid"}],"to":[{"email":username}],"receivedAt":"2026-11-01T00:00:00Z","size":raw.len(),"hasAttachment":false})).unwrap()
             };
-            if representative {
-                raws.push(raw.as_bytes().to_vec());
-            }
-            ids.push(
-                store
-                    .upsert_message_with_body(
-                        &MessageUpsert {
-                            account_id: &account,
-                            mailbox_id: &mailbox,
-                            uid,
-                            uidvalidity: 1,
-                            message_id: Some(&message_id),
-                            thread_id: None,
-                            internaldate: Some("2026-11-01T00:00:00Z"),
-                            size: raw.len() as u64,
-                            flags_json: "[]",
-                            envelope: Some(&envelope),
-                            blob_ref: None,
-                        },
-                        raw.as_bytes(),
-                    )
-                    .await
-                    .unwrap()
-                    .0,
-            );
+            raws.push(raw.into_bytes());
+            envelopes.push(envelope);
+            message_ids.push(message_id);
         }
+        let inputs:Vec<_>=raws.iter().zip(&envelopes).zip(&message_ids).enumerate().map(|(index,((raw,envelope),message_id))| {
+            (MessageUpsert {
+                account_id:&account,mailbox_id:&mailbox,uid:index as u32+1,uidvalidity:1,
+                message_id:Some(message_id),thread_id:None,
+                internaldate:Some("2026-11-01T00:00:00Z"),size:raw.len() as u64,
+                flags_json:"[]",envelope:Some(envelope),blob_ref:None,
+            },raw.as_slice())
+        }).collect();
+        let ids=seed_message_batches(store,&inputs).await;
+        drop(inputs);
         let session = store
             .create_session(&account, &username, "engine", "engine", &credentials)
             .await
@@ -489,6 +502,51 @@ async fn seed_profile(
         }
     }
     (principals, runtimes)
+}
+
+#[tokio::test]
+async fn bounded_batch_seed_keeps_distinct_principals_fifty_owned_messages_and_ready_index() {
+    let store=Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    // Exercise the maximum permitted sample payloads, not a reduced workload.
+    let (principals,runtimes)=seed_profile(&store,2,50,true,16384,262144).await;
+    assert_eq!(principals.len(),2);assert_eq!(runtimes.len(),2);
+    let mut passwords=std::collections::HashSet::new();
+    let mut owned_ids=std::collections::HashSet::new();
+    for principal in &principals {
+        let account=principal["accountId"].as_str().unwrap();
+        let cookie=principal["cookie"].as_str().unwrap();
+        let session=cookie.strip_prefix("mw_session=").unwrap().split(';').next().unwrap();
+        let source=store.get_primary_session(session).await.unwrap();
+        assert_eq!(source.account_id,account);
+        assert_eq!(source.username,store.get_account(account).await.unwrap().username);
+        assert!(passwords.insert(source.credentials.password));
+        let inbox=store.get_mailbox(principal["inboxId"].as_str().unwrap()).await.unwrap();
+        assert_eq!((inbox.total,inbox.unread),(50,50));
+        assert_eq!(store.get_mailbox(principal["archiveId"].as_str().unwrap()).await.unwrap().total,0);
+        let ids=principal["messageIds"].as_array().unwrap();assert_eq!(ids.len(),50);
+        for (index,id) in ids.iter().enumerate() {
+            let id=id.as_str().unwrap();assert!(owned_ids.insert(id.to_owned()));
+            let message=store.get_message(id).await.unwrap();
+            assert_eq!(message.account_id,account);assert_eq!(message.mailbox_id,inbox.id);
+            assert_eq!((message.uid,message.uidvalidity),(index as u32+1,1));assert_eq!(message.flags_json,"[]");
+            let raw=store.get_body_limited(account,message.blob_ref.as_ref().unwrap(),1024*1024).await.unwrap().unwrap();
+            assert_eq!(raw.len() as u64,message.size);
+            let parsed=mw_mime::parse(&raw).unwrap();
+            assert_eq!(parsed.email.has_attachment,index==0);
+            assert!(store.get_account_header_envelope(account,id).await.unwrap().unwrap().projected);
+        }
+        assert_eq!(store.current_state(account,"Email").await.unwrap(),0);
+        assert_eq!(store.current_state(account,"Mailbox").await.unwrap(),0);
+    }
+    let engine=Arc::new(Engine::new(store.clone()));
+    assert_eq!(engine.rebuild_search_index_all().await.unwrap().indexed,100);
+    for principal in &principals {
+        let account=principal["accountId"].as_str().unwrap();
+        assert_eq!(engine.search().account_doc_count(account).unwrap(),50);
+        let indexed:std::collections::HashSet<_>=engine.search().account_stable_ids(account).unwrap().into_iter().collect();
+        assert!(principal["messageIds"].as_array().unwrap().iter().all(|id|indexed.contains(id.as_str().unwrap())));
+    }
+    assert_eq!(owned_ids.len(),100);
 }
 
 // Fixture-only explicit admin-policy experiment; production defaults stay off.
