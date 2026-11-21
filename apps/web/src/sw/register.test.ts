@@ -45,6 +45,15 @@ describe('registerServiceWorker', () => {
 });
 
 describe('foreground replay fallback',()=>{
+  it('replays through the active worker after the actual browser controllerchange lifecycle event',async()=>{
+    const postMessage=vi.fn(),container=new EventTarget();
+    Object.assign(container,{register:vi.fn(async()=>({})),getRegistration:async()=>({active:{state:'activated',postMessage}})});
+    Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:container});
+    await registerServiceWorker();
+    container.dispatchEvent(new Event('controllerchange'));
+    await vi.waitFor(()=>expect(postMessage).toHaveBeenCalledExactlyOnceWith({type:'mw-outbox-replay'}));
+    expect(backgroundReplayState()).toBe('unavailable');
+  });
   it('wakes the active worker without claiming closed-window replay when Background Sync is absent',async()=>{
     const postMessage=vi.fn();Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:{getRegistration:async()=>({active:{state:'activated',postMessage}})}});
     expect(await requestBackgroundReplay()).toBe(false);expect(backgroundReplayState()).toBe('unavailable');expect(postMessage).toHaveBeenCalledExactlyOnceWith({type:'mw-outbox-replay'});

@@ -15,7 +15,7 @@ import './styles/app.css';
 import './styles/checks.css.ts';
 import './styles/controls.css.ts';
 import './styles/motion.css.ts';
-import {nativeBackgroundStartup,startNativeBackgroundReplay} from './offline/nativeBackground.ts';
+import {nativeBackgroundStartup,startNativeBackgroundOnStartup} from './offline/nativeBackgroundStartup.ts';
 
 // Trusted Types default policy (SPEC §7.4, 26.17; script-URL half added in 26.20
 // t24-e13). MUST run before `render()` — Solid's first `template().innerHTML` boot
@@ -51,7 +51,7 @@ installRateLimitNotice();
 // Settings (`ui.language`, kept in localStorage `mw.locale`) wins over the
 // browser's languages from the first paint, before sign-in.
 const startLocale = bootLocale();
-if(nativeBackgroundStartup())void startNativeBackgroundReplay().catch(()=>undefined);
+if(nativeBackgroundStartup())void startNativeBackgroundOnStartup().catch(()=>undefined);
 else render(
   () => (
     <LocaleProvider {...(startLocale !== null ? { locale: startLocale } : {})}>

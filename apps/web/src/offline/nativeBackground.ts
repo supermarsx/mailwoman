@@ -16,9 +16,7 @@ import {mintTrackingToken,bindTrackingToken} from '../api/tracking.ts';
 import {nativeReplayScheduler} from './nativeReplaySchedule.ts';
 import {publishOfflineChange} from './events.ts';
 
-interface NativeBackgroundConfig {native?:boolean;backgroundReplay?:boolean;serverUrl?:string}
-const config=()=>(globalThis as {__MW_CONFIG__?:NativeBackgroundConfig}).__MW_CONFIG__;
-export const nativeBackgroundStartup=():boolean=>config()?.native===true&&config()?.backgroundReplay===true;
+export {nativeBackgroundStartup} from './nativeBackgroundStartup.ts';
 const queue=()=>encryptedOutboxStore(idbOutboxStore());
 const eligible=(row:QueuedItem,base:string)=>row.state==='queued'&&row.cacheBase===`native:${base}`
  &&(row.linkId===null||typeof row.linkId==='string'&&row.linkId.length>0)
