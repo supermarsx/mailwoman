@@ -18,6 +18,8 @@ COPY apps/web/public/workspace-popup.html /src/apps/web/public/workspace-popup.h
 COPY apps/web/public/pdfjs /src/apps/web/public/pdfjs
 COPY apps/web/public/pdf.worker.mjs /src/apps/web/public/pdf.worker.mjs
 COPY apps/web/src/api/linked-scope.json /src/apps/web/src/api/linked-scope.json
+COPY apps/web/src/api/native-read-intent-contract.json /src/apps/web/src/api/native-read-intent-contract.json
+COPY apps/web/src/api/websocket-action-contract.json /src/apps/web/src/api/websocket-action-contract.json
 COPY apps/web/src/viewers/previewTools.json /src/apps/web/src/viewers/previewTools.json
 # Fixture include_str! inputs must participate in the same immutable snapshot.
 COPY scripts/perf /src/scripts/perf

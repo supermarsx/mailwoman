@@ -1,5 +1,6 @@
 // Private ephemeral-fixture identities. Never accept arbitrary forwarded clients
 // in the public load CLI, or copy session/address identifiers into reports.
+import {preparedMailStatusReport} from './prepared-mail-experiment.mjs';
 import {isIP} from 'node:net';
 import {indexPublicationReport} from './index-publication-health.mjs';
 import {sqlitePageCacheReport,sqlitePageCacheAuditReport} from './sqlite-page-cache-witness.mjs';
@@ -39,6 +40,7 @@ export function searchTimingReport(value){
 }
 export function fixtureDiagnosticsReport(value){
  let result=value;
+ if(value?.preparedMail!==undefined)result={...result,preparedMail:preparedMailStatusReport(value.preparedMail)};
  if(value?.pool?.sqlitePageCache!==undefined)result={...result,pool:{...value.pool,sqlitePageCache:sqlitePageCacheReport(value.pool.sqlitePageCache)}};
  if(value?.sqlitePageCacheAudit!==undefined)result={...result,sqlitePageCacheAudit:sqlitePageCacheAuditReport(value.sqlitePageCacheAudit)};
  if(value?.searchIndex?.timings!==undefined)result={...result,searchIndex:{...value.searchIndex,timings:searchTimingReport(value.searchIndex.timings)}};

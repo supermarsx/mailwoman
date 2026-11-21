@@ -491,6 +491,68 @@ async fn seed_profile(
     (principals, runtimes)
 }
 
+// Fixture-only explicit admin-policy experiment; production defaults stay off.
+fn prepared_mail_fixture_options(mode:&str,raw:Option<&str>)->Option<mw_engine::PreparedMailOptions>{
+    assert!(matches!(mode,"off"|"on"),"choose prepared mail off or on");
+    if mode=="off" {assert!(raw.is_none(),"prepared mail JSON requires explicit on");return None;}
+    let value:mw_engine::PreparedMailOptions=match raw {
+        Some(raw)=>{assert!(raw.len()<=4096,"prepared mail JSON bound");serde_json::from_str(raw).expect("strict prepared mail JSON")},
+        None=>mw_engine::PreparedMailOptions {enabled:true,..Default::default()},
+    };
+    assert!(value.enabled&&value.valid(),"prepared mail on requires enabled valid bounded options");Some(value)
+}
+
+#[test]
+fn prepared_mail_fixture_configuration_is_opt_in_strict_and_scales_explicitly(){
+    assert!(prepared_mail_fixture_options("off",None).is_none());
+    let default=prepared_mail_fixture_options("on",None).unwrap();assert!(default.enabled);assert_eq!(default.max_accounts,128);
+    let large=r#"{"enabled":true,"budgetMiB":256,"maxEntries":10000,"maxAccounts":10000,"idleSeconds":30}"#;
+    assert_eq!(prepared_mail_fixture_options("on",Some(large)).unwrap().max_accounts,10000);
+    for (mode,raw) in [("unknown",None),("off",Some(large)),("on",Some("{}")),("on",Some(r#"{"enabled":true,"budgetMiB":16,"maxEntries":1,"maxAccounts":10001,"idleSeconds":30}"#))] {
+        assert!(std::panic::catch_unwind(||prepared_mail_fixture_options(mode,raw)).is_err());
+    }
+}
+
+fn prepared_mail_status_matches(status:&mw_engine::PreparedMailStatus,options:mw_engine::PreparedMailOptions)->bool {
+    status.enabled==Some(true) && status.budget_bytes==Some(u64::from(options.budget_mib)*1024*1024)
+        && status.max_entries==Some(options.max_entries) && status.max_accounts==Some(options.max_accounts)
+        && status.idle_seconds==Some(options.idle_seconds)
+}
+
+// On-only legitimate startup HTTP, not a measured operation or direct cache setter.
+async fn prime_prepared_mail(client:&reqwest::Client,base:&str,principal:&Value,engine:&Engine,options:mw_engine::PreparedMailOptions)->Result<Value,&'static str>{
+    let contract:Value=serde_json::from_str(include_str!("../../../apps/web/src/api/native-read-intent-contract.json")).map_err(|_|"invalid canonical read contract")?;
+    let ids=principal["messageIds"].as_array().filter(|ids|ids.len()>=2).ok_or("missing startup source IDs")?[..2].to_vec();
+    let body=json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{"accountId":principal["accountId"],"ids":ids,"properties":contract["properties"]},"prepared-startup"]]});
+    let started=Instant::now();
+    tokio::time::timeout(Duration::from_secs(10),async {
+        for attempt in 1..=40u32 {
+            let mut response=client.post(format!("{base}/jmap/api"))
+                .header("cookie",principal["cookie"].as_str().ok_or("missing startup cookie")?)
+                .header("x-csrf-token",principal["csrfToken"].as_str().ok_or("missing startup CSRF")?)
+                .header("x-forwarded-for",principal["clientAddress"].as_str().ok_or("missing startup source")?)
+                .header("origin",base)
+                .header(contract["header"].as_str().ok_or("missing canonical marker")?,contract["value"].as_str().ok_or("missing canonical marker value")?)
+                .json(&body).send().await.map_err(|_|"prepared startup HTTP failed")?;
+            if response.status()!=200{return Err("prepared startup HTTP refused");}
+            let mut bytes=Vec::new();
+            while let Some(chunk)=response.chunk().await.map_err(|_|"prepared startup body failed")? {
+                if bytes.len().checked_add(chunk.len()).is_none_or(|n|n>256*1024){return Err("prepared startup response bound");}bytes.extend_from_slice(&chunk);
+            }
+            let value:Value=serde_json::from_slice(&bytes).map_err(|_|"prepared startup JSON failed")?;
+            let rows=value["methodResponses"][0][1]["list"].as_array().ok_or("prepared startup missing rows")?;
+            if value["methodResponses"][0][0]!="Email/get" || value["methodResponses"][0][2]!="prepared-startup"
+                || value["methodResponses"][0][1]["accountId"]!=principal["accountId"] || rows.len()!=2
+                || !ids.iter().all(|id|rows.iter().any(|row|&row["id"]==id)) {return Err("prepared startup source mismatch");}
+            if prepared_mail_status_matches(&engine.prepared_mail_status(),options) {
+                return Ok(json!({"verified":true,"attempts":attempt,"elapsedMs":started.elapsed().as_millis() as u64,"primedPrincipals":1,"measuredRequests":0}));
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        Err("prepared startup configuration not applied")
+    }).await.map_err(|_|"prepared startup deadline exceeded")?
+}
+
 async fn set_protocol_policy(store: &Store, allowed: &[&str]) {
     store
         .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
@@ -786,6 +848,10 @@ async fn run(workers: usize) {
         matches!(policy_mode.as_str(), "defaults" | "loaded"),
         "choose defaults or loaded policy profile"
     );
+    let prepared_mode=std::env::var("MW_NATIVE_LOAD_PREPARED_MAIL").unwrap_or_else(|_|"off".into());
+    let prepared_json=std::env::var("MW_NATIVE_LOAD_PREPARED_MAIL_CONFIG").ok();
+    let prepared_options=prepared_mail_fixture_options(&prepared_mode,prepared_json.as_deref());
+    assert!(prepared_options.is_none()||(representative&&policy_mode=="loaded"),"prepared mail experiment requires actual representative + loaded policy profile");
     let count: usize = std::env::var("MW_NATIVE_LOAD_PRINCIPALS")
         .unwrap_or_else(|_| "100".into())
         .parse()
@@ -798,6 +864,7 @@ async fn run(workers: usize) {
         count as u64 * messages as u64 <= 500000,
         "representative seeded messages capped at500000"
     );
+    if let Some(options)=prepared_options {assert!(options.max_accounts>=count&&options.max_entries>=count,"configure prepared mail capacity explicitly for the whole selected principal working set");}
     let deadline: u64 = std::env::var("MW_LOAD_FIXTURE_DEADLINE_SECONDS")
         .unwrap_or_else(|_| "90".into())
         .parse()
@@ -843,6 +910,15 @@ async fn run(workers: usize) {
     if policy_mode == "loaded" {
         set_protocol_policy(&store, &["imap"]).await;
     }
+    if let Some(options)=prepared_options {
+        store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key:"performance.preparedMail".into(),global_value:Some(serde_json::to_string(&options).unwrap()),
+            allow_user_override:false,global_locked:true,updated_by:"native-load-fixture".into(),updated_at:chrono::Utc::now().timestamp(),
+        }).await.unwrap();
+    }
+    let prepared_policy=mw_server::settings_registry::effective_for(&store,"performance.preparedMail",&Default::default()).await.unwrap().expect("registered prepared mail policy").value;
+    if let Some(options)=prepared_options {assert_eq!(prepared_policy,serde_json::to_value(options).unwrap());}
+    let mut prepared_experiment=json!({"enabled":prepared_options.is_some(),"requested":prepared_options,"resolvedPolicy":prepared_policy});
     eprintln!("native fixture: seeding complete");
     let accounts = principals
         .iter()
@@ -980,6 +1056,7 @@ async fn run(workers: usize) {
                     Ok(snapshot)=>snapshot,
                     Err(error)=>return (axum::http::StatusCode::SERVICE_UNAVAILABLE,axum::Json(error.report().clone())),
                 };
+                snapshot["preparedMail"] = serde_json::to_value(engine.prepared_mail_status()).unwrap();
                 snapshot["httpTelemetry"] = mw_server::http_telemetry_snapshot();
                 snapshot["searchIndex"] = json!({
                     "storage":fixture_storage_proof(&engine,index_mode),
@@ -1179,6 +1256,9 @@ async fn run(workers: usize) {
         200,
         "the actual unforwarded loopback peer remains internal"
     );
+    if let Some(options)=prepared_options {
+        prepared_experiment["startup"]=prime_prepared_mail(&client,&base,&principals[0],measured_engine.get().unwrap(),options).await.expect("actual prepared mail startup configuration");
+    }
     let root = fixture_runtime::source_root();
     let report = std::env::var_os("MW_LOAD_REPORT_DIR")
         .map(std::path::PathBuf::from)
@@ -1192,6 +1272,7 @@ async fn run(workers: usize) {
     let configuration=measured_engine.get().unwrap().search().writer_configuration();
     data["searchWriter"]=json!({"requestedWorkers":writer_options.indexing_workers,"indexingWorkers":configuration.indexing_workers,"memoryBudgetBytes":configuration.memory_budget_bytes});
     data["policyEvidence"] = policy_evidence;
+    data["preparedMailExperiment"] = prepared_experiment;
     data["linkedLoginPolicyProbe"] = linked_login_policy_probe;
     data["workloadProfile"] = json!({"kind":workload,"messagesPerPrincipal":messages,"seededMessages":count as u64*messages as u64,"seedSeconds":seed_seconds,"transport":if representative {"deterministic-read-flag-move"} else {"read-only"},"sendsMeasured":false,"upstreamNetworkMeasured":false});
     if representative {
