@@ -127,7 +127,9 @@ production binary/gates, source/hash/profile provenance, and cold/warm elapsed/C
 and I/O. Raw Docker build timing before those controls is insufficient.
 
 CLI configuration is deliberately narrow: only the exact separate arguments
-`--config profile.release.package.mw-server.opt-level=2` are supported. Config
+`--config profile.release.package.mw-server.opt-level=2` and
+`--config profile.release.package.mw-server-core.opt-level=2` are supported.
+The integrated fast profile passes both, preserving release defaults elsewhere. Config
 files, other inline/quoted/escaped TOML expressions, `--config=...` and rustup
 `+toolchain` selectors are rejected before child launch. The environment override
 therefore does not claim to outrank arbitrary Cargo CLI configuration.

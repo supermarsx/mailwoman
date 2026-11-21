@@ -27,6 +27,10 @@ MAX_DIRS = 10000
 MAX_NAMES = 8 * 1024 * 1024
 MAX_BYTES = 512 * 1024 * 1024
 MAX_FILE_BYTES = 64 * 1024 * 1024
+SUPPORTED_INLINE_PROFILE_CONFIGS = (
+    "profile.release.package.mw-server.opt-level=2",
+    "profile.release.package.mw-server-core.opt-level=2",
+)
 MAX_ANCHOR_STATS = 100000
 CHUNK = 65536
 OWNER = b'{"schema":1,"source":"source","target":"target","cargoLayout":"1.98"}\n'
@@ -504,14 +508,14 @@ class MirrorSession:
         if any(arg == "--target-dir" or arg.startswith("--target-dir=") or arg == "--build-dir" or arg.startswith("--build-dir=") or arg == "--manifest-path" or arg.startswith("--manifest-path=") or "target-dir" in arg or "build-dir" in arg for arg in command):
             raise MirrorError("child target must stay in its owned cache pair")
         # Cargo CLI config has higher precedence than environment. Accept only
-        # this exact existing build-profile override, never TOML files/escaped
+        # these two exact core/facade profile overrides, never TOML files/escaped
         # keys or arbitrary config expressions. Toolchain selection must not
         # evade the separately verified Cargo1.98 binary/version.
         for index, arg in enumerate(command[1:], 1):
             if arg.startswith("+"):
                 raise MirrorError("toolchain selectors are outside pinned layout")
             if arg == "--config":
-                if index + 1 >= len(command) or command[index + 1] != "profile.release.package.mw-server.opt-level=2":
+                if index + 1 >= len(command) or command[index + 1] not in SUPPORTED_INLINE_PROFILE_CONFIGS:
                     raise MirrorError("only the exact supported inline profile config is allowed")
             elif arg.startswith("--config="):
                 raise MirrorError("config files and complex inline config are not supported")

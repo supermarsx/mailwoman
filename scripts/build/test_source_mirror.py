@@ -129,6 +129,8 @@ class MirrorContracts(unittest.TestCase):
             ["cargo","--config",'build."build-dir"="/outside"',"build"],
             ["cargo","--config",'"bu\\u0069ld"."build-dir"="/outside"',"build"],
             ["cargo","--config"],
+            ["cargo","--config","profile.release.package.mw-server-core.opt-level=1","build"],
+            ["cargo","--config",'profile.release.package."mw-server-core".opt-level=2',"build"],
             ["cargo","+nightly","build"],
         ]
         with mirror.MirrorSession(self.cache) as session:
@@ -137,14 +139,22 @@ class MirrorContracts(unittest.TestCase):
                     with patch.object(mirror.subprocess,"run") as child:
                         with self.assertRaises(mirror.MirrorError):session.run(command)
                         child.assert_not_called()
-    def test_only_exact_inline_profile_override_preserves_owned_child_environment(self):
+    def test_only_exact_inline_profile_overrides_preserve_owned_child_environment(self):
         self.put("src.rs");self.sync()
-        command=["cargo","build","--config","profile.release.package.mw-server.opt-level=2"]
+        facade="profile.release.package.mw-server.opt-level=2"
+        core="profile.release.package.mw-server-core.opt-level=2"
+        commands=[
+            ["cargo","build","--config",facade],
+            ["cargo","build","--config",core],
+            ["cargo","build","--config",core,"--config",facade],
+        ]
         with mirror.MirrorSession(self.cache) as session:
-            with patch.object(mirror.subprocess,"run") as child:
-                session.run(command)
-                self.assertEqual(child.call_args.args[0],command)
-                self.assertEqual(child.call_args.kwargs["env"]["CARGO_BUILD_BUILD_DIR"],str(self.cache/"target"))
+            for command in commands:
+                with self.subTest(command=command):
+                    with patch.object(mirror.subprocess,"run") as child:
+                        session.run(command)
+                        self.assertEqual(child.call_args.args[0],command)
+                        self.assertEqual(child.call_args.kwargs["env"]["CARGO_BUILD_BUILD_DIR"],str(self.cache/"target"))
     def test_effective_build_dir_overrides_source_home_and_inherited_environment(self):
         self.put(".cargo/config.toml",b'[build]\nbuild-dir="/outside-source"\n')
         home=self.root/"cargo-home";home.mkdir()
