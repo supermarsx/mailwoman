@@ -75,6 +75,23 @@ async fn primary_hint_revision_contract(s:Store){
     let changed=newer.primary_policy_revision(&s).unwrap().unwrap();
     assert_ne!(changed.number(),observed.number());
     assert!(s.primary_session_policy_snapshot(&session).await.unwrap().witness.matches_revision(changed));
+    let restore=changed.number().unwrap();
+    //0078 declares n BIGINT NOT NULL with no nonnegative CHECK in either
+    // dialect. SQLite is intentionally non-STRICT, so wrong-type injection is
+    // legal fixture DML there; PostgreSQL's BIGINT rejects that shape itself.
+    q("UPDATE settings_revision SET n=-1 WHERE id=1").execute(&s.backend).await.unwrap();
+    let negative=s.native_publication_fence(&session,&domains,&[]).await.unwrap().unwrap();
+    assert!(negative.primary_policy_revision(&s).unwrap().is_none());
+    assert_eq!(negative.session_id(),newer.session_id());assert_eq!(negative.account_id(),newer.account_id());assert_eq!(negative.clocks(),newer.clocks());
+    q("UPDATE settings_revision SET n=?1 WHERE id=1").bind(restore).execute(&s.backend).await.unwrap();
+    if s.uses_sqlite(){
+        q("UPDATE settings_revision SET n='not-a-number' WHERE id=1").execute(&s.backend).await.unwrap();
+        let malformed=s.native_publication_fence(&session,&domains,&[]).await.unwrap().unwrap();
+        assert!(malformed.primary_policy_revision(&s).unwrap().is_none());
+        assert_eq!(malformed.session_id(),newer.session_id());assert_eq!(malformed.account_id(),newer.account_id());assert_eq!(malformed.clocks(),newer.clocks());
+        q("UPDATE settings_revision SET n=?1 WHERE id=1").bind(restore).execute(&s.backend).await.unwrap();
+    }
+    assert_eq!(s.native_publication_fence(&session,&domains,&[]).await.unwrap().unwrap().primary_policy_revision(&s).unwrap().unwrap().number(),Some(restore));
     q("DELETE FROM settings_revision WHERE id=1").execute(&s.backend).await.unwrap();
     let unsupported=s.native_publication_fence(&session,&domains,&[]).await.unwrap().unwrap();
     assert!(unsupported.primary_policy_revision(&s).unwrap().is_none(),"missing revision must remain unsupported, never synthesized zero");
