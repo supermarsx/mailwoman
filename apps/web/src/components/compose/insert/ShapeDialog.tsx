@@ -38,7 +38,7 @@ export function ShapeDialog(props: { returnTo: HTMLElement | null; initial?: Sha
       <legend>{label}</legend>
       <div class="mw-insert-row mw-insert-swatches">
         <For each={SWATCHES}>{(c) => (
-          <button type="button" aria-label={c === 'none' ? t('ins-shape-none') : c} aria-pressed={value() === c} data-testid={`${testId}-${c}`} style={{ flex: '0 0 1.6rem', width: '1.6rem', height: '1.6rem', background: c === 'none' ? 'transparent' : c, border: value() === c ? '2px solid currentColor' : '1px solid #888', 'border-radius': '4px' }} onClick={() => set(c)}>{c === 'none' ? '∅' : ''}</button>
+          <button type="button" aria-label={c === 'none' ? t('ins-shape-none') : c} aria-pressed={value() === c} data-testid={`${testId}-${c}`} style={{ background: c === 'none' ? 'transparent' : c, border: value() === c ? '2px solid currentColor' : '1px solid #888' }} onClick={() => set(c)}>{c === 'none' ? '∅' : ''}</button>
         )}</For>
         <input type="color" aria-label={`${label} (custom)`} class="mw-insert-custom" value={/^#[0-9a-f]{6}$/i.test(value()) ? value() : '#000000'} onInput={(e) => set(e.currentTarget.value)} />
       </div>

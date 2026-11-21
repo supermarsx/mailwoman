@@ -24,6 +24,8 @@ globalStyle(`${dialogForm} .mw-insert-thumb-ph`, { height: '4.5rem', display: 'g
 globalStyle(`${dialogForm} .mw-insert-fieldset`, { border: 0, padding: 0, margin: 0 });
 globalStyle(`${dialogForm} .mw-insert-fieldset legend`, { fontSize: '.8rem', padding: 0 });
 globalStyle(`${dialogForm} .mw-insert-swatches`, { gap: '4px' });
+// More specific than the generic insert-row flex rule; colors stay reactive.
+globalStyle(`${dialogForm} .mw-insert-swatches > button`, { flex: '0 0 1.6rem', width: '1.6rem', height: '1.6rem', borderRadius: '4px' });
 globalStyle(`${dialogForm} .mw-insert-custom`, { flex: '0 0 2rem', width: '2rem', padding: 0 });
 
 export const pictureLabel = style({ fontWeight: 'var(--weight-bold)', cursor: 'pointer' });
