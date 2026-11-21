@@ -34,6 +34,11 @@ mod batch_ownership_tests;
 #[path = "message_meta_projection_tests.rs"]
 mod message_meta_projection_tests;
 
+#[path = "message_body_batch.rs"]
+mod message_body_batch;
+
+const MESSAGE_BODY_EXPIRED_SQL: &str = "SELECT m.stable_id FROM messages m JOIN message_body_cache_lease l ON l.stable_id=m.stable_id WHERE m.account_id=?1 AND m.mailbox_id=?2 AND m.uidvalidity=?3 AND m.uid=?4 AND m.blob_ref IS NULL AND l.blob_ref=?5 AND l.uidvalidity=m.uidvalidity AND l.uid=m.uid";
+
 use chrono::Utc;
 
 use crate::backend::Dialect;
@@ -829,43 +834,60 @@ impl Store {
         self.upsert_body(m, raw, true).await
     }
 
-    async fn upsert_body(&self, m: &MessageUpsert<'_>, raw: &[u8], record_changes: bool) -> Result<MessageIngestOutcome, StoreError> {
+    async fn prepare_message_body(&self, m: &MessageUpsert<'_>, raw: &[u8]) -> Result<(Option<String>, Option<Vec<u8>>), StoreError> {
         let blob_ref=self.body_reference(m.account_id,raw);
         // A header/full-sync replay must not refill an intentionally expired
         // immutable body and immediately expire it again. Changed content or
         // coordinates still get a normal cache fill; explicit reader refills use
         // cache_refetched_message_body and bypass this background suppression.
-        let expired=q("SELECT m.stable_id FROM messages m JOIN message_body_cache_lease l ON l.stable_id=m.stable_id WHERE m.account_id=?1 AND m.mailbox_id=?2 AND m.uidvalidity=?3 AND m.uid=?4 AND m.blob_ref IS NULL AND l.blob_ref=?5 AND l.uidvalidity=m.uidvalidity AND l.uid=m.uid")
+        let expired=q(MESSAGE_BODY_EXPIRED_SQL)
             .bind(m.account_id).bind(m.mailbox_id).bind(i64::from(m.uidvalidity)).bind(i64::from(m.uid)).bind(&blob_ref).fetch_optional(&self.backend).await?.is_some();
-        if expired {
-            // Identical immutable content cannot change its header/part metadata.
-            // Preserve the cleaned envelope; replaying the parsed input would put
-            // expired full bodyValues back, or erase a reader's concurrent refill.
-            let tx = self.backend.begin().await?;
-            return self.upsert_message_tx(&MessageUpsert {blob_ref:None,envelope:None,..m.clone()}, tx, record_changes).await;
+        if expired { return Ok((None, None)); }
+        let sealed = self.prepare_body_seal(m.account_id, raw, &blob_ref).await?;
+        Ok((Some(blob_ref), sealed))
+    }
+
+    async fn upsert_prepared_body_tx(&self, m: &MessageUpsert<'_>, raw: &[u8], prepared: (Option<String>, Option<Vec<u8>>), record_changes: bool, tx: &mut crate::backend::Tx) -> Result<MessageIngestOutcome, StoreError> {
+        let (blob_ref, sealed) = prepared;
+        if let Some(blob_ref) = blob_ref {
+            self.put_body_tx(m.account_id, &blob_ref, raw, sealed, false, tx).await?;
+            self.upsert_message_in_tx(&MessageUpsert { blob_ref: Some(&blob_ref), ..m.clone() }, tx, record_changes).await
+        } else {
+            // An identical background replay preserves an expired body's cleaned
+            // envelope, including a concurrent explicit reader refill.
+            self.upsert_message_in_tx(&MessageUpsert { blob_ref: None, envelope: None, ..m.clone() }, tx, record_changes).await
         }
-        let sealed=self.prepare_body_seal(m.account_id,raw,&blob_ref).await?;
+    }
+
+    async fn upsert_body(&self, m: &MessageUpsert<'_>, raw: &[u8], record_changes: bool) -> Result<MessageIngestOutcome, StoreError> {
+        let prepared = self.prepare_message_body(m, raw).await?;
         let mut tx = self.backend.begin().await?;
-        self.put_body_tx(m.account_id, &blob_ref, raw, sealed, false, &mut tx).await?;
-        let m = MessageUpsert { blob_ref: Some(&blob_ref), ..m.clone() };
-        self.upsert_message_tx(&m, tx, record_changes).await
+        let outcome = self.upsert_prepared_body_tx(m, raw, prepared, record_changes, &mut tx).await?;
+        tx.commit().await?;
+        Ok(outcome)
     }
 
     async fn upsert_message_tx(&self, m: &MessageUpsert<'_>, mut tx: crate::backend::Tx, skip_unchanged: bool) -> Result<MessageIngestOutcome, StoreError> {
-        crate::background_maintenance::lock_body_account(&mut tx, m.account_id).await?;
-        crate::header_envelope::lock_parent(&mut tx,m.account_id).await?;
+        let outcome = self.upsert_message_in_tx(m, &mut tx, skip_unchanged).await?;
+        tx.commit().await?;
+        Ok(outcome)
+    }
+
+    async fn upsert_message_in_tx(&self, m: &MessageUpsert<'_>, tx: &mut crate::backend::Tx, skip_unchanged: bool) -> Result<MessageIngestOutcome, StoreError> {
+        crate::background_maintenance::lock_body_account(tx, m.account_id).await?;
+        crate::header_envelope::lock_parent(tx,m.account_id).await?;
         if let Some(blob) = m.blob_ref {
-            if q("SELECT blob_ref FROM bodies WHERE blob_ref=?1 AND account_id=?2").bind(blob).bind(m.account_id).fetch_opt_scalar_string_tx(&mut tx).await?.is_none() {
+            if q("SELECT blob_ref FROM bodies WHERE blob_ref=?1 AND account_id=?2").bind(blob).bind(m.account_id).fetch_opt_scalar_string_tx(tx).await?.is_none() {
                 return Err(StoreError::NotFound);
             }
-            q("DELETE FROM body_gc_candidate WHERE blob_ref=?1").bind(blob).execute_tx(&mut tx).await?;
+            q("DELETE FROM body_gc_candidate WHERE blob_ref=?1").bind(blob).execute_tx(tx).await?;
         }
         // Portable row lock and ownership predicate in the write transaction.
         // A missing and a foreign mailbox have the same public outcome.
         if q("UPDATE mailboxes SET id=id WHERE id=?1 AND account_id=?2")
             .bind(m.mailbox_id)
             .bind(m.account_id)
-            .execute_tx(&mut tx)
+            .execute_tx(tx)
             .await?
             == 0
         {
@@ -878,7 +900,7 @@ impl Store {
         .bind(m.mailbox_id)
         .bind(m.uidvalidity as i64)
         .bind(m.uid as i64)
-        .fetch_opt_scalar_string_tx(&mut tx)
+        .fetch_opt_scalar_string_tx(tx)
         .await?;
 
         // (2) identity match across a UIDVALIDITY change.
@@ -897,7 +919,7 @@ impl Store {
                         .bind(date)
                         .bind(to_i64(m.size))
                         .bind(m.uidvalidity as i64)
-                        .fetch_opt_scalar_string_tx(&mut tx)
+                        .fetch_opt_scalar_string_tx(tx)
                         .await?
                     }
                     _ => None,
@@ -911,7 +933,7 @@ impl Store {
 
         if existed && skip_unchanged {
             let previous = q("SELECT mailbox_id,uid,uidvalidity,message_id,thread_id,internaldate,size,flags_json,blob_ref,envelope_json FROM messages WHERE stable_id=?1 AND account_id=?2")
-                .bind(&stable_id).bind(m.account_id).fetch_all_tx(&mut tx).await?;
+                .bind(&stable_id).bind(m.account_id).fetch_all_tx(tx).await?;
             if let Some(previous) = previous.first() {
                 let same_fields = previous.get_string("mailbox_id") == m.mailbox_id
                     && previous.get_i64("uid") == i64::from(m.uid)
@@ -939,7 +961,6 @@ impl Store {
                     }
                 } else { false };
                 if same_fields && same_envelope {
-                    tx.commit().await?;
                     return Ok(MessageIngestOutcome { stable_id, existed, changed: false });
                 }
             }
@@ -973,11 +994,11 @@ impl Store {
         .bind(m.flags_json)
         .bind(sealed_env)
         .bind(m.blob_ref)
-        .execute_tx(&mut tx)
+        .execute_tx(tx)
         .await?;
 
         if skip_unchanged {
-            crate::header_envelope::refresh_tx(&mut tx,&self.key,m.account_id,&stable_id,m.envelope).await?;
+            crate::header_envelope::refresh_tx(tx,&self.key,m.account_id,&stable_id,m.envelope).await?;
             let now = chrono::Utc::now().to_rfc3339();
             for (kind, id, op) in [
                 ("Email", stable_id.as_str(), if existed { "updated" } else { "created" }),
@@ -989,13 +1010,12 @@ impl Store {
                      UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type=?2
                    ) heads),?3,?4,?5)")
                     .bind(m.account_id).bind(kind).bind(id).bind(op).bind(&now)
-                    .execute_tx(&mut tx).await?;
+                    .execute_tx(tx).await?;
             }
         }
         if !skip_unchanged {
-            crate::header_envelope::refresh_tx(&mut tx,&self.key,m.account_id,&stable_id,m.envelope).await?;
+            crate::header_envelope::refresh_tx(tx,&self.key,m.account_id,&stable_id,m.envelope).await?;
         }
-        tx.commit().await?;
         Ok(MessageIngestOutcome { stable_id, existed, changed: true })
     }
 
@@ -2191,6 +2211,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     include!("flags_batch_transaction_tests.rs");
+    include!("message_body_batch_tests.rs");
     use super::*;
     use crate::{Credentials, ServerKey, Store};
 
