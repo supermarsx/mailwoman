@@ -206,11 +206,27 @@ fn invalid_cookie_cannot_queue_publication_and_cold_builder_failure_falls_back()
             json!("x".repeat(3 * 1024 * 1024)),
         )
         .await;
+        // Exercise the real cold builder, not a synthetic failed result. The
+        // fixed policy payload bound must reject before any shared installation.
+        assert!(matches!(
+            worker.build_once_for_test(&fixture.measured, &fixture.session, &fixture.account).await,
+            Err(mw_store::StoreError::Invalid("publication settings bound or shape"))
+        ));
+        assert_eq!(worker.statistics().1, 0, "oversized DATA must not install");
+        assert_eq!(worker.statistics().3, 0);
         let reply = fixture.send_published().await;
         assert_eq!(reply.0, StatusCode::OK);
         assert_eq!(reply.1["methodResponses"][0][0], "Email/get");
-        assert!(reply.2.observations >= 2);
+        assert_eq!(reply.1["methodResponses"][0][1]["list"].as_array().unwrap().len(), 50);
+        // observations counts only successful full composites: ordinary auth or
+        // an early eligibility fallback need not complete two such observations.
+        // Instead prove the actual safe outcome: no published hit, one Engine
+        // dispatch through either original or legacy-native authentication.
         assert_eq!(reply.2.fences, 0);
+        assert_eq!(reply.2.dispatches + reply.2.ordinary_dispatches, 1);
+        assert_eq!(worker.statistics().1, 0);
+        assert_eq!(worker.statistics().3, 0);
+        println!("{}", json!({"kind":"published-cold-bound-fallback", "observations":reply.2.observations, "fences":reply.2.fences, "nativeDispatches":reply.2.dispatches, "ordinaryDispatches":reply.2.ordinary_dispatches, "installed":worker.statistics().1}));
     });
 }
 

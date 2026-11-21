@@ -464,6 +464,8 @@ pub(super) async fn finish_restarted_read(
 }
 #[cfg(test)]
 pub(super) fn record_restart_dispatch() {test_control::record_restart_dispatch();}
+#[cfg(test)]
+pub(super) fn record_ordinary_dispatch() {test_control::record_ordinary_dispatch();}
 
 pub(crate) async fn try_dispatch(
     state: &AppState,
@@ -636,6 +638,7 @@ mod test_control {
         pub legacy_late_refusal:bool,
         pub restarts:u64,
         pub restart_dispatches:u64,
+        pub ordinary_dispatches:u64,
     }
     tokio::task_local! { static COUNTS: RefCell<Counts>; }
     pub(super) fn force_original() -> bool {
@@ -651,6 +654,7 @@ mod test_control {
         }).await
     }
     pub(super) fn legacy_late_refusal()->bool {COUNTS.try_with(|c|c.borrow().legacy_late_refusal).unwrap_or(false)}
+    pub(super) fn record_ordinary_dispatch() {let _=COUNTS.try_with(|c|c.borrow_mut().ordinary_dispatches+=1);}
     pub(super) fn record_restart_dispatch() {let _=COUNTS.try_with(|c|c.borrow_mut().restart_dispatches+=1);}
     pub(super) fn record_restart() {let _=COUNTS.try_with(|c|c.borrow_mut().restarts+=1);}
     pub(super) async fn count_legacy_late<F:std::future::Future>(future:F)->(F::Output,Counts) {
