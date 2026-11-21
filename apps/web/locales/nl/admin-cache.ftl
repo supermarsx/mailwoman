@@ -61,5 +61,4 @@ admin-cache-prepared-residents = Pagina’s / limiet; accounts / limiet
 admin-cache-prepared-work = Toegelaten / 16; actief / 2; wachtend
 admin-cache-prepared-results = Treffers / missers / opbouwen / verwijderingen
 admin-cache-prepared-seeds = Initialisaties / rijen; invalidatiefouten
-admin-cache-prepared-invalid = Vul alle velden binnen de getoonde grenzen in, zonder extra velden.
 admin-cache-prepared-unknown = Niet waargenomen

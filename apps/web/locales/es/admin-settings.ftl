@@ -2826,3 +2826,4 @@ admin-settings-key-web-assets-cache-compression-min-bytes = Bytes originales mí
 admin-settings-help-web-assets-cache-compression-min-bytes = Valor predeterminado: 1024 bytes; intervalo: 256–65536. Conservar solo variantes que ahorren al menos un 5% y 128 bytes.
 admin-settings-key-performance-prepared-mail = Caché de metadatos de correo preparados
 admin-settings-help-performance-prepared-mail = Solo metadatos; cada respuesta necesita comprobaciones actuales de origen y autorización.
+admin-cache-prepared-invalid = Introduzca todos los campos dentro de los límites mostrados, sin campos adicionales.

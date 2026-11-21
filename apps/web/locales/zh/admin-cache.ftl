@@ -61,5 +61,4 @@ admin-cache-prepared-residents = 页数 / 上限；账户 / 上限
 admin-cache-prepared-work = 已接纳 / 16；活动 / 2；待处理
 admin-cache-prepared-results = 命中 / 未命中 / 构建 / 逐出
 admin-cache-prepared-seeds = 初始化次数 / 行数；失效错误
-admin-cache-prepared-invalid = 请在显示的范围内填写全部字段，不得添加其他字段。
 admin-cache-prepared-unknown = 尚未观测

@@ -61,5 +61,4 @@ admin-cache-prepared-residents = Páginas / limite; contas / limite
 admin-cache-prepared-work = Admitidos / 16; ativos / 2; pendentes
 admin-cache-prepared-results = Acertos / falhas / construções / remoções
 admin-cache-prepared-seeds = Inicializações / linhas; erros de invalidação
-admin-cache-prepared-invalid = Preencha todos os campos dentro dos limites exibidos, sem campos adicionais.
 admin-cache-prepared-unknown = Não observado

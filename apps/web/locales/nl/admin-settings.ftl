@@ -2820,3 +2820,4 @@ admin-settings-key-web-assets-cache-compression-min-bytes = Minimaal aantal bron
 admin-settings-help-web-assets-cache-compression-min-bytes = Standaard: 1024 bytes; bereik: 256–65536. Bewaar alleen varianten die minstens 5% en 128 bytes besparen.
 admin-settings-key-performance-prepared-mail = Cache voor voorbereide e-mailmetadata
 admin-settings-help-performance-prepared-mail = Alleen metadata; elk antwoord vereist actuele bron- en autorisatiecontroles.
+admin-cache-prepared-invalid = Vul alle velden binnen de getoonde grenzen in, zonder extra velden.

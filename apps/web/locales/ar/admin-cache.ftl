@@ -61,5 +61,4 @@ admin-cache-prepared-residents = الصفحات / الحد؛ الحسابات / 
 admin-cache-prepared-work = المقبولة / 16؛ النشطة / 2؛ المعلقة
 admin-cache-prepared-results = الإصابات / الإخفاقات / الإنشاءات / الاستبعادات
 admin-cache-prepared-seeds = مرات التهيئة / الصفوف؛ أخطاء الإبطال
-admin-cache-prepared-invalid = أدخل جميع الحقول ضمن الحدود المعروضة دون إضافة حقول.
 admin-cache-prepared-unknown = لم تتم الملاحظة

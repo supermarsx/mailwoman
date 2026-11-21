@@ -61,5 +61,4 @@ admin-cache-prepared-residents = Seiten / Grenze; Konten / Grenze
 admin-cache-prepared-work = Zugelassen / 16; aktiv / 2; ausstehend
 admin-cache-prepared-results = Treffer / Fehlschläge / Aufbauten / Verdrängungen
 admin-cache-prepared-seeds = Initialisierungen / Zeilen; Invalidierungsfehler
-admin-cache-prepared-invalid = Alle Felder innerhalb der angezeigten Grenzen und keine zusätzlichen Felder eingeben.
 admin-cache-prepared-unknown = Nicht beobachtet

@@ -61,5 +61,4 @@ admin-cache-prepared-residents = Страницы / лимит; записи / �
 admin-cache-prepared-work = Принято / 16; активно / 2; ожидает
 admin-cache-prepared-results = Попадания / промахи / сборки / вытеснения
 admin-cache-prepared-seeds = Инициализации / строки; ошибки аннулирования
-admin-cache-prepared-invalid = Заполните все поля в указанных пределах без дополнительных полей.
 admin-cache-prepared-unknown = Нет наблюдений

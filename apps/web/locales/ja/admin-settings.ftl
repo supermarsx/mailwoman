@@ -2812,3 +2812,4 @@ admin-settings-key-web-assets-cache-compression-min-bytes = 元データの最�
 admin-settings-help-web-assets-cache-compression-min-bytes = 既定値は1024バイト、範囲は256～65536です。5%以上かつ128バイト以上小さい形式のみ保持します。
 admin-settings-key-performance-prepared-mail = 準備済みメールメタデータキャッシュ
 admin-settings-help-performance-prepared-mail = メタデータのみ。各応答には最新のソースと権限の確認が必要です。
+admin-cache-prepared-invalid = 表示された範囲内ですべての項目を入力し、項目を追加しないでください。

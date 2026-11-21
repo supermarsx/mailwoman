@@ -2842,3 +2842,4 @@ admin-settings-key-web-assets-cache-compression-min-bytes = الحد الأدن�
 admin-settings-help-web-assets-cache-compression-min-bytes = القيمة الافتراضية: 1024 بايت؛ النطاق: 256–65536. تُحتفظ فقط بالترميزات التي توفر 5% و128 بايت على الأقل.
 admin-settings-key-performance-prepared-mail = ذاكرة بيانات البريد الوصفية الجاهزة
 admin-settings-help-performance-prepared-mail = بيانات وصفية فقط؛ كل استجابة تتطلب فحوصًا حديثة للمصدر والصلاحيات.
+admin-cache-prepared-invalid = أدخل جميع الحقول ضمن الحدود المعروضة دون إضافة حقول.

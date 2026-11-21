@@ -2838,3 +2838,4 @@ admin-settings-key-web-assets-cache-compression-min-bytes = Minimalna liczba baj
 admin-settings-help-web-assets-cache-compression-min-bytes = Domyślnie: 1024 bajty; zakres: 256–65536. Zachowuj tylko warianty oszczędzające co najmniej 5% i 128 bajtów.
 admin-settings-key-performance-prepared-mail = Pamięć przygotowanych metadanych poczty
 admin-settings-help-performance-prepared-mail = Tylko metadane; każda odpowiedź wymaga aktualnej kontroli źródła i uprawnień.
+admin-cache-prepared-invalid = Wypełnij wszystkie pola w podanych granicach, bez dodatkowych pól.

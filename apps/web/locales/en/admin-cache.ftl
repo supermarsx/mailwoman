@@ -61,5 +61,4 @@ admin-cache-prepared-residents = Pages / limit; accounts / limit
 admin-cache-prepared-work = Admitted / 16; active / 2; pending
 admin-cache-prepared-results = Hits / misses / builds / evictions
 admin-cache-prepared-seeds = Seed calls / rows; invalidation errors
-admin-cache-prepared-invalid = Enter every field within its displayed bounds, with no additional fields.
 admin-cache-prepared-unknown = Not observed

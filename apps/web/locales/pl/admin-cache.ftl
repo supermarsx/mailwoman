@@ -61,5 +61,4 @@ admin-cache-prepared-residents = Strony / limit; konta / limit
 admin-cache-prepared-work = Przyjęte / 16; aktywne / 2; oczekujące
 admin-cache-prepared-results = Trafienia / braki / budowy / usunięcia
 admin-cache-prepared-seeds = Inicjalizacje / wiersze; błędy unieważniania
-admin-cache-prepared-invalid = Wypełnij wszystkie pola w podanych granicach, bez dodatkowych pól.
 admin-cache-prepared-unknown = Nie zaobserwowano

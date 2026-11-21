@@ -2739,3 +2739,4 @@ admin-settings-key-web-assets-cache-compression-min-bytes = Minimum raw bytes
 admin-settings-help-web-assets-cache-compression-min-bytes = Default: 1024 bytes; range: 256–65536. Retain only variants saving at least 5% and 128 bytes.
 admin-settings-key-performance-prepared-mail = Prepared mail metadata cache
 admin-settings-help-performance-prepared-mail = Prepared metadata only; each response still needs fresh source and authorization checks.
+admin-cache-prepared-invalid = Enter every field within its displayed bounds, with no additional fields.

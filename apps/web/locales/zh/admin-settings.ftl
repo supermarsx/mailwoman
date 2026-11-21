@@ -2812,3 +2812,4 @@ admin-settings-key-web-assets-cache-compression-min-bytes = 原始数据最小�
 admin-settings-help-web-assets-cache-compression-min-bytes = 默认值：1024 字节；范围：256–65536。仅保留至少节省 5% 且不少于 128 字节的编码。
 admin-settings-key-performance-prepared-mail = 已准备邮件元数据缓存
 admin-settings-help-performance-prepared-mail = 仅缓存元数据；每个响应仍需最新的数据源和授权检查。
+admin-cache-prepared-invalid = 请在显示的范围内填写全部字段，不得添加其他字段。

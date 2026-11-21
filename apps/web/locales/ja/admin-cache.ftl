@@ -61,5 +61,4 @@ admin-cache-prepared-residents = ページ / 上限；アカウント / 上限
 admin-cache-prepared-work = 受付済み / 16；実行中 / 2；待機中
 admin-cache-prepared-results = ヒット / ミス / 構築 / 退避
 admin-cache-prepared-seeds = 初期化回数 / 行数；無効化エラー
-admin-cache-prepared-invalid = 表示された範囲内ですべての項目を入力し、項目を追加しないでください。
 admin-cache-prepared-unknown = 未観測

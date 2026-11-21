@@ -2826,3 +2826,4 @@ admin-settings-key-web-assets-cache-compression-min-bytes = Taille brute minimal
 admin-settings-help-web-assets-cache-compression-min-bytes = Valeur par défaut : 1024 octets ; plage : 256–65536. Ne conserver que les variantes économisant au moins 5% et 128 octets.
 admin-settings-key-performance-prepared-mail = Cache de métadonnées de courrier préparées
 admin-settings-help-performance-prepared-mail = Métadonnées uniquement ; chaque réponse exige des contrôles actuels des sources et des autorisations.
+admin-cache-prepared-invalid = Renseignez tous les champs dans les limites affichées, sans champ supplémentaire.
