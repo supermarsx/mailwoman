@@ -6,6 +6,24 @@ user, and whether users may choose their own. The server's registry
 (`crates/mw-settings/src/settings_registry.rs`) lists every key with its type, bounds,
 default and scopes; this page describes each one.
 
+## Prepared mail metadata cache
+
+<a id="performance.preparedMail"></a>
+`performance.preparedMail` is a global-only object, disabled by default. The
+Cache maintenance screen and setting detail expose its actual controls:
+`enabled` (boolean), `budgetMiB` (16..16384, default 64), `maxEntries`
+(1..100000, default 256), `maxAccounts` (1..10000, default 128), and
+`idleSeconds` (1..3600, default 30). Unknown or missing fields are rejected.
+
+The endpoint must apply an already-published global configuration before preparation
+and binds it to its final policy/source proof. Saving does not wait for a page
+build or imply that every process has applied it; inspect the process's status
+after the next eligible request. Disabling invalidates retained candidates.
+Held and evicted results remain charged when shrinking the budget. Parser, SQL
+and process RSS memory are separate; defaults are not sized for 10,000 users.
+The read-only `/admin/maintenance/prepared-mail` status requires unscoped
+`maintenance.read`, returns aggregate counters only and uses `no-store`.
+
 ## Linked mailbox accounts
 
 <a id="accounts.linkingEnabled"></a>

@@ -147,6 +147,8 @@ pub enum Text {
 /// A value's type and bounds.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Kind {
+    /// Global, bounded prepared mail DATA cache (no caller authority).
+    PreparedMail,
     /// Startup-only, bounded SQLx connection pool policy.
     DatabasePool,
     /// An exact owned mailbox ID or upstream folder path; null selects discovery.
@@ -199,10 +201,43 @@ pub enum Kind {
     },
 }
 
+#[cfg(test)]
+mod prepared_mail_registry_tests {
+    use super::*;
+    #[test]
+    fn default_is_disabled_global_and_exact_runtime_wire_schema(){
+        let def=lookup("performance.preparedMail").unwrap();
+        assert_eq!(def.scopes,Scopes::Global);assert!(!def.user_override);
+        assert_eq!(def.kind.describe(),json!({"type":"preparedMail"}));
+        let value=def.default_value();
+        assert_eq!(value,json!({"enabled":false,"budgetMiB":64,"maxEntries":256,"maxAccounts":128,"idleSeconds":30}));
+        assert_eq!(validate(def,&value,"value").unwrap(),value);
+    }
+    #[test]
+    fn finite_target_profile_caps_and_lower_bounds_are_accepted(){
+        let def=lookup("performance.preparedMail").unwrap();
+        for value in [json!({"enabled":true,"budgetMiB":16,"maxEntries":1,"maxAccounts":1,"idleSeconds":1}),json!({"enabled":true,"budgetMiB":16384,"maxEntries":100000,"maxAccounts":10000,"idleSeconds":3600})] {
+            assert_eq!(validate(def,&value,"value").unwrap(),value);
+        }
+    }
+    #[test]
+    fn malformed_missing_extra_and_overlimit_policy_cannot_be_saved(){
+        let def=lookup("performance.preparedMail").unwrap();
+        for (key,value) in [("enabled",json!("true")),("budgetMiB",json!(15)),("budgetMiB",json!(16385)),("budgetMiB",json!(16.5)),("maxEntries",json!(0)),("maxEntries",json!(100001)),("maxAccounts",json!(10001)),("idleSeconds",json!(3601)),("unknown",json!(false))] {
+            let mut changed=def.default_value();changed[key]=value;
+            assert!(validate(def,&changed,"value").is_err(),"{key}");
+        }
+        let mut missing=def.default_value();missing.as_object_mut().unwrap().remove("enabled");
+        assert!(validate(def,&missing,"value").is_err());
+        assert!(validate(def,&Value::Null,"value").is_err());
+    }
+}
+
 impl Kind {
     /// The wire description the admin UI validates against (UX5).
     pub fn describe(&self) -> Value {
         match *self {
+            Kind::PreparedMail => json!({"type":"preparedMail"}),
             Kind::DatabasePool => json!({"type":"databasePool","restartRequired":true}),
             Kind::FilePreviews => json!({"type":"filePreviews"}),
             Kind::SnoozePresets => json!({"type":"snoozePresets","maxItems":32}),
@@ -3611,6 +3646,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!("web.assets.cache.maxEntries",int(16,4096),"1024",G,"interface","Maximum retained static representation entries, including metadata-only references to embedded files"),
     def!("web.assets.cache.revalidateSeconds",int(1,60),"1",G,"interface","Maximum age of deployed/retained asset bytes before reloading, including unhashed shell and service worker; embedded build bytes remain immutable"),
     def!("web.assets.cache.preload",Kind::Enum(&["off","shell","core"]),"\"shell\"",G,"interface","Best-effort background preload: off, shell only, or shell plus bounded core assets; foreground loads take priority"),
+    def!("performance.preparedMail",Kind::PreparedMail,r#"{"enabled":false,"budgetMiB":64,"maxEntries":256,"maxAccounts":128,"idleSeconds":30}"#,G,"maintenance","Bounded prepared metadata DATA cache; apply from published global policy before preparation and verify with final policy fence; defaults are not a sizing claim for 10,000 users"),
     def!("web.prefetch.enabled",Kind::Bool,"true",G,"interface","Allow speculative mailbox/module/catalog prefetch; demanded navigation remains available"),
     def!("web.prefetch.idleDelayMs",int(0,30000),"2500",G,"interface","Milliseconds after an authenticated mail session before scheduling optional idle prefetch"),
     def!("web.offline.precacheMode",Kind::Enum(&["all","core"]),"\"all\"",G,"offline","Service worker install prewarm: all retains the existing full asset set; core omits unopened translation/PDF assets, which may need network on first use"),
@@ -9259,6 +9295,13 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
         return bad("use id:<folder ID> or role:inbox/drafts/sent/trash/junk/archive".into());
     }
     match def.kind {
+        Kind::PreparedMail => {
+            let valid=value.as_object().is_some_and(|object|object.len()==5
+                && object.get("enabled").is_some_and(Value::is_boolean)
+                && [("budgetMiB",16,16384),("maxEntries",1,100000),("maxAccounts",1,10000),("idleSeconds",1,3600)].into_iter().all(|(key,min,max)|object.get(key).and_then(Value::as_u64).is_some_and(|value|(min..=max).contains(&value))));
+            if !valid{return bad("expected enabled:boolean, budgetMiB 16..16384, maxEntries 1..100000, maxAccounts 1..10000 and idleSeconds 1..3600, with no additional fields".into())}
+            Ok(value.clone())
+        }
         Kind::DatabasePool => {
             let policy = match serde_json::from_value::<mw_store::pool_policy::PoolPolicy>(value.clone()) {
                 Ok(policy) => policy,
@@ -9642,7 +9685,7 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
 fn parse_env(def: &SettingDef, raw: &str) -> Value {
     let raw = raw.trim();
     match def.kind {
-        Kind::DatabasePool => serde_json::from_str(raw).unwrap_or_else(|_| Value::String(raw.to_string())),
+        Kind::PreparedMail | Kind::DatabasePool => serde_json::from_str(raw).unwrap_or_else(|_| Value::String(raw.to_string())),
         Kind::Bool => match raw.to_ascii_lowercase().as_str() {
             "1" | "true" | "yes" | "on" => Value::Bool(true),
             "0" | "false" | "no" | "off" | "" => Value::Bool(false),

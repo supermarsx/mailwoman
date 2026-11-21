@@ -26,7 +26,7 @@ import {
 /** A value's type and bounds, as the registry declares it. */
 export interface SettingKind {
   restartRequired?: boolean;
-  type: 'folderRole' | 'bool' | 'int' | 'float' | 'enum' | 'text' | 'locale' | 'localeMap' | 'intList' | 'stringList' | 'quietHours' | 'links' | 'messageNotices' | 'messageTemplates' | 'snoozePresets' | 'filePreviews' | 'databasePool';
+  type: 'preparedMail' | 'folderRole' | 'bool' | 'int' | 'float' | 'enum' | 'text' | 'locale' | 'localeMap' | 'intList' | 'stringList' | 'quietHours' | 'links' | 'messageNotices' | 'messageTemplates' | 'snoozePresets' | 'filePreviews' | 'databasePool';
   min?: number;
   max?: number;
   values?: string[];

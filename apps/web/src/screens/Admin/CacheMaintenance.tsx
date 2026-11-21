@@ -3,6 +3,7 @@ import {useCatalog,t,formatDateTime,formatNumber} from '../../i18n';
 import {loadDatabaseMaintenance,type DatabaseMaintenanceReport} from '../../api/admin/databaseMaintenance.ts';
 import {listAdminSettings,type AdminSetting} from '../../api/admin/settings.ts';
 import {InlineSettingEditor} from './Settings/InlineSettingEditor.tsx';
+import {PreparedMailCard} from './PreparedMailCard.tsx';
 import {useShell} from './shell/context.ts';
 import {adminRequest} from './shell/adminApi.ts';
 import {Feedback,describeAdminError} from './shell/Feedback.tsx';
@@ -55,6 +56,7 @@ export function CacheMaintenance():JSX.Element{
  return <Show when={catalog()&&databaseCatalog()} fallback={<InlineLoading/>}><section class={css.section} aria-label={t('admin-cache-title')}>
   <div class={css.headingRow}><h2 class={css.heading}>{t('admin-cache-title')}</h2><button type="button" class="btn btn--ghost" disabled={busy()||report()?.running||!shell.can.can('maintenance.run')} onClick={()=>void run()}><Icon name="refresh"/>{t('admin-db-background-run')}</button></div>
   <p class={css.note}>{t('admin-cache-help')}</p>
+  <PreparedMailCard settings={settings()} onChanged={saved=>setSettings(rows=>rows?.map(row=>row.key===saved.key?saved:row))}/>
   <Feedback kind="error" as="toast" message={error()==='admin-cache-settings-unavailable'?t('admin-cache-settings-unavailable'):error()}/>
   <PublicAssetCacheCard settings={settings()} onChanged={saved=>setSettings(rows=>rows?.map(row=>row.key===saved.key?saved:row))}/>
   <section class={css.card}><h3 class={css.heading}>{t('admin-cache-expiry-status')}</h3>

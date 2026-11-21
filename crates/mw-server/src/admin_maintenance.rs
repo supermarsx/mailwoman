@@ -55,6 +55,7 @@ const ADMIN_JMAP_METHODS: &[&str] = &[
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(Method::GET,"/maintenance/web-assets",Capability::MaintenanceRead,web_asset_status);
     r.admin_endpoint(Method::POST,"/maintenance/web-assets/clear",Capability::MaintenanceRun,web_asset_clear);
+    r.admin_endpoint(Method::GET,"/maintenance/prepared-mail",Capability::MaintenanceRead,prepared_mail_status);
     r.admin_endpoint(Method::GET,"/maintenance/database-online",Capability::MaintenanceRead,online_database_status);
     r.admin_endpoint(Method::POST,"/maintenance/database-online",Capability::MaintenanceRun,online_database_start);
     r.admin_endpoint(Method::DELETE,"/maintenance/database-online",Capability::MaintenanceRun,online_database_cancel);
@@ -280,6 +281,12 @@ fn search_status_json(s: &mw_engine::maintenance::SearchIndexStatus) -> Value {
 /// holds, how many stored messages it should hold (zero-access accounts are not
 /// indexed and not counted), whether it is on disk, and the progress of a rebuild
 /// if one is running. Admin-session-gated + engine-mode only.
+async fn prepared_mail_status(State(state):State<AppState>,ctx:AdminCtx)->Result<Response,crate::admin_ctx::AdminApiError>{
+    ctx.require_unscoped(Capability::MaintenanceRead)?;
+    let Some(engine)=&state.engine else{return Ok(engine_mode_only("prepared mail DATA"))};
+    Ok(([(axum::http::header::CACHE_CONTROL,"no-store")],Json(engine.prepared_mail_status())).into_response())
+}
+
 async fn search_index_status(State(state): State<AppState>, _ctx: AdminCtx) -> Response {
     let Some(engine) = &state.engine else {
         return engine_mode_only("the search index");

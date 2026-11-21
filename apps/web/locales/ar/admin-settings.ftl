@@ -2840,3 +2840,5 @@ admin-settings-key-web-assets-cache-compression-brotli = تفعيل Brotli
 admin-settings-help-web-assets-cache-compression-brotli = يُستخدم Brotli عندما يقبله العميل؛ يبقى gzip وidentity متاحين. تُحترم استثناءات q=0.
 admin-settings-key-web-assets-cache-compression-min-bytes = الحد الأدنى للبايتات الأصلية
 admin-settings-help-web-assets-cache-compression-min-bytes = القيمة الافتراضية: 1024 بايت؛ النطاق: 256–65536. تُحتفظ فقط بالترميزات التي توفر 5% و128 بايت على الأقل.
+admin-settings-key-performance-prepared-mail = ذاكرة بيانات البريد الوصفية الجاهزة
+admin-settings-help-performance-prepared-mail = بيانات وصفية فقط؛ كل استجابة تتطلب فحوصًا حديثة للمصدر والصلاحيات.

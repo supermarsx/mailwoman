@@ -2810,3 +2810,5 @@ admin-settings-key-web-assets-cache-compression-brotli = 启用 Brotli
 admin-settings-help-web-assets-cache-compression-brotli = 客户端接受时使用 Brotli；gzip 和 identity 仍可用，并遵守 q=0 排除规则。
 admin-settings-key-web-assets-cache-compression-min-bytes = 原始数据最小字节数
 admin-settings-help-web-assets-cache-compression-min-bytes = 默认值：1024 字节；范围：256–65536。仅保留至少节省 5% 且不少于 128 字节的编码。
+admin-settings-key-performance-prepared-mail = 已准备邮件元数据缓存
+admin-settings-help-performance-prepared-mail = 仅缓存元数据；每个响应仍需最新的数据源和授权检查。

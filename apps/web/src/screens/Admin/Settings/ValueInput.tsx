@@ -1,4 +1,5 @@
 import {DatabasePoolEditor} from './DatabasePoolEditor.tsx';
+import {PreparedMailEditor} from './PreparedMailEditor.tsx';
 import {NoticeTemplateEditor} from '../../../components/NoticeTemplateEditor.tsx';
 import type {MessageNotice} from '../../../components/compose/messageNotices.ts';
 import {FilePreviewEditor} from '../../../components/FilePreviewEditor.tsx';
@@ -61,6 +62,7 @@ export function ValueInput(props: ValueInputProps): JSX.Element {
         />
       }
     >
+      <Match when={props.kind.type==='preparedMail'}><PreparedMailEditor id={props.wiring.id} describedBy={props.wiring.describedBy} invalid={props.wiring.invalid} disabled={props.disabled} draft={text()} onDraft={props.onDraft}/></Match>
       <Match when={props.kind.type==='databasePool'}><DatabasePoolEditor id={props.wiring.id} describedBy={props.wiring.describedBy} invalid={props.wiring.invalid} disabled={props.disabled} draft={text()} onDraft={props.onDraft}/></Match>
       <Match when={props.kind.type==='filePreviews'}><FilePreviewEditor id={props.wiring.id} describedBy={props.wiring.describedBy} disabled={props.disabled} value={(()=>{try{const value:unknown=JSON.parse(text());return validFilePreviews(value)?value:DEFAULT_FILE_PREVIEWS;}catch{return DEFAULT_FILE_PREVIEWS;}})()} onChange={value=>props.onDraft(JSON.stringify(value))}/></Match>
       <Match when={props.kind.type === 'bool'}>

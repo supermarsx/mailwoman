@@ -1,4 +1,5 @@
 import {normalizeDatabasePool} from './databasePool.ts';
+import {validPreparedMail} from './preparedMail.ts';
 void loadCatalog('notices');
 import {validMessageNotices} from '../../../components/compose/messageNotices.ts';
 import {validFilePreviews} from '../../../viewers/filePreviewPreferences.ts';
@@ -43,7 +44,7 @@ export function toDraft(kind: SettingKind, value: unknown): Draft {
 
 /** Whether a kind is edited as JSON text. */
 export function isJsonKind(kind: SettingKind): boolean {
-  return ['folderRole', 'localeMap', 'intList', 'stringList', 'quietHours', 'links', 'messageNotices', 'messageTemplates', 'snoozePresets','filePreviews','databasePool'].includes(kind.type);
+  return ['folderRole', 'localeMap', 'intList', 'stringList', 'quietHours', 'links', 'messageNotices', 'messageTemplates', 'snoozePresets','filePreviews','databasePool','preparedMail'].includes(kind.type);
 }
 
 /** Check a draft against the declared type and bounds; the server checks again. */
@@ -102,6 +103,7 @@ export function parseDraft(kind: SettingKind, draft: Draft, nullable: boolean): 
     default: {
       try {
         const value:unknown=JSON.parse(text);
+        if(kind.type==='preparedMail'&&!validPreparedMail(value))return {ok:false,error:t('admin-cache-prepared-invalid')};
         if(kind.type==='databasePool'){const pool=normalizeDatabasePool(value);return pool?{ok:true,value:pool}:{ok:false,error:t('admin-pool-invalid')};}
         if(kind.type==='filePreviews'&&!validFilePreviews(value))return {ok:false,error:t('preview-invalid')};
         if(kind.type==='snoozePresets'&&!validSnoozePresets(value))return {ok:false,error:t('snooze-invalid-presets')};

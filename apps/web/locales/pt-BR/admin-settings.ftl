@@ -2818,3 +2818,5 @@ admin-settings-key-web-assets-cache-compression-brotli = Ativar Brotli
 admin-settings-help-web-assets-cache-compression-brotli = Usar Brotli quando aceito pelo cliente; gzip e identity continuam disponíveis. As exclusões q=0 são respeitadas.
 admin-settings-key-web-assets-cache-compression-min-bytes = Mínimo de bytes originais
 admin-settings-help-web-assets-cache-compression-min-bytes = Padrão: 1024 bytes; intervalo: 256–65536. Reter apenas variantes que economizem pelo menos 5% e 128 bytes.
+admin-settings-key-performance-prepared-mail = Cache de metadados de e-mail preparados
+admin-settings-help-performance-prepared-mail = Somente metadados; cada resposta exige verificações atuais da origem e da autorização.
