@@ -254,6 +254,7 @@ impl Fixture {
                 );
                 engine
             })),
+            crate::core_test_build_info::info().unwrap(),
         )
         .await
         .unwrap();

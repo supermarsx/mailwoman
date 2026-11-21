@@ -22,6 +22,7 @@ use mw_store::{
 };
 use serde_json::Value;
 
+#[path = "native_metadata_admission/publication.rs"]
 pub(crate) mod publication;
 
 fn publication_enabled()->bool {
