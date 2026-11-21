@@ -54,7 +54,7 @@ struct Ready {
     _charge:OwnedSemaphorePermit,
 }
 struct Cell {ready:Arc<Ready>,used:Instant,invalidated:bool}
-struct Memory {entries:HashMap<Key,Cell>,pending:BTreeSet<(String,Vec<String>)>,validated:Option<MailDataFence>,config:PreparedMailOptions,config_epoch:u64}
+struct Memory {entries:HashMap<Key,Cell>,pending:BTreeSet<(String,Vec<String>)>,validated:Option<MailDataFence>,config:PreparedMailOptions,config_epoch:u64,config_revision:Option<i64>}
 pub(crate) struct PreparedMail {
     memory:Mutex<Memory>,
     bytes:Arc<Semaphore>,
@@ -80,7 +80,7 @@ pub struct PreparedMailStatus {
 }
 impl Default for PreparedMail {
     fn default()->Self {
-        Self {memory:Mutex::new(Memory {entries:HashMap::new(),pending:BTreeSet::new(),validated:None,config:Default::default(),config_epoch:0}),
+        Self {memory:Mutex::new(Memory {entries:HashMap::new(),pending:BTreeSet::new(),validated:None,config:Default::default(),config_epoch:0,config_revision:None}),
             bytes:Arc::new(Semaphore::new(MAX_TOKENS)),jobs:Arc::new(Semaphore::new(16)),workers:Arc::new(Semaphore::new(2)),stats:Default::default(),background_started:AtomicBool::new(false)}
     }
 }
@@ -218,8 +218,27 @@ impl Engine {
     /// must bind this config to its final policy source proof; this setter is
     /// DATA configuration, not authorization. Invalid inputs never apply.
     pub fn configure_prepared_mail(&self,config:PreparedMailOptions)->bool {
+        self.configure_prepared_mail_inner(config,None)
+    }
+    /// The revision orders DATA configuration updates only; it is never an
+    /// allow decision. A delayed older request cannot restore a disabled cache
+    /// or its former budget after a newer request applied current policy.
+    pub fn configure_prepared_mail_at_revision(&self,config:PreparedMailOptions,revision:&mw_store::settings_policy::SettingsReadRevision)->bool {
+        if revision.scope()!=self.store().cache_scope() || revision.number().is_none_or(|n|n<0) {return false}
+        self.configure_prepared_mail_inner(config,revision.number())
+    }
+    fn configure_prepared_mail_inner(&self,config:PreparedMailOptions,revision:Option<i64>)->bool {
         if !config.valid(){return false}
         let Ok(mut memory)=self.prepared_mail.memory.lock() else{return false};
+        if let Some(previous)=memory.config_revision {
+            let Some(next)=revision else{return false};
+            // An unrelated account's setting can advance the global counter
+            // without invalidating this account's still-current policy DATA.
+            // An older identical config is harmless, but never moves the floor.
+            if next<previous {return memory.config==config}
+            if next==previous && memory.config!=config {return false}
+        }
+        if let Some(revision)=revision {memory.config_revision=Some(revision);}
         if memory.config==config{return true}
         let Some(epoch)=memory.config_epoch.checked_add(1) else{return false};
         self.prepared_mail.stats.evictions.fetch_add(memory.entries.len() as u64,Ordering::Relaxed);

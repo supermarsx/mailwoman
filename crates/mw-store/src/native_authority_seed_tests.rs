@@ -1,4 +1,40 @@
 // Source-authored contracts; the parent controls actual execution/PG fixture.
+async fn publication_joint_mail_contract(s:Store) {
+    let (account,session)=seed(&s).await;
+    let subjects=seed_anchored_subjects(&s,&session).await;
+    let mailbox=s.upsert_mailbox(&crate::MailboxUpsert {account_id:&account,name:"Inbox",role:Some("inbox"),uidvalidity:1,uidnext:2,highestmodseq:0,total:1,unread:1,parent_id:None}).await.unwrap();
+    let raw=s.put_body(&account,b"Subject: joint proof\r\n\r\nsource").await.unwrap();
+    let envelope=serde_json::to_vec(&serde_json::json!({"subject":"joint proof","hasAttachment":false,"attachments":[]})).unwrap();
+    let message=s.upsert_message(&crate::MessageUpsert {account_id:&account,mailbox_id:&mailbox,uid:1,uidvalidity:1,message_id:None,thread_id:None,internaldate:None,size:32,flags_json:"[]",envelope:Some(&envelope),blob_ref:Some(&raw)}).await.unwrap();
+    let descriptor=s.mail_data_descriptor(&account,&[message.clone(),"missing".into()]).unwrap();
+    let (joint,count)=crate::pool_telemetry::measure_queries(s.native_publication_fence_with_mail_data(&session,&["authority.test".into()],&subjects,&descriptor)).await;
+    let joint=joint.unwrap().unwrap();
+    assert_eq!(count.read.calls+count.other.calls,1,"one joint source/auth/data statement, not a second data query");
+    assert_eq!(count.write.calls,0);
+    assert_eq!(joint.account_id(),account);
+    let data=joint.mail_data().unwrap();
+    assert!(data.publishable());
+    assert!(data.same_data(&s.mail_data_snapshot(&descriptor).await.unwrap().unwrap()));
+    q("UPDATE bodies SET sealed_bytes=?1 WHERE blob_ref=?2").bind(vec![1u8,2,3]).bind(&raw).execute(&s.backend).await.unwrap();
+    let changed=s.native_publication_fence_with_mail_data(&session,&["authority.test".into()],&subjects,&descriptor).await.unwrap().unwrap();
+    assert!(!data.same_data(changed.mail_data().unwrap()),"body source trigger must invalidate the data in the final joint observation");
+    let other_account=s.create_account(&NewAccount {kind:AccountKind::Imap,host:"mail.authority.test",port:993,tls:"implicit",username:"other@authority.test",sync_policy_json:"{}"},&Credentials {username:"other@authority.test".into(),password:"synthetic-only".into()}).await.unwrap();
+    let other=s.mail_data_descriptor(&other_account,std::slice::from_ref(&message)).unwrap();
+    let wrong_owner=s.native_publication_fence_with_mail_data(&session,&["authority.test".into()],&subjects,&other).await.unwrap().unwrap();
+    assert!(wrong_owner.mail_data().is_none(),"descriptor account never overrides fresh session ownership");
+    s.delete_session(&session).await.unwrap();
+    assert!(s.native_publication_fence_with_mail_data(&session,&["authority.test".into()],&subjects,&descriptor).await.unwrap().is_none());
+    s.close().await;
+}
+#[tokio::test]
+async fn sqlite_publication_joint_mail_uses_one_fresh_statement_and_current_owner() {
+    publication_joint_mail_contract(Store::open_in_memory(ServerKey::generate()).await.unwrap()).await;
+}
+#[tokio::test]
+async fn postgres_publication_joint_mail_uses_one_fresh_statement_and_current_owner() {
+    postgres(publication_joint_mail_contract).await;
+}
+
 async fn publication_source(
     s: &Store,
     session: &str,

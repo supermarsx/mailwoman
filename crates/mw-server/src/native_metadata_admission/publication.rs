@@ -641,6 +641,7 @@ fn selector(needs: &Needs) -> Option<Vec<String>> {
         .collect::<Vec<_>>();
     keys.extend(needs.required.iter().map(|k| (*k).to_owned()));
     keys.push("access.protocols".into());
+    keys.push("performance.preparedMail".into());
     keys.sort();
     keys.dedup();
     (keys.len() <= 64).then_some(keys)

@@ -210,7 +210,7 @@ impl Store {
         self.mail_data_from_joined(descriptor,before,row.try_get_opt_string("mail_data")?.as_deref())
     }
 
-    fn check_mail_descriptor(&self, descriptor:&MailDataDescriptor)->Result<(),StoreError> {
+    pub(crate) fn check_mail_descriptor(&self, descriptor:&MailDataDescriptor)->Result<(),StoreError> {
         if descriptor.scope!=self.cache_scope(){return Err(StoreError::Invalid("foreign prepared mail scope"))}
         Ok(())
     }

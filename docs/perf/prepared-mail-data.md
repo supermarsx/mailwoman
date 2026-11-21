@@ -12,7 +12,7 @@ credentials, call IDs or a decoded copy of every row. Strict preparation reads
 only current owner-bound projected envelopes; legacy/corrupt/oversized data
 falls back to the ordinary reader rather than fetching MIME in this cache.
 
-The endpoint must extend its **last joint authorization statement** with the
+The native single-call metadata endpoint extends its **last joint authorization statement** with the
 optional Store DATA descriptor. Compute `joined_mail_data_sql` only on the
 actual authenticated source row, require descriptor account equality, and mint
 the fence with that statement's actual serving-generation context. No async
@@ -21,9 +21,12 @@ auth checks, `finish_prepared_metadata(candidate,joint,call_id)` synchronously
 checks source, posture and clean Index publication state, emits escaped current
 state/call-ID envelope plus retained row bytes, then checks the pure proof again.
 Its optional byte result is complete JMAP JSON. The compatibility Value helper
-retains parsing/final serialization costs. Raw multi-call/result-reference
-integration is a separate required follow-on; this helper alone is not a
-completed HTTP consumer.
+retains parsing/final serialization costs. Multi-call/result-reference requests,
+outer `createdIds`, and unsupported property sets keep the ordinary dispatcher.
+The source-wired HTTP consumer still requires its actual router/runtime gates.
+Warm preparation currently performs one standalone DATA snapshot before the final
+joint query; early guards and the initial policy fence also remain. A one-query
+Store helper is not a claim of one query or zero queries for the whole request.
 
 Migration0113 follows0112. Compact row tuples contain data/cache/content
 revisions maintained by source triggers; final proof still checks actual early
@@ -41,14 +44,18 @@ Pending, poison, dirty, erasure and stopped-owner states refuse a prepared hit.
 Other accounts' ordinary owned commits do not invalidate these selected rows.
 Raw Index escape disables eligibility rather than inventing write coverage.
 
-`configure_prepared_mail` applies an already-authorized configuration before
-preparation; the endpoint must bind it to the final policy proof. Configuration
+`configure_prepared_mail_at_revision` applies already-authorized configuration
+before preparation and the endpoint compares it with the final policy proof.
+Older differing settings revisions and later unfenced setters cannot overwrite
+a newer configuration; older identical DATA does not lower the revision floor.
+Configuration
 changes invalidate retained candidates. Defaults are disabled,64MiB,256 entries,
 128 accounts and30s idle. Finite bounds permit16..16384MiB,1..100000 entries,
 1..10000 accounts and1..3600s. These are measured-profile ceilings, not a claim
-that defaults fit10,000 principals. Admin registry/control integration remains
-required before enabling this path as a feature; no per-hit config query belongs
-here.
+that defaults fit10,000 principals. The global `performance.preparedMail` registry
+entry, bounded admin editor and aggregate Cache maintenance card are wired in
+source; policy publication explicitly collects that key and a registered but
+uncollected value refuses native eligibility. No per-hit config query is added.
 
 Fixed bounds are16 admitted preparations,2 active,50ms preparer wait,9MiB build
 reservation and8MiB encoded output. KiB permits round upward and survive held

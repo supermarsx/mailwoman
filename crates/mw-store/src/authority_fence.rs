@@ -14,6 +14,7 @@ pub struct NativeAuthorityFence {
     activity: String,
     last_seen: Option<String>,
     publication_schema:Option<String>,
+    mail_data:Option<crate::mail_data_publication::MailDataFence>,
 }
 impl fmt::Debug for NativeAuthorityFence {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -23,6 +24,9 @@ impl fmt::Debug for NativeAuthorityFence {
     }
 }
 impl NativeAuthorityFence {
+    /// Optional DATA proof read in the SAME final statement as this authority
+    /// source. A standalone preparation snapshot cannot populate this field.
+    pub fn mail_data(&self)->Option<&crate::mail_data_publication::MailDataFence> {self.mail_data.as_ref()}
     pub fn publication_schema(&self)->Option<&str> {self.publication_schema.as_deref()}
     pub fn versions(&self) -> &AuthorityVersions {
         &self.versions
@@ -95,12 +99,19 @@ impl Store {
         known_domains: &[String],
         known_subjects: &[String],
     ) -> Result<Option<NativeAuthorityFence>, StoreError> {
-        self.native_authority_fence_impl(cookie,known_domains,known_subjects,false).await
+        self.native_authority_fence_impl(cookie,known_domains,known_subjects,false,None).await
     }
     pub async fn native_publication_fence(&self,cookie:&str,known_domains:&[String],known_subjects:&[String])->Result<Option<NativeAuthorityFence>,StoreError> {
-        self.native_authority_fence_impl(cookie,known_domains,known_subjects,true).await
+        self.native_authority_fence_impl(cookie,known_domains,known_subjects,true,None).await
     }
-    async fn native_authority_fence_impl(&self,cookie:&str,known_domains:&[String],known_subjects:&[String],publication:bool)->Result<Option<NativeAuthorityFence>,StoreError> {
+    /// Descriptor IDs shape DATA dependencies only. The source account still
+    /// comes from the live cookie/session joins; a mismatched descriptor cannot
+    /// select another account's DATA or manufacture an authenticated session.
+    pub async fn native_publication_fence_with_mail_data(&self,cookie:&str,known_domains:&[String],known_subjects:&[String],descriptor:&crate::mail_data_publication::MailDataDescriptor)->Result<Option<NativeAuthorityFence>,StoreError> {
+        self.check_mail_descriptor(descriptor)?;
+        self.native_authority_fence_impl(cookie,known_domains,known_subjects,true,Some(descriptor)).await
+    }
+    async fn native_authority_fence_impl(&self,cookie:&str,known_domains:&[String],known_subjects:&[String],publication:bool,descriptor:Option<&crate::mail_data_publication::MailDataDescriptor>)->Result<Option<NativeAuthorityFence>,StoreError> {
         if cookie.is_empty()
             || cookie.len() > 1024
             || known_domains.len() > 16
@@ -142,13 +153,14 @@ impl Store {
             return Err(invalid("native authority fence encoding bound exceeded"));
         }
         let generation = self.authority_generation().await;
-        let sql=if publication {publication_sql(self.backend.dialect())}else{fence_sql(self.backend.dialect())};
-        let rows = q(sql)
+        let sql=if descriptor.is_some() {publication_mail_sql(self.backend.dialect())}else if publication {publication_sql(self.backend.dialect())}else{fence_sql(self.backend.dialect())};
+        let query = q(sql)
             .bind(cookie)
             .bind(input)
-            .bind(subjects_input)
-            .fetch_all(&self.backend)
-            .await?;
+            .bind(subjects_input);
+        let rows=if let Some(descriptor)=descriptor {
+            query.bind(descriptor.input_json()).bind(descriptor.account()).fetch_all(&self.backend).await?
+        }else {query.fetch_all(&self.backend).await?};
         if generation != self.authority_generation().await {
             return Err(StoreError::SourceChanged);
         }
@@ -222,6 +234,9 @@ impl Store {
         {
             return Ok(None);
         }
+        let mail_data=if let Some(descriptor)=descriptor {
+            self.mail_data_from_joined(descriptor,generation.clone(),source.try_get_opt_string("mail_data")?.as_deref())?
+        }else {None};
         Ok(Some(NativeAuthorityFence {
             versions: AuthorityVersions {
                 store: self.cache_scope(),
@@ -236,6 +251,7 @@ impl Store {
             activity,
             last_seen: source.try_get_opt_string("last_seen")?,
             publication_schema,
+            mail_data,
         }))
     }
 }
@@ -245,5 +261,14 @@ pub(super) fn publication_sql(dialect:Dialect)->&'static str {
     &SQL.get_or_init(||std::array::from_fn(|pg| {
         let d=if pg==1 {Dialect::Postgres}else{Dialect::Sqlite};
         format!("SELECT f.*,{} AS publication_schema FROM ({}) f ORDER BY f.tag,f.scope_kind,f.scope_id",super::schema::stamp_expression(d),fence_sql(d))
+    }))[usize::from(dialect==Dialect::Postgres)]
+}
+
+fn publication_mail_sql(dialect:Dialect)->&'static str {
+    static SQL:OnceLock<[String;2]>=OnceLock::new();
+    &SQL.get_or_init(||std::array::from_fn(|pg| {
+        let d=if pg==1 {Dialect::Postgres}else{Dialect::Sqlite};
+        let data=crate::mail_data_publication::joined_mail_data_sql(d,"f.account_id","?4");
+        format!("SELECT f.*,{} AS publication_schema,CASE WHEN f.tag='source' AND f.account_id=?5 THEN {data} ELSE CAST(NULL AS TEXT) END AS mail_data FROM ({}) f ORDER BY f.tag,f.scope_kind,f.scope_id",super::schema::stamp_expression(d),fence_sql(d))
     }))[usize::from(dialect==Dialect::Postgres)]
 }

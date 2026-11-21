@@ -191,3 +191,25 @@ async fn authorized_configuration_disable_invalidates_held_result_without_freein
     assert!(!f.engine.configure_prepared_mail(PreparedMailOptions {budget_mib:0,..Default::default()}));
     assert_eq!(f.engine.prepared_mail_status().enabled,Some(false));
 }
+
+#[tokio::test]
+async fn delayed_configuration_cannot_restore_an_older_budget_or_enabled_state() {
+    let f=fixture().await;
+    let enabled=PreparedMailOptions {enabled:true,..Default::default()};
+    let older=f.engine.store().settings_read_revision().await.unwrap();
+    assert!(f.engine.configure_prepared_mail_at_revision(enabled,&older));
+    f.engine.store().put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {key:"performance.preparedMail".into(),global_value:Some("{}".into()),allow_user_override:false,global_locked:true,updated_by:"ordering-fixture".into(),updated_at:1}).await.unwrap();
+    let newer=f.engine.store().settings_read_revision().await.unwrap();
+    assert!(newer.number()>older.number());
+    let disabled=PreparedMailOptions {enabled:false,budget_mib:16,..Default::default()};
+    assert!(f.engine.configure_prepared_mail_at_revision(disabled,&newer));
+    assert!(!f.engine.configure_prepared_mail_at_revision(enabled,&older));
+    assert!(!f.engine.configure_prepared_mail_at_revision(enabled,&newer),"one revision cannot name two different configurations");
+    assert!(!f.engine.configure_prepared_mail(enabled),"unfenced setter cannot undo versioned configuration");
+    let status=f.engine.prepared_mail_status();
+    assert_eq!(status.enabled,Some(false));assert_eq!(status.budget_bytes,Some(16*1024*1024));
+    let foreign=Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let foreign_revision=foreign.settings_read_revision().await.unwrap();
+    assert!(!f.engine.configure_prepared_mail_at_revision(enabled,&foreign_revision));
+    foreign.close().await;
+}

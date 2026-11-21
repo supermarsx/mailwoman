@@ -123,6 +123,8 @@ struct Loaded {
     session: Session,
     knobs: rate_leeway::Knobs,
     authority: String,
+    prepared_mail: mw_engine::PreparedMailOptions,
+    prepared_revision: SettingsReadRevision,
 }
 impl Loaded {
     fn target_matches(&self, headers: &HeaderMap) -> bool {
@@ -375,10 +377,19 @@ fn evaluate_inputs(
     let rate_values = warm_values(state, &rate_subject, revision.as_ref(), published, |def| {
         def.key.starts_with("ratelimit.")
     })?;
+    let prepared_values=warm_values(state,&SettingSubject::default(),revision.as_ref(),published,|def|def.key=="performance.preparedMail")?;
+    let prepared_mail=match value(&prepared_values,"performance.preparedMail") {
+        Some(value)=>serde_json::from_value::<mw_engine::PreparedMailOptions>(value.clone()).map_err(|_|())?,
+        None if registry::lookup("performance.preparedMail").is_none()=>mw_engine::PreparedMailOptions::default(),
+        None=>return Err(()), // Registered-but-uncollected DATA is not a default.
+    };
+    if !prepared_mail.valid() {return Err(());}
     Ok(Loaded {
         session,
         knobs: rate_leeway::Knobs::from_rows(&rate_values),
         authority: subjects.storage_authority,
+        prepared_mail,
+        prepared_revision:unsupported(snapshot.revision(&state.store))?,
     })
 }
 
@@ -575,15 +586,29 @@ pub(crate) async fn try_dispatch(
     if let Err(response) = crate::delete_policy::admit(state, &first.session, &mut checked).await {
         return Some(response);
     }
+    // Prepare only DATA, before the final authority observation. Configuration
+    // comes from the same validated policy inputs and is compared again below.
+    // Unsupported/cold representations retain the existing dispatch path.
+    let engine=state.engine.as_ref()?;
+    let candidate=if published.is_some() && request.get("createdIds").is_none() && engine.configure_prepared_mail_at_revision(first.prepared_mail,&first.prepared_revision) {
+        engine.prepare_metadata_candidate(&first.session.account_id,&request["methodCalls"][0][1]).await
+    }else {None};
     #[cfg(test)]
     test_control::wait(test_control::Stage::BeforeConnector, &id).await;
     let lock = engine_mode::connect_lock(&first.session.account_id);
     let connecting = lock.lock().await;
+    let mut final_data=None;
     let final_source=if let Some(entry)=&published {
-        match state.store.native_publication_fence(&id,&entry.domains,&entry.subjects).await {
+        let observed=if let Some(candidate)=&candidate {
+            state.store.native_publication_fence_with_mail_data(&id,&entry.domains,&entry.subjects,candidate.descriptor()).await
+        }else {state.store.native_publication_fence(&id,&entry.domains,&entry.subjects).await};
+        match observed {
             Ok(Some(fence))=>{
                 #[cfg(test)] test_control::record_fence();
-                if entry.matches(&fence) {evaluate_inputs(state,&entry.snapshot,&deferred.0,Some(entry),Some(&fence)).ok()} else {None}
+                if entry.matches(&fence) {
+                    final_data=fence.mail_data().cloned();
+                    evaluate_inputs(state,&entry.snapshot,&deferred.0,Some(entry),Some(&fence)).ok()
+                } else {None}
             },
             _=>None,
         }
@@ -596,6 +621,7 @@ pub(crate) async fn try_dispatch(
     let Some(final_source) = final_source.filter(|source| {
         super::auth_boundary::same_session(&first.session, &source.session)
             && first.knobs == source.knobs
+            && first.prepared_mail == source.prepared_mail
             && source.target_matches(headers)
     }) else {
         drop(connecting);
@@ -613,6 +639,18 @@ pub(crate) async fn try_dispatch(
         return Some(crate::session_expired());
     }
     drop(connecting);
+    // No async operation may intervene between this fresh joint proof, the
+    // remaining pure checks and prepared emission. The Engine verifies its
+    // logical publication/configuration proof again around byte assembly.
+    if let (Some(candidate),Some(data))=(candidate,final_data) {
+        if let Some(call_id)=request["methodCalls"][0][2].as_str() {
+            if let Some(bytes)=engine.finish_prepared_metadata(candidate,&data,call_id) {
+                #[cfg(test)] test_control::record_prepared_result();
+                drop(permit);
+                return Some(([(header::CONTENT_TYPE,"application/json")],bytes.into_bytes()).into_response());
+            }
+        }
+    }
     // No further asynchronous policy/credential lookup occurs before dispatch.
     // Engine retains its own fresh ownership and posture checks for data reads.
     #[cfg(test)]
@@ -644,6 +682,7 @@ mod test_control {
         pub restarts:u64,
         pub restart_dispatches:u64,
         pub ordinary_dispatches:u64,
+        pub prepared_results:u64,
     }
     tokio::task_local! { static COUNTS: RefCell<Counts>; }
     pub(super) fn force_original() -> bool {
@@ -660,6 +699,7 @@ mod test_control {
     }
     pub(super) fn legacy_late_refusal()->bool {COUNTS.try_with(|c|c.borrow().legacy_late_refusal).unwrap_or(false)}
     pub(super) fn record_ordinary_dispatch() {let _=COUNTS.try_with(|c|c.borrow_mut().ordinary_dispatches+=1);}
+    pub(super) fn record_prepared_result() {let _=COUNTS.try_with(|c|c.borrow_mut().prepared_results+=1);}
     pub(super) fn record_restart_dispatch() {let _=COUNTS.try_with(|c|c.borrow_mut().restart_dispatches+=1);}
     pub(super) fn record_restart() {let _=COUNTS.try_with(|c|c.borrow_mut().restarts+=1);}
     pub(super) async fn count_legacy_late<F:std::future::Future>(future:F)->(F::Output,Counts) {

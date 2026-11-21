@@ -57,7 +57,12 @@ async fn all_source_dml(store:Store){
     // the compact tuple without requiring a giant envelope rewrite.
     q("UPDATE messages SET cache_revision='',content_revision='' WHERE stable_id=?1").bind(&id).execute(&store.backend).await.unwrap();
     before=changed(&store,&descriptor,&before).await;
-    assert!(before.matches_owned_cache_revision(&id,""));
+    // PostgreSQL0105 deliberately replaces cache_revision in a BEFORE trigger.
+    // Compare with the committed source, while retaining the opaque empty
+    // content revision on both backends rather than inventing a nonce format.
+    let actual_cache=q("SELECT cache_revision FROM messages WHERE stable_id=?1").bind(&id).fetch_one(&store.backend).await.unwrap().get_string("cache_revision");
+    assert!(before.matches_owned_cache_revision(&id,&actual_cache));
+    assert!(before.payload.rows.iter().any(|row|row.id==id && row.content.as_deref()==Some("")));
     q("UPDATE messages SET cache_revision='independent-cache',content_revision='independent-content' WHERE stable_id=?1").bind(&id).execute(&store.backend).await.unwrap();
     before=changed(&store,&descriptor,&before).await;
 

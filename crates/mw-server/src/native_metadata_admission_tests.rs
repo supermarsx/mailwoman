@@ -76,6 +76,7 @@ struct Fixture {
     router: Router,
     writer: Store,
     measured: Store,
+    engine: Arc<Engine>,
     session: String,
     account: String,
     ids: Vec<String>,
@@ -228,6 +229,8 @@ impl Fixture {
         policy(&writer, "access.protocols", json!(["imap"])).await;
         policy(&writer, "ratelimit.jmap.perAccountConcurrent", json!(1)).await;
         let captured = Arc::new(OnceLock::new());
+        let captured_engine = Arc::new(OnceLock::new());
+        let install_engine = captured_engine.clone();
         let install = captured.clone();
         let registered = account.clone();
         let (router, _) = crate::build_app_inner(
@@ -248,6 +251,7 @@ impl Fixture {
             Some(Box::new(move |store| {
                 assert!(install.set(store.clone()).is_ok());
                 let engine = Arc::new(Engine::new(store.clone()));
+                assert!(install_engine.set(engine.clone()).is_ok());
                 engine.register_backend(
                     registered,
                     AccountRuntime::new(Arc::new(ReadOnlyBackend), Arc::new(NoSend), user),
@@ -262,6 +266,7 @@ impl Fixture {
             router,
             writer,
             measured: captured.get().unwrap().clone(),
+            engine: captured_engine.get().unwrap().clone(),
             session,
             account,
             ids,

@@ -1,5 +1,59 @@
 // Real DEFAULT36 router cases; no policy/auth/source getter mocks.
+#[test]
+fn prepared_default36_emits_actual_fifty_rows_without_engine_or_index_replay() {
+    run_fixture(||async {
+        let fixture=Fixture::new().await;
+        policy(&fixture.writer,"performance.preparedMail",serde_json::to_value(mw_engine::PreparedMailOptions {enabled:true,..Default::default()}).unwrap()).await;
+        let original=fixture.send(true).await;
+        let ready=fixture.warm_prepared_mail().await;
+        assert_eq!(ready.1,original.1);
+        let index=fixture.engine.search();
+        let before=(index.list_projection_search_count(),index.list_projection_doc_read_count(),index.doc_fetch_count());
+        let hit=fixture.send_published().await;
+        assert_eq!(hit.0,StatusCode::OK);assert_eq!(hit.1,original.1);
+        assert_eq!(hit.2.prepared_results,1);assert_eq!(hit.2.dispatches+hit.2.ordinary_dispatches,0);
+        assert_eq!(before,(index.list_projection_search_count(),index.list_projection_doc_read_count(),index.doc_fetch_count()),"actual ready route must not repeat Index queries or document fetches");
+        assert_eq!(hit.1["methodResponses"][0][1]["list"].as_array().unwrap().len(),50);
+        assert!(hit.3.read.calls+hit.3.other.calls<original.3.read.calls+original.3.other.calls);
+        eprintln!("{}",json!({"kind":"prepared-native-whole-router-query-counts","originalReads":original.3.read.calls,"originalOther":original.3.other.calls,"readyReads":hit.3.read.calls,"readyOther":hit.3.other.calls,"readyWrites":hit.3.write.calls,"readyAcquires":hit.3.acquire.calls,"preparedResults":hit.2.prepared_results,"engineDispatches":hit.2.dispatches+hit.2.ordinary_dispatches,"workerQueriesIncluded":false}));
+        // The ordinary dispatcher preserves outer createdIds, which is not in
+        // the narrow raw envelope. It must remain on that path rather than
+        // silently lose a valid part of the request/response contract.
+        let mut request=fixture.request();
+        let created=json!({"prior-client-id":fixture.ids[0]});
+        *request.body_mut()=Body::from(serde_json::to_vec(&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"createdIds":created,"methodCalls":[["Email/get",{"accountId":fixture.account,"ids":fixture.ids,"properties":default_properties()},"outer-map"]]})).unwrap());
+        let (reply,counts)=test_control::count_published(fixture.router.clone().oneshot(request)).await;
+        let reply=reply.unwrap();assert_eq!(reply.status(),StatusCode::OK);
+        let body=to_bytes(reply.into_body(),4*1024*1024).await.unwrap();
+        let value:Value=serde_json::from_slice(&body).unwrap();assert_eq!(value["createdIds"],created);
+        assert_eq!(counts.prepared_results,0);assert_eq!(counts.dispatches,1);
+    });
+}
+#[test]
+fn prepared_default36_never_emits_after_session_revocation_during_preparation() {
+    run_fixture(||async {
+        let fixture=Fixture::new().await;
+        policy(&fixture.writer,"performance.preparedMail",serde_json::to_value(mw_engine::PreparedMailOptions {enabled:true,..Default::default()}).unwrap()).await;
+        fixture.warm_prepared_mail().await;
+        let pause=test_control::pause(test_control::Stage::BeforeConnector,&fixture.session);
+        let pending=fixture.send_published();tokio::pin!(pending);
+        tokio::select! {_=pause.entered.notified()=>{},reply=&mut pending=>panic!("request completed before final proof: {}",reply.0)}
+        fixture.writer.delete_session(&fixture.session).await.unwrap();
+        pause.release.notify_one();
+        let reply=pending.await;
+        assert_ne!(reply.0,StatusCode::OK);
+        assert_eq!(reply.2.prepared_results,0);assert_eq!(reply.2.dispatches+reply.2.ordinary_dispatches,0);
+    });
+}
 impl Fixture {
+    async fn warm_prepared_mail(&self)->(StatusCode,Value,test_control::Counts,mw_store::pool_telemetry::QuerySnapshot) {
+        for _ in 0..200 {
+            let reply=self.send_published().await;assert_eq!(reply.0,StatusCode::OK);
+            if reply.2.prepared_results==1{return reply;}
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("actual DEFAULT36 prepared emission did not qualify: {}",serde_json::to_string(&self.engine.prepared_mail_status()).unwrap());
+    }
     async fn send_published(
         &self,
     ) -> (
