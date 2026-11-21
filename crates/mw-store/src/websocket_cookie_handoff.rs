@@ -43,7 +43,7 @@ impl Store {
             return Ok(None);
         }
         let before = match &self.backend {
-            Backend::Sqlite(live) => Some(live.pin().await.generation_path()),
+            Backend::Sqlite(live) => Some(live.pin().await.active_options().get_filename().to_path_buf()),
             Backend::Postgres(_) => None,
         };
         let row = q(actor_sql(self.backend.dialect()))
@@ -51,7 +51,7 @@ impl Store {
             .fetch_optional(&self.backend)
             .await?;
         let after = match &self.backend {
-            Backend::Sqlite(live) => Some(live.pin().await.generation_path()),
+            Backend::Sqlite(live) => Some(live.pin().await.active_options().get_filename().to_path_buf()),
             Backend::Postgres(_) => None,
         };
         if before != after {
