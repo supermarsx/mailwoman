@@ -49,7 +49,7 @@ pub enum AccountKind {
 }
 
 impl AccountKind {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             AccountKind::Imap => "imap",
             AccountKind::Pop3 => "pop3",
