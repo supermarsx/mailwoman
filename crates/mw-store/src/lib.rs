@@ -6,6 +6,7 @@
 //! translated per-backend by the [`backend`]/[`dialect`] helpers (no `sqlx::Any`).
 
 pub mod analytics_secret;
+pub mod authority_publication;
 pub mod primary_policy_snapshot;
 pub mod native_admission_snapshot;
 pub mod encryption;

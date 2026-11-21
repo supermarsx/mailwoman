@@ -663,6 +663,15 @@ pub(crate) enum Tx {
 }
 
 impl Tx {
+    /// Identity of the generation pinned by this transaction, without another
+    /// read-lock acquisition (which could wait behind a queued cutover writer).
+    pub(crate) fn generation_path(&self) -> Option<std::path::PathBuf> {
+        match self { Self::Sqlite(tx) => Some(tx.generation_path()), Self::Postgres(_) => None }
+    }
+    #[cfg(test)]
+    pub(crate) async fn rollback(self) -> Result<(), sqlx::Error> {
+        match self { Self::Sqlite(tx) => tx.rollback().await, Self::Postgres(tx) => tx.rollback().await }
+    }
     pub(crate) async fn commit(self) -> Result<(), sqlx::Error> {
         match self {
             Tx::Sqlite(t) => t.commit().await,

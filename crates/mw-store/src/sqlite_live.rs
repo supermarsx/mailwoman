@@ -369,6 +369,9 @@ impl DerefMut for LiveTransaction {
     }
 }
 impl LiveTransaction {
+    pub(crate) fn generation_path(&self) -> std::path::PathBuf {
+        self.pin.active_options().get_filename().to_path_buf()
+    }
     pub(crate) async fn commit(mut self) -> Result<(), Error> {
         self.transaction
             .take()

@@ -373,6 +373,8 @@ pub const RULES: &[Rule] = &[
     del!("changes", "account_id", Bind::Account),
     del!("pim_changes", "account_id", Bind::Account),
     del!("change_log_checkpoint", "account_id", Bind::Account),
+    keep!("authority_epoch", "global/domain and opaque session/watch epochs remain operational; explicit final-order person rules below remove account/subject/principal identifiers; absent-source session/watch cleanup still requires an explicit bounded maintenance invocation"),
+    keep!("authority_publication_outbox", "coalesced targets follow the corresponding epoch; explicit person rules verify their cascade; absent-source session/watch cleanup is not yet an automatic worker"),
     keep!("change_log_maintenance_cursor", "one global scheduler seek boundary, not message history; deleted account boundaries are replaced by the next reservation"),
     del!("crypto_changes", "account_id", Bind::Account),
     child!("message_body_cache_lease", "account_id=?1", Bind::Account),
@@ -515,6 +517,15 @@ pub const RULES: &[Rule] = &[
         export: Export::Code { section: "requests" },
         ..keep!("dsr_request", "the request and its trail are kept for the request retention period as proof of handling")
     },
+    // AFTER authoritative account/source deletes: their DML triggers may create
+    // a final dirty epoch. Removing it invalidates old RAM and recreation gets a
+    // fresh incarnation, rather than retaining an address as an exemption.
+    Rule { last: true, ..sub!("authority_epoch", "scope_kind='account' AND scope_id=?1", Bind::Account) },
+    Rule { last: true, ..sub!("authority_epoch", "scope_kind='subject' AND scope_id=?1", Bind::Any) },
+    Rule { last: true, ..sub!("authority_epoch", "scope_kind='principal' AND scope_id=?1", Bind::Principal) },
+    child!("authority_publication_outbox", "scope_kind='account' AND scope_id=?1", Bind::Account),
+    child!("authority_publication_outbox", "scope_kind='subject' AND scope_id=?1", Bind::Any),
+    child!("authority_publication_outbox", "scope_kind='principal' AND scope_id=?1", Bind::Principal),
     keep!("dsr_event", "the trail of a request, kept and removed with it"),
     keep!("dsr_part", "stored export parts, removed when the export expires or the person is erased"),
 ];
