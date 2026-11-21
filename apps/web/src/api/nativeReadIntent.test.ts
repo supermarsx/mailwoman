@@ -1,12 +1,13 @@
 import {describe,it,expect} from 'vitest';
 import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
 import contract from './native-read-intent-contract.json';
 import wsContract from './websocket-action-contract.json';
 import {isNativeMetadataReadIntent,nativeReadIntentHeaders} from './nativeReadIntent.ts';
 const request=()=>({using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:[['Email/get',{accountId:'owned',ids:['one','one','two'],properties:[...contract.properties]},'call']]});
 describe('native metadata read declaration',()=>{
  it('uses the actual composed DEFAULT36 profile and canonical WS allowlist',()=>{
-  const source=readFileSync(new URL('../../../../scripts/perf/fixture-properties.mjs',import.meta.url),'utf8');
+  const source=readFileSync(resolve(process.cwd(),'../../scripts/perf/fixture-properties.mjs'),'utf8');
   const properties=['HEADER_PROPERTIES','HEADER_PRELOAD_PROPERTIES','DELIVERY_HEADER_PROPERTIES','OPTIONAL_HEADER_PROPERTIES'].flatMap(name=>{
    const prefix=`export const ${name}=Object.freeze([`;const start=source.indexOf(prefix)+prefix.length;expect(start).toBeGreaterThan(prefix.length-1);
    return JSON.parse(`[${source.slice(start,source.indexOf(']',start)).replaceAll("'",'"')}]`) as string[];
