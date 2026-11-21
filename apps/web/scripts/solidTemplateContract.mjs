@@ -75,8 +75,16 @@ export function inspectSolidTemplates(code, ast, resolvedSolidSources = []) {
     if (Buffer.byteLength(html) > MAX_HTML || templates.length >= MAX_TEMPLATES) fail('template bound');
     let styles = 0;
     const errors = [];
-    const fragment = parseFragment(html, {onParseError: error => errors.push(error.code)});
-    if (errors.length) fail('malformed template HTML');
+    const fragment = parseFragment(html, {onParseError: error => errors.push(error)});
+    // The pinned Solid compiler removes whitespace after a quoted attribute,
+    // e.g. class="workspace-pane"data-testid=reading-pane. HTML's tokenizer
+    // recovers by reconsuming the next attribute; parse5 retains all attributes.
+    // Accept only that exact boundary, never general malformed HTML or lost
+    // attributes. The original HTML and every parsed style attribute stay intact.
+    const unexpected = errors.filter(error => error.code !== 'missing-whitespace-between-attributes' ||
+      !Number.isSafeInteger(error.startOffset) || !/["']/.test(html[error.startOffset - 1] ?? '') ||
+      !/^[A-Za-z_:][A-Za-z0-9_:.-]*(?=\s|=|\/?>)/.test(html.slice(error.startOffset)));
+    if (unexpected.length) fail(`malformed template HTML (${unexpected.slice(0,4).map(error=>error.code).join(',')}; sha256=${hash(html)})`);
     const pending = [fragment];
     while (pending.length) {
       const element = pending.pop();

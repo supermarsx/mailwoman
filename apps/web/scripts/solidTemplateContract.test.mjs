@@ -32,6 +32,19 @@ test('SVG/math flags and normal compiler import aliases use same literal inspect
   // TemplateLiteral plus three boolean flags (not a dynamic HTML expression).
   assert.equal(inspect('import {template as _$template} from "solid-js/web";var _tmpl$=/*#__PURE__*/_$template(`<div style=color:red>`, false, false, false);').templates[0].styleAttributes,1);
 });
+test('actual locked Mailbox compiler template preserves attributes across omitted quote whitespace',()=>{
+  // From the failed production build's cached Solid output, Mailbox.tsx. No
+  // source transform or hand-written approximation of its 628-byte literal.
+  const html='<div class="shell workspace-shell mw-custom-mail"><aside class=sidebar id=shell-nav><div class=sidebar__head><span class=sidebar__brand></span></div><p role=status aria-live=polite data-testid=folder-dnd-status></p><div><div class=sidebar__scroll><nav class="sidebar__nav sidebar__nav--apps"></nav></div></div><div class=sidebar__footer><div></div></div></aside><div class=mail-workspace><div role=status aria-live=polite aria-atomic=true data-testid=message-opened-status></div><div class=workspace-body><div></div><div class=workspace-panes></div><section class="workspace-pane workspace-reading-pane"data-testid=reading-pane>';
+  const result=inspect(factory(html));
+  assert.equal(Buffer.byteLength(html),628);
+  assert.equal(result.templates[0].sha256,'a8ba5f8dbbe1d24c27fb370e4f0e785a7212965b9cc22ddaf694f20631ccf9c0');
+  assert.equal(result.templates[0].styleAttributes,0);
+  const unsafe=html.replace('"data-testid=reading-pane','"style="color:red" data-testid=reading-pane');
+  assert.equal(inspect(factory(unsafe)).templates[0].styleAttributes,1);
+  for(const malicious of ['<div data-a="x"style="color:red">','<div data-a="x"STYLE=color:red>'])assert.equal(inspect(factory(malicious)).templates[0].styleAttributes,1);
+  assert.throws(()=>inspect(factory('<div data-a="x"style="unterminated>')),/malformed template HTML/);
+});
 test('unexpected calls, binding escapes/shadowing, namespace and dynamic imports fail closed',()=>{
   for(const suffix of ['t(html)','t(`<div>${value}</div>`)','t("<div>",1)','t?.("<div>")','const other=t','t.call(null,"<div>")','function nested(t){return t("<div>")}']) {
     assert.throws(()=>inspect(`import {template as t} from 'solid-js/web';${suffix};`));

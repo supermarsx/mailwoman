@@ -22,7 +22,12 @@ export function bundleGraph():Plugin{
      const path=resolved?.id.replaceAll('\\','/').split('?')[0]??'';
      if(/\/node_modules\/solid-js\/web\//.test(path))solidSources.push(specifier);
     }
-    const result=inspectSolidTemplates(code,ast,solidSources);
+    let result:ReturnType<typeof inspectSolidTemplates>;
+    try{result=inspectSolidTemplates(code,ast,solidSources);}
+    catch(error){
+     const name=id?relative(root,id).replaceAll('\\','/').slice(0,512):'[emitted asset]';
+     throw new Error(`Solid template source ${name}: ${(error instanceof Error?error.message:'unknown inspection failure').slice(0,1024)}`,{cause:error});
+    }
     totalTemplates+=result.templates.length;
     if(totalTemplates>100000)throw Error('Template count bound');
     return result;
