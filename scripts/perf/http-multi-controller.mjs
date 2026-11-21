@@ -1,3 +1,4 @@
+import {throwDiagnosticSnapshotFailure,diagnosticFailureReport} from './fixture-diagnostic-failure.mjs';
 import {campaignCacheExperiment,assertSqliteCacheWitness,cacheExperimentEvidence} from './sqlite-page-cache-witness.mjs';
 import {qualifiesIndexPublication} from './index-publication-health.mjs';
 // Controller for an explicitly owned native fixture. No arbitrary remote URL.
@@ -85,7 +86,7 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
    const path=handoff.diagnostics.path;if(typeof path!=='string'||!/^\/__fixture-diagnostic-[a-f0-9-]+$/.test(path))throw new Error('Invalid diagnostic control path');
    const init={headers:{'x-fixture-token':handoff.diagnostics.token},redirect:'error',signal:AbortSignal.timeout(5000)};
    if(phase==='before'){const reset=await fetch(new URL(path,verified.base),{...init,method:'POST'});if(!reset.ok)throw new Error('Diagnostic reset failed');await reset.body?.cancel();}
-   const response=await fetch(new URL(path,verified.base),init);if(!response.ok)throw new Error('Diagnostic snapshot failed');const snapshot=fixtureDiagnosticsReport(await response.json());if(cacheExperiment)assertSqliteCacheWitness(snapshot,cacheExperiment);return snapshot;
+   const response=await fetch(new URL(path,verified.base),init);if(!response.ok)await throwDiagnosticSnapshotFailure(response);const snapshot=fixtureDiagnosticsReport(await response.json());if(cacheExperiment)assertSqliteCacheWitness(snapshot,cacheExperiment);return snapshot;
   };
   const run=async requestedStage=>{
    // runCampaign warms at one outstanding request. A partitioned warmup needs
@@ -144,8 +145,8 @@ async function main(){
   const report=await runMultiCampaign({handoff:JSON.parse(await readPrivate(args.handoff,HANDOFF_LIMIT)),workers,options});
   await writeMultiArtifacts(args.output,report);
   if(report.mutationStateTainted||!report.stages.some(stage=>stage.accepted>0))process.exitCode=1;
- }catch{
-  const failure={schema:1,kind:'coordinated-native-http-fixture',target:'coordinated native fixture (unverified)',scenario:'generator coordination failed',runtime:process.version,model:'no successful capacity qualification',protection:'not verified',uniqueAuthenticatedPrincipals:null,stages:[],coordinationValid:false,capacityTarget:{httpMultiUserTargetMet:false,met:false},reason:'Worker coordination or measurement failed; no capacity qualification.'};
+ }catch(error){
+  const failure=diagnosticFailureReport(error);
   await writeMultiArtifacts(args.output,failure);
   throw new Error('Coordinated generator failed');
  }

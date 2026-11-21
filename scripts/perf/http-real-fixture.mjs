@@ -1,3 +1,4 @@
+import {throwDiagnosticSnapshotFailure,cacheAuditErrorEvidence,diagnosticFailureReport} from './fixture-diagnostic-failure.mjs';
 import {campaignCacheExperiment,assertSqliteCacheWitness,cacheExperimentEvidence} from './sqlite-page-cache-witness.mjs';
 import {qualifiesIndexPublication} from './index-publication-health.mjs';
 // Invoked only by the ignored Rust integration fixture. No arbitrary remote URL.
@@ -62,7 +63,7 @@ try{
   const url=new URL(handoff.diagnostics.path,base),init={headers:{'x-fixture-token':handoff.diagnostics.token},redirect:'error',signal:AbortSignal.timeout(5000)};
   if(phase==='before'){const reset=await fetch(url,{...init,method:'POST'});if(!reset.ok)throw new Error('Private fixture diagnostic reset unavailable');await reset.body?.cancel();}
   const response=await fetch(url,init);
-  if(!response.ok)throw new Error('Private fixture diagnostics unavailable');const snapshot=fixtureDiagnosticsReport(await response.json());if(cacheExperiment)assertSqliteCacheWitness(snapshot,cacheExperiment);return snapshot;
+  if(!response.ok)await throwDiagnosticSnapshotFailure(response);const snapshot=fixtureDiagnosticsReport(await response.json());if(cacheExperiment)assertSqliteCacheWitness(snapshot,cacheExperiment);return snapshot;
  };
  const report={generatedAt:new Date().toISOString(),target:native?'ephemeral loopback Mailwoman router + seeded native engine':'ephemeral loopback Mailwoman router + local JMAP mock',scenario:`real authenticated middleware/HTTP/${native?'native-engine':'proxy'} with ${handoff.backend??'sqlite'}; fixture data; no TLS/reverse proxy`,backend:handoff.backend??'sqlite',buildProfile:handoff.buildProfile??'unknown',uniqueAuthenticatedPrincipals:principals.length,engineMode:native?'native':'proxy',protection:typeof handoff.protection==='string'?handoff.protection:handoff.protection?'rate/adaptive/user-agent observe; scanner enforce':'rate/adaptive/user-agent/scanner off',refreshSemantics:native?'native fixture backend refresh; upstream:true':'authenticated refresh route only; proxy response upstream:false; no upstream reconciliation',effectiveFixtureBudgets:handoff.budgets??{},runtimeWorkerThreads:handoff.runtimeWorkerThreads??4,runtimeWorkerStackBytes:handoff.runtimeWorkerStackBytes??null,generatorPlacement:handoff.generatorPlacement??'child process in same resource group',runtime:process.version,model:options.mode==='smoke'?'bounded open-loop overload smoke':'warmed concurrency ramp, followed by rates bounded by observed successful throughput; no capacity claim',stages:[]};
  Object.assign(report,{startupReadiness,policyEvidence,workloadProfile,isolationEvidence,searchWriter,searchStorage,linkedLoginPolicyProbe},await runCampaign({base,headers,groups,options,diagnostics}));
@@ -85,4 +86,12 @@ try{
  await writeFile(output,JSON.stringify(report,null,2)+'\n',{mode:0o600});await writeFile(output.replace(/\.json$/,'')+'.md',markdownReport(report),{mode:0o600});
  if(report.mutationStateTainted)throw new Error('Campaign stopped after an unknown mutation outcome; inspect the redacted failure report');
  if(!report.stages.some(stage=>stage.accepted>0))throw new Error('No authenticated request succeeded');
-}catch(error){console.error(error.message);process.exitCode=1;}
+}catch(error){
+ if(cacheAuditErrorEvidence(error)){
+  const output=process.argv[3],failure=diagnosticFailureReport(error,'native-http-fixture');
+  await mkdir(dirname(output),{recursive:true});
+  await writeFile(output,JSON.stringify(failure,null,2)+'\n',{mode:0o600});
+  await writeFile(output.replace(/\.json$/,'')+'.md',markdownReport(failure),{mode:0o600});
+ }
+ console.error(error.message);process.exitCode=1;
+}
