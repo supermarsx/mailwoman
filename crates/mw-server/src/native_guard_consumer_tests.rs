@@ -54,6 +54,64 @@ impl Fixture {
     }
 }
 #[test]
+fn declared_prepared_default36_with_real_peer_matches_original_without_engine_or_index_replay() {
+    run_fixture(|| async {
+        let fixture = Fixture::new().await;
+        policy(&fixture.writer, "performance.preparedMail", serde_json::to_value(
+            mw_engine::PreparedMailOptions { enabled: true, ..Default::default() }
+        ).unwrap()).await;
+        fixture.writer.touch_session(&fixture.session).await.unwrap();
+        // The reference uses the original full router with identical peer,
+        // Host, CSRF and body. Only the optional declaration is removed.
+        let mut reference = fixture.declared_request();
+        reference.headers_mut().remove("x-mailwoman-read-shape");
+        let ((response, original_counts), original_sql) = mw_store::pool_telemetry::measure_queries(
+            test_control::count(true, fixture.router.clone().oneshot(reference))
+        ).await;
+        let response = response.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let original_body: Value = serde_json::from_slice(
+            &to_bytes(response.into_body(), 4 * 1024 * 1024).await.unwrap()
+        ).unwrap();
+        assert_eq!(original_counts.prepared_results, 0);
+        assert_eq!(original_counts.ordinary_dispatches, 1);
+        fixture.warm_prepared_mail().await;
+        fixture.writer.touch_session(&fixture.session).await.unwrap();
+        let index = fixture.engine.search();
+        let before = (index.list_projection_search_count(), index.list_projection_doc_read_count(), index.doc_fetch_count());
+        let ready = fixture.send_declared().await;
+        assert_eq!(ready.0, StatusCode::OK);
+        assert_eq!(ready.1, original_body);
+        assert_eq!(ready.1["methodResponses"][0][1]["list"].as_array().unwrap().len(), 50);
+        use crate::published_guard_context::Guard;
+        let expected = (Guard::Protocol as u32) | (Guard::Probe as u32)
+            | (Guard::Protection as u32) | (Guard::Inbound as u32)
+            | (Guard::Client as u32) | (Guard::Maintenance as u32)
+            | (Guard::Watch as u32) | (Guard::Geography as u32) | (Guard::Trust as u32);
+        assert_eq!(ready.4 & expected, expected);
+        assert_eq!(ready.2.prepared_results, 1);
+        assert_eq!(ready.2.dispatches + ready.2.ordinary_dispatches + ready.2.restart_dispatches, 0);
+        assert_eq!(ready.2.fences, 2, "both fresh native authority observations remain");
+        assert_eq!(ready.2.observations, 0);
+        assert_eq!(ready.2.restarts, 0);
+        let after = (index.list_projection_search_count(), index.list_projection_doc_read_count(), index.doc_fetch_count());
+        assert_eq!(before, after,
+            "ready declared route must not replay actual Index queries or document fetches");
+        assert_eq!(ready.3.write.calls, 0);
+        assert_eq!(original_sql.write.calls, 0);
+        eprintln!("{}", json!({"kind":"declared-prepared-peer-whole-router-counts",
+            "originalReads":original_sql.read.calls,"originalOther":original_sql.other.calls,
+            "originalWrites":original_sql.write.calls,"readyReads":ready.3.read.calls,
+            "readyOther":ready.3.other.calls,"readyWrites":ready.3.write.calls,
+            "readyAcquires":ready.3.acquire.calls,"usedMask":ready.4,
+            "preparedResults":ready.2.prepared_results,"freshFences":ready.2.fences,
+            "engineDispatches":ready.2.dispatches + ready.2.ordinary_dispatches + ready.2.restart_dispatches,
+            "indexListSearchDelta":after.0-before.0,"indexListDocReadDelta":after.1-before.1,
+            "indexDocFetchDelta":after.2-before.2,
+            "workerQueriesIncluded":false,"realPeerGuardsIncluded":true}));
+    });
+}
+#[test]
 fn declared_default36_uses_guard_inputs_and_preserves_real_fifty_row_reply() {
     run_fixture(|| async {
         let fixture = Fixture::new().await;
