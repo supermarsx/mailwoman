@@ -221,6 +221,11 @@ fn evaluate_inputs(
     // Require an active, native, same-owner principal before selecting any
     // personal namespace. No caller-supplied account selects that namespace.
     let subjects = unsupported(snapshot.native_subjects(&state.store))?.ok_or(())?;
+    if crate::websocket_actions::has_frame_actor() {
+        let actor_principal=unsupported(snapshot.principal())?.ok_or(())?;
+        if !crate::websocket_actions::native_actor_ok(&state.store,&session,&actor_principal.principal_id,&actor_principal.binding_id){return Err(());}
+    }
+
     let account = unsupported(snapshot.account())?.ok_or(())?;
     if account.id != session.account_id || account.kind == mw_store::AccountKind::Ews {
         return Err(());

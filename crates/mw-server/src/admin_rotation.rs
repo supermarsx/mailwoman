@@ -150,6 +150,8 @@ pub(crate) async fn guard(
     let cookie =
         crate::hardening::cookie(request.headers(), &mw_admin::config::session_cookie_name());
     let target = target(request.method(), request.uri().path(), cookie);
+    let capture=request.extensions().get::<crate::websocket_actions::cookie_delivery::Capture>().cloned();
+    let issued_headers=request.headers().clone();
     let mut response = next.run(request).await;
     let Some((token, forced)) = target else {
         return response;
@@ -163,9 +165,14 @@ pub(crate) async fn guard(
         return response;
     }
     if let Some((new_token, absolute)) = rotate(&state, &token).await {
-        for v in cookies(&state, &new_token, absolute) {
-            response.headers_mut().append(header::SET_COOKIE, v);
+        let new_token=zeroize::Zeroizing::new(new_token);
+        let mut values=cookies(&state,&new_token,absolute);
+        if let Some(capture)=capture {
+            if let Some((marker,issued))=capture.issued(&state,&issued_headers,&new_token,absolute).await {
+                response.extensions_mut().insert(marker);values=issued;
+            }
         }
+        for v in values {response.headers_mut().append(header::SET_COOKIE,v);}
     }
     response
 }
@@ -206,3 +213,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+pub(crate) fn force_due_for_test(hash:&str){issued().insert(hash.into(),chrono::Utc::now().timestamp()-86_401);}

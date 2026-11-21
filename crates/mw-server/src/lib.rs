@@ -210,6 +210,10 @@ pub async fn flush_trust_tiers() {
     metrics_persist::flush_on_shutdown().await;
 }
 pub async fn flush_http_telemetry() -> bool { http_telemetry::shutdown().await }
+/// Stop accepting socket actions and honestly bound owned-action draining.
+/// Call after stopping HTTP acceptance; false means a sent action is uncertain.
+pub async fn shutdown_websocket_actions()->bool {websocket_actions::cookie_delivery::shutdown_all().await}
+
 /// Payload-free health of optional response-telemetry collection.
 pub fn http_telemetry_snapshot() -> serde_json::Value {
     serde_json::to_value(http_telemetry::snapshot()).unwrap_or_default()
@@ -997,6 +1001,7 @@ pub(crate) struct AppStateInner {
     resource_data_path: PathBuf,
     request_history: Arc<request_history::Recorder>,
     http_telemetry: Arc<http_telemetry::Worker>,
+    websocket_actions: Arc<websocket_actions::cookie_delivery::Service>,
     client_timing: Arc<client_timing::Recorder>,
     /// Keeps the persisted-statistics recorder (and its flush loop) alive.
     #[allow(dead_code)]
@@ -1521,6 +1526,7 @@ async fn build_app_inner(
         config_snapshot,
         request_history: request_history::Recorder::start(store.clone()),
         http_telemetry: http_telemetry::start(),
+        websocket_actions: websocket_actions::cookie_delivery::Service::new(),
         client_timing: client_timing::Recorder::start(store.clone()),
         metrics_recorder: metrics_persist::start(store.clone()),
         native_publication: engine.as_ref().and_then(|_|feature_gate::native_metadata_admission::publication::Worker::start(store.clone())),
@@ -1590,6 +1596,8 @@ fn router(
     sso_source: sso::SsoProviderSource,
     sso_pending: Arc<sso::PendingFlows>,
 ) -> Router {
+    #[cfg(test)]
+    websocket_actions::test_control::record_state(&state);
     // V6 additive surfaces (plan §3 e11), merged before the fallback + guard layers
     // so they ride the same security-headers / CSRF-origin / CORS middleware. The
     // normal mailbox routes above are byte-unchanged.
@@ -1880,6 +1888,12 @@ fn router(
         .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.base_path.clone(),
             error_pages::catch_panic,
+        )))
+        // Exact cookie-completion proof before identity-consuming guards. Its
+        // own actual Origin/CSRF proof is required before translation; all the
+        // normal source/session/policy guards remain inside this layer.
+        .layer(shared_route::wrap(middleware::from_fn_with_state(
+            state.clone(),websocket_actions::cookie_delivery::prepare,
         )))
         // Outermost: security headers on every response (incl. guard rejections).
         .layer(shared_route::wrap(middleware::from_fn_with_state(
@@ -6394,6 +6408,7 @@ async fn authed_with_gate_inner(
         account_gate::stop_engine_work(state, &session.account_id);
         return Err(unauthorized());
     }
+    if !websocket_actions::primary_actor_ok(state,&session).await {return Err(unauthorized());}
     if let Some(context) = fixture_profile::measure(fixture_profile::Phase::LinkedContext, linked_accounts::resolve(state, headers, &session)).await? {
         let gate = fixture_profile::measure(fixture_profile::Phase::AccountGate, account_gate::for_session(&state.store, &context))
             .await

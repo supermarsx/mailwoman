@@ -351,6 +351,21 @@ pub struct AdminCtx {
 }
 
 impl AdminCtx {
+    /// A comparison witness for an already-issued cookie delivery, never a
+    /// cached grant/allow. Current grants are resolved again on every delivery.
+    pub(crate) fn socket_grants_fingerprint(&self)->Option<[u8;32]> {
+        let bytes=self.roles.iter().map(String::len).sum::<usize>()
+            +self.grants.values().map(|scope|match scope {DomainScope::All=>0,DomainScope::Domains(domains)=>domains.iter().map(String::len).sum()}).sum::<usize>();
+        if self.roles.len()>512||bytes>64*1024{return None;}
+        fn field(digest:&mut Sha256,value:&str){digest.update((value.len() as u64).to_be_bytes());digest.update(value.as_bytes());}
+        let mut digest=Sha256::new();digest.update(b"mw-socket-admin-grants-v1\0");
+        field(&mut digest,&self.username);digest.update([u8::from(self.account_id.is_some())]);field(&mut digest,self.account_id.as_deref().unwrap_or(""));
+        digest.update((self.roles.len() as u64).to_be_bytes());
+        for role in &self.roles {field(&mut digest,role);}
+        digest.update((self.grants.len() as u64).to_be_bytes());
+        for (cap,scope) in &self.grants {field(&mut digest,cap.as_str());match scope {DomainScope::All=>digest.update([0]),DomainScope::Domains(domains)=>{digest.update([1]);digest.update((domains.len() as u64).to_be_bytes());for domain in domains {field(&mut digest,domain);}}}}
+        Some(digest.finalize().into())
+    }
     /// An admin holding every capability for all domains.
     pub fn all_capabilities(username: impl Into<String>) -> Self {
         Self::with_grants(

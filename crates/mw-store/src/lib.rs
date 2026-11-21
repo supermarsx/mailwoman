@@ -49,6 +49,8 @@ pub mod pool_telemetry;
 pub mod pool_policy;
 pub mod sqlite_page_cache;
 mod message_cache;
+mod websocket_cookie_handoff;
+pub use websocket_cookie_handoff::WebsocketPrimaryActor;
 pub mod database_maintenance;
 pub mod background_maintenance;
 pub mod body_cache_expiry;

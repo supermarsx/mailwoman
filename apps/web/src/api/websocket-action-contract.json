@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "protocol": "mailwoman-actions-v1",
+  "ack": {
+    "actionOutcomeField": "actionOutcome",
+    "outcomes": ["notDispatched", "completed", "unknown"],
+    "httpRequiredField": "httpRequired",
+    "cookieDeliveryField": "cookieDelivery"
+  },
+  "limits": {
+    "frameBytes": 2097152,
+    "bodyBytes": 2097152,
+    "responseBytes": 67108864,
+    "replyFrameBytes": 67108864,
+    "pathBytes": 16384,
+    "headerBytes": 16384,
+    "headers": 32,
+    "idBytes": 128
+  },
+  "methods": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+  "requestHeaders": [
+    "accept", "accept-language", "content-type", "x-csrf-token",
+    "x-mailwoman-link", "x-mailwoman-account", "x-mailwoman-storage-authority",
+    "x-mailwoman-client", "x-mw-session-peek", "idempotency-key",
+    "if-match", "if-none-match", "if-modified-since", "if-unmodified-since"
+  ],
+  "webmail": {
+    "endpoint": "/jmap/actions",
+    "maxInFlight": 8,
+    "jsonExact": ["/jmap/api", "/jmap/session"],
+    "jsonPrefixes": ["/api/"],
+    "httpRequired": [
+      {"exact": "/api/me", "reason": "cookie-bootstrap"},
+      {"exact": "/api/login", "reason": "cookie-bootstrap"},
+      {"prefix": "/api/login/", "reason": "cookie-bootstrap"},
+      {"exact": "/api/logout", "reason": "cookie-bootstrap"},
+      {"prefix": "/api/session/", "reason": "cookie-bootstrap"},
+      {"exact": "/api/account/session/activity", "reason": "cookie-bootstrap"},
+      {"prefix": "/api/client-access/", "reason": "cookie-bootstrap"},
+      {"prefix": "/api/sso/", "reason": "credential-proof"},
+      {"prefix": "/api/signin/", "reason": "credential-proof"},
+      {"prefix": "/api/security/step-up", "reason": "credential-proof"},
+      {"prefix": "/api/security/devices/remember", "reason": "cookie-bootstrap"},
+      {"exact": "/api/account/security/remembered-devices", "methods": ["POST"], "reason": "cookie-bootstrap"},
+      {"prefix": "/api/export/", "reason": "stream"},
+      {"prefix": "/api/import/", "reason": "binary"},
+      {"prefix": "/api/attachments/preview/", "reason": "binary"},
+      {"prefix": "/api/image-proxy", "reason": "binary"}
+    ]
+  },
+  "admin": {
+    "endpointSuffix": "/actions",
+    "cookieDeliverySuffix": "/actions/cookies",
+    "maxInFlight": 1,
+    "scope": "dynamic-console-descendants",
+    "httpRequired": [
+      {"exact": "/actions", "reason": "socket-control"},
+      {"prefix": "/actions/", "reason": "socket-control"},
+      {"exact": "/login", "reason": "cookie-bootstrap"},
+      {"prefix": "/login/", "reason": "cookie-bootstrap"},
+      {"exact": "/logout", "reason": "cookie-bootstrap"},
+      {"exact": "/session", "reason": "cookie-bootstrap"},
+      {"prefix": "/step-up", "reason": "credential-proof"},
+      {"prefix": "/sso/", "reason": "credential-proof"},
+      {"prefix": "/logs/stream", "reason": "stream"},
+      {"prefix": "/diagnostics/export", "reason": "binary"}
+    ]
+  },
+  "cookieHandoff": {
+    "capacity": 256,
+    "maxSealedBytes": 8192,
+    "receiptTtlMs": 30000,
+    "tokenBytes": 32,
+    "tokenEncoding": "hex-lower",
+    "tokenCharacters": 64,
+    "actionAckField": "cookieDelivery",
+    "requestBodyField": "token",
+    "successBody": {"delivered": true}
+  }
+}

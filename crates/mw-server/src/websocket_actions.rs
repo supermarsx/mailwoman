@@ -1,96 +1,563 @@
-//! JSON actions over WebSocket, dispatched through the unchanged HTTP router.
-//! The clone predates the dispatcher extension, so it cannot form an Arc cycle.
-use std::{collections::HashMap,convert::Infallible};
-use axum::{Router,body::Body,extract::{FromRequestParts,State,ws::{WebSocketUpgrade,Message}},http::{HeaderMap,Request,StatusCode,request::Parts},response::{Response,IntoResponse}};
+//! JSON actions use the unchanged HTTP router and a fresh request context.
+//! Upgrade authority is an immutable actor anchor, never a cached grant/session.
+mod contract;
+pub(crate) mod cookie_delivery;
+use crate::{AppState, admin_ctx::AdminCtx};
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    extract::{
+        ConnectInfo, FromRequestParts, State,
+        ws::{Message, WebSocketUpgrade},
+    },
+    http::{HeaderMap, Request, StatusCode, header, request::Parts},
+    response::{IntoResponse, Response},
+};
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
+use std::{
+    collections::{HashMap, HashSet},
+    convert::Infallible,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tower::ServiceExt;
-use crate::AppState;
 #[derive(Clone)]
 pub(crate) struct Dispatcher(pub Router);
 #[derive(Clone)]
-pub(crate) struct Context{headers:HeaderMap,extensions:axum::http::Extensions}
-impl<S:Send+Sync> FromRequestParts<S> for Context{
- type Rejection=Infallible;
- async fn from_request_parts(parts:&mut Parts,_:&S)->Result<Self,Self::Rejection>{Ok(Self{headers:parts.headers.clone(),extensions:parts.extensions.clone()})}
+pub(crate) struct Context {
+    headers: HeaderMap,
+    transport: Option<ConnectInfo<std::net::SocketAddr>>,
+    dispatcher: Option<Dispatcher>,
+}
+impl<S: Send + Sync> FromRequestParts<S> for Context {
+    type Rejection = Infallible;
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
+        Ok(Self {
+            headers: parts.headers.clone(),
+            transport: parts
+                .extensions
+                .get::<ConnectInfo<std::net::SocketAddr>>()
+                .cloned(),
+            dispatcher: parts.extensions.get::<Dispatcher>().cloned(),
+        })
+    }
+}
+#[derive(Clone)]
+enum Actor {
+    Webmail(mw_store::WebsocketPrimaryActor),
+    Admin(cookie_delivery::AdminActor),
+}
+tokio::task_local! {static FRAME:Actor;}
+/// The registrar calls this with its own freshly resolved AdminCtx, not a
+/// handshake extension. A webmail socket can never acquire an admin route.
+pub(crate) fn admin_actor_ok(ctx: &AdminCtx) -> bool {
+    FRAME
+        .try_with(|actor| matches!(actor,Actor::Admin(expected) if expected.matches(ctx)))
+        .unwrap_or(true)
+}
+pub(crate) async fn primary_actor_ok(state: &AppState, session: &mw_store::Session) -> bool {
+    let actor = FRAME.try_with(Clone::clone).ok();
+    match actor {
+        None => true,
+        Some(Actor::Admin(_)) => false,
+        Some(Actor::Webmail(expected)) => {
+            // A linked selected context never changes the socket's primary
+            // cookie actor. Called before linked-account selection in authed.
+            if expected.session_id() != session.id {
+                return false;
+            }
+            state
+                .store
+                .websocket_primary_actor(&session.id)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|current| current == expected)
+        }
+    }
+}
+pub(crate) fn has_frame_actor() -> bool {
+    FRAME.try_with(|_| ()).is_ok()
+}
+pub(crate) fn native_actor_ok(
+    store: &mw_store::Store,
+    session: &mw_store::Session,
+    principal: &str,
+    binding: &str,
+) -> bool {
+    FRAME.try_with(|actor|matches!(actor,Actor::Webmail(expected) if expected.matches_native(store,session,principal,binding))).unwrap_or(true)
 }
 #[derive(Deserialize)]
-#[serde(rename_all="camelCase",deny_unknown_fields)]
-struct Action{id:String,method:String,path:String,#[serde(default)]headers:HashMap<String,String>,#[serde(default)]body:Option<String>}
-fn allowed_path(path:&str)->bool{
- if path.contains(['\\','\r','\n','#'])||path.contains("..")||path.contains('%')||path.starts_with("//"){return false;}
- let path=path.split('?').next().unwrap_or("");
- path=="/jmap/api"||path=="/api/version"||path.starts_with("/api/mail/")||path=="/api/settings"||path.starts_with("/api/settings/")||path.starts_with("/api/account/")||["/api/tasks/","/api/notes/","/api/contacts/","/api/calendar/","/api/events/"].iter().any(|prefix|path.starts_with(prefix))
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Action {
+    id: String,
+    method: String,
+    path: String,
+    #[serde(default, deserialize_with = "unique_headers")]
+    headers: HashMap<String, String>,
+    #[serde(default)]
+    body: Option<String>,
 }
-async fn enabled(state:&AppState,headers:&HeaderMap)->bool{
- let Ok(session)=crate::authed(state,headers).await else{return false;};
- let Ok(subject)=crate::settings_routes::UserSubject::resolved(&state.store,&session).await else{return false;};
- crate::notification_policy::allowed(&state.store,&subject.as_subject(),"realtime.actions.enabled").await.unwrap_or(false)
-}
-pub(crate) async fn upgrade(State(state):State<AppState>,context:Context,ws:WebSocketUpgrade)->Response{
- if !context.headers.contains_key(axum::http::header::ORIGIN)||!crate::hardening::origin_ok(&context.headers,None){return StatusCode::FORBIDDEN.into_response();}
- if let Err(response)=crate::authed(&state,&context.headers).await{return response;}
- if !enabled(&state,&context.headers).await{return StatusCode::FORBIDDEN.into_response();}
- let Some(dispatcher)=context.extensions.get::<Dispatcher>().cloned() else{return StatusCode::SERVICE_UNAVAILABLE.into_response();};
- ws.max_message_size(2*1024*1024).on_upgrade(move|mut socket|async move{
-  if socket.send(Message::Text(json!({"type":"ready","protocol":"mailwoman-actions-v1"}).to_string().into())).await.is_err(){return;}
-  // Bound concurrent dispatches so one slow upstream read cannot hold every
-  // unrelated account action behind it. Each reply remains correlated by id.
-  let mut tasks=tokio::task::JoinSet::new();
-  loop {
-   tokio::select! {
-    frame=socket.recv(), if tasks.len()<8 => {
-     let Some(Ok(frame))=frame else{return;};
-     let Message::Text(text)=frame else{if matches!(frame,Message::Close(_)){return;}continue;};
-     let action:Action=match serde_json::from_str(&text){Ok(value)=>value,Err(_)=>{let _=socket.send(Message::Close(None)).await;return;}};
-     let state=state.clone();let context=context.clone();let dispatcher=dispatcher.clone();
-     tasks.spawn(async move {
-      let id=action.id.clone();
-      match execute(&state,&context,&dispatcher,action).await {
-       Ok((status,headers,body))=>json!({"id":id,"status":status,"headers":headers,"body":body}),
-       Err(status)=>json!({"id":id,"notDispatched":status==StatusCode::FORBIDDEN,"status":status.as_u16(),"headers":{"content-type":"application/json"},"body":json!({"code":"websocketActionRefused"}).to_string()})
-      }
-     });
-    },
-    reply=tasks.join_next(), if !tasks.is_empty() => {
-     let Some(Ok(payload))=reply else{return;};
-     if socket.send(Message::Text(payload.to_string().into())).await.is_err(){return;}
+fn unique_headers<'de, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> Result<HashMap<String, String>, D::Error> {
+    struct Headers;
+    impl<'de> serde::de::Visitor<'de> for Headers {
+        type Value = HashMap<String, String>;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("bounded unique action headers")
+        }
+        fn visit_map<M: serde::de::MapAccess<'de>>(
+            self,
+            mut map: M,
+        ) -> Result<Self::Value, M::Error> {
+            let mut output = HashMap::new();
+            let mut bytes = 0usize;
+            while let Some((key, value)) = map.next_entry::<String, String>()? {
+                bytes = bytes.saturating_add(key.len()).saturating_add(value.len());
+                let key = key.to_ascii_lowercase();
+                if output.len() >= contract::get().limits.headers
+                    || bytes > contract::get().limits.header_bytes
+                    || output.contains_key(&key)
+                {
+                    return Err(serde::de::Error::custom(
+                        "duplicate or oversized action headers",
+                    ));
+                }
+                output.insert(key, value);
+            }
+            Ok(output)
+        }
     }
-   }
-  }
- }).into_response()
+    decoder.deserialize_map(Headers)
 }
-async fn execute(state:&AppState,context:&Context,dispatcher:&Dispatcher,action:Action)->Result<(u16,HashMap<String,String>,String),StatusCode>{
- if action.id.is_empty()||action.id.len()>128||action.headers.len()>16||!allowed_path(&action.path)||!matches!(action.method.as_str(),"GET"|"POST"|"PUT"|"PATCH"|"DELETE"){return Err(StatusCode::BAD_REQUEST);}
- // Recheck the session and admin policy before every action, including after a
- // session revocation or policy change while the connection stays open.
- if !enabled(state,&context.headers).await{return Err(StatusCode::FORBIDDEN);}
- let mut headers=context.headers.clone();
- for key in ["connection","upgrade","sec-websocket-key","sec-websocket-version","sec-websocket-protocol","sec-websocket-extensions","content-length","accept-encoding"]{headers.remove(key);}
- for (name,value) in action.headers{
-  let name=name.to_ascii_lowercase();
-  if !matches!(name.as_str(),"content-type"|"x-csrf-token"|"x-mailwoman-link"|"x-mailwoman-account"|"x-mailwoman-storage-authority"|"x-mailwoman-client"|"idempotency-key"|"if-match"|"if-none-match"){return Err(StatusCode::BAD_REQUEST);}
-  let key=axum::http::HeaderName::from_bytes(name.as_bytes()).map_err(|_|StatusCode::BAD_REQUEST)?;
-  headers.insert(key,value.parse().map_err(|_|StatusCode::BAD_REQUEST)?);
- }
- if !enabled(state,&headers).await{return Err(StatusCode::FORBIDDEN);}
- let body=action.body.unwrap_or_default();
- if !body.is_empty()&&headers.get("content-type").and_then(|value|value.to_str().ok()).is_none_or(|value|!value.starts_with("application/json")){return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);}
- headers.insert(axum::http::header::CONTENT_LENGTH,body.len().to_string().parse().map_err(|_|StatusCode::BAD_REQUEST)?);
- let mut request=Request::builder().method(action.method.as_str()).uri(action.path).body(Body::from(body)).map_err(|_|StatusCode::BAD_REQUEST)?;
- *request.headers_mut()=headers;*request.extensions_mut()=context.extensions.clone();
- // Upgrade extensions live for the whole connection. Each action is a new
- // request boundary and must validate the current policy revision again.
- request.extensions_mut().remove::<mw_store::settings_policy::SettingsReadRevision>();
- request.extensions_mut().remove::<Dispatcher>();
- request.extensions_mut().remove::<axum::extract::OriginalUri>();
- request.extensions_mut().remove::<axum::extract::MatchedPath>();
- // The original router applies CSRF, origin, account fences, scopes, limits,
- // feature policy, idempotency and auditing exactly as an HTTP request does.
- let response=dispatcher.0.clone().oneshot(request).await.unwrap_or_else(|never|match never{});
- let status=response.status().as_u16();let mut headers=HashMap::new();
- for name in ["content-type","cache-control","etag","retry-after"]{if let Some(value)=response.headers().get(name).and_then(|value|value.to_str().ok()){headers.insert(name.into(),value.into());}}
- let bytes=axum::body::to_bytes(response.into_body(),64*1024*1024).await.map_err(|_|StatusCode::BAD_GATEWAY)?;
- Ok((status,headers,String::from_utf8(bytes.to_vec()).map_err(|_|StatusCode::UNSUPPORTED_MEDIA_TYPE)?))
+fn refused(id: &str, status: StatusCode, http: bool) -> Value {
+    let mut out = json!({"id":id,"actionOutcome":"notDispatched","notDispatched":true,"status":status.as_u16(),"headers":{"content-type":"application/json","cache-control":"no-store"},"body":json!({"code":"websocketActionRefused"}).to_string()});
+    if http {
+        out["httpRequired"] = json!(true);
+    }
+    out
 }
-#[cfg(test)]mod tests{use super::*;#[test]fn paths_cannot_escape_to_admin_or_auth(){for path in ["/admin/settings","/api/login","//evil.test/api/settings","/api/account/../login","/api/account/%2e%2e/login","/jmap/upload/a"]{assert!(!allowed_path(path));}assert!(allowed_path("/jmap/api"));assert!(allowed_path("/api/account/notifications"));}}
+fn completed_failure(id: &str, reauthenticate: bool) -> Value {
+    json!({"id":id,"actionOutcome":"completed","status":502,"headers":{"content-type":"application/json","cache-control":"no-store"},"body":json!({"code":"websocketActionCompletedTransportFailure","reauthenticate":reauthenticate}).to_string()})
+}
+async fn enabled(state: &AppState, headers: &HeaderMap, admin: bool) -> bool {
+    if admin {
+        if AdminCtx::resolve(state, headers).await.is_err() {
+            return false;
+        }
+        crate::notification_policy::allowed(
+            &state.store,
+            &Default::default(),
+            "realtime.actions.enabled",
+        )
+        .await
+        .unwrap_or(false)
+    } else {
+        let Ok(session) = crate::authed(state, headers).await else {
+            return false;
+        };
+        let Ok(subject) =
+            crate::settings_routes::UserSubject::resolved(&state.store, &session).await
+        else {
+            return false;
+        };
+        crate::notification_policy::allowed(
+            &state.store,
+            &subject.as_subject(),
+            "realtime.actions.enabled",
+        )
+        .await
+        .unwrap_or(false)
+    }
+}
+pub(crate) async fn upgrade(
+    State(state): State<AppState>,
+    context: Context,
+    ws: WebSocketUpgrade,
+) -> Response {
+    open(state, context, ws, false).await
+}
+pub(crate) async fn upgrade_admin(
+    State(state): State<AppState>,
+    context: Context,
+    ws: WebSocketUpgrade,
+) -> Response {
+    open(state, context, ws, true).await
+}
+async fn open(state: AppState, context: Context, ws: WebSocketUpgrade, admin: bool) -> Response {
+    if !context.headers.contains_key(header::ORIGIN)
+        || !crate::hardening::origin_ok(&context.headers, None)
+    {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !enabled(&state, &context.headers, admin).await {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let actor = if admin {
+        let Ok(ctx) = AdminCtx::resolve(&state, &context.headers).await else {
+            return StatusCode::UNAUTHORIZED.into_response();
+        };
+        if !cookie_delivery::AdminActor::bounded(&ctx) {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+        Actor::Admin(cookie_delivery::AdminActor::new(&ctx))
+    } else {
+        let Ok(session) = crate::authed(&state, &context.headers).await else {
+            return StatusCode::UNAUTHORIZED.into_response();
+        };
+        let Ok(Some(actor)) = state.store.websocket_primary_actor(&session.id).await else {
+            return StatusCode::UNAUTHORIZED.into_response();
+        };
+        Actor::Webmail(actor)
+    };
+    let Some(dispatcher) = context.dispatcher.clone() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let retired = Arc::new(AtomicBool::new(false));
+    let maximum = if admin {
+        contract::get().admin.max_in_flight
+    } else {
+        contract::get().webmail.max_in_flight
+    };
+    ws.max_message_size(contract::get().limits.frame_bytes).on_upgrade(move|mut socket|async move {
+        if socket.send(Message::Text(json!({"type":"ready","protocol":contract::get().protocol}).to_string().into())).await.is_err(){return;}
+        let mut tasks=tokio::task::JoinSet::new();
+        let mut ids=HashSet::new();
+        loop {tokio::select! {
+            frame=socket.recv(),if tasks.len()<maximum=>{
+                let Some(Ok(frame))=frame else{return;};
+                let Message::Text(text)=frame else{if matches!(frame,Message::Close(_)){return;}continue;};
+                let action:Action=match serde_json::from_str(&text){Ok(v)=>v,Err(_)=>{let _=socket.send(Message::Close(None)).await;return;}};
+                if action.id.is_empty()||action.id.len()>contract::get().limits.id_bytes||ids.contains(&action.id){let _=socket.send(Message::Close(None)).await;return;}
+                let state=state.clone();let context=context.clone();let dispatcher=dispatcher.clone();let actor=actor.clone();let retired=retired.clone();
+                // Bound even the preflight awaits BEFORE detaching ownership.
+                let slot=match state.websocket_actions.dispatch_slot(){Some(slot)=>Some(slot),None=>{let reply=refused(&action.id,StatusCode::SERVICE_UNAVAILABLE,false);if socket.send(Message::Text(reply.to_string().into())).await.is_err(){return;}continue;}};
+                let request_id=action.id.clone();ids.insert(request_id.clone());
+                tasks.spawn(async move {
+                    let payload=if admin {
+                        // The owned dispatch is detached if the receiver closes:
+                        // it keeps the pre-reserved bounded ticket through any
+                        // rotation. No action is replayed to recover an ACK.
+                        let id=action.id.clone();
+                        owned_admin(actor,id,execute(state,context,dispatcher,action,retired,slot)).await
+                    }else{FRAME.scope(actor,execute(state,context,dispatcher,action,retired,slot)).await};
+                    (request_id,payload)
+                });
+            },
+            reply=tasks.join_next(),if !tasks.is_empty()=>{
+                let Some(Ok((id,payload)))=reply else{return;};ids.remove(&id);
+                if socket.send(Message::Text(payload.to_string().into())).await.is_err(){return;}
+            }
+        }}
+    }).into_response()
+}
+
+async fn owned_admin<F>(actor: Actor, id: String, future: F) -> Value
+where
+    F: std::future::Future<Output = Value> + Send + 'static,
+{
+    tokio::spawn(FRAME.scope(actor, future))
+        .await
+        .unwrap_or_else(
+            |_| json!({"id":id,"actionOutcome":"unknown","status":502,"headers":{},"body":""}),
+        )
+}
+fn pattern_matches(pattern: &str, path: &str) -> bool {
+    let mut actual = path.split('/');
+    for part in pattern.split('/') {
+        if part.starts_with("{*") && part.ends_with('}') {
+            return actual.next().is_some();
+        }
+        let Some(value) = actual.next() else {
+            return false;
+        };
+        if part.starts_with('{') && part.ends_with('}') {
+            if value.is_empty() {
+                return false;
+            }
+        } else if part != value {
+            return false;
+        }
+    }
+    actual.next().is_none()
+}
+fn route_allowed(path: &str, method: &str, admin: bool) -> bool {
+    let base = mw_admin::config::admin_path();
+    if admin {
+        let Some(suffix) = path.strip_prefix(&base).filter(|s| s.starts_with('/')) else {
+            return false;
+        };
+        !contract::requires_http(suffix, method, true)
+            && crate::admin_router::registry().iter().any(|e| {
+                e.access != crate::admin_router::Access::Public
+                    && e.method.as_str() == method
+                    && pattern_matches(e.suffix, suffix)
+            })
+    } else {
+        contract::webmail_path(path, &base) && !contract::requires_http(path, method, false)
+    }
+}
+fn headers(context: &Context, action: &Action) -> Option<HeaderMap> {
+    let limits = &contract::get().limits;
+    if action.headers.len() > limits.headers
+        || action
+            .headers
+            .iter()
+            .map(|(k, v)| k.len() + v.len())
+            .sum::<usize>()
+            > limits.header_bytes
+    {
+        return None;
+    }
+    let mut headers = HeaderMap::new();
+    // Only transport/source cookies survive upgrade. No auth/policy request
+    // extensions, bearer credentials or stale account selection are copied.
+    for (name, value) in &context.headers {
+        if matches!(
+            name.as_str(),
+            "cookie" | "origin" | "host" | "user-agent" | "forwarded" | "x-real-ip"
+        ) || name.as_str().starts_with("x-forwarded-")
+        {
+            headers.append(name.clone(), value.clone());
+        }
+    }
+    let mut seen = HashSet::new();
+    for (name, value) in &action.headers {
+        let name = name.to_ascii_lowercase();
+        if !seen.insert(name.clone()) {
+            return None;
+        }
+        if !contract::get().request_headers.contains(&name) {
+            return None;
+        }
+        headers.insert(
+            axum::http::HeaderName::from_bytes(name.as_bytes()).ok()?,
+            value.parse().ok()?,
+        );
+    }
+    Some(headers)
+}
+async fn execute(
+    state: AppState,
+    context: Context,
+    dispatcher: Dispatcher,
+    action: Action,
+    retired: Arc<AtomicBool>,
+    _slot: Option<tokio::sync::OwnedSemaphorePermit>,
+) -> Value {
+    let id = &action.id;
+    let limits = &contract::get().limits;
+    if id.is_empty()
+        || id.len() > limits.id_bytes
+        || !contract::get().methods.contains(&action.method)
+    {
+        return refused(id, StatusCode::BAD_REQUEST, false);
+    }
+    let Some(target) = contract::target(&action.path) else {
+        return refused(id, StatusCode::BAD_REQUEST, false);
+    };
+    let Some(mut headers) = headers(&context, &action) else {
+        return refused(id, StatusCode::BAD_REQUEST, false);
+    };
+    let admin = FRAME.with(|actor| matches!(actor, Actor::Admin(_)));
+    if !route_allowed(&target.path, &action.method, admin) {
+        return refused(id, StatusCode::UNSUPPORTED_MEDIA_TYPE, true);
+    }
+    if retired.load(Ordering::Acquire) {
+        return refused(id, StatusCode::UNAUTHORIZED, false);
+    }
+    let body = action.body.as_deref().unwrap_or("");
+    if body.len() > limits.body_bytes {
+        return refused(id, StatusCode::PAYLOAD_TOO_LARGE, false);
+    }
+    if !body.is_empty()
+        && headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|h| h.to_str().ok())
+            .is_none_or(|h| h.split(';').next().map(str::trim) != Some("application/json"))
+    {
+        return refused(id, StatusCode::UNSUPPORTED_MEDIA_TYPE, true);
+    }
+    if !enabled(&state, &headers, admin).await {
+        return refused(id, StatusCode::FORBIDDEN, false);
+    }
+    let ticket = if admin {
+        let Ok(ctx) = AdminCtx::resolve(&state, &headers).await else {
+            return refused(id, StatusCode::UNAUTHORIZED, false);
+        };
+        if !admin_actor_ok(&ctx) {
+            return refused(id, StatusCode::UNAUTHORIZED, false);
+        }
+        let Some(origin) = headers.get(header::ORIGIN).and_then(|h| h.to_str().ok()) else {
+            return refused(id, StatusCode::FORBIDDEN, false);
+        };
+        let Some(ticket) = state
+            .websocket_actions
+            .reserve(&ctx, origin, retired.clone())
+        else {
+            return refused(id, StatusCode::SERVICE_UNAVAILABLE, false);
+        };
+        Some(ticket)
+    } else {
+        None
+    };
+    headers.insert(
+        header::CONTENT_LENGTH,
+        body.len().to_string().parse().unwrap(),
+    );
+    let Ok(mut request) = Request::builder()
+        .method(action.method.as_str())
+        .uri(target.uri)
+        .body(Body::from(body.to_owned()))
+    else {
+        return refused(id, StatusCode::BAD_REQUEST, false);
+    };
+    *request.headers_mut() = headers;
+    if let Some(info) = context.transport {
+        request.extensions_mut().insert(info);
+    }
+    if let Some(ticket) = &ticket {
+        request.extensions_mut().insert(ticket.capture());
+    }
+    let response = dispatcher
+        .0
+        .oneshot(request)
+        .await
+        .unwrap_or_else(|never| match never {});
+    let known_cookies = cookie_delivery::issued_cookies_match(&response);
+    let had_cookies = response.headers().contains_key(header::SET_COOKIE);
+    let delivery = ticket.and_then(|ticket| ticket.finish());
+    let status = response.status().as_u16();
+    let mut response_headers = HashMap::new();
+    for name in [
+        "content-type",
+        "cache-control",
+        "etag",
+        "retry-after",
+        "last-modified",
+        "location",
+    ] {
+        if let Some(value) = response.headers().get(name).and_then(|v| v.to_str().ok()) {
+            response_headers.insert(name.to_owned(), value.to_owned());
+        }
+    }
+    // Redirects require an explicit transport contract; never let a captured
+    // response redirect cookie delivery or trigger action replay.
+    response_headers.remove("location");
+    let json_response = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| {
+            v.starts_with("application/json") || v.starts_with("application/problem+json")
+        });
+    let bytes = to_bytes(response.into_body(), limits.response_bytes).await;
+    let mut reply = match bytes.ok().and_then(|v| String::from_utf8(v.to_vec()).ok()) {
+        Some(body)
+            if (!had_cookies || (known_cookies && delivery.is_some()))
+                && (json_response || body.is_empty()) =>
+        {
+            json!({"id":id,"actionOutcome":"completed","status":status,"headers":response_headers,"body":body})
+        }
+        _ => completed_failure(id, had_cookies),
+    };
+    if had_cookies {
+        retired.store(true, Ordering::Release);
+    }
+    if let Some(delivery) = delivery {
+        reply["cookieDelivery"] = delivery;
+    }
+    // JSON encoding can expand control characters sixfold. Count exact encoded
+    // bytes without allocating a second oversized response; no header/ID leak.
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(b.len());
+            if self.0 > contract::get().limits.reply_frame_bytes {
+                return Err(std::io::Error::other("reply bound"));
+            }
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    if serde_json::to_writer(&mut count, &reply).is_err() {
+        let delivery = reply.get("cookieDelivery").cloned();
+        reply = completed_failure(id, false);
+        if let Some(v) = delivery {
+            reply["cookieDelivery"] = v;
+        }
+    }
+    reply
+}
+
+pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
+    r.admin_endpoint(
+        axum::http::Method::GET,
+        "/actions",
+        crate::admin_router::Access::SignedIn,
+        upgrade_admin,
+    );
+    #[cfg(test)]
+    r.admin_endpoint(
+        axum::http::Method::POST,
+        "/actions-test/pause",
+        crate::capabilities::Capability::SettingsWrite,
+        test_control::paused,
+    );
+
+    // Public here means capability-delivery proof, NOT public authorization:
+    // prepare() mints the private marker, and deliver() fresh-validates it.
+    r.admin_endpoint(
+        axum::http::Method::POST,
+        "/actions/cookies",
+        crate::admin_router::Access::Public,
+        cookie_delivery::deliver,
+    );
+}
+
+#[cfg(test)]
+pub(crate) mod test_control {
+    use super::*;
+    use std::cell::RefCell;
+    pub struct Pause {
+        pub entered: tokio::sync::Notify,
+        pub release: tokio::sync::Notify,
+        pub disable: bool,
+        pub calls: std::sync::atomic::AtomicUsize,
+    }
+    tokio::task_local! {pub static STATE:RefCell<Option<AppState>>;pub static PAUSE:Arc<Pause>;}
+    pub(crate) fn record_state(state: &AppState) {
+        let _ = STATE.try_with(|slot| *slot.borrow_mut() = Some(state.clone()));
+    }
+    pub(super) async fn paused(State(state): State<AppState>) -> Response {
+        let pause = PAUSE.with(Clone::clone);
+        pause.calls.fetch_add(1, Ordering::SeqCst);
+        pause.entered.notify_one();
+        pause.release.notified().await;
+        if pause.disable {
+            state
+                .store
+                .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+                    key: "realtime.actions.enabled".into(),
+                    global_value: Some("false".into()),
+                    allow_user_override: false,
+                    global_locked: true,
+                    updated_by: "ws-test".into(),
+                    updated_at: chrono::Utc::now().timestamp(),
+                })
+                .await
+                .unwrap();
+        }
+        axum::Json(json!({"actionApplied":true})).into_response()
+    }
+}
+#[cfg(test)]
+#[path = "websocket_actions/tests.rs"]
+mod tests;

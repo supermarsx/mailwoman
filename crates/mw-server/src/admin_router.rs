@@ -77,6 +77,7 @@ pub(crate) trait AdminRegistrar {
 
 /// Every admin route. Landing order follows `t32-admin-registry` (t32-fast §4).
 fn endpoints(r: &mut impl AdminRegistrar) {
+    crate::websocket_actions::register(r);
     // f02 (e24a): the catalogue.
     r.admin_endpoint(Method::GET, "/capabilities", Access::SignedIn, capabilities);
     // f01 (e10b): the settings model C (`/settings/**`).
@@ -226,6 +227,7 @@ async fn gate(state: AppState, access: Access, mut req: Request, next: Next) -> 
         Ok(ctx) => ctx,
         Err(e) => return e.into_response(),
     };
+    if !crate::websocket_actions::admin_actor_ok(&ctx) {return crate::admin_ctx::AdminApiError::unauthenticated().into_response();}
     if let Some(cap) = cap
         && let Err(e) = ctx.require(cap)
     {
