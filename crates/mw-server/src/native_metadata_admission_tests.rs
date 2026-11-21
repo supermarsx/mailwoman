@@ -627,3 +627,138 @@ include!("native_read_restart_tests.rs");
 include!("native_published_input_tests.rs");
 
 include!("native_guard_consumer_tests.rs");
+
+// Run alone in a dedicated child process: the profiler reads its environment
+// once and owns process-global counters. This is an actual HTTP router oracle,
+// not a call to the timing helpers with a fabricated future.
+#[cfg(all(feature = "load-test-fixtures", not(feature = "sql-shape-diagnostics")))]
+#[test]
+#[ignore = "run exact/single-thread in a child with MW_FIXTURE_REQUEST_PROFILE=1"]
+fn native_jmap_runtime_profile_records_real_dispatch_and_prepared_return() {
+    assert_eq!(std::env::var("MW_FIXTURE_REQUEST_PROFILE").as_deref(), Ok("1"),
+        "this explicit profiler oracle requires the flag before process startup");
+    assert!(crate::fixture_profile::enabled(), "profiler was initialized without its required flag");
+    fn calls(snapshot: &Value, phase: &str) -> u64 {
+        let rows = snapshot["phases"].as_array().unwrap();
+        assert_eq!(rows.len(), 29, "the fixed phase schema must remain unchanged");
+        let matching: Vec<_> = rows.iter().filter(|row| row["phase"] == phase).collect();
+        assert_eq!(matching.len(), 1);
+        matching[0]["inclusive"]["count"].as_u64().unwrap()
+    }
+    async fn send(fixture: &Fixture, request: Request<Body>, published: bool)
+        -> (StatusCode, Value, test_control::Counts, Value)
+    {
+        let pending = fixture.router.clone().oneshot(request);
+        let (response, counts) = if published {
+            test_control::count_published(pending).await
+        } else {
+            test_control::count(false, pending).await
+        };
+        let response = response.unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 4 * 1024 * 1024).await.unwrap();
+        let value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+        (status, value, counts, crate::fixture_profile::snapshot())
+    }
+    fn owned_fifty(fixture: &Fixture, value: &Value) {
+        assert_eq!(value["methodResponses"][0][0], "Email/get");
+        let list = value["methodResponses"][0][1]["list"].as_array().unwrap();
+        assert_eq!(list.len(), 50);
+        for (row, id) in list.iter().zip(&fixture.ids) {
+            assert_eq!(row["id"].as_str(), Some(id.as_str()));
+        }
+    }
+    run_fixture(|| async {
+        let fixture = Fixture::new().await;
+        // A legitimate real-peer read with bodyValues is ineligible for the
+        // metadata optimization and must execute the ordinary JMAP handler.
+        let mut ordinary_request = fixture.declared_request();
+        ordinary_request.headers_mut().remove("x-mailwoman-read-shape");
+        let mut properties = default_properties();
+        properties.push(json!("bodyValues"));
+        *ordinary_request.body_mut() = Body::from(serde_json::to_vec(&json!({
+            "using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],
+            "methodCalls":[["Email/get",{"accountId":fixture.account,"ids":fixture.ids,
+                "properties":properties,"fetchAllBodyValues":true},"headers"]]
+        })).unwrap());
+        fixture.writer.touch_session(&fixture.session).await.unwrap();
+        crate::fixture_profile::reset();
+        let ordinary = send(&fixture, ordinary_request, false).await;
+        assert_eq!(ordinary.0, StatusCode::OK);
+        owned_fifty(&fixture, &ordinary.1);
+        assert!(ordinary.1["methodResponses"][0][1]["list"][0]["bodyValues"]
+            .as_object().is_some_and(|values| !values.is_empty()));
+        assert_eq!(ordinary.2.ordinary_dispatches, 1);
+        assert_eq!(ordinary.2.dispatches + ordinary.2.prepared_results, 0);
+        for phase in ["jmap.handler", "jmap.after-body", "jmap.engine"] {
+            assert_eq!(calls(&ordinary.3, phase), 1, "ordinary real route did not reach {phase}");
+        }
+        // The actual metadata-native Engine await is a distinct call site.
+        fixture.writer.touch_session(&fixture.session).await.unwrap();
+        crate::fixture_profile::reset();
+        let native = send(&fixture, fixture.declared_request(), false).await;
+        assert_eq!(native.0, StatusCode::OK);
+        owned_fifty(&fixture, &native.1);
+        assert_eq!(native.2.dispatches, 1);
+        assert_eq!(native.2.ordinary_dispatches + native.2.prepared_results, 0);
+        for phase in ["jmap.handler", "jmap.after-body", "jmap.engine"] {
+            assert_eq!(calls(&native.3, phase), 1, "native real route did not reach {phase}");
+        }
+        policy(&fixture.writer, "performance.preparedMail", serde_json::to_value(
+            mw_engine::PreparedMailOptions {enabled:true,..Default::default()}
+        ).unwrap()).await;
+        // Every warm-up is the same real-peer/default36 production request.
+        let warm = tokio::time::timeout(Duration::from_secs(10), async {
+            for _ in 0..200 {
+                fixture.writer.touch_session(&fixture.session).await.unwrap();
+                let reply = send(&fixture, fixture.declared_request(), true).await;
+                assert_eq!(reply.0, StatusCode::OK);
+                if reply.2.prepared_results == 1 {return reply;}
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            panic!("actual DEFAULT36 prepared result never became ready");
+        }).await.expect("bounded real-router prepared warmup");
+        fixture.writer.touch_session(&fixture.session).await.unwrap();
+        let index = fixture.engine.search();
+        let index_before = (index.list_projection_search_count(), index.list_projection_doc_read_count(), index.doc_fetch_count());
+        // Prior response bodies are fully drained; no HTTP task is in flight.
+        crate::fixture_profile::reset();
+        let ready = send(&fixture, fixture.declared_request(), true).await;
+        assert_eq!(ready.0, StatusCode::OK);
+        owned_fifty(&fixture, &ready.1);
+        assert_eq!(ready.1, warm.1, "timing hooks must not alter the prepared reply");
+        assert_eq!(ready.2.prepared_results, 1);
+        assert_eq!(ready.2.dispatches + ready.2.ordinary_dispatches + ready.2.restart_dispatches, 0);
+        assert_eq!(calls(&ready.3, "jmap.handler"), 1);
+        assert_eq!(calls(&ready.3, "jmap.after-body"), 1);
+        assert_eq!(calls(&ready.3, "jmap.engine"), 0,
+            "synchronous prepared emission must not invent an Engine dispatch await");
+        assert_eq!(index_before, (index.list_projection_search_count(), index.list_projection_doc_read_count(), index.doc_fetch_count()));
+        // Preserve the final authority boundary: real independent-writer session
+        // revocation while the prepared request is actually waiting may not emit
+        // bytes or enter Engine, even with the new surrounding timing frames.
+        fixture.writer.touch_session(&fixture.session).await.unwrap();
+        let pause = test_control::pause(test_control::Stage::BeforeConnector, &fixture.session);
+        crate::fixture_profile::reset();
+        let pending = send(&fixture, fixture.declared_request(), true);
+        tokio::pin!(pending);
+        tokio::select! {
+            _ = pause.entered.notified() => {},
+            response = &mut pending => panic!("prepared request did not wait at final authority boundary: {}", response.0),
+            _ = tokio::time::sleep(Duration::from_secs(10)) => panic!("prepared authority pause was not reached"),
+        }
+        fixture.writer.delete_session(&fixture.session).await.unwrap();
+        pause.release.notify_one();
+        let revoked = pending.await;
+        assert!(!revoked.0.is_success());
+        assert_eq!(revoked.2.prepared_results + revoked.2.dispatches + revoked.2.ordinary_dispatches + revoked.2.restart_dispatches, 0);
+        assert_eq!(calls(&revoked.3, "jmap.engine"), 0);
+        eprintln!("{}", json!({"kind":"actual-load-only-jmap-profile-hooks",
+            "sqlShapeFeature":false,"ordinaryEngineCalls":calls(&ordinary.3,"jmap.engine"),
+            "nativeEngineCalls":calls(&native.3,"jmap.engine"),
+            "readyHandlerCalls":calls(&ready.3,"jmap.handler"),
+            "readyAfterBodyCalls":calls(&ready.3,"jmap.after-body"),
+            "readyEngineCalls":calls(&ready.3,"jmap.engine"),
+            "readyRows":50,"revokedDispatches":0,"realPeerGuardsIncluded":true}));
+    });
+}

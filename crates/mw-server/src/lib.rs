@@ -3523,9 +3523,9 @@ fn prefix_session_urls(mut session: Value, base: &str) -> Value {
     session
 }
 
-#[cfg(not(feature = "sql-shape-diagnostics"))]
+#[cfg(not(any(feature = "load-test-fixtures", feature = "sql-shape-diagnostics")))]
 use self::jmap_api as jmap_api_route;
-#[cfg(feature = "sql-shape-diagnostics")]
+#[cfg(any(feature = "load-test-fixtures", feature = "sql-shape-diagnostics"))]
 async fn jmap_api_route(
     state: State<AppState>,
     source: Option<Extension<scope_mw::RestSessionSource>>,
@@ -3559,7 +3559,7 @@ async fn jmap_api(
         }
     };
     if let Err(response)=published_guard_context::validate_body(&body){return response;}
-    #[cfg(feature = "sql-shape-diagnostics")]
+    #[cfg(any(feature = "load-test-fixtures", feature = "sql-shape-diagnostics"))]
     {
     if source.is_none()
         && let Some(Extension(features)) = &deferred_features
@@ -3568,7 +3568,7 @@ async fn jmap_api(
         return response;
     }
     }
-    #[cfg(not(feature = "sql-shape-diagnostics"))]
+    #[cfg(not(any(feature = "load-test-fixtures", feature = "sql-shape-diagnostics")))]
     {
     if source.is_none()
         && let Some(Extension(features)) = &deferred_features
@@ -3740,10 +3740,10 @@ async fn jmap_api(
         }
         #[cfg(test)]
         feature_gate::native_metadata_admission::record_ordinary_dispatch();
-        #[cfg(feature = "sql-shape-diagnostics")]
+        #[cfg(any(feature = "load-test-fixtures", feature = "sql-shape-diagnostics"))]
         let response = fixture_profile::measure(fixture_profile::Phase::Engine,
             engine.handle_jmap_with_sieve(&session.account_id, &request, sieve.as_mut())).await;
-        #[cfg(not(feature = "sql-shape-diagnostics"))]
+        #[cfg(not(any(feature = "load-test-fixtures", feature = "sql-shape-diagnostics")))]
         let response = engine
             .handle_jmap_with_sieve(&session.account_id, &request, sieve.as_mut())
             .await;

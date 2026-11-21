@@ -713,6 +713,12 @@ pub(crate) async fn try_dispatch(
     let dispatch=state.engine.as_ref()?.handle_jmap_with_sieve(&final_source.session.account_id,&request,None);
     #[cfg(feature="sql-shape-diagnostics")]
     let dispatch=mw_store::pool_telemetry::shapes::in_phase(mw_store::pool_telemetry::shapes::Phase::Engine,dispatch);
+    // Runtime wall timing is available in fixture builds without enabling SQL
+    // shape capture. Keep the existing shape tag above separately feature-gated.
+    // This replaces the existing dispatch await; no authority work is added.
+    #[cfg(any(feature="load-test-fixtures",feature="sql-shape-diagnostics"))]
+    let response=crate::fixture_profile::measure_timings(crate::fixture_profile::Phase::Engine,dispatch).await;
+    #[cfg(not(any(feature="load-test-fixtures",feature="sql-shape-diagnostics")))]
     let response=dispatch.await;
     drop(permit);
     Some(Json(response).into_response())
