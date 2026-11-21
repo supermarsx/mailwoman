@@ -289,7 +289,12 @@ async function sendApiFetch(input: string, given: RequestInit|undefined, assertA
   const method = (init?.method ?? 'GET').toUpperCase();
   const ordinarySend=async(options:RequestInit|undefined):Promise<Response>=>{
     const values=transportSettings();
-    if(values['realtime.actions.preferWebSocket']?.value!==true||values['realtime.actions.enabled']?.value===false)return send(input,options);
+    const preference=values['realtime.actions.preferWebSocket']?.value;
+    // Settings themselves bootstrap this preference. A readable session proof
+    // lets that read try the default action transport; the server still checks
+    // the actual session and current administrator policy before dispatch.
+    if(preference===false||values['realtime.actions.enabled']?.value===false
+      ||preference!==true&&!csrfToken())return send(input,options);
     const response=await websocketAction(input,options,`${location.origin}${basePath()}`);
     assertAuthority();return response??send(input,options);
   };

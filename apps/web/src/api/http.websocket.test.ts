@@ -59,3 +59,27 @@ it('does not fall back to HTTP after a sent action loses its acknowledgement', a
   expect(transport.action).toHaveBeenCalledTimes(1);
   expect(fetch).not.toHaveBeenCalled();
 });
+
+it('bootstraps settings over the default action transport when a session proof exists', async () => {
+  vi.mocked(configuration.settings).mockReturnValue({});
+  transport.action.mockResolvedValue(json(200, {settings: {}}));
+  const fetch = vi.fn();
+  vi.stubGlobal('fetch', fetch);
+  await expect((await apiFetch('/api/settings')).json()).resolves.toEqual({settings: {}});
+  expect(transport.action).toHaveBeenCalledTimes(1);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it('honors an explicit HTTP preference and does not try an anonymous bootstrap socket', async () => {
+  vi.mocked(configuration.settings).mockReturnValue({
+    'realtime.actions.preferWebSocket': {value: false, source: 'user', locked: false},
+  });
+  const fetch = vi.fn().mockImplementation(async () => json(200, {settings: {}}));
+  vi.stubGlobal('fetch', fetch);
+  await apiFetch('/api/settings');
+  vi.mocked(configuration.settings).mockReturnValue({});
+  document.cookie = 'mw_csrf=; Max-Age=0; Path=/';
+  await apiFetch('/api/settings');
+  expect(transport.action).not.toHaveBeenCalled();
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
