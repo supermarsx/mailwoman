@@ -547,7 +547,7 @@ impl Needs {
 }
 
 /// Buffer a JSON body the guard must read, and hand the request back whole.
-async fn read_json(req: Request, limit: usize) -> Result<(Request, Option<Value>), Response> {
+async fn read_json(req: Request, limit: usize) -> Result<(Request, Option<Value>, usize), Response> {
     let (parts, body) = req.into_parts();
     let bytes = match axum::body::to_bytes(body, limit).await {
         Ok(b) => b,
@@ -562,7 +562,8 @@ async fn read_json(req: Request, limit: usize) -> Result<(Request, Option<Value>
         }
     };
     let value = serde_json::from_slice(&bytes).ok();
-    Ok((Request::from_parts(parts, Body::from(bytes)), value))
+    let length = bytes.len();
+    Ok((Request::from_parts(parts, Body::from(bytes)), value, length))
 }
 
 /// A read failure counts as "in use", so the full check runs (and fails closed).
@@ -626,6 +627,7 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
             .and_then(|v| v.parse().ok());
     }
     let mut req = req;
+    let mut metadata_read = false;
     if method == Method::POST && path == "/jmap/api" {
         let declared = req
             .headers()
@@ -634,13 +636,14 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
             .and_then(|v| v.parse::<usize>().ok());
         // An over-size request is the handler's to refuse; never inspected here.
         if declared.is_none_or(|n| n <= mw_engine::jmap::core::MAX_SIZE_REQUEST) {
-            let (rebuilt, body) =
+            let (rebuilt, body, bytes) =
                 match read_json(req, mw_engine::jmap::core::MAX_SIZE_REQUEST).await {
                     Ok(v) => v,
                     Err(r) => return r,
                 };
             req = rebuilt;
             if let Some(body) = body {
+                metadata_read = native_metadata_admission::eligible_parsed_request(&body, bytes).is_some();
                 needs.features.extend(jmap_features(&body));
                 needs.recipients = jmap_max_recipients(&body);
                 if jmap_sends(&body) {
@@ -650,7 +653,7 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
         }
     }
     if method == Method::PUT && path == "/api/accounts/layout" {
-        let (rebuilt, body) = match read_json(req, 256 * 1024).await {
+        let (rebuilt, body, _) = match read_json(req, 256 * 1024).await {
             Ok(v) => v,
             Err(r) => return r,
         };
@@ -673,7 +676,7 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
     if needs.protocol && !key_in_use(&state, "access.protocols", &mut req).await {
         needs.protocol = false;
     }
-    if !needs.any() {
+    if !needs.any() && !metadata_read {
         return next.run(req).await;
     }
     // Cookie JMAP resolves feature requirements using an untrusted source hint,
@@ -683,6 +686,12 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
         let revision=req.extensions().get::<mw_store::settings_policy::SettingsReadRevision>()
             .expect("eligibility requires a current revision").clone();
         req.extensions_mut().insert(DeferredJmapFeatures::new(needs, revision));
+        return next.run(req).await;
+    }
+    // Only the fully validated metadata-cookie case above may defer with no
+    // currently stored requirement. Other empty-Needs routes keep their prior
+    // behavior, including API keys, selectors, bearer and malformed bodies.
+    if !needs.any() {
         return next.run(req).await;
     }
     // Unauthenticated: the handler answers as it always did.

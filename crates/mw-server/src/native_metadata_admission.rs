@@ -38,7 +38,17 @@ pub(super) fn eligible_request(body: &[u8]) -> Option<Value> {
         return None;
     }
     let request: Value = serde_json::from_slice(body).ok()?;
-    mw_engine::jmap::core::validate(&request, body.len(), true).ok()?;
+    eligible_parsed_request(&request, body.len())?;
+    Some(request)
+}
+
+/// The feature guard already owns the bounded parsed body. Share the complete
+/// validator rather than defining a weaker shape-only deferral eligibility.
+pub(super) fn eligible_parsed_request(request: &Value, bytes: usize) -> Option<&Value> {
+    if bytes > mw_engine::jmap::core::MAX_SIZE_REQUEST {
+        return None;
+    }
+    mw_engine::jmap::core::validate(request, bytes, true).ok()?;
     let calls = request.get("methodCalls")?.as_array()?;
     if calls.len() != 1 {
         return None;

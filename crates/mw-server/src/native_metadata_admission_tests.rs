@@ -537,9 +537,18 @@ fn connector_wait_revalidates_current_credential_revision_rejection() {
         let reply = tokio::time::timeout(Duration::from_secs(5), request)
             .await
             .unwrap();
-        assert_eq!(reply.0, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(reply.1["code"], "authorizationNotConfirmedBeforeDispatch");
-        assert_eq!(reply.2.dispatches, 0);
+        // Restart reaches the complete original connector check. A durable
+        // credential rejection is its exact upstream refusal, not an invented
+        // successful retry or the old generic late-fence 503.
+        let original = fixture.send(true).await;
+        assert_eq!(reply.0, StatusCode::BAD_GATEWAY);
+        assert_eq!(reply.0, original.0);
+        assert_eq!(reply.1, original.1);
+        assert_eq!(reply.2.restarts, 1);
+        assert_eq!(reply.2.dispatches + reply.2.restart_dispatches, 0);
+        assert!(crate::engine_mode::stored_credentials_rejected(
+            &fixture.writer.get_account(&fixture.account).await.unwrap()
+        ));
         assert!(reply.1.get("methodResponses").is_none());
     });
 }
@@ -589,7 +598,16 @@ fn connector_wait_revalidates_independent_account_kind_change() {
 #[test]
 fn actual_default_properties_are_metadata_eligible_but_reader_and_result_references_are_not() {
     let mut request = json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{"accountId":"a","ids":["id"],"properties":default_properties()},"x"]]});
-    assert!(eligible_request(&serde_json::to_vec(&request).unwrap()).is_some());
+    let bytes = serde_json::to_vec(&request).unwrap();
+    assert!(eligible_request(&bytes).is_some());
+    assert!(eligible_parsed_request(&request, bytes.len()).is_some());
+    assert!(eligible_parsed_request(&request, mw_engine::jmap::core::MAX_SIZE_REQUEST + 1).is_none());
+    let mut mutation = request.clone();
+    mutation["methodCalls"][0][0] = json!("Email/set");
+    assert!(eligible_parsed_request(&mutation, bytes.len()).is_none());
+    let mut mixed = request.clone();
+    mixed["methodCalls"].as_array_mut().unwrap().push(json!(["Mailbox/get",{},"m"]));
+    assert!(eligible_parsed_request(&mixed, bytes.len()).is_none());
     request["methodCalls"][0][1]["fetchAllBodyValues"] = json!(true);
     assert!(eligible_request(&serde_json::to_vec(&request).unwrap()).is_none());
     request["methodCalls"][0][1]["fetchAllBodyValues"] = json!(false);
