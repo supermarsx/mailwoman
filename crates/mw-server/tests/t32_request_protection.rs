@@ -1429,3 +1429,39 @@ async fn websocket_actions_refresh_settings_revision_for_each_frame() {
     socket.close(None).await.unwrap();
     store.close().await;
 }
+
+// Separate owned router: negative adaptive controls never poison a benchmark account.
+#[cfg(feature = "load-test-fixtures")]
+#[tokio::test]
+async fn native_enforced_profile_preserves_defaults_and_enforces_typed_anomalies() {
+    let (base, store) = fixture(&[
+        ("security.protection.rateMode",json!("enforce")),
+        ("security.protection.adaptiveMode",json!("enforce")),
+        ("security.protection.probePathMode",json!("enforce")),
+        ("security.protection.userAgentMode",json!("enforce")),
+    ]).await;
+    let policy = mw_server::fixture_profile::protection_policy_witness(&store).await.unwrap();
+    assert_eq!(policy["noExemptions"],true);
+    assert_eq!(policy["defaultsExceptModes"],true);
+    assert_eq!(policy["parsed"]["rateMode"],"enforce");
+    assert_eq!(policy["parsed"]["adaptiveMode"],"enforce");
+    assert_eq!(policy["parsed"]["probePathMode"],"enforce");
+    assert_eq!(policy["parsed"]["userAgent"]["mode"],"enforce");
+    assert_eq!(policy["parsed"]["storageFailure"],"closed");
+    assert_eq!(policy["parsed"]["clientRequests"],600);
+    assert_eq!(policy["parsed"]["accountRequests"],1800);
+    assert_eq!(policy["parsed"]["short"]["absolute_anomalies"],20);
+    let caller=client(63);
+    login(&caller,&base).await;
+    for _ in 0..20 {
+        let response=caller.post(format!("{base}/jmap/api")).header("content-type","application/json").body("{not-json").send().await.unwrap();
+        assert_eq!(response.status(),400);let _=response.bytes().await.unwrap();
+    }
+    let response=caller.get(format!("{base}/api/me")).send().await.unwrap();
+    assert_eq!(response.status(),429);
+    assert!(response.headers().contains_key("retry-after"));
+    assert_eq!(response.json::<Value>().await.unwrap()["code"],"requestProtectionLimited");
+    let events=store.request_protection_events(chrono::Utc::now().timestamp(),None,100).await.unwrap();
+    assert!(events.iter().any(|event|event.enforced && event.reason=="short-absolute" && event.snapshot.short.anomalous==20));
+    assert_eq!(policy,mw_server::fixture_profile::protection_policy_witness(&store).await.unwrap());
+}

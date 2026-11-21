@@ -384,3 +384,37 @@ mod tests {
         assert_eq!(timing.json()["count"], 0);
     }
 }
+
+/// Fixture-only, off-request-path snapshot parsed by the production policy parser.
+/// No policy, exemptions or counters are changed; callers must retain unknown errors.
+#[cfg(feature = "load-test-fixtures")]
+pub async fn protection_policy_witness(store: &mw_store::Store) -> Result<Value, &'static str> {
+    let before = store.settings_read_revision().await.map_err(|_| "policy revision unavailable")?;
+    if before.number().is_none() { return Err("policy revision missing"); }
+    let rows = crate::settings_registry::effective_all_at_revision(store, &Default::default(),
+        |definition| definition.key.starts_with("security.protection."), &before)
+        .await.map_err(|_| "policy source unavailable")?;
+    let no_exemptions = ["exemptClients", "exemptAccounts", "exemptAdmins", "userAgentExceptions"]
+        .iter().all(|suffix| rows.iter().find(|row| row.key == format!("security.protection.{suffix}"))
+            .is_some_and(|row| row.value.as_array().is_some_and(Vec::is_empty)));
+    // Bind every resolved protection input, including patterns not present in
+    // Config::summary, to the registered production default except the four modes.
+    let defaults_except_modes = rows.iter().all(|row| {
+        let expected = match row.key.as_str() {
+            "security.protection.rateMode" | "security.protection.adaptiveMode"
+            | "security.protection.probePathMode" | "security.protection.userAgentMode" => json!("enforce"),
+            _ => match crate::settings_registry::lookup(&row.key) {
+                Some(definition) => definition.default_value(),
+                None => return false,
+            },
+        };
+        row.value == expected
+    });
+    let parsed = crate::request_protection::config::Config::parse(rows)
+        .map_err(|_| "policy parse failed")?;
+    let after = store.settings_read_revision().await.map_err(|_| "policy revision unavailable")?;
+    if before.number() != after.number() || before.scope() != after.scope() {
+        return Err("policy source changed");
+    }
+    Ok(json!({"kind":"native-protection-policy-v1","parsed":parsed.summary(),"noExemptions":no_exemptions,"defaultsExceptModes":defaults_except_modes}))
+}

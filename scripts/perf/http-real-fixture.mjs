@@ -1,4 +1,5 @@
 import {requestInputsEvidence} from './request-inputs-experiment.mjs';
+import {enforcedPolicyReport,assertEnforcedPolicySnapshot} from './native-enforced-policy.mjs';
 import {preparedMailExperimentReport,preparedMailEvidence} from './prepared-mail-experiment.mjs';
 import {throwDiagnosticSnapshotFailure,cacheAuditErrorEvidence,diagnosticFailureReport} from './fixture-diagnostic-failure.mjs';
 import {campaignCacheExperiment,assertSqliteCacheWitness,cacheExperimentEvidence} from './sqlite-page-cache-witness.mjs';
@@ -21,6 +22,7 @@ try{
  const cacheExperiment=campaignCacheExperiment(handoff,options);
  const startupReadiness=startupReadinessReport(handoff.startupReadiness,{required:handoff.engineMode==='native'});
  const policyEvidence=fixturePolicyReport(handoff.policyEvidence);
+ const enforcedPolicy=enforcedPolicyReport(handoff.enforcedPolicy);
  const searchWriter=searchWriterReport(handoff.searchWriter);
  const searchStorage=searchStorageReport(handoff.searchStorage);
  const linkedLoginPolicyProbe=linkedLoginPolicyProbeReport(handoff.linkedLoginPolicyProbe);
@@ -66,10 +68,10 @@ try{
   const url=new URL(handoff.diagnostics.path,base),init={headers:{'x-fixture-token':handoff.diagnostics.token},redirect:'error',signal:AbortSignal.timeout(5000)};
   if(phase==='before'){const reset=await fetch(url,{...init,method:'POST'});if(!reset.ok)throw new Error('Private fixture diagnostic reset unavailable');await reset.body?.cancel();}
   const response=await fetch(url,init);
-  if(!response.ok)await throwDiagnosticSnapshotFailure(response);const snapshot=fixtureDiagnosticsReport(await response.json());if(cacheExperiment)assertSqliteCacheWitness(snapshot,cacheExperiment);return snapshot;
+  if(!response.ok)await throwDiagnosticSnapshotFailure(response);const snapshot=fixtureDiagnosticsReport(await response.json());if(cacheExperiment)assertSqliteCacheWitness(snapshot,cacheExperiment);assertEnforcedPolicySnapshot(snapshot,enforcedPolicy);return snapshot;
  };
  const report={generatedAt:new Date().toISOString(),target:native?'ephemeral loopback Mailwoman router + seeded native engine':'ephemeral loopback Mailwoman router + local JMAP mock',scenario:`real authenticated middleware/HTTP/${native?'native-engine':'proxy'} with ${handoff.backend??'sqlite'}; fixture data; no TLS/reverse proxy`,backend:handoff.backend??'sqlite',buildProfile:handoff.buildProfile??'unknown',uniqueAuthenticatedPrincipals:principals.length,engineMode:native?'native':'proxy',protection:typeof handoff.protection==='string'?handoff.protection:handoff.protection?'rate/adaptive/user-agent observe; scanner enforce':'rate/adaptive/user-agent/scanner off',refreshSemantics:native?'native fixture backend refresh; upstream:true':'authenticated refresh route only; proxy response upstream:false; no upstream reconciliation',effectiveFixtureBudgets:handoff.budgets??{},runtimeWorkerThreads:handoff.runtimeWorkerThreads??4,runtimeWorkerStackBytes:handoff.runtimeWorkerStackBytes??null,generatorPlacement:handoff.generatorPlacement??'child process in same resource group',runtime:process.version,model:options.mode==='smoke'?'bounded open-loop overload smoke':'warmed concurrency ramp, followed by rates bounded by observed successful throughput; no capacity claim',stages:[]};
- Object.assign(report,{readIntent,startupReadiness,policyEvidence,workloadProfile,isolationEvidence,searchWriter,searchStorage,linkedLoginPolicyProbe},await runCampaign({base,headers,groups,options,diagnostics}));
+ Object.assign(report,{enforcedPolicy,readIntent,startupReadiness,policyEvidence,workloadProfile,isolationEvidence,searchWriter,searchStorage,linkedLoginPolicyProbe},await runCampaign({base,headers,groups,options,diagnostics}));
  report.ordinaryRequestInputs=requestInputsEvidence(handoff.ordinaryRequestInputs,report.stages,options.requestInputsExpected);
  report.preparedMailExperiment=preparedMailEvidence(preparedMailExperiment,report.stages);
  if(cacheExperiment)report.sqliteCacheExperiment=cacheExperimentEvidence(cacheExperiment,report.stages);

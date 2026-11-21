@@ -25,6 +25,8 @@ mod representative;
 mod fixture_runtime;
 #[path = "common/linked_login_preflight.rs"]
 mod linked_login_preflight;
+#[path = "common/native_enforced_policy.rs"]
+mod native_enforced_policy;
 #[cfg(feature = "sql-shape-diagnostics")]
 #[path = "common/native_sql_shapes.rs"]
 mod native_sql_shapes;
@@ -904,6 +906,7 @@ async fn run(workers: usize) {
         "representative messages must be2..100; baseline stays2"
     );
     let policy_mode = std::env::var("MW_NATIVE_LOAD_POLICY").unwrap_or_else(|_| "defaults".into());
+    let security_profile = native_enforced_policy::Profile::from_environment(std::env::var("MW_NATIVE_LOAD_SECURITY_PROFILE")).expect("strict native security profile");
     assert!(
         matches!(policy_mode.as_str(), "defaults" | "loaded"),
         "choose defaults or loaded policy profile"
@@ -955,6 +958,10 @@ async fn run(workers: usize) {
     let key = ServerKey::generate();
     let key_hex = key.to_hex();
     let store = Store::open(&db_path, key).await.unwrap();
+    if security_profile == native_enforced_policy::Profile::Enforced {
+        assert_eq!(policy_mode,"loaded","enforced security requires loaded protocol policy");
+        native_enforced_policy::install(&store).await;
+    }
     eprintln!("native fixture: seeding {count} independent users/clients");
     let seeding_started = Instant::now();
     let (principals, mut representative_runtimes) = seed_profile(
@@ -1116,6 +1123,12 @@ async fn run(workers: usize) {
                     Ok(snapshot)=>snapshot,
                     Err(error)=>return (axum::http::StatusCode::SERVICE_UNAVAILABLE,axum::Json(error.report().clone())),
                 };
+                if security_profile == native_enforced_policy::Profile::Enforced {
+                    snapshot["enforcedPolicySnapshot"] = match mw_server::fixture_profile::protection_policy_witness(&store).await {
+                        Ok(value)=>value,
+                        Err(_)=>return (axum::http::StatusCode::SERVICE_UNAVAILABLE,axum::Json(json!({"error":"enforced policy witness unavailable"}))),
+                    };
+                }
                 snapshot["preparedMail"] = serde_json::to_value(engine.prepared_mail_status()).unwrap();
                 snapshot["ordinaryRequestInputs"] = serde_json::to_value(mw_server::request_inputs_fixture::snapshot()).unwrap();
                 snapshot["httpTelemetry"] = mw_server::http_telemetry_snapshot();
@@ -1317,6 +1330,9 @@ async fn run(workers: usize) {
         200,
         "the actual unforwarded loopback peer remains internal"
     );
+    let enforced_policy = if security_profile == native_enforced_policy::Profile::Enforced {
+        Some(native_enforced_policy::preflight(&store,&client,&base).await)
+    } else { None };
     if let Some(options)=prepared_options {
         prepared_experiment["startup"]=prime_prepared_mail(&client,&base,&principals[0],measured_engine.get().unwrap(),options).await.expect("actual prepared mail startup configuration");
     }
@@ -1334,6 +1350,7 @@ async fn run(workers: usize) {
     let configuration=measured_engine.get().unwrap().search().writer_configuration();
     data["searchWriter"]=json!({"requestedWorkers":writer_options.indexing_workers,"indexingWorkers":configuration.indexing_workers,"memoryBudgetBytes":configuration.memory_budget_bytes});
     data["policyEvidence"] = policy_evidence;
+    data["enforcedPolicy"] = serde_json::to_value(enforced_policy).unwrap();
     data["preparedMailExperiment"] = prepared_experiment;
     data["linkedLoginPolicyProbe"] = linked_login_policy_probe;
     data["workloadProfile"] = json!({"kind":workload,"messagesPerPrincipal":messages,"seededMessages":count as u64*messages as u64,"seedSeconds":seed_seconds,"transport":if representative {"deterministic-read-flag-move"} else {"read-only"},"sendsMeasured":false,"upstreamNetworkMeasured":false});
