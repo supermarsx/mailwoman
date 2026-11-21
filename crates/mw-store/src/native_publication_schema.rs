@@ -180,6 +180,18 @@ impl Store {
         let Some(expected) = fence.publication_schema() else {
             return Ok(false);
         };
+        self.validate_publication_schema_source(fence.versions(), expected, sqlite_extra, postgres_extra).await
+    }
+    pub(super) async fn validate_publication_schema_source(
+        &self,
+        versions: &AuthorityVersions,
+        expected: &str,
+        sqlite_extra: &'static str,
+        postgres_extra: &'static str,
+    ) -> Result<bool, StoreError> {
+        if versions.store != self.cache_scope() {
+            return Err(invalid("foreign publication schema source"));
+        }
         let valid = match self.backend.dialect() {
             Dialect::Sqlite => {
                 let mut required = triggers(false);

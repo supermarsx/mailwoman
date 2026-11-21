@@ -427,3 +427,6 @@ pub use guard_inputs::{GuardInputSection, NativeGuardInputSnapshot};
 mod native_seed;
 pub use native_seed::NativeAuthoritySeed;
 pub use fence::NativeAuthorityFence;
+#[path = "global_guard_publication.rs"]
+mod global_guard;
+pub use global_guard::{GlobalGuardConfigFence, GlobalGuardConfigSource};
