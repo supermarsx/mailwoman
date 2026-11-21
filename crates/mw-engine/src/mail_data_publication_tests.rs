@@ -2,10 +2,26 @@
 //! below substitutes only for the endpoint's not-yet-integrated joint auth SQL;
 //! these tests do NOT establish HTTP authorization or a zero-SQL endpoint.
 use super::*;
-use crate::backend::{MessageRef,RawMailboxRef,RawMessage};
+use crate::backend::*;
 use mw_store::{Store,ServerKey,NewAccount,AccountKind,Credentials,MailboxUpsert};
 
 struct Fixture {engine:Engine,account:String,other:String,ids:Vec<String>}
+struct CacheOnlyBackend;
+#[async_trait::async_trait]
+impl AccountBackend for CacheOnlyBackend {
+    async fn capabilities(&self)->Result<BackendCaps>{Ok(Default::default())}
+    async fn list_mailboxes(&self)->Result<Vec<RawMailbox>>{panic!("prepared fixture must not enumerate an upstream")}
+    async fn sync_mailbox(&self,_:&RawMailboxRef,_:&SyncCursor)->Result<MailboxDelta>{panic!("prepared fixture must not synchronize an upstream")}
+    async fn fetch_raw(&self,_:&[MessageRef])->Result<Vec<RawMessage>>{panic!("prepared fixture must read only its real stored MIME")}
+    async fn store_flags(&self,_:&[MessageRef],_:&[Flag],_:&[Flag])->Result<()>{panic!("prepared fixture must not mutate an upstream")}
+    async fn move_messages(&self,_:&[MessageRef],_:&RawMailboxRef)->Result<MoveOutcome>{panic!("prepared fixture must not move upstream mail")}
+    async fn append(&self,_:&RawMailboxRef,_:&[u8],_:&[Flag])->Result<MessageRef>{panic!("prepared fixture must not append upstream mail")}
+    async fn watch(&self,_:ChangeSink)->Result<WatchHandle>{panic!("prepared fixture must not open an upstream watch")}
+}
+#[async_trait::async_trait]
+impl crate::account::MailSubmitter for CacheOnlyBackend {
+    async fn submit(&self,_:mw_smtp::Outgoing)->Result<mw_smtp::SubmissionResult>{panic!("prepared fixture must never send mail")}
+}
 async fn owner(store:&Store,name:&str)->String {
     store.create_account(&NewAccount {kind:AccountKind::Imap,host:"mail-data.invalid",port:993,tls:"implicit",username:name,sync_policy_json:"{}"},&Credentials {username:name.into(),password:"synthetic-only".into()}).await.unwrap()
 }
@@ -23,6 +39,13 @@ async fn fixture()->Fixture {
         folders.push(store.upsert_mailbox(&MailboxUpsert {account_id:&account,name,role:Some(role),uidvalidity:1,uidnext:51,highestmodseq:0,total:0,unread:0,parent_id:None}).await.unwrap());
     }
     let engine=Engine::with_search_and_publication_options(store,Arc::new(mw_search::Index::open_in_ram().unwrap()),crate::PublicationOptions {collection_window:Duration::ZERO,..Default::default()}).unwrap();
+    // The baseline is the actual connected-account dispatcher, not its
+    // accountNotFound error. Register the real runtime seam while forbidding
+    // every network read/write; all message data comes from stored MIME/Index.
+    for (id,name) in [(&account,"owner@mail-data.invalid"),(&other,"other@mail-data.invalid")] {
+        let backend=Arc::new(CacheOnlyBackend);
+        engine.register_backend(id.clone(),crate::account::AccountRuntime::new(backend.clone(),backend,name));
+    }
     assert!(engine.configure_prepared_mail(PreparedMailOptions {enabled:true,..Default::default()}));
     let mut ids=Vec::new();
     for n in 0..50u32 {
