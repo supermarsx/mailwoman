@@ -4,6 +4,7 @@ import {actionContract,actionHeaders,actionRoute,validActionPath} from './websoc
 import {ActionCompletionError,ApiError} from './errors.ts';
 import {recoverRequest} from './recovery.ts';
 import {markAdminSessionActive} from './adminSession.ts';
+import {apiFetch} from './http.ts';
 class Socket {
  static all:Socket[]=[];onmessage:((event:{data:string})=>void)|null=null;onclose:(()=>void)|null=null;onerror:(()=>void)|null=null;
  sent:string[]=[];closed=false;constructor(readonly endpoint:string){Socket.all.push(this);}send(value:string){this.sent.push(value);}close(){this.closed=true;}
@@ -96,4 +97,30 @@ it('keeps a completed response during cookie completion even if the old socket c
  const request=client.send('/admin/settings',{});ready();await flush();const socket=latest();
  const receipt={cookieDelivery:{token:'e'.repeat(64),expiresInMs:30000}};ack(socket,0,receipt);ack(socket,0,receipt);await flush();expect(delivery).toHaveBeenCalledTimes(1);
  socket.onclose?.();finish();expect((await request)?.status).toBe(200);
+});
+
+function escapedSignature():RequestInit{
+ const body=JSON.stringify({value:'"\\'.repeat(300000)});
+ const init={method:'PUT',headers:{'content-type':'application/json','idempotency-key':'owned-signature-write'},body};
+ expect(new TextEncoder().encode(body).length).toBeLessThan(actionContract.limits.bodyBytes);
+ expect(new TextEncoder().encode(JSON.stringify({id:'',path:'/admin/settings/signature',...init})).length).toBeGreaterThan(actionContract.limits.frameBytes);
+ return init;
+}
+it('treats escaped envelope overflow as locally unsupported before queue or socket admission',async()=>{
+ vi.stubGlobal('WebSocket',socketType);const init=escapedSignature();
+ const client=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',WebSocketImpl:socketType,maxInFlight:1});
+ // More than the queue bound must all remain known-unsent unsupported work.
+ for(let i=0;i<17;i++)await expect(client.send('/jmap/api',init)).resolves.toBeUndefined();
+ await expect(websocketAction('/admin/settings/signature',init,location.origin)).resolves.toBeUndefined();
+ expect(Socket.all).toHaveLength(0);
+ const normal=client.send('/jmap/session',{});ready();await flush();expect(latest().sent).toHaveLength(1);ack(latest());expect((await normal)?.status).toBe(200);client.close();
+});
+it('uses exactly one ordinary guarded HTTP send with the original escaped body after local frame overflow',async()=>{
+ vi.stubGlobal('WebSocket',socketType);document.cookie='mw_csrf=owned-frame-proof; Path=/';const init=escapedSignature();
+ const fetch=vi.fn(async(_input:unknown,_options?:RequestInit)=>new Response('{"saved":true}',{headers:{'content-type':'application/json'}}));vi.stubGlobal('fetch',fetch);
+ const response=await apiFetch('/admin/settings/signature',init);expect(response.status).toBe(200);
+ expect(Socket.all).toHaveLength(0);expect(fetch).toHaveBeenCalledTimes(1);
+ expect(fetch.mock.calls[0]?.[0]).toBe('/admin/settings/signature');
+ const actual=fetch.mock.calls[0]?.[1];expect(actual?.body).toBe(init.body);expect(actual?.method).toBe('PUT');
+ expect(new Headers(actual?.headers).get('x-csrf-token')).toBe('owned-frame-proof');expect(new Headers(actual?.headers).get('idempotency-key')).toBe('owned-signature-write');
 });

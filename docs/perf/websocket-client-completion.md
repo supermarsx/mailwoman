@@ -22,6 +22,16 @@ Unavailable-before-send may use HTTP. After send, only the server's explicit
 Unknown/malformed/lost acknowledgements never cause application replay. Shared
 worker and leader-channel replacement preserve the same terminal outcome.
 
+A body below the body limit can exceed the independent frame limit after JSON
+string escaping and envelope overhead. This locally unsupported representation
+falls back before channel/queue admission, using the unchanged request through
+ordinary HTTP and its authority assertions, CSRF and server guards. The private
+prepared frame is never a caller-supplied override; administrator frames are
+regenerated from the current CSRF after cookie handoff. This fallback neither
+raises limits nor treats queue pressure or an unknown/completed outcome as a
+reason to replay a request. The size test exercises actual escaped signature
+JSON, not merely a body that was already over its limit.
+
 Every queued frame invokes its caller's current authority assertion immediately
 before `socket.send`, in addition to the existing fresh server authorization.
 Admin session generations bind sockets; refreshed CSRF alone cannot adopt a new

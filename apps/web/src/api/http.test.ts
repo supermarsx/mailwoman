@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { apiFetch, csrfToken, setNativeTransport, type NativeTransport } from './http.ts';
 import { markAdminSessionActive } from './adminSession.ts';
 import { activateAccountPreferences, suspendAccountPreferences } from './accountPreferenceLifecycle.ts';
+import {clearWebSocketActions} from './websocketActions.ts';
 
 type FetchArgs = [input: string, init?: RequestInit];
 
@@ -36,12 +37,17 @@ describe('apiFetch', () => {
   let fetchMock: ReturnType<typeof vi.fn<(...args: FetchArgs) => Promise<Response>>>;
 
   beforeEach(() => {
+    // This suite isolates HTTP CSRF/retry semantics. Socket transport has its
+    // own fake-socket integration suite; jsdom's real adapter is unavailable.
+    clearWebSocketActions();
+    vi.stubGlobal('WebSocket',undefined);
     clearCookie();
     fetchMock = vi.fn<(...args: FetchArgs) => Promise<Response>>();
     vi.stubGlobal('fetch', fetchMock);
   });
 
   afterEach(() => {
+    clearWebSocketActions();
     setNativeTransport(null);
     vi.unstubAllGlobals();
     clearCookie();

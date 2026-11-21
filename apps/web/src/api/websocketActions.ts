@@ -8,6 +8,15 @@ import {actionContract,actionHeaders,actionRoute,validActionPath,type ActionActo
 interface CookieDelivery {token:string;expiresInMs:number}
 interface Ack {type?:string;protocol?:string;id?:string;status?:number;headers?:unknown;body?:string;actionOutcome?:string;httpRequired?:boolean;cookieDelivery?:unknown}
 interface Job {frame:string;init:RequestInit;bytes:number;resolve:(response:Response|undefined)=>void;reject:(error:unknown)=>void;stop:()=>void;sent:boolean;done:boolean;assertAuthority:()=>void;completed?:Response}
+interface EncodedFrame {text:string;bytes:number}
+// Only module-owned request snapshots enter this map. The public send API never
+// accepts caller-supplied serialized frames that could override current CSRF.
+const preparedFrames=new WeakMap<RequestInit,EncodedFrame>();
+function encodeFrame(path:string,init:RequestInit,headers:Record<string,string>):EncodedFrame{
+ const text=JSON.stringify({id:'',path,method:(init.method??'GET').toUpperCase(),headers,...(typeof init.body==='string'?{body:init.body}:{})});
+ return {text,bytes:new TextEncoder().encode(text).length};
+}
+function frameFits(frame:EncodedFrame):boolean{return frame.bytes+32<=actionContract.limits.frameBytes;}
 const MAX_QUEUED=16,MAX_QUEUED_BYTES=8*1024*1024;
 function unknown():ApiError{return new ApiError(409,'The action outcome is unknown. Check its result before retrying.',{code:'outcomeUnknown'});}
 function busy():ApiError{return new ApiError(429,'The action channel is busy; no action was sent.',{code:'actionNotDispatchedBusy'});}
@@ -94,8 +103,11 @@ export function createWebSocketActions(options:{endpoint:string;WebSocketImpl?:t
  async function send(path:string,init:RequestInit,assertAuthority:()=>void=()=>{}):Promise<Response|undefined>{
   const headers=actionHeaders(init.headers),method=(init.method??'GET').toUpperCase();
   if(!validActionPath(path)||!headers||!actionContract.methods.includes(method)||init.body!=null&&typeof init.body!=='string')throw new ApiError(400,'Invalid action request',{code:'actionNotDispatched'});
-  const frame=JSON.stringify({id:'',path,method,headers,...(typeof init.body==='string'?{body:init.body}:{})}),size=new TextEncoder().encode(frame).length;
-  if(size+32>actionContract.limits.frameBytes)throw new ApiError(413,'Action exceeds its transport limit',{code:'actionNotDispatched'});
+  const encoded=preparedFrames.get(init)??encodeFrame(path,init,headers);preparedFrames.delete(init);
+  // Body acceptance does not imply that the JSON-string envelope fits. This is
+  // known unsupported BEFORE queue/socket admission, so ordinary HTTP is safe.
+  if(!frameFits(encoded))return undefined;
+  const frame=encoded.text,size=encoded.bytes;
   if(init.signal?.aborted)throw init.signal.reason;
   if(retired)throw new ApiError(409,'Action authority retired',{code:'actionNotDispatched'});
   if(queue.length>=MAX_QUEUED||queueBytes+size>MAX_QUEUED_BYTES)throw busy();
@@ -142,11 +154,19 @@ async function deliverCookie(endpoint:string,receipt:CookieDelivery,init:Request
 export async function websocketAction(input:string,init:RequestInit|undefined,base:string,enabled=true,assertAuthority:()=>void=()=>{}):Promise<Response|undefined>{
  if(!enabled)return;
  const route=actionRoute(input,init,base,consolePath());if(!route)return;
+ const snapshot:RequestInit={...init,headers:actionHeaders(init?.headers)!};
+ let encoded:EncodedFrame|undefined=encodeFrame(route.path,snapshot,snapshot.headers as Record<string,string>);
+ // Also precedes the administrator's serialized turn admission. Do not turn a
+ // local transport-size mismatch into either queue debt or a server refusal.
+ if(!frameFits(encoded))return undefined;
+ // Admin turns refresh CSRF after prior cookie completion. Regenerate from that
+ // actual request in send; don't retain an extra serialized body in its queue.
+ if(route.actor==='admin')encoded=undefined;
  const admitted=generation,adminEpoch=adminSessionGeneration();
  const check=()=>{assertAuthority();if(admitted!==generation||route.actor==='admin'&&adminEpoch!==adminSessionGeneration())throw new ApiError(409,'Authentication changed before dispatch',{code:'actionNotDispatched'});};
  const run=async()=>{
   check();if(init?.signal?.aborted)throw init.signal.reason;
-  const currentProof=cookieProof(),proof=route.actor==='admin'?(currentProof||new Headers(init?.headers).get('x-csrf-token')||''):(new Headers(init?.headers).get('x-csrf-token')??currentProof);let actor=actors.get(route.actor);
+  const currentProof=cookieProof(),proof=route.actor==='admin'?(currentProof||new Headers(snapshot.headers).get('x-csrf-token')||''):(new Headers(snapshot.headers).get('x-csrf-token')??currentProof);let actor=actors.get(route.actor);
   if(route.actor==='admin'&&blockedAdmin&&blockedAdmin.generation===generation&&blockedAdmin.epoch===adminEpoch&&blockedAdmin.proof===currentProof)throw new ApiError(409,'Sign in again before sending another administrator action.',{code:'actionNotDispatched'});
   if(!actor||actor.endpoint!==route.endpoint||actor.proof!==proof||actor.generation!==admitted||route.actor==='admin'&&actor.epoch!==adminEpoch){
    if(actor){if(retiring.size>=8)throw busy();const old=actor.client;retiring.add(old);old.retire(()=>retiring.delete(old));}
@@ -155,11 +175,12 @@ export async function websocketAction(input:string,init:RequestInit|undefined,ba
   }
   // Each admin turn reads browser CSRF after the prior cookie handoff. Caller
   // supplied stale proof is not reused for a queued, previously unsent action.
-  const request={...init};if(route.actor==='admin'){const headers=new Headers(init?.headers),current=cookieProof();if(current)headers.set('x-csrf-token',current);request.headers=headers;}
+  const request={...snapshot};if(route.actor==='admin'){const headers=new Headers(snapshot.headers),current=cookieProof();if(current)headers.set('x-csrf-token',current);request.headers=headers;}
+  else if(encoded)preparedFrames.set(request,encoded);
   return actor.client.send(route.path,request,check);
  };
  if(route.actor!=='admin')return run();
- const bytes=new TextEncoder().encode(JSON.stringify({path:route.path,headers:actionHeaders(init?.headers),body:init?.body??''})).length;
+ const bytes=new TextEncoder().encode(JSON.stringify({path:route.path,headers:actionHeaders(snapshot.headers),body:snapshot.body??''})).length;
  if(adminPending>=MAX_QUEUED||adminBytes+bytes>MAX_QUEUED_BYTES)throw busy();adminPending++;adminBytes+=bytes;
  let cancelled=false;let stop=()=>{};
  const waiting=new Promise<Response|undefined>((resolve,reject)=>{
