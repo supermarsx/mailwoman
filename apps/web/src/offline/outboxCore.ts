@@ -423,7 +423,8 @@ async function drainOnce(store: OutboxStore, client: Client, tracking: DrainTrac
       // A reconnect must not replay a completed or ambiguously dispatched WS
       // action. Retain it for explicit user reconciliation, not automatic drain.
       if(terminalActionError(err)){
-        await store.put({...item,state:'failed',attempts:(item.attempts??0)+1,lastError:err instanceof Error?err.message:'Check the action result before retrying.'});
+        const refused: QueuedItem = {...item,state:'failed',attempts:(item.attempts??0)+1,lastError:err instanceof Error?err.message:'Check the action result before retrying.'};
+        await store.put(refused);
         failed+=1;continue;
       }
       if (!active() || err instanceof NetworkError || (err instanceof ApiError&&[401,403].includes(err.status))) break;
