@@ -702,3 +702,84 @@ fn shutdown_refuses_new_frames_even_when_waiting_drain_future_is_cancelled() {
         assert!(service.shutdown().await);
     });
 }
+
+#[test]
+fn real_webmail_duplicate_inflight_id_closes_without_false_predispatch_receipt() {
+    run(|| async {
+        use futures_util::{SinkExt, StreamExt};
+        use mw_store::settings_policy::SettingScope;
+        use tokio_tungstenite::tungstenite::{Message as WireMessage, client::IntoClientRequest};
+        let fixture = Fixture::new().await;
+        // The one-frame admin channel cannot expose this race: its receiver is
+        // backpressured until the first task completes. Use a legitimate primary
+        // webmail actor and its eight-frame receive window instead.
+        let credentials = mw_store::Credentials {
+            username: "wire-owner@socket.test".into(),
+            password: "owned-fixture-not-an-upstream-secret".into(),
+        };
+        let account = fixture.state.store.create_account(
+            &mw_store::NewAccount {
+                kind: mw_store::AccountKind::Imap,
+                host: "127.0.0.1", port: 9, tls: "starttls",
+                username: &credentials.username, sync_policy_json: "{}",
+            }, &credentials,
+        ).await.unwrap();
+        let session = fixture.state.store.create_session(
+            &account, &credentials.username, "engine", "engine", &credentials,
+        ).await.unwrap();
+        fixture.state.store.set_session_authentication(&session, "password").await.unwrap();
+        fixture.state.store.bind_verified_primary(
+            &session,
+            mw_store::identity_principal::VerifiedPrimary {
+                account_id: &account, kind: "mailbox", authority: "wire-fixture", subject: &account,
+            }, chrono::Utc::now().timestamp(),
+        ).await.unwrap().unwrap();
+        policy(&fixture.state, "access.protocols", r#"["imap"]"#).await;
+        const KEY: &str = "mail.list.pageSize"; // User-scoped integer20..200, default50.
+        assert!(fixture.state.store.get_setting_value(SettingScope::User, &account, KEY).await.unwrap().is_none());
+
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = fixture.router.clone();
+        struct Stop(tokio::task::JoinHandle<()>);
+        impl Drop for Stop { fn drop(&mut self) { self.0.abort(); } }
+        let _stop = Stop(tokio::spawn(async move {
+            axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
+        }));
+        let mut request = format!("ws://{address}{}/jmap/actions", fixture.state.base_path).into_client_request().unwrap();
+        request.headers_mut().insert(header::ORIGIN, format!("http://{address}").parse().unwrap());
+        let csrf = fixture.state.store.session_csrf_token(&session);
+        request.headers_mut().insert(header::COOKIE, format!("mw_session={session}; mw_csrf={csrf}").parse().unwrap());
+        let (mut socket, _) = tokio::time::timeout(std::time::Duration::from_secs(5), tokio_tungstenite::connect_async(request)).await.unwrap().unwrap();
+        let ready = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next()).await.unwrap().unwrap().unwrap().into_text().unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&ready).unwrap()["type"], "ready");
+        const ID: &str = "owned-duplicate-id";
+        let lease = test_control::pause_wire(&fixture.state, ID);
+        let frame = json!({"id":ID,"method":"PUT","path":format!("/api/settings/{KEY}"),"headers":{"content-type":"application/json","x-csrf-token":csrf},"body":"{\"value\":75}"});
+        tokio::time::timeout(std::time::Duration::from_secs(5), socket.send(WireMessage::Text(frame.to_string().into()))).await.unwrap().unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::select! {
+                _ = lease.pause.entered.notified() => {},
+                _ = socket.next() => panic!("real mutation must pause after successful dispatch, before any ACK"),
+            }
+        }).await.unwrap();
+        let saved = fixture.state.store.get_setting_value(SettingScope::User, &account, KEY).await.unwrap().expect("real user setting persisted before duplicate");
+        assert_eq!(serde_json::from_str::<Value>(&saved.value).unwrap(), json!(75));
+        assert_eq!(lease.pause.calls.load(Ordering::SeqCst), 1);
+
+        // Without the active-ID fence this control frame yields a false
+        // notDispatched/httpRequired receipt for the already-applied mutation.
+        let duplicate = json!({"id":ID,"method":"GET","path":"/api/me"});
+        tokio::time::timeout(std::time::Duration::from_secs(5), socket.send(WireMessage::Text(duplicate.to_string().into()))).await.unwrap().unwrap();
+        let next = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next()).await.unwrap();
+        assert!(matches!(next, Some(Ok(WireMessage::Close(_))) | None), "duplicate in-flight ID must close, never return a misleading Text ACK");
+        assert_eq!(lease.pause.calls.load(Ordering::SeqCst), 1);
+        let saved = fixture.state.store.get_setting_value(SettingScope::User, &account, KEY).await.unwrap().unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&saved.value).unwrap(), json!(75));
+        // Close makes the first ACK unknown to the wire client; there is no
+        // application replay here. Client no-replay handling is a separate gate.
+        lease.pause.release.close();
+        assert!(fixture.state.websocket_actions.shutdown().await, "closed receiver must release its real global dispatch slot");
+        drop(lease); // RAII also releases/removes the bounded test-only gate.
+    });
+}

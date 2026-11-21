@@ -428,6 +428,8 @@ async fn execute(
         .oneshot(request)
         .await
         .unwrap_or_else(|never| match never {});
+    #[cfg(test)]
+    test_control::after_dispatch(&state, id, response.status()).await;
     let known_cookies = cookie_delivery::issued_cookies_match(&response);
     let had_cookies = response.headers().contains_key(header::SET_COOKIE);
     let delivery = ticket.and_then(|ticket| ticket.finish());
@@ -535,6 +537,59 @@ pub(crate) mod test_control {
     tokio::task_local! {pub static STATE:RefCell<Option<AppState>>;pub static PAUSE:Arc<Pause>;}
     pub(crate) fn record_state(state: &AppState) {
         let _ = STATE.try_with(|slot| *slot.borrow_mut() = Some(state.clone()));
+    }
+    /// A real-wire fixture crosses Axum/upgrade tasks, so its ownership gate
+    /// cannot be a task-local. No request extension or environment supplies it.
+    pub(super) struct WirePause {
+        pub entered: tokio::sync::Notify,
+        pub release: tokio::sync::Semaphore,
+        pub calls: std::sync::atomic::AtomicUsize,
+    }
+    type WireKey = (uuid::Uuid, String);
+    fn wire_pauses() -> &'static std::sync::Mutex<HashMap<WireKey, std::sync::Weak<WirePause>>> {
+        static PAUSES: std::sync::OnceLock<
+            std::sync::Mutex<HashMap<WireKey, std::sync::Weak<WirePause>>>,
+        > = std::sync::OnceLock::new();
+        PAUSES.get_or_init(Default::default)
+    }
+    pub(super) struct WireLease {
+        key: WireKey,
+        pub pause: Arc<WirePause>,
+    }
+    impl Drop for WireLease {
+        fn drop(&mut self) {
+            if let Ok(mut entries) = wire_pauses().lock() {
+                entries.remove(&self.key);
+            }
+            // Also unblocks a still-live owner on assertion panic/timeout.
+            self.pause.release.close();
+        }
+    }
+    pub(super) fn pause_wire(state: &AppState, id: &str) -> WireLease {
+        assert!(!id.is_empty() && id.len() <= contract::get().limits.id_bytes);
+        let key = (state.store.cache_scope(), id.to_owned());
+        let pause = Arc::new(WirePause {
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Semaphore::new(0),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let mut entries = wire_pauses().lock().unwrap();
+        entries.retain(|_, weak| weak.strong_count() > 0);
+        assert!(entries.len() < 4 && !entries.contains_key(&key));
+        entries.insert(key.clone(), Arc::downgrade(&pause));
+        WireLease { key, pause }
+    }
+    pub(super) async fn after_dispatch(state: &AppState, id: &str, status: StatusCode) {
+        let pause = wire_pauses().lock().ok().and_then(|entries| {
+            entries
+                .get(&(state.store.cache_scope(), id.to_owned()))
+                .and_then(std::sync::Weak::upgrade)
+        });
+        let Some(pause) = pause else { return };
+        assert!(status.is_success(), "real fixture mutation must succeed");
+        pause.calls.fetch_add(1, Ordering::SeqCst);
+        pause.entered.notify_one();
+        let _ = pause.release.acquire().await;
     }
     pub(super) async fn paused(State(state): State<AppState>) -> Response {
         let pause = PAUSE.with(Clone::clone);
