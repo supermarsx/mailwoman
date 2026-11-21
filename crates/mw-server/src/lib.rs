@@ -193,6 +193,8 @@ pub mod geoip;
 mod request_budget;
 mod protocol_guard;
 mod request_protection;
+#[allow(dead_code)]
+mod published_guard_inputs;
 mod sanitize_gate;
 mod security_center;
 mod server_text;

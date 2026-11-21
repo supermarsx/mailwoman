@@ -420,6 +420,9 @@ mod tests;
 mod fence;
 #[path = "native_publication_schema.rs"]
 mod schema;
+#[path = "guard_input_publication.rs"]
+mod guard_inputs;
+pub use guard_inputs::{GuardInputSection, NativeGuardInputSnapshot};
 #[path = "native_authority_seed.rs"]
 mod native_seed;
 pub use native_seed::NativeAuthoritySeed;

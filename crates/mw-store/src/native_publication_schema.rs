@@ -85,6 +85,9 @@ struct Function {
 }
 fn triggers(pg: bool) -> Vec<Trigger> {
     let source = if pg { PG_SQL } else { SQLITE_SQL };
+    triggers_from(source, pg)
+}
+fn triggers_from(source: &str, pg: bool) -> Vec<Trigger> {
     let mut out = Vec::new();
     for chunk in source.split("CREATE TRIGGER ").skip(1) {
         let end = if pg {
@@ -127,7 +130,10 @@ fn triggers(pg: bool) -> Vec<Trigger> {
     out
 }
 fn functions() -> Vec<Function> {
-    PG_SQL
+    functions_from(PG_SQL)
+}
+fn functions_from(source: &str) -> Vec<Function> {
+    source
         .split("CREATE FUNCTION ")
         .skip(1)
         .filter_map(|chunk| {
@@ -160,6 +166,14 @@ impl Store {
         &self,
         fence: &NativeAuthorityFence,
     ) -> Result<bool, StoreError> {
+        self.validate_native_publication_schema_with_extra(fence, "", "").await
+    }
+    pub(super) async fn validate_native_publication_schema_with_extra(
+        &self,
+        fence: &NativeAuthorityFence,
+        sqlite_extra: &'static str,
+        postgres_extra: &'static str,
+    ) -> Result<bool, StoreError> {
         if fence.versions().store != self.cache_scope() {
             return Err(invalid("foreign publication schema source"));
         }
@@ -168,7 +182,8 @@ impl Store {
         };
         let valid = match self.backend.dialect() {
             Dialect::Sqlite => {
-                let required = triggers(false);
+                let mut required = triggers(false);
+                required.extend(triggers_from(sqlite_extra, false));
                 if required.is_empty() || required.len() > 128 {
                     return Ok(false);
                 }
@@ -191,8 +206,10 @@ impl Store {
                     })
             }
             Dialect::Postgres => {
-                let required = triggers(true);
-                let functions = functions();
+                let mut required = triggers(true);
+                required.extend(triggers_from(postgres_extra, true));
+                let mut functions = functions();
+                functions.extend(functions_from(postgres_extra));
                 if required.is_empty() || required.len() > 128 || functions.len() > 64 {
                     return Ok(false);
                 }

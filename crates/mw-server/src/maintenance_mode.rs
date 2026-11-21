@@ -15,6 +15,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 const KEY: &str = "maintenance.mode.v1";
+/// Shared parser seam only; the current guard still performs its ordinary read.
+#[allow(dead_code)]
+pub(crate) fn prepare_published_inputs(raw: Option<&str>) -> Result<std::sync::Arc<Config>, ()> {
+    Config::parse(raw).map(std::sync::Arc::new).map_err(|_| ())
+}
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Config {
@@ -263,5 +268,17 @@ mod tests {
         value.retry_after_secs = 0;
         assert!(value.validate().is_err());
         assert!(Config::parse(Some("{}")).is_err());
+    }
+}
+
+#[cfg(test)]
+mod published_input_tests {
+    use super::*;
+    #[test]
+    fn immutable_maintenance_configuration_reuses_original_default_and_validation() {
+        for raw in [None,Some(r#"{"enabled":true,"message":"Planned work","retryAfterSecs":90}"#),Some("["),Some(r#"{"enabled":true,"message":"","retryAfterSecs":0}"#)] {
+            let old=Config::parse(raw);let prepared=prepare_published_inputs(raw);assert_eq!(old.is_ok(),prepared.is_ok());
+            if let (Ok(old),Ok(prepared))=(old,prepared){assert_eq!(&old,prepared.as_ref());}
+        }
     }
 }

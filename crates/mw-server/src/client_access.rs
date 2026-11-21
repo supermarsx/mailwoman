@@ -25,6 +25,13 @@ const PENDING: &str = "mw_client_access_pending";
 const UNLOCK: &str = "/api/client-access/unlock";
 const PURPOSE: &str = "client-interface-access-v1";
 const GATE_HEADER: &str = "x-mailwoman-client-gate";
+/// Opaque parsed configuration DATA. No client/source/grant decision is cached.
+#[allow(dead_code)]
+pub(crate) struct PublishedInputs(std::sync::Arc<Config>);
+#[allow(dead_code)]
+pub(crate) fn prepare_published_inputs(raw: Option<&str>) -> Result<PublishedInputs, ()> {
+    Config::parse(raw).map(|value| PublishedInputs(std::sync::Arc::new(value))).map_err(|_| ())
+}
 static HASH_WORK: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 #[derive(Clone)]
 pub(crate) struct GatePageResponse;
@@ -765,5 +772,18 @@ mod tests {
             assert!(validate_slug(slug).is_err(), "{slug}");
         }
         assert!(validate_slug("private-entry-2").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod published_input_tests {
+    use super::*;
+    #[test]
+    fn immutable_client_configuration_reuses_original_parser_not_a_grant() {
+        for raw in [None,Some(r#"{"pskEnabled":false,"slugEnabled":false,"grantHours":24,"revision":"fixture"}"#),Some("["),Some(r#"{"grantHours":0}"#)] {
+            let old=Config::parse(raw);let prepared=prepare_published_inputs(raw);
+            assert_eq!(old.is_ok(),prepared.is_ok());
+            if let (Ok(old),Ok(prepared))=(old,prepared) {assert_eq!(serde_json::to_value(old).unwrap(),serde_json::to_value(prepared.0.as_ref()).unwrap());}
+        }
     }
 }

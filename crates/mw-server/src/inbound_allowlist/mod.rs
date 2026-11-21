@@ -5,6 +5,14 @@ mod routes;
 mod runtime;
 pub(crate) use routes::register;
 pub(crate) use runtime::Runtime;
+/// This contains configuration only. DNS answers/TTL and source admission stay
+/// in Runtime, and are never frozen into a request-independent allow result.
+#[allow(dead_code)]
+pub(crate) struct PublishedInputs(std::sync::Arc<config::Config>);
+#[allow(dead_code)]
+pub(crate) fn prepare_published_inputs(raw: Option<&str>) -> Result<PublishedInputs, ()> {
+    config::Config::parse(raw).map(|value| PublishedInputs(std::sync::Arc::new(value)))
+}
 
 use axum::{
     Json,
@@ -96,5 +104,17 @@ mod tests {
         c.dns.concurrency = 5;
         assert!(c.validate().is_err());
         assert!(config::Config::parse(Some("broken")).is_err());
+    }
+}
+
+#[cfg(test)]
+mod published_input_tests {
+    use super::*;
+    #[test]
+    fn immutable_inbound_configuration_reuses_original_validation_without_dns() {
+        for raw in [None,Some("{}"),Some(r#"{"webmail":{"enabled":true,"cidrs":["127.0.0.1/32"]}}"#),Some("["),Some(r#"{"dns":{"concurrency":0}}"#)] {
+            let old=config::Config::parse(raw);let prepared=prepare_published_inputs(raw);assert_eq!(old.is_ok(),prepared.is_ok());
+            if let (Ok(old),Ok(prepared))=(old,prepared){assert_eq!(&old,prepared.0.as_ref());}
+        }
     }
 }
