@@ -76,17 +76,19 @@ export function inspectSolidTemplates(code, ast, resolvedSolidSources = []) {
     let styles = 0;
     const errors = [];
     const fragment = parseFragment(html, {onParseError: error => errors.push(error)});
-    let emptyIframeAtEof = false;
+    let emptyCompiledTextAtEof = false;
     if (errors.some(error => error.code === 'eof-in-element-that-can-contain-only-text' && error.startOffset === html.length && error.endOffset === html.length)) {
-      // Reader's compiler literal is an empty <iframe ...> with its closing tag
-      // omitted. The browser finishes this empty RAWTEXT element at EOF. Check
-      // the actual parsed start-tag boundary, not a regex over attribute text.
+      // Actual cached compiler output omits the closing tag for empty iframe
+      // (RAWTEXT) and textarea (RCDATA) factories. Both use the HTML parser's
+      // text insertion mode and finish the empty element at EOF. Support only
+      // those observed forms, with the same parsed boundary proof, never a
+      // blanket EOF/error exception or a regex over attribute text.
       const located = [parseFragment(html, {sourceCodeLocationInfo:true})];
       while (located.length) {
         const element = located.pop();
         const location = element.sourceCodeLocation;
-        if (element.tagName === 'iframe' && element.namespaceURI === 'http://www.w3.org/1999/xhtml' &&
-            location?.startTag?.endOffset === html.length && !location.endTag && (element.childNodes?.length ?? 0) === 0) emptyIframeAtEof = true;
+        if ((element.tagName === 'iframe' || element.tagName === 'textarea') && element.namespaceURI === 'http://www.w3.org/1999/xhtml' &&
+            location?.startTag?.endOffset === html.length && !location.endTag && (element.childNodes?.length ?? 0) === 0) emptyCompiledTextAtEof = true;
         located.push(...(element.childNodes ?? []));
         if (element.content) located.push(element.content);
       }
@@ -102,7 +104,7 @@ export function inspectSolidTemplates(code, ast, resolvedSolidSources = []) {
       // HTML emits an empty bogus-comment token at this exact '>' and returns
       // to DATA; subsequent styled elements must still be inspected unchanged.
       if (error.code === 'incorrectly-opened-comment') return html.slice(error.startOffset - 2, error.startOffset + 1) === '<!>';
-      if (error.code === 'eof-in-element-that-can-contain-only-text') return emptyIframeAtEof && error.startOffset === html.length && error.endOffset === html.length;
+      if (error.code === 'eof-in-element-that-can-contain-only-text') return emptyCompiledTextAtEof && error.startOffset === html.length && error.endOffset === html.length;
       return error.code === 'missing-whitespace-between-attributes' && /["']/.test(html[error.startOffset - 1] ?? '') &&
         /^[A-Za-z_:][A-Za-z0-9_:.-]*(?=\s|=|\/?>)/.test(html.slice(error.startOffset));
     };

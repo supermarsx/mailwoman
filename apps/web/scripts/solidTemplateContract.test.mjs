@@ -67,7 +67,24 @@ test('actual empty Reader iframe ends at a complete start tag without hiding sty
   for(const unsafe of [html.replace(' sandbox',' style="color:red" sandbox'),html.replace(' sandbox',' STYLE=color:red sandbox'),`<div style=color:red>${html}`]){
     assert.equal(inspect(factory(unsafe)).templates[0].styleAttributes,1);
   }
-  for(const malformed of ['<iframe style="unterminated>','<iframe class=x','<iframe>text','<iframe><span style=color:red>','<iframe/>','<textarea>','<script>']){
+  for(const malformed of ['<iframe style="unterminated>','<iframe class=x','<iframe>text','<iframe><span style=color:red>','<iframe/>','<script>']){
+    assert.throws(()=>inspect(factory(malformed)),/malformed template HTML/);
+  }
+});
+test('audited actual textarea factories use the same complete empty text-mode EOF boundary',()=>{
+  // Actual SignatureEditor/ComposeDelivery factory (10 bytes), representative
+  // of all 42 remaining EOF cases in the bounded cached-production audit.
+  // This replaces the earlier conservative unknown-form textarea rejection;
+  // the boundary proof and malformed/nonempty denials remain unchanged.
+  const html='<textarea>';
+  const result=inspect(factory(html));
+  assert.equal(Buffer.byteLength(html),10);
+  assert.equal(result.templates[0].sha256,'b9eec26f0ffbda52cfdc3994b3cfc42238976a2d61678c224a7acd1f0aa40db8');
+  assert.equal(result.templates[0].styleAttributes,0);
+  for(const unsafe of ['<textarea style="color:red">','<textarea STYLE=color:red>','<label style=color:red><textarea>']){
+    assert.equal(inspect(factory(unsafe)).templates[0].styleAttributes,1);
+  }
+  for(const malformed of ['<textarea style="unterminated>','<textarea','<textarea>text','<textarea><span style=color:red>','<textarea/>','<textarea>\n','<title>','<script>']){
     assert.throws(()=>inspect(factory(malformed)),/malformed template HTML/);
   }
 });
