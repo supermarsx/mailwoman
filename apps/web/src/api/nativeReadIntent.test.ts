@@ -4,7 +4,8 @@ import {resolve} from 'node:path';
 import contract from './native-read-intent-contract.json';
 import wsContract from './websocket-action-contract.json';
 import {isNativeMetadataReadIntent,nativeReadIntentHeaders} from './nativeReadIntent.ts';
-const request=()=>({using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:[['Email/get',{accountId:'owned',ids:['one','one','two'],properties:[...contract.properties]},'call']]});
+type FixtureCall=[string,Record<string,unknown>,string];
+const request=():{using:string[];methodCalls:[FixtureCall,...FixtureCall[]]}=>({using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:[['Email/get',{accountId:'owned',ids:['one','one','two'],properties:[...contract.properties]},'call']]});
 describe('native metadata read declaration',()=>{
  it('uses the actual composed DEFAULT36 profile and canonical WS allowlist',()=>{
   const source=readFileSync(resolve(process.cwd(),'../../scripts/perf/fixture-properties.mjs'),'utf8');
@@ -16,7 +17,7 @@ describe('native metadata read declaration',()=>{
   expect(wsContract.requestHeaders).toContain(contract.header);
  });
  it('marks exact reads without changing duplicate IDs or call IDs',()=>{const value=request();const before=JSON.stringify(value);expect(nativeReadIntentHeaders(value)).toEqual({[contract.header]:contract.value});expect(JSON.stringify(value)).toBe(before);});
- it('rejects mutation and sequential mixed methods',()=>{const value=request();value.methodCalls[0][0]='Email/set';expect(isNativeMetadataReadIntent(value)).toBe(false);value.methodCalls.push(['Email/get',{},'next'] as never);expect(isNativeMetadataReadIntent(value)).toBe(false);});
+ it('rejects mutation and sequential mixed methods',()=>{const value=request();value.methodCalls[0][0]='Email/set';expect(isNativeMetadataReadIntent(value)).toBe(false);value.methodCalls.push(['Email/get',{},'next']);expect(isNativeMetadataReadIntent(value)).toBe(false);});
  it('rejects outer createdIds and unknown argument controls',()=>{expect(isNativeMetadataReadIntent({...request(),createdIds:{}})).toBe(false);const value=request();(value.methodCalls[0][1] as Record<string,unknown>).unknown=true;expect(isNativeMetadataReadIntent(value)).toBe(false);});
  it('rejects missing, duplicate, and unsupported output properties',()=>{for(const props of [contract.properties.slice(1),contract.properties.map((p,i)=>i? p:contract.properties[1]),[...contract.properties.slice(1),'bodyValues']]){const value=request();(value.methodCalls[0][1] as Record<string,unknown>).properties=props;expect(isNativeMetadataReadIntent(value)).toBe(false);}});
  it('rejects references, oversized IDs and more than50 input rows',()=>{for(const ids of [null,Array(51).fill('owned'),['é'.repeat(513)],['']]){const value=request();(value.methodCalls[0][1] as Record<string,unknown>).ids=ids;expect(isNativeMetadataReadIntent(value)).toBe(false);}const value=request();(value.methodCalls[0][1] as Record<string,unknown>)['#ids']={resultOf:'query'};expect(isNativeMetadataReadIntent(value)).toBe(false);});
