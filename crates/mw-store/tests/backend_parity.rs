@@ -53,7 +53,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 
 /// Every store table, for TRUNCATE between Postgres runs.
 const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, client_error_event, client_error_group, metrics_bucket, dsr_request, dsr_event, dsr_part, erasure_tombstone, backup_register, scrub_key, audit_rechain, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, user_retention_rule, user_retention_account, user_retention_run, user_pim_retention, retention_archive_segment, retention_archive_index, breach_incident, breach_event, breach_delivery, account_restriction, consent_record, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, body_gc_candidate, threads, \
-    pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, change_log_checkpoint, change_log_maintenance_cursor, message_body_cache_lease, message_list_envelope, scheduled_mdn, mdn_sender_schedule, \
+    pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, change_log_checkpoint, change_log_maintenance_cursor, message_body_cache_lease, message_list_envelope, mail_data_outbox, mail_data_rows, mail_data_accounts, scheduled_mdn, mdn_sender_schedule, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
     dlp_audit, sender_controls, store_key_material, push_subscriptions, push_config, \
@@ -1045,6 +1045,9 @@ const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
     ("authority_subject_anchor", "0112: derived live-session absence anchors; destination starts cold and seeds only its own verified source/vector"),
     ("authority_epoch", "0111: local derived publication epochs; destination starts cold with new incarnations and lazily seeds live scopes; source authorities follow existing copy rules"),
     ("authority_publication_outbox", "0111: source-deployment worker claims/acknowledgements; destination rebuilds locally and must not inherit claims or treat another process acknowledgement as installed RAM"),
+    ("mail_data_accounts", "0113: derived process/source DATA identities; destination source-copy triggers create a fresh account incarnation, never copy a prepared-result proof."),
+    ("mail_data_rows", "0113: derived per-message DATA revisions; destination source-copy triggers regenerate them. All user-owned Message/envelope/body/meta rows remain copied."),
+    ("mail_data_outbox", "0113: coalesced source invalidation hints, not user mail or mutation history. Destination source writes create its own pending hints; source work claims are not transferred."),
     (
         "ephemeral_state",
         "0097: sealed ceremony state (an in-flight single sign-on redirect) that lives for minutes and is consumed once; it is sealed with the source server key and a person mid-flow starts again after a store move.",

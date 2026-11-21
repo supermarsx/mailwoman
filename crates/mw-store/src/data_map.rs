@@ -494,6 +494,11 @@ pub const RULES: &[Rule] = &[
     keep!("linked_challenge", "short-lived sign-in challenge bound to a session; removed with the session"),
     // accounts runs last: its cascade removes the cached mail and PIM rows.
     Rule { last: true, ..del!("accounts", "id", Bind::Account) },
+    //0113: derived source IDs have no account FK (avoid child->parent lock
+    // inversion). Explicit final-order deletion/verification follows sources.
+    Rule { last: true, ..del!("mail_data_outbox", "account_id", Bind::Account) },
+    Rule { last: true, ..del!("mail_data_rows", "account_id", Bind::Account) },
+    Rule { last: true, ..del!("mail_data_accounts", "account_id", Bind::Account) },
     Rule {
         table: "sessions",
         bind: Bind::Account,

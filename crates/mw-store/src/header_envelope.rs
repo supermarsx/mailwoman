@@ -361,6 +361,36 @@ impl Store {
         }
         Ok(ids.iter().map(|id| result.get(id).cloned()).collect())
     }
+
+    /// Bounded publication preparation only. Unlike the normal lazy getter,
+    /// missing/corrupt/legacy rows NEVER fetch the full envelope or raw body.
+    /// Existing readers retain their unchanged lazy source-repair behavior.
+    pub async fn get_account_projected_header_envelopes(
+        &self,
+        account: &str,
+        ids: &[String],
+    ) -> Result<Vec<Option<HeaderEnvelope>>, StoreError> {
+        if account.is_empty() || account.len()>1024 || ids.len()>50
+            || ids.iter().any(|id|id.is_empty() || id.len()>1024)
+        { return Err(StoreError::Invalid("prepared header input limit exceeded")); }
+        if ids.is_empty() {return Ok(Vec::new())}
+        let sql=match self.backend.dialect() {
+            Dialect::Sqlite=>LIGHT_SQLITE,
+            Dialect::Postgres=>"SELECT m.stable_id,m.cache_revision,CASE WHEN length(h.sealed_envelope)<=?3 THEN h.sealed_envelope ELSE NULL END AS light FROM messages m LEFT JOIN message_list_envelope h ON h.stable_id=m.stable_id AND h.account_id=m.account_id WHERE m.account_id=?2 AND m.stable_id IN(SELECT value FROM json_array_elements_text(?1::json))",
+        };
+        let rows=q(sql).bind(serde_json::to_string(ids).expect("bounded IDs"))
+            .bind(account).bind((MAX_HEADER_ENVELOPE_BYTES+44) as i64)
+            .fetch_all(&self.backend).await?;
+        let mut found=HashMap::new();
+        for row in rows {
+            let id=row.try_get_opt_string("stable_id")?.ok_or_else(||StoreError::Corrupt("prepared header ID missing".into()))?;
+            let revision=row.try_get_opt_string("cache_revision")?.ok_or_else(||StoreError::Corrupt("prepared header revision missing".into()))?;
+            if let Some(sealed)=row.get_opt_blob("light")
+                && let Some(envelope)=open_projection(&self.key,account,&id,&sealed)
+            { found.insert(id,HeaderEnvelope {envelope,cache_revision:revision,projected:true}); }
+        }
+        Ok(ids.iter().map(|id|found.get(id).cloned()).collect())
+    }
     async fn header_fallback(
         &self,
         account: &str,

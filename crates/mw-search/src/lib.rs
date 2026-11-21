@@ -24,6 +24,7 @@ pub use publication::{PublicationChange, PublicationReceipt, PublicationOwnerCla
 #[cfg(test)]
 mod publication_contract_tests;
 mod list_projection;
+mod projection_observation;
 pub use list_projection::{ListProjection, MAX_LIST_PROJECTION_IDS};
 /// A8 (26.19): cosine re-rank of an already-retrieved lexical hit list, behind the
 /// opt-in `semantic` flag. Pure vector math over `std` — retrieval is untouched, so
@@ -514,6 +515,7 @@ pub struct Index {
     list_projection_doc_reads: AtomicU64,
     publication_poisoned: AtomicBool,
     publication_owner: AtomicBool,
+    unowned_projection: projection_observation::Observation,
     #[cfg(test)]
     publication_fault: Mutex<Option<publication::PublicationFault>>,
     #[cfg(test)]
@@ -612,6 +614,7 @@ impl Index {
             list_projection_doc_reads: AtomicU64::new(0),
             publication_poisoned: AtomicBool::new(false),
             publication_owner: AtomicBool::new(false),
+            unowned_projection: Default::default(),
             #[cfg(test)]
             publication_fault: Mutex::new(None),
             #[cfg(test)]
@@ -715,6 +718,7 @@ impl Index {
 
     /// Add or replace a document (called at `Engine::ingest`).
     pub fn upsert(&self, doc: &IndexDoc) -> Result<()> {
+        let _change = self.unowned_projection.begin();
         {
             let mut w = self.lock_writer()?;
             self.write_one(&w, doc)?;
@@ -734,6 +738,7 @@ impl Index {
     /// roughly N times the cost of one `upsert_batch` of N documents.
     /// [`commit_count`] distinguishes the two.
     pub fn upsert_batch(&self, docs: &[IndexDoc]) -> Result<()> {
+        let _change = self.unowned_projection.begin();
         {
             let mut w = self.lock_writer()?;
             for doc in docs {
@@ -747,6 +752,7 @@ impl Index {
 
     /// Delete a document by stable id (called at `store.delete_message`).
     pub fn delete(&self, stable_id: &str) -> Result<()> {
+        let _change = self.unowned_projection.begin();
         {
             let mut w = self.lock_writer()?;
             w.delete_term(Term::from_field_text(self.fields.stable_id, stable_id));
@@ -759,6 +765,7 @@ impl Index {
     /// Delete several documents by stable id with a **single** commit and a
     /// single reader reload. An id that is not indexed is ignored.
     pub fn delete_batch(&self, stable_ids: &[String]) -> Result<()> {
+        let _change = self.unowned_projection.begin();
         if stable_ids.is_empty() {
             return Ok(());
         }
@@ -796,6 +803,18 @@ impl Index {
     /// Physical-erasure barrier. Even zero live documents can have tombstoned
     /// segments left by a prior failed merge/GC, so retries still perform cleanup.
     pub fn delete_account_physical(&self, account_id:&str)->Result<u64> {
+        let _change = self.unowned_projection.begin();
+        self.delete_account_physical_impl(account_id)
+    }
+
+    /// Same physical cleanup contract; capability only distinguishes the
+    /// Engine owner's account-local publication observation.
+    pub fn delete_account_physical_owned(&self, owner: &PublicationOwnerClaim, account_id: &str) -> Result<u64> {
+        owner.check(self)?;
+        self.delete_account_physical_impl(account_id)
+    }
+
+    fn delete_account_physical_impl(&self, account_id: &str) -> Result<u64> {
         use tantivy::directory::Directory;
         let mut w = self.lock_writer()?;
         // Refresh while holding the writer: legacy callers can release its
@@ -1092,6 +1111,7 @@ impl Index {
 
     /// Force any pending writes to be visible to subsequent searches.
     pub fn reload(&self) -> Result<()> {
+        let _change = self.unowned_projection.begin();
         self.reload_reader()?;
         Ok(())
     }
@@ -1103,7 +1123,16 @@ impl Index {
 
     /// Access the underlying Tantivy index (schema introspection/tests).
     pub fn tantivy(&self) -> &TantivyIndex {
+        // An escaping raw Index can acquire writers with no observable end.
+        // Keep its existing API, but never certify a prepared-result hit again.
+        self.unowned_projection.unsupported();
         &self.inner
+    }
+
+    /// Scalar only, no Searcher/query operation. None means a direct mutation
+    /// is in flight or raw Index ownership cannot be observed safely.
+    pub fn unowned_projection_stamp(&self) -> Option<u64> {
+        self.unowned_projection.stamp()
     }
 }
 

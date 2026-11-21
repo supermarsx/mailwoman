@@ -33,6 +33,13 @@ pub struct PublicationReceipt {
 pub struct PublicationOwnerClaim {
     index: Weak<Index>,
 }
+impl PublicationOwnerClaim {
+    pub(crate) fn check(&self, index: &Index) -> Result<()> {
+        if self.index.upgrade().is_some_and(|owner| std::ptr::eq(owner.as_ref(), index))
+            && index.publication_owner.load(Ordering::Acquire)
+        { Ok(()) } else { Err(SearchError::Io("index publication capability mismatch".into())) }
+    }
+}
 impl Drop for PublicationOwnerClaim {
     fn drop(&mut self) {
         if let Some(index) = self.index.upgrade() {
@@ -141,6 +148,14 @@ impl Index {
     /// still holding the writer. Returned generation is actually query-visible.
     /// No owner/source authority is inferred from this low-level method.
     pub fn publish_batch(&self, changes: &[PublicationChange]) -> Result<PublicationReceipt> {
+        let _change = self.unowned_projection.begin();
+        self.publish_batch_impl(changes)
+    }
+    pub fn publish_batch_owned(&self, owner: &PublicationOwnerClaim, changes: &[PublicationChange]) -> Result<PublicationReceipt> {
+        owner.check(self)?;
+        self.publish_batch_impl(changes)
+    }
+    fn publish_batch_impl(&self, changes: &[PublicationChange]) -> Result<PublicationReceipt> {
         if changes.is_empty() {
             return Err(SearchError::Io("empty index publication".into()));
         }
@@ -236,6 +251,14 @@ impl Index {
     /// The Engine must retain affected dirty work and reconcile it before a
     /// successful source acknowledgement or reopening ordinary admission.
     pub fn recover_publication(&self) -> Result<()> {
+        let _change = self.unowned_projection.begin();
+        self.recover_publication_impl()
+    }
+    pub fn recover_publication_owned(&self, owner: &PublicationOwnerClaim) -> Result<()> {
+        owner.check(self)?;
+        self.recover_publication_impl()
+    }
+    fn recover_publication_impl(&self) -> Result<()> {
         let mut writer = self
             .writer
             .lock()

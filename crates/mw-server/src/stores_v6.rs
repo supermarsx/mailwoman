@@ -877,6 +877,9 @@ impl StorePostureSource {
 }
 
 impl mw_engine::AccountPostureSource for StorePostureSource {
+    fn prepared_mail_posture(&self) -> mw_engine::v6::PreparedMailPosture {
+        mw_engine::v6::PreparedMailPosture::Store(*self.store.cache_scope().as_bytes())
+    }
     fn posture(&self, account_id: &str) -> mw_engine::AccountPosture {
         if self
             .zero_access

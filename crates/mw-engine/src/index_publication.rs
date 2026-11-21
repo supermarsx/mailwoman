@@ -10,7 +10,7 @@ use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     sync::{
-        Arc, Mutex, RwLock, Weak,
+        Arc, Mutex, OnceLock, RwLock, Weak,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     time::Duration,
@@ -182,6 +182,7 @@ struct Core {
     gates: Mutex<HashMap<String, Weak<AccountGate>>>,
     erasing: Mutex<HashMap<String, Arc<AccountGate>>>,
     dirty: Mutex<BTreeMap<(String, String), PublicationMode>>,
+    projection_clock: crate::mail_projection_proof::ProjectionClock,
     #[cfg(test)]
     hook: Mutex<Option<PublicationTestHook>>,
 }
@@ -189,6 +190,19 @@ struct Context {
     store: mw_store::Store,
     search: Arc<mw_search::Index>,
     hooks: Arc<RwLock<V6Hooks>>,
+    claim: OnceLock<Arc<mw_search::PublicationOwnerClaim>>,
+}
+impl Context {
+    fn owner(&self) -> Result<&mw_search::PublicationOwnerClaim> {
+        self.claim.get().map(Arc::as_ref).ok_or_else(|| error("index publication owner unavailable"))
+    }
+}
+#[derive(Clone)]
+pub(crate) struct ProjectionObservation {
+    local: crate::mail_projection_proof::ProjectionProof,
+    unowned: u64,
+    gate: Arc<AccountGate>,
+    epoch: u64,
 }
 struct Producer {
     core: Arc<Core>,
@@ -202,6 +216,8 @@ struct Admission {
     _bytes: OwnedSemaphorePermit,
     core: Arc<Core>,
     charged: usize,
+    // Follows the owned job through waiter cancellation, not the waiter.
+    _projection_write: Option<crate::mail_projection_proof::ProjectionWrite>,
 }
 impl Drop for Admission {
     fn drop(&mut self) {
@@ -327,6 +343,7 @@ impl Publisher {
                 gates: Mutex::new(HashMap::new()),
                 erasing: Mutex::new(HashMap::new()),
                 dirty: Mutex::new(BTreeMap::new()),
+                projection_clock: Default::default(),
                 #[cfg(test)]
                 hook: Mutex::new(None),
             }),
@@ -334,6 +351,7 @@ impl Publisher {
                 store,
                 search,
                 hooks,
+                claim: OnceLock::new(),
             }),
             sender: Mutex::new(None),
         })))
@@ -355,12 +373,14 @@ impl Publisher {
         }
         let runtime = tokio::runtime::Handle::try_current()
             .map_err(|_| error("index publication requires an active runtime"))?;
-        let claim = self
+        let claim = Arc::new(self
             .0
             .context
             .search
             .claim_publication_owner()
-            .map_err(search_error)?;
+            .map_err(search_error)?);
+        self.0.context.claim.set(claim.clone())
+            .map_err(|_| error("index publication owner already initialized"))?;
         let (tx, rx) = mpsc::channel(self.0.core.options.max_pending_jobs);
         let context = Arc::clone(&self.0.context);
         let core = Arc::clone(&self.0.core);
@@ -476,6 +496,11 @@ impl Publisher {
             return Err(error("index publication admission changed"));
         }
         let sender = self.sender()?;
+        let projection_write = core.projection_clock.begin(account);
+        if projection_write.is_none() {
+            // Cache observation limits must not add a new mutation failure.
+            core.projection_clock.invalidate_all();
+        }
         core.stats.pending_jobs.fetch_add(1, Ordering::Relaxed);
         core.stats
             .pending_bytes
@@ -488,6 +513,7 @@ impl Publisher {
                     _bytes: bytes,
                     core: core.clone(),
                     charged: charge,
+                    _projection_write: projection_write,
                 },
                 account: account.into(),
                 epoch: gate.epoch.load(Ordering::Acquire),
@@ -520,6 +546,7 @@ impl Publisher {
         Ok(())
     }
     pub(crate) fn begin_full_rebuild(&self) -> u64 {
+        self.0.core.projection_clock.invalidate_all();
         self.0.core.stats.poisoned.store(true, Ordering::Release);
         self.0.core.stats.repair_epoch.load(Ordering::Acquire)
     }
@@ -554,6 +581,47 @@ impl Publisher {
             max_batch_documents: core.options.max_batch_documents,
         }
     }
+    /// Account-local DATA observation; never establishes ownership or auth.
+    /// The result must also match a fresh joint Store/auth data observation.
+    pub(crate) fn projection_proof(
+        &self,
+        account: &str,
+        ids: &[String],
+    ) -> Option<ProjectionObservation> {
+        self.sender().ok()?;
+        let core = &self.0.core;
+        let gate=self.gate(account).ok()?;
+        let epoch=gate.epoch.load(Ordering::Acquire);
+        let unowned = self.0.context.search.unowned_projection_stamp()?;
+        let clean = || {
+            if core.stats.poisoned.load(Ordering::Acquire)
+                || core.stats.requires_full_rebuild.load(Ordering::Acquire)
+                || self.0.context.search.publication_is_poisoned()
+                || !core.stats.running.load(Ordering::Acquire)
+            { return false; }
+            let Ok(erasing) = core.erasing.lock() else { return false; };
+            if erasing.contains_key(account) { return false; }
+            drop(erasing);
+            let Ok(dirty) = core.dirty.lock() else { return false; };
+            !dirty.keys().any(|(owner, _)| owner == account)
+        };
+        if !clean() { return None; }
+        let proof = core.projection_clock.observe_selected(account,ids)?;
+        (clean() && proof.is_current() && !gate.closed.load(Ordering::Acquire)
+            && gate.epoch.load(Ordering::Acquire)==epoch
+            && self.0.context.search.unowned_projection_stamp() == Some(unowned))
+            .then_some(ProjectionObservation { local: proof, unowned,gate,epoch })
+    }
+    pub(crate) fn projection_is_current(
+        &self,
+        account: &str,
+        ids: &[String],
+        proof: &ProjectionObservation,
+    ) -> bool {
+        self.projection_proof(account,ids).is_some_and(|current|
+            proof.unowned == current.unowned && proof.epoch==current.epoch
+                && Arc::ptr_eq(&proof.gate,&current.gate) && proof.local.matches(&current.local))
+    }
     #[cfg(test)]
     pub(crate) fn set_test_hook(&self, hook: Option<PublicationTestHook>) {
         *self.0.core.hook.lock().unwrap() = hook;
@@ -571,6 +639,7 @@ impl PublicationTicket {
             return Err(error("publication exceeds reserved input"));
         }
         state.tracked_ids = ids;
+        if let Some(write)=&mut state.admission._projection_write {write.touched(&state.tracked_ids);}
         Ok(())
     }
     pub(crate) fn track_metadata_ids(&mut self, ids: Vec<String>) -> Result<()> {
@@ -606,6 +675,10 @@ impl PublicationTicket {
         )
     }
     fn handoff(state: TicketState, kind: Kind) -> Result<PublicationWaiter> {
+        let mut state=state;
+        if let Kind::Reconcile {ids,..}=&kind {
+            if let Some(write)=&mut state.admission._projection_write {write.touched(ids);}
+        }
         let (tx, rx) = oneshot::channel();
         let core = state.admission.core.clone();
         let job = Job {
@@ -771,9 +844,9 @@ async fn run_owner(context: Arc<Context>, core: Arc<Core>, mut receiver: mpsc::R
                 ..
             } => {
                 if context.search.publication_is_poisoned() {
-                    match context.search.recover_publication() {
+                    match context.owner().and_then(|owner| context.search.recover_publication_owned(owner).map_err(search_error)) {
                         Ok(()) => reconcile(&context, &core, &jobs, true).await,
-                        Err(reason) => Err(search_error(reason)),
+                        Err(reason) => Err(reason),
                     }
                 } else {
                     reconcile(&context, &core, &jobs, true).await
@@ -935,10 +1008,11 @@ async fn reconcile(
                     || postures.get(&request.account_id)
                         != Some(&mw_cache::AccountPosture::Standard)
                 {
+                    core.projection_clock.focus_changed(&request.account_id);
                     published = true;
                     removed += context
                         .search
-                        .delete_account_physical(&request.account_id)
+                        .delete_account_physical_owned(context.owner()?, &request.account_id)
                         .map_err(|reason| {
                             context.search.poison_publication();
                             core.stats.poisoned.store(true, Ordering::Release);
@@ -956,6 +1030,7 @@ async fn reconcile(
                         .message(&request.account_id, id)
                         .ok_or_else(|| error("missing publication source observation"))?;
                     let Some(message) = observation.message.as_ref() else {
+                        core.projection_clock.focus_changed(&request.account_id);
                         changes.push(mw_search::PublicationChange::Delete {
                             account_id: request.account_id.clone(),
                             stable_id: id.clone(),
@@ -1059,6 +1134,9 @@ async fn reconcile(
                         ));
                     }
                     if force_rebuild || current.as_ref() != Some(&doc) {
+                        if current.as_ref().is_none_or(|old|old.to!=doc.to || old.cc!=doc.cc
+                            || old.mailbox_id!=doc.mailbox_id || old.account_id!=doc.account_id)
+                        {core.projection_clock.focus_changed(&request.account_id);}
                         changes.push(mw_search::PublicationChange::Upsert(Arc::new(doc)));
                     }
                 }
@@ -1069,7 +1147,7 @@ async fn reconcile(
             let publication = if changes.is_empty() {
                 None
             } else {
-                let receipt = context.search.publish_batch(&changes).map_err(|reason| {
+                let receipt = context.search.publish_batch_owned(context.owner()?, &changes).map_err(|reason| {
                     if context.search.publication_is_poisoned() {
                         core.stats.poisoned.store(true, Ordering::Release);
                     }
@@ -1268,11 +1346,11 @@ async fn erase(context: &Context, core: &Core, job: &Job) -> Result<IndexPublica
         erasing.insert(job.account.clone(), job.gate.clone());
     }
     if context.search.publication_is_poisoned() {
-        context.search.recover_publication().map_err(search_error)?;
+        context.search.recover_publication_owned(context.owner()?).map_err(search_error)?;
     }
     let removed = context
         .search
-        .delete_account_physical(&job.account)
+        .delete_account_physical_owned(context.owner()?, &job.account)
         .map_err(|reason| {
             context.search.poison_publication();
             core.stats.poisoned.store(true, Ordering::Release);
@@ -1330,6 +1408,7 @@ async fn finish_erasure(
     })
 }
 async fn recover(context: &Context, core: &Core) -> Result<IndexPublicationReceipt> {
+    core.projection_clock.invalidate_all();
     core.stats.poisoned.store(true, Ordering::Release);
     if core.stats.requires_full_rebuild.load(Ordering::Acquire) {
         return Err(error(
@@ -1345,6 +1424,7 @@ async fn finish_full_rebuild(
     core: &Core,
     expected_epoch: u64,
 ) -> Result<IndexPublicationReceipt> {
+    core.projection_clock.invalidate_all();
     core.stats.poisoned.store(true, Ordering::Release);
     if core.stats.repair_epoch.load(Ordering::Acquire) != expected_epoch {
         return Err(error(
@@ -1368,7 +1448,7 @@ async fn finish_full_rebuild(
     Ok(receipt)
 }
 async fn repair_dirty(context: &Context, core: &Core) -> Result<IndexPublicationReceipt> {
-    context.search.recover_publication().map_err(search_error)?;
+    context.search.recover_publication_owned(context.owner()?).map_err(search_error)?;
     let mut dirty: Vec<((String, String), PublicationMode)> = core
         .dirty
         .lock()
@@ -1400,7 +1480,7 @@ async fn repair_dirty(context: &Context, core: &Core) -> Result<IndexPublication
             {
                 context
                     .search
-                    .delete_account_physical(account)
+                    .delete_account_physical_owned(context.owner()?, account)
                     .map_err(search_error)?;
                 core.dirty
                     .lock()

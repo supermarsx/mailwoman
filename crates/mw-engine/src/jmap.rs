@@ -1298,6 +1298,15 @@ impl Engine {
     /// here because one statement returning fifty message bodies trades a
     /// round-trip problem for a memory one, and nothing has measured that trade.
     async fn email_get(&self, account_id: &str, args: &Value) -> Value {
+        self.email_get_inner(account_id,args,None).await
+    }
+    /// Publication preparation has a strict projected-source boundary; no
+    /// legacy fallback can silently load a huge envelope/body into this job.
+    pub(crate) async fn email_get_for_publication(&self, account_id:&str,args:&Value,source:&mw_store::mail_data_publication::MailDataFence)->Value {
+        self.email_get_inner(account_id,args,Some(source)).await
+    }
+    async fn email_get_inner(&self, account_id:&str,args:&Value,prepared_source:Option<&mw_store::mail_data_publication::MailDataFence>)->Value {
+        let prepared_only=prepared_source.is_some();
         if args.get("mailwomanBodyUse").is_some_and(|value|!value.is_boolean()){return json!({"type":"invalidArguments"});}
         let empty = Vec::new();
         let requested: Vec<&str> = args
@@ -1358,6 +1367,8 @@ impl Engine {
         let wants_focus = args.get("properties").and_then(Value::as_array)
             .is_some_and(|named| named.iter().any(|property| property == crate::focus::FOCUS_PROPERTY));
         let fill = EmailFill {
+            prepared_only,
+            prepared_source:prepared_source.cloned(),
             metadata_only: metadata_envelope_only(args),
             threading: wants_threading,
             raw_derived: wants_raw_derived,
@@ -1474,6 +1485,11 @@ impl Engine {
                 None => (None, None),
             }).unzip();
         let auth_sources=msgs.iter().flatten().map(|message|(message.stable_id.clone(),message.cache_revision.clone())).collect();
+        if let Some(source)=&fill.prepared_source {
+            if source.descriptor().account()!=account_id || msgs.iter().flatten().any(|message|
+                !source.matches_owned_cache_revision(&message.stable_id,&message.cache_revision))
+            {return Err(EngineError::Protocol("prepared compact source changed; use ordinary reader".into()));}
+        }
         let cache_postures = self.mail_cache_postures(&msgs).await;
         // The index never establishes ownership. Restrict the query to rows
         // returned by the fresh account-scoped SQL read, then check live posture
@@ -1491,7 +1507,18 @@ impl Engine {
 
         // Metadata cache misses share a scoped Store batch. Complete reader
         // envelopes retain the existing per-ID cache-aside path.
-        let envelopes: Vec<Option<Vec<u8>>> = if self.v6_hooks().has_cache() {
+        let envelopes: Vec<Option<Vec<u8>>> = if fill.prepared_only {
+            let rows=self.store().get_account_projected_header_envelopes(account_id,&unique).await?;
+            let mut envelopes=Vec::with_capacity(rows.len());
+            for (header,message) in rows.into_iter().zip(&msgs) {
+                match (header,message) {
+                    (Some(header),Some(message)) if header.cache_revision==message.cache_revision=>envelopes.push(Some(header.envelope)),
+                    (None,None)=>envelopes.push(None),
+                    _=>return Err(EngineError::Protocol("prepared header source unavailable".into())),
+                }
+            }
+            envelopes
+        } else if self.v6_hooks().has_cache() {
             if fill.metadata_only {
                 let posture = cache_postures.get(account_id).copied()
                     .unwrap_or(crate::v6::AccountPosture::ZeroAccess);
@@ -1550,6 +1577,11 @@ impl Engine {
                 .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
                 .filter(Value::is_object)
                 .unwrap_or_else(|| json!({}));
+            if fill.prepared_only && (fill.raw_derived
+                || crate::attachment_metadata::needs_repair(&email)
+                || !email.as_object().is_some_and(|stored|stored.contains_key("messageId"))
+                || (!fill.headers.is_empty() && crate::header_projection::read(&email).is_none()))
+            {return Err(EngineError::Protocol("legacy metadata needs ordinary source repair".into()));}
             // Old envelopes were computed before attachment enumeration and CID
             // classification fixes. Repair once from the owned raw bytes and
             // persist the version, preserving the constant-cost current path.
@@ -5851,6 +5883,8 @@ struct EmailAssembly {
 /// What [`Engine::build_emails`] adds to the stored envelope.
 #[derive(Debug, Clone)]
 struct EmailFill {
+    prepared_only: bool,
+    prepared_source:Option<mw_store::mail_data_publication::MailDataFence>,
     /// Only explicit known metadata properties may use the smaller envelope.
     metadata_only: bool,
     /// The `header:Name:asAddresses[:all]` properties the request names, for

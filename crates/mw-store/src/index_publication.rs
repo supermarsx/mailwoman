@@ -269,7 +269,7 @@ impl Store {
             .transpose()
     }
 
-    async fn publication_generation(&self) -> Option<PathBuf> {
+    pub(crate) async fn publication_generation(&self) -> Option<PathBuf> {
         match &self.backend {
             Backend::Sqlite(live) => Some(
                 live.pin()

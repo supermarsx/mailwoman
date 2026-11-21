@@ -263,6 +263,7 @@ mod tests {
                 doc_fetches: Default::default(), list_projection_searches: Default::default(),
                 list_projection_doc_reads: Default::default(),
                 publication_poisoned:Default::default(),publication_owner:Default::default(),
+                unowned_projection:Default::default(),
                 publication_fault:Default::default(),publication_lock_hook:Default::default(),
             };
             for segment in 0..segments {

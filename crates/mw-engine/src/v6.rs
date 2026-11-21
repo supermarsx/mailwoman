@@ -47,6 +47,10 @@ use crate::engine::Engine;
 /// ([`StandardPosture`]) treats every account as [`AccountPosture::Standard`] so
 /// the existing path is unchanged.
 pub trait AccountPostureSource: Send + Sync {
+    /// Explicit DATA-publication support. Unknown/custom live sources default
+    /// to unsupported: SQL epochs cannot certify an arbitrary async source.
+    /// Store asserts the exact backing Store whose final SQL posture is used.
+    fn prepared_mail_posture(&self) -> PreparedMailPosture { PreparedMailPosture::Unsupported }
     /// The posture the cache-aside helpers apply for `account_id`. Synchronous,
     /// so a source backed by storage answers from what it last read.
     fn posture(&self, account_id: &str) -> AccountPosture;
@@ -66,12 +70,20 @@ pub trait AccountPostureSource: Send + Sync {
     }
 }
 
+#[derive(Clone,Copy,PartialEq,Eq)]
+pub enum PreparedMailPosture {
+    Unsupported,
+    ConstantStandard,
+    Store([u8;16]),
+}
+
 /// The default posture source: every account is a conventional (standard)
 /// account. Used until e11 attaches a zero-access-aware source.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct StandardPosture;
 
 impl AccountPostureSource for StandardPosture {
+    fn prepared_mail_posture(&self) -> PreparedMailPosture { PreparedMailPosture::ConstantStandard }
     fn posture(&self, _account_id: &str) -> AccountPosture {
         AccountPosture::Standard
     }

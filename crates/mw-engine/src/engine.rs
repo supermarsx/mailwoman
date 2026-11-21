@@ -117,6 +117,7 @@ pub struct Engine {
     /// dispatcher/query paths can hold it cheaply.
     search: Arc<mw_search::Index>,
     pub(crate) index_publisher: crate::index_publication::Publisher,
+    pub(crate) prepared_mail: Arc<crate::mail_data_publication::PreparedMail>,
     /// Guards the single delayed dispatcher task (undo-send + snooze, §1.3/§1.5).
     dispatcher_started: AtomicBool,
     /// Confirmed SMTP acceptances awaiting persistence, scoped to this store/runtime.
@@ -210,6 +211,7 @@ impl Engine {
             changes,
             search,
             index_publisher,
+            prepared_mail: Arc::new(Default::default()),
             search_dir: None,
             index_rebuild: IndexRebuild::default(),
             default_collections: tokio::sync::Mutex::new(()),
@@ -1192,7 +1194,10 @@ impl Engine {
     /// Remove every search-index document of `account_id` for a data-subject
     /// erasure; the number of documents removed.
     pub async fn erase_account_index(&self, account_id: &str) -> Result<crate::AccountIndexErasure> {
-        self.index_publisher.begin_erasure(account_id).await
+        self.prepared_mail.clear_account(account_id);
+        let erased=self.index_publisher.begin_erasure(account_id).await?;
+        self.prepared_mail.clear_account(account_id);
+        Ok(erased)
     }
 
     /// Remove every search-index document of `account_id` (one commit; none
@@ -1200,6 +1205,7 @@ impl Engine {
     /// zero-access, so documents indexed before the posture changed do not
     /// outlive it.
     pub(crate) async fn drop_account_from_index(&self, account_id: &str) {
+        self.prepared_mail.clear_account(account_id);
         match self.publish_current_index(account_id,vec![],crate::index_publication::PublicationMode::Reconcile).await {
             Ok(_) => {},
             Err(e) => tracing::warn!(
