@@ -14,7 +14,9 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 pub const MAX_OPERATIONS: usize = 256;
 pub const MAX_TEMPLATES: usize = 128;
 pub const MAX_REPORT_BYTES: usize = 65536;
-const MAX_SQL_BYTES: usize = 16384;
+// Bounded native templates are 63,902 SQLite / 39,662 PostgreSQL bytes.
+// Encoded reports retain their independent 64 KiB limit.
+pub(crate) const MAX_SQL_BYTES: usize = 65_536;
 // Fixed compile-time phases only. No client/path/SQL/bind-derived label can be
 // supplied. Unknown is explicit so untagged awaited q() work is never hidden.
 macro_rules! phases {

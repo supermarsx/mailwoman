@@ -64,7 +64,24 @@ fn request() -> NativeAdmissionRequest {
     .unwrap()
 }
 async fn contract(s: Store) {
+    #[cfg(feature = "sql-shape-diagnostics")]
+    for dialect in [Dialect::Sqlite, Dialect::Postgres] {
+        assert!(
+            sql(dialect).len() <= crate::pool_telemetry::shapes::MAX_SQL_BYTES,
+            "actual generated native template must fit the shared diagnostic bound"
+        );
+    }
     let (account, id) = seed(&s).await;
+    #[cfg(feature = "sql-shape-diagnostics")]
+    {
+        let (result, report) = crate::pool_telemetry::shapes::measure(
+            s.native_cookie_admission_snapshot(&id, &request()),
+        ).await;
+        result.unwrap();
+        report.require_valid().expect("real composite attribution must stay complete");
+        assert_eq!(report.operations_completed, 1);
+        assert_eq!(report.query_counts.read.calls, 1);
+    }
     let witness=s.primary_session_policy_witness(&id).await.unwrap();
     let observed=s.native_cookie_admission_snapshot(&id,&request()).await.unwrap();
     let (same,counters)=crate::pool_telemetry::measure_queries(async {observed.matches_primary_policy_witness(&s,&witness)}).await;
