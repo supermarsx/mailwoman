@@ -42,10 +42,20 @@ async fn queued_restart(
     expire: bool,
     deny_protocol: bool,
 ) -> (StatusCode, Value, test_control::Counts) {
-    // Ensure native inputs are warm before taking the actual competing permit.
-    for _ in 0..2 {
-        assert_eq!(f.send(false).await.0, StatusCode::OK);
+    // Set up a fresh telemetry timestamp explicitly. Fixture construction and
+    // earlier oracle requests are deliberately not a wall-clock guarantee that
+    // the 15-second touch threshold is still clear when this race starts.
+    f.writer.touch_session(&f.session).await.unwrap();
+    // A 200 alone could be the original path. Prove actual native eligibility
+    // before deliberately holding the permit that original fallback also needs.
+    for attempt in 0..2 {
+        let warm = f.send(false).await;
+        assert_eq!(warm.0, StatusCode::OK);
+        if attempt == 1 {
+            assert_eq!(warm.2.dispatches, 1, "warm request must actually use native admission: {:?}", warm.2);
+        }
     }
+    f.writer.touch_session(&f.session).await.unwrap();
     let revision = f.measured.settings_read_revision().await.unwrap();
     let knobs =
         crate::rate_leeway::knobs_at_revision(&f.measured, "native-composite.test", &revision)
@@ -56,7 +66,7 @@ async fn queued_restart(
     let pause = test_control::pause(test_control::Stage::AfterPrepared, &f.session);
     let pending = f.send_restart_mode(legacy);
     tokio::pin!(pending);
-    tokio::select! {_=pause.entered.notified()=>{},reply=&mut pending=>panic!("native read did not reach initial preparation: {}",reply.0)}
+    tokio::select! {_=pause.entered.notified()=>{},reply=&mut pending=>panic!("native read did not reach initial preparation: status={}, counts={:?}, problem_type={:?}, problem_code={:?}",reply.0,reply.2,reply.1.get("type"),reply.1.get("code"))}
     pause.release.notify_one();
     std::future::poll_fn(|cx| match pending.as_mut().poll(cx) {
         std::task::Poll::Pending => std::task::Poll::Ready(()),
