@@ -430,11 +430,25 @@ fn actual_static_router_keeps_head_etag_csp_console_and_admin_auth() {
                     let unchanged = router.clone().oneshot(conditional).await.unwrap();
                     assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
                     assert!(to_bytes(unchanged.into_body(), 1).await.unwrap().is_empty());
-                    let console = router
+                    let console_path = format!("/{}", crate::console_page());
+                    // An extensionless console page is a real navigation only
+                    // with browser navigation metadata (or an HTML Accept).
+                    // Bare API/subresource-like requests must stay fail-closed.
+                    let bare_console = router
                         .clone()
-                        .oneshot(request(Method::GET, &format!("/{}", crate::console_page())))
+                        .oneshot(request(Method::GET, &console_path))
                         .await
                         .unwrap();
+                    assert_eq!(bare_console.status(), StatusCode::NOT_FOUND);
+                    let navigation = Request::builder()
+                        .method(Method::GET)
+                        .uri(&console_path)
+                        .header(header::ACCEPT, "text/html")
+                        .header("sec-fetch-mode", "navigate")
+                        .header("sec-fetch-dest", "document")
+                        .body(Body::empty())
+                        .unwrap();
+                    let console = router.clone().oneshot(navigation).await.unwrap();
                     assert_eq!(console.status(), StatusCode::OK);
                     assert_eq!(
                         console.headers()[header::CACHE_CONTROL],
