@@ -717,6 +717,16 @@ fn real_webmail_duplicate_inflight_id_closes_without_false_predispatch_receipt()
             username: "wire-owner@socket.test".into(),
             password: "owned-fixture-not-an-upstream-secret".into(),
         };
+        // A native session still traverses the ordinary domain routing guard.
+        // Seed the same explicit operator-owned endpoint as its real account;
+        // a verified binding alone is not an authorization/routing fixture.
+        fixture.state.store.put_domain_config(&mw_store::DomainConfigRow {
+            name:"socket.test".into(),
+            upstream_json:json!({"imap":{"host":"127.0.0.1","port":9,"tls":"starttls","auth":"password","allowPrivate":true}}).to_string(),
+            allowlist_json:"[]".into(),blocklist_json:"[]".into(),
+            enabled:true,preferred:false,settings_json:"{}".into(),
+            updated_at:chrono::Utc::now().timestamp(),
+        }).await.unwrap();
         let account = fixture.state.store.create_account(
             &mw_store::NewAccount {
                 kind: mw_store::AccountKind::Imap,
@@ -750,6 +760,17 @@ fn real_webmail_duplicate_inflight_id_closes_without_false_predispatch_receipt()
         request.headers_mut().insert(header::ORIGIN, format!("http://{address}").parse().unwrap());
         let csrf = fixture.state.store.session_csrf_token(&session);
         request.headers_mut().insert(header::COOKIE, format!("mw_session={session}; mw_csrf={csrf}").parse().unwrap());
+        // Diagnose the actual pre-upgrade requirements independently of open's
+        // intentionally uniform403. Never print the cookie or subject source.
+        assert!(crate::hardening::origin_ok(request.headers(),None),"wire fixture must carry matching actual Host/Origin");
+        let authenticated=crate::authed(&fixture.state,request.headers()).await.unwrap_or_else(|response|
+            panic!("wire fixture ordinary authentication preflight HTTP{}",response.status()));
+        assert!(authenticated.account_id==account,"wire fixture must resolve its actual owned account");
+        let subject=crate::settings_routes::UserSubject::resolved(&fixture.state.store,&authenticated).await
+            .unwrap_or_else(|_|panic!("wire fixture requires a verified policy/storage subject"));
+        assert!(subject.account_id==account && subject.domain=="socket.test","wire fixture subject must match configured native domain");
+        assert!(crate::notification_policy::allowed(&fixture.state.store,&subject.as_subject(),"realtime.actions.enabled").await.unwrap_or(false),"wire fixture subject must have current realtime action policy");
+        assert!(fixture.state.store.websocket_primary_actor(&session).await.unwrap().is_some(),"wire fixture must have a current primary socket actor");
         let (mut socket, _) = tokio::time::timeout(std::time::Duration::from_secs(5), tokio_tungstenite::connect_async(request)).await.unwrap().unwrap();
         let ready = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next()).await.unwrap().unwrap().unwrap().into_text().unwrap();
         assert_eq!(serde_json::from_str::<Value>(&ready).unwrap()["type"], "ready");
