@@ -22,7 +22,6 @@ import { stripBase } from './api/basePath.ts';
 import { isConsolePage } from './api/adminPath.ts';
 import { getPlatform, initPlatform } from './platform/index.ts';
 import { capabilityEnabled } from './platform/capabilities.ts';
-import { Login } from './screens/Login.tsx';
 import { ToastRegion } from './components/toast/index.ts';
 import { ConnectionToast } from './realtime/ConnectionToast.tsx';
 import { NewVersionToast } from './state/NewVersionToast.tsx';
@@ -55,6 +54,11 @@ import { bootReconnecting } from './state/bootRetry.ts';
  *  from the login→inbox bundle (bundle gate). The normal SPA path is unchanged;
  *  the early return only fires on the `/admin` path. */
 const loadAdminScreen = () => import('./screens/Admin/index.tsx');
+
+// Login's provider catalog is needed only by the logged-out screen. Keep its
+// UI and brand lookup graph out of authenticated startup; demand loading uses
+// the same bounded pending/error/retry recovery as every other screen.
+const loadLoginScreen = () => import('./screens/Login.tsx').then(module => ({default: module.Login}));
 
 /** V6 OAuth 2.1 consent (plan §3 e8/e11): the resource-owner grant/deny screen,
  *  reached ONLY via the `/oauth/authorize` redirect. */
@@ -338,7 +342,7 @@ export function App(): JSX.Element {
             </Show>
           </Match>
           <Match when={app.me() === null}>
-            <Login />
+            <LazyRoute load={loadLoginScreen} name="Login" />
           </Match>
           <Match when={held()}>
             {/* Ordered before the mailbox: the change form and a sign-out

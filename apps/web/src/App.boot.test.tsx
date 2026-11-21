@@ -24,7 +24,8 @@ const hooks = vi.hoisted(() => ({
 // a minute in all). These tests are about what is shown once it gives up, so the wait is zero.
 vi.mock('./api/recovery.ts', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api/recovery.ts')>()), backoffDelay: () => 0 }));
 
-vi.mock('./api/transport.ts', () => ({
+vi.mock('./api/transport.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./api/transport.ts')>()),
   createConfiguredClient: () => ({
     login: vi.fn(),
     logout: vi.fn(async () => undefined),
@@ -103,6 +104,7 @@ describe('boot failure is not a login prompt', () => {
     // Recovered: the failure is gone and the ordinary logged-out screen is up.
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
     expect(calls).toBe(attempts + 1);
+    await waitFor(() => expect(screen.getByLabelText(/^password$/i)).toBeTruthy());
   });
 
   it('a 401 is the logged-out ANSWER and still renders login, not an error', async () => {
@@ -114,6 +116,7 @@ describe('boot failure is not a login prompt', () => {
 
     await waitFor(() => expect(screen.queryByTestId('async-pending')).toBeNull());
     expect(screen.queryByRole('alert')).toBeNull();
+    await waitFor(() => expect(screen.getByLabelText(/^password$/i)).toBeTruthy());
   });
 
   it('the boot spinner is bounded like every other pending state', async () => {
