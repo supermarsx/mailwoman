@@ -187,3 +187,158 @@ async fn static_sql_and_encoded_report_byte_caps_fail_without_payload_or_partial
     assert!(serde_json::to_vec(&report).unwrap().len() <= MAX_REPORT_BYTES);
     store.close().await;
 }
+
+#[tokio::test]
+async fn nested_and_concurrent_phases_keep_unknown_failures_and_full_query_totals() {
+    let _serial = SERIAL.lock().await;
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let (_, report) = measure(async {
+        q("SELECT 1").fetch_one(store.backend()).await.unwrap();
+        in_phase(Phase::Features, async {
+            q("SELECT 1").fetch_one(store.backend()).await.unwrap();
+            in_phase(Phase::Auth, q("SELECT 2").fetch_one(store.backend()))
+                .await
+                .unwrap();
+            q("SELECT 1").fetch_one(store.backend()).await.unwrap();
+        })
+        .await;
+        in_phase(Phase::AccountGate, async {
+            assert!(
+                q("SELECT absent FROM phase_fixture_missing_table")
+                    .fetch_one(store.backend())
+                    .await
+                    .is_err()
+            );
+        })
+        .await;
+        let left = in_phase(Phase::Handler, q("SELECT 3").fetch_one(store.backend()));
+        let right = in_phase(Phase::Engine, q("SELECT 3").fetch_one(store.backend()));
+        let (left, right) = tokio::join!(left, right);
+        left.unwrap();
+        right.unwrap();
+    })
+    .await;
+    report.require_valid().unwrap();
+    assert_eq!(report.operations_completed, 7);
+    let phase = |name| report.phases.iter().find(|row| row.phase == name).unwrap();
+    assert_eq!(phase("unknown").completed, 1);
+    assert_eq!(phase("guard.features").completed, 2);
+    assert_eq!(phase("auth.total").completed, 1);
+    assert_eq!(phase("auth.account-gate").failures, 1);
+    assert_eq!(phase("jmap.handler").completed, 1);
+    assert_eq!(phase("jmap.engine").completed, 1);
+    assert_eq!(
+        report.phases.iter().map(|row| row.completed).sum::<u64>(),
+        7
+    );
+    assert_eq!(report.query_counts.read.calls, 7);
+    for shape in &report.shapes {
+        assert_eq!(
+            shape
+                .phase_calls
+                .iter()
+                .map(|phase| phase.calls)
+                .sum::<u64>(),
+            shape.calls
+        );
+    }
+    assert!(
+        !serde_json::to_string(&report)
+            .unwrap()
+            .contains("phase_fixture_missing_table")
+    );
+    store.close().await;
+}
+
+#[tokio::test]
+async fn query_phase_is_captured_before_acquisition_await_not_at_completion() {
+    let _serial = SERIAL.lock().await;
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let crate::backend::Backend::Sqlite(live) = &store.backend else {
+        unreachable!()
+    };
+    let pin = live.pin().await;
+    let lease = pin.pool().acquire().await.unwrap();
+    let (_, report) = measure(async {
+        let mut waiting = Box::pin(q("SELECT 42").fetch_one(store.backend()));
+        in_phase(
+            Phase::Engine,
+            std::future::poll_fn(|cx| {
+                assert!(
+                    waiting.as_mut().poll(cx).is_pending(),
+                    "actual sole serving lease is held"
+                );
+                std::task::Poll::Ready(())
+            }),
+        )
+        .await;
+        lease.return_to_pool().await;
+        in_phase(Phase::Auth, waiting).await.unwrap();
+    })
+    .await;
+    report.require_valid().unwrap();
+    assert_eq!(report.operations_completed, 1);
+    assert_eq!(
+        report
+            .phases
+            .iter()
+            .find(|row| row.phase == "jmap.engine")
+            .unwrap()
+            .completed,
+        1
+    );
+    assert_eq!(
+        report
+            .phases
+            .iter()
+            .find(|row| row.phase == "auth.total")
+            .unwrap()
+            .completed,
+        0
+    );
+    assert_eq!(report.shapes[0].phase_calls[0].phase, "jmap.engine");
+    drop(pin);
+    store.close().await;
+}
+
+#[tokio::test]
+async fn phase_tags_cannot_create_a_scope_or_attribute_detached_child_queries() {
+    let _serial = SERIAL.lock().await;
+    let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    assert!(!active());
+    in_phase(Phase::Engine, q("SELECT 1").fetch_one(store.backend()))
+        .await
+        .unwrap();
+    assert!(!active());
+    let (_, report) = measure(async {
+        let child_store = store.clone();
+        in_phase(Phase::Auth, async move {
+            tokio::spawn(async move {
+                assert!(!active());
+                q("SELECT 2")
+                    .fetch_one(child_store.backend())
+                    .await
+                    .unwrap();
+            })
+            .await
+            .unwrap();
+        })
+        .await;
+        q("SELECT 3").fetch_one(store.backend()).await.unwrap();
+    })
+    .await;
+    report.require_valid().unwrap();
+    assert_eq!(report.operations_completed, 1);
+    assert_eq!(report.query_counts.read.calls, 1);
+    assert_eq!(
+        report
+            .phases
+            .iter()
+            .find(|row| row.phase == "unknown")
+            .unwrap()
+            .completed,
+        1
+    );
+    assert!(!active());
+    store.close().await;
+}

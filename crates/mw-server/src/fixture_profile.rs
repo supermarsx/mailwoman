@@ -27,17 +27,24 @@ macro_rules! phases {
         #[derive(Clone, Copy)]
         pub(crate) enum Phase { $($variant),+ }
         const LABELS: &[&str] = &[$($label),+];
+        #[cfg(feature = "sql-shape-diagnostics")]
+        impl Phase {
+            fn query_phase(self) -> mw_store::pool_telemetry::shapes::Phase {
+                match self { $(Self::$variant=>mw_store::pool_telemetry::shapes::Phase::$variant),+ }
+            }
+        }
     };
 }
 phases! {
- Request=>"request", Protocol=>"guard.protocol", Probe=>"guard.probe", Protection=>"guard.protection",
+ Request=>"request", HealthAccess=>"guard.health-access", Protocol=>"guard.protocol", Probe=>"guard.probe", Protection=>"guard.protection",
  SourceBans=>"guard.source-bans", InboundAllowlist=>"guard.inbound-allowlist", SessionWatch=>"guard.session-watch",
  SessionGeo=>"guard.session-geography", ClientAccess=>"guard.client-access", LinkedScope=>"guard.linked-scope",
  Maintenance=>"guard.maintenance", Features=>"guard.features", Auth=>"auth.total",
  SessionRead=>"auth.session-read", NativeRead=>"auth.native-read", SessionClock=>"auth.session-clock",
  SessionTouch=>"auth.session-touch", SessionTouchSkipped=>"auth.session-touch-skipped", LinkedLogin=>"auth.linked-login", DomainUpgrade=>"auth.domain-upgrade",
  AccountGate=>"auth.account-gate", LinkedContext=>"auth.linked-context", FeaturePresence=>"feature.key-presence",
- FeatureResolution=>"feature.resolution", SessionWatchConfig=>"session-watch.config"
+ FeatureResolution=>"feature.resolution", SessionWatchConfig=>"session-watch.config",
+ AfterBody=>"jmap.after-body", Handler=>"jmap.handler", Engine=>"jmap.engine"
 }
 #[derive(Default)]
 struct Timing {
@@ -131,7 +138,20 @@ pub fn enabled() -> bool {
     *ENABLED
         .get_or_init(|| std::env::var("MW_FIXTURE_REQUEST_PROFILE").is_ok_and(|value| value == "1"))
 }
+// Default builds retain the original function directly. Phase task-local work
+// exists only in the explicit query-shape feature and an active bounded scope.
+#[cfg(not(feature = "sql-shape-diagnostics"))]
+pub(crate) use measure_timings as measure;
+#[cfg(feature = "sql-shape-diagnostics")]
 pub(crate) fn measure<'a, T: Send + 'a>(
+    phase: Phase,
+    operation: impl Future<Output = T> + Send + 'a,
+) -> impl Future<Output = T> + Send + 'a {
+    if mw_store::pool_telemetry::shapes::active() {
+        Either::Left(mw_store::pool_telemetry::shapes::in_phase(phase.query_phase(),measure_timings(phase,operation)))
+    } else { Either::Right(measure_timings(phase,operation)) }
+}
+pub(crate) fn measure_timings<'a, T: Send + 'a>(
     phase: Phase,
     operation: impl Future<Output = T> + Send + 'a,
 ) -> impl Future<Output = T> + Send + 'a {
@@ -202,6 +222,11 @@ macro_rules! guard {
         }
     };
 }
+#[cfg(feature = "sql-shape-diagnostics")]
+guard!(health_access, HealthAccess, crate::health_access::layer);
+#[cfg(not(feature = "sql-shape-diagnostics"))]
+pub(crate) use crate::health_access::layer as health_access;
+
 guard!(protocol, Protocol, crate::protocol_guard::guard);
 guard!(probe, Probe, crate::admin_probe::guard);
 guard!(protection, Protection, crate::request_protection::guard);

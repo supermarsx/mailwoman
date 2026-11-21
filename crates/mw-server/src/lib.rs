@@ -1708,7 +1708,7 @@ fn router(
         .route("/jmap/session", get(jmap_session))
         .route(
             "/jmap/api",
-            post(jmap_api).route_layer(middleware::from_fn_with_state(
+            post(jmap_api_route).route_layer(middleware::from_fn_with_state(
                 state.clone(),
                 scope_mw::jmap_sieve_scope_guard,
             )),
@@ -1837,7 +1837,7 @@ fn router(
         // does not admit becomes an unknown path, so no probe exemption applies.
         .layer(shared_route::wrap(middleware::from_fn_with_state(
             state.clone(),
-            health_access::layer,
+            fixture_profile::health_access,
         )))
         // t32-h10: a handler panic becomes a plain 500 (inside the security
         // headers) instead of a dropped connection; its message is only logged.
@@ -3467,6 +3467,20 @@ fn prefix_session_urls(mut session: Value, base: &str) -> Value {
     session
 }
 
+#[cfg(not(feature = "sql-shape-diagnostics"))]
+use self::jmap_api as jmap_api_route;
+#[cfg(feature = "sql-shape-diagnostics")]
+async fn jmap_api_route(
+    state: State<AppState>,
+    source: Option<Extension<scope_mw::RestSessionSource>>,
+    deferred_features: Option<Extension<feature_gate::DeferredJmapFeatures>>,
+    headers: HeaderMap,
+    body: Body,
+) -> Response {
+    fixture_profile::measure(fixture_profile::Phase::Handler,
+        jmap_api(state,source,deferred_features,headers,body)).await
+}
+
 async fn jmap_api(
     State(state): State<AppState>,
     source: Option<Extension<scope_mw::RestSessionSource>>,
@@ -3488,11 +3502,23 @@ async fn jmap_api(
             };
         }
     };
+    #[cfg(feature = "sql-shape-diagnostics")]
+    {
+    if source.is_none()
+        && let Some(Extension(features)) = &deferred_features
+        && let Some(response) = fixture_profile::measure(fixture_profile::Phase::AfterBody,feature_gate::try_composite_metadata(&state, &headers, &body, features)).await
+    {
+        return response;
+    }
+    }
+    #[cfg(not(feature = "sql-shape-diagnostics"))]
+    {
     if source.is_none()
         && let Some(Extension(features)) = &deferred_features
         && let Some(response) = feature_gate::try_composite_metadata(&state, &headers, &body, features).await
     {
         return response;
+    }
     }
     let headless_key = matches!(
         &source,
@@ -3641,6 +3667,10 @@ async fn jmap_api(
         {
             nextcloud_pim::install(engine, &state.store, &session.account_id);
         }
+        #[cfg(feature = "sql-shape-diagnostics")]
+        let response = fixture_profile::measure(fixture_profile::Phase::Engine,
+            engine.handle_jmap_with_sieve(&session.account_id, &request, sieve.as_mut())).await;
+        #[cfg(not(feature = "sql-shape-diagnostics"))]
         let response = engine
             .handle_jmap_with_sieve(&session.account_id, &request, sieve.as_mut())
             .await;

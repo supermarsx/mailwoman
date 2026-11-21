@@ -173,6 +173,20 @@ fn actual_router_header_sql_shapes_keep_real_policy_and_ownership_checks() {
                         ("revoked", denied),
                         ("restored", restored),
                     ] {
+                        // Totals include the explicit unknown bucket. Phases are
+                        // captured before q() awaits; they are exclusive caller
+                        // labels, not additive CPU or inherited worker activity.
+                        assert_eq!(report.phases.iter().map(|phase|phase.started).sum::<u64>(),report.operations_started);
+                        assert_eq!(report.phases.iter().map(|phase|phase.completed).sum::<u64>(),report.operations_completed);
+                        assert!(report.phases.iter().any(|phase|phase.phase=="unknown"));
+                        let revisions=report.shapes.iter().filter(|shape|
+                            shape.static_token_families==["settings_revision"])
+                            .flat_map(|shape|shape.phase_calls.iter()).map(|phase|
+                                json!({"phase":phase.phase,"calls":phase.calls,"failures":phase.failures}))
+                            .collect::<Vec<_>>();
+                        eprintln!("actual-router-header-phase-summary {label}: {}",json!({
+                            "operationsStarted":report.operations_started,"operationsCompleted":report.operations_completed,
+                            "settingsRevisionByPhase":revisions,"phases":report.phases}));
                         eprintln!(
                             "actual-router-header-sql-shapes {label}: {}",
                             serde_json::to_string(&report).unwrap()

@@ -15,6 +15,58 @@ pub const MAX_OPERATIONS: usize = 256;
 pub const MAX_TEMPLATES: usize = 128;
 pub const MAX_REPORT_BYTES: usize = 65536;
 const MAX_SQL_BYTES: usize = 16384;
+// Fixed compile-time phases only. No client/path/SQL/bind-derived label can be
+// supplied. Unknown is explicit so untagged awaited q() work is never hidden.
+macro_rules! phases {
+    ($($variant:ident => $label:literal),+ $(,)?) => {
+        #[derive(Clone, Copy)]
+        pub enum Phase { $($variant),+ }
+        const PHASE_LABELS: &[&str] = &[$($label),+];
+    };
+}
+phases! {
+ Unknown=>"unknown", Request=>"request", HealthAccess=>"guard.health-access", Protocol=>"guard.protocol", Probe=>"guard.probe",
+ Protection=>"guard.protection", SourceBans=>"guard.source-bans", InboundAllowlist=>"guard.inbound-allowlist",
+ SessionWatch=>"guard.session-watch", SessionGeo=>"guard.session-geography", ClientAccess=>"guard.client-access",
+ LinkedScope=>"guard.linked-scope", Maintenance=>"guard.maintenance", Features=>"guard.features", Auth=>"auth.total",
+ SessionRead=>"auth.session-read", NativeRead=>"auth.native-read", SessionClock=>"auth.session-clock",
+ SessionTouch=>"auth.session-touch", SessionTouchSkipped=>"auth.session-touch-skipped", LinkedLogin=>"auth.linked-login",
+ DomainUpgrade=>"auth.domain-upgrade", AccountGate=>"auth.account-gate", LinkedContext=>"auth.linked-context",
+ FeaturePresence=>"feature.key-presence", FeatureResolution=>"feature.resolution", SessionWatchConfig=>"session-watch.config",
+ AfterBody=>"jmap.after-body", Handler=>"jmap.handler", Engine=>"jmap.engine"
+}
+#[derive(Clone, Copy, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhaseTotals {
+    pub phase: &'static str,
+    pub started: u64,
+    pub completed: u64,
+    pub failures: u64,
+    pub total_micros: u64,
+}
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShapePhase {
+    pub phase: &'static str,
+    pub calls: u64,
+    pub failures: u64,
+    pub total_micros: u64,
+}
+tokio::task_local! { static ACTIVE_PHASE: Phase; }
+/// Does not create a query scope or propagate it into detached/spawned tasks.
+pub fn active() -> bool {
+    CURRENT
+        .try_with(|scope| scope._permit.is_some())
+        .unwrap_or(false)
+}
+pub async fn in_phase<F: Future>(phase: Phase, future: F) -> F::Output {
+    if active() {
+        ACTIVE_PHASE.scope(phase, future).await
+    } else {
+        future.await
+    }
+}
+
 const TOKENS: &[&str] = &[
     "sessions",
     "session_principal",
@@ -66,6 +118,7 @@ const TOKENS: &[&str] = &[
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Shape {
+    pub phase_calls: Vec<ShapePhase>,
     pub template_sha256: String,
     pub class: &'static str,
     pub static_token_families: Vec<&'static str>,
@@ -87,6 +140,7 @@ pub struct Report {
     pub operations_completed: u64,
     pub query_counts: QuerySnapshot,
     pub shapes: Vec<Shape>,
+    pub phases: Vec<PhaseTotals>,
 }
 impl Report {
     pub fn require_valid(&self) -> Result<(), &'static str> {
@@ -103,6 +157,7 @@ struct Data {
     completed: u64,
     invalid: Option<&'static str>,
     shapes: BTreeMap<&'static str, Shape>,
+    phases: [PhaseTotals; PHASE_LABELS.len()],
 }
 struct Scope {
     data: Mutex<Data>,
@@ -120,6 +175,7 @@ fn class_name(class: Class) -> &'static str {
 pub(super) struct Capture {
     scope: Arc<Scope>,
     sql: &'static str,
+    phase: Phase,
     pub(super) returned: Option<u64>,
     pub(super) affected: Option<u64>,
 }
@@ -128,9 +184,13 @@ pub(super) fn capture(sql: &'static str, class: Class) -> Option<Capture> {
     if scope._permit.is_none() {
         return None;
     }
+    let phase = ACTIVE_PHASE
+        .try_with(|phase| *phase)
+        .unwrap_or(Phase::Unknown);
     {
         let mut data = scope.data.lock().unwrap_or_else(|p| p.into_inner());
         data.started = data.started.saturating_add(1);
+        data.phases[phase as usize].started = data.phases[phase as usize].started.saturating_add(1);
         if data.started > MAX_OPERATIONS as u64 {
             data.invalid = Some("operation budget exceeded");
             return None;
@@ -160,6 +220,7 @@ pub(super) fn capture(sql: &'static str, class: Class) -> Option<Capture> {
             data.shapes.insert(
                 sql,
                 Shape {
+                    phase_calls: Vec::new(),
                     template_sha256,
                     class: class_name(class),
                     static_token_families: tokens,
@@ -177,6 +238,7 @@ pub(super) fn capture(sql: &'static str, class: Class) -> Option<Capture> {
     Some(Capture {
         scope,
         sql,
+        phase,
         returned: None,
         affected: None,
     })
@@ -185,7 +247,29 @@ impl Capture {
     pub(super) fn finish(self, success: bool, micros: u64) {
         let mut data = self.scope.data.lock().unwrap_or_else(|p| p.into_inner());
         data.completed = data.completed.saturating_add(1);
+        let phase = &mut data.phases[self.phase as usize];
+        phase.completed = phase.completed.saturating_add(1);
+        phase.failures = phase.failures.saturating_add(u64::from(!success));
+        phase.total_micros = phase.total_micros.saturating_add(micros);
         if let Some(shape) = data.shapes.get_mut(self.sql) {
+            let label = PHASE_LABELS[self.phase as usize];
+            let at = shape
+                .phase_calls
+                .iter()
+                .position(|row| row.phase == label)
+                .unwrap_or_else(|| {
+                    shape.phase_calls.push(ShapePhase {
+                        phase: label,
+                        calls: 0,
+                        failures: 0,
+                        total_micros: 0,
+                    });
+                    shape.phase_calls.len() - 1
+                });
+            let phase = &mut shape.phase_calls[at];
+            phase.calls += 1;
+            phase.failures += u64::from(!success);
+            phase.total_micros = phase.total_micros.saturating_add(micros);
             shape.calls += 1;
             shape.failures += u64::from(!success);
             shape.total_micros = shape.total_micros.saturating_add(micros);
@@ -224,7 +308,10 @@ pub async fn measure<F: Future>(future: F) -> (F::Output, Report) {
         }),
         _permit: permit,
     });
-    let (output, queries) = super::measure_queries(CURRENT.scope(scope.clone(), future)).await;
+    let (output, queries) = super::measure_queries(
+        CURRENT.scope(scope.clone(), ACTIVE_PHASE.scope(Phase::Unknown, future)),
+    )
+    .await;
     let mut report = {
         let data = scope.data.lock().unwrap_or_else(|p| p.into_inner());
         Report {
@@ -235,6 +322,15 @@ pub async fn measure<F: Future>(future: F) -> (F::Output, Report) {
             operations_completed: data.completed,
             query_counts: queries,
             shapes: data.shapes.values().cloned().collect(),
+            phases: data
+                .phases
+                .iter()
+                .zip(PHASE_LABELS)
+                .map(|(totals, label)| PhaseTotals {
+                    phase: label,
+                    ..*totals
+                })
+                .collect(),
         }
     };
     if report.operations_started != report.operations_completed {
@@ -254,6 +350,56 @@ pub async fn measure<F: Future>(future: F) -> (F::Output, Report) {
             });
         if calls != counts.calls || failures != counts.failures {
             report.invalid_reason.get_or_insert("query count mismatch");
+        }
+    }
+    if report.phases.iter().map(|phase| phase.started).sum::<u64>() != report.operations_started
+        || report
+            .phases
+            .iter()
+            .map(|phase| phase.completed)
+            .sum::<u64>()
+            != report.operations_completed
+        || report
+            .phases
+            .iter()
+            .map(|phase| phase.failures)
+            .sum::<u64>()
+            != queries.read.failures + queries.write.failures + queries.other.failures
+    {
+        report.invalid_reason.get_or_insert("phase count mismatch");
+    }
+    for phase in &report.phases {
+        let (completed, failures) = report
+            .shapes
+            .iter()
+            .flat_map(|shape| shape.phase_calls.iter())
+            .filter(|row| row.phase == phase.phase)
+            .fold((0, 0), |(calls, failures), row| {
+                (calls + row.calls, failures + row.failures)
+            });
+        if completed != phase.completed || failures != phase.failures {
+            report
+                .invalid_reason
+                .get_or_insert("phase shape count mismatch");
+        }
+    }
+    for shape in &report.shapes {
+        if shape
+            .phase_calls
+            .iter()
+            .map(|phase| phase.calls)
+            .sum::<u64>()
+            != shape.calls
+            || shape
+                .phase_calls
+                .iter()
+                .map(|phase| phase.failures)
+                .sum::<u64>()
+                != shape.failures
+        {
+            report
+                .invalid_reason
+                .get_or_insert("shape phase count mismatch");
         }
     }
     report.valid = report.invalid_reason.is_none();
