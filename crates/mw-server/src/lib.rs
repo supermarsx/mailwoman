@@ -3717,7 +3717,7 @@ async fn jmap_api(
             #[cfg(test)] observer.record_engine_dispatch();
         }
         #[cfg(test)]
-        native_metadata_admission::record_ordinary_dispatch();
+        feature_gate::native_metadata_admission::record_ordinary_dispatch();
         #[cfg(feature = "sql-shape-diagnostics")]
         let response = fixture_profile::measure(fixture_profile::Phase::Engine,
             engine.handle_jmap_with_sieve(&session.account_id, &request, sieve.as_mut())).await;

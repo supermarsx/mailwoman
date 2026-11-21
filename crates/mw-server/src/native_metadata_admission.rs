@@ -465,7 +465,7 @@ pub(super) async fn finish_restarted_read(
 #[cfg(test)]
 pub(super) fn record_restart_dispatch() {test_control::record_restart_dispatch();}
 #[cfg(test)]
-pub(super) fn record_ordinary_dispatch() {test_control::record_ordinary_dispatch();}
+pub(crate) fn record_ordinary_dispatch() {test_control::record_ordinary_dispatch();}
 
 pub(crate) async fn try_dispatch(
     state: &AppState,
