@@ -50,7 +50,11 @@ async fn actual_fifty_rows_ready_bytes_equal_ordinary_and_hit_without_index_work
     let value=f.engine.finish_prepared_metadata_value(&cold,&joint).unwrap();
     assert_eq!(ordinary["methodResponses"][0][1],value,"all36 actual properties must equal ordinary reader output");
     let before=index_counts(&f.engine);
-    let hit=f.engine.prepare_metadata_candidate(&f.account,&a).await.unwrap();
+    let (hit,queries)=mw_store::pool_telemetry::measure_queries(f.engine.prepare_metadata_candidate(&f.account,&a)).await;
+    let hit=hit.unwrap();
+    assert_eq!((queries.read.calls,queries.write.calls,queries.other.calls,queries.acquire.calls),(0,0,0,0),"ready preparation is DATA lookup only; final joint source SQL below is separately required");
+    assert_eq!(index_counts(&f.engine),before,"ready lookup performs no existing Index list/doc operations");
+    eprintln!("prepared warm Engine-only lookup: reads={} writes={} other={} acquires={} indexListSearches=0 indexListDocReads=0 indexDocFetches=0; final joint proof and background tasks excluded",queries.read.calls,queries.write.calls,queries.other.calls,queries.acquire.calls);
     let joint=observed(&f,&hit).await;
     let call="quoted\"\\\ncall";
     let bytes=f.engine.finish_prepared_metadata(hit,&joint,call).unwrap().into_bytes();
@@ -212,4 +216,62 @@ async fn delayed_configuration_cannot_restore_an_older_budget_or_enabled_state()
     let foreign_revision=foreign.settings_read_revision().await.unwrap();
     assert!(!f.engine.configure_prepared_mail_at_revision(enabled,&foreign_revision));
     foreign.close().await;
+}
+
+#[tokio::test]
+async fn ready_peek_then_source_mutation_requires_final_proof_and_next_request_rebuilds() {
+    let f=fixture().await;let a=args(&f.account,&f.ids[..1]);
+    let original=f.engine.prepare_metadata_candidate(&f.account,&a).await.unwrap();
+    let (peek,queries)=mw_store::pool_telemetry::measure_queries(f.engine.prepare_metadata_candidate(&f.account,&a)).await;
+    let peek=peek.unwrap();assert!(Arc::ptr_eq(&original.ready,&peek.ready));
+    assert_eq!(queries.read.calls+queries.write.calls+queries.other.calls,0);
+    // Independent source mutation AFTER the pure ready lookup, BEFORE the
+    // mandatory final source observation. No enqueue-time SQL authority reuse.
+    f.engine.store().set_flags(&f.ids[0],"[\"Seen\"]").await.unwrap();
+    let final_source=observed(&f,&peek).await;
+    assert!(f.engine.finish_prepared_metadata(peek,&final_source,"changed").is_none());
+    assert_eq!(f.engine.prepared_mail_status().entries,Some(0),"mismatch removes the stale Ready rather than causing permanent fallback");
+    let rebuilt=f.engine.prepare_metadata_candidate(&f.account,&a).await.unwrap();
+    assert!(!Arc::ptr_eq(&original.ready,&rebuilt.ready));
+    let current=observed(&f,&rebuilt).await;
+    let value=f.engine.finish_prepared_metadata_value(&rebuilt,&current).unwrap();
+    assert_eq!(value["list"][0]["keywords"]["$seen"],true);
+    assert_eq!(f.engine.prepared_mail_status().completed_builds,2);
+}
+
+#[tokio::test]
+async fn missing_final_data_discard_is_same_arc_only_and_old_finish_cannot_evict_new_result() {
+    let f=fixture().await;let a=args(&f.account,&f.ids[..1]);
+    let old=f.engine.prepare_metadata_candidate(&f.account,&a).await.unwrap();
+    // Endpoint uses this pure hook when its last joint source row is None or
+    // malformed and there is no typed MailDataFence to pass into finish.
+    assert!(f.engine.discard_prepared_metadata(&old));
+    f.engine.store().set_flags(&f.ids[0],"[\"Seen\"]").await.unwrap();
+    let newer=f.engine.prepare_metadata_candidate(&f.account,&a).await.unwrap();
+    assert!(!Arc::ptr_eq(&old.ready,&newer.ready));
+    assert!(!f.engine.discard_prepared_metadata(&old),"a late old request must not evict a concurrent newer install");
+    let current=observed(&f,&newer).await;
+    assert!(f.engine.finish_prepared_metadata(old,&current,"old").is_none());
+    assert_eq!(f.engine.prepared_mail_status().entries,Some(1));
+    let (hit,queries)=mw_store::pool_telemetry::measure_queries(f.engine.prepare_metadata_candidate(&f.account,&a)).await;
+    let hit=hit.unwrap();assert!(Arc::ptr_eq(&hit.ready,&newer.ready));
+    assert_eq!(queries.read.calls+queries.write.calls+queries.other.calls,0);
+    assert!(f.engine.finish_prepared_metadata(hit,&current,"new").is_some());
+}
+
+struct UnsupportedPosture;
+impl crate::v6::AccountPostureSource for UnsupportedPosture {
+    fn posture(&self,_:&str)->crate::v6::AccountPosture {crate::v6::AccountPosture::Standard}
+}
+#[tokio::test]
+async fn ready_lookup_does_not_bypass_pending_or_unsupported_posture_before_final_proof() {
+    let f=fixture().await;let a=args(&f.account,&f.ids[..1]);
+    let _ready=f.engine.prepare_metadata_candidate(&f.account,&a).await.unwrap();
+    let ticket=f.engine.reserve_index_publication(&f.account,1).await.unwrap();
+    let (blocked,queries)=mw_store::pool_telemetry::measure_queries(f.engine.prepare_metadata_candidate(&f.account,&a)).await;
+    assert!(blocked.is_none());assert_eq!(queries.read.calls+queries.write.calls+queries.other.calls,0);
+    drop(ticket);drained(&f.engine).await;
+    f.engine.attach_v6(crate::v6::V6Hooks::new().with_posture_source(Arc::new(UnsupportedPosture)));
+    let (unsupported,queries)=mw_store::pool_telemetry::measure_queries(f.engine.prepare_metadata_candidate(&f.account,&a)).await;
+    assert!(unsupported.is_none());assert_eq!(queries.read.calls+queries.write.calls+queries.other.calls,0);
 }

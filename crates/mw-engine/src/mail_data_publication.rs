@@ -106,6 +106,13 @@ impl std::fmt::Debug for PreparedMetadataBytes {
 
 struct Pending<'a>{service:&'a PreparedMail,key:(String,Vec<String>)}
 struct Probe<'a>{stats:&'a Stats,hit:bool}
+struct Finish<'a>{service:&'a PreparedMail,candidate:&'a PreparedMetadataCandidate,success:bool}
+impl Drop for Finish<'_>{
+    fn drop(&mut self){if !self.success{self.service.evict_same(&candidate_key(self.candidate),&self.candidate.ready);}}
+}
+fn candidate_key(candidate:&PreparedMetadataCandidate)->Key {
+    let descriptor=candidate.descriptor();Key {account:descriptor.account().into(),ids:descriptor.ids().to_vec()}
+}
 impl Drop for Probe<'_>{fn drop(&mut self){if !self.hit{self.stats.misses.fetch_add(1,Ordering::Relaxed);}}}
 impl Drop for Pending<'_> {
     fn drop(&mut self){if let Ok(mut memory)=self.service.memory.lock(){memory.pending.remove(&self.key);}}
@@ -160,7 +167,11 @@ impl PreparedMail {
             if Arc::ptr_eq(&cell.ready,ready){cell.invalidated=false;}
         }}
     }
-    fn evict(&self,key:&Key){if let Ok(mut memory)=self.memory.lock(){if memory.entries.remove(key).is_some(){self.stats.evictions.fetch_add(1,Ordering::Relaxed);}}}
+    fn evict_same(&self,key:&Key,ready:&Arc<Ready>)->bool {
+        let Ok(mut memory)=self.memory.lock() else{return false};
+        if !memory.entries.get(key).is_some_and(|cell|Arc::ptr_eq(&cell.ready,ready)){return false}
+        memory.entries.remove(key);self.stats.evictions.fetch_add(1,Ordering::Relaxed);true
+    }
     fn reserve(&self)->Option<OwnedSemaphorePermit> {
         loop {
             let mut memory=self.memory.try_lock().ok()?;
@@ -259,8 +270,10 @@ impl Engine {
             budget_bytes:config.map(|c|c.budget_bytes()),max_entries:config.map(|c|c.max_entries),max_accounts:config.map(|c|c.max_accounts),enabled:config.map(|c|c.enabled),idle_seconds:config.map(|c|c.idle_seconds),
             eligible_candidates:s.eligible.load(Ordering::Relaxed),ready_candidate_hits:s.hits.load(Ordering::Relaxed),candidate_misses:s.misses.load(Ordering::Relaxed),completed_builds:s.builds.load(Ordering::Relaxed),evictions:s.evictions.load(Ordering::Relaxed),seed_calls:s.seed_calls.load(Ordering::Relaxed),seeded_rows:s.seed_writes.load(Ordering::Relaxed),raw_results:s.raw_results.load(Ordering::Relaxed),compatibility_value_results:s.value_results.load(Ordering::Relaxed),handled_invalidation_hints:s.hints.load(Ordering::Relaxed),invalidation_errors:s.hint_errors.load(Ordering::Relaxed),invalidation_poll_calls:s.hint_reads.load(Ordering::Relaxed),invalidation_ack_calls:s.hint_acks.load(Ordering::Relaxed)}
     }
-    /// Called BEFORE final authorization. A cold/malformed/busy candidate is a
-    /// normal miss; the existing complete dispatch path remains authoritative.
+    /// Called BEFORE final authorization. A ready lookup performs no source
+    /// SQL or Index query: it selects DATA only, which MUST still pass the LAST
+    /// joint auth/data fence in finish. Source SQL remains on the cold path.
+    /// A cold/malformed/busy candidate retains the complete ordinary dispatch.
     pub async fn prepare_metadata_candidate(&self,account:&str,args:&Value)->Option<PreparedMetadataCandidate> {
         let requested=eligible(account,args)?;
         let config_epoch={let memory=self.prepared_mail.memory.try_lock().ok()?;if !memory.config.enabled{return None}memory.config_epoch};
@@ -272,18 +285,17 @@ impl Engine {
         if !supported(&posture,self){return None}
         let projection=self.index_publisher.projection_proof(account,descriptor.ids())?;
         self.prepared_mail.start(self.store().clone());
-        let before=self.store().mail_data_snapshot(&descriptor).await.ok()?;
-        if let Some(before)=&before {
-            if before.publishable() {
-                if let Some(ready)=self.prepared_mail.get(&key) {
-                    if ready.config_epoch==config_epoch && before.same_data(&ready.source)
-                        && self.index_publisher.projection_is_current(account,descriptor.ids(),&ready.projection)
-                        && Arc::ptr_eq(&posture,&ready.posture)
-                    {self.prepared_mail.recertified(&key,&ready);probe.hit=true;self.prepared_mail.stats.hits.fetch_add(1,Ordering::Relaxed);return Some(PreparedMetadataCandidate {ready,requested})}
-                    self.prepared_mail.evict(&key);
-                }
-            }
+        if let Some(ready)=self.prepared_mail.get(&key) {
+            // A newer configuration may have installed a different Ready after
+            // our initial config observation. Do not evict that newer entry.
+            if ready.config_epoch!=config_epoch{return None}
+            if self.index_publisher.projection_is_current(account,descriptor.ids(),&ready.projection)
+                && Arc::ptr_eq(&posture,&ready.posture)
+                && self.prepared_mail.memory.lock().is_ok_and(|memory|memory.config.enabled && memory.config_epoch==config_epoch)
+            {probe.hit=true;self.prepared_mail.stats.hits.fetch_add(1,Ordering::Relaxed);return Some(PreparedMetadataCandidate {ready,requested})}
+            self.prepared_mail.evict_same(&key,&ready);
         }
+        let before=self.store().mail_data_snapshot(&descriptor).await.ok()?;
         // Count is acquired before any waiting/preparation; duplicate warmups
         // are suppressed rather than spawning unbounded per-request tasks.
         let _job=self.prepared_mail.jobs.clone().try_acquire_owned().ok()?;
@@ -358,9 +370,18 @@ impl Engine {
             && self.index_publisher.projection_is_current(joint.descriptor().account(),joint.descriptor().ids(),&ready.projection)
     }
 
+    /// Pure compare-and-discard for a candidate whose final joint source row
+    /// is missing/invalid before finish can be called. Removes only that exact
+    /// Ready Arc, never a newer concurrent result for the same requested IDs.
+    /// This is not an authorization decision or a reason to replay dispatch.
+    pub fn discard_prepared_metadata(&self,candidate:&PreparedMetadataCandidate)->bool {
+        self.prepared_mail.evict_same(&candidate_key(candidate),&candidate.ready)
+    }
+
     /// PURE. `joint` MUST come from caller's final complete auth+DATA statement.
     /// Different call IDs/states are escaped here and never enter the cache key.
     pub fn finish_prepared_metadata(&self,candidate:PreparedMetadataCandidate,joint:&MailDataFence,call_id:&str)->Option<PreparedMetadataBytes> {
+        let mut finish=Finish {service:&self.prepared_mail,candidate:&candidate,success:false};
         if call_id.len()>1024 || !self.prepared_current(&candidate,joint){return None}
         let mut out=Bounded(Vec::new());
         out.write_all(b"{\"methodResponses\":[[\"Email/get\",{").ok()?;
@@ -383,6 +404,8 @@ impl Engine {
         // Check again after copying/encoding, so a concurrent accepted writer
         // cannot silently turn a long encoding into a certified current result.
         if !self.prepared_current(&candidate,joint){return None}
+        self.prepared_mail.recertified(&candidate_key(&candidate),&candidate.ready);
+        finish.success=true;
         self.prepared_mail.stats.raw_results.fetch_add(1,Ordering::Relaxed);
         Some(PreparedMetadataBytes(out.0))
     }
@@ -391,11 +414,14 @@ impl Engine {
     /// API reparses stored bytes and serializes JSON; only raw emission avoids
     /// those costs. Do not call this the completed raw multi-call objective.
     pub fn finish_prepared_metadata_value(&self,candidate:&PreparedMetadataCandidate,joint:&MailDataFence)->Option<Value> {
+        let mut finish=Finish {service:&self.prepared_mail,candidate,success:false};
         if !self.prepared_current(candidate,joint){return None}
         let mut list=Vec::new();let mut missing=Vec::new();
         for id in &candidate.requested {match candidate.ready.rows.get(id){Some(row)=>list.push(serde_json::from_slice::<Value>(&row.encoded).ok()?),None=>missing.push(id.clone())}}
         let response=json!({"accountId":joint.descriptor().account(),"state":joint.email_state(),"list":list,"notFound":missing});
         if !self.prepared_current(candidate,joint){return None}
+        self.prepared_mail.recertified(&candidate_key(candidate),&candidate.ready);
+        finish.success=true;
         self.prepared_mail.stats.value_results.fetch_add(1,Ordering::Relaxed);
         Some(response)
     }
