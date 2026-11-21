@@ -21,6 +21,7 @@ fn request(method: Method, path: &str) -> Request<Body> {
     Request::builder()
         .method(method)
         .uri(path)
+        .header(header::HOST, "localhost")
         .header(header::USER_AGENT, "Mozilla/5.0 Mailwoman Product Fixture")
         .extension(ConnectInfo(SocketAddr::from((Ipv4Addr::LOCALHOST, 41234))))
         .body(Body::empty())
@@ -63,6 +64,14 @@ fn facade_router_serves_complete_source_bound_build_inventory_policy_and_head() 
                     )
                     .await
                     .unwrap();
+                    // Real peer metadata activates protocol guards. Keep that
+                    // boundary in this fixture, with a valid HTTP authority.
+                    let mut missing_host = request(Method::GET, "/api/product-security");
+                    missing_host.headers_mut().remove(header::HOST);
+                    assert_eq!(
+                        router.clone().oneshot(missing_host).await.unwrap().status(),
+                        StatusCode::BAD_REQUEST
+                    );
                     let response = router
                         .clone()
                         .oneshot(request(Method::GET, "/api/product-security"))
