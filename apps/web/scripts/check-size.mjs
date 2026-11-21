@@ -24,10 +24,9 @@
 // author checked and was false for five others. Only the built output tells them
 // apart, so the check lives here.
 //
-// Solid's compiler writes template attributes WITHOUT quotes when the value has no
-// space or quote in it (`<ul class=list__items style=position:relative>`), so the
-// check matches the quoted form anywhere and the unquoted form inside a template
-// tag (t32-h12: 35 such attributes shipped while a quoted-only pattern passed).
+// Build-owned AST attestation identifies Solid factory calls before minification;
+// ordinary email HTML strings are not application DOM templates. Missing proof
+// fails closed for every rendered module, including libraries and lazy chunks.
 //
 // Run after `vite build`. Exits non-zero on: entry over budget, pdfjs on the
 // critical path, or a literal style attribute in an app chunk. An optional first
@@ -38,6 +37,7 @@ import { join,resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {createHash} from 'node:crypto';
 import {mailboxPaneGraphProof} from './bundleGraphContract.mjs';
+import {solidTemplateGraphProof,solidTemplateAssetCoverage} from './solidTemplateContract.mjs';
 
 const BUDGET_BYTES = 250 * 1024;
 const distDir = process.argv[2] ?? fileURLToPath(new URL('../dist/', import.meta.url));
@@ -45,17 +45,16 @@ const assetsDir = join(distDir, 'assets');
 // The graph is private build evidence, not an asset served to the browser. A
 // custom dist may provide its matching graph as the second positional argument.
 const graphPath=process.argv[3]??fileURLToPath(new URL('../node_modules/.cache/mailwoman-build/bundle-graph.json',import.meta.url));
-const graph=JSON.parse(await readFile(graphPath,'utf8'));
+const graphBytes=await readFile(graphPath);
+if(graphBytes.length>16*1024*1024)throw Error('Bundle graph byte bound');
+const graph=JSON.parse(graphBytes.toString('utf8'));
 if(resolve(graph.outDir)!==resolve(distDir))throw Error('Bundle graph belongs to another output directory');
 for(const [name,chunk]of Object.entries(graph.chunks)){
  const bytes=await readFile(join(distDir,name));
  if(bytes.length!==chunk.byteLength||createHash('sha256').update(bytes).digest('hex')!==chunk.sha256)throw Error('Bundle graph does not match current chunk bytes');
 }
 
-// A literal style attribute: `style="…"` anywhere, or `style='…'` / unquoted
-// `style=…` inside a template tag (`<tag … style=…`; minified code has no space
-// before a `style=` assignment, a template attribute always does).
-const INLINE_STYLE = /style="[^"]*"|<[a-zA-Z][^<>]*?\sstyle=(?:'[^']*'|[^\s>"'`]+)/g;
+const templateProof=solidTemplateGraphProof(graph);
 
 // Distinctive tokens the pdfjs-dist library bundle emits. Matching any in a
 // chunk marks it as "carries pdfjs". These are library internals, not incidental
@@ -103,7 +102,17 @@ console.log('check-size: deferred mailbox UI graph',JSON.stringify(mailboxPaneGr
 // --- report every JS asset; classify critical vs lazy -----------------------
 let assetFiles;
 try {
-  assetFiles = (await readdir(assetsDir)).filter((f) => f.endsWith('.js'));
+  const listJS=async(dir,prefix='')=>{
+    const result=[];
+    for(const entry of await readdir(dir,{withFileTypes:true})){
+      if(entry.isDirectory())result.push(...await listJS(join(dir,entry.name),`${prefix}${entry.name}/`));
+      else if(entry.isFile()&&/\.(?:m?js)$/.test(entry.name))result.push(`${prefix}${entry.name}`);
+      else if(entry.isSymbolicLink())throw Error('Unexpected output symlink');
+      if(result.length>20000)throw Error('JS asset count bound');
+    }
+    return result;
+  };
+  assetFiles = await listJS(assetsDir);
 } catch {
   console.error('check-size: dist/assets not found — run `pnpm build` first');
   process.exit(1);
@@ -116,7 +125,11 @@ if (assetFiles.length === 0) {
 let entryGz = 0;
 let criticalOnPdfjs = [];
 let pdfjsLazyChunk = null;
-let inlineStyleChunks = [];
+const inlineStyleChunks = [...templateProof.violations,...solidTemplateAssetCoverage(graph,assetFiles.map(name=>`assets/${name}`))];
+for(const [name,proof]of Object.entries(graph.solidTemplates.assets)){
+ const bytes=await readFile(join(distDir,name));
+ if(bytes.length!==proof.byteLength||createHash('sha256').update(bytes).digest('hex')!==proof.sha256)throw Error('Emitted asset proof does not match current bytes');
+}
 
 console.log('check-size: JS assets (raw / gzip):');
 for (const f of assetFiles) {
@@ -131,13 +144,7 @@ for (const f of assetFiles) {
   if (isEntry) entryGz = gz;
   if (hasPdfjs && critical) criticalOnPdfjs.push(f);
   if (hasPdfjs && !critical) pdfjsLazyChunk = f;
-  // Skip the vendored pdfjs chunk: it is third-party code we do not author, and
-  // its only match sits inside a `data:image/svg+xml` URI, which is not a DOM
-  // attribute on our page and so is not governed by `style-src`.
-  if (!hasPdfjs) {
-    const found = [...new Set(text.match(INLINE_STYLE) ?? [])];
-    if (found.length > 0) inlineStyleChunks.push({ file: f, found });
-  }
+
 }
 
 // --- gate 1: entry chunk under the gzip budget ------------------------------
@@ -173,8 +180,8 @@ if (inlineStyleChunks.length > 0) {
       '  dynamic ones in `style={{…}}` (Solid applies those via the CSSOM, which\n' +
       '  `style-src` does not govern).',
   );
-  for (const { file, found } of inlineStyleChunks) {
-    console.error(`  ${file}: ${found.join(' ')}`);
+  for (const { file, module, styleAttributes } of inlineStyleChunks) {
+    console.error(`  ${file}: ${module} (${styleAttributes} style attributes)`);
   }
   failed = true;
 } else {
