@@ -17,7 +17,21 @@ export async function workerHttp(base:string,path:string,init:RequestInit&{allow
  const prefix=root.pathname.replace(/\/$/,'');
  if(root.origin!==globalThis.location?.origin||target.origin!==root.origin||target.username||target.password||!target.pathname.startsWith(`${prefix}/api/`)&&!target.pathname.startsWith(`${prefix}/jmap/`))throw new ApiError(400,'Worker request outside Mailwoman');
  let response:Response;
- try{const {allowWebSocket,assertAuthority,...request}=init;assertAuthority?.();response=(allowWebSocket!==true?undefined:await websocketAction(target.href,request,root.href,true,assertAuthority))??await fetch(target.href,{...request,credentials:'same-origin',redirect:'error',cache:'no-store'});}catch(error){if(error instanceof ApiError)throw error;throw new NetworkError('Worker connection unavailable');}
+ try{
+  const {allowWebSocket,assertAuthority,...request}=init;
+  let action:Response|undefined;
+  if(allowWebSocket===true){
+   assertAuthority?.();
+   action=await websocketAction(target.href,request,root.href,true,assertAuthority);
+  }
+  if(action!==undefined)response=action;
+  else{
+   // A known-unsent handshake/transport fallback can await for several seconds.
+   // Its caller's account generation must still be current at HTTP dispatch.
+   assertAuthority?.();
+   response=await fetch(target.href,{...request,credentials:'same-origin',redirect:'error',cache:'no-store'});
+  }
+ }catch(error){if(error instanceof ApiError)throw error;throw new NetworkError('Worker connection unavailable');}
  if(!response.ok){const body=await response.clone().json().catch(()=>({})) as {error?:string;code?:string};throw new ApiError(response.status,body.error??'Worker request refused',{...(body.code?{code:body.code}:{}),...(/^\d+$/.test(response.headers.get('retry-after')??'')?{retryAfterSecs:Number(response.headers.get('retry-after'))}:{})});}
  return response;
 }
