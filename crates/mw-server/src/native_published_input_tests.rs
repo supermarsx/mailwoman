@@ -1,5 +1,27 @@
 // Real DEFAULT36 router cases; no policy/auth/source getter mocks.
 #[test]
+fn warm_primary_hint_is_fused_into_fresh_first_fence_with_exact_one_read_removed(){
+    run_fixture(||async {
+        let fixture=Fixture::new().await;
+        let cold=fixture.send(false).await;
+        assert_eq!(cold.0,StatusCode::OK);assert_eq!(cold.2.hints,1,"original unpublished cold shaping still uses its full hint");
+        fixture.warm_published().await;
+        let ((legacy,legacy_counts),legacy_queries)=mw_store::pool_telemetry::measure_queries(
+            test_control::count_published_legacy_hint(fixture.router.clone().oneshot(fixture.request()))
+        ).await;
+        let legacy=legacy.unwrap();assert_eq!(legacy.status(),StatusCode::OK);
+        let legacy_body:Value=serde_json::from_slice(&to_bytes(legacy.into_body(),4*1024*1024).await.unwrap()).unwrap();
+        assert_eq!(legacy_counts.hints,1);assert_eq!(legacy_counts.fences,2);assert_eq!(legacy_counts.observations,0);
+        let fused=fixture.send_published().await;
+        assert_eq!(fused.0,StatusCode::OK);assert_eq!(fused.1,legacy_body);assert_eq!(fused.1,cold.1);
+        assert_eq!(fused.2.hints,0);assert_eq!(fused.2.fences,2);assert_eq!(fused.2.observations,0);
+        assert_eq!(fused.2.dispatches,legacy_counts.dispatches);
+        assert_eq!(legacy_queries.read.calls+legacy_queries.other.calls,fused.3.read.calls+fused.3.other.calls+1,"one actual primary hint statement removed on warm path; no wholeHTTP0SQL claim");
+        assert_eq!(legacy_queries.write.calls,fused.3.write.calls);
+        eprintln!("{}",json!({"kind":"warm-native-primary-hint-fusion","legacyHintReads":legacy_queries.read.calls,"fusedReads":fused.3.read.calls,"legacyHints":legacy_counts.hints,"fusedHints":fused.2.hints,"freshFences":fused.2.fences,"workerQueriesIncluded":false,"realPeerGuardsIncluded":false}));
+    });
+}
+#[test]
 fn prepared_default36_emits_actual_fifty_rows_without_engine_or_index_replay() {
     run_fixture(||async {
         let fixture=Fixture::new().await;
@@ -48,6 +70,7 @@ fn prepared_default36_never_emits_after_session_revocation_during_preparation() 
         pause.release.notify_one();
         let reply=pending.await;
         assert_ne!(reply.0,StatusCode::OK);
+        assert_eq!(reply.2.hints,0,"warm fused preparation still waits for final session revocation proof");
         assert_eq!(reply.2.prepared_results,0);assert_eq!(reply.2.dispatches+reply.2.ordinary_dispatches,0);
     });
 }
@@ -239,6 +262,7 @@ fn published_inputs_fresh_clock_expiry_is_not_hidden_by_unchanged_epoch() {
         pause.release.notify_one();
         let reply = request.await;
         assert_ne!(reply.0, StatusCode::OK);
+        assert_eq!(reply.2.hints,0,"fresh activity expiry is still checked on the fused warm path");
         assert_eq!(reply.2.dispatches, 0);
         assert_eq!(reply.2.fences, 2);
     });

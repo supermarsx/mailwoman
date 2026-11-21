@@ -544,32 +544,32 @@ pub(crate) async fn try_dispatch(
     }
     let request = eligible_request(body)?;
     let id = crate::cookie_value(headers)?;
-    let hint = state
-        .store
-        .primary_session_policy_snapshot(&id)
-        .await
-        .ok()?;
+    // Exact removed work control for an already-warm router regression only.
+    // This test-only arm uses the real Store hint, never an auth/result mock.
     #[cfg(test)]
-    test_control::record_hint();
-    if !hint.witness.matches_revision(&deferred.1) {
-        return None;
+    if test_control::legacy_primary_hint() {
+        let hint=state.store.primary_session_policy_snapshot(&id).await.ok()?;
+        test_control::record_hint();
+        if !hint.witness.matches_revision(&deferred.1){return None}
     }
-    let mut names = vec![
-        hint.session.username.clone(),
-        hint.session.credentials.username.clone(),
-    ];
-    let mut query = shaping(&hint.session.account_id, &names).ok()?;
+    // Published entries are DATA only. A warm lookup must still pass its fresh
+    // first fence, including the exact revision from the SAME current source
+    // row; no earlier guard observation or cached Session grants admission.
+    // Full primary decoding/domain shaping remains on the original cold path.
+    let mut query=None;
     let mut published=None;
     let mut first=None;
     let mut published_current=false;
     let mut observed_published=false;
-    if publication_enabled() {
+    if state.store.uses_sqlite() && publication_enabled() {
         if let Some(worker)=&state.native_publication {
             if let Some(entry)=worker.get(&id,&deferred.0) {
                 observed_published=true;
                 if let Ok(Some(fence))=observe_published_guard(state,&id,&entry,&deferred.0,None).await {
                     #[cfg(test)] test_control::record_fence();
-                    if entry.matches(&fence) && crate::published_guard_context::verify_source(&fence) {
+                    let revision_matches=fence.primary_policy_revision(&state.store).ok().flatten().is_some_and(|revision|
+                        revision.scope()==deferred.1.scope() && revision.number().is_some() && revision.number()==deferred.1.number());
+                    if revision_matches && entry.matches(&fence) && crate::published_guard_context::verify_source(&fence) {
                         published_current=true;
                         if let Ok(loaded)=evaluate_inputs(state,&entry.snapshot,&deferred.0,Some(&entry),Some(&fence)) {
                             first=Some(loaded);published=Some(entry);
@@ -580,24 +580,31 @@ pub(crate) async fn try_dispatch(
             // A contended nonblocking lookup is just a miss. It must not evict
             // an otherwise current entry once the memory mutex becomes free.
             if observed_published && !published_current {worker.invalidate(&id,&deferred.0);}
-            if !published_current && request["methodCalls"][0][1]["accountId"].as_str()==Some(hint.session.account_id.as_str()) {
-                worker.hint(&id,&hint.session.account_id,&deferred.0);
-            }
         }
     }
     let first=match first {
         Some(first)=>first,
         None=>{
             if crate::published_guard_context::consumed(){return None;}
-            let mut snapshot = observe(state, &id, &query).await.ok()?;
+            let hint=state.store.primary_session_policy_snapshot(&id).await.ok()?;
+            #[cfg(test)] test_control::record_hint();
+            if !hint.witness.matches_revision(&deferred.1){return None}
+            if publication_enabled() && !published_current
+                && request["methodCalls"][0][1]["accountId"].as_str()==Some(hint.session.account_id.as_str())
+                && let Some(worker)=&state.native_publication
+            {worker.hint(&id,&hint.session.account_id,&deferred.0);}
+            let mut names=vec![hint.session.username.clone(),hint.session.credentials.username.clone()];
+            let mut cold_query=shaping(&hint.session.account_id,&names).ok()?;
+            let mut snapshot = observe(state, &id, &cold_query).await.ok()?;
             let source = snapshot.session(&state.store).ok()??;
             let (session_names, account_names) = names_for(&snapshot, state, &source.session).ok()?;
             names = session_names.into_iter().chain(account_names).collect();
             let current = shaping(&source.session.account_id, &names).ok()?;
             if !snapshot.covers_domains(current.domains()) || !snapshot.covers_keys(current.keys()) {
-                query = current;
-                snapshot = observe(state, &id, &query).await.ok()?;
+                cold_query = current;
+                snapshot = observe(state, &id, &cold_query).await.ok()?;
             }
+            query=Some(cold_query);
             evaluate(state,&snapshot,&deferred.0).ok()?
         }
     };
@@ -655,7 +662,7 @@ pub(crate) async fn try_dispatch(
             _=>None,
         }
     } else {
-        match observe(state,&id,&query).await {
+        match observe(state,&id,query.as_ref()?).await {
             Ok(snapshot)=>evaluate(state,&snapshot,&deferred.0).ok(),
             Err(_)=>None,
         }
@@ -731,6 +738,7 @@ mod test_control {
         pub restart_dispatches:u64,
         pub ordinary_dispatches:u64,
         pub prepared_results:u64,
+        pub legacy_primary_hint:bool,
     }
     tokio::task_local! { static COUNTS: RefCell<Counts>; }
     pub(super) fn force_original() -> bool {
@@ -739,6 +747,12 @@ mod test_control {
             .unwrap_or(false)
     }
     pub(super) fn publication_enabled()->bool {COUNTS.try_with(|c|c.borrow().publication).unwrap_or(false)}
+    pub(super) fn legacy_primary_hint()->bool {COUNTS.try_with(|c|c.borrow().legacy_primary_hint).unwrap_or(false)}
+    pub(super) async fn count_published_legacy_hint<F:std::future::Future>(future:F)->(F::Output,Counts) {
+        COUNTS.scope(RefCell::new(Counts {publication:true,legacy_primary_hint:true,..Default::default()}),async {
+            let output=future.await;(output,COUNTS.with(|counts|*counts.borrow()))
+        }).await
+    }
     pub(super) fn record_fence() {let _=COUNTS.try_with(|c|c.borrow_mut().fences+=1);}
     pub(super) async fn count_published<F:std::future::Future>(future:F)->(F::Output,Counts) {
         COUNTS.scope(RefCell::new(Counts {publication:true,..Default::default()}),async {

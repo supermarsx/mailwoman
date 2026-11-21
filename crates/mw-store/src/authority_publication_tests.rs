@@ -58,6 +58,37 @@ async fn seed(s: &Store) -> (String, String) {
     .unwrap();
     (account, session)
 }
+
+async fn primary_hint_revision_contract(s:Store){
+    let (_,session)=seed(&s).await;let domains=vec!["authority.test".into()];
+    let (source,queries)=crate::pool_telemetry::measure_queries(s.native_publication_fence(&session,&domains,&[])).await;
+    let source=source.unwrap().unwrap();
+    assert_eq!(queries.read.calls+queries.other.calls,1,"typed revision and authority must come from one actual statement");
+    assert_eq!(queries.write.calls,0);
+    let observed=source.primary_policy_revision(&s).unwrap().unwrap();
+    let original=s.primary_session_policy_snapshot(&session).await.unwrap();
+    assert!(original.witness.matches_revision(observed),"same source revision as original primary hint");
+    let foreign=Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    assert!(source.primary_policy_revision(&foreign).is_err());foreign.close().await;
+    s.set_setting("hint-fusion-fixture","changed").await.unwrap();
+    let newer=s.native_publication_fence(&session,&domains,&[]).await.unwrap().unwrap();
+    let changed=newer.primary_policy_revision(&s).unwrap().unwrap();
+    assert_ne!(changed.number(),observed.number());
+    assert!(s.primary_session_policy_snapshot(&session).await.unwrap().witness.matches_revision(changed));
+    q("DELETE FROM settings_revision WHERE id=1").execute(&s.backend).await.unwrap();
+    let unsupported=s.native_publication_fence(&session,&domains,&[]).await.unwrap().unwrap();
+    assert!(unsupported.primary_policy_revision(&s).unwrap().is_none(),"missing revision must remain unsupported, never synthesized zero");
+    assert!(!super::fence::fence_sql(s.backend.dialect()).contains("sealed_creds"),"narrow source proof must not transfer a credential BLOB");
+    s.close().await;
+}
+#[tokio::test]
+async fn sqlite_primary_hint_revision_is_same_fence_bound_and_missing_is_unsupported(){
+    primary_hint_revision_contract(Store::open_in_memory(ServerKey::generate()).await.unwrap()).await;
+}
+#[tokio::test]
+async fn postgres_primary_hint_revision_is_same_fence_bound_and_missing_is_unsupported(){
+    postgres(primary_hint_revision_contract).await;
+}
 async fn current(s: &Store, scope: &AuthorityScope) -> AuthorityStamp {
     s.authority_versions(&[scope.clone()])
         .await

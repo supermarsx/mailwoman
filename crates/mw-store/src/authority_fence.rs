@@ -13,6 +13,7 @@ pub struct NativeAuthorityFence {
     created: String,
     activity: String,
     last_seen: Option<String>,
+    primary_revision:Option<crate::settings_policy::SettingsReadRevision>,
     publication_schema:Option<String>,
     mail_data:Option<crate::mail_data_publication::MailDataFence>,
 }
@@ -24,6 +25,13 @@ impl fmt::Debug for NativeAuthorityFence {
     }
 }
 impl NativeAuthorityFence {
+    /// The settings namespace number from this SAME source-row observation.
+    /// Store mints the typed value; a public numeric value cannot manufacture
+    /// it. This is request DATA, not authentication, a lease or a cached allow.
+    pub fn primary_policy_revision(&self,store:&Store)->Result<Option<&crate::settings_policy::SettingsReadRevision>,StoreError>{
+        if self.versions.store!=store.cache_scope(){return Err(invalid("foreign primary policy fence"))}
+        Ok(self.primary_revision.as_ref())
+    }
     /// Optional DATA proof read in the SAME final statement as this authority
     /// source. A standalone preparation snapshot cannot populate this field.
     pub fn mail_data(&self)->Option<&crate::mail_data_publication::MailDataFence> {self.mail_data.as_ref()}
@@ -69,11 +77,14 @@ pub(super) fn fence_sql(dialect: Dialect) -> &'static str {
             let typed=if pg{"TRUE".to_owned()}else{format!("typeof({expression})='text'")};
             format!("CASE WHEN {typed} AND octet_length({expression})<=1024 THEN {expression} ELSE CAST(NULL AS TEXT) END AS {name}")
         }).collect::<Vec<_>>().join(",");
-        let source_fields=fields.iter().map(|(name,_)|format!("b.{name}")).collect::<Vec<_>>().join(",");
-        let absent_fields=fields.iter().map(|_|"CAST(NULL AS TEXT)").collect::<Vec<_>>().join(",");
+        let source_fields=format!("{},b.primary_policy_revision",fields.iter().map(|(name,_)|format!("b.{name}")).collect::<Vec<_>>().join(","));
+        let absent_fields=format!("{},CAST(NULL AS BIGINT)",fields.iter().map(|_|"CAST(NULL AS TEXT)").collect::<Vec<_>>().join(","));
+        // Keep malformed SQLite dynamic values out of the result before
+        // transfer; missing/invalid is unsupported, never an invented zero.
+        let primary_revision=if pg{"CASE WHEN r.n>=0 THEN r.n ELSE CAST(NULL AS BIGINT) END"}else{"CASE WHEN typeof(r.n)='integer' AND r.n>=0 THEN r.n ELSE CAST(NULL AS BIGINT) END"};
         let domains=if pg{"SELECT value AS name FROM json_array_elements_text(?2::json)"}else{"SELECT value AS name FROM json_each(?2)"};
         let subjects=if pg{"SELECT value AS name FROM json_array_elements_text(?3::json)"}else{"SELECT value AS name FROM json_each(?3)"};
-        format!("SELECT * FROM (WITH domains_in AS ({domains}),subjects_in AS ({subjects}),base AS (SELECT {bounded} FROM sessions s JOIN accounts a ON a.id=s.account_id JOIN session_principal sp ON sp.session_id=s.id AND sp.primary_account_id=s.account_id JOIN identity_principal p ON p.id=sp.principal_id JOIN identity_binding ib ON ib.id=sp.binding_id AND ib.principal_id=p.id WHERE s.id=?1 AND s.linked_internal=0 AND s.jmap_url='engine' AND s.api_url='engine' AND a.kind IN ('imap','pop3') AND COALESCE(a.backend_kind,'')<>'ews' AND p.state='active' AND ib.retired_at IS NULL) SELECT 'source' AS tag,CAST(NULL AS TEXT) AS scope_kind,CAST(NULL AS TEXT) AS scope_id,CAST(NULL AS TEXT) AS incarnation,CAST(NULL AS BIGINT) AS version,{source_fields} FROM base b UNION ALL SELECT 'epoch',e.scope_kind,e.scope_id,e.incarnation,e.version,{absent_fields} FROM base b JOIN authority_epoch e ON (e.scope_kind IN ('policy','routing','directory','protection') AND e.scope_id='') OR (e.scope_kind='account' AND e.scope_id=b.account_id) OR (e.scope_kind='session' AND e.scope_id=b.session_id) OR (e.scope_kind='principal' AND e.scope_id=b.principal_id) OR (e.scope_kind='domain' AND e.scope_id IN(SELECT name FROM domains_in)) OR (e.scope_kind='subject' AND e.scope_id IN(SELECT name FROM subjects_in))) fenced ORDER BY tag,scope_kind,scope_id")
+        format!("SELECT * FROM (WITH domains_in AS ({domains}),subjects_in AS ({subjects}),base AS (SELECT {bounded},{primary_revision} AS primary_policy_revision FROM sessions s LEFT JOIN settings_revision r ON r.id=1 JOIN accounts a ON a.id=s.account_id JOIN session_principal sp ON sp.session_id=s.id AND sp.primary_account_id=s.account_id JOIN identity_principal p ON p.id=sp.principal_id JOIN identity_binding ib ON ib.id=sp.binding_id AND ib.principal_id=p.id WHERE s.id=?1 AND s.linked_internal=0 AND s.jmap_url='engine' AND s.api_url='engine' AND a.kind IN ('imap','pop3') AND COALESCE(a.backend_kind,'')<>'ews' AND p.state='active' AND ib.retired_at IS NULL) SELECT 'source' AS tag,CAST(NULL AS TEXT) AS scope_kind,CAST(NULL AS TEXT) AS scope_id,CAST(NULL AS TEXT) AS incarnation,CAST(NULL AS BIGINT) AS version,{source_fields} FROM base b UNION ALL SELECT 'epoch',e.scope_kind,e.scope_id,e.incarnation,e.version,{absent_fields} FROM base b JOIN authority_epoch e ON (e.scope_kind IN ('policy','routing','directory','protection') AND e.scope_id='') OR (e.scope_kind='account' AND e.scope_id=b.account_id) OR (e.scope_kind='session' AND e.scope_id=b.session_id) OR (e.scope_kind='principal' AND e.scope_id=b.principal_id) OR (e.scope_kind='domain' AND e.scope_id IN(SELECT name FROM domains_in)) OR (e.scope_kind='subject' AND e.scope_id IN(SELECT name FROM subjects_in))) fenced ORDER BY tag,scope_kind,scope_id")
     }));
     &all[usize::from(dialect == Dialect::Postgres)]
 }
@@ -289,6 +300,14 @@ impl Store {
         let mail_data=if let Some(descriptor)=descriptor {
             self.mail_data_from_joined(descriptor,generation.clone(),source.try_get_opt_string("mail_data")?.as_deref())?
         }else {None};
+        let primary_revision=match source.get_json("primary_policy_revision") {
+            serde_json::Value::Null=>None,
+            serde_json::Value::Number(number)=>{
+                let n=number.as_i64().filter(|n|*n>=0).ok_or_else(||corrupt("invalid primary policy source revision"))?;
+                Some(self.settings_revision_from_snapshot(Some(n)))
+            },
+            _=>return Err(corrupt("invalid primary policy source revision")),
+        };
         Ok(Some(NativeAuthorityFence {
             versions: AuthorityVersions {
                 store: self.cache_scope(),
@@ -302,6 +321,7 @@ impl Store {
             created,
             activity,
             last_seen: source.try_get_opt_string("last_seen")?,
+            primary_revision,
             publication_schema,
             mail_data,
         }))
