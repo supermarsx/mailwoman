@@ -11,12 +11,16 @@ metadata, backend workspace inventory and SECURITY.md bytes.
 through an explicit library path. Source files stay in place, so later security
 and asset-cache changes retain their paths. This private workspace crate has no
 build script. It must not acquire a production edge back to the facade or the
-metadata producer. Its current library name remains `mw_server` under the
-facade's `server_core` dependency alias to preserve tracing module targets.
-Actual Cargo alias/output-filename compatibility is a required gate, not an
-assumption: the tiny build-profile probe rejects filename collisions. If it
-fails, the prototype needs a reviewed log-filter compatibility design before
-acceptance; warnings must not be ignored to obtain a faster-looking build.
+metadata producer. Its unique library name is `mw_server_core`; the facade
+imports it through `server_core`. The first tiny prerequisite actually failed
+because both library targets used `mw_server`, causing Cargo output-filename
+collisions. That failed arm is retained as evidence, not accepted compatibility.
+A shared initialization/reload adapter duplicates legacy `mw_server` and
+`mw_server::subsystem` EnvFilter directives for core targets, while retaining
+facade directives and explicit core overrides. It does not rewrite events on the
+request path. Actual event targets/type names reflect the unique implementation
+crate. The corrected tiny prerequisite and real filter/reload tests must pass
+before this revised source prototype can be accepted.
 
 `mw-build-metadata` contains pure generation functions. Inputs are explicit
 bytes/scalars; the library has no build script, filesystem, environment or Git
@@ -71,14 +75,14 @@ is never inferred from the rolling-release policy.
 | Workspace unit/integration gates | Include both workspace members; do not substitute facade-only units |
 
 New focused source-authored cases: six pure producer cases, three core metadata
-cases, one facade compiled-data case, one actual router integration case, and one
+cases, two real filter/alias cases, one facade compiled-data case, one actual router integration case, and one
 additional Node exporter case. Existing standalone restart/vacuum/search process
 tests retain `CARGO_BIN_EXE_mailwoman`. Actual counts and skips must be recorded
 when run; none were executed while authoring this prototype.
 
 The optional `scripts/test-deploy-build-profile.sh --cargo-probe` first checks
 the proposed two-crate alias/external-source layout with tiny actual crates,
-legacy log targets, both fast-profile overrides, overflow/unwind behavior and a
+unique crate names and legacy directive aliases, both fast-profile overrides, overflow/unwind behavior and a
 metadata-only edit leaving the core fresh. Its result is a prerequisite; it is
 not a measurement of the full application.
 
@@ -93,3 +97,9 @@ owned checkout: actual Cargo artifacts must show core reuse while the served
 metadata/hash changes correctly. A lock change that changes effective dependency
 versions, or a package-version/compiler/profile change, can legitimately rebuild
 the core. Release defaults, LTO, codegen units and CPU target flags are unchanged.
+
+
+The tiny probe always retains bounded synthetic cold/warm/runtime logs and an
+exit-status record under `.orchestration/reports/perf-investigation/`, including
+on failure; its owned temporary path is redacted. These are prerequisite logs,
+not application performance measurements.

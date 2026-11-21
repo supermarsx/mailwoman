@@ -12,7 +12,7 @@ autotests = false
 autoexamples = false
 
 [lib]
-name = "mw_server"
+name = "mw_server_core"
 path = "../mw-server/src/lib.rs"
 
 [features]

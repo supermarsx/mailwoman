@@ -3,10 +3,35 @@
 set -Eeuo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 work=$(mktemp -d)
-trap 'rm -rf -- "$work"' EXIT
+probe_mode=0
+probe_log_root=$ROOT/.orchestration/reports/perf-investigation
+finish() {
+    local status=$?
+    trap - EXIT
+    if [[ $probe_mode == 1 ]]; then
+        local retained="$probe_log_root/metadata-boundary-probe-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+        (umask 077; mkdir -p -- "$probe_log_root"; mkdir -- "$retained") || { printf 'Could not retain tiny probe logs\n' >&2; exit 1; }
+        local part
+        for part in probe warm runtime; do
+            if [[ -f "$work/$part.log" ]]; then
+                # Tiny synthetic source only. Redact the owned temporary path;
+                # never run this collector on application logs or environment.
+                sed "s|$work|<owned-probe>|g" "$work/$part.log" | head -c 1048576 > "$retained/$part.log" || true
+                chmod 600 "$retained/$part.log"
+            fi
+        done
+        printf '{"kind":"tiny-metadata-boundary-prerequisite","exitCode":%s,"applicationBuildMeasured":false}\n' "$status" > "$retained/outcome.json"
+        chmod 600 "$retained/outcome.json"
+        printf 'Tiny probe evidence retained: %s\n' "$retained" >&2
+    fi
+    rm -rf -- "$work"
+    exit "$status"
+}
+trap finish EXIT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 if [[ ${1:-} == --cargo-probe ]]; then
+    probe_mode=1
     mkdir -p "$work/probe/server/src" "$work/probe/core/src" "$work/probe/dep/src"
     cat > "$work/probe/Cargo.toml" <<'TOML'
 [workspace]
@@ -30,7 +55,7 @@ name = "mw-server-core"
 version = "0.1.0"
 edition = "2024"
 [lib]
-name = "mw_server"
+name = "mw_server_core"
 path = "../server/src/core.rs"
 [dependencies]
 fixture-dep = { path = "../dep" }
@@ -38,11 +63,14 @@ TOML
     cat > "$work/probe/server/src/core.rs" <<'RS'
 pub fn value() -> usize { fixture_dep::value() }
 pub const LOG_TARGET: &str = module_path!();
+mod log_target_compat;
+pub fn log_directives(input: &str) -> String { log_target_compat::legacy_server_directives(input) }
 pub fn overflow() -> u8 {
     let n = std::hint::black_box(u8::MAX);
     std::hint::black_box(n + 1)
 }
 RS
+    cp "$ROOT/crates/mw-server/src/log_target_compat.rs" "$work/probe/server/src/log_target_compat.rs"
     cat > "$work/probe/server/Cargo.toml" <<'TOML'
 [package]
 name = "mw-server"
@@ -66,7 +94,9 @@ RS
     cat > "$work/probe/server/src/main.rs" <<'RS'
 fn main() {
     assert_eq!(mw_server::value(), 42);
-    assert_eq!(mw_server::LOG_TARGET, "mw_server");
+    assert_eq!(mw_server::LOG_TARGET, "mw_server_core");
+    assert_eq!(mw_server::log_directives("off,mw_server::auth=trace,mw_server_core=error"),
+        "mw_server_core::auth=trace,off,mw_server::auth=trace,mw_server_core=error");
     assert_eq!(mw_server::BUILD_INFO.trim(), std::env::args().nth(1).unwrap());
     assert!(std::panic::catch_unwind(mw_server::overflow).is_err());
     assert!(std::panic::catch_unwind(|| panic!("unwind remains enabled")).is_err());
@@ -75,7 +105,8 @@ RS
     (cd "$work/probe" && CARGO_TARGET_DIR="$work/probe/target" cargo build --offline --release -vv --config 'profile.release.package.mw-server-core.opt-level=2' --config 'profile.release.package.mw-server.opt-level=2') > "$work/probe.log" 2>&1
     ! grep -q 'output filename collision' "$work/probe.log" || fail 'facade/core library output filenames collide'
     grep -- '--crate-name fixture_dep' "$work/probe.log" | grep -q -- '-C opt-level=3' || fail 'dependency was not optimized at level 3'
-    grep -- '--crate-name mw_server' "$work/probe.log" | grep -q -- '-C opt-level=2' || fail 'server override did not use opt-level 2'
+    grep -- '--crate-name mw_server ' "$work/probe.log" | grep -q -- '-C opt-level=2' || fail 'facade override did not use opt-level 2'
+    grep -- '--crate-name mw_server_core ' "$work/probe.log" | grep -q -- '-C opt-level=2' || fail 'core override did not use opt-level 2'
     grep -- '--crate-name mw_server' "$work/probe.log" | grep -q -- '-C overflow-checks=on' || fail 'release overflow checking was lost'
     "$work/probe/target/release/mw-server" one > "$work/runtime.log" 2>&1 || fail 'overflow/unwind runtime invariants failed'
     printf 'two\n' > "$work/probe/server/product-input.txt"
@@ -83,7 +114,7 @@ RS
     grep -q 'Fresh mw-server-core ' "$work/warm.log" || fail 'metadata-only edit recompiled the core'
     ! grep -q 'output filename collision' "$work/warm.log" || fail 'warm facade/core library outputs collide'
     "$work/probe/target/release/mw-server" two >> "$work/runtime.log" 2>&1 || fail 'metadata-only rebuild served stale facts'
-    printf 'PASS: core/facade opt-level 2, dependency opt-level 3, overflow/unwind, legacy log target and metadata-only core reuse\n'
+    printf 'PASS: core/facade opt-level 2, dependency opt-level 3, overflow/unwind, legacy log directive aliases, unique crate names and metadata-only core reuse\n'
     exit 0
 fi
 [[ $# == 0 ]] || fail 'unknown fixture option'

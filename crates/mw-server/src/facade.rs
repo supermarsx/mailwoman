@@ -84,7 +84,7 @@ mod tests {
         assert!(facts["componentCount"].as_u64().unwrap() > 100);
         assert_eq!(facts["inventoryScope"], "workspace-lock");
         assert_eq!(facts["conformityAssessed"], false);
-        assert_eq!(std::any::type_name::<AppConfig>(), "mw_server::AppConfig");
+        assert_eq!(std::any::type_name::<AppConfig>(), "mw_server_core::AppConfig");
         assert_eq!(embedded_build_info().unwrap().revision(), info.revision());
     }
 }

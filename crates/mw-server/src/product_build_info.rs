@@ -164,7 +164,7 @@ mod tests {
         let facts: Value = serde_json::from_slice(&info.metadata()).unwrap();
         assert!(facts["componentCount"].as_u64().unwrap() > 100);
         assert_eq!(facts["revision"], info.revision());
-        assert_eq!(module_path!().split("::").next(), Some("mw_server"));
+        assert_eq!(module_path!().split("::").next(), Some("mw_server_core"));
         assert!(!format!("{info:?}").contains("CycloneDX"));
     }
 

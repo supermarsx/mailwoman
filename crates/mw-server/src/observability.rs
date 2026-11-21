@@ -32,6 +32,10 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::reload;
 
+#[path = "log_target_compat.rs"]
+mod log_target_compat;
+use log_target_compat::legacy_server_directives;
+
 /// Rotating log files, redaction and per-component levels (`logging.*`).
 #[path = "log_files.rs"]
 pub mod log_files;
@@ -154,12 +158,12 @@ pub fn subsystem_reload_layer<S>(initial: &str) -> (reload::Layer<EnvFilter, S>,
 where
     S: tracing::Subscriber + for<'a> LookupSpan<'a>,
 {
-    let filter = EnvFilter::new(initial);
+    let filter = EnvFilter::new(legacy_server_directives(initial));
     let (layer, handle) = reload::Layer::new(filter);
     let current = Arc::new(Mutex::new(initial.to_string()));
     let cur = current.clone();
     let reload = Arc::new(move |directives: &str| -> Result<(), String> {
-        let filter = EnvFilter::try_new(directives).map_err(|e| e.to_string())?;
+        let filter = EnvFilter::try_new(legacy_server_directives(directives)).map_err(|e| e.to_string())?;
         handle.reload(filter).map_err(|e| e.to_string())?;
         *cur.lock().expect("reload mutex") = directives.to_string();
         Ok(())
@@ -681,6 +685,56 @@ mod tests {
         // An invalid directive set is rejected and leaves the previous one in place.
         assert!(handle.reload("=::bogus::=").is_err());
         assert_eq!(handle.current(), "mw_server=debug,mw_engine=trace");
+    }
+
+    #[test]
+    fn legacy_directive_aliases_preserve_selectors_and_unrelated_input() {
+        assert_eq!(legacy_server_directives("off,mw_server=debug,mw_server::auth[check]=trace,mw_engine=info"),
+            "mw_server_core=debug,mw_server_core::auth[check]=trace,off,mw_server=debug,mw_server::auth[check]=trace,mw_engine=info");
+        assert_eq!(legacy_server_directives("mw_serverish=trace,mw_server_core=off"),
+            "mw_serverish=trace,mw_server_core=off");
+        assert!(EnvFilter::try_new(legacy_server_directives("=::bogus::=")).is_err());
+        // Locked tracing-subscriber0.3.23 Builder::parse/parse_lossy both split
+        // comma-separated input before parsing a Directive, including selectors.
+        // Assert actual parser support rather than invent comma-aware syntax.
+        for input in ["mw_server[check]=debug", "mw_server[check{field=7}]=debug"] {
+            assert!(EnvFilter::try_new(input).is_ok());
+            assert!(EnvFilter::try_new(legacy_server_directives(input)).is_ok());
+        }
+        for input in ["mw_server[check{one=1,two=2}]=debug", r#"mw_server[check{field="a,b"}]=debug"#] {
+            assert!(EnvFilter::try_new(input).is_err());
+            assert!(EnvFilter::try_new(legacy_server_directives(input)).is_err());
+        }
+    }
+
+    #[derive(Clone)]
+    struct TargetRecords(Arc<Mutex<Vec<&'static str>>>);
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for TargetRecords {
+        fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
+            self.0.lock().unwrap().push(event.metadata().target());
+        }
+    }
+    #[test]
+    fn real_initial_and_reloaded_filters_keep_legacy_core_and_subsystem_levels() {
+        let records = Arc::new(Mutex::new(Vec::new()));
+        let (filter, handle) = subsystem_reload_layer::<Registry>(
+            "off,mw_server=debug,mw_server::auth=error");
+        let subscriber = Registry::default().with(filter).with(TargetRecords(records.clone()));
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::debug!(target: "mw_server_core::handler", "fixture");
+            tracing::warn!(target: "mw_server_core::auth", "fixture");
+            tracing::error!(target: "mw_server_core::auth", "fixture");
+            tracing::debug!(target: "mw_server::cli", "fixture");
+            tracing::error!(target: "unrelated", "fixture");
+            assert_eq!(*records.lock().unwrap(), ["mw_server_core::handler","mw_server_core::auth","mw_server::cli"]);
+            records.lock().unwrap().clear();
+            handle.reload("off,mw_server=trace,mw_server_core=off,mw_engine=debug").unwrap();
+            tracing::error!(target: "mw_server_core::handler", "fixture");
+            tracing::trace!(target: "mw_server::cli", "fixture");
+            tracing::debug!(target: "mw_engine::fixture", "fixture");
+            assert_eq!(*records.lock().unwrap(), ["mw_server::cli","mw_engine::fixture"]);
+            assert_eq!(handle.current(), "off,mw_server=trace,mw_server_core=off,mw_engine=debug");
+        });
     }
 
     fn bearer(token: &str) -> HeaderMap {
