@@ -243,8 +243,8 @@ END;
 
 
 
-CREATE TRIGGER mail_data_stamp_update AFTER UPDATE OF cache_revision,content_revision ON messages
+CREATE TRIGGER mail_data_stamp_update AFTER UPDATE ON messages
 WHEN NEW.cache_revision IS NOT OLD.cache_revision OR NEW.content_revision IS NOT OLD.content_revision
 BEGIN
- UPDATE mail_data_rows SET cache_revision=NEW.cache_revision,content_revision=NEW.content_revision WHERE stable_id=NEW.stable_id AND account_id=NEW.account_id;
+ UPDATE mail_data_rows SET cache_revision=NEW.cache_revision,content_revision=NEW.content_revision WHERE stable_id=NEW.stable_id AND account_id=NEW.account_id AND (cache_revision IS NOT NEW.cache_revision OR content_revision IS NOT NEW.content_revision);
 END;

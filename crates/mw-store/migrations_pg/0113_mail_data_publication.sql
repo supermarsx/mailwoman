@@ -296,11 +296,11 @@ CREATE TRIGGER mail_data_account_update AFTER UPDATE ON accounts FOR EACH ROW EX
 CREATE FUNCTION mail_data_stamp_update_fn() RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
  IF NEW.cache_revision IS DISTINCT FROM OLD.cache_revision OR NEW.content_revision IS DISTINCT FROM OLD.content_revision THEN
-  UPDATE mail_data_rows SET cache_revision=NEW.cache_revision,content_revision=NEW.content_revision WHERE stable_id=NEW.stable_id AND account_id=NEW.account_id;
+  UPDATE mail_data_rows SET cache_revision=NEW.cache_revision,content_revision=NEW.content_revision WHERE stable_id=NEW.stable_id AND account_id=NEW.account_id AND (cache_revision IS DISTINCT FROM NEW.cache_revision OR content_revision IS DISTINCT FROM NEW.content_revision);
  END IF;
  RETURN NULL;
 END $$;
-CREATE TRIGGER mail_data_stamp_update AFTER UPDATE OF cache_revision,content_revision ON messages FOR EACH ROW EXECUTE FUNCTION mail_data_stamp_update_fn();
+CREATE TRIGGER mail_data_stamp_update AFTER UPDATE ON messages FOR EACH ROW EXECUTE FUNCTION mail_data_stamp_update_fn();
 
 DO $$ DECLARE function_name TEXT; BEGIN
  FOREACH function_name IN ARRAY ARRAY['mail_data_stamp_update_fn','mail_data_account_update_fn','mail_data_message_insert_fn','mail_data_message_update_fn','mail_data_message_delete_fn','mail_data_message_meta_insert_fn','mail_data_message_meta_update_fn','mail_data_message_meta_delete_fn','mail_data_message_list_envelope_insert_fn','mail_data_message_list_envelope_update_fn','mail_data_message_list_envelope_delete_fn','mail_data_security_verdicts_insert_fn','mail_data_security_verdicts_update_fn','mail_data_security_verdicts_delete_fn','mail_data_mailbox_insert_fn','mail_data_contact_insert_fn','mail_data_address_book_insert_fn','mail_data_posture_insert_fn','mail_data_mailbox_update_fn','mail_data_contact_update_fn','mail_data_address_book_update_fn','mail_data_posture_update_fn','mail_data_mailbox_delete_fn','mail_data_contact_delete_fn','mail_data_address_book_delete_fn','mail_data_posture_delete_fn','mail_data_account_insert_fn','mail_data_account_delete_fn'] LOOP

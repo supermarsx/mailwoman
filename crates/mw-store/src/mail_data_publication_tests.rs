@@ -78,7 +78,10 @@ async fn all_source_dml(store:Store){
     tx.rollback().await.unwrap();
     assert!(before.same_data(&snapshot(&store,&descriptor).await));
     q("UPDATE messages SET flags_json=flags_json WHERE stable_id=?1").bind(&id).execute(&store.backend).await.unwrap();
-    assert!(before.same_data(&snapshot(&store,&descriptor).await));
+    //0105 deliberately advances opaque cache identity even on a semantic
+    // no-op. Both backends must mirror that committed source version, including
+    // PostgreSQL BEFORE-trigger writes to columns not named in the SET list.
+    before=changed(&store,&descriptor,&before).await;
     q("UPDATE messages SET flags_json='[\"seen\"]' WHERE stable_id=?1").bind(&id).execute(&store.backend).await.unwrap();
     before=changed(&store,&descriptor,&before).await;
     let other=store.mail_data_descriptor(&b,std::slice::from_ref(&id)).unwrap();
