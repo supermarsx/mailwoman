@@ -258,7 +258,7 @@ async fn query_phase_is_captured_before_acquisition_await_not_at_completion() {
         unreachable!()
     };
     let pin = live.pin().await;
-    let lease = pin.pool().acquire().await.unwrap();
+    let mut lease = pin.pool().acquire().await.unwrap();
     let (_, report) = measure(async {
         let mut waiting = Box::pin(q("SELECT 42").fetch_one(store.backend()));
         in_phase(
