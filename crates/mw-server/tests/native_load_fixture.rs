@@ -976,7 +976,7 @@ async fn run(workers: usize) {
                 }
                 let mut snapshot = match diagnostics_hook::snapshot_with_cache_audit(&store,&directory,audit_cache).await {
                     Ok(snapshot)=>snapshot,
-                    Err(_)=>return (axum::http::StatusCode::SERVICE_UNAVAILABLE,axum::Json(json!({"error":"cache-audit-unavailable"}))),
+                    Err(error)=>return (axum::http::StatusCode::SERVICE_UNAVAILABLE,axum::Json(error.report().clone())),
                 };
                 snapshot["httpTelemetry"] = mw_server::http_telemetry_snapshot();
                 snapshot["searchIndex"] = json!({
