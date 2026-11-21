@@ -3,7 +3,7 @@ import {OfflineQueueNotice,describeQueued} from '../../components/OfflineQueueNo
 import {createRangeSelection} from '../../components/rangeSelection.ts';
 import {RangeSelectionBar,RangeSelectionToggle} from '../../components/RangeSelectionBar.tsx';
 import {SearchInput} from '../../components/SearchInput.tsx';
-import {iconLabel,filters,filterField} from './style.css.ts';
+import {iconLabel,filters,filterField,center} from './style.css.ts';
 import {createSignal,createEffect,useContext,For,Show,onMount,type JSX} from 'solid-js';
 import {notificationNotices,notificationLoading,notificationFailed,refreshNotificationCenter,changeCenterNotice,type CenterNotice,type CenterAction} from '../../state/notificationCenter.ts';
 import {t,loadCatalog,formatDateTime} from '../../i18n';
@@ -40,7 +40,7 @@ export default function Notifications():JSX.Element{
   else if(notice.event==='forwardingAdded')requestSettings('rules');
   else requestSettings('security',notice.kind==='login'?'security-history-card':notice.kind==='session'?'session-alerts-card':['newDevice','newCountry','delegateAdded'].includes(notice.event)?'sessions-card':notice.event==='twoFactorChanged'?'twofa-card-overview':'security-activity-card');
  }
- return <section class={css.section} style={{'max-inline-size':'64rem','inline-size':'100%','box-sizing':'border-box'}} aria-label={t('common-module-notifications')} data-testid="notification-center" data-range-selection-root>
+ return <section class={`${css.section} ${center}`} aria-label={t('common-module-notifications')} data-testid="notification-center" data-range-selection-root>
   <h2 class={`${css.heading} ${iconLabel}`}><Icon name="bell"/>{t('common-module-notifications')}</h2><p class={css.prose}>{t('notification-center-help')}</p>
   <div class={css.actions}><RangeSelectionToggle selection={bulk}/><For each={['active','archived','dismissed']}>{value=><button type="button" class={`${css.ghost} ${iconLabel}`} aria-pressed={state()===value} onClick={()=>setState(value)}>{t(`notification-center-${value}`)}</button>}</For></div>
   <div class={filters}><label class={filterField}><span class={iconLabel}><Icon name="search"/>{t('common-search')}</span><SearchInput class={css.input} aria-label={t('common-search')} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label><label class={filterField}><span>{t('notification-center-type')}</span><select class={css.input} value={kind()} onChange={event=>setKind(event.currentTarget.value)}><For each={['all','security','session','login','update','queue']}>{value=><option value={value}>{t(value==='queue'?'mail-queue-notice-label':`notification-center-type-${value}`)}</option>}</For></select></label></div>

@@ -61,7 +61,7 @@ export function Appearance(props:{box:Mailbox}):JSX.Element {
   if(canTint())setAccountUiPreferences({folderProps:withOverride(prefs().folderProps,id(),{folderColour:value??undefined})});
  }
  const touched=()=>icon()!==''||(canColour()&&colour()!=='')||(canTint()&&Boolean(prefs().folderProps?.[id()]?.folderColour));
- return <div data-testid="props-appearance" style={{display:'contents'}}>
+ return <div data-testid="props-appearance" class={css.contents}>
   <section class={css.card} aria-labelledby="props-prev-title">
    <h3 id="props-prev-title" class={css.cardTitle}>{t('props-card-preview')}</h3>
    <p class={css.cardHelp}>{t('props-preview-help')}</p>
@@ -84,7 +84,7 @@ export function Appearance(props:{box:Mailbox}):JSX.Element {
    <h3 id="props-colour-title" class={css.cardTitle}>{t('props-card-colour')}</h3>
    <p class={css.cardHelp}>{t('props-colour-help')}</p>
    <div class={css.swatches} role="radiogroup" aria-label={t('props-card-colour')} data-testid="props-swatches">
-    <button type="button" role="radio" aria-checked={colour()===''} class={css.swatch} style={{background:'transparent'}} title={t('props-colour-none')} aria-label={t('props-colour-none')} onClick={()=>setColour('')}/>
+    <button type="button" role="radio" aria-checked={colour()===''} class={`${css.swatch} ${css.noColour}`} title={t('props-colour-none')} aria-label={t('props-colour-none')} onClick={()=>setColour('')}/>
     <For each={PALETTE}>{hex=><button type="button" role="radio" aria-checked={colour().toLowerCase()===hex} class={css.swatch} style={{background:hex}} aria-label={hex} title={hex} onClick={()=>setColour(hex)}/>}</For>
     <input type="color" aria-label={t('props-colour-custom')} value={colour()||'#888888'} onChange={event=>setColour(event.currentTarget.value)}/>
    </div>
@@ -96,7 +96,7 @@ export function Remote(props:{box:Mailbox;stats:StatsState}):JSX.Element {
  const s=()=>props.stats;
  const shown=()=>{const stats=s().stats();return stats?remoteForDisplay(stats.remote,remoteVisibility()):null;};
  const Line=(p:{label:string;value:string|number;copy?:boolean})=><Pair label={p.label}><span class={css.mono}>{p.value}</span><Show when={p.copy!==false}><Copy text={String(p.value)} label={p.label}/></Show></Pair>;
- return <div data-testid="props-remote" style={{display:'contents'}}>
+ return <div data-testid="props-remote" class={css.contents}>
   <Show when={remoteVisibility()!=='hidden'} fallback={<section class={css.card}><p class={css.note}>{t('props-remote-hidden')}</p></section>}>
    <Show when={shown()} fallback={<section class={css.card}>
     <Show when={s().failed()} fallback={<Show when={s().idle()} fallback={<p class={css.note} role="status">{s().loading()?t('props-loading'):t('props-remote-unavailable')}</p>}>
@@ -115,7 +115,7 @@ export function Remote(props:{box:Mailbox;stats:StatsState}):JSX.Element {
      </section>
      <details class={css.advanced} data-testid="props-remote-advanced">
       <summary>{t('props-advanced')}</summary>
-      <dl class={css.grid} style={{'margin-block-start':'0.5rem'}}>
+      <dl class={`${css.grid} ${css.remoteDetails}`}>
        <Show when={remote().uidValidity!==undefined}><Line label="UIDVALIDITY" value={remote().uidValidity!}/></Show>
        <Show when={remote().uidNext!==undefined}><Line label="UIDNEXT" value={remote().uidNext!}/></Show>
        <Show when={remote().highestModSeq!==undefined}><Line label="HIGHESTMODSEQ" value={remote().highestModSeq!}/></Show>

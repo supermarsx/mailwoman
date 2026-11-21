@@ -108,3 +108,11 @@ export const actionDesc=style({display:'block',color:vars.color.textDim,fontSize
 // Footer
 export const footer=style({display:'flex',alignItems:'center',justifyContent:'flex-end',gap:vars.space[2],padding:`${vars.space[3]} ${vars.space[4]}`,borderBlockStart:`${vars.border.hair} solid ${vars.color.border}`,background:vars.color.surface,flex:'0 0 auto'});
 export const footerHint=style({marginInlineEnd:'auto',color:vars.color.textDim,fontSize:'0.8rem'});
+
+// Static shell layout belongs in the CSP-authorized stylesheet.
+export const contents=style({display:'contents'});
+export const noColour=style({background:'transparent'});
+export const remoteDetails=style({marginBlockStart:'0.5rem'});
+export const extraHelp=style({marginBlock:'0.5rem'});
+export const startAction=style({alignSelf:'flex-start'});
+export const rowSpaced=style({justifyContent:'space-between'});

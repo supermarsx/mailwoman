@@ -56,7 +56,7 @@ export function Actions(props:{box:Mailbox;actions:FolderDialogActions|undefined
  const a=()=>props.actions;
  const canRenameHere=()=>props.onStartRename!==undefined||a()?.onRename!==undefined;
  const danger=()=>a()?.onEmpty!==undefined||a()?.onDelete!==undefined;
- return <div data-testid="props-actions" style={{display:'contents'}}>
+ return <div data-testid="props-actions" class={css.contents}>
   <Show when={folderExportEnabled()}><section class={css.card} aria-labelledby="props-zip-title">
    <h3 id="props-zip-title" class={css.cardTitle}>{t('props-act-zip')}</h3>
    <p class={css.cardHelp}>{t('props-act-zip-help')}</p>

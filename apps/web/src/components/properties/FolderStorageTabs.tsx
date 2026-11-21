@@ -22,7 +22,7 @@ function Pair(props:{label:string;children:JSX.Element}):JSX.Element {return <><
 export function UsageBar(props:{label:string;share:number;text:string;warn?:boolean;testId?:string}):JSX.Element {
  const pct=()=>Math.max(0,Math.min(100,Math.round(props.share*100)));
  return <div class={css.meter} data-testid={props.testId}>
-  <div class={css.row} style={{'justify-content':'space-between'}}><span>{props.label}</span><span class={css.note}>{props.text}</span></div>
+  <div class={`${css.row} ${css.rowSpaced}`}><span>{props.label}</span><span class={css.note}>{props.text}</span></div>
   <div class={css.track} role="meter" aria-label={props.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct()} aria-valuetext={props.text}><div class={`${css.fill}${props.warn?` ${css.fillWarn}`:''}`} style={{'inline-size':`${pct()}%`}}/></div>
  </div>;
 }
@@ -46,7 +46,7 @@ export function Size(props:{box:Mailbox;stats:StatsState;onOpenMessage?:((id:str
  });
  const q=()=>resourceValue(quota);
  const biggest=()=>Math.max(1,...(st()?.largest.map(item=>item.size)??[1]));
- return <div data-testid="props-size" aria-busy={s().loading()} style={{display:'contents'}}>
+ return <div data-testid="props-size" aria-busy={s().loading()} class={css.contents}>
   <section class={css.card} aria-labelledby="props-size-title">
    <h3 id="props-size-title" class={css.cardTitle}>{t('props-card-usage')}</h3>
    <Show when={st()}>{stats=><>
@@ -90,7 +90,7 @@ export function Offline(props:{box:Mailbox;stats:StatsState;onRefresh?:(()=>void
   catch{setConfirming(false);toast.error(t('props-offline-clear-failed'));}
  }
  function prefetch():void {try{props.onRefresh!();toast.success(t('props-offline-prefetching'));}catch{toast.error(t('props-offline-prefetch-failed'));}}
- return <div data-testid="props-offline" style={{display:'contents'}}>
+ return <div data-testid="props-offline" class={css.contents}>
   <section class={css.card} aria-labelledby="props-off-title">
    <h3 id="props-off-title" class={css.cardTitle}>{t('props-card-offline')}</h3>
    <p class={css.cardHelp}>{t('props-offline-help')}</p>

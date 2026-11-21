@@ -20,3 +20,6 @@ globalStyle('.list__row[data-context-open="true"]',{background:accentSurface,out
 globalStyle(`${folderRow}[data-context-open="true"] > .sidebar__box`,{background:accentSurface,outline:`1px solid ${vars.color.accent}`,outlineOffset:'-1px'});
 globalStyle(`.${menu}::-webkit-scrollbar`,{width:'8px'});
 globalStyle(`.${menu}::-webkit-scrollbar-thumb`,{background:vars.color.borderStrong,borderRadius:vars.radius.sm});
+
+export const search=style({margin:'4px 8px 8px',width:'calc(100% - 16px)',boxSizing:'border-box'});
+export const emptyStatus=style({padding:'8px 12px'});

@@ -1073,7 +1073,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
               </For>
             </ul>
             <Show when={app.loadMoreFailed?.() === true}>
-              <div class="list__load-failed" role="alert" data-testid="load-more-failed" style={{position:'sticky',bottom:'0',padding:'8px 12px',display:'flex','align-items':'center',gap:'8px'}}>
+              <div class={`list__load-failed ${listLoadingCss.loadFailed}`} role="alert" data-testid="load-more-failed">
                 <span>{t('mail-toast-load-more-failed')}</span>
                 <button type="button" onClick={()=>void app.loadMore()}>{t('common-retry')}</button>
               </div>

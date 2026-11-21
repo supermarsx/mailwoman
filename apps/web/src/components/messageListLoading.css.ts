@@ -10,3 +10,5 @@ export const subject=style({maxInlineSize:'72%'});
 export const preview=style({maxInlineSize:'88%'});
 export const subjectWithoutPreview=style({maxInlineSize:'64%'});
 export const date=style({inlineSize:'3rem'});
+
+export const loadFailed=style({position:'sticky',bottom:0,padding:'8px 12px',display:'flex',alignItems:'center',gap:'8px'});

@@ -405,3 +405,5 @@ globalStyle(`${item} > ${actions} > button`, {
   minBlockSize: '1.75rem', paddingBlock: '2px', paddingInline: vars.space[2], fontSize: '0.8rem',
   '@media': { '(pointer: coarse)': { minBlockSize: vars.a11y.touchTarget } },
 });
+
+export const notificationAccountPicker=style({maxInlineSize:'28rem'});

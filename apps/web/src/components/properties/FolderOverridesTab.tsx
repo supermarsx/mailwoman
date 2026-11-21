@@ -33,7 +33,7 @@ export function Overrides(props:{box:Mailbox;onRetention:(()=>void)|undefined}):
  const applied=()=>defsFor(COUNTER_OVERRIDES),more=createMemo(()=>MORE_GROUPS.map(group=>({...group,defs:defsFor(group.keys)})).filter(group=>group.defs.length>0));
  function set(patch:Patch):void {setAccountUiPreferences({folderProps:withOverride(prefs(),props.box.id,patch)});}
  const eff=(key:OverrideKey)=>effectiveOverride(OVERRIDE_DEFS.find(def=>def.key===key)!,own(),undefined,undefined);
- return <div data-testid="props-overrides" style={{display:'contents'}}>
+ return <div data-testid="props-overrides" class={css.contents}>
   <Show when={allowed().includes('hideWhenEmpty')}>
    <section class={css.card} aria-labelledby="props-ovr-g-visibility" data-testid="props-folder-visibility">
     <h3 id="props-ovr-g-visibility" class={css.cardTitle}>{t('props-group-visibility')}</h3>
@@ -53,7 +53,7 @@ export function Overrides(props:{box:Mailbox;onRetention:(()=>void)|undefined}):
   <Show when={more().length>0}>
    <details class={css.advanced} data-testid="props-ovr-more">
     <summary>{t('props-more-options')}</summary>
-    <p class={css.cardHelp} style={{'margin-block':'0.5rem'}}>{t('props-more-options-help')}</p>
+    <p class={`${css.cardHelp} ${css.extraHelp}`}>{t('props-more-options-help')}</p>
     <div class={css.group}><For each={more()}>{group=><section aria-labelledby={`props-ovr-g-${group.id}`} class={css.card}>
      <h3 id={`props-ovr-g-${group.id}`} class={css.cardTitle}>{t(`props-group-${group.id}`)}</h3>
      <p class={css.cardHelp}>{t(`props-group-${group.id}-help`)}</p>
@@ -61,7 +61,7 @@ export function Overrides(props:{box:Mailbox;onRetention:(()=>void)|undefined}):
     </section>}</For></div>
    </details>
   </Show>
-  <Show when={props.onRetention}><button type="button" class="btn btn--ghost" style={{'align-self':'flex-start'}} onClick={()=>props.onRetention!()}><Icon name="archive"/>{t('props-ovr-retention')}</button></Show>
+  <Show when={props.onRetention}><button type="button" class={`btn btn--ghost ${css.startAction}`} onClick={()=>props.onRetention!()}><Icon name="archive"/>{t('props-ovr-retention')}</button></Show>
  </div>;
 }
 
@@ -146,7 +146,7 @@ export function Notes(props:{box:Mailbox}):JSX.Element {
   <p class={css.cardHelp}>{t('props-notes-help')}</p>
   <label for={id} class={css.ovrLabel}>{t('props-notes-label')}</label>
   <textarea id={id} ref={area} class={css.textarea} maxlength={max()} value={draft()} aria-describedby={`${id}-count`} onInput={event=>{setDraft(event.currentTarget.value);setFlash(false);}} onBlur={()=>{save();}}/>
-  <div class={css.row} style={{'justify-content':'space-between'}}>
+  <div class={`${css.row} ${css.rowSpaced}`}>
    <span id={`${id}-count`} class={css.note}>{t('props-notes-count',{count:draft().length,max:max()})}</span>
    <span class={css.row}>
     <span class={css.saved} role="status" data-testid="props-notes-saved">{flash()&&!dirty()?t('props-notes-saved-flag'):''}</span>
