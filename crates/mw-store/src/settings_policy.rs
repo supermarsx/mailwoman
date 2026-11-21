@@ -324,6 +324,69 @@ impl Store {
             values,
         })
     }
+    /// Collect at most sixteen selected keys through the single-key reader's
+    /// exact canonical/value/policy machinery. Never reads ALL_POLICIES_MEMO.
+    /// A fresh revision before and after collection rejects overlapping writes.
+    /// None requires the caller to use its original strict per-key readers;
+    /// absent/invalid revision rows must never enable a shared snapshot.
+    /// This bounds selector input, not existing database payload/executor sizes.
+    pub async fn settings_resolution_inputs_selected(
+        &self,
+        subject: &SettingSubject<'_>,
+        keys: &[&str],
+    ) -> Result<Option<SettingsResolutionInputs>, StoreError> {
+        if keys.len() > 16
+            || keys.iter().try_fold(0usize, |sum, key| sum.checked_add(key.len()))
+                .is_none_or(|bytes| bytes > 4096)
+        {
+            return Err(StoreError::Corrupt("selected settings key budget exceeded".into()));
+        }
+        if keys.is_empty() {
+            return Ok(None);
+        }
+        let Some(revision) = self.settings_revision().await?.filter(|number| *number >= 0) else {
+            return Ok(None);
+        };
+        self.collect_selected_settings_at(subject, keys, revision).await
+    }
+
+    // Private collection seam also allows deterministic stale-revision tests.
+    async fn collect_selected_settings_at(
+        &self,
+        subject: &SettingSubject<'_>,
+        keys: &[&str],
+        revision: i64,
+    ) -> Result<Option<SettingsResolutionInputs>, StoreError> {
+        let canonical = self.canonical_setting_subject_at(subject, Some(revision)).await?;
+        let mut unique = Vec::new();
+        for &key in keys {
+            if !unique.contains(&key) { unique.push(key); }
+        }
+        let scope = self.cache_scope();
+        let mut policies = Vec::new();
+        let mut missing = Vec::new();
+        for &key in &unique {
+            match POLICY_MEMO.get(scope, key, revision) {
+                Some(Some(policy)) => policies.push(policy),
+                Some(None) => {},
+                None => missing.push(key),
+            }
+        }
+        if !missing.is_empty() {
+            let loaded = self.get_setting_policies_batch(&missing).await?;
+            for key in missing {
+                let policy = loaded.iter().find(|row| row.key == key).cloned();
+                POLICY_MEMO.put(scope, key.to_owned(), revision, policy.clone());
+                policies.extend(policy);
+            }
+        }
+        let values = self.setting_values_for_canonical_at(&canonical.as_subject(), Some(revision)).await?;
+        if self.settings_revision().await? != Some(revision) {
+            return Ok(None);
+        }
+        Ok(Some(SettingsResolutionInputs { canonical, policies, values }))
+    }
+
     pub async fn settings_resolution_inputs_at(
         &self,
         subject: &SettingSubject<'_>,

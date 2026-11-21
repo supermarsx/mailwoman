@@ -16,8 +16,28 @@ async fn serve(router: axum::Router) -> String {
     format!("http://{address}")
 }
 
-#[tokio::test]
-async fn restrictive_proxy_policy_uses_owned_metadata_not_url_names_and_is_hot() {
+#[test]
+fn restrictive_proxy_policy_uses_owned_metadata_not_url_names_and_is_hot() {
+    // Construct and poll the production router's debug future on a bounded
+    // fixture-owned stack. Tokio worker stack settings do not enlarge the
+    // libtest thread that calls block_on.
+    let fixture = std::thread::Builder::new()
+        .name("mw-attachment-policy-fixture".into())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("attachment policy test runtime")
+                .block_on(restrictive_proxy_policy_fixture());
+        })
+        .expect("bounded attachment policy fixture thread");
+    if let Err(panic) = fixture.join() {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+async fn restrictive_proxy_policy_fixture() {
     let upstream = serve(mw_mock_jmap::router()).await;
     let db = common::test_db::unique_db_path("attachment-policy");
     let (router, _) = build_app_full(
@@ -188,6 +208,17 @@ async fn restrictive_proxy_policy_uses_owned_metadata_not_url_names_and_is_hot()
             .status(),
         403
     );
+    // A deleted revision row disables shared inputs, never the original fresh
+    // readers. Both policy endpoint and real owned download must remain hot.
+    sqlx::query("DELETE FROM settings_revision WHERE id=1").execute(&pool).await.unwrap();
+    set(&pool, "attachments.downloadAllowed", json!(true)).await;
+    let current=client.get(format!("{base}/api/attachments/policy")).send().await.unwrap();
+    assert_eq!(current.status(),200);
+    assert_eq!(current.json::<Value>().await.unwrap()["downloadAllowed"],json!(true));
+    assert_eq!(client.get(format!("{safe}&acknowledgeWarning=true")).send().await.unwrap().status(),200);
+    set(&pool, "attachments.downloadAllowed", json!(false)).await;
+    assert_eq!(client.get(format!("{safe}&acknowledgeWarning=true")).send().await.unwrap().status(),403);
+
 }
 async fn set(pool: &sqlx::SqlitePool, key: &str, value: Value) {
     sqlx::query("INSERT INTO setting_policy(key,global_value,updated_by,updated_at) VALUES(?1,?2,'test',0) ON CONFLICT(key) DO UPDATE SET global_value=excluded.global_value").bind(key).bind(value.to_string()).execute(pool).await.unwrap();

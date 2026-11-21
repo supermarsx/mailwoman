@@ -295,3 +295,143 @@ async fn single_key_resolution_never_loads_or_memoizes_unrelated_policies() {
         Some("3")
     );
 }
+
+
+const SELECTED_KEYS: [&str; 9] = [
+    "attachments.previewAllowed", "attachments.downloadAllowed", "attachments.maxBytes",
+    "attachments.allowedExtensions", "attachments.blockedExtensions", "attachments.warnExtensions",
+    "attachments.allowedMimeTypes", "attachments.blockedMimeTypes", "attachments.warnMimeTypes",
+];
+async fn seed_selected(store: &Store) {
+    for key in SELECTED_KEYS {
+        let mut row = policy("false".into()); row.key = key.into();
+        store.put_setting_policy(&row).await.unwrap();
+    }
+}
+async fn selected_reference_contract(store: &Store) -> u64 {
+    seed_selected(store).await;
+    let subject = SettingSubject::default();
+    let (cold, cold_reads) = crate::pool_telemetry::measure_queries(
+        store.settings_resolution_inputs_selected(&subject, &SELECTED_KEYS)
+    ).await;
+    let cold = cold.unwrap().unwrap();
+    let (warm, warm_reads) = crate::pool_telemetry::measure_queries(
+        store.settings_resolution_inputs_selected(&subject, &SELECTED_KEYS)
+    ).await;
+    let warm = warm.unwrap().unwrap();
+    assert_eq!(warm.canonical, cold.canonical);
+    assert_eq!(warm.values, cold.values);
+    assert_eq!(warm_reads.read.calls, 2, "two fresh revision fences, no per-key/source reads");
+    assert!(cold_reads.read.calls > warm_reads.read.calls);
+    let (reference, reference_reads) = crate::pool_telemetry::measure_queries(async {
+        let mut out = Vec::new();
+        for key in SELECTED_KEYS { out.push(store.settings_resolution_inputs_for(&subject, key).await.unwrap()); }
+        out
+    }).await;
+    assert_eq!(reference_reads.read.calls, 9);
+    for (key, input) in SELECTED_KEYS.into_iter().zip(reference) {
+        assert_eq!(input.canonical, warm.canonical);
+        assert_eq!(input.values, warm.values);
+        assert_eq!(input.policies.first(), warm.policies.iter().find(|row| row.key == key));
+    }
+    let revision = store.settings_revision().await.unwrap().unwrap();
+    assert!(ALL_POLICIES_MEMO.get(store.cache_scope(), "all", revision).is_none());
+    // A source write after the collection's first revision must reject the
+    // entire frame. The private seam is exactly what the public reader calls.
+    q("UPDATE setting_policy SET global_value='true' WHERE key='attachments.previewAllowed'")
+        .execute(&store.backend).await.unwrap();
+    assert!(store.collect_selected_settings_at(&subject, &SELECTED_KEYS, revision).await.unwrap().is_none());
+    let current = store.settings_resolution_inputs_selected(&subject, &SELECTED_KEYS).await.unwrap().unwrap();
+    assert_eq!(current.policies.iter().find(|p| p.key == SELECTED_KEYS[0]).unwrap().global_value.as_deref(), Some("true"));
+    q("DELETE FROM settings_revision WHERE id=1").execute(&store.backend).await.unwrap();
+    assert!(store.settings_resolution_inputs_selected(&subject, &SELECTED_KEYS).await.unwrap().is_none());
+    // Missing revision keeps the original uncached reader available.
+    assert_eq!(store.settings_resolution_inputs_for(&subject, SELECTED_KEYS[0]).await.unwrap().policies[0].global_value.as_deref(), Some("true"));
+    println!("{{\"kind\":\"selected-settings-counts\",\"coldReads\":{},\"warmReads\":{},\"scalarWarmReads\":{}}}", cold_reads.read.calls, warm_reads.read.calls, reference_reads.read.calls);
+    cold_reads.read.calls
+}
+#[tokio::test]
+async fn selected_settings_sqlite_reference_counts_raw_invalidation_and_missing_revision() {
+    let cold_batch = selected_reference_contract(&store().await).await;
+    let reference = store().await;
+    seed_selected(&reference).await;
+    let (_, counts) = crate::pool_telemetry::measure_queries(async {
+        for key in SELECTED_KEYS { reference.settings_resolution_inputs_for(&SettingSubject::default(), key).await.unwrap(); }
+    }).await;
+    assert!(cold_batch < counts.read.calls, "cold selected collector must reduce source roundtrips against fresh scalar readers");
+}
+#[tokio::test]
+#[ignore = "requires explicit owned MW_TEST_PG fixture; must run with --ignored"]
+async fn selected_settings_postgres_reference_counts_raw_invalidation_and_missing_revision() {
+    use sqlx::Connection;
+    let dsn = std::env::var("MW_TEST_PG").expect("explicit PostgreSQL test requires private owned fixture");
+    let schema = format!("selected_settings_{}", uuid::Uuid::new_v4().simple());
+    let mut admin = sqlx::PgConnection::connect(&dsn).await.unwrap();
+    sqlx::query(&format!("CREATE SCHEMA {schema}")).execute(&mut admin).await.unwrap();
+    let mut scoped = url::Url::parse(&dsn).unwrap();
+    scoped.query_pairs_mut().append_pair("options", &format!("-csearch_path={schema}"));
+    let store = Store::open(scoped.as_str(), ServerKey::generate()).await.unwrap();
+    // A test assertion/panic must not leave its owned schema behind.
+    let task_store=store.clone();
+    let outcome=tokio::spawn(async move { selected_reference_contract(&task_store).await }).await;
+    store.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE")).execute(&mut admin).await.unwrap();
+    outcome.unwrap();
+}
+#[tokio::test]
+async fn selected_settings_bounds_empty_duplicates_unknown_and_store_scope() {
+    let first = store().await;
+    let second = store().await;
+    seed_selected(&first).await;
+    let subject = SettingSubject::default();
+    let (_, empty) = crate::pool_telemetry::measure_queries(first.settings_resolution_inputs_selected(&subject, &[])).await;
+    assert_eq!(empty.read.calls, 0);
+    let (_, bounded) = crate::pool_telemetry::measure_queries(first.settings_resolution_inputs_selected(&subject, &["x";17])).await;
+    assert_eq!(bounded.read.calls, 0);
+    assert!(first.settings_resolution_inputs_selected(&subject, &["x";17]).await.is_err());
+    assert!(first.settings_resolution_inputs_selected(&subject, &[&"x".repeat(4097)]).await.is_err());
+    let keys = [SELECTED_KEYS[0], SELECTED_KEYS[0], "fixture.unknown"];
+    assert_eq!(first.settings_resolution_inputs_selected(&subject, &keys).await.unwrap().unwrap().policies.len(), 1);
+    assert!(second.settings_resolution_inputs_selected(&subject, &keys).await.unwrap().unwrap().policies.is_empty());
+    q("UPDATE settings_revision SET n=-1 WHERE id=1").execute(&first.backend).await.unwrap();
+    assert!(first.settings_resolution_inputs_selected(&subject, &keys).await.unwrap().is_none());
+}
+#[tokio::test]
+async fn selected_settings_corrupt_alias_fails_like_strict_single_key() {
+    let store = store().await;
+    for name in ["first.test", "second.test"] {
+        store.put_domain_config(&DomainConfigRow { name:name.into(), upstream_json:"{}".into(), allowlist_json:"[]".into(), blocklist_json:"[]".into(), enabled:true, preferred:false, settings_json:"{}".into(), updated_at:1 }).await.unwrap();
+    }
+    // Bypass the validated alias writer, as an independent SQL writer can.
+    q("INSERT INTO domain_alias(alias,domain) VALUES('first.test','second.test')").execute(&store.backend).await.unwrap();
+    q("INSERT INTO domain_alias(alias,domain) VALUES('second.test','first.test')").execute(&store.backend).await.unwrap();
+    let subject = SettingSubject { domain:"first.test", address:"user@first.test", ..SettingSubject::default() };
+    assert!(store.settings_resolution_inputs_for(&subject, SELECTED_KEYS[0]).await.is_err());
+    assert!(store.settings_resolution_inputs_selected(&subject, &SELECTED_KEYS).await.is_err());
+}
+
+
+#[tokio::test]
+async fn selected_settings_independent_encrypted_store_writer_and_reopen_never_reuse_old_policy() {
+    use crate::encryption::{DbKey, EncryptionConfig, EncryptionMode};
+    let dir=tempfile::tempdir().unwrap();
+    let path=dir.path().join("selected-settings.db");
+    let config=EncryptionConfig::with_key(EncryptionMode::Required,DbKey::generate());
+    let key=ServerKey::generate();
+    let reader=Store::open_with_encryption(path.to_str().unwrap(),key.clone(),&config).await.unwrap();
+    let writer=Store::open_with_encryption(path.to_str().unwrap(),key.clone(),&config).await.unwrap();
+    seed_selected(&reader).await;
+    let subject=SettingSubject::default();
+    let first=reader.settings_resolution_inputs_selected(&subject,&SELECTED_KEYS).await.unwrap().unwrap();
+    assert_eq!(first.policies.iter().find(|p|p.key==SELECTED_KEYS[0]).unwrap().global_value.as_deref(),Some("false"));
+    let revision=reader.settings_revision().await.unwrap().unwrap();
+    q("UPDATE setting_policy SET global_value='true' WHERE key='attachments.previewAllowed'").execute(&writer.backend).await.unwrap();
+    assert!(reader.collect_selected_settings_at(&subject,&SELECTED_KEYS,revision).await.unwrap().is_none());
+    let fresh=reader.settings_resolution_inputs_selected(&subject,&SELECTED_KEYS).await.unwrap().unwrap();
+    assert_eq!(fresh.policies.iter().find(|p|p.key==SELECTED_KEYS[0]).unwrap().global_value.as_deref(),Some("true"));
+    writer.close().await;reader.close().await;
+    let reopened=Store::open_with_encryption(path.to_str().unwrap(),key,&config).await.unwrap();
+    let fresh=reopened.settings_resolution_inputs_selected(&subject,&SELECTED_KEYS).await.unwrap().unwrap();
+    assert_eq!(fresh.policies.iter().find(|p|p.key==SELECTED_KEYS[0]).unwrap().global_value.as_deref(),Some("true"));
+    reopened.close().await;
+}

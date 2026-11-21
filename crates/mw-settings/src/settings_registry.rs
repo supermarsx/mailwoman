@@ -9933,6 +9933,41 @@ pub async fn effective_for_with(
     )))
 }
 
+/// Resolve a bounded ordered selection with the strict single-key collector.
+/// The pure resolver, environment pins and extra-row semantics are unchanged.
+/// Missing revision/overlapping writes retain the original per-key readers.
+/// Unknown keys and duplicates retain one positional result per input key.
+/// No revision or allow decision is retained by this call.
+pub async fn effective_selected_for(
+    store: &Store,
+    keys: &[&str],
+    subject: &SettingSubject<'_>,
+    extra: &[SettingValueRow],
+) -> Result<Vec<Option<Effective>>, StoreError> {
+    let Some(inputs) = store.settings_resolution_inputs_selected(subject, keys).await? else {
+        let mut out = Vec::with_capacity(keys.len());
+        for key in keys {
+            out.push(effective_for_with(store, key, subject, extra).await?);
+        }
+        return Ok(out);
+    };
+    Ok(effective_selected_from_inputs(inputs, keys, extra, &process_env))
+}
+
+fn effective_selected_from_inputs(
+    inputs: mw_store::settings_policy::SettingsResolutionInputs,
+    keys: &[&str],
+    extra: &[SettingValueRow],
+    lookup_env: &dyn Fn(&str) -> Option<String>,
+) -> Vec<Option<Effective>> {
+    let subject = &inputs.canonical.as_subject();
+    let mut values = inputs.values;
+    values.extend_from_slice(extra);
+    keys.iter().map(|key| lookup(key).map(|def| {
+        resolve_loaded(def, key, subject, inputs.policies.iter().find(|row| row.key == *key), &values, lookup_env)
+    })).collect()
+}
+
 /// The effective values of every registered (non-family) key that `filter`
 /// accepts, plus every stored family key, for one subject. Uses one fresh
 /// revision read; unchanged policy and subject data come from bounded memos.

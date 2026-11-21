@@ -377,25 +377,17 @@ pub(crate) async fn effective(
         .map_err(|_| refusal("attachmentPolicyUnavailable"))?;
     let subject = identity.as_subject();
     let mut values = serde_json::Map::new();
-    for field in [
-        "previewAllowed",
-        "downloadAllowed",
-        "maxBytes",
-        "allowedExtensions",
-        "blockedExtensions",
-        "warnExtensions",
-        "allowedMimeTypes",
-        "blockedMimeTypes",
-        "warnMimeTypes",
-    ] {
-        let value = settings_registry::effective_for(
-            &state.store,
-            &format!("attachments.{field}"),
-            &subject,
-        )
-        .await
-        .map_err(|_| refusal("attachmentPolicyUnavailable"))?
-        .ok_or_else(|| refusal("attachmentPolicyUnavailable"))?;
+    let fields = [
+        "previewAllowed", "downloadAllowed", "maxBytes", "allowedExtensions",
+        "blockedExtensions", "warnExtensions", "allowedMimeTypes",
+        "blockedMimeTypes", "warnMimeTypes",
+    ];
+    let keys = fields.map(|field| format!("attachments.{field}"));
+    let selected = settings_registry::effective_selected_for(
+        &state.store, &keys.iter().map(String::as_str).collect::<Vec<_>>(), &subject, &[],
+    ).await.map_err(|_| refusal("attachmentPolicyUnavailable"))?;
+    for (field, value) in fields.into_iter().zip(selected) {
+        let value = value.ok_or_else(|| refusal("attachmentPolicyUnavailable"))?;
         values.insert(field.into(), value.value);
     }
     let boolean = |key: &str| values[key].as_bool().unwrap_or(false);
