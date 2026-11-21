@@ -45,6 +45,19 @@ test('actual locked Mailbox compiler template preserves attributes across omitte
   for(const malicious of ['<div data-a="x"style="color:red">','<div data-a="x"STYLE=color:red>'])assert.equal(inspect(factory(malicious)).templates[0].styleAttributes,1);
   assert.throws(()=>inspect(factory('<div data-a="x"style="unterminated>')),/malformed template HTML/);
 });
+test('actual ConsentLayer insertion anchors remain empty comments without hiding following style attributes',()=>{
+  const html='<li><span></span>: <!> (<!>)';
+  const result=inspect(factory(html));
+  assert.equal(Buffer.byteLength(html),28);
+  assert.equal(result.templates[0].sha256,'f32fe9ca189191d48c6664770fcd278b35949a2a3f9441ddcdd0e6b1bb9f9f67');
+  assert.equal(result.templates[0].styleAttributes,0);
+  for(const element of ['<span style="color:red">x</span>','<span STYLE=color:red>x</span>']){
+    assert.equal(inspect(factory(html.replace('<!>',`<!>${element}`))).templates[0].styleAttributes,1);
+  }
+  for(const malformed of ['<!','<!--','<!bogus><span style=color:red>','<! >','<!$>','<!/>']){
+    assert.throws(()=>inspect(factory(malformed)),/malformed template HTML/);
+  }
+});
 test('unexpected calls, binding escapes/shadowing, namespace and dynamic imports fail closed',()=>{
   for(const suffix of ['t(html)','t(`<div>${value}</div>`)','t("<div>",1)','t?.("<div>")','const other=t','t.call(null,"<div>")','function nested(t){return t("<div>")}']) {
     assert.throws(()=>inspect(`import {template as t} from 'solid-js/web';${suffix};`));

@@ -81,9 +81,16 @@ export function inspectSolidTemplates(code, ast, resolvedSolidSources = []) {
     // recovers by reconsuming the next attribute; parse5 retains all attributes.
     // Accept only that exact boundary, never general malformed HTML or lost
     // attributes. The original HTML and every parsed style attribute stay intact.
-    const unexpected = errors.filter(error => error.code !== 'missing-whitespace-between-attributes' ||
-      !Number.isSafeInteger(error.startOffset) || !/["']/.test(html[error.startOffset - 1] ?? '') ||
-      !/^[A-Za-z_:][A-Za-z0-9_:.-]*(?=\s|=|\/?>)/.test(html.slice(error.startOffset)));
+    const compilerRecovery = error => {
+      if (!Number.isSafeInteger(error.startOffset)) return false;
+      // ConsentLayer's pinned compiler output uses <!> as an insertion anchor.
+      // HTML emits an empty bogus-comment token at this exact '>' and returns
+      // to DATA; subsequent styled elements must still be inspected unchanged.
+      if (error.code === 'incorrectly-opened-comment') return html.slice(error.startOffset - 2, error.startOffset + 1) === '<!>';
+      return error.code === 'missing-whitespace-between-attributes' && /["']/.test(html[error.startOffset - 1] ?? '') &&
+        /^[A-Za-z_:][A-Za-z0-9_:.-]*(?=\s|=|\/?>)/.test(html.slice(error.startOffset));
+    };
+    const unexpected = errors.filter(error => !compilerRecovery(error));
     if (unexpected.length) fail(`malformed template HTML (${unexpected.slice(0,4).map(error=>error.code).join(',')}; sha256=${hash(html)})`);
     const pending = [fragment];
     while (pending.length) {
