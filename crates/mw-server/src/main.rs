@@ -515,6 +515,7 @@ async fn main() -> std::process::ExitCode {
         .init();
 
     let cli = Cli::parse();
+    let was_serving = matches!(&cli.command, Command::Serve(_));
     let result = match cli.command {
         Command::Serve(args) => run(serve(args).await),
         Command::Fonts(args) => run(fonts_cmd(args).await),
@@ -529,6 +530,15 @@ async fn main() -> std::process::ExitCode {
         Command::Db(args) => run(db_cmd::run(args).await),
         Command::Erasure(args) => run(mw_server::erasure_cmd::run(args).await),
     };
+    // The inbound server has stopped accepting HTTP connections. Upgraded
+    // sockets own detached actions, so drain those before storage/telemetry
+    // flushing and retain the logging workers for an honest uncertain result.
+    if !mw_server::shutdown_websocket_actions().await {
+        tracing::warn!("WebSocket actions did not drain within 2 seconds; dispatched actions may have an unknown outcome and must not be replayed automatically");
+    }
+    if was_serving {
+        mw_server::flush_trust_tiers().await;
+    }
     let _ = mw_server::flush_http_telemetry().await;
     mw_server::observability::shutdown_otlp();
     if !mw_server::observability::log_files::shutdown_output_worker().await {
@@ -813,7 +823,6 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             mw_server::inbound_http::serve(listener, app, http_limits, shutdown_signal()).await?;
         }
     }
-    mw_server::flush_trust_tiers().await;
     Ok(())
 }
 
