@@ -51,7 +51,8 @@
 .drafts-popup__menu { position: absolute; inset-inline-end: 0.2rem; inset-block-start: 100%; z-index: 2; display: flex; flex-direction: column; min-inline-size: 9rem; padding: 0.2rem; background: var(--surface); border: var(--border-hair) solid var(--border-strong); border-radius: var(--radius-md); box-shadow: var(--elevation-2); }
 .drafts-popup__menu button { font: inherit; font-size: 0.82rem; text-align: start; padding: 0.35rem 0.5rem; border: 0; background: transparent; color: var(--text); border-radius: var(--radius-sm); cursor: pointer; }
 .drafts-popup__menu button:hover, .drafts-popup__menu button:focus-visible { background: var(--bg-sink); }
-.drafts-popup__menu button.drafts-popup__danger { color: var(--danger); }
+.drafts-popup__menu button.drafts-popup__danger,
+.drafts-popup__bar button.drafts-popup__danger { color: var(--danger); }
 .drafts-popup__state { margin: 0; padding: 1.2rem 0.8rem; text-align: center; color: var(--text-dim); font-size: 0.84rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
 .drafts-popup__foot { padding: 0.35rem 0.7rem; border-block-start: var(--border-hair) solid var(--border); font-size: 0.74rem; color: var(--text-dim); }
 .drafts-popup__sr { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

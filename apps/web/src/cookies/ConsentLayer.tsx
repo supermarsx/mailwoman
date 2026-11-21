@@ -163,7 +163,7 @@ export function ConsentLayer(): JSX.Element {
 
 function ItemList(props: { items: InventoryEntry[] }): JSX.Element {
   return (
-    <ul class={css.detailsList} style={{ 'grid-column': '2' }}>
+    <ul class={css.detailsList}>
       <For each={props.items}>{(item) => (
         <li><span class={css.mono}>{item.pattern}</span>: {entryPurpose(item)} ({item.duration})</li>
       )}</For>

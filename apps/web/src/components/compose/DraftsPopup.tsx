@@ -223,7 +223,7 @@ function DraftsPopupOpen(props: DraftsPopupProps): JSX.Element {
               <span class="drafts-popup__spacer" />
               <span data-testid="drafts-popup-selected">{t('mail-drafts-popup-selected', { count: selected().size })}</span>
               <button type="button" class="btn btn--ghost" disabled={selected().size !== 1} onClick={() => { const r = selectedRows()[0]; if (r) open(r); }}>{t('mail-drafts-popup-open')}</button>
-              <button type="button" class="btn btn--ghost" style={{ color: 'var(--danger)' }} disabled={selected().size === 0} aria-haspopup="dialog" onClick={() => askDiscard([...selected()])}>{t('mail-drafts-popup-discard-selected')}</button>
+              <button type="button" class="btn btn--ghost drafts-popup__danger" disabled={selected().size === 0} aria-haspopup="dialog" onClick={() => askDiscard([...selected()])}>{t('mail-drafts-popup-discard-selected')}</button>
               <button type="button" class="btn btn--ghost" onClick={() => { setSelecting(false); setSelected(new Set<string>()); }}>{t('mail-drafts-popup-done')}</button>
             </Show>
           </div>

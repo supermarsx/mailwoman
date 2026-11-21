@@ -76,7 +76,7 @@ export const category = style({
 export const categoryName = style({ fontWeight: vars.weight.bold });
 export const categoryText = style({ gridColumn: '2', margin: 0, color: vars.color.textDim });
 export const note = style({ margin: 0, color: vars.color.textDim, fontSize: '0.8125rem' });
-export const detailsList = style({ margin: 0, paddingInlineStart: vars.space[4], color: vars.color.textDim, fontSize: '0.8125rem' });
+export const detailsList = style({ gridColumn: '2', margin: 0, paddingInlineStart: vars.space[4], color: vars.color.textDim, fontSize: '0.8125rem' });
 export const mono = style({ fontFamily: vars.font.mono });
 
 export const check = style({
