@@ -43,6 +43,9 @@ async fn fixture() -> (Store, String, Vec<String>) {
         )
         .await
         .unwrap();
+    s.set_session_authentication(&cookie, "password")
+        .await
+        .unwrap();
     s.bind_verified_primary(
         &cookie,
         mw_store::identity_principal::VerifiedPrimary {
