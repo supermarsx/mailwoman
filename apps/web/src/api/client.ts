@@ -1,4 +1,4 @@
-import {ApiError,NetworkError,type ApiErrorDetails} from './errors.ts';
+import {ApiError,NetworkError,terminalActionError,type ApiErrorDetails} from './errors.ts';
 export {ApiError,NetworkError,type ApiErrorDetails} from './errors.ts';
 import { withLoginTimeout } from './loginTimeout.ts';
 // HTTP client for the mw-server contract (plan §2).
@@ -374,6 +374,7 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
     try {
       res = await apiFetch(input, finalInit);
     } catch (cause) {
+      if(terminalActionError(cause))throw cause;
       // A DELIBERATE cancellation is not a network failure, and must not be
       // reported as one: `guarded` turns a NetworkError into `notify(false)`,
       // which is what `offline.ts` replays its queue on and what flips the app

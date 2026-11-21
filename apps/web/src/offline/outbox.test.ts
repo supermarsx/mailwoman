@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { NetworkError, type Client } from '../api/client.ts';
+import { ApiError, NetworkError, type Client } from '../api/client.ts';
 import type { Invocation, JmapResponse } from '../api/jmap-types.ts';
 import type { OutboundItem } from '../contracts/offline.ts';
 import { TrackingUnavailable } from '../api/tracking.ts';
@@ -499,4 +499,16 @@ describe('drainOutbox — a tracked send (t29-e12)', () => {
     expect(await drainOutbox(store, fakeClient(vi.fn(async () => sentOk())), tracking)).toEqual({ sent: 1, failed: 0 });
     expect(tracking.mint).not.toHaveBeenCalled();
   });
+});
+
+// Terminal WS completion metadata must survive into the durable replay queue.
+it('never automatically replays sent unknown or completed transport outcomes on later drains',async()=>{
+ for(const code of ['outcomeUnknown','actionCompletedTransportFailed']){
+  const store=memoryOutboxStore([item('flag',flag,1)]);
+  const client=fakeClient(vi.fn(async()=>{throw new ApiError(409,'Check the result before retrying.',{code});}));
+  expect(await drainOutbox(store,client)).toEqual({sent:0,failed:1});
+  expect((await store.all())[0]).toMatchObject({state:'failed',attempts:1});
+  expect(await drainOutbox(store,client)).toEqual({sent:0,failed:0});
+  expect(client.jmap).toHaveBeenCalledTimes(1);
+ }
 });

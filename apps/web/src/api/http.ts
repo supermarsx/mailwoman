@@ -295,7 +295,7 @@ async function sendApiFetch(input: string, given: RequestInit|undefined, assertA
     // the actual session and current administrator policy before dispatch.
     if(preference===false||values['realtime.actions.enabled']?.value===false
       ||preference!==true&&!csrfToken())return send(input,options);
-    const response=await websocketAction(input,options,`${location.origin}${basePath()}`);
+    const response=await websocketAction(input,options,`${location.origin}${basePath()}`,true,assertAuthority);
     assertAuthority();return response??send(input,options);
   };
   if (SAFE_METHODS.has(method)) return ordinarySend(init);

@@ -1,7 +1,7 @@
 import {clearWebSocketActions} from '../api/websocketActions.ts';
 import {jmapReadsOnly} from '../api/jmapReadOnly.ts';
 import {workerHttp} from '../api/workerHttp.ts';
-import {ApiError} from '../api/errors.ts';
+import {ApiError,terminalActionError} from '../api/errors.ts';
 import type {Me} from '../api/client.ts';
 import type {JmapRequest,JmapResponse,JmapSession} from '../api/jmap-types.ts';
 import {jmapApiPath} from '../api/jmapDiscovery.ts';
@@ -80,13 +80,13 @@ export function createNetworkCore(){
    if(live.csrfToken)headers.set('X-CSRF-Token',live.csrfToken);
    if(live.storageAuthority){headers.set('X-Mailwoman-Account',live.accountId);headers.set('X-Mailwoman-Storage-Authority',live.storageAuthority);}
    let value:unknown;
-   if(message.method==='session')value=await (await workerHttp(context.base,`${prefix}/jmap/session`,{headers})).json() as JmapSession;
+   if(message.method==='session')value=await (await workerHttp(context.base,`${prefix}/jmap/session`,{headers,allowWebSocket:context.preferWebSocket===true,assertAuthority:()=>{if(admitted!==generation)throw new ApiError(409,'Shared session changed',{code:'actionNotDispatched'});}})).json() as JmapSession;
    else{
     if(!message.body||message.body.methodCalls.length>128)throw new ApiError(400,'Invalid shared JMAP request');
-    const session=await (await workerHttp(context.base,`${prefix}/jmap/session`,{headers})).json() as JmapSession;
+    const session=await (await workerHttp(context.base,`${prefix}/jmap/session`,{headers,allowWebSocket:context.preferWebSocket===true,assertAuthority:()=>{if(admitted!==generation)throw new ApiError(409,'Shared session changed',{code:'actionNotDispatched'});}})).json() as JmapSession;
     const path=jmapApiPath(session.apiUrl,context.base);
     if(message.idempotencyKey)headers.set('Idempotency-Key',message.idempotencyKey);
-    value=await (await workerHttp(context.base,`${prefix}${path}`,{method:'POST',headers,body:JSON.stringify(message.body),allowWebSocket:context.preferWebSocket===true})).json() as JmapResponse;
+    value=await (await workerHttp(context.base,`${prefix}${path}`,{method:'POST',headers,body:JSON.stringify(message.body),allowWebSocket:context.preferWebSocket===true,assertAuthority:()=>{if(admitted!==generation)throw new ApiError(409,'Shared session changed',{code:'actionNotDispatched'});}})).json() as JmapResponse;
    }
    if(admitted!==generation)throw new ApiError(401,'Shared session changed');
    if(read&&epoch===dataEpoch){const size=new TextEncoder().encode(JSON.stringify(value)).length;if(size<=2*1024*1024){const old=snapshots.get(key);if(old)bytes-=old.bytes;snapshots.delete(key);snapshots.set(key,{value,at:Date.now(),bytes:size});bytes+=size;while(bytes>20*1024*1024||snapshots.size>256){const first=snapshots.keys().next().value!;bytes-=snapshots.get(first)!.bytes;snapshots.delete(first);}}}
@@ -94,7 +94,7 @@ export function createNetworkCore(){
    return value;
   })();
   if(read)pending.set(key,run);
-  try{return await run;}finally{if(pending.get(key)===run)pending.delete(key);}
+  try{return await run;}catch(error){if(!read&&terminalActionError(error)){clear();broadcast('invalidate',null);}throw error;}finally{if(pending.get(key)===run)pending.delete(key);}
  }
  return {
   connect(id:string,send:Peer['send']){peers.set(id,{send,lastSeen:Date.now(),push:false});},

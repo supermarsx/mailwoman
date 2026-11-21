@@ -47,22 +47,24 @@ export function createChannelNetworkConnection(initial:NetworkContext):Connectio
  function resubmit(){
   for(const [requestId,row] of pending){
    const request=row.request;
-   const safe=request.method!=='jmap'||request.idempotencyKey||request.body!==undefined&&jmapReadsOnly(request.body);
+   // A coordinator replacement cannot prove whether the prior JMAP request
+   // was dispatched. An idempotency key is not permission for implicit replay.
+   const safe=request.method!=='jmap';
    if(safe){if(core)dispatch(id,request);else channel.postMessage({kind:'ask',sender:id,request});}
-   else{row.cleanup();pending.delete(requestId);row.reject(new NetworkError('Coordinator changed before the mutation was acknowledged'));}
+   else{row.cleanup();pending.delete(requestId);row.reject(new ApiError(409,'The action outcome is unknown. Check before retrying.',{code:'outcomeUnknown'}));}
   }
  }
  const call:Connection['call']=(method,context,extra={},signal)=>new Promise((resolve,reject)=>{
   if(stopped||signal?.aborted){reject(new NetworkError('Coordinator unavailable'));return;}
   const requestId=`${id}:${++sequence}`,timer=setTimeout(()=>{pending.delete(requestId);signal?.removeEventListener('abort',abort);reject(method==='jmap'&&extra.body&&!jmapReadsOnly(extra.body)?new ApiError(503,'The action may have completed. Check before retrying.',{code:'outcomeUnknown'}):new NetworkError('Coordinator request timed out'));},method==='jmap'?130000:30000);
-  const abort=()=>{pending.delete(requestId);clearTimeout(timer);reject(new DOMException('Request aborted','AbortError'));};
+  const abort=()=>{pending.delete(requestId);clearTimeout(timer);reject(method==='jmap'?new ApiError(409,'The action outcome is unknown. Check before retrying.',{code:'outcomeUnknown'}):new DOMException('Request aborted','AbortError'));};
   const cleanup=()=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);};
   const request={id:requestId,method,context,...extra} satisfies NetworkRequest;
   pending.set(requestId,{resolve,reject,cleanup,request});signal?.addEventListener('abort',abort,{once:true});
   if(core)dispatch(id,request);else channel.postMessage({kind:'ask',sender:id,request});
  });
  const timer=setInterval(()=>{elect();if(core)channel.postMessage({kind:'leader',sender:id});if(leader)void call('lease',initial).catch(()=>undefined);},1500);
- window.addEventListener('pagehide',event=>{if(event.persisted)return;stopped=true;clearInterval(timer);clearTimeout(readyTimeout);channel.postMessage({kind:'disconnect',sender:id});release?.();core?.close();channel.close();for(const row of pending.values()){row.cleanup();row.reject(new NetworkError('Window closed'));}pending.clear();},{once:true});
+ window.addEventListener('pagehide',event=>{if(event.persisted)return;stopped=true;clearInterval(timer);clearTimeout(readyTimeout);channel.postMessage({kind:'disconnect',sender:id});release?.();core?.close();channel.close();for(const row of pending.values()){row.cleanup();row.reject(row.request.method==='jmap'?new ApiError(409,'The action outcome is unknown. Check before retrying.',{code:'outcomeUnknown'}):new NetworkError('Window closed'));}pending.clear();},{once:true});
  channel.postMessage({kind:'discover',sender:id});elect();
  return {mode:'leader',ready,call,subscribe(listener){events.add(listener);return()=>events.delete(listener);}};
 }

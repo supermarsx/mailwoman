@@ -25,8 +25,10 @@ it('bounds simultaneous actions even when they all wait for the same handshake',
  const requests=Array.from({length:10},()=>client.send('/jmap/api',{method:'POST',body:'{}'}));
  Socket.latest.receive({type:'ready',protocol:'mailwoman-actions-v1'});await Promise.resolve();await Promise.resolve();await Promise.resolve();
  expect(Socket.latest.sent).toHaveLength(8);
- for(const frame of Socket.latest.sent)Socket.latest.receive({id:JSON.parse(frame).id,status:200,body:'{}'});
- const responses=await Promise.all(requests);expect(responses.filter(value=>value===undefined)).toHaveLength(2);client.close();
+ for(const frame of [...Socket.latest.sent])Socket.latest.receive({id:JSON.parse(frame).id,status:200,body:'{}'});
+ await Promise.resolve();expect(Socket.latest.sent).toHaveLength(10);
+ for(const frame of Socket.latest.sent.slice(8))Socket.latest.receive({id:JSON.parse(frame).id,status:200,body:'{}'});
+ const responses=await Promise.all(requests);expect(responses.every(value=>value?.status===200)).toBe(true);client.close();
 });
 
 it('opens a fresh authenticated socket when the CSRF proof rotates',async()=>{
@@ -69,5 +71,5 @@ it('drains in-flight sends before retiring a socket for a new CSRF proof',async(
 });
 it('settles a request waiting for a handshake when its socket is closed',async()=>{
  const client=createWebSocketActions({endpoint:'ws://localhost/jmap/actions',WebSocketImpl:socketType});
- const pending=client.send('/api/account/drafts',{});client.close();await expect(pending).resolves.toBeUndefined();expect(Socket.latest.closed).toBe(true);
+ const pending=client.send('/api/account/drafts',{});const rejected=expect(pending).rejects.toMatchObject({code:'actionNotDispatched'});client.close();await rejected;expect(Socket.latest.closed).toBe(true);
 });

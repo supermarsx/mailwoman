@@ -24,8 +24,8 @@ function connection():Connection|undefined{
  try{worker=new SharedWorker(new URL('./networkWorker.ts',import.meta.url),{type:'module',name:'mw-jmap-network'});}catch{shared=createChannelNetworkConnection(context());return shared;}
  let sequence=0,healthy=true;
  const events=new Set<(event:string,value:unknown)=>void>();
- const pending=new Map<string,{resolve(value:unknown):void;reject(reason:unknown):void;cleanup():void}>();
- function fail(){healthy=false;for(const row of [...pending.values()])row.reject(new NetworkError('Shared worker connection unavailable'));pending.clear();}
+ const pending=new Map<string,{resolve(value:unknown):void;reject(reason:unknown):void;cleanup():void;mutation:boolean}>();
+ function fail(){healthy=false;for(const row of [...pending.values()])row.reject(row.mutation?new ApiError(409,'The action outcome is unknown. Check before retrying.',{code:'outcomeUnknown'}):new NetworkError('Shared worker connection unavailable'));pending.clear();}
  worker.onerror=()=>fail();
  worker.port.onmessage=event=>{
   const reply=event.data as NetworkReply;
@@ -38,9 +38,9 @@ function connection():Connection|undefined{
   if(!healthy){reject(new NetworkError('Shared worker disconnected'));return;}
   if(signal?.aborted){reject(new DOMException('Request aborted','AbortError'));return;}
   const id=String(++sequence),timer=setTimeout(()=>{pending.delete(id);signal?.removeEventListener('abort',abort);reject(method==='jmap'&&extra.body&&!jmapReadsOnly(extra.body)?new ApiError(503,'The action may have completed. Check before retrying.',{code:'outcomeUnknown'}):new NetworkError('Shared request timed out'));},method==='jmap'?130000:30000);
-  const abort=()=>{clearTimeout(timer);pending.delete(id);reject(new DOMException('Request aborted','AbortError'));};
+  const abort=()=>{clearTimeout(timer);pending.delete(id);reject(method==='jmap'&&extra.body&&!jmapReadsOnly(extra.body)?new ApiError(409,'The action outcome is unknown. Check before retrying.',{code:'outcomeUnknown'}):new DOMException('Request aborted','AbortError'));};
   const cleanup=()=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);};
-  pending.set(id,{resolve,reject:reason=>{cleanup();reject(reason);},cleanup});signal?.addEventListener('abort',abort,{once:true});
+  pending.set(id,{resolve,reject:reason=>{cleanup();reject(reason);},cleanup,mutation:method==='jmap'&&extra.body!==undefined&&!jmapReadsOnly(extra.body)});signal?.addEventListener('abort',abort,{once:true});
   worker.port.postMessage({id,method,context:scope,...extra} satisfies NetworkRequest);
  });
  let handshakeTimer:ReturnType<typeof setTimeout>;

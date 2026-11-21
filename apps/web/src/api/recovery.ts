@@ -35,6 +35,8 @@
 // Retries are logged with `console.debug` only, with the method and the path:
 // never a query string, header or body.
 
+import {ApiError,terminalActionError} from './errors.ts';
+
 export interface RecoveryOptions {
   /** Sending twice leaves the same state as sending once (or it carries an idempotency key). */
   idempotent: boolean;
@@ -250,6 +252,7 @@ export async function recoverRequest(
       try {
         response = await attempt(current, send, timeoutMs, signal);
       } catch (error) {
+        if(terminalActionError(error))throw error;
         if (signal?.aborted || (error as { name?: unknown })?.name === 'AbortError') throw error;
         if ((error as { name?: unknown })?.name === 'LinkedContextUnsupportedError') throw error;
         const offline = isOffline();
@@ -322,6 +325,7 @@ async function attempt(init: RequestInit | undefined, send: (init: RequestInit |
   try {
     return await send({ ...init, signal: controller.signal });
   } catch (error) {
+    if(terminalActionError(error))throw error;
     if (timedOut && !signal?.aborted) throw new TimeoutSignal();
     throw error;
   } finally {
@@ -366,6 +370,7 @@ const keptKeys = new Map<string, { key: string; at: number }>();
 
 /** Whether `error` left it unknown if the request reached the server. */
 function inTransit(error: unknown): boolean {
+  if(error instanceof ApiError&&error.code==='outcomeUnknown')return true;
   if ((error as { name?: unknown } | null)?.name === 'AbortError') return true;
   const reason = errorReason(error);
   return reason === 'network' || reason === 'server' || reason === 'offline' || reason === 'rate';

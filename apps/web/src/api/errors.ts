@@ -23,6 +23,20 @@ export class ApiError extends Error {
   }
 }
 
+/** The application response is known, but browser cookie delivery failed. The
+ * original action must never be replayed as transport recovery. */
+export class ActionCompletionError extends ApiError {
+  readonly actionResponse:Response;
+  constructor(response:Response){
+    super(409,'The action completed, but sign-in delivery failed. Sign in again before continuing.',{code:'actionCompletedTransportFailed'});
+    this.name='ActionCompletionError';this.actionResponse=response;
+  }
+}
+/** Codes survive the worker boundary as ordinary ApiError instances. */
+export function terminalActionError(error:unknown):boolean{
+  return error instanceof ApiError&&(error.code==='outcomeUnknown'||error.code==='actionCompletedTransportFailed'||error.code==='actionNotDispatched'||error.code==='actionNotDispatchedBusy');
+}
+
 /** Raised when the request never reached the server (offline / dropped). */
 export class NetworkError extends Error {
   /** t91: why the recovery layer gave up, when it was the one that did. */

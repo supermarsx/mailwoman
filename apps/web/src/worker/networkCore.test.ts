@@ -30,6 +30,17 @@ it('rejects a mismatched authority before issuing any JMAP request',async()=>{
  expect(left.at(-1)).toMatchObject({error:{status:409,code:'accountChanged'}});
  expect(vi.mocked(workerHttp).mock.calls.every(([_base,path])=>path.endsWith('/api/me'))).toBe(true);
 });
+
+it('keeps identity HTTP and permits discovery/action WS only with a fresh queued authority check',async()=>{
+ await core.receive('left',request('ws','jmap',{context:{...context(),preferWebSocket:true},body:{using:[],methodCalls:[['Email/get',{accountId:'a',ids:['m']},'get']]}}));
+ const calls=vi.mocked(workerHttp).mock.calls;
+ expect(calls.find(([_base,path])=>path.endsWith('/api/me'))?.[2]?.allowWebSocket).not.toBe(true);
+ const discovery=calls.find(([_base,path])=>path.endsWith('/jmap/session'));
+ const action=calls.find(([_base,path])=>path.endsWith('/jmap/api'));
+ expect(discovery?.[2]?.allowWebSocket).toBe(true);expect(action?.[2]?.allowWebSocket).toBe(true);
+ const queued=action?.[2]?.assertAuthority;expect(queued).toBeTypeOf('function');
+ await core.receive('left',request('reset','reset'));expect(()=>queued!()).toThrow(/Shared session changed/);
+});
 it('does not coalesce writes or serve a read without rechecking authorization',async()=>{
  const body={using:[],methodCalls:[['Email/set',{accountId:'a',update:{m:{'keywords/$seen':true}}},'set']]} as NonNullable<NetworkRequest['body']>;
  await Promise.all([core.receive('left',request('1','jmap',{body})),core.receive('right',request('2','jmap',{body}))]);

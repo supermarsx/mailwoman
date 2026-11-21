@@ -26,7 +26,7 @@ import {recordPendingIds,resolvePendingIds} from './pendingObjects.ts';
 // `offlineQueuePending` (this) vs the submission Outbox size (e7).
 
 import type {Client} from '../api/client.ts';
-import {ApiError,NetworkError} from '../api/errors.ts';
+import {ApiError,NetworkError,terminalActionError} from '../api/errors.ts';
 import {draftCreateSpec,sendEnvelope,type DraftInput} from '../api/jmapCompose.ts';
 import {request,responseFor,updateEmails} from '../api/jmapWire.ts';
 import {TrackingUnavailable,withTrackingPixel} from '../api/trackingPixel.ts';
@@ -419,6 +419,13 @@ async function drainOnce(store: OutboxStore, client: Client, tracking: DrainTrac
         failed += 1;
       }
     } catch (err) {
+      if(!active())break;
+      // A reconnect must not replay a completed or ambiguously dispatched WS
+      // action. Retain it for explicit user reconciliation, not automatic drain.
+      if(terminalActionError(err)){
+        await store.put({...item,state:'failed',attempts:(item.attempts??0)+1,lastError:err instanceof Error?err.message:'Check the action result before retrying.'});
+        failed+=1;continue;
+      }
       if (!active() || err instanceof NetworkError || (err instanceof ApiError&&[401,403].includes(err.status))) break;
       if (err instanceof TrackingUnavailable) {
         if (err.reason === 'network') break;
