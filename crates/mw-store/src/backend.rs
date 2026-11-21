@@ -524,6 +524,27 @@ pub(crate) enum Row {
 }
 
 impl Row {
+    /// Logical owned result bytes for the bounded cold publication budget. No
+    /// values/SQL leave this method. Driver/allocator overhead is accounted
+    /// separately by a conservative fixed per-row charge at the caller.
+    pub(crate) fn retained_data_bytes(&self)->usize {
+        use sqlx::{Column as _,Row as _,TypeInfo as _,ValueRef as _};
+        macro_rules! size { ($row:expr)=>{{
+            let row=$row; let mut total=0usize;
+            for c in row.columns() {
+                let Ok(raw)=row.try_get_raw(c.ordinal()) else {continue;};
+                if raw.is_null() {continue;}
+                let bytes=match c.type_info().name() {
+                    "TEXT"|"VARCHAR"=>row.try_get::<String,_>(c.ordinal()).map(|v|v.len()).unwrap_or(0),
+                    "BLOB"|"BYTEA"=>row.try_get::<Vec<u8>,_>(c.ordinal()).map(|v|v.len()).unwrap_or(0),
+                    _=>16,
+                };
+                total=total.saturating_add(bytes);
+            }
+            total
+        }};}
+        match self {Self::Sqlite(r)=>size!(r),Self::Postgres(r)=>size!(r)}
+    }
     pub(crate) fn get_string(&self, col: &str) -> String {
         match self {
             Row::Sqlite(r) => r.get(col),

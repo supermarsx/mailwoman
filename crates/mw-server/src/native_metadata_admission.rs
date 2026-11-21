@@ -1,4 +1,5 @@
-//! Narrow, fresh native Email/get integration. No source/allow memo is kept.
+//! Narrow native Email/get with optional immutable source DATA publication.
+//! Session/credentials/allow decisions are never cached.
 //! Unsupported or cold inputs return to the complete original path BEFORE
 //! taking permits. Before any Engine dispatch, late source changes may restart
 //! one complete fresh read chain after dropping all old permits/connector state.
@@ -21,6 +22,12 @@ use mw_store::{
 };
 use serde_json::Value;
 
+pub(crate) mod publication;
+
+fn publication_enabled()->bool {
+    #[cfg(test)] {test_control::publication_enabled()}
+    #[cfg(not(test))] {true}
+}
 type Unsupported = ();
 fn unsupported<T>(value: Result<T, impl Sized>) -> Result<T, Unsupported> {
     value.map_err(|_| ())
@@ -66,9 +73,12 @@ pub(super) fn eligible_request(body: &[u8]) -> Option<Value> {
 fn warm_values(
     state: &AppState,
     subject: &SettingSubject<'_>,
-    revision: &SettingsReadRevision,
+    revision: Option<&SettingsReadRevision>,
+    published: Option<&publication::Published>,
     filter: impl Fn(&registry::SettingDef) -> bool,
 ) -> Result<Vec<registry::Effective>, Unsupported> {
+    if let Some(published)=published {return published.values(subject,filter).ok_or(());}
+    let revision=revision.ok_or(())?;
     let inputs = unsupported(
         state
             .store
@@ -86,10 +96,11 @@ fn value<'a>(values: &'a [registry::Effective], key: &str) -> Option<&'a Value> 
 fn listed(
     state: &AppState,
     subject: &SettingSubject<'_>,
-    revision: &SettingsReadRevision,
+    revision: Option<&SettingsReadRevision>,
+    published: Option<&publication::Published>,
 ) -> Result<bool, Unsupported> {
     Ok(value(
-        &warm_values(state, subject, revision, |def| {
+        &warm_values(state, subject, revision, published, |def| {
             def.key == "signin.domainMode"
         })?,
         "signin.domainMode",
@@ -108,9 +119,12 @@ impl Loaded {
     }
 }
 
-fn names_for(
+fn names_for(snapshot:&NativeAdmissionSnapshot,state:&AppState,session:&Session)->Result<(Vec<String>,Vec<String>),Unsupported> {
+    names_for_store(snapshot,&state.store,session)
+}
+fn names_for_store(
     snapshot: &NativeAdmissionSnapshot,
-    state: &AppState,
+    store: &mw_store::Store,
     session: &Session,
 ) -> Result<(Vec<String>, Vec<String>), Unsupported> {
     let mut session_names = vec![
@@ -121,7 +135,7 @@ fn names_for(
     let account = unsupported(snapshot.account())?.ok_or(())?;
     let mut account_names = vec![account.username];
     account_names.extend(unsupported(snapshot.names())?);
-    for source in unsupported(snapshot.account_session_names(&state.store))?.ok_or(())? {
+    for source in unsupported(snapshot.account_session_names(store))?.ok_or(())? {
         account_names.push(source.username);
         account_names.extend(source.login_name);
     }
@@ -149,12 +163,17 @@ fn shaping(account: &str, names: &[String]) -> Result<NativeAdmissionRequest, Un
     ))
 }
 
-fn evaluate(
+fn evaluate(state:&AppState,snapshot:&NativeAdmissionSnapshot,needs:&Needs)->Result<Loaded,Unsupported> {
+    evaluate_inputs(state,snapshot,needs,None,None)
+}
+fn evaluate_inputs(
     state: &AppState,
     snapshot: &NativeAdmissionSnapshot,
     needs: &Needs,
+    published:Option<&publication::Published>,
+    current:Option<&mw_store::authority_publication::NativeAuthorityFence>,
 ) -> Result<Loaded, Unsupported> {
-    if !snapshot.bounded_shape()
+    if (published.is_none() && !snapshot.bounded_shape())
         || needs.native
         || needs.link_limit
         || needs.upload_bytes.is_some()
@@ -175,7 +194,7 @@ fn evaluate(
             .is_some()
         || !crate::request_protection::native_account_already_admitted(&session.account_id)
         || state.store.session_touch_may_be_due_at(
-            source.last_seen.as_deref(),
+            current.map(|f|f.last_seen()).unwrap_or(source.last_seen.as_deref()),
             crate::session_persistence::flush_seconds(),
             chrono::Utc::now(),
         )
@@ -183,10 +202,11 @@ fn evaluate(
     {
         return Err(());
     }
-    let revision = unsupported(snapshot.revision(&state.store))?;
-    if revision.number().is_none() {
-        return Err(());
-    }
+    let revision=if published.is_some() {None}else {
+        let revision=unsupported(snapshot.revision(&state.store))?;
+        if revision.number().is_none() {return Err(());}
+        Some(revision)
+    };
     // Require an active, native, same-owner principal before selecting any
     // personal namespace. No caller-supplied account selects that namespace.
     let subjects = unsupported(snapshot.native_subjects(&state.store))?.ok_or(())?;
@@ -214,7 +234,7 @@ fn evaluate(
     // Recheck protocol even if the earlier presence optimization saw no policy.
     keys.push("access.protocols");
     keys.extend(needs.required.iter().copied());
-    let values = warm_values(state, &feature_subject, &revision, |def| {
+    let values = warm_values(state, &feature_subject, revision.as_ref(), published, |def| {
         keys.contains(&def.key)
     })?;
     unsupported(check_feature_values(&features, &values))?;
@@ -236,7 +256,7 @@ fn evaluate(
         account_id: &session.account_id,
         address: &session.username,
     };
-    let clock_values = warm_values(state, &clock_subject, &revision, |def| {
+    let clock_values = warm_values(state, &clock_subject, revision.as_ref(), published, |def| {
         matches!(def.key, "session.idleSecs" | "session.absoluteSecs")
     })?;
     let clock = crate::security_center::clock_policy_from_values(
@@ -244,7 +264,10 @@ fn evaluate(
         state.hardening.idle_timeout.as_secs(),
         state.hardening.absolute_timeout.as_secs(),
     );
-    let (created, activity) = unsupported(snapshot.clocks())?.ok_or(())?;
+    let (created,activity)=match current {
+        Some(fence)=>{let (a,b)=fence.clocks();(a.to_owned(),b.to_owned())},
+        None=>unsupported(snapshot.clocks())?.ok_or(())?,
+    };
     if crate::security_center::session_deadline_passed(
         &created,
         &activity,
@@ -254,17 +277,17 @@ fn evaluate(
     ) {
         return Err(());
     }
-    let (session_names, account_names) = names_for(snapshot, state, &session)?;
-    let global_listed = listed(state, &SettingSubject::default(), &revision)?;
-    for names in [&session_names, &account_names] {
-        let gate = unsupported(prepared(&session.account_id, names)?.from_native(
-            &state.store,
-            snapshot,
-            global_listed,
-        ))?
-        .ok_or(())?;
-        if gate.disabled || gate.password_change_required {
-            return Err(());
+    let global_listed = listed(state, &SettingSubject::default(), revision.as_ref(), published)?;
+    if let Some(published)=published {
+        for rules in &published.gates {
+            let gate=rules.evaluate(&published.directory,global_listed);
+            if gate.disabled || gate.password_change_required {return Err(());}
+        }
+    } else {
+        let (session_names, account_names) = names_for(snapshot, state, &session)?;
+        for names in [&session_names,&account_names] {
+            let gate=unsupported(prepared(&session.account_id,names)?.from_native(&state.store,snapshot,global_listed))?.ok_or(())?;
+            if gate.disabled || gate.password_change_required {return Err(());}
         }
     }
     // Qualified, non-chained identity reuse only. Both the sign-in resolver and
@@ -298,7 +321,7 @@ fn evaluate(
         account_id: "",
         address: &identity.identity.address,
     };
-    let domain_listed = listed(state, &domain_subject, &revision)?;
+    let domain_listed = listed(state, &domain_subject, revision.as_ref(), published)?;
     let (upstream, config) = match unsupported(crate::upstream_resolve::resolve_configured(
         &identity,
         true,
@@ -333,7 +356,7 @@ fn evaluate(
         domain,
         ..Default::default()
     };
-    let rate_values = warm_values(state, &rate_subject, &revision, |def| {
+    let rate_values = warm_values(state, &rate_subject, revision.as_ref(), published, |def| {
         def.key.starts_with("ratelimit.")
     })?;
     Ok(Loaded {
@@ -410,7 +433,7 @@ pub(super) async fn finish_restarted_read(
     if !snapshot.covers_domains(complete.domains()) || !snapshot.covers_keys(complete.keys()) {return Err(refusal());}
     let revision=snapshot.revision(&state.store).map_err(|_|refusal())?;
     let subject=SettingSubject {personal_owner:None,domain:source.username.rsplit_once('@').map_or("",|(_,d)|d),account_id:&source.account_id,address:&source.username};
-    let values=warm_values(state,&subject,&revision,|d|matches!(d.key,"session.idleSecs"|"session.absoluteSecs")).map_err(|_|refusal())?;
+    let values=warm_values(state,&subject,Some(&revision),None,|d|matches!(d.key,"session.idleSecs"|"session.absoluteSecs")).map_err(|_|refusal())?;
     let clock=crate::security_center::clock_policy_from_values(&values,state.hardening.idle_timeout.as_secs(),state.hardening.absolute_timeout.as_secs());
     let (created,activity)=snapshot.clocks().map_err(|_|refusal())?.ok_or_else(refusal)?;
     if crate::security_center::session_deadline_passed(&created,&activity,chrono::Utc::now(),clock.idle_secs,clock.absolute_secs) {
@@ -464,17 +487,47 @@ pub(crate) async fn try_dispatch(
         hint.session.credentials.username.clone(),
     ];
     let mut query = shaping(&hint.session.account_id, &names).ok()?;
-    let mut snapshot = observe(state, &id, &query).await.ok()?;
-    // At most one additional shaping read for current account/sibling names.
-    let source = snapshot.session(&state.store).ok()??;
-    let (session_names, account_names) = names_for(&snapshot, state, &source.session).ok()?;
-    names = session_names.into_iter().chain(account_names).collect();
-    let current = shaping(&source.session.account_id, &names).ok()?;
-    if !snapshot.covers_domains(current.domains()) || !snapshot.covers_keys(current.keys()) {
-        query = current;
-        snapshot = observe(state, &id, &query).await.ok()?;
+    let mut published=None;
+    let mut first=None;
+    let mut published_current=false;
+    let mut observed_published=false;
+    if publication_enabled() {
+        if let Some(worker)=&state.native_publication {
+            if let Some(entry)=worker.get(&id,&deferred.0) {
+                observed_published=true;
+                if let Ok(Some(fence))=state.store.native_publication_fence(&id,&entry.domains,&entry.subjects).await {
+                    #[cfg(test)] test_control::record_fence();
+                    if entry.matches(&fence) {
+                        published_current=true;
+                        if let Ok(loaded)=evaluate_inputs(state,&entry.snapshot,&deferred.0,Some(&entry),Some(&fence)) {
+                            first=Some(loaded);published=Some(entry);
+                        }
+                    }
+                }
+            }
+            // A contended nonblocking lookup is just a miss. It must not evict
+            // an otherwise current entry once the memory mutex becomes free.
+            if observed_published && !published_current {worker.invalidate(&id,&deferred.0);}
+            if !published_current && request["methodCalls"][0][1]["accountId"].as_str()==Some(hint.session.account_id.as_str()) {
+                worker.hint(&id,&hint.session.account_id,&deferred.0);
+            }
+        }
     }
-    let first = evaluate(state, &snapshot, &deferred.0).ok()?;
+    let first=match first {
+        Some(first)=>first,
+        None=>{
+            let mut snapshot = observe(state, &id, &query).await.ok()?;
+            let source = snapshot.session(&state.store).ok()??;
+            let (session_names, account_names) = names_for(&snapshot, state, &source.session).ok()?;
+            names = session_names.into_iter().chain(account_names).collect();
+            let current = shaping(&source.session.account_id, &names).ok()?;
+            if !snapshot.covers_domains(current.domains()) || !snapshot.covers_keys(current.keys()) {
+                query = current;
+                snapshot = observe(state, &id, &query).await.ok()?;
+            }
+            evaluate(state,&snapshot,&deferred.0).ok()?
+        }
+    };
     if request["methodCalls"][0][1]["accountId"].as_str() != Some(first.session.account_id.as_str())
         || !first.target_matches(headers)
     {
@@ -508,15 +561,20 @@ pub(crate) async fn try_dispatch(
     test_control::wait(test_control::Stage::BeforeConnector, &id).await;
     let lock = engine_mode::connect_lock(&first.session.account_id);
     let connecting = lock.lock().await;
-    let final_snapshot = match observe(state, &id, &query).await {
-        Ok(snapshot) => snapshot,
-        Err(_) => {
-            drop(connecting);
-            drop(permit);
-            return restart_or_refuse(state,headers,body,deferred).await;
+    let final_source=if let Some(entry)=&published {
+        match state.store.native_publication_fence(&id,&entry.domains,&entry.subjects).await {
+            Ok(Some(fence))=>{
+                #[cfg(test)] test_control::record_fence();
+                if entry.matches(&fence) {evaluate_inputs(state,&entry.snapshot,&deferred.0,Some(entry),Some(&fence)).ok()} else {None}
+            },
+            _=>None,
+        }
+    } else {
+        match observe(state,&id,&query).await {
+            Ok(snapshot)=>evaluate(state,&snapshot,&deferred.0).ok(),
+            Err(_)=>None,
         }
     };
-    let final_source = evaluate(state, &final_snapshot, &deferred.0).ok();
     let Some(final_source) = final_source.filter(|source| {
         super::auth_boundary::same_session(&first.session, &source.session)
             && first.knobs == source.knobs
@@ -562,6 +620,8 @@ mod test_control {
         pub observations: u64,
         pub dispatches: u64,
         pub original: bool,
+        pub publication:bool,
+        pub fences:u64,
         pub legacy_late_refusal:bool,
         pub restarts:u64,
         pub restart_dispatches:u64,
@@ -571,6 +631,13 @@ mod test_control {
         COUNTS
             .try_with(|counts| counts.borrow().original)
             .unwrap_or(false)
+    }
+    pub(super) fn publication_enabled()->bool {COUNTS.try_with(|c|c.borrow().publication).unwrap_or(false)}
+    pub(super) fn record_fence() {let _=COUNTS.try_with(|c|c.borrow_mut().fences+=1);}
+    pub(super) async fn count_published<F:std::future::Future>(future:F)->(F::Output,Counts) {
+        COUNTS.scope(RefCell::new(Counts {publication:true,..Default::default()}),async {
+            let value=future.await;(value,COUNTS.with(|counts|*counts.borrow()))
+        }).await
     }
     pub(super) fn legacy_late_refusal()->bool {COUNTS.try_with(|c|c.borrow().legacy_late_refusal).unwrap_or(false)}
     pub(super) fn record_restart_dispatch() {let _=COUNTS.try_with(|c|c.borrow_mut().restart_dispatches+=1);}
@@ -611,6 +678,7 @@ mod test_control {
         AfterPrepared,
         BeforeConnector,
         RestartBeforeFinal,
+        PublicationBeforeFinal,
     }
     pub(super) struct Pause {
         pub entered: tokio::sync::Notify,

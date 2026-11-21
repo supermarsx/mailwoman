@@ -599,3 +599,5 @@ fn actual_default_properties_are_metadata_eligible_but_reader_and_result_referen
 }
 
 include!("native_read_restart_tests.rs");
+
+include!("native_published_input_tests.rs");

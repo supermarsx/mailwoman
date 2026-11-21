@@ -13,6 +13,7 @@ pub struct NativeAuthorityFence {
     created: String,
     activity: String,
     last_seen: Option<String>,
+    publication_schema:Option<String>,
 }
 impl fmt::Debug for NativeAuthorityFence {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -22,6 +23,7 @@ impl fmt::Debug for NativeAuthorityFence {
     }
 }
 impl NativeAuthorityFence {
+    pub fn publication_schema(&self)->Option<&str> {self.publication_schema.as_deref()}
     pub fn versions(&self) -> &AuthorityVersions {
         &self.versions
     }
@@ -51,7 +53,7 @@ impl NativeAuthorityFence {
             && self.account == other.account
             && self.principal == other.principal
             && self.binding == other.binding
-            && versions)
+            && self.publication_schema==other.publication_schema && versions)
     }
 }
 pub(super) fn fence_sql(dialect: Dialect) -> &'static str {
@@ -93,6 +95,12 @@ impl Store {
         known_domains: &[String],
         known_subjects: &[String],
     ) -> Result<Option<NativeAuthorityFence>, StoreError> {
+        self.native_authority_fence_impl(cookie,known_domains,known_subjects,false).await
+    }
+    pub async fn native_publication_fence(&self,cookie:&str,known_domains:&[String],known_subjects:&[String])->Result<Option<NativeAuthorityFence>,StoreError> {
+        self.native_authority_fence_impl(cookie,known_domains,known_subjects,true).await
+    }
+    async fn native_authority_fence_impl(&self,cookie:&str,known_domains:&[String],known_subjects:&[String],publication:bool)->Result<Option<NativeAuthorityFence>,StoreError> {
         if cookie.is_empty()
             || cookie.len() > 1024
             || known_domains.len() > 16
@@ -134,7 +142,8 @@ impl Store {
             return Err(invalid("native authority fence encoding bound exceeded"));
         }
         let generation = self.authority_generation().await;
-        let rows = q(fence_sql(self.backend.dialect()))
+        let sql=if publication {publication_sql(self.backend.dialect())}else{fence_sql(self.backend.dialect())};
+        let rows = q(sql)
             .bind(cookie)
             .bind(input)
             .bind(subjects_input)
@@ -146,6 +155,12 @@ impl Store {
         if rows.len() > MAX_SCOPES + 1 {
             return Err(corrupt("native authority fence row bound exceeded"));
         }
+        let publication_schema=if publication {
+            let Some(first)=rows.first() else {return Ok(None);};
+            let Some(stamp)=first.try_get_opt_string("publication_schema")? else {return Ok(None);};
+            if stamp.len()>128 {return Ok(None);}
+            Some(stamp)
+        }else{None};
         let mut source = None;
         let mut stamps = BTreeMap::new();
         for row in rows {
@@ -220,6 +235,15 @@ impl Store {
             created,
             activity,
             last_seen: source.try_get_opt_string("last_seen")?,
+            publication_schema,
         }))
     }
+}
+
+pub(super) fn publication_sql(dialect:Dialect)->&'static str {
+    static SQL:OnceLock<[String;2]>=OnceLock::new();
+    &SQL.get_or_init(||std::array::from_fn(|pg| {
+        let d=if pg==1 {Dialect::Postgres}else{Dialect::Sqlite};
+        format!("SELECT f.*,{} AS publication_schema FROM ({}) f ORDER BY f.tag,f.scope_kind,f.scope_id",super::schema::stamp_expression(d),fence_sql(d))
+    }))[usize::from(dialect==Dialect::Postgres)]
 }

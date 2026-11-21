@@ -222,6 +222,7 @@ fn subject_key(subject: &SettingSubject<'_>) -> String {
 }
 
 impl Store {
+
     /// No-I/O readiness check for the final gate's empty global subject.
     /// This witnesses only existing bounded policy-data memos, never admission.
     pub fn try_empty_global_resolution_ready(
@@ -1912,3 +1913,6 @@ mod presence_tests;
 
 #[path = "native_admission_warm_policy.rs"]
 mod native_admission_warm_policy;
+
+#[path = "settings_publication.rs"]
+mod publication;

@@ -12,7 +12,55 @@ pub(crate) struct Prepared {
     ordered_subjects: Vec<String>,
     keys: Vec<String>,
 }
+/// Immutable rule INPUTS, not an admission result. Cold malformed directories
+/// fall back to the ordinary ordered reader; no error is turned into absence.
+pub(crate) struct PublishedDirectoryInputs {
+    held: std::collections::HashSet<String>,
+    retained:usize,
+}
+impl PublishedDirectoryInputs {
+    pub(crate) fn from_native(source:&mw_store::native_admission_snapshot::NativeAdmissionSnapshot)->Result<Self,StoreError> {
+        let rows=source.held_addresses();
+        if rows.len()>5000 {return Err(StoreError::Invalid("publication directory bound"));}
+        let held:std::collections::HashSet<String>=rows.into_iter().map(|row|mw_store::user_lifecycle::final_gate_access_identity(&row?)).collect::<Result<_,_>>()?;
+        let retained=held.iter().map(|s:&String|s.len()+64).sum::<usize>()+128;
+        Ok(Self {held,retained})
+    }
+    pub(crate) fn retained_bytes(&self)->usize {self.retained}
+}
+pub(crate) struct PublishedGateInputs {
+    domain_states:Vec<Option<bool>>,
+    addresses:std::collections::HashSet<String>,
+    flags:Vec<UserFeatureFlags>,
+}
+impl PublishedGateInputs {
+    pub(crate) fn evaluate(&self,directory:&PublishedDirectoryInputs,listed:bool)->AccountGate {
+        let mut gate=AccountGate::default();
+        gate.disabled=self.domain_states.iter().any(|enabled|*enabled==Some(false) || (enabled.is_none() && listed))
+            || self.addresses.iter().any(|address|directory.held.contains(address));
+        for flags in &self.flags {gate.disabled|=flags.disabled;gate.password_change_required|=flags.force_password_change;}
+        gate
+    }
+    pub(crate) fn retained_bytes(&self)->usize {self.addresses.iter().map(|s|s.len()+64).sum::<usize>()+self.domain_states.len()*16+self.flags.len()*16+128}
+}
 impl Prepared {
+    /// Prepare only stable rules. The live policy value and fresh version vector
+    /// are still checked on EVERY request before evaluating these inputs.
+    pub(crate) fn publication_inputs(self,source:&mw_store::native_admission_snapshot::NativeAdmissionSnapshot)->Result<PublishedGateInputs,StoreError> {
+        if !source.covers_domains(&self.domains) || !source.covers_keys(&self.keys) {return Err(StoreError::Invalid("publication gate coverage"));}
+        let domains=source.domains();let mut states=Vec::new();let mut addresses=std::collections::HashSet::new();
+        for name in self.names {
+            let row=domains.get(&name.identity.domain).ok_or(StoreError::SourceChanged)?.as_ref().map_err(|_|StoreError::SourceChanged)?;
+            if row.second_alias || !crate::domain_config::normalize_domain(&row.canonical).is_ok_and(|n|n==row.canonical) {return Err(StoreError::Invalid("unsupported publication gate alias"));}
+            states.push(row.configuration.as_ref().map(|r|r.enabled));
+            for address in [flag_subject(&name.typed),name.identity.canonical(row.canonical.clone()).address] {
+                addresses.insert(mw_store::user_lifecycle::final_gate_access_identity(&address)?);
+            }
+        }
+        let mut raw_flags=source.exact_flags();let mut flags=Vec::new();
+        for subject in self.ordered_subjects {flags.push(match raw_flags.remove(&flags_key(&subject)) {Some(raw)=>parse_flags(&raw?)?,None=>UserFeatureFlags::default()});}
+        Ok(PublishedGateInputs {domain_states:states,addresses,flags})
+    }
     pub(crate) fn new(ids: &[&str], names: &[&str]) -> Option<Self> {
         if names.is_empty() || names.len() > MAX_FINAL_GATE_KEYS || ids.len() > MAX_FINAL_GATE_KEYS
         {

@@ -992,6 +992,7 @@ pub(crate) struct AppStateInner {
     #[allow(dead_code)]
     metrics_recorder: Arc<metrics_persist::Recorder>,
     store: Store,
+    native_publication:Option<Arc<feature_gate::native_metadata_admission::publication::Worker>>,
     pub(crate) scheduler: Arc<jobs::Scheduler>,
     render_bin: Option<PathBuf>,
     /// Whether a render kernel jail is expected on this deployment (DQ4/S6, via
@@ -1494,6 +1495,7 @@ async fn build_app_inner(
         http_telemetry: http_telemetry::start(),
         client_timing: client_timing::Recorder::start(store.clone()),
         metrics_recorder: metrics_persist::start(store.clone()),
+        native_publication: engine.as_ref().and_then(|_|feature_gate::native_metadata_admission::publication::Worker::start(store.clone())),
         store,
         scheduler: jobs::new_scheduler(),
         render_bin,

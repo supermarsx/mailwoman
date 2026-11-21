@@ -1042,6 +1042,7 @@ async fn migrate_store_sqlite_to_postgres() {
 /// deployment, or an admin/deployment surface the operator re-configures on the
 /// new host. `(table, reason)`.
 const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
+    ("authority_subject_anchor", "0112: derived live-session absence anchors; destination starts cold and seeds only its own verified source/vector"),
     ("authority_epoch", "0111: local derived publication epochs; destination starts cold with new incarnations and lazily seeds live scopes; source authorities follow existing copy rules"),
     ("authority_publication_outbox", "0111: source-deployment worker claims/acknowledgements; destination rebuilds locally and must not inherit claims or treat another process acknowledgement as installed RAM"),
     (

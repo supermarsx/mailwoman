@@ -517,6 +517,8 @@ pub const RULES: &[Rule] = &[
         export: Export::Code { section: "requests" },
         ..keep!("dsr_request", "the request and its trail are kept for the request retention period as proof of handling")
     },
+    child!("authority_subject_anchor", "account_id=?1", Bind::Account),
+    Rule { last:true, ..sub!("authority_subject_anchor", "account_id=?1", Bind::Account) },
     // AFTER authoritative account/source deletes: their DML triggers may create
     // a final dirty epoch. Removing it invalidates old RAM and recreation gets a
     // fresh incarnation, rather than retaining an address as an exemption.

@@ -35,7 +35,7 @@
 #[path = "feature_auth_boundary.rs"]
 mod auth_boundary;
 #[path = "native_metadata_admission.rs"]
-mod native_metadata_admission;
+pub(crate) mod native_metadata_admission;
 pub(crate) use native_metadata_admission::try_dispatch as try_composite_metadata;
 pub(crate) use auth_boundary::{BoundaryError, DeferredJmapFeatures, authenticate_deferred, restart_observer};
 #[cfg(test)]

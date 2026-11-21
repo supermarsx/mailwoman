@@ -803,3 +803,5 @@ async fn encrypted_restart_cross_store_and_mail_writes_preserve_scope_contracts(
     file.read_exact(&mut header).unwrap();
     assert_ne!(&header, crate::encryption::SQLITE_MAGIC);
 }
+
+include!("native_authority_seed_tests.rs");

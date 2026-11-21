@@ -100,7 +100,7 @@ impl fmt::Debug for AuthorityScope {
             .finish_non_exhaustive()
     }
 }
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct AuthorityStamp {
     scope: AuthorityScope,
     incarnation: String,
@@ -125,13 +125,26 @@ impl fmt::Debug for AuthorityStamp {
             .finish_non_exhaustive()
     }
 }
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct AuthorityVersions {
     store: uuid::Uuid,
     generation: Option<PathBuf>,
     stamps: BTreeMap<AuthorityScope, AuthorityStamp>,
 }
 impl AuthorityVersions {
+    pub fn observes(&self,stamp:&AuthorityStamp)->bool { self.stamps.get(stamp.scope())==Some(stamp) }
+    pub fn contains(&self,scope:&AuthorityScope)->bool { self.stamps.contains_key(scope) }
+    /// A bounded hierarchical DATA key. Its opaque generation participates in
+    /// equality; no path is exposed. This subset does not certify coverage.
+    pub fn subset(&self, scopes: &[AuthorityScope]) -> Result<Self, StoreError> {
+        inputs(scopes)?;
+        let mut stamps = BTreeMap::new();
+        for scope in scopes {
+            stamps.insert(scope.clone(), self.stamps.get(scope).cloned()
+                .ok_or_else(|| invalid("missing authority component scope"))?);
+        }
+        Ok(Self { store:self.store, generation:self.generation.clone(), stamps })
+    }
     pub fn stamps(&self) -> impl Iterator<Item = &AuthorityStamp> {
         self.stamps.values()
     }
@@ -232,7 +245,7 @@ fn requested(dialect: Dialect) -> &'static str {
         }
     }
 }
-const EXISTS: &str = "((r.scope_kind IN ('policy','routing','directory','protection') AND r.scope_id='') OR (r.scope_kind='domain' AND EXISTS(SELECT 1 FROM domains x WHERE x.name=r.scope_id)) OR (r.scope_kind='account' AND EXISTS(SELECT 1 FROM accounts x WHERE x.id=r.scope_id)) OR (r.scope_kind='principal' AND EXISTS(SELECT 1 FROM identity_principal x WHERE x.id=r.scope_id)) OR (r.scope_kind='session' AND EXISTS(SELECT 1 FROM sessions x WHERE x.id=r.scope_id)) OR (r.scope_kind='subject' AND (EXISTS(SELECT 1 FROM accounts x WHERE x.id=r.scope_id) OR EXISTS(SELECT 1 FROM setting_value x WHERE x.scope_kind IN ('user','admin_user') AND x.scope_id=r.scope_id) OR EXISTS(SELECT 1 FROM personal_setting_value x WHERE x.owner_subject=r.scope_id) OR EXISTS(SELECT 1 FROM user_group_member x WHERE x.account_id=r.scope_id) OR EXISTS(SELECT 1 FROM feature_profile_assignment x WHERE x.scope_kind='user' AND x.scope_id=r.scope_id))) OR (r.scope_kind='watch' AND EXISTS(SELECT 1 FROM settings x WHERE x.key='sess-sec:v1:'||r.scope_id OR x.key='sess-rot:v1:'||r.scope_id)))";
+const EXISTS: &str = "((r.scope_kind IN ('policy','routing','directory','protection') AND r.scope_id='') OR (r.scope_kind='domain' AND EXISTS(SELECT 1 FROM domains x WHERE x.name=r.scope_id)) OR (r.scope_kind='account' AND EXISTS(SELECT 1 FROM accounts x WHERE x.id=r.scope_id)) OR (r.scope_kind='principal' AND EXISTS(SELECT 1 FROM identity_principal x WHERE x.id=r.scope_id)) OR (r.scope_kind='session' AND EXISTS(SELECT 1 FROM sessions x WHERE x.id=r.scope_id)) OR (r.scope_kind='subject' AND (EXISTS(SELECT 1 FROM authority_subject_anchor h JOIN accounts a ON a.id=h.account_id JOIN sessions s ON s.id=h.session_id AND s.account_id=h.account_id JOIN authority_epoch ae ON ae.scope_kind='account' AND ae.scope_id=h.account_id AND ae.incarnation=h.account_incarnation JOIN authority_epoch se ON se.scope_kind='session' AND se.scope_id=h.session_id AND se.incarnation=h.session_incarnation WHERE h.subject_id=r.scope_id) OR EXISTS(SELECT 1 FROM accounts x WHERE x.id=r.scope_id) OR EXISTS(SELECT 1 FROM setting_value x WHERE x.scope_kind IN ('user','admin_user') AND x.scope_id=r.scope_id) OR EXISTS(SELECT 1 FROM personal_setting_value x WHERE x.owner_subject=r.scope_id) OR EXISTS(SELECT 1 FROM user_group_member x WHERE x.account_id=r.scope_id) OR EXISTS(SELECT 1 FROM feature_profile_assignment x WHERE x.scope_kind='user' AND x.scope_id=r.scope_id))) OR (r.scope_kind='watch' AND EXISTS(SELECT 1 FROM settings x WHERE x.key='sess-sec:v1:'||r.scope_id OR x.key='sess-rot:v1:'||r.scope_id)))";
 fn query(kind: usize, dialect: Dialect) -> &'static str {
     static SQL: OnceLock<[[String; 2]; 3]> = OnceLock::new();
     let all=SQL.get_or_init(||std::array::from_fn(|kind|std::array::from_fn(|backend|{
@@ -405,4 +418,9 @@ mod tests;
 
 #[path = "authority_fence.rs"]
 mod fence;
+#[path = "native_publication_schema.rs"]
+mod schema;
+#[path = "native_authority_seed.rs"]
+mod native_seed;
+pub use native_seed::NativeAuthoritySeed;
 pub use fence::NativeAuthorityFence;

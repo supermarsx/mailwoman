@@ -55,6 +55,7 @@ impl NativeAdmissionRequest {
 pub struct NativeAdmissionSnapshot {
     scope: uuid::Uuid,
     rows: Vec<Row>,
+    shared: Vec<std::sync::Arc<NativeAdmissionSharedPart>>,
     requested: NativeAdmissionRequest,
 }
 impl std::fmt::Debug for NativeAdmissionSnapshot {
@@ -63,6 +64,32 @@ impl std::fmt::Debug for NativeAdmissionSnapshot {
             .field("rows", &self.rows.len())
             .finish_non_exhaustive()
     }
+}
+#[derive(Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash,Debug)]
+pub enum NativeAdmissionSharedKind { Directory,Domain,Account,Flags }
+pub struct NativeAdmissionSharedPart {
+    scope:uuid::Uuid,
+    kind:NativeAdmissionSharedKind,
+    input:String,
+    rows:Vec<Row>,
+    retained:usize,
+    binding:NativeAdmissionPartBinding,
+}
+#[derive(PartialEq,Eq)]
+struct NativeAdmissionPartBinding {account:Option<String>,keys:Vec<String>}
+impl std::fmt::Debug for NativeAdmissionSharedPart {
+    fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result {f.debug_struct("NativeAdmissionSharedPart").field("kind",&self.kind).field("rows",&self.rows.len()).finish_non_exhaustive()}
+}
+impl NativeAdmissionSharedPart {
+    pub fn kind(&self)->NativeAdmissionSharedKind {self.kind}
+    pub fn input(&self)->&str {&self.input}
+    /// Conservative logical retained-data accounting, not RSS/allocator proof.
+    pub fn retained_bytes(&self)->usize {self.retained}
+}
+fn publication_row_bytes(row:&Row)->usize {row.retained_data_bytes().saturating_add(1024)}
+pub(crate) struct NativeAuthoritySeedSource {
+    pub session:String,pub account:String,pub username:String,pub account_username:String,
+    pub principal:String,pub binding:String,pub sealed:Vec<u8>,
 }
 pub struct NativeSessionSource {
     pub session: Session,
@@ -146,12 +173,78 @@ fn check(r: &Row) -> Result<(), StoreError> {
     Ok(())
 }
 impl NativeAdmissionSnapshot {
-    fn one(&self, tag: &str) -> Result<Option<&Row>, StoreError> {
-        let row = self.rows.iter().find(|r| r.get_string("tag") == tag);
+    fn iter_rows(&self) -> impl Iterator<Item=&Row> {
+        self.rows.iter().chain(self.shared.iter().flat_map(|part|part.rows.iter()))
+    }
+    fn iter_tag<'a>(&'a self,tag:&'static str)->impl Iterator<Item=&'a Row> {
+        let kind=match tag {
+            "hold"=>Some(NativeAdmissionSharedKind::Directory),
+            "domain"=>Some(NativeAdmissionSharedKind::Domain),
+            "flag"=>Some(NativeAdmissionSharedKind::Flags),
+            "account"|"account-credentials"|"names"|"account-session"|"zero"|"restriction"=>Some(NativeAdmissionSharedKind::Account),
+            _=>None,
+        };
+        self.rows.iter().filter(move |r|r.get_string("tag")==tag).chain(
+            self.shared.iter().filter(move |p|Some(p.kind)==kind).flat_map(|p|p.rows.iter()).filter(move |r|r.get_string("tag")==tag))
+    }
+    /// Cold publication only: share already bounded source rows hierarchically.
+    /// Parts contain sealed bytes/metadata, never a decoded Session/password or
+    /// allow predicate. Version matching remains the caller's separate duty.
+    pub fn split_publication_parts(&mut self) {
+        if !self.shared.is_empty() { return; }
+        let account=self.rows.iter().find(|r|r.get_string("tag")=="session")
+            .and_then(|r|r.try_get_opt_string("account_id").ok().flatten());
+        let mut groups: BTreeMap<(NativeAdmissionSharedKind,String),Vec<Row>>=BTreeMap::new();
+        let mut own=Vec::new();
+        for row in std::mem::take(&mut self.rows) {
+            let tag=row.get_string("tag");
+            let group=match tag.as_str() {
+                "hold"=>Some((NativeAdmissionSharedKind::Directory,String::new())),
+                "domain"=>Some((NativeAdmissionSharedKind::Domain,row.get_string("input"))),
+                "account"|"account-credentials"|"names"|"account-session"|"zero"|"restriction"=>Some((NativeAdmissionSharedKind::Account,String::new())),
+                "flag"=>Some((NativeAdmissionSharedKind::Flags,String::new())),
+                _=>None,
+            };
+            if let Some(key)=group { groups.entry(key).or_default().push(row); } else {own.push(row);}
+        }
+        self.rows=own;
+        self.shared=groups.into_iter().map(|((kind,input),rows)|{
+            let binding=NativeAdmissionPartBinding {
+                account:if matches!(kind,NativeAdmissionSharedKind::Account|NativeAdmissionSharedKind::Flags) {account.clone()}else{None},
+                keys:if kind==NativeAdmissionSharedKind::Flags {self.requested.keys.clone()}else{Vec::new()},
+            };
+            let retained=rows.iter().map(publication_row_bytes).sum::<usize>()+input.len()
+                +binding.account.as_ref().map_or(0,String::len)+binding.keys.iter().map(|s|s.len()+32).sum::<usize>()+128;
+            std::sync::Arc::new(NativeAdmissionSharedPart {scope:self.scope,kind,input,rows,retained,binding})
+        }).collect();
+    }
+    pub fn publication_flag_keys(&self)->Vec<String> { self.requested.keys.clone() }
+    pub fn publication_parts(&self)->&[std::sync::Arc<NativeAdmissionSharedPart>] { &self.shared }
+    pub fn replace_publication_part(&mut self,index:usize,part:std::sync::Arc<NativeAdmissionSharedPart>)->Result<(),StoreError> {
+        let Some(old)=self.shared.get(index) else {return Err(corrupt("shared part index"));};
+        if part.scope!=self.scope || old.kind!=part.kind || old.input!=part.input || old.binding!=part.binding
+            || (matches!(part.kind,NativeAdmissionSharedKind::Account|NativeAdmissionSharedKind::Flags) && part.binding.account.is_none())
+        {return Err(corrupt("foreign shared part"));}
+        self.shared[index]=part;Ok(())
+    }
+    pub fn publication_own_bytes(&self)->usize { self.rows.iter().map(publication_row_bytes).sum() }
+    fn one(&self, tag: &'static str) -> Result<Option<&Row>, StoreError> {
+        let row = self.iter_tag(tag).next();
         if let Some(r) = row {
             check(r)?;
         }
         Ok(row)
+    }
+    pub(crate) fn authority_seed_source(&self,store:&Store)->Result<Option<NativeAuthoritySeedSource>,StoreError> {
+        self.scoped(store)?;
+        let Some(row)=self.one("session")? else {return Ok(None);};
+        let Some(account)=self.account()? else {return Ok(None);};
+        let Some(principal)=self.principal()? else {return Ok(None);};
+        let sealed=row.get_blob("sealed_creds");
+        if sealed.len()>64*1024 {return Ok(None);}
+        let source=NativeAuthoritySeedSource {session:text(row,"id")?,account:account.id,username:text(row,"username")?,account_username:account.username,principal:principal.principal_id,binding:principal.binding_id,sealed};
+        if [&source.session,&source.account,&source.username,&source.account_username,&source.principal,&source.binding].iter().any(|s|s.len()>1024) {return Ok(None);}
+        Ok(Some(source))
     }
     /// Coverage of query shaping ONLY; never an admission/identity decision.
     pub fn covers_domains(&self, names: &[String]) -> bool {
@@ -217,7 +310,7 @@ impl NativeAdmissionSnapshot {
             .transpose()
     }
     pub fn bounded_shape(&self) -> bool {
-        self.rows.iter().all(|r| check(r).is_ok())
+        self.iter_rows().all(|r| check(r).is_ok())
     }
     pub fn account(&self) -> Result<Option<Account>, StoreError> {
         self.one("account")?
@@ -281,7 +374,7 @@ impl NativeAdmissionSnapshot {
     /// or password: only the same optional login-name projection is returned.
     pub fn account_session_names(&self, store: &Store) -> Result<Option<Vec<crate::SessionNames>>, StoreError> {
         self.scoped(store)?;
-        let rows = self.rows.iter().filter(|row| row.get_string("tag") == "account-session").collect::<Vec<_>>();
+        let rows = self.iter_tag("account-session").collect::<Vec<_>>();
         if rows.len() > 32 { return Ok(None); }
         rows.into_iter().map(|row| {
             check(row)?;
@@ -309,9 +402,7 @@ impl NativeAdmissionSnapshot {
         }))
     }
     pub fn domains(&self) -> HashMap<String, Result<NativeDomainSource, StoreError>> {
-        self.rows
-            .iter()
-            .filter(|r| r.get_string("tag") == "domain")
+        self.iter_tag("domain")
             .map(|r| {
                 let input = r.get_string("input");
                 let value = (|| {
@@ -343,9 +434,7 @@ impl NativeAdmissionSnapshot {
             .collect()
     }
     pub fn held_addresses(&self) -> Vec<Result<String, StoreError>> {
-        self.rows
-            .iter()
-            .filter(|r| r.get_string("tag") == "hold")
+        self.iter_tag("hold")
             .map(|r| {
                 check(r)?;
                 text(r, "address")
@@ -353,9 +442,7 @@ impl NativeAdmissionSnapshot {
             .collect()
     }
     pub fn exact_flags(&self) -> HashMap<String, Result<String, StoreError>> {
-        self.rows
-            .iter()
-            .filter(|r| r.get_string("tag") == "flag")
+        self.iter_tag("flag")
             .map(|r| {
                 (
                     r.get_string("input"),
@@ -374,10 +461,7 @@ impl NativeAdmissionSnapshot {
             .unwrap_or(false))
     }
     pub fn restrictions(&self) -> Result<Vec<crate::privacy::RestrictionRow>, StoreError> {
-        let rows = self
-            .rows
-            .iter()
-            .filter(|r| r.get_string("tag") == "restriction")
+        let rows = self.iter_tag("restriction")
             .collect::<Vec<_>>();
         if rows.len() > 64 {
             return Err(corrupt("restriction count requires fallback"));
@@ -694,6 +778,7 @@ impl Store {
         Ok(NativeAdmissionSnapshot {
             scope: self.cache_scope(),
             rows,
+            shared:Vec::new(),
             requested: request.clone(),
         })
     }
