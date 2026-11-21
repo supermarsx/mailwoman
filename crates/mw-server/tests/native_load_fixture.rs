@@ -21,6 +21,8 @@ const MAX_PRINCIPALS: usize = 10_000;
 const FIXTURE_WORKER_ENV: &str = "MW_NATIVE_LOAD_PROXY_WORKER";
 #[path = "common/native_fixture_backend.rs"]
 mod representative;
+#[path = "common/fixture_runtime.rs"]
+mod fixture_runtime;
 #[path = "common/linked_login_preflight.rs"]
 mod linked_login_preflight;
 #[cfg(feature = "sql-shape-diagnostics")]
@@ -1177,7 +1179,7 @@ async fn run(workers: usize) {
         200,
         "the actual unforwarded loopback peer remains internal"
     );
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let root = fixture_runtime::source_root();
     let report = std::env::var_os("MW_LOAD_REPORT_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| root.join(".orchestration/reports/native-http-load"));
@@ -1200,13 +1202,9 @@ async fn run(workers: usize) {
     let outcome = if std::env::var("MW_LOAD_FIXTURE_EXTERNAL_DRIVER").as_deref() == Ok("1") {
         external_control::run(&data, &format!("native-{count}"), &report, deadline).await
     } else {
-        let mut command = tokio::process::Command::new("node");
-        command
-            .arg(root.join("scripts/perf/http-real-fixture.mjs"))
-            .arg(&handoff.0)
-            .arg(report.join(format!("native-{count}.json")))
-            .current_dir(root)
-            .kill_on_drop(true);
+        let mut command = fixture_runtime::internal_http_driver(
+            &root, &handoff.0, &report.join(format!("native-{count}.json")),
+        );
         match tokio::time::timeout(Duration::from_secs(deadline + 10), command.output()).await {
             Ok(Ok(output)) if output.status.success() => Ok(()),
             Ok(Ok(_)) => {

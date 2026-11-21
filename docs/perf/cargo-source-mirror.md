@@ -1,8 +1,10 @@
 # Content-aware Cargo source mirror prototype
 
-Source-only prototype. Production Dockerfiles, deploy defaults, compiler flags,
-nightly/bootstrap/checksum freshness and old cache IDs are unchanged. No compiler,
-Docker run, correctness test or performance probe has executed for this concern.
+The helper passed root-owned Linux21-contract and six-phase pinned Cargo1.98.1
+correctness gates. Docker wiring below is a separate source-only candidate and
+has not executed. It introduces versioned paired caches while leaving old cache
+IDs/data intact; deployment targets, compiler flags and security behavior remain
+unchanged. No nightly/bootstrap/checksum-freshness mode or speed claim is added.
 
 ## Evidence and remaining causality check
 
@@ -138,3 +140,51 @@ comparison always runs, even when input mtime is identical; changed bytes never
 qualify as unchanged merely because metadata matches. The retained initial Linux
 19-case result (18 pass/1 failed same-tick mutable-input test) is not a passing
 verification of the corrected 21-case source.
+
+
+## Docker wiring candidate (source-only)
+
+The production GNU/musl builds and fixture normal/symbol stages now bind their
+`rust-source` snapshot read-only at `/mw-input`, launch Cargo through this helper,
+and mount one `sharing=locked` source/target pair at `/mw-build-cache`. GNU uses
+`mailwoman-source-target-gnu-v1-${TARGETPLATFORM}`; musl has its separate
+`mailwoman-source-target-musl-v1` namespace. The outer BuildKit lock covers all
+Cargo commands and artifact copies in a RUN; the inherited inner flock covers
+individual accepted child lifetimes. Registry caching is unchanged.
+
+The tracked `apps/web/dist/.gitkeep` is copied into the immutable snapshot,
+per the existing exact `.dockerignore` exception. It is never generated or
+constant-timestamped in the mirror. Fixture `scripts/perf` include inputs are
+part of that snapshot. Existing `/src` remains available for diagnostic inspection
+and fixture scripts, but is not the Cargo working tree. JSON executable paths
+and timing/binary copies use actual pair target paths while the mount is held.
+Normal/symbol fixture hash comparison and all seventeen fixture gates remain.
+An eighteenth gate runs the actual internal Node driver via its shared command
+builder and compiled source-root resolution after the cache is unmounted. A
+separate post-compile RUN adds `/mw-build-cache/source -> /src` in the image,
+never inside the mounted pair. Profiling temporarily overlays this image-only
+compatibility link with the owned cache and restores its view on unmount.
+
+GNU explicitly requires the pinned image's `python3` (actual availability was
+observed as 3.11.2 in the frozen image). Alpine adds `python3` only to its existing
+build tool package installation; scratch/distroless runtime contents do not
+change. Alpine availability, package installation and both full Docker paths are
+still unexecuted. The current first-use cache is cold; old target-only cache
+contents are not migrated or claimed as reused. New absolute build paths can
+change binary hashes and require a fresh release receipt; no bit-identical build
+or application performance claim is made.
+
+The isolated helper's twenty-one Linux contracts and six-phase real Cargo1.98.1
+probe passed in root-owned runs before this wiring. They do not prove Docker
+stage/mount/copy correctness. Required follow-up is actual Docker validation,
+then an owned cold build, identical-byte/new-archive-mtime warm build, and changed
+fixture/source build with retained Cargo dirty/fresh trace and executable/runtime
+gates. GNU and musl must each be verified; profiler tools that invoke Cargo
+directly against `/src` must adopt this same paired runner before claiming reuse.
+
+CI cache-dance now exports/restores the whole musl pair under a new host-cache
+subdirectory and `docker-mounts-source-pair-v2` key prefix including helper bytes.
+It does not import the old target-only snapshot or remove old host caches.
+Deploy-profile source contracts require both actual mirrored command launches,
+both read-only input mounts and paired locks, and the tracked placeholder;
+existing release/fast argument execution checks remain unchanged.

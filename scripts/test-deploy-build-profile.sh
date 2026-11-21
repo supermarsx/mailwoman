@@ -85,7 +85,13 @@ ROOT=$ROOT_CONTEXT
 grep -q 'runtime differences require measurement' "$work/build.log" || fail 'fast profile tradeoff not logged'
 [[ $(grep -c '^ARG MW_BUILD_PROFILE=release$' "$ROOT/Dockerfile") == 2 ]] || fail 'GNU/musl release defaults differ'
 [[ $(grep -c "fast) set -- --config 'profile.release.package.mw-server.opt-level=2'" "$ROOT/Dockerfile") == 2 ]] || fail 'GNU/musl package overrides differ'
-[[ $(grep -c 'cargo build --locked --release "\$@"' "$ROOT/Dockerfile") == 2 ]] || fail 'Cargo arguments are not forwarded safely'
+[[ $(grep -c '&& mirror_cargo cargo build --locked --release "\$@"' "$ROOT/Dockerfile") == 2 ]] || fail 'Cargo arguments are not forwarded through the paired mirror safely'
+[[ $(grep -c '^RUN --mount=type=bind,from=rust-source,source=/src,target=/mw-input,ro ' "$ROOT/Dockerfile") == 2 ]] || fail 'GNU/musl inputs are not immutable source mounts'
+[[ $(grep -c 'target=/mw-build-cache,sharing=locked' "$ROOT/Dockerfile") == 2 ]] || fail 'GNU/musl source and target must share one locked cache root'
+[[ $(grep -c '^COPY apps/web/dist/.gitkeep /src/apps/web/dist/.gitkeep$' "$ROOT/Dockerfile") == 1 ]] || fail 'placeholder must be part of the incoming snapshot'
+! grep -q 'touch -t 200001010000' "$ROOT/Dockerfile" || fail 'constant source timestamp workaround returned'
+grep -qx 'RUN mkdir -p /mw-build-cache && ln -s /src /mw-build-cache/source' "$ROOT/scripts/perf/Dockerfile" || fail 'fixture runtime source-root compatibility lost'
+grep -q 'fixture_runtime::internal_node_driver_uses_runtime_source_root_after_build_mount_release --exact' "$ROOT/scripts/perf/Dockerfile" || fail 'actual internal driver runtime gate missing'
 # Execute each actual Docker stage's shell selection, without invoking Cargo.
 awk -v directory="$work" '/&& case "\$MW_BUILD_PROFILE" in/ {part++;copy=1} copy {line=$0;sub(/^[[:space:]]*&& /,"",line);sub(/[[:space:]]*\\$/,"",line);print line > (directory "/stage-" part ".sh")} copy && /esac/ {copy=0}' "$ROOT/Dockerfile"
 for stage in 1 2; do

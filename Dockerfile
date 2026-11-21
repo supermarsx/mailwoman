@@ -54,6 +54,8 @@ COPY plugins /src/plugins
 COPY apps/desktop/src-tauri /src/apps/desktop/src-tauri
 COPY apps/mobile/src-tauri /src/apps/mobile/src-tauri
 COPY apps/web/pnpm-lock.yaml /src/apps/web/pnpm-lock.yaml
+# Include the inert placeholder in the immutable input, never mutate mirrored sources.
+COPY apps/web/dist/.gitkeep /src/apps/web/dist/.gitkeep
 # The server embeds this inert shell independently of optional SPA assets.
 COPY apps/web/public/workspace-popup.html /src/apps/web/public/workspace-popup.html
 # The PDF viewer is embedded whole (entry document, bootstrap, CSS, library, cmaps,
@@ -87,24 +89,27 @@ ENV RUSTUP_TOOLCHAIN=1.98.1 \
     CARGO_INCREMENTAL=${MW_CARGO_INCREMENTAL} \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 COPY --from=rust-source /src/ /src/
+COPY scripts/build/source_mirror.py /usr/local/lib/mailwoman-build/source_mirror.py
 ENV MW_PRODUCT_SUPPORT_UNTIL=${MW_PRODUCT_SUPPORT_UNTIL}
-# Give the inert embedded placeholder a stable mtime: a fresh touch would
-# invalidate Cargo include_bytes dependencies on every build-layer rerun.
+# Immutable source is bound read-only; the versioned paired cache preserves
+# unchanged source mtimes and Cargo state under one outer BuildKit lock.
+# The first build in this new cache namespace is intentionally cold.
 # Cache the cargo registry and target dir across builds; copy the finished
 # binaries OUT of the (non-persisted) cache mount so later stages can COPY them.
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=mailwoman-target-gnu-ni-${TARGETPLATFORM},target=/src/target,sharing=locked \
-    export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-8}" \
-    && mkdir -p /src/apps/web/dist \
-    && touch -t 200001010000 /src/apps/web/dist/.gitkeep \
+RUN --mount=type=bind,from=rust-source,source=/src,target=/mw-input,ro \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=mailwoman-source-target-gnu-v1-${TARGETPLATFORM},target=/mw-build-cache,sharing=locked \
+    python3 --version \
+    && mirror_cargo() { python3 /usr/local/lib/mailwoman-build/source_mirror.py --input /mw-input --cache-root /mw-build-cache -- "$@"; } \
+    && export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-8}" \
     && case "$MW_BUILD_PROFILE" in \
          release) set -- ;; \
          fast) set -- --config 'profile.release.package.mw-server.opt-level=2' ;; \
          *) echo 'MW_BUILD_PROFILE must be release or fast' >&2; exit 2 ;; \
        esac \
-    && cargo build --locked --release "$@" --bin mailwoman --bin mw-render --bin mw-mock-jmap \
+    && mirror_cargo cargo build --locked --release "$@" --bin mailwoman --bin mw-render --bin mw-mock-jmap \
     && mkdir -p /out /data-empty \
-    && cp target/release/mailwoman target/release/mw-render target/release/mw-mock-jmap /out/
+    && cp /mw-build-cache/target/release/mailwoman /mw-build-cache/target/release/mw-render /mw-build-cache/target/release/mw-mock-jmap /out/
 
 # ---------------------------------------------------------------------------
 # Stage 3 — runtime: production server image. Non-root, no shell, no package
@@ -165,7 +170,7 @@ FROM rust:1.98.1-alpine@sha256:7cc1c22d77d9432f7fe012a70e6d3e555af54c2a6832700ed
 # build-base = gcc + make + musl-dev, needed to compile the C/asm in `ring` and
 # `zstd-sys` against musl for a fully static link. ca-certificates provides the
 # root bundle copied into the scratch image for rustls upstream TLS.
-RUN apk add --no-cache build-base ca-certificates
+RUN apk add --no-cache build-base ca-certificates python3
 WORKDIR /src
 ARG MW_CARGO_INCREMENTAL=0
 ARG MW_BUILD_JOBS=8
@@ -176,27 +181,29 @@ ENV RUSTFLAGS="-C target-feature=+crt-static" \
     CARGO_INCREMENTAL=${MW_CARGO_INCREMENTAL} \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 COPY --from=rust-source /src/ /src/
+COPY scripts/build/source_mirror.py /usr/local/lib/mailwoman-build/source_mirror.py
 ENV MW_PRODUCT_SUPPORT_UNTIL=${MW_PRODUCT_SUPPORT_UNTIL}
 # Build a nonroot passwd/group and an empty data dir to carry into scratch.
 RUN printf 'nonroot:x:65532:65532:nonroot:/data:/sbin/nologin\n' > /etc/mw-passwd \
     && printf 'nonroot:x:65532:\n' > /etc/mw-group \
     && mkdir -p /data-empty /tmp-empty
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=mailwoman-target-musl-ni,target=/src/target,sharing=locked \
-    export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-8}" \
-    && mkdir -p /src/apps/web/dist \
-    && touch -t 200001010000 /src/apps/web/dist/.gitkeep \
+RUN --mount=type=bind,from=rust-source,source=/src,target=/mw-input,ro \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=mailwoman-source-target-musl-v1,target=/mw-build-cache,sharing=locked \
+    python3 --version \
+    && mirror_cargo() { python3 /usr/local/lib/mailwoman-build/source_mirror.py --input /mw-input --cache-root /mw-build-cache -- "$@"; } \
+    && export CARGO_BUILD_JOBS="${MW_BUILD_JOBS:-8}" \
     && case "$MW_BUILD_PROFILE" in \
          release) set -- ;; \
          fast) set -- --config 'profile.release.package.mw-server.opt-level=2' ;; \
          *) echo 'MW_BUILD_PROFILE must be release or fast' >&2; exit 2 ;; \
        esac \
-    && cargo build --locked --release "$@" --timings --target x86_64-unknown-linux-musl \
+    && mirror_cargo cargo build --locked --release "$@" --timings --target x86_64-unknown-linux-musl \
         --bin mailwoman --bin mw-render \
     && mkdir -p /out-musl \
-    && cp target/x86_64-unknown-linux-musl/release/mailwoman \
-          target/x86_64-unknown-linux-musl/release/mw-render /out-musl/ \
-    && cp target/cargo-timings/cargo-timing.html /out-musl/cargo-timing.html
+    && cp /mw-build-cache/target/x86_64-unknown-linux-musl/release/mailwoman \
+          /mw-build-cache/target/x86_64-unknown-linux-musl/release/mw-render /out-musl/ \
+    && cp /mw-build-cache/target/cargo-timings/cargo-timing.html /out-musl/cargo-timing.html
 
 # Export the default deployment compiler's per-crate timeline without copying
 # the source tree, compiler caches or application data into the report directory.
