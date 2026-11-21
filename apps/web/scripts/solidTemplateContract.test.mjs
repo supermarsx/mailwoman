@@ -58,6 +58,19 @@ test('actual ConsentLayer insertion anchors remain empty comments without hiding
     assert.throws(()=>inspect(factory(malformed)),/malformed template HTML/);
   }
 });
+test('actual empty Reader iframe ends at a complete start tag without hiding styled attributes',()=>{
+  const html='<iframe class=reader__frame data-testid=reader-offline-frame sandbox referrerpolicy=no-referrer>';
+  const result=inspect(factory(html));
+  assert.equal(Buffer.byteLength(html),96);
+  assert.equal(result.templates[0].sha256,'0489593081ebf00f84cbb768cea8e8a57f22cbba605203e35060706f8bf0b6ef');
+  assert.equal(result.templates[0].styleAttributes,0);
+  for(const unsafe of [html.replace(' sandbox',' style="color:red" sandbox'),html.replace(' sandbox',' STYLE=color:red sandbox'),`<div style=color:red>${html}`]){
+    assert.equal(inspect(factory(unsafe)).templates[0].styleAttributes,1);
+  }
+  for(const malformed of ['<iframe style="unterminated>','<iframe class=x','<iframe>text','<iframe><span style=color:red>','<iframe/>','<textarea>','<script>']){
+    assert.throws(()=>inspect(factory(malformed)),/malformed template HTML/);
+  }
+});
 test('unexpected calls, binding escapes/shadowing, namespace and dynamic imports fail closed',()=>{
   for(const suffix of ['t(html)','t(`<div>${value}</div>`)','t("<div>",1)','t?.("<div>")','const other=t','t.call(null,"<div>")','function nested(t){return t("<div>")}']) {
     assert.throws(()=>inspect(`import {template as t} from 'solid-js/web';${suffix};`));
