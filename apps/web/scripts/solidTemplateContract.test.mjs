@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {parseAst} from 'vite';
-import {bundleGraph} from './bundleGraph.ts';
+import {bundleGraph,renderedModuleKey} from './bundleGraph.ts';
+import {mailboxPaneGraphProof} from './bundleGraphContract.mjs';
 import {inspectSolidTemplates,inspectStandaloneAsset,solidTemplateGraphProof,solidModuleSources,solidTemplateAssetCoverage} from './solidTemplateContract.mjs';
 
 const inspect = code => inspectSolidTemplates(code,parseAst(code));
@@ -173,5 +175,63 @@ for(const includeZeroBarrel of [false,true])for(const opaque of [false,true])tes
     plugin.configResolved({root,build:{outDir:'dist'}});
     const modules={[entry]:{renderedLength:20},...(includeZeroBarrel?{[barrel]:{renderedLength:0}}:{})};
     await assert.rejects(plugin.writeBundle.call({getModuleInfo:id=>sources.get(id),resolve:async source=>({id:source==='solid-js/web'?runtime:barrel})},{},{'assets/app.js':{type:'chunk',fileName:'assets/app.js',imports:[],dynamicImports:[],isEntry:true,modules}}),opaque?/no inspectable code/:/Solid re-export/);
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('physical UI paths stay exact while raw query/virtual identities remain distinct and deterministic',()=>{
+  const root=join(tmpdir(),'mw-key-root'),physical=join(root,'src/screens/Mailbox.tsx');
+  const ids=[physical,`${physical}?one`,`${physical}?two`,`\0${physical}`,`\0${physical}?one`];
+  const keys=ids.map(id=>renderedModuleKey(root,id));
+  assert.equal(keys[0],'src/screens/Mailbox.tsx');assert.equal(new Set(keys).size,ids.length);
+  for(let i=1;i<ids.length;i++){
+    assert.equal(keys[i],`src/screens/Mailbox.tsx?mw-source=${createHash('sha256').update(ids[i]).digest('hex')}`);
+    assert.equal(renderedModuleKey(root,ids[i]),keys[i]);
+  }
+});
+
+test('actual producer preserves all physical/query/virtual module receipts and bounded identity evidence',async()=>{
+  const root=mkdtempSync(join(tmpdir(),'mw-identity-proof-'));
+  try{
+    mkdirSync(join(root,'dist/assets'),{recursive:true});writeFileSync(join(root,'dist/assets/app.js'),'const rendered=1;');
+    const physical=join(root,'src/screens/Mailbox.tsx'),query=`${physical}?used`,virtual=`\0${physical}`;
+    const code='export const retained=1;',info={code,ast:parseAst(code),importedIds:[],dynamicallyImportedIds:[]};
+    const plugin=bundleGraph();plugin.configResolved({root,build:{outDir:'dist'}});
+    const modules={[physical]:{renderedLength:0},[query]:{renderedLength:30},[virtual]:{renderedLength:40}};
+    await plugin.writeBundle.call({getModuleInfo:()=>info},{},{'assets/app.js':{type:'chunk',fileName:'assets/app.js',imports:[],dynamicImports:[],isEntry:true,modules}});
+    const folder=join(root,'node_modules/.cache/mailwoman-build');
+    const graph=JSON.parse(readFileSync(join(folder,'bundle-graph.json'),'utf8'));
+    assert.equal(solidTemplateGraphProof(graph).modules,3);
+    const values=graph.chunks['assets/app.js'].modules;
+    assert.equal(Object.keys(values).length,3);assert.equal(values['src/screens/Mailbox.tsx'],0);
+    for(const [id,expected]of [[query,30],[virtual,40]]){
+      const key=renderedModuleKey(root,id),sourceId=createHash('sha256').update(id).digest('hex');
+      assert.equal(values[key],expected);assert.equal(graph.solidTemplates.chunks['assets/app.js'].modules[key].sourceId,sourceId);
+      assert.ok(graph.solidTemplates.sourceClosure[sourceId]);
+    }
+    assert.throws(()=>mailboxPaneGraphProof(graph),/one rendered Mailbox root/,'virtual/query bytes must not masquerade as the physical UI root');
+    const receiptBytes=readFileSync(join(folder,'module-identities.json'));
+    assert.ok(receiptBytes.length<=65536);
+    const receipt=JSON.parse(receiptBytes);
+    assert.equal(receipt.ambiguousBases,1);assert.equal(receipt.groups[0].sources.length,3);
+    assert.equal(receipt.groups[0].sources.some(row=>row.rawId===query),true);
+    assert.equal(receiptBytes.includes(Buffer.from(code)),false,'no module code in diagnostic');
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+test('residual physical-path collisions still deny with both raw ID hashes and retained bounded evidence',async()=>{
+  const root=mkdtempSync(join(tmpdir(),'mw-identity-denial-'));
+  try{
+    mkdirSync(join(root,'dist/assets'),{recursive:true});writeFileSync(join(root,'dist/assets/app.js'),'const rendered=1;');
+    const physical=join(root,'src/App.js'),alias=`${root}/src/../src/App.js`;
+    const code='export const retained=1;',info={code,ast:parseAst(code),importedIds:[],dynamicallyImportedIds:[]};
+    const plugin=bundleGraph();plugin.configResolved({root,build:{outDir:'dist'}});
+    const modules={[physical]:{renderedLength:20},[alias]:{renderedLength:10}};
+    await assert.rejects(plugin.writeBundle.call({getModuleInfo:()=>info},{},{'assets/app.js':{type:'chunk',fileName:'assets/app.js',imports:[],dynamicImports:[],isEntry:true,modules}}),error=>{
+      assert.match(error.message,/Ambiguous rendered module identity/);
+      for(const id of [physical,alias])assert.ok(error.message.includes(createHash('sha256').update(id).digest('hex')));
+      return true;
+    });
+    const receipt=JSON.parse(readFileSync(join(root,'node_modules/.cache/mailwoman-build/module-identities.json'),'utf8'));
+    assert.equal(receipt.groups[0].sources.length,2);
   }finally{rmSync(root,{recursive:true,force:true});}
 });

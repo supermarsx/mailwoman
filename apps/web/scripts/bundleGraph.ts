@@ -3,6 +3,14 @@ import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {dirname,join,relative,resolve} from 'node:path';
 import type {Plugin} from 'vite';
 import {inspectSolidTemplates,inspectStandaloneAsset,solidTemplateGraphProof,solidModuleSources,solidTemplateAssetCoverage} from './solidTemplateContract.mjs';
+function readableModuleName(root:string,id:string):string{
+ return relative(root,id.replace(/^\0/,'').split('?')[0]!).replaceAll('\\','/');
+}
+/** Keep ordinary physical UI roots readable; never merge virtual/query IDs. */
+export function renderedModuleKey(root:string,id:string):string{
+ const readable=readableModuleName(root,id);
+ return id.startsWith('\0')||id.includes('?')?`${readable}?mw-source=${createHash('sha256').update(id).digest('hex')}`:readable;
+}
 /** Build-only proof of rendered module placement; never emitted as a web asset. */
 export function bundleGraph():Plugin{
  let root='',outDir='',destination='';
@@ -58,14 +66,42 @@ export function bundleGraph():Plugin{
      sourceClosure[key]={dependencies:dependencies.map(sourceKey),result:await inspectSource(source.code,source.ast??this.parse(source.code),id)};
    }
    const assets:Record<string,unknown>={};
+   // Discovery evidence is private and contains identities, never module code.
+   // It is written before mapping, so a residual collision remains diagnosable.
+   const groups=new Map<string,Set<string>>();
+   let placements=0;
+   for(const item of Object.values(bundle))if(item.type==='chunk')for(const id of Object.keys(item.modules)){
+    if(++placements>20000)throw Error('Rendered module placement bound');
+    const readable=readableModuleName(root,id);
+    if(!groups.has(readable))groups.set(readable,new Set());
+    groups.get(readable)!.add(id);
+   }
+   const identityRows:unknown[]=[];
+   let ambiguousBases=0,omittedGroups=0,identityBytes=2;
+   for(const [readable,ids]of groups){
+    if(ids.size<2)continue;
+    ambiguousBases++;
+    const row={readable:readable.slice(0,512),sources:[...ids].slice(0,8).map(id=>({
+     sourceId:sourceKey(id),key:renderedModuleKey(root,id).slice(0,768),
+     rawId:Buffer.byteLength(id)<=1024?id.replaceAll('\0','\\0'):null,rawIdBytes:Buffer.byteLength(id),
+    })),omittedSources:Math.max(0,ids.size-8)};
+    const rowBytes=Buffer.byteLength(JSON.stringify(row))+1;
+    if(identityBytes+rowBytes>60000){omittedGroups++;continue;}
+    identityBytes+=rowBytes;
+    identityRows.push(row);
+   }
+   mkdirSync(dirname(destination),{recursive:true});
+   writeFileSync(join(dirname(destination),'module-identities.json'),JSON.stringify({schema:1,placements,ambiguousBases,omittedGroups,groups:identityRows})+'\n');
    for(const chunk of Object.values(bundle)){
     if(chunk.type!=='chunk')continue;
     const bytes=readFileSync(join(outDir,chunk.fileName));
     const modules:Record<string,number>={};
     const proofs:Record<string,unknown>={};
+    const rawIds=new Map<string,string>();
     for(const [id,info] of Object.entries(chunk.modules)){
-     const key=relative(root,id.replace(/^\0/,'').split('?')[0]!).replaceAll('\\','/');
-     if(Object.hasOwn(modules,key))throw Error('Ambiguous normalized rendered module identity');
+     const key=renderedModuleKey(root,id);
+     if(Object.hasOwn(modules,key))throw Error(`Ambiguous rendered module identity (key=${key.slice(0,512)}, first=${sourceKey(rawIds.get(key)!)}, second=${sourceKey(id)}); see private module-identities.json`);
+     rawIds.set(key,id);
      modules[key]=info.renderedLength;
      const sourceId=sourceKeys.get(id)!;
      if(info.renderedLength===0){proofs[key]={status:'zero-rendered',renderedLength:0,sourceId};continue;}
