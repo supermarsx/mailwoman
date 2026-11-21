@@ -668,7 +668,6 @@ impl Tx {
     pub(crate) fn generation_path(&self) -> Option<std::path::PathBuf> {
         match self { Self::Sqlite(tx) => Some(tx.generation_path()), Self::Postgres(_) => None }
     }
-    #[cfg(test)]
     pub(crate) async fn rollback(self) -> Result<(), sqlx::Error> {
         match self { Self::Sqlite(tx) => tx.rollback().await, Self::Postgres(tx) => tx.rollback().await }
     }
