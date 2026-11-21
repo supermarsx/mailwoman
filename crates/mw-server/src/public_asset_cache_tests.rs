@@ -225,14 +225,23 @@ async fn owned_budget_entries_and_oversized_bypass_are_enforced() {
         ..Config::default()
     });
     let payload = vec![b'x'; 1024 * 1024];
+    let mut entry_bytes=0;
     for n in 0..9 {
         let path = format!("{n}.js");
         std::fs::write(directory.path().join(&path), &payload).unwrap();
-        get(&cache, &path).await;
+        let prepared=get(&cache, &path).await;
+        let gzip=prepared.encodings.gzip.as_ref().expect("compressible fixture must retain gzip");
+        let brotli=prepared.encodings.brotli.as_ref().expect("compressible fixture must retain Brotli");
+        let actual=payload.len()+gzip.bytes.len()+brotli.bytes.len();
+        assert_eq!(prepared.charge,actual,"all three owned representations count toward the budget");
+        if n==0 {entry_bytes=actual;} else {assert_eq!(entry_bytes,actual);}
     }
-    assert_eq!(cache.status()["residentOwnedBytes"], 8 * 1024 * 1024);
-    assert_eq!(cache.status()["entries"], 8);
-    assert_eq!(cache.status()["counters"]["evictions"], 1);
+    let capacity=8*1024*1024/entry_bytes;
+    assert_eq!(capacity,7,"eight raw1MiB files leave no room for their encodings");
+    assert_eq!(cache.status()["residentOwnedBytes"],capacity*entry_bytes);
+    assert!(capacity*entry_bytes<=8*1024*1024);
+    assert_eq!(cache.status()["entries"],capacity);
+    assert_eq!(cache.status()["counters"]["evictions"],9-capacity);
     std::fs::write(directory.path().join("big.js"), vec![b'x'; 1024 * 1024 + 1]).unwrap();
     get(&cache, "big.js").await;
     get(&cache, "big.js").await;
