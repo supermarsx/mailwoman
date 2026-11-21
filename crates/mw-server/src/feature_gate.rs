@@ -37,7 +37,7 @@ mod auth_boundary;
 #[path = "native_metadata_admission.rs"]
 mod native_metadata_admission;
 pub(crate) use native_metadata_admission::try_dispatch as try_composite_metadata;
-pub(crate) use auth_boundary::{BoundaryError, DeferredJmapFeatures, authenticate_deferred};
+pub(crate) use auth_boundary::{BoundaryError, DeferredJmapFeatures, authenticate_deferred, restart_observer};
 #[cfg(test)]
 pub(crate) use auth_boundary::{record_auth as record_test_auth, pause_during_final_auth};
 use crate::{AppState, settings_registry as registry, settings_routes::UserSubject};
@@ -583,6 +583,17 @@ fn is_explicit_download(query: &str) -> bool {
         .any(|pair| pair.split_once('=') == Some(("download", "true")))
 }
 
+/// Exact body-derived requirements for the one permitted pre-dispatch read
+/// restart. Presence pruning must happen only after obtaining its NEW revision.
+fn metadata_read_restart_needs(body:&[u8])->Option<Needs> {
+    let request=native_metadata_admission::eligible_request(body)?;
+    let mut needs=Needs {features:rest_features(&Method::POST,"/jmap/api"),protocol:protocol_path("/jmap/api"),..Default::default()};
+    needs.features.extend(jmap_features(&request));
+    needs.recipients=jmap_max_recipients(&request);
+    if jmap_sends(&request) {needs.required.push("mail.allowSend");}
+    Some(needs)
+}
+
 /// The guard (see the module docs). Layered innermost on the user router.
 pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let method = req.method().clone();
@@ -671,7 +682,7 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
     if auth_boundary::eligible(&state, &req) {
         let revision=req.extensions().get::<mw_store::settings_policy::SettingsReadRevision>()
             .expect("eligibility requires a current revision").clone();
-        req.extensions_mut().insert(DeferredJmapFeatures(needs, revision));
+        req.extensions_mut().insert(DeferredJmapFeatures::new(needs, revision));
         return next.run(req).await;
     }
     // Unauthenticated: the handler answers as it always did.

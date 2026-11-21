@@ -60,6 +60,14 @@ struct RawPrimarySnapshot {
     witness: PrimaryPolicyWitness,
 }
 impl Store {
+    pub(crate) fn primary_policy_witness_from_parts(&self,ids:[&str;5],sealed:&[u8],kind:Option<&str>,revision:Option<i64>)->PrimaryPolicyWitness {
+        let mut source=Sha256::new();source.update(b"mailwoman-primary-policy-witness-v1\0");
+        for value in ids {source.update((value.len() as u64).to_be_bytes());source.update(value.as_bytes());}
+        source.update((sealed.len() as u64).to_be_bytes());source.update(sealed);
+        match kind {Some(kind)=>{source.update([1]);source.update((kind.len() as u64).to_be_bytes());source.update(kind.as_bytes());},None=>source.update([0])}
+        PrimaryPolicyWitness {scope:self.cache_scope(),revision,source:source.finalize().into()}
+    }
+
     /// Original primary-session predicate/decode, plus one coherent namespace
     /// witness. The returned plaintext session is still only a policy hint.
     pub async fn primary_session_policy_snapshot(
@@ -103,22 +111,7 @@ impl Store {
         let jmap_url = row.get_string("jmap_url");
         let api_url = row.get_string("api_url");
         let sealed = row.get_blob("sealed_creds");
-        let mut source = Sha256::new();
-        source.update(b"mailwoman-primary-policy-witness-v1\0");
-        for value in [&id, &account_id, &username, &jmap_url, &api_url] {
-            source.update((value.len() as u64).to_be_bytes());
-            source.update(value.as_bytes());
-        }
-        source.update((sealed.len() as u64).to_be_bytes());
-        source.update(&sealed);
-        match row.try_get_opt_string("account_kind")? {
-            Some(kind) => {
-                source.update([1]);
-                source.update((kind.len() as u64).to_be_bytes());
-                source.update(kind.as_bytes());
-            }
-            None => source.update([0]),
-        }
+        let account_kind=row.try_get_opt_string("account_kind")?;
         let revision = match row.get_json("policy_revision") {
             serde_json::Value::Null => None,
             serde_json::Value::Number(number) => Some(
@@ -129,6 +122,7 @@ impl Store {
             ),
             _ => return Err(StoreError::Corrupt("invalid policy revision".into())),
         };
+        let witness=self.primary_policy_witness_from_parts([&id,&account_id,&username,&jmap_url,&api_url],&sealed,account_kind.as_deref(),revision);
         Ok(RawPrimarySnapshot {
             id,
             account_id,
@@ -137,11 +131,7 @@ impl Store {
             api_url,
             sealed,
             last_seen: row.try_get_opt_string("last_seen").ok().flatten(),
-            witness: PrimaryPolicyWitness {
-                scope: self.cache_scope(),
-                revision,
-                source: source.finalize().into(),
-            },
+            witness,
         })
     }
 }

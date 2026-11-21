@@ -3526,6 +3526,7 @@ async fn jmap_api(
         return response;
     }
     }
+    let read_restart=deferred_features.as_ref().map(|Extension(features)|feature_gate::restart_observer(features));
     let headless_key = matches!(
         &source,
         Some(Extension(scope_mw::RestSessionSource::Key { .. }))
@@ -3539,7 +3540,7 @@ async fn jmap_api(
     let authenticated = match source {
         Some(Extension(source)) => scope_mw::rest_session(&state, &headers, source).await,
         None => match deferred_features {
-            Some(Extension(features)) => match feature_gate::authenticate_deferred(&state, &headers, features).await {
+            Some(Extension(features)) => match feature_gate::authenticate_deferred(&state, &headers, features, &body).await {
                 Ok(session)=>Ok(session),
                 Err(feature_gate::BoundaryError::Authentication(response))=>Err(response),
                 Err(feature_gate::BoundaryError::Features(response))=>return response,
@@ -3599,9 +3600,17 @@ async fn jmap_api(
         if let Err(problem) = mw_engine::jmap::core::validate(&request, body.len(), true) {
             return jmap_limits::problem(problem, StatusCode::BAD_REQUEST);
         }
-        match jmap_limits::request(&state, &session.account_id, &session.username).await {
-            Ok(permit) => Some(permit),
-            Err(response) => return response,
+        if let Some(observer)=read_restart.as_ref().filter(|observer|observer.active()) {
+            // Same inputs/ordering as jmap_limits::request, retained only for
+            // comparison at this restarted read's LAST full source observation.
+            let knobs=rate_leeway::knobs(&state.store,rate_leeway::domain_of(&session.username)).await;
+            if let Err(response)=observer.record_knobs(knobs) {return response;}
+            match jmap_limits::request_with_knobs(&session.account_id,knobs).await {Ok(permit)=>Some(permit),Err(response)=>return response}
+        } else {
+            match jmap_limits::request(&state, &session.account_id, &session.username).await {
+                Ok(permit) => Some(permit),
+                Err(response) => return response,
+            }
         }
     } else {
         None
@@ -3672,6 +3681,10 @@ async fn jmap_api(
             })
         {
             nextcloud_pim::install(engine, &state.store, &session.account_id);
+        }
+        if let Some(observer)=&read_restart {
+            if let Err(response)=observer.finish(&state,&headers,&session,&body).await {return response;}
+            #[cfg(test)] observer.record_engine_dispatch();
         }
         #[cfg(feature = "sql-shape-diagnostics")]
         let response = fixture_profile::measure(fixture_profile::Phase::Engine,

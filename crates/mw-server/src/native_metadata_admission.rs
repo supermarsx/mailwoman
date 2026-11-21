@@ -1,7 +1,8 @@
 //! Narrow, fresh native Email/get integration. No source/allow memo is kept.
 //! Unsupported or cold inputs return to the complete original path BEFORE
-//! taking permits. After that boundary failures must authenticate again and
-//! refuse, never dispatch using a preparation-time observation.
+//! taking permits. Before any Engine dispatch, late source changes may restart
+//! one complete fresh read chain after dropping all old permits/connector state.
+//! No preparation-time observation authorizes that restarted dispatch.
 use super::{
     DeferredJmapFeatures, Needs, check_feature_values, check_protocol_kind, check_required_values,
 };
@@ -25,7 +26,7 @@ fn unsupported<T>(value: Result<T, impl Sized>) -> Result<T, Unsupported> {
     value.map_err(|_| ())
 }
 
-fn eligible_request(body: &[u8]) -> Option<Value> {
+pub(super) fn eligible_request(body: &[u8]) -> Option<Value> {
     if body.len() > mw_engine::jmap::core::MAX_SIZE_REQUEST {
         return None;
     }
@@ -367,6 +368,69 @@ async fn late_refusal(state: &AppState, headers: &HeaderMap) -> Response {
     }
 }
 
+async fn restart_or_refuse(state:&AppState,headers:&HeaderMap,body:&[u8],deferred:&DeferredJmapFeatures)->Option<Response> {
+    #[cfg(test)]
+    if test_control::legacy_late_refusal() {return Some(late_refusal(state,headers).await);}
+    if deferred.restart_metadata_read(body) {
+        #[cfg(test)] test_control::record_restart();
+        return None;
+    }
+    Some(late_refusal(state,headers).await)
+}
+
+/// Final source observation for the single restarted read. This remains the
+/// LAST asynchronous source read before dispatch. Never follow it with a narrower
+/// primary-only SELECT that could hide later raw flag/credential/config changes.
+pub(super) async fn finish_restarted_read(
+    state:&AppState,headers:&HeaderMap,authenticated:&Session,body:&[u8],
+    witness:&mw_store::primary_policy_snapshot::PrimaryPolicyWitness,admitted:rate_leeway::Knobs,
+)->Result<(),Response> {
+    let refusal=super::auth_boundary::auth_fence_refusal;
+    let request=eligible_request(body).ok_or_else(refusal)?;
+    let needs=super::metadata_read_restart_needs(body).ok_or_else(refusal)?;
+    let id=crate::cookie_value(headers).ok_or_else(refusal)?;
+    if id!=authenticated.id || request["methodCalls"][0][1]["accountId"].as_str()!=Some(authenticated.account_id.as_str()) {return Err(refusal());}
+    #[cfg(test)] test_control::wait(test_control::Stage::RestartBeforeFinal,&id).await;
+    let names=vec![authenticated.username.clone(),authenticated.credentials.username.clone()];
+    let query=shaping(&authenticated.account_id,&names).map_err(|_|refusal())?;
+    let mut snapshot=observe(state,&id,&query).await.map_err(|_|refusal())?;
+    let source=snapshot.session(&state.store).map_err(|_|refusal())?.ok_or_else(refusal)?.session;
+    let names=names_for(&snapshot,state,&source).map_err(|_|refusal())?;
+    let names=names.0.into_iter().chain(names.1).collect::<Vec<_>>();
+    let complete=shaping(&source.account_id,&names).map_err(|_|refusal())?;
+    if !snapshot.covers_domains(complete.domains()) || !snapshot.covers_keys(complete.keys()) {
+        snapshot=observe(state,&id,&complete).await.map_err(|_|refusal())?;
+    }
+    // No successful path may await ANY further authority read after this point.
+    if !snapshot.matches_primary_policy_witness(&state.store,witness).map_err(|_|refusal())? {return Err(refusal());}
+    let source=snapshot.session(&state.store).map_err(|_|refusal())?.ok_or_else(refusal)?.session;
+    if !super::auth_boundary::same_session(authenticated,&source) {return Err(refusal());}
+    let (session_names,account_names)=names_for(&snapshot,state,&source).map_err(|_|refusal())?;
+    let complete=shaping(&source.account_id,&session_names.into_iter().chain(account_names).collect::<Vec<_>>()).map_err(|_|refusal())?;
+    if !snapshot.covers_domains(complete.domains()) || !snapshot.covers_keys(complete.keys()) {return Err(refusal());}
+    let revision=snapshot.revision(&state.store).map_err(|_|refusal())?;
+    let subject=SettingSubject {personal_owner:None,domain:source.username.rsplit_once('@').map_or("",|(_,d)|d),account_id:&source.account_id,address:&source.username};
+    let values=warm_values(state,&subject,&revision,|d|matches!(d.key,"session.idleSecs"|"session.absoluteSecs")).map_err(|_|refusal())?;
+    let clock=crate::security_center::clock_policy_from_values(&values,state.hardening.idle_timeout.as_secs(),state.hardening.absolute_timeout.as_secs());
+    let (created,activity)=snapshot.clocks().map_err(|_|refusal())?.ok_or_else(refusal)?;
+    if crate::security_center::session_deadline_passed(&created,&activity,chrono::Utc::now(),clock.idle_secs,clock.absolute_secs) {
+        // Failure-only cleanup may await writes; there is no subsequent dispatch.
+        let _=state.store.delete_session(&id).await;
+        let _=state.store.delete_native_session(&crate::push_relay::hash_token(&id)).await;
+        state.sessions.forget(&id);state.step_up.forget_user(&id);
+        return Err(crate::session_expired());
+    }
+    if state.sessions.check(&id,&state.hardening).is_err() {
+        let _=state.store.delete_session(&id).await;state.sessions.forget(&id);
+        return Err(crate::session_expired());
+    }
+    let current=evaluate(state,&snapshot,&needs).map_err(|_|refusal())?;
+    if !super::auth_boundary::same_session(authenticated,&current.session) || current.knobs!=admitted || !current.target_matches(headers) {return Err(refusal());}
+    Ok(())
+}
+#[cfg(test)]
+pub(super) fn record_restart_dispatch() {test_control::record_restart_dispatch();}
+
 pub(crate) async fn try_dispatch(
     state: &AppState,
     headers: &HeaderMap,
@@ -449,7 +513,7 @@ pub(crate) async fn try_dispatch(
         Err(_) => {
             drop(connecting);
             drop(permit);
-            return Some(late_refusal(state, headers).await);
+            return restart_or_refuse(state,headers,body,deferred).await;
         }
     };
     let final_source = evaluate(state, &final_snapshot, &deferred.0).ok();
@@ -460,7 +524,7 @@ pub(crate) async fn try_dispatch(
     }) else {
         drop(connecting);
         drop(permit);
-        return Some(late_refusal(state, headers).await);
+        return restart_or_refuse(state,headers,body,deferred).await;
     };
     if state.sessions.check(&id, &state.hardening).is_err() {
         drop(connecting);
@@ -477,11 +541,10 @@ pub(crate) async fn try_dispatch(
     // Engine retains its own fresh ownership and posture checks for data reads.
     #[cfg(test)]
     test_control::record_dispatch();
-    let response = state
-        .engine
-        .as_ref()?
-        .handle_jmap_with_sieve(&final_source.session.account_id, &request, None)
-        .await;
+    let dispatch=state.engine.as_ref()?.handle_jmap_with_sieve(&final_source.session.account_id,&request,None);
+    #[cfg(feature="sql-shape-diagnostics")]
+    let dispatch=mw_store::pool_telemetry::shapes::in_phase(mw_store::pool_telemetry::shapes::Phase::Engine,dispatch);
+    let response=dispatch.await;
     drop(permit);
     Some(Json(response).into_response())
 }
@@ -499,12 +562,23 @@ mod test_control {
         pub observations: u64,
         pub dispatches: u64,
         pub original: bool,
+        pub legacy_late_refusal:bool,
+        pub restarts:u64,
+        pub restart_dispatches:u64,
     }
     tokio::task_local! { static COUNTS: RefCell<Counts>; }
     pub(super) fn force_original() -> bool {
         COUNTS
             .try_with(|counts| counts.borrow().original)
             .unwrap_or(false)
+    }
+    pub(super) fn legacy_late_refusal()->bool {COUNTS.try_with(|c|c.borrow().legacy_late_refusal).unwrap_or(false)}
+    pub(super) fn record_restart_dispatch() {let _=COUNTS.try_with(|c|c.borrow_mut().restart_dispatches+=1);}
+    pub(super) fn record_restart() {let _=COUNTS.try_with(|c|c.borrow_mut().restarts+=1);}
+    pub(super) async fn count_legacy_late<F:std::future::Future>(future:F)->(F::Output,Counts) {
+        COUNTS.scope(RefCell::new(Counts {legacy_late_refusal:true,..Default::default()}),async {
+            let output=future.await;(output,COUNTS.with(|c|*c.borrow()))
+        }).await
     }
     pub(super) fn record_hint() {
         let _ = COUNTS.try_with(|counts| counts.borrow_mut().hints += 1);
@@ -536,6 +610,7 @@ mod test_control {
     pub(super) enum Stage {
         AfterPrepared,
         BeforeConnector,
+        RestartBeforeFinal,
     }
     pub(super) struct Pause {
         pub entered: tokio::sync::Notify,

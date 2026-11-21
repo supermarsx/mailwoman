@@ -587,3 +587,5 @@ fn actual_default_properties_are_metadata_eligible_but_reader_and_result_referen
         json!({"resultOf":"q","name":"Email/query","path":"/ids"});
     assert!(eligible_request(&serde_json::to_vec(&request).unwrap()).is_none());
 }
+
+include!("native_read_restart_tests.rs");

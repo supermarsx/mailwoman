@@ -65,6 +65,15 @@ fn request() -> NativeAdmissionRequest {
 }
 async fn contract(s: Store) {
     let (account, id) = seed(&s).await;
+    let witness=s.primary_session_policy_witness(&id).await.unwrap();
+    let observed=s.native_cookie_admission_snapshot(&id,&request()).await.unwrap();
+    let (same,counters)=crate::pool_telemetry::measure_queries(async {observed.matches_primary_policy_witness(&s,&witness)}).await;
+    assert!(same.unwrap());assert_eq!(counters.read.calls+counters.write.calls+counters.other.calls,0,"auth witness comparison uses the LAST composite fields, not another SELECT");
+    s.touch_session(&id).await.unwrap();
+    assert!(s.native_cookie_admission_snapshot(&id,&request()).await.unwrap().matches_primary_policy_witness(&s,&witness).unwrap(),"last_seen is deliberately not authority");
+    q("UPDATE sessions SET username='changed@example.test' WHERE id=?1").bind(&id).execute(&s.backend).await.unwrap();
+    assert!(!s.native_cookie_admission_snapshot(&id,&request()).await.unwrap().matches_primary_policy_witness(&s,&witness).unwrap());
+    q("UPDATE sessions SET username='person@example.test' WHERE id=?1").bind(&id).execute(&s.backend).await.unwrap();
     let (raw, count) =
         crate::pool_telemetry::measure_queries(s.native_cookie_admission_snapshot(&id, &request()))
             .await;

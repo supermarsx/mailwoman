@@ -633,3 +633,21 @@ fn initial_hint_mismatch_and_final_missing_source_have_exact_pre_dispatch_refusa
         }
     });
 }
+
+#[test]
+fn readonly_restart_token_is_exact_body_bound_and_consumed_once() {
+    let body=serde_json::to_vec(&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{"accountId":"owner","ids":["owned"],"properties":["id"]},"r"]]})).unwrap();
+    let token=ReadRestart::default();assert!(token.prepare(&body));
+    assert!(!token.prepare(&body));assert_eq!(token.take(&body),Ok(true));assert!(token.take(&body).is_err());
+    let cross=ReadRestart::default();assert!(cross.prepare(&body));
+    let mut changed=body.clone();changed.push(b' ');assert!(cross.take(&changed).is_err());
+}
+#[test]
+fn even_forged_restart_marker_cannot_admit_mutation_or_mixed_methods() {
+    for calls in [json!([["Email/set",{"accountId":"owner","update":{"owned":{"keywords/$seen":true}}},"m"]]),json!([["Email/get",{"accountId":"owner","ids":["owned"],"properties":["id"]},"r"],["Email/set",{"accountId":"owner","destroy":["owned"]},"m"]])] {
+        let body=serde_json::to_vec(&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":calls})).unwrap();
+        let token=ReadRestart::default();assert!(!token.prepare(&body));
+        // Model a forged internal extension: hash equality alone is not enough.
+        assert!(token.body.set(body_digest(&body)).is_ok());assert!(token.take(&body).is_err());
+    }
+}

@@ -169,6 +169,18 @@ impl NativeAdmissionSnapshot {
         }
         Ok(())
     }
+    /// Compare to the request-only completed auth witness using fields from
+    /// THIS final composite. No later primary-only SELECT may replace its wider
+    /// flags/credential/domain/clock observation as the last source read.
+    pub fn matches_primary_policy_witness(&self,store:&Store,expected:&crate::primary_policy_snapshot::PrimaryPolicyWitness)->Result<bool,StoreError> {
+        self.scoped(store)?;
+        let Some(row)=self.one("session")? else {return Ok(false);};
+        let Some(account)=self.account()? else {return Ok(false);};
+        let id=text(row,"id")?;let owner=text(row,"account_id")?;let username=text(row,"username")?;
+        let jmap=text(row,"jmap_url")?;let api=text(row,"api_url")?;
+        let witness=store.primary_policy_witness_from_parts([&id,&owner,&username,&jmap,&api],&row.get_blob("sealed_creds"),Some(account.kind.as_str()),self.revision(store)?.number());
+        Ok(expected.matches(&witness))
+    }
     pub fn revision(&self, store: &Store) -> Result<SettingsReadRevision, StoreError> {
         self.scoped(store)?;
         let r = self
