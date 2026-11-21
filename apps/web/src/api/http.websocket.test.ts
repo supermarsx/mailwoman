@@ -1,37 +1,37 @@
 import {afterEach, beforeEach, expect, it, vi} from 'vitest';
 import {apiFetch} from './http.ts';
 import {ApiError} from './errors.ts';
+import * as actions from './websocketActions.ts';
+import * as configuration from './settings.ts';
 
-const transport = vi.hoisted(() => ({action: vi.fn()}));
-vi.mock('./websocketActions.ts', () => ({
-  websocketAction: transport.action,
-  clearWebSocketActions: vi.fn(),
-}));
-vi.mock('./settings.ts', async importOriginal => ({
-  ...await importOriginal<typeof import('./settings.ts')>(),
-  settings: () => ({
-    'realtime.actions.enabled': {value: true},
-    'realtime.actions.preferWebSocket': {value: true},
-  }),
-}));
+const transport = {action: vi.fn()};
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), {
   status, headers: {'content-type': 'application/json'},
 });
 beforeEach(() => {
   transport.action.mockReset();
+  vi.spyOn(actions, 'websocketAction').mockImplementation(transport.action);
+  vi.spyOn(configuration, 'settings').mockReturnValue({
+    'realtime.actions.enabled': {value: true, source: 'global', locked: false},
+    'realtime.actions.preferWebSocket': {value: true, source: 'global', locked: false},
+  });
   document.cookie = 'mw_csrf=old; Path=/';
 });
 afterEach(() => {
   document.cookie = 'mw_csrf=; Max-Age=0; Path=/';
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 it('keeps a settings save on the action transport after a confirmed CSRF refusal', async () => {
   transport.action
     .mockResolvedValueOnce(json(403, {error: 'missing or invalid CSRF token'}))
     .mockResolvedValueOnce(json(200, {value: 'split'}));
-  const fetch = vi.fn().mockResolvedValue(json(200, {csrfToken: 'fresh'}));
+  const fetch = vi.fn().mockImplementation(async () => {
+    document.cookie = 'mw_csrf=fresh; Path=/';
+    return json(200, {csrfToken: 'fresh'});
+  });
   vi.stubGlobal('fetch', fetch);
   const response = await apiFetch('/api/settings/mail.reader.layout', {
     method: 'PUT', headers: {'content-type': 'application/json'}, body: '"split"',
