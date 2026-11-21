@@ -1459,51 +1459,12 @@ impl Store {
     /// [`Store::delete_message`], which maintain it too — a counter that only one
     /// of the three paths maintains is still wrong, just less often.
     ///
-    /// **Cost: two statements, three when the read/unread state flips**, and
-    /// deliberately no transaction. `Email/set` over a large selection calls this
-    /// once per message, so a `BEGIN`/`COMMIT` pair here would add two Postgres
-    /// round trips per id to the very operation 26.20 is trying to make cheap —
-    /// and a store transaction taken per message would contend with any batch
-    /// transaction the caller holds, which on SQLite means a writer waiting out
-    /// `busy_timeout` against itself. Each statement is individually atomic and
-    /// the counter statement is a self-contained `unread = unread ± 1`, never a
-    /// read-modify-write from Rust. What that leaves is: a crash between the two
-    /// statements, or two writers flipping the *same* message concurrently, can
-    /// drift the counter by one until the next sync overwrites it. The
-    /// decrement's `unread > 0` guard makes drift-to-negative unrepresentable,
-    /// and the value it replaces was not stale-by-one but stale-by-everything.
+    /// Delegate single-message writes to the same atomic batch path so they
+    /// coordinate with concurrent batches and source-CAS moves. A missing id
+    /// retains the original `NotFound` result.
     pub async fn set_flags(&self, stable_id: &str, flags_json: &str) -> Result<(), StoreError> {
-        // The stored row first: which mailbox's counter this message contributes
-        // to, and whether it is contributing right now. Read before the write —
-        // afterwards the old value is gone.
-        let row = q("SELECT mailbox_id, flags_json FROM messages WHERE stable_id = ?1")
-            .bind(stable_id)
-            .fetch_optional(&self.backend)
-            .await?
-            .ok_or(StoreError::NotFound)?;
-        let mailbox_id = row.get_string("mailbox_id");
-        let was_unread = flags_json_is_unread(&row.get_string("flags_json"));
-
-        let n = q("UPDATE messages SET flags_json = ?2 WHERE stable_id = ?1")
-            .bind(stable_id)
-            .bind(flags_json)
-            .execute(&self.backend)
-            .await?;
-        if n == 0 {
-            // Deleted between the read and the write; the counter statement below
-            // would be wrong, so skip it.
-            return Err(StoreError::NotFound);
-        }
-
-        // Third statement only when the state actually flipped: re-setting the
-        // same keywords, or changing an unrelated one (`\Flagged`), must not move
-        // the counter.
-        match (was_unread, flags_json_is_unread(flags_json)) {
-            (true, false) => self.decrement_unread(&mailbox_id).await?,
-            (false, true) => self.increment_unread(&mailbox_id).await?,
-            _ => {}
-        }
-        Ok(())
+        let written = self.set_flags_batch(&[(stable_id.to_owned(), flags_json.to_owned())]).await?;
+        if written[0] { Ok(()) } else { Err(StoreError::NotFound) }
     }
 
     /// Apply a whole page of flag writes in a **bounded** number of statements,
@@ -1519,7 +1480,8 @@ impl Store {
     ///
     /// **Three statements for 500 ids** in one mailbox — a read of the old
     /// state, one JSON-joined `UPDATE`, and one counter update per mailbox
-    /// actually affected — against 1 500 for the same work through
+    /// actually affected. Transaction admission and PostgreSQL parent/source
+    /// locking add statements. The original loop took 1 500 data statements via
     /// [`Store::set_flags`] in a loop. That difference is the whole reason this
     /// exists: `Email/set` over a large selection is the single most expensive
     /// measured operation in this tag, and per-message store round trips are the
@@ -1529,10 +1491,12 @@ impl Store {
     /// is built rather than left to whichever row the JSON join happens to
     /// match, so the result does not depend on the database's evaluation order.
     ///
-    /// Same transactional posture as [`Store::set_flags`], for the same reasons
-    /// argued there: the statements are individually atomic and are not wrapped
-    /// in a transaction. The window is smaller here — three statements per page
-    /// rather than three per message.
+    /// The old-state read, message updates and unread deltas share one owned
+    /// transaction. A counter failure rolls back the flags and derived source
+    /// revisions too; success is returned only after commit. No caller/upstream
+    /// work runs inside this transaction. PostgreSQL locks parents and messages
+    /// before computing deltas; a concurrent source relocation during lock
+    /// discovery returns `SourceChanged` before any write.
     pub async fn set_flags_batch(
         &self,
         updates: &[(String, String)],
@@ -1547,22 +1511,55 @@ impl Store {
         }
         let ids: Vec<String> = desired.keys().map(|id| (*id).to_string()).collect();
 
+        let mut tx = self.backend.begin().await?;
+        // PostgreSQL follows the same account -> mailbox -> message lock order
+        // as source-CAS moves/deletes. Discovery is only a lock plan: recheck it
+        // after locking, before using any flags to calculate unread deltas.
+        let planned = if self.backend.dialect() == Dialect::Postgres {
+            let rows = q("SELECT stable_id,account_id,mailbox_id FROM messages WHERE stable_id IN (SELECT value FROM json_array_elements_text(?1::json))")
+                .bind(id_list_json(&ids)).fetch_all_tx(&mut tx).await?;
+            let locations: std::collections::BTreeMap<String, (String, String)> = rows.iter()
+                .map(|r| (r.get_string("stable_id"), (r.get_string("account_id"), r.get_string("mailbox_id"))))
+                .collect();
+            let accounts: std::collections::BTreeSet<&str> = locations.values().map(|(a, _)| a.as_str()).collect();
+            for account in accounts {
+                crate::background_maintenance::lock_body_account(&mut tx, account).await?;
+                crate::header_envelope::lock_parent(&mut tx, account).await?;
+            }
+            let mailboxes: std::collections::BTreeSet<(&str, &str)> = locations.values().map(|(a, m)| (a.as_str(), m.as_str())).collect();
+            for (account, mailbox) in mailboxes {
+                q("SELECT id FROM mailboxes WHERE account_id=?1 AND id=?2 FOR UPDATE")
+                    .bind(account).bind(mailbox).fetch_all_tx(&mut tx).await?;
+            }
+            Some(locations)
+        } else { None };
+
         // (1) the stored state of every id: which mailbox it counts towards and
         // whether it is counting right now.
         let sql = match self.backend.dialect() {
             Dialect::Sqlite => {
-                "SELECT stable_id, mailbox_id, flags_json FROM messages
+                "SELECT stable_id, account_id, mailbox_id, flags_json FROM messages
                  WHERE stable_id IN (SELECT value FROM json_each(?1))"
             }
             Dialect::Postgres => {
-                "SELECT stable_id, mailbox_id, flags_json FROM messages
-                 WHERE stable_id IN (SELECT value FROM json_array_elements_text(?1::json))"
+                "SELECT stable_id, account_id, mailbox_id, flags_json FROM messages
+                 WHERE stable_id IN (SELECT value FROM json_array_elements_text(?1::json)) ORDER BY stable_id FOR UPDATE"
             }
         };
         let rows = q(sql)
             .bind(id_list_json(&ids))
-            .fetch_all(&self.backend)
+            .fetch_all_tx(&mut tx)
             .await?;
+
+        if let Some(planned) = planned {
+            let current: std::collections::BTreeMap<String, (String, String)> = rows.iter()
+                .map(|r| (r.get_string("stable_id"), (r.get_string("account_id"), r.get_string("mailbox_id"))))
+                .collect();
+            if current != planned {
+                tx.rollback().await?;
+                return Err(StoreError::SourceChanged);
+            }
+        }
 
         // Net unread delta per mailbox, and which ids actually exist.
         let mut delta: HashMap<String, i64> = HashMap::new();
@@ -1581,6 +1578,7 @@ impl Store {
             present.insert(stable_id);
         }
         if present.is_empty() {
+            tx.commit().await?;
             return Ok(updates.iter().map(|_| false).collect());
         }
 
@@ -1614,7 +1612,7 @@ impl Store {
                  WHERE messages.stable_id = j.id"
             }
         };
-        q(sql).bind(payload).execute(&self.backend).await?;
+        q(sql).bind(payload).execute_tx(&mut tx).await?;
 
         // (3) one counter statement per mailbox that actually changed. The floor
         // is a `CASE` rather than `MAX`/`GREATEST`, which are not the same
@@ -1628,10 +1626,11 @@ impl Store {
                  WHERE id = ?1")
             .bind(&mailbox_id)
             .bind(d)
-            .execute(&self.backend)
+            .execute_tx(&mut tx)
             .await?;
         }
 
+        tx.commit().await?;
         Ok(updates
             .iter()
             .map(|(id, _)| present.contains(id.as_str()))
@@ -2191,6 +2190,7 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
+    include!("flags_batch_transaction_tests.rs");
     use super::*;
     use crate::{Credentials, ServerKey, Store};
 
