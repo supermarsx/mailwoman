@@ -4,7 +4,7 @@
 // login→inbox critical path. i18n catalogs must NOT silently ride it: per
 // src/i18n/catalog.ts only `en/common.ftl` is statically imported (rides the
 // entry, intended), while every other `locales/<loc>/<module>.ftl` is a lazy
-// `import.meta.glob(..., '?raw')` chunk pulled on demand. If a translator adds a
+// raw chunk or byte-exact FTL text asset pulled on demand. If a translator adds a
 // static import — or a feature area eagerly bundles its catalog — a dozen
 // locales of strings can quietly inflate the entry.
 //
@@ -29,8 +29,8 @@
 // keep the detector from going blind without anyone noticing:
 //   * a catalog with no line of its own cannot be told apart from another one,
 //     and FAILS rather than being skipped;
-//   * every catalog must be found in at least one chunk (the lazy glob in
-//     catalog.ts bundles all of them) and `en/common` must be found on the
+//   * every catalog must be found in a chunk or an exact, JS-referenced emitted
+//     text asset, and `en/common` must be found on the
 //     critical path (it is statically imported). A fingerprint that matches
 //     nothing FAILS: it means the build is older than locales/ or the detector
 //     cannot see that catalog, and a leak of it would be invisible.
@@ -39,11 +39,16 @@
 
 import { readFile, readdir } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
-import { join, basename } from 'node:path';
+import { createHash } from 'node:crypto';
+import { join, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptDir = fileURLToPath(new URL('.', import.meta.url));
-const webRoot = join(scriptDir, '..', '..', 'apps', 'web');
+const args = process.argv.slice(2);
+if (args.length !== 0 && (args.length !== 2 || args[0] !== '--web-root')) {
+  throw new Error('Usage: check-catalog-weight.mjs [--web-root path]');
+}
+const webRoot = args.length ? resolve(args[1]) : join(scriptDir, '..', '..', 'apps', 'web');
 const distDir = join(webRoot, 'dist');
 const assetsDir = join(distDir, 'assets');
 const localesDir = join(webRoot, 'locales');
@@ -89,8 +94,10 @@ const preloadNames = [...html.matchAll(/<link[^>]*\brel="modulepreload"[^>]*\bhr
 
 // --- load every JS chunk once ------------------------------------------------
 let assetFiles;
+let allAssetFiles;
 try {
-  assetFiles = (await readdir(assetsDir)).filter((f) => f.endsWith('.js'));
+  allAssetFiles = await readdir(assetsDir);
+  assetFiles = allAssetFiles.filter((f) => f.endsWith('.js'));
 } catch {
   console.error('check-catalog-weight: dist/assets not found — run `pnpm -C apps/web build` first');
   process.exit(1);
@@ -109,6 +116,16 @@ const chunks = await Promise.all(
   }),
 );
 const chunkByName = new Map(chunks.map((ch) => [ch.f, ch]));
+// Production uses ?url FTL assets, while development/legacy builds embed raw
+// catalogs in JS. Require exact source bytes AND an emitted JS URL reference;
+// merely finding an old or unreferenced FTL in dist is not placement evidence.
+const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+const textAssets = new Map();
+for (const name of allAssetFiles.filter((f) => f.endsWith('.ftl'))) {
+  const hash = digest(await readFile(join(assetsDir, name)));
+  if (!textAssets.has(hash)) textAssets.set(hash, []);
+  textAssets.get(hash).push(name);
+}
 if (!chunkByName.has(entryName)) {
   console.error(`check-catalog-weight: entry ${entryName} named by index.html is not in dist/assets`);
   process.exit(1);
@@ -169,7 +186,11 @@ const usable = (line) => line.length >= MIN_FINGERPRINT_LENGTH && !/[`'"\\$]/.te
 const owners = new Map(); // line -> Set of the catalog keys that contain it
 for (const c of catalogs) {
   c.key = `${c.locale}/${c.module}`;
-  const lines = (await readFile(c.path, 'utf8')).split(/\r?\n/).map((l) => l.trimEnd());
+  const source = await readFile(c.path);
+  c.assetCarrying = (textAssets.get(digest(source)) ?? []).filter((name) =>
+    chunks.some((chunk) => chunk.text.includes(name)),
+  );
+  const lines = source.toString('utf8').split(/\r?\n/).map((l) => l.trimEnd());
   c.lines = [...new Set(lines)].filter(usable);
   for (const line of c.lines) {
     if (!owners.has(line)) owners.set(line, new Set());
@@ -193,9 +214,9 @@ for (const c of catalogs) {
   }
   c.carrying = chunks.filter((ch) => c.fingerprints.some((fp) => ch.text.includes(fp))).map((ch) => ch.f);
   c.inCritical = c.carrying.filter((f) => criticalNames.has(f));
-  if (c.carrying.length === 0) {
+  if (c.carrying.length === 0 && c.assetCarrying.length === 0) {
     fail(
-      `NOT FOUND — ${c.key}.ftl is in no built chunk. src/i18n/catalog.ts bundles every catalog, so either ` +
+      `NOT FOUND — ${c.key}.ftl is in no built chunk or byte-exact referenced text asset. Every catalog is bundled, so either ` +
         `dist/ is older than locales/ (rebuild) or this guard can no longer see that catalog.`,
     );
   }
@@ -210,7 +231,7 @@ for (const c of catalogs) {
 // The positive control. en/common is statically imported, so it must be seen on
 // the critical path; if it is not, nothing else would be seen there either.
 const eager = catalogs.find((c) => c.key === EAGER_CATALOG);
-if (eager && eager.carrying.length > 0 && eager.inCritical.length === 0) {
+if (!eager || eager.inCritical.length === 0) {
   fail(
     `${EAGER_CATALOG}.ftl was not found on the critical path, where src/i18n/catalog.ts statically imports ` +
       `it. It is this guard's positive control: a leak could not be seen there either.`,
@@ -229,9 +250,9 @@ for (const c of catalogs) {
 }
 for (const [module, files] of [...byModule].sort(([a], [b]) => a.localeCompare(b))) {
   const critical = files.filter((c) => c.inCritical.length > 0);
-  const lazy = files.filter((c) => c.carrying.some((f) => !criticalNames.has(f)));
-  const unplaced = files.filter((c) => c.carrying.length === 0);
-  const parts = [`${lazy.length} in lazy chunks`];
+  const lazy = files.filter((c) => c.assetCarrying.length > 0 || c.carrying.some((f) => !criticalNames.has(f)));
+  const unplaced = files.filter((c) => c.carrying.length === 0 && c.assetCarrying.length === 0);
+  const parts = [`${lazy.length} in lazy chunks or exact referenced text assets`];
   if (critical.length > 0) {
     parts.push(`CRITICAL: ${critical.map((c) => `${c.locale} in ${c.inCritical.join(', ')}`).join('; ')}`);
   }
