@@ -40,10 +40,15 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { join, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptDir = fileURLToPath(new URL('.', import.meta.url));
+// Use the already pinned build parser. Parsing literals avoids accepting a
+// filename hidden in a comment, regular expression or an unrelated URL suffix.
+const require = createRequire(join(scriptDir, '..', '..', 'apps', 'web', 'package.json'));
+const ts = require('typescript');
 const args = process.argv.slice(2);
 if (args.length !== 0 && (args.length !== 2 || args[0] !== '--web-root')) {
   throw new Error('Usage: check-catalog-weight.mjs [--web-root path]');
@@ -112,7 +117,15 @@ const unescapeJs = (text) =>
 const chunks = await Promise.all(
   assetFiles.map(async (f) => {
     const raw = await readFile(join(assetsDir, f));
-    return { f, gzip: gzipSync(raw).length, text: unescapeJs(raw.toString('utf8')) };
+    const source = ts.createSourceFile(f, raw.toString('utf8'), ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
+    const literals = new Set();
+    const pending = [source];
+    while (pending.length) {
+      const node = pending.pop();
+      if (ts.isStringLiteralLike(node)) literals.add(node.text);
+      ts.forEachChild(node, (child) => { pending.push(child); });
+    }
+    return { f, gzip: gzipSync(raw).length, text: unescapeJs(raw.toString('utf8')), literals };
   }),
 );
 const chunkByName = new Map(chunks.map((ch) => [ch.f, ch]));
@@ -188,7 +201,8 @@ for (const c of catalogs) {
   c.key = `${c.locale}/${c.module}`;
   const source = await readFile(c.path);
   c.assetCarrying = (textAssets.get(digest(source)) ?? []).filter((name) =>
-    chunks.some((chunk) => chunk.text.includes(name)),
+    chunks.some((chunk) => [name, './' + name, 'assets/' + name, './assets/' + name, '/assets/' + name]
+      .some((url) => chunk.literals.has(url))),
   );
   const lines = source.toString('utf8').split(/\r?\n/).map((l) => l.trimEnd());
   c.lines = [...new Set(lines)].filter(usable);

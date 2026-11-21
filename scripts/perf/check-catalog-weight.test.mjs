@@ -23,7 +23,8 @@ async function check(options = {}) {
     await writeFile(join(root, 'dist/assets/entry.js'), entry);
     await writeFile(join(root, 'dist/assets/lazy.js'), options.legacy ?
       `export default ${JSON.stringify(mail)};` :
-      `export default ${JSON.stringify(options.unreferenced ? 'missing.ftl' : './mail-hash.ftl')};`);
+      `export default ${JSON.stringify(options.assetLiteral ?? (options.unreferenced ? 'missing.ftl' : './mail-hash.ftl'))};` +
+      (options.commentReference ? '/* ./mail-hash.ftl */' : ''));
     if (!options.legacy) {
       await writeFile(join(root, 'dist/assets/mail-hash.ftl'), options.tampered ? mail + 'changed = Stale artifact\n' : mail);
     }
@@ -69,3 +70,15 @@ test('even an exact referenced common asset cannot replace the eager positive co
   assert.equal(result.status, 1);
   assert.match(result.text, /positive control/);
 });
+for (const [label, options] of [
+  ['a comment', {unreferenced:true, commentReference:true}],
+  ['a filename suffix', {assetLiteral:'./mail-hash.ftl.old'}],
+  ['a foreign origin', {assetLiteral:'https://invalid.example/assets/mail-hash.ftl'}],
+  ['a different path', {assetLiteral:'./unrelated/mail-hash.ftl'}],
+]) {
+  test(`an exact text asset mentioned only in ${label} does not prove a URL reference`, async () => {
+    const result = await check(options);
+    assert.equal(result.status, 1);
+    assert.match(result.text, /NOT FOUND/);
+  });
+}
