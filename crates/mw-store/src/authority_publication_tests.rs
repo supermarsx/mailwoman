@@ -70,7 +70,12 @@ async fn primary_hint_revision_contract(s:Store){
     assert!(original.witness.matches_revision(observed),"same source revision as original primary hint");
     let foreign=Store::open_in_memory(ServerKey::generate()).await.unwrap();
     assert!(source.primary_policy_revision(&foreign).is_err());foreign.close().await;
-    s.set_setting("hint-fusion-fixture","changed").await.unwrap();
+    //0078 versions resolved policy inputs, not the legacy settings table.
+    s.put_setting_policy(&crate::settings_policy::SettingPolicyRow {
+        key:"hint-fusion-fixture".into(),global_value:Some("true".into()),
+        allow_user_override:false,global_locked:false,
+        updated_by:"test".into(),updated_at:1,
+    }).await.unwrap();
     let newer=s.native_publication_fence(&session,&domains,&[]).await.unwrap().unwrap();
     let changed=newer.primary_policy_revision(&s).unwrap().unwrap();
     assert_ne!(changed.number(),observed.number());
