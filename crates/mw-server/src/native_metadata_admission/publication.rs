@@ -52,13 +52,25 @@ pub(crate) struct Published {
     versions: AuthorityVersions,
     schema: String,
     policies: HashMap<String, Arc<PolicyRows>>,
+    canonical: HashMap<String, CanonicalSettingSubject>,
     pub gates: [account_gate::final_snapshot::PublishedGateInputs; 2],
     pub directory: Arc<account_gate::final_snapshot::PublishedDirectoryInputs>,
     pub guard:Option<Arc<crate::published_guard_inputs::PreparedGuardInputs>>,
     pub guard_authority:String,
+    pub(crate) environment: Option<Arc<crate::request_inputs::Environment>>,
+    pub(crate) request: Option<Arc<crate::request_inputs::Prepared>>,
     own_bytes: usize,
 }
 impl Published {
+    pub(crate) fn canonical(&self, subject: &SettingSubject<'_>) -> Option<&CanonicalSettingSubject> {
+        self.canonical.get(&subject_key(subject))
+    }
+    /// Borrow immutable policy DATA without rebuilding a resolved-value vector.
+    /// A caller still needs a current request source proof before using it.
+    pub(crate) fn value(&self, subject: &SettingSubject<'_>, key: &str) -> Option<&registry::Effective> {
+        self.policies.get(&subject_key(subject))?.rows.iter()
+            .find(|(_, row)| row.key == key).map(|(_, row)| row)
+    }
     pub fn matches(&self, fence: &NativeAuthorityFence) -> bool {
         self.versions.matches(fence.versions()).unwrap_or(false)
             && fence.publication_schema() == Some(self.schema.as_str())
@@ -263,6 +275,18 @@ impl Worker {
         )
     }
     #[cfg(test)]
+    pub(super) fn request_retention(&self, cookie: &str, environment: &crate::request_inputs::Environment)
+        -> Option<(usize, usize, usize)>
+    {
+        let memory = self.memory.lock().ok()?;
+        let key = key(cookie, &[REQUEST_INPUT_SELECTOR.into(), environment.fingerprint()]);
+        let entry = &memory.entries.get(&key)?.entry;
+        let private = entry.own_bytes + entry.snapshot.publication_parts().iter()
+            .filter(|part| matches!(part.kind(), PartKind::Account | PartKind::Flags))
+            .map(|part| part.retained_bytes()).sum::<usize>();
+        Some((private, memory.retained(), MAX_BYTES))
+    }
+    #[cfg(test)]
     pub(super) async fn build_once_for_test(
         &self,
         store: &Store,
@@ -284,6 +308,15 @@ impl Worker {
     /// Only called after the existing current primary hint and same-owner
     /// selector validation. Arbitrary invalid cookies cannot queue build work.
     pub(super) fn hint(&self, cookie: &str, account: &str, needs: &Needs) {
+        let Some(selector) = selector(needs) else { return; };
+        self.hint_selector(cookie, account, selector);
+    }
+    /// Ordinary requests publish bounded INPUTS, never a body-specific allow.
+    pub(crate) fn hint_request_inputs(&self, cookie: &str, account: &str) {
+        let Some(environment) = crate::request_inputs::Environment::capture() else { return; };
+        self.hint_selector(cookie, account, vec![REQUEST_INPUT_SELECTOR.into(), environment.fingerprint()]);
+    }
+    fn hint_selector(&self, cookie: &str, account: &str, selector: Vec<String>) {
         if cookie.is_empty()
             || cookie.len() > 1024
             || account.is_empty()
@@ -292,9 +325,6 @@ impl Worker {
         {
             return;
         }
-        let Some(selector) = selector(needs) else {
-            return;
-        };
         let key = key(cookie, &selector);
         let Ok(mut memory) = self.memory.try_lock() else {
             return;
@@ -332,6 +362,19 @@ impl Worker {
     }
     pub(super) fn get(&self, cookie: &str, needs: &Needs) -> Option<Arc<Published>> {
         let selector = selector(needs)?;
+        self.get_selector(cookie, &selector)
+    }
+    pub(crate) fn request_inputs(&self, cookie: &str, environment: &crate::request_inputs::Environment) -> Option<Arc<Published>> {
+        self.get_selector(cookie, &[REQUEST_INPUT_SELECTOR.into(), environment.fingerprint()])
+    }
+    pub(crate) fn discard_request_inputs(&self, cookie: &str, environment: &crate::request_inputs::Environment, expected: &Arc<Published>) {
+        let key = key(cookie, &[REQUEST_INPUT_SELECTOR.into(), environment.fingerprint()]);
+        if let Ok(mut memory) = self.memory.try_lock()
+            && memory.entries.get(&key).is_some_and(|cell| Arc::ptr_eq(&cell.entry, expected)) {
+            memory.entries.remove(&key);
+        }
+    }
+    fn get_selector(&self, cookie: &str, selector: &[String]) -> Option<Arc<Published>> {
         let key = key(cookie, &selector);
         let mut memory = self.memory.try_lock().ok()?;
         memory.clock = memory.clock.wrapping_add(1);
@@ -353,6 +396,11 @@ impl Worker {
         store: &Store,
         hint: &Hint,
     ) -> Result<Option<Published>, StoreError> {
+        let environment = if hint.selector.first().is_some_and(|key| key == REQUEST_INPUT_SELECTOR) {
+            let Some(environment) = crate::request_inputs::Environment::capture() else { return Ok(None); };
+            if hint.selector.get(1) != Some(&environment.fingerprint()) { return Ok(None); }
+            Some(Arc::new(environment))
+        } else { None };
         // Initial source is shaping only. It is discarded before the final
         // before/after capture, so seeding cannot bless a pre-write source.
         let initial = load_source(store, &hint.cookie).await?;
@@ -435,6 +483,7 @@ impl Worker {
             names_for_store(&source, store, &session).map_err(|_| StoreError::SourceChanged)?;
         let raw_subjects = policy_subjects(&source, &session)?;
         let mut policy_inputs = Vec::new();
+        let mut canonical_subjects = HashMap::new();
         // Different original subject spellings may canonicalize to the same
         // exact input/version. Resolve that component once in this build too;
         // nothing enters shared memory until the AFTER fence matches.
@@ -460,21 +509,31 @@ impl Worker {
                 existing
             } else {
                 let inputs = store.settings_publication_inputs(&canonical).await?;
-                prepare_policy_rows(registry::effective_all_from_inputs(
+                prepare_policy_rows(registry::effective_all_from_inputs_with_env(
                     inputs,
-                    |def| needed(def, &hint.selector),
+                    |def| if environment.is_some() { crate::request_inputs::needed(def, &canonical) }
+                        else { needed(def, &hint.selector) },
                     &[],
+                    &|key| match &environment { Some(env) => env.lookup(key), None => registry::process_env(key) },
                 ))?
             };
             prepared_policies.insert(identity.clone(), prepared.clone());
+            canonical_subjects.insert(subject_key(&raw.as_subject()), canonical);
             policy_inputs.push((subject_key(&raw.as_subject()), identity, prepared));
         }
-        let guard_key=crate::published_guard_inputs::PreparedGuardInputs::configuration_key(&before)?;
+        let mut guard_key=crate::published_guard_inputs::PreparedGuardInputs::configuration_key(&before)?;
+        if let Some(environment) = &environment {
+            guard_key.1.push('\u{1f}');
+            guard_key.1.push_str(&environment.fingerprint());
+        }
         let mut guard=self.memory.lock().ok().and_then(|m|m.guards.get(&guard_key).and_then(Weak::upgrade));
         if guard.is_none() {
             // Optional guarded-read DATA. Unsupported/missing114 coverage does
             // not disable the existing native auth publication/ordinary path.
-            guard=crate::published_guard_inputs::PreparedGuardInputs::prepare(store,&hint.cookie,&known_domains,&subjects).await.ok().flatten();
+            guard=match &environment {
+                Some(env) => crate::published_guard_inputs::PreparedGuardInputs::prepare_captured(store,&hint.cookie,&known_domains,&subjects,env).await.ok().flatten(),
+                None => crate::published_guard_inputs::PreparedGuardInputs::prepare(store,&hint.cookie,&known_domains,&subjects).await.ok().flatten(),
+            };
         }
         if guard.as_ref().is_some_and(|g|!g.matches_configuration(store,&before).unwrap_or(false)){guard=None;}
         #[cfg(test)]
@@ -489,6 +548,7 @@ impl Worker {
             return Ok(None);
         }
         if guard.as_ref().is_some_and(|g|!g.matches_configuration(store,&after).unwrap_or(false)){return Ok(None);}
+        if environment.as_ref().is_some_and(|env| !env.matches()) { return Ok(None); }
         let guard_authority=source.native_subjects(store)?.ok_or(StoreError::SourceChanged)?.storage_authority;
         let versions = after.versions().clone();
         source.split_publication_parts();
@@ -571,6 +631,9 @@ impl Worker {
         let mut policies = HashMap::new();
         for (raw, identity, data) in policy_inputs {
             memory.policies.insert(identity, Arc::downgrade(&data));
+            if let Some(canonical) = canonical_subjects.get(&raw) {
+                policies.insert(subject_key(&canonical.as_subject()), data.clone());
+            }
             policies.insert(raw, data);
         }
         if let Some(guard)=&guard {memory.guards.insert(guard_key,Arc::downgrade(guard));}
@@ -582,19 +645,36 @@ impl Worker {
                 .chain(&names.1)
                 .map(String::len)
                 .sum::<usize>()
-            + 4096;
-        Ok(Some(Published {
+            + environment.as_ref().map_or(0, |env| env.retained_bytes())
+            + canonical_subjects.iter().map(|(key, subject)| key.len() + subject.domain.len()
+                + subject.account_id.len() + subject.address.len() + 256).sum::<usize>() + 4096;
+        let mut entry = Published {
             snapshot: source,
             domains: known_domains,
             subjects,
             versions,
             schema,
             policies,
+            canonical: canonical_subjects,
             gates,
             directory,
             own_bytes,
             guard,guard_authority,
-        }))
+            environment,
+            request: None,
+        };
+        if entry.environment.is_some() {
+            let Some(inputs) = crate::request_inputs::Prepared::build(&entry, &session, store) else { return Ok(None); };
+            let bytes = inputs.retained_bytes();
+            if bytes > 8 * 1024 * 1024 { return Ok(None); }
+            entry.own_bytes = entry.own_bytes.checked_add(bytes).ok_or(StoreError::Invalid("request input retained bound"))?;
+            entry.request = Some(Arc::new(inputs));
+            // Ordinary consumers retain the compact typed projection, not an
+            // Effective row/provenance vector for every registry key/subject.
+            entry.policies.clear();
+            entry.canonical.clear();
+        }
+        Ok(Some(entry))
     }
 }
 fn prepare_policy_rows(rows: Vec<registry::Effective>) -> Result<Arc<PolicyRows>, StoreError> {
@@ -673,6 +753,7 @@ fn key(cookie: &str, selector: &[String]) -> Key {
     }
     h.finalize().into()
 }
+const REQUEST_INPUT_SELECTOR: &str = "@request-inputs-v1";
 fn needed(def: &registry::SettingDef, selector: &[String]) -> bool {
     selector.iter().any(|s| s == def.key)
         || matches!(

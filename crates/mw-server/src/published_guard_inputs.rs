@@ -28,6 +28,11 @@ pub(crate) struct PreparedGuardInputs {
 
 // Deliberately no Debug/Serialize: config may contain a slug or password hash.
 impl PreparedGuardInputs {
+    pub(crate) fn ordinary_supported(&self) -> bool {
+        self.inbound.is_ok() && self.client.is_ok() && self.maintenance.is_ok()
+            && self.probe.is_ok() && self.protection.is_ok() && self.trust.is_ok()
+            && self.geography.is_ok()
+    }
     /// Existing resolver/default/locks, resolved once during cold preparation.
     /// No legacy settings memo is certified by an authority epoch.
     pub(crate) async fn prepare(
@@ -35,6 +40,18 @@ impl PreparedGuardInputs {
         cookie: &str,
         domains: &[String],
         subjects: &[String],
+    ) -> Result<Option<Arc<Self>>, StoreError> {
+        Self::prepare_using(store, cookie, domains, subjects, None).await
+    }
+    pub(crate) async fn prepare_captured(
+        store: &Store, cookie: &str, domains: &[String], subjects: &[String],
+        environment: &crate::request_inputs::Environment,
+    ) -> Result<Option<Arc<Self>>, StoreError> {
+        Self::prepare_using(store, cookie, domains, subjects, Some(environment)).await
+    }
+    async fn prepare_using(
+        store: &Store, cookie: &str, domains: &[String], subjects: &[String],
+        environment: Option<&crate::request_inputs::Environment>,
     ) -> Result<Option<Arc<Self>>, StoreError> {
         let Some(source) = store
             .native_guard_input_source_snapshot(cookie, domains, subjects)
@@ -49,7 +66,8 @@ impl PreparedGuardInputs {
             address: String::new(),
         };
         let inputs = store.settings_publication_inputs(&canonical).await?;
-        let rows = registry::effective_all_from_inputs(inputs, |_| true, &[]);
+        let rows = registry::effective_all_from_inputs_with_env(inputs, |_| true, &[],
+            &|key| match environment { Some(env) => env.lookup(key), None => registry::process_env(key) });
         // Count encoded logical policy size without allocating an oversized
         // serialized copy. This is not an allocator/RSS or DB workspace bound.
         let mut count = CountBytes(0);
@@ -85,7 +103,11 @@ impl PreparedGuardInputs {
             return Err(StoreError::SourceChanged);
         }
         let selected=|prefix:&str|rows.iter().filter(|r|r.key.starts_with(prefix)).cloned().collect::<Vec<_>>();
-        let protocol=Arc::new(crate::protocol_guard::config::Config::parse(selected("security.protocol.")));
+        let protocol=Arc::new(match environment {
+            Some(env) => crate::protocol_guard::config::Config::parse_captured(
+                selected("security.protocol."), env.lookup("MW_PUBLIC_URL").as_deref()),
+            None => crate::protocol_guard::config::Config::parse(selected("security.protocol.")),
+        });
         let probe=crate::admin_probe::config::Policy::parse(selected(crate::admin_probe::config::PREFIX)).map(Arc::new);
         let protection=crate::request_protection::config::Config::parse(selected(mw_protection::SETTINGS_PREFIX)).map(Arc::new);
         let trust=crate::trust_tier::Policy::parse(selected(crate::trust_tier::PREFIX)).map(Arc::new);

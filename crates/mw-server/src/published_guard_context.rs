@@ -79,9 +79,11 @@ pub(crate) struct Current {
     pub inputs: Arc<PreparedGuardInputs>,
     source: Arc<NativeAuthorityFence>,
     used: Arc<AtomicU32>,
+    request: Option<std::sync::Weak<crate::request_inputs::Current>>,
 }
 impl Current {
     pub(crate) fn used(&self, guard: Guard) {
+        if let Some(request) = self.request.as_ref().and_then(std::sync::Weak::upgrade) { request.consume(); }
         self.used.fetch_or(guard as u32, Ordering::Relaxed);
         #[cfg(test)]
         test_control::record(guard);
@@ -163,6 +165,9 @@ pub(crate) async fn layer(State(state): State<AppState>, request: Request, next:
     SCOPE.scope(scope, next.run(request)).await
 }
 pub(crate) async fn current() -> Option<Arc<Current>> {
+    if let Some(inputs) = crate::request_inputs::scope_current().await {
+        return ordinary(inputs);
+    }
     let scope = SCOPE.try_with(Clone::clone).ok()?;
     scope
         .first
@@ -179,10 +184,18 @@ pub(crate) async fn current() -> Option<Arc<Current>> {
                 inputs,
                 source,
                 used: scope.used.clone(),
+                request: None,
             }))
         })
         .await
         .clone()
+}
+fn ordinary(request: Arc<crate::request_inputs::Current>) -> Option<Arc<Current>> {
+    if let Some(current) = request.guard.get() { return Some(current.clone()); }
+    let inputs = request.entry.guard.as_ref()?.clone();
+    let source = request.source()?;
+    Some(request.guard.get_or_init(|| Arc::new(Current { inputs,
+        source, used: Arc::new(AtomicU32::new(0)), request: Some(Arc::downgrade(&request)) })).clone())
 }
 pub(crate) fn consumed() -> bool {
     SCOPE
@@ -379,6 +392,9 @@ pub(crate) fn verify_final(source: &NativeAuthorityFence) -> bool {
 /// Generic config helpers may be called with another Store; never borrow this
 /// request's inputs across installations, even when the keys are identical.
 pub(crate) async fn current_for(store: &mw_store::Store) -> Option<Arc<Current>> {
+    if let Some(inputs) = crate::request_inputs::current(store).await {
+        return ordinary(inputs);
+    }
     if !SCOPE
         .try_with(|s| s.state.store.cache_scope() == store.cache_scope())
         .ok()?

@@ -220,8 +220,8 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
     let config=if let Some(config)=prepared {Ok(config)}else {config(&state).await.map(std::sync::Arc::new)};
     match config {
         Ok(value) if !value.enabled => next.run(request).await,
-        Ok(value) => refusal(Some(&value)),
-        Err(_) => refusal(None),
+        Ok(value) => crate::request_inputs::terminal(refusal(Some(&value))).await,
+        Err(_) => crate::request_inputs::terminal(refusal(None)).await,
     }
 }
 #[cfg(test)]

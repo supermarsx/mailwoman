@@ -1218,7 +1218,15 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
     // and the backend is registered before the first sync runs: a request made
     // in between read an empty mailbox list.
     let lock = connect_lock(account_id);
+    #[cfg(test)] crate::request_inputs::test_control::connector_waiting();
     let _connecting = lock.lock().await;
+    let inputs = crate::request_inputs::current(engine.store()).await
+        .filter(|inputs| inputs.source().is_some_and(|source| source.account_id() == account_id));
+    if inputs.is_some() {
+        // The connector lock can wait. Input reuse requires a NEW source read
+        // after it, not the outer middleware's earlier observation.
+        crate::request_inputs::connector_boundary().await?;
+    }
     // A disabled account is not connected, whoever asks: a caller with no
     // session behind it (the admin metadata passthrough, start-up registration)
     // reaches this too. Unreadable flags refuse.
@@ -1228,11 +1236,14 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
     if gate.disabled {
         return Err(format!("account {account_id} is disabled"));
     }
-    let account = engine
+    let account = if let Some(inputs) = &inputs {
+        inputs.consume();
+        std::borrow::Cow::Borrowed(&inputs.prepared().map_err(|e| e.to_string())?.account)
+    } else { std::borrow::Cow::Owned(engine
         .store()
         .get_account(account_id)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?) };
     if stored_credentials_rejected(&account) {
         return Err("authentication rejected; fresh sign-in required".into());
     }
@@ -1249,23 +1260,35 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
             Err("provider runtime unavailable; fresh sign-in required".into())
         };
     }
-    let (creds, credential_revision) = engine
+    let (creds, credential_revision) = if let Some(inputs) = &inputs {
+        // Keep the original connector semantic point and actual authenticated
+        // decryption. No plaintext account credentials enter the publisher.
+        let source = inputs.entry.snapshot.account_credentials(engine.store())
+            .map_err(|e| e.to_string())?.ok_or("request input credential coverage")?;
+        (source.credentials().clone(), source.revision().to_vec())
+    } else { engine
         .store()
         .account_credentials_with_revision(account_id)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())? };
     if engine.credential_revision_rejected(account_id, &credential_revision) {
         return Err("authentication rejected; fresh sign-in required".into());
     }
-    let mut configured =
-        crate::domain_config::upstream_for(engine.store(), &account.username).await?;
+    let mut configured = if let Some(inputs) = &inputs {
+        Some(std::borrow::Cow::Borrowed(inputs.prepared().map_err(|e| e.to_string())?.configuration.as_ref()))
+    } else {
+        crate::domain_config::upstream_for(engine.store(), &account.username).await?
+            .map(std::borrow::Cow::Owned)
+    };
     let domain_mail = configured.as_ref().and_then(|c| c.mail());
     if let Some((endpoint, protocol)) = domain_mail
-        && !account_matches_upstream(engine.store(), &account, &endpoint.mail_url(protocol)).await?
+        && !(if inputs.is_some() {
+            account_matches_mail_configuration(&account, &endpoint.mail_url(protocol), configured.as_deref())?
+        } else { account_matches_upstream(engine.store(), &account, &endpoint.mail_url(protocol)).await? })
     {
         return Err("account upstream was replaced; sign in again".into());
     }
-    let mut policy = match checked_account_policy(&account, configured.as_ref()) {
+    let mut policy = match checked_account_policy(&account, configured.as_deref()) {
         Ok(policy) => policy,
         Err(error) => {
             engine.unregister(account_id);
@@ -1284,7 +1307,7 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
     let (mail_tls_options, smtp_tls_options) = if let Some(config) = &mut configured {
         resolve_domain_transports(
             engine.store(),
-            config,
+            config.to_mut(),
             &account.username,
             Some((&account.tls, &policy.smtp_security)),
         )

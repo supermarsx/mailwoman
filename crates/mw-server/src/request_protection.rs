@@ -683,6 +683,7 @@ pub(crate) async fn guard(
     {
         return next.run(request).await;
     }
+    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Protection).await { return response; }
     let prepared=crate::published_guard_context::current().await.and_then(|current| {
         let value=current.inputs.protection()?;
         current.used(crate::published_guard_context::Guard::Protection);Some(value)
@@ -749,6 +750,7 @@ pub(crate) async fn guard(
             _ => {}
         }
     }
+    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Trust).await { return response; }
     let trust = match revision.as_ref() {Some(revision)=>crate::trust_tier::policy_at_revision(&state.store,revision).await,
         None=>crate::trust_tier::policy(&state.store).await};
     let mut ua_allowed = false;
@@ -816,6 +818,7 @@ pub(crate) async fn guard(
         request.extensions_mut().insert(proof.clone());
     }
     let trusted_percent = if source.is_some_and(crate::trust_tier::is_known) {
+        if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::GlobalKnobs).await { return response; }
         match revision.as_ref() {
             Some(revision)=>crate::rate_leeway::knobs_at_revision(&state.store,"",revision).await,
             None=>crate::rate_leeway::knobs(&state.store,"").await,

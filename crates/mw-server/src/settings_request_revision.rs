@@ -9,7 +9,10 @@ pub(crate) async fn refresh(
     store: &Store,
     request: &mut Request,
 ) -> Result<SettingsReadRevision, StoreError> {
-    let revision = store.settings_read_revision().await?;
+    let revision = match crate::request_inputs::revision(store, true).await {
+        Some(revision) => revision,
+        None => store.settings_read_revision().await?,
+    };
     request.extensions_mut().insert(revision.clone());
     Ok(revision)
 }
@@ -17,6 +20,10 @@ pub(crate) async fn get(
     store: &Store,
     request: &mut Request,
 ) -> Result<SettingsReadRevision, StoreError> {
+    if let Some(revision) = crate::request_inputs::revision(store, false).await {
+        request.extensions_mut().insert(revision.clone());
+        return Ok(revision);
+    }
     if let Some(revision) = request
         .extensions()
         .get::<SettingsReadRevision>()

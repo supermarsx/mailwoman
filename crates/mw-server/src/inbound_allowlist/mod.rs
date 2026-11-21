@@ -55,7 +55,7 @@ pub(crate) async fn guard(
     let ip = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions());
     match state.inbound_allowlist.admit(&state.store, admin, ip).await {
         Ok(true) => next.run(request).await,
-        result => (
+        result => crate::request_inputs::terminal((
             if result.is_err() {
                 StatusCode::SERVICE_UNAVAILABLE
             } else {
@@ -64,7 +64,7 @@ pub(crate) async fn guard(
             [("cache-control", "no-store")],
             Json(serde_json::json!({"code":"sourceUnavailable","error":"Request unavailable."})),
         )
-            .into_response(),
+            .into_response()).await,
     }
 }
 

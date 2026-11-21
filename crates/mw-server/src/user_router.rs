@@ -80,17 +80,26 @@ pub(crate) async fn require_feature(
                 .into_response());
         }
     }
+    let inputs = crate::request_inputs::current(&state.store).await
+        .filter(|inputs| inputs.matches_subject(subject));
     for key in feature.capability_keys {
-        match settings_registry::effective_for(&state.store, key, &subject.as_subject()).await {
-            Ok(Some(value)) if value.value.as_bool() == Some(true) => {}
-            Ok(_) => {
+        let enabled = if let Some(inputs) = &inputs {
+            let Some(value) = inputs.prepared().ok().and_then(|prepared| prepared.value(key)) else {
+                return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
+            };
+            inputs.consume();
+            value.as_bool() == Some(true)
+        } else {
+            settings_registry::effective_for(&state.store, key, &subject.as_subject()).await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE.into_response())?
+                .is_some_and(|value| value.value.as_bool() == Some(true))
+        };
+        if !enabled {
                 return Err((
                     StatusCode::FORBIDDEN,
                     axum::Json(json!({"code":"feature_disabled","feature":id})),
                 )
                     .into_response());
-            }
-            Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE.into_response()),
         }
     }
     Ok(())

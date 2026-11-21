@@ -1211,6 +1211,10 @@ impl UserSubject {
         store: &mw_store::Store,
         session: &mw_store::Session,
     ) -> Result<Self, mw_store::StoreError> {
+        if let Some(inputs) = crate::request_inputs::current(store).await
+            && inputs.matches_session(session) {
+            return inputs.subject();
+        }
         let unavailable =
             || mw_store::StoreError::Corrupt("verified policy subject unavailable".into());
         // A scoped API key in engine mode carries no session row: the key was

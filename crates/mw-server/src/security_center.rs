@@ -433,14 +433,24 @@ pub(crate) async fn enforce_session_clock(
     state: &AppState,
     session: &mw_store::Session,
 ) -> Result<(), Response> {
-    let policy = clock_policy(&state.store, &session.account_id, &session.username,
+    let inputs = crate::request_inputs::current(&state.store).await
+        .filter(|inputs| inputs.matches_session(session));
+    let policy = if let Some(inputs) = &inputs {
+        inputs.clock_policy(state).map_err(|cause| error("policy", cause))?
+    } else { clock_policy(&state.store, &session.account_id, &session.username,
         state.hardening.idle_timeout.as_secs(),state.hardening.absolute_timeout.as_secs())
-        .await.map_err(|cause|error("policy",cause))?;
-    let Some((created, activity)) = state
+        .await.map_err(|cause|error("policy",cause))? };
+    let clocks = if let Some(inputs) = &inputs {
+        inputs.source().map(|source| {
+            let (created, activity) = source.clocks();
+            (created.to_owned(), activity.to_owned())
+        })
+    } else { state
         .store
         .session_activity_clock(&session.id)
         .await
-        .map_err(|e| error("session clock", e))?
+        .map_err(|e| error("session clock", e))? };
+    let Some((created, activity)) = clocks
     else {
         return Err(crate::unauthorized());
     };

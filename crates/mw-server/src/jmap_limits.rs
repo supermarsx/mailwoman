@@ -57,6 +57,7 @@ pub(crate) async fn request(
     account_id: &str,
     username: &str,
 ) -> Result<Held, Response> {
+    crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::GlobalKnobs).await?;
     let knobs = rate_leeway::knobs(&state.store, rate_leeway::domain_of(username)).await;
     request_with_knobs(account_id, knobs).await
 }
@@ -79,6 +80,7 @@ pub(crate) async fn export(
     account_id: &str,
     username: &str,
 ) -> Result<Held, Response> {
+    crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::GlobalKnobs).await?;
     let knobs = rate_leeway::knobs(&state.store, rate_leeway::domain_of(username)).await;
     exports()
         .acquire(
@@ -97,6 +99,7 @@ pub(crate) async fn upload(
     account_id: &str,
     username: &str,
 ) -> Result<Held, Response> {
+    crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::GlobalKnobs).await?;
     let knobs = rate_leeway::knobs(&state.store, rate_leeway::domain_of(username)).await;
     uploads()
         .acquire(

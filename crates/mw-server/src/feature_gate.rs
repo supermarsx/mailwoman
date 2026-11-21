@@ -563,6 +563,7 @@ async fn read_json(req: Request, limit: usize) -> Result<(Request, Option<Value>
     };
     let value = serde_json::from_slice(&bytes).ok();
     crate::published_guard_context::validate_parsed_body(&bytes,value.as_ref())?;
+    crate::request_inputs::body_boundary(&bytes).await?;
     let length = bytes.len();
     Ok((Request::from_parts(parts, Body::from(bytes)), value, length))
 }
@@ -772,18 +773,35 @@ async fn check_inner(
     if keys.is_empty() {
         return Ok(());
     }
-    let values = registry::effective_all(&state.store, &subject.as_subject(), |d| {
-        keys.contains(&d.key)
-    })
-    .await
-    .map_err(|_| unavailable())?;
-    let get = |key: &str| values.iter().find(|v| v.key == key).map(|v| &v.value);
-    check_feature_values(&features, &values)?;
+    let inputs = crate::request_inputs::current(&state.store).await
+        .filter(|inputs| inputs.matches_session(session));
+    let values = if inputs.is_none() {
+        Some(registry::effective_all(&state.store, &subject.as_subject(), |d| keys.contains(&d.key))
+            .await.map_err(|_| unavailable())?)
+    } else { None };
+    if let Some(inputs) = &inputs {
+        // Missing collection coverage is unsupported, never an implicit allow.
+        if keys.iter().any(|key| inputs.prepared().ok().and_then(|prepared| prepared.value(key)).is_none()) {
+            return Err(unavailable());
+        }
+        inputs.consume();
+    }
+    let get = |key: &str| match &inputs {
+        Some(inputs) => inputs.prepared().ok()?.value(key),
+        None => values.as_ref()?.iter().find(|v| v.key == key).map(|v| &v.value),
+    };
+    check_feature_lookup(&features, &get)?;
     if needs.protocol && session.jmap_url == "engine" {
         let allowed = get("access.protocols").and_then(Value::as_array);
         // A policy that cannot be read as a list never locks anyone out.
         if let Some(allowed) = allowed {
-            let kind = match state.store.get_account(&session.account_id).await {
+            let kind = if let Some(inputs) = &inputs {
+                Some(match inputs.prepared().map_err(|_| unavailable())?.account.kind {
+                    mw_store::AccountKind::Imap => "imap",
+                    mw_store::AccountKind::Pop3 => "pop3",
+                    mw_store::AccountKind::Ews => "ews",
+                })
+            } else { match state.store.get_account(&session.account_id).await {
                 Ok(account) => Some(match account.kind {
                     mw_store::AccountKind::Imap => "imap",
                     mw_store::AccountKind::Pop3 => "pop3",
@@ -791,11 +809,11 @@ async fn check_inner(
                 }),
                 Err(mw_store::StoreError::NotFound) => None,
                 Err(_) => return Err(unavailable()),
-            };
+            } };
             check_protocol_kind(allowed, kind)?;
         }
     }
-    check_required_values(&needs.required, &values)?;
+    check_required_lookup(&needs.required, &get)?;
     let limit = |key: &str| get(key).and_then(Value::as_u64).filter(|n| *n > 0);
     if needs.link_limit
         && let Some(max) = limit("limit.linked_mailboxes")
@@ -846,6 +864,9 @@ fn check_protocol_kind(allowed: &[Value], kind: Option<&str>) -> Result<(), Resp
 }
 fn check_feature_values(features: &BTreeSet<&str>, values: &[registry::Effective]) -> Result<(), Response> {
     let get = |key: &str| values.iter().find(|value| value.key == key).map(|value| &value.value);
+    check_feature_lookup(features, get)
+}
+fn check_feature_lookup<'a>(features: &BTreeSet<&str>, get: impl Fn(&str) -> Option<&'a Value>) -> Result<(), Response> {
     for id in features {
         let Some(f) = crate::features::feature(id) else {
             continue;
@@ -861,6 +882,9 @@ fn check_feature_values(features: &BTreeSet<&str>, values: &[registry::Effective
 
 fn check_required_values(required: &[&str], values: &[registry::Effective]) -> Result<(), Response> {
     let get = |key: &str| values.iter().find(|value| value.key == key).map(|value| &value.value);
+    check_required_lookup(required, get)
+}
+fn check_required_lookup<'a>(required: &[&str], get: impl Fn(&str) -> Option<&'a Value>) -> Result<(), Response> {
     for key in required {
         // Absent means the default (on); only an explicit `false` refuses.
         if get(key).and_then(Value::as_bool) == Some(false) {

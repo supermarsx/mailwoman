@@ -298,6 +298,7 @@ async fn inspect(
     ext: &axum::http::Extensions,
     path: &str,
 ) -> Option<Response> {
+    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Watch).await { return Some(response); }
     let cfg = config(state).await;
     let want_country_alert = cfg.rules.country_alert;
     if !cfg.binding.enabled && !cfg.rules.theft && !want_country_alert {

@@ -509,7 +509,7 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
     });
     let cfg = if let Some(value)=prepared {value}else {match load(&state.store).await {
         Ok((_, cfg)) => std::sync::Arc::new(cfg),
-        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(_) => return crate::request_inputs::terminal(StatusCode::SERVICE_UNAVAILABLE.into_response()).await,
     }};
     if !cfg.enabled() {
         return next.run(request).await;
@@ -526,7 +526,7 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
             .is_some_and(|s| path == format!("/{s}") || path == format!("/{s}/"));
     if cookie_proof(&state, &cfg, request.headers(), true).is_some() {
         if entry {
-            return mark(redirect(&state));
+            return crate::request_inputs::terminal(mark(redirect(&state))).await;
         }
         let response = next.run(request).await;
         return if document { mark(response) } else { response };
@@ -543,23 +543,23 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
             mark(redirect(&state))
         };
         set_proof(&state, &mut response, &proof, secure);
-        return response;
+        return crate::request_inputs::terminal(response).await;
     }
     let pending = cookie_proof(&state, &cfg, request.headers(), false);
     if cfg.slug_enabled && pending.is_none() {
-        return if document {
+        return crate::request_inputs::terminal(if document {
             mark((StatusCode::NOT_FOUND, "Not found").into_response())
         } else {
             required(StatusCode::FORBIDDEN)
-        };
+        }).await;
     }
     if document && cfg.psk_enabled {
         let proof = pending.unwrap_or_else(|| new_proof(&cfg, false));
         let mut response = prompt(&state, &proof, None, StatusCode::OK);
         set_proof(&state, &mut response, &proof, secure);
-        return response;
+        return crate::request_inputs::terminal(response).await;
     }
-    required(StatusCode::FORBIDDEN)
+    crate::request_inputs::terminal(required(StatusCode::FORBIDDEN)).await
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

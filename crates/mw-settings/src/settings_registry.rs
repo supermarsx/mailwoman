@@ -10019,6 +10019,17 @@ pub fn effective_all_from_inputs(
     filter: impl Fn(&SettingDef) -> bool,
     extra: &[SettingValueRow],
 ) -> Vec<Effective> {
+    effective_all_from_inputs_with_env(inputs, filter, extra, &process_env)
+}
+
+/// Resolve exactly the same input layers using one caller-captured environment.
+/// The owner must certify both the settings revision and environment lifetime.
+pub fn effective_all_from_inputs_with_env(
+    inputs: mw_store::settings_policy::SettingsResolutionInputs,
+    filter: impl Fn(&SettingDef) -> bool,
+    extra: &[SettingValueRow],
+    lookup_env: &dyn Fn(&str) -> Option<String>,
+) -> Vec<Effective> {
     let subject = &inputs.canonical.as_subject();
     let policies = inputs.policies;
     let mut values = inputs.values;
@@ -10032,7 +10043,7 @@ pub fn effective_all_from_inputs(
             subject,
             policy,
             &values,
-            &process_env,
+            lookup_env,
         ));
     }
     let mut family_keys: Vec<&str> = policies
@@ -10052,7 +10063,7 @@ pub fn effective_all_from_inputs(
                 subject,
                 policy,
                 &values,
-                &process_env,
+                lookup_env,
             ));
         }
     }

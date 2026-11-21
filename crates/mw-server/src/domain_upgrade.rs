@@ -27,9 +27,13 @@ pub(crate) async fn refresh_session(
     } else {
         None
     };
-    let snapshot = domain_config::identity_snapshot(&state.store, &session.credentials.username)
-        .await
-        .map_err(|_| crate::unauthorized())?;
+    let inputs = crate::request_inputs::current(&state.store).await
+        .filter(|inputs| inputs.matches_session(session));
+    let snapshot = if let Some(inputs) = &inputs {
+        inputs.consume();
+        inputs.prepared().map_err(|_| crate::unauthorized())?.identity.clone()
+    } else { std::sync::Arc::new(domain_config::identity_snapshot(&state.store, &session.credentials.username)
+        .await.map_err(|_| crate::unauthorized())?) };
     if !snapshot
         .signin_allowed()
         .map_err(|_| crate::unauthorized())?
@@ -39,6 +43,9 @@ pub(crate) async fn refresh_session(
     let (upstream, configured) = if let Some(url) = header_override {
         // Do not parse ordinary upstream JSON on the explicit trusted override.
         (upstream_resolve::Upstream::Jmap(url), None)
+    } else if let Some(inputs) = &inputs {
+        let prepared = inputs.prepared().map_err(|_| crate::unauthorized())?;
+        (prepared.upstream.clone(), Some(prepared.configuration.clone()))
     } else {
         upstream_resolve::resolve_snapshot(
             &state.store,
@@ -47,21 +54,24 @@ pub(crate) async fn refresh_session(
             &snapshot,
         )
         .await
+        .map(|(upstream, config)| (upstream, config.map(std::sync::Arc::new)))
         .map_err(|_| crate::unauthorized())?
     };
     if state.engine.is_some() {
-        let account = state
+        let account = if let Some(inputs) = &inputs {
+            inputs.prepared().map_err(|_| crate::unauthorized())?.account.clone()
+        } else { state
             .store
             .get_account(&session.account_id)
             .await
-            .map_err(|_| crate::unauthorized())?;
+            .map_err(|_| crate::unauthorized())? };
         let matches = if account.kind != AccountKind::Ews
             && snapshot.matches_existing_identity(&account.username)
         {
             crate::engine_mode::account_matches_mail_configuration(
                 &account,
                 upstream.url(),
-                configured.as_ref(),
+                configured.as_deref(),
             )
             .unwrap_or(false)
         } else {

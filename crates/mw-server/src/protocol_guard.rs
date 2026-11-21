@@ -153,7 +153,7 @@ async fn run(
         }
     }
     match reject {
-        Some(finding) => rejection(&finding, &config, version),
+        Some(finding) => crate::request_inputs::terminal(rejection(&finding, &config, version)).await,
         None => next.run(request).await,
     }
 }

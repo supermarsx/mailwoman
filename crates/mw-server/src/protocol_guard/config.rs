@@ -143,6 +143,11 @@ const DEFAULT_METHODS: &[&str] = &[
 ];
 impl Default for Config {
     fn default() -> Self {
+        Self::defaults_for_public_url(std::env::var("MW_PUBLIC_URL").ok().as_deref())
+    }
+}
+impl Config {
+    fn defaults_for_public_url(public_url: Option<&str>) -> Self {
         let mut modes = [Mode::Off; 11];
         for class in Class::ALL {
             modes[class.index()] = class.default_mode();
@@ -156,13 +161,13 @@ impl Default for Config {
             max_cookie: 16384,
             max_body: 128 * 1024 * 1024,
             methods: DEFAULT_METHODS.iter().map(|m| (*m).to_owned()).collect(),
-            hosts: public_host().into_iter().collect(),
+            hosts: public_host(public_url).into_iter().collect(),
             exempt: Vec::new(),
         }
     }
 }
-fn public_host() -> Option<String> {
-    let raw = std::env::var("MW_PUBLIC_URL").ok()?;
+fn public_host(raw: Option<&str>) -> Option<String> {
+    let raw = raw?;
     let url = reqwest::Url::parse(raw.trim()).ok()?;
     Some(normalise_host(url.host_str()?))
 }
@@ -198,7 +203,12 @@ impl Config {
         })
     }
     pub fn parse(rows: Vec<settings_registry::Effective>) -> Self {
-        let mut config = Self::default();
+        Self::parse_from(Self::default(), rows)
+    }
+    pub(crate) fn parse_captured(rows: Vec<settings_registry::Effective>, public_url: Option<&str>) -> Self {
+        Self::parse_from(Self::defaults_for_public_url(public_url), rows)
+    }
+    fn parse_from(mut config: Self, rows: Vec<settings_registry::Effective>) -> Self {
         let get = |key: &str| {
             rows.iter()
                 .find(|row| row.key.strip_prefix(PREFIX) == Some(key))

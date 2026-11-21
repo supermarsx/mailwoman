@@ -1,5 +1,7 @@
 //! Real router/data-path oracle. No authentication, policy, store or response
 //! getter is mocked; the installed transport refuses external network/sending.
+#[path = "request_inputs_tests.rs"]
+mod ordinary_request_input_tests;
 use super::*;
 use axum::{
     Router,

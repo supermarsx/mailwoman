@@ -506,6 +506,10 @@ pub(crate) async fn for_session(
     store: &Store,
     session: &Session,
 ) -> Result<AccountGate, StoreError> {
+    if let Some(inputs) = crate::request_inputs::current(store).await
+        && inputs.matches_session(session) {
+        return inputs.gate(false);
+    }
     let names = session_names(store, session).await?;
     let mut seen = std::collections::HashSet::new();
     let unique: Vec<&str> = names.iter().map(String::as_str).filter(|name|seen.insert(*name)).collect();
@@ -562,6 +566,10 @@ pub(crate) async fn for_account(
     store: &Store,
     account_id: &str,
 ) -> Result<AccountGate, StoreError> {
+    if let Some(inputs) = crate::request_inputs::current(store).await
+        && inputs.source().is_some_and(|source| source.account_id() == account_id) {
+        return inputs.gate(true);
+    }
     let names = principal_names(store, account_id).await?;
     gate_for_names(store, account_id, &names).await
 }

@@ -196,6 +196,7 @@ mod request_protection;
 #[allow(dead_code)]
 mod published_guard_inputs;
 mod published_guard_context;
+mod request_inputs;
 mod sanitize_gate;
 mod security_center;
 mod server_text;
@@ -1912,6 +1913,7 @@ fn router(
         // Header-only scope setup. No policy read/body parse until an existing
         // owning guard asks for its configuration.
         .layer(shared_route::wrap(middleware::from_fn_with_state(state.clone(),published_guard_context::layer)))
+        .layer(shared_route::wrap(middleware::from_fn_with_state(state.clone(),request_inputs::layer)))
         .with_state(state.clone());
     // t20 B4: also serve the whole thing under `MW_BASE_PATH`. No-op when unset.
     let dispatcher=websocket_actions::Dispatcher(app.clone());
@@ -3339,7 +3341,12 @@ async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
         "username": session.username,
         "accountId": session.account_id,
     });
-    match state.store.session_storage_authority(&session.id).await {
+    let storage_authority = if let Some(inputs) = request_inputs::current(&state.store).await
+        && inputs.matches_session(&session) {
+        inputs.consume();
+        Ok(Some(inputs.entry.guard_authority.clone()))
+    } else { state.store.session_storage_authority(&session.id).await };
+    match storage_authority {
         Ok(Some(authority)) => body["storageAuthority"] = json!(authority),
         Ok(None) => {}
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -3365,6 +3372,7 @@ async fn me(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Some(obj) = body.as_object_mut() {
         obj.insert("csrfToken".into(), json!(token));
     }
+    if let Err(response) = request_inputs::seal().await { return response; }
     let mut resp = Json(body).into_response();
     if existing.as_deref() != Some(token.as_str()) {
         resp.headers_mut()
@@ -3559,9 +3567,11 @@ async fn jmap_api(
         }
     };
     if let Err(response)=published_guard_context::validate_body(&body){return response;}
+    if let Err(response)=request_inputs::body_boundary(&body).await {return response;}
     #[cfg(any(feature = "load-test-fixtures", feature = "sql-shape-diagnostics"))]
     {
     if source.is_none()
+        && !request_inputs::active()
         && let Some(Extension(features)) = &deferred_features
         && let Some(response) = fixture_profile::measure(fixture_profile::Phase::AfterBody,feature_gate::try_composite_metadata(&state, &headers, &body, features)).await
     {
@@ -3571,6 +3581,7 @@ async fn jmap_api(
     #[cfg(not(any(feature = "load-test-fixtures", feature = "sql-shape-diagnostics")))]
     {
     if source.is_none()
+        && !request_inputs::active()
         && let Some(Extension(features)) = &deferred_features
         && let Some(response) = feature_gate::try_composite_metadata(&state, &headers, &body, features).await
     {
@@ -3693,6 +3704,7 @@ async fn jmap_api(
         }
         if !echo_only && let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await
         {
+            if let Err(response) = request_inputs::seal().await { return response; }
             tracing::warn!("engine account not available: {e}");
             return upstream_error();
         }
@@ -3738,6 +3750,7 @@ async fn jmap_api(
             if let Err(response)=observer.finish(&state,&headers,&session,&body).await {return response;}
             #[cfg(test)] observer.record_engine_dispatch();
         }
+        if let Err(response) = request_inputs::seal().await { return response; }
         #[cfg(test)]
         feature_gate::native_metadata_admission::record_ordinary_dispatch();
         #[cfg(any(feature = "load-test-fixtures", feature = "sql-shape-diagnostics"))]
@@ -6428,6 +6441,7 @@ async fn authed_with_gate_inner(
         return Ok((context, gate));
     }
     request_protection::session_account(&session).await?;
+    request_inputs::authenticated(&session);
     Ok((session, gate))
 }
 
@@ -6438,9 +6452,14 @@ async fn authed_cookie(
     headers: &HeaderMap,
 ) -> Result<mw_store::Session, Response> {
     let id = cookie_value(headers).ok_or_else(unauthorized)?;
-    let (session, last_seen) = fixture_profile::measure(fixture_profile::Phase::SessionRead, state.store.get_primary_session_with_activity(&id))
-        .await
-        .map_err(|_| unauthorized())?;
+    let (session, last_seen) = if let Some(inputs) = request_inputs::current(&state.store).await {
+        let source = inputs.source().ok_or_else(unauthorized)?;
+        (inputs.session().clone(), source.last_seen().map(str::to_owned))
+    } else {
+        #[cfg(test)] request_inputs::test_control::record(|counts| counts.legacy_session_reads += 1);
+        fixture_profile::measure(fixture_profile::Phase::SessionRead, state.store.get_primary_session_with_activity(&id))
+            .await.map_err(|_| unauthorized())?
+    };
     if let Err(reason) = state.sessions.check(&id, &state.hardening) {
         tracing::info!("session {id} expired ({reason:?})");
         let _ = state.store.delete_session(&id).await;

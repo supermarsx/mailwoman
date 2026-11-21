@@ -229,6 +229,28 @@ pub(crate) async fn authenticate_deferred(
     };
     #[cfg(test)]
     wait_pause(PauseAt::BeforeHint, &id).await;
+    if let Some(inputs) = crate::request_inputs::current(&state.store).await {
+        // Reuse SOURCE, not an authenticated result. The same original pure
+        // feature and authentication chain runs below using these readers.
+        if restarting { return Err(BoundaryError::Features(auth_fence_refusal())); }
+        let source = inputs.source().ok_or_else(|| BoundaryError::Features(auth_fence_refusal()))?;
+        let revision = source.primary_policy_revision(&state.store).ok().flatten()
+            .filter(|revision| revision.scope() == features.1.scope()
+                && revision.number().is_some() && revision.number() == features.1.number())
+            .ok_or_else(|| BoundaryError::Features(auth_fence_refusal()))?;
+        let _ = revision;
+        let hint = inputs.session();
+        let decision = check(state, hint, &features.0).await;
+        #[cfg(test)] after_prepared(&id).await;
+        let authenticated = crate::authed(state, headers).await.map_err(BoundaryError::Authentication)?;
+        #[cfg(test)] wait_pause(PauseAt::AfterAuthentication, &id).await;
+        crate::request_inputs::refresh().await.map_err(BoundaryError::Features)?;
+        if !same_session(hint, &authenticated) {
+            return Err(BoundaryError::Features(auth_fence_refusal()));
+        }
+        decision.map_err(BoundaryError::Features)?;
+        return Ok(authenticated);
+    }
     let hinted = match state.store.primary_session_policy_snapshot(&id).await {
         Ok(hinted) if hinted.witness.matches_revision(&features.1) => hinted,
         _ => {

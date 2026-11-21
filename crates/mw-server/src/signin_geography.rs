@@ -219,6 +219,7 @@ pub(crate) async fn session_guard(
     } else {
         request
     };
+    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Geography).await { return response; }
     let enabled = if let Some(current)=crate::published_guard_context::current().await {
         current.used(crate::published_guard_context::Guard::Geography);
         current.inputs.global("security.signin.geoEnforceSessions").and_then(|r|r.value.as_bool())
@@ -230,6 +231,7 @@ pub(crate) async fn session_guard(
         Some(true) => {}
         None => return unavailable().into_response(),
     }
+    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Geography).await { return response; }
     let policy = match Policy::load(&state).await {
         Ok(policy) => policy,
         Err(error) => return error.into_response(),

@@ -454,11 +454,13 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
         return next.run(request).await;
     }
     // Keeps the shared trust-tier policy fresh (cached 30 s) for every guard.
+    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Trust).await { return response; }
     let trust = crate::trust_tier::policy(&state.store).await;
     let Some(ip) = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions())
     else {
         return next.run(request).await;
     };
+    if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Probe).await { return response; }
     let prepared=crate::published_guard_context::current().await.and_then(|current| {
         let policy=current.inputs.probe()?;
         current.used(crate::published_guard_context::Guard::Probe);Some(policy)
