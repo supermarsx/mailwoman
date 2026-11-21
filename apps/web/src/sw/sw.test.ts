@@ -157,6 +157,36 @@ describe('what the worker stores', () => {
 });
 
 describe('strategies', () => {
+  it.each(['', '/mail'])('serves verified cached FTL with text MIME and decoded bytes under prefix %s', async prefix => {
+    const path = '/assets/mail-fixture.ftl';
+    const text = 'mail-title = Correio verificado\n';
+    const sw = bootWorker(`${ORIGIN}${prefix}/sw.js`, {digests:defaultDigests({[path]:digestOf(text)})});
+    // Fetch exposes decoded bytes even if network encoding headers remain.
+    // This models that boundary, not actual browser/decompressor execution.
+    sw.network.fetch = async () => new Response(text, {headers:{
+      'content-type':'text/plain; charset=utf-8','content-encoding':'br','content-length':'7',
+    }});
+    expect(await (await sw.fetch(prefix + path)).response?.text()).toBe(text);
+    expect(sw.caches.urls()).toContain(`${ORIGIN}${prefix}${path}`);
+    sw.network.calls.length = 0;
+    sw.network.fetch = offline;
+    const cached = await sw.fetch(prefix + path);
+    expect(cached.error).toBeUndefined();
+    expect(cached.response?.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+    expect(cached.response?.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(cached.response?.headers.get('content-encoding')).toBeNull();
+    expect(cached.response?.headers.get('content-length')).toBeNull();
+    expect(await cached.response?.text()).toBe(text);
+    expect(sw.network.calls).toEqual([]);
+    // A page can write Cache Storage; MIME correction must not make corrupted
+    // raw data acceptable or replace the build's exact digest proof.
+    const cache = await sw.caches.open(shellCacheName());
+    await cache.put(prefix + path, reply('mail-title = Tampered', 'text/plain'));
+    const corrupt = await sw.fetch(prefix + path);
+    expect(corrupt.error).toBeInstanceOf(TypeError);
+    expect(corrupt.response).toBeUndefined();
+    expect(sw.caches.urls()).not.toContain(`${ORIGIN}${prefix}${path}`);
+  });
   it.each([ASSET, '/api/push/vapid', '/'])('keeps %s online when Cache Storage cannot open', async path => {
     const sw = boot();
     vi.spyOn(sw.caches, 'open').mockRejectedValue(new DOMException('Storage unavailable', 'SecurityError'));

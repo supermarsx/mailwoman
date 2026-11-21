@@ -85,7 +85,7 @@ async function matchesManifest(path, res) {
 
 const CONTENT_TYPES = {
   js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8',
-  wasm: 'application/wasm', json: 'application/json', html: 'text/html; charset=utf-8',
+  wasm: 'application/wasm', json: 'application/json', ftl: 'text/plain; charset=utf-8', html: 'text/html; charset=utf-8',
   woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', otf: 'font/otf',
   svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', ico: 'image/x-icon',
 };
