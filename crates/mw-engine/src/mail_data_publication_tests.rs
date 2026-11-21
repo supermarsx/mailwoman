@@ -33,7 +33,7 @@ async fn fixture()->Fixture {
     drained(&engine).await;
     Fixture {engine,account,other,ids}
 }
-fn args(account:&str,ids:&[String])->Value {json!({"accountId":account,"ids":ids,"properties":PROPERTIES,"fetchHTMLBodyValues":false,"fetchTextBodyValues":false,"fetchAllBodyValues":false})}
+fn args(account:&str,ids:&[String])->Value {json!({"accountId":account,"ids":ids,"properties":PROPERTIES.as_slice(),"fetchHTMLBodyValues":false,"fetchTextBodyValues":false,"fetchAllBodyValues":false})}
 fn index_counts(engine:&Engine)->(u64,u64,u64) {
     let index=engine.search();(index.list_projection_search_count(),index.list_projection_doc_read_count(),index.doc_fetch_count())
 }
@@ -145,7 +145,7 @@ async fn independent_legacy_index_write_or_raw_escape_cannot_certify_prepared_by
 #[tokio::test]
 async fn unselected_sent_reordering_changes_actual_other_row_focus_and_rejects_old_result() {
     let f=fixture().await;
-    let selected=f.engine.store().get_account_message(&f.account,&f.ids[0]).await.unwrap().unwrap();
+    let selected=f.engine.store().get_account_messages(&f.account,&f.ids[..1]).await.unwrap().remove(0).unwrap();
     let selected_thread=selected.thread_id.as_deref().expect("real ingest assigned a thread");
     let sent=f.engine.store().list_mailboxes(&f.account).await.unwrap().into_iter().find(|folder|folder.role.as_deref()==Some("sent")).unwrap();
     // Actual newest500 cutoff:500 recent unrelated Sent threads exclude one
