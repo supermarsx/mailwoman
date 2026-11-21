@@ -1328,3 +1328,6 @@ mod tests {
         store.close().await;
     }
 }
+
+#[cfg(test)]
+mod sqlite_pager_invalidation_tests;
