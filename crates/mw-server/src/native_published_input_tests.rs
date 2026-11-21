@@ -27,6 +27,12 @@ fn prepared_default36_emits_actual_fifty_rows_without_engine_or_index_replay() {
         let body=to_bytes(reply.into_body(),4*1024*1024).await.unwrap();
         let value:Value=serde_json::from_slice(&body).unwrap();assert_eq!(value["createdIds"],created);
         assert_eq!(counts.prepared_results,0);assert_eq!(counts.dispatches,1);
+        fixture.remove_prepared_account_source_raw().await;
+        let missing=fixture.send_published().await;
+        assert_eq!(missing.0,StatusCode::OK);assert_eq!(missing.2.prepared_results,0);assert_eq!(missing.2.dispatches,1);
+        assert_eq!(missing.1,original.1,"missing derived DATA must preserve the ordinary response while rebuilding is deferred");
+        assert_eq!(fixture.engine.prepared_mail_status().entries,Some(0),"missing final DATA must eject the old candidate rather than trap every later read in fallback");
+        assert_eq!(fixture.warm_prepared_mail().await.1,original.1,"a subsequent cold request may seed owned derived DATA and rebuild normally");
     });
 }
 #[test]
@@ -46,6 +52,12 @@ fn prepared_default36_never_emits_after_session_revocation_during_preparation() 
     });
 }
 impl Fixture {
+    async fn remove_prepared_account_source_raw(&self) {
+        let options=mw_store::encryption::connect_options(&self.db,self.db_key.as_ref(),false);
+        let pool=sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
+        assert_eq!(sqlx::query("DELETE FROM mail_data_accounts WHERE account_id=?1").bind(&self.account).execute(&pool).await.unwrap().rows_affected(),1);
+        pool.close().await;
+    }
     async fn warm_prepared_mail(&self)->(StatusCode,Value,test_control::Counts,mw_store::pool_telemetry::QuerySnapshot) {
         for _ in 0..200 {
             let reply=self.send_published().await;assert_eq!(reply.0,StatusCode::OK);

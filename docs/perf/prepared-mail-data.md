@@ -24,8 +24,10 @@ Its optional byte result is complete JMAP JSON. The compatibility Value helper
 retains parsing/final serialization costs. Multi-call/result-reference requests,
 outer `createdIds`, and unsupported property sets keep the ordinary dispatcher.
 The source-wired HTTP consumer still requires its actual router/runtime gates.
-Warm preparation currently performs one standalone DATA snapshot before the final
-joint query; early guards and the initial policy fence also remain. A one-query
+Ready candidate selection now precedes standalone DATA SQL; cold preparation
+retains those source/schema reads. Final emission still requires the joint query;
+missing/mismatched final DATA discards only the same retained candidate Arc, never
+a concurrent newer installation. Early guards and the initial policy fence remain. A one-query
 Store helper is not a claim of one query or zero queries for the whole request.
 
 Migration0113 follows0112. Compact row tuples contain data/cache/content

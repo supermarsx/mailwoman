@@ -624,11 +624,13 @@ pub(crate) async fn try_dispatch(
             && first.prepared_mail == source.prepared_mail
             && source.target_matches(headers)
     }) else {
+        if let Some(candidate)=&candidate {engine.discard_prepared_metadata(candidate);}
         drop(connecting);
         drop(permit);
         return restart_or_refuse(state,headers,body,deferred).await;
     };
     if state.sessions.check(&id, &state.hardening).is_err() {
+        if let Some(candidate)=&candidate {engine.discard_prepared_metadata(candidate);}
         drop(connecting);
         drop(permit);
         // check() removes an expired process clock. Do not run it again via
@@ -642,7 +644,8 @@ pub(crate) async fn try_dispatch(
     // No async operation may intervene between this fresh joint proof, the
     // remaining pure checks and prepared emission. The Engine verifies its
     // logical publication/configuration proof again around byte assembly.
-    if let (Some(candidate),Some(data))=(candidate,final_data) {
+    match (candidate,final_data) {
+      (Some(candidate),Some(data))=>{
         if let Some(call_id)=request["methodCalls"][0][2].as_str() {
             if let Some(bytes)=engine.finish_prepared_metadata(candidate,&data,call_id) {
                 #[cfg(test)] test_control::record_prepared_result();
@@ -650,6 +653,9 @@ pub(crate) async fn try_dispatch(
                 return Some(([(header::CONTENT_TYPE,"application/json")],bytes.into_bytes()).into_response());
             }
         }
+      },
+      (Some(candidate),None)=>{engine.discard_prepared_metadata(&candidate);},
+      _=>{},
     }
     // No further asynchronous policy/credential lookup occurs before dispatch.
     // Engine retains its own fresh ownership and posture checks for data reads.
