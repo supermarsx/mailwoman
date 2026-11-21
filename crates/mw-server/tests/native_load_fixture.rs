@@ -520,7 +520,7 @@ fn prepared_mail_status_matches(status:&mw_engine::PreparedMailStatus,options:mw
 }
 
 // On-only legitimate startup HTTP, not a measured operation or direct cache setter.
-async fn prime_prepared_mail(client:&reqwest::Client,base:&str,principal:&Value,engine:&Engine,options:mw_engine::PreparedMailOptions)->Result<Value,&'static str>{
+async fn prime_prepared_mail(client:&reqwest::Client,base:&str,principal:&Value,engine:&Engine,options:mw_engine::PreparedMailOptions)->std::result::Result<Value,&'static str>{
     let contract:Value=serde_json::from_str(include_str!("../../../apps/web/src/api/native-read-intent-contract.json")).map_err(|_|"invalid canonical read contract")?;
     let ids=principal["messageIds"].as_array().filter(|ids|ids.len()>=2).ok_or("missing startup source IDs")?[..2].to_vec();
     let body=json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{"accountId":principal["accountId"],"ids":ids,"properties":contract["properties"]},"prepared-startup"]]});
