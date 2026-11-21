@@ -64,7 +64,7 @@ fn request() -> NativeAdmissionRequest {
     .unwrap()
 }
 async fn contract(s: Store) {
-    #[cfg(feature = "sql-shape-diagnostics")]
+    #[cfg(feature = "query-shape-diagnostics")]
     for dialect in [Dialect::Sqlite, Dialect::Postgres] {
         assert!(
             sql(dialect).len() <= crate::pool_telemetry::shapes::MAX_SQL_BYTES,
@@ -72,7 +72,7 @@ async fn contract(s: Store) {
         );
     }
     let (account, id) = seed(&s).await;
-    #[cfg(feature = "sql-shape-diagnostics")]
+    #[cfg(feature = "query-shape-diagnostics")]
     {
         let (result, report) = crate::pool_telemetry::shapes::measure(
             s.native_cookie_admission_snapshot(&id, &request()),
