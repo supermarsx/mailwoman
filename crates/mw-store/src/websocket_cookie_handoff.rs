@@ -208,6 +208,7 @@ mod tests {
             )
             .await
             .unwrap();
+        store.set_session_authentication(&session,"password").await.unwrap();
         store
             .bind_verified_primary(
                 &session,
