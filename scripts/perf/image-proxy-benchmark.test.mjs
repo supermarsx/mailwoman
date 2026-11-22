@@ -82,14 +82,17 @@ test('late workers retain the shared expired UTC deadline and issue zero HTTP re
   assert.equal(result.window.startAt,startAt);assert.equal(result.window.endAt,startAt+1000);assert.equal(result.window.readyBeforeStart,false);assert.equal(coordination([result],startAt,1).qualified,false);
  }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
-test('external generator child actually fetches and validates its finite cold corpus',async()=>{
+test('external generator validates its finite corpus without inheriting parent-only Node flags',async()=>{
  // Actual separate Node process and real HTTP; this synthetic receiver does
  // NOT establish Rust fixture, image transforms, grants or SSRF correctness.
  const payload=Buffer.from('synthetic-validated-image');let fetched=0;
  const server=http.createServer((req,res)=>{fetched++;res.writeHead(200,{'content-type':'image/png'}).end(payload);});
  server.listen(0,'127.0.0.1');await once(server,'listening');
  try{
-  const result=await runGenerator({base:`http://127.0.0.1:${server.address().port}`,proof:{expectedBytes:payload.length,expectedSha256:createHash('sha256').update(payload).digest('hex'),paths:Array.from({length:16},(_,i)=>({path:`/api/rc/i/test-${i}.sig`,principalIndex:i}))},seconds:1,concurrency:4,startAt:Date.now()+500,kind:'cold'});
+  const savedArgs=process.execArgv;process.execArgv=[...savedArgs,'--input-type=module'];
+  let result;try{
+  result=await runGenerator({base:`http://127.0.0.1:${server.address().port}`,proof:{expectedBytes:payload.length,expectedSha256:createHash('sha256').update(payload).digest('hex'),paths:Array.from({length:16},(_,i)=>({path:`/api/rc/i/test-${i}.sig`,principalIndex:i}))},seconds:1,concurrency:4,startAt:Date.now()+500,kind:'cold'});
+  }finally{process.execArgv=savedArgs;}
   assert.equal(fetched,16);assert.equal(result.raw.accepted,16);assert.equal(result.raw.errors,0);assert.equal(result.raw.timeouts,0);assert.equal(result.raw.acceptedDuringScheduledWindow,16);assert.equal(result.raw.acceptedDecodedBytes,payload.length*16);assert.equal(result.corpusExhausted,true);assert(result.resources.peakOutstanding<=4);
  }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });

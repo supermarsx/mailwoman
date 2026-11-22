@@ -29,7 +29,7 @@ async function worker(input){
  const cpu=process.cpuUsage(beginCpu),finishedMono=performance.now(),finishedWall=Date.now();return {raw:measurements.snapshot(),window:{startAt:window.startAt,endAt:window.endAt,readyBeforeStart:window.readyBeforeStart,actualStartUtc,actualFinishUtc:finishedWall,startLagMs:Math.max(0,actualStart-window.startMono),wallClockDriftMs:(finishedWall-capturedWall)-(finishedMono-capturedMono)},resources:{cpuMs:(cpu.user+cpu.system)/1000,elapsedMs:finishedMono-beginWall,rssBytes:process.memoryUsage().rss,peakOutstanding},corpusExhausted:['cold','coalesced'].includes(kind)&&next>=proof.paths.length,timeoutFailures};
 }
 export function runGenerator(input){return new Promise((resolve,reject)=>{
- const p=fork(here,['--worker'],{stdio:['ignore','ignore','ignore','ipc'],env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot}});let answer,terminal=false,expired=false,observation;
+ const p=fork(here,['--worker'],{execArgv:[],stdio:['ignore','ignore','ignore','ipc'],env:{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot}});let answer,terminal=false,expired=false,observation;
  const timer=setTimeout(()=>{if(!terminal){expired=true;p.kill('SIGKILL');observation=setTimeout(()=>reject(Error('Image worker original handle still nonterminal')),5000);}},45000);
  p.once('error',()=>{clearTimeout(timer);reject(Error('Image worker failed'));});p.on('message',value=>{if(answer!==undefined){p.kill();return;}answer=value;});
  p.once('exit',code=>{terminal=true;clearTimeout(timer);clearTimeout(observation);if(!expired&&code===0&&answer?.ok)resolve(answer.result);else reject(Error('Image worker did not complete'));});p.send(input);
