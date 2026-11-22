@@ -69,7 +69,7 @@ test('multiworker timing is weighted, finite per route and rejects missing/misas
 test('rendered report distinguishes observed intervals from missing historical data',()=>{
  const stage={requests:1,accepted:1,requestsPerSecond:1,acceptedRequestsPerSecond:1,latencyMs:{p50:20,p95:20,p99:20},errors:0,throttled:0,timeouts:0};
  const text=markdownReport({stages:[stage,{...stage,latencyBreakdown:mergeLatencyBreakdowns([breakdown(1)],[1],[1])}]});
- assert.match(text,/not measured/);assert.match(text,/client wall time, not isolated Rust CPU or DB time/);assert.match(text,/1.00 \/ 1/);assert.match(text,/10.00 \/ 10/);
+ assert.match(text,/not measured/);assert.match(text,/client wall time, not isolated Rust CPU or DB time/);assert.match(text,/Queue mean \/ p50 \/ p95 \/ p99 ms/);assert.match(text,/1.00 \/ 1 \/ 1 \/ 1/);assert.match(text,/10.00 \/ 10 \/ 10 \/ 10/);
 });
 
 test('isolated area groups reuse the exact representative templates, mutations and validators',async()=>{
