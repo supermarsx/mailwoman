@@ -88,6 +88,7 @@ pub(crate) struct Prepared {
     pub(crate) identity: Arc<crate::domain_config::IdentitySnapshot>,
     pub(crate) upstream: crate::upstream_resolve::Upstream,
     pub(crate) configuration: Arc<crate::domain_config::UpstreamConfig>,
+    _route: Arc<RouteData>,
     listed: bool,
     idle: u64,
     absolute: u64,
@@ -95,6 +96,29 @@ pub(crate) struct Prepared {
     feature_values: Vec<(&'static str, serde_json::Value)>,
     rate_domain: String,
     knobs: crate::rate_leeway::Knobs,
+}
+/// Parsed domain DATA shared only under exact source/version identity. No
+/// expanded user address, credential, signin verdict or connector lives here.
+pub(crate) struct RouteData {
+    pub(crate) source: String,
+    pub(crate) upstream: crate::upstream_resolve::Upstream,
+    pub(crate) configuration: Arc<crate::domain_config::UpstreamConfig>,
+}
+impl RouteData {
+    pub(crate) fn build(identity: &crate::domain_config::IdentitySnapshot, listed: bool) -> Option<Self> {
+        let row = identity.row.as_ref()?;
+        if !row.enabled { return None; }
+        let (upstream, configuration) = match crate::upstream_resolve::resolve_configured(identity, true, listed).ok()? {
+            crate::upstream_resolve::Configured::Resolved(upstream @ crate::upstream_resolve::Upstream::Mail(_), Some(config)) => (upstream, config),
+            _ => return None,
+        };
+        Some(Self { source: row.upstream_json.clone(), upstream, configuration: Arc::new(configuration) })
+    }
+    pub(crate) fn retained_bytes(&self) -> usize {
+        // Same conservative parser-expansion charge as before, now once per
+        // shared component, including its exact raw-input comparison material.
+        self.source.len().saturating_mul(64).saturating_add(2048)
+    }
 }
 // Exact union of feature_gate::jmap_features and feature_jmap's family gates.
 // Future selectors outside this declared DATA coverage fail closed after use.
@@ -124,7 +148,9 @@ pub(crate) fn needed(def: &crate::settings_registry::SettingDef,
     } else { def.key.starts_with("ratelimit.") }
 }
 impl Prepared {
-    pub(crate) fn build(entry: &Published, session: &Session, store: &Store) -> Option<Self> {
+    pub(crate) fn build(entry: &Published, session: &Session, store: &Store,
+        route: impl FnOnce(&crate::domain_config::IdentitySnapshot, bool) -> Option<Arc<RouteData>>,
+    ) -> Option<Self> {
         use mw_store::settings_policy::SettingSubject;
         let account = entry.snapshot.account().ok()??;
         let namespaces = entry.snapshot.native_subjects(store).ok()??;
@@ -143,10 +169,9 @@ impl Prepared {
         let domain_subject = SettingSubject { personal_owner: None,
             domain: &identity.identity.domain, account_id: "", address: &identity.identity.address };
         let domain_listed = entry.value(&domain_subject, "signin.domainMode")?.value == "listed";
-        let (upstream, configuration) = match crate::upstream_resolve::resolve_configured(&identity, true, domain_listed).ok()? {
-            crate::upstream_resolve::Configured::Resolved(upstream @ crate::upstream_resolve::Upstream::Mail(_), Some(config)) => (upstream, config),
-            _ => return None,
-        };
+        let route = route(&identity, domain_listed)?;
+        let upstream = route.upstream.clone();
+        let configuration = route.configuration.clone();
         let clock_subject = SettingSubject { personal_owner: None,
             domain: session.username.rsplit_once('@').map_or("", |(_, domain)| domain),
             account_id: &session.account_id, address: &session.username };
@@ -172,7 +197,7 @@ impl Prepared {
             domain: canonical.domain.clone(), account_id: canonical.account_id.clone(),
             address: canonical.address.clone(),
         };
-        Some(Self { account, identity, upstream, configuration: Arc::new(configuration), listed, idle, absolute, subject, feature_values, rate_domain, knobs })
+        Some(Self { account, identity, upstream, configuration, _route: route, listed, idle, absolute, subject, feature_values, rate_domain, knobs })
     }
     pub(crate) fn value(&self, key: &str) -> Option<&serde_json::Value> {
         self.feature_values.iter().find(|(name, _)| *name == key).map(|(_, value)| value)
@@ -188,7 +213,9 @@ impl Prepared {
         let features = self.feature_values.iter().fold(0usize, |bytes, (key, value)|
             bytes.saturating_add(key.len()).saturating_add(serde_json::to_vec(value)
                 .map_or(usize::MAX, |v| v.len())).saturating_add(96));
-        account.saturating_mul(2).saturating_add(routing.saturating_mul(64))
+        // Expanded per-user identity still owns raw domain metadata; the parsed
+        // configuration's conservative charge belongs to the shared route.
+        account.saturating_mul(2).saturating_add(routing.saturating_mul(2))
             .saturating_add(features).saturating_add(2048)
     }
 }
@@ -303,6 +330,23 @@ pub(crate) async fn effect_boundary(store: &Store, guard: crate::published_guard
     reobserve(&scope, &current).await.map_err(|_| refused())
 }
 
+/// Borrow stored DATA for the same actor at the original guard's load point.
+/// Live guard decisions and effects remain with that guard. A changed frame is
+/// a refusal; it must never become anonymous evidence or a legacy-loader miss.
+pub(crate) async fn stored_session(
+    store: &Store,
+    id: &str,
+    guard: crate::published_guard_context::Guard,
+) -> Result<Option<Session>, Response> {
+    let Some(inputs) = current(store).await else { return Ok(None); };
+    if inputs.session.id != id { return Ok(None); }
+    #[cfg(test)] test_control::before_stored(guard).await;
+    effect_boundary(store, guard).await?;
+    inputs.consume();
+    #[cfg(test)] test_control::record(|counts| counts.stored_reader_hits += 1);
+    Ok(Some(inputs.session.clone()))
+}
+
 pub(crate) fn active() -> bool {
     !ORIGINAL_READER.try_with(|bypass| *bypass).unwrap_or(false)
         && SCOPE.try_with(|scope| matches!(scope.first.get(), Some(Some(_)))).unwrap_or(false)
@@ -314,10 +358,12 @@ pub(crate) mod test_control {
     pub(crate) struct Counts {
         pub first_fences: u64, pub refresh_fences: u64, pub session_decodes: u64,
         pub legacy_session_reads: u64, pub failure_classifications: u64,
+        pub stored_reader_hits: u64, pub legacy_guard_session_reads: u64,
     }
     tokio::task_local! { static ENABLED: bool; static COUNTS: std::cell::RefCell<Counts>;
         static CONNECTOR: std::sync::Arc<tokio::sync::Notify>;
-        static EFFECT: std::sync::Arc<EffectPause>; }
+        static EFFECT: std::sync::Arc<EffectPause>;
+        static STORED: std::sync::Arc<EffectPause>; }
     pub(crate) struct EffectPause {
         guard: u32,
         pub entered: tokio::sync::Notify,
@@ -355,6 +401,16 @@ pub(crate) mod test_control {
         pause.entered.notify_one();
         tokio::time::timeout(std::time::Duration::from_secs(10), pause.release.notified())
             .await.expect("bounded actual guard-load pause");
+    }
+    pub(super) async fn before_stored(guard: crate::published_guard_context::Guard) {
+        let Ok(pause) = STORED.try_with(std::sync::Arc::clone) else { return; };
+        if pause.guard != guard as u32 { return; }
+        pause.entered.notify_one();
+        tokio::time::timeout(std::time::Duration::from_secs(10), pause.release.notified())
+            .await.expect("bounded actual stored-session reader pause");
+    }
+    pub(crate) async fn stored_probe<F: std::future::Future>(pause: std::sync::Arc<EffectPause>, future: F) -> F::Output {
+        STORED.scope(pause, future).await
     }
     pub(crate) async fn effect_probe<F: std::future::Future>(pause: std::sync::Arc<EffectPause>, future: F) -> F::Output {
         EFFECT.scope(pause, future).await

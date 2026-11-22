@@ -44,20 +44,153 @@ async fn warm(fixture: &Fixture) -> Arc<publication::Worker> {
     let reply = send(fixture, peer(fixture.request()), true).await;
     assert_eq!(reply.status, StatusCode::OK);
     let worker = publication::Worker::start(fixture.measured.clone()).unwrap();
+    await_ready(fixture, &worker).await;
+    worker
+}
+async fn await_ready(fixture: &Fixture, worker: &publication::Worker) {
+    await_actor_ready(fixture, worker, &fixture.session).await;
+}
+async fn await_actor_ready(fixture: &Fixture, worker: &publication::Worker, cookie: &str) {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let environment = crate::request_inputs::Environment::capture().unwrap();
-            if let Some(entry) = worker.request_inputs(&fixture.session, &environment)
-                && fixture.measured.native_publication_fence(&fixture.session, &entry.domains, &entry.subjects)
+            if let Some(entry) = worker.request_inputs(cookie, &environment)
+                && fixture.measured.native_publication_fence(cookie, &entry.domains, &entry.subjects)
                     .await.unwrap().is_some_and(|source| entry.matches(&source)) { break; }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }).await.expect("original authenticated route must publish bounded request inputs");
-    worker
 }
 fn no_dispatch(reply: &Reply) {
     assert_eq!(reply.native.dispatches + reply.native.ordinary_dispatches
         + reply.native.restart_dispatches + reply.native.prepared_results, 0);
+}
+
+#[test]
+fn ordinary_request_inputs_share_parsed_route_only_for_exact_committed_source() {
+    run_fixture(|| async {
+        let fixture = Fixture::new().await;
+        let worker = publication::Worker::start(fixture.measured.clone()).unwrap();
+        let user = "second@native-composite.test";
+        let credentials = Credentials { username: user.into(), password: "owned-second-only".into() };
+        let second_account = fixture.writer.create_account(&NewAccount {
+            kind: AccountKind::Imap, host: "127.0.0.1", port: 9, tls: "starttls",
+            username: user, sync_policy_json: "{}",
+        }, &credentials).await.unwrap();
+        fixture.writer.remember_account_names(&second_account, &[user]).await.unwrap();
+        let second_session = fixture.writer.create_session(&second_account, user, "engine", "engine", &credentials).await.unwrap();
+        fixture.writer.set_session_authentication(&second_session, "password").await.unwrap();
+        fixture.writer.bind_verified_primary(&second_session, mw_store::identity_principal::VerifiedPrimary {
+            account_id: &second_account, kind: "mailbox", authority: "fixture-native", subject: user,
+        }, chrono::Utc::now().timestamp()).await.unwrap().unwrap();
+        let first = worker.build_request_once_for_test(&fixture.measured, &fixture.session, &fixture.account)
+            .await.unwrap().expect("real first source frame");
+        let first_charge = worker.route_retention_for_test();
+        assert_eq!(first_charge.0, 1);
+        assert!(first_charge.1 > 0);
+        let second = worker.build_request_once_for_test(&fixture.measured, &second_session, &second_account)
+            .await.unwrap().expect("real second source frame");
+        assert_eq!(worker.route_retention_for_test(), first_charge, "same component charged exactly once");
+        let first_inputs = first.request.as_ref().unwrap();
+        let second_inputs = second.request.as_ref().unwrap();
+        assert_ne!(first_inputs.account.id, second_inputs.account.id);
+        assert_ne!(first_inputs.identity.identity.address, second_inputs.identity.identity.address);
+        assert!(Arc::ptr_eq(&first_inputs.configuration, &second_inputs.configuration),
+            "same exact committed domain parser input must share one parsed configuration");
+        let private_before = first_inputs.retained_bytes();
+        let mut changed = fixture.writer.get_domain_config("native-composite.test").await.unwrap().unwrap();
+        changed.upstream_json = json!({"imap":{"host":"127.0.0.1","port":10,"tls":"starttls","auth":"password","allowPrivate":true}}).to_string();
+        fixture.writer.put_domain_config(&changed).await.unwrap();
+        let third = worker.build_request_once_for_test(&fixture.measured, &second_session, &second_account)
+            .await.unwrap().expect("changed committed source remains supported DATA");
+        let third_inputs = third.request.as_ref().unwrap();
+        assert_eq!(worker.route_retention_for_test().0, 2, "held old DATA and new version are both charged");
+        assert!(!Arc::ptr_eq(&first_inputs.configuration, &third_inputs.configuration));
+        assert_ne!(first_inputs.upstream, third_inputs.upstream);
+        assert_eq!(first_inputs.retained_bytes(), private_before, "old immutable entry remains unchanged");
+        assert!(first_inputs.configuration.imap.as_ref().is_some_and(|endpoint| endpoint.port == 9));
+        assert!(third_inputs.configuration.imap.as_ref().is_some_and(|endpoint| endpoint.port == 10));
+    });
+}
+
+#[test]
+fn ordinary_request_inputs_enabled_guards_reuse_stored_session_and_keep_live_effects() {
+    run_fixture(|| async {
+        let fixture = Fixture::new().await;
+        let worker = warm(&fixture).await;
+        let mut bot = me(&fixture);
+        bot.headers_mut().insert("user-agent", "GPTBot/1.0".parse().unwrap());
+        let original = send(&fixture, bot, false).await;
+        assert_eq!(original.status, StatusCode::OK, "actual signed-in evidence retains the original UA exception");
+        assert!(original.inputs.legacy_guard_session_reads > 0);
+        let mut bot = me(&fixture);
+        bot.headers_mut().insert("user-agent", "GPTBot/1.0".parse().unwrap());
+        let candidate = send(&fixture, bot, true).await;
+        assert_eq!(candidate.status, original.status);
+        assert_eq!(candidate.body, original.body);
+        assert!(candidate.inputs.stored_reader_hits > 0);
+        assert_eq!(candidate.inputs.legacy_guard_session_reads, 0);
+        assert_eq!(candidate.inputs.session_decodes, 1);
+        assert_eq!(candidate.auth_calls, original.auth_calls);
+        no_dispatch(&candidate);
+
+        policy(&fixture.writer, "security.sessionBinding.enabled", json!(true)).await;
+        // A real newly issued/bound cookie has no Watch record yet. Publishing
+        // its sealed source must not create that mutable record itself.
+        let source = fixture.writer.get_primary_session(&fixture.session).await.unwrap();
+        let cookie = fixture.writer.create_session(&fixture.account, &source.username, "engine", "engine", &source.credentials).await.unwrap();
+        fixture.writer.set_session_authentication(&cookie, "password").await.unwrap();
+        fixture.writer.bind_verified_primary(&cookie, mw_store::identity_principal::VerifiedPrimary {
+            account_id: &fixture.account, kind: "mailbox", authority: "fixture-native", subject: &source.username,
+        }, chrono::Utc::now().timestamp()).await.unwrap().unwrap();
+        worker.hint_request_inputs(&cookie, &fixture.account);
+        await_actor_ready(&fixture, &worker, &cookie).await;
+        let hash = crate::push_relay::hash_token(&cookie);
+        let key = format!("sess-sec:v1:{hash}");
+        assert!(fixture.writer.get_setting(&key).await.unwrap().is_none());
+        let request = || {
+            let mut request = me(&fixture);
+            let csrf = fixture.writer.session_csrf_token(&cookie);
+            request.headers_mut().insert("cookie", format!("mw_session={cookie}; mw_csrf={csrf}").parse().unwrap());
+            request.headers_mut().insert("x-csrf-token", csrf.parse().unwrap());
+            request
+        };
+        let candidate = send(&fixture, request(), true).await;
+        assert_eq!(candidate.status, StatusCode::OK);
+        assert!(candidate.inputs.stored_reader_hits > 0, "enabled Watch creates its real dynamic record from typed stored DATA");
+        assert_eq!(candidate.inputs.legacy_guard_session_reads, 0);
+        assert_eq!(candidate.inputs.session_decodes, 1);
+        assert!(fixture.writer.get_setting(&key).await.unwrap().is_some(), "original SessionSec write/effect remains live");
+        let reference = send(&fixture, request(), false).await;
+        assert_eq!(candidate.status, reference.status);
+        assert_eq!(candidate.body, reference.body);
+        no_dispatch(&candidate);
+    });
+}
+
+#[test]
+fn ordinary_request_inputs_guard_session_revocation_refuses_without_anonymous_fallback() {
+    run_fixture(|| async {
+        let fixture = Fixture::new().await;
+        let _worker = warm(&fixture).await;
+        let mut request = me(&fixture);
+        request.headers_mut().insert("user-agent", "GPTBot/1.0".parse().unwrap());
+        let pause = inputs_control::EffectPause::new(crate::published_guard_context::Guard::Protection);
+        let pending = inputs_control::stored_probe(pause.clone(), send(&fixture, request, true));
+        tokio::pin!(pending);
+        tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::select! { _=pause.entered.notified()=>{}, _=&mut pending=>panic!("request did not reach its actual stored-session guard reader") }
+        }).await.expect("bounded real guard-reader wait");
+        fixture.writer.delete_session(&fixture.session).await.unwrap();
+        pause.release.notify_one();
+        let reply = tokio::time::timeout(Duration::from_secs(10), pending).await.unwrap();
+        assert_eq!(reply.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(reply.body["code"], "requestInputSourceChanged");
+        assert_eq!(reply.inputs.stored_reader_hits, 0);
+        assert_eq!(reply.inputs.legacy_guard_session_reads, 0, "changed consumed DATA cannot be treated as anonymous/legacy evidence");
+        assert_eq!(reply.auth_calls, 0);
+        no_dispatch(&reply);
+    });
 }
 
 #[test]

@@ -772,8 +772,10 @@ pub(crate) async fn guard(
         if let Some((_, action)) = claimed.as_mut()
             && *action == crate::trust_tier::UaAction::Block
         {
-            session_evidence =
-                session_evidence_for(&state, request.headers(), request.uri().path()).await;
+            session_evidence = match session_evidence_for(&state, request.headers(), request.uri().path()).await {
+                Ok(evidence) => evidence,
+                Err(response) => return response,
+            };
             if session_evidence.is_some() {
                 *action = class_outcome(crate::trust_tier::UaAction::Block, true);
             }
@@ -906,31 +908,35 @@ async fn session_evidence_for(
     state: &AppState,
     headers: &axum::http::HeaderMap,
     path: &str,
-) -> Option<SessionEvidence> {
+) -> Result<Option<SessionEvidence>, Response> {
     let admin = mw_admin::config::admin_path();
     if path
         .strip_prefix(&admin)
         .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     {
-        let ctx = crate::admin_ctx::AdminCtx::resolve(state, headers)
-            .await
-            .ok()?;
-        return Some(SessionEvidence::Administrator(
-            ctx.account_id.unwrap_or(ctx.username),
-        ));
+        return Ok(crate::admin_ctx::AdminCtx::resolve(state, headers)
+            .await.ok().map(|ctx| SessionEvidence::Administrator(
+                ctx.account_id.unwrap_or(ctx.username),
+            )));
     }
     if let Some(token) = crate::push_relay::bearer_token(headers) {
         let hash = crate::push_relay::hash_token(&token);
-        return matches!(state.store.get_native_session(&hash).await, Ok(Some(_)))
-            .then_some(SessionEvidence::Native(token));
+        return Ok(matches!(state.store.get_native_session(&hash).await, Ok(Some(_)))
+            .then_some(SessionEvidence::Native(token)));
     }
-    let id = crate::cookie_value(headers)?;
-    state
+    let Some(id) = crate::cookie_value(headers) else { return Ok(None); };
+    if let Some(session) = crate::request_inputs::stored_session(
+        &state.store, &id, crate::published_guard_context::Guard::Protection,
+    ).await? {
+        return Ok(Some(SessionEvidence::Mailbox(session)));
+    }
+    #[cfg(test)] crate::request_inputs::test_control::record(|counts| counts.legacy_guard_session_reads += 1);
+    Ok(state
         .store
         .get_primary_session(&id)
         .await
         .ok()
-        .map(SessionEvidence::Mailbox)
+        .map(SessionEvidence::Mailbox))
 }
 
 /// Sign-in, second-factor, recovery, password and identity-confirmation routes:
@@ -1000,8 +1006,15 @@ async fn identify(
     };
     // A stored session only: the in-memory idle clock is left to the handler,
     // so a forged cookie never seeds it and an expired one is still deleted there.
-    let Ok(row) = state.store.get_primary_session(&session).await else {
-        return Ok(false);
+    let row = match crate::request_inputs::stored_session(
+        &state.store, &session, crate::published_guard_context::Guard::Protection,
+    ).await? {
+        Some(row) => row,
+        None => {
+            #[cfg(test)] crate::request_inputs::test_control::record(|counts| counts.legacy_guard_session_reads += 1);
+            let Ok(row) = state.store.get_primary_session(&session).await else { return Ok(false); };
+            row
+        }
     };
     session_account(&row).await?;
     Ok(true)

@@ -569,9 +569,18 @@ async fn step_up_gate(state: &AppState, target: &Target, headers: &HeaderMap) ->
             .err()
             .map(IntoResponse::into_response);
     }
-    let session = match state.store.get_primary_session(&target.token).await {
-        Ok(s) => s,
-        Err(_) => return None,
+    let session = match crate::request_inputs::stored_session(
+        &state.store, &target.token, crate::published_guard_context::Guard::Watch,
+    ).await {
+        Err(response) => return Some(response),
+        Ok(Some(session)) => session,
+        Ok(None) => {
+            #[cfg(test)] crate::request_inputs::test_control::record(|counts| counts.legacy_guard_session_reads += 1);
+            match state.store.get_primary_session(&target.token).await {
+                Ok(session) => session,
+                Err(_) => return None,
+            }
+        }
     };
     require_user(state, &session, StepUpAction::SessionVerification)
         .await
@@ -594,12 +603,16 @@ async fn create_or_reuse(
     let account = if target.admin {
         state.store.get_admin_session(hash).await.ok().flatten()
     } else {
-        state
-            .store
-            .get_primary_session(&target.token)
-            .await
-            .ok()
-            .map(|s| s.account_id)
+        match crate::request_inputs::stored_session(
+            &state.store, &target.token, crate::published_guard_context::Guard::Watch,
+        ).await {
+            Err(response) => return Some(response),
+            Ok(Some(session)) => Some(session.account_id),
+            Ok(None) => {
+                #[cfg(test)] crate::request_inputs::test_control::record(|counts| counts.legacy_guard_session_reads += 1);
+                state.store.get_primary_session(&target.token).await.ok().map(|session| session.account_id)
+            }
+        }
     };
     let Some(account) = account else {
         return reuse_check(state, cfg, hash, &target.token, t, headers, ext).await;

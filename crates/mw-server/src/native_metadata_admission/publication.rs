@@ -45,6 +45,14 @@ struct PolicyRows {
     rows: Vec<(&'static registry::SettingDef, registry::Effective)>,
     bytes: usize,
 }
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct RouteKey {
+    version: AuthorityVersions,
+    schema: String,
+    domain: String,
+    listed: bool,
+    source: [u8; 32],
+}
 pub(crate) struct Published {
     pub snapshot: NativeAdmissionSnapshot,
     pub domains: Vec<String>,
@@ -111,6 +119,7 @@ struct Memory {
     parts: HashMap<PartKey, Weak<Part>>,
     policies: HashMap<PolicyKey, Weak<PolicyRows>>,
     guards:HashMap<(AuthorityVersions,String),Weak<crate::published_guard_inputs::PreparedGuardInputs>>,
+    routes: HashMap<RouteKey, Weak<crate::request_inputs::RouteData>>,
     clock: u64,
     validated_schema: Option<(AuthorityVersions, String)>,
 }
@@ -124,12 +133,18 @@ impl Memory {
             parts: HashMap::new(),
             policies: HashMap::new(),
             guards:HashMap::new(),
+            routes: HashMap::new(),
             clock: 0,
             validated_schema: None,
         }
     }
+    fn route_bytes(&self) -> usize {
+        self.routes.iter().filter_map(|(key, value)| value.upgrade().map(|data|
+            data.retained_bytes().saturating_add(key.schema.len()).saturating_add(key.domain.len()).saturating_add(256)))
+            .sum::<usize>()
+    }
     fn retained(&self) -> usize {
-        self.guards.values().filter_map(Weak::upgrade).map(|g|g.retained_bytes()).sum::<usize>() + self.entries
+        self.route_bytes() + self.guards.values().filter_map(Weak::upgrade).map(|g|g.retained_bytes()).sum::<usize>() + self.entries
             .values()
             .map(|c| c.entry.own_bytes)
             .sum::<usize>()
@@ -157,9 +172,10 @@ impl Memory {
         self.parts.retain(|_, v| v.strong_count() > 0);
         self.policies.retain(|_, v| v.strong_count() > 0);
         self.guards.retain(|_,v|v.strong_count()>0);
+        self.routes.retain(|_,v|v.strong_count()>0);
         while self.entries.len() > MAX_ENTRIES
             || self.retained() > MAX_BYTES
-            || self.directories.len() + self.parts.len() + self.policies.len()+self.guards.len() > MAX_COMPONENTS
+            || self.directories.len() + self.parts.len() + self.policies.len()+self.guards.len()+self.routes.len() > MAX_COMPONENTS
         {
             let Some(key) = self
                 .entries
@@ -174,6 +190,7 @@ impl Memory {
             self.parts.retain(|_, v| v.strong_count() > 0);
             self.policies.retain(|_, v| v.strong_count() > 0);
         self.guards.retain(|_,v|v.strong_count()>0);
+            self.routes.retain(|_,v|v.strong_count()>0);
         }
     }
 }
@@ -287,6 +304,21 @@ impl Worker {
         Some((private, memory.retained(), MAX_BYTES))
     }
     #[cfg(test)]
+    pub(super) fn route_retention_for_test(&self) -> (usize, usize) {
+        let memory = self.memory.lock().unwrap();
+        (memory.routes.values().filter(|route| route.strong_count() > 0).count(), memory.route_bytes())
+    }
+    #[cfg(test)]
+    pub(super) async fn build_request_once_for_test(
+        &self, store: &Store, cookie: &str, account: &str,
+    ) -> Result<Option<Published>, StoreError> {
+        let Some(environment) = crate::request_inputs::Environment::capture() else { return Ok(None); };
+        let selector = vec![REQUEST_INPUT_SELECTOR.into(), environment.fingerprint()];
+        self.build_once(store, &Hint {
+            key: key(cookie, &selector), cookie: cookie.into(), account: account.into(), selector,
+        }).await
+    }
+    #[cfg(test)]
     pub(super) async fn build_once_for_test(
         &self,
         store: &Store,
@@ -383,6 +415,37 @@ impl Worker {
         cell.used = used;
         Some(cell.entry.clone())
     }
+    fn route(&self, entry: &Published, identity: &crate::domain_config::IdentitySnapshot, listed: bool)
+        -> Option<Arc<crate::request_inputs::RouteData>>
+    {
+        let row = identity.row.as_ref()?;
+        if !row.enabled { return None; }
+        let key = RouteKey {
+            version: entry.versions.subset(&[
+                Scope::new(Kind::Routing, "").ok()?,
+                Scope::new(Kind::Domain, &identity.identity.domain).ok()?,
+            ]).ok()?,
+            schema: entry.schema.clone(), domain: identity.identity.domain.clone(), listed,
+            source: Sha256::digest(row.upstream_json.as_bytes()).into(),
+        };
+        let existing = self.memory.lock().ok()?.routes.get(&key).and_then(Weak::upgrade);
+        if let Some(existing) = existing {
+            // Hashes index candidates, never replace exact semantic input proof.
+            return (existing.source == row.upstream_json).then_some(existing);
+        }
+        let data = Arc::new(crate::request_inputs::RouteData::build(identity, listed)?);
+        if data.retained_bytes() > 8 * 1024 * 1024 { return None; }
+        let mut memory = self.memory.lock().ok()?;
+        memory.prune();
+        if let Some(existing) = memory.routes.get(&key).and_then(Weak::upgrade) {
+            return (existing.source == row.upstream_json).then_some(existing);
+        }
+        if memory.directories.len() + memory.parts.len() + memory.policies.len()
+            + memory.guards.len() + memory.routes.len() >= MAX_COMPONENTS { return None; }
+        memory.routes.insert(key, Arc::downgrade(&data));
+        Some(data)
+    }
+
     async fn build(&self, store: &Store, hint: &Hint) -> Result<Published, StoreError> {
         for _ in 0..3 {
             if let Some(entry) = self.build_once(store, hint).await? {
@@ -585,7 +648,7 @@ impl Worker {
             .insert(directory_key, Arc::downgrade(&directory));
         if memory.directories.len()
             + memory.parts.len()
-            + memory.policies.len()+memory.guards.len()+usize::from(guard.is_some())
+            + memory.policies.len()+memory.guards.len()+memory.routes.len()+usize::from(guard.is_some())
             + source.publication_parts().len()
             + policy_inputs.len()
             > MAX_COMPONENTS
@@ -663,8 +726,12 @@ impl Worker {
             environment,
             request: None,
         };
+        // Prepared route interning takes this same mutex. Never hold the
+        // component-map lock across parser work or recursive acquisition.
+        drop(memory);
         if entry.environment.is_some() {
-            let Some(inputs) = crate::request_inputs::Prepared::build(&entry, &session, store) else { return Ok(None); };
+            let Some(inputs) = crate::request_inputs::Prepared::build(&entry, &session, store,
+                |identity, listed| self.route(&entry, identity, listed)) else { return Ok(None); };
             let bytes = inputs.retained_bytes();
             if bytes > 8 * 1024 * 1024 { return Ok(None); }
             entry.own_bytes = entry.own_bytes.checked_add(bytes).ok_or(StoreError::Invalid("request input retained bound"))?;
