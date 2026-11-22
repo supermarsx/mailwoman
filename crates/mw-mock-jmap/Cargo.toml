@@ -25,3 +25,11 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 reqwest = { workspace = true }
+
+[features]
+load-test-fixtures = []
+
+[[example]]
+name = "raw-api-calibration"
+path = "examples/raw_api_calibration.rs"
+required-features = ["load-test-fixtures"]
