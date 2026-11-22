@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Niepowodzenie
 
 admin-resources-cpu-capabilities = Możliwości procesora
 admin-resources-cpu-architecture = Architektura
-admin-resources-cpu-kernel = Najwyższa dostępna procedura dla dużych danych
+admin-resources-cpu-kernel = Wybrana procedura dla dużych danych
 admin-resources-cpu-features = Dostępne funkcje procesora
 admin-resources-cpu-portable = Przenośna
 admin-resources-cpu-kernel-help = Dotyczy zamiany ASCII na małe litery. AVX2 od { $avx2 } bajtów, a AVX-512 od { $avx512 } bajtów, jeśli są obsługiwane. Krótkie dane korzystają z procedury przenośnej. Aplikacja nie używa wszystkich dostępnych funkcji.
@@ -208,3 +208,6 @@ admin-db-cache-write-spill = Próbkowane zapisy / przepełnienia
 admin-db-cache-coverage = Próbka { $sampled } z { $open } otwartych połączeń pierwszoplanowych; zajęte są pomijane.
 admin-db-cache-help = Miękkie cele pamięci MAIN SQLite nie rezerwują pamięci ani nie ograniczają RSS. Połączenia pomocnicze są oddzielne. Liczniki są kumulowane na połączenie fizyczne i mogą się zerować po wymianie; to zdarzenia pamięci podręcznej, nie fizyczne operacje dyskowe. Liczniki obejmują wszystkie bazy dołączone do próbkowanego połączenia; współdzielone strony pamięci mogą być liczone wielokrotnie.
 admin-db-cache-default = Domyślne ustawienie sterownika
+
+admin-resources-cpu-highest-kernel = Najwyższa dostępna procedura
+admin-resources-cpu-kernel-help-sse = Dotyczy zamiany ASCII na małe litery. SSE od { $sse } bajtów, AVX2 od { $avx2 } bajtów, a AVX-512 od { $avx512 } bajtów, jeśli są obsługiwane. Krótkie dane korzystają z procedury przenośnej. Wybrana procedura może różnić się od najwyższej dostępnej wersji.

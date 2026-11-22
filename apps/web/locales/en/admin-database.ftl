@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Failed
 
 admin-resources-cpu-capabilities = CPU capabilities
 admin-resources-cpu-architecture = Architecture
-admin-resources-cpu-kernel = Highest eligible kernel for large inputs
+admin-resources-cpu-kernel = Selected kernel for large inputs
 admin-resources-cpu-features = Available CPU features
 admin-resources-cpu-portable = Portable
 admin-resources-cpu-kernel-help = Applies to ASCII lowercasing. AVX2 starts at { $avx2 } bytes and AVX-512 at { $avx512 } bytes when supported. Short inputs use the portable path. Available features are not all used by the app.
@@ -208,3 +208,6 @@ admin-db-cache-write-spill = Sampled writes / spills
 admin-db-cache-coverage = Sampled { $sampled } of { $open } open foreground connections; busy connections are omitted.
 admin-db-cache-help = Targets are soft SQLite MAIN cache suggestions, not reserved memory or a server RSS limit. Auxiliary connections are separate. Counters are cumulative per physical connection and may reset when it is replaced; these are cache events, not physical disk I/O. Counters cover all pagers attached to each sampled handle; shared-cache pages can be counted more than once.
 admin-db-cache-default = Driver default
+
+admin-resources-cpu-highest-kernel = Highest available kernel
+admin-resources-cpu-kernel-help-sse = Applies to ASCII lowercasing. SSE starts at { $sse } bytes, AVX2 at { $avx2 } bytes and AVX-512 at { $avx512 } bytes when supported. Short inputs use the portable path. The selected kernel may differ from the highest available version.

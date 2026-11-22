@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Fallida
 
 admin-resources-cpu-capabilities = Capacidades de la CPU
 admin-resources-cpu-architecture = Arquitectura
-admin-resources-cpu-kernel = Rutina más avanzada disponible para entradas grandes
+admin-resources-cpu-kernel = Rutina seleccionada para entradas grandes
 admin-resources-cpu-features = Funciones de CPU disponibles
 admin-resources-cpu-portable = Portátil
 admin-resources-cpu-kernel-help = Se aplica a la conversión de ASCII a minúsculas. AVX2 desde { $avx2 } bytes y AVX-512 desde { $avx512 } bytes, si son compatibles. Las entradas pequeñas usan la rutina portátil. La aplicación no usa todas las funciones disponibles.
@@ -208,3 +208,6 @@ admin-db-cache-write-spill = Escrituras / desbordamientos muestreados
 admin-db-cache-coverage = Muestreadas { $sampled } de { $open } conexiones abiertas en primer plano; se omiten las ocupadas.
 admin-db-cache-help = Son objetivos flexibles de caché MAIN SQLite, no memoria reservada ni límites RSS. Las conexiones auxiliares son independientes. Los contadores se acumulan por conexión física y pueden reiniciarse al reemplazarla; son eventos de caché, no E/S física. Los contadores incluyen todas las bases adjuntas a cada conexión muestreada; las páginas de caché compartida pueden contarse varias veces.
 admin-db-cache-default = Valor del controlador
+
+admin-resources-cpu-highest-kernel = Rutina más avanzada disponible
+admin-resources-cpu-kernel-help-sse = Se aplica a la conversión de ASCII a minúsculas. SSE desde { $sse } bytes, AVX2 desde { $avx2 } bytes y AVX-512 desde { $avx512 } bytes, si son compatibles. Las entradas pequeñas usan la rutina portátil. La rutina seleccionada puede diferir de la versión más avanzada disponible.

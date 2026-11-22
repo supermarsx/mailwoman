@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Non riuscita
 
 admin-resources-cpu-capabilities = Capacità della CPU
 admin-resources-cpu-architecture = Architettura
-admin-resources-cpu-kernel = Routine più avanzata disponibile per input grandi
+admin-resources-cpu-kernel = Routine selezionata per input grandi
 admin-resources-cpu-features = Funzionalità CPU disponibili
 admin-resources-cpu-portable = Portabile
 admin-resources-cpu-kernel-help = Si applica alla conversione ASCII in minuscolo. AVX2 da { $avx2 } byte e AVX-512 da { $avx512 } byte, se supportati. Gli input brevi usano la routine portabile. L’app non usa tutte le funzionalità disponibili.
@@ -208,3 +208,6 @@ admin-db-cache-write-spill = Scritture / riversamenti campionati
 admin-db-cache-coverage = Campionate { $sampled } di { $open } connessioni aperte in primo piano; quelle occupate sono omesse.
 admin-db-cache-help = Gli obiettivi flessibili della cache MAIN SQLite non sono memoria riservata né limiti RSS. Le connessioni ausiliarie sono separate. I contatori sono cumulativi per connessione fisica e possono azzerarsi alla sostituzione; sono eventi di cache, non I/O fisico. I contatori includono tutti i database collegati a ogni connessione campionata; le pagine della cache condivisa possono essere contate più volte.
 admin-db-cache-default = Predefinito del driver
+
+admin-resources-cpu-highest-kernel = Routine più avanzata disponibile
+admin-resources-cpu-kernel-help-sse = Si applica alla conversione ASCII in minuscolo. SSE da { $sse } byte, AVX2 da { $avx2 } byte e AVX-512 da { $avx512 } byte, se supportati. Gli input brevi usano la routine portabile. La routine selezionata può differire dalla versione più avanzata disponibile.

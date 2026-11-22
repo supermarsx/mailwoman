@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Échec
 
 admin-resources-cpu-capabilities = Capacités du processeur
 admin-resources-cpu-architecture = Architecture
-admin-resources-cpu-kernel = Routine la plus avancée disponible pour les grandes entrées
+admin-resources-cpu-kernel = Routine sélectionnée pour les entrées volumineuses
 admin-resources-cpu-features = Fonctions disponibles du processeur
 admin-resources-cpu-portable = Portable
 admin-resources-cpu-kernel-help = Concerne la conversion ASCII en minuscules. AVX2 dès { $avx2 } octets et AVX-512 dès { $avx512 } octets, si pris en charge. Les petites entrées utilisent la routine portable. L’application n’utilise pas toutes les fonctions disponibles.
@@ -208,3 +208,6 @@ admin-db-cache-write-spill = Écritures / débordements échantillonnés
 admin-db-cache-coverage = Échantillon de { $sampled } connexions sur { $open } ouvertes au premier plan ; les connexions occupées sont omises.
 admin-db-cache-help = Ces cibles souples du cache MAIN SQLite ne réservent pas de mémoire et ne limitent pas le RSS. Les connexions auxiliaires sont distinctes. Les compteurs sont cumulatifs par connexion physique et peuvent repartir de zéro à son remplacement ; ce ne sont pas des E/S physiques. Les compteurs couvrent toutes les bases attachées à chaque connexion échantillonnée ; les pages de cache partagé peuvent être comptées plusieurs fois.
 admin-db-cache-default = Valeur du pilote
+
+admin-resources-cpu-highest-kernel = Routine la plus avancée disponible
+admin-resources-cpu-kernel-help-sse = Concerne la conversion ASCII en minuscules. SSE à partir de { $sse } octets, AVX2 à partir de { $avx2 } octets et AVX-512 à partir de { $avx512 } octets, si pris en charge. Les entrées courtes utilisent la routine portable. La routine sélectionnée peut différer de la version la plus avancée disponible.

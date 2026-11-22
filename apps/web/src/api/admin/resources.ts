@@ -1,16 +1,21 @@
 import {adminRequest} from '../../screens/Admin/shell/adminApi.ts';
 
+export const CPU_KERNELS=['scalar','sse2','sse3','ssse3','sse41','sse42','avx2','avx512'] as const;
+export type CpuBackend=typeof CPU_KERNELS[number];
+
 export interface CpuCapabilities {
  architecture:string;
  availableFeatures:string[];
- selectedBackend:'scalar'|'avx2'|'avx512';
+ selectedBackend:CpuBackend;
+ highestAvailableBackend?:CpuBackend;
+ sseMinBytes?:number;
  avx2MinBytes:number;
  avx512MinBytes:number;
 }
 
 export interface ResourceSnapshot {
  cpuCapabilities?:CpuCapabilities;
- cpuUsage?:Record<'scalar'|'avx2'|'avx512',{calls:number;bytes:number}>;
+ cpuUsage?:Partial<Record<CpuBackend,{calls:number;bytes:number}>>;
  observedAt:number;
  effectiveCpuCores:number;
  effectiveMemoryLimitBytes:number|null;

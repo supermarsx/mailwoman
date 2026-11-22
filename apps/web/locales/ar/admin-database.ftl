@@ -130,7 +130,7 @@ admin-db-online-phase-failed = فشل
 
 admin-resources-cpu-capabilities = قدرات المعالج
 admin-resources-cpu-architecture = البنية
-admin-resources-cpu-kernel = أعلى روتين متاح للمدخلات الكبيرة
+admin-resources-cpu-kernel = المسار المختار للمدخلات الكبيرة
 admin-resources-cpu-features = ميزات المعالج المتاحة
 admin-resources-cpu-portable = محمول
 admin-resources-cpu-kernel-help = ينطبق على تحويل ASCII إلى أحرف صغيرة. يبدأ AVX2 من { $avx2 } بايت وAVX-512 من { $avx512 } بايت عند توفر الدعم. تستخدم المدخلات القصيرة الروتين المحمول. لا يستخدم التطبيق جميع الميزات المتاحة.
@@ -208,3 +208,6 @@ admin-db-cache-write-spill = الكتابات / التجاوزات في العي
 admin-db-cache-coverage = أُخذت عينة من { $sampled } من أصل { $open } اتصال أمامي مفتوح؛ تُستثنى الاتصالات المشغولة.
 admin-db-cache-help = الأهداف مرنة لذاكرة MAIN في SQLite وليست ذاكرة محجوزة أو حدًا لـ RSS. الاتصالات المساعدة منفصلة. العدادات تراكمية لكل اتصال فعلي وقد تُصفّر عند استبداله؛ وهي أحداث ذاكرة مؤقتة وليست عمليات قرص فعلية. تشمل العدادات جميع قواعد البيانات الملحقة بكل اتصال مأخوذ كعينة؛ وقد تُحسب صفحات الذاكرة المشتركة أكثر من مرة.
 admin-db-cache-default = القيمة الافتراضية لبرنامج التشغيل
+
+admin-resources-cpu-highest-kernel = أحدث مسار متاح
+admin-resources-cpu-kernel-help-sse = ينطبق على تحويل أحرف ASCII إلى أحرف صغيرة. يبدأ SSE من { $sse } بايت، وAVX2 من { $avx2 } بايت، وAVX-512 من { $avx512 } بايت عند دعمها. تستخدم المدخلات القصيرة المسار المحمول. قد يختلف المسار المختار عن أحدث إصدار متاح.

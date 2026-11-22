@@ -130,7 +130,7 @@ admin-db-online-phase-failed = 失敗
 
 admin-resources-cpu-capabilities = CPU の機能
 admin-resources-cpu-architecture = アーキテクチャ
-admin-resources-cpu-kernel = 大きな入力に利用可能な最上位の処理
+admin-resources-cpu-kernel = 大きな入力に選択する処理
 admin-resources-cpu-features = 利用可能な CPU 機能
 admin-resources-cpu-portable = ポータブル
 admin-resources-cpu-kernel-help = ASCII の小文字変換に適用されます。対応環境では AVX2 は { $avx2 } バイト以上、AVX-512 は { $avx512 } バイト以上で使用します。短い入力はポータブル処理を使用します。利用可能な機能すべてをアプリが使用するわけではありません。
@@ -208,3 +208,6 @@ admin-db-cache-write-spill = 取得した書き込み / スピル
 admin-db-cache-coverage = 開いているフォアグラウンド接続 { $open } 件中 { $sampled } 件を取得。使用中の接続は除外します。
 admin-db-cache-help = SQLite MAIN キャッシュのソフト目標であり、予約メモリや RSS 上限ではありません。補助接続は別枠です。カウンターは物理接続ごとの累積値で、接続の交換時にリセットされます。物理ディスク I/O ではなくキャッシュイベントです。 カウンターは取得した接続に接続されている全データベースを含みます。共有キャッシュのページは複数回計上される場合があります。
 admin-db-cache-default = ドライバー既定値
+
+admin-resources-cpu-highest-kernel = 利用可能な最上位の処理
+admin-resources-cpu-kernel-help-sse = ASCII の小文字変換に適用します。対応している場合、SSE は { $sse } バイト以上、AVX2 は { $avx2 } バイト以上、AVX-512 は { $avx512 } バイト以上で使用します。短い入力はポータブル処理を使用します。選択される処理は利用可能な最上位バージョンと異なる場合があります。

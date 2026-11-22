@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Mislukt
 
 admin-resources-cpu-capabilities = CPU-mogelijkheden
 admin-resources-cpu-architecture = Architectuur
-admin-resources-cpu-kernel = Hoogste beschikbare routine voor grote invoer
+admin-resources-cpu-kernel = Geselecteerde routine voor grote invoer
 admin-resources-cpu-features = Beschikbare CPU-functies
 admin-resources-cpu-portable = Draagbaar
 admin-resources-cpu-kernel-help = Geldt voor het omzetten van ASCII naar kleine letters. AVX2 vanaf { $avx2 } bytes en AVX-512 vanaf { $avx512 } bytes, indien ondersteund. Korte invoer gebruikt de draagbare routine. De app gebruikt niet alle beschikbare functies.
@@ -208,3 +208,6 @@ admin-db-cache-write-spill = Bemonsterde schrijfacties / overloop
 admin-db-cache-coverage = { $sampled } van { $open } open voorgrondverbindingen bemonsterd; bezette verbindingen ontbreken.
 admin-db-cache-help = Zachte SQLite-MAIN-cachedoelen reserveren geen geheugen en begrenzen RSS niet. Hulpverbindingen staan apart. Tellers zijn cumulatief per fysieke verbinding en kunnen bij vervanging opnieuw beginnen; dit zijn cachegebeurtenissen, geen fysieke schijf-I/O. Tellers omvatten alle databases gekoppeld aan elke bemonsterde verbinding; gedeelde cachepagina’s kunnen meermaals worden geteld.
 admin-db-cache-default = Stuurprogrammastandaard
+
+admin-resources-cpu-highest-kernel = Hoogste beschikbare routine
+admin-resources-cpu-kernel-help-sse = Geldt voor het omzetten van ASCII naar kleine letters. SSE vanaf { $sse } bytes, AVX2 vanaf { $avx2 } bytes en AVX-512 vanaf { $avx512 } bytes, indien ondersteund. Korte invoer gebruikt de draagbare routine. De geselecteerde routine kan afwijken van de hoogste beschikbare versie.

@@ -1,12 +1,14 @@
 import {createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {useCatalog,t,formatDateTime,formatNumber} from '../../i18n';
-import {loadResourceSnapshot,type ResourceSnapshot} from '../../api/admin/resources.ts';
+import {loadResourceSnapshot,CPU_KERNELS,type CpuBackend,type ResourceSnapshot} from '../../api/admin/resources.ts';
 import {Icon} from '../../components/Icon.tsx';
 import {InlineLoading} from '../../components/InlineLoading.tsx';
 import {Feedback,describeAdminError} from './shell/Feedback.tsx';
 import {formatBytes} from './Dashboard/format.ts';
 import * as css from './admin.css.ts';
 import * as resources from './resourceObservability.css.ts';
+
+const CPU_LABELS:Record<Exclude<CpuBackend,'scalar'>,string>={sse2:'SSE2',sse3:'SSE3',ssse3:'SSSE3',sse41:'SSE4.1',sse42:'SSE4.2',avx2:'AVX2',avx512:'AVX-512F + BW'};
 
 export function ResourceObservability():JSX.Element{
  const catalog=useCatalog('admin-database');
@@ -29,6 +31,7 @@ export function ResourceObservability():JSX.Element{
   onCleanup(()=>{disposed=true;request?.abort();clearInterval(timer);document.removeEventListener('visibilitychange',visibility);});
  });
  const absent=()=>t('admin-shell-not-available');
+ const kernelLabel=(backend:CpuBackend)=>backend==='scalar'?t('admin-resources-cpu-portable'):CPU_LABELS[backend]??backend;
  const bytes=(value:number|null)=>typeof value==='number'?formatBytes(value):absent();
  const fields=(entries:()=>[string,string][]) => <table class={resources.table}><tbody><For each={entries()}>{([label,value])=><tr><th scope="row">{label}</th><td>{value}</td></tr>}</For></tbody></table>;
  return <Show when={catalog()} fallback={<InlineLoading/>}><section class={css.section} aria-label={t('admin-resources-title')}>
@@ -41,10 +44,11 @@ export function ResourceObservability():JSX.Element{
    <div class={resources.grid}>
     <Show when={value().cpuCapabilities}>{cpu=><section class={resources.cpuCard} aria-label={t('admin-resources-cpu-capabilities')}><h3 class={resources.heading}>{t('admin-resources-cpu-capabilities')}</h3>{fields(()=>[
      [t('admin-resources-cpu-architecture'),cpu().architecture],
-     [t('admin-resources-cpu-kernel'),cpu().selectedBackend==='scalar'?t('admin-resources-cpu-portable'):cpu().selectedBackend==='avx512'?'AVX-512F + BW':'AVX2'],
-    ])}<h4 class={resources.heading}>{t('admin-resources-cpu-features')}</h4><p class={css.note}>{cpu().availableFeatures.length?cpu().availableFeatures.join(' · '):absent()}</p><p class={css.note}>{t('admin-resources-cpu-kernel-help',{avx2:formatNumber(cpu().avx2MinBytes),avx512:formatNumber(cpu().avx512MinBytes)})}</p>
+     [t('admin-resources-cpu-kernel'),kernelLabel(cpu().selectedBackend)],
+     ...(cpu().highestAvailableBackend?[[t('admin-resources-cpu-highest-kernel'),kernelLabel(cpu().highestAvailableBackend!)] as [string,string]]:[]),
+    ])}<h4 class={resources.heading}>{t('admin-resources-cpu-features')}</h4><p class={css.note}>{cpu().availableFeatures.length?cpu().availableFeatures.join(' · '):absent()}</p><p class={css.note}>{t(cpu().sseMinBytes===undefined?'admin-resources-cpu-kernel-help':'admin-resources-cpu-kernel-help-sse',{sse:formatNumber(cpu().sseMinBytes??0),avx2:formatNumber(cpu().avx2MinBytes),avx512:formatNumber(cpu().avx512MinBytes)})}</p>
      <h4 class={resources.heading}>{t('admin-resources-cpu-usage')}</h4>
-     <Show when={value().cpuUsage} fallback={<p class={css.note}>{absent()}</p>}>{usage=><table class={resources.table} aria-label={t('admin-resources-cpu-usage')}><thead><tr><th scope="col">{t('admin-resources-cpu-path')}</th><th scope="col">{t('admin-resources-cpu-calls')}</th><th scope="col">{t('admin-resources-cpu-bytes')}</th></tr></thead><tbody><For each={['scalar','avx2','avx512'] as const}>{backend=><tr><th scope="row">{backend==='scalar'?t('admin-resources-cpu-portable'):backend==='avx512'?'AVX-512F + BW':'AVX2'}</th><td>{formatNumber(usage()[backend].calls)}</td><td>{bytes(usage()[backend].bytes)}</td></tr>}</For></tbody></table>}</Show>
+     <Show when={value().cpuUsage} fallback={<p class={css.note}>{absent()}</p>}>{usage=><table class={resources.table} aria-label={t('admin-resources-cpu-usage')}><thead><tr><th scope="col">{t('admin-resources-cpu-path')}</th><th scope="col">{t('admin-resources-cpu-calls')}</th><th scope="col">{t('admin-resources-cpu-bytes')}</th></tr></thead><tbody><For each={CPU_KERNELS.filter(backend=>usage()[backend]!==undefined)}>{backend=><tr><th scope="row">{kernelLabel(backend)}</th><td>{formatNumber(usage()[backend]?.calls??0)}</td><td>{bytes(usage()[backend]?.bytes??null)}</td></tr>}</For></tbody></table>}</Show>
      <p class={css.note}>{t('admin-resources-cpu-usage-help')}</p>
     </section>}</Show>
     <section class={resources.card} aria-label={t('admin-resources-allocation')}><h3 class={resources.heading}>{t('admin-resources-allocation')}</h3>{fields(()=>[

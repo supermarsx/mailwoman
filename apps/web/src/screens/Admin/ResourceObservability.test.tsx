@@ -3,7 +3,10 @@ import {fireEvent,render,screen,waitFor,within} from '@solidjs/testing-library';
 import {ResourceObservability} from './ResourceObservability.tsx';
 import {loadResourceSnapshot,type ResourceSnapshot} from '../../api/admin/resources.ts';
 import {expectNoAxeViolations,expectNoInlineStyle} from './shell/uxTestkit.ts';
-vi.mock('../../api/admin/resources.ts',()=>({loadResourceSnapshot:vi.fn()}));
+vi.mock('../../api/admin/resources.ts',async importOriginal=>({
+ ...await importOriginal<typeof import('../../api/admin/resources.ts')>(),
+ loadResourceSnapshot:vi.fn(),
+}));
 const fixture=():ResourceSnapshot=>({observedAt:1700000000,effectiveCpuCores:4,effectiveMemoryLimitBytes:4294967296,effectiveMemoryAvailableBytes:3221225472,hostMemoryTotalBytes:17179869184,hostMemoryAvailableBytes:12884901888,processResidentBytes:536870912,processCpuPercent:null,cpuSampleSeconds:null,filesystemTotalBytes:1099511627776,filesystemAvailableBytes:549755813888,cgroupDetected:false});
 beforeEach(()=>{vi.mocked(loadResourceSnapshot).mockReset().mockResolvedValue(fixture());});
 afterEach(()=>{vi.useRealTimers();vi.restoreAllMocks();});
@@ -56,7 +59,7 @@ it('shows available CPU features separately from the selected lowercase kernel',
  const {container}=render(()=><ResourceObservability/>);
  const cpu=await screen.findByRole('region',{name:'CPU capabilities'});
  expect(within(cpu).getByText('Architecture').closest('tr')).toHaveTextContent('x86_64');
- expect(within(cpu).getByText('Highest eligible kernel for large inputs').closest('tr')).toHaveTextContent('AVX-512F + BW');
+ expect(within(cpu).getByText('Selected kernel for large inputs').closest('tr')).toHaveTextContent('AVX-512F + BW');
  expect(cpu).toHaveTextContent('sse2 · avx2 · avx512f · avx512bw · aes');
  expect(cpu).toHaveTextContent('Available features are not all used by the app');
  expect(cpu).toHaveTextContent('AVX2 starts at 256 bytes and AVX-512 at 512 bytes when supported');
@@ -78,4 +81,19 @@ it('reports measured calls and bytes without equating available features with ob
 it('keeps older resource responses usable without CPU capabilities',async()=>{
  render(()=><ResourceObservability/>);await screen.findByRole('region',{name:'Server process'});
  expect(screen.queryByRole('region',{name:'CPU capabilities'})).toBeNull();
+});
+
+it('distinguishes preferred SSE2 from available SSE4.2 and shows each observed variant',async()=>{
+ const report=fixture();report.cpuCapabilities={architecture:'x86_64',availableFeatures:['sse2','sse3','ssse3','sse4.1','sse4.2','avx','aes'],selectedBackend:'sse2',highestAvailableBackend:'sse42',sseMinBytes:64,avx2MinBytes:256,avx512MinBytes:512};
+ report.cpuUsage={scalar:{calls:3,bytes:9},sse2:{calls:7,bytes:1024},sse3:{calls:0,bytes:0},ssse3:{calls:1,bytes:128},sse41:{calls:0,bytes:0},sse42:{calls:0,bytes:0},avx2:{calls:0,bytes:0},avx512:{calls:0,bytes:0}};
+ vi.mocked(loadResourceSnapshot).mockResolvedValue(report);const {container}=render(()=><ResourceObservability/>);
+ const cpu=await screen.findByRole('region',{name:'CPU capabilities'});
+ expect(within(cpu).getByText('Selected kernel for large inputs').closest('tr')).toHaveTextContent('SSE2');
+ expect(within(cpu).getByText('Highest available kernel').closest('tr')).toHaveTextContent('SSE4.2');
+ expect(cpu).toHaveTextContent('SSE starts at 64 bytes');
+ const table=within(cpu).getByRole('table',{name:'Observed acceleration usage'});
+ expect(within(table).getByRole('row',{name:/^SSE2 /})).toHaveTextContent('7');
+ expect(within(table).getByRole('row',{name:/^SSSE3 /})).toHaveTextContent('128');
+ for(const label of ['SSE3','SSE4.1','SSE4.2'])expect(within(within(table).getByRole('row',{name:new RegExp('^'+label.replaceAll('.','\\.')+' ')})).getAllByRole('cell')[0]).toHaveTextContent(/^0$/);
+ await expectNoAxeViolations(container);expectNoInlineStyle(container);
 });

@@ -130,7 +130,7 @@ admin-db-online-phase-failed = Fehlgeschlagen
 
 admin-resources-cpu-capabilities = CPU-Funktionen
 admin-resources-cpu-architecture = Architektur
-admin-resources-cpu-kernel = Höchste verfügbare Routine für große Eingaben
+admin-resources-cpu-kernel = Ausgewählte Routine für große Eingaben
 admin-resources-cpu-features = Verfügbare CPU-Funktionen
 admin-resources-cpu-portable = Portabel
 admin-resources-cpu-kernel-help = Gilt für ASCII-Kleinschreibung. AVX2 ab { $avx2 } Bytes und AVX-512 ab { $avx512 } Bytes, sofern unterstützt. Kurze Eingaben verwenden den portablen Pfad. Die App nutzt nicht alle verfügbaren Funktionen.
@@ -208,3 +208,6 @@ admin-db-cache-write-spill = Erfasste Schreibvorgänge / Überläufe
 admin-db-cache-coverage = { $sampled } von { $open } offenen Vordergrundverbindungen erfasst; belegte Verbindungen fehlen.
 admin-db-cache-help = Weiche SQLite-MAIN-Cacheziele sind weder reservierter Speicher noch RSS-Limits. Hilfsverbindungen werden getrennt behandelt. Zähler gelten kumulativ je physischer Verbindung und können beim Austausch zurückgesetzt werden; sie messen Cacheereignisse, keine physischen Plattenzugriffe. Zähler umfassen alle an die erfasste Verbindung angehängten Datenbanken; gemeinsam genutzte Cacheseiten können mehrfach gezählt werden.
 admin-db-cache-default = Treibervorgabe
+
+admin-resources-cpu-highest-kernel = Höchste verfügbare Routine
+admin-resources-cpu-kernel-help-sse = Gilt für ASCII-Kleinschreibung. SSE ab { $sse } Bytes, AVX2 ab { $avx2 } Bytes und AVX-512 ab { $avx512 } Bytes, sofern unterstützt. Kurze Eingaben verwenden die portable Routine. Die ausgewählte Routine kann von der höchsten verfügbaren Version abweichen.

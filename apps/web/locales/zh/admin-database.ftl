@@ -130,7 +130,7 @@ admin-db-online-phase-failed = 失败
 
 admin-resources-cpu-capabilities = CPU 功能
 admin-resources-cpu-architecture = 架构
-admin-resources-cpu-kernel = 大输入可用的最高级处理内核
+admin-resources-cpu-kernel = 大输入所选内核
 admin-resources-cpu-features = 可用的 CPU 功能
 admin-resources-cpu-portable = 通用
 admin-resources-cpu-kernel-help = 用于将 ASCII 转换为小写。支持时，AVX2 从 { $avx2 } 字节起使用，AVX-512 从 { $avx512 } 字节起使用。短输入使用通用处理。应用并非使用所有可用功能。
@@ -208,3 +208,6 @@ admin-db-cache-write-spill = 采样写入 / 溢出
 admin-db-cache-coverage = 已采样 { $open } 个打开的前台连接中的 { $sampled } 个；忙碌连接被省略。
 admin-db-cache-help = 这些是 SQLite MAIN 缓存软目标，不是预留内存或服务器 RSS 上限。辅助连接单独计算。计数器按物理连接累积，连接替换时可能重置；它们表示缓存事件而不是物理磁盘 I/O。 计数器涵盖每个采样连接附加的所有数据库；共享缓存页可能被重复计数。
 admin-db-cache-default = 驱动默认值
+
+admin-resources-cpu-highest-kernel = 可用的最高级内核
+admin-resources-cpu-kernel-help-sse = 适用于 ASCII 小写转换。在支持的情况下，SSE 从 { $sse } 字节起使用，AVX2 从 { $avx2 } 字节起使用，AVX-512 从 { $avx512 } 字节起使用。短输入使用可移植路径。所选内核可能与可用的最高版本不同。
