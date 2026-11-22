@@ -1334,3 +1334,6 @@ mod tests {
 
 #[cfg(test)]
 mod sqlite_pager_invalidation_tests;
+
+#[cfg(test)]
+mod operation_benchmark;
