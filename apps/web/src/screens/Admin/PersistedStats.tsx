@@ -37,11 +37,11 @@ interface ChartDef {
   lines: readonly { group: string; label: string }[];
 }
 
-const LATENCY = [{ group: '', label: 'mp-series-p50' }, { group: '', label: 'mp-series-p95' }] as const;
+const LATENCY = [{ group: '', label: 'mp-series-p50' }, { group: '', label: 'mp-series-p95' }, { group: '', label: 'mp-series-p99' }] as const;
 const latencyChart = (id: string, group: string): ChartDef => ({ id, title: `mp-chart-${id}`, lines: LATENCY.map((l) => ({ ...l, group })) });
 const countChart = (id: string, ...groups: string[]): ChartDef => ({ id, title: `mp-chart-${id}`, lines: groups.map((g) => ({ group: g, label: `mp-series-${g}` })) });
 
-/** The cards of each source; latency sources plot p50 and p95, counter sources plot counts. */
+/** The cards of each source; latency sources plot p50, p95 and p99, counter sources plot counts. */
 const CHARTS: Record<PersistedSource, readonly ChartDef[]> = {
   imageProxy: [latencyChart('image-total', 'total'), latencyChart('image-miss', 'miss'), latencyChart('image-hit', 'hit')],
   clientTiming: [
@@ -57,20 +57,20 @@ const CHARTS: Record<PersistedSource, readonly ChartDef[]> = {
 
 const rangeLabel = (r: PersistedRange): string => t(`mp-range-${r}`);
 
-function values(group: PersistedGroup | undefined, stat: 'p50' | 'p95' | 'count'): (number | null)[] {
+function values(group: PersistedGroup | undefined, stat: 'p50' | 'p95' | 'p99' | 'count'): (number | null)[] {
   if (!group) return [];
   return (stat === 'count' ? group.series.count : group.series[stat] ?? []).slice();
 }
 
 function Chart(props: { def: ChartDef; data: PersistedHistory }): JSX.Element {
   const counter = (): boolean => props.data.counter;
-  const lines = (): { label: string; slot: 1 | 2; values: (number | null)[] }[] =>
+  const lines = (): { label: string; slot: 1 | 2 | 3; values: (number | null)[] }[] =>
     props.def.lines.map((l, i) => {
       const group = props.data.groups[l.group];
       return {
         label: t(l.label),
-        slot: (i === 0 ? 1 : 2) as 1 | 2,
-        values: counter() ? values(group, 'count') : values(group, i === 0 ? 'p50' : 'p95'),
+        slot: (i === 0 ? 1 : i === 1 ? 2 : 3) as 1 | 2 | 3,
+        values: counter() ? values(group, 'count') : values(group, i === 0 ? 'p50' : i === 1 ? 'p95' : 'p99'),
       };
     });
   const times = (): number[] => props.data.groups[props.def.lines[0]?.group ?? '']?.series.t ?? [];

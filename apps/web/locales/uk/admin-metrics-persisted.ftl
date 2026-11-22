@@ -71,6 +71,7 @@ mp-series-blocked = заблоковано
 mp-series-p50 = Медіана
 
 mp-series-p95 = 95-й процентиль
+mp-series-p99 = 99-й процентиль
 
 mp-series-queued = У черзі
 

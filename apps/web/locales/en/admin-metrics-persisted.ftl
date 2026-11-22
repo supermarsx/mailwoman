@@ -20,6 +20,7 @@ mp-reset-body = Deletes the stored history of this statistic for every server in
 mp-reset-confirm = Reset statistics
 mp-series-p50 = Median
 mp-series-p95 = 95th percentile
+mp-series-p99 = 99th percentile
 mp-series-allowed = Allowed
 mp-series-queued = Queued
 mp-series-rejected = Rejected

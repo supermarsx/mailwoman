@@ -4,11 +4,11 @@ import {adminRequest} from '../../screens/Admin/shell/adminApi.ts';
 export type PersistedSource='imageProxy'|'clientTiming'|'rateLimit'|'requestProtection';
 export const PERSISTED_RANGES=['1h','24h','7d','30d','1y'] as const;
 export type PersistedRange=(typeof PERSISTED_RANGES)[number];
-/** Latency groups carry p50/p95 (milliseconds); counter groups carry counts only. */
+/** Latency groups carry p50/p95/p99 (milliseconds); counter groups carry counts only. */
 export interface PersistedTotals {count:number;p50?:number|null;p95?:number|null;p99?:number|null;max?:number|null;mean?:number|null}
 export interface PersistedGroup {
  totals:PersistedTotals;
- series:{t:number[];count:number[];p50?:(number|null)[];p95?:(number|null)[]};
+ series:{t:number[];count:number[];p50?:(number|null)[];p95?:(number|null)[];p99?:(number|null)[]};
  breakdown:Record<string,PersistedTotals>;
 }
 export interface PersistedHistory {

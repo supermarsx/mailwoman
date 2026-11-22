@@ -79,7 +79,7 @@ export const legend = style({ display: 'flex', flexWrap: 'wrap', gap: `${vars.sp
 export const legendItem = style({ display: 'inline-flex', alignItems: 'center', gap: vars.space[2], color: vars.color.text });
 /** A short line key in the series colour (legends mirror the mark). */
 export const key = style({ display: 'inline-block', inlineSize: '14px', blockSize: '2px', flex: 'none' });
-export const keyColour = styleVariants({ 1: { background: series[1] }, 2: { background: series[2] } });
+export const keyColour = styleVariants({ 1: { background: series[1] }, 2: { background: series[2] }, 3: { background: `repeating-linear-gradient(to right, ${series[1]} 0, ${series[1]} 4px, transparent 4px, transparent 7px)` } });
 
 // ── Line chart ────────────────────────────────────────────────────────────────
 export const plot = style({
@@ -104,7 +104,7 @@ export const svgWrap = style({ position: 'relative', minInlineSize: 0 });
 export const svg = style({ display: 'block', inlineSize: '100%', blockSize: '140px', overflow: 'visible', touchAction: 'pan-y' });
 export const grid = style({ stroke: vars.color.border, strokeWidth: 1, vectorEffect: 'non-scaling-stroke' });
 export const line = style({ fill: 'none', strokeWidth: 2, strokeLinejoin: 'round', strokeLinecap: 'round', vectorEffect: 'non-scaling-stroke' });
-export const lineColour = styleVariants({ 1: { stroke: series[1] }, 2: { stroke: series[2] } });
+export const lineColour = styleVariants({ 1: { stroke: series[1] }, 2: { stroke: series[2] }, 3: { stroke: series[1], strokeDasharray: '4 3' } });
 export const crosshair = style({ stroke: vars.color.textDim, strokeWidth: 1, vectorEffect: 'non-scaling-stroke' });
 export const hit = style({ fill: 'transparent' });
 export const xAxis = style({

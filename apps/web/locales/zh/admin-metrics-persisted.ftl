@@ -71,6 +71,7 @@ mp-series-blocked = 被阻止
 mp-series-p50 = 中位数
 
 mp-series-p95 = 第 95 个百分位数
+mp-series-p99 = 第 99 个百分位数
 
 mp-series-queued = 排队
 

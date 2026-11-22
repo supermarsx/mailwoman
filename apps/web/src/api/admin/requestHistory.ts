@@ -2,9 +2,12 @@ import {adminRequest} from '../../screens/Admin/shell/adminApi.ts';
 export interface RequestHistoryRange {from:number;to:number}
 /** Where the 404 series exists; `notTracked` periods predate 404 tracking (never zero). */
 export interface NotFoundCoverage {observedSeconds:number;trackedSince:number|null;notTracked:RequestHistoryRange[]}
+export interface RequestLatencySummary {count:number;p50Ms:number|null;p95Ms:number|null;p99Ms:number|null;p50ResolutionMs?:number|null;p95ResolutionMs?:number|null;p99ResolutionMs?:number|null;legacyLatencyEstimate?:boolean}
 export interface RequestHistory {
  from:number;to:number;bucketSeconds:number;
- series:{t:number;requests:number|null;errors5xx:number|null;notFound?:number|null;notFoundCoverage?:'complete'|'partial'|'unavailable'|'notTracked';p50Ms:number|null;p95Ms:number|null;coverage:'complete'|'partial'|'unavailable';legacyLatencyEstimate?:boolean;p50ResolutionMs?:number|null;p95ResolutionMs?:number|null}[];
+ series:{t:number;requests:number|null;errors5xx:number|null;notFound?:number|null;notFoundCoverage?:'complete'|'partial'|'unavailable'|'notTracked';p50Ms:number|null;p95Ms:number|null;p99Ms?:number|null;coverage:'complete'|'partial'|'unavailable';legacyLatencyEstimate?:boolean;p50ResolutionMs?:number|null;p95ResolutionMs?:number|null;p99ResolutionMs?:number|null}[];
+ /** Selected-period histogram merge, never an average of bucket percentiles. */
+ latency?:RequestLatencySummary;
  coverage:{observedSeconds:number;requestedSeconds:number;gaps:RequestHistoryRange[];notFound?:NotFoundCoverage};
  policy:{defaultRangeSeconds:number;maxRangeSeconds:number;retentionDays:number;minuteRetentionHours?:number};
  scope:'server';timing:'response-ready';latencySampleUnit?:'integer-milliseconds'|'microseconds';

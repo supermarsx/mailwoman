@@ -71,6 +71,7 @@ mp-series-blocked = ブロックされました
 mp-series-p50 = 中央値
 
 mp-series-p95 = 95パーセンタイル
+mp-series-p99 = 99パーセンタイル
 
 mp-series-queued = キューに入れられました
 

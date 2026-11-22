@@ -6,7 +6,7 @@ export const CLIENT_TIMING_METRICS:readonly ClientTimingMetric[]=['timeToUsable'
 export const CLIENT_TIMING_DEVICES=['desktop','mobile','unknown'] as const;
 /** Percentiles are null below the admin-set minimum sample count. */
 export interface ClientTimingStats {count:number;sufficient:boolean;meanMs:number|null;p50Ms:number|null;p75Ms:number|null;p95Ms:number|null;p99Ms:number|null}
-export interface ClientTimingPoint {t:number;count:number;p50Ms:number|null;p95Ms:number|null}
+export interface ClientTimingPoint {t:number;count:number;p50Ms:number|null;p95Ms:number|null;p99Ms?:number|null}
 export interface ClientTimingSeries {all:ClientTimingStats;devices:Partial<Record<(typeof CLIENT_TIMING_DEVICES)[number],ClientTimingStats>>;series:ClientTimingPoint[]}
 /** `GET /admin/metrics/client-timing` (observability.read): browser-measured, sampled, aggregate. */
 export interface ClientTimingHistory {

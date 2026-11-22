@@ -21,6 +21,7 @@ mp-reset-body = Elimina o histórico guardado desta estatística em todas as ins
 mp-reset-confirm = Repor estatísticas
 mp-series-p50 = Mediana
 mp-series-p95 = Percentil 95
+mp-series-p99 = Percentil 99
 mp-series-allowed = Permitidos
 mp-series-queued = Em fila
 mp-series-rejected = Rejeitados

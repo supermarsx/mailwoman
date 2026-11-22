@@ -1,4 +1,4 @@
-// Line chart for one or two series that share a unit (t106).
+// Line chart for up to three series that share a unit (t106). The third is dashed.
 //
 // One y-axis only: two measures of different scale go in two charts. 2 px lines
 // in the validated series colours, a hairline grid at zero, half and the top

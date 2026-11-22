@@ -71,6 +71,7 @@ mp-series-blocked = Bloqueado
 mp-series-p50 = mediana
 
 mp-series-p95 = percentil 95
+mp-series-p99 = percentil 99
 
 mp-series-queued = En cola
 

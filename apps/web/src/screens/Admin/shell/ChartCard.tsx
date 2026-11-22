@@ -11,7 +11,7 @@ import { loadCatalog, t } from '../../../i18n';
 import * as shell from './shell.css.ts';
 import * as css from './stats.css.ts';
 
-export type SeriesSlot = 1 | 2;
+export type SeriesSlot = 1 | 2 | 3;
 export interface LegendEntry { label: string; slot: SeriesSlot }
 export interface ChartTable {
   columns: readonly string[];

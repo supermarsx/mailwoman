@@ -71,6 +71,7 @@ mp-series-blocked = Blockiert
 mp-series-p50 = Median
 
 mp-series-p95 = 95. Perzentil
+mp-series-p99 = 99. Perzentil
 
 mp-series-queued = In der Warteschlange
 

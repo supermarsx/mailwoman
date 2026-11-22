@@ -158,7 +158,7 @@ const share=(part:number|null,whole:number|null)=>part!==null&&whole!==null&&who
 /** The period's headline figures: totals, each with its change and a small trend. */
 export function TrafficTiles(props:{history:HistoryController}):JSX.Element {
  const h=props.history;
- return <Show when={h.data()} fallback={<Show when={h.loading()}><For each={[1,2,3,4]}>{()=><TileSkeleton/>}</For></Show>}>{value=>{
+ return <Show when={h.data()} fallback={<Show when={h.loading()}><For each={[1,2,3,4,5,6,7]}>{()=><TileSkeleton/>}</For></Show>}>{value=>{
   const prev=()=>h.previous();
   const requests=()=>sumKnown(value().series.map(p=>p.requests));
   const errors=()=>sumKnown(value().series.map(p=>p.errors5xx));
@@ -184,6 +184,14 @@ export function TrafficTiles(props:{history:HistoryController}):JSX.Element {
     delta={{previous:comparableNotFound(value())?before(v=>comparableNotFound(v)?notFoundSummary(v).total:null):null,upIsGood:false}} trend={value().series.map(p=>typeof p.notFound==='number'?p.notFound:null)}/>
    <StatTile testId="tile-p95" label={t('admin-stats-p95-peak')} value={p95().value} format={n=>formatMs(n,p95().resolution)}
     delta={{previous:previousPeak(),upIsGood:false}} trend={value().series.map(p=>p.p95Ms)}/>
+   <For each={[
+    ['p50Ms','p50ResolutionMs','p50'],['p95Ms','p95ResolutionMs','p95'],['p99Ms','p99ResolutionMs','p99'],
+   ] as const}>{([field,resolution,code])=><StatTile testId={`tile-latency-${code}`}
+    label={`${t('admin-stats-latency')} · ${code}`} value={value().latency?.[field]??null}
+    format={n=>formatMs(n,value().latency?.[resolution])}
+    unavailableReason={value().latency?.count===0?t('admin-ct-no-samples'):t('admin-shell-not-available')}
+    detail={value().latency?t('admin-ct-samples',{count:value().latency!.count}):undefined}
+    trend={value().series.map(point=>point[field]??null)}/>}</For>
   </>;
  }}</Show>;
 }
@@ -210,22 +218,22 @@ function CountCard(props:{value:History;title:string;testId:string;values:(numbe
 
 function LatencyCard(props:{value:History}):JSX.Element {
  const value=()=>props.value;
- const p50=()=>value().series.map(p=>p.p50Ms);const p95=()=>value().series.map(p=>p.p95Ms);
- const all=()=>formatMsSet([...p50(),...p95()]);
- const f50=()=>formatMsSet(p50());const f95=()=>formatMsSet(p95());
+ const p50=()=>value().series.map(p=>p.p50Ms);const p95=()=>value().series.map(p=>p.p95Ms);const p99=()=>value().series.map(p=>p.p99Ms??null);
+ const all=()=>formatMsSet([...p50(),...p95(),...p99()]);
+ const f50=()=>formatMsSet(p50());const f95=()=>formatMsSet(p95());const f99=()=>formatMsSet(p99());
  const cell=(f:(n:number,r?:number|null)=>string,v:number|null,r?:number|null)=>v===null?absent():f(v,r);
  const summary=(f:(n:number,r?:number|null)=>string,vs:(number|null)[],r:(i:number)=>number|null|undefined)=>{
   const max=maxKnown(vs);const at=max===null?-1:vs.indexOf(max);const last=vs.length-1;
   return t('admin-shell-chart-summary',{latest:cell(f,vs[last]??null,r(last)),max:max===null?absent():f(max,r(at))});
  };
- const labels=()=>({p50:t('admin-stats-series-p50'),p95:t('admin-stats-series-p95')});
- const table=():ChartTable=>({columns:[t('admin-shell-chart-col-time'),labels().p50,labels().p95],numeric:[false,true,true],
-  rows:value().series.map(p=>[timestamp(p.t),cell(f50(),p.p50Ms,p.p50ResolutionMs),cell(f95(),p.p95Ms,p.p95ResolutionMs)])});
+ const labels=()=>({p50:t('admin-stats-series-p50'),p95:t('admin-stats-series-p95'),p99:t('admin-stats-series-p99')});
+ const table=():ChartTable=>({columns:[t('admin-shell-chart-col-time'),labels().p50,labels().p95,labels().p99],numeric:[false,true,true,true],
+  rows:value().series.map(p=>[timestamp(p.t),cell(f50(),p.p50Ms,p.p50ResolutionMs),cell(f95(),p.p95Ms,p.p95ResolutionMs),cell(f99(),p.p99Ms??null,p.p99ResolutionMs)])});
  return <ChartCard testId="chart-latency" title={t('admin-stats-latency')} unit={t('admin-stats-unit-duration',{bucket:formatDuration(value().bucketSeconds)})}
-  legend={[{label:labels().p50,slot:1},{label:labels().p95,slot:2}]}
-  summary={<>{t('admin-stats-chart-about',{from:timestamp(value().from),to:timestamp(value().to)})} <span data-testid="spark-p50">{labels().p50}: {summary(f50(),p50(),i=>value().series[i]?.p50ResolutionMs)} </span><span data-testid="spark-p95">{labels().p95}: {summary(f95(),p95(),i=>value().series[i]?.p95ResolutionMs)} </span></>}
-  table={table()} empty={maxKnown([...p50(),...p95()])===null?t('admin-stats-empty-chart'):undefined}>
-  <LineChart times={value().series.map(p=>p.t)} series={[{label:labels().p50,slot:1,values:p50()},{label:labels().p95,slot:2,values:p95()}]} format={n=>all()(n)} formatTime={axisTime(value())}/>
+  legend={[{label:labels().p50,slot:1},{label:labels().p95,slot:2},{label:labels().p99,slot:3}]}
+  summary={<>{t('admin-stats-chart-about',{from:timestamp(value().from),to:timestamp(value().to)})} <span data-testid="spark-p50">{labels().p50}: {summary(f50(),p50(),i=>value().series[i]?.p50ResolutionMs)} </span><span data-testid="spark-p95">{labels().p95}: {summary(f95(),p95(),i=>value().series[i]?.p95ResolutionMs)} </span><span data-testid="spark-p99">{labels().p99}: {summary(f99(),p99(),i=>value().series[i]?.p99ResolutionMs)} </span></>}
+  table={table()} empty={maxKnown([...p50(),...p95(),...p99()])===null?t('admin-stats-empty-chart'):undefined}>
+  <LineChart times={value().series.map(p=>p.t)} series={[{label:labels().p50,slot:1,values:p50()},{label:labels().p95,slot:2,values:p95()},{label:labels().p99,slot:3,values:p99()}]} format={n=>all()(n)} formatTime={axisTime(value())}/>
  </ChartCard>;
 }
 

@@ -71,6 +71,7 @@ mp-series-blocked = محظور
 mp-series-p50 = متوسط
 
 mp-series-p95 = النسبة المئوية 95
+mp-series-p99 = النسبة المئوية 99
 
 mp-series-queued = في قائمة الانتظار
 

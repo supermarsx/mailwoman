@@ -71,6 +71,7 @@ mp-series-blocked = Bloqué
 mp-series-p50 = Médiane
 
 mp-series-p95 = 95e centile
+mp-series-p99 = 99e centile
 
 mp-series-queued = En file d'attente
 

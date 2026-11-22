@@ -97,4 +97,14 @@ describe('saved statistics', () => {
     render(() => <PersistedStats source="imageProxy" />);
     expect(await screen.findByTestId('persisted-failed')).toBeInTheDocument();
   });
+  it('renders the stored p99 series in the accessible data table',async()=>{
+    const value=history();value.groups.total!.series.p99=[880,900,920];
+    load.mockResolvedValue(value);
+    render(()=><PersistedStats source="imageProxy"/>);
+    const chart=await screen.findByTestId('persisted-chart-image-total');
+    fireEvent.click(within(chart).getByRole('button',{name:'View as table'}));
+    expect(within(chart).getByRole('columnheader',{name:'99th percentile'})).toBeInTheDocument();
+    expect(chart).toHaveTextContent('920 ms');
+  });
+
 });

@@ -70,3 +70,13 @@ it('says which interaction measurements an administrator switched off by default
  expect(await screen.findByTestId('ct-folder-off')).toBeInTheDocument();
  expect(screen.getByTestId('ct-message-off')).toBeInTheDocument();
 });
+
+it('shows a distinct p99 tile and chart series without replacing missing samples with zero',async()=>{
+ const value=history();value.metrics.timeToUsable.all.p99Ms=9600;
+ value.metrics.timeToUsable.series[0]!.p99Ms=8800;
+ vi.mocked(loadClientTiming).mockResolvedValue(value);
+ renderInShell(()=><ObservabilityStats/>,{loadDashboard:dashboardReturning({kind:'ok',data:engineDashboard()})});
+ expect(await screen.findByTestId('ct-timeToUsable-p99Ms')).toHaveTextContent('9.6 s');
+ expect(screen.getByTestId('chart-client-usable')).toHaveTextContent('99th percentile');
+ expect(screen.getByTestId('ct-messageLoadCached-p99Ms')).toHaveTextContent('No samples');
+});

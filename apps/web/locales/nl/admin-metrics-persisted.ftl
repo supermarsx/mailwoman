@@ -71,6 +71,7 @@ mp-series-blocked = Geblokkeerd
 mp-series-p50 = Mediaan
 
 mp-series-p95 = 95e percentiel
+mp-series-p99 = 99e percentiel
 
 mp-series-queued = In de wachtrij
 

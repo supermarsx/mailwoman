@@ -120,7 +120,7 @@ it('renders fractional milliseconds from the server without losing the resolutio
  expect(screen.getByTestId('spark-p95')).toHaveTextContent('999 μs');
  expect(screen.getByTestId('spark-p50')).toHaveTextContent('123 μs');
  const cells=[...screen.getByRole('region',{name:'Response time'}).querySelectorAll('tbody tr:first-child td')].map(c=>c.textContent);
- expect(cells.slice(1)).toEqual(['123 μs','999 μs']);
+ expect(cells.slice(1)).toEqual(['123 μs','999 μs','Not available']);
  expect(screen.getByTestId('spark-p95')).not.toHaveTextContent(/\b0 ms/);
 });
 
@@ -176,4 +176,23 @@ it('hides the paths table for a reader without Observability access and keeps th
  await screen.findByTestId('tile-not-found');
  expect(screen.queryByTestId('not-found-paths')).not.toBeInTheDocument();
  expect(screen.queryByText(/Not-found paths could not be loaded/)).not.toBeInTheDocument();
+});
+
+it('shows selected-period percentiles from merged samples, separately from bucket peaks',async()=>{
+ const value=complete();value.series[0]={...value.series[0]!,p50Ms:10,p95Ms:900,p99Ms:990};
+ value.latency={count:2,p50Ms:11,p95Ms:22,p99Ms:33,p50ResolutionMs:1,p95ResolutionMs:1,p99ResolutionMs:1};
+ vi.mocked(loadRequestHistory).mockResolvedValue(value);
+ render(()=><RequestHistory/>);
+ expect(await screen.findByTestId('tile-latency-p50')).toHaveTextContent('11 ms');
+ expect(screen.getByTestId('tile-latency-p95')).toHaveTextContent('22 ms');
+ expect(screen.getByTestId('tile-latency-p99')).toHaveTextContent('33 ms');
+ expect(screen.getByTestId('tile-latency-p99')).toHaveTextContent('2 samples');
+ expect(screen.getByTestId('tile-p95')).toHaveTextContent('900 ms');
+ expect(screen.getByTestId('spark-p99')).toHaveTextContent('990');
+});
+it('does not invent period percentiles from old bucket-only responses',async()=>{
+ render(()=><RequestHistory/>);
+ expect(await screen.findByTestId('tile-latency-p99')).toHaveTextContent('Not available');
+ expect(screen.getByTestId('tile-latency-p50')).toHaveTextContent('Not available');
+ expect(screen.getByTestId('spark-p99')).toHaveTextContent('Not available');
 });
