@@ -197,6 +197,8 @@ mod request_protection;
 mod published_guard_inputs;
 mod published_guard_context;
 mod request_inputs;
+#[cfg(feature="load-test-fixtures")]
+pub mod request_inputs_fixture;
 mod sanitize_gate;
 mod security_center;
 mod server_text;

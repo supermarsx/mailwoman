@@ -856,6 +856,8 @@ fn cache_experiment_expectation_is_explicit_and_bounded() {
     for raw in ["","NULL","0","15","1025","0256","256.0","+256"," 256"] {assert!(fixture_cache_experiment(Some(raw)).is_err());}
 }
 async fn run(workers: usize) {
+    mw_server::request_inputs_fixture::initialize_from_environment()
+        .expect("valid immutable ordinary request-input fixture mode before all fixture effects");
     let cache_expectation_env=std::env::var_os("MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT")
         .map(|value|value.into_string().unwrap_or_else(|_|panic!("cache experiment expectation must be Unicode")));
     let cache_experiment=fixture_cache_experiment(cache_expectation_env.as_deref()).expect("valid cache experiment expectation");
@@ -1115,6 +1117,7 @@ async fn run(workers: usize) {
                     Err(error)=>return (axum::http::StatusCode::SERVICE_UNAVAILABLE,axum::Json(error.report().clone())),
                 };
                 snapshot["preparedMail"] = serde_json::to_value(engine.prepared_mail_status()).unwrap();
+                snapshot["ordinaryRequestInputs"] = serde_json::to_value(mw_server::request_inputs_fixture::snapshot()).unwrap();
                 snapshot["httpTelemetry"] = mw_server::http_telemetry_snapshot();
                 snapshot["searchIndex"] = json!({
                     "storage":fixture_storage_proof(&engine,index_mode),
@@ -1325,6 +1328,7 @@ async fn run(workers: usize) {
     let handoff = PrivateFile(dir.join("campaign.private.json"));
     let data = json!({"base":base,"cookie":principals[0]["cookie"],"engineMode":"native","fixtureFeatures":["load-test-fixtures"],"uniquePrincipalCount":count,"clientSimulation":{"mode":"fixture-loopback-trusted-proxy","clientCount":count},"principals":principals,"backend":backend,"buildProfile":if cfg!(debug_assertions){"debug"}else{option_env!("MW_CARGO_BUILD_MODE").unwrap_or("release")},"runtimeWorkerThreads":workers,"runtimeWorkerStackBytes":worker_stack_bytes(),"startupReadiness":startup_readiness,"protection":"administrator defaults","budgets":budgets,"diagnostics":{"path":diagnostic_path,"token":diagnostic_token},"pushTrigger":{"path":push_path,"token":push_token}});
     let mut data = data;
+    data["ordinaryRequestInputs"] = serde_json::to_value(mw_server::request_inputs_fixture::snapshot()).unwrap();
     if let Some(experiment)=cache_experiment {data["sqliteCacheExperiment"]=experiment;}
     data["searchStorage"]=fixture_storage_proof(measured_engine.get().unwrap(),index_mode);
     let configuration=measured_engine.get().unwrap().search().writer_configuration();

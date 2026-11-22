@@ -239,6 +239,8 @@ pub(crate) struct Current {
 tokio::task_local! { static SCOPE: Arc<Scope>; static ORIGINAL_READER: bool; }
 
 pub(crate) async fn layer(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    #[cfg(feature="load-test-fixtures")]
+    if !crate::request_inputs_fixture::enabled() { return next.run(request).await; }
     #[cfg(test)]
     if !test_control::enabled() { return next.run(request).await; }
     let eligible_route = (request.method() == Method::GET && request.uri().path() == "/api/me")
@@ -257,6 +259,8 @@ pub(crate) async fn layer(State(state): State<AppState>, request: Request, next:
     let Some(cookie) = crate::cookie_value(headers).filter(|s| !s.is_empty() && s.len() <= 1024)
     else { return next.run(request).await; };
     let held_allowed = request.uri().path() == "/api/me";
+    #[cfg(feature="load-test-fixtures")]
+    crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::Context);
     let scope = Arc::new(Scope { state, cookie, first: OnceCell::new(), body: Mutex::new(None), held_allowed });
     SCOPE.scope(scope, next.run(request)).await
 }
@@ -272,6 +276,8 @@ pub(crate) async fn current(store: &Store) -> Option<Arc<Current>> {
         if entry.environment.as_deref()? != &environment { return None; }
         let guard = entry.guard.as_ref()?;
         if !guard.ordinary_supported() { return None; }
+        #[cfg(feature="load-test-fixtures")]
+        crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::FirstFence);
         let fence = store.native_publication_fence(&scope.cookie, &entry.domains, &entry.subjects)
             .await.ok()??;
         #[cfg(test)] test_control::record(|counts| counts.first_fences += 1);
@@ -300,6 +306,8 @@ pub(crate) async fn current(store: &Store) -> Option<Arc<Current>> {
                 crate::session_persistence::flush_seconds(), chrono::Utc::now())
         { return None; }
         let first = Arc::new(fence);
+        #[cfg(feature="load-test-fixtures")]
+        crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::Ready);
         Some(Arc::new(Current { entry, current: Mutex::new(first.clone()), first,
             session, used: AtomicBool::new(false), guard: std::sync::OnceLock::new() }))
     }).await.clone()
@@ -431,13 +439,20 @@ impl Current {
         })
     }
     pub(crate) fn session(&self) -> &Session {
-        self.used.store(true, Ordering::Relaxed);
+        self.consume();
         &self.session
     }
     pub(crate) fn source(&self) -> Option<Arc<NativeAuthorityFence>> {
         self.current.lock().ok().map(|s| s.clone())
     }
-    pub(crate) fn consume(&self) { self.used.store(true, Ordering::Relaxed); }
+    pub(crate) fn consume(&self) {
+        #[cfg(feature="load-test-fixtures")]
+        if !self.used.swap(true,Ordering::Relaxed) {
+            crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::Consumed);
+        }
+        #[cfg(not(feature="load-test-fixtures"))]
+        self.used.store(true,Ordering::Relaxed);
+    }
 
     pub(crate) fn gate(&self, account: bool) -> Result<crate::account_gate::AccountGate, mw_store::StoreError> {
         let inputs = self.prepared()?;
@@ -470,6 +485,8 @@ impl Current {
 /// Queue only after the ORIGINAL authentication chain succeeds. Invalid
 /// cookies and header-only traffic cannot allocate publication work.
 pub(crate) fn authenticated(session: &Session) {
+    #[cfg(feature="load-test-fixtures")]
+    if !crate::request_inputs_fixture::enabled() { return; }
     if ORIGINAL_READER.try_with(|bypass| *bypass).unwrap_or(false) { return; }
     if active() { return; }
     let _ = SCOPE.try_with(|scope| {
@@ -499,6 +516,8 @@ pub(crate) async fn refresh() -> Result<(), Response> {
 }
 
 async fn reobserve(scope: &Scope, current: &Current) -> Result<(), ()> {
+    #[cfg(feature="load-test-fixtures")]
+    crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::RefreshFence);
     #[cfg(test)] test_control::record(|counts| counts.refresh_fences += 1);
     let observed = scope.state.store.native_publication_fence(&scope.cookie,
         &current.entry.domains, &current.entry.subjects).await.map_err(|_| ())?.ok_or(())?;

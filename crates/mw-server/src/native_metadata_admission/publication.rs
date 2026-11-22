@@ -345,6 +345,11 @@ impl Worker {
     }
     /// Ordinary requests publish bounded INPUTS, never a body-specific allow.
     pub(crate) fn hint_request_inputs(&self, cookie: &str, account: &str) {
+        #[cfg(feature="load-test-fixtures")]
+        {
+            if !crate::request_inputs_fixture::enabled() { return; }
+            crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::Hint);
+        }
         let Some(environment) = crate::request_inputs::Environment::capture() else { return; };
         self.hint_selector(cookie, account, vec![REQUEST_INPUT_SELECTOR.into(), environment.fingerprint()]);
     }
@@ -459,6 +464,11 @@ impl Worker {
         store: &Store,
         hint: &Hint,
     ) -> Result<Option<Published>, StoreError> {
+        #[cfg(feature="load-test-fixtures")]
+        if hint.selector.first().is_some_and(|key|key==REQUEST_INPUT_SELECTOR) {
+            if !crate::request_inputs_fixture::enabled() { return Ok(None); }
+            crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::Build);
+        }
         let environment = if hint.selector.first().is_some_and(|key| key == REQUEST_INPUT_SELECTOR) {
             let Some(environment) = crate::request_inputs::Environment::capture() else { return Ok(None); };
             if hint.selector.get(1) != Some(&environment.fingerprint()) { return Ok(None); }
@@ -740,6 +750,10 @@ impl Worker {
             // Effective row/provenance vector for every registry key/subject.
             entry.policies.clear();
             entry.canonical.clear();
+        }
+        #[cfg(feature="load-test-fixtures")]
+        if entry.request.is_some() {
+            crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::Built);
         }
         Ok(Some(entry))
     }

@@ -66,6 +66,76 @@ fn no_dispatch(reply: &Reply) {
         + reply.native.restart_dispatches + reply.native.prepared_results, 0);
 }
 
+/// Run this exact ignored case twice, in separate child processes, with an
+/// explicit original/published environment value. A shared OnceLock must never
+/// be reset between benchmark cohorts within one process.
+#[cfg(feature="load-test-fixtures")]
+#[test]
+#[ignore="requires an explicit immutable MW_NATIVE_LOAD_REQUEST_INPUTS_MODE child process"]
+fn fixture_request_inputs_process_mode_controls_actual_router_and_worker() {
+    let requested=std::env::var("MW_NATIVE_LOAD_REQUEST_INPUTS_MODE").expect("explicit child-process mode required");
+    assert!(matches!(requested.as_str(),"original"|"published"));
+    crate::request_inputs_fixture::initialize_from_environment().unwrap();
+    run_fixture(move || async move {
+        let fixture=Fixture::new().await;
+        let original_me=send(&fixture,me(&fixture),false).await;
+        let original_mail=send(&fixture,peer(fixture.request()),false).await;
+        assert_eq!(original_me.status,StatusCode::OK);
+        assert_eq!(original_mail.status,StatusCode::OK);
+        let worker=publication::Worker::start(fixture.measured.clone()).unwrap();
+        if requested=="original" {
+            // Exercise the actual builder entry too: off is before source SQL,
+            // not just a reader miss with continuing background preparation.
+            let (built,sql)=mw_store::pool_telemetry::measure_queries(
+                worker.build_request_once_for_test(&fixture.measured,&fixture.session,&fixture.account)).await;
+            assert!(built.unwrap().is_none());
+            assert_eq!(sql.read.calls+sql.write.calls+sql.other.calls,0);
+        } else {
+            let _=warm(&fixture).await;
+        }
+        let before=crate::request_inputs_fixture::snapshot();
+        for (request,original,dispatches) in [(me(&fixture),original_me,0),
+            (peer(fixture.request()),original_mail,1)] {
+            let reply=send(&fixture,request,true).await;
+            assert_eq!(reply.status,StatusCode::OK);
+            assert_eq!(reply.body,original.body);
+            assert_eq!(reply.auth_calls,original.auth_calls);
+            assert_eq!(reply.native.ordinary_dispatches,dispatches);
+            assert_eq!(reply.native.dispatches+reply.native.prepared_results+reply.native.restarts,0);
+            if requested=="original" {
+                assert_eq!(reply.inputs.first_fences+reply.inputs.refresh_fences,0);
+                assert_eq!(reply.inputs.session_decodes,0);
+            } else {
+                assert_eq!(reply.inputs.first_fences,1);
+                assert_eq!(reply.inputs.session_decodes,1);
+                assert_eq!(reply.inputs.legacy_session_reads,0);
+            }
+        }
+        let after=crate::request_inputs_fixture::snapshot();
+        assert_eq!(after.mode,requested);
+        if requested=="original" {
+            assert_eq!(after.ordinary_contexts+after.ready_frames+after.consumed_frames+
+                after.hint_attempts+after.build_attempts+after.completed_builds+
+                after.first_fence_attempts+after.refresh_fence_attempts,0);
+        } else {
+            assert_eq!(after.consumed_frames-before.consumed_frames,2,
+                "workload requests, not warmup, must consume the actual prepared DATA");
+            assert_eq!(after.ready_frames-before.ready_frames,2);
+            assert!(after.hint_attempts>0 && after.build_attempts>0 && after.completed_builds>0);
+            assert!(after.refresh_fence_attempts>before.refresh_fence_attempts);
+        }
+        fixture.writer.delete_session(&fixture.session).await.unwrap();
+        let revoked=send(&fixture,peer(fixture.request()),true).await;
+        assert_eq!(revoked.status,StatusCode::UNAUTHORIZED,
+            "both modes retain original session revocation");
+        no_dispatch(&revoked);
+        eprintln!("{}",serde_json::json!({"kind":"actual-request-input-process-mode",
+            "status":after,"measuredRequests":2,"sourceGuardsUnchanged":true,
+            "revokedStatus":revoked.status.as_u16(),"revokedDispatches":0,
+            "expectedConsumedFrameDelta":if requested=="published" {2}else{0}}));
+    });
+}
+
 #[test]
 fn ordinary_request_inputs_share_parsed_route_only_for_exact_committed_source() {
     run_fixture(|| async {
