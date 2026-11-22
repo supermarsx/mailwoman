@@ -226,7 +226,9 @@ async fn run(token:String,handoff:PathBuf) {
     let control_sign=people[0].client.post(format!("{base}/api/rc/sign")).json(&json!({"emailId":people[0].message,"urls":["http://1.2.3.4/control.png"],"parts":[]})).send().await.unwrap();
     assert_eq!(control_sign.status(),200);
     let control_sign=control_sign.json::<Value>().await.unwrap();
-    let mut tampered=image_src(&control_sign).into_bytes();let start=tampered.iter().rposition(|b|*b==b'.').expect("signed token tag")+1;
+    let signed_path=image_src(&control_sign);
+    assert!(mw_store::rc_handles::is_handle(&token_of(&signed_path)),"actual issued opaque capability");
+    let mut tampered=signed_path.into_bytes();let start=tampered.iter().rposition(|b|*b==b'/').expect("capability path")+1;
     tampered[start]=if tampered[start]==b'A'{b'B'}else{b'A'};
     assert_eq!(anonymous.get(format!("{base}{}",String::from_utf8(tampered).unwrap())).send().await.unwrap().status(),403);
     let refused=people[0].client.get(format!("{base}/api/image-proxy")).query(&[("url","http://127.0.0.1/private.png"),("emailId",people[0].message.as_str())]).send().await.unwrap();
