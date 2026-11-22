@@ -39,7 +39,50 @@ const CORE_MAIL_STATES_SQL: &str = "SELECT 'Email' AS type, MAX(state) AS state 
                 UNION ALL SELECT head_state AS state FROM change_log_checkpoint WHERE account_id=?1 AND type='EmailSubmission'
              ) submission_head HAVING MAX(state) IS NOT NULL";
 
+/// Request-local counters, never an authorization or cross-request cache.
+pub struct SessionStateCounters {
+    pub mail: HashMap<String, u64>,
+    pub pim: HashMap<String, u64>,
+    pub crypto: HashMap<String, u64>,
+}
+
+fn session_states_sql() -> &'static str {
+    static SQL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SQL.get_or_init(|| format!(
+        "SELECT 'mail' AS family,type,state FROM ({CORE_MAIL_STATES_SQL}) mail_counters
+         UNION ALL SELECT 'pim',type,MAX(state) FROM pim_changes
+         WHERE account_id=?1 AND type IN ('Calendar','CalendarEvent','Task','Note','AddressBook','ContactCard','ContactGroup') GROUP BY type
+         UNION ALL SELECT 'crypto',type,MAX(state) FROM crypto_changes
+         WHERE account_id=?1 AND type IN ('CryptoKey','MailRule') GROUP BY type"
+    ))
+}
+
 impl Store {
+    /// Fresh closed-family JMAP state in one statement, at the caller's
+    /// original boundary. Retained mail checkpoints use the
+    /// identical indexed probes as the scalar family reader. The result has at
+    /// most twelve rows. It must not replace an earlier method's state token.
+    ///
+    /// A failed joint query retries the original three readers independently:
+    /// one broken log must not erase successful other-family counters.
+    pub async fn session_state_counters(&self, account_id: &str) -> SessionStateCounters {
+        if let Ok(rows) = q(session_states_sql()).bind(account_id).fetch_all(&self.backend).await {
+            let mut result = SessionStateCounters {mail:HashMap::new(),pim:HashMap::new(),crypto:HashMap::new()};
+            for row in rows {
+                let map = match row.get_string("family").as_str() {
+                    "mail" => &mut result.mail,
+                    "pim" => &mut result.pim,
+                    "crypto" => &mut result.crypto,
+                    _ => unreachable!("closed compiled counter families"),
+                };
+                map.insert(row.get_string("type"), row.get_i64("state").max(0) as u64);
+            }
+            return result;
+        }
+        let (mail,pim,crypto) = tokio::join!(self.current_core_mail_states(account_id),
+            self.current_pim_states(account_id),self.current_crypto_states(account_id));
+        SessionStateCounters {mail:mail.unwrap_or_default(),pim:pim.unwrap_or_default(),crypto:crypto.unwrap_or_default()}
+    }
     /// The three mail counters consumed by JMAP session state and mail push.
     /// One statement gives one snapshot; indexed MAX probes avoid scanning an
     /// account's retained history. Untouched counters remain absent. Custom
@@ -115,6 +158,54 @@ mod tests {
 
     async fn store() -> Store {
         Store::open_in_memory(ServerKey::generate()).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn session_frame_is_one_fresh_read_with_closed_families_and_checkpoints() {
+        let s=store().await;
+        let owner=account(&s).await;
+        let (empty,counts)=crate::pool_telemetry::measure_queries(s.session_state_counters(&owner)).await;
+        assert!(empty.mail.is_empty() && empty.pim.is_empty() && empty.crypto.is_empty());
+        assert_eq!(counts.read.calls,1);
+        crate::q("INSERT INTO change_log_checkpoint(account_id,type,head_state,pruned_through) VALUES(?1,'Email',17,17)")
+            .bind(&owner).execute(&s.backend).await.unwrap();
+        s.record_change(&owner,"Mailbox","m","created").await.unwrap();
+        s.record_pim_change(&owner,"Note","n","created").await.unwrap();
+        s.record_crypto_change(&owner,"MailRule","r","created").await.unwrap();
+        s.record_pim_change(&owner,"UnfoldedCustomType","custom","created").await.unwrap();
+        let (frame,counts)=crate::pool_telemetry::measure_queries(s.session_state_counters(&owner)).await;
+        assert_eq!(counts.read.calls,1);
+        assert_eq!(counts.acquire.calls,1);
+        assert_eq!(frame.mail,s.current_core_mail_states(&owner).await.unwrap());
+        assert_eq!(frame.mail["Email"],17);
+        assert_eq!(frame.pim["Note"],1);
+        assert!(!frame.pim.contains_key("UnfoldedCustomType"));
+        assert_eq!(frame.crypto,s.current_crypto_states(&owner).await.unwrap());
+        let foreign=s.session_state_counters("foreign").await;
+        assert!(foreign.mail.is_empty() && foreign.pim.is_empty() && foreign.crypto.is_empty());
+        s.record_pim_change(&owner,"Note","n2","updated").await.unwrap();
+        assert_eq!(s.session_state_counters(&owner).await.pim["Note"],2,
+            "a prior frame must never become a cached response state");
+    }
+
+    #[tokio::test]
+    async fn session_frame_failed_family_retains_original_independent_defaults() {
+        let s=store().await;
+        let owner=account(&s).await;
+        s.record_change(&owner,"Email","e","created").await.unwrap();
+        s.record_pim_change(&owner,"Note","n","created").await.unwrap();
+        s.record_crypto_change(&owner,"CryptoKey","k","created").await.unwrap();
+        crate::q("ALTER TABLE pim_changes RENAME TO withheld_pim_changes")
+            .execute(&s.backend).await.unwrap();
+        let (frame,counts)=crate::pool_telemetry::measure_queries(s.session_state_counters(&owner)).await;
+        assert_eq!(counts.read.calls,4,"failed joint statement plus all three original readers");
+        assert_eq!(counts.read.failures,2,"joint and missing-PIM reads fail independently");
+        assert_eq!(frame.mail["Email"],1);
+        assert!(frame.pim.is_empty());
+        assert_eq!(frame.crypto["CryptoKey"],1);
+        crate::q("ALTER TABLE withheld_pim_changes RENAME TO pim_changes")
+            .execute(&s.backend).await.unwrap();
+        assert_eq!(s.session_state_counters(&owner).await.pim["Note"],1);
     }
 
     async fn account(s: &Store) -> String {

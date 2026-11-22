@@ -201,6 +201,7 @@ mod embeddings;
 // sequential statements — ~2 ms on SQLite but 12 Postgres round trips, paid
 // before any method runs. One statement per change log instead.
 mod state_counters;
+pub use state_counters::SessionStateCounters;
 // 26.20 (t22-e12): operator-configured outbound egress proxy routes (0026). The
 // deliberate, locally-resolved upstream proxy — as distinct from the ambient
 // `HTTP_PROXY` that t22-e8 refuses everywhere. The password is sealed at rest and

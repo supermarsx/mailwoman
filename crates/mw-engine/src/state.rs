@@ -72,28 +72,12 @@ impl Engine {
     /// counters are folded in so a calendar/task/note/contact change also bumps
     /// `sessionState` (plan §1.8/§2.2).
     ///
-    /// **One statement per change log, not one per counter** (26.20 t22-e0).
-    /// This runs on *every* JMAP request (`handle_jmap`), before any method does
-    /// any work. Read a counter at a time it was 12 sequential statements —
-    /// invisible on SQLite, twelve round trips on Postgres.
-    ///
-    /// The three groups are read concurrently: they are independent statements
-    /// against three different tables, so on Postgres the fixed cost is one
-    /// round trip's latency rather than three.
+    /// One fresh closed-family statement at each original call boundary. An error
+    /// falls back to the original independent readers and per-family defaults.
+    /// Method-result state tokens retain their original separate read points.
     pub(crate) async fn session_state(&self, account_id: &str) -> String {
-        let store = self.store();
-        let (mail, pim, crypto) = tokio::join!(
-            store.current_core_mail_states(account_id),
-            store.current_pim_states(account_id),
-            store.current_crypto_states(account_id),
-        );
-        // A failed read degrades that group to zero, exactly as the per-counter
-        // `unwrap_or(0)` it replaces did.
-        let (mail, pim, crypto) = (
-            mail.unwrap_or_default(),
-            pim.unwrap_or_default(),
-            crypto.unwrap_or_default(),
-        );
+        let frame = self.store().session_state_counters(account_id).await;
+        let (mail, pim, crypto) = (frame.mail, frame.pim, frame.crypto);
 
         let e = counter(&mail, ChangeType::Email);
         let m = counter(&mail, ChangeType::Mailbox);
@@ -909,7 +893,7 @@ pub(crate) mod session_state_tests {
         }
 
         /// Assert the fold on one prepared account: identical value, 12
-        /// statements before, 3 after, and exactly one against each change log.
+        /// statements before, 1 after, mentioning all three change logs.
         async fn assert_folded(&self, account_id: &str, what: &str) {
             let (before, unfolded) = self.count(self.session_state_unfolded(account_id)).await;
             assert_eq!(
@@ -926,8 +910,8 @@ pub(crate) mod session_state_tests {
             );
             assert_eq!(
                 folded.len(),
-                3,
-                "{what}: one statement per group (mail/PIM/crypto); got {folded:#?}"
+                1,
+                "{what}: one closed-family statement (mail/PIM/crypto); got {folded:#?}"
             );
             assert_eq!(
                 folded.against("crypto_changes"),
@@ -939,14 +923,9 @@ pub(crate) mod session_state_tests {
                 1,
                 "{what}: one PIM statement; got {folded:#?}"
             );
-            // `changes` is a substring of both other table names, so the mail
-            // statement is the one that mentions neither of them.
-            let mail_stmts = folded
-                .0
-                .iter()
-                .filter(|s| !s.sql.contains("pim_changes") && !s.sql.contains("crypto_changes"))
-                .count();
-            assert_eq!(mail_stmts, 1, "{what}: one mail statement; got {folded:#?}");
+            assert!(folded.0[0].sql.contains("change_log_checkpoint"),
+                "{what}: the same statement retains mail checkpoints");
+
         }
 
         /// The end-to-end instrument, through the public entry point: an empty
@@ -967,8 +946,8 @@ pub(crate) mod session_state_tests {
             );
             assert_eq!(
                 stmts.len(),
-                3,
-                "{what}: fixed per-request overhead (was 12); got {stmts:#?}"
+                1,
+                "{what}: fixed per-request overhead (was 12, then 3); got {stmts:#?}"
             );
         }
     }
@@ -1070,11 +1049,36 @@ pub(crate) mod session_state_tests {
     }
 
     #[tokio::test]
-    async fn per_request_session_state_overhead_is_three_statements() {
+    async fn per_request_session_state_overhead_is_one_statement() {
         let p = Probe::sqlite().await;
         let acct = p.account("per-request").await;
         p.seed_all(&acct).await;
         p.assert_per_request_overhead(&acct, "SQLite").await;
+    }
+
+    #[tokio::test]
+    async fn response_state_frame_keeps_sequential_method_tokens_before_and_after_mutation() {
+        let p=Probe::sqlite().await;
+        let account=p.account("state-order").await;
+        p.connect(&account);
+        let response=p.engine.handle_jmap(&account,&serde_json::json!({"methodCalls":[
+            ["Note/get",{"accountId":account},"before"],
+            ["Note/set",{"accountId":account,"create":{"n":{"title":"real local mutation"}}},"write"],
+            ["Note/get",{"accountId":account},"after"]
+        ]})).await;
+        let methods=response["methodResponses"].as_array().unwrap();
+        assert_eq!(methods.len(),3,"{response}");
+        assert_eq!(methods[0][0],"Note/get");
+        assert_eq!(methods[0][1]["state"],"0");
+        assert_eq!(methods[0][1]["list"].as_array().unwrap().len(),0);
+        assert_eq!(methods[1][0],"Note/set");
+        assert!(methods[1][1]["created"]["n"]["id"].is_string(),"{response}");
+        assert_eq!(methods[1][1]["oldState"],"0");
+        assert_eq!(methods[1][1]["newState"],"1");
+        assert_eq!(methods[2][0],"Note/get");
+        assert_eq!(methods[2][1]["state"],"1");
+        assert_eq!(methods[2][1]["list"].as_array().unwrap().len(),1);
+        assert_eq!(response["sessionState"],"e0m0s0p1c0");
     }
 
     // ── the connected-account harness (t22-e-perf item 1) ──────────────────
@@ -1233,8 +1237,8 @@ pub(crate) mod session_state_tests {
             .expect("Mailbox/get returned a list");
         assert_eq!(list.len(), 3, "three mailboxes: {resp}");
 
-        // The three that are `sessionState`, folded by t22-e0.
-        let session_state = stmts.against("changes") - stmts.against("mailboxes");
+        // One joint session-state statement plus the method's own state read.
+        let session_state = stmts.against("AS family");
         // 0fc5f380 moved saved searches to `personal_saved_search`, keyed by the
         // verified personal subject; the engine resolves that subject with one
         // existence read of the account (`native_personal_subject`), so the method
@@ -1242,16 +1246,16 @@ pub(crate) mod session_state_tests {
         // mailbox count (asserted below).
         assert_eq!(
             stmts.len(),
-            13,
-            "a whole Mailbox/get request: 3 sessionState + 4 method statements + \
+            11,
+            "a whole Mailbox/get request: 1 sessionState + 4 method statements + \
              5 fixed account/policy resolution reads + 1 `settings_revision` read \
              (one fresh revision validates the shared resolution inputs). \
              Got {stmts:#?}"
         );
         assert_eq!(stmts.against("FROM settings_revision"), 1, "one fresh policy revision: {stmts:#?}");
-        assert!(
-            session_state >= 3,
-            "three change-log statements are sessionState's; got {stmts:#?}"
+        assert_eq!(
+            session_state, 1,
+            "one joint change-log statement is sessionState's; got {stmts:#?}"
         );
 
         assert_eq!(
@@ -1548,7 +1552,7 @@ pub(crate) mod session_state_tests {
     }
 
     #[tokio::test]
-    async fn live_pg_per_request_session_state_overhead_is_three_statements() {
+    async fn live_pg_per_request_session_state_overhead_is_one_statement() {
         let Some(p) = Probe::pg().await else {
             skip("per-request session_state overhead is three statements");
             return;
