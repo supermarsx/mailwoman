@@ -25,6 +25,29 @@ pub struct ProtectionSource<'a> {
     pub ip: Option<&'a str>,
 }
 
+/// One trusted transport observation. Input order is the transaction order.
+#[derive(Clone, Copy)]
+pub struct ProtectionObservation<'a> {
+    pub kind: &'a str,
+    pub value: &'a str,
+    pub policy: &'a Policy,
+    pub now: i64,
+    pub signal: Option<Signal>,
+    pub source: ProtectionSource<'a>,
+}
+struct PreparedProtection {
+    key: String,
+    source_subject: bool,
+    observed_ip: Option<String>,
+}
+fn empty_protection_outcome() -> ProtectionOutcome {
+    ProtectionOutcome { subject_key: String::new(), decision: Decision::default(),
+        snapshot: State::default().snapshot(), revision: String::new() }
+}
+#[cfg(test)]
+#[path = "request_protection_batch_tests.rs"]
+mod batch_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1096,14 +1119,50 @@ impl Store {
     /// The row keeps its last known source, while each decision event records
     /// only the source actually available for that observation.
     pub async fn request_protection_with_source(
-        &self,
-        kind: &str,
-        value: &str,
-        policy: &Policy,
-        now: i64,
-        signal: Option<Signal>,
-        source: ProtectionSource<'_>,
+        &self, kind: &str, value: &str, policy: &Policy, now: i64,
+        signal: Option<Signal>, source: ProtectionSource<'_>,
     ) -> Result<ProtectionOutcome, StoreError> {
+        let Some(prepared) = self.prepare_request_protection(kind, value, policy, now, signal, source)?
+        else { return Ok(empty_protection_outcome()); };
+        let mut tx = self.backend.begin().await?;
+        let outcome = self.apply_request_protection(&mut tx, kind, policy, now, signal, source, prepared).await?;
+        tx.commit().await?;
+        Ok(outcome)
+    }
+
+    /// Apply a bounded ordered group under one SQLite writer transaction.
+    /// Decisions and transition audits use exactly the ordinary evaluator, in
+    /// input order. No result is returned before the shared commit succeeds;
+    /// any storage failure rolls back the whole group. This is not a cached
+    /// allow, a relaxed budget, or an asynchronous outcome write.
+    /// PostgreSQL callers retain their ordinary per-subject transaction path.
+    pub async fn request_protection_sqlite_batch(
+        &self, requests: &[ProtectionObservation<'_>],
+    ) -> Result<Vec<ProtectionOutcome>, StoreError> {
+        if !self.uses_sqlite() || requests.len() > 64 { return Err(corrupt()); }
+        let prepared = requests.iter().map(|r| self.prepare_request_protection(
+            r.kind, r.value, r.policy, r.now, r.signal, r.source,
+        )).collect::<Result<Vec<_>, _>>()?;
+        if prepared.iter().all(Option::is_none) {
+            return Ok(requests.iter().map(|_| empty_protection_outcome()).collect());
+        }
+        let mut tx = self.backend.begin().await?;
+        let mut outcomes = Vec::with_capacity(requests.len());
+        for (request, prepared) in requests.iter().zip(prepared) {
+            outcomes.push(match prepared {
+                Some(prepared) => self.apply_request_protection(&mut tx, request.kind,
+                    request.policy, request.now, request.signal, request.source, prepared).await?,
+                None => empty_protection_outcome(),
+            });
+        }
+        tx.commit().await?;
+        Ok(outcomes)
+    }
+
+    fn prepare_request_protection(
+        &self, kind: &str, value: &str, policy: &Policy, now: i64,
+        signal: Option<Signal>, source: ProtectionSource<'_>,
+    ) -> Result<Option<PreparedProtection>, StoreError> {
         if !policy.valid() || now < 0 {
             return Err(corrupt());
         }
@@ -1111,12 +1170,7 @@ impl Store {
             || signal == Some(Signal::Ignored)
             || (signal.is_some() && policy.adaptive_mode == Mode::Off)
         {
-            return Ok(ProtectionOutcome {
-                subject_key: String::new(),
-                decision: Decision::default(),
-                snapshot: State::default().snapshot(),
-                revision: String::new(),
-            });
+            return Ok(None);
         }
         let key = self.request_protection_subject(kind, value)?;
         let source_subject = kind == "client" || kind.starts_with("ua-");
@@ -1142,25 +1196,32 @@ impl Store {
         } else {
             source.ip.map(canonical_ip).transpose()?
         };
-        let mut tx = self.backend.begin().await?;
+        Ok(Some(PreparedProtection { key, source_subject, observed_ip }))
+    }
+
+    async fn apply_request_protection(
+        &self, tx: &mut Tx, kind: &str, policy: &Policy, now: i64,
+        signal: Option<Signal>, source: ProtectionSource<'_>, prepared: PreparedProtection,
+    ) -> Result<ProtectionOutcome, StoreError> {
+        let PreparedProtection { key, source_subject, observed_ip } = prepared;
         // An existing subject uses its own row lock; independent PostgreSQL
         // subjects need not serialize every request through one global lock.
         let locked =
             q("UPDATE request_protection_subject SET revision=revision WHERE subject_key=?1")
                 .bind(&key)
-                .execute_tx(&mut tx)
+                .execute_tx(tx)
                 .await?;
         if locked == 0 {
-            inventory_lock(&mut tx).await?;
-            q("DELETE FROM request_protection_subject WHERE subject_key IN (SELECT subject_key FROM request_protection_subject WHERE expires_at<=?1 ORDER BY expires_at LIMIT 128)").bind(now).execute_tx(&mut tx).await?;
+            inventory_lock(tx).await?;
+            q("DELETE FROM request_protection_subject WHERE subject_key IN (SELECT subject_key FROM request_protection_subject WHERE expires_at<=?1 ORDER BY expires_at LIMIT 128)").bind(now).execute_tx(tx).await?;
             let present =
                 q("SELECT subject_key FROM request_protection_subject WHERE subject_key=?1")
                     .bind(&key)
-                    .fetch_all_tx(&mut tx)
+                    .fetch_all_tx(tx)
                     .await?;
             if present.is_empty() {
                 let count = q("SELECT COUNT(*) AS n FROM request_protection_subject")
-                    .fetch_all_tx(&mut tx)
+                    .fetch_all_tx(tx)
                     .await?[0]
                     .get_i64("n");
                 if count >= SUBJECT_CAPACITY {
@@ -1169,16 +1230,16 @@ impl Store {
                     ));
                 }
                 let empty = serde_json::to_string(&State::default()).map_err(|_| corrupt())?;
-                q("INSERT INTO request_protection_subject(subject_key,subject_kind,state_json,updated_at,expires_at,revision) VALUES(?1,?2,?3,?4,?5,?6)").bind(&key).bind(kind).bind(empty).bind(now).bind(now.saturating_add(i64::from(policy.retention_secs()))).bind(revision()).execute_tx(&mut tx).await?;
+                q("INSERT INTO request_protection_subject(subject_key,subject_kind,state_json,updated_at,expires_at,revision) VALUES(?1,?2,?3,?4,?5,?6)").bind(&key).bind(kind).bind(empty).bind(now).bind(now.saturating_add(i64::from(policy.retention_secs()))).bind(revision()).execute_tx(tx).await?;
             }
             // A concurrent first writer may have inserted it while we waited
             // for inventory admission. Lock that row before reading its state.
             q("UPDATE request_protection_subject SET revision=revision WHERE subject_key=?1")
                 .bind(&key)
-                .execute_tx(&mut tx)
+                .execute_tx(tx)
                 .await?;
         }
-        let rows=q("SELECT state_json,subject_kind,expires_at FROM request_protection_subject WHERE subject_key=?1").bind(&key).fetch_all_tx(&mut tx).await?;
+        let rows=q("SELECT state_json,subject_kind,expires_at FROM request_protection_subject WHERE subject_key=?1").bind(&key).fetch_all_tx(tx).await?;
         let row = rows.first().ok_or_else(corrupt)?;
         if row.get_string("subject_kind") != kind {
             return Err(corrupt());
@@ -1209,12 +1270,12 @@ impl Store {
         let expires = now
             .saturating_add(i64::from(policy.retention_secs()))
             .max(state.active_until());
-        q("UPDATE request_protection_subject SET state_json=?1,updated_at=?2,expires_at=?3,revision=?4 WHERE subject_key=?5").bind(json).bind(now).bind(expires).bind(&rev).bind(&key).execute_tx(&mut tx).await?;
+        q("UPDATE request_protection_subject SET state_json=?1,updated_at=?2,expires_at=?3,revision=?4 WHERE subject_key=?5").bind(json).bind(now).bind(expires).bind(&rev).bind(&key).execute_tx(tx).await?;
         if state.transition_from(&previous, decision, policy) {
             let mut event_snapshot = snapshot.clone();
             event_snapshot.source_ip = observed_ip;
             audit(
-                &mut tx,
+                tx,
                 &key,
                 kind,
                 now,
@@ -1233,7 +1294,6 @@ impl Store {
             )
             .await?;
         }
-        tx.commit().await?;
         Ok(ProtectionOutcome {
             subject_key: key,
             decision,
