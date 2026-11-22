@@ -40,6 +40,19 @@ const REDIRECT: &str = "https://apps.example.org/cb";
 const RESOURCE: &str = "https://mail.example.org/mcp";
 const VERIFIER: &str = "t87-e1-verifier-abcdefghijklmnopqrstuvwxyz0123";
 
+static UPLOAD_ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+struct UploadEnv(Option<std::ffi::OsString>);
+impl Drop for UploadEnv {
+    fn drop(&mut self) {
+        unsafe {
+            match self.0.take() {
+                Some(value)=>std::env::set_var("MW_UPLOAD_DIR",value),
+                None=>std::env::remove_var("MW_UPLOAD_DIR"),
+            }
+        }
+    }
+}
+
 async fn store(db: &str) -> Store {
     Store::open(db, ServerKey::from_hex(KEY).unwrap())
         .await
@@ -221,15 +234,12 @@ impl Fixture {
         // Managed MailRule/Vacation writes stage their generated script through
         // the same real sealed upload store as public SieveScript writes. The
         // production default deliberately fails closed when no root is set.
-        let previous_upload_dir=std::env::var_os("MW_UPLOAD_DIR");
+        let upload_lock=UPLOAD_ENV.lock().await;
+        let previous_upload_dir=UploadEnv(std::env::var_os("MW_UPLOAD_DIR"));
         unsafe { std::env::set_var("MW_UPLOAD_DIR",dir.join("uploads")); }
         let base = serve(&db).await;
-        unsafe {
-            match previous_upload_dir {
-                Some(value)=>std::env::set_var("MW_UPLOAD_DIR",value),
-                None=>std::env::remove_var("MW_UPLOAD_DIR"),
-            }
-        }
+        drop(previous_upload_dir);
+        drop(upload_lock);
         let http = sign_in(&base, "parent@example.org", PARENT_PASS).await;
         common::auth::user_step_up(&http, &base, PARENT_PASS).await;
         let linked = json_of(
