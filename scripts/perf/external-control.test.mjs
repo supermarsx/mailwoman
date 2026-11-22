@@ -118,3 +118,62 @@ test('sidecar entrypoint runs the real Node driver through private handoff and c
   assert.ok(JSON.parse(report).stages[0].accepted>0);assert.ok(!report.toString().includes(cookie));
  }finally{server.closeAllConnections();await new Promise(done=>server.close(done));await f.clean();}
 });
+
+
+test('request-input expectation external control permits only the optional exact modes',()=>{
+ const base=ready();assert.equal(validateReady(base).campaignEnv.MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT,undefined);
+ for(const mode of ['original','published'])assert.equal(validateReady({...base,campaignEnv:{MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT:mode}}).campaignEnv.MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT,mode);
+ for(const value of ['',null,true,'composite','Original','published ',' published'])assert.throws(()=>validateReady({...base,campaignEnv:{MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT:value}}));
+ for(const key of ['MW_NATIVE_LOAD_REQUEST_INPUTS_MODE','MW_NATIVE_LOAD_ORDINARY_AUTH_MODE','MW_SERVER_KEY','MW_TEST_PG'])assert.throws(()=>validateReady({...base,campaignEnv:{[key]:'private-never-forward'}}));
+});
+test('request-input expectation Rust publisher retains exact whitelist and strict Unicode/mode guard',async()=>{
+ const source=await readFile('crates/mw-server/tests/common/request_load_control.rs','utf8');
+ const names=[...source.match(/for key in \[([\s\S]*?)\] \{/)[1].matchAll(/"([A-Z0-9_]+)"/g)].map(match=>match[1]);
+ assert.equal(names.filter(key=>key==='MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT').length,1);
+ assert.ok(!names.includes('MW_NATIVE_LOAD_REQUEST_INPUTS_MODE'));assert.ok(!names.includes('MW_SERVER_KEY'));
+ assert.match(source,/Err\(std::env::VarError::NotUnicode\(_\)\) if key == "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT"/);
+ assert.match(source,/!matches!\(value.as_str\(\), "original" \| "published"\)/);
+});
+test('request-input expectation actually reaches external sidecar real child for both modes',async()=>{
+ for(const mode of ['original','published']){
+  const f=await fixture(),cookie='private-forwarding-cookie';let counter=0,measuring=false;
+  const witness=()=>({mode,processImmutable:true,...Object.fromEntries(['ordinaryContexts','readyFrames','consumedFrames','hintAttempts','buildAttempts','completedBuilds','firstFenceAttempts','refreshFenceAttempts'].map(key=>[key,counter]))});
+  const server=createServer(async(req,res)=>{
+   if(req.url==='/__fixture-diagnostic-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'){
+    if(req.headers['x-fixture-token']!=='private-diagnostic-token'){res.statusCode=403;res.end();return;}
+    if(req.method==='POST'){measuring=true;res.end();return;}
+    res.setHeader('content-type','application/json');res.end(JSON.stringify({ordinaryRequestInputs:witness()}));return;
+   }
+   if(req.url==='/.env'){res.statusCode=404;res.end();return;}
+   if(req.headers.cookie!==cookie){res.statusCode=401;res.end();return;}
+   if(mode==='published'&&measuring)counter++;
+   res.setHeader('content-type','application/json');
+   if(req.url==='/api/me'){res.end('{"accountId":"fixture-account"}');return;}
+   let body='';for await(const chunk of req)body+=chunk;
+   if(req.url==='/api/mail/refresh'){res.end('{"accountId":"fixture-account","upstream":false}');return;}
+   const call=JSON.parse(body).methodCalls[0];res.end(JSON.stringify({methodResponses:[[call[0],{accountId:'fixture-account',ids:['fixture-message'],list:[{id:'fixture-message'}]},call[2]]]}));
+  });await new Promise(done=>server.listen(0,'127.0.0.1',done));
+  try{
+   const handoff={base:`http://127.0.0.1:${server.address().port}`,engineMode:'proxy',protection:false,principals:[{cookie,accountId:'fixture-account',ownerAccountId:'fixture-account',messageIds:['fixture-message']}],ordinaryRequestInputs:witness(),diagnostics:{path:'/__fixture-diagnostic-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',token:'private-diagnostic-token'}};
+   await privateJson(join(f.directory,'handoff.private.json'),handoff);
+   await privateJson(join(f.directory,'ready.json'),{...f.value,campaignEnv:{MW_LOAD_FIXTURE_SECONDS:'0.1',MW_LOAD_FIXTURE_RATES:'10',MW_LOAD_FIXTURE_CONCURRENCY:'1',MW_LOAD_FIXTURE_ENDPOINTS:'identity',MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT:mode}});
+   const env=Object.fromEntries(['SystemRoot','WINDIR','TEMP','TMP','PATH'].filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]));
+   const output=await promisify(execFile)(process.execPath,['scripts/perf/http-external-driver.mjs',`--root=${f.root}`,'--campaigns=1','--wait-seconds=10'],{env,timeout:15000});
+   const report=JSON.parse(await readPrivate(join(f.directory,'report.json')));
+   assert.equal(report.ordinaryRequestInputs.expectedMode,mode);assert.equal(report.ordinaryRequestInputs.qualified,true,'missing forwarding would leave receipt null');
+   if(mode==='original')assert.equal(report.ordinaryRequestInputs.consumedFramesDelta,0);else assert.ok(report.ordinaryRequestInputs.consumedFramesDelta>0);
+   assert.equal(JSON.parse(await readFile(join(f.directory,'done.json'),'utf8')).status,'completed');
+   for(const text of [output.stdout,output.stderr,JSON.stringify(report)]){assert.ok(!text.includes(cookie));assert.ok(!text.includes('private-diagnostic-token'));}
+  }finally{server.closeAllConnections();await new Promise(done=>server.close(done));await f.clean();}
+ }
+});
+test('request-input expectation invalid external value refuses before child claim or HTTP',async()=>{
+ const f=await fixture();let requests=0;const server=createServer((_req,res)=>{requests++;res.end();});await new Promise(done=>server.listen(0,'127.0.0.1',done));
+ try{
+  await privateJson(join(f.directory,'handoff.private.json'),{base:`http://127.0.0.1:${server.address().port}`,cookie:'private-invalid-cookie'});
+  await privateJson(join(f.directory,'ready.json'),{...f.value,campaignEnv:{MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT:'published '}});
+  const env=Object.fromEntries(['SystemRoot','WINDIR','TEMP','TMP','PATH'].filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]));
+  await assert.rejects(promisify(execFile)(process.execPath,['scripts/perf/http-external-driver.mjs',`--root=${f.root}`,'--campaigns=1','--wait-seconds=10'],{env,timeout:5000}),error=>error.code===1&&!error.stderr.includes('private-invalid-cookie'));
+  assert.equal(requests,0);await assert.rejects(readFile(join(f.directory,'claim.json')),error=>error.code==='ENOENT');
+ }finally{server.closeAllConnections();await new Promise(done=>server.close(done));await f.clean();}
+});

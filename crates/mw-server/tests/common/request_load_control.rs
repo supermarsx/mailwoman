@@ -140,6 +140,7 @@ pub async fn run(
     }
     let mut env = serde_json::Map::new();
     for key in [
+        "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT",
         "MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT",
         "MW_LOAD_FIXTURE_MODE",
         "MW_LOAD_FIXTURE_LONG",
@@ -156,12 +157,22 @@ pub async fn run(
         "MW_LOAD_FIXTURE_ALLOW_OVERLOAD",
         "MW_LOAD_FIXTURE_ADAPTIVE",
     ] {
-        if let Ok(value) = std::env::var(key) {
-            if value.len() > 256 {
-                return Err("external campaign option too long".into());
+        let value = match std::env::var(key) {
+            Ok(value) => value,
+            Err(std::env::VarError::NotUnicode(_)) if key == "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT" => {
+                return Err("external request-input expectation must be Unicode".into());
             }
-            env.insert(key.into(), value.into());
+            Err(_) => continue,
+        };
+        if value.len() > 256 {
+            return Err("external campaign option too long".into());
         }
+        if key == "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT"
+            && !matches!(value.as_str(), "original" | "published")
+        {
+            return Err("external request-input expectation must be original or published".into());
+        }
+        env.insert(key.into(), value.into());
     }
     let mut handoff = handoff.clone();
     handoff["generatorPlacement"] =
