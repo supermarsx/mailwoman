@@ -1,3 +1,4 @@
+import {requestInputsExpected} from './request-inputs-experiment.mjs';
 import {cacheExperimentFromEnv} from './sqlite-page-cache-witness.mjs';
 // Bounded plans for an explicitly opted-in, isolated application fixture.
 import {measure} from './http-load.mjs';
@@ -25,6 +26,7 @@ export function campaignOptions(env=process.env){
  const rates=mode==='ramp'&&!env.MW_LOAD_FIXTURE_RATES?[]:numbers(env,'MW_LOAD_FIXTURE_RATES',mode==='capacity'?'1000,5000,10000,20000,40000,42000':'100,500,1000',1,100000);
  if(mode==='smoke'&&seconds>5)throw new Error('Smoke phases are limited to five seconds; opt in to long mode');
  return {mode,seconds,warmupSeconds,deadlineSeconds,concurrency,endpoints,rates,
+  ...(env.MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT===undefined?{}:{requestInputsExpected:requestInputsExpected(env.MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT)}),
   timeoutMs:number(env,'MW_LOAD_FIXTURE_TIMEOUT_MS',5000,100,30000),
   maxErrorRate:number(env,'MW_LOAD_FIXTURE_MAX_ERROR_RATE',.001,0,1),
   maxThrottleRate:number(env,'MW_LOAD_FIXTURE_MAX_THROTTLE_RATE',0,0,1),
@@ -58,7 +60,7 @@ export async function runCampaign({base,headers,groups,options,run=measure,diagn
    const before=await diagnostics('before');
    const result=await run({base,headers,requests,concurrency,seconds:options.seconds,timeoutMs:options.timeoutMs,...(arrivalRate===undefined?{}:{arrivalRate})});
    const after=await diagnostics('after');
-   stages.push({endpoint,phase:arrivalRate===undefined?'concurrency-ramp':'offered-rate',diagnostics:{before,after},...result});
+   stages.push({endpoint,phase:arrivalRate===undefined?'concurrency-ramp':'offered-rate',diagnostics:{before,after},...result,...(options.requestInputsExpected===undefined?{}:{requestInputsWindow:{schema:1,kind:'workload-and-drain-only',eligibleControlRequests:0}})});
    return result;
   };
   if(options.mode!=='smoke')for(const concurrency of options.concurrency){

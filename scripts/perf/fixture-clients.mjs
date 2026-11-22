@@ -1,3 +1,4 @@
+import {requestInputsStatusReport} from './request-inputs-experiment.mjs';
 // Private ephemeral-fixture identities. Never accept arbitrary forwarded clients
 // in the public load CLI, or copy session/address identifiers into reports.
 import {preparedMailStatusReport} from './prepared-mail-experiment.mjs';
@@ -40,6 +41,7 @@ export function searchTimingReport(value){
 }
 export function fixtureDiagnosticsReport(value){
  let result=value;
+ if(value?.ordinaryRequestInputs!==undefined)result={...result,ordinaryRequestInputs:requestInputsStatusReport(value.ordinaryRequestInputs)};
  if(value?.preparedMail!==undefined)result={...result,preparedMail:preparedMailStatusReport(value.preparedMail)};
  if(value?.pool?.sqlitePageCache!==undefined)result={...result,pool:{...value.pool,sqlitePageCache:sqlitePageCacheReport(value.pool.sqlitePageCache)}};
  if(value?.sqlitePageCacheAudit!==undefined)result={...result,sqlitePageCacheAudit:sqlitePageCacheAuditReport(value.sqlitePageCacheAudit)};
