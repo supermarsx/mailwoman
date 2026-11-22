@@ -35,6 +35,10 @@ use common::test_db;
 const KEY_HEX: &str = "2f2e3d4c5b6a79889796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f2";
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 
+#[cfg(feature = "load-test-fixtures")]
+#[path = "t32_image_proxy_benchmark.rs"]
+mod image_proxy_benchmark;
+
 #[tokio::test]
 async fn automatic_capacity_presets_are_live_and_preserve_numeric_ceilings() {
     let (proxy, _) = standin_proxy(vec![("image/png".into(), png(64, 64))]).await;
