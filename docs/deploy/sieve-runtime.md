@@ -1,5 +1,9 @@
 # Sieve transport and local execution
 
+In webmail Settings, **Rules and filters** belongs to the selected mailbox, including a verified linked mailbox. Visual rules, scripts and vacation responses stay separate for each account. Switching accounts clears the editor and cancels pending operations from the previous account. Rules and scripts are not copied by the preferences import/export tool.
+
+Administrators can configure `cap.rules` and `cap.rules.forward` globally, per domain or for an individual account. The selected mailbox's policy applies, including administrative locks. Sieve limits and permissions (`sieve.*`, `cap.sieve.raw_edit` and `cap.sieve.forward_external`) also resolve for that mailbox; linking an account does not bypass these controls.
+
 ManageSieve endpoints are selected from the signed-in account's configured domain. Requests cannot override the host, port, transport security, username, password, or proxy. Credentials come from the account's sealed mail credentials.
 
 An operator endpoint can use this shape inside the domain upstream configuration:
