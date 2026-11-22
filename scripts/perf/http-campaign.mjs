@@ -21,7 +21,7 @@ export function campaignOptions(env=process.env){
  const deadlineSeconds=number(env,'MW_LOAD_FIXTURE_DEADLINE_SECONDS',mode==='smoke'?90:mode==='capacity'?600:300,10,1800);
  const concurrency=numbers(env,'MW_LOAD_FIXTURE_CONCURRENCY',mode==='smoke'?'32':'1,4,16,64,256',1,4096);
  const endpoints=String(env.MW_LOAD_FIXTURE_ENDPOINTS??'mixed').split(',');
- if(!endpoints.length||endpoints.length>7||endpoints.some(v=>!['mixed','identity','mailboxes','query','headers','refresh','representative'].includes(v)))throw new Error('Invalid MW_LOAD_FIXTURE_ENDPOINTS');
+ if(!endpoints.length||endpoints.length>12||endpoints.some(v=>!['mixed','identity','mailboxes','query','headers','refresh','representative','paged-headers','reader','attachment','flag-write','move-write'].includes(v)))throw new Error('Invalid MW_LOAD_FIXTURE_ENDPOINTS');
  const rates=mode==='ramp'&&!env.MW_LOAD_FIXTURE_RATES?[]:numbers(env,'MW_LOAD_FIXTURE_RATES',mode==='capacity'?'1000,5000,10000,20000,40000,42000':'100,500,1000',1,100000);
  if(mode==='smoke'&&seconds>5)throw new Error('Smoke phases are limited to five seconds; opt in to long mode');
  return {mode,seconds,warmupSeconds,deadlineSeconds,concurrency,endpoints,rates,

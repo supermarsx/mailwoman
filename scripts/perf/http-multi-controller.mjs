@@ -108,7 +108,7 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
    if(results.some(row=>row.measurement?.window?.completedAtMs>observedAtMs+maxStartLagMs))throw new Error('Worker completion is ahead of the controller clock');
    return aggregateWorkers({results,partitions:verified.partitions,stage,startAtMs,maxStartLagMs});
   };
-  const names=['mixed','identity','mailboxes','query','headers','refresh',...(verified.workloadProfile?.kind==='representative'?['representative']:[])],groups=Object.fromEntries(names.map(name=>[name,[{name}]]));
+  const names=['mixed','identity','mailboxes','query','headers','refresh',...(verified.workloadProfile?.kind==='representative'?['representative','paged-headers','reader','attachment','flag-write','move-write']:[])],groups=Object.fromEntries(names.map(name=>[name,[{name}]]));
   const campaign=await runCampaign({base:verified.base,headers:{},groups,options,run,diagnostics});
   // Preserve the single native driver's actual enforcement check. This
   // anonymous probe is outside measured phases and cannot add successful RPS.

@@ -54,6 +54,30 @@ export function mergeMeasurements(snapshots,seconds){
   const merged=new Measurements();for(const snapshot of snapshots)merged.merge(snapshot);return merged.report(seconds);
 }
 
+// Separate histograms: legacy latencyMs continues to include principal queue
+// time. These are observed client intervals, never isolated server CPU/DB time.
+const timingNames=['principalQueue','httpAndValidation','validation'];
+function timings(){return Object.fromEntries(timingNames.map(name=>[name,new Measurements()]));}
+function timingSnapshot(value){return Object.fromEntries(timingNames.map(name=>[name,value[name].snapshot()]));}
+function timingReport(value,count){return {schema:1,...Object.fromEntries(timingNames.map(name=>{
+ const report=value[name].report(1);return [name,{samples:report.requests,...report.latencyMs}];
+})),undispatched:count-value.httpAndValidation.count,scope:'client monotonic wall time; HTTP includes Fetch, decoded body read and validation; validation is a nested subset; queue includes zero-wait samples; not server CPU or isolated DB time'};}
+export function mergeLatencyBreakdowns(snapshots,counts,dispatches){
+ if(!Array.isArray(snapshots)||!snapshots.length||snapshots.length>16||snapshots.length!==counts.length||dispatches&&dispatches.length!==counts.length)throw Error('Invalid latency breakdown');
+ if(snapshots.every(value=>value===undefined))return null;
+ const merged=timings();let total=0;
+ for(let index=0;index<snapshots.length;index++){
+  const value=snapshots[index],count=counts[index];
+  if(!value||Object.keys(value).sort().join(',')!==[...timingNames].sort().join(',')||!Number.isSafeInteger(count)||count<0)throw Error('Invalid latency breakdown');
+  const checked=timings();
+  for(const name of timingNames){checked[name].merge(value[name]);const p=checked[name];if(p.bytes!==0||p.errors!==0||p.accepted!==0||p.timeouts!==0||Object.keys(p.statuses).some(status=>status!=='scheduled'))throw Error('Invalid latency breakdown');}
+  if(checked.principalQueue.count!==count||checked.httpAndValidation.count>count||checked.validation.count>checked.httpAndValidation.count||checked.validation.totalMs>checked.httpAndValidation.totalMs+1e-6||checked.validation.maximumMs>checked.httpAndValidation.maximumMs+1e-6||dispatches&&(checked.httpAndValidation.count!==dispatches[index]))throw Error('Inconsistent latency breakdown');
+  for(const name of timingNames)merged[name].merge(value[name]);
+  total+=count;
+ }
+ return timingReport(merged,total);
+}
+
 export async function measure({base,requests,concurrency,seconds,timeoutMs=10000,headers={},arrivalRate,commonStartAtMs,includeRawMeasurements=false}){
   const aggregate=new Measurements(),byRequest=new Map(requests.map(request=>[request.name,new Measurements()]));
   if(!Number.isInteger(concurrency)||concurrency<1||concurrency>4096||!Number.isFinite(seconds)||seconds<=0||seconds>600||!requests.length||requests.length>100||!Number.isFinite(timeoutMs)||timeoutMs<1||timeoutMs>120000)throw new Error('Invalid bounded measurement parameters');
@@ -71,6 +95,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
   const distribution=counts=>{let total=0,min=Infinity,max=0;for(const count of counts.values()){total+=count;min=Math.min(min,count);max=Math.max(max,count);}return {participants:counts.size,requests:total,min:counts.size?min:0,max,mean:counts.size?total/counts.size:0};};
   const scheduling=new Measurements(),arrivalLatency=new Measurements();
   const principalQueues=new Map();
+  const latency=timings(),latencyByRequest=new Map(requests.map(request=>[request.name,timings()]));
   const taintedPrincipals=new Set();let mutationStateTainted=false,unknownMutationOutcomes=0,httpDispatchAttempts=0,blockedAfterMutationTaint=0,abortedUnscheduled=0;
   const send=async(planned=performance.now())=>{
       const index=sequence++,template=requests[index%requests.length],spec=template.materialize?{...template,...template.materialize(index,{requestCount:requests.length}),name:template.name}:template,began=performance.now();
@@ -79,7 +104,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
       scheduling.add(Math.max(0,began-planned),'scheduled',0,true);
       let status='network',bytes=0,ok=false,timedOut=false;
       const signal=AbortSignal.timeout(timeoutMs);
-      let unlock=null,dispatched=false;
+      let unlock=null,dispatched=false,dispatchAt=null,queueMs=0,validationMs=null;
       try{
         if(spec.serializePrincipal){
           if(!boundedIndex(spec.principalIndex))throw new Error('Serialized fixture requests require a bounded principal');
@@ -87,18 +112,24 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
           let release;const current=new Promise(resolve=>{release=resolve;});
           principalQueues.set(spec.principalIndex,current);
           unlock=()=>{release();if(principalQueues.get(spec.principalIndex)===current)principalQueues.delete(spec.principalIndex);};
-          await previous;
+          const queuedAt=performance.now();
+          try{await previous;}finally{queueMs=performance.now()-queuedAt;}
           if(mutationStateTainted){status='campaign-aborted';blockedAfterMutationTaint++;throw new Error('Mutation outcome is unknown; fixture state cannot be reused');}
           signal.throwIfAborted();
         }
         if(mutationStateTainted){status='campaign-aborted';blockedAfterMutationTaint++;throw new Error('Mutation outcome is unknown; fixture state cannot be reused');}
-        dispatched=true;httpDispatchAttempts++;
+        dispatched=true;httpDispatchAttempts++;dispatchAt=performance.now();
         const response=await fetch(new URL(spec.path,base),{method:spec.method??'GET',headers:{...headers,...spec.headers},...(spec.body!==undefined?{body:spec.body}:{}),signal,redirect:'error'});
         status=String(response.status);const chunks=[];const reader=response.body?.getReader();
         if(reader)for(;;){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(bytes>8*1024*1024){await reader.cancel();throw new Error('response too large');}if(spec.validate||spec.validateBytes){if(bytes>(spec.validate?65536:1024*1024)){await reader.cancel();throw new Error('validation response too large');}chunks.push(part.value);}}
         ok=(spec.statuses??[200]).includes(response.status);
-        if(ok&&spec.validate&&response.status!==429)ok=spec.validate(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-        if(ok&&spec.validateBytes&&response.status!==429)ok=spec.validateBytes(Buffer.concat(chunks));
+        if(ok&&response.status!==429&&(spec.validate||spec.validateBytes)){
+          const validationAt=performance.now();
+          try{
+            if(spec.validate)ok=spec.validate(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+            if(ok&&spec.validateBytes)ok=spec.validateBytes(Buffer.concat(chunks));
+          }finally{validationMs=performance.now()-validationAt;}
+        }
       }catch{timedOut=status!=='campaign-aborted'&&signal.aborted;ok=false;}finally{
         // A client abort does not cancel a server mutation. Fence the queue
         // before releasing it and never reuse an uncertain fixture state.
@@ -106,6 +137,11 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
         unlock?.();
       }
       const completed=performance.now(),elapsed=completed-began,inWindow=acceptedInScheduledWindow(status,ok,completed,deadline);
+      for(const value of [latency,latencyByRequest.get(spec.name)]){
+        value.principalQueue.add(queueMs,'scheduled',0,true);
+        if(dispatchAt!==null)value.httpAndValidation.add(completed-dispatchAt,'scheduled',0,true);
+        if(validationMs!==null)value.validation.add(validationMs,'scheduled',0,true);
+      }
       if(ok&&Number(status)>=200&&Number(status)<300){
         increment(principals.accepted,spec.principalIndex);increment(clients.accepted,spec.clientIndex);
         if(inWindow){acceptedWithinWindow++;if(boundedIndex(spec.principalIndex))principals.withinWindow.add(spec.principalIndex);if(boundedIndex(spec.clientIndex))clients.withinWindow.add(spec.clientIndex);}
@@ -148,16 +184,21 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
   const cpuElapsed=commonStartAtMs===undefined?elapsed:Math.max(.000001,(completedAt-actualStart)/1000);
   const hooks={
     ...(commonStartAtMs===undefined?{}:{window:{requestedStartAtMs:commonStartAtMs,scheduledStartAtMs:commonStartAtMs,scheduledEndAtMs:commonStartAtMs+seconds*1000,actualStartAtMs:Math.round(wallOrigin+actualStart-monotonicOrigin),completedAtMs:Math.round(wallOrigin+completedAt-monotonicOrigin),startLagMs:Math.max(0,actualStart-start)}}),
-    ...(includeRawMeasurements?{rawMeasurements:{schema:1,aggregate:aggregate.snapshot(),byRequest:Object.fromEntries([...byRequest].map(([name,measurements])=>[name,measurements.snapshot()])),scheduling:scheduling.snapshot(),arrivalLatency:arrivalLatency.snapshot()}}:{}),
+    latencyBreakdown:timingReport(latency,aggregate.count),
+    ...(includeRawMeasurements?{rawMeasurements:{schema:1,aggregate:aggregate.snapshot(),byRequest:Object.fromEntries([...byRequest].map(([name,measurements])=>[name,measurements.snapshot()])),scheduling:scheduling.snapshot(),arrivalLatency:arrivalLatency.snapshot(),latencyBreakdown:{schema:1,aggregate:timingSnapshot(latency),byRequest:Object.fromEntries([...latencyByRequest].map(([name,value])=>[name,timingSnapshot(value)]))}}}:{}),
   };
-  return {...hooks,mutationStateTainted,unknownMutationOutcomes,taintedPrincipals:taintedPrincipals.size,httpDispatchAttempts,blockedAfterMutationTaint,abortedUnscheduled,uniquePrincipalsAccepted:principals.accepted.size,uniquePrincipalsAttempted:principals.attempted.size,uniquePrincipalsAcceptedDuringScheduledWindow:principals.withinWindow.size,uniqueClientsAttempted:clients.attempted.size,uniqueClientsAccepted:clients.accepted.size,uniqueClientsAcceptedDuringScheduledWindow:clients.withinWindow.size,participantDistribution:{principals:{attempted:distribution(principals.attempted),accepted:distribution(principals.accepted)},simulatedClients:{attempted:distribution(clients.attempted),accepted:distribution(clients.accepted)}},peakOutstanding,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,generator:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,cpuLogicalCores:(cpu.user+cpu.system)/(cpuElapsed*1000000),rssBeforeBytes:memoryStart.rss,rssAfterBytes:memoryEnd.rss,heapAfterBytes:memoryEnd.heapUsed},concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,droppedCapacity,droppedScheduler,peakOutstanding,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,value.report(elapsed)]))};
+  return {...hooks,mutationStateTainted,unknownMutationOutcomes,taintedPrincipals:taintedPrincipals.size,httpDispatchAttempts,blockedAfterMutationTaint,abortedUnscheduled,uniquePrincipalsAccepted:principals.accepted.size,uniquePrincipalsAttempted:principals.attempted.size,uniquePrincipalsAcceptedDuringScheduledWindow:principals.withinWindow.size,uniqueClientsAttempted:clients.attempted.size,uniqueClientsAccepted:clients.accepted.size,uniqueClientsAcceptedDuringScheduledWindow:clients.withinWindow.size,participantDistribution:{principals:{attempted:distribution(principals.attempted),accepted:distribution(principals.accepted)},simulatedClients:{attempted:distribution(clients.attempted),accepted:distribution(clients.accepted)}},peakOutstanding,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,generator:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,cpuLogicalCores:(cpu.user+cpu.system)/(cpuElapsed*1000000),rssBeforeBytes:memoryStart.rss,rssAfterBytes:memoryEnd.rss,heapAfterBytes:memoryEnd.heapUsed},concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,droppedCapacity,droppedScheduler,peakOutstanding,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,{...value.report(elapsed),latencyBreakdown:timingReport(latencyByRequest.get(key),value.count)}]))};
 }
 
 export function markdownReport(report){
  const perUserRange=stage=>{const accepted=stage.participantDistribution?.principals?.accepted;return accepted&&Number.isFinite(accepted.min)&&Number.isFinite(accepted.max)?`${accepted.min} / ${accepted.max}`:'not measured';};
  const readiness=report.startupReadiness;
  const startup=readiness?.verified===true?`Startup index readiness verified: ${readiness.indexDocuments}/${readiness.expectedIndexDocuments} documents; ${Number(readiness.startupSeconds).toFixed(1)} s startup, ${Number(readiness.indexWaitSeconds).toFixed(1)} s index wait; ${readiness.zeroAccessExcludedMessages} policy-excluded messages.`:'Startup index readiness was not measured in this report.';
- return `# HTTP load report\n\nTarget: ${report.target}\n\nScenario: ${report.scenario}; runtime: ${report.runtime}. ${report.model}.${report.protection?' Protection: '+report.protection+'.':''}\n\n${startup}\n\n| Phase / endpoint / outstanding requests | Fixture protection | Offered RPS | Attempted | Accepted | Completed RPS | Accepted RPS | p50/p95/p99 ms | Errors | 429 | Timeouts | Capacity/scheduler drops | Lag p99 ms |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | ---: |\n`+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} / ${s.concurrency} | ${s.fixtureProtection===undefined?'see scenario':s.fixtureProtection?'on (simulated)':'off (simulated)'} | ${s.arrivalRate??'closed-loop'} | ${s.requests} | ${s.accepted} | ${s.requestsPerSecond.toFixed(1)} | ${s.acceptedRequestsPerSecond.toFixed(1)} | ${s.latencyMs.p50}/${s.latencyMs.p95}/${s.latencyMs.p99} | ${s.errors} | ${s.throttled} | ${s.timeouts} | ${s.droppedCapacity??0}/${s.droppedScheduler??0} | ${s.schedulingLagMs?.p99??0} |`).join('\n')+'\n\n| Phase / endpoint | Distinct users attempted / accepted | Simulated clients attempted / accepted | Accepted requests per user min / max |\n| --- | ---: | ---: | ---: |\n'+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} | ${s.uniquePrincipalsAttempted??0} / ${s.uniquePrincipalsAccepted??0} | ${s.uniqueClientsAttempted??0} / ${s.uniqueClientsAccepted??0} | ${perUserRange(s)} |`).join('\n')+'\n\nSimulated client addresses are a fixture proxy model, not separate physical generator hosts. Zero tracked identities is not evidence of multi-user load. Dropped arrivals have no response latency and must be evaluated alongside percentiles. This report alone is not a production capacity claim.\n';
+ const layerTable='\n\nClient latency layers (all completions, including failures and drain):\n\n| Phase / endpoint | Queue mean / p95 ms | Dispatched HTTP + validation mean / p95 ms | Nested validation mean / p95 ms | Dispatched / validation samples |\n| --- | ---: | ---: | ---: | ---: |\n'+report.stages.map(stage=>{
+  const value=stage.latencyBreakdown,cell=part=>`${part.mean.toFixed(2)} / ${part.p95}`;
+  return `| ${stage.phase??'smoke'} / ${stage.endpoint??'mixed'} | ${value?cell(value.principalQueue):'not measured'} | ${value?cell(value.httpAndValidation):'not measured'} | ${value?cell(value.validation):'not measured'} | ${value?`${value.httpAndValidation.samples} / ${value.validation.samples}`:'not measured'} |`;
+ }).join('\n')+'\n\nLegacy latencyMs above includes principal serialization wait. HTTP + validation starts immediately before Fetch and includes decoded body reads; validation is nested inside it. These intervals are client wall time, not isolated Rust CPU or DB time. Percentiles cannot be subtracted or added to attribute server layers. Historical reports without phase proof remain unreported.\n';
+ return `# HTTP load report\n\nTarget: ${report.target}\n\nScenario: ${report.scenario}; runtime: ${report.runtime}. ${report.model}.${report.protection?' Protection: '+report.protection+'.':''}\n\n${startup}\n\n| Phase / endpoint / outstanding requests | Fixture protection | Offered RPS | Attempted | Accepted | Completed RPS | Accepted RPS | p50/p95/p99 ms | Errors | 429 | Timeouts | Capacity/scheduler drops | Lag p99 ms |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | ---: |\n`+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} / ${s.concurrency} | ${s.fixtureProtection===undefined?'see scenario':s.fixtureProtection?'on (simulated)':'off (simulated)'} | ${s.arrivalRate??'closed-loop'} | ${s.requests} | ${s.accepted} | ${s.requestsPerSecond.toFixed(1)} | ${s.acceptedRequestsPerSecond.toFixed(1)} | ${s.latencyMs.p50}/${s.latencyMs.p95}/${s.latencyMs.p99} | ${s.errors} | ${s.throttled} | ${s.timeouts} | ${s.droppedCapacity??0}/${s.droppedScheduler??0} | ${s.schedulingLagMs?.p99??0} |`).join('\n')+'\n\n| Phase / endpoint | Distinct users attempted / accepted | Simulated clients attempted / accepted | Accepted requests per user min / max |\n| --- | ---: | ---: | ---: |\n'+report.stages.map(s=>`| ${s.phase??'smoke'} / ${s.endpoint??'mixed'} | ${s.uniquePrincipalsAttempted??0} / ${s.uniquePrincipalsAccepted??0} | ${s.uniqueClientsAttempted??0} / ${s.uniqueClientsAccepted??0} | ${perUserRange(s)} |`).join('\n')+'\n\nSimulated client addresses are a fixture proxy model, not separate physical generator hosts. Zero tracked identities is not evidence of multi-user load. Dropped arrivals have no response latency and must be evaluated alongside percentiles. This report alone is not a production capacity claim.\n'+layerTable;
 }
 
 async function main(){
