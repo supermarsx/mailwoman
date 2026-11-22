@@ -97,3 +97,13 @@ it('distinguishes preferred SSE2 from available SSE4.2 and shows each observed v
  for(const label of ['SSE3','SSE4.1','SSE4.2'])expect(within(within(table).getByRole('row',{name:new RegExp('^'+label.replaceAll('.','\\.')+' ')})).getAllByRole('cell')[0]).toHaveTextContent(/^0$/);
  await expectNoAxeViolations(container);expectNoInlineStyle(container);
 });
+
+it('does not invent an automatic SSE threshold when only explicit SSE variants are available',async()=>{
+ const report=fixture();report.cpuCapabilities={architecture:'x86_64',availableFeatures:['sse2','sse4.2','avx'],selectedBackend:'scalar',highestAvailableBackend:'sse42',sseMinBytes:null,avx2MinBytes:256,avx512MinBytes:512};
+ vi.mocked(loadResourceSnapshot).mockResolvedValue(report);render(()=><ResourceObservability/>);
+ const cpu=await screen.findByRole('region',{name:'CPU capabilities'});
+ expect(within(cpu).getByText('Selected kernel for large inputs').closest('tr')).toHaveTextContent('Portable');
+ expect(within(cpu).getByText('Highest available kernel').closest('tr')).toHaveTextContent('SSE4.2');
+ expect(cpu).not.toHaveTextContent('SSE starts at');
+ expect(cpu).toHaveTextContent('Available features are not all used by the app');
+});

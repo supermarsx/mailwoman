@@ -8,7 +8,7 @@ export interface CpuCapabilities {
  availableFeatures:string[];
  selectedBackend:CpuBackend;
  highestAvailableBackend?:CpuBackend;
- sseMinBytes?:number;
+ sseMinBytes?:number|null;
  avx2MinBytes:number;
  avx512MinBytes:number;
 }
