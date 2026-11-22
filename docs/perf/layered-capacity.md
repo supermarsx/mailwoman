@@ -92,3 +92,31 @@ sustained capacity; report the duration, latency budget and stability criteria.
 Current architectural correctness gates and SQL-count reductions do not replace
 these capacity measurements. Unknown component capacities remain unknown until
 their independent runs finish.
+
+## Current fixture coverage and selectors
+
+The representative native mail fixture now supports independent groups:
+
+```text
+MW_LOAD_FIXTURE_ENDPOINTS=identity,mailboxes,query,headers,refresh,paged-headers,reader,attachment,flag-write,move-write
+```
+
+Use `MW_NATIVE_LOAD_WORKLOAD=representative` for the last five groups. The
+existing `representative` selector retains the complete ten-shape mixed run.
+Both the single-process and partitioned generator use the same validated request
+templates. These selectors change what is measured, not application policies.
+See the [native fixture instructions](native-http-fixtures.md) for resource,
+startup, encrypted database and policy controls. A complete ten-group ramp can
+exceed the default campaign deadline; split it into bounded campaigns or select
+an explicit sufficient deadline rather than treating a truncated run as complete.
+
+| Application area | Existing seeded coverage | Status |
+| --- | --- | --- |
+| Mail and identity | Independent accounts, messages, folders, bodies and attachments; validated read/write/restore requests | Independent selectors available; capacity requires actual per-group release runs |
+| Drafts | No representative drafts in the native load seed | Representative seed, save/reopen/send validators and measurements pending |
+| Settings | Global fixture policies; no representative per-user preference writes | Defaults-only reads would be controls, not a representative settings workload |
+| Notifications | No representative notification-centre records | Seed, dismiss/archive validators and measurements pending |
+| Contacts, calendars, tasks and notes | No PIM records in the native load seed | Empty-list controls would not establish capacity for populated accounts |
+
+Do not report the mail fixture as whole-application coverage. The source audit
+above describes coverage, not successful execution of those pending cohorts.
