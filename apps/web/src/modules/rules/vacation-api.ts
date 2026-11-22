@@ -1,4 +1,5 @@
 import type { Client } from '../../api/client.ts';
+import {ruleAccountContext} from './accountContext.ts';
 import { responseFor } from '../../api/jmap.ts';
 import type { JmapSession } from '../../api/jmap-types.ts';
 import { CAP_SIEVE, SieveRefused, type ScriptError, type SieveCapability } from './sieve-api.ts';
@@ -36,16 +37,22 @@ export function vacationSupport(session: JmapSession, accountId: string): Vacati
 }
 
 export function vacationApi(client: Client, accountId: string) {
+  const current=ruleAccountContext(accountId);
   return {
     async get(): Promise<{ state: string; value: Vacation }> {
-      const response = responseFor<{ state: string; list: Vacation[] }>(await client.jmap({ using: USING, methodCalls: [['VacationResponse/get', { accountId }, 'g']] }), 'g');
+      current();const observed=await client.jmap({ using: USING, methodCalls: [['VacationResponse/get', { accountId }, 'g']] },{signal:current.signal});current();
+      const response = responseFor<{ accountId:string;state: string; list: Vacation[] }>(observed, 'g');
+      if(response.accountId!==accountId)throw new Error('Vacation response belongs to another mailbox');
       const value = response.list[0]; if (!value) throw new Error('Vacation response unavailable');
       return { state: response.state, value };
     },
     async save(value: Vacation, state: string): Promise<void> {
+      current();
       const { id: _id, ...patch } = value;
-      const result = responseFor<{ notUpdated?: Record<string, ScriptError> }>(await client.jmap({ using: USING,
-        methodCalls: [['VacationResponse/set', { accountId, ifInState: state, update: { singleton: patch } }, 's']] }), 's');
+      const observed=await client.jmap({ using: USING,
+        methodCalls: [['VacationResponse/set', { accountId, ifInState: state, update: { singleton: patch } }, 's']] },{signal:current.signal});current();
+      const result = responseFor<{ accountId:string;notUpdated?: Record<string, ScriptError> }>(observed, 's');
+      if(result.accountId!==accountId)throw new Error('Vacation response belongs to another mailbox');
       if (result.notUpdated?.singleton) throw new SieveRefused(result.notUpdated.singleton);
     },
   };

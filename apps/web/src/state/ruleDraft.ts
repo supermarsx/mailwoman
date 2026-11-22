@@ -3,12 +3,15 @@
 // the editor takes it once, so a later visit starts blank.
 import {createSignal} from 'solid-js';
 import type {RuleDraft} from './slices/rules.ts';
+import {preferenceAccount,type PreferenceAccount} from '../api/accountPreferenceLifecycle.ts';
+import {linkedMailboxEpoch} from '../api/linkedMailboxSession.ts';
 
 const [pending,setPending]=createSignal<RuleDraft|null>(null);
 export const pendingRuleDraft=pending;
-export function queueRuleDraft(draft:RuleDraft):void {setPending(draft);}
+let owner:PreferenceAccount|null=null,epoch=linkedMailboxEpoch();
+export function queueRuleDraft(draft:RuleDraft):void {owner=preferenceAccount();epoch=linkedMailboxEpoch();setPending(draft);}
 /** The queued draft, cleared by reading it. */
-export function takeRuleDraft():RuleDraft|null {const draft=pending();if(draft)setPending(null);return draft;}
+export function takeRuleDraft():RuleDraft|null {const draft=pending();if(draft)setPending(null);return owner===preferenceAccount()&&epoch===linkedMailboxEpoch()?draft:null;}
 
 const listCondition = (listId: string) => ({ type: 'listId' as const, op: 'is' as const, value: listId.trim().replace(/^<|>$/g, '').toLowerCase() });
 

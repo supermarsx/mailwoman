@@ -1,9 +1,11 @@
 import * as settingsTabs from '../../screens/Settings/securityTabs.css.ts';
 import * as settingsCss from '../../screens/Settings/styles.css.ts';
 // Visual rules and the authoritative Sieve script store share one account.
-import { createEffect, createMemo, createSignal, For, on, onMount, Show, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import { t, loadCatalog, isolate } from '../../i18n';
-import { createClient } from '../../api/client.ts';
+import { createConfiguredClient } from '../../api/transport.ts';
+import { activeLinkedMailbox } from '../../api/linkedMailboxSession.ts';
+import {observePreferenceAccount,preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
 import { isUnsupportedMethod } from '../../api/unsupported.ts';
 import { useApp } from '../../state/context.ts';
 import type { MailRule } from '../../api/crypto-types.ts';
@@ -19,8 +21,14 @@ import * as css from './styles.css.ts';
 
 export interface RulesSettingsProps { accountId: string; slice?: RulesSlice; scriptApi?: SieveApi }
 export function RulesSettings(props: RulesSettingsProps): JSX.Element {
+  const [verifiedOwner,setVerifiedOwner]=createSignal(preferenceAccount());
+  onCleanup(observePreferenceAccount(value=>setVerifiedOwner(value)));
+  const owner=createMemo(()=>props.accountId ? {accountId:props.accountId,context:activeLinkedMailbox(),owner:verifiedOwner()}:null);
+  return <Show when={owner()} keyed>{value=><AccountRulesSettings {...props} accountId={value.accountId}/>}</Show>;
+}
+function AccountRulesSettings(props:RulesSettingsProps):JSX.Element {
   onMount(() => void loadCatalog('rules'));
-  const client = createClient();
+  const client = createConfiguredClient();
   const slice = props.slice ?? createRulesSlice({ client, showToast: useApp().showToast }, () => props.accountId);
   const scripts = createMemo(() => props.scriptApi ?? sieveApi(client, props.accountId));
   const [capability, setCapability] = createSignal<SieveCapability | null>(null);

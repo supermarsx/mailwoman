@@ -10,7 +10,7 @@ import type { SieveApi } from './sieve-api.ts';
 import type { Vacation, VacationApi } from './vacation-api.ts';
 
 const client = vi.hoisted(() => ({ session: vi.fn() }));
-vi.mock('../../api/client.ts', () => ({ createClient: () => ({ session: client.session, jmap: vi.fn() }) }));
+vi.mock('../../api/transport.ts', async importOriginal => ({...await importOriginal<typeof import('../../api/transport.ts')>(),createConfiguredClient: () => ({ session: client.session, jmap: vi.fn() })}));
 
 import { vacationSupport } from './vacation-api.ts';
 import { VacationPanel } from './VacationPanel.tsx';

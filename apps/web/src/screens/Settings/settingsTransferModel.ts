@@ -14,6 +14,10 @@ const portable=['keyboardPreset','direction','markRead','markReadDelayMs','offli
 const accountSpecific=['workspaceLayout','folderPinned','folderOrder','folderHidden','folderIcons','tags','folderLabels','folderSort','folderCollapsed','folderParent','folderStarred','folderProps'] as const;
 const uiKeys=new Set<string>([...portable,...accountSpecific]);
 const dedicated=new Set(['appearance.theme','appearance.accent','appearance.badgeColor','appearance.density','appearance.font','mail.readReceipts','notifications.enabled']);
+// These existing registry definitions are global/domain/account administrator
+// policy, never transferable user preferences or inherited executable rules.
+const rulePolicy=new Set(['cap.rules','cap.rules.forward','cap.sieve.raw_edit','cap.sieve.forward_external',
+ 'sieve.maxScriptBytes','sieve.maxScripts','sieve.maxRedirects','sieve.vacationAllowed','sieve.allowedExtensions']);
 const blocked=/^(?:__proto__|prototype|constructor)$/;
 export const equal=(a:unknown,b:unknown):boolean=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 function canonical(value:unknown):unknown {return Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)])):value;}
@@ -33,7 +37,7 @@ export function transferGroup(item:TransferItem):TransferGroup {
 }
 export function buildBackup(map:SettingsMap,ui:AccountUiPreferences,appearance:AppearancePrefs,source:SettingsBackup['source'],groups:readonly TransferGroup[],includeFolders=false):SettingsBackup {
  const items:TransferItem[]=[];
- for(const [key,entry] of Object.entries(map))if(!entry.inherited&&!dedicated.has(key)&&(entry.userValue!==undefined||entry.source==='user'))items.push({kind:'setting',key,value:entry.userValue!==undefined?entry.userValue:entry.value});
+ for(const [key,entry] of Object.entries(map))if(!entry.inherited&&!dedicated.has(key)&&!rulePolicy.has(key)&&(entry.userValue!==undefined||entry.source==='user'))items.push({kind:'setting',key,value:entry.userValue!==undefined?entry.userValue:entry.value});
  items.push({kind:'appearance',key:'appearance',value:appearance});
  for(const [key,value] of Object.entries(ui))if(uiKeys.has(key)&&(includeFolders||!accountSpecific.includes(key as typeof accountSpecific[number])))items.push({kind:'interface',key,value});
  return {format:'mailwoman-user-settings',version:1,createdAt:new Date().toISOString(),source,items:items.filter(item=>groups.includes(transferGroup(item))).sort((a,b)=>(a.kind+':'+a.key).localeCompare(b.kind+':'+b.key))};
@@ -66,7 +70,7 @@ export function reviewBackup(backup:SettingsBackup,map:SettingsMap,ui:AccountUiP
   if(item.kind==='setting') {
    const entry=Object.hasOwn(map,item.key)?map[item.key]:undefined;current=entry?.value;
    if(!entry||dedicated.has(item.key))status='unknown';
-   else if(entry.locked)status='locked';
+   else if(entry.locked||rulePolicy.has(item.key))status='locked';
    else if(typeof item.value!==typeof entry.value||Array.isArray(item.value)!==Array.isArray(entry.value))status='invalid';
   }else if(item.kind==='appearance') {
    current=appearance;

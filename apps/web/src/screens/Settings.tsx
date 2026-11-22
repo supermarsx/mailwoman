@@ -167,7 +167,7 @@ export function Settings(props: SettingsProps): JSX.Element {
   let settingsContent:HTMLDivElement|undefined;
   useSettingsScroll(navigation.route,()=>settingsContent);
   const [sectionQuery,setSectionQuery]=createSignal('');
-  const linkedSections=new Set(['product-security','linked-accounts','appearance','reader','compose','shortcuts','time','labels','signatures','identities','notifications','searches','folders','receipts','mail-transfer','packages','privacy','nextcloud','access']);
+  const linkedSections=new Set(['product-security','linked-accounts','appearance','reader','compose','shortcuts','time','labels','signatures','identities','notifications','searches','folders','receipts','mail-transfer','packages','privacy','nextcloud','access','rules']);
   const supportedSection=(section:string):boolean=>!app.linkedMailboxId?.()||linkedSections.has(section);
   const visible=(section:string):boolean=>supportedSection(section)&&(!props.embedded || navigation.route().section===section);
 
@@ -369,7 +369,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               <RetainedSettingsSection name="labels" active={visible('labels')}>{()=><AsyncBoundary><Labels navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="reader" active={visible('reader')}>{()=><AsyncBoundary><ReaderAppearanceSettings senders={<ContactAppearance/>} cache={<CachePreferences/>}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="rules" active={visible('rules')}>{()=>              <AsyncBoundary>
-                <RulesSettings accountId={accountId()} />
+                <RulesSettings accountId={app.accountId() ?? ''} />
               </AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="access" active={visible('access')} retain={false}>{()=>              <AsyncBoundary>
                 <ApiKeys accountId={accountId()} />

@@ -1,0 +1,30 @@
+import {afterEach,expect,it,vi} from 'vitest';
+import {render,screen} from '@solidjs/testing-library';
+import {createSignal} from 'solid-js';
+import {Settings} from './Settings.tsx';
+import {AppContext} from '../state/context.ts';
+import {createThemeSlice} from '../state/slices/theme.ts';
+import type {AppState} from '../state/store.ts';
+import type {SliceContext} from '../state/slices/context.ts';
+import {createSettingsNavigation} from './Settings/navigation.tsx';
+import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
+import {clearSettings,loadSettings,settings} from '../api/settings.ts';
+vi.mock('../modules/rules/index.ts',()=>({RulesSettings:(props:{accountId:string})=><output data-testid="rules-target">{props.accountId}</output>}));
+afterEach(()=>{suspendAccountPreferences();clearSettings();});
+it.each([[false,true],[true,false]])('shows the linked rules target independently of primary=%s / child=%s policy',async(primaryPolicy,childPolicy)=>{
+ const [account,select]=createSignal('primary');const [link,setLink]=createSignal<string|null>(null);
+ activateAccountPreferences('primary','test_storage_authority_primary');
+ const policies=(value:boolean)=>async()=>new Response(JSON.stringify({settings:{'cap.rules':{value,source:'admin_user',locked:true}}}),{status:200,headers:{'content-type':'application/json'}});
+ await loadSettings({refresh:true,fetcher:policies(primaryPolicy)});
+ const app={...createThemeSlice({client:{},showToast:vi.fn()} as unknown as SliceContext),accountId:account,linkedMailboxId:link,
+  me:()=>({accountId:'primary',username:'primary@example.test'})} as unknown as AppState;
+ const navigation=createSettingsNavigation({section:'rules'});
+ render(()=><AppContext.Provider value={app}><Settings embedded navigation={navigation} onClose={vi.fn()}/></AppContext.Provider>);
+ expect(await screen.findByTestId('rules-target')).toHaveTextContent('primary');
+ select('linked');setLink('link-1');activateAccountPreferences('linked','test_storage_authority_linked');
+ await loadSettings({refresh:true,fetcher:policies(childPolicy)});
+ expect(await screen.findByTestId('rules-target')).toHaveTextContent('linked');
+ expect(screen.queryByText('Managed by the sign-in account')).not.toBeInTheDocument();
+ expect(navigation.route().section).toBe('rules');
+ expect(settings()['cap.rules']?.value).toBe(childPolicy);
+});

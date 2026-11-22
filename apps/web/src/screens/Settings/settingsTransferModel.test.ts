@@ -90,3 +90,13 @@ it('rejects folder IDs from a different verified authority even when the account
  const backup={...file([{kind:'interface',key:'folderHidden',value:['f']}]),source:{...source,storageAuthority:'authority-one'}};
  expect(reviewBackup(backup,map,{},defaultAppearance(),{...source,storageAuthority:'authority-two'})[0]?.status).toBe('account');
 });
+it('never exports or imports administrator mail-rule policy as user preferences',async()=>{
+ const keys=['cap.rules','cap.rules.forward','cap.sieve.raw_edit','cap.sieve.forward_external','sieve.maxScriptBytes','sieve.maxScripts','sieve.maxRedirects','sieve.vacationAllowed','sieve.allowedExtensions'];
+ const policies:SettingsMap=Object.fromEntries(keys.map(key=>[key,{value:true,source:'global',locked:false,userValue:true}]));
+ const backup=buildBackup(policies,{},defaultAppearance(),source,TRANSFER_GROUPS);
+ expect(backup.items.some(item=>keys.includes(item.key))).toBe(false);
+ const reviewed=reviewBackup(file(keys.map(key=>({kind:'setting',key,value:false}))),policies,{},defaultAppearance(),source);
+ expect(reviewed.map(row=>row.status)).toEqual(keys.map(()=> 'locked'));
+ const write=vi.fn();await applyReviewed(reviewed,new Set(reviewed.map(row=>row.id)),()=>true,write,vi.fn());
+ expect(write).not.toHaveBeenCalled();
+});
