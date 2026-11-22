@@ -54,6 +54,33 @@ export function mergeMeasurements(snapshots,seconds){
   const merged=new Measurements();for(const snapshot of snapshots)merged.merge(snapshot);return merged.report(seconds);
 }
 
+const reason503Codes=Object.freeze(['publishedGuardFenceRefusal','authorizationNotConfirmedBeforeDispatch','requestProtectionUnavailable','empty503','other503']);
+function reasons503(){return {schema:1,total:0,counts:Object.fromEntries(reason503Codes.map(code=>[code,0]))};}
+// Never export arbitrary body fields or strings. An incomplete/large response
+// cannot establish either an empty body or a known error code.
+export function classifyHttp503(body,complete){
+ if(!complete||!Buffer.isBuffer(body)||body.length>4096)return 'other503';
+ if(body.length===0)return 'empty503';
+ try{
+  const value=JSON.parse(body.toString('utf8'));
+  return value&&!Array.isArray(value)&&typeof value==='object'&&reason503Codes.slice(0,3).includes(value.code)?value.code:'other503';
+ }catch{return 'other503';}
+}
+export function mergeHttp503Reasons(values,statusCounts){
+ if(!Array.isArray(values)||!values.length||values.length>16||!Array.isArray(statusCounts)||statusCounts.length!==values.length)throw Error('Invalid HTTP503 reason proof');
+ if(values.every(value=>value===undefined))return null;
+ const result=reasons503();
+ for(let index=0;index<values.length;index++){
+  const value=values[index],count=statusCounts[index];
+  if(!value||Object.keys(value).sort().join(',')!=='counts,schema,total'||value.schema!==1||!Number.isSafeInteger(count)||count<0||value.total!==count||!value.counts||Object.keys(value.counts).sort().join(',')!==[...reason503Codes].sort().join(','))throw Error('Invalid HTTP503 reason proof');
+  let sum=0;
+  for(const code of reason503Codes){const n=value.counts[code];if(!Number.isSafeInteger(n)||n<0||!Number.isSafeInteger(result.counts[code]+n))throw Error('Invalid HTTP503 reason proof');sum+=n;}
+  if(sum!==count||!Number.isSafeInteger(result.total+count))throw Error('Inconsistent HTTP503 reason proof');
+  for(const code of reason503Codes)result.counts[code]+=value.counts[code];result.total+=count;
+ }
+ return result;
+}
+
 // Separate histograms: legacy latencyMs continues to include principal queue
 // time. These are observed client intervals, never isolated server CPU/DB time.
 const timingNames=['principalQueue','httpAndValidation','validation'];
@@ -95,6 +122,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
   const distribution=counts=>{let total=0,min=Infinity,max=0;for(const count of counts.values()){total+=count;min=Math.min(min,count);max=Math.max(max,count);}return {participants:counts.size,requests:total,min:counts.size?min:0,max,mean:counts.size?total/counts.size:0};};
   const scheduling=new Measurements(),arrivalLatency=new Measurements();
   const principalQueues=new Map();
+  const error503=reasons503(),error503ByRequest=new Map(requests.map(request=>[request.name,reasons503()]));
   const latency=timings(),latencyByRequest=new Map(requests.map(request=>[request.name,timings()]));
   const taintedPrincipals=new Set();let mutationStateTainted=false,unknownMutationOutcomes=0,httpDispatchAttempts=0,blockedAfterMutationTaint=0,abortedUnscheduled=0;
   const send=async(planned=performance.now())=>{
@@ -104,7 +132,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
       scheduling.add(Math.max(0,began-planned),'scheduled',0,true);
       let status='network',bytes=0,ok=false,timedOut=false;
       const signal=AbortSignal.timeout(timeoutMs);
-      let unlock=null,dispatched=false,dispatchAt=null,queueMs=0,validationMs=null;
+      let unlock=null,dispatched=false,dispatchAt=null,queueMs=0,validationMs=null,reason503='other503';
       try{
         if(spec.serializePrincipal){
           if(!boundedIndex(spec.principalIndex))throw new Error('Serialized fixture requests require a bounded principal');
@@ -120,8 +148,9 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
         if(mutationStateTainted){status='campaign-aborted';blockedAfterMutationTaint++;throw new Error('Mutation outcome is unknown; fixture state cannot be reused');}
         dispatched=true;httpDispatchAttempts++;dispatchAt=performance.now();
         const response=await fetch(new URL(spec.path,base),{method:spec.method??'GET',headers:{...headers,...spec.headers},...(spec.body!==undefined?{body:spec.body}:{}),signal,redirect:'error'});
-        status=String(response.status);const chunks=[];const reader=response.body?.getReader();
-        if(reader)for(;;){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(bytes>8*1024*1024){await reader.cancel();throw new Error('response too large');}if(spec.validate||spec.validateBytes){if(bytes>(spec.validate?65536:1024*1024)){await reader.cancel();throw new Error('validation response too large');}chunks.push(part.value);}}
+        status=String(response.status);const chunks=[];let errorBody=status==='503'?Buffer.allocUnsafe(4096):null;const reader=response.body?.getReader();
+        if(reader)for(;;){const part=await reader.read();if(part.done)break;bytes+=part.value.length;if(errorBody){if(bytes<=4096)errorBody.set(part.value,bytes-part.value.length);else errorBody=null;}if(bytes>8*1024*1024){await reader.cancel();throw new Error('response too large');}if(spec.validate||spec.validateBytes){if(bytes>(spec.validate?65536:1024*1024)){await reader.cancel();throw new Error('validation response too large');}chunks.push(part.value);}}
+        if(status==='503')reason503=classifyHttp503(errorBody?errorBody.subarray(0,bytes):null,true);
         ok=(spec.statuses??[200]).includes(response.status);
         if(ok&&response.status!==429&&(spec.validate||spec.validateBytes)){
           const validationAt=performance.now();
@@ -137,6 +166,7 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
         unlock?.();
       }
       const completed=performance.now(),elapsed=completed-began,inWindow=acceptedInScheduledWindow(status,ok,completed,deadline);
+      if(status==='503')for(const value of [error503,error503ByRequest.get(spec.name)]){value.total++;value.counts[reason503]++;}
       for(const value of [latency,latencyByRequest.get(spec.name)]){
         value.principalQueue.add(queueMs,'scheduled',0,true);
         if(dispatchAt!==null)value.httpAndValidation.add(completed-dispatchAt,'scheduled',0,true);
@@ -184,10 +214,10 @@ export async function measure({base,requests,concurrency,seconds,timeoutMs=10000
   const cpuElapsed=commonStartAtMs===undefined?elapsed:Math.max(.000001,(completedAt-actualStart)/1000);
   const hooks={
     ...(commonStartAtMs===undefined?{}:{window:{requestedStartAtMs:commonStartAtMs,scheduledStartAtMs:commonStartAtMs,scheduledEndAtMs:commonStartAtMs+seconds*1000,actualStartAtMs:Math.round(wallOrigin+actualStart-monotonicOrigin),completedAtMs:Math.round(wallOrigin+completedAt-monotonicOrigin),startLagMs:Math.max(0,actualStart-start)}}),
-    latencyBreakdown:timingReport(latency,aggregate.count),
-    ...(includeRawMeasurements?{rawMeasurements:{schema:1,aggregate:aggregate.snapshot(),byRequest:Object.fromEntries([...byRequest].map(([name,measurements])=>[name,measurements.snapshot()])),scheduling:scheduling.snapshot(),arrivalLatency:arrivalLatency.snapshot(),latencyBreakdown:{schema:1,aggregate:timingSnapshot(latency),byRequest:Object.fromEntries([...latencyByRequest].map(([name,value])=>[name,timingSnapshot(value)]))}}}:{}),
+    latencyBreakdown:timingReport(latency,aggregate.count),http503Reasons:error503,
+    ...(includeRawMeasurements?{rawMeasurements:{schema:1,aggregate:aggregate.snapshot(),byRequest:Object.fromEntries([...byRequest].map(([name,measurements])=>[name,measurements.snapshot()])),scheduling:scheduling.snapshot(),arrivalLatency:arrivalLatency.snapshot(),http503Reasons:{schema:1,aggregate:error503,byRequest:Object.fromEntries(error503ByRequest)},latencyBreakdown:{schema:1,aggregate:timingSnapshot(latency),byRequest:Object.fromEntries([...latencyByRequest].map(([name,value])=>[name,timingSnapshot(value)]))}}}:{}),
   };
-  return {...hooks,mutationStateTainted,unknownMutationOutcomes,taintedPrincipals:taintedPrincipals.size,httpDispatchAttempts,blockedAfterMutationTaint,abortedUnscheduled,uniquePrincipalsAccepted:principals.accepted.size,uniquePrincipalsAttempted:principals.attempted.size,uniquePrincipalsAcceptedDuringScheduledWindow:principals.withinWindow.size,uniqueClientsAttempted:clients.attempted.size,uniqueClientsAccepted:clients.accepted.size,uniqueClientsAcceptedDuringScheduledWindow:clients.withinWindow.size,participantDistribution:{principals:{attempted:distribution(principals.attempted),accepted:distribution(principals.accepted)},simulatedClients:{attempted:distribution(clients.attempted),accepted:distribution(clients.accepted)}},peakOutstanding,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,generator:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,cpuLogicalCores:(cpu.user+cpu.system)/(cpuElapsed*1000000),rssBeforeBytes:memoryStart.rss,rssAfterBytes:memoryEnd.rss,heapAfterBytes:memoryEnd.heapUsed},concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,droppedCapacity,droppedScheduler,peakOutstanding,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,{...value.report(elapsed),latencyBreakdown:timingReport(latencyByRequest.get(key),value.count)}]))};
+  return {...hooks,mutationStateTainted,unknownMutationOutcomes,taintedPrincipals:taintedPrincipals.size,httpDispatchAttempts,blockedAfterMutationTaint,abortedUnscheduled,uniquePrincipalsAccepted:principals.accepted.size,uniquePrincipalsAttempted:principals.attempted.size,uniquePrincipalsAcceptedDuringScheduledWindow:principals.withinWindow.size,uniqueClientsAttempted:clients.attempted.size,uniqueClientsAccepted:clients.accepted.size,uniqueClientsAcceptedDuringScheduledWindow:clients.withinWindow.size,participantDistribution:{principals:{attempted:distribution(principals.attempted),accepted:distribution(principals.accepted)},simulatedClients:{attempted:distribution(clients.attempted),accepted:distribution(clients.accepted)}},peakOutstanding,acceptedDuringScheduledWindow:acceptedWithinWindow,acceptedDuringScheduledWindowRps:acceptedWithinWindow/seconds,generator:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,cpuLogicalCores:(cpu.user+cpu.system)/(cpuElapsed*1000000),rssBeforeBytes:memoryStart.rss,rssAfterBytes:memoryEnd.rss,heapAfterBytes:memoryEnd.heapUsed},concurrency,scheduledSeconds:seconds,elapsedSeconds:elapsed,...(arrivalRate===undefined?{}:{arrivalRate,offered,attempted:aggregate.count,attemptedRequestsPerSecond:aggregate.count/seconds,achievedRequestsPerSecond:aggregate.count/elapsed,droppedCapacity,droppedScheduler,peakOutstanding,schedulingLagMs:scheduling.report(elapsed).latencyMs,plannedArrivalLatencyMs:arrivalLatency.report(elapsed).latencyMs}),...aggregate.report(elapsed),byRequest:Object.fromEntries([...byRequest].map(([key,value])=>[key,{...value.report(elapsed),latencyBreakdown:timingReport(latencyByRequest.get(key),value.count),http503Reasons:error503ByRequest.get(key)}]))};
 }
 
 export function markdownReport(report){
