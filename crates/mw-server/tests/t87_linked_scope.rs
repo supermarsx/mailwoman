@@ -218,7 +218,18 @@ impl Fixture {
             policy(&db, cap, "true").await;
             domain_value(&db, "example.org", cap, "false").await;
         }
+        // Managed MailRule/Vacation writes stage their generated script through
+        // the same real sealed upload store as public SieveScript writes. The
+        // production default deliberately fails closed when no root is set.
+        let previous_upload_dir=std::env::var_os("MW_UPLOAD_DIR");
+        unsafe { std::env::set_var("MW_UPLOAD_DIR",dir.join("uploads")); }
         let base = serve(&db).await;
+        unsafe {
+            match previous_upload_dir {
+                Some(value)=>std::env::set_var("MW_UPLOAD_DIR",value),
+                None=>std::env::remove_var("MW_UPLOAD_DIR"),
+            }
+        }
         let http = sign_in(&base, "parent@example.org", PARENT_PASS).await;
         common::auth::user_step_up(&http, &base, PARENT_PASS).await;
         let linked = json_of(
