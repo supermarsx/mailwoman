@@ -1,5 +1,9 @@
 # Native mail HTTP load fixtures
 
+Use the [layered capacity protocol](layered-capacity.md) to separate transport,
+guarded request handling, database work, individual mail operations and mixed
+load. A mixed workload's per-route request share is not a route capacity result.
+
 For CPU diagnosis, the Dockerfile also provides an optional `fixture-profile`
 target. It inherits the gated native release image, reuses its Cargo dependency
 cache, and invokes `cargo rustc` with symbol stripping disabled only for a
