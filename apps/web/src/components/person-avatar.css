@@ -2,10 +2,12 @@
 .person-avatar img { inline-size:100%; block-size:100%; object-fit:cover; }
 .person-avatar svg { inline-size:1.05rem; block-size:1.05rem; flex:none; }
 
-/* Branded tiles use more of the small avatar while contact photos stay circular. */
-.person-avatar[data-sender-icon] { border-radius:0; }
-.person-avatar[data-sender-icon] svg { inline-size:78%; block-size:78%; }
-.person-avatar img.person-avatar__brand { inline-size:82%; block-size:82%; object-fit:contain; }
+/* One artwork box for all vendor marks. Contact photos keep their cover fit. */
+.person-avatar[data-sender-icon] { box-sizing:border-box; border-radius:0; padding:2px; }
+.person-avatar[data-sender-icon] svg { inline-size:100%; block-size:100%; }
+.person-avatar img.person-avatar__brand { inline-size:auto; block-size:auto; max-inline-size:100%; max-block-size:100%; object-fit:scale-down; }
+/* SVG is scalable; only raster/ICO artwork stays at its native size. */
+.person-avatar img.person-avatar__brand[data-vendor-scalable="true"] { inline-size:100%; block-size:100%; object-fit:contain; }
 .person-avatar__monogram { font-size:.64rem; letter-spacing:-.035em; }
 .person-avatar__monogram[data-length="3"] { font-size:.51rem; }
 .person-avatar__monogram[data-length="4"] { font-size:.43rem; }

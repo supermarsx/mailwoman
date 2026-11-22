@@ -3,6 +3,7 @@ import {globalStyle, style} from '@vanilla-extract/css';
 // Fixed box per size, so nothing shifts while the lazy path chunk loads.
 export const logo = style({
   display: 'inline-block', flex: 'none', verticalAlign: 'middle', boxSizing: 'border-box',
+  aspectRatio: '1 / 1', objectFit: 'contain', maxInlineSize: '100%',
   selectors: {
     '&[data-size="16"]': {inlineSize: '16px', blockSize: '16px'},
     '&[data-size="20"]': {inlineSize: '20px', blockSize: '20px'},

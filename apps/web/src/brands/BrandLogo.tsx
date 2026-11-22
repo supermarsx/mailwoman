@@ -53,6 +53,7 @@ export function BrandLogo(props: BrandLogoProps): JSX.Element {
   return (
     <svg
       class={css.logo} data-size={props.size ?? 20} data-brand={entry()?.id ?? 'monogram'}
+      width={props.size ?? 20} height={props.size ?? 20} preserveAspectRatio="xMidYMid meet"
       viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"
       role={props.decorative ? undefined : 'img'} aria-label={props.decorative ? undefined : label()} aria-hidden={props.decorative ? 'true' : undefined}
     >
