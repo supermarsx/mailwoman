@@ -9,7 +9,7 @@
 //!   (`/metrics`);
 //! * counters since the process started, per class ([`summary`]);
 //! * a ring of the last 60 one-minute buckets, per class: requests, 4xx, 5xx and a
-//!   fixed-bucket latency histogram from which p50/p95 are read ([`traffic_series`]).
+//!   fixed-bucket latency histogram from which p50/p95/p99 are read ([`traffic_series`]).
 //!
 //! Everything here is per process: a deployment with several replicas has one ring
 //! per replica, and the API says so (`perProcess: true`).
@@ -284,9 +284,11 @@ pub struct Point {
     pub errors5xx: u64,
     pub p50_ms: f64,
     pub p95_ms: f64,
+    pub p99_ms: f64,
     pub legacy_latency_estimate: bool,
     pub p50_resolution_ms: Option<f64>,
     pub p95_resolution_ms: Option<f64>,
+    pub p99_resolution_ms: Option<f64>,
 }
 
 impl From<&Cell> for Point {
@@ -297,9 +299,11 @@ impl From<&Cell> for Point {
             errors5xx: c.errors5xx,
             p50_ms: c.quantile_ms(0.50),
             p95_ms: c.quantile_ms(0.95),
+            p99_ms: c.quantile_ms(0.99),
             legacy_latency_estimate: c.hist.legacy_estimate(),
             p50_resolution_ms: c.hist.precise_percentile_resolution_ms(50),
             p95_resolution_ms: c.hist.precise_percentile_resolution_ms(95),
+            p99_resolution_ms: c.hist.precise_percentile_resolution_ms(99),
         }
     }
 }
@@ -423,7 +427,7 @@ async fn summary_route(_ctx: crate::admin_ctx::AdminCtx) -> impl axum::response:
     )
 }
 
-/// The dashboard's `traffic.series`: `{t, requests, errors5xx, p50Ms, p95Ms}` per
+/// The dashboard's `traffic.series`: `{t, requests, errors5xx, p50Ms, p95Ms, p99Ms}` per
 /// minute over all classes, oldest first.
 pub fn traffic_series() -> Vec<serde_json::Value> {
     summary()
@@ -436,9 +440,11 @@ pub fn traffic_series() -> Vec<serde_json::Value> {
                 "errors5xx": m.all.errors5xx,
                 "p50Ms": m.all.p50_ms,
                 "p95Ms": m.all.p95_ms,
+                "p99Ms": m.all.p99_ms,
                 "legacyLatencyEstimate":m.all.legacy_latency_estimate,
                 "p50ResolutionMs":m.all.p50_resolution_ms,
                 "p95ResolutionMs":m.all.p95_resolution_ms,
+                "p99ResolutionMs":m.all.p99_resolution_ms,
             })
         })
         .collect()
@@ -447,6 +453,26 @@ pub fn traffic_series() -> Vec<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_p99_uses_merged_sample_rank_and_preserves_empty_wire_compatibility() {
+        let mut fast = Cell::default();
+        for _ in 0..98 { fast.add_us(200, 123); }
+        let mut tail = Cell::default();
+        for _ in 0..2 { tail.add_us(503, 999); }
+        fast.merge(&tail);
+        let point = Point::from(&fast);
+        assert_eq!(point.p95_ms, 0.123);
+        assert_eq!(point.p99_ms, 0.999);
+        assert_eq!(point.p99_resolution_ms, Some(0.001));
+        let wire = serde_json::to_value(point).unwrap();
+        assert_eq!(wire["p99Ms"], serde_json::json!(0.999));
+        assert_eq!(wire["p99ResolutionMs"], serde_json::json!(0.001));
+        let empty = Point::from(&Cell::default());
+        assert_eq!(empty.p99_ms, 0.0, "existing live point empty-zero convention is additive");
+        assert_eq!(empty.p99_resolution_ms, None);
+    }
+
 
     #[test]
     fn classes_follow_the_path_on_segment_boundaries() {

@@ -10,7 +10,7 @@
 //!
 //! `GET /admin/metrics/client-timing` merges the hourly histograms over a period
 //! and returns count, mean, p50/p75/p95/p99 per metric and device class plus a
-//! p50/p95 series. Percentiles are withheld below `observability.clientTiming.
+//! p50/p95/p99 series. Percentiles are withheld below `observability.clientTiming.
 //! minSamples` samples. Accuracy is one histogram bin (about 22% worst case).
 use crate::{
     AppState,
@@ -479,7 +479,7 @@ fn stats(hist: &Hist, min_samples: u64) -> Value {
     })
 }
 
-/// Merge `rows` into per-metric totals, per-device totals and a p50/p95 series.
+/// Merge `rows` into per-metric totals, per-device totals and a p50/p95/p99 series.
 pub(crate) fn summarize(
     rows: &[TimingBucket],
     from: i64,
@@ -512,6 +512,7 @@ pub(crate) fn summarize(
                 "t": t, "count": h.count,
                 "p50Ms": enough.then(|| h.percentile_ms(50)).flatten(),
                 "p95Ms": enough.then(|| h.percentile_ms(95)).flatten(),
+                "p99Ms": enough.then(|| h.percentile_ms(99)).flatten(),
             }));
             t += width;
         }
@@ -599,6 +600,28 @@ pub(crate) async fn history(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn p99_series_merges_unequal_device_samples_and_respects_minimum_and_gaps() {
+        let mut fast = Hist::default();
+        for _ in 0..100 { fast.record(10); }
+        let mut slow = Hist::default(); slow.record(100_000);
+        let rows = [
+            TimingBucket {start:0,metric:"ttfb".into(),device:"desktop".into(),hist:fast},
+            TimingBucket {start:3600,metric:"ttfb".into(),device:"mobile".into(),hist:slow},
+        ];
+        let summary = summarize(&rows, 0, 14400, 7200, 1);
+        let merged = &summary["ttfb"]["series"][0];
+        assert_eq!(merged["count"], 101);
+        assert!(merged["p99Ms"].as_f64().unwrap() < 20.0, "the one slow device does not receive half the sample weight");
+        assert_eq!(merged["p99Ms"], summary["ttfb"]["all"]["p99Ms"]);
+        assert!(summary["ttfb"]["series"][1]["p99Ms"].is_null());
+        let insufficient = summarize(&rows, 0, 7200, 3600, 2);
+        assert!(insufficient["ttfb"]["series"][1]["p99Ms"].is_null());
+        let single = summarize(&rows[1..], 0, 7200, 3600, 1);
+        assert!(single["ttfb"]["series"][1]["p99Ms"].is_number());
+    }
+
 
     #[test]
     fn a_valid_beacon_is_clamped_and_classified() {

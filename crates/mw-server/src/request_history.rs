@@ -226,6 +226,7 @@ pub(crate) async fn history(
             .store
             .request_metrics_history(from, to, source)
             .await?;
+        let latency = latency_summary(rows.iter().map(|row| &row.counts));
         let mut series = Vec::new();
         let mut observed = Vec::new();
         let (mut tracked, mut untracked) = (Vec::new(), Vec::new());
@@ -282,7 +283,7 @@ pub(crate) async fn history(
             } else {
                 "partial"
             };
-            series.push(json!({"t":t,"requests":(covered>0).then_some(counts.requests),"errors5xx":(covered>0).then_some(counts.errors5xx),"notFound":(nf_covered>0).then_some(group.not_found),"notFoundCoverage":nf_coverage,"p50Ms":(covered>0).then(||counts.precise_percentile_ms(50)).flatten(),"p95Ms":(covered>0).then(||counts.precise_percentile_ms(95)).flatten(),"coverage":coverage,"legacyLatencyEstimate":counts.legacy_estimate(),"p50ResolutionMs":counts.precise_percentile_resolution_ms(50),"p95ResolutionMs":counts.precise_percentile_resolution_ms(95)}));
+            series.push(json!({"t":t,"requests":(covered>0).then_some(counts.requests),"errors5xx":(covered>0).then_some(counts.errors5xx),"notFound":(nf_covered>0).then_some(group.not_found),"notFoundCoverage":nf_coverage,"p50Ms":(covered>0).then(||counts.precise_percentile_ms(50)).flatten(),"p95Ms":(covered>0).then(||counts.precise_percentile_ms(95)).flatten(),"p99Ms":(covered>0).then(||counts.precise_percentile_ms(99)).flatten(),"coverage":coverage,"legacyLatencyEstimate":counts.legacy_estimate(),"p50ResolutionMs":counts.precise_percentile_resolution_ms(50),"p95ResolutionMs":counts.precise_percentile_resolution_ms(95),"p99ResolutionMs":counts.precise_percentile_resolution_ms(99)}));
             t = end;
         }
         let not_found = not_found_coverage(&tracked, &untracked);
@@ -299,7 +300,7 @@ pub(crate) async fn history(
             gaps.push(json!({"from":cursor,"to":to}));
         }
         let seconds = observed.iter().map(|(a, b)| b - a).sum::<i64>();
-        Ok::<_,AdminApiError>(([(header::CACHE_CONTROL,"no-store")],Json(json!({"from":from,"to":to,"bucketSeconds":width,"series":series,"coverage":{"observedSeconds":seconds,"requestedSeconds":to-from,"gaps":gaps,"notFound":not_found},"policy":policy,"scope":"server","timing":"response-ready","latencySampleUnit":"microseconds"}))).into_response())
+        Ok::<_,AdminApiError>(([(header::CACHE_CONTROL,"no-store")],Json(json!({"from":from,"to":to,"bucketSeconds":width,"series":series,"latency":latency,"coverage":{"observedSeconds":seconds,"requestedSeconds":to-from,"gaps":gaps,"notFound":not_found},"policy":policy,"scope":"server","timing":"response-ready","latencySampleUnit":"microseconds"}))).into_response())
     };
     tokio::time::timeout(Duration::from_secs(5), work)
         .await
@@ -310,6 +311,22 @@ pub(crate) async fn history(
                 "Request history is temporarily unavailable.",
             )
         })?
+}
+/// Merge actual selected source samples before evaluating any percentile.
+/// Empty/gap periods add no samples; legacy precision remains explicitly marked.
+fn latency_summary<'a>(counts: impl IntoIterator<Item = &'a Counts>) -> serde_json::Value {
+    let mut total = Counts::default();
+    for counts in counts { total.merge(counts); }
+    json!({
+        "count": total.requests,
+        "p50Ms": total.precise_percentile_ms(50),
+        "p95Ms": total.precise_percentile_ms(95),
+        "p99Ms": total.precise_percentile_ms(99),
+        "p50ResolutionMs": total.precise_percentile_resolution_ms(50),
+        "p95ResolutionMs": total.precise_percentile_resolution_ms(95),
+        "p99ResolutionMs": total.precise_percentile_resolution_ms(99),
+        "legacyLatencyEstimate": total.legacy_estimate(),
+    })
 }
 #[derive(Default)]
 struct Group {
@@ -478,6 +495,53 @@ fn union(intervals: &[(i64, i64)]) -> Vec<(i64, i64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn period_latency_merges_sample_weights_instead_of_bucket_percentiles() {
+        let mut fast = Counts::default();
+        for _ in 0..100 { fast.record_us(200, 123); }
+        let mut slow = Counts::default(); slow.record_us(503, 900_000);
+        let summary = latency_summary([&fast, &slow]);
+        assert_eq!(summary["count"], 101);
+        for key in ["p50Ms", "p95Ms", "p99Ms"] { assert_eq!(summary[key], json!(0.123)); }
+        assert_eq!(summary["p99ResolutionMs"], json!(0.001));
+        assert_eq!(summary["legacyLatencyEstimate"], false);
+        assert!(slow.precise_percentile_ms(99).unwrap() > 100.0);
+    }
+    #[test]
+    fn period_latency_small_tail_retains_microsecond_rank_and_resolution() {
+        let mut fast = Counts::default();
+        for _ in 0..98 { fast.record_us(200, 123); }
+        let mut tail = Counts::default();
+        for _ in 0..2 { tail.record_us(200, 999); }
+        let summary = latency_summary([&fast, &tail]);
+        assert_eq!(summary["count"], 100);
+        assert_eq!(summary["p50Ms"], json!(0.123));
+        assert_eq!(summary["p95Ms"], json!(0.123));
+        assert_eq!(summary["p99Ms"], json!(0.999));
+        assert_eq!(summary["p99ResolutionMs"], json!(0.001));
+        let single = latency_summary([&tail]);
+        assert_eq!(single["count"], 2);
+        assert_eq!(single["p99Ms"], json!(0.999));
+    }
+    #[test]
+    fn period_latency_legacy_precision_is_not_upgraded_by_modern_samples() {
+        let legacy: Counts = serde_json::from_value(json!({"requests":1,"errors5xx":0,"histogram":[0,0,0,1,0,0,0,0,0,0,0,0,0,0],"max_ms":8})).unwrap();
+        let mut modern = Counts::default(); modern.record_us(200, 123);
+        let summary = latency_summary([&legacy, &modern]);
+        assert_eq!(summary["count"], 2);
+        assert_eq!(summary["legacyLatencyEstimate"], true);
+        assert_eq!(summary["p99Ms"], json!(10.0));
+        for key in ["p50ResolutionMs", "p95ResolutionMs", "p99ResolutionMs"] { assert!(summary[key].is_null()); }
+    }
+    #[test]
+    fn period_latency_empty_has_no_invented_quantiles_or_samples() {
+        let summary = latency_summary(std::iter::empty::<&Counts>());
+        assert_eq!(summary["count"], 0);
+        assert_eq!(summary["legacyLatencyEstimate"], false);
+        for key in ["p50Ms", "p95Ms", "p99Ms", "p50ResolutionMs", "p95ResolutionMs", "p99ResolutionMs"] { assert!(summary[key].is_null()); }
+    }
+
     #[tokio::test]
     async fn policy_is_live_and_retention_caps_requested_ranges() {
         let store = Store::open_in_memory(mw_store::ServerKey::generate())

@@ -545,6 +545,7 @@ fn build_groups(rows: &[MetricRow], src: &Source, from: i64, step: i64, n: usize
         if !src.counter {
             series_obj["p50"] = json!(series(&|a| shown(a.quantile(0.5), src.divisor)));
             series_obj["p95"] = json!(series(&|a| shown(a.quantile(0.95), src.divisor)));
+            series_obj["p99"] = json!(series(&|a| shown(a.quantile(0.99), src.divisor)));
         }
         let by: serde_json::Map<String, Value> = breakdown
             .iter()
@@ -694,6 +695,28 @@ pub(crate) async fn reset(store: &Store, name: &str, prefix: &str) -> Result<u64
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn persisted_p99_series_uses_merged_sketches_and_keeps_empty_points_null() {
+        let mut fast = Agg::default();
+        for _ in 0..100 { fast.record(10); }
+        let mut slow = Agg::default(); slow.record(100_000);
+        let rows = [
+            MetricRow {instance:"a".into(),metric:"clientTiming.load".into(),start:0,resolution:60,dims:dims("desktop"),agg:fast},
+            MetricRow {instance:"b".into(),metric:"clientTiming.load".into(),start:60,resolution:60,dims:dims("mobile"),agg:slow},
+        ];
+        let src = source("clientTiming").unwrap();
+        let groups = build_groups(&rows, &src, 0, 120, 2);
+        let load = &groups["load"];
+        assert_eq!(load["totals"]["count"], 101);
+        assert_eq!(load["series"]["p99"][0], load["totals"]["p99"]);
+        assert!(load["series"]["p99"][0].as_f64().unwrap() < 20.0);
+        assert!(load["series"]["p99"][1].is_null());
+        let single = build_groups(&rows[1..], &src, 0, 120, 1);
+        assert_eq!(single["load"]["series"]["p99"][0], single["load"]["series"]["p50"][0]);
+        assert!(single["load"]["series"]["p99"][0].is_number());
+    }
+
 
     async fn store() -> Store {
         Store::open_in_memory(mw_store::ServerKey::generate()).await.unwrap()
