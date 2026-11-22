@@ -19,6 +19,11 @@ pub struct KernelUsage {
 #[serde(rename_all = "camelCase")]
 pub struct CpuUsage {
     pub scalar: KernelUsage,
+    pub sse2: KernelUsage,
+    pub sse3: KernelUsage,
+    pub ssse3: KernelUsage,
+    pub sse41: KernelUsage,
+    pub sse42: KernelUsage,
     pub avx2: KernelUsage,
     pub avx512: KernelUsage,
 }
@@ -49,6 +54,11 @@ impl UsageCounter {
     }
 }
 static SCALAR_USAGE: UsageCounter = UsageCounter::new();
+static SSE2_USAGE: UsageCounter = UsageCounter::new();
+static SSE3_USAGE: UsageCounter = UsageCounter::new();
+static SSSE3_USAGE: UsageCounter = UsageCounter::new();
+static SSE41_USAGE: UsageCounter = UsageCounter::new();
+static SSE42_USAGE: UsageCounter = UsageCounter::new();
 static AVX2_USAGE: UsageCounter = UsageCounter::new();
 static AVX512_USAGE: UsageCounter = UsageCounter::new();
 
@@ -56,6 +66,11 @@ static AVX512_USAGE: UsageCounter = UsageCounter::new();
 pub fn usage() -> CpuUsage {
     CpuUsage {
         scalar: SCALAR_USAGE.snapshot(),
+        sse2: SSE2_USAGE.snapshot(),
+        sse3: SSE3_USAGE.snapshot(),
+        ssse3: SSSE3_USAGE.snapshot(),
+        sse41: SSE41_USAGE.snapshot(),
+        sse42: SSE42_USAGE.snapshot(),
         avx2: AVX2_USAGE.snapshot(),
         avx512: AVX512_USAGE.snapshot(),
     }
@@ -67,6 +82,11 @@ fn record_usage(backend: Backend, len: usize) {
             SCALAR_USAGE.record(len);
             return;
         }
+        Backend::Sse2 => (&SSE2_USAGE, 16),
+        Backend::Sse3 => (&SSE3_USAGE, 16),
+        Backend::Ssse3 => (&SSSE3_USAGE, 16),
+        Backend::Sse41 => (&SSE41_USAGE, 16),
+        Backend::Sse42 => (&SSE42_USAGE, 16),
         Backend::Avx2 => (&AVX2_USAGE, 32),
         Backend::Avx512 => (&AVX512_USAGE, 64),
     };
@@ -80,7 +100,13 @@ pub const AVX512_MIN_BYTES: usize = 512;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Backend {
+    /// Portable Rust implementation; the compiler may itself vectorize it.
     Scalar,
+    Sse2,
+    Sse3,
+    Ssse3,
+    Sse41,
+    Sse42,
     Avx2,
     Avx512,
 }
@@ -88,6 +114,11 @@ impl Backend {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Scalar => "portable",
+            Self::Sse2 => "sse2",
+            Self::Sse3 => "sse3",
+            Self::Ssse3 => "ssse3",
+            Self::Sse41 => "sse4.1",
+            Self::Sse42 => "sse4.2",
             Self::Avx2 => "avx2",
             Self::Avx512 => "avx512f+bw",
         }
@@ -96,6 +127,16 @@ impl Backend {
         match self {
             Self::Scalar => true,
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Sse2 => std::is_x86_feature_detected!("sse2"),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Sse3 => std::is_x86_feature_detected!("sse3"),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Ssse3 => std::is_x86_feature_detected!("ssse3"),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Sse41 => std::is_x86_feature_detected!("sse4.1"),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Self::Sse42 => std::is_x86_feature_detected!("sse4.2"),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Self::Avx2 => std::is_x86_feature_detected!("avx2"),
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Self::Avx512 => {
@@ -103,7 +144,13 @@ impl Backend {
                     && std::is_x86_feature_detected!("avx512bw")
             }
             #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-            Self::Avx2 | Self::Avx512 => false,
+            Self::Sse2
+            | Self::Sse3
+            | Self::Ssse3
+            | Self::Sse41
+            | Self::Sse42
+            | Self::Avx2
+            | Self::Avx512 => false,
         }
     }
 }
@@ -125,11 +172,21 @@ impl std::error::Error for UnsupportedBackend {}
 pub struct CpuCapabilities {
     pub architecture: &'static str,
     pub available_features: Vec<&'static str>,
-    /// Highest available implemented lowercase kernel. Short calls can use the
-    /// portable implementation according to the documented dispatch thresholds.
+    /// Preferred kernel for large inputs; higher ISA availability alone does
+    /// not establish a faster implementation. Short calls use size thresholds.
     pub selected_backend: Backend,
+    pub highest_available_backend: Backend,
+    /// No automatic SSE cutoff is qualified. Forced SSE kernels remain
+    /// available independently of automatic dispatch policy.
+    pub sse_min_bytes: Option<usize>,
     pub avx2_min_bytes: usize,
     pub avx512_min_bytes: usize,
+}
+fn preferred_large_backend(highest: Backend) -> Backend {
+    match highest {
+        Backend::Avx512 | Backend::Avx2 => highest,
+        _ => Backend::Scalar,
+    }
 }
 pub fn capabilities() -> &'static CpuCapabilities {
     static CAPABILITIES: LazyLock<CpuCapabilities> = LazyLock::new(|| {
@@ -144,6 +201,7 @@ pub fn capabilities() -> &'static CpuCapabilities {
                 };
             }
             feature!("sse2");
+            feature!("sse3");
             feature!("ssse3");
             feature!("sse4.1");
             feature!("sse4.2");
@@ -175,16 +233,25 @@ pub fn capabilities() -> &'static CpuCapabilities {
                 features.push("crc");
             }
         }
+        let highest = [
+            Backend::Avx512,
+            Backend::Avx2,
+            Backend::Sse42,
+            Backend::Sse41,
+            Backend::Ssse3,
+            Backend::Sse3,
+            Backend::Sse2,
+        ]
+        .into_iter()
+        .find(|backend| backend.is_supported())
+        .unwrap_or(Backend::Scalar);
         CpuCapabilities {
             architecture: std::env::consts::ARCH,
             available_features: features,
-            selected_backend: if Backend::Avx512.is_supported() {
-                Backend::Avx512
-            } else if Backend::Avx2.is_supported() {
-                Backend::Avx2
-            } else {
-                Backend::Scalar
-            },
+            // No measured consistent SSE gain over compiler-vectorized Rust.
+            selected_backend: preferred_large_backend(highest),
+            highest_available_backend: highest,
+            sse_min_bytes: None,
             avx2_min_bytes: AVX2_MIN_BYTES,
             avx512_min_bytes: AVX512_MIN_BYTES,
         }
@@ -204,7 +271,7 @@ pub fn selected_backend_for_len(len: usize) -> Backend {
 #[inline]
 pub fn make_ascii_lowercase(bytes: &mut [u8]) {
     // Keep tiny inputs independent of feature discovery and indirect dispatch.
-    if bytes.len() < AVX2_MIN_BYTES {
+    if bytes.len() < AVX2_MIN_BYTES.min(AVX512_MIN_BYTES) {
         bytes.make_ascii_lowercase();
         record_usage(Backend::Scalar, bytes.len());
         return;
@@ -240,13 +307,30 @@ fn dispatch_supported(bytes: &mut [u8], backend: Backend) {
     match backend {
         Backend::Scalar => bytes.make_ascii_lowercase(),
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        // SAFETY: each private kernel is reached only after its runtime check.
+        Backend::Sse2 => unsafe { x86::sse2(bytes) },
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        Backend::Sse3 => unsafe { x86::sse3(bytes) },
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        Backend::Ssse3 => unsafe { x86::ssse3(bytes) },
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        Backend::Sse41 => unsafe { x86::sse41(bytes) },
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        Backend::Sse42 => unsafe { x86::sse42(bytes) },
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         // SAFETY: private entry reached only after runtime feature detection.
         Backend::Avx2 => unsafe { x86::avx2(bytes) },
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         // SAFETY: private entry reached only after runtime feature detection.
         Backend::Avx512 => unsafe { x86::avx512(bytes) },
         #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-        Backend::Avx2 | Backend::Avx512 => unreachable!("unsupported backend cannot be selected"),
+        Backend::Sse2
+        | Backend::Sse3
+        | Backend::Ssse3
+        | Backend::Sse41
+        | Backend::Sse42
+        | Backend::Avx2
+        | Backend::Avx512 => unreachable!("unsupported backend cannot be selected"),
     }
     record_usage(backend, bytes.len());
 }
@@ -256,6 +340,113 @@ mod x86 {
     use std::arch::x86::*;
     #[cfg(target_arch = "x86_64")]
     use std::arch::x86_64::*;
+    #[target_feature(enable = "sse2")]
+    pub(super) unsafe fn sse2(bytes: &mut [u8]) {
+        let mut chunks = bytes.chunks_exact_mut(16);
+        for chunk in &mut chunks {
+            // SAFETY: exactly sixteen initialized writable bytes, no alignment
+            // requirement. Signed comparison excludes every non-ASCII byte.
+            unsafe {
+                let value = _mm_loadu_si128(chunk.as_ptr().cast());
+                let upper = _mm_and_si128(
+                    _mm_cmpgt_epi8(value, _mm_set1_epi8(64)),
+                    _mm_cmpgt_epi8(_mm_set1_epi8(91), value),
+                );
+                let result = _mm_add_epi8(value, _mm_and_si128(upper, _mm_set1_epi8(32)));
+                _mm_storeu_si128(chunk.as_mut_ptr().cast(), result);
+            }
+        }
+        chunks.into_remainder().make_ascii_lowercase();
+    }
+    #[target_feature(enable = "sse3")]
+    pub(super) unsafe fn sse3(bytes: &mut [u8]) {
+        let mut chunks = bytes.chunks_exact_mut(16);
+        for chunk in &mut chunks {
+            // SAFETY: LDDQU consumes the full sixteen-byte chunk; all stores
+            // remain within it. Classification/tails have SSE2 semantics.
+            unsafe {
+                let value = _mm_lddqu_si128(chunk.as_ptr().cast());
+                let upper = _mm_and_si128(
+                    _mm_cmpgt_epi8(value, _mm_set1_epi8(64)),
+                    _mm_cmpgt_epi8(_mm_set1_epi8(91), value),
+                );
+                let result = _mm_add_epi8(value, _mm_and_si128(upper, _mm_set1_epi8(32)));
+                _mm_storeu_si128(chunk.as_mut_ptr().cast(), result);
+            }
+        }
+        chunks.into_remainder().make_ascii_lowercase();
+    }
+    #[target_feature(enable = "ssse3")]
+    pub(super) unsafe fn ssse3(bytes: &mut [u8]) {
+        let mut chunks = bytes.chunks_exact_mut(16);
+        for chunk in &mut chunks {
+            // SAFETY: only in-bounds sixteen-byte loads/stores. PSHUFB uses
+            // bounded nibble indices; non-ASCII high nibbles map to zero.
+            unsafe {
+                let value = _mm_loadu_si128(chunk.as_ptr().cast());
+                let nibble = _mm_set1_epi8(15);
+                let low = _mm_and_si128(value, nibble);
+                let high = _mm_and_si128(_mm_srli_epi16::<4>(value), nibble);
+                // High nibble4 admits low1..15; high5 admits low0..10.
+                let lows = _mm_setr_epi8(2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1, 1);
+                let highs = _mm_setr_epi8(0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                let tags =
+                    _mm_and_si128(_mm_shuffle_epi8(lows, low), _mm_shuffle_epi8(highs, high));
+                let upper = _mm_cmpgt_epi8(tags, _mm_setzero_si128());
+                _mm_storeu_si128(
+                    chunk.as_mut_ptr().cast(),
+                    _mm_add_epi8(value, _mm_and_si128(upper, _mm_set1_epi8(32))),
+                );
+            }
+        }
+        chunks.into_remainder().make_ascii_lowercase();
+    }
+    #[target_feature(enable = "sse4.1")]
+    pub(super) unsafe fn sse41(bytes: &mut [u8]) {
+        let mut chunks = bytes.chunks_exact_mut(16);
+        for chunk in &mut chunks {
+            // SAFETY: exact sixteen-byte chunk, runtime SSE4.1 gate. PTEST
+            // avoids stores when the chunk has no uppercase ASCII; the
+            // optional blend changes only bytes whose ASCII mask is FF.
+            unsafe {
+                let value = _mm_loadu_si128(chunk.as_ptr().cast());
+                let upper = _mm_and_si128(
+                    _mm_cmpgt_epi8(value, _mm_set1_epi8(64)),
+                    _mm_cmpgt_epi8(_mm_set1_epi8(91), value),
+                );
+                if _mm_testz_si128(upper, upper) == 0 {
+                    let result =
+                        _mm_blendv_epi8(value, _mm_add_epi8(value, _mm_set1_epi8(32)), upper);
+                    _mm_storeu_si128(chunk.as_mut_ptr().cast(), result);
+                }
+            }
+        }
+        chunks.into_remainder().make_ascii_lowercase();
+    }
+    #[target_feature(enable = "sse4.2")]
+    pub(super) unsafe fn sse42(bytes: &mut [u8]) {
+        let mut chunks = bytes.chunks_exact_mut(16);
+        for chunk in &mut chunks {
+            // SAFETY: explicit lengths2/16 make NUL an ordinary input byte,
+            // not a terminator. Unsigned ranges exclude all non-ASCII values.
+            // No implicit string read, masked overread or pointer past a chunk.
+            unsafe {
+                let value = _mm_loadu_si128(chunk.as_ptr().cast());
+                let range = _mm_setr_epi8(65, 90, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                let upper = _mm_cmpestrm::<
+                    {
+                        _SIDD_UBYTE_OPS
+                            | _SIDD_CMP_RANGES
+                            | _SIDD_POSITIVE_POLARITY
+                            | _SIDD_UNIT_MASK
+                    },
+                >(range, 2, value, 16);
+                let result = _mm_add_epi8(value, _mm_and_si128(upper, _mm_set1_epi8(32)));
+                _mm_storeu_si128(chunk.as_mut_ptr().cast(), result);
+            }
+        }
+        chunks.into_remainder().make_ascii_lowercase();
+    }
     #[target_feature(enable = "avx2")]
     pub(super) unsafe fn avx2(bytes: &mut [u8]) {
         let mut chunks = bytes.chunks_exact_mut(32);
@@ -295,6 +486,16 @@ mod x86 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const BACKENDS: [Backend; 8] = [
+        Backend::Scalar,
+        Backend::Sse2,
+        Backend::Sse3,
+        Backend::Ssse3,
+        Backend::Sse41,
+        Backend::Sse42,
+        Backend::Avx2,
+        Backend::Avx512,
+    ];
     #[test]
     fn empty_work_is_not_counted_and_local_counter_totals_are_exact() {
         let counter = UsageCounter::new();
@@ -307,7 +508,7 @@ mod tests {
     }
     #[test]
     fn executed_kernels_and_portable_tails_advance_runtime_counters() {
-        for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
+        for backend in BACKENDS {
             if !backend.is_supported() {
                 continue;
             }
@@ -318,6 +519,11 @@ mod tests {
             assert!(bytes.iter().all(|byte| *byte == b'a'));
             let (first, last, byte_count) = match backend {
                 Backend::Scalar => (&before.scalar, &after.scalar, 513),
+                Backend::Sse2 => (&before.sse2, &after.sse2, 512),
+                Backend::Sse3 => (&before.sse3, &after.sse3, 512),
+                Backend::Ssse3 => (&before.ssse3, &after.ssse3, 512),
+                Backend::Sse41 => (&before.sse41, &after.sse41, 512),
+                Backend::Sse42 => (&before.sse42, &after.sse42, 512),
                 Backend::Avx2 => (&before.avx2, &after.avx2, 512),
                 Backend::Avx512 => (&before.avx512, &after.avx512, 512),
             };
@@ -334,7 +540,7 @@ mod tests {
     }
     #[test]
     fn every_byte_unaligned_boundaries_and_tails_match_standard_library() {
-        for backend in [Backend::Scalar, Backend::Avx2, Backend::Avx512] {
+        for backend in BACKENDS {
             if !backend.is_supported() {
                 continue;
             }
@@ -367,11 +573,37 @@ mod tests {
             expected.make_ascii_lowercase();
             lowercase_ascii_string(&mut value);
             assert_eq!(value, expected);
+            for backend in BACKENDS
+                .into_iter()
+                .filter(|backend| backend.is_supported())
+            {
+                let mut bytes = "ABC xyz ÄÖÜ Éß Ελληνικά 中文 📨 \0"
+                    .repeat(repeats)
+                    .into_bytes();
+                make_ascii_lowercase_with_backend(&mut bytes, backend).unwrap();
+                assert_eq!(String::from_utf8(bytes).unwrap(), expected, "{backend:?}");
+            }
+        }
+    }
+    #[test]
+    fn embedded_nul_never_terminates_an_explicit_length_chunk() {
+        for backend in BACKENDS
+            .into_iter()
+            .filter(|backend| backend.is_supported())
+        {
+            for nul in 0..16 {
+                let mut bytes = [b'X'; 16];
+                bytes[nul] = 0;
+                let mut expected = bytes;
+                expected.make_ascii_lowercase();
+                make_ascii_lowercase_with_backend(&mut bytes, backend).unwrap();
+                assert_eq!(bytes, expected, "{backend:?}, nul={nul}");
+            }
         }
     }
     #[test]
     fn unsupported_forcing_refuses_before_modifying_input() {
-        for backend in [Backend::Avx2, Backend::Avx512] {
+        for backend in BACKENDS {
             if backend.is_supported() {
                 continue;
             }
@@ -389,7 +621,7 @@ mod tests {
         for size in 0..=1024 {
             let selected = selected_backend_for_len(size);
             assert!(selected.is_supported());
-            if size < AVX2_MIN_BYTES {
+            if size < AVX2_MIN_BYTES.min(AVX512_MIN_BYTES) {
                 assert_eq!(selected, Backend::Scalar);
             }
             if size < AVX512_MIN_BYTES {
@@ -399,7 +631,31 @@ mod tests {
                 assert_eq!(selected, Backend::Avx512);
             } else if size >= AVX2_MIN_BYTES && Backend::Avx2.is_supported() {
                 assert_eq!(selected, Backend::Avx2);
+            } else {
+                assert_eq!(selected, Backend::Scalar);
             }
+        }
+        for highest in [
+            Backend::Scalar,
+            Backend::Sse2,
+            Backend::Sse3,
+            Backend::Ssse3,
+            Backend::Sse41,
+            Backend::Sse42,
+        ] {
+            assert_eq!(
+                preferred_large_backend(highest),
+                Backend::Scalar,
+                "SSE availability alone must not replace portable dispatch"
+            );
+        }
+        assert_eq!(preferred_large_backend(Backend::Avx2), Backend::Avx2);
+        assert_eq!(preferred_large_backend(Backend::Avx512), Backend::Avx512);
+        assert!(capabilities().sse_min_bytes.is_none());
+        assert!(capabilities().highest_available_backend.is_supported());
+        assert!(capabilities().selected_backend.is_supported());
+        if Backend::Sse3.is_supported() {
+            assert!(capabilities().available_features.contains(&"sse3"));
         }
     }
     #[test]
@@ -410,81 +666,116 @@ mod tests {
             "run cargo test -p mw-cpu --release lowercase_release_benchmark -- --ignored --nocapture"
         );
         use std::{hint::black_box, time::Instant};
-        for length in [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192] {
-            let input: Vec<u8> = (0..length).map(|n| b'A' + (n % 50) as u8).collect();
-            let backends: Vec<_> = [
-                None,
-                Some(Backend::Scalar),
-                Some(Backend::Avx2),
-                Some(Backend::Avx512),
-            ]
-            .into_iter()
-            .filter(|backend| backend.is_none_or(Backend::is_supported))
-            .collect();
-            let mut samples: Vec<Vec<f64>> = vec![Vec::new(); backends.len()];
-            let mut preparation = Vec::new();
-            let rounds = (64 * 1024 * 1024 / length).clamp(1000, 200000);
-            let mut expected = input.clone();
-            expected.make_ascii_lowercase();
-            // Warm every backend and prove parity before recording any timings.
-            for backend in &backends {
-                let mut bytes = input.clone();
-                for _ in 0..32 {
-                    bytes.copy_from_slice(&input);
-                    match backend {
-                        None => make_ascii_lowercase(&mut bytes),
-                        Some(backend) => {
-                            make_ascii_lowercase_with_backend(&mut bytes, *backend).unwrap()
+        println!(
+            "Observed API cost includes runtime gating, usage counters and input copy; not an HTTP/RPS or application speed claim."
+        );
+        println!(
+            "cpu architecture={} highestAvailable={} selectedLarge={} sseMinBytes={:?} avx2MinBytes={} avx512MinBytes={} features={:?}",
+            capabilities().architecture,
+            capabilities().highest_available_backend.label(),
+            capabilities().selected_backend.label(),
+            capabilities().sse_min_bytes,
+            AVX2_MIN_BYTES,
+            AVX512_MIN_BYTES,
+            capabilities().available_features
+        );
+        for corpus in ["mixed-ascii", "already-lowercase", "mixed-high-bytes"] {
+            for length in [
+                8, 15, 16, 17, 31, 32, 64, 128, 255, 256, 512, 1024, 2048, 4096, 8192,
+            ] {
+                let input: Vec<u8> = (0..length)
+                    .map(|n| match corpus {
+                        "already-lowercase" => b'a' + (n % 26) as u8,
+                        "mixed-high-bytes" => match n % 4 {
+                            0 => 0,
+                            1 => 0xc3,
+                            2 => 0x89,
+                            _ => b'A' + (n % 26) as u8,
+                        },
+                        _ => b'A' + (n % 50) as u8,
+                    })
+                    .collect();
+                let backends: Vec<_> = [
+                    None,
+                    Some(Backend::Scalar),
+                    Some(Backend::Sse2),
+                    Some(Backend::Sse3),
+                    Some(Backend::Ssse3),
+                    Some(Backend::Sse41),
+                    Some(Backend::Sse42),
+                    Some(Backend::Avx2),
+                    Some(Backend::Avx512),
+                ]
+                .into_iter()
+                .filter(|backend| backend.is_none_or(Backend::is_supported))
+                .collect();
+                let mut samples: Vec<Vec<f64>> = vec![Vec::new(); backends.len()];
+                let mut preparation = Vec::new();
+                let rounds = (64 * 1024 * 1024 / length).clamp(1000, 200000);
+                let mut expected = input.clone();
+                expected.make_ascii_lowercase();
+                // Warm every backend and prove parity before recording any timings.
+                for backend in &backends {
+                    let mut bytes = input.clone();
+                    for _ in 0..32 {
+                        bytes.copy_from_slice(&input);
+                        match backend {
+                            None => make_ascii_lowercase(&mut bytes),
+                            Some(backend) => {
+                                make_ascii_lowercase_with_backend(&mut bytes, *backend).unwrap()
+                            }
                         }
+                        assert_eq!(bytes, expected);
                     }
-                    assert_eq!(bytes, expected);
                 }
-            }
-            for sample in 0..7 {
-                // Rotate and alternate execution order to avoid always favouring
-                // the last backend through frequency, cache warmth or drift.
-                let mut order: Vec<_> = (0..backends.len()).collect();
-                order.rotate_left(sample % backends.len());
-                if sample % 2 != 0 {
-                    order.reverse();
-                }
-                for index in order {
+                for sample in 0..7 {
+                    // Rotate and alternate execution order to avoid always favouring
+                    // the last backend through frequency, cache warmth or drift.
+                    let mut order: Vec<_> = (0..backends.len()).collect();
+                    order.rotate_left(sample % backends.len());
+                    if sample % 2 != 0 {
+                        order.reverse();
+                    }
+                    for index in order {
+                        let mut bytes = input.clone();
+                        let start = Instant::now();
+                        for _ in 0..rounds {
+                            bytes.copy_from_slice(black_box(&input));
+                            match backends[index] {
+                                None => make_ascii_lowercase(black_box(&mut bytes)),
+                                Some(backend) => make_ascii_lowercase_with_backend(
+                                    black_box(&mut bytes),
+                                    backend,
+                                )
+                                .unwrap(),
+                            }
+                            black_box(&bytes);
+                        }
+                        samples[index].push(start.elapsed().as_nanos() as f64 / rounds as f64);
+                        assert_eq!(bytes, expected);
+                    }
                     let mut bytes = input.clone();
                     let start = Instant::now();
                     for _ in 0..rounds {
                         bytes.copy_from_slice(black_box(&input));
-                        match backends[index] {
-                            None => make_ascii_lowercase(black_box(&mut bytes)),
-                            Some(backend) => {
-                                make_ascii_lowercase_with_backend(black_box(&mut bytes), backend)
-                                    .unwrap()
-                            }
-                        }
                         black_box(&bytes);
                     }
-                    samples[index].push(start.elapsed().as_nanos() as f64 / rounds as f64);
-                    assert_eq!(bytes, expected);
+                    preparation.push(start.elapsed().as_nanos() as f64 / rounds as f64);
                 }
-                let mut bytes = input.clone();
-                let start = Instant::now();
-                for _ in 0..rounds {
-                    bytes.copy_from_slice(black_box(&input));
-                    black_box(&bytes);
-                }
-                preparation.push(start.elapsed().as_nanos() as f64 / rounds as f64);
-            }
-            preparation.sort_by(f64::total_cmp);
-            println!(
-                "lowercase length={length} copy-only median={:.2} ns/op (same preparation included in every backend)",
-                preparation[3]
-            );
-            for (backend, mut values) in backends.into_iter().zip(samples) {
-                values.sort_by(f64::total_cmp);
+                preparation.sort_by(f64::total_cmp);
                 println!(
-                    "lowercase length={length} backend={} median={:.2} ns/op samples=7 rounds={rounds}",
-                    backend.map_or("auto", Backend::label),
-                    values[3]
+                    "lowercase corpus={corpus} length={length} copy-only median={:.2} ns/op (same preparation included in every backend)",
+                    preparation[3]
                 );
+                for (backend, mut values) in backends.into_iter().zip(samples) {
+                    let observed = values.clone();
+                    values.sort_by(f64::total_cmp);
+                    println!(
+                        "lowercase corpus={corpus} length={length} backend={} median={:.2} ns/op samples=7 rounds={rounds} samplesNsPerOp={observed:?}",
+                        backend.map_or("auto", Backend::label),
+                        values[3]
+                    );
+                }
             }
         }
     }
