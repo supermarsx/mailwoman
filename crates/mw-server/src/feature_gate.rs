@@ -250,16 +250,16 @@ fn values_of(args: &Value, field: &str) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-/// Whether any object in `v` (recursively) has `"kind"` equal to one of `kinds`.
-fn has_kind(v: &Value, kinds: &[&str]) -> bool {
+/// Both legacy engine `kind` and GUI DTO `type` action discriminators require
+/// the feature. Neither field can hide a gated action named by the other.
+fn has_rule_action(v: &Value, kinds: &[&str]) -> bool {
     match v {
         Value::Object(m) => {
-            m.get("kind")
-                .and_then(Value::as_str)
-                .is_some_and(|k| kinds.contains(&k))
-                || m.values().any(|x| has_kind(x, kinds))
+            ["kind","type"].iter().any(|field| m.get(*field)
+                .and_then(Value::as_str).is_some_and(|k| kinds.contains(&k)))
+                || m.values().any(|x| has_rule_action(x, kinds))
         }
-        Value::Array(a) => a.iter().any(|x| has_kind(x, kinds)),
+        Value::Array(a) => a.iter().any(|x| has_rule_action(x, kinds)),
         _ => false,
     }
 }
@@ -291,7 +291,7 @@ pub(crate) fn jmap_features(request: &Value) -> BTreeSet<&'static str> {
                 if values_of(&args, "create")
                     .iter()
                     .chain(values_of(&args, "update").iter())
-                    .any(|r| has_kind(r, &["forward", "forwardCopy"]))
+                    .any(|r| has_rule_action(r, &["forward", "forwardCopy"]))
                 {
                     out.insert("rules.forward");
                 }
@@ -1081,6 +1081,24 @@ mod tests {
                 .is_empty()
         );
         assert!(f(json!([["Email/query", {"filter":{"hasAttachment":true}}, "a"]])).is_empty());
+    }
+
+    #[test]
+    fn mail_rule_forwarding_gates_both_action_discriminators_on_create_and_update() {
+        for operation in ["create","update"] {
+            for action in [json!({"type":"forward","value":"x@y"}),
+                json!({"type":"forwardCopy","value":"x@y"}),
+                json!({"kind":"forward","address":"x@y"}),
+                json!({"kind":"forwardCopy","address":"x@y"}),
+                json!({"kind":"move","type":"forward","value":"x@y"}),
+                json!({"kind":"forwardCopy","type":"move","address":"x@y"})] {
+                let request=json!({"methodCalls":[["MailRule/set",{operation:{"r":{"actions":[action]}}},"r"]]});
+                assert!(jmap_features(&request).contains("rules.forward"),"{request}");
+            }
+            let request=json!({"methodCalls":[["MailRule/set",{operation:{"r":{"actions":[{"type":"move","value":"INBOX"}]}}},"r"]]});
+            assert!(!jmap_features(&request).contains("rules.forward"));
+        }
+        assert!(!jmap_features(&json!({"methodCalls":[["MailRule/set",{"destroy":["r"]},"r"]]})).contains("rules.forward"));
     }
 
     #[test]

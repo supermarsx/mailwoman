@@ -290,6 +290,142 @@ async fn status_and_body(request: reqwest::RequestBuilder) -> (u16, Value) {
     let status = response.status().as_u16();
     (status, body_of(&response.text().await.unwrap()))
 }
+
+fn rule_request(account: &str, method: &str, mut args: Value) -> Value {
+    args["accountId"]=json!(account);
+    json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail","urn:ietf:params:jmap:sieve"],
+        "methodCalls":[[method,args,"rules"]]})
+}
+fn rule_body(name: &str) -> Value {
+    json!({"name":name,"enabled":true,"matchAll":true,
+        "conditions":[{"type":"subject","op":"contains","value":"owned-rule-contract"}],
+        "actions":[{"type":"stop"}]})
+}
+fn rule_http(f: &Fixture, child: bool) -> reqwest::RequestBuilder {
+    if child {
+        f.child(reqwest::Method::POST,"/jmap/api").header("x-mailwoman-account",&f.child_account)
+    } else {
+        f.parent(reqwest::Method::POST,"/jmap/api").header("x-mailwoman-account",&f.parent_account)
+    }
+}
+async fn rule_call(f: &Fixture, child: bool, method: &str, args: Value) -> Value {
+    let account=if child {&f.child_account}else{&f.parent_account};
+    let response=json_of(rule_http(f,child).json(&rule_request(account,method,args)).send().await.unwrap(),200).await;
+    assert_eq!(response["methodResponses"][0][0],method,"{response}");
+    assert_eq!(response["methodResponses"][0][1]["accountId"],*account,"{response}");
+    response["methodResponses"][0][1].clone()
+}
+async fn account_rule_policy(f: &Fixture, key: &str, value: bool) {
+    store(&f.db).await.put_setting_value(&SettingValueRow {
+        scope:SettingScope::AdminUser,scope_id:f.child_account.clone(),key:key.into(),
+        value:value.to_string(),locked:true,updated_by:"t87-operator".into(),updated_at:1,
+    }).await.unwrap();
+}
+
+#[tokio::test]
+async fn linked_mail_rule_crud_and_local_sieve_vacation_are_account_scoped() {
+    let f=Fixture::start("mw-t87-rule-isolation").await;
+    policy(&f.db,"cap.rules","true").await;
+    policy(&f.db,"cap.vacation","true").await;
+    policy(&f.db,"sieve.vacationAllowed","true").await;
+    let parent=rule_call(&f,false,"MailRule/set",json!({"create":{"p":rule_body("Parent rule")}})).await;
+    let parent_id=parent["created"]["p"]["id"].as_str().expect("real parent rule created").to_string();
+    let child=rule_call(&f,true,"MailRule/set",json!({"create":{"c":rule_body("Child rule")}})).await;
+    let child_id=child["created"]["c"]["id"].as_str().expect("real child rule created").to_string();
+    assert_ne!(parent_id,child_id);
+    for (child,id,name) in [(false,&parent_id,"Parent rule"),(true,&child_id,"Child rule")] {
+        let got=rule_call(&f,child,"MailRule/get",json!({})).await;
+        assert_eq!(got["list"].as_array().unwrap().len(),1,"{got}");
+        assert_eq!(got["list"][0]["id"],*id);
+        assert_eq!(got["list"][0]["name"],name);
+    }
+    let updated=rule_call(&f,true,"MailRule/set",json!({"update":{child_id.clone():{"name":"Child edited"}}})).await;
+    assert!(updated["updated"].as_object().unwrap().contains_key(&child_id),"{updated}");
+    let foreign=rule_call(&f,true,"MailRule/get",json!({"ids":[parent_id]})).await;
+    assert_eq!(foreign["list"],json!([]));
+    assert_eq!(foreign["notFound"],json!([parent_id]));
+    let refused=rule_call(&f,true,"MailRule/set",json!({"update":{parent_id.clone():{"name":"Foreign edit"}},"destroy":[parent_id]})).await;
+    assert_eq!(refused["notUpdated"][&parent_id]["type"],"notFound","{refused}");
+    assert!(!refused["destroyed"].as_array().unwrap().contains(&json!(parent_id)));
+    assert_eq!(rule_call(&f,false,"MailRule/get",json!({})).await["list"][0]["name"],"Parent rule");
+    for (child,account) in [(true,&f.parent_account),(false,&f.child_account)] {
+        let (status,body)=status_and_body(rule_http(&f,child).json(&rule_request(account,"MailRule/get",json!({})))).await;
+        assert_eq!(status,400,"{body}");
+        assert_eq!(body["code"],"accountNotFound");
+    }
+    // The actual local-engine Sieve authority exists for both POP3 accounts;
+    // lists cannot expose the other account's generated script.
+    let parent_scripts=rule_call(&f,false,"SieveScript/get",json!({})).await;
+    let child_scripts=rule_call(&f,true,"SieveScript/get",json!({})).await;
+    assert_eq!(parent_scripts["list"].as_array().unwrap().len(),1,"{parent_scripts}");
+    assert_eq!(child_scripts["list"].as_array().unwrap().len(),1,"{child_scripts}");
+    let script_id=parent_scripts["list"][0]["id"].as_str().unwrap();
+    assert_ne!(child_scripts["list"][0]["id"],script_id);
+    let foreign=rule_call(&f,true,"SieveScript/get",json!({"ids":[script_id]})).await;
+    assert_eq!(foreign["list"],json!([]));
+    assert_eq!(foreign["notFound"],json!([script_id]));
+    for (child,subject) in [(false,"Parent away"),(true,"Child away")] {
+        let changed=rule_call(&f,child,"VacationResponse/set",json!({"update":{"singleton":{
+            "isEnabled":true,"subject":subject,"textBody":"Owned vacation contract"}}})).await;
+        assert!(changed["updated"].as_object().unwrap().contains_key("singleton"),"{changed}");
+    }
+    assert_eq!(rule_call(&f,false,"VacationResponse/get",json!({})).await["list"][0]["subject"],"Parent away");
+    assert_eq!(rule_call(&f,true,"VacationResponse/get",json!({})).await["list"][0]["subject"],"Child away");
+    let destroyed=rule_call(&f,true,"MailRule/set",json!({"destroy":[child_id]})).await;
+    assert_eq!(destroyed["destroyed"],json!([child_id]));
+    assert_eq!(rule_call(&f,true,"MailRule/get",json!({})).await["list"],json!([]));
+    assert_eq!(rule_call(&f,false,"MailRule/get",json!({})).await["list"].as_array().unwrap().len(),1);
+    json_of(f.parent(reqwest::Method::DELETE,&format!("/api/accounts/{}",f.link))
+        .header("if-match",format!("\"{}\"",f.revision)).send().await.unwrap(),204).await;
+    let (status,body)=status_and_body(rule_http(&f,true).json(&rule_request(&f.child_account,"MailRule/get",json!({})))).await;
+    assert_eq!(status,409,"{body}");
+    assert_eq!(body["code"],"linkedAccountReauthenticationRequired");
+    assert_eq!(rule_call(&f,false,"MailRule/get",json!({})).await["list"][0]["id"],parent_id);
+}
+
+#[tokio::test]
+async fn per_account_rule_policy_refuses_ui_forward_actions_without_affecting_primary() {
+    let f=Fixture::start("mw-t87-rule-policy").await;
+    policy(&f.db,"cap.rules","true").await;
+    policy(&f.db,"cap.rules.forward","true").await;
+    let created=rule_call(&f,true,"MailRule/set",json!({"create":{"c":rule_body("Child baseline")}})).await;
+    let child_id=created["created"]["c"]["id"].as_str().unwrap().to_string();
+    let original_rules=rule_call(&f,true,"MailRule/get",json!({})).await["list"].clone();
+    account_rule_policy(&f,"cap.rules.forward",false).await;
+    for operation in ["create","update"] {
+        for action in [json!({"type":"forward","value":"child@child.test"}),
+            json!({"type":"forwardCopy","value":"child@child.test"}),
+            json!({"kind":"forward","address":"child@child.test"}),
+            json!({"kind":"move","type":"forward","value":"child@child.test"})] {
+            let mut args=json!({});
+            args[operation]=if operation=="create" {json!({"denied":{
+                "name":"Denied forward","conditions":[{"type":"subject","op":"contains","value":"scope"}],
+                "actions":[action]}})} else {json!({child_id.clone():{"actions":[action]}})};
+            let (status,body)=status_and_body(rule_http(&f,true).json(&rule_request(&f.child_account,"MailRule/set",args))).await;
+            assert_eq!(status,403,"{body}");
+            assert_eq!(body["code"],"feature_disabled");
+            assert_eq!(body["key"],"cap.rules.forward");
+        }
+    }
+    assert_eq!(rule_call(&f,true,"MailRule/get",json!({})).await["list"],original_rules,
+        "denied creates and updates must leave every stored child rule unchanged");
+    let mut allowed=rule_body("Primary forward");
+    allowed["actions"]=json!([{"type":"forward","value":"parent@example.org"}]);
+    let parent=rule_call(&f,false,"MailRule/set",json!({"create":{"p":allowed}})).await;
+    assert!(parent["created"]["p"]["id"].is_string(),"{parent}");
+    // Per-account administrative family denial is separate from forwarding.
+    account_rule_policy(&f,"cap.rules",false).await;
+    for method in ["MailRule/get","MailRule/set","VacationResponse/get"] {
+        let (status,body)=status_and_body(rule_http(&f,true).json(&rule_request(&f.child_account,method,json!({})))).await;
+        assert_eq!(status,403,"{body}");
+        assert_eq!(body["code"],"feature_disabled");
+        assert_eq!(body["feature"],"rules");
+    }
+    assert_eq!(rule_call(&f,false,"MailRule/get",json!({})).await["list"].as_array().unwrap().len(),1);
+    account_rule_policy(&f,"cap.rules",true).await;
+    assert_eq!(rule_call(&f,true,"MailRule/get",json!({})).await["list"][0]["id"],child_id,
+        "fresh restored policy must reveal the unchanged child rule");
+}
 fn linked_refusal(status: u16, body: &Value) -> bool {
     status == 403 && body["code"] == "linkedContextUnsupported"
 }
