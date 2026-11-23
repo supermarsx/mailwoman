@@ -1,85 +1,70 @@
-# Web hardening flags (V2)
+# Web hardening
 
-V2 adds hardening deltas to `mw-server` (SPEC §7.4). All are **additive** and
-default to safe values that keep V1 clients working; the notes below say which
-to flip once the whole stack is on V2.
+The server adds security headers to its responses, checks the origin of every request that changes something, and expires sessions on a timer. Most of this is always on. This page lists what is on by default, the environment variables that change it, and what to set for a production deployment. The console's **Security centre** > **Deployment checks** tab shows the values a running server uses (see [Deployment security](../admin/deployment-security.md)).
 
-## Headers (always on)
+## Response headers
 
-- **CSP** — base policy unchanged; V2 adds `worker-src 'self' blob:` for the
-  self-hosted pdfjs worker. `/api/sanitize` also returns a locked-down
-  **per-message CSP** (`{html, csp}`) the web applies to the message iframe;
-  existing consumers that read only `html` are unaffected.
-- **COEP** `require-corp` — on by default; toggle with `--coep` / `MW_COEP`.
-- **CORP** `same-origin` and a restrictive **Permissions-Policy**
-  (camera/mic/geo/usb/… denied) — always on.
+Always sent:
 
-## Origin / CSRF
+- `Content-Security-Policy` (`default-src 'none'`, scripts and styles only from the server itself, `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`;
+- `Cross-Origin-Resource-Policy: same-origin`;
+- `Permissions-Policy`, which turns off camera, microphone, geolocation, USB, payment and other browser features the webmail does not use.
 
-- **Origin/Referer same-site check** on all state-changing methods — **always
-  on**, needs no client change. Browsers send `Origin` on cross-site writes; a
-  cross-origin write is rejected with `403`. Native clients that send neither are
-  allowed.
-- **Double-submit CSRF** (`mw_csrf` cookie ↔ `X-CSRF-Token` header) — on with
-  `--csrf-strict` / `MW_CSRF_STRICT`. The server's own default is off;
-  `deploy.sh` writes `MW_CSRF_STRICT=true` into every new installation. When it
-  is on, a POST, PUT, PATCH or DELETE that a cookie authorises is answered
-  `403 {"error":"missing or invalid CSRF token"}` unless it repeats the value of
-  the `mw_csrf` cookie in `X-CSRF-Token`.
-  - **Where the token comes from.** Every route that completes a sign-in sets a
-    new `mw_csrf` cookie: `/api/login`, the second-factor step `/api/login/2fa`,
-    the SSO callback and `/admin/login`. So does `/api/session/rotate`.
-    `GET /api/me` and `GET /admin/session` set one for a signed-in client that
-    has none and leave an existing one alone. The JSON answers carry the value
-    as `csrfToken` too.
-  - **Who sends it.** The web client, on every write, from 26.20 on. Any other
-    client that signs in with a cookie (a script with a cookie jar, for example)
-    has to read the cookie and send the header itself.
-  - **Routes not asked for it.** The sign-in routes (`/api/login`,
-    `/api/login/2fa…`, `/api/discover` (which answers 410), `/admin/login`), which run before any
-    token exists, and the routes no cookie authorises (`/oauth/token`,
-    `/oauth/introspect`, `/oauth/revoke`, `/oauth/register…`,
-    `/api/webhooks/inbound`, `/errors`, `/mcp`). All of them are still
-    Origin-checked. The SSO callback and ACS landings skip both checks.
-  - **Bearer requests.** A request with an `Authorization: Bearer` header and no
-    session cookie (`mw_session`, `mw_admin_session`) skips the Origin check and
-    the token check: the bearer credential is its only authority. That is how the
-    native shells, API keys and OAuth clients call the server. With a session
-    cookie beside the bearer header both checks apply (from 26.20 on; before, any
-    bearer header switched them off).
-  - **What it does not cover.** The token is a random value compared with a
-    cookie; it is not tied to the session, so it adds nothing against someone who
-    can already set cookies for the site's domain.
+Configurable:
+
+| Header | Default | Variable |
+|---|---|---|
+| `Cross-Origin-Embedder-Policy: require-corp` | on | `MW_COEP` (or `--coep`); `false` turns it off |
+| `Strict-Transport-Security` | `max-age=31536000`, sent only on requests that reached the server over HTTPS | `MW_HSTS=off` turns it off; `MW_HSTS_MAX_AGE`, `MW_HSTS_INCLUDE_SUBDOMAINS`, `MW_HSTS_PRELOAD` |
+
+## Cross-site request checks
+
+Every `POST`, `PUT`, `PATCH` and `DELETE` passes an origin check, which cannot be turned off:
+
+- a `Sec-Fetch-Site: cross-site` header is refused;
+- otherwise the `Origin` header, or else the `Referer` header, must name the same host as the request; a request with neither is allowed (native clients send neither), except that `Sec-Fetch-Site: same-site` without either is refused;
+- a request without a `Host` (or HTTP/2 authority) is refused.
+
+A refused request gets `403` `{"error":"cross-origin request rejected"}`. Session cookies are `HttpOnly` and `SameSite=Strict`.
+
+On top of that, **strict CSRF** (`MW_CSRF_STRICT=true` or `--csrf-strict`) makes every write that a session cookie authorises repeat a token: the value of the `mw_csrf` cookie in an `X-CSRF-Token` header. The server's default is **off**; `deploy.sh` writes `MW_CSRF_STRICT=true` for a new installation, and the example `docker-compose.proxy.yml` sets it. With it on, a write without the right token gets `403` `{"error":"missing or invalid CSRF token"}`.
+
+- The token is derived from the session with the server key, so a token from one session is not valid for another, and a mailbox token is not valid for the console. A new token is issued when a session starts or is rotated.
+- The web app sends it on every write. A script that signs in with a cookie must read `mw_csrf` and send the header itself.
+- Not asked for a token (they are still origin-checked): the sign-in routes of webmail and the console, which run before a session exists, and routes no cookie authorises, such as `/oauth/token`, `/oauth/revoke`, `/oauth/register`, `/api/webhooks/inbound` and `/mcp`.
+- A request authorised only by an `Authorization: Bearer` header (the desktop and mobile apps, API keys, OAuth clients) skips both checks. If it also carries a session cookie, both checks apply.
+- The single sign-on callback routes (`/api/sso/<id>/callback`, `/api/sso/<id>/acs`) skip both checks; they carry state the server bound to the sign-in when it started.
 
 ## Sessions
 
-- **Idle timeout** — `--session-idle-secs` / `MW_SESSION_IDLE_SECS` (default
-  `604800`, seven days since foreground use). Opening or returning to mail and
-  interacting with it renews the window; background polling does not.
-- **Absolute timeout** — `--session-absolute-secs` / `MW_SESSION_ABSOLUTE_SECS`
-  (default `0`, no fixed cutoff). Nonzero deployment or administrator policy
-  values impose an absolute limit, even on an active session.
-- **Rotation** — a fresh session id is issued on every login, plus
-  `POST /api/session/rotate` (new id + csrf, old id invalidated, absolute clock
-  preserved). Expired sessions are deleted and answered `401`.
+| Variable | Default | Meaning |
+|---|---|---|
+| `MW_SESSION_IDLE_SECS` (`--session-idle-secs`) | `604800` (7 days) | A mailbox session ends after this long without use in the foreground. |
+| `MW_SESSION_ABSOLUTE_SECS` (`--session-absolute-secs`) | `0` (no fixed end) | A nonzero value ends every mailbox session this long after sign-in, even while in use. |
 
-  Timing is persisted in the database and survives restarts. Session and CSRF
-  cookies persist for the remaining permitted window and are refreshed on
-  foreground activity. See [Sessions and server restarts](../admin/sessions.md).
-  Console sessions keep their own, separate timeouts.
+A new session id is issued at every sign-in, and the web app can rotate it (`POST /api/session/rotate`) without moving the session's start time. Session times are stored in the database, so a restart does not extend a session. Console sessions have their own, shorter timeouts. See [Sessions](../admin/sessions.md).
 
-## TLS
+## Cookies over HTTPS
 
-See [`acme.md`](./acme.md) for `--acme` / external-cert `--tls-cert`/`--tls-key`
-with `SIGHUP` hot-reload. Set `MW_COOKIE_SECURE=true` whenever the browser
-reaches Mailwoman over HTTPS.
+Cookies get the `Secure` flag when the server knows the browser reached it over HTTPS: `MW_PUBLIC_URL` starts with `https://`, a trusted proxy (`MW_TRUSTED_PROXIES`) sends `X-Forwarded-Proto: https`, or the server terminates TLS itself ([ACME or its own certificate](./acme.md)). `MW_COOKIE_SECURE=true` forces the flag on and `false` forces it off, whatever the scheme.
 
-## Recommended production posture
+## Recommended production settings
 
-| Flag | Default | Production |
-|------|---------|-----------|
-| `MW_COOKIE_SECURE` | `false` | `true` (behind TLS) |
-| `--coep` / `MW_COEP` | on | on |
-| `--csrf-strict` / `MW_CSRF_STRICT` | off | on (`deploy.sh` sets it for a new installation; the web client sends `X-CSRF-Token`) |
-| `--session-idle-secs` | `604800` | tune to policy |
-| `--session-absolute-secs` | `0` | set a nonzero absolute limit when required by policy |
+| Variable | Default | Production |
+|---|---|---|
+| `MW_PUBLIC_URL` | not set | the `https://` address users open |
+| `MW_TRUSTED_PROXIES` | not set | the reverse proxy's address, so client addresses and the HTTPS scheme are known |
+| `MW_CSRF_STRICT` | `false` | `true` (set by `deploy.sh` for a new installation) |
+| `MW_COEP` | `true` | `true` |
+| `MW_SESSION_IDLE_SECS` | `604800` | according to your policy |
+| `MW_SESSION_ABSOLUTE_SECS` | `0` | a nonzero limit if your policy requires one |
+
+If a proxy signs users in and passes their name in a header (`MW_HEADER_AUTH`), the proxy must remove that header from client requests; none of the example proxy configurations does this. See [Reverse proxy](./reverse-proxy.md#header-authentication).
+
+## Related
+
+- [Reverse proxy](./reverse-proxy.md)
+- [HTTP protocol guard](../admin/protocol-guard.md)
+- [Aggregate and adaptive protection](../admin/request-protection.md)
+- [Sessions](../admin/sessions.md)
+- [fail2ban](./fail2ban.md)
