@@ -1,0 +1,479 @@
+{
+ "schema": 1,
+ "description": "t34 A/B: each mode alone, all combined, all combined with original request inputs; same shape as the 2026-11-23 baseline",
+ "shape": {
+  "users": 100,
+  "messagesPerUser": 50,
+  "cpus": 4,
+  "cpuset": "0-3",
+  "memory": "4g",
+  "securityProfile": "enforced",
+  "policy": "loaded",
+  "workload": "representative",
+  "endpoints": [
+   "identity",
+   "query",
+   "headers",
+   "representative"
+  ],
+  "concurrency": [
+   8,
+   32,
+   64
+  ],
+  "seconds": 30,
+  "warmupSeconds": 20,
+  "repeats": 2,
+  "generator": {
+   "cpus": 2,
+   "cpuset": "8-9",
+   "memory": "1g",
+   "workers": 2
+  }
+ },
+ "arms": {
+  "baseline": {
+   "description": "all t34 modes off, request inputs published (production default)",
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  "original": {
+   "description": "request inputs original, t34 modes off",
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "original",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "original"
+   }
+  },
+  "snapshot": {
+   "description": "guard snapshot bounded only",
+   "env": {
+    "MW_GUARD_SNAPSHOT": "bounded",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  "journal": {
+   "description": "journaled index acknowledgement only",
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "journal",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  "write-behind": {
+   "description": "write-behind request-protection accounting only",
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "write-behind",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  "all": {
+   "description": "all three t34 modes, request inputs published",
+   "env": {
+    "MW_GUARD_SNAPSHOT": "bounded",
+    "MW_INDEX_PUBLICATION_ACK": "journal",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "write-behind",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  "all-original": {
+   "description": "all three t34 modes plus request inputs original",
+   "env": {
+    "MW_GUARD_SNAPSHOT": "bounded",
+    "MW_INDEX_PUBLICATION_ACK": "journal",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "write-behind",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "original",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "original"
+   }
+  }
+ },
+ "evidence": {
+  "requiredPerArm": "every run must carry t34Modes.valid=true; check with `node scripts/perf/t34-modes.mjs check <native-100.json> --arm <arm>`",
+  "invalidMeans": "a claimed mode showed no activity, an off arm showed activity, or the witness is unsupported"
+ },
+ "runs": [
+  {
+   "id": "m01",
+   "arm": "baseline",
+   "repeat": 1,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  {
+   "id": "m02",
+   "arm": "original",
+   "repeat": 1,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "original",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "original"
+   }
+  },
+  {
+   "id": "m03",
+   "arm": "snapshot",
+   "repeat": 1,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "bounded",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  {
+   "id": "m04",
+   "arm": "journal",
+   "repeat": 1,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "journal",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  {
+   "id": "m05",
+   "arm": "write-behind",
+   "repeat": 1,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "write-behind",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  {
+   "id": "m06",
+   "arm": "all",
+   "repeat": 1,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "bounded",
+    "MW_INDEX_PUBLICATION_ACK": "journal",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "write-behind",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  {
+   "id": "m07",
+   "arm": "all-original",
+   "repeat": 1,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "bounded",
+    "MW_INDEX_PUBLICATION_ACK": "journal",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "write-behind",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "original",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "original"
+   }
+  },
+  {
+   "id": "m08",
+   "arm": "all-original",
+   "repeat": 2,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "bounded",
+    "MW_INDEX_PUBLICATION_ACK": "journal",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "write-behind",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "original",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "original"
+   }
+  },
+  {
+   "id": "m09",
+   "arm": "all",
+   "repeat": 2,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "bounded",
+    "MW_INDEX_PUBLICATION_ACK": "journal",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "write-behind",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  {
+   "id": "m10",
+   "arm": "write-behind",
+   "repeat": 2,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "write-behind",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  {
+   "id": "m11",
+   "arm": "journal",
+   "repeat": 2,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "journal",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  {
+   "id": "m12",
+   "arm": "snapshot",
+   "repeat": 2,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "bounded",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  {
+   "id": "m13",
+   "arm": "original",
+   "repeat": 2,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "original",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "original"
+   }
+  },
+  {
+   "id": "m14",
+   "arm": "baseline",
+   "repeat": 2,
+   "requestProfile": false,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  }
+ ],
+ "instrumentedRuns": [
+  {
+   "id": "p01",
+   "arm": "baseline",
+   "repeat": 1,
+   "requestProfile": true,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   },
+   "endpoints": [
+    "identity",
+    "query",
+    "representative"
+   ],
+   "concurrency": [
+    8
+   ]
+  },
+  {
+   "id": "p02",
+   "arm": "original",
+   "repeat": 1,
+   "requestProfile": true,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "original",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "original"
+   },
+   "endpoints": [
+    "identity",
+    "query",
+    "representative"
+   ],
+   "concurrency": [
+    8
+   ]
+  },
+  {
+   "id": "p03",
+   "arm": "snapshot",
+   "repeat": 1,
+   "requestProfile": true,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "bounded",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   },
+   "endpoints": [
+    "identity",
+    "query",
+    "representative"
+   ],
+   "concurrency": [
+    8
+   ]
+  },
+  {
+   "id": "p04",
+   "arm": "journal",
+   "repeat": 1,
+   "requestProfile": true,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "journal",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   },
+   "endpoints": [
+    "identity",
+    "query",
+    "representative"
+   ],
+   "concurrency": [
+    8
+   ]
+  },
+  {
+   "id": "p05",
+   "arm": "write-behind",
+   "repeat": 1,
+   "requestProfile": true,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "write-behind",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   },
+   "endpoints": [
+    "identity",
+    "query",
+    "representative"
+   ],
+   "concurrency": [
+    8
+   ]
+  },
+  {
+   "id": "p06",
+   "arm": "all",
+   "repeat": 1,
+   "requestProfile": true,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "bounded",
+    "MW_INDEX_PUBLICATION_ACK": "journal",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "write-behind",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   },
+   "endpoints": [
+    "identity",
+    "query",
+    "representative"
+   ],
+   "concurrency": [
+    8
+   ]
+  },
+  {
+   "id": "p07",
+   "arm": "all-original",
+   "repeat": 1,
+   "requestProfile": true,
+   "env": {
+    "MW_GUARD_SNAPSHOT": "bounded",
+    "MW_INDEX_PUBLICATION_ACK": "journal",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "write-behind",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "original",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "original"
+   },
+   "endpoints": [
+    "identity",
+    "query",
+    "representative"
+   ],
+   "concurrency": [
+    8
+   ]
+  }
+ ],
+ "websocketIdleHold": [
+  {
+   "id": "w1",
+   "arm": "baseline",
+   "connections": 1000,
+   "rampPerSecond": 100,
+   "holdSeconds": 200,
+   "principals": 10000,
+   "workload": "baseline (2 messages/account)",
+   "memory": "8g",
+   "env": {
+    "MW_GUARD_SNAPSHOT": "off",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  },
+  {
+   "id": "w2",
+   "arm": "snapshot",
+   "connections": 1000,
+   "rampPerSecond": 100,
+   "holdSeconds": 200,
+   "principals": 10000,
+   "workload": "baseline (2 messages/account)",
+   "memory": "8g",
+   "env": {
+    "MW_GUARD_SNAPSHOT": "bounded",
+    "MW_INDEX_PUBLICATION_ACK": "commit",
+    "MW_REQUEST_PROTECTION_ACCOUNTING": "synchronous",
+    "MW_NATIVE_LOAD_REQUEST_INPUTS_MODE": "published",
+    "MW_LOAD_FIXTURE_REQUEST_INPUTS_EXPECT": "published"
+   }
+  }
+ ]
+}

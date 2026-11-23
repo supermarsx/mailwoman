@@ -4,6 +4,7 @@ import {preparedMailExperimentReport,preparedMailEvidence} from './prepared-mail
 import {throwDiagnosticSnapshotFailure,cacheAuditErrorEvidence,diagnosticFailureReport} from './fixture-diagnostic-failure.mjs';
 import {campaignCacheExperiment,assertSqliteCacheWitness,cacheExperimentEvidence} from './sqlite-page-cache-witness.mjs';
 import {qualifiesIndexPublication} from './index-publication-health.mjs';
+import {t34ModesEvidence} from './t34-modes.mjs';
 // Invoked only by the ignored Rust integration fixture. No arbitrary remote URL.
 import {writeFile,mkdir} from 'node:fs/promises';
 import {dirname} from 'node:path';
@@ -73,6 +74,7 @@ try{
  const report={generatedAt:new Date().toISOString(),target:native?'ephemeral loopback Mailwoman router + seeded native engine':'ephemeral loopback Mailwoman router + local JMAP mock',scenario:`real authenticated middleware/HTTP/${native?'native-engine':'proxy'} with ${handoff.backend??'sqlite'}; fixture data; no TLS/reverse proxy`,backend:handoff.backend??'sqlite',buildProfile:handoff.buildProfile??'unknown',uniqueAuthenticatedPrincipals:principals.length,engineMode:native?'native':'proxy',protection:typeof handoff.protection==='string'?handoff.protection:handoff.protection?'rate/adaptive/user-agent observe; scanner enforce':'rate/adaptive/user-agent/scanner off',refreshSemantics:native?'native fixture backend refresh; upstream:true':'authenticated refresh route only; proxy response upstream:false; no upstream reconciliation',effectiveFixtureBudgets:handoff.budgets??{},runtimeWorkerThreads:handoff.runtimeWorkerThreads??4,runtimeWorkerStackBytes:handoff.runtimeWorkerStackBytes??null,generatorPlacement:handoff.generatorPlacement??'child process in same resource group',runtime:process.version,model:options.mode==='smoke'?'bounded open-loop overload smoke':'warmed concurrency ramp, followed by rates bounded by observed successful throughput; no capacity claim',stages:[]};
  Object.assign(report,{enforcedPolicy,readIntent,startupReadiness,policyEvidence,workloadProfile,isolationEvidence,searchWriter,searchStorage,linkedLoginPolicyProbe},await runCampaign({base,headers,groups,options,diagnostics}));
  report.ordinaryRequestInputs=requestInputsEvidence(handoff.ordinaryRequestInputs,report.stages,options.requestInputsExpected);
+ report.t34Modes=t34ModesEvidence(handoff.t34Modes,report.stages,{requestInputsEvidence:report.ordinaryRequestInputs});
  report.preparedMailExperiment=preparedMailEvidence(preparedMailExperiment,report.stages);
  if(cacheExperiment)report.sqliteCacheExperiment=cacheExperimentEvidence(cacheExperiment,report.stages);
  report.clientModel={workload:clientModel.workload,simulationMode:clientModel.simulationMode,configuredPrincipals:principals.length,configuredSimulatedClients:clientModel.clientCount,distinctPhysicalGeneratorHostsMeasured:false,actualPrincipalCoverage:Math.max(0,...report.stages.map(s=>s.uniquePrincipalsAccepted??0)),actualSimulatedClientCoverage:Math.max(0,...report.stages.map(s=>s.uniqueClientsAccepted??0))};
