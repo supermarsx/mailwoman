@@ -80,7 +80,7 @@ assist-excluded-attachments = bijlagen
 # Wording here states what the server does. "Stop" takes effect on the running
 # server; every other change is read when the server starts.
 assist-admin-title = AI-assistent
-assist-admin-intro = De AI-assistent stuurt berichttekst die gebruikers selecteren naar het hier ingestelde AI-endpoint. De assistent kan geen mail verzenden, verwijderen of accepteren. End-to-end versleutelde inhoud en bijlagen worden achtergehouden, tenzij u ze hieronder toestaat.
+assist-admin-intro = De AI-assistent stuurt mailinhoud naar het hier ingestelde AI-eindpunt wanneer een gebruiker een van de hulpmiddelen gebruikt: het concept bij de schrijfhulpmiddelen, het onderwerp en de voorvertoning van het geopende bericht bij de chat, en bij semantisch zoeken de zoektekst en het onderwerp en de tekst van enkele resultaten. Zolang automatisch labelen is toegestaan, worden het onderwerp en de voorvertoning van elk bericht dat een gebruiker opent bij elke opening verzonden, zonder dat de gebruiker erom vraagt. Hij kan geen mail verzenden, verwijderen of accepteren. End-to-end-versleutelde inhoud en bijlagen worden achtergehouden, tenzij u ze hieronder toestaat.
 assist-admin-load-unreadable = De opgeslagen configuratie van de AI-assistent kan niet worden gelezen: de API-sleutel ervan opent niet met de sleutel van deze server (MW_SERVER_KEY). Ze is onder een andere sleutel opgeslagen of is gewijzigd. De AI-assistent staat uit. Vul het formulier in, inclusief de API-sleutel, en sla op om haar te vervangen.
 assist-admin-load-error = De configuratie van de AI-assistent kon niet worden geladen. Opslaan is uitgeschakeld zodat de opgeslagen configuratie niet wordt overschreven.
 assist-admin-status-running = De AI-assistent draait. Verzoeken gaan naar { $host }.
@@ -170,11 +170,11 @@ assist-admin-folders-none = Geen map: elke map van de vermelde accounts.
 assist-admin-allow-e2ee-help = Uit houdt end-to-end versleutelde inhoud bij elk verzoek achter.
 assist-admin-allow-attachments-help = Uit houdt bijlagen bij elk verzoek achter.
 assist-admin-rate-heading = Snelheidslimiet
-assist-admin-rate-group-help = Verzoeken per minuut die de server voor de AI-assistent accepteert, over alle gebruikers samen.
+assist-admin-rate-group-help = Verzoeken per minuut die elk account naar het eindpunt van de AI-assistent mag sturen; een semantische zoekopdracht kan als maximaal 33 verzoeken tellen. De server past alleen MW_ASSIST_RATE_LIMIT_PER_MIN toe, gelezen bij het starten; een hier opgeslagen waarde wordt niet toegepast.
 assist-admin-rate-unavailable = Deze server biedt de snelheidslimiet nog niet aan in de console; die wordt ingesteld met MW_ASSIST_RATE_LIMIT_PER_MIN waar de server start.
 assist-admin-rate-limit = Verzoeken per minuut
-assist-admin-rate-limit-help = 0 betekent geen limiet; maximaal 10000.
-assist-admin-rate-none = 0 (geen limiet)
+assist-admin-rate-limit-help = 0 weigert elk verzoek aan de AI-assistent. Zonder ingestelde MW_ASSIST_RATE_LIMIT_PER_MIN is er geen limiet. Maximaal 10000.
+assist-admin-rate-none = 0 (weigert elk verzoek)
 assist-admin-stop-title = De AI-assistent voor iedereen stoppen?
 assist-admin-stop-body = Elk verzoek aan de AI-assistent wordt vanaf nu geweigerd, voor elke gebruiker, totdat hij weer wordt ingeschakeld. De configuratie blijft behouden.
 assist-admin-stopped-done = De AI-assistent is gestopt.

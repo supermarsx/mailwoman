@@ -80,7 +80,7 @@ assist-excluded-attachments = anexos
 # Wording here states what the server does. "Stop" takes effect on the running
 # server; every other change is read when the server starts.
 assist-admin-title = Assistente de IA
-assist-admin-intro = O assistente de IA envia o texto de mensagens que os usuários selecionam para o endpoint de IA configurado aqui. Ele não pode enviar, excluir nem aceitar e-mails. Conteúdo com criptografia de ponta a ponta e anexos são retidos, a menos que você os permita abaixo.
+assist-admin-intro = O assistente de IA envia conteúdo de e-mail para o endpoint de IA configurado aqui quando um usuário usa uma de suas ferramentas: o rascunho nas ferramentas de escrita, o assunto e a prévia da mensagem aberta no chat e, na busca semântica, o texto buscado e o assunto e o corpo de alguns resultados. Enquanto a marcação automática estiver concedida, o assunto e a prévia de cada mensagem que um usuário abre são enviados a cada abertura, sem que o usuário peça. Ele não pode enviar, excluir nem aceitar e-mails. Conteúdo criptografado de ponta a ponta e anexos são retidos, a menos que você os permita abaixo.
 assist-admin-load-unreadable = A configuração armazenada do assistente de IA não pode ser lida: a chave de API dela não abre com a chave deste servidor (MW_SERVER_KEY). Ela foi salva com outra chave ou foi alterada. O assistente de IA está desativado. Preencha o formulário, incluindo a chave de API, e salve para substituí-la.
 assist-admin-load-error = Não foi possível carregar a configuração do assistente de IA. O salvamento está desativado para que a configuração armazenada não seja sobrescrita.
 assist-admin-status-running = O assistente de IA está em execução. As solicitações vão para { $host }.
@@ -170,11 +170,11 @@ assist-admin-folders-none = Nenhuma pasta: todas as pastas das contas listadas.
 assist-admin-allow-e2ee-help = Desativado retém de cada solicitação o conteúdo com criptografia de ponta a ponta.
 assist-admin-allow-attachments-help = Desativado retém os anexos de cada solicitação.
 assist-admin-rate-heading = Limite de taxa
-assist-admin-rate-group-help = Solicitações por minuto que o servidor aceita para o assistente de IA, somando todos os usuários.
+assist-admin-rate-group-help = Solicitações por minuto que cada conta pode enviar ao endpoint do assistente de IA; uma busca semântica pode contar como até 33 solicitações. O servidor aplica apenas MW_ASSIST_RATE_LIMIT_PER_MIN, lida ao iniciar; um valor salvo aqui não é aplicado.
 assist-admin-rate-unavailable = Este servidor ainda não oferece o limite de taxa no console; ele é definido com MW_ASSIST_RATE_LIMIT_PER_MIN onde o servidor inicia.
 assist-admin-rate-limit = Solicitações por minuto
-assist-admin-rate-limit-help = 0 significa sem limite; no máximo 10000.
-assist-admin-rate-none = 0 (sem limite)
+assist-admin-rate-limit-help = 0 recusa todas as solicitações ao assistente de IA. Sem MW_ASSIST_RATE_LIMIT_PER_MIN definida, não há limite. No máximo 10000.
+assist-admin-rate-none = 0 (recusa todas as solicitações)
 assist-admin-stop-title = Parar o assistente de IA para todos?
 assist-admin-stop-body = Todas as solicitações ao assistente de IA serão recusadas a partir de agora, para todos os usuários, até que ele seja ativado novamente. A configuração é mantida.
 assist-admin-stopped-done = O assistente de IA está parado.

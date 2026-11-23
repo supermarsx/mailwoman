@@ -78,7 +78,7 @@ assist-excluded-attachments = allegati
 
 # -- Admin → AI assistant (deployment configuration) ------------------------------
 assist-admin-title = Assistente IA
-assist-admin-intro = L'assistente IA invia il testo dei messaggi selezionato dagli utenti all'endpoint IA configurato qui. Non può inviare, eliminare o accettare posta. Il contenuto cifrato end-to-end e gli allegati vengono trattenuti a meno che non vengano consentiti qui sotto.
+assist-admin-intro = L'assistente IA invia contenuti della posta all'endpoint IA configurato qui quando un utente usa uno dei suoi strumenti: la bozza per gli strumenti di scrittura, oggetto e anteprima del messaggio aperto per la chat e, per la ricerca semantica, il testo cercato e oggetto e corpo di alcuni risultati. Finché l'etichettatura automatica è concessa, oggetto e anteprima di ogni messaggio che un utente apre vengono inviati a ogni apertura, senza che l'utente lo chieda. Non può inviare, eliminare o accettare posta. I contenuti cifrati end-to-end e gli allegati vengono trattenuti a meno che tu non li consenta qui sotto.
 assist-admin-load-unreadable = La configurazione memorizzata dell'assistente IA non può essere letta: la sua chiave API non si apre con la chiave di questo server (MW_SERVER_KEY). È stata salvata con un'altra chiave o è stata modificata. L'assistente IA è disattivato. Compilare il modulo, inclusa la chiave API, e salvare per sostituirla.
 assist-admin-load-error = Impossibile caricare la configurazione dell'assistente IA. Il salvataggio è disattivato per non sovrascrivere la configurazione memorizzata.
 assist-admin-status-running = L'assistente IA è in esecuzione. Le richieste vanno a { $host }.
@@ -168,11 +168,11 @@ assist-admin-folders-none = Nessuna cartella: ogni cartella degli account elenca
 assist-admin-allow-e2ee-help = Disattivato trattiene da ogni richiesta il contenuto cifrato end-to-end.
 assist-admin-allow-attachments-help = Disattivato trattiene da ogni richiesta gli allegati.
 assist-admin-rate-heading = Limite di frequenza
-assist-admin-rate-group-help = Richieste al minuto che il server accetta per l'assistente IA, su tutti gli utenti.
+assist-admin-rate-group-help = Richieste al minuto che ogni account può inviare all'endpoint dell'assistente IA; una ricerca semantica può contare fino a 33 richieste. Il server applica solo MW_ASSIST_RATE_LIMIT_PER_MIN, letta all'avvio; un valore salvato qui non viene applicato.
 assist-admin-rate-unavailable = Questo server non offre ancora il limite di frequenza nella console; si imposta con MW_ASSIST_RATE_LIMIT_PER_MIN dove il server si avvia.
 assist-admin-rate-limit = Richieste al minuto
-assist-admin-rate-limit-help = 0 significa nessun limite; al massimo 10000.
-assist-admin-rate-none = 0 (nessun limite)
+assist-admin-rate-limit-help = 0 rifiuta ogni richiesta all'assistente IA. Senza MW_ASSIST_RATE_LIMIT_PER_MIN impostata non c'è limite. Al massimo 10000.
+assist-admin-rate-none = 0 (rifiuta ogni richiesta)
 assist-admin-stop-title = Fermare l'assistente IA per tutti?
 assist-admin-stop-body = Da ora ogni richiesta all'assistente IA viene rifiutata, per ogni utente, finché non viene riattivato. La configurazione viene mantenuta.
 assist-admin-stopped-done = L'assistente IA è fermo.

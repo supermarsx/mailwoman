@@ -80,7 +80,7 @@ assist-excluded-attachments = 附件
 # Wording here states what the server does. "Stop" takes effect on the running
 # server; every other change is read when the server starts.
 assist-admin-title = AI 助手
-assist-admin-intro = AI 助手会将用户选定的邮件文本发送到此处配置的 AI 端点。它不能发送、删除或接收邮件。除非你在下方允许，否则端到端加密的内容和附件不会被发送。
+assist-admin-intro = 当用户使用 AI 助手的工具时，AI 助手会将邮件内容发送到此处配置的 AI 端点：写作工具发送草稿，聊天发送已打开邮件的主题和预览，语义搜索发送搜索文本以及部分结果的主题和正文。在授予自动标记期间，用户打开的每封邮件的主题和预览都会在每次打开时发送，无需用户请求。它不能发送、删除或接受邮件。端到端加密的内容和附件会被保留，除非你在下方允许。
 assist-admin-load-unreadable = 无法读取已存储的 AI 助手配置：其 API 密钥无法用此服务器的密钥（MW_SERVER_KEY）解开。它是在另一个密钥下保存的，或已被更改。AI 助手已关闭。请填写表单（包括 API 密钥）并保存以替换它。
 assist-admin-load-error = 无法加载 AI 助手配置。已禁用保存，以免覆盖已存储的配置。
 assist-admin-status-running = AI 助手正在运行。请求发送到 { $host }。
@@ -170,11 +170,11 @@ assist-admin-folders-none = 无文件夹：所列账户的所有文件夹。
 assist-admin-allow-e2ee-help = 关闭后，所有请求都不会包含端到端加密内容。
 assist-admin-allow-attachments-help = 关闭后，所有请求都不会包含附件。
 assist-admin-rate-heading = 速率限制
-assist-admin-rate-group-help = 服务器对所有用户的 AI 助手每分钟接受的请求数。
+assist-admin-rate-group-help = 每个账户每分钟可发送到 AI 助手端点的请求数；一次语义搜索最多可计为 33 个请求。服务器只应用启动时读取的 MW_ASSIST_RATE_LIMIT_PER_MIN；在此处保存的值不会生效。
 assist-admin-rate-unavailable = 此服务器尚未在控制台中提供速率限制；它通过服务器启动处的 MW_ASSIST_RATE_LIMIT_PER_MIN 设置。
 assist-admin-rate-limit = 每分钟请求数
-assist-admin-rate-limit-help = 0 表示不限制；最大为 10000。
-assist-admin-rate-none = 0（不限制）
+assist-admin-rate-limit-help = 0 会拒绝所有 AI 助手请求。未设置 MW_ASSIST_RATE_LIMIT_PER_MIN 时没有限制。最多 10000。
+assist-admin-rate-none = 0（拒绝所有请求）
 assist-admin-stop-title = 为所有人停止 AI 助手？
 assist-admin-stop-body = 此后所有 AI 助手请求都会被拒绝，对每位用户均如此，直到再次开启。配置会保留。
 assist-admin-stopped-done = AI 助手已停止。

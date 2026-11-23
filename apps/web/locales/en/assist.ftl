@@ -86,7 +86,7 @@ assist-excluded-attachments = attachments
 # Wording here states what the server does. "Stop" takes effect on the running
 # server; every other change is read when the server starts.
 assist-admin-title = AI assistant
-assist-admin-intro = The AI assistant sends message text that users select to the AI endpoint configured here. It cannot send, delete, or accept mail. End-to-end-encrypted content and attachments are withheld unless you allow them below.
+assist-admin-intro = The AI assistant sends mail content to the AI endpoint configured here when a user uses one of its tools: the draft for the writing tools, the open message's subject and preview for chat, and for semantic search the search text and the subject and body of some results. While auto-tag is granted, the subject and preview of every message a user opens are sent each time it is opened, without the user asking. It cannot send, delete, or accept mail. End-to-end-encrypted content and attachments are withheld unless you allow them below.
 assist-admin-load-unreadable = The stored AI assistant configuration cannot be read: its API key does not open with this server's key (MW_SERVER_KEY). It was saved under another key or has been changed. The AI assistant is off. Fill in the form, including the API key, and save to replace it.
 assist-admin-load-error = Could not load the AI assistant configuration. Saving is disabled so the stored configuration is not overwritten.
 assist-admin-status-running = The AI assistant is running. Requests go to { $host }.
@@ -176,11 +176,11 @@ assist-admin-folders-none = No folder: every folder of the listed accounts.
 assist-admin-allow-e2ee-help = Off withholds end-to-end-encrypted content from every request.
 assist-admin-allow-attachments-help = Off withholds attachments from every request.
 assist-admin-rate-heading = Rate limit
-assist-admin-rate-group-help = Requests per minute the server accepts for the AI assistant across all users.
+assist-admin-rate-group-help = Requests per minute each account may send to the AI assistant endpoint; a semantic search can count as up to 33 requests. The server applies only MW_ASSIST_RATE_LIMIT_PER_MIN, read when it starts; a value saved here is not applied.
 assist-admin-rate-unavailable = This server does not offer the rate limit in the console yet; it is set with MW_ASSIST_RATE_LIMIT_PER_MIN where the server starts.
 assist-admin-rate-limit = Requests per minute
-assist-admin-rate-limit-help = 0 means no limit; at most 10000.
-assist-admin-rate-none = 0 (no limit)
+assist-admin-rate-limit-help = 0 refuses every AI assistant request. Leaving MW_ASSIST_RATE_LIMIT_PER_MIN unset means no limit. At most 10000.
+assist-admin-rate-none = 0 (refuses every request)
 assist-admin-stop-title = Stop the AI assistant for everyone?
 assist-admin-stop-body = Every AI assistant request is refused from now on, for every user, until it is turned on again. The configuration is kept.
 assist-admin-stopped-done = The AI assistant is stopped.

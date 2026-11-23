@@ -80,7 +80,7 @@ assist-excluded-attachments = załączników
 # Wording here states what the server does. "Stop" takes effect on the running
 # server; every other change is read when the server starts.
 assist-admin-title = Asystent AI
-assist-admin-intro = Asystent AI wysyła tekst wiadomości zaznaczony przez użytkowników do skonfigurowanego tutaj punktu końcowego AI. Nie może wysyłać, usuwać ani odbierać poczty. Treść szyfrowana end-to-end i załączniki są wstrzymywane, chyba że zezwolisz na nie poniżej.
+assist-admin-intro = Asystent AI wysyła treść poczty do skonfigurowanego tutaj punktu końcowego AI, gdy użytkownik korzysta z jednego z jego narzędzi: wersję roboczą przy narzędziach do pisania, temat i podgląd otwartej wiadomości w czacie, a przy wyszukiwaniu semantycznym tekst wyszukiwania oraz temat i treść niektórych wyników. Dopóki automatyczne tagowanie jest przyznane, temat i podgląd każdej wiadomości otwieranej przez użytkownika są wysyłane przy każdym otwarciu, bez prośby użytkownika. Nie może wysyłać, usuwać ani przyjmować poczty. Treści szyfrowane end-to-end i załączniki są wstrzymywane, chyba że zezwolisz na nie poniżej.
 assist-admin-load-unreadable = Nie można odczytać zapisanej konfiguracji asystenta AI: jej klucza API nie da się odszyfrować kluczem tego serwera (MW_SERVER_KEY). Została zapisana z innym kluczem lub została zmieniona. Asystent AI jest wyłączony. Wypełnij formularz, łącznie z kluczem API, i zapisz, aby ją zastąpić.
 assist-admin-load-error = Nie udało się wczytać konfiguracji asystenta AI. Zapisywanie jest wyłączone, aby nie nadpisać zapisanej konfiguracji.
 assist-admin-status-running = Asystent AI działa. Żądania trafiają do { $host }.
@@ -170,11 +170,11 @@ assist-admin-folders-none = Brak folderu: wszystkie foldery wymienionych kont.
 assist-admin-allow-e2ee-help = Wyłączone wstrzymuje treści szyfrowane end-to-end we wszystkich żądaniach.
 assist-admin-allow-attachments-help = Wyłączone wstrzymuje załączniki we wszystkich żądaniach.
 assist-admin-rate-heading = Limit żądań
-assist-admin-rate-group-help = Liczba żądań na minutę, które serwer przyjmuje dla asystenta AI od wszystkich użytkowników łącznie.
+assist-admin-rate-group-help = Liczba żądań na minutę, które każde konto może wysłać do punktu końcowego asystenta AI; wyszukiwanie semantyczne może liczyć się jako do 33 żądań. Serwer stosuje tylko MW_ASSIST_RATE_LIMIT_PER_MIN, odczytywaną przy uruchomieniu; wartość zapisana tutaj nie jest stosowana.
 assist-admin-rate-unavailable = Ten serwer nie oferuje jeszcze limitu żądań w konsoli; ustawia się go przez MW_ASSIST_RATE_LIMIT_PER_MIN przy uruchamianiu serwera.
 assist-admin-rate-limit = Żądania na minutę
-assist-admin-rate-limit-help = 0 oznacza brak limitu; maksymalnie 10000.
-assist-admin-rate-none = 0 (bez limitu)
+assist-admin-rate-limit-help = 0 odrzuca każde żądanie do asystenta AI. Bez ustawionej MW_ASSIST_RATE_LIMIT_PER_MIN nie ma limitu. Najwyżej 10000.
+assist-admin-rate-none = 0 (odrzuca każde żądanie)
 assist-admin-stop-title = Zatrzymać asystenta AI dla wszystkich?
 assist-admin-stop-body = Każde żądanie asystenta AI będzie odrzucane od teraz, dla wszystkich użytkowników, dopóki nie zostanie ponownie włączony. Konfiguracja zostaje zachowana.
 assist-admin-stopped-done = Asystent AI został zatrzymany.

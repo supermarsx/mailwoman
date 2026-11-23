@@ -78,7 +78,7 @@ assist-excluded-attachments = Anhänge
 
 # -- Admin → AI assistant (deployment configuration) ------------------------------
 assist-admin-title = KI-Assistent
-assist-admin-intro = Der KI-Assistent sendet von Benutzern ausgewählten Nachrichtentext an den hier konfigurierten KI-Endpunkt. Er kann keine E-Mails senden, löschen oder annehmen. Ende-zu-Ende-verschlüsselte Inhalte und Anhänge werden zurückgehalten, sofern Sie sie unten nicht erlauben.
+assist-admin-intro = Der KI-Assistent sendet E-Mail-Inhalte an den hier konfigurierten KI-Endpunkt, wenn ein Benutzer eines seiner Werkzeuge verwendet: den Entwurf bei den Schreibwerkzeugen, Betreff und Vorschau der geöffneten Nachricht beim Chat und bei der semantischen Suche den Suchtext sowie Betreff und Text einiger Ergebnisse. Solange Auto-Tagging gewährt ist, werden Betreff und Vorschau jeder Nachricht, die ein Benutzer öffnet, bei jedem Öffnen gesendet, ohne dass der Benutzer darum bittet. Er kann keine E-Mails senden, löschen oder annehmen. Ende-zu-Ende-verschlüsselte Inhalte und Anhänge werden zurückgehalten, sofern Sie sie unten nicht zulassen.
 assist-admin-load-unreadable = Die gespeicherte Konfiguration des KI-Assistenten kann nicht gelesen werden: Ihr API-Schlüssel lässt sich mit dem Schlüssel dieses Servers (MW_SERVER_KEY) nicht öffnen. Sie wurde unter einem anderen Schlüssel gespeichert oder wurde verändert. Der KI-Assistent ist aus. Füllen Sie das Formular einschließlich des API-Schlüssels aus und speichern Sie, um sie zu ersetzen.
 assist-admin-load-error = Die Konfiguration des KI-Assistenten konnte nicht geladen werden. Speichern ist deaktiviert, damit die gespeicherte Konfiguration nicht überschrieben wird.
 assist-admin-status-running = Der KI-Assistent läuft. Anfragen gehen an { $host }.
@@ -168,11 +168,11 @@ assist-admin-folders-none = Kein Ordner: jeder Ordner der aufgeführten Konten.
 assist-admin-allow-e2ee-help = Aus hält Ende-zu-Ende-verschlüsselte Inhalte aus jeder Anfrage heraus.
 assist-admin-allow-attachments-help = Aus hält Anhänge aus jeder Anfrage heraus.
 assist-admin-rate-heading = Ratenbegrenzung
-assist-admin-rate-group-help = Anfragen pro Minute, die der Server für den KI-Assistenten über alle Nutzer hinweg annimmt.
+assist-admin-rate-group-help = Anfragen pro Minute, die jedes Konto an den Endpunkt des KI-Assistenten senden darf; eine semantische Suche kann bis zu 33 Anfragen zählen. Der Server wendet nur MW_ASSIST_RATE_LIMIT_PER_MIN an, das beim Start gelesen wird; ein hier gespeicherter Wert wird nicht angewendet.
 assist-admin-rate-unavailable = Dieser Server bietet die Ratenbegrenzung in der Konsole noch nicht an; sie wird mit MW_ASSIST_RATE_LIMIT_PER_MIN beim Start des Servers festgelegt.
 assist-admin-rate-limit = Anfragen pro Minute
-assist-admin-rate-limit-help = 0 bedeutet keine Begrenzung; höchstens 10000.
-assist-admin-rate-none = 0 (keine Begrenzung)
+assist-admin-rate-limit-help = 0 lehnt jede Anfrage an den KI-Assistenten ab. Ist MW_ASSIST_RATE_LIMIT_PER_MIN nicht gesetzt, gibt es keine Begrenzung. Höchstens 10000.
+assist-admin-rate-none = 0 (lehnt jede Anfrage ab)
 assist-admin-stop-title = KI-Assistenten für alle stoppen?
 assist-admin-stop-body = Jede Anfrage an den KI-Assistenten wird ab jetzt für alle Nutzer abgelehnt, bis er wieder eingeschaltet wird. Die Konfiguration bleibt erhalten.
 assist-admin-stopped-done = Der KI-Assistent ist gestoppt.

@@ -78,7 +78,7 @@ assist-excluded-attachments = 添付ファイル
 
 # -- Admin → AI assistant (deployment configuration) ------------------------------
 assist-admin-title = AI アシスタント
-assist-admin-intro = AI アシスタントは、ユーザーが選択したメッセージのテキストを、ここで設定した AI エンドポイントに送信します。メールの送信、削除、受け入れはできません。エンドツーエンド暗号化されたコンテンツと添付ファイルは、下で許可しない限り送信されません。
+assist-admin-intro = AI アシスタントは、ユーザーがそのツールを使うと、ここで設定した AI エンドポイントにメールの内容を送信します。文章ツールでは下書き、チャットでは開いているメッセージの件名とプレビュー、セマンティック検索では検索テキストと一部の結果の件名と本文です。自動タグ付けが許可されている間は、ユーザーが開いた各メッセージの件名とプレビューが、ユーザーが求めなくても開くたびに送信されます。メールの送信、削除、受け入れはできません。エンドツーエンド暗号化された内容と添付ファイルは、下で許可しない限り送信されません。
 assist-admin-load-unreadable = 保存されている AI アシスタントの設定を読み取れません: API キーをこのサーバーの鍵（MW_SERVER_KEY）で開けません。別の鍵で保存されたか、変更されています。AI アシスタントはオフです。API キーを含めてフォームに入力し、保存すると置き換えられます。
 assist-admin-load-error = AI アシスタントの設定を読み込めませんでした。保存済みの設定が上書きされないよう、保存は無効になっています。
 assist-admin-status-running = AI アシスタントは実行中です。リクエストは { $host } に送られます。
@@ -168,11 +168,11 @@ assist-admin-folders-none = フォルダーなし：一覧のアカウントの�
 assist-admin-allow-e2ee-help = オフにすると、エンドツーエンド暗号化された内容をすべてのリクエストから除外します。
 assist-admin-allow-attachments-help = オフにすると、添付ファイルをすべてのリクエストから除外します。
 assist-admin-rate-heading = レート制限
-assist-admin-rate-group-help = サーバーが全ユーザーの AI アシスタント向けに受け付ける、1分あたりのリクエスト数です。
+assist-admin-rate-group-help = 各アカウントが AI アシスタントのエンドポイントに送信できる 1 分あたりのリクエスト数です。セマンティック検索は最大 33 リクエストと数えられます。サーバーが適用するのは起動時に読み込む MW_ASSIST_RATE_LIMIT_PER_MIN だけで、ここで保存した値は適用されません。
 assist-admin-rate-unavailable = このサーバーはコンソールでのレート制限をまだ提供していません。サーバーの起動時に MW_ASSIST_RATE_LIMIT_PER_MIN で設定します。
 assist-admin-rate-limit = 1分あたりのリクエスト数
-assist-admin-rate-limit-help = 0 は無制限です。最大 10000 です。
-assist-admin-rate-none = 0（制限なし）
+assist-admin-rate-limit-help = 0 にすると AI アシスタントへのリクエストはすべて拒否されます。MW_ASSIST_RATE_LIMIT_PER_MIN が未設定なら制限はありません。最大 10000 です。
+assist-admin-rate-none = 0（すべてのリクエストを拒否）
 assist-admin-stop-title = 全員の AI アシスタントを停止しますか？
 assist-admin-stop-body = 再びオンにするまで、今後すべてのユーザーの AI アシスタントのリクエストが拒否されます。設定は保持されます。
 assist-admin-stopped-done = AI アシスタントを停止しました。

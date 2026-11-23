@@ -78,7 +78,7 @@ assist-excluded-attachments = archivos adjuntos
 
 # -- Admin → AI assistant (deployment configuration) ------------------------------
 assist-admin-title = Asistente de IA
-assist-admin-intro = El asistente de IA envía el texto de los mensajes que seleccionan los usuarios al endpoint de IA configurado aquí. No puede enviar, eliminar ni aceptar correo. El contenido cifrado de extremo a extremo y los archivos adjuntos se retienen salvo que los permita abajo.
+assist-admin-intro = El asistente de IA envía contenido del correo al punto de conexión de IA configurado aquí cuando un usuario usa una de sus herramientas: el borrador en las herramientas de escritura, el asunto y la vista previa del mensaje abierto en el chat y, en la búsqueda semántica, el texto buscado y el asunto y el cuerpo de algunos resultados. Mientras el etiquetado automático esté concedido, el asunto y la vista previa de cada mensaje que abre un usuario se envían cada vez que se abre, sin que el usuario lo pida. No puede enviar, eliminar ni aceptar correo. El contenido cifrado de extremo a extremo y los adjuntos se retienen salvo que los permita abajo.
 assist-admin-load-unreadable = No se puede leer la configuración almacenada del asistente de IA: su clave de API no se abre con la clave de este servidor (MW_SERVER_KEY). Se guardó con otra clave o ha sido modificada. El asistente de IA está desactivado. Rellene el formulario, incluida la clave de API, y guarde para sustituirla.
 assist-admin-load-error = No se pudo cargar la configuración del asistente de IA. Guardar está deshabilitado para no sobrescribir la configuración almacenada.
 assist-admin-status-running = El asistente de IA está en funcionamiento. Las solicitudes van a { $host }.
@@ -168,11 +168,11 @@ assist-admin-folders-none = Ninguna carpeta: todas las carpetas de las cuentas i
 assist-admin-allow-e2ee-help = Desactivado retiene el contenido cifrado de extremo a extremo en todas las solicitudes.
 assist-admin-allow-attachments-help = Desactivado retiene los archivos adjuntos en todas las solicitudes.
 assist-admin-rate-heading = Límite de frecuencia
-assist-admin-rate-group-help = Solicitudes por minuto que el servidor acepta para el asistente de IA entre todos los usuarios.
+assist-admin-rate-group-help = Solicitudes por minuto que cada cuenta puede enviar al punto de conexión del asistente de IA; una búsqueda semántica puede contar hasta 33 solicitudes. El servidor solo aplica MW_ASSIST_RATE_LIMIT_PER_MIN, que lee al iniciarse; un valor guardado aquí no se aplica.
 assist-admin-rate-unavailable = Este servidor aún no ofrece el límite de frecuencia en la consola; se define con MW_ASSIST_RATE_LIMIT_PER_MIN en el arranque del servidor.
 assist-admin-rate-limit = Solicitudes por minuto
-assist-admin-rate-limit-help = 0 significa sin límite; máximo 10000.
-assist-admin-rate-none = 0 (sin límite)
+assist-admin-rate-limit-help = 0 rechaza todas las solicitudes al asistente de IA. Sin MW_ASSIST_RATE_LIMIT_PER_MIN definida no hay límite. Como máximo 10000.
+assist-admin-rate-none = 0 (rechaza todas las solicitudes)
 assist-admin-stop-title = ¿Detener el asistente de IA para todos?
 assist-admin-stop-body = Toda solicitud al asistente de IA se rechaza a partir de ahora, para todos los usuarios, hasta que se vuelva a activar. La configuración se conserva.
 assist-admin-stopped-done = El asistente de IA está detenido.

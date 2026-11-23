@@ -78,7 +78,7 @@ assist-excluded-attachments = les pièces jointes
 
 # -- Admin → AI assistant (deployment configuration) ------------------------------
 assist-admin-title = Assistant IA
-assist-admin-intro = L’assistant IA envoie le texte des messages sélectionné par les utilisateurs au point de terminaison IA configuré ici. Il ne peut ni envoyer, ni supprimer, ni accepter du courrier. Le contenu chiffré de bout en bout et les pièces jointes sont retenus, sauf si vous les autorisez ci-dessous.
+assist-admin-intro = L’assistant IA envoie du contenu de courrier au point de terminaison IA configuré ici lorsqu’un utilisateur utilise l’un de ses outils : le brouillon pour les outils d’écriture, l’objet et l’aperçu du message ouvert pour le chat et, pour la recherche sémantique, le texte recherché ainsi que l’objet et le corps de certains résultats. Tant que l’étiquetage automatique est accordé, l’objet et l’aperçu de chaque message qu’un utilisateur ouvre sont envoyés à chaque ouverture, sans que l’utilisateur le demande. Il ne peut ni envoyer, ni supprimer, ni accepter de courrier. Le contenu chiffré de bout en bout et les pièces jointes sont retenus sauf si vous les autorisez ci-dessous.
 assist-admin-load-unreadable = La configuration enregistrée de l’assistant IA ne peut pas être lue : sa clé d’API ne s’ouvre pas avec la clé de ce serveur (MW_SERVER_KEY). Elle a été enregistrée avec une autre clé ou a été modifiée. L’assistant IA est désactivé. Remplissez le formulaire, y compris la clé d’API, et enregistrez pour la remplacer.
 assist-admin-load-error = Impossible de charger la configuration de l’assistant IA. L’enregistrement est désactivé afin de ne pas écraser la configuration enregistrée.
 assist-admin-status-running = L’assistant IA est en cours d’exécution. Les requêtes sont envoyées à { $host }.
@@ -168,11 +168,11 @@ assist-admin-folders-none = Aucun dossier : tous les dossiers des comptes listé
 assist-admin-allow-e2ee-help = Désactivé retient le contenu chiffré de bout en bout dans chaque requête.
 assist-admin-allow-attachments-help = Désactivé retient les pièces jointes dans chaque requête.
 assist-admin-rate-heading = Limite de débit
-assist-admin-rate-group-help = Nombre de requêtes par minute que le serveur accepte pour l'assistant IA, tous utilisateurs confondus.
+assist-admin-rate-group-help = Requêtes par minute que chaque compte peut envoyer au point de terminaison de l’assistant IA ; une recherche sémantique peut compter jusqu’à 33 requêtes. Le serveur n’applique que MW_ASSIST_RATE_LIMIT_PER_MIN, lue au démarrage ; une valeur enregistrée ici n’est pas appliquée.
 assist-admin-rate-unavailable = Ce serveur ne propose pas encore la limite de débit dans la console ; elle se définit avec MW_ASSIST_RATE_LIMIT_PER_MIN au démarrage du serveur.
 assist-admin-rate-limit = Requêtes par minute
-assist-admin-rate-limit-help = 0 signifie aucune limite ; 10000 au maximum.
-assist-admin-rate-none = 0 (aucune limite)
+assist-admin-rate-limit-help = 0 refuse toute requête à l’assistant IA. Sans MW_ASSIST_RATE_LIMIT_PER_MIN, il n’y a pas de limite. Au plus 10000.
+assist-admin-rate-none = 0 (refuse toute requête)
 assist-admin-stop-title = Arrêter l'assistant IA pour tout le monde ?
 assist-admin-stop-body = Toute requête à l'assistant IA est refusée dès maintenant, pour tous les utilisateurs, jusqu'à sa réactivation. La configuration est conservée.
 assist-admin-stopped-done = L'assistant IA est arrêté.
