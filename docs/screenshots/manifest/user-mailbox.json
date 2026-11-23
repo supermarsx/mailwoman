@@ -2310,6 +2310,62 @@
    ]
   },
   {
+   "id": "folders-screen",
+   "page": "user/mailbox/folders-labels.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "waitFor": {
+      "role": "button",
+      "name": "Spring reading list",
+      "exact": false
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "Projects",
+      "exact": false,
+      "within": {
+       "role": "navigation",
+       "name": "@mail-nav-mailboxes"
+      }
+     }
+    },
+    {
+     "waitFor": {
+      "text": "Print schedule for March",
+      "first": true
+     }
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "shot": "full",
+   "alt": "The mailbox with the folder Projects selected: the folder sidebar on the left and the four messages of Projects in the message list.",
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@mail-user-folders"
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "region",
+      "name": "@mail-list-label"
+     },
+     "place": "right"
+    }
+   ]
+  },
+  {
    "id": "attachments-screen",
    "page": "user/mailbox/attachments.md",
    "steps": [
@@ -2607,14 +2663,6 @@
       "last": true
      },
      "place": "left"
-    },
-    {
-     "n": 4,
-     "target": {
-      "role": "button",
-      "name": "@response-templates-save"
-     },
-     "place": "right"
     }
    ],
    "seed": [
@@ -2754,6 +2802,67 @@
    ]
   },
   {
+   "id": "linked-list",
+   "page": "user/mailbox/linked-accounts.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "waitFor": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "waitFor": {
+      "text": "@linked-accounts-title",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "text": "@linked-accounts-title",
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "button",
+      "name": "@linked-accounts-add"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@linked-accounts-title",
+     "closest": "section"
+    },
+    "padding": 10
+   },
+   "alt": "The Linked mailboxes card: its description, the Link a mailbox button, and the note that there are no linked mailboxes yet.",
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@linked-accounts-add"
+     },
+     "place": "left"
+    }
+   ],
+   "seed": [
+    "um-linking"
+   ]
+  },
+  {
    "id": "linked-form",
    "page": "user/mailbox/linked-accounts.md",
    "steps": [
@@ -2802,7 +2911,14 @@
      }
     }
    ],
-   "shot": "full",
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@linked-accounts-add",
+     "closest": "section"
+    },
+    "padding": 10
+   },
    "alt": "The Link a mailbox form with the fields Username or email address, Password and Display name (optional), and the buttons Verify and link and Cancel.",
    "callouts": [
     {
@@ -2833,6 +2949,80 @@
       "name": "@linked-accounts-submit"
      },
      "place": "bottom"
+    }
+   ],
+   "seed": [
+    "um-linking"
+   ]
+  },
+  {
+   "id": "linked-preferences",
+   "page": "user/mailbox/linked-accounts.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "waitFor": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "waitFor": {
+      "text": "@linked-accounts-title",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "text": "@linked-accounts-title",
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "button",
+      "name": "@linked-accounts-add"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "heading",
+     "name": "@linked-accounts-preferences-title",
+     "closest": "section"
+    },
+    "padding": 10
+   },
+   "alt": "The Mailbox preferences card with the checkboxes Use linked mailboxes, Preload linked mailboxes and Show mailbox connection icons.",
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@linked-accounts-use"
+     },
+     "place": "left"
+    },
+    {
+     "n": 2,
+     "target": {
+      "label": "@linked-accounts-preload"
+     },
+     "place": "left"
+    },
+    {
+     "n": 3,
+     "target": {
+      "label": "@linked-accounts-connection-indicator"
+     },
+     "place": "left"
     }
    ],
    "seed": [

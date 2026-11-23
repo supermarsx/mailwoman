@@ -18,10 +18,16 @@ A linked mailbox is another mailbox you open from Mailwoman while you stay signe
 
 1. Open **Settings** and choose **Linked mailboxes**.
 2. Choose **Link a mailbox**.
+
+![The Linked mailboxes card: its description, the Link a mailbox button, and the note that there are no linked mailboxes yet.](/screenshots/user-mailbox/linked-list.webp){.mw-crop}
+
+1. **Link a mailbox**.
+{.mw-callouts}
+
 3. Enter the **Username or email address** and the **Password** of the mailbox. The **Display name (optional)** can stay empty.
 4. Choose **Verify and link**.
 
-![The Link a mailbox form with the fields Username or email address, Password and Display name (optional), and the buttons Verify and link and Cancel.](/screenshots/user-mailbox/linked-form.webp){.mw-shot}
+![The Link a mailbox form with the fields Username or email address, Password and Display name (optional), and the buttons Verify and link and Cancel.](/screenshots/user-mailbox/linked-form.webp){.mw-crop}
 
 1. **Username or email address**.
 2. **Password**.
@@ -50,6 +56,13 @@ To see the mail of all your mailboxes together, see [Unified mail](/user/unified
 Choose **Unlink mailbox**, then **Confirm unlink**. This removes access through your primary account. It does not delete the mailbox or its messages.
 
 ## Options
+
+![The Mailbox preferences card with the checkboxes Use linked mailboxes, Preload linked mailboxes and Show mailbox connection icons.](/screenshots/user-mailbox/linked-preferences.webp){.mw-crop}
+
+1. **Use linked mailboxes**.
+2. **Preload linked mailboxes**.
+3. **Show mailbox connection icons**.
+{.mw-callouts}
 
 | Label | What it does | Default | Who can change it |
 |---|---|---|---|

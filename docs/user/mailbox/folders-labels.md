@@ -6,6 +6,14 @@ screen: true
 
 Folders hold messages: a message is in one folder at a time. Labels are tags you add to a message; a message can have several, and they do not move it. This page covers the folder list, the folder menu, creating and arranging folders, and labels.
 
+![The mailbox with the folder Projects selected: the folder sidebar on the left and the four messages of Projects in the message list.](/screenshots/user-mailbox/folders-screen.webp){.mw-shot}
+
+1. The folder sidebar, with the folders of the account.
+2. The message list, which shows the messages of the selected folder, here **Projects**.
+{.mw-callouts}
+
+## The folder list
+
 ![The folder list: Inbox, Drafts, Sent, Archive, Spam and Trash, then the group User folders with Projects and Receipts, each with unread and total counts.](/screenshots/user-mailbox/folders-sidebar.webp){.mw-crop}
 
 1. **Inbox**. The two numbers on a folder are its unread messages and its total messages.

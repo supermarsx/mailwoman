@@ -19,14 +19,13 @@ Templates are saved messages and snippets of text you use often: a full message 
 3. Type a **Template name**.
 4. To make a full message, fill in **Subject (optional)**, **To (optional)**, **Cc (optional)** or **Bcc (optional)**. Leave them empty for a snippet you want to reuse in any message.
 5. Write the text in the editor. It has the same tools as the composer.
-6. Choose **Back**, then **Save templates**. Until you save, **Discard changes** drops what you changed.
+6. Choose **Back**, then **Save templates** at the foot of the list. Until you save, **Discard changes** drops what you changed.
 
 ![The editor for a new personal template: the Template name, the optional Subject, To, Cc and Bcc fields, the text editor, and the Back and Compose from template buttons.](/screenshots/user-mailbox/templates-editor.webp){.mw-shot}
 
 1. **Template name**.
 2. **Subject (optional)**. **To**, **Cc** and **Bcc** are beside it.
 3. **Compose from template** opens a new message made from this template.
-4. **Save templates** is at the foot of the list.
 {.mw-callouts}
 
 A template holds up to 8,000 characters of plain message text, and a name up to 80 characters. You can keep up to 20 templates, and the library may use up to 64 KiB. The count beside **Add template** shows how many you have, for example **2 of 20 templates**.
