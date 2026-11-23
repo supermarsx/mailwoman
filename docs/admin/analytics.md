@@ -1,68 +1,75 @@
-# Optional usage analytics
+---
+screen: true
+---
+# Usage analytics
 
-Usage analytics is disabled by default. The dedicated admin **Usage analytics** page configures an Umami `/api/send` collector with a website UUID or a Matomo `/matomo.php` collector with a numeric site ID, or Google Analytics 4 Measurement Protocol. Configuration changes require an unscoped integrations-write grant, fresh administrator confirmation, and the revision loaded by the page. HTTPS is the default; HTTP requires explicit opt-in.
+The **Usage analytics** screen of the console configures two separate, optional features: server-side usage counts, which the server sends to an analytics collector for people who agreed, and a browser analytics tag, which loads an analytics provider's own script in the mail app for people who agreed to that provider. Both are off by default.
 
-Each mailbox user must separately opt in under **Settings → Privacy → Optional usage counts**. Consent is stored with that account's synchronized preferences. Do Not Track or Global Privacy Control prevents export even when consent is saved. Existing consent can still be withdrawn while a browser privacy signal is active.
+![The Usage analytics screen with collection off: the collector configuration form and the exporter status.](/screenshots/admin-privacy/analytics-overview.webp){.mw-shot}
 
-Only fixed top-level screen names (Mail, Calendar, Tasks, Contacts, Notes, Settings) are reported. The exporter loads no third-party JavaScript; the optional browser tag described below is separate. Messages, attachments, email addresses, searches, route parameters, browser identifiers, cookies, authorization headers and client IP addresses are not included. Administrator activity and workspace tab details are not tracked. The collector sees the server's connection and a fixed product User-Agent, so visitor/device/geography statistics must not be interpreted as client statistics.
+## Before you start
 
-These are best-effort event counts. There is no durable queue or retry. Each server process admits at most 60 events per account and 600 total per minute, retains at most 256 pending events, and exports at most two concurrently. A queued event has a 10-second total deadline and a collector request a 3-second deadline. Delivery rechecks account/session authority, consent, current configuration and canonical-domain routing before export. Revoked consent or changed configuration drops pending events.
+- Reading the screen needs `integrations.read`; saving needs `integrations.write` on all domains and your password again.
+- Each person decides separately, under **Settings > Privacy > Optional usage counts** in the mail app: one switch for the usage counts, and one for the browser tag that names the provider. Nothing is collected for a person who has not agreed.
+- The cookie consent banner does not control either feature (see [Cookie consent](cookies.md)), and the consent ledger's **Usage counts** and **Analytics provider script** purposes only keep receipts (see [Restrictions and consent](consent.md#purposes)).
 
-The admin status counters reset with the process. “Accepted by collector” means an HTTP success response without a recognized refusal; it does not establish that the provider retained the event. Umami's explicit bot-filter response is counted as dropped. The fixed, truthful User-Agent is `Mailwoman/1.0 (consented application events)`; it does not impersonate a browser. Verify ingestion in your own collector before relying on counts. Mock-collector tests establish the documented HTTP contracts, not acceptance by every deployed provider version or policy.
+## Server-side usage counts
 
-Analytics uses its own egress traffic class. Existing routes for other classes do not automatically carry it. The dedicated Outbound routing editor supports explicit traffic-class and scope assignments. Analytics/domain routes are honored, with no direct fallback if a selected proxy fails. Private collectors require an explicit analytics-only destination allowance and EgressWrite authority; metadata, link-local and loopback addresses remain blocked. Analytics proxy transport continues to reject private origin targets even when the direct-path allowlist permits them.
+1. Under **Collector configuration**, tick **Enable optional analytics collection**.
+2. Choose the **Provider**: Umami, Matomo or Google Analytics 4. For Umami and Matomo enter the **Collector endpoint** and **Website or site ID**; for Google Analytics 4 choose the global or EU endpoint and enter the **Measurement ID** and **Measurement Protocol API secret**.
+3. Select **Save configuration**.
 
-Provider references: [Umami event API](https://docs.umami.is/docs/api/sending-stats), [Matomo tracking HTTP API](https://developer.matomo.org/api-reference/tracking-api). Operational OpenTelemetry export is separate from this optional usage feature.
+What is sent: one event per screen the person opens, named mail, calendar, tasks, contacts, notes or settings. The server sends it, not the browser, with the user agent `Mailwoman/1.0 (consented application events)`, so the collector sees the server's address. For Google Analytics 4 each event has a new random client id, the ad consent values are `DENIED`, and only a `screen_view` event is sent.
 
-## Google Analytics 4
+When an event is dropped:
 
-Select GA4, enter the web stream measurement ID (`G-…`), and provide its Measurement Protocol API secret. The only allowed collectors are `https://www.google-analytics.com/mp/collect` and the EU collection endpoint `https://region1.google-analytics.com/mp/collect`. HTTP, custom hosts, query strings and fragments are refused. The server adds the protocol-required measurement ID and secret query parameters only for the outbound HTTPS request; no external analytics script runs in the mailbox.
+- the request carries Do Not Track or Global Privacy Control;
+- the person has not agreed, or has withdrawn;
+- the person is restricted with **Analytics and open tracking** paused;
+- more than 60 events per account or 600 in total arrive in a minute, or more than 256 are waiting.
 
-The secret is write-only and encrypted with the server key, bound to the exact endpoint and measurement ID. GET responses report only whether it is configured. Omitting a replacement preserves it for the same destination; changing the destination or measurement ID requires a replacement before enabling. Explicit removal is supported while disabled. Config and secret revision are saved atomically with the existing ETag and fresh administrator proof. Audit records contain only provider/enabled state; egress diagnostics contain only traffic class and result, never the secret-bearing URL. The selected egress proxy is trusted infrastructure and must also avoid logging sensitive destination queries.
+Consent, the session and the configuration are checked again before delivery. There is no retry. **Exporter status** counts events **Queued**, **Accepted by collector** and **Dropped** since the server process started; "accepted" means the collector answered with success, not that it kept the event.
 
-Every exported event has a new random `client_id`, not a persistent mailbox, browser or device identifier. Only `screen_view` with an enumerated `screen_name` is emitted. Both `ad_user_data` and `ad_personalization` consent values are `DENIED`. Account consent and DNT/GPC remain mandatory. No user ID, session ID, client IP override, browser User-Agent, engagement duration, mail content or arbitrary properties are sent. Google sees the server connection; its derived geography/device information must not be treated as user information.
-
-This mode supports best-effort event counts, not unique visitors, sessions, attribution, engagement or reliable Realtime user metrics. A Google HTTP 2xx response means the request was received, **not** that its payload was validated or retained; invalid credentials or payloads may still receive 2xx. There is no retry. Verify events in the selected property before relying on counts.
-
-Contract: [Google GA4 Measurement Protocol reference](https://developers.google.com/analytics/devguides/collection/protocol/ga4/reference?client_type=gtag).
+A collector on a private network needs an entry under **Private collector destinations**, which requires `egress.write`. Analytics traffic uses its own outbound traffic class (see [Outbound connections](/security/egress)).
 
 ## Browser analytics tag
 
-The **Browser analytics tag** section of the same page loads a provider's own script in the mail app. It is off by default, separate from the server-side exporter, and has a different privacy profile: the provider's code runs in the user's browser, sees the page address (including the `#/…` route, which may contain folder and message identifiers unless the provider strips it), the browser and the client IP address, and may set its own identifiers. The fixed-schema guarantees above do not apply to it.
+![The top of the Browser analytics tag form: where the tag runs, the switch that loads it, the provider and the provider address.](/screenshots/admin-privacy/analytics-tag.webp){.mw-crop}
 
-Presets: Plausible (site domain, optional self-hosted address), Matomo (numeric site ID and base URL; the generated tag disables cookies), Umami (website UUID, optional self-hosted address; hash and query excluded), Fathom (site ID), PostHog (project key and US/EU region; the generated tag turns off autocapture, page-leave capture, surveys and session recording, masks all text and element attributes, and keeps identifiers in memory only), Simple Analytics (optional hostname) and Cloudflare Web Analytics (site token). The server builds the provider's documented tag from these typed fields. Microsoft Clarity is not offered: its session replay would record the mailbox page (subjects, senders, drafts), and its documented policy needs `*.clarity.ms`. Use a custom tag only if you accept that.
+1. Under **Browser analytics tag**, choose the **Tag provider**: Plausible, Matomo, Umami, Fathom, PostHog, Simple Analytics, Cloudflare Web Analytics, or **Custom tag (other provider)**. Fill in the provider's fields.
+2. Check **Content Security Policy additions**: the origins the page will allow for scripts, connections and images.
+3. Tick **Load this tag for consenting users** and **I understand this provider's script runs with full access to users' webmail pages.**
+4. Select **Save browser tag**. **Test** fetches the script through the analytics traffic class and reports the result.
 
-A **custom tag** is either an https script URL or a JavaScript snippet (up to 32 KiB, without `<script>` tags), plus the origins it loads scripts from, sends data to, and loads pixels from. Origins must be `https://host[:port]`; `https://*.example.com` is accepted, while a bare `*`, a wildcard over a top-level or shared hosting suffix, paths, `http:`, `data:`, `blob:` and `javascript:` are refused. The script URL's origin must be declared.
+Turning a tag on, or changing an enabled tag, needs a full Super admin as well. The change is recorded in the audit log (`analytics-tag-configured`) with the provider, the script's hash and the allowed origins.
 
-How it is served: the mail shell references one same-origin file, `/assets/analytics/<sha256>.js`, whose name is the SHA-256 of its bytes (`text/javascript`, `nosniff`, `private, max-age=31536000, immutable`). It is served only to signed-in sessions and only while it is the current configuration. No inline script is added, and `'unsafe-inline'` and `'unsafe-eval'` are never added. The page's CSP gains exactly the provider's documented origins, or the declared ones, in `script-src`, `connect-src` and `img-src`. The admin page shows these additions live. The app's Trusted Types policy admits script URLs from the same script origins only. The tagged page's policy lists only the two Trusted Types policies the app creates itself (`default`, `svelte-trusted-html`), without duplicates, so in the mail tab itself a tag cannot add a policy; if either name already exists when the app starts, the app refuses to start that page. Frames and windows the tag opens get their own policy factory, so there it can create policies. `script-src` remains the real limit on what a tag can load. The tagged page is sent with `Cache-Control: private, no-store`, which is the control that keeps it out of the back/forward cache. The app also reloads a tagged page the browser restores from that cache, but a hostile tag can suppress that listener, so it is defence in depth only. With Cross-Origin-Embedder-Policy enabled (the default), the provider must serve its script with CORS or `Cross-Origin-Resource-Policy: cross-origin`. Scripts that use `eval` will not run.
+::: warning The provider's script runs inside the mail app
+The provider's code runs in the person's browser with access to the mail app page. It sees the page address (including the folder and message route, unless the provider strips it), the browser and the person's IP address, and it can set its own identifiers. The person's agreement is tied to the provider and to the loader file this server generates; the provider can change its own script at any time without anyone being asked again.
+:::
 
-Where it runs: only the mail app document, and only for a signed-in user whose account agreed to **this provider and this exact script** under **Settings → Privacy** (a separate checkbox that names the provider and says what its script can see), with no Do Not Track or Global Privacy Control signal and no admin console session cookie in the request. Agreeing to the server-side usage counts never implies a browser tag. The consent is stored as `<provider>:<loader sha256>`, so changing the provider, or anything that changes the loader this server generates, asks every user again. The binding covers the loader only. The provider's own script (or a custom script URL) can change on the provider's side at any time without asking again, and Subresource Integrity cannot pin a script that changes. It never runs in message reader frames, detached composer or reader windows, the admin console, OAuth or OIDC consent pages, or the sign-in page. When consent is withdrawn (or a privacy signal appears), the page is cut off from third-party `fetch`, `XMLHttpRequest` and `sendBeacon` at once and reloads as soon as the withdrawal is saved, or fails to save, without the tag or the CSP additions. Every other tab of the same browser is told over a BroadcastChannel and does the same. The same happens when another account signs in, or the admin console is used, in any tab of that browser. Tabs on other devices learn of a withdrawal on their next preferences refresh. The cut-off is best effort: it does not reach references the provider captured before it, `WebSocket`, `EventSource`, `<img>` pixels, new `<script>` loads from admitted origins, or workers the provider started. The reload is what ends them. The service worker never stores a tagged shell (`X-Mw-Analytics-Tag: 1`) and always fetches the loader from the network. A different account signing in within the same tab reloads at once. There is no per-domain override, because the existing analytics configuration has none.
+The tag is served only in the mail app, only to a signed-in person who agreed to this provider and loader, only without Do Not Track or Global Privacy Control, and never to a browser that carries an administrator session or has been used for the console (the `mw_admin_browser` cookie, kept about 400 days). Some presets switch off the provider's tracking features: Matomo without cookies, Umami without the address's hash and query, PostHog with autocapture, session recording and surveys off and all text masked. When a person withdraws, the tab is cut off from third-party requests and reloads without the tag.
 
-Changes: every save needs the integrations-write grant, the loaded revision and a fresh step-up proof. Turning a tag on, or changing an enabled tag, also needs a full Super admin and an explicit acknowledgement that the provider's script runs with full page access. This applies to presets as well as custom tags, because both run provider code. Disabling needs neither. The audit entry `analytics-tag-configured` records the provider, the loader's SHA-256 and the CSP origins, never the snippet. **Test** fetches the script URL through the analytics egress class (private and metadata addresses stay refused) and reports the file path the configuration would be served at.
+The console is served from the same origin as the mail app, so these cases remain possible:
 
-Admin sessions in the same browser: the console is served from the same origin as the mail app, so a provider script in a mail tab could call the admin API with an admin's cookie. The tagged shell and its loader are therefore never served to a request that carries the admin session cookie. Remaining exposure: an administrator who signs in to the console **while** a tagged mail tab is already open in the same browser. Narrowing the cookies does not close this. The admin cookie is already `SameSite=Strict`, which does not apply to same-origin requests. A `Path` limited to the console path would still be sent with a same-origin `fetch` to that path. `mw_csrf` must stay readable by scripts for the double-submit check. The structural fix is to serve the console from its own origin. Until then, administrators should not consent to a browser tag in a browser they use for the console.
+- an administrator signs in to the console in a browser where a tagged mail tab is already open;
+- a shared browser where a consenting person's tag runs before any administrator has used that browser;
+- windows and frames the tagged page opens itself.
 
-### Shared Cache Storage
+Do not turn on a browser tag on a deployment whose administrators use the same browser for mail.
 
-Users who have consented to a tag are always served the tagged page, and the worker never stores that page, so after a deploy (a new manifest) they have no offline copy of the mail app until they open it without the tag. Editing `index.html` in `MW_WEB_DIR` has the same effect for everyone: the stored copy no longer matches the build manifest and is not served offline. Chunks that the app preloads at run time (`<link rel=modulepreload>` added by script) carry no Subresource Integrity; when the worker controls the page they are checked against the manifest like any other cached file.
+## Options
 
-Cache Storage belongs to the whole origin, and the Content Security Policy does not restrict it, so any script running in a page of this origin, a provider's tag included, can write entries into the service worker's cache. The worker therefore trusts nothing it reads back. Only the mail app's own windows, and the app's own workers (a script listed in the build manifest), are answered from the cache; the admin console and every other page always use the network. Every file the build emitted under `/assets/`, and the stored copy of the mail app itself, is served only when its SHA-256 matches the manifest the build writes into `sw.js`, after undoing the two rewrites the server makes under a deploy prefix (font URLs in stylesheets, the base-path script tag). Otherwise it is dropped and fetched again. Stored headers are never served: a cached file gets a type from its extension plus `nosniff`, and the offline mail app also gets the fixed shell policy. Fonts installed under `/fonts/` are served only as fonts. The two cached public API answers are served only if they have the server's shape, and only with the fields the app reads (provider id, kind and display name; the push public key). A stored timestamp from the future counts as none. The built entry and boot scripts also carry Subresource Integrity.
+The configuration of this screen is stored as its own records, not as settings, so it does not appear in the settings reference. Related settings:
 
-### Admin browsers
+| Setting | What it does | Default |
+| --- | --- | --- |
+| [`cap.analytics`](/admin/settings#cap.analytics) | Feature switch for posting usage events; it does not by itself turn collection on | on |
+| `restriction.scope.analytics` | Pauses analytics for restricted people | on |
+| `consent.analytics.*`, `consent.analyticsTag.*` | Legal basis, version and wording shown to people; receipts only | consent |
 
-Interim measures while the console shares this origin:
+## Related
 
-- every admin sign-in sets an HttpOnly `mw_admin_browser` marker cookie that stays after sign-out (about 400 days), and no tag is served to a browser that has one or a live admin session cookie. A script cannot read or delete an HttpOnly cookie, but it can push it out by filling the browser's cookie jar for this site (which also signs the mailbox out); after that the browser is treated as one never used for the console;
-- after a withdrawal whose save fails, the tab stays cut off from third-party network and retries the save with backoff (1 s, doubling, up to a minute); it reloads only once the withdrawal is saved;
-- the console announces its use to every tab of the browser, and tagged mail tabs cut off and reload. A hostile tag hears the same announcement: it is told an admin session now exists and can act on it (with network references it kept, and requests that outlive the reload) before its tab reloads. Treat this as a signal to the attacker, not a race the attacker might lose;
-- every tag change requires the full-page-access acknowledgement and a full Super admin.
-
-Still possible:
-
-- the race between an admin's first sign-in in a browser and the reload of a tagged mail tab already open there;
-- a shared or kiosk browser where a consenting user's tag runs before any admin has used that browser;
-- reach into windows and frames the tagged page opens itself. A window it opens keeps running after the mail tab reloads, and inherits the tagged page's policy.
-
-Step-up proofs are bound to the session, not to one action, so a script that reaches the admin API inside a proof's five minutes can use it for any step-up-gated call. Binding proofs to actions is a change to every step-up flow, user and admin, and is not part of this feature.
-
-The structural fix is to serve the console from its own origin, which separates cookies, Cache Storage, the service worker, storage, BroadcastChannel and window handles in one step. That is a deployment decision for the operator and is not built here. Until then, do not enable a browser tag on a deployment whose administrators use the same browser for mail.
+- [Restrictions and consent](consent.md)
+- [Cookie consent](cookies.md)
+- [Outbound connections](/security/egress)
+- [Impact assessments](compliance.md#impact-assessments)

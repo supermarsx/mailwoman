@@ -1,154 +1,61 @@
-# Feature profiles and verified policy subjects
+---
+screen: true
+---
+# Feature profiles
 
-Feature profiles reuse the settings authority: global and domain defaults, locks,
-profiles, groups, administrator user values, and permitted personal overrides.
-The effective client catalogue includes setting provenance. Profiles do not grant
-mailbox access, sender aliases, credentials, or a new authentication method.
+The **Feature profiles** screen of the console groups feature switches, limits and other settings into named profiles, and assigns them to domains, groups or single people. A profile can turn features off or on and set limits; it does not grant access to mailboxes, addresses or credentials.
 
-## Administration API
+![The Feature profiles screen with the editor of a new profile open: the profile name and the switches with their values and locks.](/screenshots/admin-privacy/features-overview.webp){.mw-shot}
 
-`GET /admin/features` retains `catalogue`, `integrationPolicyKeys`, `profiles`,
-`groups`, and `assignments`. It also returns `revision`, `memberships`,
-`nativeTargets`, `userTargets`, and `domains`, with a strong `ETag` and `Cache-Control: no-store`.
-`userTargets` includes native accounts and verified proxy/SSO policy subjects.
-Proxy targets expose an opaque `accountId` for assignment and a `directoryAccountId`
-for the corresponding Users row; use the returned assignment ID without constructing one.
-All paths use the deployment's configured admin prefix and base path.
+## Before you start
 
-Every mutation requires that exact catalogue `If-Match`, including creation:
+- The screen needs `settings.read` on all domains, `settings.write` to change profiles, and `settings.user_values` to assign them. An administrator limited to some domains cannot use it.
+- The values a profile holds are settings; see the [settings reference](/admin/settings) for each key.
 
-* `PUT`/`DELETE /features/profiles/{id}`
-* `PUT`/`DELETE /features/groups/{id}`
-* `PUT /features/groups/{id}/members`, body `{ "members": ["native-account-id"] }`
-* `PUT`/`DELETE /features/assignments`, body containing `scopeKind`, `scopeId`,
-  `profileId`, and `priority`
+## Create a profile
 
-Missing preconditions return 428; wildcard, weak, multiple, or stale revisions
-return 412. Comparison and changes are one database transaction. A successful
-mutation returns `{ "ok": true, "revision": "..." }` and the next ETag. Reload
-the catalogue before editing after a conflict. This CAS serializes feature-governance
-edits; account/domain provisioning has separate transactions, so auxiliary target
-information is not a globally serializable snapshot of all provisioning work.
-Group membership reads return the
-same catalogue revision. Builtin profiles and directory-managed groups cannot be
-rewritten through these editing routes.
+1. Open **Feature profiles** and select **New profile**.
+2. Enter the **Profile name**. Under **Start from a preset**, choose **Full**, **Standard**, **Mail only** or **Minimal / kiosk** and select **Apply preset**; a preset fills the switches and is not stored itself.
+3. For each switch, choose **Allowed**, **Not allowed** or **Inherit** (the profile holds no value, so the next profile, the domain or the server-wide value decides), and tick **Locked** to stop narrower scopes from changing it. Limits take **Inherit** or **Set a value**. **Find a feature** filters the list. **Allow all**, **Disallow all** and **Clear** change every switch at once. **Other settings a profile can hold** lists the other settings a profile may set.
+4. Select **Create profile** (or **Save profile** for an existing one).
 
-Existing unscoped `settings.read`, `settings.write`, and
-`settings.user_values` permissions remain required by their respective routes.
-Domain-scoped administrators cannot administer this global catalogue. User
-assignments must identify targets from `userTargets`; manual group members still
-use existing native accounts from `nativeTargets`. Arbitrary addresses and proxy
-raw IDs are not accepted as verified policy targets. Domain-specific group members must belong to the group's canonical
-domain. Orphaned legacy assignments can be removed without authenticating or
-attributing their old targets.
+**Export JSON** and **Import JSON** move a profile between servers; an import is checked like a save. **Clone** copies a profile.
 
-## Proxy identity separation
+## Assign a profile
 
-Session policy resolution uses verified principal provenance. Native sessions keep
-their existing native assignments. Proxy sessions receive global/domain policy,
-including domain profiles, but cannot inherit native user/profile/group rows by
-matching a raw upstream account ID or address. Individual proxy profiles use
-the verified service-bound `po1_` subject, the same identity used by the effective
-preview and request guards. Migration 0082 stores these verified targets with
-their identity binding so assignment remains possible after logout; retired
-bindings and inactive principals are excluded. Existing live sessions are
-backfilled through the same verified-session adapter. If one directory row has
-multiple service identities, assign to the intended target in Feature profiles.
-Their personal overrides use the
-separate `personal_setting_value` table, keyed by a verified service-bound owner.
-Migration 0070 does not attribute or remove legacy ambiguous rows. The table is
-included in SQLite-to-PostgreSQL copying.
+1. Open the profile and go to **Assign this profile**.
+2. Choose **Applies to**: **Domain**, **Group** or **User**, the target, and a **Priority**.
+3. Select **Assign**. **Remove** on a row ends the assignment.
 
-Client `PUT`/`DELETE /api/settings/{key}` also require the current
-`X-Mailwoman-Storage-Authority` fence. Missing authority returns 428 and a changed
-account returns 409. This header is a mismatch check, not an account selector.
+## Check what a person gets
 
-Account-scoped plugin admission requires an existing native account; session-name
-lookup is not a substitute. Existing global-only plugin admission remains global.
-This change does not establish a universal realm-safe audit of every older
-authentication, PIM, or third-party integration table.
+Under **Effective values**, choose **Preview for** and **Who**, then **Show**. The preview lists each switch with its effective value (**Effective**) and the scope that decided it (**Decided by**). It uses the same resolver as the server's checks, on saved values only: unsaved changes in the editor are not included.
 
-## How a value is chosen (t98)
+A value is chosen like this:
 
-One resolver decides every feature for every route guard, `GET /api/features` and
-the console's effective-value preview (`settings_policy::resolve`, wrapped by
-`features::resolve_features`). For each key, first match wins:
+1. an environment pin wins over everything;
+2. otherwise a lock wins over every narrower scope, and the broadest lock wins;
+3. otherwise the narrowest value that is set wins, from narrow to broad: the person's own choice (only for settings people may change), a value an administrator set for that person, a group, a profile, a domain, the server-wide value;
+4. with nothing set, the built-in default (or an environment fallback) applies.
 
-1. an environment **pin**;
-2. a **locked global** value;
-3. the **broadest lock** among domain, profile, group and administrator per-user
-   values (a locked domain value beats every profile, group and user value);
-4. the **narrowest value that is set**: the user's own choice (only for keys users
-   may change), then an administrator's value for that user, a group value, a
-   profile value, a domain value;
-5. the global value, else an environment fallback, else the built-in default.
+## What turning a feature off does
 
-Several profiles apply to one user in assignment priority order (higher first);
-at equal priority a user assignment comes before a group, and a group before a
-domain. The first profile that holds a key decides it. A linked mailbox is a
-separate subject: its own account's profiles apply while it is open.
+For most features, the server refuses the feature's requests with `403 feature_disabled` before anything runs, and the mail app hides it. Some switches do less, and the editor marks them:
 
-The diff in the editor compares a profile with step 5 (what a user with no profile
-gets); the preview (`GET /admin/features/effective?account=` or `?domain=`) runs
-the whole chain and names the deciding scope and profile.
+| Badge | Feature | What happens |
+| --- | --- | --- |
+| **Hidden in the app only** | Original HTML of a message (`reading.original_html`), the attachments view (`views.attachments`) | The mail app hides the feature; the server does not refuse it. Messages stay reachable through search. |
+| **Some limits not yet counted** | Sending (`compose.sending`) | The recipients-per-message limit is enforced; the hourly and daily sending limits (`limit.send_per_hour`, `limit.send_per_day`) are stored but not counted. |
+| **Some limits not yet counted** | Storage (`storage`) | `limit.storage_bytes` is stored only; the mail server's own quota applies. |
 
-## What a profile controls
+Signing in, passwords, second factors and sessions are not controlled by profiles; they have their own [security policy](security-policy.md).
 
-A feature is on when every boolean key it lists is `true`. Off means the route
-answers `403 {"code":"feature_disabled","feature":<id>,"key":<key>}` before
-anything runs (enforced in `feature_gate.rs` unless noted); the web app hides it.
+## Options
 
-| Category | Feature id | Kind | Keys | Refused at |
-|---|---|---|---|---|
-| Mail and compose | `compose.rich_text` | toggle | `cap.compose.rich_text` | JMAP `Email/set` create with an HTML body |
-| | `compose.attachments` | toggle + limit | `cap.compose.attachments`, `limit.attachment_bytes` | `Email/set` create with attachment parts; `/jmap/upload` above the limit (413) |
-| | `compose.share_links` | toggle | `cap.compose.share_links` | `/api/nextcloud/share-link` |
-| | `compose.scheduled_send` | toggle | `cap.compose.scheduled_send` | `EmailSubmission/set` with `sendAt` (sending now stays possible) |
-| | `compose.read_receipts` | toggle + settings | `cap.compose.read_receipts`, `receipts.dsnAllowed`, `mail.readReceipts` | `Email/set` create requesting a read receipt |
-| | `compose.signatures` | toggle | `cap.signatures` | writes under `/api/account/signatures` |
-| | `compose.identities` | toggle | `cap.identities` | writes under `/api/account/identities` |
-| | `compose.sending` | limits | `limit.recipients_per_message`, `limit.send_per_hour`, `limit.send_per_day` | recipients per message on `Email/set`/`EmailSubmission/set`; the hourly and daily counts are not yet enforced |
-| Reading and privacy | `privacy.remote_images` | toggle | `cap.remote_images` | `/api/image-proxy`, `POST /api/remote-images/grant` |
-| | `privacy.direct_content` | toggle | `cap.remote_content.direct` | remote-content policy (`remote_policy.rs`) |
-| | `privacy.trusted_links` | toggle + list | `cap.links.trusted`, `links.trustedDomains`, `links.trustedSubdomains` | `PUT /api/settings/links.*` |
-| | `reading.zoom` | toggle | `cap.zoom` | `PUT /api/settings/reader.zoom` |
-| Views and search | `views.focused` | toggle | `cap.mail.focused_inbox` | `PUT /api/settings/mail.focusedInbox` |
-| | `views.events` | toggle | `cap.views.events` | `Email/query` on the Events view |
-| | `views.attachments` | toggle | `cap.views.attachments` | web only (the messages stay reachable by search) |
-| | `search.operators` | toggle | `cap.search.operators` | `Email/query` text with `from:`, `subject:`, `has:` ... |
-| | `search.saved` | toggle | `cap.saved_searches` | writes under `/api/account/saved-searches` |
-| Organise | `rules` | toggle | `cap.rules` | `MailRule/*`, `VacationResponse/*` (`feature_jmap.rs`) |
-| | `rules.forward` | toggle | `cap.rules.forward` | `MailRule/set` with a forward action |
-| | `sieve.raw` | toggle + limits | `cap.sieve.raw_edit`, `sieve.maxScripts`, `sieve.maxScriptBytes`, `sieve.allowedExtensions` | Sieve scope guard |
-| | `forwarding.external` | toggle + limit | `cap.sieve.forward_external`, `sieve.maxRedirects` | Sieve |
-| | `vacation` | toggle | `cap.vacation` | `VacationResponse/*` |
-| | `labels`, `snooze`, `follow_up` | toggles | `cap.labels`, `cap.snooze`, `cap.follow_up` | `Email/set` adding a label, `snoozedUntil`, `followUpAt` (removing stays possible) |
-| | `masked` | toggle | `cap.masked` | `/api/masked` |
-| Calendar, contacts, tasks, notes, keys | `calendar`, `contacts`, `tasks`, `notes` | toggles | `cap.pim.*` | their JMAP families, Nextcloud PIM, `/api/calendar/*` |
-| | `keys` | toggle | `cap.keys` | `CryptoKey/*`; the Keys module and compose sign/encrypt |
-| Data | `import`, `export` | toggles + limits | `cap.import`, `import.maxMessages`, `import.maxMessageBytes`, `cap.export` | their routes |
-| | `storage` | limit | `limit.storage_bytes` | stored only; the mail server's quota applies |
-| Accounts and access | `accounts.linked` | toggle + limit | `accounts.linkingEnabled`, `limit.linked_mailboxes` | `POST /api/accounts/link` (409 at the limit) |
-| | `access.protocols` | allowed values | `access.protocols` | `/jmap/session`, `/jmap/api`, `/api/v1` for an account of another kind |
-| | `apps.native` | toggle | `cap.apps.native` | every signed-in request of a desktop or mobile app session |
-| | `notifications.push` | toggle | `notifications.pushAllowed` | `/api/push/subscribe` |
-| Integrations | `integrations.nextcloud`, `integrations.google`, `integrations.microsoft`, `plugins.ui`, `packages`, `ai_assistant`, `directory` | toggles (+ `limit.ai_calls_per_day`, `assist.profile`) | `cap.integration.*`, `cap.plugins`, `packages.allowed`, `cap.ai_assistant`, `cap.directory` | their routes |
-| Developer access | `api_keys`, `mcp`, `oauth_apps` | toggles | `cap.api_keys`, `cap.mcp`, `cap.oauth_apps` | `POST /api/keys` and key use on `/api/v1`; `/mcp` with a key or token; OAuth consent |
-| Personalisation | `appearance.custom` | toggle | `cap.appearance.custom` | `PUT /api/account/appearance` (theme, accent, custom and badge colours, density, font) |
-| | `customisation.code` | toggle | `cap.appearance.custom_code` | `PUT /api/account/appearance/customization` |
-| | `avatars`, `shortcuts`, `analytics` | toggles | `cap.avatars`, `cap.shortcuts`, `cap.analytics` | avatar changes on `PUT /api/accounts/layout`; `PUT /api/settings/shortcuts.*`; `POST /api/analytics/events` |
+Feature profiles hold values of other settings, so they have no settings of their own.
 
-Every other setting a profile may hold (any non-global registry key) is in the
-editor under **Other settings**. Not gateable by a profile, by design: signing in,
-password, second factors and sessions (security policy has its own pages), and
-reading and sending plain mail.
+## Related
 
-## Presets, import and export
-
-`GET /admin/features` also returns `categories`, `profileKeys` (every key a profile
-may hold, with its kind and bounds), `defaults` (step 5 above) and `presets`
-(`full`, `standard`, `mail-only`, `minimal`). Presets are starting points in the
-editor, not stored profiles. `GET /features/profiles/{id}/export` answers
-`{"format":"mailwoman.featureProfile","version":1,"name":...,"values":...}`;
-`POST /features/profiles/import` checks such a document exactly as a save does
-and answers its normalised `name` and `values` without storing anything.
+- [Settings reference](/admin/settings)
+- [Security policy](security-policy.md)
+- [Restrictions and consent](consent.md)
