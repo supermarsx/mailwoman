@@ -2,6 +2,8 @@
 //! getter is mocked; the installed transport refuses external network/sending.
 #[path = "request_inputs_tests.rs"]
 mod ordinary_request_input_tests;
+#[path = "jmap_session_once_tests.rs"]
+mod jmap_session_once_tests;
 use super::*;
 use axum::{
     Router,
