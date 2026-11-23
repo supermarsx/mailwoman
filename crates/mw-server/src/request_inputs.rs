@@ -190,7 +190,11 @@ const JMAP_FEATURES: &[&str] = &["keys", "vacation", "rules.forward", "compose.s
 pub(crate) fn policy_keys() -> Option<&'static [&'static str]> {
     static KEYS: std::sync::OnceLock<Option<Vec<&'static str>>> = std::sync::OnceLock::new();
     KEYS.get_or_init(|| {
-        let mut keys = vec!["access.protocols", "mail.allowSend", "limit.recipients_per_message"];
+        // t48: the send limits are read on every submitting batch; keeping them
+        // here keeps that batch on published inputs. Above 64 keys the whole
+        // published path turns off (see feature_gate's policy_keys test).
+        let mut keys = vec!["access.protocols", "mail.allowSend", "limit.recipients_per_message",
+            "limit.send_per_hour", "limit.send_per_day"];
         for id in JMAP_FEATURES {
             keys.extend_from_slice(crate::features::feature(id)?.capability_keys);
         }

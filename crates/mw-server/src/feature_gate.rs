@@ -17,9 +17,11 @@
 //!   operators in a search text → `search.operators`, ...
 //!
 //! plus three subject-wide checks: native app sessions (`apps.native`), the
-//! account's mail protocol (`access.protocols`), and two limits
-//! (`limit.linked_mailboxes` on link, `limit.attachment_bytes` on upload,
-//! `limit.recipients_per_message` on JMAP writes).
+//! account's mail protocol (`access.protocols`), and the limits
+//! (`limit.linked_mailboxes` on link, `limit.attachment_bytes` and, in engine
+//! mode, `limit.storage_bytes` on upload, `limit.recipients_per_message` on
+//! JMAP writes, `limit.send_per_hour`/`limit.send_per_day` on
+//! `EmailSubmission/set` creates; see [`SendLedger`]).
 //!
 //! A refusal is `403 {"code":"feature_disabled","feature":<id>,"key":<key>}`
 //! (a limit: `409`/`413 {"code":"limit_exceeded","limit":<key>,"max":<n>}`).
@@ -452,6 +454,192 @@ pub(crate) fn jmap_sends(request: &Value) -> bool {
         })
 }
 
+/// How many submissions a JMAP batch creates: the `create` entries of every
+/// `EmailSubmission/set`. This is what `limit.send_per_hour` and
+/// `limit.send_per_day` count (one per submission, not per recipient).
+pub(crate) fn jmap_submission_creates(request: &Value) -> u64 {
+    request
+        .get("methodCalls")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|call| call.get(0).and_then(Value::as_str) == Some("EmailSubmission/set"))
+        .map(|call| {
+            call.get(1)
+                .and_then(|args| args.get("create"))
+                .and_then(Value::as_object)
+                .map_or(0, |m| m.len() as u64)
+        })
+        .sum()
+}
+
+/// How many submissions a JMAP response says it created: the `created`
+/// entries of every `EmailSubmission/set` response. `None` when the body is
+/// not a JMAP response.
+fn jmap_submissions_created(response: &Value) -> Option<u64> {
+    let calls = response.get("methodResponses")?.as_array()?;
+    Some(
+        calls
+            .iter()
+            .filter(|call| call.get(0).and_then(Value::as_str) == Some("EmailSubmission/set"))
+            .map(|call| {
+                call.get(1)
+                    .and_then(|args| args.get("created"))
+                    .and_then(Value::as_object)
+                    .map_or(0, |m| m.len() as u64)
+            })
+            .sum(),
+    )
+}
+
+// ─── send limits ─────────────────────────────────────────────────────────────
+
+/// One reservation in `usage_counter` (see [`mw_store::usage`]).
+#[derive(Clone, Debug)]
+struct Reservation {
+    address: String,
+    metric: &'static str,
+    period: i64,
+    amount: i64,
+}
+
+/// The send-limit reservations of one request. [`check`] reserves the batch's
+/// submission creates against `limit.send_per_hour`/`limit.send_per_day`
+/// before the handler runs (an atomic conditional upsert, so instances that
+/// share the database never admit more than the limit together); after the
+/// handler, [`settle`] gives back every reserved submission the response does
+/// not report as created: all of them for a refused or failed request (any
+/// non-2xx status), the uncreated ones of a JMAP response. Shared between the
+/// guard and the deferred cookie-JMAP decision through [`Needs`].
+#[derive(Default, Debug)]
+pub(crate) struct SendLedger(std::sync::Mutex<Vec<Reservation>>);
+
+impl SendLedger {
+    fn push(&self, reservation: Reservation) {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(reservation);
+    }
+    fn take(&self) -> Vec<Reservation> {
+        std::mem::take(&mut *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+    }
+}
+
+async fn release(state: &AppState, reservations: &[Reservation], unused: impl Fn(i64) -> i64) {
+    for r in reservations {
+        let amount = unused(r.amount).min(r.amount);
+        if amount > 0
+            && let Err(error) = state
+                .store
+                .usage_release(&r.address, r.metric, r.period, amount)
+                .await
+        {
+            tracing::warn!(%error, metric = r.metric, "could not release a send-limit reservation");
+        }
+    }
+}
+
+/// Seconds until the period of `metric` that holds `now` ends.
+fn period_remaining(metric: &str, now: i64) -> i64 {
+    let unit = if mw_store::usage::is_hourly(metric) { 3600 } else { 86_400 };
+    unit - now.rem_euclid(unit)
+}
+
+type SendLimit = (&'static str, &'static str, Option<u64>);
+
+/// Reserve `count` submissions against each send limit that is set (> 0).
+/// Over a limit: nothing stays reserved and the answer is `429`.
+async fn reserve_sends(
+    state: &AppState,
+    address: &str,
+    domain: &str,
+    count: u64,
+    limits: [SendLimit; 2],
+    ledger: &SendLedger,
+) -> Result<(), Response> {
+    let now = chrono::Utc::now().timestamp();
+    let amount = i64::try_from(count).unwrap_or(i64::MAX);
+    let mut taken = Vec::new();
+    for (key, metric, max) in limits {
+        let Some(max) = max else { continue };
+        let period = mw_store::usage::period_of(metric, now);
+        let limit = i64::try_from(max).unwrap_or(i64::MAX);
+        match state
+            .store
+            .usage_reserve(address, domain, metric, period, amount, limit)
+            .await
+        {
+            Ok(Some(_)) => taken.push(Reservation {
+                address: address.to_string(),
+                metric,
+                period,
+                amount,
+            }),
+            outcome => {
+                release(state, &taken, |amount| amount).await;
+                return Err(match outcome {
+                    Ok(_) => {
+                        let mut response = over_limit(StatusCode::TOO_MANY_REQUESTS, key, max);
+                        response.headers_mut().insert(
+                            axum::http::header::RETRY_AFTER,
+                            period_remaining(metric, now).into(),
+                        );
+                        response
+                    }
+                    Err(_) => unavailable(),
+                });
+            }
+        }
+    }
+    for reservation in taken {
+        ledger.push(reservation);
+    }
+    Ok(())
+}
+
+/// After the handler: give back what the response shows was not sent (see
+/// [`SendLedger`]). A 2xx response that is not readable JSON keeps the
+/// reservation: the submission may have gone out.
+async fn settle(
+    state: &AppState,
+    ledger: Option<std::sync::Arc<SendLedger>>,
+    response: Response,
+) -> Response {
+    let Some(ledger) = ledger else { return response };
+    let reserved = ledger.take();
+    if reserved.is_empty() {
+        return response;
+    }
+    if !response.status().is_success() {
+        release(state, &reserved, |amount| amount).await;
+        return response;
+    }
+    if response
+        .headers()
+        .contains_key(axum::http::header::CONTENT_ENCODING)
+    {
+        return response;
+    }
+    let (parts, body) = response.into_parts();
+    let bytes = match axum::body::to_bytes(body, usize::MAX).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            release(state, &reserved, |amount| amount).await;
+            return StatusCode::BAD_GATEWAY.into_response();
+        }
+    };
+    if let Some(created) = serde_json::from_slice::<Value>(&bytes)
+        .ok()
+        .as_ref()
+        .and_then(jmap_submissions_created)
+    {
+        let created = i64::try_from(created).unwrap_or(i64::MAX);
+        release(state, &reserved, |amount| amount.saturating_sub(created)).await;
+    }
+    Response::from_parts(parts, Body::from(bytes))
+}
+
 // ─── the middleware ──────────────────────────────────────────────────────────
 
 /// A mail feature setting (`mail.allowSend`, `mail.allowDownload`) is off for the subject.
@@ -529,7 +717,14 @@ struct Needs {
     /// Boolean registry keys that must not be `false` for this request.
     required: Vec<&'static str>,
     upload_bytes: Option<u64>,
+    /// A `/jmap/upload/` request (`limit.storage_bytes`), with or without a
+    /// declared length.
+    upload: bool,
     recipients: usize,
+    /// `EmailSubmission/set` creates in the batch (`limit.send_per_*`).
+    submissions: u64,
+    /// Where [`check`] leaves its send reservations for [`settle`].
+    sends: Option<std::sync::Arc<SendLedger>>,
     avatars: Option<Value>,
 }
 
@@ -541,7 +736,9 @@ impl Needs {
             || self.link_limit
             || !self.required.is_empty()
             || self.upload_bytes.is_some()
+            || self.upload
             || self.recipients > 0
+            || self.submissions > 0
             || self.avatars.is_some()
     }
 }
@@ -651,6 +848,7 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
         needs.required.push("mail.allowDownload");
     }
     if method == Method::POST && path.starts_with("/jmap/upload/") {
+        needs.upload = true;
         needs.upload_bytes = req
             .headers()
             .get(axum::http::header::CONTENT_LENGTH)
@@ -677,6 +875,10 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
                 metadata_read = native_metadata_admission::eligible_parsed_request(&body, bytes).is_some();
                 needs.features.extend(jmap_features(&body));
                 needs.recipients = jmap_max_recipients(&body);
+                needs.submissions = jmap_submission_creates(&body);
+                if needs.submissions > 0 {
+                    needs.sends = Some(Default::default());
+                }
                 if jmap_sends(&body) {
                     needs.required.push("mail.allowSend");
                 }
@@ -716,8 +918,10 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
     if auth_boundary::eligible(&state, &req) {
         let revision=req.extensions().get::<mw_store::settings_policy::SettingsReadRevision>()
             .expect("eligibility requires a current revision").clone();
+        let sends = needs.sends.clone();
         req.extensions_mut().insert(DeferredJmapFeatures::new(needs, revision));
-        return next.run(req).await;
+        let response = next.run(req).await;
+        return settle(&state, sends, response).await;
     }
     // Only the fully validated metadata-cookie case above may defer with no
     // currently stored requirement. Other empty-Needs routes keep their prior
@@ -741,7 +945,8 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
         .await;
         return response;
     }
-    next.run(req).await
+    let response = next.run(req).await;
+    settle(&state, needs.sends, response).await
 }
 
 async fn check(
@@ -780,6 +985,13 @@ async fn check_inner(
     }
     if needs.recipients > 0 {
         keys.push("limit.recipients_per_message");
+    }
+    if needs.upload {
+        keys.push("limit.storage_bytes");
+    }
+    if needs.submissions > 0 {
+        keys.push("limit.send_per_hour");
+        keys.push("limit.send_per_day");
     }
     if let Some(avatars) = &needs.avatars {
         // Only a change of the avatars needs the feature; a layout save that
@@ -879,6 +1091,44 @@ async fn check_inner(
             "limit.recipients_per_message",
             max,
         ));
+    }
+    // Engine mode only: in proxy mode the mail server holds the mail and its
+    // own quota applies.
+    if needs.upload
+        && session.jmap_url == "engine"
+        && let Some(max) = limit("limit.storage_bytes")
+    {
+        let held = state
+            .store
+            .usage_storage_bytes(&session.account_id)
+            .await
+            .map_err(|_| unavailable())?;
+        let held = u64::try_from(held).unwrap_or(0);
+        if held.saturating_add(needs.upload_bytes.unwrap_or(0)) > max {
+            return Err(over_limit(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "limit.storage_bytes",
+                max,
+            ));
+        }
+    }
+    // Last, so no later refusal of this check leaves a reservation behind.
+    if needs.submissions > 0
+        && let Some(ledger) = &needs.sends
+    {
+        let limits = [
+            ("limit.send_per_hour", mw_store::usage::SEND_HOUR, limit("limit.send_per_hour")),
+            ("limit.send_per_day", mw_store::usage::SEND_DAY, limit("limit.send_per_day")),
+        ];
+        if limits.iter().any(|(_, _, max)| max.is_some()) {
+            let address = if subject.address.is_empty() {
+                session.username.trim().to_ascii_lowercase()
+            } else {
+                subject.address.clone()
+            };
+            reserve_sends(state, &address, &subject.domain, needs.submissions, limits, ledger)
+                .await?;
+        }
     }
     Ok(())
 }
@@ -1153,3 +1403,7 @@ pub(crate) async fn current_declared_guard_source(state:&AppState,headers:&Heade
     let needs=NEEDS.get_or_init(||{let sample=crate::published_guard_context::sample_request();metadata_read_restart_needs(&serde_json::to_vec(&sample).expect("static metadata shape")).expect("static metadata requirements")});
     native_metadata_admission::guard_source(state,headers,needs).await
 }
+
+#[cfg(test)]
+#[path = "feature_gate_limits_tests.rs"]
+mod limits_tests;

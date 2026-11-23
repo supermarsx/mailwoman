@@ -221,19 +221,18 @@ pub(crate) static CATALOGUE: &[FeatureDef] = &[
         &["/api/account/identities"],
         &[],
     ),
-    level(
-        control(
-            limits(
-                toggle("compose.sending", "compose", &[], &[], &["Email/set"]),
-                &[
-                    "limit.recipients_per_message",
-                    "limit.send_per_hour",
-                    "limit.send_per_day",
-                ],
-            ),
-            "limit",
+    // t48: every limit of this feature is counted by the server
+    // (feature_gate.rs), so it is enforced, no longer partial.
+    control(
+        limits(
+            toggle("compose.sending", "compose", &[], &[], &["Email/set"]),
+            &[
+                "limit.recipients_per_message",
+                "limit.send_per_hour",
+                "limit.send_per_day",
+            ],
         ),
-        "partial",
+        "limit",
     ),
     // ── Reading and privacy ──
     settings(
@@ -432,6 +431,8 @@ pub(crate) static CATALOGUE: &[FeatureDef] = &[
         &["import.maxMessages", "import.maxMessageBytes"],
     ),
     toggle("export", "data", &["cap.export"], &["/api/export"], &[]),
+    // `limit.storage_bytes` is counted in engine mode only (feature_gate.rs);
+    // in proxy mode the mail server's quota applies, so this stays partial.
     level(
         control(
             limits(
