@@ -13,12 +13,14 @@ The **Single sign-on** page lists the OpenID Connect (OIDC) and SAML 2.0 provide
 
 Each row has buttons to edit the provider, turn it off or on, and delete it. Turning a provider off and deleting it ask first; accounts made through a provider are kept in both cases.
 
-When you save a provider, the server checks the protocol settings and refuses the save with an error that names the field when one is missing or not a valid address: for OpenID Connect the issuer URL (an `http` or `https` address without a query or fragment), client ID, redirect URL and the `openid` scope; for SAML the IdP SSO URL, at least one signing certificate, the entity ID, the ACS URL and the NameID format. Field names it does not know are refused too.
+A row can carry two badges from the server: **Needs attention** when the stored settings have problems, and **Not offered at sign-in** when the sign-in page does not use the provider at all. An opened provider lists each problem under "The server reports these problems with this provider:", as the field's label followed by what is wrong.
+
+When you save a provider, the server checks the protocol settings and refuses the save when one is missing or not a valid address; the editor then lists the problems above the form and marks the first field. The server checks: for OpenID Connect the issuer URL (an `http` or `https` address without a query or fragment), client ID, redirect URL and the `openid` scope; for SAML the IdP SSO URL, at least one signing certificate, the entity ID, the ACS URL and the NameID format. Field names it does not know are refused too.
 
 A stored provider that cannot be used is not offered at all: its button is not shown on the sign-in page, its sign-in address answers as for an unknown provider, and a SAML provider has no metadata address. That is the case for an OpenID Connect provider without an issuer URL, and for a SAML provider without an IdP SSO URL, a signing certificate, an entity ID or an ACS URL, or with **Require signed assertions** off.
 
 ::: warning A provider that is missing from the sign-in page
-Open it in the editor. If its protocol settings are empty, enter them again and save; for a SAML provider, also turn **Require signed assertions** on (the server does not save it otherwise). The server's provider list (`GET <console path>/sso`) gives each provider a `problems` list naming the settings that stop it from signing in; the console page does not show that list. See also [the upgrade note](/deploy/upgrade-notes/sso-provider-settings).
+Look for the **Not offered at sign-in** badge in the list and open the provider: it lists the problems. Enter the missing settings again and save. See also [the upgrade note](/deploy/upgrade-notes/sso-provider-settings).
 :::
 
 ## Before you start
@@ -99,7 +101,12 @@ The scopes asked for at sign-in. `openid` is required. Default: `openid`, `email
 
 Sign-in uses the authorization code flow with PKCE (S256) and a nonce. Mailwoman checks the ID token's signature against the provider's published keys, its issuer, audience, expiry and nonce, then also reads the provider's user information endpoint if it has one. Claims from that endpoint are used only when its `sub` is the ID token's subject; otherwise they are ignored.
 
-When the answer contains an email (the mapped **Email claim**, else `email`), the provider must also send `email_verified` as `true` (a boolean or the string `"true"`); otherwise the sign-in is refused. A provider can be exempted only through the console API (`requireVerifiedEmail: false` in its settings); the console has no control for it and keeps the stored value when you save.
+<a id="requireVerifiedEmail"></a>
+### Require a verified email address
+
+On by default. When the answer contains an email (the mapped **Email claim**, else `email`), the provider must also send `email_verified` as `true` (a boolean or the string `"true"`); otherwise the sign-in is refused.
+
+Turn it off only for a provider that checks every address itself and does not send `email_verified`, for example Microsoft Entra ID. While it is off, the editor warns: "With this off, anyone who can set an arbitrary email address at the provider can sign in as the Mailwoman account with that address." Accounts are matched by that address, so turning it off trusts the provider to let nobody choose an address they do not own.
 
 ## SAML 2.0
 
@@ -147,13 +154,13 @@ The kind of user identifier asked from the provider. Default: `urn:oasis:names:t
 <a id="wantAssertionsSigned"></a>
 ### Require signed assertions
 
-On by default, and it cannot be saved off: the server refuses a save with the switch off ("must be on: unsigned SAML assertions are not accepted"), and a save that leaves the switch out, or a stored provider without it, counts as on.
+On by default, and it cannot be saved off: with the switch off the editor says "Must be on: this server does not accept unsigned SAML assertions." and does not save, and the server refuses such a save too. A save that leaves the switch out, or a stored provider without it, counts as on.
 
 Sign-in does not depend on the switch: Mailwoman always requires a valid signature by one of the provider's certificates covering the assertion, either on the assertion itself or on the whole response. An unsigned response is refused, and so is a response that carries more than one assertion. A provider stored without a signing certificate, entity ID or ACS URL is not offered.
 
 A provider stored with the switch explicitly off (for example by an API call made before the server refused it) is not offered: no button, no sign-in and no metadata. To find such providers:
 
-- in the server's provider list, `GET <console path>/sso`, a row whose `problems` contains an entry with `field` `config.wantAssertionsSigned` (the console page does not display `problems`);
+- in the console, the **Not offered at sign-in** and **Needs attention** badges; the opened provider names **Require signed assertions** among its problems (in the API, `GET <console path>/sso`, a `problems` entry with `field` `config.wantAssertionsSigned`);
 - in the database, rows of the `sso_config` table with `kind` = `saml` whose `config` column has `"want_assertions_signed":false`.
 
 Open the provider, turn the switch on and save.
@@ -190,7 +197,7 @@ Apart from the first-sign-in rule for new users, every refusal shows the same me
 Points to plan for:
 
 - **No second factor from Mailwoman.** A sign-in through a provider does not ask for the authenticator code or passkey the person may have set up in Mailwoman. Require a second factor at the provider.
-- **Matching by address.** Mailwoman matches accounts by the address in the answer. For OpenID Connect it requires the provider to mark that email as verified (see above); for SAML there is no such check. Use a provider where people cannot choose or change their own email address, or map **Email claim** to an attribute only your administrators can set.
+- **Matching by address.** Mailwoman matches accounts by the address in the answer. For OpenID Connect it requires the provider to mark that email as verified, unless you turned off [Require a verified email address](#requireVerifiedEmail); for SAML there is no such check. Use a provider where people cannot choose or change their own email address, or map **Email claim** to an attribute only your administrators can set.
 - **No mail password.** A session opened through a provider stores no mail password and no mail server address. Actions that ask the person to confirm their password cannot use one for these sessions.
 - **Signing out.** Signing out of Mailwoman ends the Mailwoman session only. The web app does not send people to the provider's sign-out address, so they stay signed in at the provider, and the next click on the provider's button may sign them in again without a password.
 

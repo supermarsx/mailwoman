@@ -16,7 +16,7 @@ From this release:
 - a SAML provider stored with the setting off, without a signing certificate, or without an entity ID or ACS URL is not offered at all: no sign-in button, and its sign-in address answers as for an unknown provider;
 - the assertion must carry a bearer subject confirmation with `Recipient`, `InResponseTo` and `NotOnOrAfter`, and conditions with at least one audience restriction naming this server's entity ID; a response `Destination`, when present, must be this server's ACS URL. Before, the recipient, `InResponseTo`, expiry and audience were checked only when the assertion contained them, and `Destination` was not checked.
 
-**OpenID Connect email verification.** Before this release, Mailwoman matched accounts by the email in the provider's answer without looking at `email_verified`, and merged the provider's user information claims even when they named another subject. From this release, an answer that contains an email must have `email_verified` set to `true`, or the sign-in is refused, and user information claims are used only when their `sub` is the ID token's subject. A provider can be exempted from the email check through the console API (`requireVerifiedEmail: false`); the console has no control for it.
+**OpenID Connect email verification.** Before this release, Mailwoman matched accounts by the email in the provider's answer without looking at `email_verified`, and merged the provider's user information claims even when they named another subject. From this release, an answer that contains an email must have `email_verified` set to `true`, or the sign-in is refused, and user information claims are used only when their `sub` is the ID token's subject. The check is the provider's **Require a verified email address** switch, on by default.
 
 **Domain-scoped providers.** Before this release, a provider's scope only decided on which sign-in pages its button appeared: a provider scoped to one domain could sign in an account of any domain if its answer named that account. From this release, a provider scoped to one domain signs in only accounts of that domain; any other is refused.
 
@@ -24,13 +24,13 @@ From this release:
 
 - A SAML provider that omits any of the parts listed above from its answers: sign-in fails. Configure the provider to send them.
 - A provider scoped to one domain whose people have accounts in another domain: their sign-in through it is refused. Scope the provider to the whole deployment, or add one provider per domain.
-- An OpenID Connect provider that does not send `email_verified: true` with the email: every sign-in through it is refused. Configure the provider to send the claim, or, if the provider's addresses cannot be chosen by its users, exempt it through the API.
+- An OpenID Connect provider that does not send `email_verified: true` with the email (Microsoft Entra ID is one): every sign-in through it is refused. Configure the provider to send the claim if it can. Otherwise turn off **Require a verified email address** for that provider in the console. That is a deliberate risk decision: with the switch off, anyone who can set an arbitrary email address at the provider can sign in as the Mailwoman account with that address, so do it only for a provider that checks every address itself and does not let people choose one they do not own.
 - A SAML provider stored with the setting off, without a certificate, or without an entity ID or ACS URL disappears from the sign-in page until it is fixed.
 
 ## What to do
 
 1. **Find the affected providers.**
-   - In the console's provider list API, `GET <console path>/sso` (signed in as an administrator with `sso.read`), each provider has a `problems` list. A non-empty list names the settings that stop it from signing in; an entry with `field` `config.wantAssertionsSigned` marks a SAML provider stored with the setting off. The console page does not display this list.
+   - In the console, **Single sign-on** marks such providers with **Needs attention** and **Not offered at sign-in**; an opened provider lists each problem, for example **Require signed assertions** for a SAML provider stored with the setting off. The same list is in the API, `GET <console path>/sso`, as each provider's `problems` (an entry with `field` `config.wantAssertionsSigned` for that case).
    - In the database, SAML providers stored with the setting off, or without it:
 
      ```sql
