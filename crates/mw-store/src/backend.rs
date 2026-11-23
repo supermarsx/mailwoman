@@ -240,7 +240,7 @@ impl Sql {
             }
             Backend::Postgres(p) => {
                 let mut connection = crate::pool_telemetry::acquire(p).await?;
-                let sql = dialect::placeholders(self.sql, Dialect::Postgres);
+                let sql = dialect::postgres_static(self.sql);
                 Ok(build_pg(&sql, &self.args)
                     .execute(&mut *connection)
                     .await?
@@ -271,7 +271,7 @@ impl Sql {
                 .map(Row::Sqlite)),
             Backend::Postgres(p) => {
                 let mut connection = crate::pool_telemetry::acquire(p).await?;
-                let sql = dialect::placeholders(self.sql, Dialect::Postgres);
+                let sql = dialect::postgres_static(self.sql);
                 Ok(build_pg(&sql, &self.args)
                     .fetch_optional(&mut *connection)
                     .await?
@@ -303,7 +303,7 @@ impl Sql {
             )),
             Backend::Postgres(p) => {
                 let mut connection = crate::pool_telemetry::acquire(p).await?;
-                let sql = dialect::placeholders(self.sql, Dialect::Postgres);
+                let sql = dialect::postgres_static(self.sql);
                 Ok(Row::Postgres(
                     build_pg(&sql, &self.args)
                         .fetch_one(&mut *connection)
@@ -334,7 +334,7 @@ impl Sql {
                 .collect::<Vec<Row>>()),
             Backend::Postgres(p) => {
                 let mut connection = crate::pool_telemetry::acquire(p).await?;
-                let sql = dialect::placeholders(self.sql, Dialect::Postgres);
+                let sql = dialect::postgres_static(self.sql);
                 Ok(build_pg(&sql, &self.args)
                     .fetch_all(&mut *connection)
                     .await?
@@ -401,7 +401,7 @@ impl Sql {
                 .map(Row::Sqlite)
                 .collect(),
             Tx::Postgres(t) => {
-                let sql = dialect::placeholders(self.sql, Dialect::Postgres);
+                let sql = dialect::postgres_static(self.sql);
                 build_pg(&sql, &self.args)
                     .fetch_all(&mut **t)
                     .await?
@@ -431,7 +431,7 @@ impl Sql {
                 .await?
                 .rows_affected()),
             Tx::Postgres(t) => {
-                let sql = dialect::placeholders(self.sql, Dialect::Postgres);
+                let sql = dialect::postgres_static(self.sql);
                 Ok(build_pg(&sql, &self.args)
                     .execute(&mut **t)
                     .await?
@@ -461,7 +461,7 @@ impl Sql {
                 .await?
                 .map(Row::Sqlite),
             Tx::Postgres(t) => {
-                let sql = dialect::placeholders(self.sql, Dialect::Postgres);
+                let sql = dialect::postgres_static(self.sql);
                 build_pg(&sql, &self.args)
                     .fetch_optional(&mut **t)
                     .await?

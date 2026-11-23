@@ -170,10 +170,15 @@ impl Store {
         Ok(total)
     }
 
-    /// Whether the original telemetry UPDATE may change anything. Only SQLite
-    /// uses this proof: sessions.last_seen is TEXT with default BINARY collation,
-    /// so Rust byte ordering matches its exact `last_seen < cutoff` predicate.
-    /// PostgreSQL keeps the original path because database collation can differ.
+    /// Whether the original telemetry UPDATE may change anything. sessions.last_seen
+    /// is TEXT on both backends, and the throttled UPDATE compares it in byte
+    /// order on both: SQLite's default BINARY collation, and an explicit
+    /// `COLLATE "C"` on PostgreSQL (the database collation may order text
+    /// differently). Rust byte ordering therefore matches the exact
+    /// `last_seen < cutoff` predicate on either backend. The `last_seen` passed
+    /// in was read from the same row earlier in the same request; a concurrent
+    /// writer only moves it forward, so skipping an UPDATE judged not due skips
+    /// a statement that would match no row.
     /// This fresh-row hint NEVER authenticates, extends idle clocks, or survives
     /// a request. Missing metadata and an unbounded/disabled throttle fail open
     /// toward the original atomic UPDATE, not toward authentication.
@@ -183,7 +188,7 @@ impl Store {
         min_age_secs: i64,
         now: chrono::DateTime<Utc>,
     ) -> bool {
-        if min_age_secs <= 0 || !matches!(&self.backend, crate::backend::Backend::Sqlite(_)) {
+        if min_age_secs <= 0 {
             return true;
         }
         let Some(last_seen) = last_seen else {
@@ -211,13 +216,28 @@ impl Store {
         }
         let now = Utc::now();
         let cutoff = (now - chrono::Duration::seconds(min_age_secs)).to_rfc3339();
-        q("UPDATE sessions SET last_seen = ?2 WHERE id = ?1 AND last_seen < ?3")
-            .bind(id)
-            .bind(now.to_rfc3339())
-            .bind(cutoff)
-            .execute(&self.backend)
+        self.touch_session_before(id, &now.to_rfc3339(), &cutoff)
             .await?;
         Ok(())
+    }
+
+    /// The throttled telemetry UPDATE. Byte-order comparison on both backends,
+    /// so [`Self::session_touch_may_be_due_at`] predicts it exactly.
+    async fn touch_session_before(
+        &self,
+        id: &str,
+        now: &str,
+        cutoff: &str,
+    ) -> Result<u64, StoreError> {
+        let sql = match self.backend.dialect() {
+            crate::backend::Dialect::Sqlite => {
+                "UPDATE sessions SET last_seen = ?2 WHERE id = ?1 AND last_seen < ?3"
+            }
+            crate::backend::Dialect::Postgres => {
+                "UPDATE sessions SET last_seen = ?2 WHERE id = ?1 AND last_seen < ?3 COLLATE \"C\""
+            }
+        };
+        Ok(q(sql).bind(id).bind(now).bind(cutoff).execute(&self.backend).await?)
     }
 }
 
@@ -523,6 +543,78 @@ mod session_touch_tests {
             .unwrap()
             .with_timezone(&Utc);
         assert!((Utc::now() - last).num_seconds() < 15);
+        store.close().await;
+    }
+    /// The precheck must agree with the real UPDATE on every backend. Values
+    /// include one that a case-insensitive database collation orders on the
+    /// other side of the cutoff ('t' versus 'T').
+    async fn precheck_matches_update(store: &Store, id: &str) {
+        let now = Utc.with_ymd_and_hms(2026, 11, 20, 12, 0, 0).unwrap();
+        let cutoff = now - Duration::seconds(15);
+        let candidates = [
+            (cutoff - Duration::nanoseconds(1)).to_rfc3339(),
+            cutoff.to_rfc3339(),
+            (cutoff + Duration::nanoseconds(1)).to_rfc3339(),
+            now.to_rfc3339(),
+            (now - Duration::days(5)).to_rfc3339(),
+            (now + Duration::days(5)).to_rfc3339(),
+            "2026-11-20T12:00:00Z".into(),
+            "2026-11-20T13:00:00+01:00".into(),
+            "2026-11-20t11:59:44+00:00".into(),
+            "2026-11-20T11:59:44.999+00:00".into(),
+            "".into(),
+            "malformed timestamp".into(),
+            "é".into(),
+        ];
+        for last_seen in candidates {
+            q("UPDATE sessions SET last_seen=?2 WHERE id=?1")
+                .bind(id)
+                .bind(&last_seen)
+                .execute(&store.backend)
+                .await
+                .unwrap();
+            let (_, fresh) = store.get_primary_session_with_activity(id).await.unwrap();
+            let due = store.session_touch_may_be_due_at(fresh.as_deref(), 15, now);
+            let changed = store
+                .touch_session_before(id, "9999-12-31T00:00:00+00:00", &cutoff.to_rfc3339())
+                .await
+                .unwrap();
+            assert_eq!(due, changed == 1, "{last_seen:?}");
+        }
+    }
+    #[tokio::test]
+    async fn precheck_predicts_the_sqlite_update() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let id = session(&store).await;
+        precheck_matches_update(&store, &id).await;
+        store.close().await;
+    }
+    #[tokio::test]
+    async fn precheck_predicts_the_postgres_update_and_skips_the_write() {
+        let Ok(url) = std::env::var("MW_TEST_PG") else {
+            mw_test_gate::skip("session touch precheck PostgreSQL leg: MW_TEST_PG not configured");
+            return;
+        };
+        let store = Store::open_postgres(&url, ServerKey::generate()).await.unwrap();
+        let id = session(&store).await;
+        precheck_matches_update(&store, &id).await;
+        // A fresh row: no UPDATE statement and no connection acquisition.
+        q("UPDATE sessions SET last_seen=?2 WHERE id=?1")
+            .bind(&id)
+            .bind(Utc::now().to_rfc3339())
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        let (_, last_seen) = store.get_primary_session_with_activity(&id).await.unwrap();
+        let (_, queries) = crate::pool_telemetry::measure_queries(async {
+            if store.session_touch_may_be_due_at(last_seen.as_deref(), 15, Utc::now()) {
+                store.touch_session_throttled(&id, 15).await.unwrap();
+            }
+        })
+        .await;
+        assert_eq!(queries.write.calls, 0);
+        assert_eq!(queries.acquire.calls, 0);
+        store.delete_session(&id).await.unwrap();
         store.close().await;
     }
 }

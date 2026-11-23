@@ -18,6 +18,62 @@
 // the backend dialect.
 
 use crate::backend::Dialect;
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    sync::{LazyLock, Mutex},
+};
+
+/// Distinct statements whose PostgreSQL text is kept. The crate authors about
+/// two thousand static `q()` sites; a few build SQL at run time and leak it, so
+/// the cache is bounded and falls back to a fresh rewrite once full.
+const STATIC_REWRITE_CAPACITY: usize = 4096;
+
+/// Process-wide interned rewrites, keyed by the SQLite text. Each distinct
+/// statement is rewritten and leaked once.
+static INTERNED: LazyLock<Mutex<HashMap<&'static str, &'static str>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+thread_local! {
+    /// Lock-free fast path keyed by the static text's address and length.
+    static LOCAL: RefCell<HashMap<(usize, usize), &'static str>> =
+        RefCell::new(HashMap::new());
+}
+
+/// The PostgreSQL text of a static statement authored in the SQLite `?n`
+/// style. Identical to [`placeholders`] with [`Dialect::Postgres`], but the
+/// rewrite runs once per distinct statement instead of allocating per call.
+pub(crate) fn postgres_static(sql: &'static str) -> std::borrow::Cow<'static, str> {
+    let key = (sql.as_ptr() as usize, sql.len());
+    if let Some(hit) = LOCAL.with(|local| local.borrow().get(&key).copied()) {
+        return std::borrow::Cow::Borrowed(hit);
+    }
+    let interned = {
+        let mut interned = INTERNED.lock().unwrap_or_else(|p| p.into_inner());
+        match interned.get(sql) {
+            Some(text) => Some(*text),
+            None if interned.len() < STATIC_REWRITE_CAPACITY => {
+                let text: &'static str =
+                    Box::leak(placeholders(sql, Dialect::Postgres).into_boxed_str());
+                interned.insert(sql, text);
+                Some(text)
+            }
+            None => None,
+        }
+    };
+    match interned {
+        Some(text) => {
+            LOCAL.with(|local| {
+                let mut local = local.borrow_mut();
+                if local.len() < STATIC_REWRITE_CAPACITY {
+                    local.insert(key, text);
+                }
+            });
+            std::borrow::Cow::Borrowed(text)
+        }
+        None => std::borrow::Cow::Owned(placeholders(sql, Dialect::Postgres)),
+    }
+}
 
 /// Rewrite positional placeholders in `sql` for `dialect`.
 ///
@@ -62,6 +118,31 @@ mod tests {
             placeholders("INSERT INTO t VALUES (?1, ?2, ?1)", Dialect::Postgres),
             "INSERT INTO t VALUES ($1, $2, $1)"
         );
+    }
+
+    #[test]
+    fn static_postgres_rewrite_is_cached_and_identical() {
+        const SQL: &str = "SELECT ?1 FROM t WHERE a = ?2 AND b = ?1 AND c LIKE '?x' AND d = ?10";
+        let first = postgres_static(SQL);
+        assert_eq!(first, placeholders(SQL, Dialect::Postgres));
+        assert!(matches!(first, std::borrow::Cow::Borrowed(_)));
+        let second = postgres_static(SQL);
+        // The same leaked text is returned: no rewrite and no allocation per call.
+        assert_eq!(first.as_ptr(), second.as_ptr());
+        // Another thread finds the process-wide interned text.
+        let other = std::thread::spawn(|| postgres_static(SQL).as_ptr() as usize)
+            .join()
+            .unwrap();
+        assert_eq!(other, first.as_ptr() as usize);
+    }
+
+    #[test]
+    fn distinct_texts_with_equal_content_share_one_rewrite() {
+        let a: &'static str = Box::leak("SELECT ?1 /*dialect-share*/".to_string().into_boxed_str());
+        let b: &'static str = Box::leak("SELECT ?1 /*dialect-share*/".to_string().into_boxed_str());
+        assert_ne!(a.as_ptr(), b.as_ptr());
+        assert_eq!(postgres_static(a).as_ptr(), postgres_static(b).as_ptr());
+        assert_eq!(postgres_static(a), "SELECT $1 /*dialect-share*/");
     }
 
     #[test]
