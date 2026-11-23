@@ -1,4 +1,4 @@
-# Upgrade note: feature profiles cover every gateable feature (26.20, t98)
+# Upgrade note: feature profiles cover every gateable feature (26.20)
 
 Applies to every deployment that uses feature profiles, and to API clients that
 call features an administrator can now turn off.

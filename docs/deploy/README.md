@@ -1,413 +1,221 @@
-# Deploying Mailwoman
+# Install and configure
 
-Mailwoman ships as a single static-ish binary (`mailwoman`) plus its render
-worker (`mw-render`). It serves the SPA (embedded), a session-authed JMAP
-surface, and the `/api/sanitize` boundary. That JMAP surface runs in one of two
-modes (`MW_MODE`):
+This page covers the ways to install the Mailwoman server, the configuration every installation needs, and where to go next for TLS, proxies, databases and operations. If you want the shortest path to a running server, follow [Quick install](../getting-started/install-quick.md) instead.
 
-- **proxy** (default, V0) — forwards to a JMAP upstream entered at login.
-- **engine** (V1) — drives a real **IMAP/POP3 + SMTP** account locally through
-  `mw-engine`, presenting the *same* JMAP surface to the SPA. See
-  [`imap-pop3.md`](./imap-pop3.md) for pairing notes (Dovecot, Gmail-over-IMAP,
-  POP3 hosts) and the testing backends (Greenmail).
+Mailwoman is the webmail client and its server; it does not receive or deliver mail. Users sign in to a mail server you already run, which you name in the configuration (see [Which mail server users sign in to](#which-mail-server-users-sign-in-to)).
 
-This directory has these deployment aids:
+## Choose an installation method
 
-- `Dockerfile` (repo root) — multi-stage build, distroless non-root runtime.
-- `mailwoman.service` — a hardened systemd unit (SPEC §7.5).
-- `nginx.conf` — a TLS-terminating reverse-proxy snippet (incl. WS/SSE).
+| Method | Use it when | Guide |
+| --- | --- | --- |
+| `deploy.sh` | One Linux host with Docker. The script writes the configuration, builds or pulls the image, adds Caddy for HTTPS if you want, and handles updates, backups, restores and rollbacks. | [Deploy with deploy.sh](script.md) |
+| Docker image | You run containers your own way (Compose, a hosting panel, an orchestrator). | [Docker](#docker) below |
+| Helm chart | Kubernetes. | [Packaging](packaging.md) |
+| Binaries under systemd | A Linux server without containers. | [systemd](#systemd) below |
 
-V2 (realtime, TLS, fonts, hardening) adds:
+Every method runs the same two programs: `mailwoman` (the server, which also serves the web app) and `mw-render` (a worker the server starts to process untrusted message content).
 
-- [`websocket.md`](./websocket.md) — reverse-proxy pass-through for the JMAP
-  WebSocket (`/jmap/ws`) + EventSource fallback (`/jmap/eventsource`).
-- [`acme.md`](./acme.md) — `--acme` (Let's Encrypt) and external-cert
-  hot-reload on `SIGHUP`.
-- [`fonts.md`](./fonts.md) — `mailwoman fonts pull` to self-host web fonts under
-  `font-src 'self'`.
-- [`egress-proxy.md`](./egress-proxy.md) — routing outbound fetches through your
-  own HTTP `CONNECT` or SOCKS5 proxy: configuring a route, the **write-only**
-  credential (leave the field blank to keep the stored password), the live route
-  test and what its outcome/stage mean, and why tunnel failure is **fail-closed**
-  rather than falling back to a direct connection.
-- [`hardening.md`](./hardening.md) — COEP/CORP/Permissions-Policy, CSRF, Origin
-  checks, and session-timeout flags.
-- [`fail2ban.md`](./fail2ban.md) — the fail2ban filter and jail in
-  `deploy/fail2ban/` for failed admin and webmail sign-ins: install paths, the
-  log source (journal, Docker, file), jail settings, and testing with
-  `fail2ban-regex`.
+## Docker
 
-V3 (PIM: calendar, tasks, notes, contacts) adds:
+The repository's `Dockerfile` builds the web app and the server and produces a minimal image with no shell: the server runs as the unprivileged user 65532, writes only to the `/data` volume, listens on port 8080 and has a health check (`mailwoman healthcheck`, which probes `/healthz`).
 
-- [`caldav-carddav.md`](./caldav-carddav.md) — CalDAV/CardDAV pairing (Radicale
-  for testing; Nextcloud/Baïkal/Google notes), calendar/address-book **sharing**
-  endpoints, **holiday** feeds, and the encrypted-at-rest notes posture.
+1. Build the image from a checkout. The build needs the commit it is built from:
 
-V4 (crypto & security: OpenPGP/S/MIME, Security panel, DLP, max-security) adds:
+   ```sh
+   docker build --build-arg MW_BUILD_REVISION="$(git rev-parse HEAD)" -t mailwoman:local .
+   ```
 
-- [`crypto-security.md`](./crypto-security.md) — the operator reference for the V4
-  security features: WKD publishing (`MW_WKD_DIR`), DLP config (`MW_DLP_RULES`),
-  ARF abuse reports (`MW_ABUSE_ADDRESS`/`MW_ABUSE_SPOOL`), and the screen-capture
-  watermark (`MW_WATERMARK*`), plus the new `/.well-known/openpgpkey/...` and
-  `/api/security/*` endpoints. The private-key crypto is client-side and needs no
-  server config. Background + rationale live in [`../security/`](../security/README.md).
+   The default (last) stage is `runtime-static`, the same image `deploy.sh` uses. `--target runtime` builds a variant on a distroless base instead.
 
-V5 (thin desktop & mobile shells, self-contained mode, real screen-capture
-protection, self-hostable push) adds:
+2. Create an environment file, `mailwoman.env`, readable only by you (`chmod 600`):
 
-- [`desktop.md`](./desktop.md) — the Tauri v2 desktop shell: install, **self-contained
-  mode** (the shell spawns a bundled `mw-server` sibling so a laptop user needs no
-  server), native auth (bearer token + OS keychain), the §7.4 UI-bundle integrity
-  gate, and the §16 bundle-size budgets.
-- [`push.md`](./push.md) — the **self-hostable push relay** (Web Push/VAPID +
-  UnifiedPush, APNs mocked): the privacy model (**no message content transits push**),
-  the endpoints, and the server config (`MW_NATIVE_ORIGINS`, `MW_VAPID_CONTACT`,
-  `push.quiet_hours`).
-- [`mobile-android.md`](./mobile-android.md) — the Android APK build (CI-gated,
-  F-Droid-friendly), and the honestly-documented iOS / APNs / app-store-submission
-  gaps as ops/sponsorship follow-ups (§28.7).
-- Screen-capture protection is now **real** on Windows/macOS/Android and honest
-  everywhere else — the matrix is in
-  [`../security/screen-capture.md`](../security/screen-capture.md).
+   ```ini
+   MW_SERVER_KEY=<output of: openssl rand -hex 32>
+   MW_UPSTREAM_DEFAULT=https://jmap.example.org
+   MW_ADMIN_USER=<an admin username>
+   MW_ADMIN_PASSWORD=<a long random password>
+   ```
 
-V6 (zero-access storage, admin panel, scoped API keys + OAuth 2.1, MCP server,
-pluggable Postgres, layered Valkey/Redis cache, observability) adds:
+   For an IMAP or POP3 server, add `MW_MODE=engine` and set `MW_UPSTREAM_DEFAULT` to an `imaps://`, `imap://`, `pop3s://` or `pop3://` URL.
 
-- [`postgres.md`](./postgres.md) — the **pluggable PostgreSQL backend**: backend
-  selection by DSN (`MW_DB_PATH=postgres://…`), rustls TLS (no OpenSSL), and the
-  `mailwoman migrate-store` SQLite→Postgres copy. SQLite stays the default.
-- [`cache.md`](./cache.md) — the layered **Valkey/Redis cache** (`MW_REDIS_URL`): the
-  §15.6 scope matrix, the structural zero-access exclusion, Redis-down degradation, and
-  the Valkey-vs-Redis licensing note.
-- Security background + the operator surface for the admin panel, API-keys/OAuth, MCP,
-  and observability live under [`../security/`](../security/README.md)
-  ([admin-panel](../security/admin-panel.md) ·
-  [api-keys-oauth](../security/api-keys-oauth.md) · [mcp](../security/mcp.md) ·
-  [observability](../security/observability.md) ·
-  [zero-access](../security/zero-access.md)).
+3. Start the container:
 
-For replica counts, distributed synchronization and multi-location plans, read the
-[scaling boundaries and qualification guide](scaling.md). Shared PostgreSQL and
-Valkey do not by themselves make the application horizontally coordinated.
+   ```sh
+   docker run -d --name mailwoman --restart unless-stopped \
+     -p 127.0.0.1:8080:8080 \
+     --env-file mailwoman.env \
+     -v mailwoman-data:/data \
+     mailwoman:local
+   ```
 
-## Configuration (environment)
+4. Find the admin console's address. A new installation generates a random console path on its first start and logs it once, in a warning that starts `new installation: the admin console is at`. You can print it at any time:
 
-Valid sessions survive normal server restarts when the database and its sealing
-key are retained. Without an explicit key, SQLite creates a `.server-key` sidecar
-beside the database; back up both files together. Do not delete or replace the key
-to repair a startup error. On Windows, generated sidecars are protected with
-DPAPI and must be opened by the same OS identity; use a managed `MW_SERVER_KEY`
-for portable backups or deployments across identities. PostgreSQL requires an
-explicit key or key-file path shared by its replicas. In-memory databases remain
-ephemeral. Sessions still expire and remain subject to logout and revocation.
+   ```sh
+   docker exec mailwoman mailwoman admin console-path show
+   ```
 
-An old session encrypted with a previously discarded ephemeral key cannot be
-recovered; users need to sign in once after that upgrade. Thereafter the saved
-key is reused by the server and administrative CLI commands.
+5. Put a TLS-terminating reverse proxy in front of port 8080 (see [Reverse proxy and TLS](#reverse-proxy-and-tls)), then sign in at the console path with `MW_ADMIN_USER` and `MW_ADMIN_PASSWORD`. That first sign-in creates the first admin account, with the Super admin role.
 
-| Env | Default | Meaning |
-|-----|---------|---------|
-| `MW_BIND` | `0.0.0.0:8080` | Listen address for the HTTP server. |
-| `MW_DB_PATH` | `mailwoman.db` | Store DSN. A bare path or `sqlite://…` selects the SQLite backend (default); a `postgres://…` DSN selects Postgres (V6, see [`postgres.md`](./postgres.md)). |
-| `MW_SERVER_KEY` | *(persistent SQLite sidecar)* | Hex-encoded 32-byte key sealing stored secrets. Overrides key files. Keep the same key across restarts and replicas. Generate: `openssl rand -hex 32`. |
-| `MW_SERVER_KEY_FILE` | `<SQLite database>.server-key` | Persistent key file, loaded or atomically created. Required for PostgreSQL when `MW_SERVER_KEY` is unset; replicas must share the same key. Unix files require private permissions (`0600`). Generated Windows files use DPAPI for the server's OS identity. |
-| `MW_RENDER_BIN` | *(auto-detect)* | Path to `mw-render`. The image sets `/usr/local/bin/mw-render`. |
-| `MW_WEB_DIR` | *(embedded)* | Serve the SPA from disk instead of the embedded copy (dev override). |
-| `MW_COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. **Set `true` behind TLS** (i.e. always in production). |
-| `MW_MODE` | `proxy` | `proxy` (JMAP upstream) or `engine` (local IMAP/POP3 + SMTP). |
-| `MW_UPSTREAM_DEFAULT` | *(unset)* | 26.20. The mail server every sign-in uses. Proxy mode: the JMAP server, e.g. `https://jmap.example.org` (the session resource is fetched from `/.well-known/jmap` unless the URL names it). Engine mode: `imaps://imap.example.org:993`, `imap://host:143` (STARTTLS), `pop3s://host:995` or `pop3://host:110`. **Set it at install:** the sign-in form asks only for the email address and the password, so with neither this nor a one-origin `MW_JMAP_UPSTREAMS` every sign-in answers "This address is not set up on this server". Its origin is treated as operator-named, like an `MW_JMAP_UPSTREAMS` entry. See [Upgrading: the server chooses the mail server](#upgrading-the-server-chooses-the-mail-server). |
-| `MW_JMAP_UPSTREAMS` | *(unset)* | 26.20. Proxy mode only. Comma-separated JMAP upstream **origins** the server may connect to, e.g. `https://jmap.example.org,http://stalwart:8080`. **Unset:** any upstream on a public address; loopback, private (RFC 1918), link-local and cloud-metadata, CGNAT and unique-local targets are refused. **Set:** only the listed origins (scheme, host and port must all match), at whatever address they resolve to. This is how you use an internal JMAP server. An entry that is not an `http(s)` origin never matches. With `MW_UPSTREAM_DEFAULT` unset and **exactly one** usable origin listed, that origin is the upstream every sign-in uses. See [Upgrading: the proxy upstream is now checked](#upgrading-the-proxy-upstream-is-now-checked). |
-| `MW_ENGINE_TLS` | *(from URL)* | Engine mode only. Force the IMAP/POP3 transport (`implicit`/`starttls`/`plaintext`) regardless of the scheme in `MW_UPSTREAM_DEFAULT` — used to point at a plaintext test server (Greenmail) without changing the URL. |
-| `MW_SMTP_HOST` | *(IMAP host)* | Engine mode only. SMTP submission host for `EmailSubmission/set`. |
-| `MW_SMTP_PORT` | `587`/`465`/`25` | Engine mode only. SMTP port (default keys off `MW_SMTP_SECURITY`). |
-| `MW_SMTP_SECURITY` | `starttls` | Engine mode only. `starttls` / `implicit` / `plaintext`. |
-| `RUST_LOG` | `info` | Tracing filter. |
-| `MW_REDIS_URL` | *(unset)* | V6. Redis/Valkey URL for the layered cache. Unset → memory + store only. See [`cache.md`](./cache.md). |
-| `MW_ADMIN_ENABLED` | `true` | V6. `false`/`0` unmounts the `/admin` panel (returns `401`). See [`../security/admin-panel.md`](../security/admin-panel.md). |
-| `MW_ADMIN_USER` / `MW_ADMIN_PASSWORD` | *(unset)* | V6. Admin operator credential (separate session domain). Unset → admin login fails. |
-| `MW_ADMIN_MIN_TLS` | *(unset)* | 26.20. `1.2` or `1.3`. Pins the security policy's minimum TLS version (HTTPS listener and outbound mail connections); the panel cannot change it while set. See [`../security/admin-panel.md`](../security/admin-panel.md#security-policy). |
-| `MW_ADMIN_REQUIRE_2FA` | *(unset)* | 26.20. `true` or `false`. Pins the global require-two-factor rule. |
-| `MW_ADMIN_SESSION_COOKIE` | `mw_admin_session` | 26.20. Name of the admin session cookie. |
-| `MW_ADMIN_PATH` | *(stored path)* | 26.20. URL path of the admin console, its sign-in and its API, under `MW_BASE_PATH` when that is set, e.g. `/ops-7f3k`. The console answers at this path and nowhere else. Unset, the server uses the path stored in its database: generated on the first start of a new installation, `/admin` kept on an upgrade (with a warning at every start). `/` followed by one to four segments of `A-Z a-z 0-9 . _ ~ -`, no trailing `/`; a path under `/api`, `/jmap`, `/oauth`, `/.well-known`, `/dav`, `/mcp`, `/assets`, `/fonts` or another path the server already uses is refused, and so is one that starts with the same segment as `MW_BASE_PATH`. While set, the console and the CLI cannot change the path. A hidden path cuts down scanning and drive-by sign-in attempts; it does not isolate the console (it shares the mail app's origin) and does not replace the admin password, two-factor sign-in, rate limits or network restrictions. See [Moving the admin console](#moving-the-admin-console). |
-| `MW_ADMIN_PORT`, `MW_ADMIN_LOG_LEVEL`, `MW_ADMIN_OTLP_DSN`, `MW_ADMIN_METRICS`, `MW_ADMIN_THEME`, `MW_ADMIN_BRAND`, `MW_ADMIN_ACCENT` | — | 26.20: **setting any of these stops the start**, with an error saying what to use instead (before 26.20 they logged a warning). Nothing reads them. An invalid value of the four variables above also stops the start. |
-| `MW_OTLP_ENDPOINT` | *(unset)* | V6. OTLP collector (e.g. `http://otel:4317`); rustls transport. Unset → OTLP export off. See [`../security/observability.md`](../security/observability.md). |
-| `MW_METRICS_TOKEN` | *(unset)* | V6. Bearer token guarding `GET /metrics`. Unset → `/metrics` is unreachable (never open). |
-| `MW_LOG` | `info` | V6. Per-subsystem tracing directives; hot-reloaded on `SIGHUP`. |
-| `MW_REALTIME_RECHECK_SECS` | `30` | 26.20. How often, in whole seconds, an open `/jmap/ws` or `/jmap/eventsource` stream re-checks its session (minimum `1`; a value that is not a whole number means `30`). The stream ends at the first re-check after the session is signed out, revoked or expired, the bearer token is signed out, the account is disabled or held for a password change, or the database cannot be read. Each stream only ever carries its own account's changes. Lower values end streams sooner but cost a few database reads per open stream each period. Read once at start. |
-| `MW_TRUSTED_PROXIES` | *(empty)* | 26.19. CIDRs/addresses whose peers may assert a forwarded header. Empty ⇒ no forwarded header is ever trusted. See [`reverse-proxy.md`](./reverse-proxy.md). |
-| `MW_FORWARDED_MODE` | `off` | 26.19. Which forwarded header to read: `off` / `xff` / `forwarded`. Inert without `MW_TRUSTED_PROXIES`, and vice versa. An unrecognised value is `off`. |
-| `MW_PROXY_PROTOCOL` | `off` | 26.19. PROXY protocol on the HTTP/HTTPS listener: `off` / `accept` / `require`. Use `require` behind an L4 balancer. |
-| `MW_PUBLIC_URL` | *(unset)* | 26.19. Canonical external base (`https://mail.example.com`). Highest-precedence source of public scheme + host. **Setting an https base changes the WebAuthn origin and can invalidate existing passkeys** — see [`reverse-proxy.md`](./reverse-proxy.md) §3. |
-| `MW_BASE_PATH` | *(unset)* | 26.19. Serve under a path prefix (`/mail`). The app **also** stays mounted at the origin root by design; the prefix is routing, not isolation. |
-| `MW_HEADER_AUTH_TRUSTED_IPS` | *(empty)* | Peers allowed to assert `X-Remote-User` when `MW_HEADER_AUTH=1`. Fails closed — empty authenticates nobody. Not independent of `MW_TRUSTED_PROXIES` once `MW_PROXY_PROTOCOL != off`. |
-| `MW_ASSIST_RATE_LIMIT_PER_MIN` | *(unset)* | 26.19. Per-account AI assistant budget in **outbound endpoint requests**/minute. `0` = hard stop. A cold-cache semantic search costs up to 33; a chat turn costs 1. |
+The image sets `MW_BIND=0.0.0.0:8080`, `MW_DB_PATH=/data/mailwoman.db`, `MW_RENDER_BIN`, `MW_WEB_DIR` and `MW_PLUGIN_DIR`; you do not need to set them.
 
-### Upgrading: the server chooses the mail server
+::: warning
+Keep `MW_SERVER_KEY` the same for the life of the installation and back it up with the volume. Generating a new key at each start (for example with `$(openssl rand -hex 32)` on the `docker run` line) makes every stored secret unreadable.
+:::
 
-Applies to both modes, from 26.20.
+## systemd
 
-The sign-in form asks for the email address and the password, and nothing
-else. It has no server URL field, no "enter server details manually" link, and
-it no longer shows a server it found for the address. The server decides which
-mail server an address signs in to, from its own configuration:
+`docs/deploy/mailwoman.service` is a hardened unit that runs `mailwoman serve` as the user `mailwoman`, listens on `127.0.0.1:8080`, keeps its database in `/var/lib/mailwoman` and sets `MW_COOKIE_SECURE=true` for use behind a TLS proxy.
 
-1. `MW_UPSTREAM_DEFAULT` (see the table above);
-2. in proxy mode, if that is unset, the one origin in `MW_JMAP_UPSTREAMS` when
-   it lists exactly one;
-3. otherwise nothing: the sign-in answers `404` with code
-   `addressNotConfigured`, and the form says "This address is not set up on
-   this server. Contact your administrator."
+1. Build the web app first (the server embeds it at compile time), then the two binaries. You need Node.js with pnpm and the Rust toolchain named in `rust-toolchain.toml`:
 
-Per-domain settings in the admin panel are planned; until then every address
-signs in to the same server.
+   ```sh
+   pnpm -C apps/web install --frozen-lockfile
+   pnpm -C apps/web build
+   cargo build --release --locked --bin mailwoman --bin mw-render
+   ```
 
-**What to do on upgrade.** Set `MW_UPSTREAM_DEFAULT` to the server your users
-used to type, e.g. `MW_UPSTREAM_DEFAULT=https://jmap.example.org` (proxy) or
-`MW_UPSTREAM_DEFAULT=imaps://imap.example.org:993` (engine). A proxy install
-that already lists exactly one origin in `MW_JMAP_UPSTREAMS` keeps working
-without it.
+2. Install the binaries, the first-party plugins, a system user and the unit:
 
-**Also changed:**
+   ```sh
+   sudo useradd --system --no-create-home --shell /usr/sbin/nologin mailwoman
+   sudo install -m0755 target/release/mailwoman target/release/mw-render /usr/local/bin/
+   sudo install -d /usr/lib/mailwoman/plugins
+   sudo install -m0644 plugins/dist/*.wasm /usr/lib/mailwoman/plugins/
+   sudo install -m0644 docs/deploy/mailwoman.service /etc/systemd/system/mailwoman.service
+   ```
 
-* `POST /api/login` refuses a body that names a server (`jmapUrl`, `host`,
-  `port`, `server`, `serverUrl`, `imapUrl`, `pop3Url`, `sessionUrl`,
-  `upstream` or `url`, even empty) with `400` and code
-  `clientServerNotAllowed`. A script that signs in must send only `username`
-  and `password` (plus `clientType` for a native client).
-* `POST /api/discover` answers `410 Gone`. It used to look the address's domain
-  up and return the servers it found to the browser.
-* With header authentication (`MW_HEADER_AUTH`) in proxy mode, the upstream is
-  `MW_HEADER_AUTH_JMAP_URL`, else the order above; a `jmapUrl` in the login
-  body no longer overrides it.
-* Desktop and mobile apps built before this release still send the server they
-  found to `/api/login` and are refused; rebuild them from this release.
+   The unit's `StateDirectory=mailwoman` creates `/var/lib/mailwoman` owned by that user when the service starts.
 
-### New administrator names
+3. Put the secrets and the mail server in an environment file readable only by root, for example `/etc/mailwoman/mailwoman.env` with mode `0600` (same variables as the Docker example above), and point the unit at it:
 
-For a new installation, `deploy.sh init` generates a readable username such as
-`admin-7a93c284f016` using six cryptographically random bytes. It prints the
-username and saves it with the independently generated password in the private
-`app.env` file (`MW_ADMIN_USER` / `MW_ADMIN_PASSWORD`). Retrieve the password
-privately from that file; setup output never prints it.
+   ```sh
+   sudo systemctl edit mailwoman
+   # add:
+   # [Service]
+   # EnvironmentFile=/etc/mailwoman/mailwoman.env
+   ```
 
-The name is generated once. Re-running setup, deploying, restarting or upgrading
-keeps the existing file and identity, including an explicitly configured username.
-This change never renames existing administrators. Back up `app.env` with the data.
-You may edit the initial username before the first deployment. Its random suffix
-reduces predictable account-name guessing; password authentication and MFA remain
-necessary.
+4. Start it, and read the generated console path from the journal:
 
-### Moving the admin console
+   ```sh
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now mailwoman
+   sudo journalctl -u mailwoman | grep 'the admin console is at'
+   ```
 
-From 26.20 the admin console, its sign-in and its API answer at exactly one
-path, under `MW_BASE_PATH` when that is set. There is no fallback and no alias:
-every other path, `/admin` included once the console has moved, gets the same
-`404` as any path the server does not know (status, headers and body), with no
-redirect and no hint.
+   `mailwoman admin console-path show` prints it too, when run as the `mailwoman` user with the same `MW_DB_PATH` and `MW_SERVER_KEY` as the service.
 
-**Where the path comes from**, in this order:
+Keep `MW_SERVER_KEY` out of the unit file itself.
 
-1. `MW_ADMIN_PATH`, when set. It pins the path: the console and
-   `mailwoman admin console-path` refuse to change it.
-2. The path stored in the server's database (setting `admin.consolePath`).
-3. On the first start with neither:
-   * **New installation** (empty database): the server generates a path of 20
-     random characters (for example `/k7tq2xw9m4hrb3cz8npd`), stores it and logs
-     it once, as a warning that starts `new installation: the admin console is
-     at`. `deploy.sh init` generates one the same way before the first start
-     and writes it to `app.env` as `MW_ADMIN_PATH`; `deploy.sh deploy` prints
-     the console's address once the stack is healthy.
-   * **Upgraded installation** (the database already holds settings, accounts,
-     admin accounts or audit entries): the console stays at `/admin`, so nobody
-     is locked out. That is stored too, and every start logs a warning that
-     recommends a path of your own.
+## Configuration
 
-Forgot the path? On the server run `mailwoman admin console-path show` (with
-Docker: `docker exec <container> mailwoman admin console-path show`).
+The server reads its configuration from environment variables (most `serve` options also exist as command-line flags; run `mailwoman serve --help`). Many settings can also be changed in the admin console once the server runs; the [configuration reference](../admin/configuration.md) lists every variable, its default, and whether the console can change it.
 
-**Changing it.** In the console, open Security > Console address. You need
-`security_policy.write` and a fresh confirmation of your password or second
-factor, and the change is audited. Or, on the server:
+The variables most installations set:
 
-```
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `MW_BIND` | `0.0.0.0:8080` | Listen address. |
+| `MW_DB_PATH` | `mailwoman.db` | The database: a SQLite file path, or a `postgres://` URL for [PostgreSQL](postgres.md). |
+| `MW_SERVER_KEY` | a key file beside the SQLite database | 64 hex characters (32 bytes) that seal every stored secret. See [The server key](#the-server-key). |
+| `MW_SERVER_KEY_FILE` | `<database>.server-key` | A file holding the key, read or created at start. PostgreSQL needs this or `MW_SERVER_KEY`. |
+| `MW_MODE` | `proxy` | `proxy` for a JMAP mail server, `engine` for IMAP or POP3 with SMTP. |
+| `MW_UPSTREAM_DEFAULT` | unset | The mail server users sign in to, unless a domain configured in the console names its own. |
+| `MW_JMAP_UPSTREAMS` | unset | Proxy mode: comma-separated JMAP origins the server may connect to. Needed for a JMAP server on a private address that is not `MW_UPSTREAM_DEFAULT`. |
+| `MW_SMTP_HOST`, `MW_SMTP_PORT`, `MW_SMTP_SECURITY` | the IMAP/POP3 host; `587`, `465` with `implicit`, `25` with `plaintext`; `starttls` | Engine mode: where mail is sent. |
+| `MW_ADMIN_USER`, `MW_ADMIN_PASSWORD` | unset | The bootstrap admin credential. Its first sign-in creates a Super admin account. |
+| `MW_ADMIN_PATH` | the stored path | The admin console's path. See [Moving the admin console](#moving-the-admin-console). |
+| `MW_COOKIE_SECURE` | derived from the request's scheme | `true` marks cookies `Secure`. Set it behind a TLS proxy unless the server trusts the proxy's forwarded headers. |
+| `MW_PUBLIC_URL` | the request's `Host` | The public address, for example `https://mail.example.org`. See [Reverse proxy](reverse-proxy.md) before setting it on a server that already has passkeys. |
+| `MW_TRUSTED_PROXIES`, `MW_FORWARDED_MODE` | empty, `off` | Which proxies may state the client address and scheme, and through which header. See [Reverse proxy](reverse-proxy.md). |
+| `RUST_LOG` | `info` | Log filter. See [Telemetry](telemetry.md). |
+
+### The server key
+
+Mailwoman seals stored secrets, including session records, with the server key. Sessions survive restarts as long as the database and the key are kept.
+
+- With SQLite and no key configured, the server creates a key file beside the database (`mailwoman.db.server-key`) on the first start and reuses it. Back up both files together. On Unix the file must have private permissions (`0600`). On Windows the generated file is protected with DPAPI and can only be opened by the same Windows account; use `MW_SERVER_KEY` if you move the data to another account or host.
+- PostgreSQL requires `MW_SERVER_KEY` or `MW_SERVER_KEY_FILE`, and every server sharing the database must use the same key.
+- `MW_SERVER_KEY` overrides any key file. Generate one with `openssl rand -hex 32`.
+
+::: danger
+Do not delete or replace the key to get past a start-up error. A different key cannot open what the old one sealed.
+:::
+
+## Which mail server users sign in to
+
+The sign-in form asks only for an address and a password; the server decides where that address signs in, in this order:
+
+1. The domain's own connection settings, if the address's domain is configured and enabled in the admin console (**Domains**). Aliases of a domain use its settings.
+2. The deployment default: the `upstream.default` setting, otherwise `MW_UPSTREAM_DEFAULT`.
+3. Proxy mode only: the single origin in `MW_JMAP_UPSTREAMS`, when it lists exactly one.
+
+If none applies, the sign-in answers "This address is not set up on this server. Contact your administrator." The server never looks the address's domain up in DNS at sign-in.
+
+In proxy mode the server also limits which JMAP servers it connects to:
+
+- An origin named in `MW_JMAP_UPSTREAMS` or `MW_UPSTREAM_DEFAULT` may be on any address, including a private one such as another container (`http://stalwart:8080`).
+- When `MW_JMAP_UPSTREAMS` is set, other origins are refused. When it is unset, other origins are allowed only on public addresses.
+- The JMAP session's API, download and upload URLs must be on the same origin as the upstream.
+
+## Moving the admin console
+
+The admin console, its sign-in and its API answer at one path only; every other path, `/admin` included, answers like any unknown path. The path comes from, in order:
+
+1. `MW_ADMIN_PATH`, when set. The console and the CLI cannot change it while it is set.
+2. The path stored in the database.
+3. On the first start of a new installation, a generated path of 20 random characters, which the server stores and logs once. (`deploy.sh init` generates one and writes it to `app.env` as `MW_ADMIN_PATH` instead.)
+
+To print the path: `mailwoman admin console-path show` (with Docker, `docker exec <container> mailwoman admin console-path show`).
+
+To change it, use the console (**Security** > **Console address**; you confirm your password or second factor first), or the CLI:
+
+```sh
 mailwoman admin console-path generate          # a new random path
 mailwoman admin console-path set /ops-7f3k-console
 ```
 
-A path chosen this way needs at least 12 characters after the `/` and may not be
-`/admin`. The new path is stored and **takes effect at the next restart**; until
-then the console stays where it is. The start that applies a new path ends every
-admin session (audit entry `admin-console-path-applied`), so admins sign in
-again at the new address. Setting `MW_ADMIN_PATH` and restarting works the same
-way.
+A path you choose needs at least 12 characters after the `/`, and cannot be `/admin`. The new path takes effect at the next restart; that start ends every admin session, so admins sign in again at the new address. Update bookmarks, proxy rules and monitoring that use the old path.
 
-The path is not written into the web app, the service worker, the mail client's
-page or any public answer, so nothing a visitor outside the console can fetch
-reveals it. The mail app has no link to the console. The admin session cookie is
-scoped to the console's path (`Path={MW_BASE_PATH}{console}`), so the browser
-never sends it to the mail app. The console page is sent with
-`Content-Security-Policy: frame-ancestors 'none'` and `X-Robots-Tag: noindex`.
-An invalid value stops the start with an error naming the variable.
+::: warning
+A hidden path keeps scanners and casual sign-in attempts away from the console, but it does not isolate it: the console runs on the same origin as the mail app. Keep a strong admin password, two-factor sign-in for admin accounts and, where you can, a network restriction on the path in your reverse proxy.
+:::
 
-**What it does and does not do.** A path nobody can guess cuts down automated
-scanning and drive-by sign-in attempts against the console. It hides the
-console; it does not isolate it. The console runs on the same origin as the mail
-app, so a script running in the mail app (an XSS, or a provider script loaded by
-an analytics tag) that learns the path can still call the console's API from a
-browser that holds an admin session. The path also appears in your reverse
-proxy's logs and in the browser history of anyone who uses it. Keep a strong
-admin password, two-factor sign-in for admin accounts, the sign-in rate limit
-and, where you can, a network restriction on the path (an allowlist in the
-reverse proxy, a VPN). Using a separate browser profile for the console keeps
-its session out of the browser you read mail in.
+<!-- SCREENSHOT deploy/admin-console-address: admin console, Security > Console address tab, crop of the tab content -->
 
-**Upgrading to 26.20.** Nothing moves: a deployment that set `MW_ADMIN_PATH`
-keeps it, and one that did not keeps `/admin`, with a warning at each start. To
-move it, use the console or the CLI above, then restart. Also update bookmarks,
-any reverse-proxy rule that names `/admin`, and monitoring that probes it. Admin
-cookies issued before 26.20 had `Path=/`; they keep working until they expire or
-the admin signs out, which clears both. The server-metadata editor in the
-console now posts to `{console}/server-metadata/jmap` instead of `/jmap/api`,
-because the scoped cookie no longer reaches `/jmap/api`. A browser end-to-end run
-against a moved console takes `MW_E2E_ADMIN_PATH` (default `/admin`). Details:
-[upgrade-notes/admin-console-path.md](upgrade-notes/admin-console-path.md).
+## Reverse proxy and TLS
 
-### Upgrading: the proxy upstream is now checked
+Run Mailwoman behind a reverse proxy that terminates TLS, or let the server get certificates itself:
 
-Applies to proxy mode (`MW_MODE=proxy`, the default), from 26.20.
+- [Reverse proxy](reverse-proxy.md): what the server needs from a proxy (WebSocket and event-stream pass-through, forwarded headers and `MW_TRUSTED_PROXIES`, sub-path hosting), with [example configurations](proxy/README.md) for nginx, Apache, Caddy, Traefik, HAProxy, Envoy and IIS. `docs/deploy/nginx.conf` is a single-file nginx example.
+- [ACME and certificates](acme.md): built-in Let's Encrypt (`--acme`) or your own certificate files.
+- [WebSocket and event streams](websocket.md).
 
-Before 26.20 the login form's server URL came from whoever submitted it, and the
-server fetched it unchecked. (From 26.20 the server chooses the upstream itself;
-see the section above.) It then relayed `/jmap/api`, `/jmap/download` and
-`/jmap/upload` to whatever URLs that server's session document named. Anyone
-running a JMAP server of their own could log in against it and read back
-responses from addresses only your server can reach, such as a cloud metadata
-endpoint or an internal admin API.
+Until you set both `MW_TRUSTED_PROXIES` and `MW_FORWARDED_MODE`, the server records every client as the proxy's address (audit log, rate limits, bans) and does not see that the original request was HTTPS.
 
-**What stops working on upgrade.** A deployment whose JMAP server has a
-**private or loopback address**: another container on a Docker network
-(`http://stalwart:8080`), a Kubernetes service, `localhost`, or a LAN address.
-Logins against it fail with the usual "invalid credentials", and the server logs
-`proxy login refused: refused by the egress policy (Blocked)`. **Fix:** list the
-upstream in `MW_JMAP_UPSTREAMS`, e.g. `MW_JMAP_UPSTREAMS=http://stalwart:8080`,
-or set it as `MW_UPSTREAM_DEFAULT`, with the same scheme, host and port. A
-deployment whose JMAP server is on a **public address**
-(`https://jmap.example.org`) needs no change to this list.
+## Operating the server
 
-**Also enforced, whether or not the variable is set:**
+- Databases and caches: [PostgreSQL](postgres.md), [Valkey/Redis cache](cache.md), [online SQLite maintenance](online-sqlite-maintenance.md).
+- Backups and recovery: [Backups](backups.md).
+- Health, metrics and logs: [Monitoring](monitoring.md), [Telemetry](telemetry.md).
+- Connections and outbound traffic: [Connection limits](connection-limits.md), [Outbound proxy](egress-proxy.md).
+- Background work: [Scheduler](scheduler-runtime.md), [Sieve](sieve-runtime.md).
+- Push notifications: [Push relay](push.md).
+- Desktop and mobile apps: [Desktop and mobile shells](shells.md), [Desktop](desktop.md), [Android](mobile-android.md).
+- Mail servers: [IMAP and POP3](imap-pop3.md), [CalDAV and CardDAV](caldav-carddav.md).
 
-* The session document's `apiUrl`, `downloadUrl` and `uploadUrl` must be on the
-  same origin as the upstream URL. An upstream that serves its API from a different
-  host or port is refused at login, and the server logs `the upstream session's
-  URLs: not on the upstream's origin`.
-* The initial session request follows a redirect only to the same origin. For a
-  provider whose `/.well-known/jmap` redirects to another host, set
-  `MW_UPSTREAM_DEFAULT` to the redirect's target URL.
-* Redirects on the API, download and upload requests are not followed.
-* Every request is pinned to the address checked for it, with no ambient
-  `HTTP_PROXY`. Each request is limited to 300 seconds; before 26.20 there was no
-  limit.
-* Downloads are served as `Content-Disposition: attachment` with a type derived
-  from the upstream's but never an HTML, XML or script type. An upload response is
-  labelled `application/json`.
+## Development and test backends
 
-**What you gain.** With the variable unset, an anonymous caller can no longer use
-your server to reach internal addresses. Setting it narrows logins to the JMAP
-servers you name, which is the right setting for any single-provider deployment,
-public or not.
+`docker-compose.dev.yml` runs the server against test backends: the in-repository JMAP mock (`mw-mock-jmap`) for proxy mode, Greenmail and Dovecot for engine mode, and an optional Stalwart JMAP server (`--profile stalwart`). They are for development and automated tests, not for production.
 
-## Docker
+## Upgrading
 
-For a complete single-host deployment with configuration, persistent data,
-optional automatic HTTPS, health checks, backups and recovery, use the root
-[`deploy.sh`](https://github.com/supermarsx/mailwoman/blob/master/deploy.sh). See the [script guide](script.md).
+Before you update an existing installation, read the [upgrade notes](upgrade-notes/index.md): they list the changes that need action on your side.
 
-```sh
-bash deploy.sh --domain mail.example.org --mode engine
-```
+## Related
 
-```sh
-docker build --target runtime -t mailwoman:local .
-docker run --rm -p 8080:8080 \
-  -e MW_SERVER_KEY="$(openssl rand -hex 32)" \
-  -e MW_COOKIE_SECURE=true \
-  -v mailwoman-data:/data \
-  mailwoman:local
-```
-
-The container runs as the non-root `nonroot` user (uid 65532), writes only to
-the `/data` volume, and exposes a `HEALTHCHECK` via `mailwoman healthcheck`.
-
-## systemd (bare metal)
-
-Install the two binaries to `/usr/local/bin`, create a dedicated user and data
-dir, then install the unit:
-
-```sh
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin mailwoman
-sudo install -d -o mailwoman -g mailwoman /var/lib/mailwoman
-sudo install -m0755 target/release/mailwoman  /usr/local/bin/mailwoman
-sudo install -m0755 target/release/mw-render   /usr/local/bin/mw-render
-sudo install -m0644 docs/deploy/mailwoman.service /etc/systemd/system/mailwoman.service
-sudo systemctl edit mailwoman   # drop in [Service] Environment=MW_SERVER_KEY=...
-sudo systemctl enable --now mailwoman
-```
-
-Keep `MW_SERVER_KEY` out of the unit file itself — use a drop-in or
-`EnvironmentFile=` with `0600` permissions.
-
-## Reverse proxy (TLS)
-
-Terminate TLS at nginx (or Caddy/Traefik) and proxy to `127.0.0.1:8080`. See
-`nginx.conf`. Set `MW_COOKIE_SECURE=true` so the session cookie is only sent
-over HTTPS. The proxy must forward the `Cookie`/`Set-Cookie` headers verbatim.
-
-> ⚠️ **Changed in 26.19 — read [`reverse-proxy.md`](./reverse-proxy.md) before
-> upgrading.** Mailwoman no longer trusts `X-Forwarded-For` from whoever
-> connects. Until you set **both** `MW_TRUSTED_PROXIES` and
-> `MW_FORWARDED_MODE`, every client address the app records — audit log, per-key
-> IP allowlists, rate-limit buckets, ban list — is your proxy's address, not the
-> client's. Nothing fails loudly.
-
-[`reverse-proxy.md`](./reverse-proxy.md) is the operator-facing page: the full
-environment reference, the migration note for `MW_PUBLIC_URL` (it can invalidate
-existing passkeys), sub-path hosting with `MW_BASE_PATH`, the interaction
-between header auth and the proxy trust list, and **which proxies have actually
-been tested versus merely shipped**. Per-proxy configuration trees are under
-[`proxy/`](./proxy/README.md).
-
-V7 (release 26.8.0) — bridges, directory, AI assistant, plugins — adds:
-
-- [`ldap.md`](./ldap.md) — the read-only **LDAP/GAL directory** (`mw-directory`):
-  endpoint list + priority, attribute mapping, StartTLS/LDAPS, S/MIME cert + photo
-  lookup, and LDAP-bind login.
-- [`../assist.md`](../assist.md) — **AI assistant**: BYO endpoint adapters, capability
-  scoping, the content-free audit, the "what left the device" disclosure, and admin
-  governance.
-- [`../security/plugins.md`](../security/plugins.md) — the **WASM plugin runtime**:
-  authoring, Ed25519 signing, the capability model, and resource limits.
-- [`../security/password-change.md`](../security/password-change.md) — in-app
-  **password change** backends and the zero-access re-wrap.
-- [`../bridges/`](../bridges/index.md) — the **Graph / EWS / Gmail** bridges (admin
-  app-registration + BYO app-ID + the honest scope boundaries).
-- [`../export/msg-oft-docx.md`](../export/msg-oft-docx.md) — **MSG/OFT/DOCX** export.
-- [`../integrations/nextcloud.md`](../integrations/nextcloud.md) — **Nextcloud**
-  attach/save/share-link.
-- [`../RELEASE-NOTES-26.8.md`](../RELEASE-NOTES-26.8.md) — the V7 summary and the three
-  honest scope boundaries (bridge PIM-seam, EWS Kerberos, quick-xml write-only ignore).
-
-## Backends
-
-Mailwoman is backend-agnostic in **both** modes:
-
-- **proxy mode** — the server proxies to the JMAP server set in
-  `MW_UPSTREAM_DEFAULT`; users sign in with their email address and password. For local development and E2E, `docker-compose.dev.yml`
-  provides the in-repo `mw-mock-jmap` (default, deterministic) and an optional,
-  profile-gated Stalwart service (`--profile stalwart`, experimental — see the
-  compose file and `scripts/stalwart-seed.sh`).
-- **engine mode** — `MW_UPSTREAM_DEFAULT` holds an `imap(s)://` /
-  `pop3(s)://` URL; the engine drives the account each user signs in to there
-  (IMAP/POP3 sync + SMTP submission) and answers JMAP locally. See
-  [`imap-pop3.md`](./imap-pop3.md). Testing backends: **Greenmail** (the
-  deterministic conformance gate) and **Dovecot** (the production-fidelity
-  target), both in `docker-compose.dev.yml`.
+- [Quick install](../getting-started/install-quick.md)
+- [Deploy with deploy.sh](script.md)
+- [Configuration reference](../admin/configuration.md)
+- [The admin console](../admin/index.md)
+- [Security model](../security/README.md)

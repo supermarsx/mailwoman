@@ -1,4 +1,4 @@
-# Hardened systemd unit for Mailwoman (SPEC §7.5).
+# Hardened systemd unit for Mailwoman.
 # Install to /etc/systemd/system/mailwoman.service and provide MW_SERVER_KEY via
 # a `systemctl edit mailwoman` drop-in or an 0600 EnvironmentFile — never inline.
 
