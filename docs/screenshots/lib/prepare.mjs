@@ -72,7 +72,18 @@ export async function ensureWeb(given) {
       cwd: WEB_APP,
       stdio: 'inherit',
     });
-    if (result.status !== 0) throw new Error('vite build failed');
+    if (result.status !== 0) {
+      rmSync(tmp, { recursive: true, force: true });
+      // Other work may leave the source tree mid-edit. Fall back to the newest
+      // earlier build rather than failing the run, and say so.
+      const previous = readdirSync(join(SCRATCH, 'web'), { withFileTypes: true })
+        .filter((d) => d.isDirectory() && /^[0-9a-f]{16}$/.test(d.name) && existsSync(join(SCRATCH, 'web', d.name, 'index.html')))
+        .map((d) => ({ name: d.name, time: statSync(join(SCRATCH, 'web', d.name, 'index.html')).mtimeMs }))
+        .sort((a, b) => b.time - a.time)[0];
+      if (!previous || process.env.MW_SHOTS_NO_FALLBACK) throw new Error('vite build of the current source failed');
+      log(`WARNING: the current web source does not build; using the previous build ${previous.name} from ${new Date(previous.time).toISOString()}`);
+      return { dir: join(SCRATCH, 'web', previous.name), hash: `${previous.name} (fallback)` };
+    }
     renameSync(tmp, dir);
     return { dir, hash };
   } finally {

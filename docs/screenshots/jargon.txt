@@ -1,0 +1,10 @@
+\bV[0-9]\b
+\b2[4-9]\.[0-9]{1,2}(\.[0-9]+)?\b
+\bt[0-9]{2}(-e[0-9]+)?\b
+\be[0-9]{1,2}\b([^.]|$)
+(?i)\bwave ?[0-9]
+(?i)milestone|shipped|residual|executor|planner|orchestration|roadmap
+(?i)\baudit (found|finding)|over-?claim
+SPEC(\.md)?\s*§|§\s*[0-9]
+(?i)\bas of (v|version|release|26)
+(?i)ultra[- ]secure|blazing|seamless|enterprise-grade|military-grade|bulletproof|world-class|cutting-edge|lightning

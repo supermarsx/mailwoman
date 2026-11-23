@@ -18,7 +18,7 @@ import { BUDGET, VIEWPORTS, entryHash, kindOf, loadManifests, outputOf, readMani
 import { catalogue, isRef } from './lib/fluent.mjs';
 import { api, launchArgs, playwright, userAgent } from './lib/browser.mjs';
 import { CLOCK, applySeeds, expand, mailSeeder } from './lib/seed.mjs';
-import { takeSlot } from './lib/prepare.mjs';
+import { ensureWeb, takeSlot } from './lib/prepare.mjs';
 import { startStack } from './stack.mjs';
 
 // ── arguments ──────────────────────────────────────────────────────────────────
@@ -161,6 +161,11 @@ export async function locate(page, spec) {
   else if (spec.css) loc = base.locator(spec.css);
   else throw new Error(`locator needs role, label, text, placeholder, title, alt, testid or css: ${JSON.stringify(spec)}`);
   if (spec.hasText) loc = loc.filter({ hasText: await text(spec.hasText, spec.args) });
+  // The nearest enclosing element of a tag (for a card around a heading, say).
+  if (spec.closest) {
+    if (!/^[a-z][a-z0-9-]*$/.test(spec.closest)) throw new Error('closest takes an element name such as section, fieldset or form');
+    loc = loc.locator('xpath=ancestor-or-self::' + spec.closest + '[1]');
+  }
   if (spec.nth !== undefined) loc = loc.nth(spec.nth);
   else if (spec.first) loc = loc.first();
   else if (spec.last) loc = loc.last();
@@ -212,12 +217,19 @@ async function runStep(page, step, ctx) {
     case 'waitForHidden':
       await (await target()).waitFor({ state: 'hidden', timeout: arg.timeout ?? 30_000 });
       return;
+    case 'keys':
+      // Type into whatever has focus (an editor inside a frame, for example).
+      await page.keyboard.type(String(arg));
+      return;
     case 'wait':
       await page.waitForTimeout(Number(arg));
       return;
-    case 'scroll':
-      await (await target()).scrollIntoViewIfNeeded({ timeout: STEP_TIMEOUT });
+    case 'scroll': {
+      const loc = await target();
+      if (arg.block) await loc.evaluate((el, block) => el.scrollIntoView({ block }), arg.block);
+      else await loc.scrollIntoViewIfNeeded({ timeout: STEP_TIMEOUT });
       return;
+    }
     case 'eval':
       await page.evaluate(arg);
       return;
@@ -281,8 +293,8 @@ function markerAt(b, place = 'right') {
   }
 }
 
-/** Draw callouts as an overlay in the page; returns the boxes they cover. */
-async function drawCallouts(page, callouts) {
+/** Where each callout goes, and the boxes the markers cover. */
+async function planCallouts(page, callouts) {
   const marks = [];
   for (const c of callouts) {
     const b = await box(page, c.target);
@@ -291,49 +303,78 @@ async function drawCallouts(page, callouts) {
     if (c.dy) at.y += c.dy;
     marks.push({ n: c.n, at, outline: c.box ? b : null });
   }
+  const covers = marks.flatMap((m) => [
+    { x: m.at.x - CALLOUT_SIZE / 2 - 2, y: m.at.y - CALLOUT_SIZE / 2 - 2, width: CALLOUT_SIZE + 4, height: CALLOUT_SIZE + 4 },
+    ...(m.outline ? [{ x: m.outline.x - 4, y: m.outline.y - 4, width: m.outline.width + 8, height: m.outline.height + 8 }] : []),
+  ]);
+  return { marks, covers };
+}
+
+/**
+ * Overlay layer for one capture: an optional frame that paints the part of the
+ * clip outside the cropped element in the page background (so a crop shows no
+ * slivers of neighbouring controls), then the callout markers.
+ */
+async function drawOverlay(page, { frame, marks }) {
   await page.evaluate(
-    ({ marks, size }) => {
+    ({ frame, marks, size }) => {
       const layer = document.createElement('div');
-      layer.setAttribute('data-shots-callouts', '');
+      layer.setAttribute('data-shots-overlay', '');
       layer.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647';
+      if (frame) {
+        let bg = getComputedStyle(document.body).backgroundColor;
+        if (!bg || bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') bg = getComputedStyle(document.documentElement).backgroundColor || '#111111';
+        const { clip, keep } = frame;
+        const rect = (x, y, w, h) => {
+          if (w <= 0 || h <= 0) return;
+          const d = document.createElement('div');
+          d.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px;background:' + bg;
+          layer.append(d);
+        };
+        rect(clip.x, clip.y, clip.width, keep.y - clip.y);
+        rect(clip.x, keep.y + keep.height, clip.width, clip.y + clip.height - keep.y - keep.height);
+        rect(clip.x, keep.y, keep.x - clip.x, keep.height);
+        rect(keep.x + keep.width, keep.y, clip.x + clip.width - keep.x - keep.width, keep.height);
+      }
       for (const m of marks) {
         if (m.outline) {
           const o = document.createElement('div');
-          o.style.cssText = `position:fixed;left:${m.outline.x - 3}px;top:${m.outline.y - 3}px;width:${m.outline.width + 6}px;height:${m.outline.height + 6}px;border:2px solid #f5c400;box-sizing:border-box`;
+          o.style.cssText = 'position:fixed;left:' + (m.outline.x - 3) + 'px;top:' + (m.outline.y - 3) + 'px;width:' + (m.outline.width + 6) + 'px;height:' + (m.outline.height + 6) + 'px;border:2px solid #f5c400;box-sizing:border-box';
           layer.append(o);
         }
         const d = document.createElement('div');
         d.textContent = String(m.n);
-        d.style.cssText = `position:fixed;left:${m.at.x - size / 2}px;top:${m.at.y - size / 2}px;width:${size}px;height:${size}px;border-radius:50%;background:#f5c400;color:#000;font:800 13px/${size}px Jost,Arial,sans-serif;text-align:center;box-shadow:0 0 0 2px #111111`;
+        d.style.cssText = 'position:fixed;left:' + (m.at.x - size / 2) + 'px;top:' + (m.at.y - size / 2) + 'px;width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:#f5c400;color:#000;font:800 13px/' + size + 'px Jost,Arial,sans-serif;text-align:center;box-shadow:0 0 0 2px #111111';
         layer.append(d);
       }
       document.body.append(layer);
     },
-    { marks, size: CALLOUT_SIZE },
+    { frame, marks, size: CALLOUT_SIZE },
   );
-  return marks.flatMap((m) => [
-    { x: m.at.x - CALLOUT_SIZE / 2 - 2, y: m.at.y - CALLOUT_SIZE / 2 - 2, width: CALLOUT_SIZE + 4, height: CALLOUT_SIZE + 4 },
-    ...(m.outline ? [{ x: m.outline.x - 4, y: m.outline.y - 4, width: m.outline.width + 8, height: m.outline.height + 8 }] : []),
-  ]);
 }
 
-async function clipFor(page, entry, viewport, calloutBoxes) {
+/** The element box(es) of an element shot, or null. */
+async function elementBox(page, shot) {
+  if (shot === 'full' || !shot.element) return null;
+  const specs = Array.isArray(shot.element) ? shot.element : [shot.element];
+  const boxes = [];
+  for (const s of specs) boxes.push(await box(page, s));
+  return union(boxes);
+}
+
+async function clipFor(page, entry, viewport, element, covers) {
   const shot = entry.shot;
   if (shot === 'full') return null;
   let region;
-  if (shot.element) {
-    const specs = Array.isArray(shot.element) ? shot.element : [shot.element];
-    const boxes = [];
-    for (const s of specs) boxes.push(await box(page, s));
-    region = union(boxes);
+  if (element) {
     const pad = shot.padding ?? 8;
-    region = { x: region.x - pad, y: region.y - pad, width: region.width + 2 * pad, height: region.height + 2 * pad };
+    region = { x: element.x - pad, y: element.y - pad, width: element.width + 2 * pad, height: element.height + 2 * pad };
   } else {
     const c = shot.clip;
     const origin = c.relativeTo ? await box(page, c.relativeTo) : { x: 0, y: 0 };
     region = { x: origin.x + (c.x ?? 0), y: origin.y + (c.y ?? 0), width: c.width, height: c.height };
   }
-  if (calloutBoxes.length) region = union([region, ...calloutBoxes.map((b) => ({ ...b, x: b.x - 2, y: b.y - 2, width: b.width + 4, height: b.height + 4 }))]);
+  if (covers.length) region = union([region, ...covers]);
   const x = Math.max(0, Math.floor(region.x));
   const y = Math.max(0, Math.floor(region.y));
   return {
@@ -431,8 +472,13 @@ async function captureEntry(browser, converter, stack, area, entry, opts) {
       const loc = await locate(page, spec);
       await loc.evaluateAll((els) => els.forEach((el) => (el.style.visibility = 'hidden')));
     }
-    const calloutBoxes = entry.callouts?.length ? await drawCallouts(page, entry.callouts) : [];
-    const clip = await clipFor(page, entry, viewport, calloutBoxes);
+    const { marks, covers } = entry.callouts?.length ? await planCallouts(page, entry.callouts) : { marks: [], covers: [] };
+    const element = await elementBox(page, entry.shot);
+    const clip = await clipFor(page, entry, viewport, element, covers);
+    // Element crops get a clean margin unless the entry asks for "clean": false.
+    const clean = Boolean(element) && entry.shot.clean !== false;
+    const keep = element && { x: element.x - 1, y: element.y - 1, width: element.width + 2, height: element.height + 2 };
+    if (clean || marks.length) await drawOverlay(page, { frame: clean ? { clip, keep } : null, marks });
     const mask = [];
     for (const spec of entry.mask ?? []) mask.push(await locate(page, spec));
     const png = await page.screenshot({ clip: clip ?? undefined, mask, maskColor: '#3a3a3a', animations: 'disabled', caret: 'hide' });
@@ -522,6 +568,10 @@ async function main() {
   if (opts.flags.has('dry-run')) return 0;
 
   const release = await takeSlot();
+  // One web build for the whole run, so every image shows the same client.
+  const web = await ensureWeb(opts.webDir);
+  opts.webDir = web.dir;
+  opts.webHash = web.hash;
   const { chromium } = playwright();
   const browser = await chromium.launch({ headless: !opts.flags.has('headed'), args: launchArgs() });
   const converterContext = await browser.newContext();
@@ -544,7 +594,7 @@ async function main() {
     for (const g of groups.values()) {
       let stack;
       try {
-        stack = await startStack(g.stack, { webDir: opts.webDir, beforeServer: mailSeeder(g.seed) });
+        stack = await startStack(g.stack, { webDir: opts.webDir, webHash: opts.webHash, beforeServer: mailSeeder(g.seed) });
         stacks.push(stack);
         await applySeeds(browser, stack, g.seed);
       } catch (error) {
@@ -555,7 +605,14 @@ async function main() {
       for (const { area, entry } of g.items) {
         const started = Date.now();
         try {
-          const result = await captureEntry(browser, converter, stack, area, entry, opts);
+          let result;
+          try {
+            result = await captureEntry(browser, converter, stack, area, entry, opts);
+          } catch (error) {
+            // One retry in a new browser context: a first load can lose a chunk.
+            log(`retrying ${area}/${entry.id} once: ${error.message.split('\n')[0]}`);
+            result = await captureEntry(browser, converter, stack, area, entry, opts);
+          }
           writeMeta(area, entry.id, entry, result, stack);
           done += 1;
           log(`ok ${area}/${entry.id}  ${result.width}x${result.height}  ${Math.round(result.bytes / 1024)} KB  q${result.quality}  ${((Date.now() - started) / 1000).toFixed(1)}s`);

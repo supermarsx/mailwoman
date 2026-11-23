@@ -38,10 +38,10 @@ function docker(...args) {
  * backend is up and before the server starts (mail seeding). Returns the stack;
  * always call `stop()`.
  */
-export async function startStack(kind, { webDir, runDir, beforeServer } = {}) {
+export async function startStack(kind, { webDir, webHash, runDir, beforeServer } = {}) {
   if (kind !== 'M' && kind !== 'E') throw new Error(`unknown stack ${kind} (M or E)`);
   const { user, admin } = accounts();
-  const web = await ensureWeb(webDir);
+  const web = webDir && webHash ? { dir: webDir, hash: webHash } : await ensureWeb(webDir);
   const server = serverBinary();
   const dir = runDir ?? join(SCRATCH, 'runs', `${kind}-${Date.now()}-${process.pid}`);
   mkdirSync(dir, { recursive: true });
