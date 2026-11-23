@@ -340,29 +340,129 @@ impl Store {
         Ok(())
     }
 
-    /// Sweep every upload older than `older_than` (by `created_at`), removing both the
-    /// backend object and the row. Returns the number of rows reclaimed. Backs the
-    /// explicit `mailwoman maintenance gc-uploads` one-shot (never automatic). A backend
-    /// object that is already gone does not stall reclamation of the row.
-    pub async fn sweep_uploads(&self, older_than: chrono::Duration) -> Result<u64, StoreError> {
+    /// Uploads older than `older_than` that nothing stored on this server still
+    /// refers to, as `(account_id, blob_id, storage_key)`.
+    ///
+    /// An upload is kept when any of these names its blob ID:
+    /// - an account draft, saved or with a save in progress or uncertain. The
+    ///   draft's editor state is sealed, so it is opened here and searched for
+    ///   upload IDs. A draft that cannot be opened keeps every upload of its
+    ///   account.
+    /// - a contact card's photo (`contacts.photo_blob_id`).
+    /// - a submission's `email_id`. Submissions name composed messages, whose
+    ///   attachments are already copied into the message, so this match is a
+    ///   guard rather than a known reference.
+    ///
+    /// Copies the server cannot see are not covered: drafts kept only in a
+    /// browser's local storage and the offline send queue of a client.
+    async fn sweepable_uploads(
+        &self,
+        older_than: chrono::Duration,
+    ) -> Result<Vec<(String, String, String)>, StoreError> {
+        use std::collections::HashSet;
         let cutoff = (Utc::now() - older_than).to_rfc3339();
-        let rows = q("SELECT account_id, storage_key FROM uploaded_blobs WHERE created_at < ?1")
-            .bind(&cutoff)
+        let rows = q(
+            "SELECT blob_id, account_id, storage_key FROM uploaded_blobs WHERE created_at < ?1",
+        )
+        .bind(&cutoff)
+        .fetch_all(&self.backend)
+        .await?;
+        if rows.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut kept: HashSet<String> = HashSet::new();
+        let mut kept_accounts: HashSet<String> = HashSet::new();
+        for r in q("SELECT c.photo_blob_id AS blob_id FROM contacts c WHERE c.photo_blob_id LIKE 'U%'")
+            .fetch_all(&self.backend)
+            .await?
+        {
+            kept.insert(r.get_string("blob_id"));
+        }
+        for r in q("SELECT email_id AS blob_id FROM submissions WHERE email_id LIKE 'U%'")
+            .fetch_all(&self.backend)
+            .await?
+        {
+            kept.insert(r.get_string("blob_id"));
+        }
+        let drafts = q("SELECT owner, id, account_id FROM account_draft WHERE request_hash<>''")
             .fetch_all(&self.backend)
             .await?;
-        for r in &rows {
-            let account_key = account_dir_token(&r.get_string("account_id"));
-            let storage_key = r.get_string("storage_key");
+        for d in &drafts {
+            let account = d.get_string("account_id");
+            match self
+                .account_draft(&d.get_string("owner"), &d.get_string("id"))
+                .await
+            {
+                Ok(Some(draft)) => {
+                    for bytes in [&draft.state, &draft.summary] {
+                        kept.extend(upload_ids_in(bytes));
+                    }
+                }
+                Ok(None) => {}
+                Err(_) => {
+                    kept_accounts.insert(account);
+                }
+            }
+        }
+        Ok(rows
+            .iter()
+            .map(|r| {
+                (
+                    r.get_string("account_id"),
+                    r.get_string("blob_id"),
+                    r.get_string("storage_key"),
+                )
+            })
+            .filter(|(account, blob, _)| !kept.contains(blob) && !kept_accounts.contains(account))
+            .collect())
+    }
+
+    /// How many uploads [`Store::sweep_uploads`] would remove now, without
+    /// removing anything.
+    pub async fn count_sweepable_uploads(
+        &self,
+        older_than: chrono::Duration,
+    ) -> Result<u64, StoreError> {
+        Ok(self.sweepable_uploads(older_than).await?.len() as u64)
+    }
+
+    /// Remove uploads older than `older_than` (by `created_at`) that nothing on
+    /// this server refers to (see [`Store::sweepable_uploads`]), both the backend
+    /// object and the row. Returns the number of rows removed. A backend object
+    /// that is already gone does not stop the row from being removed.
+    pub async fn sweep_uploads(&self, older_than: chrono::Duration) -> Result<u64, StoreError> {
+        let cutoff = (Utc::now() - older_than).to_rfc3339();
+        let mut n = 0;
+        for (account, blob, storage_key) in self.sweepable_uploads(older_than).await? {
+            let account_key = account_dir_token(&account);
             // Best-effort object removal: a missing/failed object must not block the row
             // reclamation that is the sweep's actual job.
             let _ = self.uploads.delete(&account_key, &storage_key).await;
+            n += q("DELETE FROM uploaded_blobs WHERE blob_id = ?1 AND account_id = ?2 AND created_at < ?3")
+                .bind(&blob)
+                .bind(&account)
+                .bind(&cutoff)
+                .execute(&self.backend)
+                .await?;
         }
-        let n = q("DELETE FROM uploaded_blobs WHERE created_at < ?1")
-            .bind(&cutoff)
-            .execute(&self.backend)
-            .await?;
         Ok(n)
     }
+}
+
+/// Every upload blob ID (`U` + 64 lowercase hex) that appears in `bytes`.
+fn upload_ids_in(bytes: &[u8]) -> Vec<String> {
+    let hex = |b: &u8| b.is_ascii_digit() || (b'a'..=b'f').contains(b);
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 65 <= bytes.len() {
+        if bytes[i] == b'U' && bytes[i + 1..i + 65].iter().all(hex) {
+            out.push(String::from_utf8_lossy(&bytes[i..i + 65]).into_owned());
+            i += 65;
+        } else {
+            i += 1;
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -613,6 +713,102 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Uploads named by an account draft (in progress or saved) or a contact
+    /// photo survive a sweep whose cutoff is past every upload; an upload
+    /// nothing names is removed, and the dry-run count agrees with the sweep.
+    #[tokio::test]
+    async fn sweep_keeps_uploads_still_referenced() {
+        use crate::account_drafts::{DraftClaim, DraftSave};
+        use crate::{AccountKind, Credentials, NewAccount};
+        let root = temp_root("referenced");
+        let store = fs_store(&root).await;
+        let account = store
+            .create_account(
+                &NewAccount {
+                    kind: AccountKind::Imap,
+                    host: "upload.test",
+                    port: 993,
+                    tls: "implicit",
+                    username: "a@upload.test",
+                    sync_policy_json: "{}",
+                },
+                &Credentials {
+                    username: "a@upload.test".into(),
+                    password: "synthetic-only".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let in_draft = store.put_upload(&account, "text/plain", b"draft").await.unwrap();
+        let photo = store.put_upload(&account, "image/png", b"photo").await.unwrap();
+        let unused = store.put_upload(&account, "text/plain", b"unused").await.unwrap();
+
+        let state = serde_json::to_vec(&serde_json::json!({
+            "attachments": [{"blobId": in_draft, "name": "a.txt", "size": 5}]
+        }))
+        .unwrap();
+        let claim = store
+            .claim_account_draft(&DraftSave {
+                owner: "realm-owner",
+                account_id: &account,
+                id: "draft-1",
+                expected_revision: None,
+                operation_id: "op-1",
+                state: &state,
+                summary: b"{}",
+                now: 1,
+            })
+            .await
+            .unwrap();
+        assert!(matches!(claim, DraftClaim::Claimed));
+        q("INSERT INTO address_books(id,account_id,name) VALUES('book-1',?1,'Contacts')")
+            .bind(&account)
+            .execute(store.backend())
+            .await
+            .unwrap();
+        q("INSERT INTO contacts(id,address_book_id,uid,vcard_raw,photo_blob_id) VALUES('card-1','book-1','u1','BEGIN:VCARD\nVERSION:3.0\nEND:VCARD',?1)")
+            .bind(&photo)
+            .execute(store.backend())
+            .await
+            .unwrap();
+
+        let past_all = chrono::Duration::seconds(-5);
+        assert_eq!(store.count_sweepable_uploads(past_all).await.unwrap(), 1);
+        assert_eq!(store.sweep_uploads(past_all).await.unwrap(), 1);
+        assert!(store.get_upload(&account, &unused).await.unwrap().is_none());
+        assert!(store.get_upload(&account, &in_draft).await.unwrap().is_some());
+        assert!(store.get_upload(&account, &photo).await.unwrap().is_some());
+
+        // The draft is saved and its state still names the upload: still kept.
+        let saved = q("UPDATE account_draft SET operation_state='saved', revision='r1', sealed_state=sealed_pending_state WHERE owner='realm-owner'")
+            .execute(store.backend())
+            .await
+            .unwrap();
+        assert_eq!(saved, 1);
+        // The pending seal is bound to the operation, not the revision, so the
+        // copied bytes no longer open: the whole account is kept.
+        assert_eq!(store.count_sweepable_uploads(past_all).await.unwrap(), 0);
+
+        // Once the draft is discarded (request_hash cleared) the upload goes.
+        q("UPDATE account_draft SET request_hash='' WHERE owner='realm-owner'")
+            .execute(store.backend())
+            .await
+            .unwrap();
+        assert_eq!(store.sweep_uploads(past_all).await.unwrap(), 1);
+        assert!(store.get_upload(&account, &in_draft).await.unwrap().is_none());
+        assert!(store.get_upload(&account, &photo).await.unwrap().is_some());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn upload_ids_are_found_in_editor_state() {
+        let id = format!("U{}", "a1".repeat(32));
+        let text = format!("{{\"blobId\":\"{id}\",\"other\":\"U12\",\"x\":\"{}\"}}", "U".repeat(3));
+        assert_eq!(upload_ids_in(text.as_bytes()), vec![id]);
+        assert!(upload_ids_in(b"").is_empty());
     }
 
     #[tokio::test]
