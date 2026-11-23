@@ -377,7 +377,7 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   mail: () => <path d="M1 3 H15 V13 H1 Z M1 3 L8 9 L15 3" {...S} />,
   flag: () => <path d="M3 15 V1 H13 L10 4 L13 7 H3" {...S} />,
   pin: () => <path d="M5 1 H11 L10 6 L13 9 H9 V15 H7 V9 H3 L6 6 Z" {...S} />,
-  attachment: () => <path d="M6 6 L10 2 A3 3 0 0 1 14 6 L7 13 A4 4 0 0 1 1 7 L8 0 M5 9 L11 3" {...S} />,
+  attachment: () => <path d="M13.5 7.5 L7.4 13.6 A3.6 3.6 0 0 1 2.3 8.5 L8.7 2.1 A2.5 2.5 0 0 1 12.2 5.6 L6.1 11.7 A1.25 1.25 0 0 1 4.3 9.9 L9.6 4.6" {...S} stroke-linecap="round" stroke-linejoin="round" />,
   archive: () => <path d="M1 2 H15 V5 H1 Z M3 5 V14 H13 V5 M6 8 H10" {...S} />,
   clock: () => <path d="M8 1 A7 7 0 1 1 7.99 1 M8 4 V8 L11 10" {...S} />,
   tag: () => <path d="M1 1 H8 L15 8 L8 15 L1 8 Z M4 4 H5" {...S} />,
