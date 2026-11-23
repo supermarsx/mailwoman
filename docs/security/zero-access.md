@@ -5,7 +5,7 @@ Zero-access storage is a per-account mode that a user turns on in their own sett
 ::: warning What zero-access does not do today
 Turning zero-access on does **not** make the server store the account's mail as ciphertext it cannot read. In engine mode the server still fetches the account's mail from the mail server and stores message bodies and list envelopes sealed with the **server key**, the same as for every other account (see [Encryption at rest](./encryption-at-rest.md)). Anyone who holds the server key, including the operator, can decrypt them. The client-side keys are created and stored, but nothing in the web app encrypts mail, notes or other data with them yet.
 
-The text shown on the settings panel describes a stronger property than this. Rely on this page.
+The settings panel says the same: "It does not change how mail is stored: message bodies and envelopes are sealed with the server's key whether this mode is on or off, and the server can open them."
 :::
 
 ## What turning it on does

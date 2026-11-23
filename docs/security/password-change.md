@@ -55,7 +55,7 @@ An administrator can require a user to change their password. Until the user doe
 
 ## Zero-access accounts
 
-Zero-access keys are derived from their own passphrase or passkey, not from the account password, so a password change does not affect them. For a zero-access account the form first shows a recovery phrase, and the confirmation says "Your zero-access keys were re-wrapped under the new password"; the server does not store anything new for the zero-access keys during a password change. See [Zero-access storage](./zero-access.md).
+Zero-access keys are derived from their own passphrase or passkey, not from the account password, so a password change does not affect them. The form in **Settings** is shown without its zero-access step: it does not display a recovery phrase or re-wrap any key, and the server stores nothing new for the zero-access keys during a password change. The confirmation mentions a re-wrap only when one ran, so it does not appear. See [Zero-access storage](./zero-access.md).
 
 ## Related
 

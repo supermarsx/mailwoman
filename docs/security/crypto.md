@@ -22,7 +22,7 @@ All cryptography is in the Rust crate `mw-crypto`. OpenPGP uses rPGP (the `pgp` 
 
 What this means for the server and its operator: the server holds every user's private keys in passphrase-locked form. It cannot use them without the passphrase, but anyone with a copy of the database (or the running server) can try to guess passphrases offline. A long, unique passphrase is the only protection here. A forgotten passphrase cannot be reset by the user or the operator.
 
-The key panel's subtitle says private keys "never reach the server"; read that as "never reach the server unencrypted".
+The key panel says the same: "A copy of each private key, locked with its key passphrase, is stored on the server so you can use the key on other devices."
 
 ## Reading encrypted mail
 

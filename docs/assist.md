@@ -61,8 +61,9 @@ opening a message must not contact the endpoint.
      listed accounts. With no account listed, no mail content is sent; only prompts
      and audio go out.
    - **Folder ids to limit sending to**: empty means every folder of the listed
-     accounts. The chat panel and auto-tag label context with the folder's display
-     name, not its id, so a folder list that holds ids drops their context.
+     accounts. Auto-tag labels its context with the mailbox id. The chat panel
+     labels the open message with the folder's display name, not its id, so with a
+     folder list set the chat panel's message context is dropped.
    - **Allow attachments to be sent**: off by default.
    - End-to-end-encrypted content: withheld unless the deployment allows it.
    - Accounts in zero-access mode are removed from the scope of chat and composer
@@ -77,11 +78,16 @@ opening a message must not contact the endpoint.
 
 ::: warning What the data limits rely on
 For chat and composer requests the web app supplies the text and labels each piece
-with its account, folder and kind (plain, end-to-end-encrypted, attachment). The
-server enforces the limits on those labels. The composer tools label the whole draft
-as plain text, so a reply that quotes a decrypted message sends that quoted text when
-a composer tool is used on it. The limits are a policy for the supplied client, not a
-barrier against a user who sends their own text to the endpoint.
+with its account, folder and kind (`plain`, `e2ee-decrypted` or `attachment`). The
+server enforces the limits on those labels. The composer tools label a draft
+`e2ee-decrypted` unless the composer states that it holds no decrypted text, and the
+mail composer does not state that, so every draft is treated as possibly decrypted.
+Unless decrypted content is allowed, the composer tools therefore refuse to run with
+"Not sent to the AI assistant: this draft may contain text from an encrypted message,
+and decrypted content is not allowed to be sent." The chat panel and auto-tag send
+the subject and preview the server already holds, labelled `plain`. The limits are a
+policy for the supplied client, not a barrier against a user who sends their own text
+to the endpoint.
 :::
 
 `limit.ai_calls_per_day` appears in the feature editor but is not enforced.
@@ -160,7 +166,9 @@ with the requests it receives is governed by your agreement with that provider.
 
 The web app shows **What can leave this device** with the endpoint host and what is
 withheld, and on each request reports what was sent and what was withheld before the
-reply streams in.
+reply streams in. When auto-tag is granted, the disclosure adds: "Auto-tag is on: each
+time you open a message, its subject and preview are sent to <host> to suggest labels,
+without you selecting anything."
 
 <!-- screenshot: id=security/assist-disclosure; screen=Mailbox > AI assistant panel; state=assistant enabled, disclosure expanded; element=What can leave this device -->
 
