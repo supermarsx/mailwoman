@@ -1,0 +1,21 @@
+{
+  "seeds": {
+    "opsb-branding": {
+      "include": [
+        "admin-basic"
+      ],
+      "adminSettings": {
+        "appearance.brandName": "Example Mail",
+        "login.notice": "Authorised use only. Contact the help desk at help@example.com for access."
+      }
+    },
+    "opsb-hold": {
+      "include": [
+        "mail-basic"
+      ],
+      "userSettings": {
+        "mail.send.recallDelaySeconds": 1800
+      }
+    }
+  }
+}
