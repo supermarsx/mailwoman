@@ -246,15 +246,21 @@ Useful addresses in the application: `/` (Inbox), `/#/calendar`, `/#/tasks`,
 example `{ "click": { "text": "@reader-settings-title", "first": true } }`.
 The console is at `{admin}`, and every console screen is a fragment after it:
 `{admin}#/users`, `{admin}#/domains`, `{admin}#/settings`. The
-address bar of the console shows the fragment of the screen you are on. Never
-`goto` `{admin}/<path>` without the `#`: that address is an API route or an unknown
-path. The first such page load is answered `429 requestProtectionLimited` with
-`retryAfterSecs` close to 300, and the source address stays blocked for those five
-minutes: this is the scan-path rule (`security.protection.probePathMode`,
-**enforce** by default, blocking for `security.protection.blockSecs`). Every later
-request of the run then fails. The harness refuses such a `goto` before it is sent. Clicking through the
-console navigation works as well. The harness's own request rate does not reach
-any request-protection budget: the aggregate budgets are off by default.
+address bar of the console shows the fragment of the screen you are on.
+`{admin}/<path>` without the `#` is never a console screen: it is a console API
+route (`{admin}/users` answers the user list as JSON) or an unknown path (a 404
+page). One more thing makes it risky. Request protection's scan-path rule
+(`security.protection.probePathMode`, **enforce** by default) compares the part
+of a path after the console path, and any path outside the console, with a
+built-in catalog of paths that scanners try (`crates/mw-protection/data/scan_probe_paths.json`,
+whole segments; for example a last segment `console`). On a match the server
+answers `429 requestProtectionLimited` and blocks the source address for
+`security.protection.blockSecs` (300 seconds), and every later request of the run
+fails. `{admin}/security/console` matches (it ends in `/console`);
+`{admin}/users` and `{admin}/security/policy` do not. The harness therefore
+refuses a `goto` to `{admin}/<path>`; use `{admin}#/<section>`, or click through the
+console navigation. The harness's own request rate does not reach any
+request-protection budget: the aggregate budgets are off by default.
 
 End with a `waitFor` on something that only exists once the screen has loaded
 (a heading, a row of demo data). Before the capture the harness moves the

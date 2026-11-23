@@ -182,12 +182,13 @@ async function runStep(page, step, ctx) {
   const target = async () => locate(page, arg);
   switch (kind) {
     case 'goto': {
-      // Console screens live after a '#'. A page load of {admin}/<path> is a request
-      // for an API route or an unknown path, which request protection's scan-path
-      // rule answers by blocking the source for five minutes: every later capture
-      // of the run would fail. Refuse it here instead.
+      // Console screens live after a '#'. {admin}/<path> is a console API route
+      // (JSON) or an unknown path (404), never a screen; and when the part after
+      // the console path matches request protection's scan-path catalog (for
+      // example it ends in /console), the server blocks the source for five
+      // minutes and every later capture of the run fails. Refuse it here.
       if (/^\{admin\}\/[^#?]/.test(arg)) {
-        throw new Error(`goto ${arg}: console screens are at {admin}#/<section> (for example {admin}#/users); a page load of {admin}/<path> gets this machine blocked for five minutes`);
+        throw new Error(`goto ${arg}: console screens are at {admin}#/<section> (for example {admin}#/users). {admin}/<path> is an API route or a 404, and a path whose end matches the scan-path catalog (such as .../console) gets this machine blocked for five minutes`);
       }
       await page.goto(new URL(arg.replaceAll('{admin}', ctx.stack.adminPath), ctx.stack.base).href);
       return;
