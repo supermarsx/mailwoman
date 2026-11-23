@@ -215,7 +215,11 @@ pub(crate) struct Worker {
 }
 impl Worker {
     pub(crate) fn guard_mirror(&self, store: &Store, bound: Duration) -> Arc<mw_store::authority_publication::mirror::EpochMirror> {
-        self.guard_mirror.get_or_init(|| mw_store::authority_publication::mirror::EpochMirror::for_store(store, bound)).clone()
+        self.guard_mirror.get_or_init(|| {
+            let mirror = mw_store::authority_publication::mirror::EpochMirror::for_store(store, bound);
+            crate::request_inputs::snapshot::register_for_witness(&mirror);
+            mirror
+        }).clone()
     }
     pub(crate) fn existing_guard_mirror(&self) -> Option<Arc<mw_store::authority_publication::mirror::EpochMirror>> {
         self.guard_mirror.get().cloned()

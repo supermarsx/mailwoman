@@ -910,3 +910,38 @@ fn bounded_snapshot_anonymous_and_refused_posts_do_not_expedite() {
         assert_eq!(snapcase::send(&f, snapcase::me(&f), snapcase::LONG).await.status, StatusCode::UNAUTHORIZED);
     });
 }
+
+// t34: the load fixture's process-global guard-snapshot witness proves an arm
+// really ran bounded mode. Off mode adds no activity; a warm bounded request
+// adds reuse. Counts only: no session, cookie, account or fence data.
+#[test]
+fn guard_snapshot_witness_counts_activity_only_in_bounded_mode() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        f.writer.touch_session(&f.session).await.unwrap();
+        snapcase::published(&f).await;
+        let read = || crate::request_inputs::snapshot::witness();
+        let number = |value: &Value, key: &str| value[key].as_u64().unwrap();
+        let before = read();
+        assert_eq!(snapcase::send(&f, snapcase::mail(&f), snapcase::OFF).await.status, StatusCode::OK);
+        let off = read();
+        for key in ["polls", "hits", "misses", "expedites", "fenceReuses", "fenceFreshReads", "globalReuses"] {
+            assert_eq!(number(&off, key), number(&before, key), "off mode adds no {key}");
+        }
+        assert_eq!(off["supported"], true);
+        snapcase::started(&f, snapcase::SHORT).await;
+        snapcase::reusing(&f, snapcase::SHORT, || snapcase::mail(&f)).await;
+        let on = read();
+        assert!(number(&on, "fenceReuses") > number(&off, "fenceReuses"));
+        assert!(number(&on, "hits") > number(&off, "hits"));
+        assert!(number(&on, "polls") > number(&off, "polls"));
+        assert!(number(&on, "globalReuses") > number(&off, "globalReuses"));
+        assert_eq!(on["live"], true);
+        let text = on.to_string();
+        for secret in [f.session.as_str(), f.account.as_str()] { assert!(!text.contains(secret)); }
+        fn scalars_only(value: &Value) -> bool {
+            match value { Value::Object(map) => map.values().all(scalars_only), Value::Array(_) => false, _ => true }
+        }
+        assert!(scalars_only(&on));
+    });
+}

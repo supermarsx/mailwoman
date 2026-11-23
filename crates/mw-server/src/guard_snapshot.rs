@@ -40,7 +40,7 @@ use mw_store::{
     },
 };
 use std::{
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock, atomic::{AtomicU64, Ordering}},
     time::Duration,
 };
 
@@ -167,6 +167,65 @@ pub(crate) fn may_have_committed(status: axum::http::StatusCode) -> bool {
     !status.is_client_error()
 }
 
+// ---- process-global activity witness (counts only; no ids or fence data) ----
+static WITNESS_REUSED: AtomicU64 = AtomicU64::new(0);
+static WITNESS_FRESH: AtomicU64 = AtomicU64::new(0);
+static WITNESS_GLOBALS_REUSED: AtomicU64 = AtomicU64::new(0);
+static WITNESS_MIRRORS: Mutex<Vec<std::sync::Weak<EpochMirror>>> = Mutex::new(Vec::new());
+
+/// Called once per started mirror (the publication worker's `guard_mirror`).
+pub(crate) fn register_for_witness(mirror: &Arc<EpochMirror>) {
+    if let Ok(mut mirrors) = WITNESS_MIRRORS.lock() {
+        mirrors.retain(|weak| weak.strong_count() > 0);
+        if mirrors.len() < 64 {
+            mirrors.push(Arc::downgrade(mirror));
+        }
+    }
+}
+
+/// Load-fixture evidence that the bounded snapshot really ran: the effective
+/// mode, the summed `EpochMirror` counters of every live mirror in this process,
+/// and how many authority fences / global ban lists were reused or read fresh in
+/// bounded mode. Counts and booleans only. Off mode never starts a mirror and
+/// never counts, so every number stays 0.
+#[cfg_attr(not(any(test, feature = "load-test-fixtures")), allow(dead_code))]
+pub(crate) fn witness() -> serde_json::Value {
+    let (mode, bound) = match mode() {
+        Mode::Off => ("off", None),
+        Mode::Bounded(bound) => ("bounded", Some(bound.as_millis() as u64)),
+    };
+    let mirrors = WITNESS_MIRRORS.lock().map(|mirrors| mirrors.iter()
+        .filter_map(std::sync::Weak::upgrade).collect::<Vec<_>>()).unwrap_or_default();
+    let mut sum = mirror::MirrorCounters::default();
+    for counters in mirrors.iter().map(|mirror| mirror.counters()) {
+        sum.polls += counters.polls;
+        sum.failures += counters.failures;
+        sum.rows_applied += counters.rows_applied;
+        sum.overflow_flushes += counters.overflow_flushes;
+        sum.horizon_flushes += counters.horizon_flushes;
+        sum.schema_flushes += counters.schema_flushes;
+        sum.generation_flushes += counters.generation_flushes;
+        sum.capacity_flushes += counters.capacity_flushes;
+        sum.expedites += counters.expedites;
+        sum.hits += counters.hits;
+        sum.misses += counters.misses;
+    }
+    serde_json::json!({
+        "supported": true, "mode": mode, "maxStalenessMs": bound,
+        "mirrors": mirrors.len(),
+        "live": mirrors.iter().any(|mirror| mirror.is_live()),
+        "fresh": mirrors.iter().any(|mirror| mirror.is_fresh()),
+        "polls": sum.polls, "failures": sum.failures, "rowsApplied": sum.rows_applied,
+        "hits": sum.hits, "misses": sum.misses, "expedites": sum.expedites,
+        "flushes": {"overflow": sum.overflow_flushes, "horizon": sum.horizon_flushes,
+            "schema": sum.schema_flushes, "generation": sum.generation_flushes,
+            "capacity": sum.capacity_flushes},
+        "fenceReuses": WITNESS_REUSED.load(Ordering::Relaxed),
+        "fenceFreshReads": WITNESS_FRESH.load(Ordering::Relaxed),
+        "globalReuses": WITNESS_GLOBALS_REUSED.load(Ordering::Relaxed),
+    })
+}
+
 /// Cached `(fence, G)` on one published entry. Pairs are only ever written by
 /// [`Slot::read`], with `G` stamped before that fence's statement began.
 #[derive(Default)]
@@ -230,6 +289,7 @@ impl Slot {
         if allow_reuse {
             for (fence, built) in own.into_iter().chain(self.cached()) {
                 if fence.session_id() == cookie && mirror.still_valid(&fence, built) && reusable(&fence) {
+                    WITNESS_REUSED.fetch_add(1, Ordering::Relaxed);
                     #[cfg(test)]
                     test_control::record(|counts| counts.reused += 1);
                     return Ok(Some(Observed { fence, reused: true, built: Some(built) }));
@@ -238,6 +298,7 @@ impl Slot {
         }
         // Strictly BEFORE the statement: see the EpochMirror correctness note.
         let built = mirror.stamp_gen();
+        WITNESS_FRESH.fetch_add(1, Ordering::Relaxed);
         let Some(fence) = fresh(&state.store, cookie, domains, subjects).await? else {
             self.clear();
             return Ok(None);
@@ -283,6 +344,7 @@ impl<T> GlobalSlot<T> {
         if let Some((value, built)) = self.0.lock().ok().and_then(|slot| slot.clone())
             && mirror.globals_unchanged(built)
         {
+            WITNESS_GLOBALS_REUSED.fetch_add(1, Ordering::Relaxed);
             #[cfg(test)]
             test_control::record(|counts| counts.globals_reused += 1);
             return Ok(value);

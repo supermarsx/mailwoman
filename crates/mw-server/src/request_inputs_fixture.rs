@@ -59,6 +59,11 @@ pub struct Status {
     pub first_fence_attempts: u64,
     pub refresh_fence_attempts: u64,
 }
+/// t34 guard snapshot (`MW_GUARD_SNAPSHOT`) activity witness for the load
+/// fixture: process-global counts only (see `request_inputs::snapshot::witness`).
+pub fn guard_snapshot() -> serde_json::Value {
+    crate::request_inputs::snapshot::witness()
+}
 pub fn snapshot() -> Status {
     let counts=COUNTS.each_ref().map(|v|v.load(Ordering::Relaxed));
     Status {mode:MODE.get_or_init(||Mode::Published).label(),process_immutable:true,

@@ -135,7 +135,7 @@ pub fn witness(engine: &mw_engine::Engine) -> Value {
     let publication = engine.index_publication_status();
     json!({
         "schema": 1,
-        "guardSnapshot": {"supported": false, "reason": "no public fixture witness in mw-server"},
+        "guardSnapshot": mw_server::request_inputs_fixture::guard_snapshot(),
         "indexPublication": {
             "supported": true,
             "ackMode": publication.ack_mode.as_str(),
