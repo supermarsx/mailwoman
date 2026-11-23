@@ -532,6 +532,7 @@ settings-2fa-last-factor-tooltip = Fügen Sie zuerst eine andere Anmeldemethode 
 settings-2fa-challenge-passkey-not-used = Der Passkey wurde nicht verwendet: Die Anfrage wurde abgebrochen oder ist abgelaufen, oder dieser Authenticator kann nicht erfüllen, was Ihre Organisation verlangt (etwa PIN-, Fingerabdruck- oder Gesichtsprüfung). Versuchen Sie es erneut oder verwenden Sie eine andere Methode.
 settings-folders-hidden-help = Ausgeblendete Ordner und ihre Unterordner bleiben aus der Seitenleiste heraus. Sie werden weder gelöscht noch im Zugriff beschränkt. Wenn Sie hier einen Unterordner einblenden, werden auch seine ausgeblendeten übergeordneten Ordner eingeblendet. Der Posteingang bleibt immer verfügbar.
 settings-folders-collapse-user = Benutzerordner in der Seitenleiste einklappen
+settings-folders-collapse-user-help = Selbst angelegte Ordner bleiben unter der Überschrift „Benutzerordner“ eingeklappt, bis Sie sie öffnen.
 settings-folders-show = { $name } in der Seitenleiste anzeigen
 settings-folders-hide = { $name } in der Seitenleiste ausblenden
 settings-folders-show-short = Anzeigen

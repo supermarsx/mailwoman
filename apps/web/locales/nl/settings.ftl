@@ -549,6 +549,7 @@ settings-2fa-last-factor-tooltip = Voeg eerst een andere inlogmethode toe. Uw or
 settings-2fa-challenge-passkey-not-used = De passkey is niet gebruikt: het verzoek is geannuleerd of verlopen, of deze authenticator kan niet doen wat uw organisatie vereist (zoals een controle van pincode, vingerafdruk of gezicht). Probeer het opnieuw of gebruik een andere methode.
 settings-folders-hidden-help = Verborgen mappen en hun submappen blijven buiten de zijbalk. Ze worden niet verwijderd en de toegang wordt niet beperkt. Toon hier een submap om ook de verborgen bovenliggende mappen te tonen. De Inbox blijft altijd beschikbaar.
 settings-folders-collapse-user = Gebruikersmappen in de zijbalk samenvouwen
+settings-folders-collapse-user-help = Mappen die u hebt gemaakt blijven samengevouwen onder de kop ‘Gebruikersmappen’ totdat u die opent.
 settings-folders-show = { $name } in de zijbalk tonen
 settings-folders-hide = { $name } in de zijbalk verbergen
 settings-folders-show-short = Tonen

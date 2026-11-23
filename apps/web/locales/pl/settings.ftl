@@ -551,6 +551,7 @@ settings-2fa-last-factor-tooltip = Najpierw dodaj inną metodę logowania. Twoja
 settings-2fa-challenge-passkey-not-used = Klucz dostępu nie został użyty: żądanie anulowano lub przekroczyło limit czasu albo ten uwierzytelniacz nie spełnia wymagań Twojej organizacji (takich jak PIN, odcisk palca lub twarz). Spróbuj ponownie lub użyj innej metody.
 settings-folders-hidden-help = Ukryte foldery i ich podfoldery nie pojawiają się na pasku bocznym. Nie są usuwane ani objęte ograniczeniem dostępu. Pokaż tutaj podfolder, aby pokazać także jego ukryte foldery nadrzędne. Odebrane zawsze pozostają dostępne.
 settings-folders-collapse-user = Zwijaj foldery użytkownika na pasku bocznym
+settings-folders-collapse-user-help = Utworzone przez Ciebie foldery pozostają zwinięte pod nagłówkiem „Foldery użytkownika”, dopóki go nie otworzysz.
 settings-folders-show = Pokaż { $name } na pasku bocznym
 settings-folders-hide = Ukryj { $name } na pasku bocznym
 settings-folders-show-short = Pokaż

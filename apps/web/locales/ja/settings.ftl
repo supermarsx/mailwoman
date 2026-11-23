@@ -670,6 +670,7 @@ settings-2fa-last-factor-tooltip = 先に別のログイン方法を追加して
 settings-2fa-challenge-passkey-not-used = パスキーは使用されませんでした。リクエストがキャンセルまたはタイムアウトしたか、この認証器が組織の要件(PIN、指紋、顔の確認など)を満たせません。もう一度お試しいただくか、別の方法を使用してください。
 settings-folders-hidden-help = 非表示のフォルダーとそのサブフォルダーは、サイドバーに表示されません。削除やアクセス制限はされません。サブフォルダーをここで表示すると、非表示の親フォルダーも表示されます。受信トレイは常に利用できます。
 settings-folders-collapse-user = サイドバーでユーザーフォルダーを折りたたむ
+settings-folders-collapse-user-help = 自分で作成したフォルダーは、「ユーザーフォルダー」の見出しを開くまで折りたたまれたままになります。
 settings-folders-show = { $name }をサイドバーに表示
 settings-folders-hide = { $name }をサイドバーから非表示
 settings-folders-show-short = 表示

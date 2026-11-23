@@ -532,6 +532,7 @@ settings-2fa-last-factor-tooltip = Aggiungere prima un altro metodo di accesso. 
 settings-2fa-challenge-passkey-not-used = La passkey non è stata usata: la richiesta è stata annullata o è scaduta, oppure questo autenticatore non può fare ciò che l'organizzazione richiede (come la verifica di PIN, impronta digitale o volto). Riprovare o usare un altro metodo.
 settings-folders-hidden-help = Le cartelle nascoste e le relative sottocartelle restano fuori dalla barra laterale. Non vengono eliminate né soggette a restrizioni di accesso. Mostrare qui una sottocartella per mostrare anche le cartelle superiori nascoste. La Posta in arrivo resta sempre disponibile.
 settings-folders-collapse-user = Comprimi le cartelle utente nella barra laterale
+settings-folders-collapse-user-help = Le cartelle create da te restano compresse sotto l'intestazione «Cartelle utente» finché non la apri.
 settings-folders-show = Mostra { $name } nella barra laterale
 settings-folders-hide = Nascondi { $name } dalla barra laterale
 settings-folders-show-short = Mostra

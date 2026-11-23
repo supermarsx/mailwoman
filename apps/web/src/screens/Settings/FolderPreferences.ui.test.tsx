@@ -17,6 +17,7 @@ it('keeps hidden folders manageable and restores their hidden ancestors without 
  fireEvent.click(screen.getByRole('tab',{name:'Folders and sidebar'}));
  fireEvent.click(screen.getByRole('checkbox',{name:'Collapse user folders in the sidebar'}));
  expect(update).toHaveBeenLastCalledWith({userFoldersCollapsed:false});
+ expect(screen.getByRole('checkbox',{name:'Collapse user folders in the sidebar'})).toHaveAccessibleDescription(/Folders you created stay folded/);
 });
 it('offers 159 native icons plus automatic and saves only the changed folder preference',async()=>{
  const [prefs,setPrefs]=createSignal<AccountUiPreferences>({});const update=vi.fn((patch:AccountUiPreferences)=>setPrefs(value=>({...value,...patch})));

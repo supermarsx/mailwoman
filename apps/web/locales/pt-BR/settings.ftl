@@ -549,6 +549,7 @@ settings-2fa-last-factor-tooltip = Adicione antes outro método de login. Sua or
 settings-2fa-challenge-passkey-not-used = A passkey não foi usada: a solicitação foi cancelada ou expirou, ou este autenticador não consegue fazer o que sua organização exige (como verificar PIN, impressão digital ou rosto). Tente novamente ou use outro método.
 settings-folders-hidden-help = As pastas ocultas e suas subpastas ficam fora da barra lateral. Elas não são excluídas nem têm o acesso restrito. Mostre uma subpasta aqui para mostrar também as pastas pai ocultas. A Caixa de entrada sempre permanece disponível.
 settings-folders-collapse-user = Recolher as pastas do usuário na barra lateral
+settings-folders-collapse-user-help = As pastas que você criou ficam recolhidas sob o título “Pastas do usuário” até você abri-lo.
 settings-folders-show = Mostrar { $name } na barra lateral
 settings-folders-hide = Ocultar { $name } da barra lateral
 settings-folders-show-short = Mostrar

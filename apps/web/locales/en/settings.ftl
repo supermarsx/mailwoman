@@ -589,6 +589,7 @@ settings-2fa-last-factor-tooltip = Add another sign-in method first. Your organi
 settings-2fa-challenge-passkey-not-used = The passkey was not used: the request was cancelled or timed out, or this authenticator cannot do what your organization requires (such as a PIN, fingerprint or face check). Try again, or use another method.
 settings-folders-hidden-help = Hidden folders and their subfolders stay out of the sidebar. They are not deleted or access-restricted. Show a subfolder here to also show its hidden parents. Inbox always remains available.
 settings-folders-collapse-user = Collapse user folders in the sidebar
+settings-folders-collapse-user-help = Folders you created stay folded under the User folders heading until you open it.
 settings-folders-show = Show { $name } in sidebar
 settings-folders-hide = Hide { $name } from sidebar
 settings-folders-show-short = Show

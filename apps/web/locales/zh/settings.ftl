@@ -686,6 +686,7 @@ settings-2fa-last-factor-tooltip = 请先添加其他登录方式。你的组织
 settings-2fa-challenge-passkey-not-used = 未使用通行密钥:请求已取消或超时,或此验证器无法满足你的组织的要求(如 PIN、指纹或面部校验)。请重试,或使用其他方式。
 settings-folders-hidden-help = 隐藏的文件夹及其子文件夹不会出现在侧边栏中。它们不会被删除,也不受访问限制。在此显示某个子文件夹时,也会显示其被隐藏的上级文件夹。收件箱始终可用。
 settings-folders-collapse-user = 在侧边栏中折叠用户文件夹
+settings-folders-collapse-user-help = 你创建的文件夹会一直折叠在“用户文件夹”标题下，直到你展开它。
 settings-folders-show = 在侧边栏中显示 { $name }
 settings-folders-hide = 从侧边栏中隐藏 { $name }
 settings-folders-show-short = 显示

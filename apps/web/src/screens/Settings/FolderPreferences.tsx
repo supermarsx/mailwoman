@@ -261,7 +261,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    </>},
    {id:'sidebar',label:'settings-folders-title',cards:['folders-card-display','folders-card-counts'],content:<>
   <SettingsCard id="folders-card-display" title={t('settings-folders-title')} description={t('settings-folders-help')}>
-  <ControlRow controlId="folders-collapse-user" label={t('settings-folders-collapse-user')} help={t('settings-folders-hidden-help')} note={<p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>}>{describedBy=>
+  <ControlRow controlId="folders-collapse-user" label={t('settings-folders-collapse-user')} help={t('settings-folders-collapse-user-help')} note={<p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>}>{describedBy=>
    <input id="folders-collapse-user" type="checkbox" checked={prefs().userFoldersCollapsed===true} disabled={!current()} aria-describedby={describedBy()} onChange={event=>update({userFoldersCollapsed:event.currentTarget.checked})}/>
   }</ControlRow>
   <ControlRow controlId="folders-colour" label={t('settings-folders-colour')} help={t('settings-folders-colour-help')} note={<><LockNote id="folders-colour-lock" locked={defaultColour.locked()}/><Show when={defaultColour.error()}><span role="alert">{defaultColour.error()}</span></Show></>}>{describedBy=>

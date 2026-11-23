@@ -532,6 +532,7 @@ settings-2fa-last-factor-tooltip = Añada primero otro método de inicio de sesi
 settings-2fa-challenge-passkey-not-used = No se usó la clave de acceso: la solicitud se canceló o caducó, o este autenticador no puede hacer lo que exige su organización (como una comprobación de PIN, huella digital o rostro). Inténtelo de nuevo o use otro método.
 settings-folders-hidden-help = Las carpetas ocultas y sus subcarpetas quedan fuera de la barra lateral. No se eliminan ni se restringe su acceso. Mostrar aquí una subcarpeta también muestra sus carpetas superiores ocultas. La Bandeja de entrada siempre está disponible.
 settings-folders-collapse-user = Contraer las carpetas del usuario en la barra lateral
+settings-folders-collapse-user-help = Las carpetas que ha creado permanecen contraídas bajo el encabezado «Carpetas del usuario» hasta que lo abra.
 settings-folders-show = Mostrar { $name } en la barra lateral
 settings-folders-hide = Ocultar { $name } de la barra lateral
 settings-folders-show-short = Mostrar

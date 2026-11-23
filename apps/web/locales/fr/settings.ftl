@@ -532,6 +532,7 @@ settings-2fa-last-factor-tooltip = Ajoutez d’abord une autre méthode de conne
 settings-2fa-challenge-passkey-not-used = La clé d’accès n’a pas été utilisée : la demande a été annulée ou a expiré, ou cet authentificateur ne peut pas satisfaire à ce que votre organisation exige (comme une vérification par PIN, empreinte ou visage). Réessayez ou utilisez une autre méthode.
 settings-folders-hidden-help = Les dossiers masqués et leurs sous-dossiers restent hors de la barre latérale. Ils ne sont ni supprimés ni soumis à une restriction d’accès. Afficher un sous-dossier ici affiche aussi ses parents masqués. La boîte de réception reste toujours disponible.
 settings-folders-collapse-user = Réduire les dossiers utilisateur dans la barre latérale
+settings-folders-collapse-user-help = Les dossiers que vous avez créés restent repliés sous le titre « Dossiers de l’utilisateur » jusqu’à ce que vous l’ouvriez.
 settings-folders-show = Afficher { $name } dans la barre latérale
 settings-folders-hide = Masquer { $name } de la barre latérale
 settings-folders-show-short = Afficher
