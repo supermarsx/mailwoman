@@ -1,240 +1,172 @@
-# AI assistant — endpoints, privacy, and governance (V7)
+# AI assistant: data flows and controls
 
-V7 (release 26.8.0) adds the AI assistant (`mw-assist`): optional AI features — summarize, draft,
-grammar, dictation, semantic search, auto-tag, recap, and an assistant chat. The AI assistant is
-**bring-your-own-endpoint**: you point it at an AI endpoint you control or trust;
-Mailwoman ships no built-in model and no default provider.
+This page is for administrators and reviewers. It describes what the AI assistant
+sends, where it sends it, which settings control that, and what is recorded. For how
+to use the assistant, see [Using the AI assistant](/user/assist); for the admin
+console screens, see [AI assistant administration](/admin/ai-assistant).
 
-The AI assistant is **off until configured.** With no endpoint configured, the gateway reports
-`Disabled` and the web app hides every AI assistant surface — there is no AI assistant UI, no
-prompts, nothing sent anywhere.
+Mailwoman includes no AI model and no default provider. The assistant sends requests
+to an endpoint you configure: an OpenAI-compatible API, the Anthropic Messages API, or
+a program on the server. With no endpoint configured the assistant is off, the web
+app shows no assistant controls, and nothing is sent.
 
-## Architecture: the engine is the only client
+## The server is the only client
 
-The browser **never** talks to an AI endpoint directly. All AI assistant traffic goes
-through the engine-side **AI assistant gateway** (`mw-assist`), which the server proxies. The
-browser's CSP keeps `connect-src 'self'` — the AI host is contacted only by the
-server, never by the page. This mirrors the existing server-proxied surfaces.
+The browser never contacts the AI endpoint. Every request goes to the Mailwoman
+server (`/api/assist/*`), which sends it on and streams the reply back. The provider
+therefore sees the server's address and your API key, not the user's browser.
 
-## Endpoints (adapters)
+Features (capabilities): `summarize`, `draft`, `grammar`, `dictation`,
+`search-semantic`, `auto-tag`, `recap` and `assistant` (the chat). None of them can
+send, delete or accept anything: there is no such capability. A message the chat
+proposes is shown to the user as **Proposed action**; a proposal that would send
+mail opens in the Outbox, and nothing leaves until the user sends it there. The
+proposed tool name comes from the model and is not checked against a tool list; it is
+display text only.
 
-Three adapters, all hand-rolled JSON over the in-tree `reqwest` (rustls) — no vendor
-SDK:
+## What leaves the server
 
-| Adapter | Talks to |
+| Feature | What the server sends to the endpoint |
 |---|---|
-| `OpenAiCompatible` | any OpenAI-compatible API: chat completions, embeddings, `/v1/audio/transcriptions` (works with Ollama, vLLM, LiteLLM, OpenAI, etc.) |
-| `Anthropic` | the Anthropic Messages API |
-| `LocalProcess` | a local binary you configure; JSON over stdio (fully on-device) |
+| Chat (the AI assistant panel) | A fixed system instruction, the user's prompt, and the subject and preview of the open message, labelled with its account and folder |
+| Auto-tag | A fixed instruction and the subject and preview of the message being read. **This request is made automatically each time a message is opened** while the `auto-tag` capability is granted, without the user asking. |
+| Composer tools (**Fix grammar**, **Rewrite**, **Adjust tone**, **Translate**) | A fixed system instruction, the tool's instruction, and the text of the draft |
+| Dictation | The recorded audio |
+| Semantic search | The search text, and the subject and body (no attachments, at most 6000 characters each) of up to 32 of the top search results that have not been embedded before |
 
-Chat, embeddings, and speech-to-text are independent slots — you can, for example, run
-a local embeddings model and a hosted chat model.
+Mail context (the message and draft text in the second column) passes through the
+data limits below. The user's own prompt is always sent. The web app does not
+currently call `summarize` or `recap`.
 
-## Provider profiles
+Embeddings are made only for results of a search the user ran with semantic search
+turned on; mail is not embedded when it arrives. A saved search with semantic search
+on repeats this each time it is opened. Auto-tag is the one feature that sends
+message text without a user action: leave it unticked under **Capabilities** if
+opening a message must not contact the endpoint.
 
-A **provider profile** is one endpoint, model, API key and set of request options
-(t39 N8). Admins manage them under **Admin → AI assistant → Provider profiles**
-(`/admin/assist/profiles`, `ai_assistant.read` / `ai_assistant.write`).
+## Controls, in the order they apply
 
-- **Fields.** Name, preset, request format (`openai`, `azure-openai`, `anthropic`),
-  endpoint URL, model, the API key, and options: `maxTokens`, `temperature`
-  (0 to 2), `timeoutMs` (1000 to 600000, default 60000; the whole request, connect
-  to the last byte of the reply), `apiVersion` (Azure), `anthropicVersion`,
-  `transcriptionModel` (dictation through the profile; unset means no dictation).
-- **The key** is write-only. It is sealed with the server key (migration 0073,
-  `assist_profile.api_key_sealed`) and bound to the profile id, request format and
-  endpoint, so a key does not follow a profile to a new endpoint: changing the
-  endpoint without entering the key again is refused (`422`). The admin API returns
-  only `hasApiKey`; the key is not written to the audit log or to the server log.
-- **Assignment** is the settings key `assist.profile` (a profile id): a deployment
-  value, per-domain values and per-user values, with the registry's locks. A user
-  value wins over the domain value, which wins over the deployment value, unless a
-  wider value is locked. An empty value means the single deployment endpoint
-  configured above the profiles (`PUT /admin/assist`). A user assigned a profile
-  that no longer exists, or whose key does not open, has no AI assistant: the
-  request is refused, not sent to another endpoint.
-- **What still applies.** The `assist_config` on/off switch and kill switch, the
-  capability grants, the data ceilings, redaction, the rate limit and the
-  content-free audit run in front of the profile exactly as for the deployment
-  endpoint. The audit row records the profile's endpoint host. Semantic search keeps
-  the deployment endpoint, because one search index needs one embedding model.
-- **Zero-access accounts.** Context from an account in zero-access mode is never
-  forwarded, by either endpoint, whatever the data ceiling allows: the server drops
-  those accounts from the request scope before redaction.
-- **Usage.** The repository does not meter AI assistant usage per call
-  (`limit.ai_calls_per_day` is registered, but no server code reads it), so profiles add no
-  metering. The content-free audit rows remain the per-call record.
+1. **The feature is enabled for the user**: [`cap.ai_assistant`](/admin/settings#cap.ai_assistant)
+   (admin, per domain or user) and [`assistant.enabled`](/admin/settings#assistant.enabled)
+   (users can turn it off).
+2. **Consent and restriction**: a user who has withdrawn consent for the feature, or
+   whose processing is restricted, is refused.
+3. **The assistant is running**: the deployment switch and **Stop the AI assistant
+   now** in the admin console. Stopping takes effect at once for every user and
+   persists across restarts.
+4. **Capability granted**: only the capabilities ticked under **Capabilities** can be
+   used.
+5. **Data limits** (**Data limits** in the console):
+   - **Account ids whose mail may be sent**: mail context is forwarded only for
+     listed accounts. With no account listed, no mail content is sent; only prompts
+     and audio go out.
+   - **Folder ids to limit sending to**: empty means every folder of the listed
+     accounts. The chat panel and auto-tag label context with the folder's display
+     name, not its id, so a folder list that holds ids drops their context.
+   - **Allow attachments to be sent**: off by default.
+   - End-to-end-encrypted content: withheld unless the deployment allows it.
+   - Accounts in zero-access mode are removed from the scope of chat and composer
+     requests whatever the limits say.
 
-### Outbound addresses
+   Context that falls outside these limits is dropped whole; the server does not
+   mask parts of a text (it does not remove names, numbers or addresses).
+6. **Rate limit**: `MW_ASSIST_RATE_LIMIT_PER_MIN`, counted in outbound requests per
+   account per minute. Unset means no limit; `0` refuses every request. A chat turn
+   costs 1; a semantic search on a cold cache costs up to 33.
+7. **Audit record** (below), then the request is sent.
 
-Every profile request is resolved once through the `mw-egress` address gate and
-the connection is pinned to the address that passed, with no proxy and no
-redirects. Without a grant only public addresses pass. A local endpoint (Ollama on
-`127.0.0.1:11434`, a LAN host) needs an **egress grant** for its exact `host:port`
-(`/admin/assist/egress-grants`; adding or removing one needs a step-up and is
-audited). A grant admits loopback and private addresses; link-local and cloud
-metadata addresses (`169.254.169.254`), multicast and unspecified addresses are
-refused even with a grant. The single deployment endpoint (`PUT /admin/assist`)
-predates profiles and is not routed through this gate.
+::: warning What the data limits rely on
+For chat and composer requests the web app supplies the text and labels each piece
+with its account, folder and kind (plain, end-to-end-encrypted, attachment). The
+server enforces the limits on those labels. The composer tools label the whole draft
+as plain text, so a reply that quotes a decrypted message sends that quoted text when
+a composer tool is used on it. The limits are a policy for the supplied client, not a
+barrier against a user who sends their own text to the endpoint.
+:::
 
-### Test profile
+`limit.ai_calls_per_day` appears in the feature editor but is not enforced.
 
-**Test profile** (`POST /admin/assist/profiles/{id}/test`) sends one fixed prompt
-with no mail content ("Connection test from Mailwoman. Reply with OK.") and reports
-the time to the end of the reply, the first 200 characters of it, or an error code:
-`egress-refused`, `timeout`, `connect`, `unauthorized` (401/403), `not-found`,
-`rate-limited`, `rejected` (other 4xx), `upstream` (5xx), `bad-response`,
-`declined`, `unsupported`. With an HTTP error the status and the provider's own
-short error code (`invalid_api_key`, `authentication_error`) are shown; the
-provider's error message is not, because some providers echo part of the key in it.
-The test runs whether or not the AI assistant is switched on, and is audited.
+## Endpoints
 
-### Presets
+### The deployment endpoint
 
-| Preset | Format | Endpoint | Checked |
-|---|---|---|---|
-| OpenAI-compatible (any endpoint) | openai | (you enter it) | local mock of the format |
-| Anthropic | anthropic | `https://api.anthropic.com` (`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`) | local mock of the format |
-| OpenAI | openai | `https://api.openai.com/v1` | not tested |
-| Azure OpenAI | azure-openai | `https://<resource>.openai.azure.com/openai/deployments/<deployment>` | not tested |
-| Google Gemini (OpenAI-compatible endpoint) | openai | `https://generativelanguage.googleapis.com/v1beta/openai` | not tested |
-| Mistral AI | openai | `https://api.mistral.ai/v1` | not tested |
-| Groq | openai | `https://api.groq.com/openai/v1` | not tested |
-| Together AI | openai | `https://api.together.xyz/v1` | not tested |
-| OpenRouter | openai | `https://openrouter.ai/api/v1` | not tested |
-| DeepSeek | openai | `https://api.deepseek.com/v1` | not tested |
-| Fireworks AI | openai | `https://api.fireworks.ai/inference/v1` | not tested |
-| Perplexity | openai | `https://api.perplexity.ai` | not tested |
-| Ollama (local) | openai | `http://127.0.0.1:11434/v1` | not tested |
-| LM Studio (local) | openai | `http://127.0.0.1:1234/v1` | not tested |
-| vLLM (local) | openai | `http://127.0.0.1:8000/v1` | not tested |
-| llama.cpp server (local) | openai | `http://127.0.0.1:8080/v1` | not tested |
+Set under **Endpoint** in the admin console (`PUT /admin/assist`): **Endpoint type**
+(**OpenAI-compatible**, **Anthropic**, **Local program** or **None**), **Base URL**,
+**API key**, and the chat, embedding and speech-to-text models. The API key is
+write-only and stored sealed with the server key (`MW_SERVER_KEY`); changing the type
+or base URL drops a stored key.
 
-"Local mock of the format" means `crates/mw-server/tests/t39_assist_profiles.rs`
-ran the request format against an in-process server that answers in the documented
-streaming format; it is not a run against the provider's service. No preset has been
-run against a live provider. Model names are suggestions and change; check them with
-the provider and use Test profile.
+Requests to the deployment endpoint use an HTTP client that ignores proxy environment
+variables but does not apply the [egress address policy](/security/egress): the
+administrator chooses the address, including local ones.
 
-## Capabilities and scoping
+A **Local program** endpoint runs a program on the server for each request, passing
+the request, including the message text, on standard input. Only programs listed (by
+absolute path) in `MW_ASSIST_LOCAL_PROGRAMS` can be chosen; arguments are passed
+without a shell. With a local program, nothing leaves the server.
 
-Each AI assistant feature is a capability, granted independently:
+### Provider profiles
 
-`summarize`, `draft`, `grammar`, `dictation`, `search-semantic`, `auto-tag`, `recap`,
-`assistant`.
+A provider profile is a named endpoint, request format (`openai`, `azure-openai`,
+`anthropic`), model, API key and options (`maxTokens`, `temperature` 0 to 2,
+`timeoutMs` 1000 to 600000, default 60000). Administrators manage them under
+**Admin → AI assistant → Provider profiles** and assign one with
+[`assist.profile`](/admin/settings#assist.profile) at deployment, domain or user level
+(users cannot choose their own). An empty value means the deployment endpoint. If the
+assigned profile does not exist or its key does not open, the user has no assistant;
+the request is not sent elsewhere.
 
-> **`search-semantic` now re-ranks (new in 26.19).** This note previously said the
-> re-rank was not wired; it is. A query marked `semantic` has its top lexical hits
-> re-ordered by embedding similarity, and every degradation — no capability, no
-> endpoint, a dimension mismatch — lands back on lexical ranking rather than on an
-> error.
->
-> **This makes `search-semantic` a second egress path, and it is the one users are
-> least likely to expect.** Running a semantic search sends the text of the messages
-> being re-ranked (up to 32 per cold query) to the configured endpoint, not just the
-> query. It is opt-in per query — with one qualification: **a saved-search folder
-> whose stored filter carries `semantic: true` re-runs the re-rank every time the
-> folder is opened.** Still user-initiated, so the egress bound holds, but the opt-in
-> becomes persistent rather than per-query, and an operator sizing a rate limit
-> should assume repeat traffic from saved searches.
->
-> Bound it with `MW_ASSIST_RATE_LIMIT_PER_MIN` (per account, counted in **outbound
-> endpoint requests**): a cold-cache semantic search costs up to 33 — one for the
-> query plus one per document embedded on demand — converging toward 1 as the
-> embedding cache fills. A chat turn costs 1. `0` refuses every AI assistant request, which
-> is a usable kill switch.
->
-> Embeddings are produced **only** for messages a user's own opt-in search surfaced.
-> Mail is deliberately **not** embedded at ingest: that would send every message a
-> deployment receives to the configured endpoint as a side effect of enabling a
-> search feature, which is an egress posture nobody opted into.
+- The key is write-only, sealed with the server key and bound to the profile id,
+  request format and endpoint; changing the endpoint without entering the key again
+  is refused. The admin API returns only whether a key is set; the key is not written
+  to the audit log or the server log.
+- Every profile request goes through the [egress address policy](/security/egress):
+  only public addresses, no proxy, no redirects. A local endpoint (Ollama on
+  `127.0.0.1:11434`, a LAN host) needs an egress grant for its exact `host:port`.
+  Adding or removing a grant requires step-up authentication and is audited. A grant
+  admits loopback and private addresses, never link-local, metadata, multicast or
+  unspecified addresses.
+- Semantic search always uses the deployment endpoint, because one search index needs
+  one embedding model.
+- **Test profile** sends the fixed prompt "Connection test from Mailwoman. Reply with
+  OK." with no mail content and reports the time, the first 200 characters of the
+  reply, or an error code. The provider's error message is not shown, because some
+  providers echo part of the key in it. Tests are audited.
 
-Every invocation is enforced by the gateway in this order:
+<!-- screenshot: id=security/assist-admin-limits; screen=Admin > AI assistant; state=OpenAI-compatible endpoint configured, two capabilities granted, one account listed; element=Data limits group -->
 
-1. **Capability granted?** If not, denied.
-2. **Data-class ceiling.** Which accounts/folders may be used, and two defaults that
-   matter: end-to-end-encrypted decrypted content is **excluded by default**
-   (`include_e2ee = false`) and attachments are **excluded by default**
-   (`include_attachments = false`).
-3. **Redaction** runs before anything leaves the engine.
-4. **Rate-limit.**
-5. **Audit** — a content-free record (below).
+Presets for new profiles: OpenAI-compatible (any endpoint), Anthropic
+(`https://api.anthropic.com`), OpenAI, Azure OpenAI, Google Gemini
+(OpenAI-compatible endpoint), Mistral AI, Groq, Together AI, OpenRouter, DeepSeek,
+Fireworks AI, Perplexity, and local Ollama, LM Studio, vLLM and llama.cpp server.
+The OpenAI-compatible and Anthropic formats are tested against a local mock of each
+format; no preset is tested against the provider's live service. Use **Test profile**
+before assigning one.
 
-## Send is always human-gated
+## What is recorded
 
-**No AI assistant capability transmits, deletes, or accepts anything.** This is structural:
-the capability enum has no send/delete/accept variant, so there is no code path for
-the AI assistant to send mail or act irreversibly. A drafted message goes to the Outbox for a
-human to send. The AI assistant adds no privileged path.
+Each request writes an `assist_audit` row before the request is sent: time,
+capability, a scope summary (the number of accounts and folders in scope and whether
+encrypted content and attachments were allowed) and the endpoint host. It contains no
+prompt, message text or reply, and it does not name the user or the accounts. Writing
+the row is best effort: a failed write is logged and does not stop the request. Rows
+are kept for [`retention.assistAudit.days`](/admin/settings#retention.assistaudit.days)
+days (default 730; 0 keeps them forever).
 
-**One correction to how this used to be described.** The assistant chat is *not* yet
-driven by the MCP tool surface. What ships is proposal **reporting**: the tool name in
-a proposed action comes from the model and is **not validated against the `mw-mcp`
-registry**. Because nothing is ever executed and every action is human-confirmed, the
-consequence is that a proposal could display a tool name that does not correspond to
-any real tool — a display-accuracy limit, not a privilege one. The send-gating above
-is structural and unaffected. Do not describe the assistant as MCP-backed tool calling
-until it is wired.
+The server does not store prompts or replies. Whatever the endpoint provider does
+with the requests it receives is governed by your agreement with that provider.
 
-## What left the device (disclosure)
+## What users are told
 
-The AI assistant shows a per-message **"what left the device"** disclosure so the user can see,
-for each AI assistant action, what was sent and to which endpoint host. This is a
-transparency surface, not a legal disclaimer — it reflects the actual gateway
-behavior.
+The web app shows **What can leave this device** with the endpoint host and what is
+withheld, and on each request reports what was sent and what was withheld before the
+reply streams in.
 
-**Corrected in 26.19.** The standing disclosure copy described the `invoke` path only
-and did not mention semantic search, so a user reading a sentence about "the selected
-message" would not have expected a search to send message text to the same endpoint.
-It now names both paths. In the same release the data-class ceiling became **enforced**
-on the embed path rather than merely recorded on the audit row — before that, an
-attachment-exclusion the audit reported as honoured was not applied to the text being
-embedded, and an account outside the ceiling's allowlist was dispatched anyway. The
-copy and the behaviour now agree; they did not.
+<!-- screenshot: id=security/assist-disclosure; screen=Mailbox > AI assistant panel; state=assistant enabled, disclosure expanded; element=What can leave this device -->
 
-One gap is named rather than left implied: `transcribe` still clamps its scope, uses
-the result only to label the audit row, and does not refuse on an empty account set.
-The payload there is user-supplied audio rather than mailbox content, so the allowlist
-means something different and the fix needs a deliberate decision — but it is the same
-shape as the defect fixed on the embed path.
+## Related
 
-## Audit is content-free
-
-Every invocation writes an `assist_audit` row carrying the **capability**, a **scope
-summary**, and the **endpoint host** — and **never the message content**. This is
-asserted in tests: audit rows are checked to contain no mail content. If you need to
-know that the AI assistant was used and against which endpoint, the audit tells you; it will not
-leak what was summarized or drafted.
-
-## Privacy summary
-
-- Off until configured; zero AI assistant UI when disabled.
-- E2EE-decrypted content and attachments are excluded by default; including them is an
-  explicit opt-in.
-- The browser never contacts the AI host — the server proxies.
-- Content from zero-access accounts is never forwarded.
-- Provider profiles reach only public addresses unless an admin grants a local `host:port`.
-- The audit records capability + scope + host, never content.
-- No AI assistant capability can send/delete/accept.
-- `LocalProcess` keeps everything on-device.
-
-## Admin governance
-
-Admins control the AI assistant tenant-wide (§19):
-
-- an endpoint allowlist (which endpoints users may configure),
-- per-capability locks (force a capability off, or restrict which capabilities exist),
-- data-class ceilings (which accounts/folders, E2EE/attachment inclusion),
-- a **kill switch** that disables the AI assistant immediately.
-
-Config is per-deployment and per-user, with admin locks taking precedence (migration
-0008 `assist_config`).
-
-## CI
-
-The `assist-mock` job runs the gateway against a deterministic, offline
-OpenAI-compatible (+ Anthropic) mock (`scripts/mock-assist/`, `docker-compose.ci.yml`
-service `mock-assist`) so the scope/redaction/content-free-audit/no-send behavior is
-tested reproducibly. A separate nightly, secret-gated `live-interop` job exercises real
-Ollama/OpenAI/Anthropic endpoints when secrets are present; it is non-blocking and
-never runs on pull requests.
+- [AI assistant administration](/admin/ai-assistant)
+- [Using the AI assistant](/user/assist)
+- [Outbound connections](/security/egress)
+- [Zero-access storage](/security/zero-access)
