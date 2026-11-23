@@ -31,6 +31,9 @@ mod ingest_history_tests;
 #[path = "message_batch_ownership_tests.rs"]
 mod batch_ownership_tests;
 #[cfg(test)]
+#[path = "hot_route_read_tests.rs"]
+mod hot_route_read_tests;
+#[cfg(test)]
 #[path = "message_meta_projection_tests.rs"]
 mod message_meta_projection_tests;
 
@@ -639,6 +642,34 @@ impl Store {
         Ok(rows.iter().map(Self::mailbox_from_row).collect())
     }
 
+    /// The account's login username and its mailboxes ([`Store::list_mailboxes`]
+    /// order) in **one** statement (t34-e12). Errors with `NotFound` when the
+    /// account does not exist, exactly as [`Store::get_account`] does, so a
+    /// caller that read the two separately keeps its error. Both come from the
+    /// same snapshot; the mailboxes are scoped to the account by the join.
+    pub async fn account_username_and_mailboxes(
+        &self,
+        account_id: &str,
+    ) -> Result<(String, Vec<Mailbox>), StoreError> {
+        let rows = q(
+            "SELECT a.username AS account_username, CASE WHEN a.backend_kind='ews' THEN 'ews' ELSE a.kind END AS account_kind, m.id, m.account_id, m.name, m.role, m.uidvalidity, m.uidnext, m.highestmodseq, m.total, m.unread, m.parent_id
+             FROM accounts a LEFT JOIN mailboxes m ON m.account_id = a.id WHERE a.id = ?1 ORDER BY m.name",
+        )
+        .bind(account_id)
+        .fetch_all(&self.backend)
+        .await?;
+        let first = rows.first().ok_or(StoreError::NotFound)?;
+        // `get_account` refuses an account whose kind it cannot parse; so does this.
+        AccountKind::parse(first.get_string("account_kind").as_str())?;
+        let username = first.get_string("account_username");
+        let mailboxes = rows
+            .iter()
+            .filter(|row| row.get_opt_string("id").is_some())
+            .map(Self::mailbox_from_row)
+            .collect();
+        Ok((username, mailboxes))
+    }
+
     /// Fetch one mailbox by id.
     pub async fn get_mailbox(&self, id: &str) -> Result<Mailbox, StoreError> {
         let row = q(
@@ -1139,16 +1170,50 @@ impl Store {
             Dialect::Postgres => "SELECT m.stable_id,m.account_id,m.mailbox_id,m.uid,m.uidvalidity,m.message_id,m.thread_id,m.internaldate,m.size,m.flags_json,m.blob_ref,m.cache_revision,mm.stable_id AS meta_stable_id,mm.pinned,mm.snoozed_until,mm.follow_up_at FROM messages m LEFT JOIN message_meta mm ON mm.stable_id=m.stable_id WHERE m.account_id=?2 AND m.stable_id IN(SELECT value FROM json_array_elements_text(?1::json))",
         };
         let rows=q(sql).bind(id_list_json(stable_ids)).bind(account_id).fetch_all(&self.backend).await?;
-        let found=rows.iter().map(|row| {
-            let message=Self::message_from_row(row);
-            let metadata=row.get_opt_string("meta_stable_id").map(|_|crate::StoredMeta {
-                pinned:row.get_i64("pinned")!=0,
-                snoozed_until:row.get_opt_string("snoozed_until"),
-                follow_up_at:row.get_opt_string("follow_up_at"),
-            });
-            (message.stable_id.clone(),(message,metadata))
-        }).collect();
+        let found=rows.iter().map(Self::message_with_meta_from_row).collect();
         Ok(project_in_order(stable_ids,found))
+    }
+
+    fn message_with_meta_from_row(row:&Row)->(String,(Message,Option<crate::StoredMeta>)) {
+        let message=Self::message_from_row(row);
+        let metadata=row.get_opt_string("meta_stable_id").map(|_|crate::StoredMeta {
+            pinned:row.get_i64("pinned")!=0,
+            snoozed_until:row.get_opt_string("snoozed_until"),
+            follow_up_at:row.get_opt_string("follow_up_at"),
+        });
+        (message.stable_id.clone(),(message,metadata))
+    }
+
+    /// [`Store::get_account_messages_with_metas`] plus the owning account's
+    /// zero-access flag, read in the **same statement** (t34-e12).
+    ///
+    /// The flag is `Some(true)` when the account has a `zeroaccess_accounts`
+    /// row whose `enabled` is anything but `0` (fail closed: a malformed value
+    /// counts as zero-access), `Some(false)` when it has no row or `enabled=0`,
+    /// and `None` when no requested row is owned by `account_id`, because then
+    /// the statement returned no row to carry it. The flag is the same answer
+    /// `get_zeroaccess` gives, at the same snapshot as the rows it accompanies,
+    /// so an engine whose posture source is this Store needs no separate posture
+    /// read for the page.
+    pub async fn get_account_messages_with_metas_and_posture(
+        &self,
+        account_id: &str,
+        stable_ids: &[String],
+    ) -> Result<(Vec<Option<(Message, Option<crate::StoredMeta>)>>, Option<bool>), StoreError> {
+        if stable_ids.len() > 5000 {
+            return Err(StoreError::Invalid("message projection batch exceeds 5000 IDs"));
+        }
+        if stable_ids.is_empty() { return Ok((Vec::new(), None)); }
+        let sql = match self.backend.dialect() {
+            Dialect::Sqlite => "SELECT m.stable_id,m.account_id,m.mailbox_id,m.uid,m.uidvalidity,m.message_id,m.thread_id,m.internaldate,m.size,m.flags_json,m.blob_ref,m.cache_revision,mm.stable_id AS meta_stable_id,mm.pinned,mm.snoozed_until,mm.follow_up_at,CAST(CASE WHEN z.account_id IS NULL THEN 0 WHEN z.enabled=0 THEN 0 ELSE 1 END AS BIGINT) AS zero_access FROM messages m LEFT JOIN message_meta mm ON mm.stable_id=m.stable_id LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE m.account_id=?2 AND m.stable_id IN(SELECT value FROM json_each(?1))",
+            Dialect::Postgres => "SELECT m.stable_id,m.account_id,m.mailbox_id,m.uid,m.uidvalidity,m.message_id,m.thread_id,m.internaldate,m.size,m.flags_json,m.blob_ref,m.cache_revision,mm.stable_id AS meta_stable_id,mm.pinned,mm.snoozed_until,mm.follow_up_at,CAST(CASE WHEN z.account_id IS NULL THEN 0 WHEN z.enabled=0 THEN 0 ELSE 1 END AS BIGINT) AS zero_access FROM messages m LEFT JOIN message_meta mm ON mm.stable_id=m.stable_id LEFT JOIN zeroaccess_accounts z ON z.account_id=m.account_id WHERE m.account_id=?2 AND m.stable_id IN(SELECT value FROM json_array_elements_text(?1::json))",
+        };
+        let rows=q(sql).bind(id_list_json(stable_ids)).bind(account_id).fetch_all(&self.backend).await?;
+        // Every row is owned by `account_id` (the WHERE clause), so they all
+        // carry the same flag; any row answering zero-access wins regardless.
+        let zero_access=(!rows.is_empty()).then(||rows.iter().any(|row|row.get_i64("zero_access")!=0));
+        let found=rows.iter().map(Self::message_with_meta_from_row).collect();
+        Ok((project_in_order(stable_ids,found),zero_access))
     }
 
     /// Open a whole page of sealed envelopes in **one** statement (26.20 t22-e1).
@@ -1376,6 +1441,43 @@ impl Store {
         .bind(offset.max(0))
         .fetch_all_scalar_string(&self.backend)
         .await?)
+    }
+
+    /// The account's Sent mailbox (the first `role='sent'` mailbox in
+    /// [`Store::list_mailboxes`] order) with the ids of its newest `limit`
+    /// messages ([`Store::list_message_ids`] order) and, for each, its thread id
+    /// when the message is owned by `account_id` (the filter
+    /// [`Store::get_account_messages`] applies), in **one** statement
+    /// (t34-e12: the Focus sent scan was three). `None` when the account has no
+    /// Sent mailbox.
+    pub async fn focus_sent_scan(
+        &self,
+        account_id: &str,
+        limit: i64,
+    ) -> Result<Option<(String, Vec<(String, Option<String>)>)>, StoreError> {
+        let rows = q("WITH sent AS (SELECT id FROM mailboxes WHERE account_id = ?1 AND role = 'sent' ORDER BY name LIMIT 1),
+             page AS (SELECT m.stable_id, m.thread_id, m.account_id, m.internaldate, m.uid FROM messages m
+                      WHERE m.mailbox_id = (SELECT id FROM sent)
+                      ORDER BY m.internaldate DESC NULLS LAST, m.uid DESC, m.stable_id LIMIT ?2)
+             SELECT s.id AS sent_id, p.stable_id, CASE WHEN p.account_id = ?1 THEN p.thread_id ELSE NULL END AS owned_thread_id
+             FROM sent s LEFT JOIN page p ON 1 = 1
+             ORDER BY p.internaldate DESC NULLS LAST, p.uid DESC, p.stable_id")
+            .bind(account_id)
+            .bind(limit.max(0))
+            .fetch_all(&self.backend)
+            .await?;
+        let Some(first) = rows.first() else {
+            return Ok(None);
+        };
+        let sent = first.get_string("sent_id");
+        let page = rows
+            .iter()
+            .filter_map(|row| {
+                row.get_opt_string("stable_id")
+                    .map(|id| (id, row.get_opt_string("owned_thread_id")))
+            })
+            .collect();
+        Ok(Some((sent, page)))
     }
 
     /// The zero-based position of `stable_id` in the mailbox order
@@ -2193,6 +2295,22 @@ impl Store {
     }
 
     /// Load a mailbox's persisted sync cursor JSON, if any.
+    /// The mailbox ids of `account_id` that have a stored sync cursor: the
+    /// set [`Store::load_cursor`] answers `Some` for, in one statement
+    /// (t34-e12: `Mailbox/get`'s `mailwomanSynced` no longer reads per mailbox).
+    pub async fn mailboxes_with_cursor(
+        &self,
+        account_id: &str,
+    ) -> Result<HashSet<String>, StoreError> {
+        Ok(q("SELECT mailbox_id FROM sync_state WHERE account_id = ?1 AND cursor_json IS NOT NULL")
+            .bind(account_id)
+            .fetch_all(&self.backend)
+            .await?
+            .iter()
+            .map(|row| row.get_string("mailbox_id"))
+            .collect())
+    }
+
     pub async fn load_cursor(
         &self,
         account_id: &str,

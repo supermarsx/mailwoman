@@ -211,6 +211,33 @@ impl Store {
         Ok(Some(personal_subject(["native", account])))
     }
 
+    /// [`Store::native_personal_subject`] and that owner's saved searches
+    /// ([`Store::list_personal_saved_searches`] order) in **one** statement
+    /// (t34-e12): `None` when the account does not exist, exactly when the
+    /// two-statement form returns `None`. The account row and the searches are
+    /// read at the same snapshot. Same caller restriction as
+    /// `native_personal_subject`.
+    pub async fn native_personal_saved_searches(
+        &self,
+        account: &str,
+    ) -> Result<Option<(String, Vec<crate::SavedSearchRow>)>, StoreError> {
+        let owner = personal_subject(["native", account]);
+        let rows = q("SELECT a.id AS owner_account,s.id,s.owner_subject,s.name,s.query_json,s.as_folder FROM accounts a LEFT JOIN personal_saved_search s ON s.owner_subject=?2 WHERE a.id=?1 ORDER BY s.name,s.id")
+            .bind(account)
+            .bind(&owner)
+            .fetch_all(&self.backend)
+            .await?;
+        if rows.is_empty() {
+            return Ok(None);
+        }
+        let searches = rows
+            .iter()
+            .filter(|row| row.get_opt_string("id").is_some())
+            .map(crate::personal_records::saved_search)
+            .collect();
+        Ok(Some((owner, searches)))
+    }
+
     /// Atomically attach a verified primary identity, or refuse stale, retired,
     /// unverified or already differently bound sessions. No email-based merging.
     /// Authentication age is captured once and is not extended by a repeated call.

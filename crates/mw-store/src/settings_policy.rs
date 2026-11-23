@@ -830,6 +830,52 @@ impl Store {
         self.setting_values_for_canonical_at(&canonical.as_subject(), revision.number())
             .await
     }
+    /// [`Store::setting_values_for_subject`] plus the global policies of `keys`
+    /// ([`Store::get_setting_policies_batch`] contents, key order) under the
+    /// **same** fresh revision read (t34-e12). Policies are served from the
+    /// per-key policy memo at that revision, the mechanism
+    /// [`Store::get_setting_policy`] already uses: migration 0078 bumps the
+    /// revision in the same transaction as any `setting_policy` write, so a
+    /// memo entry at the current revision is the stored row. With no revision
+    /// row nothing is memoized and both are read directly, as before.
+    pub async fn setting_values_and_policies_for_subject(
+        &self,
+        subject: &SettingSubject<'_>,
+        keys: &[&str],
+    ) -> Result<(Vec<SettingValueRow>, Vec<SettingPolicyRow>), StoreError> {
+        let revision = self.settings_read_revision().await?;
+        let canonical = self
+            .canonical_setting_subject_at(subject, revision.number())
+            .await?;
+        let values = self
+            .setting_values_for_canonical_at(&canonical.as_subject(), revision.number())
+            .await?;
+        let Some(number) = revision.number() else {
+            return Ok((values, self.get_setting_policies_batch(keys).await?));
+        };
+        let scope = self.cache_scope();
+        let mut policies = Vec::new();
+        let mut missing = Vec::new();
+        for &key in keys {
+            if policies.iter().any(|row: &SettingPolicyRow| row.key == key) || missing.contains(&key) {
+                continue;
+            }
+            match POLICY_MEMO.get(scope, key, number) {
+                Some(hit) => policies.extend(hit),
+                None => missing.push(key),
+            }
+        }
+        if !missing.is_empty() {
+            let loaded = self.get_setting_policies_batch(&missing).await?;
+            for key in missing {
+                let policy = loaded.iter().find(|row| row.key == key).cloned();
+                POLICY_MEMO.put(scope, key.to_owned(), number, policy.clone());
+                policies.extend(policy);
+            }
+        }
+        policies.sort_by(|a, b| a.key.cmp(&b.key));
+        Ok((values, policies))
+    }
     async fn setting_values_for_canonical_at(
         &self,
         subject: &SettingSubject<'_>,

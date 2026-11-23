@@ -77,7 +77,7 @@ impl Store {
         )
     }
 }
-fn saved_search(row: &Row) -> SavedSearchRow {
+pub(crate) fn saved_search(row: &Row) -> SavedSearchRow {
     SavedSearchRow {
         id: row.get_string("id"),
         user: row.get_string("owner_subject"),

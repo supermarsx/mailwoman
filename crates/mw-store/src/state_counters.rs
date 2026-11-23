@@ -66,22 +66,34 @@ impl Store {
     /// A failed joint query retries the original three readers independently:
     /// one broken log must not erase successful other-family counters.
     pub async fn session_state_counters(&self, account_id: &str) -> SessionStateCounters {
-        if let Ok(rows) = q(session_states_sql()).bind(account_id).fetch_all(&self.backend).await {
-            let mut result = SessionStateCounters {mail:HashMap::new(),pim:HashMap::new(),crypto:HashMap::new()};
-            for row in rows {
-                let map = match row.get_string("family").as_str() {
-                    "mail" => &mut result.mail,
-                    "pim" => &mut result.pim,
-                    "crypto" => &mut result.crypto,
-                    _ => unreachable!("closed compiled counter families"),
-                };
-                map.insert(row.get_string("type"), row.get_i64("state").max(0) as u64);
-            }
+        if let Ok(result) = self.try_session_state_counters(account_id).await {
             return result;
         }
         let (mail,pim,crypto) = tokio::join!(self.current_core_mail_states(account_id),
             self.current_pim_states(account_id),self.current_crypto_states(account_id));
         SessionStateCounters {mail:mail.unwrap_or_default(),pim:pim.unwrap_or_default(),crypto:crypto.unwrap_or_default()}
+    }
+
+    /// The joint statement alone, with no per-family fallback: an error is
+    /// returned rather than replaced by zero counters. A request-scoped frame
+    /// (t34-e12) caches only a successful read, so a failure keeps each
+    /// caller's original reader and error handling.
+    pub async fn try_session_state_counters(
+        &self,
+        account_id: &str,
+    ) -> Result<SessionStateCounters, StoreError> {
+        let rows = q(session_states_sql()).bind(account_id).fetch_all(&self.backend).await?;
+        let mut result = SessionStateCounters {mail:HashMap::new(),pim:HashMap::new(),crypto:HashMap::new()};
+        for row in rows {
+            let map = match row.get_string("family").as_str() {
+                "mail" => &mut result.mail,
+                "pim" => &mut result.pim,
+                "crypto" => &mut result.crypto,
+                _ => unreachable!("closed compiled counter families"),
+            };
+            map.insert(row.get_string("type"), row.get_i64("state").max(0) as u64);
+        }
+        Ok(result)
     }
     /// The three mail counters consumed by JMAP session state and mail push.
     /// One statement gives one snapshot; indexed MAX probes avoid scanning an
