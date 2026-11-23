@@ -13,13 +13,10 @@ The **Single sign-on** page lists the OpenID Connect (OIDC) and SAML 2.0 provide
 
 Each row has buttons to edit the provider, turn it off or on, and delete it. Turning a provider off and deleting it ask first; accounts made through a provider are kept in both cases.
 
-::: danger The editor does not store the protocol settings
-The editor on this page and the server use different names for the protocol fields (the editor sends `issuerUrl`, `clientId`, `idpSsoUrl` and so on; the server reads `issuer_url`, `client_id`, `idp_sso_url`). The server ignores the names it does not know, so:
+When you save a provider, the server checks the protocol settings and refuses the save with an error that names the field when one is missing or not a valid address: for OpenID Connect the issuer URL (an `http` or `https` address without a query or fragment), client ID, redirect URL and the `openid` scope; for SAML the IdP SSO URL, at least one signing certificate, the entity ID, the ACS URL and the NameID format. Field names it does not know are refused too.
 
-- a provider created or saved with the editor keeps its ID, display name, scope, enabled state, scopes, claim mapping and secret, but its issuer URL, client ID, redirect URL, first-login policy and all SAML fields are stored empty or at the server's defaults. A provider without an issuer URL (OIDC) or IdP SSO URL (SAML) cannot be used to sign in;
-- the editor shows those fields empty for every provider, including providers stored correctly by other means. Saving such a provider from the editor empties them.
-
-The descriptions below say what each field is for and what the server does with it once it is stored.
+::: warning Providers saved with an older version of the editor
+An earlier console sent the protocol settings under names the server did not read, so providers created or saved from the console were stored with an empty issuer URL, client ID, redirect URL and first-login policy (OIDC), or empty SAML fields, and cannot sign anyone in. Open each provider: if those fields are empty, enter them again and save. For a SAML provider, also check that **Require signed assertions** is on: those saves stored it off. The server's provider list (`GET <console path>/sso`) marks such a provider with a non-empty `problems` list naming the missing fields; the console page does not show that list.
 :::
 
 ## Before you start
@@ -38,7 +35,6 @@ The descriptions below say what each field is for and what the server does with 
 
 ![The editor of the Staff sign-in provider: backend ID, display name, protocol OIDC, scope, first-login policy and the OpenID Connect fields.](/screenshots/admin-access/sso-editor-oidc.webp){.mw-shot}
 
-The provider in this image is stored with an issuer URL and a client ID; the editor shows both fields empty because of the problem described above.
 
 **Back to sign-in providers** and **Cancel** ask before they discard unsaved changes.
 
@@ -146,7 +142,7 @@ The kind of user identifier asked from the provider. Default: `urn:oasis:names:t
 On by default. Mailwoman accepts an answer when a signature by one of the certificates covers the assertion, either on the assertion itself or on the whole response.
 
 ::: danger
-Do not turn this off. Without it, Mailwoman accepts an unsigned answer, and anyone who can send a request to the ACS address can sign in as any user of this provider. The editor shows the switch on for a new provider, but the server's own default, used when the stored settings do not contain the switch (see the warning at the top of this page), is off.
+Do not turn this off. Without it, Mailwoman accepts an unsigned answer, and anyone who can send a request to the ACS address can sign in as any user of this provider. The editor shows the switch on for a new provider, and a save through the console API that leaves the switch out also stores it on. A provider row whose stored settings lack the switch altogether (for example one written to the database by other means) is read as off.
 :::
 
 <a id="wantEncrypted"></a>

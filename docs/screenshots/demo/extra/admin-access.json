@@ -144,15 +144,15 @@
             "enabled": true,
             "config": {
               "kind": "oidc",
-              "issuer_url": "https://login.example.net/realms/staff",
-              "client_id": "mailwoman",
-              "redirect_url": "",
+              "issuerUrl": "https://login.example.net/realms/staff",
+              "clientId": "mailwoman",
+              "redirectUrl": "https://mail.example.com/api/sso/staff/callback",
               "scopes": [
                 "openid",
                 "email",
                 "profile"
               ],
-              "first_login_policy": "allowlist"
+              "firstLoginPolicy": "allowlist"
             },
             "claimMap": {
               "email": "email"
@@ -170,14 +170,14 @@
             "enabled": false,
             "config": {
               "kind": "oidc",
-              "issuer_url": "https://idp.example.org",
-              "client_id": "mail-example-org",
-              "redirect_url": "",
+              "issuerUrl": "https://idp.example.org",
+              "clientId": "mail-example-org",
+              "redirectUrl": "https://mail.example.com/api/sso/partners/callback",
               "scopes": [
                 "openid",
                 "email"
               ],
-              "first_login_policy": "allowlist"
+              "firstLoginPolicy": "allowlist"
             },
             "claimMap": {},
             "secret": "fictional-client-secret-2"
