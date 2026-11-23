@@ -680,6 +680,21 @@ mod tests {
         assert_eq!(out, "a,b,c,d\r\n\"'=cmd|' /C calc'!A0\",\"say \"\"hi\"\", ok\",\"3\",\"\"\r\n");
     }
 
+    /// dsr.rs reads `dsr.export.include.<section>` and an unregistered key reads
+    /// as off, so every switchable section needs a registered key that is on by
+    /// default, and every section the data map feeds must be built.
+    #[test]
+    fn every_switchable_section_has_a_registered_switch_that_is_on_by_default() {
+        for name in SECTIONS.iter().filter(|n| !matches!(**n, "profile" | "requests" | "mail")) {
+            let key = format!("dsr.export.include.{name}");
+            let def = crate::settings_registry::lookup(&key).unwrap_or_else(|| panic!("{key} is not registered"));
+            assert_eq!(def.default_value(), json!(true), "{key}");
+        }
+        for name in mw_store::data_map::TABLE_SECTIONS {
+            assert!(SECTIONS.contains(name), "data map section {name} is never built");
+        }
+    }
+
     #[test]
     fn file_names_inside_the_archive_stay_plain() {
         assert_eq!(safe("../../etc/passwd"), "______etc_passwd");

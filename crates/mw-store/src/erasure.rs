@@ -258,6 +258,9 @@ impl Store {
                                 {
                                     v = serde_json::from_str(s).unwrap_or(Value::Null);
                                 }
+                                if *kind == "u" {
+                                    v = v.as_str().and_then(data_map::export_url).map_or(Value::Null, Value::String);
+                                }
                                 obj.insert((*out_name).into(), v);
                             }
                             out.push(Value::Object(obj));

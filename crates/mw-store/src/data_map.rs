@@ -56,8 +56,9 @@ pub enum How {
 pub enum Export {
     /// Not part of an export.
     None,
-    /// Selected columns. `cols` is `name:s|i|j` (text, integer, JSON text) per
-    /// output column, in the order the SELECT returns them.
+    /// Selected columns. `cols` is `name:s|i|j|u` per output column, in the
+    /// order the SELECT returns them: text, integer, JSON text, or a URL that is
+    /// exported as `scheme://host/path` only (see [`export_url`]).
     Rows {
         section: &'static str,
         select: &'static str,
@@ -265,7 +266,7 @@ pub const RULES: &[Rule] = &[
         "id:s,label:s,actions:j,createdAt:i,lastUsedAt:i")),
     del!("webhooks", "account_id", Bind::Account, export: rows!("integrations",
         "SELECT id,url,label,event_filter,created_at FROM webhooks WHERE account_id=?1",
-        "id:s,url:s,label:s,eventFilter:s,createdAt:i")),
+        "id:s,url:u,label:s,eventFilter:s,createdAt:i")),
     del!("tags", "\"user\"", Bind::Any, export: rows!("mailstate",
         "SELECT id,name,color,icon FROM tags WHERE \"user\"=?1", "id:s,name:s,color:s,icon:s")),
     del!("saved_searches", "\"user\"", Bind::Any, export: rows!("mailstate",
@@ -283,7 +284,7 @@ pub const RULES: &[Rule] = &[
     del!("bridge_accounts", "account_id", Bind::Account, export: Export::Marker { section: "integrations" }),
     del!("account_provider", "account_id", Bind::Account, export: rows!("integrations",
         "SELECT provider,endpoint_url,login_address,created_at FROM account_provider WHERE account_id=?1",
-        "provider:s,endpointUrl:s,loginAddress:s,createdAt:i")),
+        "provider:s,endpointUrl:u,loginAddress:s,createdAt:i")),
     del!("child_account", "owner_account_id", Bind::Account, export: rows!("integrations",
         "SELECT account_id,provider_id,display_name,added_at FROM child_account WHERE owner_account_id=?1",
         "accountId:s,providerId:s,displayName:s,addedAt:i")),
@@ -308,12 +309,15 @@ pub const RULES: &[Rule] = &[
     del!("identity_binding", "principal_id", Bind::Principal),
     keep!("identity_principal", "an opaque random id with no identifier once its bindings are deleted"),
     // ---- delegation, groups, directory ----------------------------------
+    // A grant names two people. The person's own grants say who received
+    // access to their mail (the delegate's account id); a grant the person
+    // received leaves out the owner's account id, which is the other person's.
     del!("delegation_grant", "owner_account_id", Bind::Account, export: rows!("delegation",
-        "SELECT id,'owner' AS role,owner_account_id,delegate_owner_account_id,scope_kind,permissions_json,expires_at,created_at,revoked_at FROM delegation_grant WHERE owner_account_id=?1",
-        "id:s,role:s,ownerAccountId:s,delegateAccountId:s,scopeKind:s,permissions:j,expiresAt:i,createdAt:i,revokedAt:i")),
+        "SELECT id,'owner' AS role,delegate_owner_account_id,scope_kind,permissions_json,expires_at,created_at,revoked_at FROM delegation_grant WHERE owner_account_id=?1",
+        "id:s,role:s,delegateAccountId:s,scopeKind:s,permissions:j,expiresAt:i,createdAt:i,revokedAt:i")),
     del!("delegation_grant", "delegate_owner_account_id", Bind::Account, export: rows!("delegation",
-        "SELECT id,'delegate' AS role,owner_account_id,delegate_owner_account_id,scope_kind,permissions_json,expires_at,created_at,revoked_at FROM delegation_grant WHERE delegate_owner_account_id=?1",
-        "id:s,role:s,ownerAccountId:s,delegateAccountId:s,scopeKind:s,permissions:j,expiresAt:i,createdAt:i,revokedAt:i")),
+        "SELECT id,'delegate' AS role,scope_kind,permissions_json,expires_at,created_at,revoked_at FROM delegation_grant WHERE delegate_owner_account_id=?1",
+        "id:s,role:s,scopeKind:s,permissions:j,expiresAt:i,createdAt:i,revokedAt:i")),
     del!("shared_mailbox", "account_id", Bind::Account, export: rows!("delegation",
         "SELECT account_id,domain,name,created_at FROM shared_mailbox WHERE account_id=?1",
         "accountId:s,domain:s,name:s,createdAt:i")),
@@ -541,6 +545,16 @@ pub const RULES: &[Rule] = &[
     keep!("dsr_part", "stored export parts, removed when the export expires or the person is erased"),
 ];
 
+/// A URL as an export carries it: `scheme://host[:port]/path`, without user
+/// name, password, query string or fragment, which can hold tokens. `None` when
+/// the value is not an absolute URL with a host.
+pub fn export_url(raw: &str) -> Option<String> {
+    let url = url::Url::parse(raw.trim()).ok()?;
+    let host = url.host()?;
+    let port = url.port().map(|p| format!(":{p}")).unwrap_or_default();
+    Some(format!("{}://{host}{port}{}", url.scheme(), url.path()))
+}
+
 /// Rules whose export is table-driven, for one section.
 pub fn export_rules(section: &str) -> impl Iterator<Item = &'static Rule> + '_ {
     RULES.iter().filter(move |r| match r.export {
@@ -561,4 +575,99 @@ pub fn erase_order() -> impl Iterator<Item = &'static Rule> {
 /// Every table named in the registry.
 pub fn mapped_tables() -> std::collections::BTreeSet<&'static str> {
     RULES.iter().map(|r| r.table).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Exported columns whose name looks like secret material but is not, with
+    /// the reason. Every other match fails the guard below.
+    const ALLOWED: &[(&str, &str, &str)] = &[
+        ("api_keys", "key_prefix", "the first characters shown in the key list, not enough to use the key"),
+        ("crypto_keys", "key_id", "the public OpenPGP or S/MIME key id"),
+        ("crypto_keys", "has_private_backup", "a 0/1 flag computed by CASE; the backup itself is not selected"),
+        ("key_associations", "crypto_key_id", "the row id of a key in crypto_keys"),
+        ("plugin_kv", "key", "the name of a plug-in entry; the value is not selected"),
+        ("webauthn_credentials", "credential_id", "the public credential id a passkey sends at every sign-in"),
+    ];
+
+    fn looks_secret(name: &str) -> bool {
+        let n = name.to_ascii_lowercase();
+        ["secret", "token", "password", "passwd", "sealed", "private", "cred", "hash", "salt", "nonce", "cipher"]
+            .iter()
+            .any(|w| n.contains(w))
+            || n.ends_with("key")
+            || n.contains("key_")
+            || n.contains("_key")
+    }
+
+    fn allowed(table: &str, col: &str) -> bool {
+        ALLOWED.iter().any(|(t, c, _)| *t == table && c.eq_ignore_ascii_case(col))
+    }
+
+    #[test]
+    fn exported_columns_carry_no_secret_token_hash_or_key_material() {
+        let mut bad = Vec::new();
+        for rule in RULES {
+            let Export::Rows { select, cols, .. } = rule.export else { continue };
+            let names = crate::erasure::sql_column_names(select);
+            let outs: Vec<&str> = cols.split(',').map(|c| c.split_once(':').map_or(c, |(n, _)| n)).collect();
+            assert_eq!(names.len(), outs.len(), "{}: the SELECT list and cols differ in length", rule.table);
+            for (sql, out) in names.iter().zip(&outs) {
+                assert!(!sql.contains('*'), "{}: an export must list its columns", rule.table);
+                if (looks_secret(sql) || looks_secret(out)) && !allowed(rule.table, sql) {
+                    bad.push(format!("{}.{sql} ({out})", rule.table));
+                }
+            }
+        }
+        assert!(bad.is_empty(), "exported columns that look like secrets: {bad:?}");
+        // The allow list has no stale entries.
+        for (table, col, _) in ALLOWED {
+            assert!(
+                RULES.iter().any(|r| r.table == *table
+                    && matches!(r.export, Export::Rows { select, .. }
+                        if crate::erasure::sql_column_names(select).iter().any(|n| n.eq_ignore_ascii_case(col)))),
+                "allow-list entry {table}.{col} is not exported"
+            );
+        }
+    }
+
+    #[test]
+    fn the_guard_catches_the_names_it_is_for() {
+        for n in ["secret_sealed", "token_hash", "password", "sealed_password", "sealed_credential", "api_key", "public_key", "salt", "ca_key_pem"] {
+            assert!(looks_secret(n), "{n}");
+        }
+        for n in ["label", "created_at", "endpoint_host", "username"] {
+            assert!(!looks_secret(n), "{n}");
+        }
+    }
+
+    #[test]
+    fn urls_lose_user_info_query_and_fragment() {
+        let cases = [
+            ("https://hooks.example.test/in/abc?token=s3cr3t#frag", Some("https://hooks.example.test/in/abc")),
+            ("https://user:pass@mail.example.test:8443/EWS/Exchange.asmx?x=1", Some("https://mail.example.test:8443/EWS/Exchange.asmx")),
+            ("https://example.test", Some("https://example.test/")),
+            ("http://[2001:db8::1]:8080/p", Some("http://[2001:db8::1]:8080/p")),
+            ("not a url", None),
+            ("mailto:someone@example.test", None),
+        ];
+        for (raw, want) in cases {
+            assert_eq!(export_url(raw).as_deref(), want, "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_received_delegation_does_not_export_the_owner() {
+        let received = RULES
+            .iter()
+            .find_map(|r| match r.export {
+                Export::Rows { section: "delegation", select, cols } if r.table == "delegation_grant" && select.contains("'delegate'") => Some((select, cols)),
+                _ => None,
+            })
+            .expect("received grants are exported");
+        assert!(!crate::erasure::sql_column_names(received.0).iter().any(|c| c.contains("owner")), "{}", received.0);
+        assert!(!received.1.contains("owner"));
+    }
 }
