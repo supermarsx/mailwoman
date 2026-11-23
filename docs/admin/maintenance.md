@@ -11,7 +11,7 @@ screen: true
 ## Before you start
 
 - **Maintenance mode**, **Database** and **Cache** need the `maintenance.read` permission. Changing maintenance mode needs `maintenance.write` without a domain restriction; with only `maintenance.read` the form is read-only. **Repair jobs** needs `maintenance.run`.
-- Saving maintenance mode asks for a recent confirmation of your password when your last one is too old.
+- Saving maintenance mode asks for a recent confirmation that it is you (your password and second factor, or a passkey).
 
 ## Pause user access
 

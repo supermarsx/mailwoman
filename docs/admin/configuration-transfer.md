@@ -11,7 +11,7 @@ screen: true
 ## Before you start
 
 - Opening the page needs `config.read`. **Download settings** and the Nextcloud backup need `config.export`. **Import settings** needs `config.import`.
-- Applying an import, and saving or removing the Nextcloud destination, ask for a recent confirmation of your password.
+- Applying an import, and saving or removing the Nextcloud destination, ask for a recent confirmation that it is you (your password and second factor, or a passkey).
 
 ## Export settings
 
@@ -26,7 +26,7 @@ The file is a versioned JSON document (`"format": "mailwoman-settings"`, `"versi
 1. Open the **Import settings** tab.
 2. Under **Settings JSON file**, choose a file of less than 2 MiB. The server validates every entry before anything is changed; a file that does not validate is refused with its reason.
 3. Read **Review settings changes**. For each setting it shows the **Setting**, the **Current policy** and the **Imported policy**. Keys that are not in the file are left unchanged.
-4. Choose **Apply reviewed changes**, read the confirmation and confirm. You are asked to confirm your password.
+4. Choose **Apply reviewed changes**, read the confirmation and confirm. You are asked to confirm that it is you (your password and second factor, or a passkey).
 
 An import is not one transaction. Each setting is written and audited on its own, with a check of its current revision, so a concurrent change can stop the import after earlier entries were applied. The result then says **Applied 5 policies, then stopped at <key> (HTTP 409). Reload and review the file again before continuing.** If the server fails after it wrote the current setting, the result says that outcome is uncertain and asks you to review a fresh preview instead of repeating it. The setting that allows losing the last administrator cannot be imported.
 

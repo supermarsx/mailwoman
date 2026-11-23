@@ -18,6 +18,11 @@ screen: true
 
 1. Open **Server metadata**.
 2. Under **Account**, choose **Select an account…** and then the account. Until you choose one the page says **Select an account to view and edit its server annotations.** If the list cannot be read, it says **Could not load the account list.**
+   ![The Account selector of Server metadata with marker 1, and the prompt asking to select an account.](/screenshots/admin-ops/opsa-server-metadata-account.webp){.mw-crop}
+
+   1. **Account**
+   {.mw-callouts}
+
 3. The editor **Server annotations** lists the **Entries** of that account. An entry that has no value is shown as **Not set**; if there are none, the editor says **No annotations are set.**
 4. To change a value, edit it under **Value** and choose **Save**. To remove an entry, choose **Remove**.
 5. To add an entry, under **Add an annotation** enter the **Entry** (for example `/shared/comment`) and the **Value**, then choose **Add annotation**.

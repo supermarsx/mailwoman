@@ -10,7 +10,7 @@ screen: true
 
 ## Before you start
 
-- Opening the page needs `integrations.read`. Creating, changing and removing a connection, and every change to the panel, needs `integrations.write` without a domain restriction and a recent confirmation of your password. Choosing an SSH tunnel as the route also needs `tunnels.bind`.
+- Opening the page needs `integrations.read`. Creating, changing and removing a connection, and every change to the panel, needs `integrations.write` without a domain restriction and a recent confirmation that it is you (your password and second factor, or a passkey). Choosing an SSH tunnel as the route also needs `tunnels.bind`.
 - In the panel, create a credential that is allowed to run only the commands you need. Virtualmin uses an administrator name and password, for the remote API at `/virtual-server/remote.cgi`. HestiaCP uses an account owner and an access key with its secret key, for the API at `/api/`.
 - The panel must be reachable over HTTPS from the server. The origin has no path, query, user name, password or fragment.
 - Panel versions differ in the commands they allow. Try the connection on test data and check the permissions of your own panel version before you use it on production data.
@@ -26,6 +26,19 @@ screen: true
    - **Allow this configured destination on a private or loopback address** is needed when the panel is on a private network. Metadata, link-local and reserved addresses stay blocked.
    - **TLS server name override** and **Additional trusted CA certificates (PEM)** for a panel that uses a private CA or another certificate name.
    - **Minimum TLS version**: 1.2 (the default) or 1.3.
+   ![The Panel identity group of the New hosting connection form, with markers 1 to 3 on Connection name, Provider and HTTPS panel origin.](/screenshots/admin-ops/opsa-hosting-identity.webp){.mw-crop}
+
+   1. **Connection name**
+   2. **Provider**
+   3. **HTTPS panel origin**
+   {.mw-callouts}
+
+   ![The Connection and TLS group of the New hosting connection form, with markers 1 and 2 on Connection route and Minimum TLS version.](/screenshots/admin-ops/opsa-hosting-transport.webp){.mw-crop}
+
+   1. **Connection route**
+   2. **Minimum TLS version**
+   {.mw-callouts}
+
 6. For Virtualmin, **Virtualmin domain lifecycle** has **Explicitly allow whole virtual-server lifecycle actions**. It is off by default. Creating, disabling and deleting a Virtualmin domain affects the whole virtual server, including its websites, data and subservers. Mailbox actions are separate.
 7. Choose **Save connection**.
 

@@ -27,7 +27,7 @@ With **Background push notifications allowed** off, a browser cannot register fo
 
 **Push quiet hours** (`push.quietHours`) is a window in UTC in which the server sends no background wake at all. The value is JSON with an hour from 0 to 23 for each end, for example `{"start": 22, "end": 6}`. The window includes `start`, excludes `end`, and wraps past midnight when `start` is later than `end`. Leave it empty for no quiet window.
 
-![The setting Push quiet hours in the console's Settings.](/screenshots/admin-ops/opsc-settings-quiet.webp){.mw-crop}
+![The Push quiet hours setting in the console's Settings: a text box holding the quiet window as JSON, with the value for the whole server, per domain and per user.](/screenshots/admin-ops/opsc-settings-quiet.webp){.mw-crop}
 
 If the quiet-hours setting cannot be read when a wake is about to be sent, the server sends nothing. If `push.quietHours` has never been set, the server reads the older value `push.quiet_hours` (a `"start-end"` string such as `"22-7"`); setting `push.quietHours`, even to empty, ends that fallback.
 

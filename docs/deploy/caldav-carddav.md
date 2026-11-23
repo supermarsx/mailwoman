@@ -4,7 +4,7 @@ title: Calendars, contacts and CalDAV
 
 # Calendars, contacts and CalDAV
 
-Mailwoman has calendars, tasks, notes and contacts. This page is for the person running the server. It says where that data lives, which remote servers the server can synchronise with, and which endpoints it exposes. The user's side is in [Calendar](/user/calendar), [Contacts](/user/contacts), [Tasks](/user/tasks) and [Notes](/user/notes).
+Mailwoman has calendars, tasks, notes and contacts. This page is for the person running the server. It says where that data lives, which remote servers the server can synchronise with, and which read-only endpoints it exposes. Mailwoman is not a CalDAV or CardDAV server: other clients cannot sync with it over those protocols. The user's side is in [Calendar](/user/calendar), [Contacts](/user/contacts), [Tasks](/user/tasks) and [Notes](/user/notes).
 
 ## Where the data lives
 
@@ -19,6 +19,17 @@ The server synchronises calendars, task lists and address books with a remote Ca
 The **CalDAV URL** and **CardDAV URL** fields in a domain's connection settings (**Domains** in the admin console) are stored with the domain and are checked by the connection test and by the diagnostics. They do not make the server synchronise a user's calendar or contacts with that address.
 
 Calendars a user subscribes to by URL (an `.ics` address) are read-only copies. The server fetches them through the same checked fetcher as remote images, so the outbound connection rules apply; see [Outbound connections](/security/egress).
+
+## Read-only collection endpoints
+
+Two `GET` routes return one collection to a signed-in person in engine mode (other modes answer that the feature needs engine mode):
+
+| Address | Answer |
+|---|---|
+| `GET /dav/calendars/{accountId}/{calendarId}` | A calendar as iCalendar. The owner can read it, a person it is shared with at read or read and write level can read it, everyone else gets 403. |
+| `GET /dav/addressbooks/{accountId}/{addressBookId}` | An address book, for its owner only; address books have no sharing. |
+
+There are no other `/dav` routes: no `PROPFIND`, no writes.
 
 ## Holiday feeds
 

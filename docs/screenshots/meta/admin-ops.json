@@ -252,6 +252,20 @@
       "webBuiltAt": "2026-11-23T05:12:08.202Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
+    "opsa-hosting-identity": {
+      "hash": "eed0e91e94843378",
+      "bytes": 10592,
+      "width": 776,
+      "height": 228,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "1f50d09c",
+      "stack": "E",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
     "opsa-hosting-list": {
       "hash": "6de0ea1c2a5e9cb5",
       "bytes": 43516,
@@ -264,6 +278,20 @@
       "web": "9375fb5e30c2ee87",
       "webRevision": "26ed4f7c+local changes",
       "webBuiltAt": "2026-11-23T05:12:08.202Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "opsa-hosting-transport": {
+      "hash": "59fe7a6d4ce26e6c",
+      "bytes": 17110,
+      "width": 776,
+      "height": 472,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "22bdab0a",
+      "stack": "E",
+      "web": "cee6b4c97b54dc27",
+      "webRevision": "22bdab0a+local changes",
+      "webBuiltAt": "2026-11-23T06:23:24.538Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "opsa-logs-application": {
@@ -460,6 +488,20 @@
       "web": "9375fb5e30c2ee87",
       "webRevision": "26ed4f7c+local changes",
       "webBuiltAt": "2026-11-23T05:12:08.202Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "opsa-server-metadata-account": {
+      "hash": "a5fd024cc197d59e",
+      "bytes": 8764,
+      "width": 1197,
+      "height": 158,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "f823e09e",
+      "stack": "E",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "opsa-transfer-export": {

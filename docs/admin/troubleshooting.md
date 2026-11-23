@@ -33,7 +33,7 @@ The directory set in `MW_SEARCH_DIR` could not be opened, for example because it
 
 ### The log warns that the admin console is at a default address
 
-The console is at its default path, which is the first path a scanner tries. Change it under **Security center**, **Console address**.
+The console is at its default path, which is the first path a scanner tries. Change it under **Security centre**, **Console address**.
 
 ## Reaching the console
 

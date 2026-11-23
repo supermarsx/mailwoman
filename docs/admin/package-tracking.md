@@ -14,7 +14,7 @@ Open **Package tracking** in the **Configuration** group of the console navigati
 ## Before you start
 
 - You need an AfterShip account and an API key that has permission to read and create trackings. You manage billing, provider retention and carrier access in AfterShip, not in Mailwoman.
-- You need the console capability to change integrations. Without it the form is read-only. Saving also asks you to confirm it is you again if you have not done so recently.
+- You need the console capability to change integrations. Without it the form is read-only. Saving also asks you to confirm that it is you (your password and second factor, or a passkey) if you have not done so recently.
 - Mailwoman sends requests to the provider through the **package_tracking** outbound route. If your server needs a proxy to reach the internet, set one up for that route in [Outbound connections](/security/egress). This route only allows public HTTPS addresses, and it refuses redirects and proxies that resolve names themselves.
 
 ## Set up the provider

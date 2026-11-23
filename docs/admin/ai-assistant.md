@@ -71,6 +71,8 @@ The **Rate limit** group shows **Requests per minute** ([`assistant.rateLimitPer
 
 ![The Rate limit group of the AI assistant page with the text that the server applies only MW_ASSIST_RATE_LIMIT_PER_MIN and the Requests per minute field.](/screenshots/admin-ops/opsc-assist-limits.webp){.mw-crop}
 
+The field in the image still carries the hint **Applies within 30 seconds** and **Default: 0 (refuses every request)**; neither describes what the server does, as explained here.
+
 The limit counts outbound requests per account per minute. With the variable unset there is no limit. `0` refuses every assistant request. A chat turn counts 1; a semantic search on an empty cache counts up to 33. The field shows `0` as its default, but that is the stored setting's default, which the server does not read: with the variable unset the assistant is not limited. The daily limit `limit.ai_calls_per_day` that appears in the feature editor is not enforced either.
 
 ## Provider profiles
@@ -83,7 +85,7 @@ The limit counts outbound requests per account per minute. With the variable uns
 2. Choose **Save profile**, then **Test profile**. The test sends a fixed prompt with no mail content and reports **Answered in** the time, or **Failed after** the time and the reason.
 3. Under **Who uses which profile**, set the **Deployment default** and, in **By domain** and **By user**, the profile each uses. A user assigned a profile that no longer exists has no assistant.
 
-An endpoint on this machine or the local network is refused until its exact host and port are listed under **Local endpoints** (**Grant**). Adding or removing one asks you to confirm your password. Link-local and cloud metadata addresses can never be granted. Presets are marked **Tested against a local mock of this request format, not against the provider's live service.** or **Not tested.**
+An endpoint on this machine or the local network is refused until its exact host and port are listed under **Local endpoints** (**Grant**). Adding or removing one asks you to confirm that it is you (your password and second factor, or a passkey). Link-local and cloud metadata addresses can never be granted. Presets are marked **Tested against a local mock of this request format, not against the provider's live service.** or **Not tested.**
 
 ## Options
 

@@ -2861,6 +2861,166 @@
           "place": "top"
         }
       ]
+    },
+    {
+      "id": "opsa-hosting-identity",
+      "page": "admin/hosting.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/integrations/hosting"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-hosting-new"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-hosting-identity"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-hosting-identity"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-hosting-name",
+            "exact": false
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@admin-hosting-provider",
+            "exact": false
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 3,
+          "target": {
+            "label": "@admin-hosting-url",
+            "exact": false
+          },
+          "place": "top-left"
+        }
+      ],
+      "alt": "The Panel identity group of the New hosting connection form, with markers 1 to 3 on Connection name, Provider and HTTPS panel origin."
+    },
+    {
+      "id": "opsa-hosting-transport",
+      "page": "admin/hosting.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/integrations/hosting"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-hosting-new"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-hosting-transport"
+          }
+        },
+        {
+          "scroll": {
+            "label": "@admin-hosting-min-tls",
+            "exact": false,
+            "block": "center"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-hosting-transport"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-hosting-route",
+            "exact": false
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@admin-hosting-min-tls",
+            "exact": false
+          },
+          "place": "top-left"
+        }
+      ],
+      "alt": "The Connection and TLS group of the New hosting connection form, with markers 1 and 2 on Connection route and Minimum TLS version."
+    },
+    {
+      "id": "opsa-server-metadata-account",
+      "page": "admin/server-metadata.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/server-metadata"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-servermeta-select-prompt"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "label": "@admin-servermeta-account"
+          },
+          {
+            "text": "@admin-servermeta-select-prompt"
+          }
+        ],
+        "padding": 12
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-servermeta-account"
+          },
+          "place": "top-left"
+        }
+      ],
+      "alt": "The Account selector of Server metadata with marker 1, and the prompt asking to select an account."
     }
   ]
 }

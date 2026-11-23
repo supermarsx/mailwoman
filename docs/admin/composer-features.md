@@ -55,83 +55,83 @@ Each row is one feature. All of them default to on, can be set globally, per dom
 
 | Label | Setting key | What it controls | On in **Simple** | On in **Locked-down** |
 | --- | --- | --- | --- | --- |
-| Font size steps | `compose.feature.format.fontSizeStep` | Buttons and shortcuts that grow or shrink the font size along the standard sizes. | yes | yes |
-| Bulleted and numbered lists | `compose.feature.format.lists` | The two list buttons. | yes | yes |
-| List types | `compose.feature.format.listTypes` | The dropdown on each list button: bullet shapes, numbering styles, checklists and numbering controls. | no | no |
-| Indent | `compose.feature.format.indent` | Increase and decrease indent, and Tab and Shift+Tab in lists. | yes | yes |
-| Clear formatting | `compose.feature.format.clearFormatting` | The clear formatting button, its options and Ctrl+Space. | yes | yes |
-| Format painter | `compose.feature.format.painter` | Copy formatting and apply formatting. | no | no |
-| Line spacing | `compose.feature.format.lineSpacing` | Line spacing and the space before and after paragraphs. | no | no |
-| Text direction | `compose.feature.format.direction` | Left-to-right and right-to-left buttons. | no | no |
-| Paste options | `compose.feature.format.pasteOptions` | Keep formatting, merge formatting or paste text only. | no | no |
-| Strikethrough | `compose.feature.format.strikethrough` | The strikethrough button. | yes | yes |
-| Double strikethrough | `compose.feature.format.doubleStrikethrough` | Double strikethrough in the text effects menu. Some mail apps show a single line. | no | no |
-| Superscript | `compose.feature.format.superscript` | Superscript and Ctrl+Shift+=. | no | no |
-| Subscript | `compose.feature.format.subscript` | Subscript and Ctrl+=. | no | no |
-| Small caps | `compose.feature.format.smallCaps` | Small caps in the text effects menu. | no | no |
-| All caps | `compose.feature.format.allCaps` | All caps as a style, without changing the typed text. | no | no |
-| Underline styles | `compose.feature.format.underlineStyle` | Double, dotted, dashed, wavy and thick underlines. | no | no |
-| Ligatures | `compose.feature.format.ligatures` | Turn ligatures off for the selected text. Many mail apps ignore this. | no | no |
-| Text scale and spacing | `compose.feature.format.textScale` | Character width scale and condensed or expanded spacing. | no | no |
-| Text outline and shadow | `compose.feature.format.textOutline` | Outline and shadow built from text shadows. Client dependent. | no | no |
-| Styles gallery | `compose.feature.format.stylesRibbon` | The Styles group with headings, title, quote and code styles. | yes | yes |
-| Sort selection | `compose.feature.format.sort` | Sort lines, list items or table rows. | no | no |
-| Custom styles | `compose.feature.format.customStyles` | Create, update and keep your own styles in the Styles gallery. | no | no |
-| Font dialog | `compose.feature.format.fontDialog` | The Font dialog and Ctrl+D. | no | no |
+| **Font size steps** | `compose.feature.format.fontSizeStep` | Buttons and shortcuts that grow or shrink the font size along the standard sizes. | yes | yes |
+| **Bulleted and numbered lists** | `compose.feature.format.lists` | The two list buttons. | yes | yes |
+| **List types** | `compose.feature.format.listTypes` | The dropdown on each list button: bullet shapes, numbering styles, checklists and numbering controls. | no | no |
+| **Indent** | `compose.feature.format.indent` | Increase and decrease indent, and Tab and Shift+Tab in lists. | yes | yes |
+| **Clear formatting** | `compose.feature.format.clearFormatting` | The clear formatting button, its options and Ctrl+Space. | yes | yes |
+| **Format painter** | `compose.feature.format.painter` | Copy formatting and apply formatting. | no | no |
+| **Line spacing** | `compose.feature.format.lineSpacing` | Line spacing and the space before and after paragraphs. | no | no |
+| **Text direction** | `compose.feature.format.direction` | Left-to-right and right-to-left buttons. | no | no |
+| **Paste options** | `compose.feature.format.pasteOptions` | Keep formatting, merge formatting or paste text only. | no | no |
+| **Strikethrough** | `compose.feature.format.strikethrough` | The strikethrough button. | yes | yes |
+| **Double strikethrough** | `compose.feature.format.doubleStrikethrough` | Double strikethrough in the text effects menu. Some mail apps show a single line. | no | no |
+| **Superscript** | `compose.feature.format.superscript` | Superscript and Ctrl+Shift+=. | no | no |
+| **Subscript** | `compose.feature.format.subscript` | Subscript and Ctrl+=. | no | no |
+| **Small caps** | `compose.feature.format.smallCaps` | Small caps in the text effects menu. | no | no |
+| **All caps** | `compose.feature.format.allCaps` | All caps as a style, without changing the typed text. | no | no |
+| **Underline styles** | `compose.feature.format.underlineStyle` | Double, dotted, dashed, wavy and thick underlines. | no | no |
+| **Ligatures** | `compose.feature.format.ligatures` | Turn ligatures off for the selected text. Many mail apps ignore this. | no | no |
+| **Text scale and spacing** | `compose.feature.format.textScale` | Character width scale and condensed or expanded spacing. | no | no |
+| **Text outline and shadow** | `compose.feature.format.textOutline` | Outline and shadow built from text shadows. Client dependent. | no | no |
+| **Styles gallery** | `compose.feature.format.stylesRibbon` | The Styles group with headings, title, quote and code styles. | yes | yes |
+| **Sort selection** | `compose.feature.format.sort` | Sort lines, list items or table rows. | no | no |
+| **Custom styles** | `compose.feature.format.customStyles` | Create, update and keep your own styles in the Styles gallery. | no | no |
+| **Font dialog** | `compose.feature.format.fontDialog` | The Font dialog and Ctrl+D. | no | no |
 
 ### Insert
 
 | Label | Setting key | What it controls | On in **Simple** | On in **Locked-down** |
 | --- | --- | --- | --- | --- |
-| Attach file | `compose.feature.insert.attachFile` | Attach a file from this device. | yes | no |
-| Signatures | `compose.feature.insert.signature` | Signatures | yes | no |
-| Manage signatures | `compose.feature.insert.signatureEdit` | Manage signatures | yes | no |
-| Attach from messages | `compose.feature.insert.attachFromMessages` | Pick attachments from other messages. | yes | no |
-| Picture from file | `compose.feature.insert.pictureFile` | Insert pictures from files, with size presets. | yes | no |
-| Picture from messages | `compose.feature.insert.pictureFromMessages` | Pick pictures from the attachments of other messages. | no | no |
-| Shapes | `compose.feature.insert.shapes` | Insert drawn shapes as pictures. | no | no |
-| Screenshot | `compose.feature.insert.screenshot` | Capture the screen or a window as a picture. | no | no |
-| Picture from web address | `compose.feature.insert.onlinePicture` | Fetch a picture from a web address through the image proxy. | no | no |
-| Business card | `compose.feature.insert.businessCard` | Insert a business card and its vCard. | no | no |
-| Calendar blocks | `compose.feature.insert.calendar` | Insert availability, an agenda or a month snapshot. | no | no |
-| Event | `compose.feature.insert.event` | Insert an event with an iCalendar invitation. | no | no |
-| Symbols | `compose.feature.insert.symbols` | Special characters and emoji. | yes | no |
-| Horizontal line | `compose.feature.insert.horizontalLine` | Insert a dividing line. | yes | no |
-| Date and time | `compose.feature.insert.dateStamp` | Insert the current date and time. | yes | no |
-| Link dialog | `compose.feature.insert.link` | Links with their own text, tooltip and safety check (Ctrl+K). | yes | no |
-| Drop to attach | `compose.feature.insert.dragDropAttach` | Drop files on the composer to attach them. | yes | no |
-| Drop images inline | `compose.feature.insert.dragDropInline` | Drop images into the body to place them inline. | no | no |
-| Drop messages | `compose.feature.insert.dropMessages` | Drop a message from the list to attach it as .eml. | no | no |
+| **Attach file** | `compose.feature.insert.attachFile` | Attach a file from this device. | yes | no |
+| **Signatures** | `compose.feature.insert.signature` | Signatures | yes | no |
+| **Manage signatures** | `compose.feature.insert.signatureEdit` | Manage signatures | yes | no |
+| **Attach from messages** | `compose.feature.insert.attachFromMessages` | Pick attachments from other messages. | yes | no |
+| **Picture from file** | `compose.feature.insert.pictureFile` | Insert pictures from files, with size presets. | yes | no |
+| **Picture from messages** | `compose.feature.insert.pictureFromMessages` | Pick pictures from the attachments of other messages. | no | no |
+| **Shapes** | `compose.feature.insert.shapes` | Insert drawn shapes as pictures. | no | no |
+| **Screenshot** | `compose.feature.insert.screenshot` | Capture the screen or a window as a picture. | no | no |
+| **Picture from web address** | `compose.feature.insert.onlinePicture` | Fetch a picture from a web address through the image proxy. | no | no |
+| **Business card** | `compose.feature.insert.businessCard` | Insert a business card and its vCard. | no | no |
+| **Calendar blocks** | `compose.feature.insert.calendar` | Insert availability, an agenda or a month snapshot. | no | no |
+| **Event** | `compose.feature.insert.event` | Insert an event with an iCalendar invitation. | no | no |
+| **Symbols** | `compose.feature.insert.symbols` | Special characters and emoji. | yes | no |
+| **Horizontal line** | `compose.feature.insert.horizontalLine` | Insert a dividing line. | yes | no |
+| **Date and time** | `compose.feature.insert.dateStamp` | Insert the current date and time. | yes | no |
+| **Link dialog** | `compose.feature.insert.link` | Links with their own text, tooltip and safety check (Ctrl+K). | yes | no |
+| **Drop to attach** | `compose.feature.insert.dragDropAttach` | Drop files on the composer to attach them. | yes | no |
+| **Drop images inline** | `compose.feature.insert.dragDropInline` | Drop images into the body to place them inline. | no | no |
+| **Drop messages** | `compose.feature.insert.dropMessages` | Drop a message from the list to attach it as .eml. | no | no |
 
 ### Layout
 
 | Label | Setting key | What it controls | On in **Simple** | On in **Locked-down** |
 | --- | --- | --- | --- | --- |
-| Columns | `compose.feature.layout.columns` | Write in two or three columns using mail-safe tables. | no | no |
-| Content width | `compose.feature.layout.contentWidth` | Limit the message to a fixed width and align it left or centred. | no | no |
-| Page and content colour | `compose.feature.layout.pageColor` | Colour the page behind the message and the content card. These colours are sent. | no | no |
-| Message themes | `compose.feature.layout.themes` | Apply a stationery theme with fonts, colours and spacing. | no | no |
-| Default message font | `compose.feature.layout.defaultFont` | Set the font family, size and colour used for new text. | yes | no |
-| Spacing | `compose.feature.layout.spacing` | Cell padding, column gutter and paragraph spacing presets. | no | no |
-| Collapsible message header | `compose.feature.layout.headerCollapse` | The corner button, Alt+H and the folded summary line for To, Cc, Bcc and Subject. | yes | no |
-| Ribbon auto-hide button | `compose.feature.layout.ribbonAutoHide` | The pin button in the ribbon's corner, Ctrl+F1 and double-click on a tab. | yes | no |
+| **Columns** | `compose.feature.layout.columns` | Write in two or three columns using mail-safe tables. | no | no |
+| **Content width** | `compose.feature.layout.contentWidth` | Limit the message to a fixed width and align it left or centred. | no | no |
+| **Page and content colour** | `compose.feature.layout.pageColor` | Colour the page behind the message and the content card. These colours are sent. | no | no |
+| **Message themes** | `compose.feature.layout.themes` | Apply a stationery theme with fonts, colours and spacing. | no | no |
+| **Default message font** | `compose.feature.layout.defaultFont` | Set the font family, size and colour used for new text. | yes | no |
+| **Spacing** | `compose.feature.layout.spacing` | Cell padding, column gutter and paragraph spacing presets. | no | no |
+| **Collapsible message header** | `compose.feature.layout.headerCollapse` | The corner button, Alt+H and the folded summary line for To, Cc, Bcc and Subject. | yes | no |
+| **Ribbon auto-hide button** | `compose.feature.layout.ribbonAutoHide` | The pin button in the ribbon's corner, Ctrl+F1 and double-click on a tab. | yes | no |
 
 ### Options
 
 | Label | Setting key | What it controls | On in **Simple** | On in **Locked-down** |
 | --- | --- | --- | --- | --- |
-| Signature position | `compose.feature.options.signaturePosition` | Signature position | yes | no |
-| Save sent item to a folder | `compose.feature.options.sentFolder` | Choose the folder that receives the copy of a sent message, or skip the copy. | no | no |
-| Reply-To address | `compose.feature.options.replyTo` | Add a Reply-To header so replies go to a different address. | no | no |
-| Reply-By | `compose.feature.options.replyBy` | Ask recipients to answer by a date (Reply-By header). | yes | no |
-| Return receipt (legacy) | `compose.feature.options.returnReceipt` | The old Return-Receipt-To header, off unless an administrator allows it. | no | no |
-| Importance | `compose.feature.options.importance` | Mark a message as high or low importance. | yes | no |
-| Sensitivity | `compose.feature.options.sensitivity` | Mark a message as personal, private or company confidential. | no | no |
-| Expiry date | `compose.feature.options.expires` | Say after which date the message is no longer relevant (Expires header). | no | no |
-| Auto-Submitted | `compose.feature.options.autoSubmitted` | Mark a message as automatically generated (administrator gated). | no | no |
-| Conversation headers | `compose.feature.options.inReplyTo` | Show In-Reply-To and References, and start a new thread. | no | no |
-| Replaces an earlier message | `compose.feature.options.supersedes` | Name the message this one replaces (Supersedes header). | no | no |
-| Custom headers | `compose.feature.options.customHeaders` | Add your own headers (administrator gated). | no | no |
+| **Signature position** | `compose.feature.options.signaturePosition` | Signature position | yes | no |
+| **Save sent item to a folder** | `compose.feature.options.sentFolder` | Choose the folder that receives the copy of a sent message, or skip the copy. | no | no |
+| **Reply-To address** | `compose.feature.options.replyTo` | Add a Reply-To header so replies go to a different address. | no | no |
+| **Reply-By** | `compose.feature.options.replyBy` | Ask recipients to answer by a date (Reply-By header). | yes | no |
+| **Return receipt (legacy)** | `compose.feature.options.returnReceipt` | The old Return-Receipt-To header, off unless an administrator allows it. | no | no |
+| **Importance** | `compose.feature.options.importance` | Mark a message as high or low importance. | yes | no |
+| **Sensitivity** | `compose.feature.options.sensitivity` | Mark a message as personal, private or company confidential. | no | no |
+| **Expiry date** | `compose.feature.options.expires` | Say after which date the message is no longer relevant (Expires header). | no | no |
+| **Auto-Submitted** | `compose.feature.options.autoSubmitted` | Mark a message as automatically generated (administrator gated). | no | no |
+| **Conversation headers** | `compose.feature.options.inReplyTo` | Show In-Reply-To and References, and start a new thread. | no | no |
+| **Replaces an earlier message** | `compose.feature.options.supersedes` | Name the message this one replaces (Supersedes header). | no | no |
+| **Custom headers** | `compose.feature.options.customHeaders` | Add your own headers (administrator gated). | no | no |
 
 
 ## What the composer writes

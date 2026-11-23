@@ -12,7 +12,7 @@ The queue is stored in the database, so a waiting message survives closing the b
 
 ## Before you start
 
-- The limits in this page are administrator settings. They can be set globally or for a domain in **Settings**. Users cannot store them.
+- The limits in this page are administrator settings. They can be set globally or for a domain in **Settings**. The time a user waits is their own choice within your ceiling (see below).
 - The time a user waits before a message leaves is the user's own choice, within your ceiling. The user sets it under **Undo send** in **Settings**, in **Composing and replies**.
 
 ## What the sender sees
