@@ -380,11 +380,15 @@ impl<S: LocalCredentialStore> Local<S> {
 impl<S: LocalCredentialStore> PasswordChangeBackend for Local<S> {
     async fn change(&self, ctx: &Ctx, old: Secret, new: Secret) -> Result<PasswordChangeOutcome> {
         self.policy.validate(&new)?;
+        // No stored hash: nothing provisioned a local password for this account,
+        // so there is no current password to check and nothing to change. Say so
+        // (501 at the route) rather than "wrong current password", which no input
+        // could ever fix. The answer does not depend on `old`, so it is no oracle.
         let phc = self
             .store
             .current_hash(&ctx.account_id)
             .await?
-            .ok_or(PasswordError::WrongCurrent)?;
+            .ok_or(PasswordError::Unimplemented)?;
         if !verify_password(old.expose(), &phc)? {
             return Err(PasswordError::WrongCurrent);
         }
@@ -455,6 +459,25 @@ mod tests {
         assert!(phc.starts_with("$argon2id$"));
         assert!(!phc.contains("brand-new-password"));
         assert!(verify_password("brand-new-password", &phc).unwrap());
+    }
+
+    /// An account with no provisioned hash reports "not configured", whatever
+    /// current password is offered, and nothing is written.
+    #[tokio::test]
+    async fn no_stored_hash_is_not_configured_not_wrong_password() {
+        let backend = Local::new(MemStore::default(), PasswordPolicy::default());
+        for old in ["any-guess-1234", ""] {
+            let err = backend
+                .change(
+                    &Ctx::new("a1", "u"),
+                    Secret::new(old),
+                    Secret::new("new-password-12"),
+                )
+                .await
+                .unwrap_err();
+            assert!(matches!(err, PasswordError::Unimplemented), "{err:?}");
+        }
+        assert!(backend.store.current_hash("a1").await.unwrap().is_none());
     }
 
     #[tokio::test]
