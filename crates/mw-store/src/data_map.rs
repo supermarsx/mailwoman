@@ -58,7 +58,7 @@ pub enum Export {
     None,
     /// Selected columns. `cols` is `name:s|i|j|u` per output column, in the
     /// order the SELECT returns them: text, integer, JSON text, or a URL that is
-    /// exported as `scheme://host/path` only (see [`export_url`]).
+    /// exported as `scheme://host[:port]` only (see [`export_url`]).
     Rows {
         section: &'static str,
         select: &'static str,
@@ -545,14 +545,15 @@ pub const RULES: &[Rule] = &[
     keep!("dsr_part", "stored export parts, removed when the export expires or the person is erased"),
 ];
 
-/// A URL as an export carries it: `scheme://host[:port]/path`, without user
-/// name, password, query string or fragment, which can hold tokens. `None` when
+/// A URL as an export carries it: `scheme://host[:port]`. User name, password,
+/// path, query string and fragment are left out: hook services put tokens in
+/// the query and also in the path (`/services/<id>/<secret>`). `None` when
 /// the value is not an absolute URL with a host.
 pub fn export_url(raw: &str) -> Option<String> {
     let url = url::Url::parse(raw.trim()).ok()?;
     let host = url.host()?;
     let port = url.port().map(|p| format!(":{p}")).unwrap_or_default();
-    Some(format!("{}://{host}{port}{}", url.scheme(), url.path()))
+    Some(format!("{}://{host}{port}", url.scheme()))
 }
 
 /// Rules whose export is table-driven, for one section.
@@ -644,12 +645,13 @@ mod tests {
     }
 
     #[test]
-    fn urls_lose_user_info_query_and_fragment() {
+    fn urls_keep_only_scheme_host_and_port() {
         let cases = [
-            ("https://hooks.example.test/in/abc?token=s3cr3t#frag", Some("https://hooks.example.test/in/abc")),
-            ("https://user:pass@mail.example.test:8443/EWS/Exchange.asmx?x=1", Some("https://mail.example.test:8443/EWS/Exchange.asmx")),
-            ("https://example.test", Some("https://example.test/")),
-            ("http://[2001:db8::1]:8080/p", Some("http://[2001:db8::1]:8080/p")),
+            ("https://hooks.example.test/in/abc?token=s3cr3t#frag", Some("https://hooks.example.test")),
+            ("https://user:pass@mail.example.test:8443/EWS/Exchange.asmx?x=1", Some("https://mail.example.test:8443")),
+            ("https://hooks.example.test/services/T0/B0/pathsecret", Some("https://hooks.example.test")),
+            ("https://example.test", Some("https://example.test")),
+            ("http://[2001:db8::1]:8080/p", Some("http://[2001:db8::1]:8080")),
             ("not a url", None),
             ("mailto:someone@example.test", None),
         ];

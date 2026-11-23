@@ -6,7 +6,7 @@ Applies to every deployment that handles data requests (**Data requests** in the
 
 - **Exports carry seven more sections.** Earlier releases built the `mailstate`, `tasks`, `security`, `integrations`, `delegation`, `usage` and `records` sections but always left them out, because their switches were not registered and read as off. Each now has a switch (`dsr.export.include.mailstate` and so on, **Export: tasks** and so on in the console), on by default. See [What an export contains](../../admin/data-requests.md#what-an-export-contains) for the files and what they hold.
 - **Exports get larger.** The new sections are JSON metadata (tags, tasks, key and token metadata, connected accounts, delegations, usage counters, restrictions, retention rules and similar), so most exports grow by a small amount. Tasks carry their iCalendar text. A section that would go over **Export size cap** is left out and listed with reason `sizeCap`, as before.
-- **What is not exported.** Secrets and sealed values appear only as markers (`present, not exported`). Webhook URLs and EWS endpoint URLs are exported as `scheme://host/path`, without user name, password, query string or fragment. A delegation the person received does not name the owner's account id.
+- **What is not exported.** Secrets and sealed values appear only as markers (`present, not exported`). Webhook URLs and EWS endpoint URLs are exported as `scheme://host[:port]`, without user name, password, path, query string or fragment. A delegation the person received does not name the owner's account id.
 
 ## Existing requests
 

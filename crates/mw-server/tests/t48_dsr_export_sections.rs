@@ -1,6 +1,6 @@
 //! The seven table-driven export sections (mailstate, tasks, security,
 //! integrations, delegation, usage, records) are in a default export, each can
-//! be switched off, URLs lose their query string and user info, and a second
+//! be switched off, URLs keep only scheme, host and port, and a second
 //! account's rows never reach the first person's export.
 use mw_server::{AppConfig, HardeningConfig, SecurityConfig, ServerMode, V6Config, build_app_full};
 use mw_store::settings_policy::SettingPolicyRow;
@@ -233,7 +233,7 @@ async fn seed_person(pool: &SqlitePool, acct: &str, address: &str, tag: &str) {
     seed(
         pool,
         "webhooks",
-        &[("account_id", acct), ("url", &format!("https://hooks.example.test/in/{tag}?token={tag}-hook-token#frag"))],
+        &[("account_id", acct), ("url", &format!("https://hooks.example.test/in/{tag}-path-secret?token={tag}-hook-token#frag"))],
         tag,
     )
     .await;
@@ -302,14 +302,14 @@ async fn a_default_export_holds_the_seven_sections_with_only_the_persons_rows() 
     assert_eq!(received["permissions"], json!(["read"]));
     assert!(received.get("ownerAccountId").is_none() && received.get("delegateAccountId").is_none(), "{received}");
 
-    // URLs keep scheme, host and path only.
+    // URLs keep scheme, host and port only.
     let integrations = f.part(&id, "integrations.json").await.unwrap();
     let hook = integrations.as_array().unwrap().iter().find(|r| r["table"] == "webhooks").unwrap();
-    assert_eq!(hook["url"], "https://hooks.example.test/in/alfa");
+    assert_eq!(hook["url"], "https://hooks.example.test");
     let provider = integrations.as_array().unwrap().iter().find(|r| r["table"] == "account_provider").unwrap();
-    assert_eq!(provider["endpointUrl"], "https://ews.example.test/EWS/Exchange.asmx");
+    assert_eq!(provider["endpointUrl"], "https://ews.example.test");
     let text = integrations.to_string();
-    for secret in ["hook-token", "alfa-pass", "alfa-user", "alfa-sig", "frag"] {
+    for secret in ["path-secret", "hook-token", "alfa-pass", "alfa-user", "alfa-sig", "frag", "Exchange.asmx"] {
         assert!(!text.contains(secret), "{secret} is in the export: {text}");
     }
     // No sealed value or secret column reaches the export.

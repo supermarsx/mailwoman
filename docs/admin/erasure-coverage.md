@@ -38,7 +38,7 @@ data export unless its switch is off; see [What an export contains](data-request
 | `mailstate` | pins and snoozes, tags, saved searches, trusted senders, read-receipt rules and status, remote-image grants, masked addresses, queued submissions | yes; switch `dsr.export.include.mailstate` |
 | `tasks` | tasks | yes; switch `dsr.export.include.tasks` |
 | `security` | key metadata and associations, API key prefixes, passkey labels, OAuth token metadata, authorization consents, password change history, markers for sealed secrets | yes; switch `dsr.export.include.security` |
-| `integrations` | external mail and DAV connections, linked mailboxes, bridges, webhooks (URLs as `scheme://host/path`), markers for sealed credentials | yes; switch `dsr.export.include.integrations` |
+| `integrations` | external mail and DAV connections, linked mailboxes, bridges, webhooks (URLs as `scheme://host[:port]`), markers for sealed credentials | yes; switch `dsr.export.include.integrations` |
 | `delegation` | delegations granted (with the delegate) and received (without the owner), shared mailboxes, group membership | yes; switch `dsr.export.include.delegation` |
 | `usage` | usage counters, storage measurements, quotas, last activity | yes; switch `dsr.export.include.usage` |
 | `records` | consent ledger, restrictions, retention rules, tracking pixels and opens, uploads, plug-in data keys, DLP decisions | yes; switch `dsr.export.include.records` |
