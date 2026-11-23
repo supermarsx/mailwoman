@@ -4,7 +4,7 @@ PDF attachments open in Mozilla's PDF.js viewer, served by your Mailwoman server
 `apps/web/public/pdfjs` (no third-party CDN). This page describes how the viewer is
 isolated from the rest of the app and what a hostile PDF can and cannot do.
 
-<!-- screenshot: id=security/pdf-preview; screen=Mailbox > message with a PDF attachment > preview; state=sample PDF open, toolbar visible; element=whole viewer -->
+![A PDF attachment open in its own tab in the built-in PDF viewer, with the page toolbar, and the download and information buttons above it.](/screenshots/security/pdf-preview.webp){.mw-shot}
 
 ## How the bytes reach the viewer
 

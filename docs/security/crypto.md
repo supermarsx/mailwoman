@@ -2,7 +2,7 @@
 
 Mailwoman can sign, encrypt, decrypt and verify OpenPGP mail in the browser, and it manages OpenPGP and S/MIME keys under **Keys & certificates**. This page explains where private keys live, what the server stores and can do, how contact keys are found and trusted, and the current limits.
 
-<!-- screenshot: id=security/keys-overview; screen=Keys & certificates; state=one own OpenPGP key and two contact keys; element=whole module with Your keys and Contact keys lists -->
+![The Keys & certificates panel: the note that a passphrase-locked copy of each private key is stored on the server, Generate key and Import key, empty Your keys and Contact keys lists, and the Look up a key form.](/screenshots/security/keys-overview.webp){.mw-crop}
 
 ## One library, two builds
 
@@ -13,7 +13,7 @@ All cryptography is in the Rust crate `mw-crypto`. OpenPGP uses rPGP (the `pgp` 
 
 ## Private keys
 
-<!-- screenshot: id=security/keys-generate; screen=Keys & certificates > Generate key; state=OpenPGP selected; element=Generate a key dialog with Key passphrase field -->
+![The Generate a key dialog with OpenPGP selected, the name and email fields, and the Key passphrase field with its note that the locked key is also stored on the server.](/screenshots/security/keys-generate.webp){.mw-crop}
 
 - **Generate key** creates the key in the crypto worker. An OpenPGP key is, by default, a version 6 key (Ed25519 primary key for certifying and signing, X25519 encryption subkey, RFC 9580); a compatible profile makes the Ed25519/Curve25519 key type that GnuPG 2.2 to 2.4 use. An S/MIME key is RSA 3072-bit with a self-signed certificate valid for two years.
 - Before the private key leaves the worker it is locked with the **Key passphrase**: OpenPGP keys with OpenPGP passphrase protection (S2K) on the primary key and every subkey; S/MIME keys as a PKCS#8 `EncryptedPrivateKeyInfo` (PBES2 with PBKDF2-HMAC-SHA256 and AES-256-CBC).
@@ -29,8 +29,6 @@ The key panel says the same: "A copy of each private key, locked with its key pa
 When a message is OpenPGP-encrypted, the server returns the encrypted MIME as it is and marks it as encrypted. The browser decrypts it in the crypto worker. If the decrypted body is HTML, the worker sanitizes it with the WebAssembly build of the same HTML sanitizer the server uses, before it is shown in the sandboxed message frame. Decrypted content is not sent back to the server for sanitizing or rendering.
 
 ## Contact keys and trust
-
-<!-- screenshot: id=security/keys-lookup; screen=Keys & certificates; state=lookup form filled in; element=Look up a key form with Consent to external lookup checkbox -->
 
 Contact keys come from:
 
@@ -60,8 +58,6 @@ The server then fetches the key from the address's domain (`openpgpkey.<domain>`
 Set `MW_WKD_DIR` to a directory of public keys and Mailwoman serves them at `/.well-known/openpgpkey/hu/<hash>` and `/.well-known/openpgpkey/<domain>/hu/<hash>`, with the matching `policy` files. Only public keys belong in that directory. The layout is in [Crypto and security settings](/deploy/crypto-security).
 
 ## S/MIME
-
-<!-- screenshot: id=security/keys-smime; screen=Keys & certificates; state=own S/MIME key selected; element=S/MIME certificate section with export and request buttons -->
 
 - Supported private key types: RSA (2048 to 4096 bits), ECDSA/ECDH P-256 and P-384, Ed25519.
 - You can generate a key with a self-signed certificate, download a certificate request (`.csr`) for a certificate authority, replace the certificate with the one the authority issues (a certificate for a different key is refused), import a PKCS#12 (`.p12`) file and export one. PKCS#12 import and export run in the crypto worker.

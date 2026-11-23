@@ -62,16 +62,12 @@ The mailbox owner sees held items in the **Outbox** with "Held — created by AP
 …" or "Held — created by the connected app …" and chooses **Release** or
 **Discard**. The tool does not learn which they chose.
 
-<!-- screenshot: id=security/mcp-outbox-held; screen=Mail > Outbox; state=one held message created by an API key; element=held row with Release and Discard -->
-
 An administrator approves unattended send per key in **Integrations** → **API &
 MCP keys** (column **Unattended send**: **Not requested**, **Requested, not
 approved**, **Approved**). The approval is read from the database on every call,
 so withdrawing it or revoking the key applies to the next call. OAuth tokens can
 never send unattended. Approving does not ask the administrator for a fresh
 confirmation of their identity.
-
-<!-- screenshot: id=security/mcp-admin-unattended; screen=Admin console > Integrations > API & MCP keys; state=one key requested unattended send; element=Unattended send column with Approve -->
 
 ## Prompt injection
 

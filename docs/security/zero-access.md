@@ -10,7 +10,7 @@ The settings panel says the same: "It does not change how mail is stored: messag
 
 ## What turning it on does
 
-<!-- screenshot: id=security/zero-access-panel; screen=Settings > Security centre > Encryption; state=zero-access off, passphrase selected; element=whole Zero-access storage panel -->
+![The top of the Zero-access storage panel, marked Off, stating that the mode keeps the account out of the search index and shared caches and that stored mail stays sealed with the server's key.](/screenshots/security/zero-access-panel.webp){.mw-crop}
 
 When a user selects **Enable zero-access** under **Settings** > **Security centre** > **Encryption**, the following happens.
 
@@ -46,8 +46,6 @@ The server also sees all mail as it passes through when it syncs from the mail s
 
 ## Device pairing
 
-<!-- screenshot: id=security/zero-access-pairing; screen=Settings > Security centre > Encryption; state=pairing started on the new device; element=Device pairing section with QR code and six words -->
-
 **Device pairing** copies the root key to another device without giving it to the server:
 
 1. The new device (**This is the new device**) creates a P-256 key pair and shows the public key as a QR code.
@@ -62,8 +60,6 @@ The server only relays the sealed envelope. A server that swaps keys during pair
 The recovery phrase is the root key itself, written as words. Anyone who has it can derive the account's keys. It is displayed once and not stored on the server. If the user loses the passphrase or passkey, every paired device and the recovery phrase, the client-side keys cannot be recovered. Because no stored mail is encrypted with those keys today, losing them does not make mail unreadable.
 
 ## Turning it off
-
-<!-- screenshot: id=security/zero-access-disable; screen=Settings > Security centre > Encryption; state=zero-access on; element=Turn off zero-access section and Disable zero-access button -->
 
 **Disable zero-access** marks the account as standard again. Search indexing and caching resume for new and re-indexed mail. The wrapped key stays stored. Deleted linked-mailbox credentials are not restored; the links have to be signed in again.
 

@@ -32,8 +32,6 @@ name (usually an email address) and the client address. Set the two redaction
 settings above if your logs leave the server or are kept long.
 :::
 
-<!-- screenshot: id=security/observability-log-redaction; screen=Admin console > Settings > Observability; state=defaults; element=logging.redaction.addresses, logging.redaction.ips, logging.redaction.tokens -->
-
 ## Application log store
 
 The console's **Logs** screen shows records the server process keeps in memory.

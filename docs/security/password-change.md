@@ -2,7 +2,7 @@
 
 Users can change their mail password from Mailwoman under **Settings** > **Security centre** > **Sign-in & passkeys** > **Change password**. Mailwoman does not change the password itself; it passes the change to a backend that the operator chooses. This page describes the backends, what the server sees and stores, and how a forced change works.
 
-<!-- screenshot: id=security/password-change-form; screen=Settings > Security centre > Sign-in & passkeys; state=form empty, policy shown; element=Change password form with Current password, New password and Confirm new password -->
+![The Change password form: Current password, New password and Confirm new password, the length rule, and the Change password button.](/screenshots/security/password-change-form.webp){.mw-crop}
 
 ## Choosing a backend
 
@@ -44,8 +44,6 @@ The webhook backend sends a JSON body with the fields `event`, `account_id`, `us
 The server handles both passwords in clear text in memory during the request, and it keeps the new mail password sealed with the server key, as it did the old one. An operator who holds the server key can therefore read stored mail passwords; see [Encryption at rest](./encryption-at-rest.md).
 
 ## Forced change
-
-<!-- screenshot: id=security/password-forced; screen=forced password change after sign-in; state=account held by administrator; element=Change password screen with the administrator notice -->
 
 An administrator can require a user to change their password. Until the user does, the server refuses that account's requests except the password policy and the change itself, and the user sees "Your administrator requires you to change your password before continuing." A successful change clears the requirement.
 

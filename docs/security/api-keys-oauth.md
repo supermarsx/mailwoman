@@ -31,17 +31,17 @@ the key prefix or OAuth client id, the result, the reason and the source address
 
 Users create keys in **Settings** → **API access** → **API keys**.
 
-<!-- screenshot: id=security/apikeys-create; screen=Settings > API access > API keys; state=create form filled; element=Label, Capabilities, Surface, Accounts, Folders, Constraints, Create key -->
+![The Create key form: label, capabilities Read, Send and Delete, surface Mail, PIM or Sieve, accounts, folders, and the expiry, rate limit and IP allowlist constraints.](/screenshots/security/apikeys-create.webp){.mw-crop}
 
-1. Enter a **Label** and choose **Capabilities**, **Surface**, **Accounts**,
+1. Select **Create key**, enter a **Label** and choose **Capabilities**, **Surface**, **Accounts**,
    **Folders** and the **Constraints** (**Expiry**, **Rate limit**, **IP
    allowlist**).
-2. Select **Create key**. The server asks you to confirm it is you (password
+2. Select **Create key** under the form. The server asks you to confirm it is you (password
    plus your second factor, or a passkey).
 3. Copy the key and select **I have saved it**. The key is shown once and cannot
    be retrieved again.
 
-<!-- screenshot: id=security/apikeys-reveal; screen=Settings > API access > API keys; state=new key revealed; element=one-time secret with Copy and I have saved it -->
+![A new API key shown once, with the warning to copy it now, Copy and I have saved it; the secret itself is greyed out in this image.](/screenshots/security/apikeys-reveal.webp){.mw-crop}
 
 How keys are built and stored:
 
@@ -65,8 +65,6 @@ How keys are built and stored:
   revoked when that mailbox is unlinked.
 - **Logs:** strings that look like `mwk_` keys are cut out of log lines (see
   [Logging and monitoring](./observability.md)).
-
-<!-- screenshot: id=security/admin-api-keys; screen=Admin console > Integrations; state=two keys listed; element=API & MCP keys list with revoke -->
 
 ## OAuth
 
@@ -98,7 +96,7 @@ a user's behalf.
 - **Endpoints:** `/oauth/token`, `/oauth/introspect`, `/oauth/revoke`, and
   `/oauth/register` when self-registration is on.
 
-<!-- screenshot: id=security/admin-oauth-clients; screen=Admin console > OAuth clients; state=self-registration off; element=Let apps register themselves, Allowed redirect hosts, Granted scope -->
+![The Self-registration group of OAuth clients: Let apps register themselves is off, no allowed redirect hosts, and the shared registration token is not required.](/screenshots/security/admin-oauth-clients.webp){.mw-crop}
 
 ### Limits
 
