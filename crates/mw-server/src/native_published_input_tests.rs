@@ -462,3 +462,343 @@ fn independent_writer_during_worker_build_prevents_installing_old_inputs() {
         assert_eq!(denied.2.dispatches + denied.2.restart_dispatches, 0);
     });
 }
+
+// ---------------------------------------------------------------------------
+// t34-e6: bounded-staleness guard snapshot (`MW_GUARD_SNAPSHOT=bounded`).
+// Actual router, real Store/EpochMirror; only the process mode is scoped to
+// each request through the snapshot test control.
+// ---------------------------------------------------------------------------
+mod guard_snapshot_cases {
+    use super::*;
+    use crate::request_inputs::snapshot::{Mode, test_control as snap};
+    use crate::request_inputs::test_control as inputs;
+
+    pub(super) struct Sent {
+        pub status: StatusCode,
+        pub body: Value,
+        pub inputs: inputs::Counts,
+        pub snap: snap::Counts,
+        pub sql: mw_store::pool_telemetry::QuerySnapshot,
+    }
+    pub(super) const OFF: Mode = Mode::Off;
+    pub(super) const SHORT: Mode = Mode::Bounded(Duration::from_millis(100));
+    pub(super) const LONG: Mode = Mode::Bounded(Duration::from_millis(5000));
+
+    pub(super) fn me(f: &Fixture) -> Request<Body> {
+        let mut request = f.request();
+        *request.method_mut() = axum::http::Method::GET;
+        *request.uri_mut() = "/api/me".parse().unwrap();
+        *request.body_mut() = Body::empty();
+        peer(request)
+    }
+    pub(super) fn mail(f: &Fixture) -> Request<Body> {
+        peer(f.request())
+    }
+    pub(super) fn logout(f: &Fixture) -> Request<Body> {
+        let mut request = f.request();
+        *request.uri_mut() = "/api/logout".parse().unwrap();
+        *request.body_mut() = Body::empty();
+        peer(request)
+    }
+    fn peer(mut request: Request<Body>) -> Request<Body> {
+        request.extensions_mut().insert(axum::extract::ConnectInfo(
+            "127.0.0.1:48219".parse::<std::net::SocketAddr>().unwrap()));
+        request.headers_mut().insert("user-agent", "Mozilla/5.0".parse().unwrap());
+        request
+    }
+    /// Ordinary published request inputs ON, native metadata dispatcher OFF
+    /// (ordinary handlers), as the existing request-input oracle does.
+    pub(super) async fn send(f: &Fixture, request: Request<Body>, mode: Mode) -> Sent {
+        let measured = snap::measure(snap::with_mode(mode,
+            inputs::measure(true, test_control::count(true, f.router.clone().oneshot(request)))));
+        let ((((result, _native), inputs), snap), sql) =
+            mw_store::pool_telemetry::measure_queries(measured).await;
+        let response = result.unwrap();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), 4 * 1024 * 1024).await.unwrap();
+        Sent { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null), inputs, snap, sql }
+    }
+    /// Until the worker published this session's request inputs.
+    pub(super) async fn published(f: &Fixture) -> Sent {
+        for _ in 0..400 {
+            let reply = send(f, mail(f), OFF).await;
+            assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+            if reply.inputs.first_fences == 1 { return reply; }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("ordinary request inputs never published");
+    }
+    pub(super) fn mirror(f: &Fixture) -> Option<Arc<mw_store::authority_publication::mirror::EpochMirror>> {
+        publication::Worker::start(f.measured.clone()).unwrap().existing_guard_mirror()
+    }
+    pub(super) async fn fresh(mirror: &mw_store::authority_publication::mirror::EpochMirror) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !mirror.is_fresh() { tokio::time::sleep(Duration::from_millis(5)).await; }
+        }).await.expect("mirror completes a poll");
+    }
+    /// Starts the mirror (first bounded request) and waits for a fresh poll.
+    pub(super) async fn started(f: &Fixture, mode: Mode) -> Arc<mw_store::authority_publication::mirror::EpochMirror> {
+        let reply = send(f, mail(f), mode).await;
+        assert_eq!(reply.status, StatusCode::OK);
+        let mirror = mirror(f).expect("first bounded request starts the mirror");
+        fresh(&mirror).await;
+        mirror
+    }
+    /// Bounded requests until one reused a certified fence and read none.
+    pub(super) async fn reusing(f: &Fixture, mode: Mode, request: impl Fn() -> Request<Body>) -> Sent {
+        for _ in 0..40 {
+            let reply = send(f, request(), mode).await;
+            assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+            if reply.snap.reused > 0 && reply.snap.fresh == 0 { return reply; }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        panic!("bounded mode never reused a certified fence");
+    }
+    pub(super) async fn raw(f: &Fixture, sql: &str, bind: &str) -> u64 {
+        let options = mw_store::encryption::connect_options(&f.db, f.db_key.as_ref(), false);
+        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1)
+            .connect_with(options).await.unwrap();
+        let changed = sqlx::query(sql).bind(bind).execute(&pool).await.unwrap().rows_affected();
+        pool.close().await;
+        changed
+    }
+    pub(super) fn ago(seconds: i64) -> String {
+        (chrono::Utc::now() - chrono::TimeDelta::seconds(seconds)).to_rfc3339()
+    }
+}
+use guard_snapshot_cases as snapcase;
+
+#[test]
+fn bounded_snapshot_reuses_certified_fence_and_off_mode_counts_are_unchanged() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        f.writer.touch_session(&f.session).await.unwrap();
+        snapcase::published(&f).await;
+        let off_mail = snapcase::send(&f, snapcase::mail(&f), snapcase::OFF).await;
+        let off_me = snapcase::send(&f, snapcase::me(&f), snapcase::OFF).await;
+        assert_eq!(off_mail.inputs.first_fences, 1);
+        assert_eq!(off_me.inputs.first_fences, 1);
+        assert_eq!(off_mail.snap.reused + off_me.snap.reused, 0);
+        assert!(snapcase::mirror(&f).is_none(), "off mode never starts a mirror");
+        let mirror = snapcase::started(&f, snapcase::SHORT).await;
+        let hit_mail = snapcase::reusing(&f, snapcase::SHORT, || snapcase::mail(&f)).await;
+        let hit_me = snapcase::reusing(&f, snapcase::SHORT, || snapcase::me(&f)).await;
+        for (hit, off) in [(&hit_mail, &off_mail), (&hit_me, &off_me)] {
+            assert_eq!(hit.body, off.body, "same reply from reused DATA");
+            assert_eq!((hit.inputs.first_fences, hit.inputs.refresh_fences), (0, 0));
+            assert_eq!(hit.inputs.legacy_session_reads, 0);
+            // Every fence the off request issued is exactly one statement, and
+            // a reused parsed ban list (step 2) is the one `v6:admin:bans` read.
+            assert_eq!(hit.snap.globals_reused, 1, "source bans reused");
+            assert_eq!(off.sql.read.calls - hit.sql.read.calls,
+                off.inputs.first_fences + off.inputs.refresh_fences + hit.snap.globals_reused,
+                "bounded={:?} off={:?}", hit.sql, off.sql);
+            assert_eq!(hit.sql.write.calls, off.sql.write.calls);
+        }
+        assert!(mirror.counters().hits > 0);
+        // Off mode after bounded mode in the same process: today's path again.
+        let again = snapcase::send(&f, snapcase::mail(&f), snapcase::OFF).await;
+        assert_eq!((again.inputs.first_fences, again.inputs.refresh_fences),
+            (off_mail.inputs.first_fences, off_mail.inputs.refresh_fences));
+        assert_eq!(again.sql.read.calls, off_mail.sql.read.calls);
+        assert_eq!(again.snap.reused, 0);
+        eprintln!("{}", json!({"kind":"t34-guard-snapshot-whole-router-counts",
+            "mail":{"offReads":off_mail.sql.read.calls,"boundedReads":hit_mail.sql.read.calls,
+                "offFirst":off_mail.inputs.first_fences,"offRefresh":off_mail.inputs.refresh_fences},
+            "identity":{"offReads":off_me.sql.read.calls,"boundedReads":hit_me.sql.read.calls,
+                "offFirst":off_me.inputs.first_fences,"offRefresh":off_me.inputs.refresh_fences},
+            "realPeerGuardsIncluded":true,"workerQueriesIncluded":false}));
+    });
+}
+
+#[test]
+fn bounded_snapshot_local_logout_is_refused_by_the_very_next_request() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        f.writer.touch_session(&f.session).await.unwrap();
+        snapcase::published(&f).await;
+        // A 5 s bound polls every 1.25 s: the expedite is what refuses at once.
+        let mirror = snapcase::started(&f, snapcase::LONG).await;
+        snapcase::reusing(&f, snapcase::LONG, || snapcase::me(&f)).await;
+        let before = mirror.counters().expedites;
+        let out = snapcase::send(&f, snapcase::logout(&f), snapcase::LONG).await;
+        assert!(out.status.is_success(), "logout {}", out.status);
+        assert_eq!(mirror.counters().expedites, before + 1, "state-changing request expedites");
+        for request in [snapcase::me(&f), snapcase::mail(&f)] {
+            let denied = snapcase::send(&f, request, snapcase::LONG).await;
+            assert_eq!(denied.status, StatusCode::UNAUTHORIZED, "{}", denied.body);
+            assert_eq!(denied.snap.reused, 0, "no reuse after a local revocation");
+        }
+    });
+}
+
+#[test]
+fn bounded_snapshot_cross_connection_revocations_take_effect_within_one_poll() {
+    run_fixture(|| async {
+        // Writers outside this process's request path: a second Store on the
+        // same file (policy, domain, flags) and raw SQL (session row). Nothing
+        // here expedites; only the mirror poll can notice.
+        for case in ["raw-session-delete", "protocol-policy", "domain-disable", "account-disable"] {
+            let f = Fixture::new().await;
+            f.writer.touch_session(&f.session).await.unwrap();
+            snapcase::published(&f).await;
+            let mirror = snapcase::started(&f, snapcase::SHORT).await;
+            snapcase::reusing(&f, snapcase::SHORT, || snapcase::mail(&f)).await;
+            match case {
+                "raw-session-delete" => assert_eq!(snapcase::raw(&f, "DELETE FROM sessions WHERE id=?1", &f.session).await, 1),
+                "protocol-policy" => policy(&f.writer, "access.protocols", json!(["pop3"])).await,
+                "domain-disable" => f.writer.put_domain_config(&DomainConfigRow{name:"native-composite.test".into(),upstream_json:json!({"imap":{"host":"127.0.0.1","port":9,"tls":"starttls","auth":"password","allowPrivate":true}}).to_string(),allowlist_json:"[]".into(),blocklist_json:"[]".into(),enabled:false,preferred:false,settings_json:"{}".into(),updated_at:2}).await.unwrap(),
+                _ => { crate::account_gate::update_flags(&f.writer, &f.account, |flags| flags.disabled = true).await.unwrap(); }
+            }
+            // One complete poll that started after the commit.
+            mirror.poll_now().await.unwrap();
+            // `access.protocols` gates mail protocols, not `GET /api/me`.
+            let requests = if case == "protocol-policy" { vec![snapcase::mail(&f)] }
+                else { vec![snapcase::mail(&f), snapcase::me(&f)] };
+            for request in requests {
+                let denied = snapcase::send(&f, request, snapcase::SHORT).await;
+                assert_ne!(denied.status, StatusCode::OK, "{case}: {}", denied.body);
+                assert_eq!(denied.snap.reused, 0, "{case}");
+            }
+        }
+    });
+}
+
+#[test]
+fn bounded_snapshot_raw_revocation_is_refused_after_the_bound_without_a_manual_poll() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        f.writer.touch_session(&f.session).await.unwrap();
+        snapcase::published(&f).await;
+        snapcase::started(&f, snapcase::SHORT).await;
+        snapcase::reusing(&f, snapcase::SHORT, || snapcase::mail(&f)).await;
+        assert_eq!(snapcase::raw(&f, "DELETE FROM sessions WHERE id=?1", &f.session).await, 1);
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let denied = snapcase::send(&f, snapcase::mail(&f), snapcase::SHORT).await;
+        assert_eq!(denied.status, StatusCode::UNAUTHORIZED, "{}", denied.body);
+        assert_eq!(denied.snap.reused, 0);
+    });
+}
+
+#[test]
+fn bounded_snapshot_overflow_and_failed_polls_take_the_fresh_path() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        f.writer.touch_session(&f.session).await.unwrap();
+        snapcase::published(&f).await;
+        let mirror = snapcase::started(&f, snapcase::SHORT).await;
+        snapcase::reusing(&f, snapcase::SHORT, || snapcase::mail(&f)).await;
+        // Overflow: 4100 changes to scopes this session does not observe. They
+        // alone would not invalidate it; a full page flushes everything.
+        snapcase::raw(&f, "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<4100) INSERT INTO authority_epoch(scope_kind,scope_id) SELECT 'subject','t34-overflow-'||i||?1 FROM n", "").await;
+        mirror.poll_now().await.unwrap();
+        assert!(mirror.counters().overflow_flushes >= 1);
+        let after = snapcase::send(&f, snapcase::mail(&f), snapcase::SHORT).await;
+        assert_eq!(after.status, StatusCode::OK);
+        // A flushed mirror certifies nothing stamped before it: the first fence
+        // is read fresh (later boundaries may reuse it once a newer poll ran).
+        assert_eq!(after.inputs.first_fences, 1);
+        snapcase::fresh(&mirror).await;
+        // Unrelated changes after a re-stamp do not invalidate this session.
+        snapcase::raw(&f, "INSERT INTO authority_epoch(scope_kind,scope_id) VALUES('subject','t34-unrelated'||?1)", "").await;
+        mirror.poll_now().await.unwrap();
+        snapcase::reusing(&f, snapcase::SHORT, || snapcase::mail(&f)).await;
+        // Failing polls: the change log disappears, so no poll completes and
+        // after the bound nothing is fresh. Requests take the fresh path.
+        snapcase::raw(&f, "DROP TABLE authority_change_log", "").await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!mirror.is_fresh());
+        assert!(mirror.stamp_gen().is_none());
+        assert!(mirror.counters().failures >= 1);
+        let stale = snapcase::send(&f, snapcase::mail(&f), snapcase::SHORT).await;
+        assert_eq!(stale.snap.reused, 0, "stale mirror never certifies a reuse");
+        assert_eq!(stale.status, StatusCode::OK, "{}", stale.body);
+    });
+}
+
+#[test]
+fn bounded_snapshot_clock_decisions_never_use_a_reused_fence() {
+    run_fixture(|| async {
+        // Idle 125 s: a fence whose activity is 10 s old is 115 s from its
+        // deadline, inside the 120 s margin, so it is never reused.
+        let f = Fixture::new().await;
+        policy(&f.writer, "session.idleSecs", json!(125)).await;
+        f.writer.touch_session(&f.session).await.unwrap();
+        snapcase::published(&f).await;
+        snapcase::raw(&f, "UPDATE sessions SET activity_at=?1", &snapcase::ago(10)).await;
+        snapcase::started(&f, snapcase::SHORT).await;
+        for _ in 0..3 {
+            let near = snapcase::send(&f, snapcase::mail(&f), snapcase::SHORT).await;
+            assert_eq!(near.status, StatusCode::OK, "{}", near.body);
+            assert_eq!(near.snap.reused, 0, "inside the clock margin every check reads fresh");
+        }
+        // Natural expiry: the cached candidate's own clocks are past the
+        // deadline as well, so the fresh path decides and cleans up.
+        snapcase::raw(&f, "UPDATE sessions SET activity_at=?1", &snapcase::ago(130)).await;
+        let expired = snapcase::send(&f, snapcase::mail(&f), snapcase::SHORT).await;
+        assert_eq!(expired.status, StatusCode::UNAUTHORIZED, "{}", expired.body);
+        assert_eq!(expired.snap.reused, 0);
+        assert!(matches!(f.writer.get_session(&f.session).await, Err(mw_store::StoreError::NotFound)));
+    });
+}
+
+#[test]
+fn bounded_snapshot_due_touch_is_never_skipped_by_a_reused_fence() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        f.writer.touch_session(&f.session).await.unwrap();
+        snapcase::published(&f).await;
+        // last_seen 14 s ago: not due (15 s) when the slot is stamped.
+        snapcase::raw(&f, "UPDATE sessions SET last_seen=?1", &snapcase::ago(14)).await;
+        snapcase::started(&f, snapcase::SHORT).await;
+        snapcase::reusing(&f, snapcase::SHORT, || snapcase::mail(&f)).await;
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        // Now the stamped last_seen is due: the reuse is refused, the fresh
+        // fence is due as well, and the original chain performs the touch.
+        let due = snapcase::send(&f, snapcase::mail(&f), snapcase::SHORT).await;
+        assert_eq!(due.status, StatusCode::OK);
+        assert_eq!(due.snap.reused, 0);
+        assert_eq!(due.inputs.legacy_session_reads, 1, "original auth chain ran");
+        assert!(due.sql.write.calls >= 1, "due touch written");
+        let next = snapcase::reusing(&f, snapcase::SHORT, || snapcase::mail(&f)).await;
+        assert_eq!(next.sql.write.calls, 0);
+    });
+}
+
+#[test]
+fn bounded_snapshot_declared_read_reuses_authority_fences_but_keeps_final_mail_data_fresh() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        policy(&f.writer, "performance.preparedMail", serde_json::to_value(
+            mw_engine::PreparedMailOptions { enabled: true, ..Default::default() }).unwrap()).await;
+        f.warm_prepared_mail().await;
+        f.writer.touch_session(&f.session).await.unwrap();
+        use crate::request_inputs::snapshot::test_control as snap;
+        let (off, off_snap) = snap::measure(snap::with_mode(snapcase::OFF, f.send_declared())).await;
+        assert_eq!(off.0, StatusCode::OK);
+        assert_eq!(off.2.prepared_results, 1);
+        assert_eq!(off.2.fences, 2);
+        assert_eq!(off_snap.fresh, 2, "guard source + first observation");
+        let _ = snap::with_mode(snapcase::SHORT, f.send_declared()).await;
+        let mirror = snapcase::mirror(&f).unwrap();
+        snapcase::fresh(&mirror).await;
+        let mut hit = None;
+        for _ in 0..40 {
+            let (reply, counts) = snap::measure(snap::with_mode(snapcase::SHORT, f.send_declared())).await;
+            assert_eq!(reply.0, StatusCode::OK, "{}", reply.1);
+            if counts.reused == 2 && counts.fresh == 0 { hit = Some((reply, counts.globals_reused)); break; }
+        }
+        let (hit, hit_globals) = hit.expect("declared read reuses both authority-only fences");
+        assert_eq!(hit_globals, 1, "source bans reused");
+        assert_eq!(hit.1, off.1);
+        assert_eq!(hit.2.prepared_results, 1);
+        assert_eq!(hit.2.fences, 1, "final mail-DATA fence stays fresh");
+        assert_eq!(off.3.read.calls - hit.3.read.calls, 2 + hit_globals, "bounded={:?} off={:?}", hit.3, off.3);
+        // In-process local revocation is refused by the next declared read.
+        let out = snap::with_mode(snapcase::SHORT, f.router.clone().oneshot(snapcase::logout(&f))).await.unwrap();
+        assert!(out.status().is_success());
+        let (denied, counts) = snap::measure(snap::with_mode(snapcase::SHORT, f.send_declared())).await;
+        assert_ne!(denied.0, StatusCode::OK);
+        assert_eq!(counts.reused, 0);
+    });
+}

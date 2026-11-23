@@ -67,6 +67,9 @@ pub(crate) struct Published {
     pub guard_authority:String,
     pub(crate) environment: Option<Arc<crate::request_inputs::Environment>>,
     pub(crate) request: Option<Arc<crate::request_inputs::Prepared>>,
+    /// t34 bounded guard snapshot: the last mirror-stamped authority fence for
+    /// this entry. Empty unless `MW_GUARD_SNAPSHOT=bounded`.
+    pub(crate) guard_fence: crate::request_inputs::snapshot::Slot,
     own_bytes: usize,
 }
 impl Published {
@@ -202,8 +205,21 @@ pub(crate) struct Worker {
     built: AtomicU64,
     installed: AtomicU64,
     rejected: AtomicU64,
+    /// t34: this AppState's EpochMirror (bounded guard snapshot). The mirror
+    /// registry holds only a weak handle; this keeps the poller alive exactly
+    /// as long as the AppState that owns this worker.
+    guard_mirror: OnceLock<Arc<mw_store::authority_publication::mirror::EpochMirror>>,
+    /// t34 step 2: parsed `v6:admin:bans`, reused while the protection global
+    /// epoch is unchanged (bounded mode only; enforcement still per request).
+    pub(crate) source_bans: crate::request_inputs::snapshot::GlobalSlot<Vec<mw_admin::BanEntry>>,
 }
 impl Worker {
+    pub(crate) fn guard_mirror(&self, store: &Store, bound: Duration) -> Arc<mw_store::authority_publication::mirror::EpochMirror> {
+        self.guard_mirror.get_or_init(|| mw_store::authority_publication::mirror::EpochMirror::for_store(store, bound)).clone()
+    }
+    pub(crate) fn existing_guard_mirror(&self) -> Option<Arc<mw_store::authority_publication::mirror::EpochMirror>> {
+        self.guard_mirror.get().cloned()
+    }
     pub(crate) fn start(store: Store) -> Option<Arc<Self>> {
         static REGISTRY: OnceLock<Mutex<HashMap<uuid::Uuid, Weak<Worker>>>> = OnceLock::new();
         let mut registry = REGISTRY
@@ -224,6 +240,8 @@ impl Worker {
             built: AtomicU64::new(0),
             installed: AtomicU64::new(0),
             rejected: AtomicU64::new(0),
+            guard_mirror: OnceLock::new(),
+            source_bans: Default::default(),
         });
         registry.insert(store.instance_id(), Arc::downgrade(&worker));
         let weak = Arc::downgrade(&worker);
@@ -750,7 +768,9 @@ impl Worker {
                 .sum::<usize>()
             + environment.as_ref().map_or(0, |env| env.retained_bytes())
             + canonical_subjects.iter().map(|(key, subject)| key.len() + subject.domain.len()
-                + subject.account_id.len() + subject.address.len() + 256).sum::<usize>() + 4096;
+                + subject.account_id.len() + subject.address.len() + 256).sum::<usize>() + 4096
+            + if crate::request_inputs::snapshot::mode() == crate::request_inputs::snapshot::Mode::Off { 0 }
+                else { crate::request_inputs::snapshot::SLOT_BYTES };
         let mut entry = Published {
             snapshot: source,
             domains: known_domains,
@@ -765,6 +785,7 @@ impl Worker {
             guard,guard_authority,
             environment,
             request: None,
+            guard_fence: Default::default(),
         };
         // Prepared route interning takes this same mutex. Never hold the
         // component-map lock across parser work or recursive acquisition.

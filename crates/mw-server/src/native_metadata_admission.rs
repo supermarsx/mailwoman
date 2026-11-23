@@ -502,16 +502,20 @@ pub(crate) fn record_ordinary_dispatch() {test_control::record_ordinary_dispatch
 /// Normal requests keep one observation at this seam. Only a newly observed
 /// due telemetry timestamp permits one exact-source settlement and ONE repeat
 /// of the same joint statement. The repeat is always the last source await.
+/// Returns the observation and whether it is a t34 bounded-mode reuse of an
+/// earlier mirror-certified authority-only fence (no SQL ran). The mail-DATA
+/// fence (`data` present) and the post-settlement repeat are always fresh.
 async fn observe_published_guard(
     state:&AppState,cookie:&str,entry:&publication::Published,needs:&Needs,
-    data:Option<&mw_store::mail_data_publication::MailDataDescriptor>,
-)->Result<Option<mw_store::authority_publication::NativeAuthorityFence>,mw_store::StoreError> {
-    async fn read(state:&AppState,cookie:&str,entry:&publication::Published,data:Option<&mw_store::mail_data_publication::MailDataDescriptor>)->Result<Option<mw_store::authority_publication::NativeAuthorityFence>,mw_store::StoreError> {
-        match data {Some(data)=>state.store.native_publication_fence_with_mail_data(cookie,&entry.domains,&entry.subjects,data).await,
-            None=>state.store.native_publication_fence(cookie,&entry.domains,&entry.subjects).await}
+    data:Option<&mw_store::mail_data_publication::MailDataDescriptor>,allow_reuse:bool,
+)->Result<Option<(std::sync::Arc<mw_store::authority_publication::NativeAuthorityFence>,bool)>,mw_store::StoreError> {
+    async fn read(state:&AppState,cookie:&str,entry:&publication::Published,data:Option<&mw_store::mail_data_publication::MailDataDescriptor>,allow_reuse:bool)->Result<Option<(std::sync::Arc<mw_store::authority_publication::NativeAuthorityFence>,bool)>,mw_store::StoreError> {
+        match data {Some(data)=>Ok(state.store.native_publication_fence_with_mail_data(cookie,&entry.domains,&entry.subjects,data).await?.map(|fence|(std::sync::Arc::new(fence),false))),
+            None=>Ok(Box::pin(entry.guard_fence.read(state,cookie,&entry.domains,&entry.subjects,allow_reuse,
+                |fence|crate::request_inputs::snapshot::touch_not_due(&state.store,fence))).await?.map(|observed|(observed.fence,observed.reused)))}
     }
-    let observed=read(state,cookie,entry,data).await?;
-    if crate::published_guard_context::consumed() && let Some(source)=observed.as_ref() {
+    let observed=read(state,cookie,entry,data,allow_reuse).await?;
+    if crate::published_guard_context::consumed() && let Some((source,_))=observed.as_ref() {
         let age=crate::session_persistence::flush_seconds();
         if state.store.session_touch_may_be_due_at(source.last_seen(),age,chrono::Utc::now()) {
             if !entry.matches(source) || !crate::published_guard_context::verify_source(source) {return Ok(None);}
@@ -520,7 +524,7 @@ async fn observe_published_guard(
             // infer acceptance from it; the final read and ordinary evaluator
             // require the current source and a no-longer-due timestamp.
             state.store.settle_native_last_seen(source,age,checked.clock.idle_secs,checked.clock.absolute_secs).await?;
-            return read(state,cookie,entry,data).await;
+            return read(state,cookie,entry,data,false).await;
         }
     }
     Ok(observed)
@@ -569,16 +573,22 @@ pub(crate) async fn try_dispatch(
             let entry=if crate::published_guard_context::consumed() {worker.get_consumed(&id,&deferred.0)} else {worker.get(&id,&deferred.0)};
             if let Some(entry)=entry {
                 observed_published=true;
-                if let Ok(Some(fence))=observe_published_guard(state,&id,&entry,&deferred.0,None).await {
-                    #[cfg(test)] test_control::record_fence();
+                // t34: a reused (mirror-certified) fence that fails any check is
+                // never acted on; the same checks then run on a fresh fence.
+                let mut allow_reuse=true;
+                while let Ok(Some((fence,reused)))=observe_published_guard(state,&id,&entry,&deferred.0,None,allow_reuse).await {
+                    #[cfg(test)] if !reused {test_control::record_fence();}
                     let revision_matches=fence.primary_policy_revision(&state.store).ok().flatten().is_some_and(|revision|
                         revision.scope()==deferred.1.scope() && revision.number().is_some() && revision.number()==deferred.1.number());
+                    published_current=false;
                     if revision_matches && entry.matches(&fence) && crate::published_guard_context::verify_source(&fence) {
                         published_current=true;
                         if let Ok(loaded)=evaluate_inputs(state,&entry.snapshot,&deferred.0,Some(&entry),Some(&fence)) {
-                            first=Some(loaded);published=Some(entry);
+                            first=Some(loaded);published=Some(entry.clone());break;
                         }
                     }
+                    if !reused {break;}
+                    allow_reuse=false;
                 }
             }
             // A contended nonblocking lookup is just a miss. It must not evict
@@ -654,16 +664,23 @@ pub(crate) async fn try_dispatch(
     let connecting = lock.lock().await;
     let mut final_data=None;
     let final_source=if let Some(entry)=&published {
-        let observed=observe_published_guard(state,&id,entry,&deferred.0,candidate.as_ref().map(|c|c.descriptor())).await;
-        match observed {
-            Ok(Some(fence))=>{
-                #[cfg(test)] test_control::record_fence();
-                if entry.matches(&fence) && crate::published_guard_context::verify_final(&fence) {
-                    final_data=fence.mail_data().cloned();
-                    evaluate_inputs(state,&entry.snapshot,&deferred.0,Some(entry),Some(&fence)).ok()
-                } else {None}
-            },
-            _=>None,
+        // Only an authority-only final observation (no mail DATA descriptor)
+        // may be a bounded reuse; a failing reuse is retried fresh.
+        let mut allow_reuse=true;
+        loop {
+            let observed=observe_published_guard(state,&id,entry,&deferred.0,candidate.as_ref().map(|c|c.descriptor()),allow_reuse).await;
+            let (checked,reused)=match observed {
+                Ok(Some((fence,reused)))=>{
+                    #[cfg(test)] if !reused {test_control::record_fence();}
+                    (if entry.matches(&fence) && crate::published_guard_context::verify_final(&fence) {
+                        final_data=fence.mail_data().cloned();
+                        evaluate_inputs(state,&entry.snapshot,&deferred.0,Some(entry),Some(&fence)).ok()
+                    } else {None},reused)
+                },
+                _=>(None,false),
+            };
+            if checked.is_some() || !reused {break checked;}
+            allow_reuse=false;
         }
     } else {
         match observe(state,&id,query.as_ref()?).await {
@@ -849,10 +866,22 @@ pub(super) async fn guard_source(state:&AppState,headers:&HeaderMap,needs:&Needs
     let cookie=crate::cookie_value(headers)?;if cookie.is_empty()||cookie.len()>1024{return None;}
     let entry=state.native_publication.as_ref()?.get(&cookie,needs)?;
     let inputs=entry.guard.as_ref()?;
-    let source=state.store.native_publication_fence(&cookie,&entry.domains,&entry.subjects).await.ok()??;
-    if source.last_seen().and_then(|t|chrono::DateTime::parse_from_rfc3339(t).ok()).is_none()
-        || chrono::DateTime::parse_from_rfc3339(source.clocks().0).is_err()
-        || chrono::DateTime::parse_from_rfc3339(source.clocks().1).is_err() {return None;}
-    if !entry.matches(&source)||!inputs.matches_configuration(&state.store,&source).ok()?||headers.get("x-mailwoman-account").is_some_and(|v|v.to_str().ok()!=Some(source.account_id()))||!crate::mailbox_target_matches_account(source.account_id(),headers,Some(&entry.guard_authority)){return None;}
-    Some((entry,std::sync::Arc::new(source)))
+    // t34: bounded mode may reuse a mirror-certified fence; a reuse failing a
+    // check is retried fresh. Its clocks are not used for any decision here.
+    let mut allow_reuse=true;
+    loop {
+        let observed=Box::pin(entry.guard_fence.read(state,&cookie,&entry.domains,&entry.subjects,allow_reuse,|_|true)).await.ok()??;
+        let source=&observed.fence;
+        let parsed=source.last_seen().and_then(|t|chrono::DateTime::parse_from_rfc3339(t).ok()).is_some()
+            && chrono::DateTime::parse_from_rfc3339(source.clocks().0).is_ok()
+            && chrono::DateTime::parse_from_rfc3339(source.clocks().1).is_ok();
+        if parsed && entry.matches(source) && inputs.matches_configuration(&state.store,source).unwrap_or(false)
+            && !headers.get("x-mailwoman-account").is_some_and(|v|v.to_str().ok()!=Some(source.account_id()))
+            && crate::mailbox_target_matches_account(source.account_id(),headers,Some(&entry.guard_authority))
+        {
+            return Some((entry.clone(),observed.fence.clone()));
+        }
+        if !observed.reused {return None;}
+        allow_reuse=false;
+    }
 }

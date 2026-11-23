@@ -69,6 +69,20 @@ pub(crate) async fn primary_actor_ok(state: &AppState, session: &mw_store::Sessi
             if expected.session_id() != session.id {
                 return false;
             }
+            // t34 bounded guard snapshot: this frame's request already holds a
+            // certified source frame for exactly this session (the same session
+            // row and session_principal binding the SELECT below reads, with
+            // the same active-principal/unretired-binding/primary conditions).
+            // Compare against it instead of reading the rows again.
+            if crate::request_inputs::snapshot::mode() != crate::request_inputs::snapshot::Mode::Off
+                && let Some(inputs) = Box::pin(crate::request_inputs::current(&state.store)).await
+                && inputs.matches_session(session)
+                && let Some(source) = inputs.source()
+                && source.session_id() == session.id
+            {
+                return expected.matches_native(&state.store, inputs.session(),
+                    source.principal_id(), source.binding_id());
+            }
             state
                 .store
                 .websocket_primary_actor(&session.id)
@@ -81,6 +95,14 @@ pub(crate) async fn primary_actor_ok(state: &AppState, session: &mw_store::Sessi
 }
 pub(crate) fn has_frame_actor() -> bool {
     FRAME.try_with(|_| ()).is_ok()
+}
+/// t34 bounded guard snapshot: a WEBMAIL action frame whose socket actor is
+/// exactly this cookie's primary session. Admin frames never qualify (admin
+/// tables have no authority-trigger coverage).
+pub(crate) fn webmail_frame_for(cookie: &str) -> bool {
+    FRAME
+        .try_with(|actor| matches!(actor, Actor::Webmail(expected) if expected.session_id() == cookie))
+        .unwrap_or(false)
 }
 pub(crate) fn native_actor_ok(
     store: &mw_store::Store,

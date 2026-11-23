@@ -20,7 +20,7 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
         // forwarding header as a substitute. Production installs ConnectInfo.
         return next.run(request).await;
     };
-    let status = match state.v6.admin.is_banned(&ip.to_string()).await {
+    let status = match banned(&state, &ip.to_string()).await {
         Ok(false) => return next.run(request).await,
         Ok(true) => StatusCode::FORBIDDEN,
         Err(_) => StatusCode::SERVICE_UNAVAILABLE,
@@ -34,4 +34,19 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
         .headers_mut()
         .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     response
+}
+
+/// `MW_GUARD_SNAPSHOT=bounded` (t34 step 2): the parsed ban list is reused
+/// while the mirror shows no change to the `protection` global epoch (which
+/// every `v6:admin:bans` write bumps) or any other global/settings revision.
+/// Expiry is still evaluated per request against now. Off mode: unchanged.
+async fn banned(state: &AppState, ip: &str) -> Result<bool, mw_admin::AdminError> {
+    let Some(worker) = state.native_publication.as_ref()
+        .filter(|_| crate::request_inputs::snapshot::mirror(state).is_some())
+    else {
+        return state.v6.admin.is_banned(ip).await;
+    };
+    let bans = Box::pin(worker.source_bans.get_or_load(state, state.v6.admin.list_bans())).await?;
+    let now = chrono::Utc::now();
+    Ok(bans.iter().any(|ban| ban.matches_ip(ip) && ban.active_at(now)))
 }

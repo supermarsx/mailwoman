@@ -9,6 +9,11 @@ use axum::{extract::{Request, State}, http::{Method, StatusCode, header},
 use mw_store::{Session, Store, authority_publication::NativeAuthorityFence};
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use tokio::sync::OnceCell;
+use mw_store::authority_publication::mirror::MirrorGen;
+
+/// t34 bounded-staleness guard snapshot (`MW_GUARD_SNAPSHOT`).
+#[path = "guard_snapshot.rs"]
+pub(crate) mod snapshot;
 
 /// Environment DATA has its own lifetime; SQL epochs cannot certify it.
 /// One vars_os snapshot supplies every resolver and parser in a cold build.
@@ -230,7 +235,9 @@ struct Scope {
 pub(crate) struct Current {
     pub(crate) entry: Arc<Published>,
     first: Arc<NativeAuthorityFence>,
-    current: Mutex<Arc<NativeAuthorityFence>>,
+    /// The last observation and, in bounded mode, the mirror generation that
+    /// was stamped before it was read (None: not certifiable, never reused).
+    current: Mutex<(Arc<NativeAuthorityFence>, Option<MirrorGen>)>,
     // A single request-local decode, shared by the original reader boundaries.
     session: Session,
     used: AtomicBool,
@@ -239,6 +246,20 @@ pub(crate) struct Current {
 tokio::task_local! { static SCOPE: Arc<Scope>; static ORIGINAL_READER: bool; }
 
 pub(crate) async fn layer(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    // t34: a state-changing request (including a WebSocket action frame, which
+    // is replayed through this router) may have committed a revocation. Expire
+    // every reusable guard snapshot before its response leaves this process.
+    let expedite = snapshot::expedites(request.method(), request.uri().path())
+        .then(|| state.native_publication.clone()).flatten();
+    // Boxed: keeps this extra frame from growing every router poll stack.
+    let response = Box::pin(scoped(state, request, next)).await;
+    if let Some(mirror) = expedite.and_then(|worker| worker.existing_guard_mirror()) {
+        mirror.expedite();
+    }
+    response
+}
+
+async fn scoped(state: AppState, request: Request, next: Next) -> Response {
     #[cfg(feature="load-test-fixtures")]
     if !crate::request_inputs_fixture::enabled() { return next.run(request).await; }
     #[cfg(test)]
@@ -254,10 +275,14 @@ pub(crate) async fn layer(State(state): State<AppState>, request: Request, next:
         || headers.contains_key(header::AUTHORIZATION) || headers.contains_key("x-api-key")
         || headers.contains_key(crate::linked_accounts::SELECTOR)
         || headers.contains_key("x-mailwoman-read-shape")
-        || crate::websocket_actions::has_frame_actor()
     { return next.run(request).await; }
     let Some(cookie) = crate::cookie_value(headers).filter(|s| !s.is_empty() && s.len() <= 1024)
     else { return next.run(request).await; };
+    // Action frames keep their original readers, except (t34 bounded mode) a
+    // WEBMAIL frame whose socket actor is exactly this cookie's session.
+    if crate::websocket_actions::has_frame_actor()
+        && (snapshot::mode() == snapshot::Mode::Off || !crate::websocket_actions::webmail_frame_for(&cookie))
+    { return next.run(request).await; }
     let held_allowed = request.uri().path() == "/api/me";
     #[cfg(feature="load-test-fixtures")]
     crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::Context);
@@ -278,39 +303,71 @@ pub(crate) async fn current(store: &Store) -> Option<Arc<Current>> {
         if !guard.ordinary_supported() { return None; }
         #[cfg(feature="load-test-fixtures")]
         crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::FirstFence);
-        let fence = store.native_publication_fence(&scope.cookie, &entry.domains, &entry.subjects)
-            .await.ok()??;
-        #[cfg(test)] test_control::record(|counts| counts.first_fences += 1);
-        if !entry.environment.as_ref()?.matches()
-            || !entry.matches(&fence) || !guard.matches_configuration(store, &fence).ok()?
-            || fence.primary_policy_revision(store).ok()??.number().is_none()
-        {
-            scope.state.native_publication.as_ref()?.discard_request_inputs(&scope.cookie, &environment, &entry);
-            return None;
+        let (idle, absolute) = effective_clock(&scope.state, prepared);
+        // Bounded mode may reuse a mirror-certified fence. A reused fence that
+        // fails ANY check below is never acted on: the same checks then run on a
+        // fresh fence, which is exactly the off-mode path.
+        let mut allow_reuse = true;
+        loop {
+            let observed = Box::pin(entry.guard_fence.read(&scope.state, &scope.cookie, &entry.domains,
+                &entry.subjects, allow_reuse,
+                |fence| snapshot::touch_not_due(store, fence) && snapshot::clocks_clear(fence, idle, absolute)))
+                .await.ok()??;
+            #[cfg(test)] if !observed.reused { test_control::record(|counts| counts.first_fences += 1); }
+            match first_frame(&scope, store, &environment, &entry, prepared, guard, &observed) {
+                Some(current) => return Some(current),
+                None if observed.reused => allow_reuse = false,
+                None => return None,
+            }
         }
-        #[cfg(test)] test_control::record(|counts| counts.session_decodes += 1);
-        let source = entry.snapshot.session(store).ok()??;
-        let session = source.session;
-        let account = &prepared.account;
-        // Classify unsupported frame shapes before publishing ANY input into
-        // original readers. In particular a linked-login policy is not absent.
-        if session.id != fence.session_id() || session.account_id != fence.account_id()
-            || account.id != session.account_id || session.jmap_url != "engine"
-            || session.api_url != "engine" || account.kind == mw_store::AccountKind::Ews
-            || session.credentials.username.trim() != account.username.trim()
-        { return None; }
-        let (created, activity) = fence.clocks();
-        if chrono::DateTime::parse_from_rfc3339(created).is_err()
-            || chrono::DateTime::parse_from_rfc3339(activity).is_err()
-            || store.session_touch_may_be_due_at(fence.last_seen(),
-                crate::session_persistence::flush_seconds(), chrono::Utc::now())
-        { return None; }
-        let first = Arc::new(fence);
-        #[cfg(feature="load-test-fixtures")]
-        crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::Ready);
-        Some(Arc::new(Current { entry, current: Mutex::new(first.clone()), first,
-            session, used: AtomicBool::new(false), guard: std::sync::OnceLock::new() }))
     }).await.clone()
+}
+
+/// Effective idle/absolute seconds from the published policy, exactly as
+/// `Current::clock_policy` computes them for the original clock check.
+fn effective_clock(state: &AppState, prepared: &Prepared) -> (u64, u64) {
+    (prepared.idle.min(state.hardening.idle_timeout.as_secs()),
+     crate::hardening::mailbox_absolute_secs(prepared.absolute, state.hardening.absolute_timeout.as_secs()))
+}
+
+fn first_frame(scope: &Scope, store: &Store, environment: &Environment, entry: &Arc<Published>,
+    prepared: &Prepared, guard: &crate::published_guard_inputs::PreparedGuardInputs,
+    observed: &snapshot::Observed,
+) -> Option<Arc<Current>> {
+    let fence = &observed.fence;
+    if !entry.environment.as_ref()?.matches()
+        || !entry.matches(fence) || !guard.matches_configuration(store, fence).ok()?
+        || fence.primary_policy_revision(store).ok()??.number().is_none()
+    {
+        // A certified reuse does not by itself prove the entry stale; the fresh
+        // retry decides, exactly as without the snapshot.
+        if !observed.reused {
+            scope.state.native_publication.as_ref()?.discard_request_inputs(&scope.cookie, environment, entry);
+        }
+        return None;
+    }
+    #[cfg(test)] test_control::record(|counts| counts.session_decodes += 1);
+    let source = entry.snapshot.session(store).ok()??;
+    let session = source.session;
+    let account = &prepared.account;
+    // Classify unsupported frame shapes before publishing ANY input into
+    // original readers. In particular a linked-login policy is not absent.
+    if session.id != fence.session_id() || session.account_id != fence.account_id()
+        || account.id != session.account_id || session.jmap_url != "engine"
+        || session.api_url != "engine" || account.kind == mw_store::AccountKind::Ews
+        || session.credentials.username.trim() != account.username.trim()
+    { return None; }
+    let (created, activity) = fence.clocks();
+    if chrono::DateTime::parse_from_rfc3339(created).is_err()
+        || chrono::DateTime::parse_from_rfc3339(activity).is_err()
+        || store.session_touch_may_be_due_at(fence.last_seen(),
+            crate::session_persistence::flush_seconds(), chrono::Utc::now())
+    { return None; }
+    let first = fence.clone();
+    #[cfg(feature="load-test-fixtures")]
+    crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::Ready);
+    Some(Arc::new(Current { entry: entry.clone(), current: Mutex::new((first.clone(), observed.built)), first,
+        session, used: AtomicBool::new(false), guard: std::sync::OnceLock::new() }))
 }
 pub(crate) async fn scope_current() -> Option<Arc<Current>> {
     let scope = SCOPE.try_with(Arc::clone).ok()?;
@@ -443,7 +500,7 @@ impl Current {
         &self.session
     }
     pub(crate) fn source(&self) -> Option<Arc<NativeAuthorityFence>> {
-        self.current.lock().ok().map(|s| s.clone())
+        self.current.lock().ok().map(|s| s.0.clone())
     }
     pub(crate) fn consume(&self) {
         #[cfg(feature="load-test-fixtures")]
@@ -518,17 +575,30 @@ pub(crate) async fn refresh() -> Result<(), Response> {
 async fn reobserve(scope: &Scope, current: &Current) -> Result<(), ()> {
     #[cfg(feature="load-test-fixtures")]
     crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::RefreshFence);
-    #[cfg(test)] test_control::record(|counts| counts.refresh_fences += 1);
-    let observed = scope.state.store.native_publication_fence(&scope.cookie,
-        &current.entry.domains, &current.entry.subjects).await.map_err(|_| ())?.ok_or(())?;
-    if !current.first.same_published_source(&observed).unwrap_or(false)
-        || !current.entry.matches(&observed)
-        || !current.entry.environment.as_ref().is_some_and(|environment| environment.matches())
-        || !current.entry.guard.as_ref().is_some_and(|guard|
-            guard.matches_configuration(&scope.state.store, &observed).unwrap_or(false))
-    { return Err(()); }
-    *current.current.lock().map_err(|_| ())? = Arc::new(observed);
-    Ok(())
+    let (idle, absolute) = effective_clock(&scope.state, current.prepared().map_err(|_| ())?);
+    let mut allow_reuse = true;
+    loop {
+        // Bounded mode: this request's own last observation, then the entry's
+        // slot, each only while the mirror certifies it. Otherwise fresh SQL.
+        let own = current.current.lock().map_err(|_| ())?.clone();
+        let observed = Box::pin(current.entry.guard_fence.read_preferring(&scope.state, &scope.cookie,
+            &current.entry.domains, &current.entry.subjects, allow_reuse, own,
+            |fence| snapshot::clocks_clear(fence, idle, absolute)))
+            .await.map_err(|_| ())?.ok_or(())?;
+        #[cfg(test)] if !observed.reused { test_control::record(|counts| counts.refresh_fences += 1); }
+        let fence = &observed.fence;
+        if current.first.same_published_source(fence).unwrap_or(false)
+            && current.entry.matches(fence)
+            && current.entry.environment.as_ref().is_some_and(|environment| environment.matches())
+            && current.entry.guard.as_ref().is_some_and(|guard|
+                guard.matches_configuration(&scope.state.store, fence).unwrap_or(false))
+        {
+            *current.current.lock().map_err(|_| ())? = (fence.clone(), observed.built);
+            return Ok(());
+        }
+        if !observed.reused { return Err(()); }
+        allow_reuse = false;
+    }
 }
 
 /// The Engine adapter's existing public error type is String. Classify no
