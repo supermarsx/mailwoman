@@ -16,7 +16,7 @@ Each row has buttons to edit the provider, turn it off or on, and delete it. Tur
 When you save a provider, the server checks the protocol settings and refuses the save with an error that names the field when one is missing or not a valid address: for OpenID Connect the issuer URL (an `http` or `https` address without a query or fragment), client ID, redirect URL and the `openid` scope; for SAML the IdP SSO URL, at least one signing certificate, the entity ID, the ACS URL and the NameID format. Field names it does not know are refused too.
 
 ::: warning Providers saved with an older version of the editor
-An earlier console sent the protocol settings under names the server did not read, so providers created or saved from the console were stored with an empty issuer URL, client ID, redirect URL and first-login policy (OIDC), or empty SAML fields, and cannot sign anyone in. Open each provider: if those fields are empty, enter them again and save. For a SAML provider, also check that **Require signed assertions** is on: those saves stored it off. The server's provider list (`GET <console path>/sso`) marks such a provider with a non-empty `problems` list naming the missing fields; the console page does not show that list.
+An earlier console sent the protocol settings under names the server did not read, so providers created or saved from the console were stored with an empty issuer URL, client ID, redirect URL and first-login policy (OIDC), or empty SAML fields, and cannot sign anyone in. Open each provider: if those fields are empty, enter them again and save. For a SAML provider, also turn **Require signed assertions** on: those saves stored it off (see [Require signed assertions](#wantAssertionsSigned)). The server's provider list (`GET <console path>/sso`) marks such a provider with a non-empty `problems` list naming the missing fields; the console page does not show that list.
 :::
 
 ## Before you start
@@ -139,10 +139,13 @@ The kind of user identifier asked from the provider. Default: `urn:oasis:names:t
 <a id="wantAssertionsSigned"></a>
 ### Require signed assertions
 
-On by default. Mailwoman accepts an answer when a signature by one of the certificates covers the assertion, either on the assertion itself or on the whole response.
+On by default, and it cannot be saved off: the server refuses a save with the switch off ("must be on: unsigned SAML assertions are not accepted"). A save through the console API that leaves the switch out stores it on. Mailwoman accepts an answer when a signature by one of the certificates covers the assertion, either on the assertion itself or on the whole response.
 
-::: danger
-Do not turn this off. Without it, Mailwoman accepts an unsigned answer, and anyone who can send a request to the ACS address can sign in as any user of this provider. The editor shows the switch on for a new provider, and a save through the console API that leaves the switch out also stores it on. A provider row whose stored settings lack the switch altogether (for example one written to the database by other means) is read as off.
+::: danger A stored provider with the switch off accepts unsigned answers
+A SAML provider that is already stored with the switch off, or whose stored settings lack it (for example one saved by the older console editor, or written to the database by other means), is read as off. At sign-in such a provider accepts an answer with no signature at all, so anyone who can send a request to its ACS address can sign in as any user of that provider. Find these providers and turn the switch on, or disable them:
+
+- in the server's provider list, `GET <console path>/sso`, a row whose `problems` contains an entry with `field` `config.wantAssertionsSigned` (the console page does not display `problems`);
+- in the database, rows of the `sso_config` table with `kind` = `saml` whose `config` column has `"want_assertions_signed":false` or no `want_assertions_signed` key.
 :::
 
 <a id="wantEncrypted"></a>
