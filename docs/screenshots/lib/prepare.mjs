@@ -39,55 +39,148 @@ export function webSourceHash() {
   return hash.digest('hex').slice(0, 16);
 }
 
+/** The marker a finished build carries; a folder without it (and without the
+ * index.html of builds made before the marker existed) is never used. */
+const BUILD_INFO = 'mw-shots-build.json';
+
+function git(...args) {
+  try {
+    return spawnSync('git', args, { cwd: REPO, encoding: 'utf8' }).stdout.trim();
+  } catch {
+    return '';
+  }
+}
+
+/** Source revision of apps/web: HEAD, plus "+local changes" when the tree differs. */
+function webRevision() {
+  const head = git('rev-parse', '--short', 'HEAD') || 'unknown';
+  const dirty = git('status', '--porcelain', '--', 'apps/web/src', 'apps/web/locales', 'apps/web/public', 'apps/web/index.html', 'apps/web/vite.config.ts', 'apps/web/package.json');
+  return dirty ? `${head}+local changes` : head;
+}
+
 /**
- * The directory of a web build of the current source, built on first use into
- * SCRATCH/web/<hash> (never apps/web/dist, which other work uses). `given` (from
- * --web-dir) skips the build.
+ * What is known about the build in `dir`: { dir, hash, revision, builtAt,
+ * fallback }, or null when `dir` holds no finished build.
+ */
+export function readBuild(dir, hash) {
+  try {
+    const info = JSON.parse(readFileSync(join(dir, BUILD_INFO), 'utf8'));
+    return { dir, hash: info.hash ?? hash, revision: info.revision ?? 'unknown', builtAt: info.builtAt ?? null, fallback: false };
+  } catch {
+    // A build from before the marker: it was renamed into place only when complete.
+    if (!existsSync(join(dir, 'index.html'))) return null;
+    return { dir, hash, revision: 'unknown', builtAt: new Date(statSync(join(dir, 'index.html')).mtimeMs).toISOString(), fallback: false };
+  }
+}
+
+function alivePid(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+}
+
+/** Take the build lock for `hash` (a folder holding the owner's pid); a lock whose owner is gone is taken over. */
+async function takeBuildLock(lock, done) {
+  let announced = false;
+  for (;;) {
+    const finished = done();
+    if (finished) return { finished };
+    try {
+      mkdirSync(lock);
+      writeFileSync(join(lock, 'pid'), String(process.pid));
+      return { release: () => rmSync(lock, { recursive: true, force: true }) };
+    } catch {
+      let owner = NaN;
+      try {
+        owner = Number(readFileSync(join(lock, 'pid'), 'utf8'));
+      } catch {
+        /* being written; or a lock from before pids were recorded */
+        try {
+          if (Date.now() - statSync(lock).mtimeMs > 15 * 60_000) owner = 0;
+        } catch {
+          /* gone */
+        }
+      }
+      if (owner === 0 || (Number.isFinite(owner) && owner > 0 && !alivePid(owner))) {
+        log(`taking over an abandoned web build lock (${lock})`);
+        rmSync(lock, { recursive: true, force: true });
+        continue;
+      }
+      if (!announced) log(`another run is building this web source; waiting for it (${lock})`);
+      announced = true;
+      await sleep(3000);
+    }
+  }
+}
+
+/** The newest finished build other than `except`, for the fallback. */
+function newestBuild(except) {
+  const root = join(SCRATCH, 'web');
+  return readdirSync(root, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && /^[0-9a-f]{16}$/.test(d.name) && d.name !== except)
+    .map((d) => readBuild(join(root, d.name), d.name))
+    .filter(Boolean)
+    .sort((a, b) => String(b.builtAt).localeCompare(String(a.builtAt)))[0];
+}
+
+/**
+ * The web client built from the current source, in SCRATCH/web/<hash> (never
+ * apps/web/dist, which other work uses). Safe when several runs start at once:
+ * one run per source hash builds, under a lock, into a private temporary folder
+ * that is renamed into place only when complete (and only if no finished build
+ * is there yet); the others wait and reuse it. `given` (--web-dir) skips the
+ * build. Returns { dir, hash, revision, builtAt, fallback }.
  */
 export async function ensureWeb(given) {
   if (given) {
     if (!existsSync(join(given, 'index.html'))) throw new Error(`--web-dir ${given} has no index.html`);
-    return { dir: given, hash: 'given' };
+    const known = readBuild(given, given.split(/[\\/]/).filter(Boolean).pop());
+    return { ...known, dir: given, given: true };
   }
+  const root = join(SCRATCH, 'web');
+  mkdirSync(root, { recursive: true });
   const hash = webSourceHash();
-  const dir = join(SCRATCH, 'web', hash);
-  if (existsSync(join(dir, 'index.html'))) return { dir, hash };
-  const lock = `${dir}.lock`;
-  mkdirSync(join(SCRATCH, 'web'), { recursive: true });
-  for (;;) {
-    try {
-      mkdirSync(lock);
-      break;
-    } catch {
-      if (existsSync(join(dir, 'index.html'))) return { dir, hash };
-      log(`waiting for another run's web build (${lock})`);
-      await sleep(5000);
-    }
-  }
+  const dir = join(root, hash);
+  const ready = () => readBuild(dir, hash);
+  const lock = await takeBuildLock(`${dir}.lock`, ready);
+  if (lock.finished) return lock.finished;
+  const tmp = `${dir}.tmp-${process.pid}-${Date.now()}`;
   try {
-    const tmp = `${dir}.tmp-${process.pid}`;
-    log(`building the web client from source into ${dir} (about two minutes)`);
+    // Another run may have finished between our check and taking the lock.
+    const already = ready();
+    if (already) return already;
+    const revision = webRevision();
+    log(`building the web client (source ${revision}, hash ${hash}) into ${dir} (about two minutes)`);
     const vite = join(WEB_APP, 'node_modules', 'vite', 'bin', 'vite.js');
     const result = spawnSync(process.execPath, [vite, 'build', '--outDir', tmp, '--emptyOutDir', '--logLevel', 'warn'], {
       cwd: WEB_APP,
       stdio: 'inherit',
     });
     if (result.status !== 0) {
-      rmSync(tmp, { recursive: true, force: true });
       // Other work may leave the source tree mid-edit. Fall back to the newest
       // earlier build rather than failing the run, and say so.
-      const previous = readdirSync(join(SCRATCH, 'web'), { withFileTypes: true })
-        .filter((d) => d.isDirectory() && /^[0-9a-f]{16}$/.test(d.name) && existsSync(join(SCRATCH, 'web', d.name, 'index.html')))
-        .map((d) => ({ name: d.name, time: statSync(join(SCRATCH, 'web', d.name, 'index.html')).mtimeMs }))
-        .sort((a, b) => b.time - a.time)[0];
+      const previous = newestBuild(hash);
       if (!previous || process.env.MW_SHOTS_NO_FALLBACK) throw new Error('vite build of the current source failed');
-      log(`WARNING: the current web source does not build; using the previous build ${previous.name} from ${new Date(previous.time).toISOString()}`);
-      return { dir: join(SCRATCH, 'web', previous.name), hash: `${previous.name} (fallback)` };
+      log(`WARNING: the current web source does not build; using the earlier build ${previous.hash} (source ${previous.revision}, built ${previous.builtAt})`);
+      return { ...previous, fallback: true };
     }
-    renameSync(tmp, dir);
-    return { dir, hash };
+    const info = { hash, revision, builtAt: new Date().toISOString() };
+    writeFileSync(join(tmp, BUILD_INFO), `${JSON.stringify(info, null, 2)}\n`);
+    if (!ready()) {
+      try {
+        renameSync(tmp, dir);
+      } catch (error) {
+        // A folder is in the way: use it if it is a finished build, else report.
+        if (!ready()) throw new Error(`cannot move the web build into ${dir}: ${error.message}`);
+      }
+    }
+    return ready();
   } finally {
-    rmSync(lock, { recursive: true, force: true });
+    rmSync(tmp, { recursive: true, force: true });
+    lock.release();
   }
 }
 

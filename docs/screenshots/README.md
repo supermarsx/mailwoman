@@ -50,6 +50,15 @@ by `MW_SHOTS_SERVER_BIN`). The web client is built from the current source into
 `%TEMP%\mw-shots\web\<hash>`; if the source does not build at that moment
 (someone is mid-edit), the newest earlier build is used and the run says so.
 
+Runs that start at the same time share builds: one run builds each source
+version (under the lock `web\<hash>.lock`), the others wait and then use the
+finished build; a build is moved into place only when complete. Each run prints
+the build it uses (`web build <hash>: source <commit>[+local changes], built
+<time>`), and `meta/<area>.json` records it per image (`web`, `webRevision`,
+`webBuiltAt`, `webFallback` when an earlier build stood in). `check.mjs` warns
+when the images of one area come from different builds; capture the area again
+to bring them in line.
+
 | | Stack `E` (default) | Stack `M` |
 |---|---|---|
 | Mail backend | Greenmail in Docker (IMAP/SMTP), server in engine mode | the in-repo mock JMAP server, server in proxy mode |

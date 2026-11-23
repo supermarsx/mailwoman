@@ -11,7 +11,7 @@
 // with `screen: true` front matter has an orientation shot.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { OUTPUT, REPO } from './lib/paths.mjs';
+import { META, OUTPUT, REPO } from './lib/paths.mjs';
 import { BUDGET, kindOf, loadManifests, outputOf, urlOf, validateAll } from './lib/manifest.mjs';
 import { loadSeedDefs } from './lib/seed.mjs';
 
@@ -143,6 +143,26 @@ function main() {
           if (items < max) errors.push(`${area}/${e.id}: the legend lists ${items} items for callouts up to ${max}`);
         }
       }
+    }
+  }
+
+  // Images of one area should come from one web build (warning only).
+  for (const { area, entries } of manifests) {
+    const file = join(META, `${area}.json`);
+    if (!existsSync(file)) continue;
+    const meta = JSON.parse(readFileSync(file, 'utf8')).entries ?? {};
+    const builds = new Map();
+    for (const e of entries) {
+      const m = meta[e.id];
+      if (!m?.web) continue;
+      const key = String(m.web);
+      if (!builds.has(key)) builds.set(key, { revision: m.webRevision ?? 'unknown', builtAt: m.webBuiltAt ?? 'unknown', ids: [] });
+      builds.get(key).ids.push(e.id);
+      if (m.webFallback) warnings.push(`${area}/${e.id}: captured from a fallback web build (${key}) because the source did not build then`);
+    }
+    if (builds.size > 1) {
+      const list = [...builds].map(([hash, b]) => `${hash} (source ${b.revision}, built ${b.builtAt}): ${b.ids.join(', ')}`).join('; ');
+      warnings.push(`${area}: images come from ${builds.size} different web builds; recapture the older ones (--manifest ${area}) so they match: ${list}`);
     }
   }
 

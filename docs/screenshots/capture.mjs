@@ -525,7 +525,7 @@ function commit() {
   }
 }
 
-function writeMeta(area, id, entry, result, stack) {
+function writeMeta(area, id, entry, result, stack, web) {
   const file = join(META, `${area}.json`);
   const meta = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : { entries: {} };
   meta.entries[id] = {
@@ -533,7 +533,11 @@ function writeMeta(area, id, entry, result, stack) {
     ...result,
     commit: commit(),
     stack: stack.kind,
-    web: stack.versions.web,
+    web: web.hash,
+    webRevision: web.revision,
+    webBuiltAt: web.builtAt,
+    ...(web.fallback ? { webFallback: true } : {}),
+    ...(web.given ? { webGiven: true } : {}),
     serverBuilt: stack.versions.serverBuilt,
     ...(stack.versions.mockBuilt ? { mockBuilt: stack.versions.mockBuilt } : {}),
   };
@@ -572,6 +576,7 @@ async function main() {
   const web = await ensureWeb(opts.webDir);
   opts.webDir = web.dir;
   opts.webHash = web.hash;
+  log(`web build ${web.hash}: source ${web.revision}, built ${web.builtAt ?? 'unknown'}${web.fallback ? ' (FALLBACK: the current source did not build)' : ''}${web.given ? ' (from --web-dir)' : ''}`);
   const { chromium } = playwright();
   const browser = await chromium.launch({ headless: !opts.flags.has('headed'), args: launchArgs() });
   const converterContext = await browser.newContext();
@@ -613,7 +618,7 @@ async function main() {
             log(`retrying ${area}/${entry.id} once: ${error.message.split('\n')[0]}`);
             result = await captureEntry(browser, converter, stack, area, entry, opts);
           }
-          writeMeta(area, entry.id, entry, result, stack);
+          writeMeta(area, entry.id, entry, result, stack, web);
           done += 1;
           log(`ok ${area}/${entry.id}  ${result.width}x${result.height}  ${Math.round(result.bytes / 1024)} KB  q${result.quality}  ${((Date.now() - started) / 1000).toFixed(1)}s`);
         } catch (error) {
