@@ -276,6 +276,7 @@ contacts-save-settings-scope = 在对话框中首先勾选
 contacts-save-settings-scope-all = 大家都在留言
 
 contacts-save-settings-scope-sender = 仅限发件人
+contacts-save-settings-scope-sender-replyto = 发件人和回复地址
 
 contacts-save-settings-sender = 报价 将发件人保存为联系人
 

@@ -291,6 +291,7 @@ contacts-save-settings-scope = تم تحديده أولاً في مربع الح
 contacts-save-settings-scope-all = الجميع على الرسالة
 
 contacts-save-settings-scope-sender = المرسل فقط
+contacts-save-settings-scope-sender-replyto = المرسل وعنوان الرد
 
 contacts-save-settings-sender = عرض حفظ المرسل كجهة اتصال
 

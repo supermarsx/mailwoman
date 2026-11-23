@@ -277,6 +277,7 @@ contacts-save-settings-scope = Als eerste aangevinkt in het dialoogvenster
 contacts-save-settings-scope-all = Iedereen op het bericht
 
 contacts-save-settings-scope-sender = Alleen afzender
+contacts-save-settings-scope-sender-replyto = Afzender en Antwoord aan
 
 contacts-save-settings-sender = Aanbieding Bewaar afzender als contactpersoon
 

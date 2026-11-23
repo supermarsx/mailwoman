@@ -276,6 +276,7 @@ contacts-save-settings-scope = ダイアログで最初にチェックを入れ�
 contacts-save-settings-scope-all = メッセージに参加している皆さん
 
 contacts-save-settings-scope-sender = 送信者のみ
+contacts-save-settings-scope-sender-replyto = 送信者と返信先
 
 contacts-save-settings-sender = オファー 送信者を連絡先として保存
 

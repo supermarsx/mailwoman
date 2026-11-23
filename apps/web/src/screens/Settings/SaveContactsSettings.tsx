@@ -31,7 +31,7 @@ export function SaveContactsSettings():JSX.Element {
  return <SettingsCard id="save-contacts-card" title={t('contacts-save-settings-title')}>
   <ToggleRow id="save-contacts-enabled" label={t('contacts-save-settings-enabled')} help={t('contacts-save-settings-enabled-help')} handle={enabled}/>
   <ToggleRow id="save-contacts-sender" label={t('contacts-save-settings-sender')} help={t('contacts-save-settings-sender-help')} handle={sender}/>
-  <SelectRow id="save-contacts-scope" label={t('contacts-save-settings-scope')} handle={scope} accept={(value):value is Scope=>SCOPES.includes(value as Scope)} options={SCOPES.map(value=>({value,label:t(`contacts-save-settings-scope-${value}`)}))}/>
+  <SelectRow id="save-contacts-scope" label={t('contacts-save-settings-scope')} handle={scope} accept={(value):value is Scope=>SCOPES.includes(value as Scope)} options={SCOPES.map(value=>({value,label:t(`contacts-save-settings-scope-${value.replace('+','-')}`)}))}/>
   <ToggleRow id="save-contacts-skip" label={t('contacts-save-settings-skip')} help={t('contacts-save-settings-skip-help')} handle={skip}/>
   <ToggleRow id="save-contacts-note" label={t('contacts-save-settings-note')} help={t('contacts-save-settings-note-help')} handle={note}/>
   <ToggleRow id="save-contacts-reply-to" label={t('contacts-save-settings-reply-to')} help={t('contacts-save-settings-reply-to-help')} handle={replyTo}/>

@@ -277,6 +277,7 @@ contacts-save-settings-scope = Selezionato per primo nella finestra di dialogo
 contacts-save-settings-scope-all = Tutti sul messaggio
 
 contacts-save-settings-scope-sender = Solo mittente
+contacts-save-settings-scope-sender-replyto = Mittente e Rispondi a
 
 contacts-save-settings-sender = Offerta Salva mittente come contatto
 

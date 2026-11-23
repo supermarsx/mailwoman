@@ -277,6 +277,7 @@ contacts-save-settings-scope = Coché en premier dans la boîte de dialogue
 contacts-save-settings-scope-all = Tout le monde sur le message
 
 contacts-save-settings-scope-sender = Expéditeur uniquement
+contacts-save-settings-scope-sender-replyto = Expéditeur et adresse de réponse
 
 contacts-save-settings-sender = Offre Enregistrer l'expéditeur comme contact
 

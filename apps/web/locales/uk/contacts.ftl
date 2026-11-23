@@ -283,6 +283,7 @@ contacts-save-settings-scope = Позначено першим у діалого
 contacts-save-settings-scope-all = Всім на повідомлення
 
 contacts-save-settings-scope-sender = Лише відправник
+contacts-save-settings-scope-sender-replyto = Відправник і адреса для відповіді
 
 contacts-save-settings-sender = Пропозиція Зберегти відправника як контакт
 

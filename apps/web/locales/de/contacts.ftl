@@ -277,6 +277,7 @@ contacts-save-settings-scope = Im Dialog zuerst angekreuzt
 contacts-save-settings-scope-all = Jeder auf der Nachricht
 
 contacts-save-settings-scope-sender = Nur Absender
+contacts-save-settings-scope-sender-replyto = Absender und Antwortadresse
 
 contacts-save-settings-sender = Angebot Absender als Kontakt speichern
 

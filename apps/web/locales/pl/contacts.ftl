@@ -283,6 +283,7 @@ contacts-save-settings-scope = Zaznaczone jako pierwsze w oknie dialogowym
 contacts-save-settings-scope-all = Wszyscy w wiadomości
 
 contacts-save-settings-scope-sender = Tylko nadawca
+contacts-save-settings-scope-sender-replyto = Nadawca i adres odpowiedzi
 
 contacts-save-settings-sender = Oferta Zapisz nadawcę jako kontakt
 
