@@ -1,592 +1,345 @@
-# Root deployment script
+# Deploy with deploy.sh
 
-For converting an existing SQLite database while the server remains running,
-see [online SQLite maintenance](online-sqlite-maintenance.md).
+[`deploy.sh`](https://github.com/supermarsx/mailwoman/blob/master/deploy.sh) installs and runs Mailwoman on one host with Docker. It deploys the webmail app (web client, Rust server, render worker and first-party plugins) with a SQLite database and upload storage in one Docker volume, or, with `--full-stack`, with PostgreSQL and Valkey beside it. It also takes backups, restores them, rolls back failed updates and writes scheduling units. It does not install a mail server: users sign in to your existing JMAP server (proxy mode), or to an IMAP or POP3 server with SMTP for sending (engine mode).
 
-[`deploy.sh`](https://github.com/supermarsx/mailwoman/blob/master/deploy.sh) manages a single-host Docker deployment of the
-Mailwoman web app: packaged SPA, Rust server, render worker, first-party plugins,
-SQLite database and filesystem upload storage, or a full stack with PostgreSQL
-and Valkey. It does not install a mail server.
-Users connect their existing JMAP accounts, or IMAP/POP3 + SMTP in engine mode.
+## Requirements
+
+- Git, Bash 4 or newer, `curl`, `tar` and coreutils (`sha256sum`, `od`, `cmp`).
+- Docker running Linux containers, with the Compose plugin 2.30 or newer, on the same host. Remote Docker contexts are refused: the script checks the app through `localhost`.
+- A user that can reach the Docker daemon.
+
+You do not need Rust, Node or pnpm on the host: the repository's Dockerfile builds everything. `sh deploy.sh` also works; the script re-runs itself under Bash.
 
 ## First deployment
 
-On the deployment host, install **Git**, **Bash 4+**, **Docker with Linux containers and
-Compose 2.30+**, `curl`, `tar`, and coreutils (`sha256sum`, `od`, `cmp`, etc.).
-Run as a user who can access the Docker daemon. Host Rust, Node and pnpm are not
-required: the repository's Dockerfile builds the web app and binaries. Use the
-same local Docker daemon for every operation; remote Docker contexts are not
-supported by the localhost exposure and verification steps.
+Clone the repository, check out the branch you want to deploy, and pick one of the following. Every first installation prints the admin username and the admin console address when it finishes.
 
-### Pull source without deploying
+### Local, plain HTTP
 
 ```sh
-sh deploy.sh --pull-only
+bash deploy.sh                              # proxy mode (JMAP)
+bash deploy.sh --mode engine --port 8081    # engine mode (IMAP/POP3 + SMTP)
 ```
 
-Fast-forwards the current branch from its configured upstream, then exits. It does
-not build or pull images, create deployment state, copy backups, or restart services.
-Local edits are preserved; conflicting edits or diverged history stop the update.
-Use `--pull-only --dry-run` to preview without fetching or changing the checkout.
+The app listens on `127.0.0.1` only. Without `--port` the script uses 8080, or the first free port from 8081 to 8099 when 8080 is taken; it prints the port and saves it in `deploy.env`.
 
-### Build reuse
+### Automatic HTTPS with Caddy
 
-Deploy normally with `sh deploy.sh deploy` to pull and build the updated source.
+1. Point the hostname's A/AAAA records at this host.
+2. Make TCP ports 80 and 443 free and reachable from the Internet. For HTTP/3, also allow UDP 443.
+3. Run:
 
-To fetch the latest published GitHub Container Registry image and skip local
-compilation:
+   ```sh
+   bash deploy.sh --domain mail.example.org --mode engine
+   ```
 
-```sh
-sh deploy.sh deploy --prebuilt
-```
+The script adds a Caddy container that gets and renews certificates and forwards WebSocket and server-sent events to the app. Caddy offers HTTP/1.1, HTTP/2 and HTTP/3 by default. For a TCP-only listener, add `--http-protocols 'h1 h2'` (or `'h1'`) at the first deploy; on an existing installation set `CADDY_PROTOCOLS=h1 h2` in `deploy.env` and run `bash deploy.sh deploy --no-build`. This setting only affects Caddy; the connection from Caddy to the app stays on the private Docker network.
 
-This explicitly pulls `ghcr.io/supermarsx/mailwoman:master`, or
-`IMAGE_REPOSITORY:master` when `IMAGE_REPOSITORY` is set in `deploy.env`. The
-published tag is `master`, not `latest`; a published image can lag the current
-Git checkout. This invocation follows the existing signature checks, resolves
-the selected image to its immutable ID/digest and retains normal backup,
-deployment, health-check and rollback behavior. Use `--require-signature` to
-require verification. Public GHCR pulls do not require GitHub CLI credentials.
-The script still updates its checkout normally; add `--no-pull` to keep the
-current checkout. `--dry-run` shows the selected published reference.
-
-`--prebuilt` is a deploy-only invocation option; it does not persist a new
-default or alter `IMAGE_REPOSITORY`. It cannot be combined with `--image`,
-`--image-tag`, `--no-build`, `--build-profile fast` or `--pull-only`. Existing
-`--image` remains available for a chosen exact tag or digest. Default deployments
-continue to build locally.
-
-Docker builds the web app separately from Rust and packages its files in the
-image at `MW_WEB_DIR`. With the same builder and its cache retained, a UI-only
-change reuses the completed Rust build layer. Rust source or dependency changes
-rebuild Rust, reusing Cargo's registry and target caches where possible.
-The first build still compiles the dependencies; changing the toolchain or
-pruning the builder cache can require another expensive build.
-
-### Tabs open across a deploy
-
-A browser tab opened before a deploy keeps running the previous web build and
-loads that build's hashed files (`/assets/<name>-<hash>.js`) as it opens lazy
-pages. The new image does not contain them. At each start the server copies the
-hashed files of the build it serves into `/data/retained-assets` (beside the
-database, in the backed-up data volume) and keeps the files of the last 5 builds,
-each for 14 days after a newer build replaced it, within 512 MiB. Those requests
-are then answered with the same immutable files. When a tab still cannot load a
-file, the app checks whether the server has a newer build, shows "A new version is
-available, reloading…" and reloads once (no automatic reload while an editor has
-unsaved changes). `index.html` is always sent with `Cache-Control: no-cache`, so a
-new tab gets the new build. Add `MW_RETAINED_ASSETS_DIR=off` to `app.env` to disable retention; deploy.sh
-needs no other setting for it.
-
-Docker Rust builds compile non-incrementally by default. Incremental release
-builds in a reused target cache left mw-mime objects that referenced generic
-instantiations missing from the freshly built crates, so the musl link failed
-with undefined references. Pass `--incremental` to opt in; the cache ids carry
-an `-ni` suffix so a cache poisoned by earlier incremental builds is not reused.
-By default optimization remains release level 3 with 16 codegen units, overflow checks and
-stripping unchanged.
-
-Deployment and direct Docker builds default to eight concurrent Cargo jobs.
-Use `sh deploy.sh deploy --build-jobs N` to override this if compilation
-exhausts memory or causes swapping. This is separate from `CPU_LIMIT`/`MEMORY_LIMIT`,
-which limit the running app. The corresponding direct Docker build argument is
-`MW_BUILD_JOBS=N`. Use `MW_CARGO_INCREMENTAL=1` to opt in to incremental builds (default 0).
-No build-time reduction is promised without measuring on the deployment host.
-
-`sh deploy.sh deploy --build-profile fast` optionally compiles only the `mw-server`
-package at release optimization level 2. Dependencies remain at release level 3;
-overflow checks, stripping, unwinding and codegen settings remain unchanged. The
-default is `--build-profile release`. GNU and musl builds both accept the direct
-Docker argument `--build-arg MW_BUILD_PROFILE=fast`. The implementation passes
-Cargo `--config 'profile.release.package.mw-server.opt-level=2'`, keeping the
-existing release target directory and cached dependencies. Cargo fingerprints
-the changed server optimization setting; switching back selects normal release
-artifacts. Build-time savings and runtime differences require measurement; this
-option does not guarantee a faster build or equivalent runtime performance.
-
-Using a previously verified published image through the existing `--image`
-deployment option avoids compiling locally altogether. Verify that the exact
-image digest is the intended CI build before using it; the normal signature and
-deployment checks still apply. This is generally the shortest deployment path
-when that verified image is already available.
-
-GNU/distroless and musl/static builds use separate target caches. Their build
-scripts and procedural macros run against different host libraries and compiler
-flags; sharing one locked directory made the two build families wait for each
-other and replace incompatible cached intermediates. The static build preserves
-the previous `/src/target` cache identity, so a normal static deploy keeps its
-warm dependencies. GNU runtime and mock builds share a new compatible cache per
-Docker target platform and need a one-time warmup; downloaded registry sources
-remain shared. A legacy cache last populated by GNU can still require a musl
-refresh. This prevents future cross-build interference without copying caches;
-it does not make cold static compilation cheaper or avoid compiling changed Rust
-code. The static build continues to target `x86_64-unknown-linux-musl` explicitly.
-
-Build stages explicitly select the compiler already installed in their pinned
-Rust image. This prevents the checkout's developer-only `rustfmt` and `clippy`
-component list from causing rustup downloads whenever a source change reruns
-compilation. The image-pin check also checks this compiler selection. It does
-not change the compiler version, Cargo profiles or shipped binaries' features.
-For the shortest deployment, build a trusted image elsewhere and use the existing
-`--image`/`--pull` path so the deployment host does not compile Rust.
-
-`--no-build` reuses an existing application image. It applies deployment
-configuration but does not put newly pulled application code into that image.
-
-Clone the repository and check out the branch you intend to deploy, then run:
-
-```sh
-# Automatic HTTPS: first point this hostname's A/AAAA records at this host.
-# TCP ports 80 and 443 must be free and reachable from the Internet.
-# UDP 443 is also needed for HTTP/3 (QUIC).
-bash deploy.sh --domain mail.example.org --mode engine
-```
-
-The managed Caddy listener offers HTTP/1.1, HTTP/2 and HTTP/3. Its Compose
-manifest publishes both TCP and UDP 443. QUIC requires UDP forwarding through
-the host firewall and any upstream load balancer; TCP clients retain HTTP/2
-or HTTP/1.1. For a TCP-only installation, initialize with
-`--http-protocols 'h1 h2'`. On an existing installation, set
-`CADDY_PROTOCOLS=h1 h2` in `.deploy.local/deploy.env` and run
-`sh deploy.sh deploy --no-build`. `h1` is also supported. These are listener
-settings for managed Caddy, not a claim of native application HTTP/3 or a
-change to an externally managed proxy. The application connection behind
-Caddy remains on the private deployment network.
-
-For a local installation:
-
-```sh
-bash deploy.sh                       # http://localhost:8080; JMAP proxy mode
-# Or, for IMAP/POP3 + SMTP:
-bash deploy.sh --mode engine --port 8081
-```
-
-Without `--port`, a first installation uses 8080, or the next free port up to
-8099 when 8080 is taken; the script prints the port and keeps it in `deploy.env`.
-Later deploys stop before building if a published port is held by another
-service, and name the setting to change.
-
-These examples describe separate first installations. The first `deploy` sets
-up and starts the app; every later `deploy` updates the same installation. Setup
-flags may be repeated unchanged or left out on later runs; a different value is
-refused, and `deploy.env` is the place to change it. All commands accept `--state-dir`
-and can be invoked from any working directory by passing the path to `deploy.sh`.
-
-For an existing TLS reverse proxy:
+### Behind your own HTTPS reverse proxy
 
 ```sh
 bash deploy.sh init --public-url https://mail.example.org
-# Configure your proxy to forward to 127.0.0.1:8080, including WebSocket and SSE.
-# Edit .deploy.local/app.env for upstreams, SMTP settings, proxy trust, etc.
+# Edit .deploy.local/app.env (mail server, SMTP, proxy trust), then:
 bash deploy.sh doctor
 bash deploy.sh deploy
 ```
 
-For a proxy that runs as a container on the same host, such as Nginx Proxy
-Manager, share a Docker network with it instead of publishing a host port:
+Configure your proxy to forward to `127.0.0.1:8080`, including WebSocket and server-sent events. Set `MW_TRUSTED_PROXIES` and `MW_FORWARDED_MODE` in `app.env` to match the proxy's address as the container sees it; see [Reverse proxy](reverse-proxy.md).
+
+### Behind a reverse proxy container
+
+For a proxy that runs as a container on the same host, such as Nginx Proxy Manager or Traefik, put the app on a shared Docker network instead of a host port:
 
 ```sh
 bash deploy.sh --public-url https://mail.example.org --proxy-network proxy
 ```
 
-The app joins the network `proxy` under its project name (default `mailwoman`)
-and publishes nothing on the host. The script creates the network when it does
-not exist and never removes it; name your proxy's existing network to reuse it.
-Attach the proxy to that network (`docker network connect proxy <container>`, or
-an `external: true` network in its own Compose file), then add a proxy host for
-`mail.example.org` forwarding to `http://mailwoman:8080` with WebSocket support
-and a certificate. Until that proxy host exists, `deploy` reports the app as
-healthy on the network and notes that the public URL does not answer yet.
+1. The script creates the network `proxy` if it does not exist (and never removes it). Name your proxy's existing network to reuse it.
+2. Attach the proxy to that network (`docker network connect proxy <container>`, or an `external: true` network in the proxy's own Compose file).
+3. In the proxy, forward `mail.example.org` to `http://mailwoman:8080` (the project name, `mailwoman` by default) with WebSocket support and a certificate.
 
-`init` generates configuration without Docker access. `doctor` checks prerequisites,
-application configuration and the generated Compose model without starting services.
-`--dry-run` describes any operation without writing files or contacting Docker.
+The app publishes no host port. Until the proxy host exists, `deploy` reports the app as healthy on the network and notes that the public URL does not answer yet.
 
-Deployments show six numbered phases on stderr: source update, configuration,
-runtime image, data protection, service health, and backup history. Each phase
-has a distinct colored heading and reports elapsed time. UTC start and finish
-timestamps accompany the total duration in seconds and hours/minutes/seconds.
-Git updates show the branch, previous and new short commit IDs, incoming count,
-and every incoming commit in chronological order, without shortening subjects.
-Subjects are rendered
-as printable ASCII so repository metadata cannot issue terminal controls.
-The updated script keeps the original arguments and phase count when it restarts
-itself after pulling. `--no-pull` reports the current revision, or identifies a
-source archive when Git metadata is unavailable.
+The script sets `MW_TRUSTED_PROXIES` to the network's subnets and `MW_FORWARDED_MODE=xff` unless `app.env` sets either one. Every container on that network can then state a client address, so keep the network to the proxy and the apps behind it, or set the proxy's own address in `app.env`.
 
-Phase headings use cyan, blue, magenta, yellow, and green; completed steps are
-green, warnings yellow, and errors red. Color is used only on an interactive
-stderr terminal. Set
-`NO_COLOR=1` to disable it; redirected logs and `TERM=dumb` remain plain. Command
-data stays on stdout. Snapshot resume and restart use Compose's
-`up -d --no-recreate --wait --wait-timeout` to wait for the existing containers;
-Compose 2.30 does not support `start --wait`.
+### Later runs
 
-## Full stack and one-step SQLite migration
+The first `deploy` sets up and starts the app; every later `deploy` updates the same installation. You may repeat the setup options unchanged or leave them out. A different value is refused with a message naming the `deploy.env` key to edit instead. All commands accept `--state-dir`, and you can run the script from any directory by giving its path.
 
-Use the same command for a new full stack or an existing deployment managed by
-this script:
-
-```sh
-bash deploy.sh deploy --full-stack
-```
-
-For a new public instance, combine it with your usual setup options:
-
-```sh
-bash deploy.sh deploy --full-stack --domain mail.example.org --mode engine
-```
-
-This starts Mailwoman, PostgreSQL 16 and Valkey 8, plus Caddy when `--domain` is
-used. Mail servers remain external. PostgreSQL holds the authoritative store;
-Valkey is an optional accelerator, with the existing per-cache-class policy
-still controlling what may enter it. PostgreSQL and Valkey publish no host ports
-and share an internal service network with Mailwoman. Mailwoman also retains its
-normal network for upstream mail and reverse-proxy access. Each service waits
-for its health check before the app starts.
-
-`STACK=full`, `POSTGRES_IMAGE` and `VALKEY_IMAGE` are saved in `deploy.env`.
-The generated image defaults are pinned by digest; version changes are explicit.
-Database and cache passwords are generated once in the private `app.env`; do not
-change them on an existing PostgreSQL volume. Keep this file and
-`MW_SERVER_KEY`. Remove any external `MW_REDIS_URL` before selecting the managed
-stack. The cache is disposable and memory-limited; PostgreSQL and uploads use
-persistent volumes. Host disk encryption is still an operator responsibility;
-selecting PostgreSQL does not encrypt its disk automatically.
-
-### Full stack and migration with your own reverse proxy (no Caddy)
-
-The storage stack and HTTPS proxy are independent. `--full-stack` never selects
-Caddy by itself. An existing SQLite deployment keeps its saved `EXPOSURE`,
-`PUBLIC_URL`, port, proxy network and trust configuration during migration:
-
-```sh
-# Existing script-managed SQLite installation behind your own proxy:
-bash deploy.sh deploy --full-stack --state-dir .deploy.local
-# Inspect the plan first without changing files or contacting Docker:
-bash deploy.sh deploy --full-stack --state-dir .deploy.local --dry-run
-```
-
-For a **new** full-stack installation with a host-based proxy:
-
-```sh
-bash deploy.sh --full-stack --public-url https://mail.example.org --port 8080
-```
-
-The app binds only `127.0.0.1:8080`; configure the existing proxy to forward to
-that address. For a **new** installation with a Docker-based proxy such as
-Nginx Proxy Manager or Traefik:
-
-```sh
-bash deploy.sh --full-stack --public-url https://mail.example.org --proxy-network proxy
-```
-
-The app publishes no host port and is reachable as `http://mailwoman:8080`
-(or your `--project` name) on the chosen proxy network. PostgreSQL and Valkey
-remain on their separate internal network, without public ports. Both BYO
-modes enable Secure cookies and leave TLS/certificate management to your proxy;
-configure WebSocket/SSE forwarding and trusted proxy addresses using the
-[reverse-proxy guide](reverse-proxy.md). Do not pass `--domain`, which explicitly selects Caddy.
-
-Setup flags on an existing state directory must match its saved configuration.
-To put an existing local SQLite installation behind your proxy while upgrading
-its storage, first edit `deploy.env`: set `EXPOSURE=external` or `network`,
-`PUBLIC_URL=https://…`, and the port or `PROXY_NETWORK` as appropriate. Configure
-the proxy and trust settings, then run the migration command above. Migration
-preserves those values. Moving an installation to or from managed Caddy remains
-a separate deployment change; see [Configuration and exposure](#configuration-and-exposure).
-
-On an existing **script-managed SQLite installation**, `--full-stack` performs
-these steps automatically:
-
-1. Prepare images and check that the app image supports complete migration.
-2. Stop the app writer and take a checksummed backup of SQLite, uploads and
-   deployment configuration.
-3. Copy `/data` into a fresh volume, upgrade that offline copy's schema, and
-   migrate every application table into a fresh PostgreSQL volume. Admin
-   identities, domains, configuration, OAuth registrations and plugin grants
-   remain part of the same installation. The original SQLite volume is retained;
-   the unused SQLite copy is removed from the new live volume after verification.
-4. Compare table/column coverage and every copied value before the destination
-   transaction commits. A nonempty destination or unsupported schema is refused.
-5. Start the app against PostgreSQL and verify health. Migration errors resume
-   the previous app; activation errors use the normal automatic rollback unless
-   `--no-auto-rollback` was explicitly selected.
-
-The app is unavailable while the offline copy and migration run. The one-step
-path uses the existing `.deploy.local` state (or `--state-dir`); it does not
-adopt an unrelated container without its original configuration. Ensure enough
-space for the backup, original volume, working copy and PostgreSQL data. Built
-images include the new migrator; an older `--image` or `--no-build` image must
-support `migrate-store --complete` or the script refuses before stopping the app.
-
-Full-stack backups include a PostgreSQL custom-format dump inside `data.tar`,
-covered by the existing checksum and optional archive encryption. Restore and
-rollback create fresh application **and PostgreSQL** volumes, restore the dump,
-then start the app. Valkey is recreated empty. Replaced volumes remain available
-until explicitly pruned. Returning to `STACK=single` is refused; restoring a
-pre-migration snapshot is the supported rollback path.
-
-## Configuration and exposure
-
-The default state directory is `.deploy.local` beside the script. Its `*.local`
-name is already excluded by both `.gitignore` and `.dockerignore`. Custom state
-directories inside the repository must also sit beneath a top-level `*.local`
-directory; directories outside the repository are supported. Files use mode `0600`
-and the state directory uses `0700` on filesystems supporting Unix permissions.
-
-- `deploy.env`: project, mode, URL, port, exposure, proxy network, Caddy
-  image/network/ACME settings, the app's memory and CPU limits, the mail server
-  (`UPSTREAM_DEFAULT`), the image repository `--image-tag` uses
-  (`IMAGE_REPOSITORY`), and the backup and alert settings (`BACKUP_KEEP`,
-  `BACKUP_KEEP_DAYS`, `BACKUP_RECIPIENT`, `BACKUP_HOOK`, `ALERT_HOOK`; see
-  [backups.md](backups.md) and [monitoring.md](monitoring.md)).
-- `app.env`: persistent random `MW_SERVER_KEY`, random admin password, and optional
-  application environment variables. Values are **literal, unquoted** text; dollar
-  signs and spaces are preserved. Do not add `export`, quotes or shell commands.
-- `active/`: the last applied Compose/configuration and exact local image IDs.
-  Edit the parent files, then run `deploy`; `start`/`restart` use the applied files.
-- `backups/`: data and configuration snapshots. `rollback.path` identifies the
-  snapshot taken before the most recent deployment attempt.
-
-New installations receive a readable random username, `admin-` followed by 12 hex
-characters. Setup prints the username and saves it as `MW_ADMIN_USER`; existing
-installations keep their configured name across deploys and upgrades. Retrieve its generated password privately
-from `app.env`. `init` also writes a random `MW_METRICS_TOKEN`, the bearer token
-for `/metrics`; [monitoring.md](monitoring.md) covers metrics, `check` and
-`ALERT_HOOK`. Mailbox users authenticate against their mail provider. Secrets are
-never printed by the script. Preserve `MW_SERVER_KEY`: it seals credentials and
-uploads. A deploy refuses to change that key under an existing data volume.
-
-The script manages database/upload paths, runtime binaries, listen address, mode,
-public URL and cookie security. SQLite and uploads always live together under
-`/data` in a persistent named volume, owned by UID/GID 65532. The app runs non-root
-with a read-only root filesystem, dropped capabilities, no-new-privileges, a PID
-limit, log rotation, and writable temporary space. No dev/test services start.
-
-`MEMORY_LIMIT` (a size such as `1g` or `768m`) and `CPU_LIMIT` (a number of CPUs
-such as `2` or `1.5`) in `deploy.env` become the app container's `mem_limit` and
-`cpus`. A new installation gets `MEMORY_LIMIT=4g` (4 GiB) and `CPU_LIMIT=4`.
-These are runtime ceilings, not a reservation of host resources. Existing saved
-values, including smaller explicit limits, are preserved on upgrade. Edit both
-keys in `deploy.env` and deploy to change an existing installation. The Helm chart
-also defaults to four CPU cores and 4 GiB per webmail replica, with matching
-scheduler requests and runtime limits. An empty or missing key means no limit; a `deploy.env` written
-before these keys existed has neither, and every `deploy` says so in one line
-until they are added. A `CPU_LIMIT` above the number of CPUs Docker can use is
-lowered to that number, with a message, because Docker refuses it otherwise. When
-the app reaches its memory limit the kernel ends it and Docker restarts it; Caddy
-has no limits.
-
-Local and external-proxy modes bind HTTP to `127.0.0.1` only. Local mode uses HTTP
-cookies; both HTTPS modes enable Secure cookies. Caddy mode publishes only ports
-80/443, renews certificates automatically, and forwards WebSocket/SSE. Its private
-network defaults to `172.30.70.0/24`; use `--proxy-prefix 172.30.71` at initialization
-if that subnet overlaps another network. Only Caddy's fixed `.2` address is trusted
-for forwarded headers. Caddy certificates persist in separate named volumes.
-
-In Caddy mode, `ACME_CA` in `deploy.env` names another ACME directory by its
-`https://` URL, for example Let's Encrypt's staging endpoint
-`https://acme-staging-v02.api.letsencrypt.org/directory` or a private CA; empty
-keeps Caddy's default issuers. `ACME_CA_ROOT` is the absolute path of a PEM file
-with the root certificate that signs that directory's own HTTPS certificate, for a
-CA whose root is not in the Caddy image's trust store. The script makes them Caddy's
-`acme_ca` / `acme_ca_root` global options. The Caddyfile and the certificates from
-the PEM file are environment values of the Caddy service in the generated Compose
-file, so snapshots keep them; its entrypoint writes both to the container's
-temporary filesystem and starts Caddy (Compose does not mount inline files into a
-service whose root filesystem is read-only). The PEM file must exist whenever
-`doctor`, `deploy`, `restore` or `rollback` renders the configuration. Both keys
-are refused for the other exposures. Browsers do not trust certificates from a staging endpoint or a
-private CA unless their root is installed on the client.
-
-With an external proxy, configure `MW_TRUSTED_PROXIES` and `MW_FORWARDED_MODE` in
-`app.env` using the proxy's actual source address as seen by the container. See
-[reverse-proxy.md](reverse-proxy.md). With `--proxy-network`, the script sets
-`MW_TRUSTED_PROXIES` to that network's subnets and `MW_FORWARDED_MODE=xff` unless
-`app.env` sets either one. Every container on that network can then state a
-client address, so keep the network to the proxy and the apps behind it, or pin
-the proxy's own address in `app.env`. `PROXY_NETWORK` in `deploy.env` may be
-changed later; the next `deploy` moves the app to the named network.
-
-An applied installation may move among local, external-proxy and proxy-network
-exposure: edit `EXPOSURE` (`local`, `external` or `network`), `PUBLIC_URL`, `PORT`
-and `PROXY_NETWORK` in `deploy.env`, then run `deploy`. The project name and the
-Caddy subnet are fixed after the first deployment, and an installation cannot
-move to or from Caddy mode; create another deployment for those changes.
-Changing the public URL can invalidate passkeys bound to the previous origin.
-
-To put an existing installation on a reverse proxy's Docker network:
-
-1. In `.deploy.local/deploy.env` set `EXPOSURE=network`, `PROXY_NETWORK=<name>`
-   and `PUBLIC_URL` to the `https://` address the proxy serves.
-2. Run `bash deploy.sh deploy --no-build`.
-3. Point the proxy at `http://<project>:8080` (web UI and API; WebSocket support
-   is needed). The app is no longer published on the host port.
-
-Set `UPSTREAM_DEFAULT` in `deploy.env` to the mail server users sign in to: an
-`http(s)://` JMAP URL in proxy mode, an `imaps://`, `imap://`, `pop3s://` or
-`pop3://` server URL in engine mode (`doctor` refuses a URL for the other mode).
-The script passes it to the app as `MW_UPSTREAM_DEFAULT`. The sign-in form has no
-server field, so without it nobody can sign in. An installation that already sets
-`MW_UPSTREAM_DEFAULT` in `app.env` keeps working; setting both is refused. Set
-`MW_JMAP_UPSTREAMS` for private/internal JMAP origins (or to restrict allowed
-public providers). In engine mode, use `MW_SMTP_HOST`, `MW_SMTP_PORT`, and
-`MW_SMTP_SECURITY` when submission differs from the mailbox server. Optional
-external cache, SSO, observability and integration settings go in `app.env`; see
-the [deployment reference](README.md). PostgreSQL, custom volume mounts, in-app
-TLS and sub-path hosting need a separately managed Compose deployment; this
-script deliberately keeps its backup/restore contract to SQLite plus `/data`.
-
-### Country database (optional)
-
-Country sign-in policies need a local country database. `bash deploy.sh init
---geoip` (or `bash deploy.sh geoip` at any later time) downloads DB-IP "IP to
-Country Lite" on the host: HTTPS only (`curl --proto =https`), this month's file
-or last month's, at most 128 MB, unpacked to at most 256 MB and checked for the
-MaxMind DB marker. It is saved as `<state>/geoip/dbip-country-lite.mmdb`. The next
-`deploy` mounts `<state>/geoip` read-only at `/geoip-seed` and sets
-`MW_GEOIP_SEED`; the server installs the file (after validating it) only when its
-data directory `/data/geoip`, on the `data` volume, holds no database yet. From
-then on the admin console (Security → Country database) downloads updates on its
-schedule. The data is licensed CC BY 4.0: show "IP Geolocation by DB-IP" with a
-link to https://db-ip.com where country results are used. See
-[Country database](../admin/country-database.md) for the other providers, the
-data directory and `MW_GEOIP_DB`.
+`init` writes the configuration without touching Docker. `doctor` checks prerequisites, the configuration and the generated Compose file without starting anything. `--dry-run` describes any command without writing files or contacting Docker.
 
 ## Updates and daily operations
 
 ```sh
 bash deploy.sh --help
-bash deploy.sh status               # also says whether /metrics is enabled
-bash deploy.sh check                 # exit 0 when healthy, else ALERT_HOOK + exit 1
-bash deploy.sh logs                  # Ctrl-C exits log following
-bash deploy.sh stop                  # keeps containers and all data
+bash deploy.sh status       # containers, URL, data volume, whether /metrics is on
+bash deploy.sh check        # exit 0 when healthy; otherwise run ALERT_HOOK and exit 1
+bash deploy.sh logs         # follow the last 100 lines; Ctrl-C to leave
+bash deploy.sh stop         # keeps containers, volumes and backups
 bash deploy.sh start
 bash deploy.sh restart
 
-# Update the current branch from its configured Git upstream:
-bash deploy.sh deploy                # fast-forward, then build before stopping the old app
-bash deploy.sh deploy --no-pull      # deploy exactly the current checkout
-bash deploy.sh deploy --no-build     # apply configuration, reuse the app image
+bash deploy.sh deploy                # update from Git, build, back up, start, verify
+bash deploy.sh deploy --no-pull      # deploy the current checkout as it is
+bash deploy.sh deploy --no-build     # apply configuration changes; reuse the app image
+bash deploy.sh deploy --pull-only    # update the Git checkout only, then exit
+```
 
-# Or supply an image containing the same runtime binaries/plugins:
-bash deploy.sh deploy --image registry.example.org/mailwoman:VERSION --pull
-# The published image, refused unless its signature verifies:
+`check`, `ALERT_HOOK` and metrics are described in [Monitoring](monitoring.md).
+
+### How deploy updates the source
+
+`deploy` runs `git pull --ff-only` on the current branch before it reads any configuration or touches a container, then restarts itself from the updated checkout with the same arguments. Local tracked, staged and untracked edits are kept when Git can fast-forward without overwriting them. Git refuses overlapping edits and incoming path collisions; a detached HEAD, a branch without an upstream, diverged history or a failed fetch also stop the deploy before anything is built. The script never stashes, resets, cleans or creates a merge commit.
+
+- `--no-pull` deploys the checkout as it is: use it for a local revision, a source archive or an offline host. A source archive without Git needs `MW_BUILD_REVISION` set to the full 40-character commit.
+- `--pull-only` fast-forwards and exits without building, backing up or restarting anything. With `--dry-run` it only says what it would do.
+- `--pull` is unrelated to Git: it refreshes a container image given with `--image`.
+- Other commands do not pull.
+
+### Progress output
+
+A deploy prints six numbered steps on stderr: prepare source checkout, validate configuration and prerequisites, prepare runtime image, protect installation data, start services and verify health, and finalize backup history. Each step reports its duration, and the run ends with UTC start and finish times and the total duration. A Git update lists the branch, the old and new commit, and every incoming commit subject (control characters removed).
+
+Colour is used only when stderr is a terminal. `NO_COLOR=1` or `TERM=dumb` turns it off, and redirected output is plain.
+
+Snapshots report each stage (stopping the app, copying `/data`, dumping PostgreSQL on a full stack, validating the archive, calculating checksums, resuming the app) with its duration. Stages longer than five seconds print an update every five seconds; copies and dumps show the MiB written. These are activity updates, not a percentage or an estimate.
+
+### Health checks and automatic rollback
+
+Before replacing a running app, `deploy` builds or pulls the image (a failure there causes no outage), then snapshots the installation, which stops the app briefly. It then starts the new release, waits for the container's health check and requests `/healthz` and `/` at the public URL, with valid TLS where the URL is HTTPS. `--timeout SECS` (10 to 3600, default 180) sets how long each wait may take. These checks show that the app answers over HTTP; they do not test mailbox sign-in, SMTP delivery or reachability from outside the host.
+
+When the health wait or the public check fails, the script rolls back:
+
+1. It copies the failed release's files and its last 300 log lines into `failed/<time>-<pid>/` in the state directory, and stops it.
+2. It starts the previous release (its image, configuration and exposure) on a copy of the snapshot taken just before the update, in a new volume.
+3. It exits non-zero and names what it restored and where.
+
+The failed release's data volume, including any database migrations it ran, is kept. `deploy.env` and `app.env` keep the settings that failed: correct them, or the image, and deploy again.
+
+- An update whose app is healthy but whose public URL does not answer (DNS, firewall or proxy not ready) is rolled back too. With a proxy network, an unanswered public URL only prints a note.
+- `--no-auto-rollback` leaves a failed update in place for diagnosis; `bash deploy.sh rollback` then restores the same snapshot.
+- `--skip-backup` skips the snapshot and therefore turns automatic rollback off.
+- A first installation has nothing to roll back to. On failure it keeps its volume and containers; after fixing DNS, firewall or proxy, run `bash deploy.sh start` to check it again.
+
+After an interrupted SQLite write or maintenance operation, startup can take longer than the default timeout; see [SQLite startup and recovery](../admin/database-startup.md).
+
+### Concurrent runs
+
+Commands that change the installation hold a lock directory, `.lock`, in the state directory; `status`, `check`, `logs` and `doctor` do not. After a `SIGKILL` or a host crash, remove a stale `.lock` only after making sure no operation is running.
+
+## Choosing the image
+
+By default `deploy` builds the image from the checkout. You can use a published or ready-built image instead.
+
+### Building from source
+
+The build uses the Dockerfile target `runtime-static`, the same target CI scans, signs and publishes: a `scratch` image with statically linked x86_64 binaries. Docker builds the web client in a separate stage, so a change to the web client alone reuses the cached Rust build when the same builder and its cache are kept. The first build compiles every dependency; pruning the builder cache brings that back.
+
+| Option | What it does | Default |
+|---|---|---|
+| `--build-jobs N` | Concurrent Cargo jobs (1 to 999). Lower it if the build runs out of memory. This is separate from `CPU_LIMIT` and `MEMORY_LIMIT`, which limit the running app. | `8` |
+| `--build-profile release\|fast` | `fast` compiles the `mw-server-core` and `mw-server` crates at optimization level 2; dependencies stay at release level. It makes no promise about build time or runtime speed. | `release` |
+| `--incremental` / `--no-incremental` | Turns cached incremental Rust compilation on or off. | off |
+
+For a direct Docker build, the matching build arguments are `MW_BUILD_JOBS`, `MW_BUILD_PROFILE` and `MW_CARGO_INCREMENTAL` (`0` or `1`), plus the required `MW_BUILD_REVISION` (the full commit):
+
+```sh
+docker build --target runtime-static --build-arg MW_BUILD_REVISION="$(git rev-parse HEAD)" -t mailwoman:local .
+```
+
+### Using a published image
+
+```sh
+bash deploy.sh deploy --prebuilt
+```
+
+`--prebuilt` pulls `ghcr.io/supermarsx/mailwoman:master` (or `<IMAGE_REPOSITORY>:master` when `IMAGE_REPOSITORY` is set in `deploy.env`) and skips local compilation. The published tag is `master`, not `latest`, and it can lag behind your checkout. The script still updates the Git checkout unless you add `--no-pull`. `--prebuilt` works only with `deploy` and cannot be combined with `--image`, `--image-tag`, `--no-build`, `--build-profile fast` or `--pull-only`.
+
+For an exact tag or digest, use `--image`, or `--image-tag` with `IMAGE_REPOSITORY` set:
+
+```sh
+bash deploy.sh deploy --image registry.example.org/mailwoman:TAG --pull
 bash deploy.sh deploy --image ghcr.io/supermarsx/mailwoman:master --pull --require-signature
-# With IMAGE_REPOSITORY=ghcr.io/supermarsx/mailwoman in deploy.env, the same as
-# --image ghcr.io/supermarsx/mailwoman:master --pull:
+# With IMAGE_REPOSITORY=ghcr.io/supermarsx/mailwoman in deploy.env:
 bash deploy.sh deploy --image-tag master --require-signature
 ```
 
-`deploy` runs `git pull --ff-only` before reading deployment configuration or
-touching containers, then restarts the script from the updated checkout with the
-same arguments. Local tracked, staged, and untracked edits are retained when Git
-can fast-forward without overwriting them. An already-current dirty checkout can
-deploy too. Git refuses overlapping edits or incoming path collisions. Detached
-HEAD, a missing upstream, divergence, or a failed fetch also stop deployment.
-The script never stashes, resets, cleans, or creates a merge commit; an existing
-`pull.rebase` setting does not change this behavior.
-Use `--no-pull` for an intentional local revision, a source archive, or an offline
-deployment. `--dry-run` only describes the Git update. Other commands do not pull.
-The existing `--pull` option fetches a **container image**, independently of Git.
+`--image` uses a copy already in the local image store unless `--pull` is given; a missing image is pulled. `--image-tag TAG` always pulls `IMAGE_REPOSITORY:TAG`, so an unattended update job passes only a tag. None of the commands asks questions, so all of them can run unattended.
 
-`--image-tag TAG` takes the repository from `IMAGE_REPOSITORY` in `deploy.env`
-(a repository without tag or digest), so an update script or a host update agent
-passes only the tag and never a registry address. It always fetches from the
-registry, so the signature check below applies. None of the commands asks
-questions; all of them can run unattended.
+`--no-build` reuses the last applied image and applies configuration changes only; it does not put newly pulled code into the image.
 
-Snapshots report each stage separately: stopping the app, copying `/data`,
-dumping PostgreSQL on full-stack installs, validating the archive, calculating
-checksums, and resuming the app. Each stage reports its duration; stages lasting
-more than five seconds also print elapsed-time updates every five seconds.
-Copies and database dumps show MiB written. Progress goes to stderr, so archive
-and dump contents remain unchanged. These are activity updates, not a percentage
-or ETA: the script does not scan all data ahead of the copy to estimate its size.
-The final message includes the total snapshot duration and backup location.
+### Signature checks
 
-Each deployment sets `MW_IMAGE_DIGEST` in the app's environment to the image it
-runs: `<repository>@sha256:...` when the `--image` (or
-`--image-tag`) has a registry digest for its repository, otherwise the local
-image ID `sha256:...` (always so for an image built from source). It is set by
-the script; `app.env` may not set it. After every snapshot (`backup`, the one a
-`deploy` takes, the one `restore` takes of the installation it replaces) the
-script writes `/data/last-snapshot.json` into the app's data volume, so the app
-can tell when the last snapshot was taken:
+When `deploy` fetches an `--image`, `--image-tag` or `--prebuilt` image from its registry and `cosign` is on `PATH`, it runs `cosign verify` and then deploys exactly the digest that was verified. The certificate must name `SIGNATURE_IDENTITY` and `SIGNATURE_ISSUER` from `deploy.env`; when they are empty, the script expects this repository's publishing workflow, `https://github.com/supermarsx/mailwoman/.github/workflows/supply-chain.yml@refs/heads/master`, and GitHub's issuer, `https://token.actions.githubusercontent.com`. A failed verification stops the deploy before any snapshot or container change.
 
-```json
-{"schema":"mailwoman-deploy-snapshot/1","kind":"backup","takenAt":"2026-10-25T03:30:00Z","path":"/srv/mailwoman/.deploy.local/backups/20261025T033000Z-4242-17","encrypted":false}
+Without `cosign`, or for an image used from the local store without `--pull`, the script prints that the signature was not checked and continues; `--require-signature` refuses the image instead. Images that `deploy.sh` builds from source are not signature-checked. A fork that publishes its own images sets `SIGNATURE_IDENTITY` (and `SIGNATURE_ISSUER` for another CI) in `deploy.env`.
+
+The publishing workflow pushes an image before it signs it, so for a few minutes after a push to `master` the `master` tag can name an unsigned image; a verified deploy of it fails until the signature exists.
+
+### Image digest in the app environment
+
+Each deploy sets `MW_IMAGE_DIGEST` in the app's environment: `<repository>@sha256:…` when an `--image` has a registry digest for its repository, otherwise the local image ID `sha256:…` (always the case for an image built from source). The script manages it; `app.env` may not set it.
+
+## Full stack and one-step SQLite migration
+
+```sh
+bash deploy.sh deploy --full-stack                                       # existing installation
+bash deploy.sh deploy --full-stack --domain mail.example.org --mode engine   # first installation with Caddy
 ```
 
-`kind` is `backup`, `pre-deploy` or `pre-restore`; `path` is the snapshot
-directory or encrypted archive on the host. The file holds no secret and is not
-needed for a restore.
+The same command starts a first full-stack installation or migrates an existing SQLite installation managed by this script. It runs Mailwoman with PostgreSQL 16 and Valkey 8, plus Caddy when `--domain` is used. Mail servers stay external.
 
-The build selects the Dockerfile target `runtime-static`, not the Dockerfile's
-final stage: a `scratch` image with statically linked binaries, the target CI
-scans, signs and publishes, so an installation built from source has the shape
-of the published image. `--image` uses a locally present image unless `--pull`
-is supplied; a missing image is pulled. Each deployment records immutable image
-IDs.
+- PostgreSQL holds the data. Valkey is a cache with no persistence and a 256 MB memory limit; each cache class's own policy decides what may be stored in it.
+- PostgreSQL and Valkey publish no host ports and share an internal network with the app; the app also keeps its normal network for upstream mail and the proxy. The app starts after both pass their health checks.
+- `STACK=full`, `POSTGRES_IMAGE` and `VALKEY_IMAGE` (both pinned by digest) are saved in `deploy.env`.
+- The database and cache passwords are generated once into `app.env` as `MW_STACK_DB_PASSWORD` and `MW_STACK_CACHE_PASSWORD`. Do not change them on an existing PostgreSQL volume.
+- Remove any `MW_REDIS_URL` from `app.env` first; the full stack manages it.
+- Disk encryption on the host is your responsibility; selecting PostgreSQL does not encrypt its volume.
 
-With `--image`, the script checks the image's keyless signature when `cosign` is
-on `PATH` and the deploy fetches the image from its registry (with `--pull`, or
-because it is not in the local image store). `cosign verify` must find a
-signature whose certificate names `SIGNATURE_IDENTITY` and `SIGNATURE_ISSUER` from
-`deploy.env`; empty values mean this repository's publishing workflow,
-`https://github.com/supermarsx/mailwoman/.github/workflows/supply-chain.yml@refs/heads/master`,
-and GitHub's issuer `https://token.actions.githubusercontent.com`. The deploy then
-uses the exact digest that was verified. A failed verification stops the deploy
-before any snapshot or container change. Without `cosign`, or for an image used
-from the local image store without `--pull` (Docker cannot tell whether a local
-copy came from a registry), the script prints that the signature was not checked
-and continues; `--require-signature` refuses such an image instead.
-Images that `deploy.sh` builds from source are not signature-checked. A fork that
-publishes its own images sets `SIGNATURE_IDENTITY` (and `SIGNATURE_ISSUER` for
-another CI) in `deploy.env`. The workflow pushes an image before it signs it, so
-for a few minutes after a push to `master` the `master` tag can name an image
-that is not signed yet; a deploy of it is refused until the signature exists.
+### Full stack with your own reverse proxy
 
-A new installation's `CADDY_IMAGE` names an exact Caddy version and its
-multi-platform index digest (`caddy:2.11.7-alpine@sha256:…`), so every deploy uses
-the same Caddy bytes until that line changes. A `deploy.env` written before 26.20
-keeps the value it has (`caddy:2-alpine`, a moving tag). To update Caddy, set
-`CADDY_IMAGE` to a new version and digest (`docker buildx imagetools inspect
-caddy:<version>-alpine` prints the digest), then deploy. Multiple installations need distinct project
-names, state directories, ports, and Caddy subnets; only one can own ports 80/443.
+`--full-stack` never adds Caddy by itself. An existing installation keeps its saved exposure, public URL, port, proxy network and trust settings during the migration:
 
-Before replacing an existing app, the script snapshots it. Building/pulling fails
-before any outage. Snapshotting briefly stops and resumes the app. Compose then
-waits for the new container's health check, and the script checks `/healthz` and
-`/` at the configured public URL, with valid TLS when applicable. `--timeout 300`
-extends each startup/public-check deadline. These checks prove app/HTTP readiness,
-not mailbox login, SMTP delivery, external integrations or off-host reachability.
+```sh
+bash deploy.sh deploy --full-stack --state-dir .deploy.local
+bash deploy.sh deploy --full-stack --state-dir .deploy.local --dry-run   # inspect the plan first
+```
 
-After an interrupted SQLite write or maintenance operation, recovery may need a
-longer startup window. See [SQLite startup and recovery](../admin/database-startup.md)
-for recovery progress, the separate startup budget and `--timeout 3600`.
+For a first full-stack installation behind a proxy:
 
-When an update fails Compose's health wait or the public check, the script rolls
-it back: it keeps the failed release's files and its last 300 log lines in
-`failed/<time>-<pid>/`, stops it, and starts the previous release — its image,
-configuration and exposure (Compose file, port or proxy network, trust settings)
-— on a copy of the snapshot taken just before the update, in a new volume.
-Whatever the failed release wrote, database migrations included, stays in the
-volume it used, which is kept. The command still exits nonzero and names what it
-restored and where. `deploy.env` and `app.env` keep the settings that failed:
-correct them, or the image, and deploy again. Because the public check is part of
-this, an update whose app is healthy but whose public URL does not answer (DNS,
-firewall or proxy not ready) is rolled back too; with `network` exposure an
-unanswered public URL only produces a note. `--no-auto-rollback` leaves a failed
-update in place for diagnosis; `bash deploy.sh rollback` then restores the same
-snapshot. A first installation has nothing to roll back to: on failure it keeps
-its data volume and containers, and after fixing DNS, firewall or proxy, `start`
-checks it again.
-The script never runs `git pull` or installs host packages. It deletes data
-volumes and images only when asked with `prune --replaced --yes`
-([backups.md](backups.md)). A directory lock prevents concurrent mutations; after SIGKILL or a
-host crash, remove a stale `.lock` only after verifying no operation is running.
+```sh
+bash deploy.sh --full-stack --public-url https://mail.example.org --port 8080             # host proxy: 127.0.0.1:8080
+bash deploy.sh --full-stack --public-url https://mail.example.org --proxy-network proxy    # proxy container: http://mailwoman:8080
+```
+
+Both enable Secure cookies and leave TLS to your proxy. Do not pass `--domain`, which selects Caddy. To move an existing local SQLite installation behind your proxy at the same time, first edit `deploy.env` (`EXPOSURE=external` or `network`, `PUBLIC_URL=https://…`, and `PORT` or `PROXY_NETWORK`), configure the proxy and trust settings, then run the migration command.
+
+### What the migration does
+
+On an existing SQLite installation managed by this script, `deploy --full-stack`:
+
+1. Prepares the images and checks that the app image supports complete migration (`migrate-store --complete`); otherwise it stops before touching the app.
+2. Stops the app and takes a checksummed snapshot of SQLite, uploads and configuration.
+3. Copies `/data` into a fresh volume, upgrades that offline copy's schema, and copies every application table into a fresh PostgreSQL volume, including admin identities, domains, configuration, OAuth registrations and plugin grants.
+4. Refuses a non-empty destination or a schema mismatch, and rolls the destination transaction back on any count or content mismatch.
+5. Removes the SQLite files from the new volume, starts the app on PostgreSQL and verifies health. The original SQLite volume is kept.
+
+The app is unavailable while the copy and migration run. Make sure there is room for the snapshot, the original volume, the working copy and the PostgreSQL data. A migration error resumes the previous app; a failed start uses the normal automatic rollback unless you passed `--no-auto-rollback`. `--skip-backup` is refused for a migration.
+
+Full-stack snapshots include a PostgreSQL custom-format dump inside `data.tar`, covered by the same checksums and optional encryption. Restore and rollback create fresh app and PostgreSQL volumes, restore the dump and start the app; Valkey starts empty. Returning from `STACK=full` to `single` is refused; restoring a snapshot taken before the migration is the way back.
+
+## Configuration and exposure
+
+The state directory is `.deploy.local` beside the script, or the path given with `--state-dir`. Inside the repository it must sit under a top-level `*.local` directory, which `.gitignore` and `.dockerignore` already exclude; directories outside the repository are allowed. The script creates files with mode `0600` and the directory with `0700`.
+
+| Path | What it holds |
+|---|---|
+| `deploy.env` | Deployment settings (table below). Plain `KEY=value`, no quotes. |
+| `app.env` | `MW_SERVER_KEY`, the admin credentials, the metrics token and other app environment variables. Values are literal and unquoted: dollar signs and spaces are kept. No `export`, quotes or shell commands. |
+| `active/` | The last applied Compose file, configuration and exact image IDs. `start` and `restart` use these; edit the parent files and run `deploy` to change them. |
+| `backups/` | Snapshots; see [Backups](backups.md). |
+| `rollback.path` | The snapshot taken before the most recent deploy, which `rollback` restores. |
+| `failed/` | Files and logs of updates that were rolled back. |
+| `geoip/` | The country database downloaded by `geoip`. |
+| `systemd/` | Units written by `timers`. |
+
+### deploy.env
+
+| Key | What it does | Default |
+|---|---|---|
+| `PROJECT` | Compose project name; also the app's name on a proxy network. Fixed after the first deploy. | `mailwoman` |
+| `EXPOSURE` | `local`, `caddy`, `external` (host proxy) or `network` (proxy container). Set by the setup options. | `local` |
+| `DOMAIN` | Hostname for Caddy. | empty |
+| `PUBLIC_URL` | The URL users open; an HTTPS origin without a path for `caddy`, `external` and `network`. | `http://localhost:<PORT>` |
+| `PORT` | Host port on `127.0.0.1` for `local` and `external`. | first free port from 8080 to 8099 |
+| `MODE` | `proxy` (JMAP) or `engine` (IMAP/POP3 + SMTP). | `proxy` |
+| `UPSTREAM_DEFAULT` | The mail server users sign in to: an `http(s)://` JMAP URL in proxy mode, an `imaps://`, `imap://`, `pop3s://` or `pop3://` URL in engine mode. Passed to the app as `MW_UPSTREAM_DEFAULT`. | empty |
+| `STACK` | `single` (SQLite) or `full` (PostgreSQL and Valkey). | `single` |
+| `POSTGRES_IMAGE`, `VALKEY_IMAGE` | Full-stack images. | `postgres:16` and `valkey/valkey:8`, pinned by digest |
+| `PROXY_PREFIX` | First three octets of Caddy's private `/24` network. Fixed after the first deploy. | `172.30.70` |
+| `PROXY_NETWORK` | Docker network for `network` exposure. | empty |
+| `CADDY_IMAGE` | Caddy image. | `caddy:2.11.7-alpine`, pinned by digest |
+| `CADDY_PROTOCOLS` | `h1`, `h1 h2` or `h1 h2 h3`. | `h1 h2 h3` |
+| `ACME_CA`, `ACME_CA_ROOT` | Another ACME directory and its root certificate, for Caddy only (below). | empty |
+| `MEMORY_LIMIT` | App container memory limit, such as `1g` or `768m`. Empty means no limit. | `4g` |
+| `CPU_LIMIT` | App container CPU limit, such as `2` or `1.5`. Empty means no limit. | `4` |
+| `IMAGE_REPOSITORY` | Repository (no tag or digest) for `--image-tag` and `--prebuilt`. | empty |
+| `SIGNATURE_IDENTITY`, `SIGNATURE_ISSUER` | Expected signer of pulled images. | empty (this repository's workflow) |
+| `BACKUP_KEEP`, `BACKUP_KEEP_DAYS`, `BACKUP_RECIPIENT`, `BACKUP_HOOK`, `BACKUP_TARGETS_FILE` | Backup retention, encryption and off-host copies; see [Backups](backups.md). | empty |
+| `ALERT_HOOK` | Program run when `check` fails; see [Monitoring](monitoring.md). | empty |
+
+The backup and alert keys take effect as soon as `deploy.env` is saved. The other keys take effect at the next `deploy`.
+
+`MEMORY_LIMIT` and `CPU_LIMIT` become the container's `mem_limit` and `cpus`. They are ceilings, not reservations. A `CPU_LIMIT` above the number of CPUs Docker can use is lowered to that number, with a message. When either key is empty, each deploy prints a line saying the app has no such limit. When the app reaches its memory limit, the kernel stops it and Docker restarts it. Caddy has no limits.
+
+### app.env
+
+The first `init` or `deploy` writes:
+
+- `MW_SERVER_KEY`: 64 random hex digits. It seals stored credentials and uploads. Keep it with your backups; a deploy refuses to run when it differs from the applied key.
+- `MW_ADMIN_USER`: `admin-` followed by 12 hex characters, and `MW_ADMIN_PASSWORD`: 48 random hex characters. The script prints the username, never the password; read the password from `app.env`.
+- `MW_ADMIN_PATH`: a random 20-character path. The admin console answers only at this path under the public URL; `/admin` answers 404. The deploy output prints the full console address. While the variable is set, the console cannot change the path. The random path reduces scanning; it does not replace the admin password, two-factor sign-in or a network restriction.
+- `MW_CSRF_STRICT=true`, `RUST_LOG=info`.
+- `MW_METRICS_TOKEN`: the bearer token for `/metrics`; see [Monitoring](monitoring.md).
+
+The sign-in form asks only for an email address and password, so set the mail server before users sign in: `UPSTREAM_DEFAULT` in `deploy.env`, or `MW_UPSTREAM_DEFAULT` in `app.env` (setting both is refused). Other settings you can add to `app.env` include `MW_JMAP_UPSTREAMS` (allowed JMAP origins for proxy-mode sign-in), and `MW_SMTP_HOST`, `MW_SMTP_PORT` and `MW_SMTP_SECURITY` when submission differs from the mailbox server in engine mode.
+
+The script manages these variables, and `app.env` may not set them: `MW_BIND`, `MW_DB_PATH`, `MW_UPLOAD_DIR`, `MW_MODE`, `MW_PUBLIC_URL`, `MW_COOKIE_SECURE`, `MW_RENDER_BIN`, `MW_PLUGIN_DIR`, `MW_WEB_DIR`, `MW_BASE_PATH`, `MW_ACME*`, `MW_TLS_*`, `MW_PROXY_PROTOCOL` and `MW_IMAGE_DIGEST`. With Caddy, `MW_TRUSTED_PROXIES` and `MW_FORWARDED_MODE` are managed too; with the full stack, `MW_REDIS_URL`. As a result, in-app TLS, sub-path hosting and custom volume mounts are not available through this script.
+
+### Container settings
+
+The app container runs as UID/GID 65532 with a read-only root filesystem, all capabilities dropped, `no-new-privileges`, a limit of 512 processes, a 64 MB `/tmp` and log rotation (three 10 MB files). SQLite and uploads live together under `/data` in a named volume. Local mode uses plain HTTP cookies; every HTTPS exposure sets Secure cookies.
+
+### Caddy settings
+
+Caddy publishes ports 80 and 443 (and UDP 443 with HTTP/3) and keeps certificates in the named volumes `<project>_caddy_data` and `<project>_caddy_config`. Its private network is `<PROXY_PREFIX>.0/24`; choose another private prefix with `--proxy-prefix 172.30.71` at the first deploy if that subnet overlaps one you use. Only Caddy's address, `.2`, is trusted for forwarded headers.
+
+`ACME_CA` names another ACME directory by its `https://` URL, for example Let's Encrypt's staging endpoint `https://acme-staging-v02.api.letsencrypt.org/directory` or a private CA; empty keeps Caddy's default issuers. `ACME_CA_ROOT` is the absolute path of a PEM file with the root certificate that signs that directory's HTTPS certificate, for a CA whose root is not in the Caddy image. The file must exist whenever `doctor`, `deploy`, `restore` or `rollback` runs. Both keys are refused for other exposures. Browsers do not trust certificates from a staging endpoint or a private CA unless that root is installed on the client.
+
+To change Caddy, set `CADDY_IMAGE` to another version and digest (`docker buildx imagetools inspect caddy:<version>-alpine` prints the digest) and deploy.
+
+### Changing the exposure
+
+You can move an installation between `local`, `external` and `network`: edit `EXPOSURE`, `PUBLIC_URL`, `PORT` and `PROXY_NETWORK` in `deploy.env`, then run `deploy`. The project name and the Caddy subnet cannot change after the first deploy, and an installation cannot move to or from Caddy; create a separate deployment for that. Passkeys are bound to the origin, so changing the public URL can make passkeys registered under the old one unusable.
+
+To put an existing installation on a proxy container's network:
+
+1. In `.deploy.local/deploy.env` set `EXPOSURE=network`, `PROXY_NETWORK=<name>` and `PUBLIC_URL` to the `https://` address the proxy serves.
+2. Run `bash deploy.sh deploy --no-build`.
+3. Point the proxy at `http://<project>:8080` with WebSocket support. The host port is closed.
+
+Several installations on one host need distinct project names, state directories, ports and Caddy subnets; only one can own ports 80 and 443.
+
+### Country database (optional)
+
+Country sign-in policies need a local country database. `bash deploy.sh init --geoip`, `deploy --geoip`, or `bash deploy.sh geoip` at any time downloads DB-IP "IP to Country Lite" on the host:
+
+- over HTTPS only, this month's file or, failing that, last month's;
+- at most 128 MB compressed and 256 MB unpacked, checked for the MaxMind DB marker;
+- saved as `<state>/geoip/dbip-country-lite.mmdb`.
+
+The next `deploy` mounts `<state>/geoip` read-only at `/geoip-seed` and sets `MW_GEOIP_SEED`. The server installs the file only when its data directory `/data/geoip` holds no database yet; after that, the admin console page **Country database** keeps it current. The data is licensed CC BY 4.0: show "IP Geolocation by DB-IP" with a link to https://db-ip.com where country results are used. See [Country database](../admin/country-database.md).
+
+## Database maintenance
+
+```sh
+bash deploy.sh maintenance --orphan-bodies --compact            # preview only
+bash deploy.sh maintenance --apply --orphan-bodies --compact    # stop, snapshot, clean, resume
+bash deploy.sh maintenance --online                             # convert SQLite while the app runs
+```
+
+| Option | What it does |
+|---|---|
+| `--apply` | Apply the selected cleanup. Without it, `maintenance` only previews. |
+| `--orphan-bodies` | Reclaim cached message bodies that no message references. |
+| `--compact` | Rebuild SQLite to reclaim free pages. |
+| `--purge-search-index` | Remove the default search index; rebuild it from the admin console afterwards. |
+| `--logs-older-than-days N` | Purge operational diagnostics older than N days (`0` = all). |
+| `--enable-incremental-vacuum` | Turn on background page reclamation (one offline rebuild if needed). |
+| `--skip-backup` | Skip the snapshot before `--apply`. |
+| `--online`, `--online-status`, `--online-cancel` | Start, inspect or cancel an online SQLite conversion through the running app; no stop and no snapshot. |
+
+Offline cleanup applies to SQLite installations only. See [Database maintenance](../admin/database-maintenance.md) and [Online SQLite conversion](online-sqlite-maintenance.md).
 
 ## Backups and recovery
 
@@ -596,92 +349,81 @@ bash deploy.sh rollback
 bash deploy.sh restore .deploy.local/backups/TIMESTAMP-PID-RANDOM
 ```
 
-A backup stops the app writer and copies **all of `/data`**, including SQLite WAL
-files and attachments, with numeric ownership. It also captures the applied
-configuration, encryption key and exact image IDs. A checksum manifest and a final
-`COMPLETE` marker distinguish usable snapshots from interrupted copies. The app is
-resumed even if copying fails or the operation receives SIGINT/SIGTERM.
+`backup` stops the app and copies all of `/data` (SQLite with its WAL files, uploads), keeping numeric ownership, plus the applied configuration (`app.env` with `MW_SERVER_KEY` included) and the exact image IDs. A checksum file and a final `COMPLETE` marker separate usable snapshots from interrupted ones. The app is resumed even if the copy fails or the command is interrupted.
 
-Restore validates the snapshot, populates a **new volume**, snapshots the current
-installation (which then stays stopped, so a release that cannot become healthy
-can still be replaced), and starts the saved version/configuration against the
-recovered data. It reverts all writes since the snapshot time. The backup
-settings in `deploy.env` (`BACKUP_*`, `ALERT_HOOK`) are not taken from the
-snapshot: they stay as they are. The old volume and the
-pre-restore snapshot remain available. `rollback` restores the pre-deployment
-snapshot, including the old image and data; it is not just an image downgrade.
-Snapshots and old volumes are kept until `prune` removes them: the retention
-keys `BACKUP_KEEP` / `BACKUP_KEEP_DAYS` in `deploy.env`, and
-`prune --replaced --yes` for replaced volumes and old images, are described in
-[backups.md](backups.md).
+`restore` checks the snapshot, fills a new volume from it, snapshots the current installation (which then stays stopped) and starts the saved release and configuration on the restored data. Everything written after the snapshot is lost. The backup keys in `deploy.env` (`BACKUP_*`, `ALERT_HOOK`) are not taken from the snapshot. The replaced volume and the pre-restore snapshot stay available. `rollback` restores the snapshot taken before the last deploy, old image and data included.
 
-Backups contain plaintext configuration secrets and potentially sensitive data;
-copy them to private, encrypted off-host storage. With `BACKUP_RECIPIENT` in
-`deploy.env`, `backup` writes one archive encrypted to an age or gpg public key
-instead, and `restore` takes that archive (`--identity FILE` for age); see
-[backups.md](backups.md). Checksums detect accidental
-corruption, not malicious replacement: restore only trusted snapshots. Caddy's
-certificate volumes are not included; preserve them separately if required, or
-allow Caddy to reissue certificates on a replacement host.
+After every snapshot (`backup`, the one `deploy` takes, the one `restore` takes, the one `maintenance --apply` takes) the script writes `/data/last-snapshot.json` into the app's data volume. It holds no secret and is not needed for a restore; the server does not read it.
 
-Images are **not** inside snapshots. Before pruning Docker images, retain every
-image needed for recovery with `docker image save`, including Caddy for HTTPS
-deployments. Transfer/load those archives on a replacement host, then:
+```json
+{"schema":"mailwoman-deploy-snapshot/1","kind":"backup","takenAt":"2026-10-25T03:30:00Z","path":"/srv/mailwoman/.deploy.local/backups/20261025T033000Z-4242-17","encrypted":false}
+```
+
+`kind` is `backup`, `pre-deploy`, `pre-restore` or `pre-maintenance`; `path` is the snapshot directory or encrypted archive on the host.
+
+::: warning
+Snapshots contain `MW_SERVER_KEY`, the admin password and your users' cached mail. Keep them on private, encrypted storage. Checksums detect accidental corruption, not deliberate replacement: restore only snapshots you trust.
+:::
+
+Retention, encryption, off-host copies and scheduling are covered in [Backups](backups.md).
+
+### Recovering on another host
+
+Docker images are not inside snapshots, and neither are Caddy's certificate volumes. Before pruning images, keep every image a snapshot needs with `docker image save` (Caddy's too, for HTTPS installations). On the replacement host, load those images, then:
 
 ```sh
-# Choose the original project's name; the restore replaces this generated config.
+# Use the original project name; the restore replaces this generated configuration.
 bash deploy.sh init --project mailwoman
 bash deploy.sh restore /secure/path/to/snapshot
 ```
 
-Recover on a compatible container architecture. Test restores periodically and
-retain the state directory together with the image archives and data snapshots.
+Caddy requests new certificates unless you copy its volumes across. Images built by `deploy.sh` contain x86_64 binaries, so restore on an x86_64 host. Test restores periodically.
 
-The repository also includes an isolated Docker lifecycle test:
+## Old browser tabs after a deploy
+
+A browser tab opened before a deploy keeps running the previous web build and loads that build's content-hashed files (`/assets/<name>-<hash>.js`) when it opens a page for the first time. To keep those tabs working, the server copies the hashed files of the build it serves into `retained-assets` beside the SQLite database (`/data/retained-assets`, inside the backed-up volume) at each start. It keeps the files of the last 5 builds, each for 14 days after a newer build replaced it, within 512 MiB.
+
+When a tab still cannot load a file and the server serves a different build, the app shows **A new version is available, reloading…** and reloads once. It does not reload automatically while an editor has unsaved changes. Files without a content hash, such as `index.html`, are sent with `Cache-Control: no-cache`, so a new tab always gets the current build.
+
+On a full-stack installation the database is PostgreSQL, so nothing is retained unless you set `MW_RETAINED_ASSETS_DIR` in `app.env` to a directory under `/data`. `MW_RETAINED_ASSETS_DIR=off` turns retention off.
+
+## Testing the script
+
+The repository includes a Docker lifecycle test that never touches your normal deployment:
 
 ```sh
-docker build --target runtime-static -t mailwoman:deploy-verify .
+docker build --target runtime-static --build-arg MW_BUILD_REVISION="$(git rev-parse HEAD)" -t mailwoman:deploy-verify .
 bash scripts/test-deploy.sh mailwoman:deploy-verify
 ```
 
-It uses random test projects and localhost port 18089 (override with
-`DEPLOY_TEST_PORT`; the two ports above it must also be free). It checks that
-`--dry-run` writes nothing, the port auto-pick (when localhost:8080 is free, a
-throwaway container holds it for the few seconds of one `init`), the admin panel
-under strict CSRF with curl and, when Playwright can start, in a browser, the
-refusal of a deploy onto a port held by something else, backup/rollback, failure
-recovery, the moves local → external → proxy network → local, the refusal of a move
-to Caddy, the automatic rollback of an update to an image that never becomes
-healthy (it also changes the exposure, and the previous exposure must come back)
-and `rollback` after an update made with `--no-auto-rollback`, a new Caddy
-installation's `CADDY_IMAGE` pinned by version and digest, a second,
-proxy-network installation, the `--image` signature check (a stand-in `cosign`
-and a registry container: verified digest deployed, failed verification refused
-before any change, `--require-signature` without `cosign` or for an image from the
-local store refused), and the `ACME_CA` / `ACME_CA_ROOT`
-lines in a Caddy installation's generated Compose file (read with `doctor`;
-invalid values refused), and the memory and CPU limits Docker applies (defaults,
-edited values, a CPU limit above the host's lowered, none for a `deploy.env`
-without the keys), `UPSTREAM_DEFAULT`, `MW_IMAGE_DIGEST` and `--image-tag`,
-`last-snapshot.json`, the generated metrics token (`/metrics` 200 with it, 401
-without), `check` and `ALERT_HOOK` with the app stopped, `prune` (the rollback
-snapshot kept; a replaced volume and an old image deleted only with
-`--replaced --yes`), encrypted backups with each of gpg and age that is
-installed (restored with the key, refused without it; with neither installed
-the case is skipped, a failure under `DEPLOY_TEST_REQUIRE=all`), `BACKUP_HOOK`,
-and the `timers` units under `systemd-analyze verify` in a container (which
-needs network access to install systemd there). The external step stands in a
-curl wrapper for the host's reverse proxy; nothing in the test reaches the
-Internet or uses ports 80/443. It removes its test containers, volumes and network
-afterward; failed runs retain local diagnostics.
+It uses random project names and localhost port 18089 and the two ports above it (`DEPLOY_TEST_PORT` changes the first). It holds localhost:8080 for a few seconds when that port is free, to test the port choice. It covers, among other things, `--dry-run`, exposure moves, the refusal to move to Caddy, automatic rollback, `rollback`, image signature checks with a stand-in `cosign`, resource limits, metrics, `check` and `ALERT_HOOK`, `prune`, encrypted backups with each installed tool, `BACKUP_HOOK` and the `timers` units. Nothing reaches the Internet or uses ports 80 and 443. It removes its containers, volumes and network afterwards; failed runs keep local diagnostics.
 
-The browser step runs `pnpm exec playwright` from `apps/web`, or
-`apps/web/node_modules/.bin/playwright` when pnpm cannot start it, and prints
-Playwright's summary. Without either the step is skipped and the `PASS` line says
-so; `DEPLOY_TEST_REQUIRE=all` makes that a failure, reported before anything is
-deployed. `DEPLOY_TEST_SCRIPT=/path/to/deploy.sh` runs the test against another
-copy of the script, for example one with a seeded defect.
+When Playwright can start (`pnpm exec playwright` in `apps/web`, or `apps/web/node_modules/.bin/playwright`), the test also drives the admin console in a browser; otherwise that step is skipped and the result says so.
 
-Implementation references: [Compose raw environment files](https://docs.docker.com/reference/compose-file/services/#env_file),
-[Compose health waiting](https://docs.docker.com/reference/cli/docker/compose/up/),
-and [Caddy reverse proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy).
+| Variable | What it does |
+|---|---|
+| `DEPLOY_TEST_PORT` | First localhost port (default `18089`). |
+| `DEPLOY_TEST_PREFIX` | Start of the random project names (default `mw-deploy-test`). |
+| `DEPLOY_TEST_REQUIRE=all` | Fail, before deploying anything, when Playwright cannot start or neither gpg nor age is installed. |
+| `DEPLOY_TEST_SCRIPT` | Path of another copy of `deploy.sh` to test, for example one with a seeded defect. |
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Port N is already in use on this host` | Another service holds the app's port (or 80/443 for Caddy). | Stop that service, or set `PORT` (and `PUBLIC_URL` for local mode) in `deploy.env` to a free port. |
+| `<KEY> is '…' in …/deploy.env, not '…'` | A setup option differs from the saved configuration. | Edit `deploy.env` instead of passing a different option. |
+| `Git update failed; nothing was built or restarted` | Diverged history, overlapping local edits or a failed fetch. | Reconcile the checkout, or deploy with `--no-pull`. |
+| `MW_SERVER_KEY changed` | `app.env` holds a different key from the applied one. | Restore the original key; stored credentials and uploads need it. |
+| `<VAR> is managed by deploy.sh` | `app.env` sets a variable the script controls. | Remove the line. |
+| `App is healthy internally, but <URL> is not reachable` | DNS, firewall or proxy does not route to the app. | Fix the route; the update was rolled back unless `--no-auto-rollback` was given. |
+| `Another deployment operation holds …/.lock` | Another command is running, or one was killed. | Wait, or remove the empty `.lock` after confirming nothing runs. |
+| `Snapshot image is missing` during `restore` | The image the snapshot needs is not in the local store. | Load the saved image with `docker image load`. |
+
+## Related
+
+- [Backups](backups.md)
+- [Monitoring](monitoring.md)
+- [Reverse proxy](reverse-proxy.md)
+- [PostgreSQL](postgres.md)
+- [Deployment overview](README.md)
