@@ -137,7 +137,7 @@ async fn journal_email_set_returns_before_index_commit_and_fenced_query_waits_fo
     assert!(tokio::time::timeout(Duration::from_millis(100), &mut read).await.is_err(), "fenced read must not answer from the stale index");
     hold.release.notify_one();
     let read = tokio::time::timeout(Duration::from_secs(5), read).await.unwrap();
-    assert_eq!(ids_of(&read[0]), [f.id.clone()]);
+    assert_eq!(ids_of(&read[0]), vec![f.id.clone()]);
     let status = f.engine.index_publication_status();
     assert!(status.read_fence_waits >= 1 && status.read_fence_timeouts == 0, "{status:?}");
     assert_eq!(f.engine.index_publication_journal_rows().await.unwrap(), 0, "owner acknowledged the journal after the index commit");
@@ -152,12 +152,12 @@ async fn journal_mutate_then_read_back_in_one_batch_and_search_right_after_flag_
         query_call(json!({"hasKeyword": "$flagged", "text": "uniquejournalbody"})),
     ])).await;
     updated(&out[0], &f.id);
-    assert_eq!(ids_of(&out[1]), [f.id.clone()]);
+    assert_eq!(ids_of(&out[1]), vec![f.id.clone()]);
     // Separate requests: move, then search the destination immediately.
     let out = jmap(&f.engine, &f.account, json!([set_call(&f.id, json!({"mailboxIds": {(f.archive.clone()): true}}))])).await;
     updated(&out[0], &f.id);
     let out = jmap(&f.engine, &f.account, json!([query_call(json!({"inMailbox": f.archive, "text": "uniquejournalbody"}))])).await;
-    assert_eq!(ids_of(&out[0]), [f.id.clone()]);
+    assert_eq!(ids_of(&out[0]), vec![f.id.clone()]);
     let out = jmap(&f.engine, &f.account, json!([query_call(json!({"inMailbox": f.inbox, "text": "uniquejournalbody"}))])).await;
     assert!(ids_of(&out[0]).is_empty());
     // Unflag + query in one batch.
@@ -187,7 +187,7 @@ async fn journal_per_account_publications_apply_in_order_and_latest_source_wins(
     assert!(tokio::time::timeout(Duration::from_millis(50), &mut read).await.is_err());
     hold.release.notify_one();
     let read = tokio::time::timeout(Duration::from_secs(5), read).await.unwrap();
-    assert_eq!(ids_of(&read[0]), [f.id.clone()]);
+    assert_eq!(ids_of(&read[0]), vec![f.id.clone()]);
     let seen = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$seen"}))])).await;
     assert!(ids_of(&seen[0]).is_empty(), "the last write (unseen) is what the index shows");
     let keywords = doc_keywords(&f);
@@ -208,10 +208,10 @@ async fn journal_fence_timeout_is_an_error_never_a_stale_result() {
     assert_eq!(f.engine.index_publication_status().read_fence_timeouts, 1);
     // SQL-only listing is unaffected by the fence.
     let listing = jmap(&f.engine, &f.account, json!([query_call(json!({"inMailbox": f.inbox}))])).await;
-    assert_eq!(ids_of(&listing[0]), [f.id.clone()]);
+    assert_eq!(ids_of(&listing[0]), vec![f.id.clone()]);
     hold.release.notify_one();
     let read = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$seen"}))])).await;
-    assert_eq!(ids_of(&read[0]), [f.id.clone()]);
+    assert_eq!(ids_of(&read[0]), vec![f.id.clone()]);
 }
 
 #[tokio::test]
@@ -229,7 +229,7 @@ async fn journal_backpressure_refuses_email_set_before_any_sql_change() {
     assert!(!f.store.get_message(&f.id).await.unwrap().flags_json.contains("Flagged"));
     hold.release.notify_one();
     let read = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$seen"}))])).await;
-    assert_eq!(ids_of(&read[0]), [f.id.clone()]);
+    assert_eq!(ids_of(&read[0]), vec![f.id.clone()]);
 }
 
 #[tokio::test]
@@ -258,7 +258,7 @@ async fn crash_between_sql_commit_and_index_commit_is_replayed_at_startup() {
     let keywords = restarted.fetch_doc(&id).unwrap().unwrap().keywords;
     assert!(keywords.contains(&"$seen".to_owned()) && keywords.contains(&"$flagged".to_owned()), "{keywords:?}");
     let read = jmap(&second, &account, json!([query_call(json!({"hasKeyword": "$flagged", "text": "uniquejournalbody"}))])).await;
-    assert_eq!(ids_of(&read[0]), [id.clone()]);
+    assert_eq!(ids_of(&read[0]), vec![id.clone()]);
     hold.release.notify_one();
 }
 
@@ -309,7 +309,7 @@ async fn full_rebuild_trims_only_captured_rows_and_keeps_concurrent_mutations() 
         Box::pin(async move {
             if phase == PublicationTestPhase::BeforeAcknowledgement {
                 let n = count.fetch_add(1, Ordering::AcqRel);
-                writer.set_flags(&id, if n % 2 == 0 { "[\"Seen\",\"Flagged\"]" } else { "[\"Seen\"]" }).await.unwrap();
+                writer.set_flags(&id, if n.is_multiple_of(2) { "[\"Seen\",\"Flagged\"]" } else { "[\"Seen\"]" }).await.unwrap();
             }
         })
     })));
@@ -353,7 +353,7 @@ async fn publisher_failure_keeps_rows_refuses_reads_and_recovers() {
     f.engine.set_publication_test_hook(None);
     f.engine.recover_index_publication().await.unwrap();
     let read = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$flagged"}))])).await;
-    assert_eq!(ids_of(&read[0]), [f.id.clone()]);
+    assert_eq!(ids_of(&read[0]), vec![f.id.clone()]);
     f.engine.index_publisher.sweep_for_test(i64::MAX).await;
     assert_eq!(f.store.index_journal_len().await.unwrap(), 0);
 }
