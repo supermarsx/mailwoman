@@ -203,6 +203,27 @@ fn build_entry_from_row(row: &mw_store::SsoConfigRow) -> Result<SsoEntry, mw_sso
     Ok(SsoEntry { provider, meta })
 }
 
+/// Whether `username` belongs to the provider's scope: any account for a deployment
+/// provider; for `domain:<d>`, an account whose canonical domain (aliases resolved)
+/// is `<d>` (or `<d>`'s alias target). A name without a domain is outside every
+/// domain scope.
+async fn account_in_scope(store: &Store, scope: &SsoScope, username: &str) -> Result<bool, String> {
+    let SsoScope::Domain(d) = scope else {
+        return Ok(true);
+    };
+    let account = crate::domain_config::canonical(store, username, None).await?;
+    let scope_domain = store
+        .domain_alias_target(&d.to_ascii_lowercase())
+        .await
+        .map_err(|_| "domain lookup failed".to_string())?
+        .unwrap_or_else(|| d.to_ascii_lowercase());
+    Ok(domain_in_scope(&account.domain, &scope_domain))
+}
+
+fn domain_in_scope(account_domain: &str, scope_domain: &str) -> bool {
+    !account_domain.is_empty() && account_domain.eq_ignore_ascii_case(scope_domain)
+}
+
 /// Whether a backend scope is offered to a login for `domain`.
 fn scope_matches(scope: &SsoScope, domain: Option<&str>) -> bool {
     match scope {
@@ -511,6 +532,17 @@ async fn complete_flow(
             .await;
         return sso_unauthorized();
     };
+
+    // A domain-scoped provider (possibly an IdP run by that domain's tenant) signs
+    // in only accounts of its own domain; it is not only a question of which
+    // buttons are shown. Deployment-scoped providers match every domain.
+    match account_in_scope(&state.store, &entry.meta.scope, &account.username).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return audit_and_401(state, id, entry.meta.kind, &subject_hash, "domain_scope").await;
+        }
+        Err(error) => return crate::account_gate::unavailable("sso domain scope", error),
+    }
 
     match crate::domain_config::signin_allowed(&state.store, &account.username).await {
         Ok(true) => {}
@@ -920,6 +952,15 @@ mod tests {
         assert_eq!(safe_relay(None, ""), "/");
         assert_eq!(safe_relay(Some("/inbox"), "/mail"), "/mail/inbox");
         assert_eq!(safe_relay(Some("//evil.example"), "/mail"), "/mail/");
+    }
+
+    #[test]
+    fn domain_scope_is_exact_and_needs_a_domain() {
+        assert!(domain_in_scope("acme.test", "acme.test"));
+        assert!(domain_in_scope("Acme.Test", "acme.test"));
+        assert!(!domain_in_scope("other.test", "acme.test"));
+        assert!(!domain_in_scope("sub.acme.test", "acme.test"));
+        assert!(!domain_in_scope("", "acme.test"));
     }
 
     #[test]

@@ -551,3 +551,43 @@ async fn saml_acs_is_csrf_exempt_and_completes() {
         .join("; ");
     assert!(set_cookie.contains("mw_session="));
 }
+
+/// A domain-scoped provider signs in only accounts of its own domain (t46-e1 /
+/// review E2b): asserting an address of another domain is a uniform 401, even
+/// though that account exists; its own domain still signs in.
+#[tokio::test]
+async fn a_domain_scoped_provider_cannot_sign_in_another_domain() {
+    for (asserted, expected) in [("bob@other.test", 401), ("alice@acme.test", 303)] {
+        let db = db_path();
+        seed_account(&db, "alice@acme.test").await;
+        seed_account(&db, "bob@other.test").await;
+        let providers = vec![(
+            "tenant-oidc".to_string(),
+            entry(
+                SsoKind::Oidc,
+                "Acme tenant",
+                SsoScope::Domain("acme.test".into()),
+                FirstLoginPolicy::Allowlist,
+                identity("subject-x", asserted),
+                None,
+                None,
+            ),
+        )];
+        let base = spawn(db, providers).await;
+        client()
+            .get(format!(
+                "{base}/api/sso/tenant-oidc/begin?relayState=/inbox"
+            ))
+            .send()
+            .await
+            .unwrap();
+        let resp = client()
+            .get(format!(
+                "{base}/api/sso/tenant-oidc/callback?code=abc&state={STATE_TOKEN}"
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), expected, "{asserted}");
+    }
+}
