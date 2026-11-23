@@ -60,7 +60,7 @@ The text of the button on the sign-in page.
 <a id="scope"></a>
 ### Scope
 
-**Whole deployment** shows the button to everyone; **One domain** shows it only for addresses in the chosen domain.
+**Whole deployment** shows the button to everyone; **One domain** shows it only for addresses in the chosen domain. A provider scoped to one domain also signs in only accounts of that domain (its alias target counts as the same domain): if the address the provider answers with belongs to another domain, the sign-in is refused. A provider for the whole deployment can sign in any account.
 
 <a id="firstLoginPolicy"></a>
 ### First-login policy
