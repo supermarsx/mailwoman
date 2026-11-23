@@ -14,6 +14,7 @@ use crate::{ClaimMap, SsoError, SsoIdentity};
 pub const SAML_ASSERTION_NS: &str = "urn:oasis:names:tc:SAML:2.0:assertion";
 pub const SAML_PROTOCOL_NS: &str = "urn:oasis:names:tc:SAML:2.0:protocol";
 const NAMEID_EMAIL: &str = "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress";
+const BEARER: &str = "urn:oasis:names:tc:SAML:2.0:cm:bearer";
 
 /// Permitted clock skew between SP and IdP when checking validity windows.
 const CLOCK_SKEW: Duration = Duration::seconds(120);
@@ -73,11 +74,23 @@ pub fn validate_and_extract(
     }
     let name_id_format = name_id_el.attr("Format").unwrap_or("").to_string();
 
+    // Web Browser SSO profile (saml-profiles 4.1.4.2), SP-initiated: at least one
+    // bearer SubjectConfirmation whose data carries Recipient = our ACS, InResponseTo =
+    // our AuthnRequest ID and a NotOnOrAfter. Every confirmation present must also
+    // pass the checks below. Each of these was checked only IF PRESENT before.
+    let mut bearer_ok = false;
     for confirmation in subject.children_named(SAML_ASSERTION_NS, "SubjectConfirmation") {
         if let Some(data) = confirmation.child(SAML_ASSERTION_NS, "SubjectConfirmationData") {
+            if confirmation.attr("Method") == Some(BEARER)
+                && data.attr("Recipient").is_some()
+                && data.attr("InResponseTo").is_some()
+                && data.attr("NotOnOrAfter").is_some()
+                && ctx.expected_in_response_to.is_some()
+            {
+                bearer_ok = true;
+            }
             // Recipient must match our ACS (if asserted).
             if let Some(recipient) = data.attr("Recipient")
-                && !ctx.acs_url.is_empty()
                 && recipient != ctx.acs_url
             {
                 return Err(SsoError::AudienceMismatch);
@@ -99,8 +112,17 @@ pub fn validate_and_extract(
         }
     }
 
-    // ── Conditions: validity window + audience ──
-    if let Some(conditions) = assertion.child(SAML_ASSERTION_NS, "Conditions") {
+    if !bearer_ok {
+        return Err(SsoError::TokenValidation(
+            "no bearer SubjectConfirmation with Recipient, InResponseTo and NotOnOrAfter".into(),
+        ));
+    }
+
+    // ── Conditions: validity window + audience (an AudienceRestriction is required) ──
+    let conditions = assertion
+        .child(SAML_ASSERTION_NS, "Conditions")
+        .ok_or_else(|| SsoError::TokenValidation("assertion has no Conditions".into()))?;
+    {
         if let Some(nb) = conditions.attr("NotBefore") {
             let t = parse_time(nb)?;
             if ctx.now + CLOCK_SKEW < t {
@@ -114,8 +136,11 @@ pub fn validate_and_extract(
             }
             tighten(&mut tightest_expiry, t);
         }
-        // Every AudienceRestriction must admit our SP entity ID.
+        // Every AudienceRestriction must admit our SP entity ID, and there must be one.
         let restrictions = conditions.children_named(SAML_ASSERTION_NS, "AudienceRestriction");
+        if restrictions.is_empty() {
+            return Err(SsoError::AudienceMismatch);
+        }
         for restriction in &restrictions {
             let audiences: Vec<String> = restriction
                 .children_named(SAML_ASSERTION_NS, "Audience")

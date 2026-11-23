@@ -523,3 +523,72 @@ fn a_provider_with_nothing_pinned_fails_closed() {
         ));
     }
 }
+
+// ── Profile-required assertion parts (t46-e1): checked only if present before ──
+
+/// The fixture assertion with the `SubjectConfirmationData` element rewritten by `f`.
+fn with_scd(f: impl Fn(&str) -> String) -> String {
+    let a = unsigned_assertion("_assert-1");
+    let start = a.find("<saml:SubjectConfirmationData").unwrap();
+    let end = start + a[start..].find("/>").unwrap() + 2;
+    format!("{}{}{}", &a[..start], f(&a[start..end]), &a[end..])
+}
+
+fn drop_attr(el: &str, name: &str) -> String {
+    let at = el.find(&format!(" {name}=\"")).unwrap();
+    let close = at + name.len() + 3 + el[at + name.len() + 3..].find('"').unwrap() + 1;
+    format!("{}{}", &el[..at], &el[close..])
+}
+
+fn signed_process(assertion: &str) -> Result<mw_sso::SsoIdentity, SsoError> {
+    let certs = vec![idp_cert_pem()];
+    process(&sign_response(&response_xml(assertion)), &certs, true)
+}
+
+#[test]
+fn the_profile_required_parts_are_required() {
+    // Baseline: the complete assertion, signed via the Response, is accepted.
+    assert!(signed_process(&unsigned_assertion("_assert-1")).is_ok());
+
+    for attr in ["Recipient", "InResponseTo", "NotOnOrAfter"] {
+        let a = with_scd(|el| drop_attr(el, attr));
+        assert!(
+            signed_process(&a).is_err(),
+            "missing SubjectConfirmationData {attr}"
+        );
+    }
+    // Not a bearer confirmation.
+    let a = unsigned_assertion("_assert-1").replace(":cm:bearer", ":cm:sender-vouches");
+    assert!(signed_process(&a).is_err(), "non-bearer confirmation");
+    // No SubjectConfirmationData at all.
+    let a = with_scd(|_| String::new());
+    assert!(signed_process(&a).is_err(), "no SubjectConfirmationData");
+
+    // No Conditions at all.
+    let a = unsigned_assertion("_assert-1");
+    let start = a.find("<saml:Conditions").unwrap();
+    let end = a.find("</saml:Conditions>").unwrap() + "</saml:Conditions>".len();
+    let no_conditions = format!("{}{}", &a[..start], &a[end..]);
+    assert!(signed_process(&no_conditions).is_err(), "no Conditions");
+    // Conditions without an AudienceRestriction.
+    let start = a.find("<saml:AudienceRestriction>").unwrap();
+    let end = a.find("</saml:AudienceRestriction>").unwrap() + "</saml:AudienceRestriction>".len();
+    let no_audience = format!("{}{}", &a[..start], &a[end..]);
+    assert!(matches!(
+        signed_process(&no_audience),
+        Err(SsoError::AudienceMismatch)
+    ));
+}
+
+#[test]
+fn a_response_for_another_destination_is_rejected() {
+    let certs = vec![idp_cert_pem()];
+    let xml = response_xml(&unsigned_assertion("_assert-1")).replace(
+        &format!("Destination=\"{ACS_URL}\""),
+        "Destination=\"https://evil.example/acs\"",
+    );
+    assert!(matches!(
+        process(&sign_response(&xml), &certs, true),
+        Err(SsoError::AudienceMismatch)
+    ));
+}

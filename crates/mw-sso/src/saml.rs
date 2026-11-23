@@ -56,9 +56,26 @@ pub struct SamlProvider {
 
 impl SamlProvider {
     /// Build a provider from a resolved [`SsoBackend`]. Errors if the backend is not
-    /// SAML.
+    /// SAML, or if it could not verify who signs in: signed assertions switched off,
+    /// no pinned IdP signing certificate, or no SP entity id / ACS URL. Such a row
+    /// (e.g. one saved empty by an older console) is never served.
     pub fn new(backend: SsoBackend) -> Result<Self, SsoError> {
-        Self::saml_config(&backend)?;
+        let cfg = Self::saml_config(&backend)?;
+        if !cfg.want_assertions_signed {
+            return Err(SsoError::Config(
+                "SAML backend accepts unsigned assertions; refused".into(),
+            ));
+        }
+        if cfg.idp_signing_certs_pem.is_empty() {
+            return Err(SsoError::Config(
+                "SAML backend has no IdP signing certificate".into(),
+            ));
+        }
+        if cfg.sp_entity_id.is_empty() || cfg.acs_url.is_empty() {
+            return Err(SsoError::Config(
+                "SAML backend has no SP entity id or ACS URL".into(),
+            ));
+        }
         Ok(SamlProvider {
             backend,
             seen: Arc::new(Mutex::new(HashMap::new())),
@@ -271,12 +288,52 @@ mod tests {
                 sp_entity_id: "https://mail.example/sp".into(),
                 acs_url: "https://mail.example/acs".into(),
                 idp_sso_url: "https://idp.example/sso".into(),
+                idp_signing_certs_pem: vec!["PEM".into()],
                 want_assertions_signed: true,
                 ..Default::default()
             }),
             claim_map: ClaimMap::default(),
             secret: None,
         }
+    }
+
+    #[test]
+    fn refuses_a_backend_that_cannot_verify_who_signs_in() {
+        let edit = |f: fn(&mut SamlConfig)| {
+            let mut b = saml_backend();
+            if let SsoConfig::Saml(c) = &mut b.config {
+                f(c);
+            }
+            SamlProvider::new(b)
+        };
+        assert!(matches!(
+            edit(|c| c.want_assertions_signed = false),
+            Err(SsoError::Config(_))
+        ));
+        assert!(matches!(
+            edit(|c| c.idp_signing_certs_pem.clear()),
+            Err(SsoError::Config(_))
+        ));
+        assert!(matches!(
+            edit(|c| c.sp_entity_id.clear()),
+            Err(SsoError::Config(_))
+        ));
+        assert!(matches!(
+            edit(|c| c.acs_url.clear()),
+            Err(SsoError::Config(_))
+        ));
+        // A stored row without the key reads as signed (storage default).
+        let stored: SamlConfig = serde_json::from_str(
+            r#"{"sp_entity_id":"https://m/sp","acs_url":"https://m/acs","idp_sso_url":"https://i/sso","idp_signing_certs_pem":["PEM"]}"#,
+        )
+        .unwrap();
+        assert!(edit_from(stored).is_ok());
+    }
+
+    fn edit_from(c: SamlConfig) -> Result<SamlProvider, SsoError> {
+        let mut b = saml_backend();
+        b.config = SsoConfig::Saml(c);
+        SamlProvider::new(b)
     }
 
     #[test]

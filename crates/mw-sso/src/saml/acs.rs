@@ -73,6 +73,14 @@ pub fn process_response(saml_response_b64: &str, ctx: &AcsContext) -> Result<Acs
         return Err(SsoError::TokenValidation("not a samlp:Response".into()));
     }
 
+    // Destination, when present, must be our ACS (required by the profile on a
+    // signed Response; an unsigned Response's Destination is not trusted anyway).
+    if let Some(dest) = root.attr("Destination")
+        && dest != ctx.acs_url
+    {
+        return Err(SsoError::AudienceMismatch);
+    }
+
     // Response-level InResponseTo (CSRF/replay binding to our AuthnRequest).
     if let Some(irt) = root.attr("InResponseTo") {
         match ctx.expected_in_response_to {
