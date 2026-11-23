@@ -148,7 +148,7 @@ admin-dash-duration-m = { $m } min
 admin-dash-duration-s = { $s } s
 
 # -- Machine translation (2026-11): added to match en ---------------------
-admin-dash-warn-geoip-missing = Er is een landenbeleid actief, maar er is geen bruikbare landendatabase geladen, dus aanmeldingen waarop het van toepassing is, worden geweigerd.
+admin-dash-warn-geoip-missing = Een landenbeleid is actief, maar er is geen bruikbare landendatabase geladen. Aanmeldingen die eronder vallen worden daarom geweigerd, tenzij het aanmeldbeleid zonder database op toestaan staat.
 admin-dash-warn-geoip-stale = Er is een landenbeleid actief en de landendatabase is verouderd.
 admin-dash-h-status-ok = OK
 admin-dash-h-status-warn = Waarschuwing

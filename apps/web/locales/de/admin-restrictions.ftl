@@ -4,7 +4,7 @@
 
 # -- Machine translation (2026-11): added to match en ---------------------
 admin-restrictions-title = Einschränkungen der Verarbeitung
-admin-restrictions-intro = Eine Einschränkung pausiert ausgewählte Arten der Verarbeitung für eine Person, während ihre Daten gespeichert bleiben. E-Mails kommen weiterhin an, und die Person kann sie lesen und löschen. Pausierte Arten werden dort durchgesetzt, wo die Daten verarbeitet werden, nicht nur hier angezeigt.
+admin-restrictions-intro = Eine Einschränkung pausiert ausgewählte Arten der Verarbeitung für eine Person, während ihre Daten gespeichert bleiben. E-Mails kommen weiterhin an und die Person kann sie lesen, das endgültige Löschen von Nachrichten und das Löschen von Ordnern werden aber abgelehnt. Pausierte Arten werden dort durchgesetzt, wo die Daten verarbeitet werden, nicht nur hier angezeigt.
 admin-restrictions-apply = Person einschränken
 admin-restrictions-address = Adresse
 admin-restrictions-scopes = Pausieren

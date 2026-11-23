@@ -4,7 +4,7 @@
 
 # -- Machine translation (2026-11): added to match en ---------------------
 admin-restrictions-title = Beperkingen van de verwerking
-admin-restrictions-intro = Een beperking pauzeert gekozen soorten verwerking voor één persoon terwijl de gegevens opgeslagen blijven. Mail komt nog steeds binnen en de persoon kan lezen en verwijderen. Gepauzeerde soorten worden afgedwongen waar de gegevens worden verwerkt, niet alleen hier getoond.
+admin-restrictions-intro = Een beperking pauzeert gekozen soorten verwerking voor één persoon terwijl de gegevens bewaard blijven. Mail komt nog steeds binnen en de persoon kan die lezen, maar het definitief verwijderen van berichten en het verwijderen van mappen worden geweigerd. Gepauzeerde soorten worden afgedwongen waar de gegevens worden verwerkt, niet alleen hier getoond.
 admin-restrictions-apply = Een persoon beperken
 admin-restrictions-address = Adres
 admin-restrictions-scopes = Pauzeren

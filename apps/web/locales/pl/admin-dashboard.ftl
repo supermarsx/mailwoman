@@ -172,7 +172,7 @@ admin-dash-duration-m = { $m } min
 admin-dash-duration-s = { $s } s
 
 # -- Machine translation (2026-11): added to match en ---------------------
-admin-dash-warn-geoip-missing = Zasada dotycząca krajów jest aktywna, ale nie wczytano żadnej użytecznej bazy krajów, więc objęte nią logowania są odrzucane.
+admin-dash-warn-geoip-missing = Aktywna jest zasada krajów, ale nie załadowano użytecznej bazy krajów, więc objęte nią logowania są odrzucane, chyba że zasada logowania bez bazy jest ustawiona na zezwalanie.
 admin-dash-warn-geoip-stale = Zasada dotycząca krajów jest aktywna, a baza krajów jest nieaktualna.
 admin-dash-h-status-ok = OK
 admin-dash-h-status-warn = Ostrzeżenie

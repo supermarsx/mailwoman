@@ -4,7 +4,7 @@
 
 # -- Machine translation (2026-11): added to match en ---------------------
 admin-restrictions-title = 処理の制限
-admin-restrictions-intro = 制限を設定すると、データを保存したまま、特定の人に対する選択した種類の処理が一時停止されます。メールは引き続き届き、本人は閲覧と削除ができます。停止された種類は、ここに表示されるだけでなく、データが処理される場所で強制されます。
+admin-restrictions-intro = 制限をかけると、その人のデータは保存されたまま、選択した種類の処理が一時停止されます。メールは引き続き届き、本人は読むことができますが、メッセージの完全削除とフォルダーの削除は拒否されます。一時停止された種類は、ここに表示されるだけでなく、データが処理される場所で適用されます。
 admin-restrictions-apply = 人を制限する
 admin-restrictions-address = アドレス
 admin-restrictions-scopes = 停止する処理

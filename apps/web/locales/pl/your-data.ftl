@@ -116,7 +116,7 @@ yd-scope-classification = automatyczne porządkowanie i reguły
 yd-scope-push = powiadomienia push
 yd-scope-thirdParty = połączone usługi
 yd-scope-all = wszystko
-yd-banner = Przetwarzanie Twoich danych jest ograniczone. Wstrzymano: { $scopes }. Nadal możesz czytać i usuwać swoją pocztę.
+yd-banner = Przetwarzanie Twoich danych jest ograniczone. Wstrzymane: { $scopes }. Nadal możesz czytać pocztę; dopóki ograniczenie trwa, trwałe usuwanie wiadomości i usuwanie folderów jest odrzucane.
 yd-banner-where = Zobacz Ustawienia > Prywatność i dane.
 
 yd-doc-title = Dokumenty dotyczące prywatności

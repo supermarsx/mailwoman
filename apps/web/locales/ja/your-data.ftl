@@ -116,7 +116,7 @@ yd-scope-classification = 自動整理とルール
 yd-scope-push = プッシュ通知
 yd-scope-thirdParty = 連携サービス
 yd-scope-all = すべて
-yd-banner = データの処理が制限されています。停止中: { $scopes }。メールの閲覧と削除は引き続き可能です。
+yd-banner = あなたのデータの処理は制限されています。一時停止中: { $scopes }。メールは引き続き読めますが、制限が続く間は、メッセージの完全削除とフォルダーの削除は拒否されます。
 yd-banner-where = 「設定 > プライバシーとデータ」を確認してください。
 
 yd-doc-title = プライバシー文書

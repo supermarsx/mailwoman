@@ -116,7 +116,7 @@ yd-scope-classification = 自动归档与规则
 yd-scope-push = 推送通知
 yd-scope-thirdParty = 已连接的服务
 yd-scope-all = 全部
-yd-banner = 你的数据处理已受限制。已暂停：{ $scopes }。你仍可阅读和删除邮件。
+yd-banner = 你的数据处理受到限制。已暂停：{ $scopes }。你仍可阅读邮件；在限制期间，永久删除邮件和删除文件夹会被拒绝。
 yd-banner-where = 请参阅“设置 > 隐私与数据”。
 
 yd-doc-title = 隐私文件

@@ -116,7 +116,7 @@ yd-scope-classification = classement automatique et règles
 yd-scope-push = notifications push
 yd-scope-thirdParty = services connectés
 yd-scope-all = tout
-yd-banner = Le traitement de vos données est limité. En pause : { $scopes }. Vous pouvez toujours lire et supprimer vos e-mails.
+yd-banner = Le traitement de vos données est limité. En pause : { $scopes }. Vous pouvez toujours lire vos e-mails ; la suppression définitive des messages et la suppression de dossiers sont refusées tant que la restriction dure.
 yd-banner-where = Voir Paramètres > Confidentialité et données.
 
 yd-doc-title = Documents de confidentialité

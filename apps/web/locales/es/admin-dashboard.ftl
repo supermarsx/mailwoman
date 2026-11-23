@@ -148,7 +148,7 @@ admin-dash-duration-m = { $m } min
 admin-dash-duration-s = { $s } s
 
 # -- Machine translation (2026-11): added to match en ---------------------
-admin-dash-warn-geoip-missing = Hay una política por países activa, pero no se ha cargado ninguna base de datos de países utilizable, por lo que se rechazan los inicios de sesión que abarca.
+admin-dash-warn-geoip-missing = Hay una política de países activa pero no hay ninguna base de datos de países utilizable cargada, por lo que se rechazan los inicios de sesión que cubre, salvo que la política de inicio de sesión sin base de datos esté en permitir.
 admin-dash-warn-geoip-stale = Hay una política por países activa y la base de datos de países está desactualizada.
 admin-dash-h-status-ok = Correcto
 admin-dash-h-status-warn = Advertencia

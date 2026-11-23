@@ -807,7 +807,7 @@ admin-settings-key-security-signin-lock-secs = Duração do bloqueio temporário
 admin-settings-help-security-signin-lock-secs = Duração do bloqueio em segundos. As tentativas repetidas durante o bloqueio não prolongam a sua expiração original. As proibições manuais globais de IP são independentes.
 
 admin-settings-key-security-signin-geo-scope = Âmbito da política de países no início de sessão
-admin-settings-help-security-signin-geo-scope = Desativado por predefinição. Aplicar apenas a novos inícios de sessão na caixa de correio, de administrador ou a todos. As sessões existentes não são revogadas. Consulte o diagnóstico da origem atual antes de ativar; uma base de dados GeoIP local indisponível recusa o início de sessão.
+admin-settings-help-security-signin-geo-scope = Desativado por predefinição. Aplica-se apenas a novos inícios de sessão de caixa de correio, de administrador ou a todos. As sessões existentes não são revogadas. Verifique o diagnóstico da origem atual antes de ativar; sem uma base de dados GeoIP local utilizável, o início de sessão é recusado, a menos que a política de início de sessão sem base de dados esteja definida como permitir.
 admin-settings-key-security-signin-geo-mode = Lista de países permitidos ou negados
 admin-settings-help-security-signin-geo-mode = «Permitir» admite apenas os países listados; «negar» recusa os países listados. Os endereços desconhecidos utilizam a sua própria política explícita.
 admin-settings-key-security-signin-geo-countries = Códigos de país do início de sessão

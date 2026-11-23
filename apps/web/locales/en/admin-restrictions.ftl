@@ -1,6 +1,6 @@
 ## Admin > Compliance > Restrictions
 admin-restrictions-title = Restrictions of processing
-admin-restrictions-intro = A restriction pauses chosen kinds of processing for one person while their data stays stored. Mail still arrives and the person can read and delete. Paused kinds are enforced where the data is processed, not only shown here.
+admin-restrictions-intro = A restriction pauses chosen kinds of processing for one person while their data stays stored. Mail still arrives and the person can read it, but permanent deletion of messages and deletion of folders are refused. Paused kinds are enforced where the data is processed, not only shown here.
 admin-restrictions-apply = Restrict a person
 admin-restrictions-address = Address
 admin-restrictions-scopes = Pause

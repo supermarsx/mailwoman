@@ -148,7 +148,7 @@ admin-dash-duration-m = { $m } Min.
 admin-dash-duration-s = { $s } s
 
 # -- Machine translation (2026-11): added to match en ---------------------
-admin-dash-warn-geoip-missing = Eine Länderrichtlinie ist aktiv, aber es ist keine nutzbare Länderdatenbank geladen, daher werden die davon erfassten Anmeldungen abgelehnt.
+admin-dash-warn-geoip-missing = Eine Länderrichtlinie ist aktiv, aber es ist keine nutzbare Länderdatenbank geladen. Die davon erfassten Anmeldungen werden daher abgelehnt, sofern die Anmelderichtlinie ohne Datenbank nicht auf „erlauben“ steht.
 admin-dash-warn-geoip-stale = Eine Länderrichtlinie ist aktiv, und die Länderdatenbank ist veraltet.
 admin-dash-h-status-ok = In Ordnung
 admin-dash-h-status-warn = Warnung

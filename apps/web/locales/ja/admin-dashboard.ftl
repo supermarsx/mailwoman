@@ -140,7 +140,7 @@ admin-dash-duration-m = { $m } 分
 admin-dash-duration-s = { $s } 秒
 
 # -- Machine translation (2026-11): added to match en ---------------------
-admin-dash-warn-geoip-missing = 国のポリシーが有効ですが、使用可能な国データベースが読み込まれていないため、対象のサインインは拒否されます。
+admin-dash-warn-geoip-missing = 国別ポリシーが有効ですが、使用できる国データベースが読み込まれていないため、対象のサインインは拒否されます。ただし、データベースがない場合のサインインポリシーが許可に設定されている場合を除きます。
 admin-dash-warn-geoip-stale = 国のポリシーが有効ですが、国データベースが古くなっています。
 admin-dash-h-status-ok = 正常
 admin-dash-h-status-warn = 警告

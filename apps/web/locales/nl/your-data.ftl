@@ -116,7 +116,7 @@ yd-scope-classification = automatisch archiveren en regels
 yd-scope-push = pushmeldingen
 yd-scope-thirdParty = gekoppelde diensten
 yd-scope-all = alles
-yd-banner = De verwerking van uw gegevens is beperkt. Gepauzeerd: { $scopes }. U kunt uw mail nog steeds lezen en verwijderen.
+yd-banner = De verwerking van uw gegevens is beperkt. Gepauzeerd: { $scopes }. U kunt uw mail nog lezen; zolang de beperking duurt, worden het definitief verwijderen van berichten en het verwijderen van mappen geweigerd.
 yd-banner-where = Zie Instellingen > Privacy en gegevens.
 
 yd-doc-title = Privacydocumenten

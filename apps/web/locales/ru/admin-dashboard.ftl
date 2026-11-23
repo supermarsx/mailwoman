@@ -164,7 +164,7 @@ admin-dash-duration-m = { $m } мин
 admin-dash-duration-s = { $s } с
 
 # -- Machine translation (2026-11): added to match en ---------------------
-admin-dash-warn-geoip-missing = Политика по странам активна, но пригодная база стран не загружена, поэтому подпадающие под неё входы отклоняются.
+admin-dash-warn-geoip-missing = Политика по странам действует, но пригодная база стран не загружена, поэтому охваченные ею входы отклоняются, если только политика входа без базы не установлена на «разрешать».
 admin-dash-warn-geoip-stale = Политика по странам активна, а база стран устарела.
 admin-dash-h-status-ok = Норма
 admin-dash-h-status-warn = Предупреждение

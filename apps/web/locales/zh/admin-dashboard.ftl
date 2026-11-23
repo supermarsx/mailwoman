@@ -148,7 +148,7 @@ admin-dash-duration-m = { $m } 分钟
 admin-dash-duration-s = { $s } 秒
 
 # -- Machine translation (2026-11): added to match en ---------------------
-admin-dash-warn-geoip-missing = 国家/地区策略已启用,但未加载可用的国家/地区数据库,因此其涵盖的登录将被拒绝。
+admin-dash-warn-geoip-missing = 已启用国家策略，但未加载可用的国家数据库，因此其覆盖的登录会被拒绝，除非“无数据库时的登录策略”设为允许。
 admin-dash-warn-geoip-stale = 国家/地区策略已启用,但国家/地区数据库已过期。
 admin-dash-h-status-ok = 正常
 admin-dash-h-status-warn = 警告

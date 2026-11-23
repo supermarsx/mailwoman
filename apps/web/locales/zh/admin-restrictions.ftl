@@ -4,7 +4,7 @@
 
 # -- Machine translation (2026-11): added to match en ---------------------
 admin-restrictions-title = 处理限制
-admin-restrictions-intro = 限制会为某个人暂停所选种类的处理，同时其数据仍保持存储。邮件仍会送达，此人仍可阅读和删除。被暂停的种类会在数据被处理的位置强制执行，而不仅仅是在此处显示。
+admin-restrictions-intro = 限制会暂停针对某个人的特定处理类型，其数据仍会保留。邮件仍会送达，此人可以阅读，但会拒绝永久删除邮件和删除文件夹。被暂停的类型会在数据被处理的位置强制执行，而不只是在此显示。
 admin-restrictions-apply = 限制某人
 admin-restrictions-address = 地址
 admin-restrictions-scopes = 暂停

@@ -1,7 +1,7 @@
 # Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 ## Admin > Conformidade > Restrições
 admin-restrictions-title = Limitação do tratamento
-admin-restrictions-intro = Uma limitação põe em pausa tipos de tratamento escolhidos para uma pessoa, enquanto os dados continuam guardados. O correio continua a chegar e a pessoa pode ler e eliminar. Os tipos em pausa são aplicados onde os dados são tratados, e não apenas mostrados aqui.
+admin-restrictions-intro = Uma restrição pausa certos tipos de tratamento para uma pessoa enquanto os dados dela continuam armazenados. O correio continua a chegar e a pessoa pode lê-lo, mas a eliminação permanente de mensagens e a eliminação de pastas são recusadas. Os tipos em pausa são aplicados onde os dados são processados, e não apenas mostrados aqui.
 admin-restrictions-apply = Limitar uma pessoa
 admin-restrictions-address = Endereço
 admin-restrictions-scopes = Pausar

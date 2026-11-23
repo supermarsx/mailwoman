@@ -26,6 +26,12 @@ const CASES: Array<[string, RegExp]> = [
   ['admin-settings-help-reader-attachments-collapsed', /On by default: the bar starts collapsed/],
   ['admin-settings-help-webhooks-max-attempts', /tried 3 times/],
   ['admin-settings-help-webhooks-timeout-secs', /10 seconds/],
+  ['admin-restrictions-intro', /permanent deletion of messages and deletion of folders are refused/],
+  ['yd-banner', /permanently deleting messages and deleting folders is refused/],
+  ['res-recovery-help', /marked recovery verified/],
+  ['admin-geoip-refusing', /unless the sign-in policy without a database is set to allow/],
+  ['admin-dash-warn-geoip-missing', /unless the sign-in policy without a database is set to allow/],
+  ['admin-settings-help-security-signin-geo-scope', /unless the sign-in policy without a database is set to allow/],
 ];
 
 describe('accurate console wording', () => {

@@ -807,7 +807,7 @@ admin-settings-key-security-signin-lock-secs = Temporary sign-in lock duration
 admin-settings-help-security-signin-lock-secs = Lock duration in seconds. Repeated attempts while locked do not extend its original expiry. Manual global IP bans are separate.
 
 admin-settings-key-security-signin-geo-scope = Sign-in country policy scope
-admin-settings-help-security-signin-geo-scope = Off by default. Apply only to new mailbox, administrator, or all sign-ins. Existing sessions are not revoked. Check the current-source diagnostic before enabling; an unavailable local GeoIP database refuses sign-in.
+admin-settings-help-security-signin-geo-scope = Off by default. Apply only to new mailbox, administrator, or all sign-ins. Existing sessions are not revoked. Check the current-source diagnostic before enabling; with no usable local GeoIP database, sign-in is refused unless the sign-in policy without a database is set to allow.
 admin-settings-key-security-signin-geo-mode = Country allow or deny list
 admin-settings-help-security-signin-geo-mode = Allow permits only listed countries; deny refuses listed countries. Unknown addresses use their own explicit policy.
 admin-settings-key-security-signin-geo-countries = Sign-in country codes

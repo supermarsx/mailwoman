@@ -116,7 +116,7 @@ yd-scope-classification = arquivamento automático e regras
 yd-scope-push = notificações push
 yd-scope-thirdParty = serviços conectados
 yd-scope-all = tudo
-yd-banner = O tratamento dos seus dados está restrito. Em pausa: { $scopes }. Você ainda pode ler e excluir seus e-mails.
+yd-banner = O tratamento dos seus dados está restrito. Pausado: { $scopes }. Você ainda pode ler seus e-mails; enquanto a restrição durar, a exclusão permanente de mensagens e a exclusão de pastas são recusadas.
 yd-banner-where = Veja Configurações > Privacidade e dados.
 
 yd-doc-title = Documentos de privacidade

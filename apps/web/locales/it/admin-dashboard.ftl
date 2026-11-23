@@ -148,7 +148,7 @@ admin-dash-duration-m = { $m } min
 admin-dash-duration-s = { $s } s
 
 # -- Machine translation (2026-11): added to match en ---------------------
-admin-dash-warn-geoip-missing = Un criterio per paese è attivo ma non è caricato alcun database dei paesi utilizzabile, quindi gli accessi che copre vengono rifiutati.
+admin-dash-warn-geoip-missing = Una politica per paese è attiva ma non è caricato alcun database dei paesi utilizzabile, quindi gli accessi che copre vengono rifiutati, a meno che il criterio di accesso senza database sia impostato su consenti.
 admin-dash-warn-geoip-stale = Un criterio per paese è attivo e il database dei paesi non è aggiornato.
 admin-dash-h-status-ok = OK
 admin-dash-h-status-warn = Avviso

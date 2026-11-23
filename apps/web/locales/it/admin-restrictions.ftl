@@ -4,7 +4,7 @@
 
 # -- Machine translation (2026-11): added to match en ---------------------
 admin-restrictions-title = Limitazioni del trattamento
-admin-restrictions-intro = Una limitazione sospende determinati tipi di trattamento per una persona mentre i suoi dati restano memorizzati. La posta continua ad arrivare e la persona può leggere ed eliminare. I tipi sospesi vengono applicati dove i dati sono trattati, non solo mostrati qui.
+admin-restrictions-intro = Una restrizione sospende alcuni tipi di trattamento per una persona mentre i suoi dati restano archiviati. La posta continua ad arrivare e la persona può leggerla, ma l'eliminazione definitiva dei messaggi e l'eliminazione delle cartelle vengono rifiutate. I tipi sospesi vengono applicati dove i dati sono trattati, non solo mostrati qui.
 admin-restrictions-apply = Limita una persona
 admin-restrictions-address = Indirizzo
 admin-restrictions-scopes = Sospendi

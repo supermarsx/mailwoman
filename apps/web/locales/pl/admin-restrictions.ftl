@@ -4,7 +4,7 @@
 
 # -- Machine translation (2026-11): added to match en ---------------------
 admin-restrictions-title = Ograniczenia przetwarzania
-admin-restrictions-intro = Ograniczenie wstrzymuje wybrane rodzaje przetwarzania dla jednej osoby, a jej dane pozostają przechowywane. Poczta nadal dociera, a osoba może ją czytać i usuwać. Wstrzymane rodzaje są egzekwowane tam, gdzie dane są przetwarzane, a nie tylko pokazane tutaj.
+admin-restrictions-intro = Ograniczenie wstrzymuje wybrane rodzaje przetwarzania dla jednej osoby, a jej dane pozostają przechowywane. Poczta nadal dociera i osoba może ją czytać, ale trwałe usuwanie wiadomości i usuwanie folderów są odrzucane. Wstrzymane rodzaje są egzekwowane tam, gdzie dane są przetwarzane, a nie tylko pokazywane tutaj.
 admin-restrictions-apply = Ogranicz osobę
 admin-restrictions-address = Adres
 admin-restrictions-scopes = Wstrzymaj

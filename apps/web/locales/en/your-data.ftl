@@ -112,7 +112,7 @@ yd-scope-classification = automatic filing and rules
 yd-scope-push = push notifications
 yd-scope-thirdParty = connected services
 yd-scope-all = everything
-yd-banner = Processing of your data is restricted. Paused: { $scopes }. You can still read and delete your mail.
+yd-banner = Processing of your data is restricted. Paused: { $scopes }. You can still read your mail; permanently deleting messages and deleting folders is refused while the restriction lasts.
 yd-banner-where = See Settings > Privacy & data.
 
 yd-doc-title = Privacy documents

@@ -18,7 +18,7 @@ admin-dash-warn-blocked-accounts = { $count ->
 admin-dash-warn-no-trusted-proxy = IP rules are active but no trusted proxy is configured, so every client may appear to come from the proxy's address.
 admin-dash-warn-allowlist-bypass = An environment variable turns the IP allowlist off.
 admin-dash-warn-metrics-token = The metrics endpoint has no token set.
-admin-dash-warn-geoip-missing = A country policy is active but no usable country database is loaded, so sign-ins it covers are refused.
+admin-dash-warn-geoip-missing = A country policy is active but no usable country database is loaded, so sign-ins it covers are refused unless the sign-in policy without a database is set to allow.
 admin-dash-warn-geoip-stale = A country policy is active and the country database is out of date.
 admin-dash-warn-pending-migrations = { $count ->
     [one] One database migration has not been applied. Restart the server to apply it.

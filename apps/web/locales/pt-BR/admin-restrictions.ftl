@@ -4,7 +4,7 @@
 
 # -- Machine translation (2026-11): added to match en ---------------------
 admin-restrictions-title = Restrições de tratamento
-admin-restrictions-intro = Uma restrição pausa determinados tipos de tratamento para uma pessoa enquanto os dados dela permanecem armazenados. Os e-mails continuam chegando e a pessoa pode ler e excluir. Os tipos pausados são aplicados onde os dados são tratados, não apenas exibidos aqui.
+admin-restrictions-intro = Uma restrição pausa certos tipos de tratamento para uma pessoa enquanto os dados dela continuam armazenados. O e-mail continua chegando e a pessoa pode lê-lo, mas a exclusão permanente de mensagens e a exclusão de pastas são recusadas. Os tipos pausados são aplicados onde os dados são processados, e não apenas mostrados aqui.
 admin-restrictions-apply = Restringir uma pessoa
 admin-restrictions-address = Endereço
 admin-restrictions-scopes = Pausar

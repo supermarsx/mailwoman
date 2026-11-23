@@ -180,7 +180,7 @@ admin-dash-duration-m = { $m } د
 admin-dash-duration-s = { $s } ث
 
 # -- Machine translation (2026-11): added to match en ---------------------
-admin-dash-warn-geoip-missing = سياسة الدولة مفعّلة لكن لم تُحمَّل قاعدة بيانات دول صالحة للاستخدام، لذا تُرفض عمليات الدخول التي تشملها.
+admin-dash-warn-geoip-missing = سياسة الدول نشطة لكن لا توجد قاعدة بيانات دول صالحة للاستخدام محمَّلة، لذلك تُرفض عمليات تسجيل الدخول التي تشملها، ما لم تكن سياسة تسجيل الدخول بدون قاعدة بيانات مضبوطة على السماح.
 admin-dash-warn-geoip-stale = سياسة الدولة مفعّلة وقاعدة بيانات الدول قديمة.
 admin-dash-h-status-ok = سليم
 admin-dash-h-status-warn = تحذير
