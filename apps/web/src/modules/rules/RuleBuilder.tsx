@@ -8,7 +8,7 @@ import { Icon } from '../../components/Icon.tsx';
 // read-only with a note, and the rule cannot be saved until it is removed.
 
 import { createSignal, For, Show, type JSX } from 'solid-js';
-import { createStore } from 'solid-js/store';
+import { createStore, unwrap } from 'solid-js/store';
 import { t, isolate } from '../../i18n';
 import type {
   MailRuleActionType,
@@ -53,8 +53,26 @@ export interface RuleBuilderProps {
   onCancel: () => void;
 }
 
+/**
+ * A plain-data copy of a draft. The builder edits a Solid store, whose arrays and
+ * their elements are proxies; a proxy cannot cross `postMessage` (the network
+ * worker), so the saved rule is rebuilt field by field from unwrapped values.
+ */
+export function plainRuleDraft(draft: RuleDraft): RuleDraft {
+  const raw = unwrap(draft);
+  return {
+    ...(raw.id !== undefined ? { id: raw.id } : {}),
+    name: raw.name,
+    matchAll: raw.matchAll,
+    conditions: raw.conditions.map((c) => ({ type: c.type, op: c.op, value: c.value })),
+    actions: raw.actions.map((a) => ({ type: a.type, value: a.value ?? null })),
+    enabled: raw.enabled,
+    runsAt: raw.runsAt,
+  };
+}
+
 export function RuleBuilder(props: RuleBuilderProps): JSX.Element {
-  const [draft, setDraft] = createStore<RuleDraft>({ ...props.initial });
+  const [draft, setDraft] = createStore<RuleDraft>(plainRuleDraft(props.initial));
   const [saving, setSaving] = createSignal(false);
 
   const addCondition = (): void =>
@@ -78,7 +96,7 @@ export function RuleBuilder(props: RuleBuilderProps): JSX.Element {
     // The slice has already told the user why a save failed; only re-enable here.
     void Promise.resolve()
       .then(() =>
-        props.onSave({ ...draft, conditions: [...draft.conditions], actions: [...draft.actions], runsAt: runsAt() }),
+        props.onSave({ ...plainRuleDraft(draft), runsAt: runsAt() }),
       )
       .catch(() => setSaving(false));
   };
