@@ -7,11 +7,11 @@
 -- The empty table stays: both dialects keep the same table set, which complete
 -- migration (migrate_complete_from_sqlite) requires. A future PostgreSQL reader
 -- must add its own commit-ordered design and a pruning job that does not run per
--- insert.
-DROP TRIGGER authority_change_log_prune ON authority_change_log;
-DROP TRIGGER authority_change_log_revision ON settings_revision;
-DROP TRIGGER authority_change_log_epoch ON authority_epoch;
-DROP FUNCTION mw_authority_change_log_prune();
-DROP FUNCTION mw_authority_change_log_revision();
-DROP FUNCTION mw_authority_change_log_epoch();
+-- insert. IF EXISTS: an operator may already have removed some of these.
+DROP TRIGGER IF EXISTS authority_change_log_prune ON authority_change_log;
+DROP TRIGGER IF EXISTS authority_change_log_revision ON settings_revision;
+DROP TRIGGER IF EXISTS authority_change_log_epoch ON authority_epoch;
+DROP FUNCTION IF EXISTS mw_authority_change_log_prune();
+DROP FUNCTION IF EXISTS mw_authority_change_log_revision();
+DROP FUNCTION IF EXISTS mw_authority_change_log_epoch();
 TRUNCATE authority_change_log;
