@@ -1,76 +1,100 @@
-# Layered cache: Valkey / Redis (V6)
+# Shared cache (Redis/Valkey)
 
-`mw-cache` is an **accelerator**, never authoritative. It layers an in-process cache
-(`moka`) in front of an optional Redis/Valkey tier (`fred`), with the store as the
-source of truth. Losing the cache loses performance, never data: every miss falls
-through to the store, and a Redis outage degrades to memory + store transparently.
+Mailwoman's cache (`mw-cache`) speeds up repeated reads. It is never the source
+of truth: on a miss, Mailwoman reads from the store or the mail server. The cache
+has an in-process memory layer, an optional Redis or Valkey layer, and the store
+itself. This page explains what `MW_REDIS_URL` does, which data goes where, and
+what happens when Redis is unreachable.
 
-## Enabling it
+::: warning What the Redis layer does today
+With the built-in defaults no cache class uses the Redis layer, and the server
+has no setting, console screen or command to change those defaults. Setting
+`MW_REDIS_URL` makes the server connect at start-up and `mailwoman doctor`
+report the connection, but nothing is read from or written to Redis.
+:::
 
-Set `MW_REDIS_URL` to point at a Redis-protocol server:
+## Connect a Redis or Valkey server
+
+Set `MW_REDIS_URL` before starting the server:
 
 ```sh
 MW_REDIS_URL="redis://cache.internal:6379" mailwoman serve
 ```
 
-Unset (the default), Mailwoman runs memory + store only — fully functional, just
-without the shared tier. TLS uses **pure-Rust rustls** (`fred`); no OpenSSL.
+- Use `rediss://` for TLS. The client (`fred`) uses rustls.
+- The cache is attached only in engine mode (`--mode engine` or
+  `MW_MODE=engine`). In proxy mode, the default, the setting has no effect.
+- Leave `MW_REDIS_URL` unset (the default) to run with memory and store only.
 
-### Valkey vs Redis (a licensing note)
+`bash deploy.sh deploy --full-stack` starts a Valkey 8 container and sets
+`MW_REDIS_URL` itself; remove any external `MW_REDIS_URL` from `app.env` first,
+or the script stops with `MW_REDIS_URL is managed by --full-stack`. See
+[the deployment script](script.md#full-stack-and-one-step-sqlite-migration).
 
-Mailwoman standardises on **Valkey** (`valkey/valkey:8`, BSD-3-Clause, the Linux
-Foundation fork) for its CI and documented deployments. Redis 7.4+ is RSALv2/SSPL
-(source-available, **not** permissive), which is why the license-clean default is
-Valkey. `fred` speaks the same wire protocol to either, so an existing Redis is
-equally supported at runtime — the choice is yours; only the *documented* default is
-Valkey.
+Valkey is BSD-licensed. Redis 7.4 and later use the RSALv2/SSPL licences.
+Both speak the same protocol, and the client works with either.
 
-## Scope matrix (SPEC §15.6)
+## Cache classes
 
-Each cache **class** has a policy: which layers it may occupy and a TTL. These are the
-built-in defaults (admin-overridable per class):
+Each cache class has a list of layers it may use and a lifetime (TTL). These are
+the defaults the server runs with:
 
-| Class | Layers (default) | TTL |
+| Class | Layers | TTL |
 |---|---|---|
-| `Sessions` | memory + store | 1 h |
-| `HeaderWindows` | memory | 5 min |
-| `MessageBodies` | store | 24 h |
-| `Blobs` | store | 7 d |
-| `SearchHotSet` | memory | 2 min |
-| `PushPresence` | memory | 1 min |
-| `RateLimit` | memory | 1 min |
-| `GalDirectory` | memory + store | 1 h |
+| `sessions` | memory + store | 1 h |
+| `header-windows` | memory | 5 min |
+| `message-bodies` | store | 24 h |
+| `blobs` | store | 7 days |
+| `search-hot-set` | memory | 2 min |
+| `push-presence` | memory | 1 min |
+| `rate-limit` | memory | 1 min |
+| `gal-directory` | memory + store | 1 h |
 
-The **Redis tier is opt-in per class**: an admin adds `redis` to a class's layers via
-the admin panel / config override. `Blobs` is **not Redis-eligible** — a Redis tier
-requested for it is dropped (and reported), because large opaque blobs belong in the
-store, not a shared in-memory cache.
+`blobs` can never use Redis: a Redis layer requested for it is dropped.
 
-`mailwoman doctor` prints the effective posture — the resolved matrix, whether Redis is
-configured/connected, and whether a store tier is attached — so an operator can see
-exactly what is cached where.
+The memory layer holds up to 10,000 entries, plus a separate mail-content
+memory area limited to 64 MiB, with single entries up to 8 MiB.
 
-## Zero-access exclusion (structural, not by diligence)
+## Zero-access accounts
 
-For a **zero-access** account (see [`../security/zero-access.md`](../security/zero-access.md)),
-a value derived from decrypted plaintext must **never** enter a shared cache tier.
-`mw-cache` enforces this in the type system, not by operator configuration: such a
-value is wrapped in a `PlaintextDerived` marker, and when the account's posture is
-`ZeroAccess` the cache **refuses** to place it in Redis, memory, or the store cache
-tier — it is confined to per-request scope. This is verified in CI against a live
-Valkey (`cache-valkey`), asserting a zero-access `PlaintextDerived` value is provably
-never written to Redis or memory. The exclusion cannot be disabled by an operator; it
-is a property of the code path.
+For an account with [zero-access encryption](../security/zero-access.md), values
+derived from decrypted mail are never written to any cache layer (memory, Redis
+or store). They are loaded for the request and discarded. This is part of the
+code path, not a setting, and cannot be turned off.
 
-## Redis-down degradation
+## Check the cache
 
-If Redis is configured but unreachable, cache operations fall through to memory + the
-store with **no data loss** — the store is always the authority. CI exercises this leg
-explicitly (a Redis-down path alongside the live-Valkey round-trip). Treat Redis as a
-speed-up you can lose at any moment; nothing in Mailwoman depends on it being up.
+```sh
+mailwoman doctor
+```
 
-## Sizing
+`doctor` builds the cache the same way the server does and prints:
 
-The in-process `moka` layer bounds itself; the Redis tier is sized on your Redis/Valkey
-server. Because the cache is never authoritative, you can flush it, resize it, or take
-it offline without touching correctness — only latency.
+- `redis/valkey:` `not configured`, `connected`, or
+  `configured, UNREACHABLE (degraded)`;
+- `store fall-through:` `attached`, or `none` if the store could not be opened;
+- one line per class with its layers and TTL.
+
+## When Redis is unreachable
+
+- **At start-up:** the server logs `Redis/Valkey unreachable — degrading to memory + store (no data loss)`
+  and continues without the Redis layer. It does not retry later; restart the
+  server once Redis is back.
+- **While running:** a failed Redis call is logged once as
+  `Redis/Valkey error — degrading to memory + store` and the request continues
+  from memory or the store.
+
+You can flush, resize or stop the Redis server without losing data.
+
+## Options
+
+| Variable | What it does | Default |
+|---|---|---|
+| `MW_REDIS_URL` | Redis or Valkey URL (`redis://` or `rediss://`) | unset: memory and store only |
+
+## Related
+
+- [PostgreSQL backend](postgres.md)
+- [Deployment script](script.md)
+- [Zero-access encryption](../security/zero-access.md)
+- [Scaling and multi-location boundaries](scaling.md)

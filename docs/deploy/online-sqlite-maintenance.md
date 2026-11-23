@@ -1,154 +1,193 @@
 # Online SQLite conversion
 
-An older SQLite installation in `auto_vacuum=NONE` mode needs a rebuild once
-before background incremental page reclamation can work. The online converter
-builds a compact replacement while the app continues serving requests. It keeps
-the same SQLCipher configuration and sealed data. PostgreSQL does not use this.
+A SQLite database created with `auto_vacuum=NONE` must be rebuilt once before
+background maintenance can reclaim free pages incrementally. Online conversion
+builds that replacement while Mailwoman keeps serving requests, then switches to
+it. The replacement keeps the same SQLCipher encryption settings and sealed data.
+This applies to SQLite only; PostgreSQL installations do not use it.
 
-After rebuilding and deploying a server containing this feature, start it from
-**Maintenance > Database > Online conversion**, or on the deployment host:
+<!-- SCREENSHOT deploy/online-conversion-card: Admin console, Maintenance > Database, "Online SQLite conversion" and "Retained databases" cards, full -->
+
+## Before you start
+
+- You need the `maintenance.read` permission to see the cards and
+  `maintenance.run` to start, cancel or delete.
+- Free disk space in the database directory must be at least the used size of
+  the database plus 1 GiB, or the conversion stops with
+  `Insufficient free space for a complete replacement plus the safety reserve`.
+- Keep an independent, verified backup. The conversion keeps the previous
+  database file, but that is not a backup.
+- Stop any external program that writes to the SQLite file.
+
+A database already in incremental mode completes at once without rebuilding. A
+database in `FULL` auto-vacuum mode is refused and left unchanged.
+
+## Start a conversion from the admin console
+
+1. Open **Maintenance** > **Database**.
+2. In **Online SQLite conversion**, select **Start conversion**.
+3. Watch **Stage**. The card refreshes every 2 seconds while the page is visible
+   and a conversion is running.
+4. To stop before the switch, select **Cancel conversion**. Once switching has
+   begun, the card shows `Cancellation is no longer available at this stage.`
+
+<!-- SCREENSHOT deploy/online-conversion-progress: Admin console, Maintenance > Database, "Online SQLite conversion" card during the "Copying data" stage, crop of the card -->
+
+The stages are **Preparing**, **Copying data**, **Verifying the copy**,
+**Applying recent changes**, **Waiting to switch**, **Switching database** and
+**Publishing the new generation**, ending in **Completed**, **Cancelled**,
+**Failed** or **Recovery review required**.
+
+The card also shows **Started**, **Finished**, **Elapsed time**,
+**Average copy rate**, **Average replay rate**, and per-table progress:
+**Copied rows**, **Copied bytes**, **Replayed keys** and **Pending changes**.
+
+- The copy rate covers the copy phase; the replay rate covers catch-up,
+  including the final drain. Neither includes verification or waiting to switch.
+- Copied bytes are logical row data, not disk or network traffic.
+- **Pending changes** counts journal events, so repeated updates to one row count
+  more than once.
+- The rates are averages, not an estimate of time to completion. A report that
+  lacks a measurement shows **Not available**.
+
+## Start a conversion from the command line
+
+On a host managed by `deploy.sh`:
 
 ```sh
-bash deploy.sh maintenance --online
-bash deploy.sh maintenance --online-status
-bash deploy.sh maintenance --online-cancel
+bash deploy.sh maintenance --online          # start
+bash deploy.sh maintenance --online-status   # print the latest report
+bash deploy.sh maintenance --online-cancel   # cancel before the switch
 ```
 
-These commands execute inside the running app container. They do not stop it,
-create a helper container, or make an additional snapshot copy. Do not combine
-them with `--apply`, `--skip-backup`, or offline cleanup flags. Online conversion
-retains the original generation; keep independent verified backups as well.
-An installation already using incremental vacuum completes without rebuilding.
+These run `mailwoman db online` inside the running app container. They do not
+stop the app, create a helper container or take a snapshot. They cannot be
+combined with `--apply`, `--skip-backup` or the offline cleanup options, and the
+script refuses them on a full-stack (PostgreSQL) installation.
 
-The CLI submits a private authenticated local command, bound to the server key
-and canonical database path, with a short lifetime and persisted replay guard.
-Status reports copied rows/bytes, the current table, pending changes and phase.
-New reports also include the start and finish timestamps, server-measured elapsed
-time, average baseline copy bytes/second and average replayed keys/second.
-Elapsed time freezes when the job stops. Copy rate covers the copy phase;
-replay rate covers catch-up, including the final drain. Neither includes baseline
-verification or waiting for cutover. These are logical copier measurements, not
-physical disk bandwidth or completion estimates. Pending changes count journal
-events, which can include repeated updates to the same key. Reports saved before
-these measurements were introduced show unavailable values rather than inferred
-historical timing.
-The admin UI reads lightweight status every two seconds while visible and active.
-No progress samples are appended to the database.
-
-## Serving traffic during conversion
-
-Short keyset batches copy the live schema and rows without a long-lived source
-snapshot. Transactional triggers record changed row identifiers. Changes are
-reconciled into the replacement before it is checked and published. Every Store
-clone, streaming query, raw managed connection and transaction participates in
-the same generation admission gate. Ordinary SQLite processes retain shared
-lifecycle leases. Conversion upgrades to exclusive ownership and refuses if
-another cooperating process has the database open; offline CLI writers use the
-same exclusive lease. Other processes cannot open it during conversion.
-
-Final cutover briefly queues new database work while existing work drains. The
-default admission and SQL verification budgets are two seconds each. If the
-database is too busy, verification exceeds its budget, the change journal fills,
-source WAL exceeds its budget, or disk headroom is insufficient, conversion
-fails safely and the original stays authoritative. Slow filesystem operations
-and confirmed worker shutdown cannot be interrupted safely; the budget is not
-a hard maximum request latency. This is online conversion, not a promise of
-zero added latency. It has not been load-tested on the production 115 GB file.
-
-Finishing every baseline table does not mean conversion is ready to switch:
-the captured change journal must also drain. Catch-up currently stops after a
-bounded five-minute window if events remain. That failure alone does not prove
-new writes exceeded replay throughput. Baseline verification can accumulate a
-backlog while traffic continues; small replay batches and repeated changes to
-the same row can also delay draining it. This abort occurs before cutover and
-keeps the selected source authoritative. A failed unpublished copy is not
-resumable; a retry starts a fresh copy.
-
-Detailed tuning is available through the running container's CLI:
+To tune the conversion, run the CLI in the container yourself, using your
+deployment's Compose project and file options:
 
 ```sh
-# Allow up to 10 seconds for admission and final SQL work on a quiet installation.
+# Allow up to 10 seconds for the final switch on a quiet installation.
 docker compose exec -T mailwoman mailwoman db online --max-cutover-ms 10000
 ```
 
-Use the generated Compose configuration/project options for your deployment.
-Other bounded options include `--batch-rows`, `--batch-mib`, `--journal-limit`,
-`--pause-ms`, and `--max-wal-mib`. Large rows beyond the copy byte budget cause
-a safe abort; they are never truncated. Final foreign-key and row-count checks
-can exceed the budget on large occupied databases. Retry during a quieter
-period or use the existing explicit offline conversion if necessary.
+The CLI leaves a short-lived request, sealed with the server key, for the
+running server and waits up to 10
+seconds for it to be accepted. It prints `The running server accepted this command.`
+or the reason it was rejected.
 
-## Publication and recovery
+| Option | What it does | Default | Range |
+|---|---|---|---|
+| `--status` | Print the latest report as JSON | | |
+| `--cancel` | Request cancellation before the switch | | |
+| `--batch-rows` | Rows per copy batch | 16 | 1-128 |
+| `--batch-mib` | Data per copy batch, in MiB | 256 | 1-256 |
+| `--journal-limit` | Maximum captured change events | 1,000,000 | 1,024-2,000,000 |
+| `--pause-ms` | Pause between batches, in ms | 10 | 0-1,000 |
+| `--max-wal-mib` | Largest source WAL allowed, in MiB | 512 | 32-4,096 |
+| `--max-cutover-ms` | Time allowed to take exclusive access and finish the final checks at the switch | 2,000 | 100-10,000 |
 
-Open database files are never renamed. A durable same-directory CURRENT manifest
-selects an immutable generation filename, and the admission gate remains held
-until the selected pool is usable. Publication uncertainty keeps access fenced
-until durable selection is recovered. Missing/corrupt generation metadata fails
-closed instead of reopening a stale original database.
+The tuning options apply only when starting a conversion.
 
-Cancellation is accepted before switching starts. A restart before publication
-keeps the selected source and removes that job's capture metadata and recorded
-unpublished shadow; start a fresh copy. A restart after publication opens the
-published replacement. Copy seeding does not resume across restarts. Normal
-failure cleanup closes private workers before removing the exact unselected
-shadow and its SQLite sidecars. A shadow with unconfirmed teardown is retained
-for startup recovery. If shutdown cannot be confirmed, conversion ownership is
-retained until a process restart; another conversion cannot overwrite that
-job's recovery record.
+## How the app keeps serving
 
-The previous published database is deliberately retained. Conversion reduces
-the active database footprint, but total disk usage and subsequent full-volume
-snapshots still include this old copy. Never manually replace CURRENT or roll
-back to that copy after new writes. After verifying the selected database and
-an independent backup, open **Maintenance → Database → Retained databases**.
-The table shows the verified predecessor's path, size and last modification.
-Deletion requires typing its exact filename in a confirmation dialog.
+- Rows are copied in short batches. Triggers record which rows change while the
+  copy runs, and those changes are applied to the replacement before it is
+  checked and published.
+- At the switch, new database work briefly waits while running work finishes.
+  The `--max-cutover-ms` budget is not a limit on request latency: slow
+  filesystem operations cannot be interrupted safely.
+- While a conversion runs, no other process can open the database. Offline
+  `mailwoman db` commands that change data refuse while the server is running;
+  read-only status and cleanup previews work during normal service but refuse
+  during a conversion.
 
-Only the predecessor recorded by the selected manifest is eligible. Arbitrary
-neighbouring files and older unrecorded copies are not offered for deletion.
-Retirement rechecks the active generation and the selected file's identity,
-requires global maintenance permission and exclusive lifecycle ownership, and
-refuses conversion/rebuild conflicts, other cooperating database processes,
-linked files and any remaining SQLite WAL, SHM or rollback-journal sidecar.
-It does not remove recovery sidecars to make a copy eligible. Close external
-database tools and review recovery first; non-cooperating external writers are
-outside the supported online-maintenance contract. Successful deletion removes
-only the confirmed predecessor and records an admin audit event.
-Back up the data directory, including generation metadata and the server key;
-copying only the original `mailwoman.db` filename no longer captures current data.
+The conversion stops safely, and the original database stays in use, when:
 
-Direct external SQLite writers, schema changes during copying, incremental BLOB
-writes, virtual tables, generated columns and WITHOUT ROWID tables are outside
-the supported live-copy contract and are rejected where detectable. Stop all
-external writers. Mutating offline `mailwoman db` operations take the same
-exclusive lifecycle lease and resolve CURRENT, so they refuse while the server
-is running. Read-only status and cleanup previews retain a shared inspection
-lease and remain available during ordinary service, but refuse during conversion.
+- the database is too busy to switch within the budget;
+- the change journal reaches its limit or the source WAL exceeds its limit;
+- disk space runs short;
+- a row is larger than the batch size (rows are never truncated);
+- changes are still pending 5 minutes after catch-up began. This does not by
+  itself mean writes outpaced the copy; verification can build up a backlog.
 
-### Mail change-log retention
+A failed copy cannot be resumed; starting again begins a fresh copy. Final
+foreign-key and row-count checks can exceed the budget on large, busy databases.
+Retry at a quieter time, or use the offline conversion
+(`mailwoman db cleanup --apply --offline --enable-incremental-vacuum` with the
+server stopped).
 
-Background maintenance retains 60 days of mail delta history by default.
-`maintenance.database.changeLogRetentionDays` controls that window; zero keeps
-history indefinitely. The maintenance master switch also controls this job.
-`maintenance.database.changeLogBatchRows` limits each batch to 1,000 rows by
-default. Larger states are removed in bounded chunks. Before any chunk is
-removed, its whole state is fenced out of older-token deltas by the durable
-checkpoint in the same transaction. Clients cannot read a partial retained state.
-Recent or malformed timestamps visible in the bounded sample protect every
-selected row of that state and the later tail. An invalid row first discovered
-in a later chunk remains protected, but earlier valid old chunks stay expired;
-retention does not first certify an arbitrarily large state's entire contents.
-Each run rotates to the next account/type group, so a hot backlog cannot starve
-other accounts. Cleanup is gradual rather than a strict expiration deadline:
-large backlogs or sustained writes exceeding the configured cleanup capacity
-can extend the retention window. The default global limit is 1,000 rows per
-scheduled run, not 1,000 rows per account.
+Tables without a rowid, generated or hidden columns, schema changes during the
+copy and external writers are not supported and are rejected where they can be
+detected.
 
-Retention preserves a durable head counter and
-the oldest resumable token. Email, mailbox, submission and thread changes, plus
-email query changes, refuse expired tokens with `cannotCalculateChanges` so
-clients refetch instead of silently missing changes. Current tokens and new
-appends remain monotonic after all historical rows have been removed. PIM and
-crypto change logs retain their existing behavior. Deleting history frees pages
-for reuse; bounded incremental vacuum can reclaim those pages on databases
-already configured for incremental vacuum.
+## Files, publication and recovery
+
+Mailwoman never renames an open database file. A `CURRENT` file in the database
+directory names the active database file (a "generation"). The switch writes a
+new `CURRENT` durably and keeps database access paused until the new file is
+usable. If the generation metadata is missing or damaged, Mailwoman refuses to
+open the database rather than fall back to an older file.
+
+- A restart before publication keeps the original and removes that job's
+  unpublished copy; start a fresh conversion.
+- A restart after publication opens the replacement.
+- If a worker's shutdown cannot be confirmed, its copy is kept for recovery at
+  the next start-up, and no new conversion can start until the process restarts.
+
+::: warning
+Never edit `CURRENT` by hand, and never go back to the previous file after new
+writes. Back up the whole data directory, including the generation files and
+the server key. Copying only `mailwoman.db` does not capture the current data.
+:::
+
+## Delete the previous database
+
+The previous database file is kept after a conversion, so total disk use and
+volume snapshots still include it.
+
+1. Verify the active database and an independent backup.
+2. Open **Maintenance** > **Database** > **Retained databases**. The table lists
+   the file, its size and **Last modified**.
+3. Select the delete button (**Delete** followed by the file name).
+4. In **Delete retained database?**, type the exact file name and select
+   **Delete database copy**.
+
+<!-- SCREENSHOT deploy/retained-databases-confirm: Admin console, Maintenance > Database, "Delete retained database?" dialog with the typed-name field, crop of the dialog -->
+
+Only the previous file recorded by the active `CURRENT` can be deleted; other
+files in the directory are never offered. Deletion is refused while a conversion
+or rebuild runs, while another process has the database open, for linked files,
+and while SQLite WAL, SHM or journal files for that copy remain
+(`SQLite recovery files are still present.`). A successful deletion is recorded
+in the admin audit log.
+
+## Mail change-log retention
+
+Background maintenance also removes old mail change history (the records that
+let clients fetch only what changed).
+
+| Setting | What it does | Default |
+|---|---|---|
+| `maintenance.database.changeLogRetentionDays` | Days of change history to keep; `0` keeps it indefinitely | 60 |
+| `maintenance.database.changeLogBatchRows` | Change rows removed per batch | 1,000 |
+| `maintenance.database.enabled` | Switch for all background database maintenance, including this job | true |
+
+- Cleanup is gradual: a large backlog or sustained writes can keep history
+  longer than the retention window.
+- Each run moves on to the next account and data type, so one busy account does
+  not block the others.
+- A client with a token older than the kept history gets `cannotCalculateChanges`
+  for email, mailbox, submission, thread and email-query changes, and fetches the
+  data again in full.
+- Deleting history frees pages for reuse. Incremental vacuum reclaims them only
+  on databases already in incremental mode.
+
+## Related
+
+- [Database maintenance](../admin/database-maintenance.md)
+- [Deployment script](script.md)
+- [Backups](backups.md)
+- [PostgreSQL backend](postgres.md)

@@ -1,23 +1,24 @@
-# PostgreSQL backend (V6)
+# PostgreSQL backend
 
-Mailwoman's store (`mw-store`) runs on **SQLite** (the default, zero-config) or
-**PostgreSQL**. Both speak one logical schema; the backend is chosen at runtime by
-the **DSN** you point the server at. SQLite stays the default — Postgres is strictly
-opt-in, so single-user / self-contained deployments are unchanged.
+Mailwoman keeps its store in SQLite by default. You can run it on PostgreSQL
+instead by pointing the server at a PostgreSQL connection URL. This page covers
+choosing the backend, the server key PostgreSQL needs, TLS to the database, and
+moving an existing SQLite store with `mailwoman migrate-store`.
 
-## Choosing a backend (by DSN)
+## Choose the backend
 
-The store DSN comes from `MW_DB_PATH` (or `--db-path`). The scheme selects the
-backend:
+The store location comes from `MW_DB_PATH` (or `--db-path`). Its prefix selects
+the backend:
 
 | `MW_DB_PATH` value | Backend |
 |---|---|
-| `mailwoman.db` (a bare path) | SQLite (file) |
-| `sqlite://…` / `sqlite::memory:` | SQLite |
+| `mailwoman.db` (a plain path, the default) | SQLite file |
+| `sqlite:…` URL, for example `sqlite::memory:` | SQLite |
 | `postgres://user:pass@host:5432/db` | PostgreSQL |
 | `postgresql://…` | PostgreSQL |
 
-Example (Postgres):
+PostgreSQL also needs a persistent server key, set with `MW_SERVER_KEY` or
+`MW_SERVER_KEY_FILE`:
 
 ```sh
 MW_DB_PATH="postgres://mailwoman:secret@db.internal:5432/mailwoman" \
@@ -25,142 +26,163 @@ MW_SERVER_KEY="$(openssl rand -hex 32)" \
 mailwoman serve
 ```
 
-Nothing else changes: the SPA, the JMAP surface, sessions, and every V1–V6 feature
-behave identically on either backend. The migrations run automatically on first
-connect (`migrations/` for SQLite, `migrations_pg/` for Postgres — the same 0001–0029
-schema in each dialect).
+The schema migrations run automatically when the server connects. SQLite and
+PostgreSQL each have their own migration set (`crates/mw-store/migrations` and
+`crates/mw-store/migrations_pg`) describing the same schema.
 
-## TLS
+## Server key
 
-The Postgres backend uses **pure-Rust rustls** (`sqlx` with the `tls-rustls`
-feature) — there is **no OpenSSL** anywhere in the tree (enforced in `deny.toml`).
-Request TLS to the database with the standard libpq DSN parameter:
+The server key (32 bytes, hex-encoded) seals stored secrets such as mailbox
+credentials and second-factor secrets.
+
+- With SQLite and no key configured, Mailwoman creates a key file next to the
+  database (`<database>.server-key`) on first start and reuses it.
+- With PostgreSQL there is no such fallback. The server refuses to start with
+  `PostgreSQL requires MW_SERVER_KEY or MW_SERVER_KEY_FILE shared by all server instances`.
+- `MW_SERVER_KEY` takes precedence over `MW_SERVER_KEY_FILE`. If the file named by
+  `MW_SERVER_KEY_FILE` does not exist, Mailwoman creates it (mode `600` on Unix).
+  On Unix, an existing key file with any group or other permission bits is
+  refused (`server key file must be private (chmod 600)`).
+
+Every server instance that shares the database must use the same key. Back the
+key up with the database: without it, the sealed columns cannot be opened.
+
+::: warning
+Do not replace a damaged key file with a new key. Mailwoman never rotates the key
+on its own; restore the original key instead.
+:::
+
+## TLS to the database
+
+The PostgreSQL driver uses rustls; the build does not link OpenSSL. Ask for TLS
+with the standard `sslmode` parameter in the URL:
 
 ```
 postgres://mailwoman:secret@db.internal:5432/mailwoman?sslmode=require
 ```
 
-## Moving the same installation with deploy.sh
+To make the server refuse a URL that does not force TLS, set
+`MW_DB_REQUIRE_TLS=1` (also accepts `true`, `yes`, `on`). With it set, the URL
+must use `sslmode=require`, `verify-ca` or `verify-full`, or the store does not
+open.
 
-`bash deploy.sh deploy --full-stack` automates the SQLite-to-PostgreSQL move for
-an installation already managed by the deployment script. It preserves all
-application tables and uses an offline working copy, verified backup and health
-checks. See [the full-stack deployment guide](script.md#full-stack-and-one-step-sqlite-migration).
+## Move an existing installation with deploy.sh
 
-The CLI's `migrate-store --complete` mode requires an empty PostgreSQL destination
-and copies configuration and grants as well as account data. It verifies source
-and destination schema coverage and row content in the destination transaction.
-`--upgrade-source` upgrades the SQLite schema first and must only be used on an
-offline working copy. The destination can be supplied through `MW_DB_PATH` so its
-credentials need not appear in process arguments. This mode is for moving the
-same installation; the default cross-installation mode below retains its
-existing exclusions. Migration summaries do not print connection credentials.
+If `deploy.sh` manages your installation, `bash deploy.sh deploy --full-stack`
+moves it from SQLite to PostgreSQL in one step: it takes a backup, upgrades an
+offline copy of the SQLite store, runs `migrate-store --complete`, and checks
+health before switching over. See
+[Full stack and one-step SQLite migration](script.md#full-stack-and-one-step-sqlite-migration).
 
-## Migrating an existing SQLite store to Postgres
+## Copy a SQLite store with migrate-store
 
-`mailwoman migrate-store` copies a populated SQLite database into a Postgres backend and
-reports per-table counts. Within the tables it copies it is row-for-row: every id,
-timestamp and sealed blob is preserved byte-for-byte. Sealed columns (credentials,
-wrapped keys, webhook secrets) are copied as opaque bytes and are never opened or
-re-encrypted on the way, so the source and destination **must share the same
-`MW_SERVER_KEY`** — without it the copied bytes are unreadable on the destination.
+`mailwoman migrate-store` copies a SQLite store into a PostgreSQL database inside
+one destination transaction, preserving ids, timestamps and sealed values byte for
+byte. Sealed values are copied as opaque bytes and are not re-encrypted.
 
-**It does not copy the whole database, but it now copies nearly all of it.** As of
-migration 0029 it copies 59 of the 76 tables the schema defines. The other 17 are left
-behind deliberately, listed below. There is no longer an undecided remainder.
+### Before you start
 
-### What is not copied — 17 tables, all deliberate
+- Stop the server that writes to the SQLite file, or work on a copy of it.
+- Create an empty PostgreSQL database for the destination.
+- Set `MW_SERVER_KEY` to the hex key the SQLite installation uses. The command
+  reads only `MW_SERVER_KEY` (not `MW_SERVER_KEY_FILE`) and stops with
+  `MW_SERVER_KEY must be set (src + dst share the key)` without it. If the SQLite
+  installation used the generated `<database>.server-key` file, use the key from
+  that file.
+- If the SQLite file is encrypted, set the same database key the server uses
+  (`MW_DB_KEY`, `MW_DB_KEY_FILE` or `MW_DB_KEY_COMMAND`).
 
-The admin panel's own identity domain (`admin_users`, `admin_sessions`); OAuth clients
-and tokens (`oauth_clients`, `oauth_tokens`, `oauth_client_meta`, `oauth_dcr`);
-`api_keys`; `webhooks`; the managed-domain, directory, egress-proxy and SSO
-configuration (`domains`, `directory_config`, `egress_proxy`, `sso_config`); and the
-plugin registries and their capability grants (`plugins`, `plugin_allowlist`,
-`ui_plugins`, `plugin_grants`, `ui_plugin_grants`).
+### Run the copy
 
-These either name the old deployment's hosts and redirect URIs, or are live session
-state, or are deny-by-default surfaces an operator re-approves. **Plan for this:** after
-cutting over you will need to bootstrap an admin login, re-mint API keys, re-register
-webhooks, and re-approve OAuth clients and plugins before those surfaces work again.
-Each table's reason is recorded at its entry in `NOT_MIGRATED_DELIBERATELY` in
-`crates/mw-store/tests/backend_parity.rs`.
+```sh
+export MW_SERVER_KEY=<the installation's key>
+export MW_MIGRATE_TO="postgres://mailwoman:secret@db.internal:5432/mailwoman"
+mailwoman migrate-store --from /var/lib/mailwoman/mailwoman.db --complete
+```
 
-The two grant tables deserve a word: `plugin_grants` and `ui_plugin_grants` are **not**
-copied on purpose, because the plugin registries they refer to are not copied either.
-Copying a grant would silently re-arm a capability for a plugin the admin has not
-re-approved on the new deployment. As it is, a re-installed plugin starts with no
-capabilities until someone grants them again.
+On success it prints `migrated <rows> rows across <tables> tables; destination committed`.
+Any error rolls the destination transaction back.
 
-### What the copy carries that you may not expect
+| Flag | Environment variable | What it does |
+|---|---|---|
+| `--from <path or sqlite: URL>` | `MW_MIGRATE_FROM` | Source SQLite store. Required. |
+| `--to <postgres URL>` | `MW_MIGRATE_TO`, then `MW_DB_PATH` | Destination. Must start with `postgres://` or `postgresql://`. Passing it through an environment variable keeps the password out of the process list. |
+| `--complete` | | Copy every table, for moving the same installation (see below). |
+| `--upgrade-source` | | Bring the source's schema up to date before copying. Requires `--complete`. It writes to the source file, so use it only on an offline copy. |
 
-Everything else, including the things a store move most obviously must not lose: the
-zero-access wrapped root keys, every 2FA enrolment and the policy that requires them,
-all four append-only audit logs, sealed account and bridge credentials, per-account
-settings and user-authored content, message embeddings, plugin state, and the AI assistant and
-cache configuration. A spent recovery code stays spent, a revoked remote-image grant
-stays revoked, and the TOTP replay counter travels with the secret, so migrating never
-re-opens something the user or operator had closed.
+### Complete mode (same installation)
 
-### Two things that live outside the database
+With `--complete`, every table except the migration ledger is copied, including
+admin accounts, OAuth registrations, API keys, webhooks, domains, SSO and
+plugin grants. The command:
 
-**Uploaded attachment objects.** `uploaded_blobs` rows carry the `storage_key` that
-locates each sealed object, but the objects themselves live on the upload backend (a
-filesystem directory, or S3), not in the database. `migrate-store` moves the database
-only. If you also change host or upload directory, **copy the upload store across as
-well**, or the metadata will point at objects that are not there.
+- refuses a destination that already holds data (`complete migration requires an empty destination`);
+- refuses when the source and destination table sets differ
+  (`source and destination schemas differ; upgrade the offline source copy first`);
+  add `--upgrade-source` on an offline copy to fix this;
+- compares the copied rows with the source before it commits.
 
-**Passkeys and the deployment domain.** WebAuthn credentials are bound to the
-deployment's Relying Party ID — its domain. `migrate-store` changes the database
-backend, not the domain, so passkeys keep working across a normal cutover. If you also
-move to a **different domain**, enrolled passkeys stop verifying there; that is true
-whether or not the rows are copied, and users must re-enrol. TOTP secrets and recovery
-codes are unaffected by a domain change.
+Use this mode when you move your own installation to PostgreSQL.
 
-**Masked-email aliases** are copied, but alias *delivery* also depends on the `domains`
-routing configuration, which is not copied. Re-enter that routing on the new deployment
-or the aliases will be listed but undeliverable.
+### Default mode (into another installation)
 
-### What the tests check
+Without `--complete`, the command copies a fixed list of tables and leaves out
+those tied to the old deployment's identity or network position. It does not
+check that the destination is empty, so point it at a fresh database.
 
-Two gates in `crates/mw-store/tests/backend_parity.rs` assert against the live schema,
-not against the migrator's own report, so a table or column the copier never mentions
-still fails them:
+Left out:
 
-- `migrate_store_accounts_for_every_schema_table` — every table in the schema must be
-  either copied or listed as deliberately not copied. A new migration fails it until
-  someone classifies the table.
-- `migrate_store_copies_every_column_of_every_copied_table` — every column of every
-  copied table must appear in that table's copy spec, so a later `ALTER TABLE … ADD
-  COLUMN` cannot drift away from the copier unnoticed.
-- `migrate_store_carries_zero_access_and_policy_rows_sqlite`, and the same assertions on
-  the Postgres destination, require the copied surfaces to be *usable* and not merely
-  present: the wrapped root key, the TOTP secret, the EWS and bridge credentials and the
-  plugin state must all still open under the destination's key, and a recovery code must
-  still be accepted.
+- admin console accounts and sessions;
+- OAuth clients and tokens, and the configuration, signing keys, consents and
+  tokens of the built-in OpenID provider;
+- API keys, outgoing webhooks, incoming webhooks and their replay cache;
+- managed domains and their aliases and hosts, directory, egress proxy, SSO, SSH
+  tunnel and integration configuration;
+- plugin registries and their capability grants (a reinstalled plugin starts with
+  no capabilities);
+- derived state the destination rebuilds itself, such as search-index journals
+  and change-publication records.
 
-Alongside them, the copy asserts row-count and content parity on a populated database
-against a live `postgres:16` (`migrate-store-smoke`), and a table-driven backend-parity
-suite runs every store repo method against both SQLite and Postgres and asserts
-identical results (`store-dual-backend`).
+After switching over in this mode, plan to create an admin login, issue new API
+keys, register webhooks again, approve OAuth clients and plugins again, and
+re-enter domain routing. Masked-email aliases are copied, but they are not
+delivered until the domain routing exists again.
 
-## Connection pooling & sizing
+Copied, among others: accounts and their settings and content, zero-access
+wrapped keys, TOTP secrets, passkeys and recovery codes, the 2FA policy, quotas,
+the audit logs, sealed account and bridge credentials, upload metadata, message
+embeddings and remote-image grants. The full list is `TABLES` in
+`crates/mw-store/src/migrate.rs`; each table left out has its reason in
+`NOT_MIGRATED_DELIBERATELY` in `crates/mw-store/tests/backend_parity.rs`.
 
-`sqlx` manages the connection pool. Size the Postgres server's `max_connections` for
-your expected concurrency; a single Mailwoman instance holds a modest pool. For
-multiple instances against one database, budget the combined foreground and worker
-connections against that limit. Transactional writes protect database operations;
-they do not coordinate upstream account ownership, local search indexes or
-cross-replica WebSocket notifications. Some scheduled jobs and submission attempts
-have durable claims, but several background loops and caches remain process-local.
-See [scaling and multi-location boundaries](scaling.md) before adding replicas.
+### What lives outside the database
 
-## When to use Postgres
+- **Uploaded attachments.** Upload metadata is in the database, but the sealed
+  files are in the directory set by `MW_UPLOAD_DIR`. `migrate-store` does not
+  touch them. If the new server uses a different directory or host, copy that
+  directory across too.
+- **Passkeys and the domain.** Passkeys are bound to the site's domain. They keep
+  working when only the database changes. If you also change the domain, users
+  must register their passkeys again; TOTP and recovery codes are not affected.
 
-- **SQLite** — single-user, evaluation, self-contained desktop mode, small
-  single-operator installs. Zero-config, one file, fully featured.
-- **Postgres** — a shared durable store, external backup/replication tooling, or
-  operators who already run Postgres. It is a foundation for HA; complete
-  multi-instance application coordination still needs the work described in the
-  [scaling guide](scaling.md).
+## Connections
 
-The choice is purely operational; feature parity is a CI gate, not an aspiration.
+Each opened PostgreSQL store uses a connection pool of up to 5 connections
+(fixed in code). When several Mailwoman instances share one database, size the
+PostgreSQL server's `max_connections` for all of them. A shared database does not
+make the other parts of Mailwoman multi-instance aware: read
+[scaling and multi-location boundaries](scaling.md) before adding replicas.
+
+## When to use PostgreSQL
+
+- **SQLite**: single-user and small installations, evaluation, the desktop app.
+  No separate database server.
+- **PostgreSQL**: you already run PostgreSQL, or you want its backup and
+  replication tools.
+
+## Related
+
+- [Deployment script](script.md)
+- [Backups](backups.md)
+- [Scaling and multi-location boundaries](scaling.md)
+- [Shared cache (Redis/Valkey)](cache.md)

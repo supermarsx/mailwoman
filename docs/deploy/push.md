@@ -1,116 +1,140 @@
-# Push relay (self-hostable) — WebPush / UnifiedPush / APNs
+# Push notifications
 
-Mailwoman's push is a **self-hostable relay** that ships inside `mw-server` (§28.7):
-there is **no Mailwoman-operated infrastructure in the path**. It wakes clients so
-they re-fetch; **no message content ever transits push**.
+The server sends push "wakes" so a closed browser tab or the Android app learns
+that an account changed. The relay runs inside the Mailwoman server; no
+Mailwoman-operated service is involved. This page covers what a wake contains,
+which transports work, the server settings, and the realtime connection the open
+app uses.
 
-## The privacy model (read this first)
+## What a push message contains
 
-A push message carries a single opaque marker whose only meaning is *"your account
-changed — wake and re-fetch `/changes`."* The subject, sender, and body of a message
-**never** leave the server over push. The wake triggers the same foreground JMAP
-`/changes` refetch the WebSocket/SSE realtime path already does; the client then
-renders a notification from data it fetched over the authenticated JMAP surface. The
-VAPID private key is **sealed at rest** (the same `mw-store` seal used for upstream
-credentials).
+Every wake carries the same fixed 7-byte marker, `mw-wake`, and nothing else. It
+means only "this account changed". No subject, sender or message text is sent over
+push. The app then fetches the changes over its signed-in connection and builds
+any notification from that.
+
+The VAPID key pair is generated when the server first starts. Its private key is
+sealed with the server key in the store.
 
 ## Transports
 
-| Platform | Transport | Notes |
+| Platform | Transport | Status |
 |---|---|---|
-| Web + desktop | **Web Push (VAPID)** | RFC 8188 encrypted wake to the browser push service. The desktop shell subscribes in its WebView via the browser fallback; while the app is open the WS/SSE realtime path already drains the same change broadcast. |
-| Android | **UnifiedPush** | Self-hostable, **no Google dependency**. The app registers with an on-device distributor (ntfy, NextPush, …) and hands the endpoint to the server. |
-| iOS | **APNs** | Opaque wake only, content never transits push. **Mocked/recorded in CI** — live APNs needs an Apple account (a documented gap, not a V5 gate). |
+| Browser and desktop app | Web Push with VAPID | Implemented. The wake is encrypted to the subscriber's key (RFC 8291) and signed with a VAPID token (RFC 8292). |
+| Android app | UnifiedPush | Implemented. The app registers with a distributor installed on the phone (for example ntfy) and sends the endpoint to the server. No Google services are used. |
+| iOS | APNs | Not implemented. The server accepts `apns` subscriptions, but it only writes a log line instead of contacting Apple. No wake reaches the device. |
 
-The dispatcher is a second consumer of the engine `StateChange` broadcast (the same
-source the realtime `push.rs` WS/SSE path drains); on a change for an account with
-active subscriptions it sends the opaque wake, respecting quiet hours.
+Endpoints for Web Push and UnifiedPush must be `https://` URLs without user
+name, password or fragment, and not a private or loopback IP address. Each
+account can hold at most 32 subscriptions.
 
-## Endpoints
+## When a wake is sent
 
-- `GET /api/push/vapid` → `{ publicKey }` — the VAPID **public** key (generated and
-  persisted on first boot; the private key never leaves the server).
-- `POST /api/push/subscribe` — body is the frozen `PushSubscriptionInfo`
-  (`transport`, `endpoint`, `keys` for WebPush, `appId` for UnifiedPush/APNs). Stored
-  in `push_subscriptions` (migration `0006_v5.sql`). Returns `{ id, vapidPublicKey }`.
-- `POST /api/push/unsubscribe` — `{ id | endpoint }`.
+The server sends a wake for an account change only when all of these hold:
 
-These are additive; a browser that never subscribes sees no change.
+- the deployment-wide quiet hours (`push.quietHours`) are not active;
+- the account has not restricted or withdrawn consent for push processing;
+- `notifications.pushAllowed` is true (an administrator setting, default true);
+- the user's notifications are on (`notifications.enabled`, default false) and
+  the user's own quiet hours are not active;
+- the user has no notification rules, native notifications are on,
+  **Only notify matching rules** is off, the scope is
+  all received folders and no folders are muted. A wake carries no content, so the
+  server cannot apply these filters and sends nothing instead.
+
+A subscription whose endpoint answers `404` or `410`, or whose expiry time has
+passed, is deleted. Each send times out after 10 seconds.
+
+Users register a browser in **Settings** > **Notifications** under
+**Background notifications on this browser** with
+**Register background notifications**. The button is disabled while
+notifications are off or the administrator does not allow push.
+
+<!-- SCREENSHOT deploy/push-browser-registration: Settings > Notifications, "Background notifications on this browser" card with the Register button, crop of the card -->
 
 ## Server configuration
 
-| Env / setting | Default | Meaning |
+| Variable or setting | What it does | Default |
 |---|---|---|
-| `MW_NATIVE_ORIGINS` | *(empty → off)* | Comma-separated shell origins to allow via CORS (e.g. `tauri://localhost,https://tauri.localhost`). Empty emits no CORS headers, so browser deployments are byte-identical. Required for a **remote** server to accept the desktop/mobile shell. |
-| `MW_VAPID_CONTACT` | *(none)* | The `mailto:`/`https:` contact the server includes in the VAPID JWT `sub` (push services want an operator contact). Set it to an address you monitor. |
-| `push.quiet_hours` *(settings value)* | *(none → never quiet)* | A `"start-end"` UTC-hour window, e.g. `"22-7"`. Inside it the dispatcher suppresses wakes (§17.3). Absent/unparseable → never quiet. |
+| `MW_VAPID_CONTACT` | Contact URI (`mailto:` or `https:`) sent as the `sub` claim of the VAPID token. Push services use it to reach the operator. Set it to an address you read. | `mailto:push@mailwoman.invalid` |
+| `MW_NATIVE_ORIGINS` | Extra origins, comma-separated, that the server treats as native app origins (CORS headers and sign-in without a cookie). The desktop and mobile apps' own origins `http://tauri.localhost`, `https://tauri.localhost` and `tauri://localhost` are always accepted, so you need this only for a shell that uses another origin. | empty |
+| `push.quietHours` (setting) | Deployment-wide quiet window in UTC hours, as `{start, end}` with hours 0-23. The window includes `start` and excludes `end`, and wraps past midnight when `start` is later than `end`. No wakes are sent inside it. | null (never quiet) |
+| `notifications.pushAllowed` (setting) | Administrator ceiling for push registration and delivery, per deployment or domain. | true |
 
-VAPID keys are generated automatically on first boot — no key management is required
-to turn Web Push on.
+If `push.quietHours` has never been configured, the server reads the
+`push.quiet_hours` value instead (a `"start-end"` string such as `"22-7"`).
+Setting `push.quietHours`, even to null, stops that fallback. See
+[Notifications](../admin/notifications.md) for the user-level settings.
 
-## Self-hosting UnifiedPush (Android, no Google)
+## UnifiedPush on Android
 
-UnifiedPush needs an on-device **distributor**; the user installs one (e.g.
-[ntfy](https://ntfy.sh) pointed at *your* ntfy server, or NextPush against a
-Nextcloud). The Mailwoman app auto-selects the installed distributor, registers, and
-POSTs the granted endpoint to `/api/push/subscribe`. The server later POSTs opaque
-wakes to that endpoint. Nothing here touches Google Play Services — this is the
-committed, self-hostable Android path, alongside Web Push (VAPID) on web/desktop.
+The user installs a UnifiedPush distributor, such as ntfy pointed at a server you
+run, or NextPush on a Nextcloud. The Mailwoman app registers with it and posts
+the endpoint it receives to `/api/push/subscribe`. The server then sends each
+wake as a plain `POST` with the marker as the body. See
+[Android app](mobile-android.md) for building the app.
 
-## What is NOT here (documented gaps)
+## Push API
 
-- **APNs live delivery** — mocked/recorded in CI; needs an Apple account. UnifiedPush
-  + Web Push are the committed live paths.
-- **A Mailwoman-operated push service** — by design there is none; the relay is
-  yours. See [`mobile-android.md`](./mobile-android.md) for the app-side build/gaps.
+All three routes need a signed-in session (cookie or bearer token).
 
-## Foreground WebSocket and EventSource recovery
+- `GET /api/push/vapid` returns `{ "publicKey": ... }`, the VAPID public key.
+- `POST /api/push/subscribe` takes `transport` (`webpush`, `unifiedpush` or
+  `apns`), `endpoint`, `keys` (`p256dh` and `auth`, required for `webpush`),
+  and optional `appId` and `expiresAt`. It returns `{ "id": ..., "vapidPublicKey": ... }`.
+  It answers `403` with `notificationsDisabled` when the user's notifications
+  are off or push is not allowed.
+- `POST /api/push/unsubscribe` takes `{ "id": ... }` or `{ "endpoint": ... }` and
+  answers `204`.
 
-`/jmap/ws` and `/jmap/eventsource` are authenticated application routes in both
-engine and proxy modes. A failed browser connection does not by itself prove
-that a backend lacks realtime support; inspect the actual HTTP status, session
-state, reverse-proxy upgrade handling, and SSE buffering before diagnosing it.
-These routes retain their existing authentication and account filtering.
+## Realtime connection while the app is open
 
-The browser tries WebSocket, then EventSource, with at most two unsuccessful
-attempts per transport. An opening handshake has a 10-second deadline. Merely
-opening and immediately closing a connection does not reset the failure count;
-a valid StateChange or application heartbeat is required.
+While the app is open it does not rely on push. It keeps a connection to
+`/jmap/ws` (WebSocket) or `/jmap/eventsource` (Server-Sent Events). Both routes
+exist in engine and proxy mode and need a signed-in session.
 
-If both transports fail, the client stays in degraded mode with on-demand refresh.
-It retries the complete ladder up to three more times, after 30, 60, and 120 seconds.
-After that it stops automatic attempts until explicit retry, a new sign-in, or an
-explicit push-wake reconnect. A healthy observed connection resets the budget.
-Session-ended responses still stop recovery immediately. This bounds repeated
-connection errors without claiming to repair an unavailable deployment endpoint.
+- The browser tries WebSocket first, then EventSource, with at most two failed
+  attempts per transport. Opening a connection has a 10-second deadline.
+  Opening and closing a connection straight away does not count as success; the
+  failure count resets only after a valid state change or heartbeat.
+- If both fail, the app switches to degraded mode and checks for changes every
+  30 seconds. It retries the full sequence up to three more times, after 30, 60
+  and 120 seconds, then stops until you retry, sign in again, or a push wake
+  triggers a reconnect.
+- A response saying the session has ended stops the retries at once.
 
-## Linked mailboxes
+A failed connection does not mean the mail server lacks realtime support. Check
+the HTTP status, the session, and whether your reverse proxy forwards WebSocket
+upgrades and does not buffer Server-Sent Events. See
+[Reverse proxy](reverse-proxy.md).
 
-Linked mailboxes (`/api/accounts`, engine mode only) get live updates over the
-same `/jmap/ws` or `/jmap/eventsource` stream as the sign-in mailbox. There is
-no second connection from the browser and no setting to switch it on: it is on
-whenever linking is allowed for both mailboxes (`accounts.linkingEnabled`,
-`accounts.useLinked`).
+### Linked mailboxes
 
-Where the changes come from. A linked mailbox is an ordinary engine account, so
-the engine's per-account watch is its push source: an IMAP IDLE connection on
-the Inbox (an IMAP server without IDLE, and POP3, fall back to the timed resync
-poll), with the watch loop's reconnect backoff of 1 s doubling to 60 s. One
-upstream connection serves every user who linked that mailbox. A JMAP upstream
-is a proxy-mode session, which cannot be linked, so there is no JMAP-push leg.
+Linked mailboxes (engine mode) get their updates over the same connection as
+the sign-in mailbox; there is no second connection. This works whenever linking
+is allowed for both mailboxes (`accounts.linkingEnabled`, `accounts.useLinked`).
 
-What a stream carries. Each change of a linked mailbox arrives as a
-`MailboxChange` frame (`apps/web/src/contracts/push.ts`) that names the link id
-and the mailbox's opaque storage authority, never its raw account id, plus the
-Inbox unread count for the mailbox picker. While a stream carries links, the
-sign-in mailbox's changes are also repeated in that form with `"link":null`.
+- **Source of changes:** each linked mailbox is a normal engine account, watched
+  with IMAP IDLE on the Inbox. Servers without IDLE, and POP3 accounts, use the
+  periodic resync instead. A dropped watch reconnects after 1 second, doubling up
+  to 60 seconds. One upstream connection serves every user who linked that
+  mailbox.
+- **Messages:** each change arrives as a `MailboxChange` frame
+  (`apps/web/src/contracts/push.ts`) naming the link id and an opaque storage
+  authority, never the raw account id, plus the Inbox unread count. While a
+  connection carries links, changes to the sign-in mailbox are also sent in this
+  form with `"link": null`.
+- **Limits and checks:** a connection carries at most `accounts.maxLinked` links.
+  The server works out the set of links when the connection opens, when a link is
+  created or removed, and at every re-check (`MW_REALTIME_RECHECK_SECS`, default
+  30 seconds). Each change is checked again before it is sent, so unlinking,
+  revoking sessions, signing out, disabling either account or a changed authority
+  stops delivery from the next change.
 
-Limits and checks. A stream carries at most `accounts.maxLinked` links, the
-same limit that bounds how many a user can create; links past a lowered limit
-leave open streams at their next re-check. The link set is resolved from the
-server's link rows (owner binding, child session clocks, linking policy for
-both accounts, the child's account flags) when the stream opens, whenever a
-link is created or removed, and at every re-check (`MW_REALTIME_RECHECK_SECS`).
-Every linked change is verified again before it is written, so unlinking,
-revoking the child's sessions, signing the parent out, disabling either account
-or a changed authority stops delivery from the next change on.
+## Related
+
+- [Desktop app](desktop.md)
+- [Android app](mobile-android.md)
+- [Reverse proxy](reverse-proxy.md)
+- [Notifications (admin)](../admin/notifications.md)
+- [WebSocket](websocket.md)
