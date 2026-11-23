@@ -121,6 +121,13 @@ pub(crate) fn build_engine(store: &mw_store::Store, db_path: &str) -> Arc<Engine
         Ok(options) => options,
         Err(e) => panic!("refusing to start: {e}"),
     };
+    match claim_journal_process_lock(db_path, publication.ack) {
+        Ok(JournalLock::PeerOwnsJournal) => {
+            JOURNAL_OWNED_BY_PEER.store(true, std::sync::atomic::Ordering::Release);
+        }
+        Ok(_) => {}
+        Err(e) => panic!("refusing to start: {e}"),
+    }
     if publication.ack == mw_engine::PublicationAck::Journal {
         tracing::info!(
             "index publication: journal acknowledgement (Email/set returns after the SQL commit; index reads wait on a per-account fence of at most {} ms)",
@@ -220,6 +227,107 @@ fn publication_options_from(
     Ok(options)
 }
 
+/// Lock files held for the life of the process (see [`claim_journal_process_lock`]).
+static JOURNAL_PROCESS_LOCKS: Mutex<Vec<std::fs::File>> = Mutex::new(Vec::new());
+/// Set when a journal-mode process holds this database's journal lock, so this
+/// commit-mode process must not disable capture or replay its journal.
+static JOURNAL_OWNED_BY_PEER: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// `<sqlite file>.index-journal.lock`, or `None` for an in-memory or Postgres
+/// database.
+fn journal_lock_path(db_path: &str) -> Option<PathBuf> {
+    if db_path.starts_with("postgres://") || db_path.starts_with("postgresql://") {
+        return None;
+    }
+    let file = db_path
+        .strip_prefix("sqlite://")
+        .or_else(|| db_path.strip_prefix("sqlite:"))
+        .unwrap_or(db_path);
+    let file = file.split('?').next().unwrap_or(file);
+    if file.is_empty() || file.contains(":memory:") {
+        return None;
+    }
+    Some(PathBuf::from(format!("{file}.index-journal.lock")))
+}
+
+/// Journal mode is single-process: the index lives in one process while the
+/// SQLite file could be opened by others. A journal-mode process takes an
+/// exclusive OS lock on `<db>.index-journal.lock` for its lifetime and refuses
+/// to start when it cannot (another journal-mode process, or a commit-mode
+/// process that found the lock file, holds it). A commit-mode process creates
+/// nothing; if the lock file exists it takes a shared lock, and when that fails
+/// a journal-mode peer is running, so this process leaves the journal alone
+/// instead of disabling capture under it.
+///
+/// Limit: a commit-mode process that started before any journal-mode run (no
+/// lock file yet) holds no lock and is not detected.
+#[derive(Debug, PartialEq, Eq)]
+enum JournalLock {
+    /// No lock applies (in-memory or Postgres database, or commit mode with no
+    /// lock file).
+    NotApplicable,
+    /// This process holds the lock (exclusive in journal mode, shared in commit).
+    Held,
+    /// Commit mode: a journal-mode process holds the lock.
+    PeerOwnsJournal,
+}
+
+fn claim_journal_process_lock(db_path: &str, ack: mw_engine::PublicationAck) -> Result<JournalLock, String> {
+    let Some(path) = journal_lock_path(db_path) else {
+        return Ok(JournalLock::NotApplicable);
+    };
+    let journal = ack == mw_engine::PublicationAck::Journal;
+    let file = if journal {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .map_err(|e| format!("index publication journal lock {}: {e}", path.display()))?
+    } else {
+        match std::fs::File::open(&path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(JournalLock::NotApplicable);
+            }
+            Err(e) => {
+                tracing::warn!("index publication journal lock {}: {e}", path.display());
+                return Ok(JournalLock::NotApplicable);
+            }
+        }
+    };
+    let locked = if journal { file.try_lock() } else { file.try_lock_shared() };
+    match locked {
+        Ok(()) => {
+            JOURNAL_PROCESS_LOCKS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(file);
+            Ok(JournalLock::Held)
+        }
+        Err(std::fs::TryLockError::WouldBlock) if journal => Err(format!(
+            "MW_INDEX_PUBLICATION_ACK=journal needs this database to itself, but another process holds {}. Journal mode is single-process; stop the other process or use commit.",
+            path.display()
+        )),
+        Err(std::fs::TryLockError::WouldBlock) => {
+            tracing::error!(
+                "index publication: a journal-mode process holds {}; this commit-mode process leaves the journal alone. Running both on one database is unsupported.",
+                path.display()
+            );
+            Ok(JournalLock::PeerOwnsJournal)
+        }
+        Err(std::fs::TryLockError::Error(e)) if journal => {
+            Err(format!("index publication journal lock {}: {e}", path.display()))
+        }
+        Err(std::fs::TryLockError::Error(e)) => {
+            tracing::warn!("index publication journal lock {}: {e}", path.display());
+            Ok(JournalLock::NotApplicable)
+        }
+    }
+}
+
 /// Create `dir` readable by its owner only, where the platform has such a mode,
 /// and open the index in it.
 ///
@@ -286,6 +394,9 @@ pub(crate) fn start_background(engine: &Arc<Engine>, security: crate::SecurityCo
 /// from the replay itself; [`start_background`] runs it before the search-index
 /// reconciliation.
 pub(crate) async fn start_index_publication(engine: &Engine) {
+    if JOURNAL_OWNED_BY_PEER.load(std::sync::atomic::Ordering::Acquire) {
+        return;
+    }
     match engine.start_index_publication().await {
         Ok(startup) if startup.replayed_keys > 0 || !startup.ready => tracing::info!(
             "index publication journal ({}): replayed {} key(s), {} failed, {} row(s) remain, reads {}",
@@ -1564,6 +1675,30 @@ mod tests {
         let vars: HashMap<String, String> =
             vars.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
         publication_options_from(db, |name| vars.get(name).cloned())
+    }
+
+    #[test]
+    fn journal_mode_takes_an_exclusive_process_lock_and_commit_peers_defer_to_it() {
+        use mw_engine::PublicationAck::{Commit, Journal};
+        let dir = std::env::temp_dir().join(format!("mw-e4-lock-{}-{}", std::process::id(), line!()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("mail.db");
+        let db = db.to_str().unwrap();
+        assert_eq!(claim_journal_process_lock(":memory:", Journal), Ok(JournalLock::NotApplicable));
+        assert_eq!(claim_journal_process_lock("postgres://db/x", Commit), Ok(JournalLock::NotApplicable));
+        // Commit mode creates nothing when no journal-mode run ever happened.
+        assert_eq!(claim_journal_process_lock(db, Commit), Ok(JournalLock::NotApplicable));
+        assert!(!std::path::Path::new(&format!("{db}.index-journal.lock")).exists());
+        assert_eq!(claim_journal_process_lock(db, Journal), Ok(JournalLock::Held));
+        let second = claim_journal_process_lock(db, Journal).unwrap_err();
+        assert!(second.contains("single-process"), "{second}");
+        assert_eq!(claim_journal_process_lock(db, Commit), Ok(JournalLock::PeerOwnsJournal));
+        let other = dir.join("other.db");
+        let other = other.to_str().unwrap();
+        std::fs::write(format!("{other}.index-journal.lock"), b"").unwrap();
+        assert_eq!(claim_journal_process_lock(other, Commit), Ok(JournalLock::Held));
+        let refused = claim_journal_process_lock(other, Journal).unwrap_err();
+        assert!(refused.contains("another process holds"), "{refused}");
     }
 
     #[test]
