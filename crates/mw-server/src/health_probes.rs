@@ -1230,6 +1230,100 @@ pub(crate) fn spawn_metrics_refresher(state: AppState, reg: PluginRegistry) {
     });
 }
 
+// ── /readyz ──────────────────────────────────────────────────────────────────
+
+/// The `health.diskFreeMinPercent` floor in force when the setting is not saved.
+const DEFAULT_DISK_FREE_MIN_PERCENT: u64 = 5;
+
+/// Whether `available` of `total` bytes is below `floor_percent` percent. A
+/// filesystem that reports no capacity is never below the floor.
+fn below_floor(total: u64, available: u64, floor_percent: u64) -> bool {
+    total > 0 && u128::from(available) * 100 < u128::from(total) * u128::from(floor_percent)
+}
+
+/// The labels of the directories whose filesystem is below the floor. A path
+/// that cannot be measured (missing, unsupported platform, unreadable) is
+/// skipped: a probe error never makes the node unready.
+fn directories_below_floor(dirs: &[(&'static str, std::path::PathBuf)], floor_percent: u64) -> Vec<&'static str> {
+    dirs.iter()
+        .filter(|(_, dir)| {
+            mw_observability::resource_snapshot::disk_space(dir)
+                .is_some_and(|(total, available)| below_floor(total, available, floor_percent))
+        })
+        .map(|(label, _)| *label)
+        .collect()
+}
+
+/// The saved global `health.diskFreeMinPercent` (the registry allows 1 to 50; a
+/// stored value outside 1 to 100 is clamped), else the default.
+async fn disk_free_floor(state: &AppState) -> u64 {
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
+        account_id: "",
+        address: "",
+        domain: "",
+    };
+    crate::settings_registry::effective_for(&state.store, "health.diskFreeMinPercent", &subject)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|e| e.value.as_u64())
+        .map_or(DEFAULT_DISK_FREE_MIN_PERCENT, |v| v.clamp(1, 100))
+}
+
+/// The data directory, the upload directory and the on-disk search index
+/// directory, each only when this deployment has one.
+fn readiness_dirs(state: &AppState) -> Vec<(&'static str, std::path::PathBuf)> {
+    let mut dirs = vec![("data", state.resource_data_path.clone())];
+    if let Some(dir) = std::env::var_os("MW_UPLOAD_DIR").filter(|d| !d.is_empty()) {
+        dirs.push(("uploads", dir.into()));
+    }
+    if let Some(dir) = state.engine.as_ref().and_then(|e| e.search_index_dir()) {
+        dirs.push(("index", dir.to_path_buf()));
+    }
+    dirs
+}
+
+/// The directories below the `health.diskFreeMinPercent` floor right now. A
+/// measurement that does not finish within [`PROBE_TIMEOUT`] counts as no
+/// finding.
+pub(crate) async fn low_disk(state: &AppState) -> Vec<&'static str> {
+    let floor = disk_free_floor(state).await;
+    let dirs = readiness_dirs(state);
+    let work = tokio::task::spawn_blocking(move || directories_below_floor(&dirs, floor));
+    match tokio::time::timeout(PROBE_TIMEOUT, work).await {
+        Ok(Ok(low)) => low,
+        _ => Vec::new(),
+    }
+}
+
+/// The `/readyz` route: 200 `ok`, or 503 naming the directories short of free
+/// space. A request the probe-access layer did not admit gets the fallback's
+/// answer, as `/healthz` does.
+pub(crate) async fn readyz(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    method: axum::http::Method,
+    original: axum::extract::OriginalUri,
+    uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
+    refused: Option<axum::Extension<crate::health_access::Refused>>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if refused.is_some() {
+        return crate::static_handler(axum::extract::State(state), method, original, uri, headers).await;
+    }
+    let low = low_disk(&state).await;
+    if low.is_empty() {
+        return "ok".into_response();
+    }
+    (
+        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        format!("not ready: free disk space is below the floor for: {}", low.join(", ")),
+    )
+        .into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1271,5 +1365,32 @@ mod tests {
         .await;
         assert!(r.is_err());
         assert_eq!(RENDER.timeout_total.load(Ordering::Relaxed), t + 1);
+    }
+
+    #[test]
+    fn disk_floor_arithmetic() {
+        assert!(!below_floor(0, 0, 50), "no capacity reported is not low");
+        assert!(!below_floor(1000, 50, 5), "exactly 5 percent is at the floor, not below");
+        assert!(below_floor(1000, 49, 5));
+        assert!(below_floor(1000, 1000, 101), "floor above 100 percent is always below");
+        assert!(!below_floor(u64::MAX, u64::MAX, 50));
+    }
+
+    #[test]
+    fn a_path_that_cannot_be_measured_is_not_low() {
+        let missing = std::env::temp_dir().join("mw-t48-no-such-dir-for-readyz");
+        let dirs = [("data", missing)];
+        assert!(directories_below_floor(&dirs, 50).is_empty());
+    }
+
+    #[test]
+    fn a_floor_above_the_free_space_names_the_directory() {
+        let dir = std::env::temp_dir();
+        let dirs = [("data", dir.clone())];
+        // Any real filesystem has less than 101 percent free, and at least 0.
+        assert_eq!(directories_below_floor(&dirs, 101), vec!["data"]);
+        if mw_observability::resource_snapshot::disk_space(&dir).is_some() {
+            assert!(directories_below_floor(&dirs, 0).is_empty());
+        }
     }
 }
