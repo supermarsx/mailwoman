@@ -137,7 +137,7 @@ import { setRetentionFolder } from '../state/retentionFocus.ts';
 // V7 Assist in the mailbox (plan §14.3, e14b): the chat panel + the semantic-search
 // toggle. Both are gated on the Assist gateway/capabilities, so a Disabled gateway
 // renders NOTHING and the mailbox is unchanged.
-import { AssistPanel } from '../modules/assist/index.ts';
+import { AssistPanel, autoTagContext } from '../modules/assist/index.ts';
 // t88: the search input, its icon buttons and the filter chips.
 import { SearchBox } from '../components/search/SearchBox.tsx';
 
@@ -1151,9 +1151,8 @@ export function MailboxScreen(): JSX.Element {
     const email = app.openEmail();
     const acct = app.accountId();
     if (email === null || acct === null) return [];
-    const box = app.mailboxes().find((m) => m.id === app.selectedMailboxId());
-    const text = [email.subject ?? '', email.preview ?? ''].filter((s) => s.length > 0).join('\n');
-    return [{ account: acct, folder: box?.name ?? 'Mail', text, kind: 'plain' as const }];
+    // Server-held subject + preview with the message's mailbox id (the folder ceiling lists ids).
+    return [autoTagContext(acct, email.mailboxIds, email.subject, email.preview)];
   });
 
   // Pull the mail catalog once for the whole mailbox area (idempotent).
