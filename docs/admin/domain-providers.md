@@ -1,84 +1,62 @@
-# Domain-selected EWS accounts
+---
+screen: true
+---
+# Exchange (EWS) mail backends
 
-The EWS mail backend runs in engine mode through the bundled, digest-pinned
-`bridge-ews` WASM component. Proxy mode refuses an EWS selection. This first
-provider path supports HTTPS with explicit Basic or NTLMv2 authentication.
-NTLMv2 keeps the challenge exchange on one verified HTTP/1 connection, including
-through the selected outbound proxy. It supports the server-requested transcript
-MIC and TLS server-end-point channel binding. Authentication failures do not
-fall back to Basic. Native Kerberos/SPNEGO is not implemented; use an approved
-Kerberos gateway when required. Graph/Gmail OAuth enrollment is available
-separately in Settings → Linked mailboxes.
+A domain can use a Microsoft Exchange server as its mail backend through Exchange Web Services (EWS). Mailwoman then reads and sends the domain's mail through EWS with each user's own password, and the domain needs no IMAP, POP3 or SMTP server. This page describes the EWS backend of a domain; for the rest of the domain configuration see [Domains](./domains.md).
 
-The domain's version 2 backend document uses an explicit provider endpoint:
+![The Edit backend screen for the backend exchange of example.net, with EWS chosen as the protocol, priority 100, and Enabled and Preferred for this service checked.](/screenshots/admin-access/domain-providers-editor.webp){.mw-shot}
 
-```json
-{
-  "version": 2,
-  "backends": [
-    {
-      "id": "exchange",
-      "role": "mail",
-      "protocol": "ews",
-      "enabled": true,
-      "preferred": true,
-      "ews": {
-        "endpointUrl": "https://exchange.example/EWS/Exchange.asmx",
-        "authentication": "basic"
-      }
-    }
-  ]
-}
-```
+## Before you start
 
-The endpoint must be HTTPS, without embedded credentials, a query or a fragment.
-An optional `caPem` contains at most eight public CA certificates and 64 KiB.
-Those roots trust only the configured origin, including the origin inside a
-proxy tunnel; they do not change trust for the proxy itself. Existing username
-formatting applies to the backend login. The first verified login address becomes
-the account's displayed identity; later sign-ins to that same backend identity
-do not silently rename or move the account to another domain.
+- The server must run in engine mode. A proxy-mode server refuses an EWS backend.
+- EWS runs in the bundled `bridge-ews` plugin. On **Plugins**, the plugin must be present and allowed to load, with its `net` and `account-backend` permissions granted. See [Plugins](./plugins.md).
+- The **Plugins** feature ([`cap.plugins`](/admin/settings#cap.plugins), on by default) and the plugin's own integration permission must be on for the user's domain and account. Turned off, EWS sign-in is refused for them.
+- EWS requests leave the server through the **Plugins** route of **Outbound connections**. An Exchange server on a private network needs an explicit Plugins destination permission there; the backend editor grants no network exception. Loopback, link-local and cloud metadata addresses are always refused. See [Outbound connections](../security/egress.md).
+- Changing backends needs the upstream permission for all domains.
 
-The operator must approve and enable `bridge-ews` and grant its `net` and
-`account-backend` capabilities. Global, domain and applicable account feature
-policies still apply. Outbound requests use the current **Plugins** egress
-route. An internal Exchange destination needs an explicit matching Plugins
-destination permission. Loopback, link-local and metadata destinations remain
-forbidden. A failed proxy route never falls back to a direct connection, and
-the bridge cannot redirect credentials to another endpoint.
+## Add an EWS backend
 
-On first sign-in, a transient plugin host authenticates and lists mailboxes
-before any durable account or credential is created. The saved account identity
-uses the exact canonical endpoint and authenticated backend username. Two
-endpoint paths on one HTTPS origin are separate realms, even with the same
-username. Repeated sign-ins to the same realm preserve account IDs and enrolled
-factors. The password is sealed with account, endpoint, username and domain
-binding as associated data. The legacy socket credential cell contains no
-usable password.
+1. Open the domain on **Domains**, then **Connections and discovery**, and select **Add backend**. (In [Guided domain setup](./guided-domain-setup.md), choose **Configure multiple backends and advanced options** and add the backend there.)
+2. Enter a **Backend ID** and choose **EWS** under **Protocol and service**. Check **Enabled** and **Preferred for this service**.
+3. Enter the **Exchange Web Services endpoint**: the exact HTTPS address, normally ending in `/EWS/Exchange.asmx`. It must not contain a user name, password, query string or fragment.
+4. Choose **EWS authentication**:
+   - **HTTPS Basic**: the user's address (formatted by **Authentication username format**) and password, over verified TLS.
+   - **NTLMv2**: enter the **Windows domain (NTLM)** (up to 128 letters, digits, periods, underscores or hyphens) and optionally a **Workstation (optional)** name.
 
-Activation publishes the authenticated folder metadata before starting message
-indexing. Password login, native tokens and enrolled passkeys retain the normal
-second-factor, session and account-policy checks. The provider adapter checks
-the current selected authority before opening a credential or issuing an HTTP
-request. Changing the selected endpoint or authentication policy refuses the
-old binding until a fresh sign-in; a rejected credential revision cannot be
-silently restored at startup.
+   A failed authentication never falls back to the other method.
 
-The unauthenticated domain diagnostic does not claim EWS authentication or
-mailbox access. Full verification requires a provider sign-in. Controlled TLS
-fixtures exercise the bundled guest and routing boundary; they are not evidence
-of compatibility with every deployed Exchange version or authentication policy.
+   ![The backend editor for the EWS backend exchange of example.net: the Exchange Web Services endpoint, EWS authentication set to NTLMv2 with the Windows domain EXAMPLE, and the optional CA certificates field.](/screenshots/admin-access/domain-providers-ews.webp){.mw-crop}
+5. Optionally paste **Additional origin CA certificates (optional)**: 1 to 8 PEM certificates, at most 64 KiB, no private keys. They are trusted for this Exchange server only, not for an outbound proxy. Certificate chain and host name are always verified.
+6. Disable any active SMTP and ManageSieve backends of the domain: EWS sends mail itself, and saving is refused while they are active ("The selected EWS backend supplies submission. …").
+7. Select **Save backend**.
 
+Saving checks the configuration only. It does not sign in to Exchange, and **Diagnostics** on the domain cannot test EWS either. The first real test is a user's sign-in.
 
-For NTLMv2, select it in the EWS backend editor and supply the Windows domain:
+## What happens at sign-in
 
-```json
-{"endpointUrl":"https://exchange.example/EWS/Exchange.asmx","authentication":"ntlm","ntlmDomain":"CORP","workstation":"MAILWOMAN"}
-```
+1. The user signs in with their address and password as usual.
+2. The server loads the `bridge-ews` plugin, signs in to the configured endpoint and lists the mailbox's folders. This has to finish within 20 seconds, and a mailbox with more than 4096 folders is refused.
+3. Only then is the account created and the password stored. A failure at any point leaves no account behind.
 
-`workstation` is optional. Domain/workstation identifiers are bounded ASCII
-letters, digits, dots, underscores and hyphens. They are distinct from the
-backend username-format settings. Origin TLS validation and all egress/proxy
-restrictions apply to both authentication methods. Controlled TLS fixtures prove
-connection affinity directly and through CONNECT, plus negative controls for
-new-connection Type 3 requests. They do not qualify every Exchange deployment.
+The usual sign-in rules apply as for any other backend: the domain's sign-in lists, the first sign-in rule, two-factor requirements and session policy.
+
+## Kerberos
+
+Mailwoman does not speak Kerberos to Exchange. An Exchange server that accepts only Kerberos needs a gateway in front of it that accepts Basic or NTLMv2 from Mailwoman; see [Kerberos](../deploy/kerberos.md).
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| "Enter a valid HTTPS EWS endpoint and supported authentication. NTLMv2 requires its domain. …" | The address is not HTTPS, contains credentials, a query or a fragment, or NTLMv2 has no Windows domain | Correct the endpoint or fill in **Windows domain (NTLM)** |
+| "Enter 1–8 PEM CA certificates, no private keys, within 64 KiB. …" | The certificate field is not plain PEM certificates | Paste only the CA certificates |
+| Saving says the EWS backend supplies submission | An SMTP or ManageSieve backend of the domain is still enabled | Disable it, then save |
+| Every EWS sign-in is refused although the password is right | The `bridge-ews` plugin is missing, not allowed to load or lacks a permission, the Plugins feature is off for the user, or the outbound route refuses the Exchange host | Check **Plugins**, the user's features and **Outbound connections** |
+
+## Related
+
+- [Domains](./domains.md)
+- [Guided domain setup](./guided-domain-setup.md)
+- [Plugins](./plugins.md)
+- [Kerberos](../deploy/kerberos.md)

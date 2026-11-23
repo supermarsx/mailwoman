@@ -99,17 +99,17 @@
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "deployment-security-review": {
-      "hash": "6d94b5539aecbbd5",
-      "bytes": 19028,
+      "hash": "d1152f3753d6cf54",
+      "bytes": 18948,
       "width": 1134,
       "height": 279,
       "quality": 0.9,
       "kind": "crop",
-      "commit": "3270210c",
+      "commit": "0e1e9021",
       "stack": "E",
-      "web": "cf02c5c0aec6e8ed",
-      "webRevision": "24ca181b+local changes",
-      "webBuiltAt": "2026-11-23T04:57:47.962Z",
+      "web": "5425a79880cac465",
+      "webRevision": "87033f7a+local changes",
+      "webBuiltAt": "2026-11-23T05:04:22.425Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "directory-editor": {
@@ -393,17 +393,17 @@
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "inbound-allowlists-admin": {
-      "hash": "73b13e6ab49fb124",
-      "bytes": 16700,
+      "hash": "8d8853c9d06b58ca",
+      "bytes": 24326,
       "width": 776,
-      "height": 374,
+      "height": 545,
       "quality": 0.9,
       "kind": "crop",
-      "commit": "3270210c",
+      "commit": "004f239e",
       "stack": "E",
-      "web": "cf02c5c0aec6e8ed",
-      "webRevision": "24ca181b+local changes",
-      "webBuiltAt": "2026-11-23T04:57:47.962Z",
+      "web": "5425a79880cac465",
+      "webRevision": "87033f7a+local changes",
+      "webBuiltAt": "2026-11-23T05:04:22.425Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "ip-bans-editor": {
@@ -729,17 +729,17 @@
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "signin-geography-diagnostic": {
-      "hash": "4a480b3be6dad651",
-      "bytes": 25382,
-      "width": 551,
-      "height": 722,
+      "hash": "30ea117efcb51580",
+      "bytes": 48202,
+      "width": 1182,
+      "height": 788,
       "quality": 0.9,
       "kind": "crop",
-      "commit": "24ca181b",
+      "commit": "c16d69ba",
       "stack": "E",
-      "web": "cb7cec8987869ecd",
-      "webRevision": "22a799f9+local changes",
-      "webBuiltAt": "2026-11-23T04:52:10.317Z",
+      "web": "5425a79880cac465",
+      "webRevision": "87033f7a+local changes",
+      "webBuiltAt": "2026-11-23T05:04:22.425Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "smtp-transport-policy-fields": {
@@ -852,6 +852,20 @@
       "web": "deeb92679043b1ea",
       "webRevision": "3270210c+local changes",
       "webBuiltAt": "2026-11-23T05:00:41.203Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "user-access-page": {
+      "hash": "d39f3da5f0ad8e64",
+      "bytes": 45162,
+      "width": 1440,
+      "height": 900,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "3fb47d48",
+      "stack": "E",
+      "web": "5425a79880cac465",
+      "webRevision": "87033f7a+local changes",
+      "webBuiltAt": "2026-11-23T05:04:22.425Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "user-access-tab": {
