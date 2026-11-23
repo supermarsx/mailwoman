@@ -15,6 +15,21 @@
 //!   before the read started are applied, and returns an error (never a stale
 //!   result) on timeout, poison, pending repair, erasure or an unfinished
 //!   startup replay.
+//!
+//! Limits (documented, not enforced here):
+//! * Single process. The index is per process; journal sequence order is
+//!   commit order only on one SQLite file. `mw-server` refuses journal mode when
+//!   another process holds the journal lock file, but a commit-mode process
+//!   started before any journal-mode run is not detected, and its startup would
+//!   disable capture.
+//! * Commit mode right after a journal-mode run: reads are fenced only while
+//!   [`crate::Engine::start_index_publication`] replays the leftover rows. Reads
+//!   served before that call starts, or after a replay pass that failed, are
+//!   not fenced (today's commit-mode semantics); the rows replay at next start.
+//! * Fairness: one FIFO owner serves every account. Journal mode caps each
+//!   account's accepted, unapplied jobs (`max_pending_jobs_per_account`), so one
+//!   account cannot fill the queue; several accounts at their caps together can
+//!   still fill `max_pending_jobs`, and then admission waits for everyone.
 use crate::{
     backend::{EngineError, Result},
     v6::V6Hooks,
@@ -77,6 +92,12 @@ pub struct PublicationOptions {
     pub read_fence_timeout: Duration,
     /// Default deadline of [`crate::Engine::drain_index_publication`].
     pub drain_timeout: Duration,
+    /// Journal mode only: most accepted, not yet applied jobs one account may
+    /// hold (capped at `max_pending_jobs`). An account over the cap waits for
+    /// its own jobs to drain, up to `admission_timeout`, and is then refused;
+    /// other accounts keep their admission. Keep it at or below
+    /// `max_batch_jobs` so every other account's job lands in the next batch.
+    pub max_pending_jobs_per_account: usize,
 }
 impl Default for PublicationOptions {
     fn default() -> Self {
@@ -94,6 +115,7 @@ impl Default for PublicationOptions {
             ack: PublicationAck::Commit,
             read_fence_timeout: Duration::from_secs(5),
             drain_timeout: Duration::from_secs(10),
+            max_pending_jobs_per_account: 32,
         }
     }
 }
@@ -114,6 +136,7 @@ impl PublicationOptions {
             || self.read_fence_timeout < Duration::from_millis(100)
             || self.read_fence_timeout > Duration::from_secs(30)
             || self.drain_timeout > Duration::from_secs(60)
+            || self.max_pending_jobs_per_account == 0
         {
             return Err(error("invalid bounded index publication options"));
         }
@@ -273,11 +296,12 @@ struct JournalState {
 /// Per-account publication watermark. `submitted` is assigned under its lock
 /// together with the channel send, so channel order equals sequence order and
 /// the FIFO owner advances `published` monotonically.
-#[derive(Default)]
 struct Watermark {
     submitted: Mutex<u64>,
     published: AtomicU64,
     advanced: Notify,
+    /// Journal-mode per-account admission (`max_pending_jobs_per_account`).
+    slots: Arc<Semaphore>,
 }
 struct AccountGate {
     epoch: AtomicU64,
@@ -329,6 +353,8 @@ struct Admission {
     charged: usize,
     // Follows the owned job through waiter cancellation, not the waiter.
     _projection_write: Option<crate::mail_projection_proof::ProjectionWrite>,
+    // Journal mode: this account's admission slot, and its mark kept alive.
+    _account: Option<(OwnedSemaphorePermit, Arc<Watermark>)>,
 }
 impl Drop for Admission {
     fn drop(&mut self) {
@@ -639,6 +665,22 @@ impl Publisher {
             return Err(error("index admission byte limit exceeded"));
         }
         let deadline = tokio::time::Instant::now() + core.options.admission_timeout;
+        // Journal mode returns Email/set before the index commit, so one account
+        // could otherwise fill the shared FIFO and push every other account's
+        // fenced reads into their timeout. Its own slots come first: an account
+        // over the cap waits on (and is refused by) only its own backlog.
+        let account_slot = if !barrier && core.options.ack == PublicationAck::Journal {
+            let mark = core.watermark(account);
+            let permit = tokio::time::timeout_at(deadline, mark.slots.clone().acquire_owned())
+                .await
+                .map_err(|_| {
+                    error("index publication admission timed out: this account has too many pending index publications")
+                })?
+                .map_err(|_| error("index publication admission closed"))?;
+            Some((permit, mark))
+        } else {
+            None
+        };
         let job = tokio::time::timeout_at(deadline, core.jobs.clone().acquire_owned())
             .await
             .map_err(|_| error("index publication admission timed out"))?
@@ -674,6 +716,7 @@ impl Publisher {
                     core: core.clone(),
                     charged: charge,
                     _projection_write: projection_write,
+                    _account: account_slot,
                 },
                 account: account.into(),
                 epoch: gate.epoch.load(Ordering::Acquire),
@@ -1327,7 +1370,16 @@ impl Core {
                         != mark.published.load(Ordering::Acquire)
             });
         }
-        let mark = Arc::new(Watermark::default());
+        let mark = Arc::new(Watermark {
+            submitted: Mutex::new(0),
+            published: AtomicU64::new(0),
+            advanced: Notify::new(),
+            slots: Arc::new(Semaphore::new(
+                self.options
+                    .max_pending_jobs_per_account
+                    .min(self.options.max_pending_jobs),
+            )),
+        });
         marks.insert(account.to_owned(), mark.clone());
         mark
     }

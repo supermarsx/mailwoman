@@ -439,6 +439,98 @@ async fn commit_mode_search_index_status_reports_zero_journal_rows() {
     assert!(status.ready() && status.journal_rows == 0, "{status:?}");
 }
 
+async fn add_message(store: &Store, account: &str, mailbox: &str, uid: u32, tag: &str) -> String {
+    let raw = format!("Message-ID: <{tag}@example.invalid>\r\nFrom: sender@example.invalid\r\nTo: owner@example.invalid\r\nSubject: {tag}\r\nContent-Type: text/plain\r\n\r\n{tag}");
+    let blob = store.put_body(account, raw.as_bytes()).await.unwrap();
+    let email = mw_mime::parse(raw.as_bytes()).unwrap().email;
+    let envelope = crate::encode_message_envelope(&email, raw.as_bytes());
+    let mid = format!("<{tag}@example.invalid>");
+    store.upsert_message(&MessageUpsert {
+        account_id: account, mailbox_id: mailbox, uid, uidvalidity: 1,
+        message_id: Some(&mid), thread_id: None, internaldate: Some("2026-11-20T00:00:00Z"),
+        size: raw.len() as u64, flags_json: "[]", envelope: Some(&envelope), blob_ref: Some(&blob),
+    }).await.unwrap()
+}
+
+async fn second_account(f: &Fixture, engine: &Engine) -> (String, String) {
+    let account = f.store.create_account(&NewAccount {
+        kind: AccountKind::Imap, host: "imap.example.invalid", port: 993, tls: "implicit",
+        username: "other@example.invalid", sync_policy_json: "{}",
+    }, &Credentials { username: "other@example.invalid".into(), password: "fixture-only".into() }).await.unwrap();
+    let inbox = f.store.upsert_mailbox(&MailboxUpsert {
+        account_id: &account, name: "INBOX", role: Some("inbox"), uidvalidity: 1, uidnext: 2,
+        highestmodseq: 0, total: 0, unread: 0, parent_id: None,
+    }).await.unwrap();
+    let id = add_message(&f.store, &account, &inbox, 1, "uniquetenantbody").await;
+    engine.register_backend(account.clone(), AccountRuntime::new(Arc::new(Remote), Arc::new(NoSend), "other@example.invalid"));
+    engine.publish_current_index(&account, vec![id.clone()], PublicationMode::Rebuild).await.unwrap();
+    (account, id)
+}
+
+// U1: no caller holds a lock the owner needs while it waits on the fence, so
+// concurrent read-after-write of one account converges without a timeout.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_read_after_write_for_one_account_never_times_out() {
+    let f = fixture(journal_options()).await;
+    let mut ids = vec![f.id.clone()];
+    for uid in 2..=8u32 {
+        ids.push(add_message(&f.store, &f.account, &f.inbox, uid, &format!("uniqueconcurrent{uid}")).await);
+    }
+    f.engine.publish_current_index(&f.account, ids.clone(), PublicationMode::Rebuild).await.unwrap();
+    let account = f.account.clone();
+    let engine = Arc::new(f.engine);
+    let started = std::time::Instant::now();
+    let mut tasks = tokio::task::JoinSet::new();
+    for id in ids.clone() {
+        let engine = engine.clone(); let account = account.clone();
+        tasks.spawn(async move {
+            for round in 0..4 {
+                let flag = round % 2 == 0;
+                let out = jmap(&engine, &account, json!([
+                    set_call(&id, json!({"keywords/$flagged": if flag { json!(true) } else { Value::Null }})),
+                    query_call(json!({"hasKeyword": "$flagged"})),
+                ])).await;
+                updated(&out[0], &id);
+                assert_eq!(ids_of(&out[1]).contains(&id), flag, "read-after-write in one batch: {out:?}");
+                let again = jmap(&engine, &account, json!([query_call(json!({"hasKeyword": "$flagged"}))])).await;
+                assert_eq!(ids_of(&again[0]).contains(&id), flag, "read-after-write across requests: {again:?}");
+            }
+        });
+    }
+    while let Some(done) = tasks.join_next().await { done.unwrap(); }
+    let status = engine.index_publication_status();
+    assert_eq!((status.read_fence_timeouts, status.read_fence_refusals), (0, 0), "{status:?}");
+    assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+    assert_eq!(f.store.index_journal_len().await.unwrap(), 0);
+}
+
+// N4: one account flooding Email/set is capped on its own backlog; another
+// account keeps its admission and its fenced read does not wait for the flood.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_account_flood_is_capped_and_another_accounts_read_is_not_starved() {
+    let options = PublicationOptions { max_pending_jobs_per_account: 2, admission_timeout: Duration::from_millis(300), ..journal_options() };
+    let f = fixture(options).await;
+    let (other, other_id) = second_account(&f, &f.engine).await;
+    let hold = gate(&f.engine, PublicationTestPhase::BeforeExecution);
+    updated(&jmap(&f.engine, &f.account, json!([set_call(&f.id, json!({"keywords/$seen": true}))])).await[0], &f.id);
+    entered(&hold).await;
+    updated(&jmap(&f.engine, &f.account, json!([set_call(&f.id, json!({"keywords/$flagged": true}))])).await[0], &f.id);
+    // Over the cap: refused after admission_timeout, before any SQL change.
+    let refused = jmap(&f.engine, &f.account, json!([set_call(&f.id, json!({"keywords/$answered": true}))])).await;
+    assert_eq!((refused[0][0].as_str(), refused[0][1]["type"].as_str()), (Some("error"), Some("serverFail")), "{refused:?}");
+    assert!(!f.store.get_message(&f.id).await.unwrap().flags_json.contains("Answered"));
+    // The other account is admitted at once while the first is at its cap.
+    let started = std::time::Instant::now();
+    updated(&jmap(&f.engine, &other, json!([set_call(&other_id, json!({"keywords/$flagged": true}))])).await[0], &other_id);
+    assert!(started.elapsed() < Duration::from_millis(250), "{:?}", started.elapsed());
+    hold.release.notify_one();
+    let started = std::time::Instant::now();
+    let read = jmap(&f.engine, &other, json!([query_call(json!({"hasKeyword": "$flagged", "text": "uniquetenantbody"}))])).await;
+    assert_eq!(ids_of(&read[0]), vec![other_id.clone()]);
+    assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+    assert_eq!(f.engine.index_publication_status().read_fence_timeouts, 0);
+}
+
 #[tokio::test]
 async fn journal_mode_is_refused_on_options_validation_bounds() {
     let mut options = journal_options();
@@ -451,4 +543,6 @@ async fn journal_mode_is_refused_on_options_validation_bounds() {
     assert!(options.validate().is_err());
     options.drain_timeout = Duration::ZERO;
     assert!(options.validate().is_ok());
+    options.max_pending_jobs_per_account = 0;
+    assert!(options.validate().is_err());
 }
