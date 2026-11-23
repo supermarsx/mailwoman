@@ -1,336 +1,355 @@
-# Admin panel (V6)
+# Admin console security
 
-The admin panel is an operator surface for domains, users, quotas, security policy,
-integrations, and observability. It is **separate from the mailbox**: a distinct route
-(the console path: `MW_ADMIN_PATH`, or the path stored at the first start), a distinct session domain (its own cookie, `mw_admin_session` unless
-`MW_ADMIN_SESSION_COOKIE` names another), and a
-distinct credential. A logged-in mailbox user is **not** an admin; an admin session is
-obtained only by authenticating at the admin surface.
+The admin console is where operators manage domains, users, security policy,
+integrations and monitoring. This page describes how it is separated from the
+mailbox, how administrators sign in, how their sessions and permissions work, what
+is recorded, and what the hidden console path and probing protection do and do not
+achieve.
 
-## Enabling & disabling
+<!-- screenshot: id=security/admin-signin; screen=Admin console sign-in page; state=empty form; element=Admin username, Password, Sign in -->
 
-| Env | Default | Meaning |
+## Separation from the mailbox
+
+- **Own accounts.** Administrator accounts are stored apart from mailbox accounts.
+  Being signed in to a mailbox gives no administrator rights; an administrator
+  session is created only by signing in at the console.
+- **Own session cookie.** The console uses its own cookie (`mw_admin_session`
+  unless `MW_ADMIN_SESSION_COOKIE` names another; `mw_session` and `mw_csrf` are
+  refused). Its `Path` is the console path, so the browser does not send it to the
+  mail app.
+- **Own factors.** Administrator passkeys, authenticator secrets and recovery
+  codes are separate from mailbox ones; a mailbox passkey cannot authorise an
+  administrator session.
+- **Same origin.** The console is served from the same origin as the mail app. A
+  script running in the mail app (for example through a cross-site scripting bug)
+  that learns the console path can send requests to the console API from a browser
+  that holds an administrator session. The separation above protects against a
+  stolen mailbox session, not against code running in the page.
+
+## Turning the console on and the environment credential
+
+| Variable | Default | Meaning |
 |---|---|---|
-| `MW_ADMIN_ENABLED` | `true` | When `false`/`0`, the `/admin/*` routes return `401` — the panel is unreachable and unmounted from the operator's perspective. |
-| `MW_ADMIN_USER` | *(unset)* | Admin operator username. Unset → admin login always fails. |
-| `MW_ADMIN_PASSWORD` | *(unset)* | Admin operator password. Compared in constant time. |
-| `MW_ADMIN_SESSION_COOKIE` | `mw_admin_session` | Name of the admin session cookie: 1 to 64 characters from `A-Z a-z 0-9 _ - .`; `mw_session` and `mw_csrf` are refused. |
-| `MW_ADMIN_MIN_TLS` | *(unset)* | `1.2` or `1.3`. Pins the policy's minimum TLS version (see [Security policy](#security-policy)). |
-| `MW_ADMIN_REQUIRE_2FA` | *(unset)* | `true` or `false`. Pins the global require-two-factor rule. |
-| `MW_ADMIN_PATH` | *(stored path)* | URL path of the console, its sign-in and its API; pins it while set (see [Console path](#console-path)). |
+| `MW_ADMIN_ENABLED` | `true` | `false` or `0` makes every console sign-in and console API request answer `401`. Administration then happens only through the `mailwoman admin` CLI. |
+| `MW_ADMIN_USER`, `MW_ADMIN_PASSWORD` | unset | The environment (break-glass) credential. |
+| `MW_ADMIN_ENV_LOGIN` | `on` | `off` stops the environment credential from signing in. |
+| `MW_ADMIN_SESSION_COOKIE` | `mw_admin_session` | Cookie name: 1 to 64 characters from `A-Z a-z 0-9 _ - .`. |
+| `MW_ADMIN_PATH` | stored path | Pins the console path (see [Console path](#console-path)). |
+| `MW_ADMIN_MIN_TLS`, `MW_ADMIN_REQUIRE_2FA` | unset | Pin two fields of the [security policy](#security-policy). |
 
-An invalid value in any of these stops the server at start with an error naming the
-variable. Since 26.20 the `MW_ADMIN_*` variables that nothing reads —
-`MW_ADMIN_PORT`, `MW_ADMIN_LOG_LEVEL`, `MW_ADMIN_OTLP_DSN`, `MW_ADMIN_METRICS`,
-`MW_ADMIN_THEME`, `MW_ADMIN_BRAND`, `MW_ADMIN_ACCENT` — also stop the start, with
-what to use instead. Before 26.20 they logged a warning and the server started.
+An invalid value stops the server at start with an error naming the variable. So
+do `MW_ADMIN_PORT`, `MW_ADMIN_LOG_LEVEL`, `MW_ADMIN_OTLP_DSN`, `MW_ADMIN_METRICS`,
+`MW_ADMIN_THEME`, `MW_ADMIN_BRAND` and `MW_ADMIN_ACCENT`, which the server does
+not support; the error says what to use instead.
 
-Set `admin.enabled = false` (or `MW_ADMIN_ENABLED=0`) for a GitOps-only deployment
-where all administration is done via the CLI + config and no HTTP panel is exposed.
+How the environment credential behaves:
 
-## Console path
+- On a server with no administrator accounts, the first successful sign-in with
+  `MW_ADMIN_USER` / `MW_ADMIN_PASSWORD` creates that account in the database with
+  an Argon2id password hash and the Super admin role.
+- Once a database account with that username has its own password, only that
+  password signs in. Changing `MW_ADMIN_PASSWORD` afterwards does not change it.
+- The comparison with the environment values does not stop early on a
+  mismatching character, but a length difference is detected immediately.
+- Keep the variables out of world-readable files; with `MW_ADMIN_ENV_LOGIN=off`
+  the environment password is not accepted at all.
 
-The console page, the admin sign-in and every `/admin/*` route below are served
-at one path only, relative to `MW_BASE_PATH`. With `/ops-7f3k` as that path the
-server answers `GET /ops-7f3k/users`, `POST /ops-7f3k/login` and so on, and the
-page itself at `/ops-7f3k`. The `/admin/...` routes in this document are written
-with the old default path; read them as `{console}/...`.
+## Sign-in
 
-* **Where it comes from (26.20):** `MW_ADMIN_PATH` when set (it pins the path);
-  otherwise the stored path (`admin.consolePath`); on the first start without
-  either, a generated path on a new installation (20 random characters, logged
-  once) or `/admin` kept on an upgrade, with a warning at every start.
-  `mailwoman admin console-path show` prints it.
-* **Changing it:** Security > Console address in the console
-  (`PUT {console}/console-path`, capability `security_policy.write`, step-up
-  action `consolePath`, audit entry `admin-console-path-changed` with a
-  fingerprint of the old and new path rather than the path itself), or
-  `mailwoman admin console-path set|generate`. A chosen path needs at least 12
-  characters after the `/` and may not be `/admin`. The next start applies it and
-  ends every admin session (audit entry `admin-console-path-applied`).
-* **Accepted values:** `/` followed by one to four segments of
-  `A-Z a-z 0-9 . _ ~ -`, no `.` or `..` segment and no trailing `/`. The first
-  segment must not be one the server already uses (`api`, `jmap`, `oauth`,
-  `.well-known`, `dav`, `caldav`, `carddav`, `mcp`, `metrics`, `healthz`,
-  `errors`, `t`, `assets`, `fonts`, `icons`, `themes`, the files at the root of the
-  web build) or the first segment of `MW_BASE_PATH`. Anything else stops the start
-  with an error naming the variable.
-* **Every other path:** `/admin` (once moved) and every other path get exactly
-  the answer an unknown path gets (status, headers and body), so probing does not
-  lead anywhere or say where the console is. There is no alias.
-* **No leak:** the path is not in the web build, the service worker, the mail
-  client's page, `/api/policy`, discovery documents, error pages for other paths
-  or any response header outside the console, and the application log store
-  shows it as `[admin-path]`. The mail app has no link to the console. The
-  console page is marked as the console (`<meta name="mw-console" content="admin">`)
-  and the web app uses its own address as the console's location.
-* **Cookie and headers:** the admin session cookie has
-  `Path={MW_BASE_PATH}{console}`, so the browser does not send it to the mail
-  app (sign-out also clears a `Path=/` cookie from before 26.20). The console
-  page carries `Content-Security-Policy: frame-ancestors 'none'` next to the
-  shell policy, `X-Frame-Options: DENY` and `X-Robots-Tag: noindex, nofollow`.
-* **What it is worth:** a hidden path reduces scanning and drive-by sign-in
-  attempts. It hides the console but does not isolate it: the console shares
-  the mail app's origin, so a script running in the mail app that learns the
-  path can reach the console API from a browser with an admin session. It does
-  not replace the admin password, two-factor sign-in, the sign-in rate limit or
-  a network restriction, and it is visible to anyone who can read your proxy
-  logs or an admin's browser history.
+1. **Source checks.** A source on the deployment ban list, or under a temporary
+   sign-in lock, is refused before the password is checked (see
+   [Sign-in locks](/admin/signin-locks) and [IP bans](/admin/ip-bans)).
+2. **Pacing.** Each attempt from a client network (IPv4 address, IPv6 /64) is
+   charged against [`signin.retryCooldownSecs`](/admin/settings#signin.retrycooldownsecs);
+   only an attempt that ends in a session gets its charge back.
+3. **Challenge.** If the sign-in challenge is enabled for the console, a valid
+   ALTCHA proof of work (computed in the browser, verified by the server) is
+   required.
+4. **Password.** Database accounts are checked against their Argon2id hash. A
+   disabled account is refused like a wrong password.
+5. **Second factor.** If the account has an authenticator app or a passkey, the
+   server returns a one-time pending token (32 random bytes, valid five minutes,
+   five wrong codes) and no cookie. The session starts only after a valid code,
+   passkey or recovery code, and only if the account is still enabled and its
+   password hash unchanged.
 
-The sign-in rate limit and the CSRF rules are the same at any path.
+Each failed sign-in writes a `login-failed` audit entry and, when the source
+address is known, one log line in a fail2ban-readable format:
 
-## Everything is also CLI + config
+```
+<RFC 3339 time> mailwoman[auth]: authentication failure; logname=<user> rhost=<ip>
+```
 
-Every panel action has a `mailwoman admin <noun> <verb>` CLI equivalent and a
-TOML/env binding, so the panel is a convenience over a fully scriptable surface — not
-the only way in. This keeps deployments reproducible (GitOps) and lets you disable the
-HTTP panel entirely while still administering the server.
+See [fail2ban](/deploy/fail2ban) for a jail that reads it.
 
-## Surface
+Administrator passwords set in the console need at least 12 characters (at most
+1024 bytes).
 
-The `/admin/*` HTTP endpoints (all under the separate admin session):
+## Sessions, cookies and CSRF
 
-- **Session** — `GET /admin/session` answers who is signed in plus the session's real
-  limits and deadlines (`idleTimeoutSeconds`, `absoluteTimeoutSeconds`, `signedInAt`,
-  `idleExpiresAt`, `absoluteExpiresAt`, `expiresAt` = the earlier of the two, and
-  `serverNow`, all unix seconds). Every admin request moves the idle deadline to now +
-  the idle timeout, never past the absolute deadline, which is fixed at sign-in. The
-  console's session bar reads the same fields from `GET /admin/session/status` sent with
-  `x-mw-session-peek: 1`, which leaves the idle deadline where it is; the header can
-  only avoid an extension, never cause one.
-- **Domains** — `GET/PUT /admin/domains[/{name}]`: managed domains, upstream config,
-  allow/blocklists.
-- **Users** — `GET/POST /admin/users`, `PUT /admin/users/{id}/quota`,
-  `PUT /admin/users/{id}/flags`, `PUT /admin/users/{id}/zero-access`,
-  `POST /admin/users/{id}/revoke-sessions`: provisioning, quotas, feature flags
-  (including the per-account zero-access toggle), and session revocation.
-- **Security policy** — `GET/PUT /admin/security-policy`: see
-  [Security policy](#security-policy) below.
-- **Integrations** — `GET /admin/integrations`, `GET /admin/webhooks`,
-  `GET /admin/api-keys` + `POST /admin/api-keys/{id}/revoke`: webhook and
-  API-key/MCP-key oversight. LDAP / Nextcloud entries are shown **inert** ("coming
-  soon") — the config surface exists but there is no live directory glue in V6 (that
-  is V7).
-- **Observability** — `GET/PUT /admin/observability`, `GET /admin/audit`: log level,
-  OTLP DSN, the audit-log viewer + export, the login monitor + ban list.
-- **Appearance** — branding/theme configuration.
+- **Token.** A random session token is set in the cookie; the database stores only
+  its SHA-256 hash.
+- **Cookie attributes.** `HttpOnly; SameSite=Strict; Path=<base path><console
+  path>; Max-Age=<absolute limit>`. `Secure` is added when `MW_COOKIE_SECURE=true`
+  or `MW_PUBLIC_URL` starts with `https://`. Behind TLS, set one of them.
+- **Lifetime.** [`admin.session.idleSecs`](/admin/settings#admin.session.idlesecs)
+  (default 1800 s, clamped to 300 to 7200) and
+  [`admin.session.absoluteSecs`](/admin/settings#admin.session.absolutesecs)
+  (default 43200 s, clamped to 3600 to 86400). Every console request moves the
+  idle deadline forward, never past the absolute deadline fixed at sign-in. Both
+  deadlines are stored in the database, so a restart does not extend a session.
+  The console's session bar reads them with `GET {console}/session/status`, which
+  does not move the idle deadline.
+- **Ending sessions.** Changing your own password signs out all of your console
+  sessions. **Admin accounts** lists sessions and can revoke them.
+- **Cross-site requests.** Every state-changing request must pass an Origin check:
+  a request whose `Sec-Fetch-Site` is `cross-site`, whose `Origin`/`Referer` names
+  another host, or that repeats `Host`, `Origin`, `Referer` or `Sec-Fetch-Site`
+  is refused with `403`. When `MW_CSRF_STRICT=true` (the default of the
+  install script; the server's own default is `false`), a cookie-authenticated
+  write must also send `X-CSRF-Token` equal to the `mw_csrf` cookie, and that
+  token must be the HMAC-SHA256 of the console session id under the server key. A
+  mailbox session's token does not authorise a console request, or the other way
+  round.
 
-## Disabling an account
+<!-- screenshot: id=security/admin-session-bar; screen=Admin console header; state=signed in, session about to end; element=session countdown bar -->
 
-`PUT /admin/users/{id}/flags` with `disabled: true` refuses the account here:
-password and header-auth logins, SSO, second-factor completion, existing
-sessions, native bearer sessions, API keys and OAuth tokens. It does not
-disable the mailbox on the mail server; a client that talks to the mail
+## Roles and capabilities
+
+Every console API route names one capability, and a request is refused with
+`403` unless the signed-in administrator holds it. Capabilities come from roles;
+the built-in roles are **Super admin**, **Domain admin**, **Helpdesk**, **Auditor**
+and **Security officer**, and administrators can define their own. A role is
+granted for all domains or for a list of domains; capabilities that act on objects
+outside any domain (security policy, plugins, logs, roles and similar) are carried
+only by a grant for all domains.
+
+An administrator can manage another administrator account only if they could
+grant every capability that account holds. Anyone who may manage an account can
+reset its password and replace its authenticator, so `admins.manage` is effectively
+the power to take over the accounts it covers. The server refuses to remove or
+disable the last enabled Super admin.
+
+<!-- screenshot: id=security/admin-accounts-roles; screen=Admin console > Admin accounts > account detail; state=account with Domain admin role limited to one domain; element=roles and domain fields -->
+
+## Confirmation of sensitive actions
+
+Some actions need a fresh confirmation that the person at the keyboard is the
+account holder, not only someone holding the session: changing roles, removing
+or adding a factor, creating an API key, changing branding CSS, importing a
+configuration, managing integrations or bans, moving the console path, exporting
+or erasing user data, and others. Without a live confirmation the server answers
+`403` with `step_up_required` and the methods this session can use.
+
+- The administrator confirms with password plus an enrolled factor, or with a
+  user-verified passkey alone. A recovery code can stand in for a lost factor.
+- A confirmation lasts five minutes, is bound to the session that made it, and
+  covers any sensitive action in that time. It is cleared when the account's
+  factors change.
+- Five wrong attempts in 15 minutes lock confirmation for that session for the
+  rest of the window (`429`).
+- Confirmations live in the memory of the server process: a restart drops them,
+  and several processes need session affinity.
+
+## Disabling a mailbox account
+
+Setting `disabled` on a user (`PUT {console}/users/{id}/flags`) refuses that
+account in Mailwoman: password and header-authenticated sign-in, SSO, second-factor
+completion, existing sessions, native bearer sessions, API keys and OAuth tokens.
+It does not disable the mailbox on the mail server; a client that talks to the mail
 server directly is not affected.
 
-The flag is stored under the address folded to lower case. A mail server can
-accept other spellings of that address, so a sign-in is also refused when it
+The flag is stored under the address in lower case. Because a mail server can
+accept other spellings of the same address, a sign-in is also refused when it
 uses:
 
 - the address with a `+tag` in the local part (`alice+x@example.com` for
   `alice@example.com`);
-- the other form of an internationalised domain (`alice@xn--bcher-kva.example`
-  for `alice@bücher.example`, either way round);
-- the bare local part (`alice`), as a mail server with a default realm accepts
-  it. The bare name is refused while **any** `alice@<domain>` is disabled.
+- the other form of an internationalised domain (`alice@xn--bcher-kva.example` for
+  `alice@bücher.example`, either way round);
+- the bare local part (`alice`), because a mail server with a default realm
+  accepts it. A bare name is refused while **any** `alice@<domain>` is disabled.
 
-The bare-name rule fails closed. On a server with more than one domain, a
-bare `alice` that the mail server maps to `alice@example.org` is refused while
-`alice@example.com` is disabled, though they are two people. That user can
-still sign in with the full address. A tag delimiter other than `+` and an
-alias the mail server knows are not recognised: a flag set under one of those
-names applies only once someone has signed in with it.
+The bare-name rule fails closed: on a server with several domains, a bare `alice`
+that the mail server maps to `alice@example.org` is refused while
+`alice@example.com` is disabled. That user can still sign in with the full
+address. Tag delimiters other than `+`, and aliases only the mail server knows,
+are not recognised until someone signs in with them.
 
-`forcePasswordChange` set under an address holds a sign-in under any of the
-spellings above. A password change clears it under the names that session
-was opened with, their `+tag`-less form and the other form of the domain. It
-does not clear it under an address found only from a bare name, because that
-address may be another person's. A user held that way clears the hold by
-signing in with the full address and changing the password there, or the
-admin clears the flag.
+`forcePasswordChange` holds a sign-in under the same spellings. A password change
+clears it under the names that session was opened with, their `+tag`-less form and
+the other form of the domain, but not under an address reached only from a bare
+name. Such a user clears the hold by signing in with the full address and changing
+the password there, or an administrator clears the flag.
 
 ## Security policy
 
-`GET /admin/security-policy` returns every field below, the DLP rules that come from
-`MW_DLP_RULES` (`envDlpRules`, read-only here), and `pinnedByEnv`, the fields an
-environment variable sets. `PUT` takes all eight fields; it answers `422` with the
-reason when a value is out of range or the DLP rules do not parse, `409` naming the
-variable when it would change a pinned field, and otherwise `200` with the policy now
-in force. The CLI equivalent is `mailwoman admin security-policy show|set`, with the
-same checks.
+**Security policy** in the console (`GET`/`PUT {console}/security-policy`, CLI
+`mailwoman admin security-policy show|set`) holds deployment-wide fields.
+`PUT` takes all of them; it answers `422` with the reason for an out-of-range
+value or DLP rules that do not parse, and `409` naming the variable for a field an
+environment variable pins.
 
-| Field | Values | What it does |
+<!-- screenshot: id=security/admin-security-policy; screen=Admin console > Security policy; state=defaults; element=minimum TLS, Argon2 cost fields, rendering floor, capture policy -->
+
+| Field | Values (default) | What it does |
 |---|---|---|
-| `minTls` | `1.2` / `1.3` | Lowest TLS version for the HTTPS listener and for outbound IMAP, SMTP, POP3, ManageSieve and egress-proxy tunnel connections. New connections only; established ones keep their version. Not applied to LDAP, Redis, Postgres or HTTP fetches. Pinned by `MW_ADMIN_MIN_TLS`. |
-| `argon2MCost`, `argon2TCost`, `argon2PCost` | memory 19456..=1048576 KiB, passes 1..=10 (1 needs at least 47104 KiB), lanes 1..=16 | Argon2id cost of new hashes of locally stored account passwords and of recovery codes. An existing password hash is re-hashed at the next successful sign-in. API-key secrets are not affected. |
-| `dlpRulesJson` | JSON array of DLP rules | Applied beside `MW_DLP_RULES` to mail sent through engine-mode accounts. An environment rule wins when both use the same `id`. See [`dlp.md`](./dlp.md). |
-| `maxSecurityFloor` | `null` / `full-sanitized` / `sanitized-no-media` / `plain-text` | The least restrictive rendering mode the Mailwoman reader offers. Served to signed-in clients at `GET /api/policy`; the server cannot make another mail client honour it. |
-| `capturePolicy` | `off` / `protect` | With `protect`, the desktop and Android apps ask the operating system to keep their window out of screenshots and screen recordings. A browser has no such switch. Served at `GET /api/policy`. |
-| `require2fa` | `true` / `false` | The global rule of the "Require two-factor" screen (the same stored row, not a copy). Pinned by `MW_ADMIN_REQUIRE_2FA`; while pinned, that screen also answers `409` for the global rule. |
+| `minTls` | `1.2` / `1.3` (`1.2`) | Lowest TLS version for the HTTPS listener and for outbound IMAP, SMTP, POP3, ManageSieve and egress-proxy tunnel connections opened afterwards. Not applied to LDAP, Redis, Postgres or HTTP fetches. Pinned by `MW_ADMIN_MIN_TLS`. |
+| `argon2MCost`, `argon2TCost`, `argon2PCost` | memory 19456 to 1048576 KiB, passes 1 to 10 (one pass needs at least 47104 KiB), lanes 1 to 16 (19456 / 2 / 1) | Argon2id cost of new hashes of locally stored passwords and recovery codes. An existing password hash is re-hashed at the next successful sign-in; recovery codes keep the cost they were made with. API-key secrets are not affected. |
+| `dlpRulesJson` | JSON array (`[]`) | Outbound DLP rules for mail sent through engine-mode accounts, applied beside `MW_DLP_RULES`; an environment rule wins on the same `id`. See [Outbound DLP](./dlp.md). |
+| `maxSecurityFloor` | `null` / `full-sanitized` / `sanitized-no-media` / `plain-text` (`null`) | The least restrictive rendering mode the Mailwoman reader offers. Served at `GET /api/policy`; other mail clients do not see it. See [Message opening mode](./max-security.md). |
+| `capturePolicy` | `off` / `protect` (`off`) | With `protect`, the desktop and Android apps ask the operating system to keep their window out of screenshots and recordings. A browser cannot be asked. See [Screen capture](./screen-capture.md). |
+| `require2fa` | `true` / `false` | The global rule of the **Require two-factor** screen (the same stored row). Pinned by `MW_ADMIN_REQUIRE_2FA`. |
 
-The server applies the policy at start and right after a `PUT`. It also re-reads the
-stored policy every 30 seconds, so a change made with the CLI or through another
-server process takes effect within that time.
+The server applies the policy at start and after each `PUT`, and re-reads the
+stored policy every 30 seconds, so a change made through the CLI or another server
+process takes effect within that time.
 
-## Audit log (append-only)
+## Audit log
 
-Every admin action writes an entry to the **append-only** audit log. There is no update
-or delete path in the writer — the invariant is structural, asserted by a test, not a
-policy an operator has to uphold. Entries record the timestamp, actor + actor kind,
-action, target, a detail payload, and the source IP. The log is viewable and
-exportable from the Observability section (and via `mailwoman admin`).
+Console writes, sign-in successes and failures, confirmations, API-key and OAuth
+checks and other security events are written to the `audit_log` table with time,
+actor and actor kind, action, target, a detail object (console writes also record
+the administrator's roles, the capability used, and redacted before and after
+values) and, where the writer knows it, the source address. It is shown under
+**Observability** → **Audit log** and can be exported.
 
-## Login monitor & ban list
+<!-- screenshot: id=security/admin-audit-log; screen=Admin console > Observability > Audit log; state=a few entries; element=audit table with actor, action, target, address -->
 
-Failed admin logins feed a login monitor and a ban list emitted in **fail2ban-compatible
-log format**, so an operator can wire the existing fail2ban tooling against Mailwoman's
-admin surface without a bespoke parser. Sources that search for the console are
-handled by [probing protection](#admin-probe-protection).
+What protects the log, precisely:
 
-## Adaptive protection and explicit scan paths
+- **No edit path in the application.** The console and CLI can append and read
+  entries; they have no route that edits or deletes a single entry.
+- **Retention.** Entries are deleted when an administrator sets an audit retention
+  period (30 to 3650 days per category). With no retention set, nothing is
+  deleted. A legal hold stops deletion. See [Retention](/admin/retention).
+- **Erasure.** When a person's data is erased, their identifiers in audit entries
+  are replaced with keyed pseudonyms (HMAC-SHA256) rather than the entries being
+  removed.
+- **Hash chain.** Entries are linked by an unkeyed SHA-256 hash chain, and pruning
+  writes a checkpoint naming where the retained log starts. The chain shows
+  accidental damage and edits by someone who does not recompute it. It does not
+  stop a person with write access to the database from rewriting entries and
+  recomputing the chain; for that, export the log to a system they cannot write
+  to.
+- An entry is written after the action it records (API-key and OAuth checks in
+  the background). If the write fails, the failure is logged and the action is not
+  undone.
 
-With `security.protection.adaptiveMode` set to `enforce` and
-`security.protection.adaptiveClients` enabled, a recognized scan path such as
-`/.env`, `/.git/config`, `/wp-admin` or `/cmd_sco` immediately blocks its source
-for `security.protection.blockSecs`, starting with the first matching request.
-This strong `probe-path` evidence does not depend on the selectable weak
-signals, anomaly windows or sample thresholds. `security.protection.exemptClients`
-still applies. In `observe` mode the decision and duration are recorded without
-blocking; in `off` mode this adaptive check does not run.
+## Console path
 
-Ordinary unknown paths and generic 404 responses alone are not evidence. The
-console's protection history explains the first-request decision and block
-duration separately from repeated-request escalation. This adaptive rule is
-independent of the grace-based probing protection below.
+The console page, its sign-in and every console API route are served at one path,
+relative to `MW_BASE_PATH`. With `/ops-7f3k` as the path, the server answers
+`POST /ops-7f3k/login`, `GET /ops-7f3k/users` and so on.
 
-Source rows and decision history include a country when the local GeoIP database
-can resolve the trusted client address. The operator-only lists also show the
-canonical source IP supplied by the trusted proxy resolver. Missing lookups and
-older records show Unknown. Account and
-administrator aggregates span addresses and therefore have no single country.
-This information does not change the admission decision.
-For account and administrator aggregates, the current-state IP is the last
-observed source. Each decision records its own triggering IP when available;
-an unknown source is never attributed to a previous request's address.
+<!-- screenshot: id=security/admin-console-address; screen=Admin console > Security centre > Console address; state=generated path; element=current path and change controls -->
 
-### Message image batches
+- **Where it comes from:** `MW_ADMIN_PATH` when set (it pins the path); otherwise
+  the path stored in the database; on the first start without either, a generated
+  path of 20 random characters (about 100 bits) on a new installation, or `/admin`
+  on an installation that already has data, with a warning at every start.
+  `mailwoman admin console-path show` prints it.
+- **Changing it:** **Security centre** → **Console address** (capability
+  `security_policy.write` and a fresh confirmation) or
+  `mailwoman admin console-path set|generate`. A chosen path needs at least 12
+  characters after the `/` and may not be `/admin`. The change applies at the next
+  start, which ends every console session. The audit entries record a fingerprint
+  of the old and new path, not the path.
+- **Accepted values:** `/` followed by one to four segments of
+  `A-Z a-z 0-9 . _ ~ -`, with no `.` or `..` segment and no trailing `/`. The first
+  segment may not be one the server already uses (`api`, `jmap`, `oauth`,
+  `.well-known`, `dav`, `caldav`, `carddav`, `mcp`, `metrics`, `healthz`, `errors`,
+  `t`, `assets`, `fonts`, `icons`, `themes`, the files at the root of the web build)
+  or the first segment of `MW_BASE_PATH`.
+- **Other paths:** `/admin` (once moved) and every other path get exactly the
+  answer an unknown path gets. There is no alias.
+- **Not published:** the path is not in the web build, the service worker, the
+  mail app, `/api/policy`, discovery documents or headers outside the console, and
+  the application log store shows it as `[admin-path]`. The console page is sent
+  with `Content-Security-Policy: frame-ancestors 'none'`, `X-Frame-Options: DENY`,
+  `X-Robots-Tag: noindex, nofollow` and `Cache-Control: private, no-cache`.
 
-The message's remote-content signing request pays its normal aggregate request
-budget once. Fully verified image and inline-part display capabilities reuse
-that admission; their separate HTTP downloads do not spend additional aggregate
-rate slots or pad the normal-request baseline. Active adaptive actions, session
-and message authorization, privacy grants, image queues, fetch and byte limits
-still apply. Invalid or expired links and deliberate file downloads keep normal
-request accounting.
+What it is worth: a path nobody can guess keeps scanners and drive-by sign-in
+attempts off the console. It does not isolate the console (see
+[Separation](#separation-from-the-mailbox)), it does not replace the password,
+second factor, sign-in limits or a network restriction, and it is visible to anyone
+who can read your proxy logs or an administrator's browser history.
 
 <a id="admin-probe-protection"></a>
 ## Probing protection
 
-A hidden console path stops scanners from finding the console. Admin-probe
-protection (26.20, `security.adminProbe.*`) also stops them from searching for
-it: a source that keeps looking is slowed and then blocked. It is on by default
-and leaves room for honest mistakes.
+Probing protection slows and then blocks a source that keeps looking for the
+console. It is on by default
+([`security.adminProbe.enabled`](/admin/settings#security.adminprobe.enabled)) and
+leaves room for honest mistakes. It is managed under **Security centre** →
+**Probing protection**; see [Security centre](/admin/security-center) for every
+control.
 
-**What counts as a miss.** Each of these costs the client's source one point:
+<!-- screenshot: id=security/admin-probe-card; screen=Admin console > Security centre > Probing protection; state=one blocked source; element=policy summary, blocked sources with Unblock -->
+
+**What counts as a miss** (one point each, per IPv4 address or IPv6 /64):
 
 | Signal | When |
 |---|---|
-| `probe-path` | The path contains an entry of `security.adminProbe.probePaths` as whole segments, any case (`/wp-admin`, `/blog/wp-login.php`, `/.env`, `/manager/html`, and `/admin` once the console has moved). The console's own path and the server's own prefixes (`/api`, `/jmap`, `/.well-known`, …) never count. |
-| `slug-guess` | A path with as many segments as the console path answered 404. File names a browser or crawler asks for on its own (`favicon.ico`, `robots.txt`, `*.png`, `*.xml`, …) do not count. |
-| `admin-signin-failed` | `POST {console}/login…` refused (401, or 429 from the sign-in limit). |
-| `admin-unauthenticated` | An admin API call answered 401. A request that carries a session cookie counts once per cookie, so an expired console tab that keeps polling costs one point. The console page, `{console}/session` and sign-out do not count. |
+| `probe-path` | The path contains an entry of `security.adminProbe.probePaths` (for example `/wp-admin`, `/.env`, and `/admin` once the console has moved), outside the console. |
+| `slug-guess` | A path with as many segments as the console path answered 404. File names browsers and crawlers request on their own (`favicon.ico`, `robots.txt`, images) and the server's own prefixes do not count. |
+| `admin-signin-failed` | A console sign-in was refused (`401`, or `429` from the sign-in limit). |
+| `admin-unauthenticated` | A console API call answered `401`; a request carrying a session cookie counts once per cookie, so an expired console tab costs one point. |
 
-**Room for innocent failures.**
+**Defaults and escalation:**
 
-* The score drains continuously at `graceAllowance` points per `windowSecs`
-  (default 10 per 10 minutes). The first 10 misses in a window do nothing, so a
-  mistyped URL or a stale `/admin` bookmark never triggers anything.
-* A successful admin sign-in clears its source's score and repeat count.
-* `security.adminProbe.allowlist` networks (office, VPN) are never counted.
-* A configured trusted proxy is never counted itself. Behind one, the source is
-  the forwarded client address (`MW_FORWARDED_MODE` + `MW_TRUSTED_PROXIES`); a
-  forwarded header from any other peer is ignored, so rotating it does not
-  reset the score.
-* IPv6 sources are counted per /64, IPv4 per address.
+- The score drains at `graceAllowance` points per `windowSecs` (10 per 600 s), so
+  the first 10 misses in a window do nothing.
+- Above that, each further miss is answered after `tarpitDelayMs` (1500 ms).
+  Requests that are not misses are never delayed.
+- At `graceAllowance + blockAfter` misses (10 + 10) the source is blocked for
+  `blockSecs` (900 s). A block starting within `repeatWindowSecs` (86400 s) of the
+  previous one doubles its length, up to `maxBlockSecs` (86400 s). Every block
+  expires.
+- A successful console sign-in clears its source's score.
+- Never counted: `security.adminProbe.allowlist` networks, a configured trusted
+  proxy itself, and requests without a peer address.
 
-**Escalation.**
+**While blocked**, every request from the source, on any path, gets `429` (or
+`403`, per `blockStatus`) with `Retry-After`, `Cache-Control: no-store` and
+`{"code":"sourceUnavailable","error":"Request unavailable."}`, the same answer an
+IP ban gives. The console path is answered the same way, so a block reveals
+nothing about where the console is. A blocked source also cannot use the mail app;
+users behind one shared address (an office NAT) share a score, so add such
+networks to **Never-blocked networks**.
 
-1. Above the grace allowance, each further miss is answered after
-   `tarpitDelayMs` (1.5 s). Requests that are not misses are never delayed.
-2. At `graceAllowance + blockAfter` misses (20 by default) the source is
-   blocked for `blockSecs` (15 minutes).
-3. A block that starts within `repeatWindowSecs` (24 h) of the previous one
-   ending lasts twice as long as the previous one, up to `maxBlockSecs` (24 h).
-   After a quiet `repeatWindowSecs`, the next block is a first block again.
-4. Every block expires.
+**Records:** each block writes the security event `admin-probe-blocked` with the
+source masked by default ([`security.adminProbe.auditIp`](/admin/settings#security.adminprobe.auditip)
+`masked`: IPv4 /24, IPv6 /48); with
+[`security.adminProbe.fail2banLog`](/admin/settings#security.adminprobe.fail2banlog)
+on (default) it also writes one fail2ban line with the full address. Unblocking
+and policy changes are audited with the administrator and the before and after
+values.
 
-**The blocked answer.** While blocked, every request from the source, on any
-path and with any method, gets the same answer: `429` (or `403`, per
-`blockStatus`) with `Retry-After`, `Cache-Control: no-store` and
-`{"code":"sourceUnavailable","error":"Request unavailable."}`, the same body
-a deployment IP ban gives. The console path is answered the same way as every
-other path, so a block says nothing about where the console is or whether it
-exists. A blocked source cannot use the mail app either; that is deliberate,
-as a block is only reached after 20 misses in a few minutes. Users who share
-one public address (a company NAT) share its score: put such networks on the
-allowlist if one scanner there must not lock the others out.
+**Locked out?** Wait for `Retry-After`, sign in from another network and unblock
+your address, or set `MW_ADMIN_PROBE_ENABLED=false` and restart.
 
-**In the console.** Security centre > Aggregate and adaptive protection has an
-"Probing protection" card: the policy in plain words, each setting editable
-in place (with identity confirmation), the sources blocked now with Unblock,
-and the counters and top offenders since the server started. The card repeats
-the warning above, since a block also stops that address from using the mail
-app: add shared company networks (an office, a VPN) to "Never-blocked
-networks". The Security centre Overview has an "Probing blocks" tile for
-administrators who can read IP bans.
+**Limits:**
 
-**Audit and logs.**
+- State is per process: a table of 10 000 sources (idle sources are evicted
+  first), and active blocks saved to the database and read back at start (up to
+  1 000).
+- With several instances behind a load balancer, each counts only the requests it
+  receives and enforces only its own blocks; a block reaches other instances only
+  when they restart. Use the fail2ban jail or a block at the load balancer for a
+  ban that covers every instance.
+- Without `MW_TRUSTED_PROXIES` behind a reverse proxy, every request appears to
+  come from the proxy, which is never counted, so the protection does nothing.
 
-* Each block writes the security event `admin-probe-blocked` with the source,
-  masked by default (`auditIp = masked`: IPv4 /24, IPv6 /48; `full` records the
-  address), an opaque source id, the signal, the repeat count and the length.
-* Unblocking writes `admin-probe-unblocked` and a policy change writes
-  `admin-probe-policy-changed`, both with the admin and the before/after.
-* With `fail2banLog` on (default) each block also writes one line for fail2ban
-  with the full address; see [fail2ban](../deploy/fail2ban.md#admin-probe-blocks).
+Separately from this, request protection blocks a source on its first request to a
+recognised scanner path (`/.env`, `/.git/config`, `/wp-admin` and similar) while
+[`security.protection.probePathMode`](/admin/settings#security.protection.probepathmode)
+is `enforce` (the default). See [Request limits](/admin/request-protection).
 
-**API (for the Security centre).** All under the console path; reads need
-`bans.read`, writes `bans.write` for all domains and a step-up (`banManage`).
+## Related
 
-| Route | |
-|---|---|
-| `GET {console}/security/admin-probe` | `policy` (every key), `stats` (`blocksTotal`, `blocksLast24h`, `activeBlocks`, `refusedRequests`, `tarpittedRequests`, `clearedBySignin`, `signals` by kind, `trackedSources`, `capacity`, `evictedSources`, `since`), `topOffenders` (10 rows: `id`, `source`, `score`, `signals`, `lastSignal`, `strikes`, `blocked`, `blockedUntil`, `retryAfterSecs`), `scope: "instance"`. Sends an `ETag`. |
-| `PUT {console}/security/admin-probe/policy` | `{"values":{"graceAllowance":20,…}}`, keys without the `security.adminProbe.` prefix, `null` restores a default. Validated like the registry (422), `If-Match` (412), 409 for a key an environment variable pins. Answers like the `GET`. |
-| `GET {console}/security/admin-probe/blocks` | `{"blocks":[…]}`, the active blocks. |
-| `DELETE {console}/security/admin-probe/blocks/{id}` | Lifts one block (204, 404 when not blocked). The repeat count is kept. |
-
-The generic settings route refuses these keys with `useDedicatedRoute`.
-
-**Locked out?** An admin whose own address is blocked can wait for
-`Retry-After`, sign in from another network and unblock it, or set
-`MW_ADMIN_PROBE_ENABLED=false` and restart (the pin turns the protection off
-and active blocks are not applied while it is off).
-
-**Limits.**
-
-* State is per process. The table holds 10 000 sources; when it is full, idle
-  sources go first, then the least recently seen unblocked one. Active blocks
-  are also saved to the database and read back at start (up to 1 000).
-* With several instances behind a load balancer, each counts only the requests
-  it receives and enforces only its own blocks, so a scanner spread across
-  instances gets up to that many times the allowance before every instance has
-  blocked it. A block made on one instance reaches the others only when they
-  restart. Use the fail2ban jail (or a block at the load balancer) for a ban
-  that covers every instance at once. Policy changes reach other instances
-  within 30 seconds.
-* The source address is only as good as the proxy configuration: without
-  `MW_TRUSTED_PROXIES` behind a reverse proxy, every request comes from the
-  proxy, which is never counted, so the protection does nothing.
-
-## Session domain separation (why it matters)
-
-The admin session is a different cookie on a different path than the mailbox session.
-Compromising (or simply holding) a mailbox session grants **no** admin capability, and
-the admin panel can be bound/scoped independently. Keep `MW_COOKIE_SECURE=true` behind
-TLS so the admin cookie is HTTPS-only, and keep `MW_ADMIN_PASSWORD` out of any file
-that isn't `0600`.
+- [Administrator authenticator app](./admin-totp.md)
+- [Passkeys](./passkeys.md)
+- [Security centre](/admin/security-center)
+- [Sessions](/admin/sessions)
+- [fail2ban](/deploy/fail2ban)
