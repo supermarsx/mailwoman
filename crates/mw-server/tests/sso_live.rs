@@ -144,6 +144,7 @@ async fn seed_into(db: &str, saml_cert_pem: &str) {
         redirect_url: format!("{}/api/sso/corp-oidc/callback", server_base()),
         scopes: vec!["openid".into(), "email".into(), "profile".into()],
         first_login_policy: mw_sso::FirstLoginPolicy::Allowlist,
+        require_verified_email: true,
     });
     put_row(
         &store,

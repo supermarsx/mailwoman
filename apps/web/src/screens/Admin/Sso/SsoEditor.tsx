@@ -58,6 +58,8 @@ export function ssoValues(row: SsoBackendRow | null): Record<string, unknown> {
     oidcSecret: oidc ? secret : undefined,
     redirectUrl: oidc?.redirectUrl ?? '',
     oidcScopes: oidc?.scopes ?? ['openid', 'email', 'profile'],
+    // No control: carried through so an API-set opt-out survives a console save.
+    requireVerifiedEmail: oidc?.requireVerifiedEmail ?? true,
     spEntityId: saml?.spEntityId ?? '',
     acsUrl: saml?.acsUrl ?? '',
     idpMetadataXml: saml?.idpMetadataXml ?? '',
@@ -93,6 +95,7 @@ export function ssoInput(v: Readonly<Record<string, unknown>>, origin?: string, 
           redirectUrl: str(v.redirectUrl) || ownAddress(id, 'callback', origin, base),
           scopes: [...((v.oidcScopes as string[] | undefined) ?? [])],
           firstLoginPolicy,
+          requireVerifiedEmail: v.requireVerifiedEmail !== false,
         }
       : {
           kind: 'saml',

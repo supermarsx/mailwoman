@@ -387,3 +387,35 @@ fn missing_want_assertions_signed_reads_as_signed() {
     assert_eq!(listed["config"]["wantAssertionsSigned"], json!(true));
     assert_eq!(listed["problems"], json!([]));
 }
+
+#[test]
+fn require_verified_email_defaults_on_and_round_trips() {
+    // The console sends `true` unless an opt-out was stored; omitted also means on.
+    let v = parse_upsert(value(CONSOLE_OIDC)).unwrap();
+    let SsoConfig::Oidc(c) = &v.config else {
+        panic!()
+    };
+    assert!(c.require_verified_email);
+    // An explicit opt-out (either spelling) is stored and listed back.
+    for name in ["requireVerifiedEmail", "require_verified_email"] {
+        let mut body = value(CONSOLE_OIDC);
+        let cfg = body["config"].as_object_mut().unwrap();
+        cfg.remove("requireVerifiedEmail");
+        cfg.insert(name.into(), json!(false));
+        let v = parse_upsert(body).unwrap();
+        let (config_json, listed) = stored_then_listed(&v, true);
+        assert!(
+            config_json.contains(r#""require_verified_email":false"#),
+            "{name}"
+        );
+        assert_eq!(listed["config"]["requireVerifiedEmail"], json!(false));
+        assert!(parse_upsert(listed).is_ok(), "a listed opt-out posts back");
+    }
+    // A stored row from before the field existed reads as on.
+    let old: SsoConfig = serde_json::from_str(
+        r#"{"kind":"oidc","issuer_url":"https://idp.example.org","client_id":"c","redirect_url":"https://m.example/cb"}"#,
+    )
+    .unwrap();
+    let SsoConfig::Oidc(c) = old else { panic!() };
+    assert!(c.require_verified_email);
+}

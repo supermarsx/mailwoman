@@ -30,6 +30,8 @@ export interface OidcConfig {
   redirectUrl: string;
   scopes: string[];
   firstLoginPolicy: FirstLoginPolicy;
+  /** Refuse sign-ins whose email is not `email_verified: true` (server default true). */
+  requireVerifiedEmail?: boolean;
 }
 
 /** SAML 2.0 backend config (e0 `SamlConfig`). */

@@ -68,6 +68,9 @@ pub struct WireOidc {
     pub scopes: Vec<String>,
     #[serde(alias = "first_login_policy")]
     pub first_login_policy: WirePolicy,
+    /// Refuse sign-ins whose email is not `email_verified: true` (omitted = true).
+    #[serde(alias = "require_verified_email")]
+    pub require_verified_email: bool,
 }
 
 impl Default for WireOidc {
@@ -244,6 +247,7 @@ impl From<WireOidc> for OidcConfig {
                 .filter(|s| !s.is_empty())
                 .collect(),
             first_login_policy: w.first_login_policy.into(),
+            require_verified_email: w.require_verified_email,
         }
     }
 }
@@ -256,6 +260,7 @@ impl From<&OidcConfig> for WireOidc {
             redirect_url: c.redirect_url.clone(),
             scopes: c.scopes.clone(),
             first_login_policy: c.first_login_policy.into(),
+            require_verified_email: c.require_verified_email,
         }
     }
 }

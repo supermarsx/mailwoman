@@ -147,6 +147,11 @@ pub struct OidcConfig {
     pub scopes: Vec<String>,
     /// First-login policy (default deny / allowlist).
     pub first_login_policy: FirstLoginPolicy,
+    /// Refuse a sign-in whose email claim is not marked `email_verified: true`
+    /// (default `true`; a stored row without the key reads as `true`). Turn off only
+    /// for an IdP that verifies every address itself and does not send the claim.
+    #[serde(default = "default_true")]
+    pub require_verified_email: bool,
 }
 
 impl Default for OidcConfig {
@@ -157,6 +162,7 @@ impl Default for OidcConfig {
             redirect_url: String::new(),
             scopes: vec!["openid".into(), "email".into(), "profile".into()],
             first_login_policy: FirstLoginPolicy::default(),
+            require_verified_email: true,
         }
     }
 }
@@ -516,6 +522,7 @@ mod tests {
                 redirect_url: "https://mail.example/api/sso/corp-oidc/callback".into(),
                 scopes: vec!["openid".into(), "email".into()],
                 first_login_policy: FirstLoginPolicy::AutoCreate,
+                require_verified_email: true,
             }),
             claim_map: ClaimMap {
                 email: Some("email".into()),

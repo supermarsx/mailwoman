@@ -257,16 +257,20 @@ impl OidcProvider {
         // Raw claim view: the verified ID-token standard claims, enriched with a
         // best-effort userinfo fetch (custom claims like `groups` usually land
         // there). NEVER contains tokens or the assertion.
-        let mut merged = serde_json::Map::new();
+        let mut id_claims = serde_json::Map::new();
         if let Ok(Value::Object(m)) = serde_json::to_value(claims) {
-            merged.extend(m);
+            id_claims.extend(m);
         }
-        if let Some(ui) = self
+        let userinfo = self
             .fetch_userinfo(&client, token_response.access_token(), http)
-            .await
-        {
-            merged.extend(ui);
-        }
+            .await;
+        let merged = trusted_claims(
+            &subject,
+            id_claims,
+            userinfo,
+            &self.backend.claim_map,
+            self.cfg().require_verified_email,
+        )?;
 
         Ok(map_identity(subject, &merged, &self.backend.claim_map))
     }
@@ -323,6 +327,45 @@ fn map_claims_error(e: openidconnect::ClaimsVerificationError) -> SsoError {
         C::SignatureVerification(inner) => SsoError::SignatureInvalid(inner.to_string()),
         other => SsoError::TokenValidation(other.to_string()),
     }
+}
+
+/// The claims an identity is built from: the verified ID-token claims, enriched with
+/// userinfo ONLY when its `sub` equals the ID token's (OIDC Core 5.3.2: otherwise the
+/// userinfo values must not be used). When `require_verified_email` is on, a present
+/// email claim (the mapped one, else `email`) must come with `email_verified: true`
+/// (boolean, or the string `"true"` some IdPs send), or the sign-in is refused: an
+/// account is matched by that address, and an IdP that lets users set an address
+/// without proving it would otherwise let them sign in as its owner.
+fn trusted_claims(
+    subject: &str,
+    id_claims: serde_json::Map<String, Value>,
+    userinfo: Option<serde_json::Map<String, Value>>,
+    map: &ClaimMap,
+    require_verified_email: bool,
+) -> Result<serde_json::Map<String, Value>, SsoError> {
+    let mut merged = id_claims;
+    if let Some(ui) = userinfo {
+        if ui.get("sub").and_then(Value::as_str) == Some(subject) {
+            merged.extend(ui);
+        } else {
+            tracing::warn!("oidc userinfo sub does not match the id token; userinfo ignored");
+        }
+    }
+    if require_verified_email {
+        let key = map.email.as_deref().unwrap_or("email");
+        let has_email = pick(&merged, key).is_some_and(|e| !e.is_empty());
+        let verified = match merged.get("email_verified") {
+            Some(Value::Bool(b)) => *b,
+            Some(Value::String(s)) => s.eq_ignore_ascii_case("true"),
+            _ => false,
+        };
+        if has_email && !verified {
+            return Err(SsoError::TokenValidation(
+                "email claim is not verified by the identity provider".into(),
+            ));
+        }
+    }
+    Ok(merged)
 }
 
 /// Build the [`SsoIdentity`] from the merged claim object and the config
@@ -565,6 +608,7 @@ mod tests {
     /// `/token` response embeds whichever ID token the test selected.
     struct FixtureClient {
         id_token: String,
+        userinfo: String,
     }
 
     impl<'c> AsyncHttpClient<'c> for FixtureClient {
@@ -574,11 +618,12 @@ mod tests {
         fn call(&'c self, request: OidcHttpRequest) -> Self::Future {
             let path = request.uri().path().to_string();
             let id_token = self.id_token.clone();
+            let userinfo = self.userinfo.clone();
             Box::pin(async move {
                 let body: String = match path.as_str() {
                     "/.well-known/openid-configuration" => DISCOVERY.to_string(),
                     "/jwks" => JWKS.to_string(),
-                    "/userinfo" => USERINFO.to_string(),
+                    "/userinfo" => userinfo,
                     "/token" => json!({
                         "access_token": "the-access-token",
                         "token_type": "Bearer",
@@ -646,11 +691,81 @@ mod tests {
     }
 
     fn complete_with(id_token: &str, nonce: &str) -> Result<SsoIdentity, SsoError> {
+        complete_with_userinfo(id_token, nonce, USERINFO)
+    }
+
+    fn complete_with_userinfo(
+        id_token: &str,
+        nonce: &str,
+        userinfo: &str,
+    ) -> Result<SsoIdentity, SsoError> {
         let p = fixture_provider();
         let http = FixtureClient {
             id_token: id_token.trim().to_string(),
+            userinfo: userinfo.to_string(),
         };
         block_on(p.complete_impl(callback(nonce), &http))
+    }
+
+    fn userinfo_with(edit: impl FnOnce(&mut serde_json::Map<String, Value>)) -> String {
+        let Value::Object(mut m) = serde_json::from_str(USERINFO).unwrap() else {
+            panic!()
+        };
+        edit(&mut m);
+        Value::Object(m).to_string()
+    }
+
+    #[test]
+    fn complete_refuses_an_unverified_email() {
+        for v in [json!(false), json!("false"), Value::Null] {
+            let ui = userinfo_with(|m| {
+                m.insert("email_verified".into(), v.clone());
+            });
+            let e = complete_with_userinfo(ID_TOKEN_VALID, BOUND_NONCE, &ui).unwrap_err();
+            assert!(matches!(e, SsoError::TokenValidation(_)), "{v}: {e:?}");
+        }
+        let ui = userinfo_with(|m| {
+            m.remove("email_verified");
+        });
+        assert!(complete_with_userinfo(ID_TOKEN_VALID, BOUND_NONCE, &ui).is_err());
+        let ui = userinfo_with(|m| {
+            m.insert("email_verified".into(), json!("true"));
+        });
+        assert!(complete_with_userinfo(ID_TOKEN_VALID, BOUND_NONCE, &ui).is_ok());
+    }
+
+    #[test]
+    fn userinfo_for_another_subject_is_ignored() {
+        // A userinfo answer for a different `sub` must not lend its email.
+        let ui = userinfo_with(|m| {
+            m.insert("sub".into(), json!("someone-else"));
+            m.insert("email".into(), json!("victim@corp.test"));
+        });
+        let id = complete_with_userinfo(ID_TOKEN_VALID, BOUND_NONCE, &ui);
+        // The id token's own claims remain; userinfo's email/name are not used.
+        match id {
+            Ok(id) => {
+                assert_ne!(id.email.as_deref(), Some("victim@corp.test"));
+                assert_eq!(id.display_name, None, "userinfo name not merged");
+            }
+            Err(e) => assert!(matches!(e, SsoError::TokenValidation(_)), "{e:?}"),
+        }
+    }
+
+    #[test]
+    fn trusted_claims_opt_out_and_custom_email_claim() {
+        let id: serde_json::Map<String, Value> =
+            serde_json::from_value(json!({ "sub": "s", "mail": "a@x.test" })).unwrap();
+        let map = ClaimMap {
+            email: Some("mail".into()),
+            ..Default::default()
+        };
+        assert!(trusted_claims("s", id.clone(), None, &map, true).is_err());
+        assert!(trusted_claims("s", id.clone(), None, &map, false).is_ok());
+        // No email at all: nothing to verify, matching falls back to username/sub.
+        let bare: serde_json::Map<String, Value> =
+            serde_json::from_value(json!({ "sub": "s" })).unwrap();
+        assert!(trusted_claims("s", bare, None, &ClaimMap::default(), true).is_ok());
     }
 
     #[test]
@@ -658,6 +773,7 @@ mod tests {
         let p = fixture_provider();
         let http = FixtureClient {
             id_token: ID_TOKEN_VALID.trim().to_string(),
+            userinfo: USERINFO.to_string(),
         };
         let out = block_on(p.begin_impl(Some("/calendar".into()), &http)).unwrap();
 
@@ -733,6 +849,7 @@ mod tests {
         let p = fixture_provider();
         let http = FixtureClient {
             id_token: ID_TOKEN_VALID.trim().to_string(),
+            userinfo: USERINFO.to_string(),
         };
         let cb = SsoCallback {
             params: std::collections::BTreeMap::new(),
@@ -750,6 +867,7 @@ mod tests {
         let p = fixture_provider();
         let http = FixtureClient {
             id_token: ID_TOKEN_VALID.trim().to_string(),
+            userinfo: USERINFO.to_string(),
         };
         let cb = SsoCallback {
             params: std::collections::BTreeMap::new(), // no `code`
