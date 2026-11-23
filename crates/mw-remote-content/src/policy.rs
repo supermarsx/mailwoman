@@ -220,7 +220,6 @@ pub const POLICY_KEYS: &[&str] = &[
     "privacy.imageResizeEnabled",
     "privacy.imageResizeMaxWidth",
     "privacy.imageResizeMaxPixels",
-    "privacy.imageResizeFormat",
 ];
 
 #[derive(Serialize, Clone)]
@@ -364,7 +363,7 @@ pub fn tier_config(
 
 /// The optional image resize, from its `privacy.imageResize*` keys.
 pub fn resize_config(get: &dyn Fn(&str) -> Option<Value>) -> crate::resize::ResizeConfig {
-    use crate::resize::{Format, ResizeConfig};
+    use crate::resize::ResizeConfig;
     let d = ResizeConfig::default();
     let n = |key: &str, fallback: u64| get(key).and_then(|v| v.as_u64()).unwrap_or(fallback);
     ResizeConfig {
@@ -373,12 +372,8 @@ pub fn resize_config(get: &dyn Fn(&str) -> Option<Value>) -> crate::resize::Resi
             .unwrap_or(d.enabled),
         max_width: n("privacy.imageResizeMaxWidth", u64::from(d.max_width)) as u32,
         max_pixels: n("privacy.imageResizeMaxPixels", d.max_pixels),
-        format: Format::parse(
-            get("privacy.imageResizeFormat")
-                .and_then(|v| v.as_str().map(str::to_owned))
-                .as_deref()
-                .unwrap_or("auto"),
-        ),
+        // PNG is the only encoder in the build, so the format is not a setting.
+        format: d.format,
     }
 }
 

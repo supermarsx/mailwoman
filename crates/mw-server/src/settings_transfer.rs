@@ -72,6 +72,10 @@ async fn portable_bundle(state: &AppState) -> Result<(Bundle, Vec<String>), Admi
     let mut entries = Vec::new();
     let mut excluded = Vec::new();
     for row in rows {
+        // A row left behind by a key that is no longer registered is ignored.
+        if registry::lookup(&row.key).is_none() {
+            continue;
+        }
         if portable(&row.key).is_err() {
             excluded.push(row.key);
             continue;

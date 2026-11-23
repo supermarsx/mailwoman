@@ -80,7 +80,7 @@ For the four purposes the server checks:
 - If the ledger cannot be read, a consent-based purpose is refused and the others are allowed.
 - A refused feature answers with an error; the mail app does not prompt the person to decide.
 
-For the other four purposes, the **Legal basis** and **Text version** settings change only what the person is shown.
+For the other four purposes, the **Legal basis** setting changes only what the person is shown. They have no **Text version** setting; their decisions are recorded with text version 1.
 
 ::: warning Purpose consent off
 With **Purpose consent** off, the server allows every purpose, including those a person has withdrawn, and refuses to record new decisions.
@@ -97,12 +97,11 @@ With **Purpose consent** off, the server allows every purpose, including those a
 | **Default restriction length (days)** ([`restriction.defaultExpiryDays`](/admin/settings#restriction.defaultExpiryDays)) | Used when the length is left empty; 0 is until lifted | 0 | domain |
 | **Tell the person** ([`restriction.notifyUser`](/admin/settings#restriction.notifyUser)) | Notice when a restriction starts and ends | on | domain |
 | **Pause …** (`restriction.scope.*`) | Kinds paused by a restriction from a data request. The form on the **Restrict a person** tab ignores these and starts with all six ticked | all on | domain |
-| **New mail while restricted** ([`restriction.mailDelivery`](/admin/settings#restriction.mailDelivery)) | Stored and shown, but the server does not act on it: mail is always delivered | keep | domain |
 | **Purpose consent** ([`consent.enabled`](/admin/settings#consent.enabled)) | Turns the consent ledger on; off allows every purpose | on | domain |
 | **Consent receipts kept (days)** ([`consent.receipts.retentionDays`](/admin/settings#consent.receipts.retentionDays)) | Older decisions are deleted, at most once an hour | 1825 | server |
 | **Automated processing notice** ([`consent.art22.notice`](/admin/settings#consent.art22.notice)) | Shows the notice and the per-feature switches | on | domain |
 | **Legal basis: …** (`consent.<purpose>.basis`) | consent, legitimate interest, contract or legal obligation | see table above | domain |
-| **Text version: …** (`consent.<purpose>.version`) | Raising it asks again (checked purposes only) | 1 | domain |
+| **Text version: …** (`consent.<purpose>.version`) | Raising it asks again. Only the four checked purposes have this setting | 1 | domain |
 | **Own wording: …** (`consent.<purpose>.text`) | Your text per language, shown instead of the built-in description | empty | domain |
 
 ## Related

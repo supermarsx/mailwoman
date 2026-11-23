@@ -1053,7 +1053,7 @@ async fn signin_keys_are_written_through_their_own_route() {
         put_global(
             &a,
             &s.base,
-            "usage.meterApi",
+            "dsr.export.encrypt",
             json!({ "globalValue": false })
         )
         .await
@@ -1455,4 +1455,118 @@ async fn mail_cache_and_response_templates_obey_effective_user_policy() {
         200
     );
     assert_eq!(send(u.put(&url).json(&json!({"value":[]}))).await.0, 403);
+}
+
+// ── removed keys (t48) ─────────────────────────────────────────────────────────
+
+/// A row stored under a key that t48 removed from the registry stays in the
+/// database and is ignored by every settings read: the admin list and key route,
+/// the per-domain values route, the portable export (neither exported nor listed
+/// as excluded), the user's `GET /api/settings` and the resolver. A registered
+/// key written the same raw way is the control: the same reads show it.
+#[tokio::test]
+async fn stored_rows_of_removed_keys_are_ignored() {
+    use mw_store::settings_policy::{SettingPolicyRow, SettingScope, SettingValueRow};
+    let s = proxy_server("mw-t48-removed-keys").await;
+    let a = admin(&s.base).await;
+    let (u, _account) = user(&s.base).await;
+    let removed = mw_server::settings_registry::REMOVED_KEYS;
+    assert!(!removed.is_empty());
+    const CONTROL: &str = "dsr.export.encrypt";
+    let store = mw_store::Store::open(&s.db, mw_store::ServerKey::from_hex(KEY_HEX).unwrap())
+        .await
+        .unwrap();
+    for key in removed.iter().copied().chain([CONTROL]) {
+        assert_eq!(
+            mw_server::settings_registry::lookup(key).is_some(),
+            key == CONTROL,
+            "{key}"
+        );
+        store
+            .put_setting_policy(&SettingPolicyRow {
+                key: key.into(),
+                global_value: Some("true".into()),
+                allow_user_override: true,
+                global_locked: false,
+                updated_by: "before-upgrade".into(),
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+        store
+            .put_setting_value(&SettingValueRow {
+                scope: SettingScope::Domain,
+                scope_id: "example.org".into(),
+                key: key.into(),
+                value: "true".into(),
+                locked: false,
+                updated_by: "before-upgrade".into(),
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+    }
+    // The rows are really there.
+    let stored = store.list_setting_policies().await.unwrap();
+    for key in removed {
+        assert!(stored.iter().any(|p| p.key == *key), "{key} stored");
+    }
+
+    // Admin list.
+    let (status, list) = send(a.get(format!("{}/admin/settings", s.base))).await;
+    assert_eq!(status, 200, "{list}");
+    let items = list["settings"].as_array().unwrap();
+    let listed = |key: &str| items.iter().find(|i| i["key"] == key).cloned();
+    assert_eq!(listed(CONTROL).expect("control listed")["globalValue"], json!(true));
+    for key in removed {
+        assert!(listed(key).is_none(), "{key} listed");
+    }
+
+    // Key and values routes.
+    let (status, body) = send(a.get(format!("{}/admin/settings/{CONTROL}", s.base))).await;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) =
+        send(a.get(format!("{}/admin/settings/{CONTROL}/values?scope=domain", s.base))).await;
+    assert_eq!(status, 200, "{body}");
+    for key in removed {
+        let (status, body) = send(a.get(format!("{}/admin/settings/{key}", s.base))).await;
+        assert_eq!(status, 404, "{key}: {body}");
+        let (status, body) =
+            send(a.get(format!("{}/admin/settings/{key}/values?scope=domain", s.base))).await;
+        assert_eq!(status, 404, "{key}: {body}");
+    }
+
+    // Portable export.
+    let (status, export) = send(a.get(format!("{}/admin/config/export", s.base))).await;
+    assert_eq!(status, 200, "{export}");
+    let entries = export["bundle"]["entries"].as_array().unwrap();
+    assert!(entries.iter().any(|e| e["key"] == CONTROL && e["globalValue"] == json!(true)), "{export}");
+    let excluded = export["excluded"].as_array().unwrap();
+    for key in removed {
+        assert!(!entries.iter().any(|e| e["key"] == *key), "{key} exported");
+        assert!(!excluded.iter().any(|e| e == key), "{key} listed as excluded");
+    }
+
+    // The user's settings.
+    let mine = user_settings(&u, &s.base).await;
+    assert!(mine.as_object().is_some_and(|m| !m.is_empty()), "{mine}");
+    for key in removed {
+        assert!(mine.get(*key).is_none(), "{key} served to the user");
+    }
+
+    // The resolver, at the domain the rows were written for.
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
+        domain: "example.org",
+        account_id: "",
+        address: "",
+    };
+    let effective = mw_server::settings_registry::effective_all(&store, &subject, |_| true)
+        .await
+        .unwrap();
+    let control = effective.iter().find(|e| e.key == CONTROL).expect("control resolved");
+    assert_eq!(control.value, json!(true));
+    for key in removed {
+        assert!(!effective.iter().any(|e| e.key == *key), "{key} resolved");
+    }
 }

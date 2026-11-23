@@ -134,8 +134,6 @@ By default `/healthz` answers only to loopback, private, link-local and unique-l
 
 `check` only reads, takes no lock and changes nothing, so it can run during a backup or deploy; the app is briefly stopped during those, and a check at that moment fails. It proves that the app answers over HTTP(S). It does not sign in to a mailbox or send mail. [Backups](/deploy/backups#scheduling-timers) shows how to run it every five minutes with systemd or cron.
 
-`/readyz` is the readiness check. It answers `200` with `ok`, or `503` with a line naming the directories that are short of free space: the one holding the database, the one named by `MW_UPLOAD_DIR`, and the search index directory when it is kept on disk. A directory is short when less than [`health.diskFreeMinPercent`](/admin/settings#health.diskFreeMinPercent) percent of its filesystem is free (default 5). A directory that cannot be measured, or a measurement that takes more than 1.5 seconds, is skipped, so a measurement error never makes the server report not ready. `/readyz` is reachable under the same rules as `/healthz`. The Helm chart and the Compose files still probe `/healthz`; use `/readyz` only for readiness and load-balancer checks, never as a liveness probe, because a full disk should take the server out of rotation, not restart it.
-
 ### `ALERT_HOOK`
 
 `ALERT_HOOK` in `deploy.env` is the absolute path of an executable that `check` runs when a check fails, with two arguments, the name of the check and the message, as the user that runs `deploy.sh`. Its exit status is logged but does not change the exit status of `check` (always 1 on failure). The hook runs on every failing check, every five minutes with the timer, so it must remove duplicates itself if that matters. `deploy.sh` accepts only an absolute path made of letters, digits and `._/+@-`. If the file is not an executable, `check` logs `ALERT_HOOK <path> is not an executable file; no alert was sent`.
@@ -177,9 +175,7 @@ exec curl -fsS -m 10 -d "mailwoman: $1: $2" https://ntfy.example.org/mailwoman-a
 
 Changes to the `observability.clientTiming` settings are picked up within about ten seconds. History is written every 30 seconds, so a restart keeps it, and the same tables are used with SQLite and with PostgreSQL.
 
-### Settings that have no effect
-
-[`observability.otlpMetrics`](/admin/settings#observability.otlpmetrics) and [`metrics.drilldownTopN`](/admin/settings#metrics.drilldowntopn) can be saved but nothing in the server reads them. Operational telemetry is configured on the **Configure operational telemetry** tab and by `MW_OTLP_ENDPOINT`.
+Operational telemetry is configured on the **Configure operational telemetry** tab and by `MW_OTLP_ENDPOINT`.
 
 ## Troubleshooting
 

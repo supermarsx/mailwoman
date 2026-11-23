@@ -62,40 +62,9 @@ use crate::jmap::{Filed, SUBMISSION_FAILED, SUBMISSION_PENDING, claim_send};
 const TICK: Duration = Duration::from_millis(500);
 
 /// Dispatch attempts in which SMTP accepted nothing before a submission is
-/// marked `failed`, when the `outbox.maxAttempts` setting is not saved. With
-/// [`retry_delay`] the last attempt happens about an hour after the first.
+/// marked `failed`. With [`retry_delay`] the last attempt happens about an hour
+/// after the first.
 pub const MAX_SUBMISSION_ATTEMPTS: u32 = 8;
-
-/// Bounds of the `outbox.maxAttempts` setting.
-const MIN_CONFIGURED_ATTEMPTS: u32 = 1;
-const MAX_CONFIGURED_ATTEMPTS: u32 = 50;
-
-/// The attempt limit: the saved global `outbox.maxAttempts`, clamped to 1-50,
-/// else [`MAX_SUBMISSION_ATTEMPTS`]. Read on every failed attempt so a console
-/// change applies to queued submissions. A store error or an unparsable value
-/// leaves the default in force.
-async fn submission_attempt_limit(store: &mw_store::Store) -> u32 {
-    let saved = store
-        .get_setting_policy("outbox.maxAttempts")
-        .await
-        .ok()
-        .flatten()
-        .and_then(|row| row.global_value);
-    attempt_limit_from(saved.as_deref())
-}
-
-fn attempt_limit_from(saved: Option<&str>) -> u32 {
-    let Some(value) = saved.and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok()) else {
-        return MAX_SUBMISSION_ATTEMPTS;
-    };
-    let Some(n) = value.as_i64() else {
-        return MAX_SUBMISSION_ATTEMPTS;
-    };
-    n.clamp(
-        i64::from(MIN_CONFIGURED_ATTEMPTS),
-        i64::from(MAX_CONFIGURED_ATTEMPTS),
-    ) as u32
-}
 
 /// The first retry delay; each later one doubles, up to [`RETRY_DELAY_CAP`].
 const RETRY_DELAY_BASE: chrono::Duration = chrono::Duration::seconds(30);
@@ -277,9 +246,9 @@ impl Engine {
                     return Ok(None);
                 };
                 let attempt = attempts.attempts.saturating_add(1);
-                let attempt_limit = submission_attempt_limit(self.store()).await;
-                let give_up =
-                    not_sent.uncertain() || not_sent.permanent || attempt >= attempt_limit;
+                let give_up = not_sent.uncertain()
+                    || not_sent.permanent
+                    || attempt >= MAX_SUBMISSION_ATTEMPTS;
                 self.sync_health.record_send(
                     if not_sent.uncertain() {
                         crate::sync_health::SendOutcome::Uncertain
@@ -301,7 +270,7 @@ impl Engine {
                     )
                 };
                 tracing::warn!(
-                    "submission {id} attempt ended (attempt {attempt} of {attempt_limit}{}): {}",
+                    "submission {id} attempt ended (attempt {attempt} of {MAX_SUBMISSION_ATTEMPTS}{}): {}",
                     if give_up { ", giving up" } else { "" },
                     not_sent.error
                 );
@@ -522,18 +491,6 @@ mod tests {
             None,
             just_before
         ));
-    }
-
-    #[test]
-    fn attempt_limit_reads_clamps_and_defaults() {
-        assert_eq!(attempt_limit_from(None), MAX_SUBMISSION_ATTEMPTS);
-        assert_eq!(attempt_limit_from(Some("2")), 2);
-        assert_eq!(attempt_limit_from(Some("0")), 1);
-        assert_eq!(attempt_limit_from(Some("-5")), 1);
-        assert_eq!(attempt_limit_from(Some("500")), 50);
-        assert_eq!(attempt_limit_from(Some("\"x\"")), MAX_SUBMISSION_ATTEMPTS);
-        assert_eq!(attempt_limit_from(Some("not json")), MAX_SUBMISSION_ATTEMPTS);
-        assert_eq!(attempt_limit_from(Some("null")), MAX_SUBMISSION_ATTEMPTS);
     }
 
     #[test]

@@ -2,13 +2,11 @@
 //! Bundled notices cover the web locale catalogue; unknown locales fall back to en.
 use crate::{AppState, alerts::AlertKind};
 
-use std::borrow::Cow;
-
 pub(crate) struct Notice {
     pub locale: &'static str,
-    pub subject: Cow<'static, str>,
-    pub description: Cow<'static, str>,
-    pub guidance: Cow<'static, str>,
+    pub subject: &'static str,
+    pub description: &'static str,
+    pub guidance: &'static str,
 }
 pub(crate) async fn account_notice(state: &AppState, account: &str, kind: AlertKind) -> Notice {
     let address = state
@@ -31,67 +29,7 @@ pub(crate) async fn account_notice(state: &AppState, account: &str, kind: AlertK
         .flatten()
         .and_then(|v| v.value.as_str().map(str::to_owned))
         .unwrap_or_else(|| "en".into());
-    let mut text = notice(&language, kind);
-    apply_overrides(&state.store, &subject, kind, &mut text).await;
-    text
-}
-
-/// The id slug in `serverText.alert-<slug>-{subject,description,guidance}`.
-fn kind_slug(kind: AlertKind) -> &'static str {
-    match kind {
-        AlertKind::NewDevice => "new-device",
-        AlertKind::TwoFactorChanged => "two-factor-changed",
-        AlertKind::DelegateAdded => "delegate-added",
-        AlertKind::ForwardingAdded => "forwarding-added",
-        AlertKind::ApiKeyCreated => "api-key-created",
-        AlertKind::NewCountry => "new-country",
-    }
-}
-
-/// Replace a part of the bundled notice with the text an administrator saved
-/// for the recipient's domain (or globally) in the notice's own locale. A part
-/// with no saved text for that locale keeps the bundled text. Any read error
-/// leaves the bundled text, so an alert is never lost to a settings problem.
-async fn apply_overrides(
-    store: &mw_store::Store,
-    subject: &mw_store::settings_policy::SettingSubject<'_>,
-    kind: AlertKind,
-    text: &mut Notice,
-) {
-    for part in ["subject", "description", "guidance"] {
-        let key = format!("serverText.alert-{}-{part}", kind_slug(kind));
-        let Some(value) = crate::settings_registry::effective_for(store, &key, subject)
-            .await
-            .ok()
-            .flatten()
-        else {
-            continue;
-        };
-        let Some(custom) = override_text(&value.value, text.locale, part != "subject") else {
-            continue;
-        };
-        let slot = match part {
-            "subject" => &mut text.subject,
-            "description" => &mut text.description,
-            _ => &mut text.guidance,
-        };
-        *slot = Cow::Owned(custom);
-    }
-}
-
-/// The non-blank text for `locale` in a saved locale map. Control characters
-/// become spaces; line breaks stay only where `multiline` (the subject is a
-/// header).
-fn override_text(map: &serde_json::Value, locale: &str, multiline: bool) -> Option<String> {
-    let text = map.get(locale)?.as_str()?.trim();
-    if text.is_empty() {
-        return None;
-    }
-    Some(
-        text.chars()
-            .map(|c| if c.is_control() && !(multiline && c == '\n') { ' ' } else { c })
-            .collect(),
-    )
+    notice(&language, kind)
 }
 /// The match key for a language tag: the lower-cased primary subtag, except
 /// that Portuguese is split by region the way the web client negotiates it
@@ -310,9 +248,9 @@ pub(crate) fn notice(language: &str, kind: AlertKind) -> Notice {
     };
     Notice {
         locale,
-        subject: subject.into(),
-        description: descriptions[index].into(),
-        guidance: guidance.into(),
+        subject,
+        description: descriptions[index],
+        guidance,
     }
 }
 #[cfg(test)]
@@ -367,85 +305,5 @@ mod tests {
             notice("pt-PT", AlertKind::NewDevice).guidance,
             notice("pt-BR", AlertKind::NewDevice).guidance
         );
-    }
-    #[test]
-    fn override_text_picks_the_locale_and_cleans_control_characters() {
-        let map = serde_json::json!({"en":"  Hello\r\nthere ","fr":"   ","de":7});
-        assert_eq!(override_text(&map, "en", false).as_deref(), Some("Hello  there"));
-        assert_eq!(override_text(&map, "en", true).as_deref(), Some("Hello \nthere"));
-        assert_eq!(override_text(&map, "fr", true), None);
-        assert_eq!(override_text(&map, "de", true), None);
-        assert_eq!(override_text(&map, "es", true), None);
-    }
-
-    fn subject(domain: &str) -> mw_store::settings_policy::SettingSubject<'_> {
-        mw_store::settings_policy::SettingSubject {
-            personal_owner: None,
-            account_id: "",
-            address: "",
-            domain,
-        }
-    }
-
-    async fn save(store: &mw_store::Store, domain: &str, key: &str, value: serde_json::Value) {
-        store
-            .put_setting_value(&mw_store::settings_policy::SettingValueRow {
-                scope: mw_store::settings_policy::SettingScope::Domain,
-                scope_id: domain.into(),
-                key: key.into(),
-                value: value.to_string(),
-                locked: false,
-                updated_by: "test".into(),
-                updated_at: 1,
-            })
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn a_domain_override_applies_to_that_domain_in_that_locale_only() {
-        let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate())
-            .await
-            .unwrap();
-        save(&store, "a.example", "serverText.alert-new-device-subject", serde_json::json!({"en":"Sign-in from a new device","fr":"Nouvel appareil"})).await;
-        save(&store, "a.example", "serverText.alert-new-device-guidance", serde_json::json!({"en":"Call the help desk.
-Ext 42"})).await;
-
-        // The matching domain and locale: subject and guidance replaced, description kept.
-        let bundled = notice("en", AlertKind::NewDevice);
-        let mut text = notice("en", AlertKind::NewDevice);
-        apply_overrides(&store, &subject("a.example"), AlertKind::NewDevice, &mut text).await;
-        assert_eq!(text.subject, "Sign-in from a new device");
-        assert_eq!(text.guidance, "Call the help desk.
-Ext 42");
-        assert_eq!(text.description, bundled.description);
-
-        // Another locale with no saved text keeps the bundled text.
-        let mut de = notice("de", AlertKind::NewDevice);
-        let bundled_de = notice("de", AlertKind::NewDevice);
-        apply_overrides(&store, &subject("a.example"), AlertKind::NewDevice, &mut de).await;
-        assert_eq!(de.subject, bundled_de.subject);
-
-        // Another domain is untouched.
-        let mut other = notice("en", AlertKind::NewDevice);
-        apply_overrides(&store, &subject("b.example"), AlertKind::NewDevice, &mut other).await;
-        assert_eq!(other.subject, bundled.subject);
-        assert_eq!(other.guidance, bundled.guidance);
-
-        // Another alert kind in the same domain is untouched.
-        let mut key = notice("en", AlertKind::ApiKeyCreated);
-        let bundled_key = notice("en", AlertKind::ApiKeyCreated);
-        apply_overrides(&store, &subject("a.example"), AlertKind::ApiKeyCreated, &mut key).await;
-        assert_eq!(key.subject, bundled_key.subject);
-    }
-
-    #[test]
-    fn every_alert_slug_is_a_registered_server_text_key() {
-        for kind in AlertKind::ALL {
-            for part in ["subject", "description", "guidance"] {
-                let key = format!("serverText.alert-{}-{part}", kind_slug(kind));
-                assert!(crate::settings_registry::lookup(&key).is_some(), "{key}");
-            }
-        }
     }
 }

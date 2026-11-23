@@ -12,10 +12,11 @@
 //! * `thirdParty` - Nextcloud and UI plugin features, and sends to other services
 //!
 //! Mail still arrives and the person can read, search by hand in the mail they
-//! hold, and delete. `restriction.mailDelivery` records what the administrator
-//! chose for new mail (`keep`, `queue`, `reject`); this server does not receive
-//! mail itself, so the value is reported to the person and the upstream mail
-//! server is the one that acts on it (see `docs/admin/consent.md`).
+//! hold, and delete. A restriction records `keep` for new mail by default: this
+//! server does not receive mail, so it cannot queue or reject it. A restriction
+//! request may still name `queue` or `reject`; the value is recorded and shown to
+//! the person, and only the upstream mail server could act on it (see
+//! `docs/admin/consent.md`).
 use crate::{
     AppState,
     admin_ctx::{AdminApiError, AdminCtx},
@@ -78,9 +79,8 @@ impl Policy {
         Self {
             enabled: flag("restriction.enabled", true),
             auto_apply: flag("restriction.autoApplyOnApproval", true),
-            mail_delivery: get("restriction.mailDelivery")
-                .and_then(|v| v.as_str().map(str::to_string))
-                .unwrap_or_else(|| "keep".into()),
+            // The upstream mail server takes delivery, so new mail is always kept.
+            mail_delivery: "keep".into(),
             default_scopes,
             expiry_days: get("restriction.defaultExpiryDays")
                 .and_then(|v| v.as_i64())

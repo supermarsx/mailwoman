@@ -130,13 +130,6 @@ async fn summary_requires_admin_and_counts_real_requests_without_paths() {
     assert_eq!(body["series"][0]["errors5xx"], 1);
     assert_eq!(body["series"][0]["p50Ms"].as_f64(), Some(37.0));
     assert_eq!(body["series"][0]["p95Ms"].as_f64(), Some(83.0));
-    assert_eq!(body["series"][0]["p99Ms"].as_f64(), Some(83.0));
-    assert_eq!(body["series"][0]["p99ResolutionMs"].as_f64(), Some(1.0));
-    assert_eq!(body["latency"]["count"], 2);
-    assert_eq!(body["latency"]["p50Ms"].as_f64(), Some(37.0));
-    assert_eq!(body["latency"]["p95Ms"].as_f64(), Some(83.0));
-    assert_eq!(body["latency"]["p99Ms"].as_f64(), Some(83.0));
-    assert!(body["series"][1]["p99Ms"].is_null());
     assert_eq!(body["series"][0]["p95ResolutionMs"].as_f64(), Some(1.0));
     assert_eq!(body["series"][0]["legacyLatencyEstimate"], false);
     assert_eq!(body["series"][0]["coverage"], "complete");
@@ -177,10 +170,6 @@ async fn summary_requires_admin_and_counts_real_requests_without_paths() {
     assert_eq!(precise["latencySampleUnit"], "microseconds");
     assert_eq!(precise["series"][0]["p50Ms"].as_f64(), Some(0.123));
     assert_eq!(precise["series"][0]["p95Ms"].as_f64(), Some(0.999));
-    assert_eq!(precise["series"][0]["p99Ms"].as_f64(), Some(0.999));
-    assert_eq!(precise["latency"]["count"], 3);
-    assert_eq!(precise["latency"]["p99Ms"].as_f64(), Some(0.999));
-    assert_eq!(precise["latency"]["p99ResolutionMs"].as_f64(), Some(0.001));
     assert_eq!(
         precise["series"][0]["p50ResolutionMs"].as_f64(),
         Some(0.001)

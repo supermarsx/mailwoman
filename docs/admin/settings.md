@@ -510,20 +510,6 @@ Whether users are warned when they near a limit.
 
 How many days of daily usage counts are kept.
 
-<a id="usage.meterApi"></a>
-### Count API use (`usage.meterApi`)
-
-**Saving this setting currently has no effect.** No metering code reads it.
-
-Whether API requests are counted in the usage figures.
-
-<a id="usage.measureIntervalHours"></a>
-### Storage measuring interval (`usage.measureIntervalHours`)
-
-**Saving this setting currently has no effect.** No code reads it.
-
-How often the stored data of each user is measured, in hours.
-
 <a id="assistant.rateLimitPerMin"></a>
 ### AI assistant rate limit (`assistant.rateLimitPerMin`)
 
@@ -697,34 +683,6 @@ The contact (mailto: or https:) given to push services with each notification.
 
 Hours (UTC) in which no push notification is sent. Leave empty for none.
 
-<a id="updates.check"></a>
-### Check for updates (`updates.check`)
-
-**Saving this setting currently has no effect.** No update check exists.
-
-Whether the server checks once a day for a newer release and shows it on the dashboard.
-
-<a id="updates.feedUrl"></a>
-### Release feed (`updates.feedUrl`)
-
-**Saving this setting currently has no effect.** No code reads it.
-
-The https address the update check reads.
-
-<a id="updates.apply"></a>
-### Apply updates (`updates.apply`)
-
-**Saving this setting currently has no effect.** No code reads it.
-
-Whether an update can be started from the console through the host update agent.
-
-<a id="backup.retentionCount"></a>
-### Backups kept (`backup.retentionCount`)
-
-**Saving this setting currently has no effect.** Nothing prunes backups by this count.
-
-How many database backups are kept.
-
 <a id="about.securityContact"></a>
 ### Security contact (`about.securityContact`)
 
@@ -746,54 +704,12 @@ The address of your security policy, listed in security.txt.
 
 Links shown on the About page, each with a label and an https address.
 
-<a id="config.snapshotsKept"></a>
-### Configuration snapshots (`config.snapshotsKept`)
-
-**Saving this setting currently has no effect.** No code reads it.
-
-How many configuration snapshots are kept.
-
-<a id="jobs.historyDays"></a>
-### Job history (`jobs.historyDays`)
-
-**Saving this setting currently has no effect.** No code reads it.
-
-How many days of job runs are kept.
-
-<a id="maintenance.announceMinutesDefault"></a>
-### Maintenance notice lead time (`maintenance.announceMinutesDefault`)
-
-**Saving this setting currently has no effect.** No code reads it.
-
-How many minutes before a maintenance window users are told about it.
-
-<a id="maintenance.defaultMessage"></a>
-### Maintenance message (`maintenance.defaultMessage`)
-
-**Saving this setting currently has no effect.** No code reads it.
-
-The text users see during maintenance, per language.
-
 <a id="health.diskFreeMinPercent"></a>
 ### Free disk space floor (`health.diskFreeMinPercent`)
 
 **Saving this setting currently has no effect.** The readiness check does not test free disk space.
 
 The readiness check fails when free disk space falls below this percentage.
-
-<a id="observability.otlpMetrics"></a>
-### Send metrics by OTLP (`observability.otlpMetrics`)
-
-**Saving this setting currently has no effect.** No code reads it.
-
-Send server metrics to the OTLP collector set at start.
-
-<a id="metrics.drilldownTopN"></a>
-### Metrics detail rows (`metrics.drilldownTopN`)
-
-**Saving this setting currently has no effect.** No code reads it.
-
-How many rows a metrics breakdown shows.
 
 <a id="metrics.rollupDays"></a>
 ### Metrics history (`metrics.rollupDays`)
@@ -1783,7 +1699,6 @@ Additional parallelism and cache controls are available in Admin › Privacy ›
 | <a id="privacy.imageResizeEnabled"></a>`privacy.imageResizeEnabled` | off | on / off | Scale oversized remote images down to the width the reader's frame asks for (320, 640, 960, 1280 or 1600 pixels, as a `w=` hint). The sandboxed decode is unchanged; the resize reads the sandbox's own PNG output. Animated GIF, APNG and animated WebP are served unscaled, and a resize that would not be smaller is dropped. A resized copy is cached separately from the full image. |
 | <a id="privacy.imageResizeMaxWidth"></a>`privacy.imageResizeMaxWidth` | 1600 px | 320–1600 px | Widest image the resize produces; a frame asking for more gets this width. |
 | <a id="privacy.imageResizeMaxPixels"></a>`privacy.imageResizeMaxPixels` | 4000000 | 100000–64000000 | Largest decoded image, in pixels, the resize will touch. The size is read from the image header before any pixel is decoded; a larger image is served unscaled. |
-| <a id="privacy.imageResizeFormat"></a>`privacy.imageResizeFormat` | auto | auto, png | Format of a resized image. Auto picks the best encoder in the build, which is PNG; there is no lossy WebP encoder to choose. **Saving this setting currently has no effect.** Both values produce PNG output, so the choice changes nothing observable. |
 
 These limits are independent: increasing the account limit does not override the global network, pipeline or decoder ceiling. Higher decoder concurrency consumes more CPU and memory. Cached successes do not consume new network tokens. Every cache lookup still requires current authorization; setting TTL to zero does not weaken grants, tracker blocking, SSRF checks or egress routing.
 
@@ -1895,12 +1810,6 @@ spam classification applies the recipient account's domain and profile policy.
 
 <a id="cap.remote_images"></a>
 `cap.remote_images` — Remote-image capability. Existing privacy settings continue to govern requests; check feature coverage.
-
-<a id="cap.user_background"></a>
-`cap.user_background` — Custom-background capability, disabled by default. Check feature coverage. **Saving this setting currently has no effect.** No part of the server or the web app checks this switch.
-
-<a id="cap.user_css"></a>
-`cap.user_css` — Custom-CSS capability, disabled by default. Check feature coverage. **Saving this setting currently has no effect.** No part of the server or the web app checks this switch.
 
 <a id="cap.compose.rich_text"></a>
 `cap.compose.rich_text` — Whether users may write formatted (HTML) messages. Off sends plain text only. Default `true`; enforced at JMAP Email/set create with an HTML body (feature_gate.rs); composer plain-text only.
@@ -3911,12 +3820,6 @@ Global and domain, hot. Default `true`. When off, restrictions can no longer be 
 ### Apply a restriction when its request is approved (`restriction.autoApplyOnApproval`)
 Global and domain, hot. Default `true`. Approving an Art. 18 restriction request applies the restriction at once instead of waiting for an administrator.
 
-<a id="restriction.mailDelivery"></a>
-### New mail while restricted (`restriction.mailDelivery`)
-
-**Saving this setting does not change behaviour.** The value is recorded on the restriction and shown to the person; the server does not receive mail, so nothing queues or rejects mail because of it.
-Global and domain, hot. Default `keep`. `keep` stores new mail normally, `queue` holds it, `reject` refuses it. Stored mail is never deleted by a restriction.
-
 <a id="restriction.defaultExpiryDays"></a>
 ### Days until a restriction ends (`restriction.defaultExpiryDays`)
 Global and domain, hot. Default `0`. 0 keeps a restriction until an administrator lifts it.
@@ -3965,12 +3868,6 @@ Global and domain, hot. Default `true`. Shows people a notice about automated pr
 ### Legal basis shown for analytics (`consent.analytics.basis`)
 Global and domain, hot. Default `consent`. One of `consent`, `legitimateInterest`, `contract`, `legalObligation`. Only `consent` makes the purpose wait for a yes; for the others it runs until the person withdraws.
 
-<a id="consent.analytics.version"></a>
-### Consent text version of analytics (`consent.analytics.version`)
-
-**Saving this setting does not change behaviour.** The version is written on consent receipts. Raising it does not ask people again for this purpose.
-Global and domain, hot. Default `1`. An integer from 1 to 1000000.
-
 <a id="consent.analytics.text"></a>
 ### Consent text of analytics (`consent.analytics.text`)
 Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characters each. Empty uses the built-in text.
@@ -3978,12 +3875,6 @@ Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characte
 <a id="consent.analyticsTag.basis"></a>
 ### Legal basis shown for the analytics tag (`consent.analyticsTag.basis`)
 Global and domain, hot. Default `consent`. One of `consent`, `legitimateInterest`, `contract`, `legalObligation`. Only `consent` makes the purpose wait for a yes; for the others it runs until the person withdraws.
-
-<a id="consent.analyticsTag.version"></a>
-### Consent text version of the analytics tag (`consent.analyticsTag.version`)
-
-**Saving this setting does not change behaviour.** The version is written on consent receipts. Raising it does not ask people again for this purpose.
-Global and domain, hot. Default `1`. An integer from 1 to 1000000.
 
 <a id="consent.analyticsTag.text"></a>
 ### Consent text of the analytics tag (`consent.analyticsTag.text`)
@@ -4029,12 +3920,6 @@ Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characte
 ### Legal basis shown for remote content (`consent.remoteContent.basis`)
 Global and domain, hot. Default `consent`. One of `consent`, `legitimateInterest`, `contract`, `legalObligation`. Only `consent` makes the purpose wait for a yes; for the others it runs until the person withdraws.
 
-<a id="consent.remoteContent.version"></a>
-### Consent text version of remote content (`consent.remoteContent.version`)
-
-**Saving this setting does not change behaviour.** The version is written on consent receipts. Raising it does not ask people again for this purpose.
-Global and domain, hot. Default `1`. An integer from 1 to 1000000.
-
 <a id="consent.remoteContent.text"></a>
 ### Consent text of remote content (`consent.remoteContent.text`)
 Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characters each. Empty uses the built-in text.
@@ -4054,12 +3939,6 @@ Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characte
 <a id="consent.telemetry.basis"></a>
 ### Legal basis shown for telemetry (`consent.telemetry.basis`)
 Global and domain, hot. Default `legitimateInterest`. One of `consent`, `legitimateInterest`, `contract`, `legalObligation`. Only `consent` makes the purpose wait for a yes; for the others it runs until the person withdraws.
-
-<a id="consent.telemetry.version"></a>
-### Consent text version of telemetry (`consent.telemetry.version`)
-
-**Saving this setting does not change behaviour.** The version is written on consent receipts. Raising it does not ask people again for this purpose.
-Global and domain, hot. Default `1`. An integer from 1 to 1000000.
 
 <a id="consent.telemetry.text"></a>
 ### Consent text of telemetry (`consent.telemetry.text`)
@@ -5118,7 +4997,6 @@ Every key in the settings registry, generated from the registry and checked agai
 | <a id="breach.auto.dsrexport.threshold"></a>[`breach.auto.dsrExport.threshold`](#breach.auto.dsrExport.threshold) | integer, 0 to 1000 | `0` | server |  | Applied by the server. |
 | [`restriction.enabled`](#restriction.enabled) | on or off | `true` | server, domain |  | Applied by the server. |
 | <a id="restriction.autoapplyonapproval"></a>[`restriction.autoApplyOnApproval`](#restriction.autoApplyOnApproval) | on or off | `true` | server, domain |  | Applied by the server. |
-| <a id="restriction.maildelivery"></a>[`restriction.mailDelivery`](#restriction.mailDelivery) | one of `keep`, `queue`, `reject` | `"keep"` | server, domain |  | **No behavioural effect.** The value is recorded on the restriction and shown to the person; the server does not receive mail, so nothing queues or rejects mail because of it. |
 | <a id="restriction.defaultexpirydays"></a>[`restriction.defaultExpiryDays`](#restriction.defaultExpiryDays) | integer, 0 to 3650 | `0` | server, domain |  | Applied by the server. |
 | <a id="restriction.notifyuser"></a>[`restriction.notifyUser`](#restriction.notifyUser) | on or off | `true` | server, domain |  | Applied by the server. |
 | [`restriction.scope.indexing`](#restriction.scope.indexing) | on or off | `true` | server, domain |  | Applied by the server. |
@@ -5131,10 +5009,8 @@ Every key in the settings registry, generated from the registry and checked agai
 | <a id="consent.receipts.retentiondays"></a>[`consent.receipts.retentionDays`](#consent.receipts.retentionDays) | integer, 0 to 3650 | `1825` | server |  | Applied by the server. |
 | [`consent.art22.notice`](#consent.art22.notice) | on or off | `true` | server, domain |  | Applied by the server and the web app. |
 | [`consent.analytics.basis`](#consent.analytics.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"consent"` | server, domain |  | Applied by the server and the web app. |
-| [`consent.analytics.version`](#consent.analytics.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | **No behavioural effect.** The version is written on consent receipts. Raising it does not ask people again for this purpose. |
 | [`consent.analytics.text`](#consent.analytics.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
 | <a id="consent.analyticstag.basis"></a>[`consent.analyticsTag.basis`](#consent.analyticsTag.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"consent"` | server, domain |  | Applied by the server and the web app. |
-| <a id="consent.analyticstag.version"></a>[`consent.analyticsTag.version`](#consent.analyticsTag.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | **No behavioural effect.** The version is written on consent receipts. Raising it does not ask people again for this purpose. |
 | <a id="consent.analyticstag.text"></a>[`consent.analyticsTag.text`](#consent.analyticsTag.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
 | [`consent.assistant.basis`](#consent.assistant.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"contract"` | server, domain |  | Applied by the server and the web app. |
 | [`consent.assistant.version`](#consent.assistant.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | Applied by the server. |
@@ -5146,13 +5022,11 @@ Every key in the settings registry, generated from the registry and checked agai
 | <a id="consent.opentracking.version"></a>[`consent.openTracking.version`](#consent.openTracking.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | Applied by the server. |
 | <a id="consent.opentracking.text"></a>[`consent.openTracking.text`](#consent.openTracking.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
 | <a id="consent.remotecontent.basis"></a>[`consent.remoteContent.basis`](#consent.remoteContent.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"consent"` | server, domain |  | Applied by the server and the web app. |
-| <a id="consent.remotecontent.version"></a>[`consent.remoteContent.version`](#consent.remoteContent.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | **No behavioural effect.** The version is written on consent receipts. Raising it does not ask people again for this purpose. |
 | <a id="consent.remotecontent.text"></a>[`consent.remoteContent.text`](#consent.remoteContent.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
 | [`consent.integrations.basis`](#consent.integrations.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"contract"` | server, domain |  | Applied by the server and the web app. |
 | [`consent.integrations.version`](#consent.integrations.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | Applied by the server. |
 | [`consent.integrations.text`](#consent.integrations.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
 | [`consent.telemetry.basis`](#consent.telemetry.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"legitimateInterest"` | server, domain |  | Applied by the server and the web app. |
-| [`consent.telemetry.version`](#consent.telemetry.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | **No behavioural effect.** The version is written on consent receipts. Raising it does not ask people again for this purpose. |
 | [`consent.telemetry.text`](#consent.telemetry.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
 | <a id="retention.sessions.idledays"></a>[`retention.sessions.idleDays`](#retention.sessions.idleDays) | integer, 0 to 3650 | `1095` | server |  | Applied by the server. |
 | [`retention.sweeper.enabled`](#retention.sweeper.enabled) | on or off | `true` | server |  | Applied by the server. |
@@ -5315,8 +5189,6 @@ Every key in the settings registry, generated from the registry and checked agai
 | [`cap.rules`](#cap.rules) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
 | [`cap.rules.forward`](#cap.rules.forward) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
 | [`cap.remote_images`](#cap.remote_images) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
-| [`cap.user_background`](#cap.user_background) | on or off | `false` | server, domain, one user (administrator only) |  | **No effect.** No part of the server or the web app checks this switch. |
-| [`cap.user_css`](#cap.user_css) | on or off | `false` | server, domain, one user (administrator only) |  | **No effect.** No part of the server or the web app checks this switch. |
 | [`cap.compose.rich_text`](#cap.compose.rich_text) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
 | [`cap.compose.attachments`](#cap.compose.attachments) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
 | [`cap.compose.share_links`](#cap.compose.share_links) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
@@ -5398,7 +5270,6 @@ Every key in the settings registry, generated from the registry and checked agai
 | <a id="privacy.imageresizeenabled"></a>[`privacy.imageResizeEnabled`](#privacy.imageResizeEnabled) | on or off | `false` | server |  | Applied by the server. |
 | <a id="privacy.imageresizemaxwidth"></a>[`privacy.imageResizeMaxWidth`](#privacy.imageResizeMaxWidth) | integer, 320 to 1600 | `1600` | server |  | Applied by the server and the web app. |
 | <a id="privacy.imageresizemaxpixels"></a>[`privacy.imageResizeMaxPixels`](#privacy.imageResizeMaxPixels) | integer, 100,000 to 64,000,000 | `4000000` | server |  | Applied by the server. |
-| <a id="privacy.imageresizeformat"></a>[`privacy.imageResizeFormat`](#privacy.imageResizeFormat) | one of `auto`, `png` | `"auto"` | server |  | **No effect.** Both values produce PNG output, so the choice changes nothing observable. |
 | <a id="privacy.imagelatencytracking"></a>[`privacy.imageLatencyTracking`](#privacy.imageLatencyTracking) | on or off | `true` | server |  | Applied by the server. |
 
 ### Sign-in keys
@@ -5445,8 +5316,6 @@ Every key in the settings registry, generated from the registry and checked agai
 |---|---|---|---|---|---|
 | <a id="server.shutdowngraceseconds"></a>[`server.shutdownGraceSeconds`](#server.shutdownGraceSeconds) | integer, 1 to 120 | `30` | server |  | Applied by the server. |
 | <a id="performance.preparedmail"></a>[`performance.preparedMail`](#performance.preparedMail) | object (see Prepared mail metadata cache) | `{"enabled":false,"budgetMiB":64,"maxEntries":256,"maxAccounts":128,"idleSeconds":30}` | server |  | Applied by the server. |
-| <a id="maintenance.announceminutesdefault"></a>[`maintenance.announceMinutesDefault`](#maintenance.announceMinutesDefault) | integer, 0 to 10,080 | `15` | server |  | **No effect.** No code reads it. |
-| <a id="maintenance.defaultmessage"></a>[`maintenance.defaultMessage`](#maintenance.defaultMessage) | object mapping an interface language code to text of up to 500 characters | `{}` | server |  | **No effect.** No code reads it. |
 
 ### Sieve keys
 
@@ -5835,8 +5704,6 @@ Every key in the settings registry, generated from the registry and checked agai
 | <a id="quota.warnthresholds"></a>[`quota.warnThresholds`](#quota.warnThresholds) | strictly increasing list of up to 5 integers, 1 to 100 | `[80,95]` | server, domain; per-user values are stored per address |  | Applied by the web app only. |
 | <a id="quota.warnenabled"></a>[`quota.warnEnabled`](#quota.warnEnabled) | on or off | `true` | server, domain; per-user values are stored per address |  | Applied by the web app only. |
 | <a id="usage.retentiondays"></a>[`usage.retentionDays`](#usage.retentionDays) | integer, 31 to 3650 | `730` | server |  | **No behavioural effect.** The value appears in the retention overview; nothing deletes usage counters when they pass it. |
-| <a id="usage.meterapi"></a>[`usage.meterApi`](#usage.meterApi) | on or off | `true` | server |  | **No effect.** No metering code reads it. |
-| <a id="usage.measureintervalhours"></a>[`usage.measureIntervalHours`](#usage.measureIntervalHours) | integer, 1 to 168 | `6` | server |  | **No effect.** No code reads it. |
 
 ### Plugins keys
 
@@ -5852,7 +5719,7 @@ Every key in the settings registry, generated from the registry and checked agai
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
 | <a id="import.maxmessages"></a>[`import.maxMessages`](#import.maxMessages) | integer, 1 to 80,000 | `20000` | server, domain |  | **No effect.** The import routes use fixed limits. |
-| <a id="import.maxmessagebytes"></a>[`import.maxMessageBytes`](#import.maxMessageBytes) | integer, 1 to 268,435,456 | `67108864` | server, domain |  | **No effect.** The import route uses a fixed limit of 64 MiB per message. |
+| <a id="import.maxmessagebytes"></a>[`import.maxMessageBytes`](#import.maxMessageBytes) | integer, 1 to 67,108,864 | `67108864` | server, domain |  | **No effect.** The import route uses a fixed limit of 64 MiB per message. |
 
 ### Webhooks keys
 
@@ -5872,8 +5739,6 @@ Every key in the settings registry, generated from the registry and checked agai
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
 | <a id="observability.errorforwardurl"></a>[`observability.errorForwardUrl`](#observability.errorForwardUrl) | https:// URL, up to 2048 characters; may be unset | `null` | server | `MW_ERROR_FORWARD_URL` (pin) | **No effect when saved.** Only `MW_ERROR_FORWARD_URL` is read. |
-| <a id="observability.otlpmetrics"></a>[`observability.otlpMetrics`](#observability.otlpMetrics) | on or off | `false` | server |  | **No effect.** No code reads it. |
-| <a id="metrics.drilldowntopn"></a>[`metrics.drilldownTopN`](#metrics.drilldownTopN) | integer, 1 to 1000 | `200` | server |  | **No effect.** No code reads it. |
 | <a id="metrics.defaultrangeseconds"></a>[`metrics.defaultRangeSeconds`](#metrics.defaultRangeSeconds) | integer, 60 to 34,560,000 | `3600` | server |  | Applied by the server. |
 | <a id="metrics.maxrangeseconds"></a>[`metrics.maxRangeSeconds`](#metrics.maxRangeSeconds) | integer, 3600 to 34,560,000 | `2592000` | server |  | Applied by the server. |
 | <a id="metrics.rollupdays"></a>[`metrics.rollupDays`](#metrics.rollupDays) | integer, 1 to 1095 | `1095` | server |  | Applied by the server. |
@@ -5922,15 +5787,11 @@ Every key in the settings registry, generated from the registry and checked agai
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| [`updates.check`](#updates.check) | one of `off`, `notify` | `"off"` | server |  | **No effect.** No update check exists. |
-| <a id="updates.feedurl"></a>[`updates.feedUrl`](#updates.feedUrl) | https:// URL, up to 2048 characters | `"https://api.github.com/repos/supermarsx/mailwoman/releases"` | server |  | **No effect.** No code reads it. |
-| [`updates.apply`](#updates.apply) | one of `disabled`, `agent` | `"disabled"` | server |  | **No effect.** No code reads it. |
 
 ### Backups keys
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| <a id="backup.retentioncount"></a>[`backup.retentionCount`](#backup.retentionCount) | integer, 1 to 365 | `7` | server |  | **No effect.** Nothing prunes backups by this count. |
 
 ### About keys
 
@@ -5944,13 +5805,11 @@ Every key in the settings registry, generated from the registry and checked agai
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| <a id="config.snapshotskept"></a>[`config.snapshotsKept`](#config.snapshotsKept) | integer, 1 to 500 | `20` | server |  | **No effect.** No code reads it. |
 
 ### Jobs keys
 
 | Key | Type | Default | Set at | Environment | Effect |
 |---|---|---|---|---|---|
-| <a id="jobs.historydays"></a>[`jobs.historyDays`](#jobs.historyDays) | integer, 1 to 365 | `30` | server |  | **No effect.** No code reads it. |
 
 ### Health checks keys
 

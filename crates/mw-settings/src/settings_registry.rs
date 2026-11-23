@@ -463,6 +463,34 @@ use Scopes::{
     Global as G, GlobalDomain as GD, GlobalDomainAdminUser as GDA, GlobalDomainUser as GDU,
 };
 
+/// Keys that were registered once and were removed because no feature reads
+/// them (t48). A row stored under one of these is left in place and ignored:
+/// settings reads walk [`REGISTRY`], so the row is not listed, exported or used.
+/// Listed in docs/deploy/upgrade-notes so administrators know which saved values
+/// no longer appear.
+pub const REMOVED_KEYS: &[&str] = &[
+    "cap.user_css",
+    "cap.user_background",
+    "updates.check",
+    "updates.feedUrl",
+    "updates.apply",
+    "backup.retentionCount",
+    "config.snapshotsKept",
+    "maintenance.announceMinutesDefault",
+    "maintenance.defaultMessage",
+    "observability.otlpMetrics",
+    "usage.meterApi",
+    "usage.measureIntervalHours",
+    "privacy.imageResizeFormat",
+    "restriction.mailDelivery",
+    "consent.analytics.version",
+    "consent.analyticsTag.version",
+    "consent.remoteContent.version",
+    "consent.telemetry.version",
+    "jobs.historyDays",
+    "metrics.drilldownTopN",
+];
+
 /// Every registered key. Order is the admin screen's order within a category.
 pub static REGISTRY: &[SettingDef] = &[
     def!(
@@ -1145,22 +1173,6 @@ pub static REGISTRY: &[SettingDef] = &[
         GDA,
         "features",
         "Remote images"
-    ),
-    def!(
-        "cap.user_background",
-        Kind::Bool,
-        "false",
-        GDA,
-        "features",
-        "Custom background"
-    ),
-    def!(
-        "cap.user_css",
-        Kind::Bool,
-        "false",
-        GDA,
-        "features",
-        "Custom CSS"
     ),
     def!(
         "cap.compose.rich_text",
@@ -1916,14 +1928,6 @@ pub static REGISTRY: &[SettingDef] = &[
         G,
         "imageProxy",
         "Largest decoded image, in pixels, the resize will touch; a larger one is served unscaled (checked from the image header before any pixel is decoded)"
-    ),
-    def!(
-        "privacy.imageResizeFormat",
-        Kind::Enum(&["auto", "png"]),
-        "\"auto\"",
-        G,
-        "imageProxy",
-        "Format of a resized image; auto picks the best encoder in the build, which is PNG (there is no lossy WebP encoder)"
     ),
     def!(
         "privacy.negativeCacheTtlSecs",
@@ -6202,22 +6206,6 @@ pub static REGISTRY: &[SettingDef] = &[
         "limits",
         "usage counter pruning"
     ),
-    def!(
-        "usage.meterApi",
-        Kind::Bool,
-        "true",
-        G,
-        "limits",
-        "API usage counters"
-    ),
-    def!(
-        "usage.measureIntervalHours",
-        int(1, 168),
-        "6",
-        G,
-        "limits",
-        "storage measurer interval"
-    ),
     // ── Tunables (e70c) ──────────────────────────────────────────────────────
     pin(
         def!(
@@ -6284,11 +6272,11 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "import.maxMessageBytes",
-        int(1, 268_435_456),
+        int(1, 67_108_864),
         "67108864",
         GD,
         "import",
-        "import message size (import_routes.rs)"
+        "import message size (also the request limit)"
     ),
     def!(
         "webhooks.maxAttempts",
@@ -6441,38 +6429,6 @@ pub static REGISTRY: &[SettingDef] = &[
         "push quiet hours, UTC"
     )),
     // ── Operations (e72, e78, e79, e73a, e83, e70a) ──────────────────────────
-    def!(
-        "updates.check",
-        Kind::Enum(&["off", "notify"]),
-        "\"off\"",
-        G,
-        "updates",
-        "daily update check"
-    ),
-    def!(
-        "updates.feedUrl",
-        text(Text::HttpsUrl, 2048),
-        "\"https://api.github.com/repos/supermarsx/mailwoman/releases\"",
-        G,
-        "updates",
-        "release feed"
-    ),
-    def!(
-        "updates.apply",
-        Kind::Enum(&["disabled", "agent"]),
-        "\"disabled\"",
-        G,
-        "updates",
-        "update apply through the host agent"
-    ),
-    def!(
-        "backup.retentionCount",
-        int(1, 365),
-        "7",
-        G,
-        "backups",
-        "SQLite backups kept"
-    ),
     nullable(def!(
         "about.securityContact",
         text(Text::Contact, 320),
@@ -6498,60 +6454,12 @@ pub static REGISTRY: &[SettingDef] = &[
         "About screen links"
     ),
     def!(
-        "config.snapshotsKept",
-        int(1, 500),
-        "20",
-        G,
-        "config",
-        "configuration snapshots kept"
-    ),
-    def!(
-        "jobs.historyDays",
-        int(1, 365),
-        "30",
-        G,
-        "jobs",
-        "job run history"
-    ),
-    def!(
-        "maintenance.announceMinutesDefault",
-        int(0, 10_080),
-        "15",
-        G,
-        "maintenance",
-        "maintenance announcement lead time"
-    ),
-    def!(
-        "maintenance.defaultMessage",
-        Kind::LocaleMap { max: 500 },
-        "{}",
-        G,
-        "maintenance",
-        "maintenance banner text per locale"
-    ),
-    def!(
         "health.diskFreeMinPercent",
         int(1, 50),
         "5",
         G,
         "health",
         "/readyz disk free floor"
-    ),
-    def!(
-        "observability.otlpMetrics",
-        Kind::Bool,
-        "false",
-        G,
-        "observability",
-        "OTLP metrics export"
-    ),
-    def!(
-        "metrics.drilldownTopN",
-        int(1, 1000),
-        "200",
-        G,
-        "observability",
-        "metrics drill-down rows"
     ),
     def!(
         "metrics.defaultRangeSeconds",
@@ -7668,14 +7576,6 @@ pub static REGISTRY: &[SettingDef] = &[
         "restriction applied when a restriction request is approved"
     ),
     def!(
-        "restriction.mailDelivery",
-        Kind::Enum(&["keep", "queue", "reject"]),
-        "\"keep\"",
-        GD,
-        "privacy",
-        "new mail while restricted"
-    ),
-    def!(
         "restriction.defaultExpiryDays",
         int(0, 3650),
         "0",
@@ -7772,14 +7672,6 @@ pub static REGISTRY: &[SettingDef] = &[
         "legal basis shown for analytics"
     ),
     def!(
-        "consent.analytics.version",
-        int(1, 1000000),
-        "1",
-        GD,
-        "privacy",
-        "consent text version of analytics; raising it asks again"
-    ),
-    def!(
         "consent.analytics.text",
         Kind::LocaleMap { max: 2000 },
         "{}",
@@ -7794,14 +7686,6 @@ pub static REGISTRY: &[SettingDef] = &[
         GD,
         "privacy",
         "legal basis shown for analyticsTag"
-    ),
-    def!(
-        "consent.analyticsTag.version",
-        int(1, 1000000),
-        "1",
-        GD,
-        "privacy",
-        "consent text version of analyticsTag; raising it asks again"
     ),
     def!(
         "consent.analyticsTag.text",
@@ -7892,14 +7776,6 @@ pub static REGISTRY: &[SettingDef] = &[
         "legal basis shown for remoteContent"
     ),
     def!(
-        "consent.remoteContent.version",
-        int(1, 1000000),
-        "1",
-        GD,
-        "privacy",
-        "consent text version of remoteContent; raising it asks again"
-    ),
-    def!(
         "consent.remoteContent.text",
         Kind::LocaleMap { max: 2000 },
         "{}",
@@ -7938,14 +7814,6 @@ pub static REGISTRY: &[SettingDef] = &[
         GD,
         "privacy",
         "legal basis shown for telemetry"
-    ),
-    def!(
-        "consent.telemetry.version",
-        int(1, 1000000),
-        "1",
-        GD,
-        "privacy",
-        "consent text version of telemetry; raising it asks again"
     ),
     def!(
         "consent.telemetry.text",
@@ -10516,8 +10384,6 @@ mod tests {
             "quota.warnThresholds",
             "quota.warnEnabled",
             "usage.retentionDays",
-            "usage.meterApi",
-            "usage.measureIntervalHours",
             "assistant.rateLimitPerMin",
             "plugins.kv.maxKeyBytes",
             "import.maxMessages",
@@ -10536,20 +10402,10 @@ mod tests {
             "twofa.maxAttempts",
             "admin.session.idleSecs",
             "admin.session.absoluteSecs",
-            "updates.check",
-            "updates.feedUrl",
-            "updates.apply",
-            "backup.retentionCount",
             "about.securityContact",
             "about.securityPolicyUrl",
             "about.projectLinks",
-            "config.snapshotsKept",
-            "jobs.historyDays",
-            "maintenance.announceMinutesDefault",
-            "maintenance.defaultMessage",
             "health.diskFreeMinPercent",
-            "observability.otlpMetrics",
-            "metrics.drilldownTopN",
             "metrics.rollupDays",
             "diagnostics.retentionDays",
             "dataExport.linkHours",
@@ -10565,6 +10421,10 @@ mod tests {
         // Dropped by the t32-q amendment.
         assert!(lookup("quota.defaultBytes").is_none());
         assert!(lookup("quota.defaultMessages").is_none());
+        // Dropped by t48: no feature behind them (see REMOVED_KEYS).
+        for key in REMOVED_KEYS {
+            assert!(lookup(key).is_none(), "{key} was removed");
+        }
         // A family id must be a slug.
         assert!(lookup("serverText.").is_none());
         assert!(lookup("serverText.Bad Id").is_none());
@@ -11022,7 +10882,7 @@ mod tests {
                 .as_deref(),
             Some("/v/1")
         );
-        let d = lookup("maintenance.defaultMessage").unwrap();
+        let d = lookup("dsr.text.intro").unwrap();
         assert!(
             validate(
                 d,

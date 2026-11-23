@@ -61,9 +61,7 @@ If the stored setting cannot be read, the server refuses user requests as if mai
 | **Message for users** | Text shown to people who are turned away; at most 1,000 characters. | Empty (standard message) | Same |
 | **Suggested retry delay (seconds)** | The `Retry-After` value, 1 to 86400. | 300 | Same |
 
-### Settings that have no effect
-
-The registry has [`maintenance.announceMinutesDefault`](/admin/settings#maintenance.announceminutesdefault) (maintenance announcement lead time, default 15) and [`maintenance.defaultMessage`](/admin/settings#maintenance.defaultmessage) (maintenance banner text per language). They can be saved but nothing reads them: there is no announcement before maintenance mode starts, and the message above is the only text people see.
+There is no announcement before maintenance mode starts, and the **Message for users** above is the only text people see.
 
 ## Troubleshooting
 
