@@ -11,6 +11,7 @@ To see which release you run, check the image tag or run `mailwoman --version`.
 - [The admin console answers only at its configured path](admin-console-path.md).
 - [Feature profiles cover every gateable feature](feature-profiles-everywhere.md).
 - [deploy.sh files and admin variables](deploy-script-and-environment.md): older `deploy.env`/`app.env` files, and `MW_ADMIN_*` variables that now stop the start.
+- [Single sign-on provider settings and SAML signatures](sso-provider-settings.md): re-enter providers saved from the console, and review past SAML sign-ins if a provider accepted unsigned responses.
 
 ## 26.19
 
