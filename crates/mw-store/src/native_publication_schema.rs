@@ -3,6 +3,14 @@
 //! installed definitions before any prepared inputs can be reused under it.
 use super::*;
 const SQLITE_SQL: &str = concat!(
+    // t34 (review N1): the settings-revision triggers. The bounded guard
+    // snapshot reuses settings-derived values (session-watch preferences) while
+    // the revision is unchanged, so a dropped one must disqualify published
+    // inputs instead of leaving those values silently stale. SQLite only: the
+    // snapshot is inert on PostgreSQL, whose 0078 statement-level triggers and
+    // unpinned function do not fit this validator.
+    include_str!("../migrations/0078_settings_revision.sql"),
+    "\n",
     include_str!("../migrations/0111_authority_publication.sql"),
     "\n",
     include_str!("../migrations/0112_authority_subject_anchor.sql"),

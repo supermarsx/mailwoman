@@ -176,20 +176,32 @@ fn from_values(b:&sec_cfg::Values,t:&sec_cfg::Values,a:&sec_cfg::Values)->Config
 
 // ─── t34 bounded guard snapshot: per-request settings reads ─────────────────
 //
-// With `MW_GUARD_SNAPSHOT=bounded` (SQLite, live mirror) the settings that
-// [`alerts::user_prefs`] and [`crate::geo_lookup::session_alerts_on_failure`]
-// read on a request are reused while `EpochMirror::globals_unchanged(G)` holds,
-// `G` stamped strictly before the reads. Every input of those reads is behind
-// the settings revision: setting_policy / setting_value / personal_setting_value
-// / user_group* / feature_profile* / domain_alias (0078) and the account's
-// sign-in address in `signin_identity` (0117). A revision change reaches the
-// mirror through the 0115 change log; a local write through HTTP expedites the
-// mirror (request layer). Per-request inputs (client address, user agent,
-// client hints, country) are never cached here. Without a live mirror (mode
-// off, PostgreSQL, invalid configuration) the original readers run unchanged.
+// With `MW_GUARD_SNAPSHOT=bounded` (SQLite, live mirror) and the request on
+// published inputs, the settings rows that [`alerts::user_prefs`] and
+// [`crate::geo_lookup::session_alerts_on_failure`] read are reused while
+// `EpochMirror::globals_unchanged(G)` holds, `G` stamped strictly before the
+// reads. Those rows sit behind the settings revision (0078 triggers on
+// setting_policy / setting_value / personal_setting_value / user_group* /
+// feature_profile* / domain_alias / identity tables), which the 0115 change log
+// carries to the mirror; a local write through HTTP expedites the mirror
+// (request layer). The 0078 triggers are required definitions of published
+// inputs on SQLite, so a dropped one disqualifies published inputs and with it
+// this reuse.
+//
+// The settings subject is the account's sign-in address (`signin_identity`),
+// which has no trigger: it is read fresh on every request (one primary-key
+// read) and a cached entry is used only for the same account AND the same
+// address string, so a sign-in under another alias or letter case costs that
+// account one fresh resolution and touches nothing global.
+//
+// Per-request inputs (client address, user agent, client hints, country) are
+// never cached here. Without a live mirror or published inputs (mode off,
+// PostgreSQL, invalid configuration, unpublished request) the original readers
+// run unchanged.
 
-/// The alert-preference rows one account's request reads, as read.
+/// The alert-preference rows one account's request reads, as read for `address`.
 struct PrefInputs {
+    address: String,
     country_change: Option<crate::settings_registry::Effective>,
     channels: Option<crate::settings_registry::Effective>,
     sensitivity: Option<crate::settings_registry::Effective>,
@@ -206,21 +218,38 @@ fn geo_cache() -> &'static Mutex<HashMap<uuid::Uuid, Certified<bool>>> {
     C.get_or_init(Default::default)
 }
 
+/// The mirror, when this request may reuse settings rows: bounded mode on
+/// SQLite AND the request runs on published inputs (whose cold validation
+/// requires the settings-revision triggers).
+async fn reuse_mirror(state: &AppState) -> Option<std::sync::Arc<mw_store::authority_publication::mirror::EpochMirror>> {
+    let mirror = crate::request_inputs::snapshot::mirror(state)?;
+    crate::published_guard_context::current().await?;
+    Some(mirror)
+}
+
 /// [`alerts::user_prefs`] for the watch hot path.
 async fn alert_prefs(state: &AppState, account: &str) -> alerts::UserPrefs {
-    let Some(mirror) = crate::request_inputs::snapshot::mirror(state) else {
+    let Some(mirror) = reuse_mirror(state).await else {
         #[cfg(test)]
         test_control::record(|c| c.prefs_fresh += 1);
         return alerts::user_prefs(state, account).await;
     };
     // The administrator switches: the same process-wide reader user_prefs uses.
     let globals = sec_cfg::values(&state.store, "security.alerts.").await;
+    // The settings subject, fresh: no trigger covers it.
+    let Ok(address) = state.store.security_account_address(account).await else {
+        #[cfg(test)]
+        test_control::record(|c| c.prefs_fresh += 1);
+        return alerts::user_prefs(state, account).await;
+    };
+    let address = address.unwrap_or_default();
     let key = (state.store.cache_scope(), account.to_owned());
     let cached = prefs_cache()
         .lock()
         .ok()
         .and_then(|cache| cache.get(&key).cloned());
     if let Some((inputs, built)) = cached
+        && inputs.address == address
         && mirror.globals_unchanged(built)
     {
         #[cfg(test)]
@@ -229,9 +258,9 @@ async fn alert_prefs(state: &AppState, account: &str) -> alerts::UserPrefs {
     }
     #[cfg(test)]
     test_control::record(|c| c.prefs_fresh += 1);
-    // Strictly BEFORE the reads (EpochMirror correctness note).
+    // Strictly BEFORE the settings reads (EpochMirror correctness note).
     let built = mirror.stamp_gen();
-    let (inputs, complete) = pref_inputs(state, account).await;
+    let (inputs, complete) = pref_rows(state, account, address).await;
     let inputs = std::sync::Arc::new(inputs);
     if let (Some(built), true, Ok(mut cache)) = (built, complete, prefs_cache().lock()) {
         if cache.len() >= PREFS_MAX && !cache.contains_key(&key) {
@@ -244,15 +273,17 @@ async fn alert_prefs(state: &AppState, account: &str) -> alerts::UserPrefs {
 
 /// The per-account reads of [`alerts::user_prefs`], in its order. `complete` is
 /// false when any read failed: such a result is used once, never cached.
+#[cfg(test)]
 async fn pref_inputs(state: &AppState, account: &str) -> (PrefInputs, bool) {
+    match state.store.security_account_address(account).await {
+        Ok(address) => pref_rows(state, account, address.unwrap_or_default()).await,
+        Err(_) => (pref_rows(state, account, String::new()).await.0, false),
+    }
+}
+
+/// The three settings lookups of [`alerts::user_prefs`] for `address`.
+async fn pref_rows(state: &AppState, account: &str, address: String) -> (PrefInputs, bool) {
     let mut complete = true;
-    let address = match state.store.security_account_address(account).await {
-        Ok(address) => address.unwrap_or_default(),
-        Err(_) => {
-            complete = false;
-            String::new()
-        }
-    };
     let subject = mw_store::settings_policy::SettingSubject {
         personal_owner: None,
         domain: address.rsplit_once('@').map_or("", |(_, d)| d),
@@ -272,6 +303,7 @@ async fn pref_inputs(state: &AppState, account: &str) -> (PrefInputs, bool) {
     }
     let [country_change, channels, sensitivity] = values;
     let inputs = PrefInputs {
+        address,
         country_change,
         channels,
         sensitivity,
@@ -309,7 +341,7 @@ fn fold_prefs(globals: &sec_cfg::Values, inputs: &PrefInputs) -> alerts::UserPre
 /// [`crate::geo_lookup::session_alerts_on_failure`] for the watch hot path
 /// (read on every request whose country cannot be told, e.g. no GeoIP database).
 async fn geo_failure_alerts(state: &AppState) -> bool {
-    let Some(mirror) = crate::request_inputs::snapshot::mirror(state) else {
+    let Some(mirror) = reuse_mirror(state).await else {
         return crate::geo_lookup::session_alerts_on_failure(state).await;
     };
     let key = state.store.cache_scope();

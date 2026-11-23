@@ -131,7 +131,7 @@ impl Fixture {
     }
     async fn raw(&self, sql: &str, binds: &[&str]) -> u64 {
         let options = mw_store::encryption::connect_options(&self.db, self.db_key.as_ref(), false);
-        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
+        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect_with(options.busy_timeout(Duration::from_secs(10))).await.unwrap();
         let mut query = sqlx::query(sql);
         for bind in binds {
             query = query.bind(*bind);
@@ -140,22 +140,33 @@ impl Fixture {
         pool.close().await;
         changed
     }
+    async fn scalar(&self, sql: &str) -> i64 {
+        let options = mw_store::encryption::connect_options(&self.db, self.db_key.as_ref(), false);
+        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect_with(options.busy_timeout(Duration::from_secs(10))).await.unwrap();
+        let value: i64 = sqlx::query_scalar(sql).fetch_one(&pool).await.unwrap();
+        pool.close().await;
+        value
+    }
     /// Runs one write and returns how much it moved the settings revision, read
     /// before and after it inside the same transaction (other writers in the
     /// fixture cannot interleave).
     async fn bumps(&self, sql: &str, binds: &[&str]) -> i64 {
         let options = mw_store::encryption::connect_options(&self.db, self.db_key.as_ref(), false);
-        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
-        let mut tx = pool.begin().await.unwrap();
+        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect_with(options.busy_timeout(Duration::from_secs(10))).await.unwrap();
+        // IMMEDIATE: take the write lock first (a deferred read-then-write can
+        // fail with SQLITE_BUSY without waiting).
+        let mut conn = pool.acquire().await.unwrap();
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await.unwrap();
         let revision = "SELECT n FROM settings_revision WHERE id=1";
-        let before: i64 = sqlx::query_scalar(revision).fetch_one(&mut *tx).await.unwrap();
+        let before: i64 = sqlx::query_scalar(revision).fetch_one(&mut *conn).await.unwrap();
         let mut query = sqlx::query(sql);
         for bind in binds {
             query = query.bind(*bind);
         }
-        assert_eq!(query.execute(&mut *tx).await.unwrap().rows_affected(), 1, "{sql}");
-        let after: i64 = sqlx::query_scalar(revision).fetch_one(&mut *tx).await.unwrap();
-        tx.commit().await.unwrap();
+        assert_eq!(query.execute(&mut *conn).await.unwrap().rows_affected(), 1, "{sql}");
+        let after: i64 = sqlx::query_scalar(revision).fetch_one(&mut *conn).await.unwrap();
+        sqlx::query("COMMIT").execute(&mut *conn).await.unwrap();
+        drop(conn);
         pool.close().await;
         after - before
     }
@@ -209,19 +220,20 @@ impl Fixture {
         .expect("mirror completes a poll");
         mirror
     }
-    /// Bounded requests until the watch issued no statement and (with
-    /// `settings`) reused its settings reads.
+    /// Bounded requests until the watch issued no statement other than the
+    /// sign-in address read and (with `settings`) reused its settings reads.
     async fn reusing(&self, peer: &str, agent: &str, mode: Mode, settings: bool) -> Sent {
         for _ in 0..400 {
             let reply = self.get(peer, agent, mode).await;
             assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
             let reused = reply.watch.prefs_reused + reply.watch.geo_reused > 0;
-            if reply.watch.reads == 0 && (reused || !settings) {
+            // A preference reuse still reads the sign-in address (1 PK read).
+            if reply.watch.reads == reply.watch.prefs_reused && (reused || !settings) {
                 return reply;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        panic!("bounded session watch never ran without statements");
+        panic!("bounded session watch never reached its warm statement count");
     }
 }
 
@@ -236,7 +248,7 @@ async fn detecting() -> Fixture {
 }
 
 #[test]
-fn bounded_warm_watch_issues_no_statements_and_off_mode_is_unchanged() {
+fn bounded_warm_watch_reads_only_the_sign_in_address_and_off_mode_is_unchanged() {
     run(|| async {
         let f = detecting().await;
         let state = f.ready().await;
@@ -253,7 +265,8 @@ fn bounded_warm_watch_issues_no_statements_and_off_mode_is_unchanged() {
         assert_eq!((off.watch.reads, off.watch.writes, off.watch.other), (5, 0, 0), "{:?}", off.watch);
         f.mirror(&state, SHORT).await;
         let hit = f.reusing(HOME, FIREFOX, SHORT, true).await;
-        assert_eq!((hit.watch.reads, hit.watch.writes, hit.watch.other), (0, 0, 0), "{:?}", hit.watch);
+        // The one statement left: the signin_identity primary-key read.
+        assert_eq!((hit.watch.reads, hit.watch.writes, hit.watch.other), (1, 0, 0), "{:?}", hit.watch);
         assert_eq!(hit.watch.prefs_reused, 1);
         assert_eq!(hit.body, off.body, "same reply");
         // Off mode after bounded mode in the same process: today's path again.
@@ -286,26 +299,32 @@ fn bounded_cached_preferences_follow_each_input_in_process_and_across_connection
             async move { snap::with_mode(SHORT, async { alert_prefs(&state, &account).await.sensitivity }).await }
         };
 
-        // 1. 0117: a sign-in that only refreshes seen_at for the same address
-        //    bumps nothing (no churn); an address or account change, an erasure
-        //    and a first sign-in bump the settings revision.
+        // 1. Sign-ins touch nothing global (0119 retired the 0117 triggers): no
+        //    trigger of any kind on signin_identity, so no settings revision and
+        //    no authority epoch moves, whatever the address looks like. Other
+        //    accounts' cached preferences and every published entry depend only
+        //    on those, so they stay valid.
+        let triggers = "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name='signin_identity'";
+        assert_eq!(f.scalar(triggers).await, 0, "no trigger on signin_identity");
         let id = f.account.clone();
-        assert_eq!(f.bumps("UPDATE signin_identity SET seen_at=seen_at+1,event_id='e2' WHERE account_id=?1", &[&id]).await, 0,
-            "same address: no revision bump");
-        assert_eq!(f.bumps("UPDATE signin_identity SET address='renamed@watch-snapshot.test' WHERE account_id=?1", &[&id]).await, 1,
-            "address change bumps the settings revision");
-        // Cross connection, after one complete poll: the cached rows are not used.
-        mirror.poll_now().await.unwrap();
+        for (sql, binds) in [
+            ("UPDATE signin_identity SET seen_at=seen_at+1,event_id='e2' WHERE account_id=?1", vec![id.as_str()]),
+            ("UPDATE signin_identity SET address=upper(address) WHERE account_id=?1", vec![id.as_str()]),
+            ("UPDATE signin_identity SET address='alias@watch-snapshot.test' WHERE account_id=?1", vec![id.as_str()]),
+            ("DELETE FROM signin_identity WHERE account_id=?1", vec![id.as_str()]),
+            ("INSERT INTO signin_identity(account_id,address,seen_at,event_id) VALUES(?1,?2,9,'e9')", vec![id.as_str(), USER]),
+        ] {
+            assert_eq!(f.bumps(sql, &binds).await, 0, "{sql}");
+        }
+        // 2. The account's own address change takes effect on its very next
+        //    request (fresh address read), cross connection, no poll, no wait.
+        f.reusing(HOME, FIREFOX, SHORT, true).await;
+        assert_eq!(f.bumps("UPDATE signin_identity SET address=upper(address) WHERE account_id=?1", &[&id]).await, 0);
         let moved = f.get(HOME, FIREFOX, SHORT).await;
         assert_eq!((moved.watch.prefs_fresh, moved.watch.prefs_reused), (1, 0), "{:?}", moved.watch);
-        assert_eq!(f.bumps("DELETE FROM signin_identity WHERE account_id=?1", &[&id]).await, 1, "erasure bumps");
-        assert_eq!(f.bumps("INSERT INTO signin_identity(account_id,address,seen_at,event_id) VALUES(?1,?2,1,'e3')", &[&id, USER]).await, 1,
-            "first sign-in bumps");
-        assert_eq!(f.bumps("UPDATE signin_identity SET account_id='other-account' WHERE account_id=?1", &[&id]).await, 1,
-            "account change bumps");
-        assert_eq!(f.bumps("UPDATE signin_identity SET account_id=?1 WHERE account_id='other-account'", &[&id]).await, 1);
+        let _ = &mirror;
 
-        // 2. Cross-connection policy change, no manual poll: within the bound.
+        // 3. Cross-connection policy change, no manual poll: within the bound.
         f.reusing(HOME, FIREFOX, SHORT, true).await;
         policy(&f.writer, "security.alerts.sensitivity", serde_json::json!("low")).await;
         tokio::time::sleep(Duration::from_millis(150)).await;
@@ -313,7 +332,7 @@ fn bounded_cached_preferences_follow_each_input_in_process_and_across_connection
         assert_eq!((low.watch.prefs_fresh, low.watch.prefs_reused), (1, 0), "{:?}", low.watch);
         assert_eq!(sensitivity().await, theft::Sensitivity::Low);
 
-        // 3. In-process write: the request layer expedites after a write
+        // 4. In-process write: the request layer expedites after a write
         //    request; here the store write plus that same expedite call. The
         //    very next request reads fresh, with no poll and no wait.
         f.reusing(HOME, FIREFOX, SHORT, true).await;
@@ -367,6 +386,29 @@ fn theft_watch_revocation_expedites_and_the_next_request_is_refused() {
         let again = f.get(HOME, CHROME, LONG).await;
         assert_eq!(again.status, StatusCode::UNAUTHORIZED, "{}", again.body);
         assert_eq!(state.store.get_setting(&state_key(&hash)).await.unwrap(), None);
+    });
+}
+
+/// Review N1: the settings-revision triggers are required definitions of
+/// published inputs on SQLite, so with one dropped the watch never reuses
+/// settings rows (they would otherwise go stale until restart).
+#[test]
+fn a_dropped_settings_revision_trigger_disables_preference_reuse() {
+    run(|| async {
+        let f = detecting().await;
+        let state = f.ready().await;
+        f.mirror(&state, SHORT).await;
+        f.reusing(HOME, FIREFOX, SHORT, true).await;
+        f.raw("DROP TRIGGER settings_revision_setting_policy_update", &[]).await;
+        // Long enough for the worker to rebuild the entry after the schema change
+        // (which, without the required definition, it would publish again).
+        let mut reused = 0;
+        for _ in 0..80 {
+            let reply = f.get(HOME, FIREFOX, SHORT).await;
+            reused += reply.watch.prefs_reused;
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert_eq!(reused, 0, "no preference reuse without the settings-revision trigger");
     });
 }
 
@@ -535,6 +577,7 @@ fn postgres_watch_is_inert_in_bounded_mode() {
         eprintln!("[session_watch] MW_TEST_PG unset: Postgres leg not run");
         return;
     };
+    let pg = url.clone();
     run(move || async move {
         let (router, _) = crate::build_app_inner(
             crate::AppConfig {
@@ -569,5 +612,21 @@ fn postgres_watch_is_inert_in_bounded_mode() {
             assert!(crate::request_inputs::snapshot::mirror(&state).is_none(), "inert on PostgreSQL");
             assert_eq!(watch.prefs_reused + watch.geo_reused, 0);
         }
+        let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&pg).await.unwrap();
+        let triggers: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid WHERE c.relname='signin_identity' AND NOT t.tgisinternal")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(triggers, 0, "0119 dropped every signin_identity trigger");
+        let mut tx = pool.begin().await.unwrap();
+        let revision = "SELECT n FROM settings_revision WHERE id=1";
+        let before: i64 = sqlx::query_scalar(revision).fetch_one(&mut *tx).await.unwrap();
+        for address in ["pg@watch.test", "PG@watch.test", "alias@watch.test"] {
+            sqlx::query("INSERT INTO signin_identity(account_id,address,seen_at,event_id) VALUES('e13-pg',$1,1,'e') ON CONFLICT(account_id) DO UPDATE SET address=excluded.address")
+                .bind(address).execute(&mut *tx).await.unwrap();
+        }
+        sqlx::query("DELETE FROM signin_identity WHERE account_id='e13-pg'").execute(&mut *tx).await.unwrap();
+        let after: i64 = sqlx::query_scalar(revision).fetch_one(&mut *tx).await.unwrap();
+        tx.rollback().await.unwrap();
+        assert_eq!(after, before, "sign-in writes never move the settings revision");
+        pool.close().await;
     });
 }
