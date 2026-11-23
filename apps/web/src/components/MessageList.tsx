@@ -26,7 +26,7 @@ import { messageTimeZone } from './TimeHelpers.tsx';
 import { useActions } from '../keymap/index.ts';
 import {modifierSelectionEnabled,dragToFolderEnabled} from './mailInteractions.ts';
 import {beginMessageDrag,clearMessageDrag} from './messageDrag.ts';
-import { projectedRowCount, sameWindow, splitWindow } from './virtual.ts';
+import { computeWindow, projectedRowCount, sameWindow, splitWindow } from './virtual.ts';
 import { observeListViewport, viewportNeedsPage } from './listViewport.ts';
 import { TagChips } from './TagChips.tsx';
 import { EventHint } from './EventHint.tsx';
@@ -473,6 +473,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   createEffect(on(()=>props.selectionReset?.()??0,()=>setSelecting(false),{defer:true}));
   createEffect(()=>{app.accountId();app.selectedMailboxId();setSelecting(false);});
   const [scrollTop, setScrollTop] = createSignal(0);
+  const [autoFillPaused, setAutoFillPaused] = createSignal(false);
   // jsdom reports 0 for clientHeight; fall back to a sane viewport so tests
   // (and first paint before layout) still mount a window of rows.
   const [viewportH, setViewportH] = createSignal(600);
@@ -492,26 +493,29 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   // The FLAT list folded into visual rows (singletons + conversation heads/members).
   const grouping=createMemo(()=>groupMessageRows(visibleRows(app.listMessages()) as Email[],expanded(),order.group(),rowHeight(),messageTimeZone(),conversationsEnabled()));
   const rows=()=>grouping().rows;
-  const rowTop=(index:number)=>groupedRowTop(grouping(),index,rowHeight());
-  const indexAt=(top:number)=>groupedIndexAt(grouping(),top,rowHeight());
+  const rangeOffset=()=>Math.max(0,app.loadedRange().start);
+  const directPaging=()=>order.group()==='none'&&!conversationsEnabled();
+  const rowTop=(index:number)=>rangeOffset()*rowHeight()+groupedRowTop(grouping(),index,rowHeight());
+  const indexAt=(top:number)=>groupedIndexAt(grouping(),Math.max(0,top-rangeOffset()*rowHeight()),rowHeight());
   // How many slots the list spans: the loaded rows plus the query's unfetched
   // tail. This is what makes the scrollbar and `aria-setsize` describe the FOLDER
   // rather than the page — before paging they described `rows().length`, so a
   // 20 000-message folder announced "1 of 50" behind a 3 600px scrollbar.
-  const spanRows = createMemo(() => app.loadMoreFailed?.() === true ? rows().length : projectedRowCount(rows().length, app.total(), app.loadedRange().end));
+  const spanRows = createMemo(() => rangeOffset()+(app.loadMoreFailed?.() === true ? rows().length : projectedRowCount(rows().length, app.total(), app.loadedRange().end)));
   // An unknown query total stays unknown. Reserve only one viewport of
-  // decorative loading space while its next page is actually in flight.
-  const loadingTail=()=>app.total()===null&&app.loadingMore()?Math.ceil(viewportH()/rowHeight()):0;
+  // continuation space while more may exist. Keeping it between requests
+  // avoids repeatedly shrinking and growing the scrollbar during paging.
+  const loadingTail=()=>app.total()===null&&app.hasMore()&&!autoFillPaused()&&app.loadMoreFailed?.()!==true?Math.ceil(viewportH()/rowHeight()):0;
   // `computeWindow` returns a fresh object every call, so without a comparator
   // this memo notifies on every scroll EVENT — including the many that leave
   // the mounted slice unchanged — and rebuilt the whole window each time.
   const win = createMemo(
-    () => groupedWindow(grouping(),scrollTop(),viewportH(),rowHeight(),spanRows()+loadingTail()),
+    () => directPaging()?computeWindow(scrollTop(),viewportH(),rowHeight(),spanRows()+loadingTail()):groupedWindow(grouping(),scrollTop(),viewportH(),rowHeight(),spanRows()+loadingTail()),
     undefined,
     { equals: sameWindow },
   );
   // Which of the mounted slots have rows and which are still pending.
-  const split = createMemo(() => splitWindow(win(), rows().length));
+  const split = createMemo(() => splitWindow({...win(),startIndex:Math.max(0,win().startIndex-rangeOffset()),endIndex:Math.max(0,win().endIndex-rangeOffset())}, rows().length));
 
   // ── selection over visual rows (t28-e16) ────────────────────────────────
   // A conversation's messages, by thread key, so a head row (collapsed or not)
@@ -685,7 +689,6 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   const pagingScope = (): string => JSON.stringify([app.accountId(),preferenceAccount()?.generation,app.selectedMailboxId(),app.searchActive(),app.search?.(),settings()['mail.messageListOrder']?.value,order.group(),messageTimeZone()]);
   let lastPageExtent: string | undefined;
   let pagingDisposed = false;
-  const [autoFillPaused, setAutoFillPaused] = createSignal(false);
   let noVisualProgress = 0;
   let autoRequest: { scope: string } | undefined;
   // A pause must survive layout changes caused by its own continuation button.
@@ -693,7 +696,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   onCleanup(() => { pagingDisposed = true; });
   function maybeLoadMore(prefetch = false): void {
     const scope = pagingScope();
-    if (pagingDisposed || autoFillPaused() || autoRequest?.scope === scope || !app.online() || !app.hasMore() || app.loadingMore() || app.listLoading() || app.loadMoreFailed?.() === true) return;
+    if (pagingDisposed || autoFillPaused() || autoRequest?.scope === scope || !app.online() || app.loadingMore() || app.listLoading() || app.loadMoreFailed?.() === true) return;
     const host = scroller ?? listHost;
     // Hidden retained lists have no viewport to fill, including scroll events
     // delivered by a layout change while the list is hidden.
@@ -701,7 +704,16 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     // A replacement folder can mount before ResizeObserver delivers its first
     // notification; never fill it using the previous folder's container height.
     const height = scroller?.clientHeight || viewportH();
-    if (!(prefetch ? win().endIndex >= rows().length - LOAD_MORE_SLACK : (order.group()==='none'?viewportNeedsPage(scrollTop(),height,rowHeight(),rows().length):win().endIndex>=rows().length))) return;
+    const first=Math.floor(Math.max(0,scrollTop())/rowHeight());
+    const visible=Math.ceil(height/rowHeight()),buffer=Math.max(LOAD_MORE_SLACK,visible*2);
+    // A long scrollbar jump fetches the visible window directly instead of
+    // walking every intervening page. Grouped/conversation rows retain their
+    // sequential mapping because their visual offsets differ from query IDs.
+    const jump=directPaging()&&(first<rangeOffset()||first>=rangeOffset()+rows().length+visible);
+    if(!jump&&!app.hasMore())return;
+    if (!jump&&!(prefetch ? win().endIndex >= rangeOffset()+rows().length - buffer : (order.group()==='none'?viewportNeedsPage(Math.max(0,scrollTop()-rangeOffset()*rowHeight()),height,rowHeight(),rows().length):win().endIndex>=rows().length))) return;
+    const size=Math.max(50,Math.min(200,visible*3));
+    const page=jump?{position:Math.max(0,first-Math.min(6,visible)),limit:size}:{limit:size};
     const extent = JSON.stringify([pagingScope(),app.loadedRange(),rows().length]);
     // State normally exhausts a no-progress page. Also avoid reissuing the same
     // automatic continuation if a transport refuses it without changing state.
@@ -709,12 +721,20 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     lastPageExtent = extent;
     const request = { scope }, before = rows().length;
     autoRequest = request;
-    void app.loadMore().finally(() => {
+    const heldScroll=scroller?.scrollTop,heldIndex=indexAt(heldScroll??0),heldRow=rows()[heldIndex];
+    const heldId=heldRow?rowId(heldRow):undefined,heldTop=rowTop(heldIndex);
+    void app.loadMore(page).finally(() => {
       if (pagingDisposed || pagingScope() !== scope || autoRequest !== request) return;
+      // Expanding a conversation above the viewport must not push the row
+      // being read away. Do not undo a scroll gesture made during the fetch.
+      if(!jump&&scroller&&scroller.scrollTop===heldScroll&&heldId){
+        const index=rows().findIndex(row=>rowId(row)===heldId);
+        if(index>=0){const delta=rowTop(index)-heldTop;if(delta){scroller.scrollTop+=delta;setScrollTop(scroller.scrollTop);}}
+      }
       // New messages can fold into the same collapsed conversation or remain
       // hidden. Four pages without visual growth are enough for one automatic
       // fill; leave the next continuation to an explicit user action.
-      noVisualProgress = rows().length > before ? 0 : noVisualProgress + 1;
+      noVisualProgress = jump||rows().length > before ? 0 : noVisualProgress + 1;
       if (noVisualProgress >= 4) setAutoFillPaused(true);
       autoRequest = undefined;
       queueMicrotask(() => { if (!pagingDisposed && pagingScope() === scope) maybeLoadMore(); });
@@ -943,9 +963,8 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   // The mounted slots with no row yet, as absolute indices. Plain numbers so
   // `<For>` reconciles them by value and reuses the slot elements a scroll keeps.
   const pendingSlots = createMemo(() => {
-    const s = split();
     const out: number[] = [];
-    for (let i = s.pendingStart; i < s.pendingEnd; i += 1) out.push(i);
+    for (let i=win().startIndex;i<win().endIndex;i++)if(i<rangeOffset()||i>=rangeOffset()+rows().length)out.push(i);
     return out;
   });
 
@@ -1008,7 +1027,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
               <For each={pendingSlots()}>
                 {(index) => (
                   <PlaceholderRow
-                    top={rowTop(index)}
+                    top={directPaging()?index*rowHeight():rowTop(index)}
                     height={rowHeight()}
                     index={index}
                     total={app.total()===null?null:spanRows()}

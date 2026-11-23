@@ -123,3 +123,27 @@ it('ignores a queued initial measurement after observer disposal', async () => {
   const element = document.createElement('div'); element.className = 'list__scroll'; const changed = vi.fn();
   const stop = observeListViewport(element, changed); stop(); await flush(); window.dispatchEvent(new Event('resize')); expect(changed).not.toHaveBeenCalled();
 });
+it('fetches the visible range first after a long scroll jump without walking intervening pages or moving the viewport',async()=>{
+ const {app,calls,result}=await mount(10000);
+ const scroller=result.container.querySelector<HTMLElement>('.list__scroll')!;
+ const before=calls.length;scroller.scrollTop=5000*72;fireEvent.scroll(scroller);
+ await waitFor(()=>expect(app.loadedRange().start).toBeGreaterThan(4900));
+ await waitFor(()=>expect(result.container.querySelector('[data-email-id="inbox-5000"]')).not.toBeNull());
+ expect(calls.slice(before).every(call=>call.position>4900)).toBe(true);
+ expect(calls.slice(before).length).toBeLessThan(5);
+ expect(scroller.scrollTop).toBe(5000*72);
+ expect(app.total()).toBe(10000);
+});
+it('keeps overlapping row elements and spacer height stable while appending older mail',async()=>{
+ const state=await mount(200,{held:true});
+ const scroller=state.result.container.querySelector<HTMLElement>('.list__scroll')!;
+ const row=state.result.container.querySelector('[data-email-id="inbox-10"]');
+ const span=state.result.container.querySelector<HTMLElement>('.list__items')!.style.height;
+ scroller.scrollTop=500;fireEvent.scroll(scroller);
+ await waitFor(()=>expect(state.app.loadingMore()).toBe(true));
+ expect(state.result.container.querySelector('[data-email-id="inbox-10"]')).toBe(row);
+ state.release();await waitFor(()=>expect(state.app.loadingMore()).toBe(false));
+ expect(state.result.container.querySelector('[data-email-id="inbox-10"]')).toBe(row);
+ expect(state.result.container.querySelector<HTMLElement>('.list__items')!.style.height).toBe(span);
+ expect(scroller.scrollTop).toBe(500);
+});

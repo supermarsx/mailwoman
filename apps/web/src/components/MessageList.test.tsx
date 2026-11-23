@@ -49,9 +49,10 @@ describe('MessageList (virtualized)', () => {
     const rows = result.container.querySelectorAll('.list__row');
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.length).toBeLessThan(40);
-    // The spacer still reflects the full list height so the scrollbar is honest.
+    // Unknown totals reserve at most one viewport of stable continuation space.
     const items = result.container.querySelector('.list__items') as HTMLElement;
-    expect(items.style.height).toBe(`${5000 * 72}px`);
+    expect(Number.parseFloat(items.style.height)).toBeGreaterThanOrEqual(5000*72);
+    expect(Number.parseFloat(items.style.height)).toBeLessThanOrEqual(5000*72+window.innerHeight+72);
   });
 
   it('renders tag chips from the registry for a labeled message', async () => {

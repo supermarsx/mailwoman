@@ -524,7 +524,8 @@ describe('MessageList describes the folder, not the page (t22-e5b, L4)', () => {
 
     expect(app.total()).toBeNull();
     const items = container.querySelector('.list__items') as HTMLElement;
-    expect(items.style.height).toBe(`${200 * ROW}px`);
+    expect(Number.parseFloat(items.style.height)).toBeGreaterThanOrEqual(200*ROW);
+    expect(Number.parseFloat(items.style.height)).toBeLessThanOrEqual(200*ROW+window.innerHeight+ROW);
     expect(container.querySelectorAll('[aria-busy="true"]')).toHaveLength(0);
     const first = container.querySelector('.list__slot') as HTMLElement;
     expect(first.getAttribute('aria-setsize')).toBe('200');

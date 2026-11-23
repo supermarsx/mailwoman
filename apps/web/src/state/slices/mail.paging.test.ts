@@ -200,6 +200,21 @@ async function withServer(
 // ── message 51 ──────────────────────────────────────────────────────────────
 
 describe('paging — reaching past the first page', () => {
+
+  it('fetches a distant visible window directly, preserves the folder total, and can return from the end',async()=>{
+    const server=makeServer({inbox:corpus('inbox',10000)});
+    await withServer(server,async mail=>{
+      const before=server.listCalls('inbox').length;
+      await mail.loadMore({position:5000,limit:100});
+      expect(server.listCalls('inbox').length-before).toBe(1);
+      expect(server.listCalls('inbox').at(-1)?.position).toBe(5000);
+      expect(mail.loadedRange()).toEqual({start:5000,end:5050});
+      expect(mail.messages()[0]?.id).toBe('inbox-5001');expect(mail.total()).toBe(10000);
+      await mail.loadMore({position:9950,limit:100});expect(mail.hasMore()).toBe(false);
+      await mail.loadMore({position:0,limit:100});
+      expect(mail.loadedRange()).toEqual({start:0,end:50});expect(mail.messages()[0]?.id).toBe('inbox-1');expect(mail.hasMore()).toBe(true);
+    });
+  });
   it('reaches message 51 of a 120-message folder, which was unreachable at any scroll depth', async () => {
     const server = makeServer({ inbox: corpus('inbox', 120) });
     await withServer(server, async (mail) => {

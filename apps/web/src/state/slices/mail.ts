@@ -288,11 +288,12 @@ export interface MailSlice {
    */
   loadingMore: Accessor<boolean>;
   /**
-   * Fetch the next page of the current query and APPEND it. Safe to call from a
+   * Append the next page, or fetch a bounded visible window by query position.
+   * Existing rows remain until the replacement arrives. Safe to call from a
    * scroll handler: it is a no-op — with no signal written, so no row rebuild —
    * when a fetch is already in flight or the query is exhausted.
    */
-  loadMore(): Promise<void>;
+  loadMore(window?:{position?:number;limit?:number}): Promise<void>;
   /** True when the last older-messages page failed (after one automatic retry); the list shows a Retry row. */
   loadMoreFailed: Accessor<boolean>;
 
@@ -1956,23 +1957,27 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
   }
 
-  async function loadMore(): Promise<void> {
+  async function loadMore(requestedWindow?:{position?:number;limit?:number}): Promise<void> {
     const acct = accountId();
     const src = pageSource();
     // Every refusal below returns WITHOUT writing a signal, so a scroll that
     // cannot page costs nothing and rebuilds nothing.
     if (acct === null || src === null) return;
-    if (listLoading() || loadingMore() || !hasMore()) return;
+    const requestedPosition=requestedWindow?.position,knownCount=total();
+    const jump=requestedPosition!==undefined;
+    if(requestedPosition!==undefined&&(!Number.isSafeInteger(requestedPosition)||requestedPosition<0||(knownCount!==null&&requestedPosition>knownCount)))return;
+    if(requestedWindow?.limit!==undefined&&(!Number.isSafeInteger(requestedWindow.limit)||requestedWindow.limit<1))return;
+    if (listLoading() || loadingMore() || (!jump&&!hasMore())) return;
     clearTimeout(loadMoreRetryTimer);
-    const position = [...relocations.values()].some(move=>move.throughGeneration===null)?Math.max(loadedRange().end+hiddenRows,nextServerPosition):loadedRange().end+hiddenRows;
-    const size = pageSize();
+    const position = requestedPosition ?? ([...relocations.values()].some(move=>move.throughGeneration===null)?Math.max(loadedRange().end+hiddenRows,nextServerPosition):loadedRange().end+hiddenRows);
+    const size = Math.max(1,Math.min(pageSize(),Math.round(requestedWindow?.limit??pageSize())));
     const req = beginListRequest();
     setLoadingMore(true);
     setLoadMoreFailed(false);
     // Watchdog: a page request that never settles must not leave the skeleton up forever.
     const watchdog = setTimeout(() => { if (isCurrent(req)) inFlight?.abort(); }, 15_000);
     try {
-      const pageReq = pageRequest(acct, src, position, size, false);
+      const pageReq = pageRequest(acct, src, position, size, jump);
       let res = await jmapCall(pageReq, { signal: req.signal });
       if (!isCurrent(req)) return;
       res = await fillMissing(res, pageReq, req.signal);
@@ -1980,7 +1985,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       querySnapshot=captureQuery(pageReq,res,querySnapshot);
       const { page, serverLen, hidden: newHidden, relocated } = ingestPage(res, src, req);
       const before = messages();
-      const next = appendPage(before, page);
+      const next = jump?page:appendPage(before, page);
+      batch(()=>{
+      if(jump){setLoadedStart(position);hiddenRows=0;}
       setMessages(next);
       nextServerPosition=position+serverLen;
       hiddenRows+=newHidden;
@@ -2008,20 +2015,22 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // while leaving the visible row count unchanged, so a rows-based test ends
       // the query on a folder that is one large thread. That is a worse bug than
       // the loop this guards, and it is the version written first.
-      const done = serverLen < size || (next === before&&relocated===0&&newHidden===0);
+      const knownTotal=t??total();
+      const done = (requestedWindow?.limit!==undefined&&knownTotal!==null?position+serverLen>=knownTotal||serverLen===0:serverLen<size) || (next === before&&relocated===0&&newHidden===0);
       setExhausted(done);
       // The query ended short of the reported total (server clamped the page,
       // rows hidden or moved): drop the unfetched tail, or its skeleton rows
       // would stay on screen with no request behind them.
       if (done) setTotal(loadedRange().end);
       loadMoreAutoRetried = false;
+      });
     } catch {
       // It must not throw: this runs from a scroll handler. One automatic retry
       // after a short backoff, then a Retry row (`loadMoreFailed`).
       if (isCurrent(req)) {
         if (!loadMoreAutoRetried) {
           loadMoreAutoRetried = true;
-          loadMoreRetryTimer = setTimeout(() => void loadMore(), 2000);
+          loadMoreRetryTimer = setTimeout(() => void loadMore(requestedWindow), 2000);
         } else {
           loadMoreAutoRetried = false;
           setLoadMoreFailed(true);
