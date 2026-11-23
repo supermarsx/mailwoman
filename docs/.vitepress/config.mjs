@@ -1,5 +1,5 @@
 import {defineConfig} from 'vitepress';
-import {readdirSync,readFileSync} from 'node:fs';
+import {existsSync,readdirSync,readFileSync} from 'node:fs';
 import {resolve,relative,basename} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -18,7 +18,9 @@ const sections=[
  ['Security & privacy',[['security']]],
  ['Mail providers',[['bridges'],['protocols','Protocols']]],
  ['Integrations & plugins',[['integrations','Integrations'],['plugins','Plugins'],['export','Import & export']]],
- ['Engineering',[['testing','Testing'],['perf','Performance']]],
+ ['Reference',[['reference']]],
+ ['Changelog',[['changelog']]],
+ ['Engineering notes',[['engineering','Engineering notes'],['testing','Testing'],['perf','Performance']]],
 ];
 const skip=new Set(['node_modules','public','vendor']);
 const title=file=>{
@@ -26,15 +28,20 @@ const title=file=>{
  const front=text.match(/^---\r?\n[\s\S]*?^title:\s*(.+)$/m)?.[1];
  return (front??text.match(/^#\s+(.+)$/m)?.[1]??basename(file,'.md').replaceAll('-',' ')).replace(/[`*_]/g,'').replace(/^['"]|['"]$/g,'').trim();
 };
+// A page whose front matter has `redirect:` is a stub left at an old path (see
+// README, "Moved pages"): it is kept out of the sidebar and the search index.
+const frontMatter=file=>readFileSync(file,'utf8').replace(/^\uFEFF/,'').match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/)?.[1]??'';
+const isStub=file=>/^redirect:\s*\S/m.test(frontMatter(file));
 const isOverview=name=>/^(index|readme)\.md$/i.test(name);
 const link=file=>'/'+relative(root,file).replaceAll('\\','/').replace(/\.md$/,'');
 function items(dir){
+ if(!existsSync(dir))return [];
  const entries=readdirSync(dir,{withFileTypes:true}).filter(e=>!e.name.startsWith('.')&&!skip.has(e.name));
- const overview=entries.filter(e=>e.isFile()&&isOverview(e.name)).map(e=>({text:'Overview',link:link(resolve(dir,e.name))})).slice(0,1);
+ const overview=entries.filter(e=>e.isFile()&&isOverview(e.name)&&!isStub(resolve(dir,e.name))).map(e=>({text:'Overview',link:link(resolve(dir,e.name))})).slice(0,1);
  const rest=entries.flatMap(e=>{
   const file=resolve(dir,e.name);
   if(e.isDirectory()){const sub=items(file);return sub.length?[{text:e.name.replaceAll('-',' ').replace(/^./,c=>c.toUpperCase()),collapsed:true,items:sub}]:[];}
-  if(!e.name.endsWith('.md')||isOverview(e.name))return [];
+  if(!e.name.endsWith('.md')||isOverview(e.name)||isStub(file))return [];
   return [{text:title(file),link:link(file)}];
  }).sort((a,b)=>a.text.localeCompare(b.text));
  return [...overview,...rest];
@@ -46,12 +53,12 @@ function section([text,dirs],i){
  return {text,collapsed:i>0,items:list};
 }
 const engineeringRoot=readdirSync(root,{withFileTypes:true})
- .filter(e=>e.isFile()&&e.name.endsWith('.md')&&!/^(index|readme)\.md$/i.test(e.name))
+ .filter(e=>e.isFile()&&e.name.endsWith('.md')&&!/^(index|readme)\.md$/i.test(e.name)&&!isStub(resolve(root,e.name)))
  .map(e=>({text:title(resolve(root,e.name)),link:link(resolve(root,e.name))}))
  .sort((a,b)=>a.text.localeCompare(b.text));
 const sidebar=[
- {text:'Start here',items:[{text:'Welcome',link:'/'},{text:'Documentation map',link:'/README'}]},
- ...sections.map(section),
+ {text:'Start here',items:[{text:'Welcome',link:'/'},{text:'Documentation map',link:'/README'},...items(resolve(root,'getting-started'))]},
+ ...sections.map(section).filter(g=>g.items.length&&g.items.some(i=>i.items?i.items.length:true)),
  {text:'Reference & project notes',collapsed:true,items:engineeringRoot},
 ];
 
@@ -61,6 +68,12 @@ export default defineConfig({
  description:'The Mailwoman user and administrator manual.',
  lang:'en-US',
  base,appearance:'dark',cleanUrls:true,lastUpdated:true,
+ // Stubs left at moved paths: a no-JS fallback redirect (the theme also
+ // redirects in script) and no entry in the search index.
+ transformHead({pageData}){
+  const to=pageData.frontmatter?.redirect;
+  return typeof to==='string'&&to.startsWith('/')?[['meta',{'http-equiv':'refresh',content:`0;url=${base.replace(/\/$/,'')}${to}`}],['meta',{name:'robots',content:'noindex'}]]:[];
+ },
  srcExclude:['node_modules/**','**/vendor/**'],
  head:[
   ['link',{rel:'icon',type:'image/svg+xml',href:`${base}favicon.svg`}],
@@ -90,7 +103,8 @@ export default defineConfig({
    ]},
   ],
   sidebar,
-  search:{provider:'local',options:{detailedView:true,translations:{button:{buttonText:'Search the manual',buttonAriaLabel:'Search the manual'}}}},
+  search:{provider:'local',options:{detailedView:true,
+   _render:(src,env,md)=>{const html=md.render(src,env);return env.frontmatter?.search===false||env.frontmatter?.redirect?'':html;},translations:{button:{buttonText:'Search the manual',buttonAriaLabel:'Search the manual'}}}},
   outline:{level:[2,3],label:'On this page'},
   socialLinks:[{icon:'github',link:repo,ariaLabel:'Mailwoman on GitHub'}],
   editLink:{pattern:`${repo}/edit/master/docs/:path`,text:'Edit this page on GitHub'},

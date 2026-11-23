@@ -29,6 +29,52 @@ with it on every change under `docs/`.
 - Raw HTML in pages is rendered as text, so placeholders such as `<accountId>`
   show literally. Use Markdown, and `{.class}` attributes where styling is needed.
 
+## Writing docs
+
+- **Page template**: screen pages follow section 4 of `.orchestration/plans/t40-docs-overhaul.md`
+  (title as the UI labels it, one-paragraph purpose, orientation shot, numbered
+  callout legend, steps, settings and limits).
+- **Images** use markdown-it attributes (built into VitePress); raw HTML is off.
+  Put the class in braces directly after the image or list, no space before `{`:
+
+  ```md
+  ![The mailbox with the folder list, message list and reader](/screenshots/core/mailbox.webp){.mw-shot}
+
+  ![The compose toolbar](/screenshots/core/compose-toolbar.webp){.mw-crop}
+
+  1. The folder list.
+  2. The message list.
+  3. The reader.
+  {.mw-callouts}
+  ```
+
+  `.mw-shot` is a full screenshot (column width, never scaled past its natural size,
+  3px border, offset shadow). `.mw-crop` is a cropped element, centred at its natural
+  width up to the column, 2px border. Both open at full size in an overlay on click
+  or Enter (Esc closes), so 2x captures stay readable. `.mw-callouts` turns an ordered
+  list into the legend for the numbered markers drawn on a shot: yellow `#f5c400`
+  disc, black numeral. Number the list in the same order as the markers.
+- **Moved pages**: leave a stub at the old path. It is skipped in the sidebar and
+  the search index, and sends the browser to the new page (script redirect plus a
+  `<meta refresh>`); the body is the fallback for anyone who is not redirected.
+
+  ```md
+  ---
+  title: Moved
+  redirect: /user/offline-sync
+  ---
+  # This page has moved
+  See [Sync and offline access](/user/offline-sync).
+  ```
+
+  `redirect` is a site-absolute path without `.md`.
+- **Building without colliding**: `docs/.vitepress/dist` and the cache are shared, so
+  build into scratch: `node node_modules/vitepress/dist/node/cli.js build . --outDir
+  <scratch>/out --cacheDir <scratch>/cache` from `docs/`. Serve the output with any
+  static file server (`vitepress preview` ignores `--outDir`).
+- **Sidebar**: new folders `getting-started/`, `user/**`, `reference/`, `changelog/`
+  and `engineering/` are picked up automatically; `redirect:` stubs are left out.
+
 ## For users
 
 - [Sync, offline access and multiple windows](./user/sync-offline.md).
