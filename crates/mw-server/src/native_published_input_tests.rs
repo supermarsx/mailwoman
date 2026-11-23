@@ -795,7 +795,10 @@ fn bounded_snapshot_declared_read_reuses_authority_fences_but_keeps_final_mail_d
         assert_eq!(hit.1, off.1);
         assert_eq!(hit.2.prepared_results, 1);
         assert_eq!(hit.2.fences, 1, "final mail-DATA fence stays fresh");
-        assert_eq!(off.3.read.calls - hit.3.read.calls, 2 + hit_globals, "bounded={:?} off={:?}", hit.3, off.3);
+        // At least the two authority fences and the ban read. Other bounded caches
+        // (t34-e13's session-watch preferences, read here because this request has
+        // no User-Agent) may remove more; the snapshot counters above are exact.
+        assert!(off.3.read.calls - hit.3.read.calls >= 2 + hit_globals, "bounded={:?} off={:?}", hit.3, off.3);
         // In-process local revocation is refused by the next declared read.
         let out = snap::with_mode(snapcase::SHORT, f.router.clone().oneshot(snapcase::logout(&f))).await.unwrap();
         assert!(out.status().is_success());
@@ -871,5 +874,39 @@ fn frozen_environment_keeps_published_request_counts_and_reply() {
                 (scanned.inputs.first_fences, scanned.inputs.refresh_fences, scanned.inputs.session_decodes));
             assert_eq!(reused.inputs.first_fences, 1, "published inputs still used");
         }
+    });
+}
+
+// t34-e9 S3: anonymous or refused state-changing requests must not expedite
+// (they could otherwise keep reuse off and wake the poller back to back).
+#[test]
+fn bounded_snapshot_anonymous_and_refused_posts_do_not_expedite() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        f.writer.touch_session(&f.session).await.unwrap();
+        snapcase::published(&f).await;
+        let mirror = snapcase::started(&f, snapcase::LONG).await;
+        let before = mirror.counters().expedites;
+        let post = |uri: &str, cookie: Option<&str>| {
+            let mut request = Request::builder().method("POST").uri(uri).header("host", "localhost")
+                .header("origin", "http://localhost").header("content-type", "application/json");
+            if let Some(cookie) = cookie { request = request.header("cookie", cookie); }
+            request.body(Body::from("{}")).unwrap()
+        };
+        for (uri, cookie) in [("/nonexistent", None), ("/api/logout", None),
+            ("/api/account/sessions/revoke", None), ("/nonexistent", Some("mw_session=not-a-session"))] {
+            let reply = snapcase::send(&f, post(uri, cookie), snapcase::LONG).await;
+            assert_eq!(mirror.counters().expedites, before, "{uri} {cookie:?} -> {}", reply.status);
+        }
+        // A credentialed request that is refused (unknown route) commits nothing.
+        let refused = snapcase::send(&f, post("/nonexistent",
+            Some(&format!("mw_session={}", f.session))), snapcase::LONG).await;
+        assert!(refused.status.is_client_error(), "{}", refused.status);
+        assert_eq!(mirror.counters().expedites, before);
+        // The same session's real logout still expedites and is refused next.
+        let out = snapcase::send(&f, snapcase::logout(&f), snapcase::LONG).await;
+        assert!(out.status.is_success());
+        assert_eq!(mirror.counters().expedites, before + 1);
+        assert_eq!(snapcase::send(&f, snapcase::me(&f), snapcase::LONG).await.status, StatusCode::UNAUTHORIZED);
     });
 }

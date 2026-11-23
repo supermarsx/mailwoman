@@ -142,6 +142,31 @@ pub(crate) fn expedites(method: &axum::http::Method, path: &str) -> bool {
         || (*method == Method::POST && matches!(path, "/jmap/api" | "/api/mail/refresh")))
 }
 
+/// Whether the request carries a credential that could authorize a
+/// state-changing route: a non-empty `mw_session` or admin session cookie, an
+/// `Authorization` header or an API key. Header inspection only.
+pub(crate) fn presents_credential(headers: &axum::http::HeaderMap) -> bool {
+    use axum::http::header;
+    if headers.contains_key(header::AUTHORIZATION) || headers.contains_key("x-api-key") {
+        return true;
+    }
+    let admin = mw_admin::config::session_cookie_name();
+    headers.get_all(header::COOKIE).iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .filter_map(|pair| pair.trim().split_once('='))
+        .any(|(name, value)| !value.is_empty() && (name == "mw_session" || name == admin))
+}
+
+/// A 4xx response means the request was refused (pre-authentication guard,
+/// authentication, validation, not found, rate limit): it committed nothing
+/// through the layer rule. Revocations that commit and then answer 4xx (the
+/// session-watch theft revoke, disabled/expired-session cleanup) expedite
+/// explicitly or are clock-covered. 2xx/3xx/5xx keep expediting.
+pub(crate) fn may_have_committed(status: axum::http::StatusCode) -> bool {
+    !status.is_client_error()
+}
+
 /// Cached `(fence, G)` on one published entry. Pairs are only ever written by
 /// [`Slot::read`], with `G` stamped before that fence's statement began.
 #[derive(Default)]
@@ -428,6 +453,39 @@ mod tests {
             "processEnvVars": std::env::vars_os().count(),
             "scanMicros": scan.as_secs_f64() * 1e6, "frozenMicros": frozen_cost.as_secs_f64() * 1e6,
             "debugBuild": cfg!(debug_assertions)}));
+    }
+    #[test]
+    fn only_credentialed_committing_requests_expedite() {
+        use axum::http::{HeaderMap, HeaderValue, StatusCode};
+        let with = |name: &'static str, value: &str| {
+            let mut headers = HeaderMap::new();
+            headers.insert(name, HeaderValue::from_str(value).unwrap());
+            headers
+        };
+        assert!(!presents_credential(&HeaderMap::new()));
+        assert!(!presents_credential(&with("cookie", "mw_csrf=x; mw_session=")));
+        assert!(!presents_credential(&with("cookie", "other=mw_session=x")));
+        assert!(presents_credential(&with("cookie", "mw_csrf=x; mw_session=abc")));
+        let admin = format!("{}=abc", mw_admin::config::session_cookie_name());
+        assert!(presents_credential(&with("cookie", &admin)));
+        assert!(presents_credential(&with("authorization", "Bearer t")));
+        assert!(presents_credential(&with("x-api-key", "k")));
+        assert!(may_have_committed(StatusCode::NO_CONTENT));
+        assert!(may_have_committed(StatusCode::SEE_OTHER));
+        assert!(may_have_committed(StatusCode::INTERNAL_SERVER_ERROR));
+        for status in [StatusCode::UNAUTHORIZED, StatusCode::FORBIDDEN, StatusCode::NOT_FOUND, StatusCode::TOO_MANY_REQUESTS] {
+            assert!(!may_have_committed(status));
+        }
+    }
+    /// The production entry point freezes the environment before it builds
+    /// the app, so no request can run unfrozen in `mailwoman serve`.
+    #[test]
+    fn serve_freezes_the_environment_before_building_the_app() {
+        let main = include_str!("main.rs");
+        let serve = &main[main.find("async fn serve(").expect("serve entry point")..];
+        let freeze = serve.find("mw_server::freeze_environment();").expect("serve freezes the environment");
+        let build = serve.find("build_app(config)").expect("serve builds the app");
+        assert!(freeze < build);
     }
     #[test]
     fn only_state_changing_non_jmap_requests_expedite() {

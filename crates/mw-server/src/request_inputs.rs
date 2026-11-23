@@ -305,11 +305,19 @@ pub(crate) async fn layer(State(state): State<AppState>, request: Request, next:
     // t34: a state-changing request (including a WebSocket action frame, which
     // is replayed through this router) may have committed a revocation. Expire
     // every reusable guard snapshot before its response leaves this process.
-    let expedite = snapshot::expedites(request.method(), request.uri().path())
+    // Only a request that presented a session/admin/API credential can have
+    // revoked through this rule; anonymous requests (and refusals) never
+    // expedite, so they cannot keep reuse off or spin the poller (t34-e9 S3).
+    // Unauthenticated writers of authority (sign-in session-cap eviction, the
+    // SSO callback) expedite explicitly at the write (security_center.rs).
+    let expedite = (snapshot::expedites(request.method(), request.uri().path())
+        && snapshot::presents_credential(request.headers()))
         .then(|| state.native_publication.clone()).flatten();
     // Boxed: keeps this extra frame from growing every router poll stack.
     let response = Box::pin(scoped(state, request, next)).await;
-    if let Some(mirror) = expedite.and_then(|worker| worker.existing_guard_mirror()) {
+    if snapshot::may_have_committed(response.status())
+        && let Some(mirror) = expedite.and_then(|worker| worker.existing_guard_mirror())
+    {
         mirror.expedite();
     }
     response
