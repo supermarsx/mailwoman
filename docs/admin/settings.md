@@ -1070,6 +1070,41 @@ Include consent records in an export.
 
 Include audit entries about the person in an export.
 
+<a id="dsr.export.include.mailstate"></a>
+### Export: tags, saved searches and sending records (`dsr.export.include.mailstate`)
+
+Include tags, saved searches and sending records in an export.
+
+<a id="dsr.export.include.tasks"></a>
+### Export: tasks (`dsr.export.include.tasks`)
+
+Include tasks in an export.
+
+<a id="dsr.export.include.security"></a>
+### Export: security records (`dsr.export.include.security`)
+
+Include security records in an export.
+
+<a id="dsr.export.include.integrations"></a>
+### Export: connected accounts and webhooks (`dsr.export.include.integrations`)
+
+Include connected accounts and webhooks in an export.
+
+<a id="dsr.export.include.delegation"></a>
+### Export: delegations and shared mailboxes (`dsr.export.include.delegation`)
+
+Include delegations and shared mailboxes in an export.
+
+<a id="dsr.export.include.usage"></a>
+### Export: usage and quota records (`dsr.export.include.usage`)
+
+Include usage and quota records in an export.
+
+<a id="dsr.export.include.records"></a>
+### Export: restrictions, retention rules and other records (`dsr.export.include.records`)
+
+Include restrictions, retention rules and other records in an export.
+
 <a id="dsr.export.maxMegabytes"></a>
 ### Export size cap (`dsr.export.maxMegabytes`)
 
@@ -4960,6 +4995,13 @@ Every key in the settings registry, generated from the registry and checked agai
 | [`dsr.export.include.sessions`](#dsr.export.include.sessions) | on or off | `true` | server, domain |  | Applied by the server. |
 | [`dsr.export.include.consent`](#dsr.export.include.consent) | on or off | `true` | server, domain |  | Applied by the server. |
 | [`dsr.export.include.audit`](#dsr.export.include.audit) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.mailstate`](#dsr.export.include.mailstate) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.tasks`](#dsr.export.include.tasks) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.security`](#dsr.export.include.security) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.integrations`](#dsr.export.include.integrations) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.delegation`](#dsr.export.include.delegation) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.usage`](#dsr.export.include.usage) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.records`](#dsr.export.include.records) | on or off | `true` | server, domain |  | Applied by the server. |
 | <a id="dsr.export.maxmegabytes"></a>[`dsr.export.maxMegabytes`](#dsr.export.maxMegabytes) | integer, 1 to 2000 | `500` | server |  | Applied by the server. |
 | [`dsr.export.format`](#dsr.export.format) | one of `json`, `jsonCsv` | `"json"` | server, domain |  | Applied by the server. |
 | [`dsr.export.encrypt`](#dsr.export.encrypt) | on or off | `false` | server, domain |  | Applied by the server. |

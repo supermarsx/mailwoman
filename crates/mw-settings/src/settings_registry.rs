@@ -7008,6 +7008,62 @@ pub static REGISTRY: &[SettingDef] = &[
         "audit in an export"
     ),
     def!(
+        "dsr.export.include.mailstate",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "mail state in an export"
+    ),
+    def!(
+        "dsr.export.include.tasks",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "tasks in an export"
+    ),
+    def!(
+        "dsr.export.include.security",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "security records in an export"
+    ),
+    def!(
+        "dsr.export.include.integrations",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "connected accounts and webhooks in an export"
+    ),
+    def!(
+        "dsr.export.include.delegation",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "delegation and shared mailboxes in an export"
+    ),
+    def!(
+        "dsr.export.include.usage",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "usage and quota records in an export"
+    ),
+    def!(
+        "dsr.export.include.records",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "restrictions, retention and other records in an export"
+    ),
+    def!(
         "dsr.export.maxMegabytes",
         int(1, 2000),
         "500",

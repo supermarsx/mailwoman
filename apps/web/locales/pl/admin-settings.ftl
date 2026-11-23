@@ -501,6 +501,20 @@ admin-settings-key-dsr-export-include-consent = Eksport: zapisy zgód
 admin-settings-help-dsr-export-include-consent = Dołącz zapisy zgód do eksportu.
 admin-settings-key-dsr-export-include-audit = Eksport: wpisy audytu dotyczące osoby
 admin-settings-help-dsr-export-include-audit = Dołącz do eksportu wpisy audytu dotyczące osoby.
+admin-settings-key-dsr-export-include-mailstate = Eksport: etykiety, zapisane wyszukiwania i zapisy wysyłki
+admin-settings-help-dsr-export-include-mailstate = Dołącz etykiety, zapisane wyszukiwania i zapisy wysyłki do eksportu.
+admin-settings-key-dsr-export-include-tasks = Eksport: zadania
+admin-settings-help-dsr-export-include-tasks = Dołącz zadania do eksportu.
+admin-settings-key-dsr-export-include-security = Eksport: zapisy bezpieczeństwa
+admin-settings-help-dsr-export-include-security = Dołącz zapisy bezpieczeństwa do eksportu.
+admin-settings-key-dsr-export-include-integrations = Eksport: połączone konta i webhooki
+admin-settings-help-dsr-export-include-integrations = Dołącz połączone konta i webhooki do eksportu.
+admin-settings-key-dsr-export-include-delegation = Eksport: delegacje i wspólne skrzynki
+admin-settings-help-dsr-export-include-delegation = Dołącz delegacje i wspólne skrzynki do eksportu.
+admin-settings-key-dsr-export-include-usage = Eksport: dane o użyciu i limitach
+admin-settings-help-dsr-export-include-usage = Dołącz dane o użyciu i limitach do eksportu.
+admin-settings-key-dsr-export-include-records = Eksport: ograniczenia, reguły przechowywania i inne zapisy
+admin-settings-help-dsr-export-include-records = Dołącz ograniczenia, reguły przechowywania i inne zapisy do eksportu.
 
 # -- Machine translation (2026-11): added to match en ---------------------
 admin-settings-key-dsr-export-max-megabytes = Limit rozmiaru eksportu

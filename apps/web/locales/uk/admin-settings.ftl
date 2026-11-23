@@ -501,6 +501,20 @@ admin-settings-key-dsr-export-include-consent = Експорт: записи з�
 admin-settings-help-dsr-export-include-consent = Включити записи згод до експорту.
 admin-settings-key-dsr-export-include-audit = Експорт: записи аудиту про людину
 admin-settings-help-dsr-export-include-audit = Включити до експорту записи аудиту про цю людину.
+admin-settings-key-dsr-export-include-mailstate = Експорт: мітки, збережені пошуки та записи про надсилання
+admin-settings-help-dsr-export-include-mailstate = Включити мітки, збережені пошуки та записи про надсилання до експорту.
+admin-settings-key-dsr-export-include-tasks = Експорт: завдання
+admin-settings-help-dsr-export-include-tasks = Включити завдання до експорту.
+admin-settings-key-dsr-export-include-security = Експорт: записи безпеки
+admin-settings-help-dsr-export-include-security = Включити записи безпеки до експорту.
+admin-settings-key-dsr-export-include-integrations = Експорт: підключені облікові записи та вебхуки
+admin-settings-help-dsr-export-include-integrations = Включити підключені облікові записи та вебхуки до експорту.
+admin-settings-key-dsr-export-include-delegation = Експорт: делегування та спільні поштові скриньки
+admin-settings-help-dsr-export-include-delegation = Включити делегування та спільні поштові скриньки до експорту.
+admin-settings-key-dsr-export-include-usage = Експорт: дані про використання та квоти
+admin-settings-help-dsr-export-include-usage = Включити дані про використання та квоти до експорту.
+admin-settings-key-dsr-export-include-records = Експорт: обмеження, правила зберігання та інші записи
+admin-settings-help-dsr-export-include-records = Включити обмеження, правила зберігання та інші записи до експорту.
 
 # -- Machine translation (2026-11): added to match en ---------------------
 admin-settings-key-dsr-export-max-megabytes = Межа розміру експорту
