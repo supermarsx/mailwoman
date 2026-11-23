@@ -147,7 +147,7 @@ pub struct WireClaimMap {
 
 /// The `POST /admin/sso` body.
 ///
-/// `kind`, `hasSecret`, `createdAt`, `updatedAt` and `problems` are read-only fields
+/// `kind`, `hasSecret`, `createdAt`, `updatedAt`, `problems` and `signInReady` are read-only fields
 /// of a `GET` row; they are accepted (so a listed row can be posted back unchanged)
 /// and ignored, except that a top-level `kind` must agree with `config.kind`.
 #[derive(Debug, Clone, Deserialize)]
@@ -176,19 +176,27 @@ pub struct UpsertRequest {
     pub updated_at: Option<Value>,
     #[serde(default)]
     pub problems: Option<Value>,
+    /// Added to a `GET` row by the server (whether sign-in can use the provider).
+    #[serde(default, alias = "sign_in_ready")]
+    pub sign_in_ready: Option<Value>,
 }
 
-/// One validation problem, named by the field's wire path (`config.issuerUrl`).
+/// One validation problem, named by the field's wire path (`config.issuerUrl`), with
+/// a stable `code` a client can translate (`required`, `invalid_url`,
+/// `issuer_query`, `openid_scope`, `cert_required`, `unsigned_assertions`,
+/// `id_pattern`, `scope_invalid`, `kind_mismatch`) and an English `message`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FieldError {
     pub field: String,
+    pub code: String,
     pub message: String,
 }
 
 impl FieldError {
-    fn new(field: &str, message: impl Into<String>) -> Self {
+    fn new(field: &str, code: &str, message: impl Into<String>) -> Self {
         FieldError {
             field: field.to_string(),
+            code: code.to_string(),
             message: message.into(),
         }
     }
@@ -347,9 +355,9 @@ impl From<&ClaimMap> for WireClaimMap {
 }
 
 /// An absolute `http`/`https` URL with a host.
-fn http_url_problem(value: &str) -> Option<&'static str> {
+fn http_url_problem(value: &str) -> Option<(&'static str, &'static str)> {
     if value.is_empty() {
-        return Some("is required");
+        return Some(("required", "is required"));
     }
     match openidconnect::url::Url::parse(value) {
         Ok(u)
@@ -358,20 +366,23 @@ fn http_url_problem(value: &str) -> Option<&'static str> {
         {
             None
         }
-        Ok(_) => Some("must be an http or https address with a host"),
-        Err(_) => Some("is not a valid address"),
+        Ok(_) => Some((
+            "invalid_url",
+            "must be an http or https address with a host",
+        )),
+        Err(_) => Some(("invalid_url", "is not a valid address")),
     }
 }
 
 fn check_url(errors: &mut Vec<FieldError>, field: &str, value: &str) {
-    if let Some(p) = http_url_problem(value) {
-        errors.push(FieldError::new(field, p));
+    if let Some((code, message)) = http_url_problem(value) {
+        errors.push(FieldError::new(field, code, message));
     }
 }
 
 fn check_required(errors: &mut Vec<FieldError>, field: &str, value: &str) {
     if value.trim().is_empty() {
-        errors.push(FieldError::new(field, "is required"));
+        errors.push(FieldError::new(field, "required", "is required"));
     }
 }
 
@@ -389,13 +400,18 @@ pub fn config_problems(config: &SsoConfig) -> Vec<FieldError> {
             {
                 e.push(FieldError::new(
                     "config.issuerUrl",
+                    "issuer_query",
                     "an issuer address has no query or fragment",
                 ));
             }
             check_required(&mut e, "config.clientId", &c.client_id);
             check_url(&mut e, "config.redirectUrl", &c.redirect_url);
             if !c.scopes.iter().any(|s| s == "openid") {
-                e.push(FieldError::new("config.scopes", "must include openid"));
+                e.push(FieldError::new(
+                    "config.scopes",
+                    "openid_scope",
+                    "must include openid",
+                ));
             }
         }
         SsoConfig::Saml(c) => {
@@ -409,6 +425,7 @@ pub fn config_problems(config: &SsoConfig) -> Vec<FieldError> {
             if c.idp_signing_certs_pem.is_empty() {
                 e.push(FieldError::new(
                     "config.idpSigningCertsPem",
+                    "cert_required",
                     "at least one IdP signing certificate is required",
                 ));
             }
@@ -422,6 +439,7 @@ pub fn config_problems(config: &SsoConfig) -> Vec<FieldError> {
             if !c.want_assertions_signed {
                 e.push(FieldError::new(
                     "config.wantAssertionsSigned",
+                    "unsigned_assertions",
                     "must be on: unsigned SAML assertions are not accepted",
                 ));
             }
@@ -458,6 +476,7 @@ pub fn parse_upsert(body: Value) -> Result<ValidUpsert, UpsertError> {
     if !id_ok(&id) {
         errors.push(FieldError::new(
             "id",
+            "id_pattern",
             "must be 1-63 lower-case letters, digits or hyphens, starting with a letter or digit",
         ));
     }
@@ -470,6 +489,7 @@ pub fn parse_upsert(body: Value) -> Result<ValidUpsert, UpsertError> {
     if !scope_ok(&scope) {
         errors.push(FieldError::new(
             "scope",
+            "scope_invalid",
             "must be `deployment` or `domain:<lower-case domain>`",
         ));
     }
@@ -477,7 +497,11 @@ pub fn parse_upsert(body: Value) -> Result<ValidUpsert, UpsertError> {
     if let Some(kind) = req.kind
         && kind != config.kind()
     {
-        errors.push(FieldError::new("kind", "does not match config.kind"));
+        errors.push(FieldError::new(
+            "kind",
+            "kind_mismatch",
+            "does not match config.kind",
+        ));
     }
     errors.extend(config_problems(&config));
     if !errors.is_empty() {

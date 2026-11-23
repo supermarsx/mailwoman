@@ -1,0 +1,17 @@
+{
+  "id": "entra-oidc",
+  "displayName": "Entra ID",
+  "scope": "deployment",
+  "enabled": true,
+  "config": {
+    "kind": "oidc",
+    "issuerUrl": "https://idp.example.org/realms/staff",
+    "clientId": "mailwoman",
+    "redirectUrl": "https://mail.example.org/api/sso/entra-oidc/callback",
+    "scopes": ["openid", "email", "profile"],
+    "firstLoginPolicy": "autocreate",
+    "requireVerifiedEmail": false
+  },
+  "claimMap": { "email": "email", "username": "preferred_username", "display": "name", "groups": null },
+  "secret": "fixture-client-secret"
+}

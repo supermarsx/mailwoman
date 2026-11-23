@@ -4,7 +4,7 @@
 //!
 //! `/admin/sso` — registered in `admin_router` (`sso.read` to list, `sso.write` to
 //! change); without an admin session, or with the panel disabled, every route is `401`.
-//!   * `GET /admin/sso?scope=` — list the backends in a scope (default `deployment`); the sealed secret is NEVER returned, only a `hasSecret` flag.
+//!   * `GET /admin/sso?scope=` — list the backends in a scope (default `deployment`); the sealed secret is NEVER returned, only a `hasSecret` flag. Each row carries `problems` and `signInReady` (whether sign-in builds it).
 //!   * `POST /admin/sso` — create/update a backend; the secret is SEALED at the store (`put_sso_config`), and omitting it on an update preserves the existing sealed secret.
 //!   * `DELETE /admin/sso/{id}` — delete a backend (idempotent).
 //!
@@ -60,10 +60,13 @@ async fn list(
     };
     // The wire view (camelCase names, `problems` for a stored config that cannot
     // sign anyone in, never the secret) is defined once in `mw_sso::admin_wire`.
+    // `signInReady`: whether sign-in builds this provider at all (the same
+    // `build_entry_from_row` the sign-in routes use); false for a row with an
+    // unsafe or incomplete config, which is never offered.
     let backends: Vec<_> = rows
         .iter()
         .map(|r| {
-            admin_wire::backend_view(&admin_wire::BackendView {
+            let mut view = admin_wire::backend_view(&admin_wire::BackendView {
                 id: &r.id,
                 kind: &r.kind,
                 display_name: &r.display_name,
@@ -74,7 +77,9 @@ async fn list(
                 has_secret: r.secret.is_some(),
                 created_at: &r.created_at,
                 updated_at: &r.updated_at,
-            })
+            });
+            view["signInReady"] = json!(crate::sso::build_entry_from_row(r).is_ok());
+            view
         })
         .collect();
     Json(json!({ "backends": backends })).into_response()

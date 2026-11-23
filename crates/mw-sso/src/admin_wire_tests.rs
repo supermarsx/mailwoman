@@ -419,3 +419,46 @@ fn require_verified_email_defaults_on_and_round_trips() {
     let SsoConfig::Oidc(c) = old else { panic!() };
     assert!(c.require_verified_email);
 }
+
+#[test]
+fn problems_carry_a_stable_code() {
+    let mut body = value(CONSOLE_OIDC);
+    body["config"]["issuerUrl"] = json!("");
+    body["config"]["redirectUrl"] = json!("not a url");
+    let Err(e) = parse_upsert(body) else { panic!() };
+    let codes: Vec<(String, String)> = match &e {
+        UpsertError::Invalid(f) => f
+            .iter()
+            .map(|f| (f.field.clone(), f.code.clone()))
+            .collect(),
+        _ => panic!(),
+    };
+    assert_eq!(
+        codes,
+        vec![
+            ("config.issuerUrl".to_string(), "required".to_string()),
+            ("config.redirectUrl".to_string(), "invalid_url".to_string())
+        ]
+    );
+    assert_eq!(e.body()["fields"][0]["code"], json!("required"));
+    // A GET row with the server-added signInReady posts back.
+    let mut row = value(LIST_OIDC);
+    row["signInReady"] = json!(true);
+    assert!(parse_upsert(row).is_ok());
+}
+
+#[test]
+fn console_opt_out_of_verified_email_round_trips() {
+    // Shared with the web editor test: the console's body with the switch off.
+    let body = value(include_str!(
+        "../tests/fixtures/admin-sso/console-oidc-unverified-email.json"
+    ));
+    let v = parse_upsert(body).expect("valid");
+    let SsoConfig::Oidc(c) = &v.config else {
+        panic!()
+    };
+    assert!(!c.require_verified_email);
+    let (_, listed) = stored_then_listed(&v, true);
+    assert_eq!(listed["config"]["requireVerifiedEmail"], json!(false));
+    assert_eq!(listed["problems"], json!([]));
+}

@@ -161,7 +161,7 @@ impl SsoProviderSource {
 /// Build a serve-ready [`SsoEntry`] (metadata + constructed provider) from a store
 /// row: parse the JSON config + claim map, attach the unsealed secret, and construct
 /// the matching provider. A malformed row / config is dropped (logged), never served.
-fn build_entry_from_row(row: &mw_store::SsoConfigRow) -> Result<SsoEntry, mw_sso::SsoError> {
+pub(crate) fn build_entry_from_row(row: &mw_store::SsoConfigRow) -> Result<SsoEntry, mw_sso::SsoError> {
     let config: SsoConfig = serde_json::from_str(&row.config_json)
         .map_err(|e| mw_sso::SsoError::Config(format!("bad config json: {e}")))?;
     let claim_map: ClaimMap = serde_json::from_str(&row.claim_map_json).unwrap_or_default();
