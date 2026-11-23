@@ -762,6 +762,8 @@ fn references(sql: &str, alias: &str) -> BTreeSet<String> {
 /// The column list a migration's UPDATE condition compares for `table`, read from
 /// the trigger text (SQLite `IS NOT`, PostgreSQL `IS DISTINCT FROM`).
 fn journaled_columns(migration: &str, table: &str) -> BTreeSet<String> {
+    // A Windows checkout with core.autocrlf=true embeds CRLF via include_str!.
+    let migration = &migration.replace("\r\n", "\n");
     let sqlite_marker = format!("AFTER UPDATE ON {table}\n");
     let condition = if let Some(at) = migration.find(&sqlite_marker) {
         let rest = &migration[at + sqlite_marker.len()..];

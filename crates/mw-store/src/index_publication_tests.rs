@@ -645,6 +645,15 @@ async fn publication_source_budget_precedes_decrypt_and_does_not_renew_lease() {
         .execute(&store.backend)
         .await
         .unwrap();
+    // 0110 binds content to the body: the update advances content_revision and
+    // with it cache_revision, so the pre-update witness no longer matches.
+    let source = store
+        .get_account_messages(&a, &[id.clone()])
+        .await
+        .unwrap()
+        .pop()
+        .unwrap()
+        .unwrap();
     let error = store
         .index_publication_source(&source, 1024)
         .await
@@ -689,6 +698,13 @@ async fn metadata_variants_ignore_corrupt_raw_and_envelope_guard_precedes_decryp
         .execute(&store.backend)
         .await
         .unwrap();
+    // 0110 binds content to the body: corrupting it advances content_revision
+    // and cache_revision, so take the current witness after the update.
+    let snapshot = store
+        .index_publication_metadata_snapshot(&requests, 100)
+        .await
+        .unwrap();
+    let message = snapshot.message(&a, &id).unwrap().message.as_ref().unwrap();
     assert_eq!(
         store
             .index_publication_envelope(message, 1024)
