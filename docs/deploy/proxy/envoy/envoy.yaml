@@ -1,22 +1,19 @@
-# Envoy configuration for Mailwoman — TIER 2.
+# Envoy configuration for Mailwoman.
 #
 # ---------------------------------------------------------------------------
-# Status: documented, NOT CI-tested
+# Status
 # ---------------------------------------------------------------------------
 #
-# This configuration is shipped and runnable, but it is NOT part of the
-# proxy-conformance CI matrix. Its behaviour overlaps haproxy-l7 and Traefik
-# closely enough that it was not worth the wall-clock, and it is the most
-# verbose config here per unit of new coverage. Nothing in the documentation
-# claims Envoy is "supported" in the sense the tier-1 cells are — the honest
-# statement is that this file exists, is reviewable, and can be booted on
-# demand:
+# The proxy-conformance workflow boots this file as a NON-BLOCKING cell: the
+# suite runs through it, but a failure there does not fail the workflow. It is
+# the only example that appends to X-Forwarded-For (see below), so it is the
+# only cell in which the suite's appending-proxy test runs. To boot it by hand:
 #
 #     docker compose -f docker-compose.proxy.yml --profile envoy up -d
 #
 #     MW_T20_PROXY=1 MW_T20_PROXY_BASE=http://127.0.0.1:8606 \
 #     MW_T20_PROXY_KIND=envoy \
-#       cargo test -p mw-server --test t20_proxy_conformance -- --nocapture
+#       cargo test -p mw-server --test t20_proxy_conformance -- --nocapture --test-threads=1
 #
 # ---------------------------------------------------------------------------
 # The one place Envoy behaves differently from every other cell here

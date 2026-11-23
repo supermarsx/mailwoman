@@ -1,491 +1,381 @@
 # Running Mailwoman behind a reverse proxy
 
-This is the operator-facing document: **what is supported, what is merely
-shipped, and what changes when you upgrade to 26.19.** The companion file
-[`proxy/README.md`](proxy/README.md) describes the test harness and the design
-of each configuration; this one tells you what to set and what has been proven.
+This page explains how to put Mailwoman behind nginx, Apache httpd, Caddy, HAProxy,
+Traefik, Envoy or IIS: which environment variables the server needs, what the proxy
+must send and allow, and how to check the result. Example configurations for each
+proxy are in [`proxy/`](proxy/README.md).
 
-`docs/deploy/proxy/README.md` has referred to this page since it was written.
-It did not exist until 26.19.
+## Requirements
 
----
+The proxy in front of Mailwoman must:
 
-## 1. Read this first if you are upgrading — one breaking change
+- pass the browser's `Host` header through unchanged, including any port;
+- overwrite `X-Forwarded-For` with the client address and set `X-Forwarded-Proto`;
+- pass WebSocket upgrades on `/jmap/ws` (and preferably on `/jmap/actions`; without
+  it the web client sends those requests over ordinary HTTP);
+- not buffer or compress the event streams `/jmap/eventsource` and `/api/assist/invoke`;
+- keep idle streams open for longer than the server's 30-second heartbeat;
+- accept request bodies larger than Mailwoman's own limits (50 MB for an attachment
+  upload, 64 MiB for a mailbox import), so that Mailwoman, not the proxy, answers an
+  oversized upload.
 
-**Mailwoman no longer trusts `X-Forwarded-For` from whoever connects.**
+The server must be told which addresses the proxy connects from. Until you do,
+Mailwoman ignores every forwarded header and treats the proxy as the client.
 
-Before 26.19, any peer that could reach the application port could set
-`X-Forwarded-For` and have it believed. That made the OAuth scoped-key IP
-allowlist defeatable with a header, the per-key rate limit evadable by rotating
-one, and every address in the audit log attacker-chosen. Forwarded headers are
-now ignored by default.
+## Set up Mailwoman behind a proxy
 
-**The consequence: a deployment that relied on the old implicit trust now sees
-the proxy's own address as the client address** — in audit logs, in per-key IP
-allowlists, in rate-limit buckets and in the login monitor's ban list. Nothing
-fails loudly; the addresses are simply wrong until you configure it.
+1. Start from the example configuration for your proxy in [`proxy/`](proxy/README.md).
+   Change the upstream address, the server name and the certificate paths.
+2. Find the address the proxy connects to Mailwoman **from**. In Docker or
+   Kubernetes this is the proxy container's or pod's address, not a service address.
+3. Set these variables in the server's environment:
 
-To restore correct client addresses you must set **both** of:
+   ```sh
+   MW_TRUSTED_PROXIES=10.0.0.5        # the proxy's source address or network
+   MW_FORWARDED_MODE=xff              # the proxy sends X-Forwarded-For
+   MW_PUBLIC_URL=https://mail.example.org
+   ```
 
-```sh
-MW_TRUSTED_PROXIES=10.0.0.0/24      # the addresses your proxy connects FROM
-MW_FORWARDED_MODE=xff               # which header it emits: xff | forwarded
-```
+4. Restart the server. These variables are read at start-up.
+5. Sign in through the proxy and open **Diagnostics → Deployment security
+   assessment** in the admin console. **HTTPS request** and **Secure cookies** should
+   report the HTTPS your browser used. See [Deployment security
+   assessment](../admin/deployment-security.md).
 
-Both are required, and each is inert without the other. Setting proxies without
-choosing a mode changes nothing; choosing a mode without listing proxies changes
-nothing. That is deliberate — neither half can start trusting a header on its
-own.
+<!-- SCREENSHOT deploy/reverse-proxy-assessment-https: Admin console, Diagnostics > Deployment security assessment, server behind a TLS proxy, crop of the HTTPS request and Secure cookies rows -->
 
-`MW_TRUSTED_PROXIES` should list the addresses your proxy **connects from**,
-which is not always the address it listens on. In Docker or Kubernetes this is
-the pod/container address, not the service address. Get it from the app's own
-logs on a real request rather than from the compose file.
+If you install with `deploy.sh`, it writes `MW_TRUSTED_PROXIES` and
+`MW_FORWARDED_MODE=xff` for you with `--domain` (its own Caddy) and with
+`--proxy-network` (an existing proxy on a Docker network), unless `app.env` already
+sets them. See [deploy.sh](script.md).
 
----
+## How the client address is decided
 
-## 2. Environment variables introduced or changed in 26.19
+Mailwoman uses the client address for source bans, sign-in rate limits and
+geography, API-key IP allowlists, the health-endpoint rule and the addresses it logs.
+It decides that address as follows:
 
-| Variable | Default | What it does |
+- With `MW_FORWARDED_MODE` unset or `off`, the address of the connection is the
+  client address. Forwarded headers are ignored.
+- With `MW_FORWARDED_MODE=xff` or `forwarded`, the header is read **only** when the
+  connection comes from an address in `MW_TRUSTED_PROXIES`. Both variables are
+  needed; either one alone changes nothing, and the server logs a warning when a mode
+  is set with no usable proxy list.
+- Exactly one header is read: `X-Forwarded-For` for `xff`, the RFC 7239 `Forwarded`
+  header (its `for=` parameter) for `forwarded`. A client cannot switch to the other
+  header.
+- The header is read from right to left. Entries that are themselves trusted
+  proxies are skipped, and the first entry that is not a trusted proxy is the client.
+  Anything to its left is ignored. An entry that is not an address (`unknown`, an
+  obfuscated identifier) stops the walk at the last trusted proxy.
+
+`MW_TRUSTED_PROXIES` takes a comma- or space-separated list of addresses and CIDR
+networks, IPv4 or IPv6. A malformed entry is dropped; it never widens the list. An
+IPv4 client seen by a dual-stack listener as `::ffff:a.b.c.d` matches an IPv4 entry.
+
+::: warning
+List only addresses you control. A host inside `MW_TRUSTED_PROXIES` can claim any
+client address it likes.
+:::
+
+### Single proxy or a chain
+
+The example configurations overwrite `X-Forwarded-For` with the address the proxy
+saw, so Mailwoman receives one entry the client could not influence. If you run a
+chain (for example a CDN in front of nginx), switch the proxy to appending (each
+example file shows how) and list **every** hop in `MW_TRUSTED_PROXIES`. A hop missing
+from the list makes the walk stop early, at that hop's address.
+
+## How the scheme and host are decided
+
+Mailwoman needs to know whether the browser used HTTPS (for the `Secure` cookie flag
+and the `Strict-Transport-Security` header) and which host it addressed (for the
+passkey origin). For the scheme, in order:
+
+1. `MW_PUBLIC_URL`, when it is set: `https://…` means HTTPS, `http://…` means not.
+2. `X-Forwarded-Proto` from a connection inside `MW_TRUSTED_PROXIES`. If the header
+   has several values, the last one (written by the nearest proxy) is used.
+3. Whether Mailwoman terminates TLS itself (`MW_ACME`, or both `MW_TLS_CERT` and
+   `MW_TLS_KEY`, set in the environment).
+
+For the host: the host in `MW_PUBLIC_URL`, else `X-Forwarded-Host` from a trusted
+proxy, else the `Host` header.
+
+Trust for `X-Forwarded-Proto` and `X-Forwarded-Host` depends on `MW_TRUSTED_PROXIES`
+alone, not on `MW_FORWARDED_MODE`. Setting the proxy list with
+`MW_FORWARDED_MODE=off` therefore trusts the proxy for scheme and host while the
+client address stays the connection address.
+
+### Cookies and HSTS
+
+- The session cookie carries `Secure` when the effective scheme is HTTPS, when
+  `--cookie-secure` is passed, or when `MW_PUBLIC_URL` starts with `https://`.
+- `MW_COOKIE_SECURE=true` or `false` overrides all of these in both directions.
+- `Strict-Transport-Security` is sent only on responses to HTTPS requests, by default
+  `max-age=31536000`. Do not add a second one in the proxy; the example
+  configurations leave it to Mailwoman.
+
+### Passkeys and the public URL
+
+The passkey (WebAuthn) origin is `MW_WEBAUTHN_ORIGIN` when set, otherwise the
+effective scheme and host described above. A passkey only works for the origin it
+was registered under.
+
+::: warning
+Changing the scheme or host the server sees (by setting or changing `MW_PUBLIC_URL`,
+moving to another proxy, or changing `X-Forwarded-Host`) changes the passkey origin.
+Passkeys registered under the old origin stop working, and users must sign in with
+another factor and register them again. Make the change in a planned window and tell
+users first.
+:::
+
+## Headers the proxy sends
+
+| Header | What the proxy does | Why |
 |---|---|---|
-| `MW_TRUSTED_PROXIES` | *(empty — trust nobody)* | Comma-separated CIDRs or bare addresses whose peers may assert a forwarded header, and which are skipped as intermediate hops when walking one. |
-| `MW_FORWARDED_MODE` | `off` | Which forwarded header to read: `off`, `xff` (`X-Forwarded-For`), or `forwarded` (RFC 7239). **Exactly one is ever read**, so a client cannot pick whichever header the proxy does not set. An unrecognised value — including a typo — is `off`, never a guess. |
-| `MW_PROXY_PROTOCOL` | `off` | PROXY protocol on the HTTP/HTTPS listener: `off`, `accept` (a trusted peer *may* send one), `require` (every connection must arrive from a trusted peer with a valid header; anything else is dropped). Use `require` once the port is behind an L4 balancer — a connection without a header there did not come through the balancer. |
-| `MW_PUBLIC_URL` | *(unset)* | The canonical external base, e.g. `https://mail.example.com`. Highest-precedence source for the public scheme and host. **Read the migration note in §3 before setting it.** |
-| `MW_BASE_PATH` | *(unset — root)* | Serve the application under a path prefix, e.g. `/mail`. See §6. |
-| `MW_HEADER_AUTH_TRUSTED_IPS` | *(empty — deny)* | Which peers may assert `X-Remote-User` when `MW_HEADER_AUTH=1`. Fails closed: an unset or unparseable list authenticates **nobody** rather than everybody. See §5. |
-| `MW_ASSIST_RATE_LIMIT_PER_MIN` | *(unset — unlimited)* | Per-account AI assistant budget in **outbound endpoint requests** per minute. `0` is an explicit hard stop (a kill switch that leaves the rest of the deployment running). Sizing matters: a cold-cache semantic search costs up to **33** requests (one for the query, up to 32 documents embedded on demand) and converges toward 1 as the cache fills, while a chat turn costs 1. `60` permits roughly two cold semantic searches a minute per account. |
+| `Host` | Pass the browser's value unchanged, with the port | Mailwoman compares `Origin` against `Host` on every state-changing request; a rewritten `Host` makes sign-in fail with `403`. |
+| `X-Forwarded-For` | Set to the client address (overwrite) | Client address, when `MW_FORWARDED_MODE=xff`. |
+| `X-Forwarded-Proto` | Set to `https` or `http` | Effective scheme: `Secure` cookies, HSTS, passkey origin. |
+| `X-Forwarded-Host` | Set to the browser's `Host` | Host for the passkey origin when `MW_PUBLIC_URL` is unset. |
+| `Forwarded` | Remove the client's copy, unless you use `MW_FORWARDED_MODE=forwarded` | Only one forwarded header should reach the server. |
+| `X-CSRF-Token`, cookies | Pass through unchanged | `deploy.sh` turns on strict CSRF (`MW_CSRF_STRICT=true`); a write without the token is refused with `403`. |
 
-Also relevant, and not new: `MW_COOKIE_SECURE` (absolute override in both
-directions), `MW_HSTS` / `MW_HSTS_MAX_AGE` / `MW_HSTS_INCLUDE_SUBDOMAINS` /
-`MW_HSTS_PRELOAD`.
+## Long-lived connections
 
-### How the effective scheme is decided
-
-In precedence order: `MW_PUBLIC_URL` (stated by you, so nothing can move it) →
-the application's own TLS listener, if it is terminating TLS itself →
-`X-Forwarded-Proto`, **only** from a peer inside `MW_TRUSTED_PROXIES`. A
-forwarded header can only ever *raise* the answer to https, never lower it, and
-`MW_COOKIE_SECURE` overrides the lot.
-
-**`MW_TRUSTED_PROXIES` is load-bearing on its own for scheme and host.** That
-trust gates on the proxy list alone, not on `MW_FORWARDED_MODE`. So
-`MW_TRUSTED_PROXIES` set with `MW_FORWARDED_MODE=off` means "scheme and host
-trusted, client IP still peer-only" — a combination that was inert before 26.19.
-The worst a false assertion from such a peer produces is `Secure` cookies over
-plaintext, or HSTS for a host with no TLS: both availability problems,
-self-inflicted by a peer you explicitly trusted, and neither a confidentiality
-nor an authentication widening.
-
----
-
-## 3. Migration note — setting `MW_PUBLIC_URL` can invalidate existing passkeys
-
-`MW_PUBLIC_URL=https://…` does two things at once:
-
-1. It raises the cookie `Secure` floor, which is the point.
-2. **It changes the WebAuthn origin scheme**, and therefore the origin every
-   registered passkey was bound to.
-
-A deployment that has been serving over plain http, or that was letting the
-scheme be derived, and then sets an https `MW_PUBLIC_URL` **will find that
-existing passkeys stop validating** — the assertion arrives bound to the old
-origin and is rejected. Users fall back to password + TOTP or recovery codes and
-must re-enrol their passkeys.
-
-`MW_PUBLIC_URL` is new in 26.19, so this can only bite a deployment that adopts
-it, never one that upgrades and leaves it alone. Set it during a window where
-re-enrolment is acceptable, and tell your users first.
-
----
-
-## 4. The proxy matrix — what has actually been proven
-
-**Nothing in `docs/deploy/proxy/` is evidence that a proxy works.** A shipped
-config file is a claim. The proof is booting the cell and running the
-conformance suite through it.
-
-| Proxy | Config shipped | In the CI matrix | Booted + suite run | Result |
-|---|---|---|---|---|
-| **nginx** | ✅ | ✅ | ✅ developer host, server strict | 11 of 13 run and pass, 2 skip by design |
-| **Caddy** | ✅ | ✅ | ✅ developer host, server strict | 11 of 13 run and pass, 2 skip by design |
-| **HAProxy (L7)** | ✅ | ✅ | ✅ developer host, server strict | 11 of 13 run and pass, 2 skip by design |
-| **Traefik** | ✅ | ✅ | ✅ developer host, server strict | 11 of 13 run and pass, 2 skip by design |
-| **Apache httpd** | ✅ | ✅ | ✅ developer host, server strict | 11 of 13 run and pass, 2 skip by design — see §4.2 |
-| **HAProxy (L4, PROXY protocol)** | ✅ | ✅ | ✅ developer host, server strict | 11 of 13 run and pass, 2 skip by design — see §4.3 |
-| **Envoy** | ✅ | non-blocking cell, not in the tier-1 gate | developer host, server strict; CI run 38312068826 | 12 of 13 run and pass, the sub-path test skips — see §4.4 |
-| **IIS** | ✅ | ❌ **cannot be** | ❌ **never** | see §4.4 |
-
-### 4.1 What "in the CI matrix" does and does not mean
-
-`.github/workflows/proxy-conformance.yml` boots each cell with the same
-environment contract and ports as the manual runs (`up -d --wait`, then
-`down -v`). The results in the table's last column come from a developer-host
-run on 2026-10-23 of every cell with the server strict (`MW_CSRF_STRICT=true`,
-as `deploy.sh` configures it), images built from `b889b9d`; the 13th test
-checks that a write without `X-CSRF-Token` is refused. The workflow has also
-completed: in run 38312068826 (commit `b889b9d`, before the cells ran strict,
-12 tests) all seven cells — the six tier-1 cells and the non-blocking Envoy
-cell — finished their suite with no failures. Its skip log names the sub-path test in every
-cell and the appending-proxy test in every cell except Envoy. A test that
-returns early without writing to the skip log looks like a pass in that output.
-
-So: **say which run and which commit** when you say the matrix passes in CI,
-not "the matrix passes in CI" as a standing fact; one green run says nothing
-about the commits after it. The distinction is not pedantry — this repository
-has already shipped a conformance
-workflow (`t17-conformance.yml`) that never parsed, and therefore never ran, for
-an entire release cycle without anyone noticing, because GitHub reports an
-unparseable workflow as a file problem rather than a failing job.
-
-### 4.2 Apache — supported, with one contract caveat
-
-Apache is a tier-1 cell and its configuration works, but two things were broken
-as shipped and are worth knowing about:
-
-- **The cell could not start httpd at all.** `mailwoman.conf` used `SetEnv`
-  (`mod_env`) while `httpd.conf` loaded `mod_setenvif`, a different module. Fixed;
-  if you adapt these files, load `mod_env`.
-- **The JSON error contract on oversize uploads.** Mailwoman answers an oversize
-  upload with a JSON `413`. Behind `mod_proxy` this arrived as httpd's own
-  `502 text/html`, because the application answered and closed while the client
-  was still writing, and `mod_proxy` abandons an exchange whose write failed
-  **without reading the response already waiting on the socket**. Five mod_proxy
-  configurations were measured and none of them changed it; there is no directive
-  meaning "on write failure, read the response anyway".
-
-  **This is fixed in the application, not in the configuration**: the request
-  body is now drained (bounded by both bytes and time) before the `413` is
-  written, so the client can finish writing. The fix is proven at the socket
-  level — a raw client writing a 75 MB body now completes and receives the JSON
-  `413`, where before it aborted mid-write.
-
-  The Apache cell has since run in CI: in run 38312068826 (commit `b889b9d`)
-  `a_large_upload_succeeds_and_an_oversize_one_gets_the_apps_json_413` passed
-  through httpd and is not in that run's skip log. That is one run on one
-  commit. The strict developer-host run of 2026-10-23 passed it as well.
-
-### 4.3 HAProxy L4 — the PROXY-protocol cell
-
-This is `mode tcp` with `send-proxy-v2` against the application's **own TLS
-listener**: no HTTP parsing, no forwarded headers, the client address arriving
-out of band. It exists because the built-in ACME client means the application can
-be the TLS endpoint, which is also what an AWS NLB or an nginx `stream` block
-gives you.
-
-**PROXY protocol v2 has been verified against a real `send-proxy-v2` sender**,
-which is what closes the loop on a parser whose test vectors were otherwise
-hand-built to the specification. Two caveats: the `PP2_TYPE_CRC32C` TLV is
-consumed but **not checked**, so do not describe the implementation as
-conformant; and the cell could not boot as shipped (omitting `healthcheck:` does
-not suppress the image's baked-in `HEALTHCHECK`, which spoke plain HTTP to a
-TLS-only listener — `healthcheck: disable: true` is required).
-
-### 4.4 Envoy (a non-blocking cell) and IIS (shipped configuration only)
-
-Neither is supported. Ship-and-document is not the same as tested, and the
-difference is stated here rather than left to the reader.
-
-- **Envoy** is not a tier-1 (gating) proxy, because it overlaps HAProxy L7 and
-  Traefik. It is in the CI matrix as a **non-blocking** cell: a red Envoy cell
-  does not fail the gate. It is there for one test. Envoy **appends** to
-  `X-Forwarded-For` rather than overwriting, so it is the only shipped
-  configuration that depends on the application's right-to-left hop walk being
-  correct, and the only cell in which
-  `an_appending_proxy_still_resolves_the_real_client` runs instead of skipping.
-  The suite has passed against it on a developer host and in CI run
-  38312068826 (11 of 12 tests run, the sub-path test skips), and in the
-  strict developer-host run of 2026-10-23 (12 of 13 run, the same skip). That one
-  property is earned. Nothing else about the Envoy configuration is.
-- **IIS** cannot be tested in CI at all and **has never been booted by anyone**.
-  The `web.config` and its runbook are a starting point written from the
-  documentation, not a verified recipe. See
-  [`proxy/iis/README.md`](proxy/iis/README.md), which is explicit about what has
-  and has not been checked.
-
-Do not write "supports Envoy" or "supports IIS" anywhere.
-
-### 4.5 Claims that are not earned
-
-For anyone writing release notes or marketing copy from this page:
-
-- ❌ **Not** "RFC 7239 supported". `Forwarded` is read for the **client IP
-  only**; its `proto=` parameter is ignored, so a strict-7239 proxy that emits
-  `Forwarded` and no `X-Forwarded-Proto` leaves the effective scheme at the
-  listener's. Every proxy in our matrix emits `X-Forwarded-Proto`, so this is not
-  reachable here, and the failure direction is safe — it degrades to the
-  pre-26.19 posture and never grants trust.
-- ❌ **Not** "PROXY protocol v2 verified/conformant" — see the CRC32C note above.
-- ❌ **Not** "the conformance matrix passes in CI" without the run and the
-  commit — see §4.1.
-- ❌ **Not** "`MW_BASE_PATH` isolates the app to a sub-path" — see §6.
-
----
-
-## 5. Header authentication and the proxy trust list are not independent
-
-`MW_HEADER_AUTH=1` plus `MW_HEADER_AUTH_TRUSTED_IPS` lets a listed peer assert
-`X-Remote-User` and be issued that user's session with no credential. The
-allowlist is a **separate list** from `MW_TRUSTED_PROXIES` on purpose: a proxy
-trusted to report *where a client is* is not thereby trusted to declare *who
-they are*.
-
-**That separation holds only while `MW_PROXY_PROTOCOL=off`.**
-
-With `accept` or `require`, the peer address is itself a value the connecting
-proxy declares in the PROXY header, and that declared address is what the
-header-auth gate checks. So any member of `MW_TRUSTED_PROXIES` can name a peer
-address inside `MW_HEADER_AUTH_TRUSTED_IPS` and then assert an identity for a
-password-less session.
-
-This grants nothing new when `MW_TRUSTED_PROXIES` names your balancer's own
-addresses — that membership is already total authority over the client-IP model.
-**It matters when the list is written as a subnet** (a pod range, a VPC CIDR)
-covering hosts other than the balancer, because every host in that range can then
-assert any identity.
-
-> **If you enable both header auth and PROXY protocol, list individual addresses
-> in `MW_TRUSTED_PROXIES`, not ranges.**
-
-Header auth remains safe only behind a proxy that **strips** any client-supplied
-copy of the header. Every configuration under `docs/deploy/proxy/` does this.
-
----
-
-## 5a. `/healthz` is internal-only, and what that needs from the proxy config
-
-`/healthz` and `/readyz` answer only when the client address is loopback,
-private, link-local or unique-local; anyone else gets the same 404 as an unknown
-path (`security.health.mode`, `security.health.networks`, `MW_HEALTH_TOKEN`; see
-[settings](../admin/settings.md#security.health.mode)). A request that is not
-admitted also gets none of the exemptions the protection layers give the health
-paths.
-
-**Warning: the client address is the one resolved through `MW_FORWARDED_MODE` and
-`MW_TRUSTED_PROXIES`.** Behind a reverse proxy that is not configured there, every
-request, including one from the public internet, arrives from the proxy's own
-address, which is normally private. The default rule then admits everyone, and
-`/healthz` is reachable from the internet. Set both variables to the proxy before
-relying on it. Probes that stay inside the host or pod are unaffected: a Docker
-healthcheck comes from loopback, a Kubernetes exec probe from loopback, and a
-kubelet `httpGet` probe from the node address.
-
-An external monitor that must reach `/healthz` through the proxy needs either its
-network in `security.health.networks` with `security.health.mode` set to
-`allowlist`, or the token: set `MW_HEALTH_TOKEN` and send it as the
-`X-Health-Token` header (or `?token=`). `deploy.sh` sends the value from `app.env`
-on its public-URL checks when it is set there.
-
-## 6. Sub-path hosting (`MW_BASE_PATH`)
-
-`MW_BASE_PATH=/mail` mounts the whole application under a prefix. **New in
-26.19 — this variable was documented before any code read it**, so setting it
-previously had no effect at all.
-
-Two things to understand before using it.
-
-**The application also stays mounted at the origin root, deliberately.** The
-prefix is *routing*, not an isolation boundary. `/healthz` must stay reachable
-for a container health check and `/.well-known/*` must stay reachable for WKD and
-JMAP autodiscovery, whatever prefix the UI lives under — both live at the origin
-root by definition. Do not set `MW_BASE_PATH` expecting it to hide the
-application; it does not, and it is not trying to.
-
-**No shipped proxy configuration includes a sub-path recipe.** Sub-path hosting
-is proven for `/mail/api/*` through a real nginx — API routes beneath the prefix
-return JSON, which is the failure mode that matters, because the intuitive
-implementation makes every `/mail/api/*` call return `200 text/html` while
-looking entirely healthy on a status-only check. But the shipped nginx
-configuration's `location` blocks are prefix-blind, so **WebSocket push breaks
-under a prefix** with that file as written. If you need sub-path hosting today,
-expect to adapt the location blocks yourself, and test push specifically.
-
-Both reverse-proxy idioms work at the application end — `proxy_pass http://app;`
-(prefix preserved) and `proxy_pass http://app/;` (prefix already stripped).
-
----
-
-## 7. Why each proxy is in the matrix
-
-Six proxies is not six copies of one test; each has a stock default that breaks
-something specific. The reasoning, the fixed host-port contract, the harness
-addressing and the per-file layout are all in
-[`proxy/README.md`](proxy/README.md). The short version:
-
-- **nginx** — worst default set of the group: `proxy_buffering on` swallows
-  server-sent events, `client_max_body_size 1m` rejects attachments, HTTP/1.0
-  upstream means no WebSocket upgrade. It is also the only proxy that honours
-  `X-Accel-Buffering`, which is why the application emits that header at all.
-- **Apache httpd** — `ProxyPreserveHost` defaults to **Off**, which rewrites
-  `Host` and therefore silently changes the WebAuthn RP ID, so existing passkeys
-  stop validating. And `mod_proxy` *appends* to `X-Forwarded-For`, so the correct
-  pattern is to unset the client's and let `mod_proxy` add one hop.
-- **Caddy** — gets the most right by default; it is the zero-config path most
-  people try first and it is in the matrix to keep that path working.
-- **HAProxy L7** — `timeout tunnel` governs an upgraded connection and neither
-  `timeout client` nor `timeout server` applies once the WebSocket is up.
-- **HAProxy L4** — the only PROXY-protocol cell; see §4.3.
-- **Traefik** — closest analogue to the Kubernetes ingress story the Helm chart
-  needs, and it splits static from dynamic configuration in a way that makes it
-  easy to put a timeout in the file where it is ignored.
-
-**Body limits are set above the application's, on purpose.** Every cell allows
-100 MB where the application's upload limit is 50 MB. If the proxy's limit sat at
-or below the application's, an oversized upload would be rejected by the proxy and
-the user would get nginx's or IIS's HTML error page instead of Mailwoman's JSON
-error. Letting the request through so the application is the one that says no is
-what keeps the error contract intact.
-
----
-
-## 8. `deploy.sh` behind a proxy, and after a crash — what is tested
-
-The proxy matrix in §4 runs the conformance suite against a compose file made
-for it. `scripts/test-deploy-proxy.sh` instead installs the app with
-`deploy.sh`, as an operator would, and checks it from the outside:
-
-```sh
-bash scripts/test-deploy-proxy.sh mailwoman:proxy-test mailwoman-mock:proxy-test
-```
-
-Build the two images first with `docker build --target runtime` and
-`docker build --target mock`. Each case prints `PASS`, `FAIL` or
-`SKIP: <reason>`; with `DEPLOY_TEST_REQUIRE=all` a skip makes the script exit
-non-zero. `DEPLOY_PROXY_CASES` picks cases (`restart npm caddy`). Every
-container, network and volume it creates carries a random project name and is
-removed afterwards.
-
-| Case | What it does | What it checks |
+| Path | Kind | What the proxy needs |
 |---|---|---|
-| 1 crash restart | `deploy.sh` on a localhost port; the server process is killed with SIGKILL from the host PID namespace (`docker run --privileged --pid=host … kill -9 <pid>`) | Docker records a `die` event with exit code 137 and restarts the container (`RestartCount` +1); health returns; an admin ban written before the kill is still listed |
-| 2 Nginx Proxy Manager | `deploy.sh --public-url https://… --proxy-network <net>`; `jc21/nginx-proxy-manager:2.15.1` (pinned by digest) on that network, set up through its API: one proxy host forwarding to `http://<project>:8080` with WebSocket support, and an uploaded throwaway certificate | from a client on a second network: the certificate verifies against the throwaway CA and not without it; `/healthz`; the SPA; admin login, a write refused without `X-CSRF-Token` and accepted with it; `/jmap/ws` answers 101 with the `jmap` subprotocol for a mailbox session and 401 without one; the address the app logs for a failed admin login is the client's, not the proxy's |
-| 3 Caddy with a local ACME server | `deploy.sh --domain` with `ACME_CA` / `ACME_CA_ROOT` pointing at Pebble 2.10.1 (the ACME test server), whose DNS server (`pebble-challtestsrv`) answers every name with Caddy's address, so Pebble validates through Caddy's ports 80 and 443. Needs host ports 80 and 443 free, else `SKIP` | Caddy obtains a certificate from Pebble; `deploy.sh`'s own check of `https://<domain>/` from the host passes (a curl config in `CURL_HOME` maps the domain to 127.0.0.1 and trusts Pebble's root); the served chain verifies against Pebble's issuing root, fetched from Pebble before the deploy, and not without it; its issuer is Pebble's intermediate; then the case 2 checks through Caddy |
+| `/jmap/ws` | WebSocket, push notifications | Upgrade support; idle timeout well above 30 s |
+| `/jmap/eventsource` | Server-sent events, push fallback | No buffering, no compression; idle timeout well above 30 s |
+| `/api/assist/invoke` | `POST` answered with server-sent events (AI assistant) | No buffering, no compression; long read timeout |
+| `/jmap/actions` and `<console path>/actions` | WebSocket that carries web-client and admin-console requests | Upgrade support. Without it the client sends the same requests over ordinary HTTP. |
 
-Why case 1 does not use `docker kill`: on Docker 29.4.2 a `docker kill` is
-recorded as a manual stop, and a container with `restart: unless-stopped`
-(what `deploy.sh` writes) is then not restarted. The same script with
-`docker kill` in place of the host-namespace kill fails, and so does a run with
-the restart policy set to `no`; the forwarded-address check fails when the app
-is told not to trust the proxy network (`MW_FORWARDED_MODE=off`), and the
-WebSocket checks fail when the proxy host is created without WebSocket support.
+The server sends a heartbeat on idle push streams every 30 seconds. The SSE responses
+carry `X-Accel-Buffering: no` (which nginx honours) and `Cache-Control: no-cache,
+no-transform`. Other proxies need buffering turned off in their configuration, as the
+examples do. More detail: [Realtime push](websocket.md).
 
-**Recorded run:** 2026-10-23, `deploy.sh` and the script at commit
-`d1a69ef`, image `mailwoman:t31-w0` built from commit `b889b9d`, Docker 29.4.2
-with Compose 5.1.3 (Docker Desktop, WSL2 kernel 6.6.114.1, x86_64), Caddy
-`caddy:2-alpine` (image ID `sha256:eb4d35b7…`, 2.11.7), with
-`DEPLOY_TEST_REQUIRE=all`: case 1 PASS (healthy again 10 s after the kill),
-case 2 PASS, case 3 PASS (certificate issued by Pebble's intermediate); exit 0.
+## Request body size
 
-Case 3 found a defect on its first run: before `d1a69ef`, Compose (5.1.3, and
-2.38.2) refused to start the Caddy service that `deploy.sh --domain` wrote —
-`cannot create config … in read-only service caddy: file is the sole supported
-option` — because the Caddyfile was an inline `configs: content:` on a
-`read_only: true` container, so no Caddy installation made by `deploy.sh`
-started. Since `d1a69ef` the Caddyfile and the ACME root are environment values
-that the entrypoint writes to the container's `/tmp`. Case 3 also fails when
-Pebble cannot validate through Caddy (Pebble set to its default validation
-ports): no certificate is issued and `deploy.sh`'s own host check fails.
+Set the proxy's body limit above Mailwoman's limits (50 MB for `/jmap/upload`,
+64 MiB for `/api/import/*`). The example configurations use 100 MB. If the proxy's
+limit is lower, an oversized upload gets the proxy's HTML error page instead of
+Mailwoman's JSON `413`, and the web client cannot explain it.
 
-**Not proven by this script:** issuance by the public Let's Encrypt endpoint
-for a real domain; DNS and inbound reachability on ports 80 and 443;
-certificate renewal over time; Nginx Proxy Manager's own Let's Encrypt flow and
-any setting made by hand in its UI; behaviour on Docker engines other than the
-one used for the recorded run, and Caddy images other than the `caddy:2-alpine`
-that `deploy.sh` pulled for it. Case 1 kills the process once; it does not show
-what happens to a write in progress at the moment of the kill.
+When Mailwoman refuses an oversized upload it keeps reading (and discarding) the rest
+of the body, up to a further 50 MB or 30 seconds, before it answers `413`. That lets a
+proxy that stops relaying on a failed write, such as Apache `mod_proxy`, still deliver
+the JSON answer.
 
----
+## The health endpoint behind a proxy
 
-## 9. HTTP/3 (QUIC) — terminated at the proxy
+`/healthz` answers only clients whose address is loopback, private, link-local or
+unique-local; everyone else gets `404`, as for an unknown path. The address checked is
+the one decided above.
 
-Mailwoman has no QUIC listener and does not speak HTTP/3 itself. HTTP/3 is
-terminated by the proxy in front of it; the proxy talks HTTP/1.1 to the app and
-forwards the client's address, scheme and host in `X-Forwarded-For`,
-`X-Forwarded-Proto` and `Host`/`X-Forwarded-Host`, exactly as it does for an
-HTTP/2 client. Nothing changes on the application side: the same
-`MW_TRUSTED_PROXIES` / `MW_FORWARDED_MODE` / `MW_PUBLIC_URL` settings (§2)
-decide what is trusted, whichever protocol the browser used.
+::: warning
+If `MW_TRUSTED_PROXIES` and `MW_FORWARDED_MODE` are not set, every request appears to
+come from the proxy, which usually has a private address. `/healthz` is then
+reachable from the internet. Configure the trusted proxy before you rely on this rule.
+:::
 
-### 9.1 Which shipped configurations enable it
+To let an external monitor reach `/healthz` through the proxy, either set
+`security.health.mode` to `allowlist` and add its network to
+`security.health.networks`, or set `MW_HEALTH_TOKEN` and send the value in an
+`X-Health-Token` header (or a `token` query parameter). See
+[`security.health.mode`](../admin/settings.md#security.health.mode). The container's
+own health check (`mailwoman healthcheck`) connects over loopback and sends
+`MW_HEALTH_TOKEN` when it is set.
 
-| Proxy | HTTP/3 in the shipped config | Checked with `scripts/proxy-h3-check.sh` |
-|---|---|---|
-| **Caddy** (`docs/deploy/proxy/caddy/Caddyfile`) | on by default for every TLS site; nothing to add | yes, 2026-10-29, developer host |
-| **`deploy.sh --domain`** (managed Caddy) | on by default (`CADDY_PROTOCOLS='h1 h2 h3'`), publishes `443/udp`; see [script.md](script.md) | rendered manifest only (`scripts/test-deploy-http-protocols.sh`) |
-| **nginx** (`docs/deploy/proxy/nginx/mailwoman.conf`, `docs/deploy/nginx.conf`) | `listen … quic reuseport;` + `http3 on;` + `add_header Alt-Svc 'h3=":443"; ma=86400' always;` — needs nginx ≥ 1.25 built with `--with-http_v3_module` (the official images are) | yes (conformance vhost), 2026-10-29, developer host; `docs/deploy/nginx.conf` passes `nginx -t` |
-| **Traefik** v3 (`docs/deploy/proxy/traefik/traefik.yml`) | `http3: {}` on the `websecure` entry point | yes, 2026-10-29, developer host |
-| HAProxy, Apache httpd, Envoy, IIS | not configured in the shipped files | no |
+## Header authentication
 
-**nginx: `Host` over HTTP/3.** An HTTP/3 request has no `Host` header, only
-`:authority`, and nginx does not create one, so `$http_host` is empty over
-QUIC. A vhost that sends `proxy_set_header Host $http_host;` then sends no
-`Host` to the app, the app's Origin check has nothing to compare with, and
-every login over HTTP/3 answers **403** while HTTP/2 works. The check script
-found exactly that in the conformance vhost. It now sends `$mw_host`, a `map`
-that uses `$http_host` when present and otherwise `$host` plus the port when it
-is not 443. `docs/deploy/nginx.conf` uses `$host` on port 443, which is
-correct for HTTP/3 as it is.
+With `MW_HEADER_AUTH=1` (or `true`), a proxy that has already authenticated the user
+can name them in a header (`X-Remote-User` by default, `MW_HEADER_AUTH_HEADER` to
+change it). Mailwoman reads the header when the sign-in request arrives and issues a
+session without a password; a second factor, if the user has one, is still required.
 
-### 9.2 Firewall and port publishing
+- Only connections from `MW_HEADER_AUTH_TRUSTED_IPS` may use the header. An empty or
+  unparseable list means nobody can, and the server logs a warning.
+- `MW_HEADER_AUTH_TRUSTED_IPS` is a separate list from `MW_TRUSTED_PROXIES`, so a
+  proxy trusted to report the client address is not automatically trusted to name
+  the user.
+- The proxy must remove any copy of the header the client sends. **None of the
+  example configurations in `proxy/` do this**, because none of them authenticate
+  users. Add it to your proxy configuration before you turn header authentication on.
 
-QUIC runs over **UDP 443**. Open it next to TCP 80/443 in the host firewall
-(`ufw allow 443/udp`, `firewall-cmd --add-port=443/udp`), in any cloud security
-group, and on any load balancer in front (an L4 balancer must forward UDP, not
-only TCP). In a container, publish the port for both protocols:
-`"443:443/tcp"` and `"443:443/udp"`. `docker-compose.proxy.yml` publishes the
-nginx, caddy and traefik HTTPS ports over UDP for the check below.
+::: danger
+With `MW_PROXY_PROTOCOL` set to `accept` or `require`, the connection address is the
+one the balancer declares in the PROXY header, and that is the address checked
+against `MW_HEADER_AUTH_TRUSTED_IPS`. Any host inside `MW_TRUSTED_PROXIES` can then
+declare an address from the header-auth list and sign in as anyone. If you use both
+features, list single addresses in `MW_TRUSTED_PROXIES`, not networks.
+:::
 
-### 9.3 Fallback
+## PROXY protocol (layer-4 balancers)
 
-Browsers do not start on HTTP/3. The first connection is TCP (HTTP/2 or 1.1);
-the response carries `Alt-Svc: h3=":443"`, and the browser tries QUIC on later
-requests. If UDP 443 is blocked or the QUIC handshake fails, the browser keeps
-using the TCP connection; the user sees no error. WebSocket connections
-(`/jmap/ws`) are opened over TCP, so the proxy's TCP listener and its WebSocket
-settings stay required with HTTP/3 enabled. To switch HTTP/3 off, drop the
-`quic` listeners and `Alt-Svc` (nginx), remove `http3` (Traefik), or set
-`protocols h1 h2` (Caddy; `CADDY_PROTOCOLS='h1 h2'` for `deploy.sh`).
+When a TCP balancer (HAProxy in `mode tcp`, nginx `stream`, a cloud network load
+balancer) passes connections through without terminating TLS, Mailwoman terminates
+TLS itself ([ACME or its own certificate](acme.md)) and learns the client address
+from a PROXY protocol header.
 
-### 9.4 How to check a deployment
+- `MW_PROXY_PROTOCOL=off` (the default): no header is read.
+- `accept`: a peer in `MW_TRUSTED_PROXIES` may send a header; a connection without one
+  is served as a direct client.
+- `require`: every connection must come from a peer in `MW_TRUSTED_PROXIES` and start
+  with a valid header; anything else is dropped. Use this when the port is reachable
+  only through the balancer.
+
+A header from a peer outside `MW_TRUSTED_PROXIES` always closes the connection.
+Versions 1 and 2 are accepted. Version 2 TLVs, including the CRC32C checksum, are
+skipped without being checked. An unrecognised value is treated as `off` and logged.
+The balancer's own health checks must send the header too (HAProxy:
+`check-send-proxy`). Header timeouts and limits are on [Connection
+limits](connection-limits.md). The example is
+[`proxy/haproxy-l4/haproxy.cfg`](proxy/README.md).
+
+## Sub-path hosting
+
+`MW_BASE_PATH=/mail` serves the application under `/mail`. The value must be a plain
+path (letters, digits, `-`, `_`, `.`, `~` and `/` between segments); anything else is
+ignored with a warning and the server stays at the root. `/mail` without a trailing
+slash redirects to `/mail/`.
+
+- The application stays reachable at the root as well. `/healthz` and
+  `/.well-known/*` must be there for health checks, WKD and JMAP discovery. The prefix
+  is routing, not a way to hide the application.
+- The proxy may forward the prefix (`proxy_pass http://app;`) or strip it
+  (`proxy_pass http://app/;`); both work.
+- None of the example configurations in `proxy/` uses a prefix. Their WebSocket and
+  stream locations match `/jmap/ws`, `/jmap/eventsource` and `/api/assist/invoke` at
+  the root, so add the prefix to each of those matches, and check that push works.
+
+## HTTP/3
+
+Mailwoman does not speak HTTP/3. A proxy can accept HTTP/3 from browsers and talk
+HTTP/1.1 to Mailwoman; the forwarded headers work the same way.
+
+| Configuration | HTTP/3 |
+|---|---|
+| Caddy ([`proxy/caddy/Caddyfile`](proxy/README.md)) | On by default for every TLS site |
+| `deploy.sh --domain` (its own Caddy) | On by default; `--http-protocols 'h1 h2'` turns it off. Publishes `443/udp`. See [deploy.sh](script.md). |
+| nginx ([`proxy/nginx/mailwoman.conf`](proxy/README.md), [`nginx.conf`](https://github.com/supermarsx/mailwoman/blob/master/docs/deploy/nginx.conf)) | `listen … quic reuseport;`, `http3 on;` and an `Alt-Svc` header. Needs nginx built with `--with-http_v3_module`. |
+| Traefik ([`proxy/traefik/traefik.yml`](proxy/README.md)) | `http3: {}` on the `websecure` entry point |
+| HAProxy, Apache httpd, Envoy, IIS examples | Not configured |
+
+HTTP/3 runs over **UDP 443**. Open it in the host firewall (for example
+`ufw allow 443/udp`), in cloud security groups and on any balancer in front, and
+publish it in containers (`"443:443/udp"` next to `"443:443/tcp"`). Browsers start on
+TCP, read `Alt-Svc`, and move to HTTP/3 on later requests; if UDP is blocked they
+stay on TCP without an error. WebSocket connections use TCP, so the TCP listener and
+its WebSocket settings remain necessary.
+
+nginx does not create a `Host` header for HTTP/3 requests, so `$http_host` is empty
+there. The example vhost sends `$mw_host` (a `map` that falls back to `$host` plus the
+port) so that sign-in over HTTP/3 keeps a `Host` to compare `Origin` against.
+
+To check a deployment:
 
 ```sh
 # The TCP response must advertise HTTP/3:
 curl -sI --http2 https://mail.example.org/healthz | grep -i '^alt-svc'
-# HTTP/3 only, no TCP fallback. Needs a curl built with HTTP/3
-# (`curl -V` lists HTTP3 under Features); prints "3" when QUIC worked:
+# HTTP/3 only; needs a curl with HTTP3 in `curl -V`. Prints 3 on success:
 curl -s -o /dev/null -w '%{http_version}\n' --http3-only https://mail.example.org/healthz
 ```
 
-In the browser, open the developer tools' Network panel, enable the
-**Protocol** column and reload twice: after the first load the requests show
-`h3`. If they stay on `h2`, UDP 443 is not reaching the proxy.
+Both requests reach `/healthz`, so run them from a network the health rule admits, or
+add `-H "X-Health-Token: …"`.
 
-### 9.5 What is tested
+## Tested configurations
 
-`scripts/proxy-h3-check.sh <caddy|nginx|traefik> [--published PORT]` runs
-against a booted cell of `docker-compose.proxy.yml`. A curl build with HTTP/3
-(quiche; image pinned in the script) joins the cell's network at 172.28.30.5,
-outside `MW_TRUSTED_PROXIES`, and:
+The `proxy-conformance` workflow (`.github/workflows/proxy-conformance.yml`) boots each
+example configuration from `docker-compose.proxy.yml` in front of a Mailwoman server
+with strict CSRF and runs the test suite `crates/mw-server/tests/t20_proxy_conformance.rs`
+through it.
 
-1. requests `/healthz` over TCP, asserting HTTP/2 and an `Alt-Svc: h3=` header;
-2. requests `/healthz` with `--http3-only`, asserting HTTP/3;
-3. over HTTP/2 **and** over HTTP/3, asserts what the app saw: a login whose
-   `Origin` is the proxy's address is accepted and one with a foreign `Origin`
-   is refused (the app compares `Origin` with `Host`); the session cookie
-   carries `Secure` and the response carries HSTS (from a trusted
-   `X-Forwarded-Proto: https`); an API key allowlisted to 172.28.30.5 answers
-   200 and one allowlisted to 203.0.113.9 answers 403 (from `X-Forwarded-For`);
-4. with `--published`, requests HTTP/3 from the host to the cell's published
-   UDP port.
+| Proxy | Example | In the workflow |
+|---|---|---|
+| nginx | `proxy/nginx/` | Yes, blocking |
+| Apache httpd | `proxy/apache/` | Yes, blocking |
+| Caddy | `proxy/caddy/` | Yes, blocking |
+| HAProxy, HTTP mode | `proxy/haproxy-l7/` | Yes, blocking |
+| Traefik | `proxy/traefik/` | Yes, blocking |
+| HAProxy, TCP mode with PROXY protocol | `proxy/haproxy-l4/` | Yes, non-blocking |
+| Envoy | `proxy/envoy/` | Yes, non-blocking |
+| IIS with ARR | `proxy/iis/` | No. Documented, not CI-tested. See [IIS](proxy/iis/README.md). |
 
-**Recorded run:** 2026-10-29, Docker 29.4.2 with Compose 5.1.3 (Docker
-Desktop, Windows 11), app image `mailwoman:t33e15c`, `caddy:2-alpine` (2.11.7),
-`nginx:1.27-alpine` (1.27.5), `traefik:v3.3` (3.3.7): all four steps pass for
-caddy, nginx and traefik, including the published UDP port. Before the
-`$mw_host` change, the nginx cell failed step 3 over HTTP/3 only (login 403).
+A non-blocking cell runs the suite, but its failure does not fail the workflow. The
+suite checks the client address, rejection of a client-supplied forwarded header,
+SSE streaming, the WebSocket upgrade and `jmap` subprotocol, large and oversized
+uploads, range requests, cache headers, `Secure` cookies and HSTS behind TLS, and
+strict CSRF. Two tests do not run in every cell: the appending-proxy test runs only
+in the Envoy cell (the only example that appends to `X-Forwarded-For`), and the
+sub-path test runs in no cell, because no example uses a prefix. The workflow's
+non-blocking `h3` job runs `scripts/proxy-h3-check.sh` against the Caddy, nginx and
+Traefik cells.
 
-The `h3` job in `.github/workflows/proxy-conformance.yml` runs the script for
-the three cells. It is **non-blocking** and not part of the tier-1 gate: no
-hosted runner has run it yet, and UDP between the runner and its containers is
-unverified there. Not proven: HTTP/3 from a real browser (the steps above use
-curl), 0-RTT, connection migration, and any proxy not listed in §9.1.
+Separately, the `ci.yml` workflow runs `scripts/test-deploy-proxy.sh`, which installs
+Mailwoman with `deploy.sh` behind Nginx Proxy Manager and behind its own Caddy
+(issuing a certificate from a local ACME test server), and checks sign-in, strict
+CSRF, the `/jmap/ws` upgrade and the logged client address through each.
+
+## Options
+
+| Variable | What it does | Default |
+|---|---|---|
+| `MW_TRUSTED_PROXIES` | Addresses and CIDR networks whose forwarded headers and PROXY headers are believed | empty (nobody) |
+| `MW_FORWARDED_MODE` | Which header carries the client address: `off`, `xff` (`X-Forwarded-For`), `forwarded` (RFC 7239). Any other value is `off`. | `off` |
+| `MW_PROXY_PROTOCOL` | PROXY protocol on the listener: `off`, `accept`, `require` | `off` |
+| `MW_PUBLIC_URL` | The public base URL, for example `https://mail.example.org`. Sets the scheme and host; a path in it is ignored (use `MW_BASE_PATH`). | unset |
+| `MW_BASE_PATH` | Serve under a path prefix such as `/mail` | unset (root) |
+| `MW_COOKIE_SECURE` | `true` or `false`: forces the `Secure` cookie flag either way | unset (derived) |
+| `MW_HSTS` | `off`, `0` or `false` stops the `Strict-Transport-Security` header | on |
+| `MW_HSTS_MAX_AGE` | HSTS `max-age` in seconds | `31536000` |
+| `MW_HSTS_INCLUDE_SUBDOMAINS` | `1` or `true` adds `includeSubDomains` | off |
+| `MW_HSTS_PRELOAD` | `1` or `true` adds `preload` | off |
+| `MW_HEALTH_TOKEN` | Token that admits a `/healthz` request from any address | unset |
+| `MW_HEADER_AUTH` | `1` or `true` turns on header authentication | off |
+| `MW_HEADER_AUTH_HEADER` | Header that names the user | `X-Remote-User` |
+| `MW_HEADER_AUTH_TRUSTED_IPS` | Addresses allowed to use the header | empty (nobody) |
+| `MW_HEADER_AUTH_PASSWORD` | Password Mailwoman uses for the mail backend for header-authenticated users | empty |
+| `MW_HEADER_AUTH_JMAP_URL` | JMAP server for header-authenticated users in proxy mode | the configured upstream |
+| `MW_WEBAUTHN_ORIGIN`, `MW_WEBAUTHN_RP_ID` | Fix the passkey origin and relying-party ID instead of deriving them | unset |
+
+All of them are read at start-up; restart the server after a change.
+
+## Troubleshooting
+
+**Logs, bans and API-key allowlists show the proxy's address for every request.**
+`MW_TRUSTED_PROXIES` or `MW_FORWARDED_MODE` is missing, or the proxy connects from an
+address the list does not contain. Set both, using the address the connection
+actually comes from.
+
+**Sign-in fails with `403` through the proxy but works directly.** The proxy changes
+`Host` (Apache without `ProxyPreserveHost On`, IIS without `preserveHostHeader`,
+nginx with `proxy_set_header Host $host` on a non-default port), so it does not
+match the browser's `Origin`. Pass `Host` through unchanged. Over HTTP/3 with
+nginx, use the `$mw_host` map from the example.
+
+**Session cookie has no `Secure` flag behind a TLS proxy.** The proxy is not in
+`MW_TRUSTED_PROXIES`, or it does not send `X-Forwarded-Proto: https`. Fix either, or
+set `MW_PUBLIC_URL=https://…`.
+
+**Push arrives late or never; the client falls back to polling.** The proxy drops the
+WebSocket upgrade on `/jmap/ws` or buffers `/jmap/eventsource`. See
+[Realtime push](websocket.md#troubleshooting).
+
+**An oversized upload shows an HTML error page instead of a message.** The proxy's
+body limit is below Mailwoman's. Raise it above 64 MiB.
+
+**`/healthz` answers from the internet.** Forwarded headers are not trusted, so every
+request seems to come from the proxy's private address. Configure the trusted proxy.
+
+**Every connection is closed immediately after enabling `MW_PROXY_PROTOCOL=require`.**
+The balancer's address is not in `MW_TRUSTED_PROXIES`, or the balancer (or its
+health check) does not send a PROXY header.
+
+## Related
+
+- [Example proxy configurations](proxy/README.md)
+- [Realtime push behind a proxy](websocket.md)
+- [TLS: ACME and external certificates](acme.md)
+- [Connection limits](connection-limits.md)
+- [Deployment security assessment](../admin/deployment-security.md)

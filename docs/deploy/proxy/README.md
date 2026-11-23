@@ -1,78 +1,118 @@
-# Reverse-proxy configurations and the conformance harness
+# Example reverse-proxy configurations
 
-This directory holds one configuration tree per proxy, plus the TLS material
-generator they share. The container harness that boots them is
-`docker-compose.proxy.yml` at the repository root.
+This directory holds a working configuration for each reverse proxy Mailwoman is
+tested behind, and the TLS material generator they share. The same files are booted
+by `docker-compose.proxy.yml` at the repository root, which the `proxy-conformance`
+workflow uses to test them. For what the server needs from a proxy, and the
+environment variables to set, read [Running behind a reverse
+proxy](../reverse-proxy.md) first.
 
-The operator-facing document is `docs/deploy/reverse-proxy.md`. **This file
-describes the harness**; that one describes what is supported.
+## Files
 
-## What "tier" means here, and what has actually been proven
+```
+nginx/       nginx.conf (complete, for the container) + mailwoman.conf (drop-in vhost)
+apache/      httpd.conf (complete, for the container) + mailwoman.conf (drop-in vhosts)
+caddy/       Caddyfile
+haproxy-l7/  haproxy.cfg: mode http, TLS terminated by HAProxy
+haproxy-l4/  haproxy.cfg: mode tcp, send-proxy-v2, TLS passed through to Mailwoman
+traefik/     traefik.yml (static) + dynamic.yml (routers, service, TLS)
+envoy/       envoy.yaml
+iis/         web.config + README.md with the server-level steps; not tested
+tls/         gen-certs.sh; certs/ is generated and not committed
+```
 
-Nothing in this directory is evidence that a proxy works. A shipped config file
-is a claim, not a test — and this repository has a history of audits catching
-exactly that pattern. The proof is a CI cell that boots the proxy and runs the
-conformance suite through it.
+Each file uses the test ports (`8080` plain, `8443` TLS), the upstream name `app`
+from the compose file, and a self-signed certificate from `tls/gen-certs.sh`. For a
+real deployment, change the listen ports to 80/443, point the upstream at your
+Mailwoman address, and use a CA-issued certificate or the proxy's own ACME support.
 
-| Cell | Image | Tier | In the CI matrix | Booted + suite run (developer host, 2026-10-23, server strict) |
-|---|---|---|---|---|
-| `nginx` | `nginx:1.27-alpine` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
-| `apache` | `httpd:2.4-alpine` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
-| `caddy` | `caddy:2-alpine` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
-| `haproxy-l7` | `haproxy:3.0-alpine` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
-| `haproxy-l4` | `haproxy:3.0-alpine` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
-| `traefik` | `traefik:v3.3` | 1 | yes | 11 of 13 run and pass, 2 skip by design |
-| `envoy` | `envoyproxy/envoy:v1.32` | 2 | yes, non-blocking — not part of the tier-1 gate; a red envoy cell does not fail it | 12 of 13 run and pass, the sub-path test skips. On a CI runner: run 38312068826 (2026-10-12, `b889b9d`, before the strict test existed) passed the cell, 11 of 12 run, the sub-path test skipped |
-| `iis` | — | 2 | **cannot be** | never; see `iis/README.md` |
+## What every configuration does
 
-The last column is a run of every cell on a developer host with Docker on
-2026-10-23, against images built from `b889b9d`, with the environment
-`proxy-conformance.yml` sets (including its `MW_REQUIRE_LIVE` list) and its
-skip-log check. The two tests that skip in a tier-1 cell are
-`an_appending_proxy_still_resolves_the_real_client` (runs only in `envoy`) and
-`sub_path_api_routes_return_json_not_the_spa_shell` (runs in no cell). It is not
-a run on a CI runner.
+All of these except `haproxy-l4`, which does not parse HTTP:
 
-**Updated in 26.19.** This table used to say "intended" in both columns, which
-was the honest word when the directory was written and had stopped being honest
-once the cells were actually booted. Every cell has since had the conformance
-suite run through it on a developer host with Docker, and on a CI runner:
-`.github/workflows/proxy-conformance.yml` run 38312068826 (2026-10-12, `b889b9d`)
-completed with all seven cells and the tier-1 gate green. That run came before
-the strict CSRF test (`a_write_without_the_csrf_token_is_refused`) and the strict
-compose setting existed. The strict suite has so far passed only on a developer
-host (the table above); until a CI run of it is green, **do not write that the
-strict suite passes in CI.**
+- **Overwrites `X-Forwarded-For`** with the address the proxy saw, so Mailwoman gets
+  one entry the client could not influence. Envoy is the exception: it appends, and
+  Mailwoman's right-to-left walk takes the entry Envoy added. Each file shows the
+  append form to use in a proxy chain; that form is safe only when every hop is
+  listed in `MW_TRUSTED_PROXIES`.
+- **Sets `X-Forwarded-Proto`** to the scheme the client used. On the TLS listener this
+  is what gives the session cookie its `Secure` flag and turns on HSTS.
+- **Removes a client-supplied `Forwarded` header** (all except Envoy), because none of
+  them use RFC 7239.
+- **Keeps `Host`** as the browser sent it, port included. Mailwoman compares `Origin`
+  against `Host` and derives the passkey origin from the host.
+- **Passes WebSocket upgrades** on `/jmap/ws`, with an idle timeout of an hour or
+  none at all.
+- **Streams** `/jmap/eventsource` and `/api/assist/invoke` without buffering or
+  compression, with a read timeout of an hour or none at all.
+- **Accepts request bodies of at least 100 MB**, above Mailwoman's own limits, so an
+  oversized upload is refused by Mailwoman with its JSON `413`.
+- **Leaves HSTS to Mailwoman**, which sends it on HTTPS responses.
 
-Booting them found six real defects, two of which meant a cell could not start
-at all (`apache` was missing a `LoadModule`; `haproxy-l4` inherited the image's
-baked-in `HEALTHCHECK`, which spoke plain HTTP to a TLS-only listener). Both are
-fixed here. Three more were application defects, not proxy ones, and are fixed in
-the application. The remaining `apache` failure — the JSON `413` contract on
-oversize uploads — was also fixed application-side, after that run; the
-2026-10-23 run above observed it passing through httpd.
+None of them strips `X-Remote-User`. Add that yourself before turning on header
+authentication; see [Header authentication](../reverse-proxy.md#header-authentication).
 
-`docs/deploy/reverse-proxy.md` is the operator-facing page and carries the full
-per-cell status, the caveats, and the list of claims that are still not earned.
+## Notes for each proxy
 
-## The server runs as `deploy.sh` configures it: strict CSRF
+**nginx.** Three stock defaults are corrected: `proxy_buffering` (off for the stream
+locations), `client_max_body_size` (raised from 1 MB) and `proxy_http_version`
+(1.1, needed for WebSocket). The `map $http_upgrade $connection_upgrade` block must
+sit at `http{}` scope; copy it from `nginx.conf` if you use only the vhost. The vhost
+sends `$mw_host` as `Host`, a `map` that rebuilds the host for HTTP/3 requests, which
+carry no `Host` header. The TLS server also listens for HTTP/3 (QUIC). The location
+`/` sets `Connection ""` for upstream keepalive, so `/jmap/actions` is not upgraded
+and the web client sends those requests over HTTP instead.
 
-`docker-compose.proxy.yml` sets `MW_CSRF_STRICT=true` on `app` and `app-tls`,
-the value `deploy.sh` writes. In that mode the server refuses a write that a
-cookie authorises unless it repeats the `mw_csrf` cookie in `X-CSRF-Token`. The
-suite does what the web client does: on every write it sends the `mw_csrf` value
-from its cookie jar. The test `a_write_without_the_csrf_token_is_refused` checks
-in each cell that a write without the header, and one with a wrong header, is
-answered `403 {"error":"missing or invalid CSRF token"}`, and that the same
-write with the cookie's value is accepted. A cell booted with the setting off
-fails that test (observed: `200` where `403` was expected), so a green cell
-shows the setting is in force and that the proxy passes both the cookie and the
-header through.
+**Apache httpd.** Needs `mod_proxy`, `mod_proxy_http`, `mod_proxy_wstunnel`,
+`mod_headers`, and `mod_env` for `SetEnv`. `ProxyPreserveHost On` is required.
+`mod_proxy` appends to `X-Forwarded-For`, so the file unsets the client's copy and
+lets `mod_proxy` add one entry. Streaming paths get their own `ProxyPass` with
+`timeout=3600`, because `ProxyTimeout` cannot be set per location. Upload and import
+paths use `proxy-nokeepalive`, so that an early answer from Mailwoman (a `401` before
+the body is read) reaches the client instead of an Apache `500`. `mod_deflate` and
+`mod_cache` are not loaded; if your server loads them, keep them off the stream
+paths. Apache ignores `X-Accel-Buffering`. `/jmap/actions` goes through the
+catch-all `ProxyPass /`, which has no `upgrade=websocket`, so the web client sends
+those requests over HTTP.
 
-## Fixed host ports
+**Caddy.** Passes WebSocket upgrades without a directive, does not buffer responses,
+has no body limit until one is set, and serves HTTP/3 on TLS sites. The file sets the
+forwarded headers, a 100 MB body limit and the timeouts. For a real site, replace the
+two site blocks with one named after your host and remove `auto_https off`; Caddy then
+obtains the certificate itself.
 
-These are a contract. The CI workflow and the conformance suite address cells by
-port; renumbering breaks both.
+**HAProxy, HTTP mode (`haproxy-l7`).** `timeout tunnel 3600s` applies once a
+WebSocket is upgraded; `timeout client` and `timeout server` stop applying. The file
+deletes the client's forwarded headers and sets its own from `%[src]` instead of
+using `option forwardfor`, which appends. The stream paths use a backend with a
+one-hour server timeout.
+
+**HAProxy, TCP mode (`haproxy-l4`).** `mode tcp` with `send-proxy-v2`: HAProxy does
+not terminate TLS, and the client address travels in a PROXY protocol header. Run
+Mailwoman with its own TLS (`MW_TLS_CERT`/`MW_TLS_KEY` or `MW_ACME`),
+`MW_PROXY_PROTOCOL=require`, and the balancer's address in `MW_TRUSTED_PROXIES`.
+`check-send-proxy` is required, because Mailwoman drops a health check that arrives
+without the header.
+
+**Traefik.** Entry points and their timeouts are in the static file
+(`traefik.yml`); routers and middlewares are in the dynamic file (`dynamic.yml`). A
+timeout in the wrong file is ignored. `forwardedHeaders.trustedIPs` is left unset, so
+Traefik discards client-supplied `X-Forwarded-*` headers and writes its own. A
+middleware removes `Forwarded` and `X-Real-IP`. The `websecure` entry point enables
+HTTP/3.
+
+**Envoy.** `use_remote_address: true` with `xff_num_trusted_hops: 0` appends the
+client address to `X-Forwarded-For`. `stream_idle_timeout: 0s` and `timeout: 0s` on
+the stream and WebSocket routes keep long-lived connections open; Envoy's defaults
+would close them.
+
+**IIS.** Several settings live at server level and cannot be set in `web.config`.
+Follow [iis/README.md](iis/README.md).
+
+## Test harness
+
+`docker-compose.proxy.yml` has one profile per proxy. Each profile starts the JMAP
+mock, a Mailwoman server and one proxy on fixed host ports:
 
 | Profile | HTTP | HTTPS |
 |---|---|---|
@@ -80,25 +120,35 @@ port; renumbering breaks both.
 | `apache` | 8602 | 8642 |
 | `caddy` | 8603 | 8643 |
 | `haproxy-l7` | 8604 | 8644 |
-| `haproxy-l4` | — | 8645 |
+| `haproxy-l4` | none | 8645 |
 | `traefik` | 8605 | 8646 |
 | `envoy` | 8606 | 8647 |
-| the app itself, no proxy | 8607 | — |
+| Mailwoman without a proxy | 8607 | none |
 
-The app is published on 8607 in every profile, so a test can compare a
-through-proxy result against the no-proxy baseline in the same run.
+`nginx`, `caddy` and `traefik` also publish their HTTPS port over UDP for HTTP/3. The
+CI workflow and the test suite address the cells by these ports.
 
-`nginx`, `caddy` and `traefik` also publish their HTTPS port over **UDP**
-(8641, 8643, 8646 `/udp`) for HTTP/3; see [The HTTP/3 leg](#the-http3-leg).
+The network is pinned so that the trusted range is narrower than the network:
 
-## Running a cell
+```
+172.28.10.0/24   proxy containers   <- MW_TRUSTED_PROXIES
+172.28.20.0/24   Mailwoman and the JMAP mock
+172.28.0.1       bridge gateway     <- host traffic arrives from here; not trusted
+```
+
+A request from the host reaches the proxy from `172.28.0.1`, so that is the client
+address the tests expect. The server runs with `MW_FORWARDED_MODE=xff` and
+`MW_CSRF_STRICT=true`.
+
+To run one cell:
 
 ```sh
-# Once: generate the throwaway self-signed TLS pair the HTTPS listeners need.
+# Once: generate the self-signed TLS pair the HTTPS listeners need.
 sh docs/deploy/proxy/tls/gen-certs.sh
 
-# Two commands: haproxy-l4's app-tls has no probe, and Compose 2.38.2 refuses
-# `--wait` with such a service in the wait set (see the workflow's boot step).
+# Start the cell, then wait for its health checks. Two commands, because the
+# haproxy-l4 profile has a service with no health check, which some Compose
+# versions refuse in the --wait set.
 docker compose -f docker-compose.proxy.yml --profile nginx up -d
 docker compose -f docker-compose.proxy.yml --profile nginx up -d \
   --no-deps --wait --wait-timeout 300 mock app nginx
@@ -108,180 +158,23 @@ MW_T20_PROXY_BASE=http://127.0.0.1:8601 \
 MW_T20_PROXY_KIND=nginx \
   cargo test -p mw-server --test t20_proxy_conformance -- --nocapture --test-threads=1
 
+# Always with -v: the app volume holds a seeded database.
 docker compose -f docker-compose.proxy.yml --profile nginx down -v
 ```
 
-`down -v` rather than `down`: the app volume holds a seeded SQLite database and
-leaving it behind makes the next cell start from another cell's state.
-
-## The HTTP/3 leg
-
-The application has no QUIC listener; HTTP/3 is terminated by the proxy, which
-speaks HTTP/1.1 to the app. Three shipped configs enable it:
-
-| Proxy | How | Alt-Svc |
-|---|---|---|
-| Caddy | default for every TLS site | sent by Caddy |
-| nginx ≥ 1.25 (`--with-http_v3_module`) | `listen 8443 quic reuseport;` + `http3 on;` | `add_header Alt-Svc 'h3=":8443"; ma=86400' always;` |
-| Traefik v3 | `http3: {}` on the `websecure` entry point | sent by Traefik |
-
-HAProxy, Apache, Envoy and IIS are not configured for HTTP/3 here.
-
-`scripts/proxy-h3-check.sh` drives a booted cell with a curl build that has
-HTTP/3 (quiche), run on the compose network at 172.28.30.5 (outside
-`MW_TRUSTED_PROXIES`):
+For HTTP/3, `scripts/proxy-h3-check.sh` drives a booted `caddy`, `nginx` or `traefik`
+cell with a curl that speaks HTTP/3, from `172.28.30.5` on the compose network:
 
 ```sh
-docker compose -f docker-compose.proxy.yml --profile caddy up -d
-docker compose -f docker-compose.proxy.yml --profile caddy up -d \
-  --no-deps --wait --wait-timeout 300 mock app caddy
 bash scripts/proxy-h3-check.sh caddy --published 8643
-docker compose -f docker-compose.proxy.yml --profile caddy down -v
 ```
 
-It asserts HTTP/2 plus an `Alt-Svc: h3=` header over TCP, HTTP/3 over UDP,
-and, over both protocols, that the app saw the right `Host` (a login with the
-proxy's `Origin` passes, a foreign `Origin` is refused), the right scheme
-(`Secure` session cookie and HSTS) and the right client address (a key
-allowlisted to 172.28.30.5 answers 200, one allowlisted to a decoy 403).
-`--published PORT` adds an HTTP/3 request from the host to the published UDP
-port. The HTTP/3 requests use `--insecure`, because this curl's QUIC backend
-does not apply `--cacert`; the TCP requests verify the same leaf.
+It checks for HTTP/2 with an `Alt-Svc: h3=` header over TCP and for HTTP/3 over UDP,
+and, over both, that Mailwoman sees the right host (sign-in with the proxy's
+`Origin` passes and a foreign one is refused), scheme (`Secure` cookie and HSTS) and
+client address (an API key allowed for `172.28.30.5` answers `200`, one allowed for
+another address `403`). `--published PORT` adds a request from the host to the
+published UDP port.
 
-The check found one defect on its first nginx run: nginx creates no `Host`
-header for an HTTP/3 request, so `proxy_set_header Host $http_host;` sent none
-and every login over HTTP/3 answered 403. `nginx/mailwoman.conf` now sends
-`$mw_host` (a `map`; see the top of that file).
-
-In CI it is the `h3` job of `proxy-conformance.yml`: **non-blocking**, not in
-the tier-1 gate, and not yet run on a hosted runner, where UDP forwarding to
-the containers is unverified. It passed for caddy, nginx and traefik on a
-developer host on 2026-10-29. Operator guidance (firewall, fallback, checking
-a deployment) is in [`../reverse-proxy.md` §9](../reverse-proxy.md#9-http3-quic--terminated-at-the-proxy).
-
-## What each cell is here to catch
-
-Six proxies is not six copies of the same test. Each one has a stock default
-that breaks something specific, and that is why it is in the matrix.
-
-**nginx** is the baseline and the worst default set of the group. Three stock
-values each break something: `proxy_buffering on` batches or swallows server-sent
-events, `client_max_body_size 1m` rejects attachments long before the
-application's own 50 MB limit, and HTTP/1.0 upstream means no WebSocket upgrade.
-It is also the only proxy that honours `X-Accel-Buffering`, which is why the
-application emits that header at all.
-
-**Apache httpd** was named as supported in `SPEC.md` §18.1 for a long time while
-the repository shipped nothing for it. Its failure modes are genuinely different
-from nginx's: `ProxyPreserveHost` defaults to **Off**, which rewrites `Host` to
-the backend name and silently changes the WebAuthn RP ID, so existing passkeys
-stop validating. And its forwarded-header handling runs the opposite way round —
-`mod_proxy` *appends* to whatever `X-Forwarded-For` the client sent, so the
-correct pattern is to unset the client's and let `mod_proxy` add one hop, not to
-set the header yourself.
-
-**Caddy** gets the most right by default: HTTP/2 and HTTP/3, WebSocket upgrades with no
-directive, no response buffering, no body limit. It is the zero-config path most
-people try first, and it is in the matrix to prove that path stays working.
-
-**haproxy-l7** has its own timeout model. `timeout tunnel` governs an upgraded
-connection and neither `timeout client` nor `timeout server` applies once the
-WebSocket is established — leave it at the default and push sockets get cut on a
-schedule that has nothing to do with the heartbeat.
-
-**haproxy-l4** is the distinctive one: `mode tcp` with `send-proxy-v2` against
-the application's **own TLS listener**. No HTTP parsing, no forwarded headers at
-all — the client address arrives out of band in a PROXY protocol v2 header. This
-shape exists because the application ships a built-in ACME client, and for
-TLS-ALPN-01 to work the application has to be the TLS endpoint. It is also what
-an AWS NLB or an nginx `stream` block gives you. This is the only cell that
-exercises PROXY protocol.
-
-**traefik** is the closest analogue to the Kubernetes ingress story the Helm
-chart needs, and it splits configuration into static and dynamic halves in a way
-that makes it easy to put a timeout in the file where it is ignored.
-
-**envoy** overlaps haproxy-l7 and traefik closely enough that it is not a tier-1
-(gating) proxy. It runs in the matrix as a non-blocking cell for one test,
-`an_appending_proxy_still_resolves_the_real_client`:
-unlike every other cell it *appends* to `X-Forwarded-For` rather than
-overwriting, which means it is the one configuration that depends on the
-application's right-to-left walk being correct, and the one cell in which that
-test runs instead of skipping. A red envoy cell does not fail the gate. See the
-comments in `envoy/envoy.yaml`.
-
-**iis** cannot be tested in CI at all, and has never been booted by anyone. See
-`iis/README.md`, which is explicit about what has and has not been verified.
-
-## The trust model these configs feed
-
-The application ignores forwarded headers unless `MW_TRUSTED_PROXIES` names the
-peer. That is a deliberate change of behaviour — trusting `X-Forwarded-For` from
-anyone means the OAuth scoped-key IP allowlist can be defeated with a header,
-the per-key rate limit can be evaded by rotating one, and every audit-log IP is
-attacker-chosen. Ignoring the headers by default is the fix.
-
-So every configuration here does two things, and both are necessary:
-
-- **Overwrite `X-Forwarded-For` rather than append it** (Envoy excepted, above),
-  so the application receives exactly one hop that the client could not
-  influence. Each file carries a comment showing the append form to use instead
-  in a genuine proxy *chain*, and the condition under which that is safe: every
-  upstream hop must be listed in `MW_TRUSTED_PROXIES`. A hop listed by mistake
-  can claim any client address it likes.
-- **Strip the RFC 7239 `Forwarded` header** the client may have sent, since none
-  of these configurations speak it.
-
-They also preserve `Host` including its port. The application derives the OAuth
-DCR issuer URL and the WebAuthn RP ID from `Host` and compares `Origin` against
-it for CSRF, so a proxy that rewrites or truncates it breaks login in ways that
-are hard to trace back to the proxy.
-
-### Addresses inside the harness
-
-`docker-compose.proxy.yml` pins the network so the allowlist is deterministic
-and, critically, **narrower than the network**:
-
-```
-172.28.10.0/24   proxy containers   <- the only trusted range
-172.28.20.0/24   app containers
-172.28.0.1       bridge gateway     <- host traffic appears from here; untrusted
-```
-
-A test running on the host reaches the proxy as `172.28.0.1`. That address is
-deliberately outside `MW_TRUSTED_PROXIES`, so the right-to-left walk stops there
-and attributes the request to it. **The "true client IP" a test should expect is
-the gateway address, not the host's LAN address** — Docker NATs host-originated
-traffic and there is no way to see the host's real address from inside the
-network. This does not weaken what is being proven: the gateway address is
-distinguishable from every proxy address, which is the whole question.
-
-## Body limits are set *above* the application's, on purpose
-
-Every cell allows 100 MB where the application's upload limit is 50 MB. That
-looks backwards and is not. If the proxy's limit sat at or below the
-application's, an oversized upload would be rejected by the proxy and the client
-would get an HTML error page from nginx or IIS instead of the application's JSON
-error. Letting the request through so the application is the one that says no is
-what keeps the error contract intact.
-
-## Files
-
-```
-nginx/       nginx.conf (container-complete) + mailwoman.conf (drop-in vhost)
-apache/      httpd.conf (container-complete) + mailwoman.conf (drop-in vhosts)
-caddy/       Caddyfile
-haproxy-l7/  haproxy.cfg — mode http, TLS terminated here
-haproxy-l4/  haproxy.cfg — mode tcp, send-proxy-v2, TLS passthrough
-traefik/     traefik.yml (static) + dynamic.yml (routers/service/TLS)
-envoy/       envoy.yaml — tier 2
-iis/         web.config + README.md runbook — tier 2, unverified
-tls/         gen-certs.sh; certs/ is generated and gitignored
-```
-
-`scripts/proxy-h3-check.sh` (repository root) is the HTTP/2 + HTTP/3 check
-described in [The HTTP/3 leg](#the-http3-leg).
-
-The TLS material is a throwaway self-signed leaf for the harness only. Real
-deployments use a CA-issued pair, the proxy's own ACME, or the application's
-built-in ACME behind an L4 balancer.
+Which cells the CI workflow runs, and which are blocking, is listed under [Tested
+configurations](../reverse-proxy.md#tested-configurations).
