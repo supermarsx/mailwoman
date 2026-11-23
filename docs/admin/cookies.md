@@ -42,7 +42,7 @@ Enforcement happens in the browser, from the configuration the server sends:
 - Writes to `localStorage`, `sessionStorage`, cookies set by page scripts, and IndexedDB databases are dropped when their category is declined.
 - Storage already present in a declined category is removed when the configuration loads and whenever the choice changes.
 - Syncing appearance to the account waits for the functional category.
-- Cookies the server sets (`HttpOnly`) cannot be read or removed by the page and are not affected.
+- Cookies the server sets as `HttpOnly` cannot be read or removed by the page and are not affected.
 - A name that matches no inventory entry and no rule follows **Unclassified storage**. The default, `report`, lets the write through and lists the name for review.
 - If the configuration cannot be loaded, nothing is blocked.
 
@@ -58,13 +58,33 @@ Enforcement happens in the browser, from the configuration the server sends:
 
    ![The top of the cookie and storage inventory: the built-in entries with their kind, category, purpose, duration, provider and source.](/screenshots/admin-privacy/cookies-inventory.webp){.mw-crop}
 
-2. Compare it with what your deployment sets. The built-in entries are a list kept by hand in the server's code, and some cookies the server sets are missing from it (see below).
+2. Compare it with what your deployment sets. The built-in entries are a list in the server's code, checked against the cookies the server sets (see below).
 3. To classify a name the list does not cover, use **Add a rule**: a kind, a name pattern (`*` matches any run of characters; a pattern of only `*` is refused), a category and a **Note**. A rule overrides the built-in entry for the same name, and an exact name beats a pattern. Up to 200 rules.
 4. **Scan this browser** lists the names in your own browser's storage. Names no entry or rule covers appear under **Unclassified storage**, where you can **Classify** (adds an exact rule), **Ignore** or remove them. People's browsers report such names too, at most once per **Storage scan interval** hours (24); only names and kinds are sent, never values. The server keeps at most 500 names.
 
-::: warning Gaps in the built-in inventory
-The inventory does not list three cookies the server sets: `mw_browser_device` (365 days, set at every successful sign-in, used for new-device alerts), `mw_remembered_device` (remembered devices) and `mw_oidc_flow` (10 minutes, during sign-in through this server's identity provider). It lists `mw_session`, `mw_csrf` and `mw_admin_session` with the duration "Session", although the server sets them with a fixed lifetime (`mw_csrf` when the session is refreshed). These cookies are `HttpOnly`, so a browser scan cannot see them. The generated cookie policy is built from the same list. Add rules for them if your cookie policy must name them.
-:::
+### Cookies the server sets
+
+These are the cookies the server sets itself, from the same list the consent control, the generated cookie policy and the inventory above use. A test starts the server, runs the flows that set cookies (mailbox sign-in, session refresh, remembering a device, admin sign-in, the client-access check, OIDC authorize) and fails when a cookie is set that this list does not cover or when its `HttpOnly` flag differs. Another test fails when this table and the list differ.
+
+| Cookie | Category | Purpose | Lifetime | HttpOnly |
+| --- | --- | --- | --- | --- |
+| `mw_admin_browser` | necessary | Marks a browser used for the admin console so the analytics tag is not loaded in it. | 400 days | Yes |
+| `mw_admin_session` | necessary | Keeps an administrator signed in to the admin console. The name can be changed with MW_ADMIN_SESSION_COOKIE. | Until the admin session ends (30 minutes without activity, 12 hours at most, by default) | Yes |
+| `mw_browser_device` | necessary | Recognises this browser at sign-in so a sign-in from a new device can be reported to you. | 365 days | Yes |
+| `mw_client_access*` | necessary | Holds the proof of a client-access check when the administrator requires one. | Until the check expires | Yes |
+| `mw_csrf` | necessary | Protects requests made while you are signed in against forgery. Page script reads it to echo it back. | Until the sign-in session ends (7 days without activity by default); a copy set without an expiry lasts until the browser closes | No |
+| `mw_oidc_flow` | necessary | Ties an in-progress sign-in through this server's identity provider to the browser that started it. | 10 minutes | Yes |
+| `mw_remembered_device` | necessary | Marks this browser as a remembered device, so a second-factor prompt is skipped while the period lasts. | The remembered-device period the administrator sets (off by default) | Yes |
+| `mw_session` | necessary | Keeps you signed in to the mail app. | Until the sign-in session ends (7 days without activity by default) | Yes |
+
+How the figures arise:
+
+- `mw_session` and `mw_csrf` are set with a `Max-Age` equal to the time left in the mailbox session, at sign-in and whenever the session is refreshed. The idle timeout is [`session.idleSecs`](/admin/settings#session.idleSecs) (7 days) and the optional absolute limit is [`session.absoluteSecs`](/admin/settings#session.absoluteSecs) (off). Some responses issue `mw_csrf` without an expiry, and then it lasts until the browser closes.
+- `mw_admin_session` carries [`admin.session.absoluteSecs`](/admin/settings#admin.session.absoluteSecs) (12 hours) as `Max-Age`; the server also ends it after [`admin.session.idleSecs`](/admin/settings#admin.session.idleSecs) (30 minutes) without a request. Set `MW_ADMIN_SESSION_COOKIE` to give it another name: the inventory then lists that name in place of `mw_admin_session`, and a name you choose is classified as necessary the same way.
+- `mw_remembered_device` is set only when a person remembers a device, and only while [`twofa.rememberDays`](/admin/settings#twofa.rememberDays) is above 0 (the default is 0). Its `Max-Age` is that many days.
+- `mw_client_access*` covers `mw_client_access` (the proof) and `mw_client_access_pending` (a check in progress).
+
+All but `mw_csrf` are `HttpOnly`, so a browser scan cannot see them and the consent control cannot remove them. The client has no translated text for `mw_browser_device`, `mw_remembered_device` and `mw_oidc_flow` yet; it shows the English purpose above.
 
 ## Consent log and statistics
 

@@ -275,8 +275,9 @@ fn inventory_json() -> Value {
         INVENTORY
             .iter()
             .map(|e| {
-                json!({"id": e.id, "kind": e.kind, "pattern": e.pattern, "category": e.category,
-                    "purpose": e.purpose, "duration": e.duration, "party": e.party, "provider": e.provider})
+                json!({"id": e.id, "kind": e.kind, "pattern": e.effective_pattern(), "category": e.category,
+                    "purpose": e.purpose, "duration": e.duration, "httpOnly": e.http_only,
+                    "party": e.party, "provider": e.provider})
             })
             .collect(),
     )
