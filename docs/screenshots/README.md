@@ -111,6 +111,7 @@ Core seeds (`demo/seeds.json`):
 | `mail-basic` | 40 messages for Alex Rivera in Inbox (4 unread), Sent, Drafts, Archive, Spam, Trash and the folders Projects and Receipts; threads, a flagged message, a mailing list (City Library News), messages with PDF and PNG attachments, and one message that replaces an earlier one ("Agenda for Thursday (room change)" supersedes "Agenda for Thursday") |
 | `pim-week` | stack `E` only: six events in the week of 9 March 2026, five tasks, three notes, eight contacts |
 | `admin-basic` | the domains `example.com` and `example.org` |
+| `twofa-required` | the console setting `twofa.required` on, applied after the harness's own sign-in; signing in through the form then asks Alex to set up a second step |
 | `user-totp` | stack `E`: an authenticator app (TOTP) enrolled for Alex, so signing in asks for a code |
 
 The people are listed in `demo/people.json` (Jordan Ellis, Priya Raman, Sam Okoye,
@@ -236,6 +237,7 @@ with `pnpm -C apps/web exec playwright show-trace <file>`.
 | `localStorage` | `{ "localStorage": { "key": "...", "value": ... } }` writes one browser storage value on the application's origin (strings as given, anything else as JSON); add a `reload` or `goto` after it so the application reads it. Example: remembered sign-in addresses |
 | `stepUp` | `{ "stepUp": true }` confirms the password again (administrator in a console entry, demo user otherwise), for screens and writes that ask for it |
 | `totp` | `{ "totp": { "label": "@settings-2fa-totp-code-label" } }` types the demo user's current authenticator code (needs the seed `user-totp`) |
+| `adminSetting` | `{ "adminSetting": { "key": "twofa.required", "value": true } }` writes a console setting with the administrator's cookies during the entry; it stays set for the stack's later entries, so give the entry `"isolate": true` |
 | `tidy` | `{ "tidy": true }` after signing in through the form: removes the security notice and the notifications that sign-in created, then reloads |
 | `eval` | JavaScript run in the page; avoid, and say why in `note` |
 
@@ -325,6 +327,7 @@ Keys of a seed, applied in this order:
 | `userStepUp` | `true`: confirm the demo user's password (`POST /api/security/step-up`) before this seed's user writes |
 | `userTotp` | `true`: enrol an authenticator app (TOTP) for the demo user; the harness keeps the secret and the `totp` step types valid codes |
 | `adminSettings` | `{ "<setting key>": value }`, written as the console administrator |
+| `adminSettingsLast` | like `adminSettings`, but written after the harness has signed the demo user in and saved its cookies; for settings that would stop that sign-in, such as `twofa.required` (core seed `twofa-required`) |
 | `admin` | `[{ "method", "path", "body", "headers" }]` requests to the console API; `path` is under the console path (`/domains/example.net`); `headers` is optional, for writes that need one, such as `{ "If-None-Match": "*" }` when creating a Nextcloud instance with `PUT /nextcloud/instances/<id>` (answered `428` without it) |
 | `userSettings` | `{ "<setting key>": value }`, written as the demo user |
 | `user` | `[{ "method", "path", "body", "headers" }]` requests as the demo user (`/api/...`); `headers` as for `admin` |

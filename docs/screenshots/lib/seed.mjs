@@ -10,6 +10,7 @@
 //   userTotp       true: enrol an authenticator (TOTP) for the demo user; the harness
 //                  keeps the secret and can type codes (step "totp")
 //   adminSettings  { "<registry key>": value }  PUT <admin>/settings/<key> {globalValue}
+//   adminSettingsLast  like adminSettings, applied after the demo user's sign-in is saved
 //   admin          [{ "method", "path" (under the admin path), "body", "headers"? }]
 //   userSettings   { "<registry key>": value }  PUT /api/settings/<key> {value}
 //   user           [{ "method", "path", "body", "headers"? }] as the signed-in demo user
@@ -309,6 +310,31 @@ export async function applySeeds(browser, stack, names) {
     }
     await tidy(client, stack);
     stack.userState = await context.storageState();
+  } finally {
+    await context.close();
+  }
+  // Console settings that would stop the harness's own sign-in (for example
+  // twofa.required), applied once the demo user's cookies are saved.
+  if (seeds.some((s) => s.adminSettingsLast)) {
+    const last = await browser.newContext({ userAgent: userAgent(), storageState: stack.adminState });
+    try {
+      const client = api(last, stack.base);
+      for (const seed of seeds) {
+        for (const [key, value] of Object.entries(seed.adminSettingsLast ?? {})) {
+          await client.must('PUT', `${stack.adminPath}/settings/${key}`, { globalValue: value });
+        }
+      }
+    } finally {
+      await last.close();
+    }
+  }
+}
+
+/** PUT one console setting with the stack's administrator cookies. */
+export async function putAdminSetting(browser, stack, key, value) {
+  const context = await browser.newContext({ userAgent: userAgent(), storageState: stack.adminState });
+  try {
+    await api(context, stack.base).must('PUT', `${stack.adminPath}/settings/${key}`, { globalValue: value });
   } finally {
     await context.close();
   }

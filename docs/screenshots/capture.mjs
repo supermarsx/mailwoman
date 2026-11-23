@@ -208,6 +208,14 @@ async function runStep(page, step, ctx) {
       await page.evaluate(([k, v]) => localStorage.setItem(k, v), [arg.key, value]);
       return;
     }
+    case 'adminSetting': {
+      // { "key", "value" }: a console setting written with the administrator's
+      // cookies during the entry. It stays set for later entries of the stack:
+      // give the entry "isolate": true.
+      const { putAdminSetting } = await import('./lib/seed.mjs');
+      await putAdminSetting(page.context().browser(), ctx.stack, arg.key, arg.value);
+      return;
+    }
     case 'tidy': {
       // After signing in through the form: remove the security notice and the
       // notification entries that sign-in created, then reload.

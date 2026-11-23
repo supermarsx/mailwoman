@@ -29,6 +29,11 @@
         "E"
       ],
       "userTotp": true
+    },
+    "twofa-required": {
+      "adminSettingsLast": {
+        "twofa.required": true
+      }
     }
   }
 }
