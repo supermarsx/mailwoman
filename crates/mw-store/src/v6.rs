@@ -379,6 +379,18 @@ impl Store {
         Ok(())
     }
 
+    /// Revoke the token only if it is not revoked yet, in one conditional
+    /// write; `true` iff this call revoked it. Single-use redemption (auth
+    /// codes, refresh rotation) issues tokens only on `true`.
+    pub async fn consume_oauth_token(&self, token_hash: &str, at: &str) -> Result<bool, StoreError> {
+        let changed = q("UPDATE oauth_tokens SET revoked_at = ?2 WHERE token_hash = ?1 AND revoked_at IS NULL")
+            .bind(token_hash)
+            .bind(at)
+            .execute(&self.backend)
+            .await?;
+        Ok(changed == 1)
+    }
+
     // ── webhooks ─────────────────────────────────────────────────────────────
 
     pub async fn put_webhook(&self, row: &WebhookRow) -> Result<(), StoreError> {

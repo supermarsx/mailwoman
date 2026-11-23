@@ -25,6 +25,20 @@ pub trait OAuthStore: Send + Sync {
     async fn put_token(&self, token: OAuthToken) -> Result<(), OAuthError>;
     async fn get_token(&self, token_hash: &str) -> Result<Option<OAuthToken>, OAuthError>;
     async fn revoke_token(&self, token_hash: &str) -> Result<(), OAuthError>;
+    /// Atomically revoke a token that is not yet revoked, reporting whether this
+    /// call was the one that revoked it. This is how auth codes are redeemed and
+    /// refresh tokens rotated: of any number of concurrent callers presenting the
+    /// same credential, exactly one gets `true` and may issue tokens.
+    ///
+    /// Must be a single conditional write (`… WHERE revoked_at IS NULL`, or a
+    /// check-and-set under one lock), never a read followed by a write. A store
+    /// that cannot do that keeps this default, which refuses every redemption.
+    async fn consume_token(&self, token_hash: &str) -> Result<bool, OAuthError> {
+        let _ = token_hash;
+        Err(OAuthError::Store(
+            "this store cannot consume tokens atomically".into(),
+        ))
+    }
 
     // ── API keys, keyed by public `prefix` ──────────────────────────────────
     async fn put_api_key(&self, key: ApiKey) -> Result<(), OAuthError>;
@@ -84,6 +98,17 @@ impl OAuthStore for InMemoryOAuthStore {
             t.revoked_at = Some(chrono::Utc::now().to_rfc3339());
         }
         Ok(())
+    }
+
+    async fn consume_token(&self, token_hash: &str) -> Result<bool, OAuthError> {
+        let mut tokens = self.tokens.lock().expect("lock");
+        match tokens.get_mut(token_hash) {
+            Some(t) if t.revoked_at.is_none() => {
+                t.revoked_at = Some(chrono::Utc::now().to_rfc3339());
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
     }
 
     async fn put_api_key(&self, key: ApiKey) -> Result<(), OAuthError> {

@@ -212,6 +212,13 @@ impl OAuthStore for OAuthStoreAdapter {
             .map_err(oauth_err)
     }
 
+    async fn consume_token(&self, token_hash: &str) -> Result<bool, OAuthError> {
+        self.store
+            .consume_oauth_token(token_hash, &Utc::now().to_rfc3339())
+            .await
+            .map_err(oauth_err)
+    }
+
     async fn put_api_key(&self, key: ApiKey) -> Result<(), OAuthError> {
         self.store
             .put_api_key(&api_key_to_row(&key)?)
@@ -1030,5 +1037,103 @@ mod source_ban_tests {
         expired.expires_at = Some("2000-01-01T00:00:00Z".into());
         adapter.add_ban(expired).await.unwrap();
         assert!(!adapter.is_banned("192.0.2.4").await.unwrap());
+    }
+}
+
+#[cfg(test)]
+mod oauth_single_use_tests {
+    use super::*;
+    use mw_oauth::{AuthServer, AuthorizeRequest, Scope, TokenRequest, challenge_s256};
+
+    const CB: &str = "https://app.test/cb";
+    const RES: &str = "https://mw.test/mcp";
+
+    /// Two concurrent redemptions of one code, then two concurrent rotations of
+    /// one refresh token: each race has exactly one winner.
+    async fn exercise(store: Store) {
+        let server = AuthServer::new(OAuthStoreAdapter::new(store));
+        let client_id = format!("c-{}", Utc::now().timestamp_nanos_opt().unwrap_or(0));
+        server
+            .store()
+            .put_client(OAuthClient {
+                client_id: client_id.clone(),
+                name: "race".into(),
+                redirect_uris: vec![CB.into()],
+                approved_by: "admin".into(),
+                created_at: Utc::now().to_rfc3339(),
+            })
+            .await
+            .unwrap();
+        let verifier = "v".repeat(64);
+        let code = server
+            .authorize(
+                &AuthorizeRequest {
+                    response_type: "code".into(),
+                    client_id: client_id.clone(),
+                    redirect_uri: CB.into(),
+                    scope: Scope::read_only("acct-1"),
+                    state: None,
+                    code_challenge: challenge_s256(&verifier),
+                    code_challenge_method: "S256".into(),
+                    resource: RES.into(),
+                },
+                "acct-1",
+            )
+            .await
+            .unwrap()
+            .code;
+        let redeem = TokenRequest::AuthorizationCode {
+            code,
+            redirect_uri: CB.into(),
+            client_id: client_id.clone(),
+            code_verifier: verifier,
+            resource: RES.into(),
+        };
+        let (a, b) = tokio::join!(server.token(&redeem), server.token(&redeem));
+        assert_eq!(
+            usize::from(a.is_ok()) + usize::from(b.is_ok()),
+            1,
+            "code: {a:?} / {b:?}"
+        );
+        let pair = a.or(b).unwrap();
+
+        let rotate = TokenRequest::RefreshToken {
+            refresh_token: pair.refresh_token.unwrap(),
+            client_id,
+            resource: None,
+        };
+        let (a, b) = tokio::join!(server.token(&rotate), server.token(&rotate));
+        assert_eq!(
+            usize::from(a.is_ok()) + usize::from(b.is_ok()),
+            1,
+            "refresh: {a:?} / {b:?}"
+        );
+        // Spent: a later presentation is refused too.
+        assert!(matches!(
+            server.token(&rotate).await,
+            Err(OAuthError::InvalidGrant)
+        ));
+    }
+
+    #[tokio::test]
+    async fn oauth_code_and_refresh_are_single_use_sqlite() {
+        exercise(
+            Store::open_in_memory(mw_store::ServerKey::generate())
+                .await
+                .unwrap(),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn oauth_code_and_refresh_are_single_use_postgres() {
+        if let Ok(url) = std::env::var("MW_TEST_PG") {
+            exercise(
+                Store::open(&url, mw_store::ServerKey::generate())
+                    .await
+                    .unwrap(),
+            )
+            .await;
+        }
     }
 }

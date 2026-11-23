@@ -287,8 +287,11 @@ impl<S: OAuthStore> AuthServer<S> {
         if !crate::pkce::verify_s256(code_verifier, challenge) {
             return Err(OAuthError::PkceFailed);
         }
-        // Auth codes are single-use — burn it before issuing tokens.
-        self.store.revoke_token(&code_hash).await?;
+        // Auth codes are single-use: burn it before issuing tokens. The burn is
+        // a conditional write, so of concurrent redemptions only one gets here.
+        if !self.store.consume_token(&code_hash).await? {
+            return Err(OAuthError::InvalidGrant);
+        }
 
         self.issue_pair(&auth).await
     }
@@ -321,8 +324,11 @@ impl<S: OAuthStore> AuthServer<S> {
         {
             return Err(OAuthError::InvalidScope);
         }
-        // Rotate: burn the presented refresh token, mint a fresh pair.
-        self.store.revoke_token(&refresh_hash).await?;
+        // Rotate: burn the presented refresh token, mint a fresh pair. Only the
+        // caller whose conditional write revoked it may issue the new pair.
+        if !self.store.consume_token(&refresh_hash).await? {
+            return Err(OAuthError::InvalidGrant);
+        }
         self.issue_pair(&refresh).await
     }
 
@@ -463,5 +469,133 @@ mod tests {
         assert_eq!(next.scope, expected);
         let info = server.introspect(&next.access_token).await.unwrap();
         assert_eq!(info.scope, Some(expected));
+    }
+
+    /// Holds every `get_token` caller at a barrier until `parties` of them have
+    /// read, so concurrent grants all see the credential before any consumes it:
+    /// the widest possible check-then-consume window.
+    struct RacingStore {
+        inner: InMemoryOAuthStore,
+        barrier: tokio::sync::Barrier,
+    }
+
+    #[async_trait::async_trait]
+    impl OAuthStore for RacingStore {
+        async fn get_client(&self, id: &str) -> Result<Option<crate::OAuthClient>, OAuthError> {
+            self.inner.get_client(id).await
+        }
+        async fn put_client(&self, c: crate::OAuthClient) -> Result<(), OAuthError> {
+            self.inner.put_client(c).await
+        }
+        async fn put_token(&self, t: OAuthToken) -> Result<(), OAuthError> {
+            self.inner.put_token(t).await
+        }
+        async fn get_token(&self, hash: &str) -> Result<Option<OAuthToken>, OAuthError> {
+            let read = self.inner.get_token(hash).await;
+            self.barrier.wait().await;
+            read
+        }
+        async fn revoke_token(&self, hash: &str) -> Result<(), OAuthError> {
+            self.inner.revoke_token(hash).await
+        }
+        async fn consume_token(&self, hash: &str) -> Result<bool, OAuthError> {
+            self.inner.consume_token(hash).await
+        }
+        async fn put_api_key(&self, k: crate::ApiKey) -> Result<(), OAuthError> {
+            self.inner.put_api_key(k).await
+        }
+        async fn get_api_key(&self, p: &str) -> Result<Option<crate::ApiKey>, OAuthError> {
+            self.inner.get_api_key(p).await
+        }
+        async fn touch_api_key(&self, p: &str, at: &str) -> Result<(), OAuthError> {
+            self.inner.touch_api_key(p, at).await
+        }
+        async fn revoke_api_key(&self, p: &str) -> Result<(), OAuthError> {
+            self.inner.revoke_api_key(p).await
+        }
+    }
+
+    fn racing_server() -> AuthServer<RacingStore> {
+        AuthServer::new(RacingStore {
+            inner: InMemoryOAuthStore::new(),
+            barrier: tokio::sync::Barrier::new(2),
+        })
+    }
+
+    #[tokio::test]
+    async fn two_concurrent_redemptions_of_one_code_issue_one_token_pair() {
+        let server = racing_server();
+        server
+            .store()
+            .put_client(crate::OAuthClient {
+                client_id: "c1".into(),
+                name: "c1".into(),
+                redirect_uris: vec!["https://app.test/cb".into()],
+                approved_by: "admin".into(),
+                created_at: Utc::now().to_rfc3339(),
+            })
+            .await
+            .unwrap();
+        let verifier = "v".repeat(64);
+        let code = server
+            .authorize(
+                &AuthorizeRequest {
+                    response_type: "code".into(),
+                    client_id: "c1".into(),
+                    redirect_uri: "https://app.test/cb".into(),
+                    scope: Scope::read_only("acct-1"),
+                    state: None,
+                    code_challenge: crate::pkce::challenge_s256(&verifier),
+                    code_challenge_method: "S256".into(),
+                    resource: "https://mw.test/mcp".into(),
+                },
+                "acct-1",
+            )
+            .await
+            .unwrap()
+            .code;
+        let req = TokenRequest::AuthorizationCode {
+            code,
+            redirect_uri: "https://app.test/cb".into(),
+            client_id: "c1".into(),
+            code_verifier: verifier,
+            resource: "https://mw.test/mcp".into(),
+        };
+        let (a, b) = tokio::join!(server.token(&req), server.token(&req));
+        let wins = [a.is_ok(), b.is_ok()].iter().filter(|ok| **ok).count();
+        assert_eq!(wins, 1, "exactly one redemption may succeed: {a:?} / {b:?}");
+        let loser = if a.is_ok() { b } else { a };
+        assert!(matches!(loser, Err(OAuthError::InvalidGrant)), "{loser:?}");
+    }
+
+    #[tokio::test]
+    async fn two_concurrent_rotations_of_one_refresh_token_issue_one_token_pair() {
+        let server = racing_server();
+        server
+            .store()
+            .put_token(OAuthToken {
+                token_hash: sha256_hex("refresh-1"),
+                client_id: "c1".into(),
+                account_id: "acct-1".into(),
+                scope: Scope::read_only("acct-1"),
+                resource: Some("https://mw.test/mcp".into()),
+                kind: TokenKind::Refresh,
+                expires_at: (Utc::now() + Duration::hours(1)).to_rfc3339(),
+                created_at: Utc::now().to_rfc3339(),
+                revoked_at: None,
+                pkce_challenge: None,
+            })
+            .await
+            .unwrap();
+        let req = TokenRequest::RefreshToken {
+            refresh_token: "refresh-1".into(),
+            client_id: "c1".into(),
+            resource: None,
+        };
+        let (a, b) = tokio::join!(server.token(&req), server.token(&req));
+        let wins = [a.is_ok(), b.is_ok()].iter().filter(|ok| **ok).count();
+        assert_eq!(wins, 1, "exactly one rotation may succeed: {a:?} / {b:?}");
+        let loser = if a.is_ok() { b } else { a };
+        assert!(matches!(loser, Err(OAuthError::InvalidGrant)), "{loser:?}");
     }
 }
