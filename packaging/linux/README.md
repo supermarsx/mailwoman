@@ -1,11 +1,11 @@
 # Linux packaging: deb / rpm / AppImage
 
-These formats are produced by the Tauri bundler from
+These formats are produced by the Tauri bundler when you run `tauri build` locally. CI does not build them: it runs `tauri build --no-bundle`, which produces the shell binary only. The bundler reads
 `apps/desktop/src-tauri/tauri.conf.json` (`bundle.targets: "all"`,
 `bundle.linux.{deb,rpm,appimage}`). This directory holds the **tuning + per-format
 notes**; the machine-readable config lives in `tauri.conf.json`.
 
-## Build (autonomous, no account)
+## Build locally (no account needed)
 
 ```sh
 # Full bundles (deb + rpm + appimage) — needs the Linux webview toolchain:
@@ -14,8 +14,8 @@ pnpm -C apps/desktop exec tauri build
 ```
 
 `.github/workflows/packaging.yml` builds the thin shell + asserts the §16 size
-budgets (thin < 27 MB, self-contained < 204 MB; 2026-10-27 / t33 measured revision). Full-bundle deb/rpm/appimage
-generation is exercised by the existing `desktop-shell` CI job.
+budgets (thin < 27 MB, self-contained < 204 MB; 2026-10-27 / t33 measured revision) on the unbundled binaries. The
+`desktop-shell` job in `ci.yml` does the same with `--no-bundle`. No CI job produces deb, rpm or AppImage files.
 
 ## Per-format tuning (in `tauri.conf.json` → `bundle.linux`)
 
