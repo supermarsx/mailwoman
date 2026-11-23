@@ -56,11 +56,11 @@ export function SignatureGroup(props: SignatureGroupProps): JSX.Element {
     void Promise.resolve().then(work).catch(fail);
   };
   const all = (): SignatureGroupItem[] => props.groups().flatMap((g) => g.items);
-  const item = (testId: string, icon: IconName, text: string, onClick: (event: MouseEvent) => void, extra: { disabled?: boolean; checked?: boolean; role?: 'menuitem' | 'menuitemradio' } = {}): JSX.Element => (
+  const item = (testId: string, icon: IconName, text: string | (() => string), onClick: (event: MouseEvent) => void, extra: { disabled?: boolean; checked?: boolean; role?: 'menuitem' | 'menuitemradio' } = {}): JSX.Element => (
     <button type="button" role={extra.role ?? 'menuitem'} aria-checked={extra.checked === undefined ? undefined : extra.checked}
       class={`compose-rt__menuitem ${a11y.focusable}`} data-testid={testId} disabled={extra.disabled === true || props.disabled() || c.busy()}
       onClick={onClick}>
-      <Icon name={extra.checked ? 'check' : icon} /><span>{text}</span>
+      <Icon name={extra.checked ? 'check' : icon} /><span>{typeof text === 'function' ? text() : text}</span>
     </button>
   );
   return (
@@ -112,7 +112,7 @@ export function SignatureGroup(props: SignatureGroupProps): JSX.Element {
                   <h3 class={css.heading} id="sig-pos-heading">{t('sig-position')}</h3>
                   <div role="group" aria-labelledby="sig-pos-heading">
                     <For each={SIGNATURE_POSITIONS}>{(value) =>
-                      item(`signature-position-${value}`, 'minus', t(POSITION_LABEL[value]), () => run(() => c.reposition(value)), { role: 'menuitemradio', checked: c.position() === value })}</For>
+                      item(`signature-position-${value}`, 'minus', () => t(POSITION_LABEL[value]), () => run(() => c.reposition(value)), { role: 'menuitemradio', checked: c.position() === value })}</For>
                   </div>
                 </Show>
                 <Show when={editAllowed()}>
