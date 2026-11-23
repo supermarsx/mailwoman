@@ -224,6 +224,14 @@ pub struct PublicationStatus {
     pub published_batches: u64,
     pub published_changes: u64,
     pub revalidations: u64,
+    /// Reservations refused (poison, erasure, drain, caps, timeouts). Each is
+    /// usually a client-visible serverFail; the first, every power of two and
+    /// every 1000th are also logged at warn.
+    pub admission_refusals: u64,
+    /// Journal mode: publications whose source changed after the read, and
+    /// that completed because the change has its own journal row and job
+    /// (see `reconcile`), instead of retrying and poisoning the owner.
+    pub journal_covered_revalidations: u64,
     pub pending_repair_messages: usize,
     pub requires_full_rebuild: bool,
     pub erasing_accounts: usize,
@@ -268,6 +276,8 @@ struct Stats {
     batches: AtomicU64,
     changes: AtomicU64,
     revalidations: AtomicU64,
+    admission_refusals: AtomicU64,
+    journal_covered_revalidations: AtomicU64,
     requires_full_rebuild: AtomicBool,
     repair_epoch: AtomicU64,
 }
@@ -640,6 +650,27 @@ impl Publisher {
         slots: usize,
         barrier: bool,
     ) -> Result<PublicationTicket> {
+        let admitted = self.admit(account, slots, barrier).await;
+        if let Err(reason) = &admitted {
+            // Callers such as Email/set turn this into a client serverFail
+            // with a generic text; keep the cause visible server-side.
+            let n = self.0.core.stats.admission_refusals.fetch_add(1, Ordering::Relaxed) + 1;
+            if n.is_power_of_two() || n.is_multiple_of(1000) {
+                tracing::warn!(
+                    refusals = n,
+                    barrier,
+                    "index publication admission refused: {reason}"
+                );
+            }
+        }
+        admitted
+    }
+    async fn admit(
+        &self,
+        account: &str,
+        slots: usize,
+        barrier: bool,
+    ) -> Result<PublicationTicket> {
         let core = &self.0.core;
         if slots > core.options.max_batch_documents {
             return Err(error("index publication document limit exceeded"));
@@ -776,6 +807,8 @@ impl Publisher {
             published_batches: s.batches.load(Ordering::Relaxed),
             published_changes: s.changes.load(Ordering::Relaxed),
             revalidations: s.revalidations.load(Ordering::Relaxed),
+            admission_refusals: s.admission_refusals.load(Ordering::Relaxed),
+            journal_covered_revalidations: s.journal_covered_revalidations.load(Ordering::Relaxed),
             pending_repair_messages: core.dirty.lock().map_or(0, |keys| keys.len()),
             requires_full_rebuild: s.requires_full_rebuild.load(Ordering::Acquire),
             erasing_accounts: core.erasing.lock().map_or(0, |gates| gates.len()),
@@ -1852,7 +1885,39 @@ async fn reconcile(
             };
             let after = source_snapshot(context, &requests, metadata_snapshot).await?;
             let after_postures = live_postures(context, &requests).await;
-            if snapshot.matches(&after)? && postures == after_postures {
+            let unchanged = snapshot.matches(&after)? && postures == after_postures;
+            // Journal mode: Email/set returns before this publication, so the
+            // same client's next mutation of the same message routinely
+            // commits between the two reads (mark read, then restore). Every
+            // such message-row change committed after `journal_upto` has its
+            // own journal row (triggers, same transaction) and normally its own
+            // queued job; rows above `upto` are not acknowledged here, and the
+            // sweeper replays them otherwise. What was published is the
+            // validated earlier state, so this job is complete. Retrying would
+            // chase a moving source and, after `revalidation_attempts`, poison
+            // the owner for every account. Account rows, posture and the store
+            // generation are not journaled: any change there keeps the strict
+            // path below.
+            let journal_covered = !unchanged
+                && journal_upto.is_some()
+                && core.options.ack == PublicationAck::Journal
+                && postures == after_postures
+                && requests.iter().all(|request| {
+                    snapshot.account(&request.account_id) == after.account(&request.account_id)
+                })
+                && requests.iter().any(|request| {
+                    request.stable_ids.iter().any(|id| {
+                        snapshot.message(&request.account_id, id)
+                            != after.message(&request.account_id, id)
+                    })
+                });
+            if journal_covered {
+                core.stats.revalidations.fetch_add(1, Ordering::Relaxed);
+                core.stats
+                    .journal_covered_revalidations
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            if unchanged || journal_covered {
                 current_jobs(jobs)?;
                 if let Some(upto) = journal_upto {
                     acknowledge_journal(context, core, &requests, upto).await;

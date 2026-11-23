@@ -34,6 +34,13 @@ impl MailSubmitter for NoSend {
     async fn submit(&self, _: mw_smtp::Outgoing) -> Result<mw_smtp::SubmissionResult> { panic!("not sending") }
 }
 
+struct Switchable(AtomicBool);
+impl crate::v6::AccountPostureSource for Switchable {
+    fn posture(&self, _: &str) -> crate::v6::AccountPosture {
+        if self.0.load(Ordering::Acquire) { crate::v6::AccountPosture::ZeroAccess } else { crate::v6::AccountPosture::Standard }
+    }
+}
+
 struct Fixture { engine: Engine, store: Store, search: Arc<mw_search::Index>, account: String, inbox: String, archive: String, id: String }
 
 fn journal_options() -> PublicationOptions {
@@ -331,15 +338,16 @@ async fn full_rebuild_trims_only_captured_rows_and_keeps_concurrent_mutations() 
 #[tokio::test]
 async fn publisher_failure_keeps_rows_refuses_reads_and_recovers() {
     let f = fixture(journal_options()).await;
-    let writer = f.store.clone(); let id = f.id.clone();
-    let seen = Arc::new(AtomicBool::new(false));
+    // Posture is not journaled, so a posture flip during publication keeps the
+    // strict revalidation path; flipping on every attempt poisons the owner.
+    let posture = Arc::new(Switchable(AtomicBool::new(false)));
+    f.engine.attach_v6(crate::v6::V6Hooks::new().with_posture_source(posture.clone()));
+    let flip = posture.clone();
     f.engine.set_publication_test_hook(Some(Arc::new(move |phase| {
-        let writer = writer.clone(); let id = id.clone(); let seen = seen.clone();
+        let flip = flip.clone();
         Box::pin(async move {
             if phase == PublicationTestPhase::AfterValidation {
-                let was = seen.fetch_xor(true, Ordering::AcqRel);
-                // Keep Flagged (the Email/set change); toggle only Seen.
-                writer.set_flags(&id, if was { "[\"Flagged\"]" } else { "[\"Flagged\",\"Seen\"]" }).await.unwrap();
+                flip.0.fetch_xor(true, Ordering::AcqRel);
             }
         })
     })));
@@ -351,6 +359,7 @@ async fn publisher_failure_keeps_rows_refuses_reads_and_recovers() {
     assert!(status.poisoned && status.read_fence_refusals >= 1, "{status:?}");
     assert!(f.store.index_journal_len().await.unwrap() >= 1, "failed publication left its rows for retry");
     f.engine.set_publication_test_hook(None);
+    posture.0.store(false, Ordering::Release);
     f.engine.recover_index_publication().await.unwrap();
     let read = jmap(&f.engine, &f.account, json!([query_call(json!({"hasKeyword": "$flagged"}))])).await;
     assert_eq!(ids_of(&read[0]), vec![f.id.clone()]);
@@ -529,6 +538,57 @@ async fn one_account_flood_is_capped_and_another_accounts_read_is_not_starved() 
     assert_eq!(ids_of(&read[0]), vec![other_id.clone()]);
     assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
     assert_eq!(f.engine.index_publication_status().read_fence_timeouts, 0);
+}
+
+// Benchmark defect (t34 bench, snapjournal arm): with early acknowledgement the
+// same client's next Email/set (mark read, then restore) commits while the
+// owner is between its two source reads. Before the fix every such job retried
+// with the source still moving, exhausted revalidation_attempts and poisoned
+// the owner; from then on every Email/set failed admission with serverFail.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn journal_mode_back_to_back_mutations_racing_publication_do_not_poison_the_owner() {
+    let f = fixture(journal_options()).await;
+    let account = f.account.clone(); let id = f.id.clone(); let store = f.store.clone();
+    let engine = Arc::new(f.engine);
+    let weak = Arc::downgrade(&engine);
+    let races = Arc::new(AtomicUsize::new(0));
+    let refused = Arc::new(AtomicUsize::new(0));
+    let fired = races.clone(); let failed = refused.clone(); let (hook_account, hook_id) = (account.clone(), id.clone());
+    engine.set_publication_test_hook(Some(Arc::new(move |phase| {
+        let weak = weak.clone(); let fired = fired.clone(); let failed = failed.clone();
+        let (account, id) = (hook_account.clone(), hook_id.clone());
+        Box::pin(async move {
+            if phase != PublicationTestPhase::AfterValidation { return; }
+            let n = fired.fetch_add(1, Ordering::AcqRel);
+            if n >= 3 { return; }
+            let Some(engine) = weak.upgrade() else { return };
+            // The client's next mutation, through the real Email/set path.
+            let patch = if n.is_multiple_of(2) { json!({"keywords/$seen": Value::Null}) } else { json!({"keywords/$seen": true}) };
+            let out = jmap(&engine, &account, json!([set_call(&id, patch)])).await;
+            if out[0][0] != "Email/set" { failed.fetch_add(1, Ordering::AcqRel); }
+        })
+    })));
+    let first = jmap(&engine, &account, json!([set_call(&id, json!({"keywords/$seen": true}))])).await;
+    updated(&first[0], &id);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while races.load(Ordering::Acquire) < 2 || engine.index_publication_status().pending_jobs != 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }).await.expect("racing publications drain");
+    engine.set_publication_test_hook(None);
+    let status = engine.index_publication_status();
+    assert!(!status.poisoned && status.failed_jobs == 0 && status.pending_repair_messages == 0, "{status:?}");
+    assert_eq!(refused.load(Ordering::Acquire), 0, "racing Email/set calls were refused");
+    assert!(status.journal_covered_revalidations >= 1 && status.admission_refusals == 0, "{status:?}");
+    // Writes keep being admitted, and reads see the final source.
+    let next = jmap(&engine, &account, json!([set_call(&id, json!({"keywords/$flagged": true}))])).await;
+    updated(&next[0], &id);
+    let seen = store.get_message(&id).await.unwrap().flags_json.contains("Seen");
+    let read = jmap(&engine, &account, json!([query_call(json!({"hasKeyword": "$seen"}))])).await;
+    assert_eq!(ids_of(&read[0]).contains(&id), seen, "{read:?}");
+    let flagged = jmap(&engine, &account, json!([query_call(json!({"hasKeyword": "$flagged"}))])).await;
+    assert_eq!(ids_of(&flagged[0]), vec![id.clone()]);
+    assert_eq!(store.index_journal_len().await.unwrap(), 0);
 }
 
 #[tokio::test]
