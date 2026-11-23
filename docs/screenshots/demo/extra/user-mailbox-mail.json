@@ -1,0 +1,11 @@
+{
+  "_comment": "Extra demo mail for the mailbox user guide (user-mailbox). A newsletter with a remote picture and a tracking pixel, so the remote-content bar shows.",
+  "folders": [],
+  "messages": [
+    { "id": "um-pictures-1", "folder": "Inbox", "from": "newsletter", "to": ["alex"], "date": "2026-03-10T07:30:00Z",
+      "subject": "Library news with pictures",
+      "headers": { "List-Id": "City Library News <news.library.example.net>" },
+      "text": "Spring on the shelves: new titles, with the cover pictures.",
+      "html": "<p>Spring on the shelves: new titles, with the cover pictures.</p><p><img src=\"https://images.library.example.net/spring/cover-1.png\" width=\"240\" height=\"120\" alt=\"Cover of the spring reading list\"></p><img src=\"https://track.library.example.net/open.gif\" width=\"1\" height=\"1\" alt=\"\">" }
+  ]
+}

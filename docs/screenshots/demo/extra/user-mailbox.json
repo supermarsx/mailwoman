@@ -1,0 +1,77 @@
+{
+  "seeds": {
+    "um-basic": {
+      "stacks": [
+        "E"
+      ],
+      "include": [
+        "mail-basic",
+        "pim-week"
+      ]
+    },
+    "um-pictures": {
+      "stacks": [
+        "E"
+      ],
+      "include": [
+        "um-basic"
+      ],
+      "mail": "extra/user-mailbox-mail.json"
+    },
+    "um-linking": {
+      "stacks": [
+        "E"
+      ],
+      "include": [
+        "um-basic"
+      ],
+      "adminSettings": {
+        "accounts.linkingEnabled": true
+      }
+    },
+    "um-templates": {
+      "stacks": [
+        "E"
+      ],
+      "include": [
+        "um-basic"
+      ],
+      "userSettings": {
+        "mail.templates.personal": [
+          {
+            "id": "proof-chase",
+            "title": "Chase a print proof",
+            "subject": "Print proof for the spring catalogue",
+            "to": "sam@example.org",
+            "body": "Hi Sam,\n\nCould you send the printed proof of pages 1 to 8 this week?\n\nThanks,\nAlex"
+          },
+          {
+            "id": "thanks-quick",
+            "title": "Quick thanks",
+            "body": "Thank you, that is exactly what I needed."
+          }
+        ]
+      },
+      "adminSettings": {
+        "mail.templates.shared": [
+          {
+            "id": "office-hours",
+            "title": "Office hours",
+            "body": "Our office is open Monday to Friday, 09:00 to 17:00."
+          }
+        ]
+      }
+    },
+    "um-transfer": {
+      "stacks": [
+        "E"
+      ],
+      "include": [
+        "um-linking"
+      ],
+      "userSettings": {
+        "mail.crossAccountTransfer": true
+      }
+    }
+  }
+}
