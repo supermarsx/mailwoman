@@ -74,10 +74,10 @@ opening a message must not contact the endpoint.
    mask parts of a text (it does not remove names, numbers or addresses).
 6. **Rate limit**: `MW_ASSIST_RATE_LIMIT_PER_MIN`, counted in outbound requests per
    account per minute. Unset means no limit; `0` refuses every request. A chat turn
-   costs 1; a semantic search on a cold cache costs up to 33. The console's **Rate
-   limit** group shows the setting `assistant.rateLimitPerMin` with the help text "0
-   means no limit", but the server reads only the environment variable: a value saved
-   in the console does not change the limit.
+   costs 1; a semantic search on a cold cache costs up to 33. The environment
+   variable is read when the server starts. The console's **Rate limit** group shows a
+   **Requests per minute** field (`assistant.rateLimitPerMin`) and says that a value
+   saved there is not applied.
 7. **Audit record** (below), then the request is sent.
 
 ::: warning What the data limits rely on
