@@ -42,10 +42,16 @@ Mailwoman ignores every forwarded header and treats the proxy as the client.
    report the HTTPS your browser used. See [Deployment security
    assessment](../admin/deployment-security.md).
 
-If you install with `deploy.sh`, it writes `MW_TRUSTED_PROXIES` and
-`MW_FORWARDED_MODE=xff` for you with `--domain` (its own Caddy) and with
-`--proxy-network` (an existing proxy on a Docker network), unless `app.env` already
-sets them. See [deploy.sh](script.md).
+If you install with `deploy.sh`:
+
+- With `--domain` (its own Caddy), the script always sets `MW_TRUSTED_PROXIES` to
+  the Caddy container's address and `MW_FORWARDED_MODE=xff`, and refuses either
+  variable in `app.env`.
+- With `--proxy-network` (an existing proxy on a Docker network), it sets them to the
+  network's subnets and `xff`, unless `app.env` sets either one.
+- With `--public-url` and a host port, set both yourself in `app.env`.
+
+See [deploy.sh](script.md).
 
 ## How the client address is decided
 
