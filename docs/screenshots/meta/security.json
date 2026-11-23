@@ -251,17 +251,17 @@
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "keys-overview": {
-      "hash": "e6105f19685a9d0d",
-      "bytes": 23872,
+      "hash": "9b247f6991c6af2e",
+      "bytes": 30620,
       "width": 380,
-      "height": 568,
+      "height": 700,
       "quality": 0.9,
       "kind": "crop",
-      "commit": "a7108ac5",
+      "commit": "2a06d219",
       "stack": "E",
-      "web": "6ef9d88b76348e24",
-      "webRevision": "unknown",
-      "webBuiltAt": "2026-11-23T03:29:15.202Z",
+      "web": "da8623a4232a2721",
+      "webRevision": "22bdab0a+local changes",
+      "webBuiltAt": "2026-11-23T06:24:36.555Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "passkeys-admin-preferences": {

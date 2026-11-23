@@ -212,7 +212,7 @@ the administrator's roles, the capability used, and redacted before and after
 values) and, where the writer knows it, the source address. It is shown under
 **Observability** → **Audit log** and can be exported.
 
-![The Audit log table with time, actor and actor kind, action and target for each entry, and the Export JSONL button.](/screenshots/security/admin-audit-log.webp){.mw-crop}
+![The Audit log table with actor and actor kind, action and target for each entry, and the Export JSONL button; the time column and an account id are greyed out in this image.](/screenshots/security/admin-audit-log.webp){.mw-crop}
 
 What protects the log, precisely:
 

@@ -9,7 +9,7 @@ and what it does not.
 Users add and remove passkeys in **Settings** → **Security centre** → **Sign-in &
 passkeys** → **Passkeys** (**Add a passkey**).
 
-![The Passkeys section of the Security centre: the authenticator requirements, a passkey name field and Add a passkey.](/screenshots/security/passkeys-user-list.webp){.mw-crop}
+![The Passkeys section of the Security centre with no passkey added yet: the engine-mode requirements (PIN, fingerprint or face; stored on the authenticator), a passkey name field and Add a passkey.](/screenshots/security/passkeys-user-list.webp){.mw-crop}
 
 What a passkey does depends on how the server reaches mail:
 
@@ -30,6 +30,12 @@ domain, or per account):
 | [`twofa.passkeyAttachment`](/admin/settings#twofa.passkeyattachment) | `any` | `platform` (stored on the device) or `cross-platform` (security key or phone). |
 | [`twofa.passkeyLegacy`](/admin/settings#twofa.passkeylegacy) | `allow` | Whether passkeys registered before a stricter policy keep working (`refuse` stops them). |
 
+In engine mode every passkey can also be used for passwordless sign-in, so enrolment
+always requires user verification and a discoverable credential, whatever
+`twofa.passkeyUserVerification` and `twofa.passkeyResidentKey` say. The Security centre
+lists those requirements under "Your organization accepts only passkeys that:", as in
+the image above.
+
 ::: warning Attachment is reported by the browser
 Mailwoman requests `none` attestation, so the authenticator type that
 `twofa.passkeyAttachment` checks is what the browser reports. It keeps honest users
@@ -48,7 +54,7 @@ fresh confirmation of the administrator's identity.
 - Enrolment and sign-in always require user verification and a discoverable
   credential.
 - Once an administrator has a passkey, a password alone does not sign them in
-  or confirms a sensitive action. A user-verified passkey can do both on its own;
+  or confirm a sensitive action. A user-verified passkey can do both on its own;
   an authenticator app code remains an alternative second factor.
 - Recovery codes (shared with the authenticator app, see
   [Administrator authenticator app](./admin-totp.md)) work once each, together

@@ -312,7 +312,7 @@
         ],
         "padding": 12
       },
-      "alt": "The Audit log table with time, actor and actor kind, action and target for each entry, and the Export JSONL button.",
+      "alt": "The Audit log table with actor and actor kind, action and target for each entry, and the Export JSONL button; the time column and an account id are greyed out in this image.",
       "mask": [
         {
           "css": "table tbody td:first-child"
@@ -511,7 +511,7 @@
         },
         "padding": 8
       },
-      "alt": "The remote content notice above a newsletter, with Show images and More image options.",
+      "alt": "The remote content notice of an opened newsletter: Remote images blocked, 1 tracker removed, with Show images and More image options.",
       "seed": [
         "security-remote",
         "admin-basic"
@@ -536,14 +536,18 @@
           "x": -16,
           "y": -16,
           "width": 380,
-          "height": 568,
+          "height": 700,
           "relativeTo": {
             "role": "heading",
             "name": "@keys-title"
           }
         }
       },
-      "alt": "The Keys & certificates panel: the note that a passphrase-locked copy of each private key is stored on the server, Generate key and Import key, empty Your keys and Contact keys lists, and the Look up a key form."
+      "alt": "The Keys & certificates panel: the note that a passphrase-locked copy of each private key is stored on the server, Generate key and Import key, empty Your keys and Contact keys lists, and the Look up a key form.",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      }
     },
     {
       "id": "keys-generate",
@@ -646,7 +650,7 @@
           }
         }
       },
-      "alt": "The Passkeys section of the Security centre: the authenticator requirements, a passkey name field and Add a passkey.",
+      "alt": "The Passkeys section of the Security centre with no passkey added yet: the engine-mode requirements (PIN, fingerprint or face; stored on the authenticator), a passkey name field and Add a passkey.",
       "viewport": {
         "width": 1440,
         "height": 1400

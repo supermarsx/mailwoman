@@ -107,9 +107,12 @@ the egress configuration refuses every class request rather than sending it dire
 
 How the address policy is kept through a proxy:
 
-- **The proxy gets an IP address, not a name.** The server resolves the name and
-  applies the address policy as for a direct request, then asks the proxy to connect
-  to that address. The SOCKS5 encoder has no code path for a domain-name address type.
+- **On `http` and `socks5` routes the proxy gets an IP address, not a name.** The
+  server resolves the name and applies the address policy as for a direct request,
+  then asks the proxy to connect to that address. Only an accepted `socks5h` route
+  sends a name (see [Remote DNS](#remote-dns-socks5h) below). The console's intro on
+  this tab says "the proxy is never asked to resolve a name"; that is true of every
+  route except `socks5h`.
 - **TLS runs end to end to the origin.** The tunnel carries TLS with the origin's name
   (SNI), verified against the origin's certificate. A proxy that presents its own
   certificate fails verification.
@@ -181,7 +184,7 @@ The reader's remote-content mode is
 | `proxy` | Remote images load through the server for every message, without asking. |
 | `direct` | The browser loads images straight from the sender's servers. Available only when the administrator turns on [`privacy.allowDirect`](/admin/settings#privacy.allowdirect) and the account has [`cap.remote_content.direct`](/admin/settings#cap.remote_content.direct) (both default off); otherwise it behaves as `ask`. |
 
-![The remote content notice above a newsletter, with Show images and More image options.](/screenshots/security/remote-images-banner.webp){.mw-crop}
+![The remote content notice of an opened newsletter: Remote images blocked, 1 tracker removed, with Show images and More image options.](/screenshots/security/remote-images-banner.webp){.mw-crop}
 
 **Through the server** means the reader's browser contacts only Mailwoman. The server
 fetches the image under the address policy above, checks the response type against

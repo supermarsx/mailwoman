@@ -33,7 +33,7 @@ When a message is OpenPGP-encrypted, the server returns the encrypted MIME as it
 Contact keys come from:
 
 - **Import key**: an armored OpenPGP key (**Armored (PGP)**) or a PKCS#12 file (**PKCS#12 (S/MIME)**);
-- **Look up a key**, which asks only after you tick **Consent to external lookup**. The server queries WKD; the key-server (VKS) option is offered but the server does not query key servers;
+- **Look up a key**, which runs only after you tick **Consent to external lookup**. It first checks the keys already stored for the address; if none is found and **WKD** is ticked, the server asks the address's domain over WKD. The **VKS**, **Autocrypt** and **Harvested** options contact no outside service; they only check stored keys;
 - S/MIME certificates from a configured LDAP directory;
 - automatic WKD lookups while composing and while decrypting (see below).
 
