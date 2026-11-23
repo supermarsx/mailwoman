@@ -15,8 +15,10 @@ Each row has buttons to edit the provider, turn it off or on, and delete it. Tur
 
 When you save a provider, the server checks the protocol settings and refuses the save with an error that names the field when one is missing or not a valid address: for OpenID Connect the issuer URL (an `http` or `https` address without a query or fragment), client ID, redirect URL and the `openid` scope; for SAML the IdP SSO URL, at least one signing certificate, the entity ID, the ACS URL and the NameID format. Field names it does not know are refused too.
 
-::: warning Providers saved with an older version of the editor
-An earlier console sent the protocol settings under names the server did not read, so providers created or saved from the console were stored with an empty issuer URL, client ID, redirect URL and first-login policy (OIDC), or empty SAML fields, and cannot sign anyone in. Open each provider: if those fields are empty, enter them again and save. For a SAML provider, also turn **Require signed assertions** on: those saves stored it off, and the server will not save the provider until it is on (see [Require signed assertions](#wantAssertionsSigned)). The server's provider list (`GET <console path>/sso`) marks such a provider with a non-empty `problems` list naming the missing fields; the console page does not show that list. See also [the upgrade note](/deploy/upgrade-notes/sso-provider-settings).
+A stored provider that cannot be used is not offered at all: its button is not shown on the sign-in page, its sign-in address answers as for an unknown provider, and a SAML provider has no metadata address. That is the case for an OpenID Connect provider without an issuer URL, and for a SAML provider without an IdP SSO URL, a signing certificate, an entity ID or an ACS URL, or with **Require signed assertions** off.
+
+::: warning A provider that is missing from the sign-in page
+Open it in the editor. If its protocol settings are empty, enter them again and save; for a SAML provider, also turn **Require signed assertions** on (the server does not save it otherwise). The server's provider list (`GET <console path>/sso`) gives each provider a `problems` list naming the settings that stop it from signing in; the console page does not show that list. See also [the upgrade note](/deploy/upgrade-notes/sso-provider-settings).
 :::
 
 ## Before you start
@@ -105,7 +107,7 @@ When the answer contains an email (the mapped **Email claim**, else `email`), th
 
 What Mailwoman requires of the provider's answer: sign-in starts at Mailwoman (the provider answers a request Mailwoman sent), and the response carries exactly one assertion, signed (see [Require signed assertions](#wantAssertionsSigned)). The assertion must have a bearer subject confirmation whose data names this server's ACS URL as recipient, the request it answers (`InResponseTo`) and an expiry (`NotOnOrAfter`), and conditions with at least one audience restriction, each of which must name this server's entity ID. A response `Destination`, when present, must be this server's ACS URL. Configure the provider to send these.
 
-A SAML provider is not offered at all while it has **Require signed assertions** off, no signing certificate, or no entity ID or ACS URL: its sign-in button is not shown, and its sign-in address answers as for an unknown provider.
+A SAML provider is not offered at all while it has **Require signed assertions** off, no IdP SSO URL, no signing certificate, or no entity ID or ACS URL (see [above](#single-sign-on)).
 
 <a id="idpMetadata"></a>
 ### Provider metadata
@@ -147,9 +149,9 @@ The kind of user identifier asked from the provider. Default: `urn:oasis:names:t
 
 On by default, and it cannot be saved off: the server refuses a save with the switch off ("must be on: unsigned SAML assertions are not accepted"), and a save that leaves the switch out, or a stored provider without it, counts as on.
 
-Sign-in does not depend on the switch: Mailwoman always requires a valid signature by one of the provider's certificates covering the assertion, either on the assertion itself or on the whole response. An unsigned response is refused, and so is a response that carries more than one assertion. A provider stored without a signing certificate, entity ID or ACS URL cannot sign anyone in.
+Sign-in does not depend on the switch: Mailwoman always requires a valid signature by one of the provider's certificates covering the assertion, either on the assertion itself or on the whole response. An unsigned response is refused, and so is a response that carries more than one assertion. A provider stored without a signing certificate, entity ID or ACS URL is not offered.
 
-A provider stored with the switch explicitly off (for example by an API call made before the server refused it) is not offered for sign-in (see [SAML 2.0](#saml-2-0)) and is listed with a problem. To find such providers:
+A provider stored with the switch explicitly off (for example by an API call made before the server refused it) is not offered: no button, no sign-in and no metadata. To find such providers:
 
 - in the server's provider list, `GET <console path>/sso`, a row whose `problems` contains an entry with `field` `config.wantAssertionsSigned` (the console page does not display `problems`);
 - in the database, rows of the `sso_config` table with `kind` = `saml` whose `config` column has `"want_assertions_signed":false`.
@@ -200,7 +202,7 @@ A reverse proxy that authenticates people itself can pass the user name to Mailw
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| The button does not appear on the sign-in page | The provider is off, or scoped to another domain. | Turn it on, or check **Scope**. |
+| The button does not appear on the sign-in page | The provider is off, scoped to another domain, or not usable (empty protocol settings, or for SAML no certificate, entity ID or ACS URL, or **Require signed assertions** off). | Turn it on, check **Scope**, or open the provider and complete its settings. |
 | Everyone gets a refusal after the provider's sign-in | **Allowlist (deny unknown users)** and no account exists for the address, or the claim mapping yields another address. | Create the accounts, choose **Auto-create accounts on first login**, or correct **Email claim**. |
 | SAML sign-ins are always refused | The provider sends encrypted assertions, or signs with a certificate that is not in the list. | Turn off assertion encryption at the provider; add its current signing certificate. |
 

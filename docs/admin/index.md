@@ -87,7 +87,7 @@ A console session ends after 30 minutes without a console request, or 12 hours a
 The settings accept larger values (idle up to 86400 s, absolute up to 604800 s) than the server uses: a value above the right-hand column is applied as that maximum.
 :::
 
-Some changes (for example single sign-on, outbound proxies, or setting up an authenticator) ask you to confirm your password again in a **Confirm it is you** step before they are saved.
+Some changes (for example outbound proxies, the identity provider's clients, client access, IP bans, or setting up an authenticator) ask you to confirm it is you in a **Confirm it is you** step before they are saved: your password, plus your second factor if you have one, or a passkey. A confirmation lasts five minutes for that session. Single sign-on changes do not ask for it.
 
 ## Troubleshooting
 

@@ -40,10 +40,11 @@ you first.
 
 ::: tip
 Always open console screens with the `#` form shown in the table
-(`https://mail.example.org/<console path>#/security/bans`). Loading a path without
-the `#`, such as `<console path>/security`, is treated as probing for hidden
-addresses and blocks your address for five minutes by default (see
-[Request protection](./request-protection.md)).
+(`https://mail.example.org/<console path>#/security/bans`). A path without the
+`#` is not a screen. If it matches the list of paths that scanners try (for
+example `<console path>/security/console`, which ends in `/console`), it blocks
+your address for five minutes by default (see
+[Console addresses and scanner paths](./request-protection.md#console-addresses-and-scanner-paths)).
 :::
 
 ## Overview

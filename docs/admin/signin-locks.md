@@ -42,6 +42,16 @@ and the lock covers every address in it.
 - The lock covers new sign-ins of every kind on that surface, including single
   sign-on. It does not end sessions that are already open.
 
+Password-spray protection can also lock a source and the lock appears in the same
+list. It counts the different usernames a source failed with in
+[`security.spray.windowSecs`](/admin/settings#security.spray.windowSecs) (900
+seconds by default). At [`security.spray.lockAt`](/admin/settings#security.spray.lockAt)
+different usernames (25 by default; three times as many for a source that signed in
+successfully within [`security.trust.knownTtlDays`](/admin/settings#security.trust.knownTtlDays), 30 days by default) the source is locked on that surface for
+[`security.spray.lockSecs`](/admin/settings#security.spray.lockSecs) (900 seconds by
+default), whatever the failed-credential limit is. Spray protection is on by
+default ([`security.spray.enabled`](/admin/settings#security.spray.enabled)).
+
 The source address is the one Mailwoman resolves with its trusted-proxy settings
 (see [Reverse proxy](/deploy/reverse-proxy)); a forwarded header from an untrusted
 peer cannot change it. People behind one NAT address share a counter, so one of
