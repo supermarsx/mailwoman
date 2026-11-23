@@ -2,9 +2,32 @@
 
 Start here. The [browsable manual](./index.md) includes a topic sidebar, local full-text search and a dark-first theme.
 
-To preview it locally, run `pnpm install` then `pnpm dev` from `docs/`.
-`pnpm build` creates the static site in `.vitepress/dist`. Set `DOCS_BASE` when
-hosting under a subdirectory (for example `/mailwoman/` on GitHub Pages).
+## Working on the manual site
+
+The site is built with [VitePress](https://vitepress.dev) from the Markdown in this
+folder. From `docs/`, with Node.js and pnpm 11:
+
+```sh
+pnpm install     # once
+pnpm dev         # live preview at http://localhost:5173
+pnpm build       # static site in .vitepress/dist; fails on a broken internal link
+pnpm preview     # serve the built site
+```
+
+Set `DOCS_BASE` when hosting under a subdirectory (for example `/mailwoman/` on
+GitHub Pages); the `Documentation` workflow (`.github/workflows/docs.yml`) builds
+with it on every change under `docs/`.
+
+- **Sidebar**: generated from the folders in `.vitepress/config.mjs`; a new page
+  appears in its section automatically, titled by its first `# heading`. Add a new
+  top-level folder to the `sections` list there.
+- **Theme**: `.vitepress/theme/style.css` maps the web app's colour tokens
+  (`apps/web/src/theme/tokens.ts`) onto VitePress's variables. The fonts (Jost,
+  JetBrains Mono) are self-hosted in `.vitepress/theme/fonts/`; the site makes no
+  request to another origin.
+- **Static files**: `public/` (icon, favicon, screenshots) is served from the site root.
+- Raw HTML in pages is rendered as text, so placeholders such as `<accountId>`
+  show literally. Use Markdown, and `{.class}` attributes where styling is needed.
 
 ## For users
 
