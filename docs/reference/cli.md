@@ -315,9 +315,8 @@ registry. See [Plugins](../admin/plugins.md).
 
 `mailwoman password [OPTIONS]` changes an account's password through the backend that
 `MW_PASSWD_BACKEND` selects, then re-seals the account's stored upstream credentials
-under the new password when the backend asks for it. It prints the account, how many
-credentials were re-sealed, and whether a zero-access re-wrap is still required, and
-records the change in the audit log. A backend that is selected but cannot be built stops
+under the new password when the backend asks for it. It prints a summary line with
+the number of credentials that were re-sealed, and records the change in the audit log. A backend that is selected but cannot be built stops
 the command with the configuration error.
 
 | Option | Environment | What it does |
