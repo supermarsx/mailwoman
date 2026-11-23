@@ -59,7 +59,7 @@ by `MW_SHOTS_SERVER_BIN`). The web client is built from the current source into
 | Use for | everything | a quick look when Docker is unavailable |
 
 Use stack `E` unless you have a reason not to. Its container is called
-`t40-shots-greenmail-<port>` (set `MW_SHOTS_CONTAINER_PREFIX` to change the
+`mw-shots-greenmail-<port>` (set `MW_SHOTS_CONTAINER_PREFIX` to change the
 prefix) and is removed at the end of the run.
 
 ### Accounts

@@ -27,7 +27,7 @@ export function accounts() {
 }
 
 const ADMIN_PATH = '/admin';
-const CONTAINER_PREFIX = process.env.MW_SHOTS_CONTAINER_PREFIX ?? 't40-shots';
+const CONTAINER_PREFIX = process.env.MW_SHOTS_CONTAINER_PREFIX ?? 'mw-shots';
 
 function docker(...args) {
   return execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
