@@ -22,7 +22,7 @@ Database encryption is off until you configure a database key: the default mode 
 - SQLite builds link SQLCipher 4. Every page of the database file and of the write-ahead log is encrypted (AES-256-CBC with a per-page HMAC-SHA512, the SQLCipher 4 defaults). Temporary tables and indices are kept in memory by default (compile flag `SQLITE_TEMP_STORE=2`).
 - The key is applied as `PRAGMA key` on every pooled connection, so migrations, background jobs and the command-line tools all open the file the same way.
 - A 64-character hex value is used as the 256-bit key directly. Any other value is treated as a passphrase: it must be at least 16 characters, and it is stretched with PBKDF2-HMAC-SHA512 (310,000 iterations, a fixed application salt) once per process. Prefer a random hex key.
-- OpenSSL is not used. SQLCipher's crypto-provider table is filled by Rust code on the RustCrypto crates (AES, CBC, HMAC, SHA-1/256/512, PBKDF2) and the system random source. The SQLCipher C source is the amalgamation shipped with `libsqlite3-sys` 0.30.1, vendored with one build patch described in `vendor/libsqlite3-sys-0.30.1/MAILWOMAN-PATCH.md`. Stock SQLCipher 4 tools can open the files with the same key.
+- OpenSSL is not used. SQLCipher's crypto-provider table is filled by Rust code on the RustCrypto crates (AES, CBC, HMAC, SHA-1/256/512, PBKDF2) and the system random source. The SQLCipher C source is the amalgamation bundled with `libsqlite3-sys` 0.30.1, vendored with one build patch described in `vendor/libsqlite3-sys-0.30.1/MAILWOMAN-PATCH.md`. Stock SQLCipher 4 tools can open the files with the same key.
 
 ### Startup rules
 
