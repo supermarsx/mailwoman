@@ -101,6 +101,9 @@ The representative native mail fixture now supports independent groups:
 MW_LOAD_FIXTURE_ENDPOINTS=identity,mailboxes,query,headers,refresh,paged-headers,reader,attachment,flag-write,move-write
 ```
 
+Four client-hot groups (`jmap-session`, `list-batch`, `changes`, `account-polls`)
+can be added to the same list.
+
 Use `MW_NATIVE_LOAD_WORKLOAD=representative` for the last five groups. The
 existing `representative` selector retains the complete ten-shape mixed run.
 Both the single-process and partitioned generator use the same validated request
@@ -113,6 +116,7 @@ an explicit sufficient deadline rather than treating a truncated run as complete
 | Application area | Existing seeded coverage | Status |
 | --- | --- | --- |
 | Mail and identity | Independent accounts, messages, folders, bodies and attachments; validated read/write/restore requests | Independent selectors available; capacity requires actual per-group release runs |
+| Client-hot routes | `jmap-session`, `list-batch`, `changes` and `account-polls` groups (preferences, appearance customization, session activity); read-only, no extra seed | Selectable separately from the mail groups; shapes copied from the web client, see [client-hot route groups](native-http-fixtures.md#client-hot-route-groups); not yet run against a release image |
 | Drafts | No representative drafts in the native load seed | Representative seed, save/reopen/send validators and measurements pending |
 | Settings | Global fixture policies; no representative per-user preference writes | Defaults-only reads would be controls, not a representative settings workload |
 | Notifications | No representative notification-centre records | Seed, dismiss/archive validators and measurements pending |

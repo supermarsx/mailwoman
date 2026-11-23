@@ -1,7 +1,7 @@
 import {requestInputsEvidence} from './request-inputs-experiment.mjs';
 import {t34ModesEvidence} from './t34-modes.mjs';
 import {enforcedPolicyReport,assertEnforcedPolicySnapshot} from './native-enforced-policy.mjs';
-import {prepareFixtureRequests} from './fixture-requests.mjs';
+import {prepareFixtureRequests,CLIENT_HOT_GROUPS} from './fixture-requests.mjs';
 import {preparedMailExperimentReport,preparedMailEvidence} from './prepared-mail-experiment.mjs';
 import {throwDiagnosticSnapshotFailure,diagnosticFailureReport} from './fixture-diagnostic-failure.mjs';
 import {campaignCacheExperiment,assertSqliteCacheWitness,cacheExperimentEvidence} from './sqlite-page-cache-witness.mjs';
@@ -58,6 +58,24 @@ function childChannel(child,index){
  }};
 }
 
+// A failure after the load finished (scanner probe, receipt or evidence checks)
+// must not discard the measurement. The original error is wrapped with its
+// message (only when it is a plain fixed-text sentence, never paths or values)
+// and the raw stages the campaign already collected.
+const SAFE_MESSAGE=/^[A-Za-z0-9 .,'()_-]{1,200}$/;
+export class PostRunFailure extends Error{
+ constructor(error,campaign){
+  const text=typeof error?.message==='string'&&SAFE_MESSAGE.test(error.message)?error.message:'unclassified post-run failure';
+  super(text);this.name='PostRunFailure';this.failureMessage=text;this.rawCampaign=campaign;this.cause=error;
+ }
+}
+export function postRunFailure(error,campaign){return error instanceof PostRunFailure?error:new PostRunFailure(error,campaign);}
+export function failureReportFor(error){
+ const report=diagnosticFailureReport(error);
+ if(error instanceof PostRunFailure)return {...report,failedAfterLoad:true,failureMessage:error.failureMessage,rawCampaign:error.rawCampaign};
+ return report;
+}
+
 export function qualifiesHttpTarget(campaign,qualified){
  return qualified&&!campaign.mutationStateTainted&&campaign.stages.some(stage=>['mixed','representative'].includes(stage.endpoint)&&stage.phase==='offered-rate'&&stage.arrivalRate>=40000&&stage.acceptedDuringScheduledWindowRps>=40000&&stage.uniquePrincipalsAcceptedDuringScheduledWindow>=10000&&stage.uniqueClientsAcceptedDuringScheduledWindow>=10000&&stage.coordination.valid&&!stage.mutationStateTainted&&stage.scheduledSeconds>=30&&stage.errors===0&&stage.timeouts===0&&stage.throttled===0&&stage.droppedCapacity===0&&stage.droppedScheduler===0&&qualifiesHttpTelemetry(stage.diagnostics)&&qualifiesIndexPublication(stage.diagnostics));
 }
@@ -111,8 +129,9 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
    if(results.some(row=>row.measurement?.window?.completedAtMs>observedAtMs+maxStartLagMs))throw new Error('Worker completion is ahead of the controller clock');
    return aggregateWorkers({results,partitions:verified.partitions,stage,startAtMs,maxStartLagMs});
   };
-  const names=['mixed','identity','mailboxes','query','headers','refresh',...(verified.workloadProfile?.kind==='representative'?['representative','paged-headers','reader','attachment','flag-write','move-write']:[])],groups=Object.fromEntries(names.map(name=>[name,[{name}]]));
+  const names=['mixed','identity','mailboxes','query','headers','refresh',...Object.keys(CLIENT_HOT_GROUPS),...(verified.workloadProfile?.kind==='representative'?['representative','paged-headers','reader','attachment','flag-write','move-write']:[])],groups=Object.fromEntries(names.map(name=>[name,[{name}]]));
   const campaign=await runCampaign({base:verified.base,headers:{},groups,options,run,diagnostics});
+  try{
   // Preserve the single native driver's actual enforcement check. This
   // anonymous probe is outside measured phases and cannot add successful RPS.
   const scannerProbeStatus=await (scannerProbe??(async()=>{
@@ -126,7 +145,8 @@ export async function runMultiCampaign({handoff,workers,options,launch=fork,star
   const telemetryQualified=campaign.stages.length>0&&campaign.stages.every(stage=>qualifiesHttpTelemetry(stage.diagnostics));
   const qualified=policyQualified&&storageQualified;
   const met=qualifiesHttpTarget(campaign,qualified);
-  return {enforcedPolicy:verified.enforcedPolicy,readIntent,ordinaryRequestInputs:requestInputsEvidence(handoff.ordinaryRequestInputs,campaign.stages,options.requestInputsExpected),t34Modes:t34ModesEvidence(handoff.t34Modes,campaign.stages,{requestInputsEvidence:requestInputsEvidence(handoff.ordinaryRequestInputs,campaign.stages,options.requestInputsExpected)}),preparedMailExperiment:preparedMailEvidence(preparedMailExperiment,campaign.stages),...(cacheExperiment?{sqliteCacheExperiment:cacheExperimentEvidence(cacheExperiment,campaign.stages)}:{}),schema:1,kind:'coordinated-native-http-fixture',generatedAt:new Date().toISOString(),target:'ephemeral loopback Mailwoman router + seeded native engine',scenario:'real authenticated middleware/HTTP/native-engine with '+handoff.backend+'; fixture data; no TLS/reverse proxy',runtime:process.version,model:'bounded coordinated processes with disjoint users and a shared measurement window; no capacity claim',protection:verified.policyEvidence.verified?'administrator defaults plus verified locked access.protocols policy':'administrator defaults; loaded policy not verified',uniqueAuthenticatedPrincipals:handoff.principals.length,principalCountMeaning:'configured distinct seeded principals; actual successful HTTP coverage is reported per stage',backend:handoff.backend,buildProfile:handoff.buildProfile,workers,configuredGlobalPrincipals:handoff.principals.length,scannerProbeStatus,isolationEvidence,partitionSizes:verified.partitions.map(part=>part.count),startupReadiness:verified.startupReadiness,searchWriter:verified.searchWriter,searchStorage:verified.searchStorage,linkedLoginPolicyProbe:verified.linkedLoginPolicyProbe,policyEvidence:verified.policyEvidence,workloadProfile:verified.workloadProfile,...campaign,controller:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,elapsedSeconds,rssBeforeBytes,rssAfterBytes:process.memoryUsage().rss},capacityTarget:{successfulRps:40000,simultaneousAuthenticatedUsers:10000,httpMultiUserTargetMet:met,productionPolicyQualified:policyQualified,productionStorageQualified:storageQualified,productionTelemetryQualified:telemetryQualified,productionIndexPublicationQualified:campaign.stages.length>0&&campaign.stages.every(stage=>qualifiesIndexPublication(stage.diagnostics)),persistentWebSocketSessionsMeasured:false,met:false},distinctPhysicalGeneratorHostsMeasured:false};
+  return {enforcedPolicy:verified.enforcedPolicy,readIntent,ordinaryRequestInputs:requestInputsEvidence(handoff.ordinaryRequestInputs,campaign.stages,options.requestInputsExpected,{backend:handoff.backend}),t34Modes:t34ModesEvidence(handoff.t34Modes,campaign.stages,{requestInputsEvidence:requestInputsEvidence(handoff.ordinaryRequestInputs,campaign.stages,options.requestInputsExpected,{backend:handoff.backend})}),preparedMailExperiment:preparedMailEvidence(preparedMailExperiment,campaign.stages),...(cacheExperiment?{sqliteCacheExperiment:cacheExperimentEvidence(cacheExperiment,campaign.stages)}:{}),schema:1,kind:'coordinated-native-http-fixture',generatedAt:new Date().toISOString(),target:'ephemeral loopback Mailwoman router + seeded native engine',scenario:'real authenticated middleware/HTTP/native-engine with '+handoff.backend+'; fixture data; no TLS/reverse proxy',runtime:process.version,model:'bounded coordinated processes with disjoint users and a shared measurement window; no capacity claim',protection:verified.policyEvidence.verified?'administrator defaults plus verified locked access.protocols policy':'administrator defaults; loaded policy not verified',uniqueAuthenticatedPrincipals:handoff.principals.length,principalCountMeaning:'configured distinct seeded principals; actual successful HTTP coverage is reported per stage',backend:handoff.backend,buildProfile:handoff.buildProfile,workers,configuredGlobalPrincipals:handoff.principals.length,scannerProbeStatus,isolationEvidence,partitionSizes:verified.partitions.map(part=>part.count),startupReadiness:verified.startupReadiness,searchWriter:verified.searchWriter,searchStorage:verified.searchStorage,linkedLoginPolicyProbe:verified.linkedLoginPolicyProbe,policyEvidence:verified.policyEvidence,workloadProfile:verified.workloadProfile,...campaign,controller:{cpuUserMs:cpu.user/1000,cpuSystemMs:cpu.system/1000,elapsedSeconds,rssBeforeBytes,rssAfterBytes:process.memoryUsage().rss},capacityTarget:{successfulRps:40000,simultaneousAuthenticatedUsers:10000,httpMultiUserTargetMet:met,productionPolicyQualified:policyQualified,productionStorageQualified:storageQualified,productionTelemetryQualified:telemetryQualified,productionIndexPublicationQualified:campaign.stages.length>0&&campaign.stages.every(stage=>qualifiesIndexPublication(stage.diagnostics)),persistentWebSocketSessionsMeasured:false,met:false},distinctPhysicalGeneratorHostsMeasured:false};
+  }catch(error){throw postRunFailure(error,campaign);}
  }finally{
   const stopped=await Promise.allSettled(children.map(child=>child.stop()));
   if(stopped.some(value=>value.status==='rejected'))throw new Error('Worker shutdown unconfirmed; private files retained');
@@ -153,7 +173,7 @@ async function main(){
   await writeMultiArtifacts(args.output,report);
   if(report.mutationStateTainted||!report.stages.some(stage=>stage.accepted>0))process.exitCode=1;
  }catch(error){
-  const failure=diagnosticFailureReport(error);
+  const failure=failureReportFor(error);
   await writeMultiArtifacts(args.output,failure);
   throw new Error('Coordinated generator failed');
  }

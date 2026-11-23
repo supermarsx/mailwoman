@@ -10,14 +10,25 @@ export function requestInputsStatusReport(value){
  if(!value||typeof value!=='object'||Array.isArray(value)||!['original','published'].includes(value.mode)||value.processImmutable!==true||requestInputCounters.some(key=>!Number.isSafeInteger(value[key])||value[key]<0))throw Error('Invalid request-input fixture witness');
  return {mode:value.mode,processImmutable:true,...Object.fromEntries(requestInputCounters.map(key=>[key,value[key]]))};
 }
-const shapes=Object.freeze({identity:['authenticated-identity'],mailboxes:['Mailbox/get'],query:['Email/query'],headers:['Email/get'],refresh:['concurrent-refresh-handler'],mixed:['authenticated-identity','Mailbox/get','Email/query','Email/get','concurrent-refresh-handler'],representative:['authenticated-identity','Mailbox/get','Email/query','Email/get','concurrent-refresh-handler','paged-query-and-headers','body-and-attachment-metadata','attachment-download','mark-read-and-restore','move-and-restore'],'paged-headers':['paged-query-and-headers'],reader:['body-and-attachment-metadata'],attachment:['attachment-download'],'flag-write':['mark-read-and-restore'],'move-write':['move-and-restore']});
+const shapes=Object.freeze({identity:['authenticated-identity'],mailboxes:['Mailbox/get'],query:['Email/query'],headers:['Email/get'],refresh:['concurrent-refresh-handler'],mixed:['authenticated-identity','Mailbox/get','Email/query','Email/get','concurrent-refresh-handler'],representative:['authenticated-identity','Mailbox/get','Email/query','Email/get','concurrent-refresh-handler','paged-query-and-headers','body-and-attachment-metadata','attachment-download','mark-read-and-restore','move-and-restore'],'paged-headers':['paged-query-and-headers'],reader:['body-and-attachment-metadata'],attachment:['attachment-download'],'flag-write':['mark-read-and-restore'],'move-write':['move-and-restore'],'jmap-session':['jmap-session'],'list-batch':['list-batch'],changes:['changes'],'account-polls':['account-preferences','appearance-customization','session-activity']});
 // Conservative known subset only. Email/get labels cover both marked native
 // headers and unmarked ordinary headers, which Rust can support; labels alone
 // do not distinguish them. Exclusion is not proof of server ineligibility.
 const eligible=new Set(['authenticated-identity','Mailbox/get','Email/query','paged-query-and-headers','body-and-attachment-metadata','mark-read-and-restore','move-and-restore']);
 const add=(a,b)=>{const sum=a+b;if(!Number.isSafeInteger(sum))throw Error('Request-input receipt counter overflow');return sum;};
-export function requestInputsEvidence(handoff,stages,expected){
+// Published inputs are built and consumed only on the SQLite store (the server
+// skips them when `!store.uses_sqlite()`, request_inputs.rs). Only a backend the
+// fixture handoff names explicitly as something else relaxes the consumption
+// assertion; an unnamed or sqlite backend stays strict. The relaxation is itself
+// strict the other way: a non-SQLite run must consume nothing.
+export function requestInputsBackendSkipsPublished(backend){
+ if(backend===undefined||backend===null)return false;
+ if(typeof backend!=='string'||!/^[a-z][a-z0-9_-]{0,31}$/.test(backend))throw Error('Invalid request-input backend');
+ return backend!=='sqlite';
+}
+export function requestInputsEvidence(handoff,stages,expected,{backend}={}){
  expected=requestInputsExpected(expected);
+ const skipsPublished=requestInputsBackendSkipsPublished(backend);
  // Legacy c19 or unqualified runs retain their previous contract. Merely
  // receiving a new-server witness never opts a run into an A/B assertion.
  if(expected===undefined)return null;
@@ -35,9 +46,12 @@ export function requestInputsEvidence(handoff,stages,expected){
   const deltas={};for(const key of requestInputCounters){if(before[key]<previous[key]||after[key]<before[key])throw Error('Request-input process counter reset');deltas[key]=after[key]-before[key];}
   let accepted=0;
   for(const name of names){const sample=stage.byRequest[name];if(!sample||!Number.isSafeInteger(sample.requests)||sample.requests<0||!Number.isSafeInteger(sample.acceptedDuringScheduledWindow)||sample.acceptedDuringScheduledWindow<0||sample.acceptedDuringScheduledWindow>sample.requests)throw Error('Missing request-input accepted HTTP proof');if(eligible.has(name))accepted=add(accepted,sample.acceptedDuringScheduledWindow);}
-  if(accepted>0){eligiblePhases++;if(expected==='published'&&deltas.consumedFrames===0)throw Error('Eligible accepted HTTP phase did not consume published inputs');}
+  if(accepted>0){
+   if(skipsPublished){if(expected==='published'&&deltas.consumedFrames!==0)throw Error('Published inputs were consumed on a backend that does not publish them');}
+   else{eligiblePhases++;if(expected==='published'&&deltas.consumedFrames===0)throw Error('Eligible accepted HTTP phase did not consume published inputs');}
+  }
   eligibleAccepted=add(eligibleAccepted,accepted);consumedFramesDelta=add(consumedFramesDelta,deltas.consumedFrames);
   observations.push({endpoint:stage.endpoint,phase:stage.phase,knownSubsetAcceptedDuringScheduledWindow:accepted,before,after,deltas});previous=after;
  }
- return {expectedMode:expected,startup,observations,knownSubsetPhases:eligiblePhases,knownSubsetAcceptedDuringScheduledWindow:eligibleAccepted,consumedFramesDelta,qualified:eligiblePhases>0,exercise:eligiblePhases>0?'known-subset-http-observed':'unexercised',eligibilityScope:'conservative known subset; excludes Email/get labels without proving those requests unsupported',controlAuthenticationBound:0,window:'process before/after includes drain; not in-window consumption or per-request attribution'};
+ return {expectedMode:expected,startup,observations,knownSubsetPhases:eligiblePhases,knownSubsetAcceptedDuringScheduledWindow:eligibleAccepted,consumedFramesDelta,qualified:eligiblePhases>0,exercise:eligiblePhases>0?'known-subset-http-observed':skipsPublished?'not-applicable-backend':'unexercised',backend:skipsPublished?backend:'sqlite-or-unnamed',eligibilityScope:'conservative known subset; excludes Email/get labels without proving those requests unsupported',controlAuthenticationBound:0,window:'process before/after includes drain; not in-window consumption or per-request attribution'};
 }

@@ -10,6 +10,44 @@ export function jmapFixtureRequest(p,name,args,{native=false}={}){
  return {name,path:'/jmap/api',method:'POST',headers:{'content-type':'application/json',...(native?nativeReadIntentHeaders(body):{})},body:JSON.stringify(body),validate:value=>value.methodResponses?.[0]?.[0]===name&&value.methodResponses?.[0]?.[1]?.accountId===p.accountId};
 }
 
+const MAIL_USING=['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'];
+// Client-hot routes the real web client calls on every load or poll (t50hp-e4).
+// Request shapes are copied from apps/web (api/jmap.ts listMailbox,
+// realtime/queryDelta.ts reconcileQuery, api/accountPreferences.ts,
+// api/appearanceCustomization.ts, api/sessionActivity.ts). They are separate
+// groups: they never join `requests`, `mixed` or `representative`.
+export const CLIENT_HOT_GROUPS=Object.freeze({'jmap-session':['jmap-session'],'list-batch':['list-batch'],changes:['changes'],'account-polls':['account-preferences','appearance-customization','session-activity']});
+export function clientHotSpecs(p){
+ const owner=p.ownerAccountId??p.accountId,inbox=typeof p.inboxId==='string'&&p.inboxId?p.inboxId:undefined;
+ const filter=inbox?{inMailbox:inbox}:{},sort=[{property:'receivedAt',isAscending:false}];
+ const batch=(name,calls,validate)=>({name,path:'/jmap/api',method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({using:MAIL_USING,methodCalls:calls}),validate:value=>{
+  const rows=value?.methodResponses;
+  return Array.isArray(rows)&&rows.length===calls.length&&rows.every((row,index)=>row[0]===calls[index][0]&&row[2]===calls[index][2]&&row[1]?.accountId===p.accountId)&&validate(rows.map(row=>row[1]));
+ }});
+ const pageSize=Math.min(25,p.messageIds.length),noChange=row=>Array.isArray(row)&&row.length===0;
+ const json=(name,path,validate,extra={})=>({name,path,validate,...extra});
+ return [
+  json('jmap-session','/jmap/session',v=>!!v&&typeof v==='object'&&typeof v.apiUrl==='string'&&!!v.accounts&&Object.hasOwn(v.accounts,p.accountId)),
+  // The list batch of listMailbox() plus the unread count query (limit 0, notKeyword $seen).
+  batch('list-batch',[
+   ['Email/query',{accountId:p.accountId,filter,sort,limit:pageSize,calculateTotal:true},'q'],
+   ['Email/get',{accountId:p.accountId,'#ids':{resultOf:'q',name:'Email/query',path:'/ids'},properties:DEFAULT_HEADER_PROPERTIES},'g'],
+   ['Email/query',{accountId:p.accountId,filter:{...filter,notKeyword:'$seen'},limit:0,calculateTotal:true},'unread'],
+  ],([query,get,unread])=>Array.isArray(query.ids)&&query.ids.length===pageSize&&typeof query.queryState==='string'&&Array.isArray(get.list)&&get.list.length===pageSize&&query.ids.every(id=>get.list.some(row=>row.id===id))&&Number.isSafeInteger(unread.total)&&unread.total>=0&&Array.isArray(unread.ids)&&unread.ids.length===0),
+  // Poll with no change. The JMAP state is only known at run time, so a one-row
+  // query supplies it by result reference (Email/query queryState and Email/changes
+  // state are the same per-account Email state in the engine).
+  batch('changes',[
+   ['Email/query',{accountId:p.accountId,filter,sort,limit:1},'base'],
+   ['Email/queryChanges',{accountId:p.accountId,filter,sort,'#sinceQueryState':{resultOf:'base',name:'Email/query',path:'/queryState'},maxChanges:1000,calculateTotal:true},'delta-query'],
+   ['Email/changes',{accountId:p.accountId,'#sinceState':{resultOf:'base',name:'Email/query',path:'/queryState'},maxChanges:1000},'delta-emails'],
+  ],([base,queried,changed])=>typeof base.queryState==='string'&&queried.oldQueryState===base.queryState&&queried.newQueryState===base.queryState&&noChange(queried.removed)&&noChange(queried.added)&&changed.oldState===base.queryState&&changed.newState===base.queryState&&noChange(changed.created)&&noChange(changed.updated)&&noChange(changed.destroyed)&&changed.hasMoreChanges!==true),
+  json('account-preferences','/api/account/preferences',v=>v?.version===1&&!!v.preferences&&typeof v.preferences==='object'&&!Array.isArray(v.preferences)),
+  json('appearance-customization',`/api/account/appearance/customization?accountId=${encodeURIComponent(owner)}`,v=>v?.ownerId===owner&&v.document?.version===1&&typeof v.compiledCss==='string'&&Array.isArray(v.lockedFields)),
+  {name:'session-activity',path:'/api/account/session/activity',method:'POST',headers:{},validate:v=>v?.ok===true},
+ ];
+}
+
 export function prepareFixtureRequests({principals,clientSimulation,engineMode,representative=false,workloadProfile}){
  if(typeof representative!=='boolean'||!['native','proxy'].includes(engineMode)||representative&&engineMode!=='native')throw new Error('Invalid private fixture request mode');
  const clientModel=prepareFixtureClients(principals,clientSimulation),native=engineMode==='native';
@@ -22,11 +60,16 @@ export function prepareFixtureRequests({principals,clientSimulation,engineMode,r
   return representative?[...baseline,...representativeSpecs(p)].map(spec=>({...spec,serializePrincipal:true})):baseline;
  };
  const prepared=principals.map((p,index)=>specs(p).map(spec=>({...spec,headers:{...clientModel.clients[index].headers,...spec.headers}})));
+ const hot=principals.map((p,index)=>clientHotSpecs(p).map(spec=>({...spec,headers:{...clientModel.clients[index].headers,...spec.headers}})));
+ const hotRequests=Object.fromEntries(hot[0].map((spec,type)=>[spec.name,{...spec,materialize:(sequence,{requestCount})=>{
+  const principalIndex=fixturePrincipalIndex(sequence,requestCount,principals.length);
+  return {...hot[principalIndex][type],principalIndex,clientIndex:clientModel.clients[principalIndex].clientIndex};
+ }}]));
  const requests=prepared[0].map((spec,type)=>({...spec,materialize:(sequence,{requestCount})=>{
   const principalIndex=fixturePrincipalIndex(sequence,requestCount,principals.length);
   return {...prepared[principalIndex][type],principalIndex,clientIndex:clientModel.clients[principalIndex].clientIndex};
  }}));
- const groups={mixed:requests.slice(0,5),identity:[requests[0]],mailboxes:[requests[1]],query:[requests[2]],headers:[requests[3]],refresh:[requests[4]],...(representative?{
+ const groups={...Object.fromEntries(Object.entries(CLIENT_HOT_GROUPS).map(([group,names])=>[group,names.map(name=>hotRequests[name])])),mixed:requests.slice(0,5),identity:[requests[0]],mailboxes:[requests[1]],query:[requests[2]],headers:[requests[3]],refresh:[requests[4]],...(representative?{
   representative:requests,'paged-headers':[requests[5]],reader:[requests[6]],attachment:[requests[7]],'flag-write':[requests[8]],'move-write':[requests[9]],
  }:{})};
  const marked=prepared[0].filter(spec=>spec.headers[nativeReadContract.header]===nativeReadContract.value).map(spec=>spec.name);

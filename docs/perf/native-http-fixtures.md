@@ -405,6 +405,55 @@ guarantees require durable replay design. None of these index architecture
 changes is implemented by this measurement. The 40,000-RPS/10,000-user,
 simultaneous-WebSocket and whole-host capacity targets remain unproven.
 
+### Client-hot route groups
+
+Four further groups cover routes the web client calls on every load or poll.
+They are selectable with `MW_LOAD_FIXTURE_ENDPOINTS` in single-process and
+partitioned runs, work with or without the representative workload, and are
+never part of `mixed` or `representative`. Each is read-only, adds no seeded
+data, and is validated per response like the existing groups. The request
+shapes are copied from `apps/web`; the expected response checks are in
+`scripts/perf/fixture-requests.mjs` (`clientHotSpecs`).
+
+| Group | Requests (one HTTP request each unless noted) | Response checks |
+| --- | --- | --- |
+| `jmap-session` | `GET /jmap/session` | `apiUrl` is a string and `accounts` holds the principal's account |
+| `list-batch` | `POST /jmap/api`: `Email/query` (inbox filter, `receivedAt` descending, limit 25, `calculateTotal`), `Email/get` of that page by result reference with the list header properties, then the unread count `Email/query` (`notKeyword: $seen`, limit 0, `calculateTotal`) | all three methods answered for the account; page and list have the same length; unread count is an integer with no ids |
+| `changes` | `POST /jmap/api`: `Email/queryChanges` and `Email/changes` (`maxChanges` 1000) with no change since the current state | old and new states equal, no added, removed, created, updated or destroyed ids, no `hasMoreChanges` |
+| `account-polls` | three requests in rotation: `GET /api/account/preferences`, `GET /api/account/appearance/customization?accountId=<account>`, `POST /api/account/session/activity` (no body) | preferences `version` 1 with an object; customization `ownerId` equals the account and carries `document.version` 1, `compiledCss` and `lockedFields`; activity `{"ok":true}` |
+
+Two deviations from what the client sends, both deliberate:
+
+- The JMAP state is only known at run time, but request templates are built
+  before the run. The `changes` batch therefore starts with a one-row
+  `Email/query` whose `queryState` is passed to both change calls by result
+  reference. In the engine `queryState` and the Email `state` are the same
+  per-account value. The batch is three methods, not the client's two, so its
+  per-request cost includes one cheap extra query.
+- `list-batch` filters on the principal's inbox id from the seed handoff;
+  without one it queries the whole account.
+
+The four groups are not preflighted before saturation (`firstRequests` still
+lists the original requests); a route the server fixture does not support
+appears as errors in the first stage.
+
+### Request-input receipts on PostgreSQL
+
+Published request inputs are built and consumed only on the SQLite store. For a
+handoff naming another backend (`postgres`), the post-run check no longer
+requires `consumedFrames` to rise; it requires it to stay at zero, and the
+receipt reports `exercise: not-applicable-backend`, `qualified: false` and the
+backend. SQLite runs, and runs whose handoff names no backend, keep the strict
+check that an eligible accepted phase consumed published inputs.
+
+### Failures after the load
+
+If the coordinated generator fails after the load completed (scanner probe,
+receipt checks), the failure report keeps `failedAfterLoad: true`, the error
+message when it is a plain sentence (otherwise `unclassified post-run failure`)
+and the raw campaign (`rawCampaign`, with every stage). It is still not a
+qualified result: `coordinationValid` stays false.
+
 ### Bulk publication amortization
 
 A further diagnostic kept the same frozen candidate server, sealed storage,

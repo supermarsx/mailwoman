@@ -9,7 +9,7 @@ import {randomUUID} from 'node:crypto';
 import {runClaimed,reportHash} from './external-control.mjs';
 import {Measurements} from './http-load.mjs';
 import {splitBudget,partitionPrincipals,validateStage,mergeSnapshots,aggregateWorkers} from './http-multi-protocol.mjs';
-import {validateAssignment,runMultiCampaign,qualifiesHttpTarget,writeMultiArtifacts} from './http-multi-controller.mjs';
+import {validateAssignment,runMultiCampaign,qualifiesHttpTarget,writeMultiArtifacts,PostRunFailure,failureReportFor} from './http-multi-controller.mjs';
 import {generatorWorkers,httpGeneratorLaunch} from './http-generator-launch.mjs';
 
 const stage={concurrency:4,seconds:1,timeoutMs:1000,arrivalRate:100},startAtMs=100000;
@@ -125,7 +125,14 @@ test('two actual subprocesses obey barrier, exact allocation and global proof wi
   const markdown=markdownBytes.toString('utf8');assert.match(markdown,/# HTTP load report/);assert.match(markdown,/not measured/);assert.ok(!markdown.includes('undefined'));assert.ok(!markdown.includes('private-'));
   const exported=JSON.parse(jsonBytes);for(const key of ['target','scenario','runtime','model','protection'])assert.equal(typeof exported[key],'string');assert.equal(exported.uniqueAuthenticatedPrincipals,4);
  }finally{for(const name of ['handoff.private.json','report.json','report.md','heartbeat.json','done.json'])await unlink(join(artifactDir,name));await rmdir(artifactDir);}
- await assert.rejects(runMultiCampaign({handoff:handoff(),workers:2,options,launch,startLeadMs:500,scannerProbe:async()=>200,isolationProbe:async()=>({verified:true,status:'verified',requests:2,directions:2})}),/scanner enforcement/);
+ await assert.rejects(runMultiCampaign({handoff:handoff(),workers:2,options,launch,startLeadMs:500,scannerProbe:async()=>200,isolationProbe:async()=>({verified:true,status:'verified',requests:2,directions:2})}),error=>{
+  assert.ok(error instanceof PostRunFailure);assert.match(error.message,/scanner enforcement/);
+  assert.ok(Array.isArray(error.rawCampaign.stages)&&error.rawCampaign.stages.length>0,'raw stages survive a post-load failure');
+  const report=failureReportFor(error);assert.equal(report.failedAfterLoad,true);assert.match(report.failureMessage,/scanner enforcement/);assert.equal(report.rawCampaign.stages.length,error.rawCampaign.stages.length);assert.equal(report.coordinationValid,false);
+  return true;
+ });
+ const unsafe=failureReportFor(new PostRunFailure(new Error('C:\\private\\path=secret'),{stages:[]}));assert.equal(unsafe.failureMessage,'unclassified post-run failure');
+ assert.equal(failureReportFor(new Error('x')).rawCampaign,undefined);
  let launched=false;
  await assert.rejects(runMultiCampaign({handoff:handoff(),workers:2,options,launch:()=>{launched=true;throw new Error('unexpected launch');},startLeadMs:500,isolationProbe:async()=>({verified:false,status:'failed',requests:2})}),/account isolation/);
  assert.equal(launched,false,'failed isolation must stop before launching traffic workers');

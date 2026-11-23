@@ -33,6 +33,24 @@ test('published requires measured eligible acceptance plus phase consumption not
  const startupOnly=stage('published',10,10);assert.throws(()=>evidence(witness('published',10),[startupOnly],'published'));
  startupOnly.diagnostics.after.ordinaryRequestInputs.buildAttempts=11;assert.throws(()=>evidence(witness('published',10),[startupOnly],'published'));
 });
+test('published inputs are backend aware: only a named non-SQLite backend relaxes consumption, and then consumption must be zero',()=>{
+ const idle=stage('published',10,10);
+ assert.throws(()=>evidence(witness('published',10),[idle],'published'),/did not consume/);
+ assert.throws(()=>evidence(witness('published',10),[idle],'published',{backend:'sqlite'}),/did not consume/);
+ assert.throws(()=>evidence(witness('published',10),[idle],'published',{}),/did not consume/);
+ const pg=evidence(witness('published',10),[idle],'published',{backend:'postgres'});
+ assert.equal(pg.qualified,false);assert.equal(pg.exercise,'not-applicable-backend');assert.equal(pg.backend,'postgres');assert.equal(pg.knownSubsetPhases,0);assert.equal(pg.observations.length,1);
+ assert.throws(()=>evidence(witness('published',10),[stage('published',10,11)],'published',{backend:'postgres'}),/does not publish/);
+ assert.equal(evidence(witness('published',9),[stage('published',10,11)],'published',{backend:'sqlite'}).qualified,true);
+ for(const bad of ['','Postgres','a b',7,'x'.repeat(40)])assert.throws(()=>evidence(witness('published',10),[idle],'published',{backend:bad}),/Invalid request-input backend/);
+ assert.throws(()=>evidence(witness('original'),[stage('original',0,1)],'original',{backend:'postgres'}));
+});
+test('client-hot groups are recognised workload shapes',()=>{
+ for(const [endpoint,names] of [['jmap-session',['jmap-session']],['list-batch',['list-batch']],['changes',['changes']],['account-polls',['account-preferences','appearance-customization','session-activity']]]){
+  const s=stage('published',0,0);s.endpoint=endpoint;s.byRequest=Object.fromEntries(names.map(name=>[name,{requests:2,acceptedDuringScheduledWindow:1}]));
+  const result=evidence(witness('published',0),[s],'published');assert.equal(result.knownSubsetAcceptedDuringScheduledWindow,0);assert.equal(result.qualified,false);
+ }
+});
 test('positive header counters and other out-of-model routes remain conservatively unqualified',()=>{
  for(const [endpoint,name]of [['headers','Email/get'],['attachment','attachment-download'],['refresh','concurrent-refresh-handler']]){
   const s=stage();s.endpoint=endpoint;s.byRequest={[name]:{requests:2,acceptedDuringScheduledWindow:1}};
