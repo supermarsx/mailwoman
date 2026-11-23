@@ -394,7 +394,7 @@ export function SsoEditor(props: SsoEditorProps): JSX.Element {
           id: 'requireVerifiedEmail',
           label: t('admin-sso-require-verified-email'),
           help: t('admin-sso-require-verified-email-help'),
-          docsHref: docs('claims'),
+          docsHref: docs('requireVerifiedEmail'),
           kind: 'boolean',
           revert: { defaultDisplay: t('admin-sso-on'), value: true },
           render: (ctx) => (
