@@ -4,6 +4,8 @@ import {countryDisplay} from '../../i18n/network.ts';
 import type {SessionNoticeContext} from './sessionAlertsModel.ts';
 import * as css from './styles.css.ts';
 import * as card from './sessionNotice.css.ts';
+import {Icon,type IconName} from '../../components/Icon.tsx';
+const fieldIcons:Record<string,IconName>={ip:'network',location:'globe',device:'laptop',recognized:'shield',browser:'globe',engine:'gear',os:'chip',client:'sessions',version:'package',authentication:'key',fingerprint:'identityProvider',agent:'code'};
 const names:Record<string,string>={chrome:'Chrome',edge:'Microsoft Edge',firefox:'Firefox',safari:'Safari',opera:'Opera',samsung:'Samsung Internet',windows:'Windows',macos:'macOS',ios:'iOS',android:'Android',linux:'Linux',chromeos:'ChromeOS'};
 export function SessionNoticeDetails(props:{context?:SessionNoticeContext|null|undefined}):JSX.Element{
  onMount(()=>void loadCatalog('security'));
@@ -18,10 +20,10 @@ export function SessionNoticeDetails(props:{context?:SessionNoticeContext|null|u
   ...(c.clientVersion?[['version',c.clientVersion]]:[]),...(c.authentication?[['authentication',c.authentication]]:[]),
  ];};
  return <Show when={props.context} fallback={<p class={css.meta}>{t('session-evidence-legacy')}</p>}>{context=><>
-  <dl class={card.facts}><For each={fields()}>{([key,value])=><div class={card.fact}><dt class={card.label}>{t(`session-evidence-${key}`)}</dt><dd class={card.value}>{isolate(value??'')}</dd></div>}</For></dl>
+  <dl class={card.facts}><For each={fields()}>{([key,value])=><div class={card.fact}><dt class={card.label}><Icon name={key==='device'&&['phone','tablet'].includes(props.context?.deviceType??'')?'smartphone':fieldIcons[key!]??'info'}/>{t(`session-evidence-${key}`)}</dt><dd class={card.value}>{isolate(value??'')}</dd></div>}</For></dl>
   <details class={card.details}><summary>{t('session-evidence-technical')}</summary><dl class={card.facts}>
-   <div class={card.fact}><dt class={card.label}>{t('session-evidence-fingerprint')}</dt><dd class={card.value}><code>{context().fingerprint||unavailable()}</code></dd></div>
-   <div class={card.fact}><dt class={card.label}>{t('session-evidence-agent')}</dt><dd class={card.value}>{isolate(context().userAgent||unavailable())}</dd></div>
+   <div class={card.fact}><dt class={card.label}><Icon name="identityProvider"/>{t('session-evidence-fingerprint')}</dt><dd class={card.value}><code>{context().fingerprint||unavailable()}</code></dd></div>
+   <div class={card.fact}><dt class={card.label}><Icon name="code"/>{t('session-evidence-agent')}</dt><dd class={card.value}>{isolate(context().userAgent||unavailable())}</dd></div>
   </dl><p class={css.meta}>{t('session-evidence-help')}</p></details>
  </>}</Show>;
 }

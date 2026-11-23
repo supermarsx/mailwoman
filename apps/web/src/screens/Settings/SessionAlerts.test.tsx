@@ -49,6 +49,7 @@ it('shows event-time device evidence with internal location and guarded technica
  fixture.context={ip:'192.168.2.3',country:null,deviceType:'desktop',browser:'chrome',browserMajor:142,browserEngine:'Blink',os:'windows',clientType:'browser',recognized:false,fingerprint:'1234567890abcdef',userAgent:'Reported browser agent'};
  render(()=><SessionAlerts service={{} as never}/>);
  expect(await screen.findByText(/192\.168\.2\.3/)).toBeInTheDocument();expect(screen.getByText(/Internal network/)).toBeInTheDocument();expect(screen.getByText(/Chrome 142/)).toBeInTheDocument();expect(screen.getByText(/Unrecognized device/)).toBeInTheDocument();
+ expect(document.querySelectorAll('dt svg').length).toBeGreaterThanOrEqual(10);
  const details=screen.getByText('Technical details').closest('details')!;expect(details.open).toBe(false);fireEvent.click(screen.getByText('Technical details'));expect(screen.getByText('1234567890abcdef')).toBeInTheDocument();
 });
 
