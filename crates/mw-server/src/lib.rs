@@ -1812,6 +1812,7 @@ fn router(
         .route("/api/push/subscribe", post(push_relay::push_subscribe))
         .route("/api/push/unsubscribe", post(push_relay::push_unsubscribe))
         .route("/healthz", get(health_access::healthz))
+        .route("/readyz", get(health_probes::readyz))
         // t32-h10: a mounted path with the wrong method answers `{error, code}`
         // like every other error; axum still adds the `Allow` header.
         .method_not_allowed_fallback(|| async {
