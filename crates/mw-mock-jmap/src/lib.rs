@@ -329,22 +329,34 @@ fn dispatch(store: &MailStore, name: &str, args: &Value) -> Value {
         }),
         "Email/query" => {
             let inner = store.inner.lock().unwrap();
-            let mailbox = args
-                .get("filter")
-                .and_then(|f| f.get("inMailbox"))
+            let filter = args.get("filter");
+            let text = filter
+                .and_then(|f| f.get("text"))
                 .and_then(Value::as_str)
-                .unwrap_or("mb-inbox");
+                .map(str::trim)
+                .filter(|t| !t.is_empty());
+            // Without `inMailbox` a plain listing means the Inbox (as before); a
+            // text search without one spans every mailbox, as a real server's does.
+            let mailbox = match filter.and_then(|f| f.get("inMailbox")).and_then(Value::as_str) {
+                Some(m) => Some(m),
+                None if text.is_some() => None,
+                None => Some("mb-inbox"),
+            };
             let ids: Vec<String> = inner
                 .order
                 .iter()
                 .filter(|id| {
-                    inner
-                        .emails
-                        .get(*id)
-                        .and_then(|e| e.get("mailboxIds"))
-                        .and_then(|m| m.get(mailbox))
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false)
+                    let Some(email) = inner.emails.get(*id) else {
+                        return false;
+                    };
+                    let in_mailbox = mailbox.is_none_or(|mailbox| {
+                        email
+                            .get("mailboxIds")
+                            .and_then(|m| m.get(mailbox))
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
+                    });
+                    in_mailbox && text.is_none_or(|text| text_matches(email, text))
                 })
                 .cloned()
                 .collect();
@@ -934,6 +946,120 @@ fn count_in(inner: &Inner, mailbox: &str) -> u64 {
                 .unwrap_or(false)
         })
         .count() as u64
+}
+
+/// The `Email/query` `filter.text` match. Every whitespace-separated term must
+/// match. `supersedes:<id>` matches an email whose `Supersedes` header names that
+/// Message-ID (the engine's indexed keyword); `from:`, `to:`, `cc:` and `subject:`
+/// look in that field; any other term is a case-insensitive substring of the
+/// subject, addresses, preview or body.
+fn text_matches(email: &Value, text: &str) -> bool {
+    text.split_whitespace()
+        .all(|term| term_matches(email, term))
+}
+
+fn term_matches(email: &Value, term: &str) -> bool {
+    let term = term.trim_matches('"').to_lowercase();
+    if term.is_empty() {
+        return true;
+    }
+    if let Some(id) = term.strip_prefix("supersedes:") {
+        let id = bare_message_id(id);
+        return header_values(email, "supersedes").iter().any(|value| {
+            value
+                .split(|c: char| c.is_whitespace() || c == ',')
+                .any(|part| !part.is_empty() && bare_message_id(part) == id)
+        });
+    }
+    for (op, fields) in [
+        ("from:", &["from"][..]),
+        ("to:", &["to"][..]),
+        ("cc:", &["cc"][..]),
+        ("subject:", &["subject"][..]),
+    ] {
+        if let Some(needle) = term.strip_prefix(op) {
+            return fields
+                .iter()
+                .any(|field| field_text(email, field).contains(needle));
+        }
+    }
+    ["subject", "from", "to", "cc", "preview", "bodyValues"]
+        .iter()
+        .any(|field| field_text(email, field).contains(&term))
+}
+
+fn bare_message_id(id: &str) -> String {
+    id.trim()
+        .trim_start_matches('<')
+        .trim_end_matches('>')
+        .to_lowercase()
+}
+
+/// The lowercased text of one email property: a string, an address list (names
+/// and addresses), or the `bodyValues` map (every part's value).
+fn field_text(email: &Value, field: &str) -> String {
+    match email.get(field) {
+        Some(Value::String(s)) => s.to_lowercase(),
+        Some(Value::Array(list)) => list
+            .iter()
+            .map(|a| {
+                format!(
+                    "{} {}",
+                    a.get("name").and_then(Value::as_str).unwrap_or_default(),
+                    a.get("email").and_then(Value::as_str).unwrap_or_default()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase(),
+        Some(Value::Object(parts)) => parts
+            .values()
+            .filter_map(|p| p.get("value").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase(),
+        _ => String::new(),
+    }
+}
+
+/// Values of header `name` (lowercase) as created through `Email/set`: either a
+/// `header:<Name>[:form]` property (string or list of strings) or an entry of the
+/// raw `headers` list.
+fn header_values(email: &Value, name: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let Some(object) = email.as_object() else {
+        return out;
+    };
+    for (key, value) in object {
+        let Some(rest) = key.strip_prefix("header:") else {
+            continue;
+        };
+        if rest
+            .split(':')
+            .next()
+            .is_some_and(|h| h.eq_ignore_ascii_case(name))
+        {
+            match value {
+                Value::String(s) => out.push(s.clone()),
+                Value::Array(list) => {
+                    out.extend(list.iter().filter_map(Value::as_str).map(String::from));
+                }
+                _ => {}
+            }
+        }
+    }
+    if let Some(headers) = object.get("headers").and_then(Value::as_array) {
+        for h in headers {
+            let named = h
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|n| n.eq_ignore_ascii_case(name));
+            if let (true, Some(v)) = (named, h.get("value").and_then(Value::as_str)) {
+                out.push(v.to_string());
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
