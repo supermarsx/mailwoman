@@ -168,7 +168,7 @@ The admin console, its sign-in and its API answer at one path only; every other 
 
 To print the path: `mailwoman admin console-path show` (with Docker, `docker exec <container> mailwoman admin console-path show`).
 
-To change it, use the console (**Security centre** > **Console address**; you confirm your password or second factor first), or the CLI:
+To change it, use the console (**Security centre** > **Console address**; you confirm your identity first), or the CLI:
 
 ```sh
 mailwoman admin console-path generate          # a new random path

@@ -85,7 +85,7 @@ The first sign-in with these credentials creates the first admin account, with t
 
 ![The top of the admin console after the first sign-in: the navigation on the left, a setup checklist with three open items, and the account and session counts.](/screenshots/deploy/admin-first-dashboard.webp){.mw-crop}
 
-The dashboard's **Setup checklist** lists what is still to configure. **Give the domain a mail server, or set a default upstream** stays open until a mail domain is added and configured under **Domains**, even though `UPSTREAM_DEFAULT` already lets users sign in. Adding the domain lets you give it its own settings.
+The dashboard's **Setup checklist** lists what is still to configure. **Enable a domain and give it a mail server** is done once a domain under **Domains** is enabled and has its connection settings; users can already sign in through `UPSTREAM_DEFAULT` before that.
 
 ## 6. Keep it running
 

@@ -17,7 +17,7 @@ that override it, and exactly what is exported.
 4. Adjust **Sampling and export limits** if needed (see the table below).
 5. Select **Save telemetry configuration**, then restart the server.
 
-Saving needs administrator step-up confirmation and is refused if someone else
+Saving asks you to confirm your identity and is refused if someone else
 changed the configuration since you loaded it. Until you restart, the page shows
 `The saved configuration differs from the running server. A restart is required.`
 
