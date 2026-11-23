@@ -52,11 +52,14 @@ The Argon2 cost applies to new hashes of console passwords, locally stored passw
 and recovery codes. A higher cost makes each sign-in use more memory and time on the
 server.
 
-::: warning
 With **Require a second factor for every account** on, a mailbox account that has
-no second factor cannot finish signing in to the web app: the sign-in screen says
-that two-step verification is required but no method is set up, and stops. The
-people concerned must set up a second factor before you turn this on.
+no second factor is asked to set one up at its next sign-in to the web app (see
+[Two-factor & sign-in requirements](./security-center.md#two-factor-sign-in-requirements)).
+
+::: warning
+The setup is done by whoever next signs in with the account's password. If a
+password may be known to someone else, have the account holder set up a second
+factor in their own settings before you turn this on.
 :::
 
 ## Reading

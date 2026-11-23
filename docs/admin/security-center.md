@@ -101,16 +101,17 @@ account. The deployment-wide rule is the same as **Require a second
 factor for every account** on the [Security policy](./security-policy.md) tab.
 
 When a required account has a second factor, sign-in asks for it. When it has none,
-the server holds the sign-in until a factor is set up, but the web app does not offer
-the setup at that point: it shows "This account requires two-step verification, but
-no method is set up yet" and the person cannot sign in.
+the sign-in screen asks the person to set one up before the mailbox opens: an
+authenticator app (scan the QR code or type the setup key, then enter a code), or a
+passkey where passkeys are allowed and the browser supports them. The desktop and
+Android apps offer only the authenticator app. The person then saves the one-time
+recovery codes, confirms that they did, and is signed in. The setup has to be
+finished within five minutes of entering the password; otherwise the screen returns
+to the sign-in form.
 
-::: warning
-The text on this tab says that requiring two-factor "forces accounts in scope to
-enrol on their next sign-in". In the web app they cannot enrol during sign-in.
-Before you require two-factor for a domain or the deployment, make sure the people
-concerned have set up a factor in their own settings.
-:::
+The setup is done by whoever next signs in with the account's password, so an
+account whose password may be known to someone else should get its factor from the
+account holder, in their own settings, before you require it.
 
 ### Passkey and session policies
 
