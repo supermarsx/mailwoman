@@ -167,16 +167,22 @@ A restored snapshot contains everyone who was in the data when it was taken, inc
 
 ## Backups without deploy.sh
 
-For a server you run yourself (systemd, your own Compose file), the server has its own commands. Run them with the same `MW_DB_PATH` and `MW_SERVER_KEY` as the server.
+For a server you run yourself (systemd, your own Compose file), a complete backup has three parts:
+
+1. **The server key.** Without it, nothing the server sealed (sessions, stored credentials and other secrets) can be read after a restore. It is `MW_SERVER_KEY` if you set one, otherwise the file named by `MW_SERVER_KEY_FILE`, otherwise the key file the server generated beside the SQLite database: `<database>.server-key` (for example `/var/lib/mailwoman/mailwoman.db.server-key`). Keep a copy of the key, but store it separately from the database copies, so that one stolen backup does not hold both.
+2. **The database.** Use one of the commands below; do not copy a SQLite file that a running server is writing.
+3. **Uploads**, when `MW_UPLOAD_DIR` is set: copy that directory.
 
 | Command | What it does |
 |---|---|
-| `mailwoman erasure backup --out FILE [--label NAME]` | Writes a consistent copy of the SQLite database and `FILE.manifest.json` with the erasure watermark. |
+| `mailwoman erasure backup --out FILE [--label NAME]` | Writes a consistent copy of the database and `FILE.manifest.json` with the erasure watermark. It works while the server runs. |
 | `mailwoman erasure restore --backup FILE --to NEWFILE [--live-db DB \| --tombstones FILE] [--no-propagate]` | Restores to a new file and replays erasures made since the backup. |
-| `mailwoman db backup --to FILE [--plaintext]` | Writes an encrypted copy of an encrypted SQLite database; a plaintext copy needs `--plaintext`. See [Encryption](../admin/encryption.md). |
-| `mailwoman db restore --from FILE --to NEWFILE` | Restores such a copy to a new file, re-keyed to the current key. |
+| `mailwoman db backup --to FILE [--plaintext]` | Writes an encrypted copy of an encrypted SQLite database; a plaintext copy needs `--plaintext`. It refuses to run while the server is running: stop the server first. See [Encryption](../admin/encryption.md). |
+| `mailwoman db restore --from FILE --to NEWFILE` | Restores such a copy to a new file, re-keyed to the current key. The server must be stopped. |
 
-These commands copy the database only: back up the upload directory too when `MW_UPLOAD_DIR` is set, and keep `MW_SERVER_KEY`. The Helm chart has no backup job; back up its `/data` volume with your cluster's tools.
+Run them with the same `MW_DB_PATH` as the server. The `erasure` commands read the key only from `MW_SERVER_KEY`, so set it in their environment even if the server itself uses a key file.
+
+The Helm chart has no backup job. Back up its `/data` volume with your cluster's tools, and keep the server key: the Secret named in `serverKeySecret`, or, if you set none, the key file the server generated in `/data`.
 
 ## Related
 
