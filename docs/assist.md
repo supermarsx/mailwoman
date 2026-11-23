@@ -61,11 +61,12 @@ opening a message must not contact the endpoint.
      listed accounts. With no account listed, no mail content is sent; only prompts
      and audio go out.
    - **Folder ids to limit sending to**: empty means every folder of the listed
-     accounts. Auto-tag labels its context with the mailbox id. The chat panel
-     labels the open message with the folder's display name, not its id, so with a
-     folder list set the chat panel's message context is dropped.
+     accounts. Auto-tag, the chat panel and the composer tools label their context
+     with the mailbox id (a draft counts as being in the Drafts mailbox), so a folder
+     list applies to all three.
    - **Allow attachments to be sent**: off by default.
-   - End-to-end-encrypted content: withheld unless the deployment allows it.
+   - **Allow end-to-end-encrypted content to be sent**: off by default; decrypted
+     text is withheld unless this is on.
    - Accounts in zero-access mode are removed from the scope of chat and composer
      requests whatever the limits say.
 
@@ -73,19 +74,22 @@ opening a message must not contact the endpoint.
    mask parts of a text (it does not remove names, numbers or addresses).
 6. **Rate limit**: `MW_ASSIST_RATE_LIMIT_PER_MIN`, counted in outbound requests per
    account per minute. Unset means no limit; `0` refuses every request. A chat turn
-   costs 1; a semantic search on a cold cache costs up to 33.
+   costs 1; a semantic search on a cold cache costs up to 33. The console's **Rate
+   limit** group shows the setting `assistant.rateLimitPerMin` with the help text "0
+   means no limit", but the server reads only the environment variable: a value saved
+   in the console does not change the limit.
 7. **Audit record** (below), then the request is sent.
 
 ::: warning What the data limits rely on
 For chat and composer requests the web app supplies the text and labels each piece
 with its account, folder and kind (`plain`, `e2ee-decrypted` or `attachment`). The
-server enforces the limits on those labels. The composer tools label a draft
-`e2ee-decrypted` unless the composer states that it holds no decrypted text, and the
-mail composer does not state that, so every draft is treated as possibly decrypted.
-Unless decrypted content is allowed, the composer tools therefore refuse to run with
-"Not sent to the AI assistant: this draft may contain text from an encrypted message,
-and decrypted content is not allowed to be sent." The chat panel and auto-tag send
-the subject and preview the server already holds, labelled `plain`. The limits are a
+server enforces the limits on those labels. The composer tools label an ordinary
+draft `plain`. A draft that quotes a decrypted message (a reply or forward of one) or
+is set to be encrypted is labelled `e2ee-decrypted`; unless decrypted content is
+allowed, the composer tools refuse to run on it with "Not sent to the AI assistant:
+this draft may contain text from an encrypted message, and decrypted content is not
+allowed to be sent." The chat panel and auto-tag send the subject and preview the
+server already holds, labelled `plain`. The limits are a
 policy for the supplied client, not a barrier against a user who sends their own text
 to the endpoint.
 :::
