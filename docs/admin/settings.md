@@ -2,9 +2,17 @@
 
 The **Settings** section of the admin console (`#/settings`) holds the values of the
 settings model: one value for the whole server, optional values per domain and per
-user, and whether users may choose their own. The server's registry
-(`crates/mw-settings/src/settings_registry.rs`) lists every key with its type, bounds,
-default and scopes; this page describes each one.
+user, and whether users may choose their own. Every setting is a key such as
+`ui.undoHistorySize`; the server's registry lists each key with its type, bounds,
+default and scopes.
+
+This page has two parts. The sections below explain what each setting does. The
+[Key reference](#key-reference) at the end lists every key in the registry with its
+type, default, scopes, environment variable and whether the saved value changes
+anything. A few keys are accepted and stored but not used by the server or the web app;
+they are marked **Saving this setting currently has no effect** here and in the table.
+Where a section and the table disagree, trust the table: it is taken from the registry and the
+code that reads each key.
 
 ## Prepared mail metadata cache
 
@@ -58,7 +66,7 @@ recorded in the audit log without the secret.
 `accounts.maxLinked` is the global maximum number of verified child mailboxes per
 primary identity: default `5`, permitted range `1`–`16`.
 
-This initial release supports native IMAP, POP3 and EWS accounts. Proxy JMAP,
+Linked mailboxes support native IMAP, POP3 and EWS accounts. Proxy JMAP,
 SSO-only and header-only contexts are refused: the existing proxy second-factor
 storage still needs verified-realm isolation before it can safely support links.
 Adding an account requires a fresh primary proof and the child's actual password
@@ -68,7 +76,7 @@ metadata-only legacy links are not adopted. When the child's own session ends it
 is renewed from the stored credential (see `accounts.storeLinkedCredentials`), or
 the owner renews access in place; unlinking is never needed for that. Switching never
 changes the primary identity used for identity-provider consent or account
-management. This initial runtime supports explicit mail and personal-settings
+management. Linked mailboxes support explicit mail and personal-settings
 routes; linked realtime, external integrations and security-factor management
 are unavailable, rather than silently executed as the primary account.
 
@@ -310,6 +318,8 @@ How many megabytes a device may use for offline mail. 0 means no offline cache.
 <a id="assistant.enabled"></a>
 ### AI assistant (`assistant.enabled`)
 
+**Saving this setting does not change behaviour.** It only decides whether the generated privacy policy and the compliance listing mention the AI assistant. The assistant itself does not check it.
+
 Whether users see the AI assistant. The deployment switch in AI assistant still applies above this.
 
 <a id="assist.profile"></a>
@@ -324,6 +334,8 @@ The mail server an address signs in to when no domain names one. The domain tabl
 
 <a id="upstream.proxyTimeoutSecs"></a>
 ### Mail server timeout (`upstream.proxyTimeoutSecs`)
+
+**Saving this setting currently has no effect.** Requests to the upstream mail server use a fixed timeout of 300 seconds.
 
 How long one request to the mail server may take, in seconds.
 
@@ -402,6 +414,8 @@ Whether a refused sign-in says why (disabled account, address not allowed) or gi
 <a id="signin.ldapBindPrecheck"></a>
 ### LDAP check before sign-in (`signin.ldapBindPrecheck`)
 
+**Saving this setting currently has no effect.** The LDAP check is switched on only by the environment variable `MW_LDAP_BIND_AUTH`.
+
 Check the password against the directory before the mail server. Changed in Integrations, after a test bind.
 
 <a id="twofa.pendingTtlSecs"></a>
@@ -432,42 +446,52 @@ How often, in seconds, the admin console replaces the session id while it is in 
 <a id="passwd.policy.minLength"></a>
 ### Minimum password length (`passwd.policy.minLength`)
 
+**Saving this setting currently has no effect.** Password backends apply their own policy; nothing passes this value to them.
+
 The fewest characters a new password may have.
 
 <a id="passwd.policy.requireUpper"></a>
 ### Require an upper-case letter (`passwd.policy.requireUpper`)
+
+**Saving this setting currently has no effect.** Password backends apply their own policy; nothing passes this value to them.
 
 A new password must contain an upper-case letter.
 
 <a id="passwd.policy.requireLower"></a>
 ### Require a lower-case letter (`passwd.policy.requireLower`)
 
+**Saving this setting currently has no effect.** Password backends apply their own policy; nothing passes this value to them.
+
 A new password must contain a lower-case letter.
 
 <a id="passwd.policy.requireDigit"></a>
 ### Require a digit (`passwd.policy.requireDigit`)
+
+**Saving this setting currently has no effect.** Password backends apply their own policy; nothing passes this value to them.
 
 A new password must contain a digit.
 
 <a id="passwd.policy.requireSymbol"></a>
 ### Require a symbol (`passwd.policy.requireSymbol`)
 
+**Saving this setting currently has no effect.** Password backends apply their own policy; nothing passes this value to them.
+
 A new password must contain a character that is not a letter or a digit.
 
 <a id="limit.storage_bytes"></a>
 ### Storage limit (`limit.storage_bytes`)
 
-The most bytes one user may store on this server. 0 means no limit.
+Meant to cap the bytes one user may store on this server (0 for no cap). The server does not enforce this limit, so saving a value currently has no effect.
 
 <a id="limit.send_per_day"></a>
 ### Messages sent per day (`limit.send_per_day`)
 
-The most messages one user may send in a day. 0 means no limit.
+Meant to cap the messages one user may send in a day (0 for no cap). The server does not enforce this limit, so saving a value currently has no effect.
 
 <a id="limit.ai_calls_per_day"></a>
 ### AI assistant calls per day (`limit.ai_calls_per_day`)
 
-The most AI assistant requests one user may make in a day. 0 means no limit.
+Meant to cap the AI assistant requests one user may make in a day (0 for no cap). The server does not enforce this limit, so saving a value currently has no effect.
 
 <a id="quota.warnThresholds"></a>
 ### Usage warning levels (`quota.warnThresholds`)
@@ -482,82 +506,110 @@ Whether users are warned when they near a limit.
 <a id="usage.retentionDays"></a>
 ### Usage history (`usage.retentionDays`)
 
+**Saving this setting does not change behaviour.** The value appears in the retention overview; nothing deletes usage counters when they pass it.
+
 How many days of daily usage counts are kept.
 
 <a id="usage.meterApi"></a>
 ### Count API use (`usage.meterApi`)
+
+**Saving this setting currently has no effect.** No metering code reads it.
 
 Whether API requests are counted in the usage figures.
 
 <a id="usage.measureIntervalHours"></a>
 ### Storage measuring interval (`usage.measureIntervalHours`)
 
+**Saving this setting currently has no effect.** No code reads it.
+
 How often the stored data of each user is measured, in hours.
 
 <a id="assistant.rateLimitPerMin"></a>
 ### AI assistant rate limit (`assistant.rateLimitPerMin`)
+
+**Saving this setting currently has no effect.** Only `MW_ASSIST_RATE_LIMIT_PER_MIN` is read. With that variable set to `0` every Assist request is refused (not "no limit"); with the variable unset there is no limit.
 
 The most AI assistant requests per minute for the whole server. 0 means no limit.
 
 <a id="plugins.kv.maxKeyBytes"></a>
 ### Plugin key size (`plugins.kv.maxKeyBytes`)
 
+**Saving this setting currently has no effect.** Only `MW_PLUGIN_KV_MAX_KEY_BYTES` is read; otherwise the built-in value applies.
+
 The longest key a plugin may store, in bytes.
 
 <a id="plugins.kv.maxValueBytes"></a>
 ### Plugin value size (`plugins.kv.maxValueBytes`)
+
+**Saving this setting currently has no effect.** Only `MW_PLUGIN_KV_MAX_VALUE_BYTES` is read; otherwise the built-in value applies.
 
 The largest value a plugin may store under one key, in bytes.
 
 <a id="plugins.kv.maxTotalBytes"></a>
 ### Plugin storage (`plugins.kv.maxTotalBytes`)
 
+**Saving this setting currently has no effect.** Only `MW_PLUGIN_KV_MAX_TOTAL_BYTES` is read; otherwise the built-in value applies.
+
 The most bytes one plugin may store in total.
 
 <a id="plugins.kv.maxKeys"></a>
 ### Plugin keys (`plugins.kv.maxKeys`)
+
+**Saving this setting currently has no effect.** Only `MW_PLUGIN_KV_MAX_KEYS` is read; otherwise the built-in value applies.
 
 The most keys one plugin may store.
 
 <a id="import.maxMessages"></a>
 ### Import message count (`import.maxMessages`)
 
+**Saving this setting currently has no effect.** The import routes use fixed limits.
+
 The most messages one import may bring in.
 
 <a id="import.maxMessageBytes"></a>
 ### Import message size (`import.maxMessageBytes`)
+
+**Saving this setting currently has no effect.** The import route uses a fixed limit of 64 MiB per message.
 
 The largest message an import accepts, in bytes.
 
 <a id="webhooks.maxAttempts"></a>
 ### Webhook attempts (`webhooks.maxAttempts`)
 
+**Saving this setting currently has no effect.** No code reads it.
+
 How many times a webhook delivery is tried before it is given up.
 
 <a id="webhooks.timeoutSecs"></a>
 ### Webhook timeout (`webhooks.timeoutSecs`)
+
+**Saving this setting currently has no effect.** No code reads it.
 
 How long one webhook delivery may take, in seconds.
 
 <a id="outbox.maxAttempts"></a>
 ### Sending attempts (`outbox.maxAttempts`)
 
+**Saving this setting currently has no effect.** No code reads it.
+
 How many times a message is handed to the mail server before it is reported as not sent.
 
 <a id="realtime.recheckSecs"></a>
 ### Live update re-check (`realtime.recheckSecs`)
+
+**Saving this setting currently has no effect.** Only `MW_REALTIME_RECHECK_SECS` is read; with it unset the live-update connection re-checks every 30 seconds.
 
 How often an open live-update connection checks that its session is still valid, in seconds.
 
 <a id="privacy.watermark.enabled"></a>
 ### Reader watermark (`privacy.watermark.enabled`)
 
-Show a watermark with the reader's address over opened messages.
+Meant to show a watermark with the reader's address over opened messages. The web app does not render a watermark, so this setting currently has no effect. Only the environment variable `MW_WATERMARK` is read, and nothing in the reader uses it.
 
 <a id="privacy.watermark.opacity"></a>
 ### Watermark strength (`privacy.watermark.opacity`)
 
-How visible the watermark is, from 0.02 (faint) to 0.5.
+How visible the watermark would be, from 0.02 (faint) to 0.5. Has no effect while the web app renders no watermark. Only the environment variable `MW_WATERMARK_OPACITY` is read, and nothing in the reader uses it.
 
 <a id="privacy.openTracking.retentionDays"></a>
 ### Open tracking history (`privacy.openTracking.retentionDays`)
@@ -601,25 +653,35 @@ A locked `mail.reader.unsafeHtmlMode=strict` policy takes precedence and hides t
 <a id="maskedEmail.domain"></a>
 ### Masked address domain (`maskedEmail.domain`)
 
+**Saving this setting currently has no effect.** Only `MW_MASKED_EMAIL_DOMAIN` is read.
+
 The domain masked addresses are created under. Leave empty to turn masked addresses off.
 
 <a id="abuse.reportAddress"></a>
 ### Abuse report address (`abuse.reportAddress`)
+
+**Saving this setting currently has no effect.** Only `MW_ABUSE_ADDRESS` is read.
 
 Where spam and abuse reports are sent.
 
 <a id="dlp.adminAddress"></a>
 ### Data loss notices (`dlp.adminAddress`)
 
+**Saving this setting currently has no effect.** Only `MW_DLP_ADMIN` is read.
+
 Where data loss prevention notices are sent.
 
 <a id="observability.errorForwardUrl"></a>
 ### Error forwarding address (`observability.errorForwardUrl`)
 
+**Saving this setting currently has no effect.** Only `MW_ERROR_FORWARD_URL` is read.
+
 An https address that client error reports are forwarded to. Leave empty for none.
 
 <a id="egress.probeUrl"></a>
 ### Outbound test address (`egress.probeUrl`)
+
+**Saving this setting currently has no effect.** Only `MW_EGRESS_PROBE_URL` is read.
 
 The https address used to test an outbound proxy.
 
@@ -636,70 +698,98 @@ Hours (UTC) in which no push notification is sent. Leave empty for none.
 <a id="updates.check"></a>
 ### Check for updates (`updates.check`)
 
+**Saving this setting currently has no effect.** No update check exists.
+
 Whether the server checks once a day for a newer release and shows it on the dashboard.
 
 <a id="updates.feedUrl"></a>
 ### Release feed (`updates.feedUrl`)
+
+**Saving this setting currently has no effect.** No code reads it.
 
 The https address the update check reads.
 
 <a id="updates.apply"></a>
 ### Apply updates (`updates.apply`)
 
+**Saving this setting currently has no effect.** No code reads it.
+
 Whether an update can be started from the console through the host update agent.
 
 <a id="backup.retentionCount"></a>
 ### Backups kept (`backup.retentionCount`)
+
+**Saving this setting currently has no effect.** Nothing prunes backups by this count.
 
 How many database backups are kept.
 
 <a id="about.securityContact"></a>
 ### Security contact (`about.securityContact`)
 
+**Saving this setting currently has no effect.** No `security.txt` handler reads it.
+
 The contact in security.txt (mailto: or https:).
 
 <a id="about.securityPolicyUrl"></a>
 ### Security policy (`about.securityPolicyUrl`)
+
+**Saving this setting currently has no effect.** No `security.txt` handler reads it.
 
 The address of your security policy, listed in security.txt.
 
 <a id="about.projectLinks"></a>
 ### About links (`about.projectLinks`)
 
+**Saving this setting currently has no effect.** No code reads it.
+
 Links shown on the About page, each with a label and an https address.
 
 <a id="config.snapshotsKept"></a>
 ### Configuration snapshots (`config.snapshotsKept`)
+
+**Saving this setting currently has no effect.** No code reads it.
 
 How many configuration snapshots are kept.
 
 <a id="jobs.historyDays"></a>
 ### Job history (`jobs.historyDays`)
 
+**Saving this setting currently has no effect.** No code reads it.
+
 How many days of job runs are kept.
 
 <a id="maintenance.announceMinutesDefault"></a>
 ### Maintenance notice lead time (`maintenance.announceMinutesDefault`)
+
+**Saving this setting currently has no effect.** No code reads it.
 
 How many minutes before a maintenance window users are told about it.
 
 <a id="maintenance.defaultMessage"></a>
 ### Maintenance message (`maintenance.defaultMessage`)
 
+**Saving this setting currently has no effect.** No code reads it.
+
 The text users see during maintenance, per language.
 
 <a id="health.diskFreeMinPercent"></a>
 ### Free disk space floor (`health.diskFreeMinPercent`)
+
+**Saving this setting currently has no effect.** The readiness check does not test free disk space.
 
 The readiness check fails when free disk space falls below this percentage.
 
 <a id="observability.otlpMetrics"></a>
 ### Send metrics by OTLP (`observability.otlpMetrics`)
 
+**Saving this setting currently has no effect.** No code reads it.
+
 Send server metrics to the OTLP collector set at start.
 
 <a id="metrics.drilldownTopN"></a>
 ### Metrics detail rows (`metrics.drilldownTopN`)
+
+**Saving this setting currently has no effect.** No code reads it.
 
 How many rows a metrics breakdown shows.
 
@@ -796,7 +886,7 @@ Report Content-Security-Policy violations the browser detects, with the blocked 
 <a id="observability.client.sourceMaps"></a>
 ### Resolve stack traces with source maps (`observability.client.sourceMaps`)
 
-Resolve bundle positions in stack traces to source files when the build shipped hidden source maps (built with MW_SOURCEMAP=hidden). Maps are read only by the server and never served to browsers. On by default; without maps the raw frames are shown.
+Resolve bundle positions in stack traces to source files when the build includes hidden source maps (built with MW_SOURCEMAP=hidden). Maps are read only by the server and never served to browsers. On by default; without maps the raw frames are shown.
 
 <a id="observability.client.forward"></a>
 ### Forward error reports (`observability.client.forward`)
@@ -1323,7 +1413,7 @@ Failures in the window that open a draft. 0 is off.
 
 Exports in the window that open a draft. 0 is off.
 
-<a id="compose.feature.*"></a>
+<a id="compose.feature"></a>
 ### Composer features (`compose.feature.*`)
 
 Switches one composer control on or off, per feature id (for example `layout.columns`). Default on. An administrator can set it for everyone, per domain or per user, and lock it so users cannot change it. Users switch features off in Settings > Compose > Composer features.
@@ -1426,8 +1516,10 @@ The look of the Styles gallery: `default`, `modern`, `classic` or `compact`. Use
 
 A user's own styles as JSON, written by the Styles gallery. It is a user value and has no administrator form.
 
-<a id="serverText.*"></a>
+<a id="serverText"></a>
 ### Server text (`serverText.*`)
+
+**Saving this setting currently has no effect.** Server notices come from the bundled texts for the language set in `ui.language`; no `serverText.<id>` value is looked up.
 
 Text the server writes into mail and notifications, per language and domain.
 
@@ -1479,8 +1571,8 @@ Oldest sessions are revoked when a successful sign-in exceeds the cap.
 `session.idleSecs` is 60–604800 seconds (default 604800: seven days). Opening or
 using mail renews this inactivity window. Background polling does not.
 <a id="session.absoluteSecs"></a>
-`session.absoluteSecs` is 0 (no fixed cutoff) or 300–1296000 seconds (up to 15
-days), default 0. The default is a rolling session; administrators can enforce
+`session.absoluteSecs` is an integer from 0 to 1296000 seconds (up to 15
+days), default 0; 0 means no fixed cutoff. The default is a rolling session; administrators can enforce
 an absolute limit regardless of use. Deployment timeout limits also apply;
 the shorter nonzero absolute limit wins. Persisted timestamps survive restarts,
 and renewal preserves the original authentication time. Browser cookies persist
@@ -1654,7 +1746,7 @@ Additional parallelism and cache controls are available in Admin › Privacy ›
 | <a id="privacy.imageResizeEnabled"></a>`privacy.imageResizeEnabled` | off | on / off | Scale oversized remote images down to the width the reader's frame asks for (320, 640, 960, 1280 or 1600 pixels, as a `w=` hint). The sandboxed decode is unchanged; the resize reads the sandbox's own PNG output. Animated GIF, APNG and animated WebP are served unscaled, and a resize that would not be smaller is dropped. A resized copy is cached separately from the full image. |
 | <a id="privacy.imageResizeMaxWidth"></a>`privacy.imageResizeMaxWidth` | 1600 px | 320–1600 px | Widest image the resize produces; a frame asking for more gets this width. |
 | <a id="privacy.imageResizeMaxPixels"></a>`privacy.imageResizeMaxPixels` | 4000000 | 100000–64000000 | Largest decoded image, in pixels, the resize will touch. The size is read from the image header before any pixel is decoded; a larger image is served unscaled. |
-| <a id="privacy.imageResizeFormat"></a>`privacy.imageResizeFormat` | auto | auto, png | Format of a resized image. Auto picks the best encoder in the build, which is PNG; there is no lossy WebP encoder to choose. |
+| <a id="privacy.imageResizeFormat"></a>`privacy.imageResizeFormat` | auto | auto, png | Format of a resized image. Auto picks the best encoder in the build, which is PNG; there is no lossy WebP encoder to choose. **Saving this setting currently has no effect.** Both values produce PNG output, so the choice changes nothing observable. |
 
 These limits are independent: increasing the account limit does not override the global network, pipeline or decoder ceiling. Higher decoder concurrency consumes more CPU and memory. Cached successes do not consume new network tokens. Every cache lookup still requires current authorization; setting TTL to zero does not weaken grants, tracker blocking, SSRF checks or egress routing.
 
@@ -1671,7 +1763,7 @@ All `privacy.image*` and `privacy.cache*` cache keys above form the **Image prox
 - **Files**: one file per image, named by a 128-bit hash of the route and URL (the URL is never written), written under a temporary name and renamed, mode 0600 in a directory created 0700 on Unix. Only the cache's own files are ever deleted: leftover temporary files, expired, over-age, truncated or corrupt images and the snapshot. Other files in the directory are left alone.
 - **Failures**: a missing, full or read-only directory turns the disk tier off for 30 seconds at a time and the cache keeps serving from RAM; no request fails because of it. The readout shows the reason.
 
-The disk tier needs a writable path. The shipped images run as a non-root user with `/data` as the volume, and the hardened overlay makes the rest of the filesystem read-only. Nothing is written to disk unless `privacy.imageDiskEnabled` is on. To use it, either leave `privacy.imageDiskPath` empty, which uses `/data/image-cache` on the existing volume, or mount a dedicated writable volume (for example at `/cache/images`) and set the path to it. Admin › Settings › Image proxy shows the configured and effective values, per-tier size, entries, hit rate, hot and cold counts and promotions per minute.
+The disk tier needs a writable path. The container images run as a non-root user with `/data` as the volume, and the hardened overlay makes the rest of the filesystem read-only. Nothing is written to disk unless `privacy.imageDiskEnabled` is on. To use it, either leave `privacy.imageDiskPath` empty, which uses `/data/image-cache` on the existing volume, or mount a dedicated writable volume (for example at `/cache/images`) and set the path to it. Admin › Settings › Image proxy shows the configured and effective values, per-tier size, entries, hit rate, hot and cold counts and promotions per minute.
 
 <a id="privacy.imageRetryAttempts"></a>
 <a id="privacy.imageRetryDelayMs"></a>
@@ -1700,7 +1792,7 @@ These administrator-only settings use the same global, domain, profile, group,
 and per-user policy chain. Capability defaults are true except custom CSS and
 backgrounds. Broader locks win. The feature catalogue distinguishes enforced,
 token-acquisition-only, and pending controls; a defined key alone does not mean
-every integration path is governed yet.
+every integration path is governed.
 
 Individual UI-plugin keys use SHA-256 of the original plugin ID as their suffix.
 Use `integrationPolicyKeys` from `/admin/features`; do not normalize or construct
@@ -1722,10 +1814,10 @@ spam classification applies the recipient account's domain and profile policy.
 <a id="cap.integration.microsoft"></a>
 `cap.integration.microsoft` — Allow acquisition and refresh of Microsoft bridge tokens.
 
-<a id="cap.integration.*"></a>
+<a id="cap.integration"></a>
 `cap.integration.*` — Permission for an individual integration identifier; runtime coverage is listed in the feature catalogue.
 
-<a id="cap.ui_plugin.*"></a>
+<a id="cap.ui_plugin"></a>
 `cap.ui_plugin.*` — Permission for one UI plugin. Use the exact policy key from the integration catalogue.
 
 <a id="cap.ai_assistant"></a>
@@ -1768,94 +1860,94 @@ spam classification applies the recipient account's domain and profile policy.
 `cap.remote_images` — Remote-image capability. Existing privacy settings continue to govern requests; check feature coverage.
 
 <a id="cap.user_background"></a>
-`cap.user_background` — Custom-background capability, disabled by default. Check feature coverage.
+`cap.user_background` — Custom-background capability, disabled by default. Check feature coverage. **Saving this setting currently has no effect.** No part of the server or the web app checks this switch.
 
 <a id="cap.user_css"></a>
-`cap.user_css` — Custom-CSS capability, disabled by default. Check feature coverage.
+`cap.user_css` — Custom-CSS capability, disabled by default. Check feature coverage. **Saving this setting currently has no effect.** No part of the server or the web app checks this switch.
 
 <a id="cap.compose.rich_text"></a>
-`cap.compose.rich_text` — Whether users may write formatted (HTML) messages. Off sends plain text only. Default `true` (t98 feature profiles); enforced at JMAP Email/set create with an HTML body (feature_gate.rs); composer plain-text only.
+`cap.compose.rich_text` — Whether users may write formatted (HTML) messages. Off sends plain text only. Default `true`; enforced at JMAP Email/set create with an HTML body (feature_gate.rs); composer plain-text only.
 
 <a id="cap.compose.attachments"></a>
-`cap.compose.attachments` — Whether users may attach files to messages they write. Inline images in the body are not counted. Default `true` (t98 feature profiles); enforced at JMAP Email/set create with attachment parts (feature_gate.rs); composer attach button.
+`cap.compose.attachments` — Whether users may attach files to messages they write. Inline images in the body are not counted. Default `true`; enforced at JMAP Email/set create with attachment parts (feature_gate.rs); composer attach button.
 
 <a id="cap.compose.share_links"></a>
-`cap.compose.share_links` — Whether users may send a large file as a Nextcloud share link instead of an attachment. Default `true` (t98 feature profiles); enforced at POST /api/nextcloud/share-link (feature_gate.rs).
+`cap.compose.share_links` — Whether users may send a large file as a Nextcloud share link instead of an attachment. Default `true`; enforced at POST /api/nextcloud/share-link (feature_gate.rs).
 
 <a id="cap.compose.scheduled_send"></a>
-`cap.compose.scheduled_send` — Whether users may schedule a message to be sent later. Default `true` (t98 feature profiles); enforced at JMAP EmailSubmission/set with sendAt (feature_gate.rs).
+`cap.compose.scheduled_send` — Whether users may schedule a message to be sent later. Default `true`; enforced at JMAP EmailSubmission/set with sendAt (feature_gate.rs).
 
 <a id="cap.compose.read_receipts"></a>
-`cap.compose.read_receipts` — Whether users may ask recipients for a read receipt. Default `true` (t98 feature profiles); enforced at JMAP Email/set create with mailwomanRequestReadReceipt (feature_gate.rs).
+`cap.compose.read_receipts` — Whether users may ask recipients for a read receipt. Default `true`; enforced at JMAP Email/set create with mailwomanRequestReadReceipt (feature_gate.rs).
 
 <a id="cap.signatures"></a>
-`cap.signatures` — Whether users may create and edit their own signatures. Default `true` (t98 feature profiles); enforced at writes under /api/account/signatures (feature_gate.rs).
+`cap.signatures` — Whether users may create and edit their own signatures. Default `true`; enforced at writes under /api/account/signatures (feature_gate.rs).
 
 <a id="cap.identities"></a>
-`cap.identities` — Whether users may add and edit the identities they send as. Default `true` (t98 feature profiles); enforced at writes under /api/account/identities (feature_gate.rs).
+`cap.identities` — Whether users may add and edit the identities they send as. Default `true`; enforced at writes under /api/account/identities (feature_gate.rs).
 
 <a id="cap.keys"></a>
-`cap.keys` — Whether users have the Keys module and may sign and encrypt messages. Default `true` (t98 feature profiles); enforced at JMAP CryptoKey/* (feature_gate.rs); Keys module, compose sign and encrypt.
+`cap.keys` — Whether users have the Keys module and may sign and encrypt messages. Default `true`; enforced at JMAP CryptoKey/* (feature_gate.rs); Keys module, compose sign and encrypt.
 
 <a id="cap.links.trusted"></a>
-`cap.links.trusted` — Whether users may change their own list of trusted link domains. The administrator list still applies. Default `true` (t98 feature profiles); enforced at PUT /api/settings/links.* (feature_gate.rs).
+`cap.links.trusted` — Whether users may change their own list of trusted link domains. The administrator list still applies. Default `true`; enforced at PUT /api/settings/links.* (feature_gate.rs).
 
 <a id="cap.zoom"></a>
-`cap.zoom` — Whether users may zoom the message reader. Default `true` (t98 feature profiles); enforced at PUT /api/settings/reader.zoom (feature_gate.rs); reader zoom controls.
+`cap.zoom` — Whether users may zoom the message reader. Default `true`; enforced at PUT /api/settings/reader.zoom (feature_gate.rs); reader zoom controls.
 
 <a id="cap.mail.focused_inbox"></a>
-`cap.mail.focused_inbox` — Whether users may turn on the Focused and Other inbox tabs. Default `true` (t98 feature profiles); enforced at PUT /api/settings/mail.focusedInbox (feature_gate.rs); Focused and Other tabs.
+`cap.mail.focused_inbox` — Whether users may turn on the Focused and Other inbox tabs. Default `true`; enforced at PUT /api/settings/mail.focusedInbox (feature_gate.rs); Focused and Other tabs.
 
 <a id="cap.views.events"></a>
-`cap.views.events` — Whether users have the Events view of calendar mail. Default `true` (t98 feature profiles); enforced at JMAP Email/query on mwViewEvents (feature_gate.rs); Events view.
+`cap.views.events` — Whether users have the Events view of calendar mail. Default `true`; enforced at JMAP Email/query on mwViewEvents (feature_gate.rs); Events view.
 
 <a id="cap.views.attachments"></a>
-`cap.views.attachments` — Whether users have the Attachments view. The messages stay reachable through search. Default `true` (t98 feature profiles); enforced at Attachments view in the sidebar (web only: the same messages stay reachable by search).
+`cap.views.attachments` — Whether users have the Attachments view. The messages stay reachable through search. Default `true`; enforced at Attachments view in the sidebar (web only: the same messages stay reachable by search).
 
 <a id="cap.search.operators"></a>
-`cap.search.operators` — Whether users may search with operators such as from:, subject: or has:attachment. Default `true` (t98 feature profiles); enforced at JMAP Email/query text with field operators (feature_gate.rs); search filter chips.
+`cap.search.operators` — Whether users may search with operators such as from:, subject: or has:attachment. Default `true`; enforced at JMAP Email/query text with field operators (feature_gate.rs); search filter chips.
 
 <a id="cap.saved_searches"></a>
-`cap.saved_searches` — Whether users may save searches. Default `true` (t98 feature profiles); enforced at writes under /api/account/saved-searches (feature_gate.rs).
+`cap.saved_searches` — Whether users may save searches. Default `true`; enforced at writes under /api/account/saved-searches (feature_gate.rs).
 
 <a id="cap.vacation"></a>
-`cap.vacation` — Whether users may set an automatic vacation reply. Default `true` (t98 feature profiles); enforced at JMAP VacationResponse/* (feature_gate.rs, besides cap.rules).
+`cap.vacation` — Whether users may set an automatic vacation reply. Default `true`; enforced at JMAP VacationResponse/* (feature_gate.rs, besides cap.rules).
 
 <a id="cap.labels"></a>
-`cap.labels` — Whether users may put labels on messages. Default `true` (t98 feature profiles); enforced at JMAP Email/set adding a non-system keyword (feature_gate.rs).
+`cap.labels` — Whether users may put labels on messages. Default `true`; enforced at JMAP Email/set adding a non-system keyword (feature_gate.rs).
 
 <a id="cap.snooze"></a>
-`cap.snooze` — Whether users may snooze messages. Ending a snooze stays possible. Default `true` (t98 feature profiles); enforced at JMAP Email/set snoozedUntil (feature_gate.rs).
+`cap.snooze` — Whether users may snooze messages. Ending a snooze stays possible. Default `true`; enforced at JMAP Email/set snoozedUntil (feature_gate.rs).
 
 <a id="cap.follow_up"></a>
-`cap.follow_up` — Whether users may set follow-up reminders on messages. Clearing one stays possible. Default `true` (t98 feature profiles); enforced at JMAP Email/set followUpAt (feature_gate.rs).
+`cap.follow_up` — Whether users may set follow-up reminders on messages. Clearing one stays possible. Default `true`; enforced at JMAP Email/set followUpAt (feature_gate.rs).
 
 <a id="cap.masked"></a>
-`cap.masked` — Whether users may create and manage masked addresses. Default `true` (t98 feature profiles); enforced at /api/masked (feature_gate.rs).
+`cap.masked` — Whether users may create and manage masked addresses. Default `true`; enforced at /api/masked (feature_gate.rs).
 
 <a id="cap.directory"></a>
-`cap.directory` — Whether users may search the organisation directory. Default `true` (t98 feature profiles); enforced at /api/directory (feature_gate.rs).
+`cap.directory` — Whether users may search the organisation directory. Default `true`; enforced at /api/directory (feature_gate.rs).
 
 <a id="cap.mcp"></a>
-`cap.mcp` — Whether the user's keys and tokens may use the MCP endpoint. Default `true` (t98 feature profiles); enforced at /mcp with a key or token (scope_mw.rs).
+`cap.mcp` — Whether the user's keys and tokens may use the MCP endpoint. Default `true`; enforced at /mcp with a key or token (scope_mw.rs).
 
 <a id="cap.appearance.custom"></a>
-`cap.appearance.custom` — Whether users may change their theme, accent, custom and badge colours, density and font. Off keeps the administrator appearance. Default `true` (t98 feature profiles); enforced at PUT /api/account/appearance (feature_gate.rs); theme, accent, custom and badge colours, density, font.
+`cap.appearance.custom` — Whether users may change their theme, accent, custom and badge colours, density and font. Off keeps the administrator appearance. Default `true`; enforced at PUT /api/account/appearance (feature_gate.rs); theme, accent, custom and badge colours, density, font.
 
 <a id="cap.appearance.custom_code"></a>
-`cap.appearance.custom_code` — Whether users may save their own CSS and appearance scripts. The deployment switches in Appearance still apply above this. Default `true` (t98 feature profiles); enforced at PUT /api/account/appearance/customization (feature_gate.rs), below appearance.customCssEnabled/customJsEnabled.
+`cap.appearance.custom_code` — Whether users may save their own CSS and appearance scripts. The deployment switches in Appearance still apply above this. Default `true`; enforced at PUT /api/account/appearance/customization (feature_gate.rs), below appearance.customCssEnabled/customJsEnabled.
 
 <a id="cap.avatars"></a>
-`cap.avatars` — Whether users may change mailbox avatars. Default `true` (t98 feature profiles); enforced at PUT /api/accounts/layout with avatars (feature_gate.rs).
+`cap.avatars` — Whether users may change mailbox avatars. Default `true`; enforced at PUT /api/accounts/layout with avatars (feature_gate.rs).
 
 <a id="cap.shortcuts"></a>
-`cap.shortcuts` — Whether users may change keyboard shortcuts. The default shortcuts keep working. Default `true` (t98 feature profiles); enforced at PUT /api/settings/shortcuts.* (feature_gate.rs); shortcut editor.
+`cap.shortcuts` — Whether users may change keyboard shortcuts. The default shortcuts keep working. Default `true`; enforced at PUT /api/settings/shortcuts.* (feature_gate.rs); shortcut editor.
 
 <a id="cap.analytics"></a>
-`cap.analytics` — Whether users are asked for analytics consent and may send usage events. Default `true` (t98 feature profiles); enforced at POST /api/analytics/events (feature_gate.rs); consent prompt.
+`cap.analytics` — Whether users are asked for analytics consent and may send usage events. Default `true`; enforced at POST /api/analytics/events (feature_gate.rs); consent prompt.
 
 <a id="cap.apps.native"></a>
-`cap.apps.native` — Whether users may use the desktop and mobile apps. Default `true` (t98 feature profiles); enforced at native bearer sessions (feature_gate.rs).
+`cap.apps.native` — Whether users may use the desktop and mobile apps. Default `true`; enforced at native bearer sessions (feature_gate.rs).
 
 <a id="access.protocols"></a>
 `access.protocols` — Which mail server protocols these users may sign in with: imap, pop3, ews. Sign-ins through a JMAP server follow that server. Default `["imap","pop3","ews"]`; other values are refused. `/jmap/*` and `/api/v1/*` answer `403 {code:"feature_disabled", feature:"access.protocols"}` for an account whose kind is not listed.
@@ -1864,13 +1956,13 @@ spam classification applies the recipient account's domain and profile policy.
 `limit.linked_mailboxes` — How many mailboxes a user may link, below the server maximum. 0 means only the server maximum applies. Default `0`. `POST /api/accounts/link` answers `409 {code:"limit_exceeded", limit:"limit.linked_mailboxes"}` at the limit.
 
 <a id="limit.attachment_bytes"></a>
-`limit.attachment_bytes` — Attachment policy in bytes, default 50000000. Runtime enforcement remains pending.
+`limit.attachment_bytes` — The largest upload, in bytes, the server accepts for one attachment (`POST /jmap/upload/…`, judged by the declared length). A larger upload is refused with `413`. Default `50000000`; 0 means no limit.
 
 <a id="limit.send_per_hour"></a>
-`limit.send_per_hour` — Submission policy per hour; zero means unlimited. Runtime enforcement remains pending.
+`limit.send_per_hour` — Meant to cap the messages one user may send in an hour (0 for no cap). The server does not enforce this limit, so saving a value currently has no effect.
 
 <a id="limit.recipients_per_message"></a>
-`limit.recipients_per_message` — Recipient-count policy; zero means unlimited. Runtime enforcement remains pending.
+`limit.recipients_per_message` — The most recipients one message may have (To, Cc and Bcc together); a message with more is refused with `403`. Default `0`, which means no limit.
 
 <a id="logs.auth.retentionDays"></a>
 ### Authentication history (`logs.auth.retentionDays`)
@@ -1918,11 +2010,11 @@ Global, hot. Default `365`. Days a password-change record (account, method, outc
 
 <a id="retention.ssoLoginAudit.days"></a>
 ### Single sign-on login records (days) (`retention.ssoLoginAudit.days`)
-Global, hot. Default `90`. Days a single sign-on login record (provider, hashed subject, outcome) is kept. 0 keeps them forever.
+Global, hot. Default `365`. Days a single sign-on login record (provider, hashed subject, outcome) is kept. 0 keeps them forever.
 
 <a id="retention.dlpAudit.days"></a>
 ### Data-loss-prevention records (days) (`retention.dlpAudit.days`)
-Global, hot. Default `365`. Days a record of a data-loss-prevention rule match is kept. 0 keeps them forever.
+Global, hot. Default `1825`. Days a record of a data-loss-prevention rule match is kept. 0 keeps them forever.
 
 <a id="retention.assistAudit.days"></a>
 ### Assistant access records (days) (`retention.assistAudit.days`)
@@ -2114,7 +2206,7 @@ Global, hot. Default `24`. The current log file is rotated once it is this old. 
 
 <a id="logging.file.maxAgeDays"></a>
 ### Keep rotated files (days) (`logging.file.maxAgeDays`)
-Global, hot. Default `14`. Rotated log files older than this are deleted.
+Global, hot. Default `365`. Rotated log files older than this are deleted.
 
 <a id="logging.file.maxFiles"></a>
 ### Most rotated files (`logging.file.maxFiles`)
@@ -2410,7 +2502,7 @@ country database refuses admission, including when unknown addresses are allowed
 is managed under Security → Country database or supplied with `MW_GEOIP_DB`
 ([Country database](country-database.md)); lookups never leave the server. Inspect the current-source
 diagnostic under Observability before enabling. Existing authenticated requests and sessions are
-not governed by this initial sign-in policy; broader session geofencing is not implemented here.
+not governed by this sign-in policy; broader session geofencing is not implemented.
 
 <a id="trust-tiers"></a>
 ### Trust tiers, bot classes and the unknown-country admin block
@@ -2433,7 +2525,7 @@ Off by default. `security.signin.accountGeoMode` is a global/domain/user setting
 <a id="account-geo-history"></a>
 #### Country history for "unusual countries"
 
-`block-unusual-countries` used to judge "usual" from the authentication log's retained rows, so it forgot as the log aged out (`logs.auth.retentionDays`, 1095 days by default). It now keeps a separate, durable list per account, for `security.signin.accountGeoHistoryDays` days (default 365, 30 to 3650); a longer or shorter log retention no longer changes it.
+`block-unusual-countries` judges "usual" from a separate, durable list kept per account, for `security.signin.accountGeoHistoryDays` days (default 365, 30 to 3650). The retention of the authentication log (`logs.auth.retentionDays`) does not change it.
 
 What is stored, exactly: one row in the settings table per account, key `acct-geo:v1:<account id>`, holding a list of at most 64 entries. Each entry is an ISO 3166 country code, the time of the first and the last successful sign-in from that country, and how many such sign-ins there were. Nothing else: no IP addresses, devices, user agents or sign-in methods. When the list is full the entry with the oldest last-seen time is dropped. Entries whose last sign-in is older than the retention are ignored immediately and removed by an hourly sweep.
 
@@ -2570,7 +2662,7 @@ The action is set per surface: `off`, `detect` (record only), `step-up` or `revo
 
 Three findings are checked per cookie session. Rotated-id reuse: after `/api/session/rotate` the old id leaves a hash marker; presenting it again after `security.theft.rotationGraceSecs` (30) revokes the whole session family and alerts, regardless of the configured action. Impossible travel: a country change within `security.theft.minTravelSecs` (3600). Concurrent use: A, B, A alternation within 5 minutes, by country (default) or optionally by network. The response to the last two is set per surface: `alert`, `step-up` or `revoke`; defaults `step-up` for webmail and `revoke` for the admin console.
 
-Retention: `security.theft.retentionDays` (15). Per-session records and rotation markers (hashes, country codes, times) are swept hourly. They are stored in the settings table under `sess-sec:v1:<sha256>`, `sess-rot:v1:<sha256>`, notices under `sec-notice:v1:...` and a ring of the 50 most recent alerts under `sec-alerts:v1:recent`.
+Retention: `security.theft.retentionDays` (365). Per-session records and rotation markers (hashes, country codes, times) are swept hourly. They are stored in the settings table under `sess-sec:v1:<sha256>`, `sess-rot:v1:<sha256>`, notices under `sec-notice:v1:...` and a ring of the 50 most recent alerts under `sec-alerts:v1:recent`.
 
 Country-change alert: on by default for every session. It alerts once per new country per session (the start country counts as seen), with `security.alerts.countryChangeCooldownSecs` (300) between alerts. An administrator can change the default (`security.alerts.countryChange` is global/domain/user), lock it, or switch it off globally with `security.alerts.countryChangeEnabled`. A user's own "off" is honoured only if `security.alerts.countryChangeUserMute` is true; otherwise the server keeps alerting. Country detection may be inaccurate; VPNs and mobile networks can cause false changes.
 
@@ -2586,7 +2678,7 @@ In-app notices: at most 20 per account, kept `security.alerts.noticeRetentionDay
 | <a id="security.theft.concurrentUse"></a>`security.theft.concurrentUse` | `country` | off, country, network | Flag alternating use (A, B, A) from different countries or networks within five minutes. |
 | <a id="security.theft.webmailAction"></a>`security.theft.webmailAction` | `step-up` | alert, step-up, revoke | Response on a webmail session. Rotated-id reuse always revokes. |
 | <a id="security.theft.adminAction"></a>`security.theft.adminAction` | `revoke` | alert, step-up, revoke | Response on an admin console session. |
-| <a id="security.theft.retentionDays"></a>`security.theft.retentionDays` | `15` | 1-60 | How long per-session records and rotation markers are kept; at least the longest session lifetime. |
+| <a id="security.theft.retentionDays"></a>`security.theft.retentionDays` | `365` | 1-3650 | How long per-session records and rotation markers are kept; at least the longest session lifetime. |
 | Key | Default | Range | Meaning |
 | --- | --- | --- | --- |
 | <a id="security.alerts.countryChange"></a>`security.alerts.countryChange` | `true` | bool | Country-change alert (global/domain/user; admin lock supported). Country detection may be inaccurate; VPNs and mobile networks can cause false changes. |
@@ -2596,7 +2688,7 @@ In-app notices: at most 20 per account, kept `security.alerts.noticeRetentionDay
 | <a id="security.alerts.channels"></a>`security.alerts.channels` | `both` | app, email, both | Delivery of session security warnings (global/domain/user; lockable). |
 | <a id="security.alerts.emailEnabled"></a>`security.alerts.emailEnabled` | `true` | bool | Allow delivery into the user's own mailbox. |
 | <a id="security.alerts.sensitivity"></a>`security.alerts.sensitivity` | `normal` | low, normal, high | Per-user sensitivity (global/domain/user; lockable). |
-| <a id="security.alerts.noticeRetentionDays"></a>`security.alerts.noticeRetentionDays` | `30` | 1-365 | How long in-app notices are kept (at most 20 per account). |
+| <a id="security.alerts.noticeRetentionDays"></a>`security.alerts.noticeRetentionDays` | `730` | 1-3650 | How long in-app notices are kept (at most 20 per account). |
 
 Restart behaviour: mailbox idle and absolute timeouts and rotation state were already persisted (`sessions.created_at` and `activity_at`; `rotate_session_security` preserves them; admin sessions use `admin_sessions.expires_at` and `absolute_expires_at`). The in-process `SessionGuard` in `hardening.rs` is a secondary clock that re-seeds leniently after a restart and never overrides the persisted clock. Step-up proofs are in memory and are dropped on restart; the user confirms again.
 
@@ -2996,7 +3088,7 @@ generic settings route. See [Probing protection](../security/admin-panel.md#admi
 | <a id="security.adminProbe.repeatWindowSecs"></a>`security.adminProbe.repeatWindowSecs` | `86400` | 0–2592000 | A block starting this soon after the previous one ended is a repeat. |
 | <a id="security.adminProbe.blockStatus"></a>`security.adminProbe.blockStatus` | `"429"` | `429`, `403` | Status of the blocked answer (with `Retry-After`). |
 | <a id="security.adminProbe.signals"></a>`security.adminProbe.signals` | all four | `probe-path`, `slug-guess`, `admin-signin-failed`, `admin-unauthenticated` | Which misses count. |
-| <a id="security.adminProbe.probePaths"></a>`security.adminProbe.probePaths` | 327 paths (`/admin`, `/wp-admin`, `/.env`, `/manager/html`, `/jolokia`, …) | up to 512, each starting with `/` | Paths scanners ask for; matched as whole segments, any case. |
+| <a id="security.adminProbe.probePaths"></a>`security.adminProbe.probePaths` | 340 paths (`/admin`, `/wp-admin`, `/.env`, `/manager/html`, `/jolokia`, …) | up to 512, each starting with `/` | Paths scanners ask for; matched as whole segments, any case. |
 | <a id="security.adminProbe.allowlist"></a>`security.adminProbe.allowlist` | `[]` | up to 100 IPs/CIDRs | Never counted or blocked. |
 | <a id="security.adminProbe.auditIp"></a>`security.adminProbe.auditIp` | `"masked"` | `masked`, `full` | Source in the audit log and the API: IPv4 /24 and IPv6 /48, or the address. |
 | <a id="security.adminProbe.fail2banLog"></a>`security.adminProbe.fail2banLog` | `true` | bool | Write the `mailwoman[admin-probe]` line on each block. |
@@ -3781,6 +3873,8 @@ Global and domain, hot. Default `true`. Approving an Art. 18 restriction request
 
 <a id="restriction.mailDelivery"></a>
 ### New mail while restricted (`restriction.mailDelivery`)
+
+**Saving this setting does not change behaviour.** The value is recorded on the restriction and shown to the person; the server does not receive mail, so nothing queues or rejects mail because of it.
 Global and domain, hot. Default `keep`. `keep` stores new mail normally, `queue` holds it, `reject` refuses it. Stored mail is never deleted by a restriction.
 
 <a id="restriction.defaultExpiryDays"></a>
@@ -3833,7 +3927,9 @@ Global and domain, hot. Default `consent`. One of `consent`, `legitimateInterest
 
 <a id="consent.analytics.version"></a>
 ### Consent text version of analytics (`consent.analytics.version`)
-Global and domain, hot. Default `1`. Raising it asks everyone again; a yes for an older version no longer counts.
+
+**Saving this setting does not change behaviour.** The version is written on consent receipts. Raising it does not ask people again for this purpose.
+Global and domain, hot. Default `1`. An integer from 1 to 1000000.
 
 <a id="consent.analytics.text"></a>
 ### Consent text of analytics (`consent.analytics.text`)
@@ -3845,7 +3941,9 @@ Global and domain, hot. Default `consent`. One of `consent`, `legitimateInterest
 
 <a id="consent.analyticsTag.version"></a>
 ### Consent text version of the analytics tag (`consent.analyticsTag.version`)
-Global and domain, hot. Default `1`. Raising it asks everyone again; a yes for an older version no longer counts.
+
+**Saving this setting does not change behaviour.** The version is written on consent receipts. Raising it does not ask people again for this purpose.
+Global and domain, hot. Default `1`. An integer from 1 to 1000000.
 
 <a id="consent.analyticsTag.text"></a>
 ### Consent text of the analytics tag (`consent.analyticsTag.text`)
@@ -3893,7 +3991,9 @@ Global and domain, hot. Default `consent`. One of `consent`, `legitimateInterest
 
 <a id="consent.remoteContent.version"></a>
 ### Consent text version of remote content (`consent.remoteContent.version`)
-Global and domain, hot. Default `1`. Raising it asks everyone again; a yes for an older version no longer counts.
+
+**Saving this setting does not change behaviour.** The version is written on consent receipts. Raising it does not ask people again for this purpose.
+Global and domain, hot. Default `1`. An integer from 1 to 1000000.
 
 <a id="consent.remoteContent.text"></a>
 ### Consent text of remote content (`consent.remoteContent.text`)
@@ -3917,7 +4017,9 @@ Global and domain, hot. Default `legitimateInterest`. One of `consent`, `legitim
 
 <a id="consent.telemetry.version"></a>
 ### Consent text version of telemetry (`consent.telemetry.version`)
-Global and domain, hot. Default `1`. Raising it asks everyone again; a yes for an older version no longer counts.
+
+**Saving this setting does not change behaviour.** The version is written on consent receipts. Raising it does not ask people again for this purpose.
+Global and domain, hot. Default `1`. An integer from 1 to 1000000.
 
 <a id="consent.telemetry.text"></a>
 ### Consent text of telemetry (`consent.telemetry.text`)
@@ -3952,7 +4054,7 @@ The sweeper keeps expired handles for 180 days by default. A value of 0 removes 
 <a id="accounts.settings.inheritGroups"></a>
 `accounts.settings.inheritGroups` defaults to `[]`. Each linked mailbox independently chooses the preference groups it inherits from the verified primary account: reader, compose, mail, folders, notifications, time, interface and privacy. The effective value is inherited only when the linked mailbox has neither a local override nor an administrator value or lock. A local choice overrides inheritance; resetting it resumes inheritance. The API marks inherited values with `inherited: true`. Inheritance is resolved on the server for settings reads and runtime use. It never inherits themes stored through the dedicated appearance API, signatures, credentials, security factors, notification rules or folder IDs.
 
-Counter and Focused inbox preferences are now mailbox-bound, following the same opt-in inheritance rules. In Settings > Linked accounts, select groups while the child account is active. Users may also use Appearance > Import and export preferences to choose a verified source mailbox, review its portable settings and appearance, and apply selected changes to the active mailbox. File export/import remains available. Folder customizations require matching account identity, storage authority and server origin. Sign-in controls stay visible with a scope explanation and a switch to the primary account; mailbox-specific Privacy, Nextcloud, Packages, access keys and appearance customization are directly configurable on supported linked routes.
+Counter and Focused inbox preferences are mailbox-bound, following the same opt-in inheritance rules. In Settings > Linked accounts, select groups while the child account is active. Users may also use Appearance > Import and export preferences to choose a verified source mailbox, review its portable settings and appearance, and apply selected changes to the active mailbox. File export/import remains available. Folder customizations require matching account identity, storage authority and server origin. Sign-in controls stay visible with a scope explanation and a switch to the primary account; mailbox-specific Privacy, Nextcloud, Packages, access keys and appearance customization are directly configurable on supported linked routes.
 
 
 <a id="mail.followUp.presets"></a>
@@ -4030,14 +4132,14 @@ Setting | Purpose |
 <a id="views.keys.name"></a>`views.keys.name` | Custom sidebar name for keys; empty uses the translated default |
 <a id="views.keys.showCount"></a>`views.keys.showCount` | Show the notable-item count beside keys |
 <a id="views.attachments.visibility"></a>`views.attachments.visibility` | Sidebar visibility for attachments: visible, hidden, or only when notable; feature policy remains a ceiling |
-<a id="views.attachments.name"></a>`views.attachments.name` | Custom sidebar name for attachments; empty uses the translated default |
-<a id="views.attachments.showCount"></a>`views.attachments.showCount` | Show the notable-item count beside attachments |
+<a id="views.attachments.name"></a>`views.attachments.name` | Custom sidebar name for attachments; empty uses the translated default **Saving this setting currently has no effect.** The sidebar button uses a fixed label. |
+<a id="views.attachments.showCount"></a>`views.attachments.showCount` | Show the notable-item count beside attachments **Saving this setting currently has no effect.** The sidebar button never shows a count. |
 <a id="views.outbox.visibility"></a>`views.outbox.visibility` | Sidebar visibility for outbox: visible, hidden, or only when notable; feature policy remains a ceiling |
-<a id="views.outbox.name"></a>`views.outbox.name` | Custom sidebar name for outbox; empty uses the translated default |
-<a id="views.outbox.showCount"></a>`views.outbox.showCount` | Show the notable-item count beside outbox |
+<a id="views.outbox.name"></a>`views.outbox.name` | Custom sidebar name for outbox; empty uses the translated default **Saving this setting currently has no effect.** The sidebar button uses a fixed label. |
+<a id="views.outbox.showCount"></a>`views.outbox.showCount` | Show the notable-item count beside outbox **Saving this setting currently has no effect.** The Outbox badge always shows the number of pending messages. |
 <a id="views.templates.visibility"></a>`views.templates.visibility` | Sidebar visibility for templates: visible, hidden, or only when notable; feature policy remains a ceiling |
 <a id="views.templates.name"></a>`views.templates.name` | Custom sidebar name for templates; empty uses the translated default |
-<a id="views.templates.showCount"></a>`views.templates.showCount` | Show the notable-item count beside templates |
+<a id="views.templates.showCount"></a>`views.templates.showCount` | Show the notable-item count beside templates **Saving this setting currently has no effect.** The sidebar button never shows a count. |
 <a id="accounts.linked.directLogin"></a>`accounts.linked.directLogin` | Allow this linked mailbox to sign in to Mailwoman directly; false requires a verified primary-account link; administrator locks override user choices |
 <a id="accounts.linked.allowUserLoginPolicy"></a>`accounts.linked.allowUserLoginPolicy` | Allow users to change direct-login policy for verified linked mailboxes; disabled by default; administrator locks on the direct-login setting always win |
 <a id="mail.badge.importance"></a>`mail.badge.importance` | Visibility of importance message badges; always, only when notable, or never |
@@ -4130,7 +4232,7 @@ until valid, and request failures use retryable toasts. Other controls autosave.
 Send success means acceptance by the outgoing service, not confirmed delivery to
 a recipient. The Outbox retains failures even when transient alerts are muted.
 
-`offline.persistentStorageAllowed` now defaults to true. Encrypted offline
+`offline.persistentStorageAllowed` defaults to true. Encrypted offline
 caching remains opt-in. `offline.requestPersistence` offers a user-gesture request
 when caching is enabled. The browser decides whether persistence is granted and
 whether a permission dialog appears; it also controls the quota. A cache budget
@@ -4343,7 +4445,7 @@ Built-in default: `built-in ordered actions`. Administrator policy can hold the 
 
 
 <a id="mail.notices.enabled"></a>
-`mail.notices.enabled` — Enable separate post-signature message notices. Default: `true`; no notices are shipped in the empty library.
+`mail.notices.enabled` — Enable separate post-signature message notices. Default: `true`; the library is empty by default.
 
 <a id="mail.notices.templates"></a>
 `mail.notices.templates` — Up to 20 reusable notices, managed in Settings → Composing → Message notices. Each has required plain text, optional sanitized HTML, enabled/automatic flags, sender identities, message kinds, recipient audience/domains, and case-insensitive subject/body substring rules. All configured conditions must match. Manual selection overrides automatic matching; disabled notices never apply. Notices enter plaintext before signing/encryption, and rich text after the signature. Default: `[]`. Supports global/domain/user defaults and locks; existing drafts retain their selection mode and IDs, not copied notice text.
@@ -4453,3 +4555,1359 @@ this interval. Embedded build bytes are immutable.
 `web.assets.cache.preload` is `off`, `shell` (default) or `core`. Preload is
 nonblocking and best effort, requiring an immediately available loader slot and
 no pending foreground work. Core includes a bounded set of shell scripts/styles.
+
+## Key reference
+
+Every key in the settings registry, generated from the registry and checked against the code that reads it. Columns:
+
+- **Type**: what the key accepts. A write outside the type or range is refused.
+- **Default**: the value in use when nothing is set at any scope.
+- **Set at**: where a value may be stored: the whole server, a domain, a user. Where **user** is listed, users may set their own value unless an administrator locks it. A feature profile or group may carry a value wherever a domain may.
+- **Environment**: the variable tied to the key, and whether it is a pin or a fallback (see [How a value is chosen](#how-a-value-is-chosen)).
+- **Effect**: whether the server or the web app reads the saved value and changes behaviour. **No effect** means saving the key currently changes nothing.
+
+### Mail keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="mail.reader.unsafehtmlmode"></a>[`mail.reader.unsafeHtmlMode`](#mail.reader.unsafeHtmlMode) | one of `ask`, `strict`, `sanitized` | `"sanitized"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.composewindow"></a>[`mail.composeWindow`](#mail.composeWindow) | one of `tab`, `window` | `"tab"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.replycopytooriginal"></a>[`mail.replyCopyToOriginal`](#mail.replyCopyToOriginal) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.signatureposition"></a>[`mail.signaturePosition`](#mail.signaturePosition) | one of `above-quote`, `end` | `"above-quote"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.forwardmode"></a>[`mail.forwardMode`](#mail.forwardMode) | one of `inline`, `attachment` | `"inline"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.allowsend"></a>[`mail.allowSend`](#mail.allowSend) | on or off | `true` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="mail.allowreply"></a>[`mail.allowReply`](#mail.allowReply) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.allowforward"></a>[`mail.allowForward`](#mail.allowForward) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.allowdownload"></a>[`mail.allowDownload`](#mail.allowDownload) | on or off | `true` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="mail.allowprint"></a>[`mail.allowPrint`](#mail.allowPrint) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.showspam"></a>[`mail.showSpam`](#mail.showSpam) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.showauthstatus"></a>[`mail.showAuthStatus`](#mail.showAuthStatus) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.closeondelete"></a>[`mail.closeOnDelete`](#mail.closeOnDelete) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.rowactions"></a>[`mail.rowActions`](#mail.rowActions) | list of up to 7 strings, each up to 32 characters | `["quick:view-draft","quick:pin","quick:snooze","quick:label","quick:flag","quick:archive","quick:delete"]` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.rowactionsmode"></a>[`mail.rowActionsMode`](#mail.rowActionsMode) | one of `open`, `hover`, `click`, `off` | `"open"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.showgototop"></a>[`mail.showGoToTop`](#mail.showGoToTop) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.showcreatefolderbutton"></a>[`mail.showCreateFolderButton`](#mail.showCreateFolderButton) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.refreshonopen"></a>[`mail.cache.refreshOnOpen`](#mail.cache.refreshOnOpen) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`mail.cache.enabled`](#mail.cache.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`mail.cache.mailboxes`](#mail.cache.mailboxes) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`mail.cache.messages`](#mail.cache.messages) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.keepindefinitely"></a>[`mail.cache.keepIndefinitely`](#mail.cache.keepIndefinitely) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.freshseconds"></a>[`mail.cache.freshSeconds`](#mail.cache.freshSeconds) | integer, 0 to 3600 | `30` | server, domain, user |  | Applied by the web app only. The web app lowers a value above `mail.cache.maxAgeSeconds` to that value. |
+| <a id="mail.cache.maxageseconds"></a>[`mail.cache.maxAgeSeconds`](#mail.cache.maxAgeSeconds) | integer, 1 to 86,400 | `300` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.maxentries"></a>[`mail.cache.maxEntries`](#mail.cache.maxEntries) | integer, 1 to 512 | `32` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.maxbytes"></a>[`mail.cache.maxBytes`](#mail.cache.maxBytes) | integer, 65,536 to 268,435,456 | `16777216` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.prefetchenabled"></a>[`mail.cache.prefetchEnabled`](#mail.cache.prefetchEnabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.hoverenabled"></a>[`mail.cache.hoverEnabled`](#mail.cache.hoverEnabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.focusenabled"></a>[`mail.cache.focusEnabled`](#mail.cache.focusEnabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.dwellms"></a>[`mail.cache.dwellMs`](#mail.cache.dwellMs) | integer, 0 to 10,000 | `200` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.idleenabled"></a>[`mail.cache.idleEnabled`](#mail.cache.idleEnabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.idledelayms"></a>[`mail.cache.idleDelayMs`](#mail.cache.idleDelayMs) | integer, 100 to 60,000 | `1500` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.maxconcurrency"></a>[`mail.cache.maxConcurrency`](#mail.cache.maxConcurrency) | integer, 1 to 4 | `1` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.maxqueued"></a>[`mail.cache.maxQueued`](#mail.cache.maxQueued) | integer, 1 to 64 | `8` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.preloadheaders"></a>[`mail.cache.preloadHeaders`](#mail.cache.preloadHeaders) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.preloadmessages"></a>[`mail.cache.preloadMessages`](#mail.cache.preloadMessages) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.cache.excludedfolders"></a>[`mail.cache.excludedFolders`](#mail.cache.excludedFolders) | list of up to 100 strings, each up to 256 characters | `["role:trash","role:junk"]` | server, domain, user |  | Applied by the web app only. |
+| [`mail.notices.enabled`](#mail.notices.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`mail.notices.templates`](#mail.notices.templates) | list of up to 20 notices | `[]` | server, domain, user |  | Applied by the web app only. |
+| [`mail.templates.enabled`](#mail.templates.enabled) | on or off | `true` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="mail.templates.showinsidebar"></a>[`mail.templates.showInSidebar`](#mail.templates.showInSidebar) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.templates.allowpersonal"></a>[`mail.templates.allowPersonal`](#mail.templates.allowPersonal) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server and the web app. |
+| [`mail.templates.shared`](#mail.templates.shared) | list of up to 20 templates (title up to 80 characters, text up to 8000, HTML up to 32000, 65536 bytes in all) | `[]` | server, domain, one user (administrator only) |  | Applied by the web app only. |
+| <a id="mail.followup.presets"></a>[`mail.followUp.presets`](#mail.followUp.presets) | list of up to 32 snooze presets | built-in list of presets | server, domain, user |  | Applied by the web app only. |
+| [`mail.snooze.presets`](#mail.snooze.presets) | list of up to 32 snooze presets | built-in list of presets | server, domain, user |  | Applied by the web app only. |
+| [`mail.templates.personal`](#mail.templates.personal) | list of up to 20 templates (title up to 80 characters, text up to 8000, HTML up to 32000, 65536 bytes in all) | `[]` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="mail.folderrole.inbox"></a>[`mail.folderRole.inbox`](#mail.folderRole.inbox) | exact folder ID or upstream folder path, up to 512 characters; may be unset | `null` | server, domain, user |  | Applied by the server. |
+| <a id="mail.folderrole.drafts"></a>[`mail.folderRole.drafts`](#mail.folderRole.drafts) | exact folder ID or upstream folder path, up to 512 characters; may be unset | `null` | server, domain, user |  | Applied by the server. |
+| <a id="mail.folderrole.sent"></a>[`mail.folderRole.sent`](#mail.folderRole.sent) | exact folder ID or upstream folder path, up to 512 characters; may be unset | `null` | server, domain, user |  | Applied by the server. |
+| <a id="mail.folderrole.trash"></a>[`mail.folderRole.trash`](#mail.folderRole.trash) | exact folder ID or upstream folder path, up to 512 characters; may be unset | `null` | server, domain, user |  | Applied by the server. |
+| <a id="mail.folderrole.junk"></a>[`mail.folderRole.junk`](#mail.folderRole.junk) | exact folder ID or upstream folder path, up to 512 characters; may be unset | `null` | server, domain, user |  | Applied by the server. |
+| <a id="mail.folderrole.archive"></a>[`mail.folderRole.archive`](#mail.folderRole.archive) | exact folder ID or upstream folder path, up to 512 characters; may be unset | `null` | server, domain, user |  | Applied by the server. |
+| <a id="mail.externalrecipientwarning"></a>[`mail.externalRecipientWarning`](#mail.externalRecipientWarning) | one of `off`, `warn`, `confirm`, `warn-remember`, `deny` | `"warn"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.replyimages"></a>[`mail.replyImages`](#mail.replyImages) | one of `ask`, `allow`, `trusted`, `deny` | `"ask"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.replyimagetrusteddomains"></a>[`mail.replyImageTrustedDomains`](#mail.replyImageTrustedDomains) | list of up to 200 strings, each up to 253 characters | `[]` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.trustedrecipientdomains"></a>[`mail.trustedRecipientDomains`](#mail.trustedRecipientDomains) | list of up to 100 strings, each up to 253 characters | `[]` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.compose.checkinvalidrecipients"></a>[`mail.compose.checkInvalidRecipients`](#mail.compose.checkInvalidRecipients) | one of `allow`, `warn`, `warn-remember`, `deny` | `"warn"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.compose.checkmissingattachment"></a>[`mail.compose.checkMissingAttachment`](#mail.compose.checkMissingAttachment) | one of `allow`, `warn`, `warn-remember`, `deny` | `"warn"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.compose.checkemptysubject"></a>[`mail.compose.checkEmptySubject`](#mail.compose.checkEmptySubject) | one of `allow`, `warn`, `warn-remember`, `deny` | `"warn"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.compose.headercollapse"></a>[`mail.compose.headerCollapse`](#mail.compose.headerCollapse) | one of `expanded`, `collapsed`, `auto` | `"expanded"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.compose.headerautocollapseseconds"></a>[`mail.compose.headerAutoCollapseSeconds`](#mail.compose.headerAutoCollapseSeconds) | integer, 0 to 60 | `0` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.compose.autoaddmentionrecipients"></a>[`mail.compose.autoAddMentionRecipients`](#mail.compose.autoAddMentionRecipients) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.compose.autochiprecipients"></a>[`mail.compose.autoChipRecipients`](#mail.compose.autoChipRecipients) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.compose.recipientseparator"></a>[`mail.compose.recipientSeparator`](#mail.compose.recipientSeparator) | one of `comma`, `semicolon` | `"comma"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.quotestyle"></a>[`mail.quoteStyle`](#mail.quoteStyle) | one of `classic`, `outlook` | `"classic"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.quickreply"></a>[`mail.quickReply`](#mail.quickReply) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.requestreadreceipt"></a>[`mail.requestReadReceipt`](#mail.requestReadReceipt) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.requestdeliveryreceipt"></a>[`mail.requestDeliveryReceipt`](#mail.requestDeliveryReceipt) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.showfrom"></a>[`mail.showFrom`](#mail.showFrom) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.replyfrommode"></a>[`mail.replyFromMode`](#mail.replyFromMode) | one of `match`, `default`, `ask`, `keep` | `"match"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.replyfrom.headerpriority"></a>[`mail.replyFrom.headerPriority`](#mail.replyFrom.headerPriority) | list of up to 8 strings, each up to 32 characters | `["Delivered-To","X-Original-To","To","Cc"]` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.modifierselection"></a>[`mail.modifierSelection`](#mail.modifierSelection) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.draftsavemode"></a>[`mail.draftSaveMode`](#mail.draftSaveMode) | one of `realtime`, `periodic`, `manual` | `"realtime"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.draftdebouncems"></a>[`mail.draftDebounceMs`](#mail.draftDebounceMs) | integer, 500 to 10,000 | `1000` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.draftintervalsecs"></a>[`mail.draftIntervalSecs`](#mail.draftIntervalSecs) | integer, 5 to 3600 | `30` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.send.recalldelayseconds"></a>[`mail.send.recallDelaySeconds`](#mail.send.recallDelaySeconds) | integer, 0 to 1800 | `10` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="mail.send.recalldelaymaxseconds"></a>[`mail.send.recallDelayMaxSeconds`](#mail.send.recallDelayMaxSeconds) | integer, 0 to 1800 | `1800` | server, domain |  | Applied by the server and the web app. |
+| <a id="mail.send.allowrecall"></a>[`mail.send.allowRecall`](#mail.send.allowRecall) | on or off | `true` | server, domain |  | Applied by the server and the web app. |
+| <a id="mail.send.maxdelayedseconds"></a>[`mail.send.maxDelayedSeconds`](#mail.send.maxDelayedSeconds) | integer, 0 to 31,536,000 | `7776000` | server, domain |  | Applied by the server and the web app. |
+| <a id="mail.send.maxqueued"></a>[`mail.send.maxQueued`](#mail.send.maxQueued) | integer, 1 to 5000 | `200` | server, domain |  | Applied by the server. |
+| <a id="mail.resumetabs"></a>[`mail.resumeTabs`](#mail.resumeTabs) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.dragtofolder"></a>[`mail.dragToFolder`](#mail.dragToFolder) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.foldercounts"></a>[`mail.folderCounts`](#mail.folderCounts) | one of `none`, `unread`, `unreadIfAny`, `total`, `both` | `"both"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.foldercountscope"></a>[`mail.folderCountScope`](#mail.folderCountScope) | one of `all`, `main` | `"all"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.compactfolderbadges"></a>[`mail.compactFolderBadges`](#mail.compactFolderBadges) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.focusedinbox"></a>[`mail.focusedInbox`](#mail.focusedInbox) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.prioritymarks"></a>[`mail.priorityMarks`](#mail.priorityMarks) | one of `both`, `high`, `off` | `"both"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.prioritymarks.style"></a>[`mail.priorityMarks.style`](#mail.priorityMarks.style) | one of `icon`, `iconText`, `bar` | `"icon"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.auth`](#mail.badge.auth) | one of `always`, `notable`, `never` | `"always"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.spam`](#mail.badge.spam) | one of `always`, `notable`, `never` | `"always"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.auth.sent`](#mail.badge.auth.sent) | one of `always`, `notable`, `never` | `"never"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.spam.sent`](#mail.badge.spam.sent) | one of `always`, `notable`, `never` | `"never"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.sanitized`](#mail.badge.sanitized) | one of `always`, `notable`, `never` | `"notable"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.folder`](#mail.badge.folder) | one of `always`, `notable`, `never` | `"always"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.list`](#mail.badge.list) | one of `always`, `notable`, `never` | `"always"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.list.unsubscribemode"></a>[`mail.list.unsubscribeMode`](#mail.list.unsubscribeMode) | one of `ask`, `one-click-direct`, `open-link` | `"ask"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.list.keep`](#mail.list.keep) | list of up to 500 strings, each up to 300 characters | `[]` | server, domain, user |  | Applied by the server and the web app. Only `sender:` entries are honoured by retention rules; `list:` entries are ignored. |
+| [`mail.badge.density`](#mail.badge.density) | one of `compact`, `comfortable` | `"compact"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.labels`](#mail.badge.labels) | one of `text`, `icon` | `"text"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.compose.priority.enabled`](#mail.compose.priority.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`mail.compose.priority.default`](#mail.compose.priority.default) | one of `normal`, `high`, `low` | `"normal"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.priority.sendheaders"></a>[`mail.priority.sendHeaders`](#mail.priority.sendHeaders) | list of up to 3 strings, each up to 32 characters | `["Importance","X-Priority","X-MSMail-Priority"]` | server, domain |  | Applied by the server and the web app. `Importance` and `X-Priority` are written together: listing only one still writes both. |
+| <a id="mail.priority.trustsenderheaders"></a>[`mail.priority.trustSenderHeaders`](#mail.priority.trustSenderHeaders) | one of `always`, `trusted`, `never` | `"always"` | server, domain |  | Applied by the web app only. |
+| [`properties.folder.enabled`](#properties.folder.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`properties.message.enabled`](#properties.message.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`properties.folder.sections`](#properties.folder.sections) | list of up to 10 strings, each up to 24 characters | `["general","remote","size","offline","overrides","notes","actions"]` | server, domain |  | Applied by the web app only. |
+| [`properties.message.sections`](#properties.message.sections) | list of up to 10 strings, each up to 24 characters | `["summary","scoring","headers","attachments","actions"]` | server, domain |  | Applied by the web app only. |
+| <a id="properties.remotelocation.visibility"></a>[`properties.remoteLocation.visibility`](#properties.remoteLocation.visibility) | one of `full`, `masked-host`, `path-only`, `hidden` | `"masked-host"` | server, domain |  | Applied by the web app only. |
+| [`properties.headers.raw`](#properties.headers.raw) | on or off | `true` | server, domain |  | Applied by the web app only. |
+| [`properties.scoring.show`](#properties.scoring.show) | on or off | `true` | server, domain |  | Applied by the web app only. |
+| [`properties.folder.overrides.allowed`](#properties.folder.overrides.allowed) | list of up to 32 strings, each up to 24 characters | built-in list of 13 entries | server, domain |  | Applied by the web app only. Only the web app enforces the list; the server does not read it. |
+| [`properties.folder.notes.enabled`](#properties.folder.notes.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="properties.folder.notes.maxlength"></a>[`properties.folder.notes.maxLength`](#properties.folder.notes.maxLength) | integer, 100 to 2000 | `2000` | server, domain |  | Applied by the web app only. The server accepts folder notes of up to 2000 characters whatever this value is; the web app applies the value. |
+| <a id="properties.folder.sizecompute"></a>[`properties.folder.sizeCompute`](#properties.folder.sizeCompute) | one of `off`, `on-open`, `background` | `"on-open"` | server, domain |  | Applied by the server and the web app. |
+| <a id="properties.offlineclear.enabled"></a>[`properties.offlineClear.enabled`](#properties.offlineClear.enabled) | on or off | `true` | server, domain |  | Applied by the web app only. |
+| [`export.folder.enabled`](#export.folder.enabled) | on or off | `true` | server, domain |  | Applied by the server and the web app. |
+| [`export.folder.format`](#export.folder.format) | one of `zip-eml`, `zip-mbox`, `both` | `"both"` | server, domain |  | Applied by the server and the web app. |
+| <a id="export.folder.maxbytes"></a>[`export.folder.maxBytes`](#export.folder.maxBytes) | integer, 1,048,576 to 107,374,182,400 | `2147483648` | server, domain |  | Applied by the server and the web app. |
+| <a id="export.folder.maxmessages"></a>[`export.folder.maxMessages`](#export.folder.maxMessages) | integer, 1 to 1,000,000 | `100000` | server, domain |  | Applied by the server and the web app. The server caps a folder export at 65,000 messages (the ZIP entry limit), below the default and the range maximum. |
+| <a id="export.folder.includesubfolders"></a>[`export.folder.includeSubfolders`](#export.folder.includeSubfolders) | on or off | `true` | server, domain, user |  | Applied by the server and the web app. |
+| [`export.message.download.enabled`](#export.message.download.enabled) | on or off | `true` | server, domain |  | Applied by the server and the web app. |
+| [`export.dialog.enabled`](#export.dialog.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`export.formats`](#export.formats) | list of up to 12 strings, each up to 8 characters | `["eml","mbox","txt","md","msg","docx","csv","json","pdf"]` | server, domain |  | Applied by the server and the web app. |
+| <a id="export.defaultformat"></a>[`export.defaultFormat`](#export.defaultFormat) | one of `eml`, `mbox`, `txt`, `md`, `msg`, `docx`, `csv`, `json`, `pdf` | `"eml"` | server, domain, user |  | Applied by the web app only. |
+| <a id="export.defaultscope"></a>[`export.defaultScope`](#export.defaultScope) | one of `message`, `conversation`, `selection`, `folder` | `"message"` | server, domain, user |  | Applied by the web app only. |
+| <a id="properties.message.permanentdelete"></a>[`properties.message.permanentDelete`](#properties.message.permanentDelete) | one of `allow`, `confirm-twice`, `deny` | `"allow"` | server, domain |  | Applied by the server and the web app. |
+| [`properties.shortcut.enabled`](#properties.shortcut.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`properties.shortcut.key`](#properties.shortcut.key) | text, up to 32 characters | `"Alt+Enter"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.accountunreadbadge"></a>[`mail.accountUnreadBadge`](#mail.accountUnreadBadge) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.brandavatars"></a>[`mail.brandAvatars`](#mail.brandAvatars) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.brandavatars.requireauth"></a>[`mail.brandAvatars.requireAuth`](#mail.brandAvatars.requireAuth) | one of `never`, `known-failure`, `always` | `"known-failure"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.unifiedaccount.accounts"></a>[`mail.unifiedAccount.accounts`](#mail.unifiedAccount.accounts) | list of up to 32 strings, each up to 128 characters | `["*"]` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="mail.unifiedaccount.folders"></a>[`mail.unifiedAccount.folders`](#mail.unifiedAccount.folders) | list of up to 512 strings, each up to 512 characters | `["*"]` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="mail.unifiedaccount.allowedaccounts"></a>[`mail.unifiedAccount.allowedAccounts`](#mail.unifiedAccount.allowedAccounts) | list of up to 32 strings, each up to 128 characters | `["*"]` | server, domain, one user (administrator only) |  | Applied by the server and the web app. |
+| <a id="mail.unifiedaccount.allowedfolders"></a>[`mail.unifiedAccount.allowedFolders`](#mail.unifiedAccount.allowedFolders) | list of up to 512 strings, each up to 512 characters | `["*"]` | server, domain, one user (administrator only) |  | Applied by the server and the web app. |
+| <a id="mail.unifiedaccount.openfirst"></a>[`mail.unifiedAccount.openFirst`](#mail.unifiedAccount.openFirst) | on or off | `false` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="mail.unifiedaccount.name"></a>[`mail.unifiedAccount.name`](#mail.unifiedAccount.name) | text, up to 128 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.unifiedaccount.avatar"></a>[`mail.unifiedAccount.avatar`](#mail.unifiedAccount.avatar) | text, up to 512 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.unifiedaccount.groups"></a>[`mail.unifiedAccount.groups`](#mail.unifiedAccount.groups) | text, up to 65536 characters | `"[]"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.unifiedaccount.primarygroup"></a>[`mail.unifiedAccount.primaryGroup`](#mail.unifiedAccount.primaryGroup) | text, up to 64 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.messageliststyle"></a>[`mail.messageListStyle`](#mail.messageListStyle) | one of `cards`, `table` | `"cards"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.messagelistorder"></a>[`mail.messageListOrder`](#mail.messageListOrder) | one of `newest`, `oldest`, `sender`, `sender-desc`, `subject`, `subject-desc`, `sent-newest`, `sent-oldest`, `importance`, `importance-asc`, `size`, `size-asc` | `"newest"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.conversations.allowed`](#mail.conversations.allowed) | on or off | `true` | server, domain |  | Applied by the web app only. |
+| [`mail.conversations.enabled`](#mail.conversations.enabled) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.messagelistgroup"></a>[`mail.messageListGroup`](#mail.messageListGroup) | one of `none`, `received`, `sent`, `sender`, `subject`, `importance`, `size` | `"none"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.list.pagesize"></a>[`mail.list.pageSize`](#mail.list.pageSize) | integer, 20 to 200 | `50` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.search.defaultscope"></a>[`mail.search.defaultScope`](#mail.search.defaultScope) | one of `current`, `all` | `"current"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.messagelistpreview"></a>[`mail.messageListPreview`](#mail.messageListPreview) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.aftermove"></a>[`mail.afterMove`](#mail.afterMove) | one of `keep`, `next`, `previous`, `close` | `"keep"` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.afterdelete"></a>[`mail.afterDelete`](#mail.afterDelete) | one of `next`, `previous`, `close` | `"next"` | server, domain, user |  | Applied by the web app only. |
+| <a id="receipts.scheduleallowed"></a>[`receipts.scheduleAllowed`](#receipts.scheduleAllowed) | on or off | `false` | server, domain |  | Applied by the server. |
+| <a id="receipts.dsnallowed"></a>[`receipts.dsnAllowed`](#receipts.dsnAllowed) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server and the web app. |
+| <a id="mail.readreceipts"></a>[`mail.readReceipts`](#mail.readReceipts) | one of `ask`, `never`, `always`, `contactsOnly`, `orgOnly`, `orgAlwaysAskOthers` | `"ask"` | server, domain, user |  | Applied by the server. |
+| <a id="mail.opentracking"></a>[`mail.openTracking`](#mail.openTracking) | on or off | `false` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="outbox.maxattempts"></a>[`outbox.maxAttempts`](#outbox.maxAttempts) | integer, 1 to 50 | `8` | server |  | **No effect.** No code reads it. |
+| <a id="maskedemail.domain"></a>[`maskedEmail.domain`](#maskedEmail.domain) | domain name, up to 253 characters; may be unset | `null` | server | `MW_MASKED_EMAIL_DOMAIN` (pin) | **No effect when saved.** Only `MW_MASKED_EMAIL_DOMAIN` is read. |
+| <a id="abuse.reportaddress"></a>[`abuse.reportAddress`](#abuse.reportAddress) | email address, up to 254 characters; may be unset | `null` | server, domain | `MW_ABUSE_ADDRESS` (pin) | **No effect when saved.** Only `MW_ABUSE_ADDRESS` is read. |
+| <a id="dlp.adminaddress"></a>[`dlp.adminAddress`](#dlp.adminAddress) | email address, up to 254 characters; may be unset | `null` | server | `MW_DLP_ADMIN` (pin) | **No effect when saved.** Only `MW_DLP_ADMIN` is read. |
+| [`mail.badge.headers`](#mail.badge.headers) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="compose.layout.defaultfont"></a>[`compose.layout.defaultFont`](#compose.layout.defaultFont) | text, up to 200 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="compose.replyto.show"></a>[`compose.replyTo.show`](#compose.replyTo.show) | one of `auto`, `always`, `never` | `"auto"` | server, domain, user |  | Applied by the web app only. |
+| <a id="compose.replyto.allowoverride"></a>[`compose.replyTo.allowOverride`](#compose.replyTo.allowOverride) | on or off | `true` | server, domain |  | Applied by the server and the web app. |
+| <a id="compose.sentfolder.mode"></a>[`compose.sentFolder.mode`](#compose.sentFolder.mode) | one of `default`, `fixed`, `byRecipient`, `byIdentity`, `bySubjectRule` | `"default"` | server, domain, user |  | Applied by the web app only. |
+| <a id="compose.sentfolder.fixedid"></a>[`compose.sentFolder.fixedId`](#compose.sentFolder.fixedId) | text, up to 200 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="compose.sentfolder.peridentity"></a>[`compose.sentFolder.perIdentity`](#compose.sentFolder.perIdentity) | list of up to 50 strings, each up to 300 characters | `[]` | server, domain, user |  | Applied by the web app only. |
+| <a id="compose.sentfolder.rules"></a>[`compose.sentFolder.rules`](#compose.sentFolder.rules) | list of up to 50 strings, each up to 300 characters | `[]` | server, domain, user |  | Applied by the web app only. |
+| <a id="compose.sentfolder.skipcopy"></a>[`compose.sentFolder.skipCopy`](#compose.sentFolder.skipCopy) | on or off | `false` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="compose.headers.allowautosubmitted"></a>[`compose.headers.allowAutoSubmitted`](#compose.headers.allowAutoSubmitted) | on or off | `false` | server, domain |  | Applied by the server and the web app. |
+| <a id="compose.headers.allowthreadingedit"></a>[`compose.headers.allowThreadingEdit`](#compose.headers.allowThreadingEdit) | on or off | `false` | server, domain |  | Applied by the server and the web app. |
+| <a id="compose.headers.allowcustom"></a>[`compose.headers.allowCustom`](#compose.headers.allowCustom) | on or off | `false` | server, domain |  | Applied by the server and the web app. |
+| <a id="compose.headers.allowreturnreceiptto"></a>[`compose.headers.allowReturnReceiptTo`](#compose.headers.allowReturnReceiptTo) | on or off | `false` | server, domain |  | Applied by the server and the web app. |
+| [`compose.headers.forced`](#compose.headers.forced) | list of up to 20 strings, each up to 300 characters | `[]` | server, domain |  | Applied by the server and the web app. |
+| <a id="mail.expiry.hideexpired"></a>[`mail.expiry.hideExpired`](#mail.expiry.hideExpired) | one of `off`, `dim`, `archive-suggestion`, `hide` | `"off"` | server, domain, user |  | Applied by the web app only. |
+
+### Reader keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="reader.attachmentsdensity"></a>[`reader.attachmentsDensity`](#reader.attachmentsDensity) | one of `compact`, `comfortable` | `"compact"` | server, domain, user |  | Applied by the web app only. |
+| <a id="reader.attachmentactionstyle"></a>[`reader.attachmentActionStyle`](#reader.attachmentActionStyle) | one of `icons`, `labels`, `icons-labels` | `"icons"` | server, domain, user |  | Applied by the web app only. |
+| <a id="reader.attachmentthumbnails"></a>[`reader.attachmentThumbnails`](#reader.attachmentThumbnails) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="reader.filepreviews"></a>[`reader.filePreviews`](#reader.filePreviews) | object (see the file preview section) | built-in object: previews and image conversion on, 64 MiB limit | server, domain, user |  | Applied by the server and the web app. |
+| <a id="mail.attachmentwarnings"></a>[`mail.attachmentWarnings`](#mail.attachmentWarnings) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.attachmentwarningsrequired"></a>[`mail.attachmentWarningsRequired`](#mail.attachmentWarningsRequired) | on or off | `false` | server, domain, one user (administrator only) |  | Applied by the web app only. |
+| <a id="mail.attachmentwarningtypes"></a>[`mail.attachmentWarningTypes`](#mail.attachmentWarningTypes) | list of up to 5 strings, each up to 32 characters | `["executable","macro","disguisedName","typeMismatch","activeDocument"]` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.importance`](#mail.badge.importance) | one of `always`, `notable`, `never` | `"notable"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.follow-up`](#mail.badge.follow-up) | one of `always`, `notable`, `never` | `"notable"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.snooze`](#mail.badge.snooze) | one of `always`, `notable`, `never` | `"notable"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.receipts`](#mail.badge.receipts) | one of `always`, `notable`, `never` | `"always"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.delivery`](#mail.badge.delivery) | one of `always`, `notable`, `never` | `"always"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.dates`](#mail.badge.dates) | one of `always`, `notable`, `never` | `"always"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.sensitivity`](#mail.badge.sensitivity) | one of `always`, `notable`, `never` | `"always"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.reply-by`](#mail.badge.reply-by) | one of `always`, `notable`, `never` | `"always"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.expires`](#mail.badge.expires) | one of `always`, `notable`, `never` | `"always"` | server, domain, user |  | Applied by the web app only. |
+| [`mail.badge.supersedes`](#mail.badge.supersedes) | one of `always`, `notable`, `never` | `"always"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.reply`](#reader.actions.reply) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.reply-all`](#reader.actions.reply-all) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.forward`](#reader.actions.forward) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.edit-draft`](#reader.actions.edit-draft) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.view-draft`](#reader.actions.view-draft) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.open-draft`](#reader.actions.open-draft) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.delete`](#reader.actions.delete) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.archive`](#reader.actions.archive) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.move`](#reader.actions.move) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.conversation`](#reader.actions.conversation) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.links`](#reader.actions.links) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.read`](#reader.actions.read) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.flag`](#reader.actions.flag) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.pin`](#reader.actions.pin) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.spam`](#reader.actions.spam) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.security`](#reader.actions.security) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.headers`](#reader.actions.headers) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.delete-sender`](#reader.actions.delete-sender) | one of `toolbar`, `menu`, `hidden` | `"hidden"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.create-task`](#reader.actions.create-task) | one of `toolbar`, `menu`, `hidden` | `"menu"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.finish-followup`](#reader.actions.finish-followup) | one of `toolbar`, `menu`, `hidden` | `"menu"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.sweep`](#reader.actions.sweep) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.print`](#reader.actions.print) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.export`](#reader.actions.export) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.properties`](#reader.actions.properties) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.zoom`](#reader.actions.zoom) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.search`](#reader.actions.search) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.colors`](#reader.actions.colors) | one of `toolbar`, `menu`, `hidden` | `"toolbar"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.save-sender`](#reader.actions.save-sender) | one of `toolbar`, `menu`, `hidden` | `"menu"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.save-contacts`](#reader.actions.save-contacts) | one of `toolbar`, `menu`, `hidden` | `"menu"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.focus-focused`](#reader.actions.focus-focused) | one of `toolbar`, `menu`, `hidden` | `"menu"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.focus-other`](#reader.actions.focus-other) | one of `toolbar`, `menu`, `hidden` | `"menu"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.not-spam`](#reader.actions.not-spam) | one of `toolbar`, `menu`, `hidden` | `"menu"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.view-source`](#reader.actions.view-source) | one of `toolbar`, `menu`, `hidden` | `"menu"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.create-filter`](#reader.actions.create-filter) | one of `toolbar`, `menu`, `hidden` | `"menu"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.actions.block-sender`](#reader.actions.block-sender) | one of `toolbar`, `menu`, `hidden` | `"menu"` | server, domain, user |  | Applied by the web app only. |
+| <a id="reader.actionstyle"></a>[`reader.actionStyle`](#reader.actionStyle) | one of `icons`, `labels` | `"icons"` | server, domain, user |  | Applied by the web app only. |
+| <a id="reader.colormode"></a>[`reader.colorMode`](#reader.colorMode) | one of `auto`, `original`, `adaptive`, `invert` | `"auto"` | server, domain, user |  | Applied by the web app only. |
+| <a id="reader.fontsize"></a>[`reader.fontSize`](#reader.fontSize) | integer, 12 to 24 | `14` | server, domain, user |  | Applied by the web app only. |
+| <a id="reader.lineheight"></a>[`reader.lineHeight`](#reader.lineHeight) | number, 1.2 to 2.2 | `1.6` | server, domain, user |  | Applied by the web app only. |
+| <a id="reader.contentwidth"></a>[`reader.contentWidth`](#reader.contentWidth) | one of `comfortable`, `wide`, `full` | `"full"` | server, domain, user |  | Applied by the web app only. |
+| [`reader.loading`](#reader.loading) | one of `skeleton`, `indicator`, `none` | `"skeleton"` | server, domain, user |  | Applied by the web app only. |
+| <a id="reader.loadingdelayms"></a>[`reader.loadingDelayMs`](#reader.loadingDelayMs) | integer, 0 to 1000 | `120` | server, domain, user |  | Applied by the web app only. Until the setting has loaded, the reader uses its own fallback of 150 ms. |
+| [`reader.zoom`](#reader.zoom) | integer, 50 to 200 | `100` | server, domain, user |  | Applied by the web app only. |
+| <a id="reader.autohideheader"></a>[`reader.autoHideHeader`](#reader.autoHideHeader) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="reader.attachmentscollapsed"></a>[`reader.attachmentsCollapsed`](#reader.attachmentsCollapsed) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="attachments.bar.clicktotoggle"></a>[`attachments.bar.clickToToggle`](#attachments.bar.clickToToggle) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="attachments.bar.showdownloadbuttons"></a>[`attachments.bar.showDownloadButtons`](#attachments.bar.showDownloadButtons) | one of `always`, `hover`, `never` | `"hover"` | server, domain, user |  | Applied by the web app only. |
+| <a id="attachments.bar.downloadall"></a>[`attachments.bar.downloadAll`](#attachments.bar.downloadAll) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="attachments.bar.zipinlineimages"></a>[`attachments.bar.zipInlineImages`](#attachments.bar.zipInlineImages) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="reader.attachmentsatend"></a>[`reader.attachmentsAtEnd`](#reader.attachmentsAtEnd) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+
+### Linked mailboxes keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="accounts.linkingenabled"></a>[`accounts.linkingEnabled`](#accounts.linkingEnabled) | on or off | `false` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="accounts.uselinked"></a>[`accounts.useLinked`](#accounts.useLinked) | on or off | `true` | server, domain, user |  | Applied by the server. |
+| <a id="accounts.linked.directlogin"></a>[`accounts.linked.directLogin`](#accounts.linked.directLogin) | on or off | `true` | server, domain, user |  | Applied by the server. |
+| <a id="accounts.linked.allowuserloginpolicy"></a>[`accounts.linked.allowUserLoginPolicy`](#accounts.linked.allowUserLoginPolicy) | on or off | `false` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="accounts.maxlinked"></a>[`accounts.maxLinked`](#accounts.maxLinked) | integer, 1 to 16 | `5` | server |  | Applied by the server. |
+| <a id="accounts.storelinkedcredentials"></a>[`accounts.storeLinkedCredentials`](#accounts.storeLinkedCredentials) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="accounts.preloadlinked"></a>[`accounts.preloadLinked`](#accounts.preloadLinked) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="accounts.showconnectionstatus"></a>[`accounts.showConnectionStatus`](#accounts.showConnectionStatus) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+
+### Folders keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| [`views.notifications.visibility`](#views.notifications.visibility) | one of `visible`, `hidden`, `notable` | `"visible"` | server, domain, user |  | Applied by the web app only. |
+| [`views.notifications.name`](#views.notifications.name) | text, up to 128 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="views.notifications.showcount"></a>[`views.notifications.showCount`](#views.notifications.showCount) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`views.calendar.visibility`](#views.calendar.visibility) | one of `visible`, `hidden`, `notable` | `"visible"` | server, domain, user |  | Applied by the web app only. |
+| [`views.calendar.name`](#views.calendar.name) | text, up to 128 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="views.calendar.showcount"></a>[`views.calendar.showCount`](#views.calendar.showCount) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`views.tasks.visibility`](#views.tasks.visibility) | one of `visible`, `hidden`, `notable` | `"visible"` | server, domain, user |  | Applied by the web app only. |
+| [`views.tasks.name`](#views.tasks.name) | text, up to 128 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="views.tasks.showcount"></a>[`views.tasks.showCount`](#views.tasks.showCount) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`views.notes.visibility`](#views.notes.visibility) | one of `visible`, `hidden`, `notable` | `"visible"` | server, domain, user |  | Applied by the web app only. |
+| [`views.notes.name`](#views.notes.name) | text, up to 128 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="views.notes.showcount"></a>[`views.notes.showCount`](#views.notes.showCount) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`views.contacts.visibility`](#views.contacts.visibility) | one of `visible`, `hidden`, `notable` | `"visible"` | server, domain, user |  | Applied by the web app only. |
+| [`views.contacts.name`](#views.contacts.name) | text, up to 128 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="views.contacts.showcount"></a>[`views.contacts.showCount`](#views.contacts.showCount) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`views.keys.visibility`](#views.keys.visibility) | one of `visible`, `hidden`, `notable` | `"visible"` | server, domain, user |  | Applied by the web app only. |
+| [`views.keys.name`](#views.keys.name) | text, up to 128 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="views.keys.showcount"></a>[`views.keys.showCount`](#views.keys.showCount) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`views.attachments.visibility`](#views.attachments.visibility) | one of `visible`, `hidden`, `notable` | `"visible"` | server, domain, user |  | Applied by the web app only. |
+| [`views.attachments.name`](#views.attachments.name) | text, up to 128 characters | `""` | server, domain, user |  | **No effect.** The sidebar button uses a fixed label. |
+| <a id="views.attachments.showcount"></a>[`views.attachments.showCount`](#views.attachments.showCount) | on or off | `true` | server, domain, user |  | **No effect.** The sidebar button never shows a count. |
+| [`views.outbox.visibility`](#views.outbox.visibility) | one of `visible`, `hidden`, `notable` | `"visible"` | server, domain, user |  | Applied by the web app only. |
+| [`views.outbox.name`](#views.outbox.name) | text, up to 128 characters | `""` | server, domain, user |  | **No effect.** The sidebar button uses a fixed label. |
+| <a id="views.outbox.showcount"></a>[`views.outbox.showCount`](#views.outbox.showCount) | on or off | `true` | server, domain, user |  | **No effect.** The Outbox badge always shows the number of pending messages. |
+| [`views.templates.visibility`](#views.templates.visibility) | one of `visible`, `hidden`, `notable` | `"visible"` | server, domain, user |  | Applied by the web app only. |
+| [`views.templates.name`](#views.templates.name) | text, up to 128 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="views.templates.showcount"></a>[`views.templates.showCount`](#views.templates.showCount) | on or off | `true` | server, domain, user |  | **No effect.** The sidebar button never shows a count. |
+| <a id="accounts.settings.inheritgroups"></a>[`accounts.settings.inheritGroups`](#accounts.settings.inheritGroups) | list of up to 8 strings, each up to 16 characters | `[]` | server, domain, user |  | Applied by the server. |
+| <a id="mail.unifiedaccount"></a>[`mail.unifiedAccount`](#mail.unifiedAccount) | on or off | `false` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="mail.unifiedinbox"></a>[`mail.unifiedInbox`](#mail.unifiedInbox) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="mail.crossaccounttransfer"></a>[`mail.crossAccountTransfer`](#mail.crossAccountTransfer) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="folders.hideempty"></a>[`folders.hideEmpty`](#folders.hideEmpty) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| [`folders.colour`](#folders.colour) | six-digit hex colour such as `#336699`, or empty to use the theme | `""` | server, domain, user |  | Applied by the web app only. |
+| [`folders.reorder.enabled`](#folders.reorder.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="folders.reorder.allownesting"></a>[`folders.reorder.allowNesting`](#folders.reorder.allowNesting) | on or off | `true` | server, domain |  | Applied by the web app only. |
+| <a id="folders.reorder.allowservermove"></a>[`folders.reorder.allowServerMove`](#folders.reorder.allowServerMove) | on or off | `true` | server, domain |  | Applied by the web app only. |
+| <a id="folders.reorder.allowsystemfolders"></a>[`folders.reorder.allowSystemFolders`](#folders.reorder.allowSystemFolders) | on or off | `false` | server, domain |  | Applied by the web app only. |
+| <a id="folders.reorder.maxdepth"></a>[`folders.reorder.maxDepth`](#folders.reorder.maxDepth) | integer, 1 to 16 | `8` | server, domain |  | Applied by the web app only. |
+| [`folders.order.locked`](#folders.order.locked) | on or off | `false` | server, domain |  | Applied by the web app only. |
+| [`folders.pinned.admin`](#folders.pinned.admin) | list of up to 50 strings, each up to 256 characters | `[]` | server, domain |  | Applied by the web app only. |
+| <a id="folders.pinned.hidefromtree"></a>[`folders.pinned.hideFromTree`](#folders.pinned.hideFromTree) | on or off | `false` | server, domain |  | Applied by the web app only. |
+| [`folders.order.default`](#folders.order.default) | list of up to 100 strings, each up to 256 characters | `[]` | server, domain |  | Applied by the web app only. |
+| <a id="folders.newfolderplacement"></a>[`folders.newFolderPlacement`](#folders.newFolderPlacement) | one of `end`, `alphabetical` | `"end"` | server, domain, user |  | Applied by the web app only. |
+
+### Privacy, retention and compliance keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="privacy.stripmailerheaders"></a>[`privacy.stripMailerHeaders`](#privacy.stripMailerHeaders) | on or off | `true` | server, domain, user |  | Applied by the server. |
+| <a id="privacy.remoteimagedownloads"></a>[`privacy.remoteImageDownloads`](#privacy.remoteImageDownloads) | on or off | `false` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="privacy.remoteimagestoast"></a>[`privacy.remoteImagesToast`](#privacy.remoteImagesToast) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="privacy.sessions.showlinkedorigin"></a>[`privacy.sessions.showLinkedOrigin`](#privacy.sessions.showLinkedOrigin) | one of `full`, `masked-local-part`, `hidden` | `"full"` | server, domain, user |  | Applied by the server. |
+| <a id="mail.reader.alloworiginalhtml"></a>[`mail.reader.allowOriginalHtml`](#mail.reader.allowOriginalHtml) | on or off | `false` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="privacy.remotecontent"></a>[`privacy.remoteContent`](#privacy.remoteContent) | one of `block`, `ask`, `proxy`, `direct` | `"ask"` | server, domain, user |  | Applied by the server and the web app. |
+| [`privacy.trackers`](#privacy.trackers) | on or off | `true` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="privacy.trackeroverrideallowed"></a>[`privacy.trackerOverrideAllowed`](#privacy.trackerOverrideAllowed) | on or off | `true` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="privacy.cleanlinks"></a>[`privacy.cleanLinks`](#privacy.cleanLinks) | on or off | `true` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="images.trustedhosts"></a>[`images.trustedHosts`](#images.trustedHosts) | list of up to 100 strings, each up to 253 characters | `[]` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="images.blockedhosts"></a>[`images.blockedHosts`](#images.blockedHosts) | list of up to 100 strings, each up to 253 characters | `[]` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="links.trusteddomains"></a>[`links.trustedDomains`](#links.trustedDomains) | list of up to 100 strings, each up to 253 characters | `[]` | server, domain, user |  | Applied by the web app only. |
+| <a id="links.trustedsenders"></a>[`links.trustedSenders`](#links.trustedSenders) | list of up to 100 strings, each up to 254 characters | `[]` | server, domain, user |  | Applied by the web app only. |
+| <a id="links.trustedsenderdomains"></a>[`links.trustedSenderDomains`](#links.trustedSenderDomains) | list of up to 100 strings, each up to 253 characters | `[]` | server, domain, user |  | Applied by the web app only. Not covered by the `cap.links.trusted` switch on the server. |
+| <a id="links.trustedsubdomains"></a>[`links.trustedSubdomains`](#links.trustedSubdomains) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="privacy.maxbytes"></a>[`privacy.maxBytes`](#privacy.maxBytes) | integer, 65,536 to 8,388,608 | `8388608` | server |  | Applied by the server. |
+| <a id="privacy.imageconcurrencymode"></a>[`privacy.imageConcurrencyMode`](#privacy.imageConcurrencyMode) | one of `auto`, `conservative`, `balanced`, `throughput`, `manual` | `"auto"` | server |  | Applied by the server. |
+| <a id="privacy.maxconcurrentglobal"></a>[`privacy.maxConcurrentGlobal`](#privacy.maxConcurrentGlobal) | integer, 1 to 256 | `128` | server |  | Applied by the server. |
+| <a id="privacy.maxconcurrentpipeline"></a>[`privacy.maxConcurrentPipeline`](#privacy.maxConcurrentPipeline) | integer, 1 to 256 | `128` | server |  | Applied by the server. |
+| <a id="privacy.maxconcurrentdecodes"></a>[`privacy.maxConcurrentDecodes`](#privacy.maxConcurrentDecodes) | integer, 1 to 16 | `10` | server |  | Applied by the server. |
+| <a id="privacy.maxqueuedrequests"></a>[`privacy.maxQueuedRequests`](#privacy.maxQueuedRequests) | integer, 16 to 16,384 | `2048` | server |  | Applied by the server. |
+| <a id="privacy.negativecachettlsecs"></a>[`privacy.negativeCacheTtlSecs`](#privacy.negativeCacheTtlSecs) | integer, 0 to 300 | `10` | server |  | Applied by the server. |
+| <a id="privacy.imageretryattempts"></a>[`privacy.imageRetryAttempts`](#privacy.imageRetryAttempts) | integer, 0 to 8 | `3` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="privacy.imageretrydelayms"></a>[`privacy.imageRetryDelayMs`](#privacy.imageRetryDelayMs) | integer, 500 to 60,000 | `5000` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="privacy.fetchconnecttimeoutms"></a>[`privacy.fetchConnectTimeoutMs`](#privacy.fetchConnectTimeoutMs) | integer, 500 to 30,000 | `5000` | server |  | Applied by the server. |
+| <a id="privacy.fetchheaderstimeoutms"></a>[`privacy.fetchHeadersTimeoutMs`](#privacy.fetchHeadersTimeoutMs) | integer, 500 to 60,000 | `10000` | server |  | Applied by the server. |
+| <a id="privacy.fetchidletimeoutms"></a>[`privacy.fetchIdleTimeoutMs`](#privacy.fetchIdleTimeoutMs) | integer, 500 to 60,000 | `10000` | server |  | Applied by the server. |
+| <a id="privacy.fetchtotaltimeoutms"></a>[`privacy.fetchTotalTimeoutMs`](#privacy.fetchTotalTimeoutMs) | integer, 1000 to 120,000 | `20000` | server |  | Applied by the server. |
+| <a id="privacy.imagedecodetimeoutms"></a>[`privacy.imageDecodeTimeoutMs`](#privacy.imageDecodeTimeoutMs) | integer, 1000 to 60,000 | `10000` | server |  | Applied by the server. |
+| <a id="privacy.fetchqueuetimeoutms"></a>[`privacy.fetchQueueTimeoutMs`](#privacy.fetchQueueTimeoutMs) | integer, 1000 to 180,000 | `60000` | server |  | Applied by the server. |
+| <a id="privacy.maxredirects"></a>[`privacy.maxRedirects`](#privacy.maxRedirects) | integer, 0 to 10 | `3` | server |  | Applied by the server. |
+| <a id="privacy.maxconcurrentpermessage"></a>[`privacy.maxConcurrentPerMessage`](#privacy.maxConcurrentPerMessage) | integer, 1 to 128 | `30` | server |  | Applied by the server. |
+| <a id="privacy.maxconcurrentperaccount"></a>[`privacy.maxConcurrentPerAccount`](#privacy.maxConcurrentPerAccount) | integer, 1 to 256 | `128` | server |  | Applied by the server. |
+| <a id="privacy.allowdirect"></a>[`privacy.allowDirect`](#privacy.allowDirect) | on or off | `false` | server |  | Applied by the server. |
+| [`cap.remote_content.direct`](#cap.remote_content.direct) | on or off | `false` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`offline.enabled`](#offline.enabled) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| [`privacy.watermark.enabled`](#privacy.watermark.enabled) | on or off | `false` | server, domain | `MW_WATERMARK` (pin) | **No effect when saved.** Only the environment variable `MW_WATERMARK` is read, and nothing in the reader uses it. |
+| [`privacy.watermark.opacity`](#privacy.watermark.opacity) | number, 0.02 to 0.5 | `0.08` | server, domain | `MW_WATERMARK_OPACITY` (pin) | **No effect when saved.** Only the environment variable `MW_WATERMARK_OPACITY` is read, and nothing in the reader uses it. |
+| <a id="privacy.opentracking.retentiondays"></a>[`privacy.openTracking.retentionDays`](#privacy.openTracking.retentionDays) | integer, 1 to 400 | `365` | server |  | Applied by the server. |
+| <a id="privacy.opentracking.unboundttlhours"></a>[`privacy.openTracking.unboundTtlHours`](#privacy.openTracking.unboundTtlHours) | integer, 1 to 168 | `24` | server |  | Applied by the server. |
+| <a id="retention.requestmetrics.detaildays"></a>[`retention.requestMetrics.detailDays`](#retention.requestMetrics.detailDays) | integer, 0 to 1095 | `30` | server |  | Applied by the server. |
+| <a id="retention.metrics.minutebucketshours"></a>[`retention.metrics.minuteBucketsHours`](#retention.metrics.minuteBucketsHours) | integer, 1 to 8760 | `48` | server |  | Applied by the server. |
+| <a id="retention.metrics.hourbucketsdays"></a>[`retention.metrics.hourBucketsDays`](#retention.metrics.hourBucketsDays) | integer, 1 to 3650 | `60` | server |  | Applied by the server. |
+| <a id="retention.metrics.daybucketsdays"></a>[`retention.metrics.dayBucketsDays`](#retention.metrics.dayBucketsDays) | integer, 0 to 3650 | `1095` | server |  | Applied by the server. |
+| <a id="retention.clienterrors.eventdays"></a>[`retention.clientErrors.eventDays`](#retention.clientErrors.eventDays) | integer, 1 to 3650 | `30` | server |  | Applied by the server. |
+| <a id="retention.clienterrors.groupdays"></a>[`retention.clientErrors.groupDays`](#retention.clientErrors.groupDays) | integer, 1 to 3650 | `180` | server |  | Applied by the server. The effective value is never lower than `retention.clientErrors.eventDays`. |
+| <a id="privacy.errorreports"></a>[`privacy.errorReports`](#privacy.errorReports) | one of `on`, `off` | `"on"` | server, domain, user |  | Applied by the server and the web app. |
+| [`dsr.enabled`](#dsr.enabled) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.type.access`](#dsr.type.access) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.type.portability`](#dsr.type.portability) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.type.rectification`](#dsr.type.rectification) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.type.erasure`](#dsr.type.erasure) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.type.restriction`](#dsr.type.restriction) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.type.objection`](#dsr.type.objection) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.type.other`](#dsr.type.other) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.approval.export`](#dsr.approval.export) | one of `auto`, `admin` | `"auto"` | server, domain |  | Applied by the server. |
+| [`dsr.approval.erasure`](#dsr.approval.erasure) | one of `auto`, `admin` | `"admin"` | server, domain |  | Applied by the server. |
+| [`dsr.approval.other`](#dsr.approval.other) | one of `auto`, `admin` | `"admin"` | server, domain |  | Applied by the server. |
+| [`dsr.reauth.required`](#dsr.reauth.required) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.confirmation.required`](#dsr.confirmation.required) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="dsr.admin.stepup"></a>[`dsr.admin.stepUp`](#dsr.admin.stepUp) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="dsr.identityverification.required"></a>[`dsr.identityVerification.required`](#dsr.identityVerification.required) | on or off | `false` | server, domain |  | Applied by the server. |
+| <a id="dsr.erasure.gracedays"></a>[`dsr.erasure.graceDays`](#dsr.erasure.graceDays) | integer, 0 to 365 | `14` | server, domain |  | Applied by the server. |
+| [`dsr.sla.days`](#dsr.sla.days) | integer, 1 to 90 | `30` | server, domain |  | Applied by the server. |
+| <a id="dsr.sla.maxextensiondays"></a>[`dsr.sla.maxExtensionDays`](#dsr.sla.maxExtensionDays) | integer, 0 to 90 | `60` | server |  | Applied by the server. |
+| <a id="dsr.sla.reminderdays"></a>[`dsr.sla.reminderDays`](#dsr.sla.reminderDays) | strictly increasing list of up to 5 integers, 1 to 90 | `[1,3,7]` | server |  | Applied by the server. Only the largest value is used, as a single "due soon" window; the individual values have no separate effect. |
+| <a id="dsr.export.mailallowed"></a>[`dsr.export.mailAllowed`](#dsr.export.mailAllowed) | on or off | `false` | server, domain |  | Applied by the server. |
+| <a id="dsr.export.mailformat"></a>[`dsr.export.mailFormat`](#dsr.export.mailFormat) | one of `mbox`, `eml` | `"mbox"` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.settings`](#dsr.export.include.settings) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.identities`](#dsr.export.include.identities) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.contacts`](#dsr.export.include.contacts) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.calendars`](#dsr.export.include.calendars) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.notes`](#dsr.export.include.notes) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.rules`](#dsr.export.include.rules) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.sessions`](#dsr.export.include.sessions) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.consent`](#dsr.export.include.consent) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`dsr.export.include.audit`](#dsr.export.include.audit) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="dsr.export.maxmegabytes"></a>[`dsr.export.maxMegabytes`](#dsr.export.maxMegabytes) | integer, 1 to 2000 | `500` | server |  | Applied by the server. |
+| [`dsr.export.format`](#dsr.export.format) | one of `json`, `jsonCsv` | `"json"` | server, domain |  | Applied by the server. |
+| [`dsr.export.encrypt`](#dsr.export.encrypt) | on or off | `false` | server, domain |  | Applied by the server. |
+| <a id="dsr.download.linkminutes"></a>[`dsr.download.linkMinutes`](#dsr.download.linkMinutes) | integer, 5 to 10,080 | `1440` | server, domain |  | Applied by the server. |
+| <a id="dsr.download.singleuse"></a>[`dsr.download.singleUse`](#dsr.download.singleUse) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="dsr.retention.completeddays"></a>[`dsr.retention.completedDays`](#dsr.retention.completedDays) | integer, 30 to 3650 | `1825` | server |  | Applied by the server. |
+| [`incidents.auto.enabled`](#incidents.auto.enabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="incidents.auto.failuresamples"></a>[`incidents.auto.failureSamples`](#incidents.auto.failureSamples) | integer, 2 to 30 | `3` | server |  | Applied by the server. |
+| <a id="incidents.nis2.trustservice"></a>[`incidents.nis2.trustService`](#incidents.nis2.trustService) | on or off | `false` | server |  | Applied by the server. |
+| [`incidents.notify.email`](#incidents.notify.email) | on or off | `false` | server |  | Applied by the server. |
+| <a id="incidents.notify.operatoraddresses"></a>[`incidents.notify.operatorAddresses`](#incidents.notify.operatorAddresses) | list of up to 20 strings, each up to 254 characters | `[]` | server |  | Applied by the server. |
+| <a id="incidents.auto.resolvetransient"></a>[`incidents.auto.resolveTransient`](#incidents.auto.resolveTransient) | on or off | `true` | server |  | Applied by the server. |
+| <a id="incidents.auto.transientminutes"></a>[`incidents.auto.transientMinutes`](#incidents.auto.transientMinutes) | integer, 1 to 1440 | `15` | server |  | Applied by the server. |
+| <a id="incidents.auto.recoverysamples"></a>[`incidents.auto.recoverySamples`](#incidents.auto.recoverySamples) | integer, 2 to 100 | `2` | server |  | Applied by the server. |
+| [`incidents.retention.days`](#incidents.retention.days) | integer, 1 to 3650 | `2555` | server |  | Applied by the server. If the value cannot be read, the server falls back to 1095 days, not the default. |
+| <a id="retention.compliancemail.days"></a>[`retention.complianceMail.days`](#retention.complianceMail.days) | integer, 1 to 3650 | `730` | server |  | Applied by the server. If the value cannot be read, the server falls back to 30 days, not the default. |
+| [`compliance.mail.enabled`](#compliance.mail.enabled) | on or off | `false` | server |  | Applied by the server. |
+| [`compliance.mail.protocol`](#compliance.mail.protocol) | one of `smtp`, `jmap` | `"smtp"` | server |  | Applied by the server. |
+| <a id="compliance.mail.jmapsessionurl"></a>[`compliance.mail.jmapSessionUrl`](#compliance.mail.jmapSessionUrl) | https:// URL, up to 2048 characters; may be unset | `null` | server |  | Applied by the server. |
+| [`compliance.mail.host`](#compliance.mail.host) | text, up to 253 characters | `""` | server |  | Applied by the server. |
+| [`compliance.mail.port`](#compliance.mail.port) | integer, 1 to 65,535 | `587` | server |  | Applied by the server. |
+| [`compliance.mail.security`](#compliance.mail.security) | one of `starttls`, `implicit` | `"starttls"` | server |  | Applied by the server. |
+| [`compliance.mail.from`](#compliance.mail.from) | text, up to 254 characters | `""` | server |  | Applied by the server. |
+| [`compliance.mail.username`](#compliance.mail.username) | text, up to 254 characters | `""` | server |  | Applied by the server. |
+| <a id="compliance.mail.requireproxy"></a>[`compliance.mail.requireProxy`](#compliance.mail.requireProxy) | on or off | `true` | server |  | Applied by the server. |
+| <a id="compliance.mail.allowprivate"></a>[`compliance.mail.allowPrivate`](#compliance.mail.allowPrivate) | on or off | `false` | server |  | Applied by the server. |
+| <a id="dsr.notify.emailadmins"></a>[`dsr.notify.emailAdmins`](#dsr.notify.emailAdmins) | on or off | `false` | server |  | Applied by the server. |
+| <a id="dsr.notify.operatoraddresses"></a>[`dsr.notify.operatorAddresses`](#dsr.notify.operatorAddresses) | list of up to 20 strings, each up to 254 characters | `[]` | server |  | Applied by the server. |
+| <a id="dsr.notify.emailrequester"></a>[`dsr.notify.emailRequester`](#dsr.notify.emailRequester) | on or off | `false` | server |  | Applied by the server. |
+| [`breach.notify.email`](#breach.notify.email) | on or off | `false` | server |  | Applied by the server. |
+| [`breach.subjects.email`](#breach.subjects.email) | on or off | `false` | server |  | Applied by the server. |
+| [`dsr.notify.admins`](#dsr.notify.admins) | on or off | `true` | server |  | Applied by the server. |
+| [`dsr.notify.requester`](#dsr.notify.requester) | on or off | `true` | server, domain, user |  | Applied by the server. |
+| [`dsr.contact.name`](#dsr.contact.name) | text, up to 200 characters; may be unset | `null` | server, domain |  | Applied by the server and the web app. |
+| [`dsr.contact.email`](#dsr.contact.email) | email address, up to 254 characters; may be unset | `null` | server, domain |  | Applied by the server and the web app. |
+| [`dsr.contact.url`](#dsr.contact.url) | https:// URL, up to 2048 characters; may be unset | `null` | server, domain |  | Applied by the server and the web app. |
+| <a id="policy.publicpages"></a>[`policy.publicPages`](#policy.publicPages) | on or off | `true` | server, domain |  | Applied by the server and the web app. |
+| <a id="policy.autoversion"></a>[`policy.autoVersion`](#policy.autoVersion) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="policy.reconsentonchange"></a>[`policy.reconsentOnChange`](#policy.reconsentOnChange) | on or off | `false` | server, domain |  | Applied by the server. |
+| [`policy.controller.name`](#policy.controller.name) | text, up to 300 characters; may be unset | `null` | server, domain |  | Applied by the server. |
+| [`policy.controller.address`](#policy.controller.address) | text, up to 500 characters; may be unset | `null` | server, domain |  | Applied by the server. |
+| <a id="policy.legalbases"></a>[`policy.legalBases`](#policy.legalBases) | text, up to 1000 characters; may be unset | `null` | server, domain |  | Applied by the server. |
+| [`policy.hosting.provider`](#policy.hosting.provider) | text, up to 500 characters; may be unset | `null` | server, domain |  | Applied by the server. |
+| [`policy.hosting.transfers`](#policy.hosting.transfers) | text, up to 1000 characters; may be unset | `null` | server, domain |  | Applied by the server. |
+| <a id="policy.supervisoryauthority"></a>[`policy.supervisoryAuthority`](#policy.supervisoryAuthority) | text, up to 500 characters; may be unset | `null` | server, domain |  | Applied by the server. |
+| [`dpia.suggest`](#dpia.suggest) | on or off | `true` | server |  | Applied by the server. |
+| <a id="dpia.reviewmonths"></a>[`dpia.reviewMonths`](#dpia.reviewMonths) | integer, 1 to 60 | `12` | server |  | Applied by the server. |
+| <a id="dpia.reminderdays"></a>[`dpia.reminderDays`](#dpia.reminderDays) | integer, 0 to 365 | `30` | server |  | Applied by the server. |
+| <a id="dsr.onbehalf.allowed"></a>[`dsr.onBehalf.allowed`](#dsr.onBehalf.allowed) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="dsr.ratelimit.perday"></a>[`dsr.rateLimit.perDay`](#dsr.rateLimit.perDay) | integer, 1 to 100 | `5` | server, domain |  | Applied by the server. |
+| <a id="dsr.legalhold.subjects"></a>[`dsr.legalHold.subjects`](#dsr.legalHold.subjects) | list of up to 500 strings, each up to 254 characters | `[]` | server |  | Applied by the server. |
+| [`scrub.enabled`](#scrub.enabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="scrub.pseudonymalgorithm"></a>[`scrub.pseudonymAlgorithm`](#scrub.pseudonymAlgorithm) | one of `hmac-sha256-16`, `hmac-sha256-32` | `"hmac-sha256-16"` | server |  | Applied by the server. |
+| <a id="scrub.includelogs"></a>[`scrub.includeLogs`](#scrub.includeLogs) | on or off | `true` | server |  | Applied by the server. |
+| <a id="scrub.autorunonerasure"></a>[`scrub.autoRunOnErasure`](#scrub.autoRunOnErasure) | on or off | `false` | server |  | Applied by the server. |
+| <a id="scrub.keyretentiondays"></a>[`scrub.keyRetentionDays`](#scrub.keyRetentionDays) | integer, 0 to 3650 | `0` | server |  | Applied by the server. |
+| <a id="backup.propagateerasure"></a>[`backup.propagateErasure`](#backup.propagateErasure) | on or off | `true` | server |  | Applied by the server. |
+| <a id="backup.tombstoneretentiondays"></a>[`backup.tombstoneRetentionDays`](#backup.tombstoneRetentionDays) | integer, 0 to 36,500 | `3650` | server |  | Applied by the server. |
+| [`dsr.text.intro`](#dsr.text.intro) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`dsr.text.confirmation`](#dsr.text.confirmation) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server. |
+| [`dsr.text.completion`](#dsr.text.completion) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server. |
+| [`breach.enabled`](#breach.enabled) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="breach.noticehours"></a>[`breach.noticeHours`](#breach.noticeHours) | integer, 1 to 720 | `72` | server, domain |  | Applied by the server. |
+| [`breach.reminders.hours`](#breach.reminders.hours) | strictly increasing list of up to 6 integers, 1 to 720 | `[6,24,48]` | server, domain |  | Applied by the server. |
+| <a id="breach.reminders.overduerepeathours"></a>[`breach.reminders.overdueRepeatHours`](#breach.reminders.overdueRepeatHours) | integer, 0 to 168 | `24` | server, domain |  | Applied by the server. |
+| [`breach.authority.name`](#breach.authority.name) | text, up to 200 characters; may be unset | `null` | server, domain |  | Applied by the server. |
+| [`breach.authority.url`](#breach.authority.url) | https:// URL, up to 2048 characters; may be unset | `null` | server, domain |  | Applied by the server. |
+| [`breach.authority.contact`](#breach.authority.contact) | text, up to 500 characters; may be unset | `null` | server, domain |  | Applied by the server. |
+| [`breach.dpo.name`](#breach.dpo.name) | text, up to 200 characters; may be unset | `null` | server, domain |  | Applied by the server. |
+| [`breach.dpo.email`](#breach.dpo.email) | email address, up to 254 characters; may be unset | `null` | server, domain |  | Applied by the server. |
+| [`breach.dpo.phone`](#breach.dpo.phone) | text, up to 60 characters; may be unset | `null` | server, domain |  | Applied by the server. |
+| [`breach.template.subject`](#breach.template.subject) | object mapping an interface language code to text of up to 300 characters | `{}` | server, domain |  | Applied by the server. |
+| [`breach.template.body`](#breach.template.body) | object mapping an interface language code to text of up to 8000 characters | `{}` | server, domain |  | Applied by the server. |
+| [`breach.notify.audit`](#breach.notify.audit) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="breach.notify.webhookurls"></a>[`breach.notify.webhookUrls`](#breach.notify.webhookUrls) | list of up to 10 strings, each up to 2048 characters | `[]` | server |  | Applied by the server. |
+| <a id="breach.notify.operatoraddresses"></a>[`breach.notify.operatorAddresses`](#breach.notify.operatorAddresses) | list of up to 20 strings, each up to 254 characters | `[]` | server |  | Applied by the server. |
+| <a id="breach.subjects.inapp"></a>[`breach.subjects.inApp`](#breach.subjects.inApp) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`breach.subjects.inbox`](#breach.subjects.inbox) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`breach.subjects.webhook`](#breach.subjects.webhook) | on or off | `false` | server, domain |  | Applied by the server. |
+| [`breach.retention.years`](#breach.retention.years) | integer, 1 to 50 | `10` | server |  | Applied by the server. |
+| [`breach.auto.enabled`](#breach.auto.enabled) | on or off | `false` | server |  | Applied by the server. |
+| <a id="breach.auto.startclock"></a>[`breach.auto.startClock`](#breach.auto.startClock) | one of `onConfirm`, `onDetect` | `"onConfirm"` | server |  | Applied by the server. |
+| [`breach.auto.assignee`](#breach.auto.assignee) | text, up to 120 characters; may be unset | `null` | server |  | Applied by the server. |
+| <a id="breach.auto.escalateafterhours"></a>[`breach.auto.escalateAfterHours`](#breach.auto.escalateAfterHours) | integer, 0 to 168 | `4` | server |  | Applied by the server. Only incidents created automatically are escalated; incidents opened by hand never are. |
+| <a id="breach.auto.escalateto"></a>[`breach.auto.escalateTo`](#breach.auto.escalateTo) | text, up to 120 characters; may be unset | `null` | server |  | Applied by the server. |
+| <a id="breach.auto.windowminutes"></a>[`breach.auto.windowMinutes`](#breach.auto.windowMinutes) | integer, 1 to 1440 | `60` | server |  | Applied by the server. |
+| [`breach.auto.theft.threshold`](#breach.auto.theft.threshold) | integer, 0 to 1000 | `0` | server |  | Applied by the server. |
+| <a id="breach.auto.credentialstuffing.threshold"></a>[`breach.auto.credentialStuffing.threshold`](#breach.auto.credentialStuffing.threshold) | integer, 0 to 1000 | `0` | server |  | Applied by the server. |
+| <a id="breach.auto.massforward.threshold"></a>[`breach.auto.massForward.threshold`](#breach.auto.massForward.threshold) | integer, 0 to 1000 | `0` | server |  | Applied by the server. |
+| <a id="breach.auto.roleescalation.threshold"></a>[`breach.auto.roleEscalation.threshold`](#breach.auto.roleEscalation.threshold) | integer, 0 to 1000 | `0` | server |  | Applied by the server. |
+| <a id="breach.auto.exportvolume.threshold"></a>[`breach.auto.exportVolume.threshold`](#breach.auto.exportVolume.threshold) | integer, 0 to 1000 | `0` | server |  | Applied by the server. |
+| <a id="breach.auto.auditchain.threshold"></a>[`breach.auto.auditChain.threshold`](#breach.auto.auditChain.threshold) | integer, 0 to 1000 | `0` | server |  | Applied by the server. |
+| <a id="breach.auto.backupanomaly.threshold"></a>[`breach.auto.backupAnomaly.threshold`](#breach.auto.backupAnomaly.threshold) | integer, 0 to 1000 | `0` | server |  | Applied by the server. |
+| <a id="breach.auto.dsrexport.threshold"></a>[`breach.auto.dsrExport.threshold`](#breach.auto.dsrExport.threshold) | integer, 0 to 1000 | `0` | server |  | Applied by the server. |
+| [`restriction.enabled`](#restriction.enabled) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="restriction.autoapplyonapproval"></a>[`restriction.autoApplyOnApproval`](#restriction.autoApplyOnApproval) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="restriction.maildelivery"></a>[`restriction.mailDelivery`](#restriction.mailDelivery) | one of `keep`, `queue`, `reject` | `"keep"` | server, domain |  | **No behavioural effect.** The value is recorded on the restriction and shown to the person; the server does not receive mail, so nothing queues or rejects mail because of it. |
+| <a id="restriction.defaultexpirydays"></a>[`restriction.defaultExpiryDays`](#restriction.defaultExpiryDays) | integer, 0 to 3650 | `0` | server, domain |  | Applied by the server. |
+| <a id="restriction.notifyuser"></a>[`restriction.notifyUser`](#restriction.notifyUser) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`restriction.scope.indexing`](#restriction.scope.indexing) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`restriction.scope.assistant`](#restriction.scope.assistant) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`restriction.scope.analytics`](#restriction.scope.analytics) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`restriction.scope.classification`](#restriction.scope.classification) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`restriction.scope.push`](#restriction.scope.push) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="restriction.scope.thirdparty"></a>[`restriction.scope.thirdParty`](#restriction.scope.thirdParty) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`consent.enabled`](#consent.enabled) | on or off | `true` | server, domain |  | Applied by the server and the web app. |
+| <a id="consent.receipts.retentiondays"></a>[`consent.receipts.retentionDays`](#consent.receipts.retentionDays) | integer, 0 to 3650 | `1825` | server |  | Applied by the server. |
+| [`consent.art22.notice`](#consent.art22.notice) | on or off | `true` | server, domain |  | Applied by the server and the web app. |
+| [`consent.analytics.basis`](#consent.analytics.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"consent"` | server, domain |  | Applied by the server and the web app. |
+| [`consent.analytics.version`](#consent.analytics.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | **No behavioural effect.** The version is written on consent receipts. Raising it does not ask people again for this purpose. |
+| [`consent.analytics.text`](#consent.analytics.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| <a id="consent.analyticstag.basis"></a>[`consent.analyticsTag.basis`](#consent.analyticsTag.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"consent"` | server, domain |  | Applied by the server and the web app. |
+| <a id="consent.analyticstag.version"></a>[`consent.analyticsTag.version`](#consent.analyticsTag.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | **No behavioural effect.** The version is written on consent receipts. Raising it does not ask people again for this purpose. |
+| <a id="consent.analyticstag.text"></a>[`consent.analyticsTag.text`](#consent.analyticsTag.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`consent.assistant.basis`](#consent.assistant.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"contract"` | server, domain |  | Applied by the server and the web app. |
+| [`consent.assistant.version`](#consent.assistant.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | Applied by the server. |
+| [`consent.assistant.text`](#consent.assistant.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`consent.push.basis`](#consent.push.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"contract"` | server, domain |  | Applied by the server and the web app. |
+| [`consent.push.version`](#consent.push.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | Applied by the server. |
+| [`consent.push.text`](#consent.push.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| <a id="consent.opentracking.basis"></a>[`consent.openTracking.basis`](#consent.openTracking.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"contract"` | server, domain |  | Applied by the server and the web app. |
+| <a id="consent.opentracking.version"></a>[`consent.openTracking.version`](#consent.openTracking.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | Applied by the server. |
+| <a id="consent.opentracking.text"></a>[`consent.openTracking.text`](#consent.openTracking.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| <a id="consent.remotecontent.basis"></a>[`consent.remoteContent.basis`](#consent.remoteContent.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"consent"` | server, domain |  | Applied by the server and the web app. |
+| <a id="consent.remotecontent.version"></a>[`consent.remoteContent.version`](#consent.remoteContent.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | **No behavioural effect.** The version is written on consent receipts. Raising it does not ask people again for this purpose. |
+| <a id="consent.remotecontent.text"></a>[`consent.remoteContent.text`](#consent.remoteContent.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`consent.integrations.basis`](#consent.integrations.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"contract"` | server, domain |  | Applied by the server and the web app. |
+| [`consent.integrations.version`](#consent.integrations.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | Applied by the server. |
+| [`consent.integrations.text`](#consent.integrations.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`consent.telemetry.basis`](#consent.telemetry.basis) | one of `consent`, `legitimateInterest`, `contract`, `legalObligation` | `"legitimateInterest"` | server, domain |  | Applied by the server and the web app. |
+| [`consent.telemetry.version`](#consent.telemetry.version) | integer, 1 to 1,000,000 | `1` | server, domain |  | **No behavioural effect.** The version is written on consent receipts. Raising it does not ask people again for this purpose. |
+| [`consent.telemetry.text`](#consent.telemetry.text) | object mapping an interface language code to text of up to 2000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| <a id="retention.sessions.idledays"></a>[`retention.sessions.idleDays`](#retention.sessions.idleDays) | integer, 0 to 3650 | `1095` | server |  | Applied by the server. |
+| [`retention.sweeper.enabled`](#retention.sweeper.enabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="retention.sweeper.batchrows"></a>[`retention.sweeper.batchRows`](#retention.sweeper.batchRows) | integer, 50 to 10,000 | `500` | server |  | Applied by the server. |
+| <a id="retention.sweeper.maxbatches"></a>[`retention.sweeper.maxBatches`](#retention.sweeper.maxBatches) | integer, 1 to 1000 | `20` | server |  | Applied by the server. |
+| <a id="retention.sweeper.jitterminutes"></a>[`retention.sweeper.jitterMinutes`](#retention.sweeper.jitterMinutes) | integer, 0 to 240 | `30` | server |  | Applied by the server. |
+| [`maintenance.database.enabled`](#maintenance.database.enabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="maintenance.database.orphanbodies"></a>[`maintenance.database.orphanBodies`](#maintenance.database.orphanBodies) | on or off | `true` | server |  | Applied by the server. |
+| <a id="maintenance.database.expireCachedBodies"></a><a id="maintenance.database.expirecachedbodies"></a>`maintenance.database.expireCachedBodies` | on or off | `true` | server |  | Applied by the server. |
+| <a id="maintenance.database.cachedBodyRetentionDays"></a><a id="maintenance.database.cachedbodyretentiondays"></a>`maintenance.database.cachedBodyRetentionDays` | integer, 1 to 3650 | `60` | server |  | Applied by the server. |
+| <a id="maintenance.database.changeLogRetentionDays"></a><a id="maintenance.database.changelogretentiondays"></a>`maintenance.database.changeLogRetentionDays` | integer, 0 to 3650 | `60` | server |  | Applied by the server. |
+| <a id="maintenance.database.changeLogBatchRows"></a><a id="maintenance.database.changelogbatchrows"></a>`maintenance.database.changeLogBatchRows` | integer, 1 to 10,000 | `1000` | server |  | Applied by the server. |
+| <a id="maintenance.database.incrementalvacuum"></a>[`maintenance.database.incrementalVacuum`](#maintenance.database.incrementalVacuum) | on or off | `true` | server |  | Applied by the server. |
+| <a id="maintenance.database.intervalseconds"></a>[`maintenance.database.intervalSeconds`](#maintenance.database.intervalSeconds) | integer, 15 to 86,400 | `60` | server |  | Applied by the server. |
+| <a id="maintenance.database.batchrows"></a>[`maintenance.database.batchRows`](#maintenance.database.batchRows) | integer, 1 to 512 | `64` | server |  | Applied by the server. |
+| <a id="maintenance.database.batchmib"></a>[`maintenance.database.batchMiB`](#maintenance.database.batchMiB) | integer, 1 to 256 | `16` | server |  | Applied by the server. |
+| <a id="maintenance.database.gracehours"></a>[`maintenance.database.graceHours`](#maintenance.database.graceHours) | integer, 1 to 720 | `24` | server |  | Applied by the server. |
+| <a id="maintenance.database.batchpages"></a>[`maintenance.database.batchPages`](#maintenance.database.batchPages) | integer, 8 to 16,384 | `1024` | server |  | Applied by the server. |
+| <a id="maintenance.database.maxrunms"></a>[`maintenance.database.maxRunMs`](#maintenance.database.maxRunMs) | integer, 25 to 2000 | `250` | server |  | Applied by the server. |
+| <a id="maintenance.database.minfreemib"></a>[`maintenance.database.minFreeMiB`](#maintenance.database.minFreeMiB) | integer, 0 to 65,536 | `16` | server |  | Applied by the server. |
+| <a id="maintenance.database.maxwalmib"></a>[`maintenance.database.maxWalMiB`](#maintenance.database.maxWalMiB) | integer, 1 to 1024 | `32` | server |  | Applied by the server. |
+| <a id="retention.sweeper.vacuumafterrows"></a>[`retention.sweeper.vacuumAfterRows`](#retention.sweeper.vacuumAfterRows) | integer, 0 to 100,000,000 | `100000` | server |  | Applied by the server. |
+| <a id="retention.passwordchangeaudit.days"></a>[`retention.passwordChangeAudit.days`](#retention.passwordChangeAudit.days) | integer, 0 to 3650 | `365` | server |  | Applied by the server. |
+| <a id="retention.ssologinaudit.days"></a>[`retention.ssoLoginAudit.days`](#retention.ssoLoginAudit.days) | integer, 0 to 3650 | `365` | server |  | Applied by the server. |
+| <a id="retention.dlpaudit.days"></a>[`retention.dlpAudit.days`](#retention.dlpAudit.days) | integer, 0 to 3650 | `1825` | server |  | Applied by the server. |
+| <a id="retention.assistaudit.days"></a>[`retention.assistAudit.days`](#retention.assistAudit.days) | integer, 0 to 3650 | `730` | server |  | Applied by the server. |
+| <a id="retention.alertevents.days"></a>[`retention.alertEvents.days`](#retention.alertEvents.days) | integer, 0 to 3650 | `1095` | server |  | Applied by the server. |
+| <a id="retention.jobruns.days"></a>[`retention.jobRuns.days`](#retention.jobRuns.days) | integer, 0 to 3650 | `90` | server |  | Applied by the server. |
+| [`retention.outbox.days`](#retention.outbox.days) | integer, 0 to 3650 | `30` | server |  | Applied by the server. |
+| <a id="retention.expiredcredentials.gracedays"></a>[`retention.expiredCredentials.graceDays`](#retention.expiredCredentials.graceDays) | integer, 0 to 365 | `1` | server |  | Applied by the server. Remembered devices and image links use `retention.rememberedDevices.graceDays` and `retention.imageHandles.graceDays` instead. |
+| <a id="retention.remembereddevices.gracedays"></a>[`retention.rememberedDevices.graceDays`](#retention.rememberedDevices.graceDays) | integer, 0 to 3650 | `365` | server |  | Applied by the server. |
+| <a id="retention.sourcefailures.gracedays"></a>[`retention.sourceFailures.graceDays`](#retention.sourceFailures.graceDays) | integer, 0 to 3650 | `365` | server |  | Applied by the server. |
+| <a id="retention.imagehandles.gracedays"></a>[`retention.imageHandles.graceDays`](#retention.imageHandles.graceDays) | integer, 0 to 3650 | `365` | server |  | Applied by the server. |
+| <a id="retention.ipaddresses.days"></a>[`retention.ipAddresses.days`](#retention.ipAddresses.days) | integer, 0 to 3650 | `1095` | server |  | Applied by the server. |
+| <a id="retention.ipaddresses.mode"></a>[`retention.ipAddresses.mode`](#retention.ipAddresses.mode) | one of `truncate`, `hash` | `"truncate"` | server |  | Applied by the server. |
+| [`retention.user.enabled`](#retention.user.enabled) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="retention.user.mindays"></a>[`retention.user.minDays`](#retention.user.minDays) | integer, 1 to 3650 | `7` | server, domain |  | Applied by the server. |
+| <a id="retention.user.maxdays"></a>[`retention.user.maxDays`](#retention.user.maxDays) | integer, 0 to 3650 | `0` | server, domain |  | Applied by the server. |
+| <a id="retention.user.maxrules"></a>[`retention.user.maxRules`](#retention.user.maxRules) | integer, 1 to 500 | `50` | server, domain |  | Applied by the server. |
+| <a id="retention.user.allowpermanentdelete"></a>[`retention.user.allowPermanentDelete`](#retention.user.allowPermanentDelete) | on or off | `false` | server, domain |  | Applied by the server. |
+| <a id="retention.user.undodays"></a>[`retention.user.undoDays`](#retention.user.undoDays) | integer, 0 to 365 | `7` | server, domain |  | Applied by the server. |
+| [`retention.user.mandatory`](#retention.user.mandatory) | list of up to 20 strings, each up to 64 characters | `[]` | server, domain |  | Applied by the server. |
+| <a id="retention.user.protectedfolders"></a>[`retention.user.protectedFolders`](#retention.user.protectedFolders) | list of up to 30 strings, each up to 128 characters | `["drafts"]` | server, domain |  | Applied by the server. |
+| [`retention.user.templates`](#retention.user.templates) | list of up to 30 strings, each up to 64 characters | `["newsletters30","receipts365","notifications14","trash30","junk30","read-archive180"]` | server, domain |  | Applied by the server. |
+| <a id="retention.user.runforrestricted"></a>[`retention.user.runForRestricted`](#retention.user.runForRestricted) | on or off | `false` | server |  | Applied by the server. |
+| <a id="retention.user.intervalhours"></a>[`retention.user.intervalHours`](#retention.user.intervalHours) | integer, 1 to 168 | `24` | server |  | Applied by the server. |
+| <a id="retention.user.batchmessages"></a>[`retention.user.batchMessages`](#retention.user.batchMessages) | integer, 10 to 1000 | `200` | server |  | Applied by the server. |
+| <a id="retention.user.maxperrun"></a>[`retention.user.maxPerRun`](#retention.user.maxPerRun) | integer, 10 to 100,000 | `5000` | server |  | Applied by the server. |
+| <a id="retention.user.pausems"></a>[`retention.user.pauseMs`](#retention.user.pauseMs) | integer, 0 to 5000 | `100` | server |  | Applied by the server. |
+| <a id="retention.user.allowstripattachments"></a>[`retention.user.allowStripAttachments`](#retention.user.allowStripAttachments) | on or off | `false` | server, domain |  | Applied by the server. |
+| <a id="retention.user.strip.minagedays"></a>[`retention.user.strip.minAgeDays`](#retention.user.strip.minAgeDays) | integer, 7 to 3650 | `90` | server, domain |  | Applied by the server. |
+| <a id="retention.user.strip.minattachmentkb"></a>[`retention.user.strip.minAttachmentKb`](#retention.user.strip.minAttachmentKb) | integer, 1 to 102,400 | `100` | server, domain |  | Applied by the server. |
+| <a id="retention.user.strip.keepinlineimages"></a>[`retention.user.strip.keepInlineImages`](#retention.user.strip.keepInlineImages) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="retention.user.strip.undodays"></a>[`retention.user.strip.undoDays`](#retention.user.strip.undoDays) | integer, -1 to 365 | `-1` | server, domain |  | Applied by the server. |
+| [`retention.user.calendar.enabled`](#retention.user.calendar.enabled) | on or off | `false` | server, domain |  | Applied by the server. |
+| <a id="retention.user.calendar.mindays"></a>[`retention.user.calendar.minDays`](#retention.user.calendar.minDays) | integer, 1 to 3650 | `30` | server, domain |  | Applied by the server. |
+| <a id="retention.user.calendar.maxdays"></a>[`retention.user.calendar.maxDays`](#retention.user.calendar.maxDays) | integer, 1 to 3650 | `3650` | server, domain |  | Applied by the server. |
+| [`retention.user.notes.enabled`](#retention.user.notes.enabled) | on or off | `false` | server, domain |  | Applied by the server. |
+| <a id="retention.user.notes.mindays"></a>[`retention.user.notes.minDays`](#retention.user.notes.minDays) | integer, 1 to 3650 | `30` | server, domain |  | Applied by the server. |
+| <a id="retention.user.notes.maxdays"></a>[`retention.user.notes.maxDays`](#retention.user.notes.maxDays) | integer, 1 to 3650 | `3650` | server, domain |  | Applied by the server. |
+| [`retention.class.short.days`](#retention.class.short.days) | integer, 1 to 3650 | `365` | server |  | Applied by the server. |
+| [`retention.class.medium.days`](#retention.class.medium.days) | integer, 1 to 3650 | `1095` | server |  | Applied by the server. |
+| [`retention.class.long.days`](#retention.class.long.days) | integer, 0 to 3650 | `2555` | server |  | Applied by the server. |
+| [`retention.class.enforce`](#retention.class.enforce) | on or off | `false` | server |  | Applied by the server. |
+| [`retention.archive.enabled`](#retention.archive.enabled) | on or off | `false` | server |  | Applied by the server. |
+| [`retention.archive.directory`](#retention.archive.directory) | text, up to 500 characters | `"archive"` | server |  | Applied by the server. |
+| <a id="retention.archive.batchrows"></a>[`retention.archive.batchRows`](#retention.archive.batchRows) | integer, 50 to 10,000 | `1000` | server |  | Applied by the server. |
+| <a id="retention.archive.maxsegments"></a>[`retention.archive.maxSegments`](#retention.archive.maxSegments) | integer, 1 to 1000 | `10` | server |  | Applied by the server. |
+| <a id="retention.archive.keygeneration"></a>[`retention.archive.keyGeneration`](#retention.archive.keyGeneration) | integer, 1 to 1,000,000 | `1` | server |  | Applied by the server. |
+| <a id="retention.archive.verifydays"></a>[`retention.archive.verifyDays`](#retention.archive.verifyDays) | integer, 1 to 365 | `7` | server |  | Applied by the server. |
+| <a id="retention.archive.legalhold"></a>[`retention.archive.legalHold`](#retention.archive.legalHold) | on or off | `false` | server |  | Applied by the server. |
+| [`cookies.enabled`](#cookies.enabled) | on or off | `false` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.mode`](#cookies.mode) | one of `optIn`, `optOut`, `noticeOnly` | `"optIn"` | server, domain |  | Applied by the server and the web app. |
+| <a id="cookies.regionmode"></a>[`cookies.regionMode`](#cookies.regionMode) | one of `optIn`, `optOut`, `noticeOnly`, `same` | `"optIn"` | server, domain |  | Applied by the server. |
+| <a id="cookies.strictregions"></a>[`cookies.strictRegions`](#cookies.strictRegions) | list of up to 80 strings, each up to 8 characters | built-in list of 32 entries | server, domain |  | Applied by the server. |
+| <a id="cookies.regionheader"></a>[`cookies.regionHeader`](#cookies.regionHeader) | text, up to 64 characters | `"X-Country-Code"` | server, domain |  | Applied by the server. |
+| <a id="cookies.unknownregion"></a>[`cookies.unknownRegion`](#cookies.unknownRegion) | one of `strict`, `normal` | `"strict"` | server, domain |  | Applied by the server. |
+| [`cookies.functional.enabled`](#cookies.functional.enabled) | on or off | `true` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.functional.default`](#cookies.functional.default) | on or off | `true` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.analytics.enabled`](#cookies.analytics.enabled) | on or off | `false` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.analytics.default`](#cookies.analytics.default) | on or off | `false` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.marketing.enabled`](#cookies.marketing.enabled) | on or off | `false` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.marketing.default`](#cookies.marketing.default) | on or off | `false` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.layout`](#cookies.layout) | one of `banner`, `card`, `modal` | `"banner"` | server, domain |  | Applied by the web app only. |
+| [`cookies.position`](#cookies.position) | one of `bottom`, `top`, `start`, `end`, `center` | `"bottom"` | server, domain |  | Applied by the web app only. |
+| <a id="cookies.rejectprominent"></a>[`cookies.rejectProminent`](#cookies.rejectProminent) | on or off | `true` | server, domain |  | Applied by the web app only. |
+| <a id="cookies.policyurl"></a>[`cookies.policyUrl`](#cookies.policyUrl) | https:// URL, up to 500 characters; may be unset | `null` | server, domain |  | Applied by the web app only. |
+| <a id="cookies.privacyurl"></a>[`cookies.privacyUrl`](#cookies.privacyUrl) | https:// URL, up to 500 characters; may be unset | `null` | server, domain |  | Applied by the web app only. |
+| <a id="cookies.policyversion"></a>[`cookies.policyVersion`](#cookies.policyVersion) | integer, 1 to 1,000,000 | `1` | server, domain |  | Applied by the server and the web app. |
+| <a id="cookies.lifetimedays"></a>[`cookies.lifetimeDays`](#cookies.lifetimeDays) | integer, 1 to 730 | `365` | server, domain |  | Applied by the web app only. If the configuration omits it, the web app uses 180 days. |
+| <a id="cookies.repromptonversion"></a>[`cookies.repromptOnVersion`](#cookies.repromptOnVersion) | on or off | `true` | server, domain |  | Applied by the web app only. |
+| <a id="cookies.honourgpc"></a>[`cookies.honourGpc`](#cookies.honourGpc) | on or off | `true` | server, domain |  | Applied by the web app only. |
+| <a id="cookies.honourdnt"></a>[`cookies.honourDnt`](#cookies.honourDnt) | on or off | `false` | server, domain |  | Applied by the web app only. |
+| <a id="cookies.logconsent"></a>[`cookies.logConsent`](#cookies.logConsent) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="cookies.logretentiondays"></a>[`cookies.logRetentionDays`](#cookies.logRetentionDays) | integer, 0 to 3650 | `0` | server, domain |  | Applied by the server. |
+| <a id="cookies.scanintervalhours"></a>[`cookies.scanIntervalHours`](#cookies.scanIntervalHours) | integer, 0 to 720 | `24` | server, domain |  | Applied by the web app only. |
+| [`cookies.unclassified`](#cookies.unclassified) | one of `report`, `functional`, `analytics`, `marketing` | `"report"` | server, domain |  | Applied by the web app only. |
+| [`cookies.text.title`](#cookies.text.title) | object mapping an interface language code to text of up to 1000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.text.body`](#cookies.text.body) | object mapping an interface language code to text of up to 1000 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.label.necessary`](#cookies.label.necessary) | object mapping an interface language code to text of up to 120 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.description.necessary`](#cookies.description.necessary) | object mapping an interface language code to text of up to 600 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.label.functional`](#cookies.label.functional) | object mapping an interface language code to text of up to 120 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.description.functional`](#cookies.description.functional) | object mapping an interface language code to text of up to 600 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.label.analytics`](#cookies.label.analytics) | object mapping an interface language code to text of up to 120 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.description.analytics`](#cookies.description.analytics) | object mapping an interface language code to text of up to 600 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.label.marketing`](#cookies.label.marketing) | object mapping an interface language code to text of up to 120 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| [`cookies.description.marketing`](#cookies.description.marketing) | object mapping an interface language code to text of up to 600 characters | `{}` | server, domain |  | Applied by the server and the web app. |
+| <a id="encryption.rotationdays"></a>[`encryption.rotationDays`](#encryption.rotationDays) | integer, 0 to 3650 | `365` | server |  | Applied by the server. |
+| [`encryption.warnings.enabled`](#encryption.warnings.enabled) | on or off | `true` | server |  | Applied by the server. |
+
+### Appearance keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="appearance.customcssenabled"></a>[`appearance.customCssEnabled`](#appearance.customCssEnabled) | on or off | `false` | server |  | Applied by the server. |
+| <a id="appearance.customjsenabled"></a>[`appearance.customJsEnabled`](#appearance.customJsEnabled) | on or off | `false` | server |  | Applied by the server. |
+| [`appearance.theme`](#appearance.theme) | lower-case letters, digits and hyphens, up to 64 characters (may be empty) | `"dark"` | server, domain, user |  | Applied by the server and the web app. |
+| [`appearance.accent`](#appearance.accent) | lower-case letters, digits and hyphens, up to 32 characters (may be empty) | `""` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="appearance.badgecolor"></a>[`appearance.badgeColor`](#appearance.badgeColor) | one of `default`, `accent`, `accent-lighter`, `accent-darker`, `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `indigo`, `violet`, `magenta`, `graphite`, `gold`, `brown`, `beige`, `taupe`, `silver`, `stone` | `"default"` | server, domain, user |  | Applied by the server and the web app. |
+| [`appearance.density`](#appearance.density) | one of `compact`, `cozy`, `relaxed` | `"cozy"` | server, domain, user |  | Applied by the server and the web app. |
+| [`appearance.font`](#appearance.font) | one of `default`, `system`, `serif`, `mono`, `inter`, `roboto`, `open-sans`, `jost`, `manrope` | `"default"` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="appearance.fontsize"></a>[`appearance.fontSize`](#appearance.fontSize) | integer, 12 to 24 | `14` | server, domain, user |  | Applied by the web app only. |
+| <a id="appearance.fontweight"></a>[`appearance.fontWeight`](#appearance.fontWeight) | one of `300`, `400`, `500`, `600` | `"400"` | server, domain, user |  | Applied by the web app only. |
+| <a id="appearance.fontcolor"></a>[`appearance.fontColor`](#appearance.fontColor) | text, up to 7 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="appearance.lowcontrast"></a>[`appearance.lowContrast`](#appearance.lowContrast) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| [`appearance.leetspeak`](#appearance.leetspeak) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="appearance.brandname"></a>[`appearance.brandName`](#appearance.brandName) | text, up to 64 characters | `"Mailwoman"` | server |  | Applied by the server and the web app. |
+| <a id="login.showdomainhint"></a>[`login.showDomainHint`](#login.showDomainHint) | on or off | `false` | server |  | Applied by the server and the web app. |
+| <a id="login.remembersignins"></a>[`login.rememberSignins`](#login.rememberSignins) | on or off | `true` | server |  | Applied by the web app only. |
+| <a id="login.showrememberedhint"></a>[`login.showRememberedHint`](#login.showRememberedHint) | on or off | `false` | server |  | Applied by the web app only. |
+| <a id="login.showaccounthelpnotice"></a>[`login.showAccountHelpNotice`](#login.showAccountHelpNotice) | on or off | `false` | server, domain |  | Applied by the web app only. |
+| [`login.notice`](#login.notice) | text, up to 500 characters; may be unset | `null` | server |  | Applied by the server and the web app. |
+
+### Integrations keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="nextcloud.syncintervalsecs"></a>[`nextcloud.syncIntervalSecs`](#nextcloud.syncIntervalSecs) | integer, 0 to 86,400 | `300` | server, domain, user |  | Applied by the server. |
+| [`packages.allowed`](#packages.allowed) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.integration.nextcloud`](#cap.integration.nextcloud) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.integration.google`](#cap.integration.google) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.integration.microsoft`](#cap.integration.microsoft) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.integration.*`](#cap.integration) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.ui_plugin.*`](#cap.ui_plugin) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+
+### Capabilities keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| [`cap.ai_assistant`](#cap.ai_assistant) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.plugins`](#cap.plugins) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.pim.calendar`](#cap.pim.calendar) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server and the web app. |
+| [`cap.pim.contacts`](#cap.pim.contacts) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server and the web app. |
+| [`cap.pim.tasks`](#cap.pim.tasks) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server and the web app. |
+| [`cap.pim.notes`](#cap.pim.notes) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server and the web app. |
+| [`cap.export`](#cap.export) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.import`](#cap.import) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.api_keys`](#cap.api_keys) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.oauth_apps`](#cap.oauth_apps) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.rules`](#cap.rules) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.rules.forward`](#cap.rules.forward) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.remote_images`](#cap.remote_images) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.user_background`](#cap.user_background) | on or off | `false` | server, domain, one user (administrator only) |  | **No effect.** No part of the server or the web app checks this switch. |
+| [`cap.user_css`](#cap.user_css) | on or off | `false` | server, domain, one user (administrator only) |  | **No effect.** No part of the server or the web app checks this switch. |
+| [`cap.compose.rich_text`](#cap.compose.rich_text) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.compose.attachments`](#cap.compose.attachments) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.compose.share_links`](#cap.compose.share_links) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.compose.scheduled_send`](#cap.compose.scheduled_send) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.compose.read_receipts`](#cap.compose.read_receipts) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.compose.open_tracking`](#cap.compose.open_tracking) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server and the web app. |
+| [`cap.reading.original_html`](#cap.reading.original_html) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server and the web app. |
+| [`cap.reading.delete_sender`](#cap.reading.delete_sender) | on or off | `false` | server, domain |  | Applied by the web app only. |
+| [`cap.signatures`](#cap.signatures) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.identities`](#cap.identities) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.keys`](#cap.keys) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.links.trusted`](#cap.links.trusted) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. The server enforces it on three `links.*` settings only; `links.trustedSenderDomains` is not covered. |
+| [`cap.zoom`](#cap.zoom) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.mail.focused_inbox`](#cap.mail.focused_inbox) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.views.events`](#cap.views.events) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.views.attachments`](#cap.views.attachments) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the web app only. |
+| [`cap.search.operators`](#cap.search.operators) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.saved_searches`](#cap.saved_searches) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.vacation`](#cap.vacation) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.labels`](#cap.labels) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.snooze`](#cap.snooze) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.follow_up`](#cap.follow_up) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.masked`](#cap.masked) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.directory`](#cap.directory) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.mcp`](#cap.mcp) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.appearance.custom`](#cap.appearance.custom) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.appearance.custom_code`](#cap.appearance.custom_code) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.avatars`](#cap.avatars) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.shortcuts`](#cap.shortcuts) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.analytics`](#cap.analytics) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.apps.native`](#cap.apps.native) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`access.protocols`](#access.protocols) | list of up to 3 strings, each up to 8 characters | `["imap","pop3","ews"]` | server, domain, one user (administrator only) |  | Applied by the server. |
+
+### Remote content and images keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="privacy.cachebytes"></a>[`privacy.cacheBytes`](#privacy.cacheBytes) | integer, 0 to 1,073,741,824 | `33554432` | server |  | Applied by the server. Used only when `privacy.imageCacheMode` is `manual`; in `auto` mode the floor and ceiling keys apply. |
+| <a id="privacy.ratepermin"></a>[`privacy.ratePerMin`](#privacy.ratePerMin) | integer, 10 to 60,000 | `1200` | server |  | Applied by the server. The message-part and remote-file routes use it in `auto` rate mode as well as in `manual` mode. |
+| <a id="privacy.rateburst"></a>[`privacy.rateBurst`](#privacy.rateBurst) | integer, 1 to 12,000 | `1024` | server |  | Applied by the server. The message-part and remote-file routes use it in `auto` rate mode as well as in `manual` mode. |
+| <a id="privacy.imageratemode"></a>[`privacy.imageRateMode`](#privacy.imageRateMode) | one of `auto`, `manual` | `"auto"` | server |  | Applied by the server. |
+| <a id="privacy.imagerateburstfloor"></a>[`privacy.imageRateBurstFloor`](#privacy.imageRateBurstFloor) | integer, 1 to 12,000 | `64` | server |  | Applied by the server. |
+| <a id="privacy.imagerateburstceiling"></a>[`privacy.imageRateBurstCeiling`](#privacy.imageRateBurstCeiling) | integer, 1 to 12,000 | `2048` | server |  | Applied by the server. |
+| <a id="privacy.imageraterefillfloor"></a>[`privacy.imageRateRefillFloor`](#privacy.imageRateRefillFloor) | integer, 10 to 60,000 | `300` | server |  | Applied by the server. |
+| <a id="privacy.imageraterefillceiling"></a>[`privacy.imageRateRefillCeiling`](#privacy.imageRateRefillCeiling) | integer, 10 to 60,000 | `6000` | server |  | Applied by the server. |
+| <a id="privacy.imagecachemode"></a>[`privacy.imageCacheMode`](#privacy.imageCacheMode) | one of `auto`, `manual` | `"auto"` | server |  | Applied by the server. |
+| <a id="privacy.imagecachebytesfloor"></a>[`privacy.imageCacheBytesFloor`](#privacy.imageCacheBytesFloor) | integer, 0 to 1,073,741,824 | `16777216` | server |  | Applied by the server. |
+| <a id="privacy.imagecachebytesceiling"></a>[`privacy.imageCacheBytesCeiling`](#privacy.imageCacheBytesCeiling) | integer, 0 to 1,073,741,824 | `268435456` | server |  | Applied by the server. |
+| <a id="privacy.cacheentries"></a>[`privacy.cacheEntries`](#privacy.cacheEntries) | integer, 16 to 65,536 | `4096` | server |  | Applied by the server. |
+| <a id="privacy.cacheentrybytes"></a>[`privacy.cacheEntryBytes`](#privacy.cacheEntryBytes) | integer, 65,536 to 16,777,216 | `4194304` | server |  | Applied by the server. |
+| <a id="privacy.imagecachettlfloorsecs"></a>[`privacy.imageCacheTtlFloorSecs`](#privacy.imageCacheTtlFloorSecs) | integer, 0 to 86,400 | `300` | server |  | Applied by the server. |
+| <a id="privacy.imagecachettlceilingsecs"></a>[`privacy.imageCacheTtlCeilingSecs`](#privacy.imageCacheTtlCeilingSecs) | integer, 0 to 86,400 | `21600` | server |  | Applied by the server. |
+| <a id="privacy.cachettlsecs"></a>[`privacy.cacheTtlSecs`](#privacy.cacheTtlSecs) | integer, 0 to 86,400 | `3600` | server |  | Applied by the server. Used only when `privacy.imageCacheMode` is `manual`; in `auto` mode the floor and ceiling keys apply. |
+| <a id="privacy.imagerammaxmib"></a>[`privacy.imageRamMaxMiB`](#privacy.imageRamMaxMiB) | integer, 0 to 1,048,576 | `0` | server |  | Applied by the server. |
+| <a id="privacy.imagediskenabled"></a>[`privacy.imageDiskEnabled`](#privacy.imageDiskEnabled) | on or off | `false` | server |  | Applied by the server. |
+| <a id="privacy.imagediskpath"></a>[`privacy.imageDiskPath`](#privacy.imageDiskPath) | text, up to 512 characters | `""` | server |  | Applied by the server. |
+| <a id="privacy.imagediskmode"></a>[`privacy.imageDiskMode`](#privacy.imageDiskMode) | one of `auto`, `manual` | `"auto"` | server |  | Applied by the server. |
+| <a id="privacy.imagediskmaxmib"></a>[`privacy.imageDiskMaxMiB`](#privacy.imageDiskMaxMiB) | integer, 1 to 1,048,576 | `512` | server |  | Applied by the server. |
+| <a id="privacy.imagediskfloormib"></a>[`privacy.imageDiskFloorMiB`](#privacy.imageDiskFloorMiB) | integer, 0 to 1,048,576 | `64` | server |  | Applied by the server. |
+| <a id="privacy.imagediskceilingmib"></a>[`privacy.imageDiskCeilingMiB`](#privacy.imageDiskCeilingMiB) | integer, 0 to 1,048,576 | `4096` | server |  | Applied by the server. |
+| <a id="privacy.imagediskentries"></a>[`privacy.imageDiskEntries`](#privacy.imageDiskEntries) | integer, 16 to 1,048,576 | `16384` | server |  | Applied by the server. |
+| <a id="privacy.imagediskentrybytes"></a>[`privacy.imageDiskEntryBytes`](#privacy.imageDiskEntryBytes) | integer, 65,536 to 67,108,864 | `8388608` | server |  | Applied by the server. |
+| <a id="privacy.imagediskminhits"></a>[`privacy.imageDiskMinHits`](#privacy.imageDiskMinHits) | integer, 0 to 100 | `1` | server |  | Applied by the server. |
+| <a id="privacy.imagediskwritequeuemib"></a>[`privacy.imageDiskWriteQueueMiB`](#privacy.imageDiskWriteQueueMiB) | integer, 1 to 256 | `8` | server |  | Applied by the server. |
+| <a id="privacy.imagettlstepsecs"></a>[`privacy.imageTtlStepSecs`](#privacy.imageTtlStepSecs) | integer, 0 to 86,400 | `600` | server |  | Applied by the server. |
+| <a id="privacy.imagettlmaxsecs"></a>[`privacy.imageTtlMaxSecs`](#privacy.imageTtlMaxSecs) | integer, 60 to 2,592,000 | `86400` | server |  | Applied by the server. |
+| <a id="privacy.imagemaxagesecs"></a>[`privacy.imageMaxAgeSecs`](#privacy.imageMaxAgeSecs) | integer, 3600 to 7,776,000 | `604800` | server |  | Applied by the server. |
+| <a id="privacy.imagescorehalflifesecs"></a>[`privacy.imageScoreHalfLifeSecs`](#privacy.imageScoreHalfLifeSecs) | integer, 60 to 604,800 | `3600` | server |  | Applied by the server. |
+| <a id="privacy.imagescoredemotemilli"></a>[`privacy.imageScoreDemoteMilli`](#privacy.imageScoreDemoteMilli) | integer, 0 to 10,000 | `300` | server |  | Applied by the server. |
+| <a id="privacy.imagescorehysteresispercent"></a>[`privacy.imageScoreHysteresisPercent`](#privacy.imageScoreHysteresisPercent) | integer, 0 to 500 | `50` | server |  | Applied by the server. |
+| <a id="privacy.imagecontextopenpercent"></a>[`privacy.imageContextOpenPercent`](#privacy.imageContextOpenPercent) | integer, 100 to 1000 | `200` | server |  | Applied by the server. |
+| <a id="privacy.imagecontextrecentpercent"></a>[`privacy.imageContextRecentPercent`](#privacy.imageContextRecentPercent) | integer, 100 to 1000 | `150` | server |  | Applied by the server. |
+| <a id="privacy.imageaccountsharepercent"></a>[`privacy.imageAccountSharePercent`](#privacy.imageAccountSharePercent) | integer, 1 to 100 | `50` | server |  | Applied by the server. |
+| <a id="privacy.imagesweepsecs"></a>[`privacy.imageSweepSecs`](#privacy.imageSweepSecs) | integer, 5 to 3600 | `30` | server |  | Applied by the server. |
+| <a id="privacy.imagesnapshotsecs"></a>[`privacy.imageSnapshotSecs`](#privacy.imageSnapshotSecs) | integer, 0 to 86,400 | `300` | server |  | Applied by the server. |
+| <a id="privacy.imagesweepbatch"></a>[`privacy.imageSweepBatch`](#privacy.imageSweepBatch) | integer, 16 to 8192 | `256` | server |  | Applied by the server. |
+| <a id="privacy.imagecachestalesecs"></a>[`privacy.imageCacheStaleSecs`](#privacy.imageCacheStaleSecs) | integer, 0 to 86,400 | `3600` | server |  | Applied by the server. |
+| <a id="privacy.imagecachemaxstalesecs"></a>[`privacy.imageCacheMaxStaleSecs`](#privacy.imageCacheMaxStaleSecs) | integer, 0 to 604,800 | `86400` | server |  | Applied by the server. |
+| <a id="privacy.imageresizeenabled"></a>[`privacy.imageResizeEnabled`](#privacy.imageResizeEnabled) | on or off | `false` | server |  | Applied by the server. |
+| <a id="privacy.imageresizemaxwidth"></a>[`privacy.imageResizeMaxWidth`](#privacy.imageResizeMaxWidth) | integer, 320 to 1600 | `1600` | server |  | Applied by the server and the web app. |
+| <a id="privacy.imageresizemaxpixels"></a>[`privacy.imageResizeMaxPixels`](#privacy.imageResizeMaxPixels) | integer, 100,000 to 64,000,000 | `4000000` | server |  | Applied by the server. |
+| <a id="privacy.imageresizeformat"></a>[`privacy.imageResizeFormat`](#privacy.imageResizeFormat) | one of `auto`, `png` | `"auto"` | server |  | **No effect.** Both values produce PNG output, so the choice changes nothing observable. |
+| <a id="privacy.imagelatencytracking"></a>[`privacy.imageLatencyTracking`](#privacy.imageLatencyTracking) | on or off | `true` | server |  | Applied by the server. |
+
+### Sign-in keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="session.maxconcurrent"></a>[`session.maxConcurrent`](#session.maxConcurrent) | integer, 1 to 100 | `10` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="session.idlesecs"></a>[`session.idleSecs`](#session.idleSecs) | integer, 60 to 604,800 | `604800` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="session.absolutesecs"></a>[`session.absoluteSecs`](#session.absoluteSecs) | integer, 0 to 1,296,000 | `0` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="session.persistacrossrestarts"></a>[`session.persistAcrossRestarts`](#session.persistAcrossRestarts) | on or off | `true` | server |  | Applied by the server. |
+| <a id="session.lastactivityflushseconds"></a>[`session.lastActivityFlushSeconds`](#session.lastActivityFlushSeconds) | integer, 0 to 300 | `15` | server |  | Applied by the server. |
+| <a id="twofa.rememberdays"></a>[`twofa.rememberDays`](#twofa.rememberDays) | integer, 0 to 90 | `0` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="twofa.passkeysenabled"></a>[`twofa.passkeysEnabled`](#twofa.passkeysEnabled) | on or off | `true` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`twofa.required`](#twofa.required) | on or off | `false` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="twofa.passkeyattachment"></a>[`twofa.passkeyAttachment`](#twofa.passkeyAttachment) | one of `any`, `platform`, `cross-platform` | `"any"` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="twofa.passkeyuserverification"></a>[`twofa.passkeyUserVerification`](#twofa.passkeyUserVerification) | one of `required`, `preferred`, `discouraged` | `"preferred"` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="twofa.passkeyresidentkey"></a>[`twofa.passkeyResidentKey`](#twofa.passkeyResidentKey) | one of `required`, `preferred`, `discouraged` | `"discouraged"` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="twofa.passkeylegacy"></a>[`twofa.passkeyLegacy`](#twofa.passkeyLegacy) | one of `allow`, `refuse` | `"allow"` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="twofa.lastfactorremoval"></a>[`twofa.lastFactorRemoval`](#twofa.lastFactorRemoval) | one of `allow`, `block` | `"allow"` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="signin.antibotmode"></a>[`signin.antiBotMode`](#signin.antiBotMode) | one of `off`, `mailbox`, `admin`, `all` | `"off"` | server |  | Applied by the server. |
+| <a id="signin.antibotdifficulty"></a>[`signin.antiBotDifficulty`](#signin.antiBotDifficulty) | integer, 100 to 20,000 | `2000` | server |  | Applied by the server. |
+| <a id="signin.antibotexpirysecs"></a>[`signin.antiBotExpirySecs`](#signin.antiBotExpirySecs) | integer, 60 to 600 | `180` | server |  | Applied by the server. |
+| <a id="signin.retrycooldownsecs"></a>[`signin.retryCooldownSecs`](#signin.retryCooldownSecs) | integer, 0 to 300 | `3` | server |  | Applied by the server and the web app. |
+| <a id="signin.newusers"></a>[`signin.newUsers`](#signin.newUsers) | one of `open`, `preprovisioned`, `provisioned`, `closed` | `"open"` | server, domain |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
+| <a id="signin.newusers.mail"></a>[`signin.newUsers.mail`](#signin.newUsers.mail) | one of `inherit`, `open`, `preprovisioned`, `provisioned`, `closed` | `"inherit"` | server, domain |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
+| <a id="signin.newusers.sso"></a>[`signin.newUsers.sso`](#signin.newUsers.sso) | one of `inherit`, `open`, `preprovisioned`, `provisioned`, `closed` | `"inherit"` | server, domain |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
+| <a id="signin.newusers.linked"></a>[`signin.newUsers.linked`](#signin.newUsers.linked) | one of `inherit`, `open`, `preprovisioned`, `provisioned`, `closed` | `"inherit"` | server, domain |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
+| <a id="signin.newusers.linked.imap"></a>[`signin.newUsers.linked.imap`](#signin.newUsers.linked.imap) | one of `inherit`, `open`, `preprovisioned`, `provisioned`, `closed` | `"inherit"` | server, domain |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
+| <a id="signin.newusers.linked.pop3"></a>[`signin.newUsers.linked.pop3`](#signin.newUsers.linked.pop3) | one of `inherit`, `open`, `preprovisioned`, `provisioned`, `closed` | `"inherit"` | server, domain |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
+| <a id="signin.newusers.linked.ews"></a>[`signin.newUsers.linked.ews`](#signin.newUsers.linked.ews) | one of `inherit`, `open`, `preprovisioned`, `provisioned`, `closed` | `"inherit"` | server, domain |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
+| <a id="signin.preprovision.ttldays"></a>[`signin.preprovision.ttlDays`](#signin.preprovision.ttlDays) | integer, 1 to 3650 | `30` | server |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
+| <a id="signin.preprovision.maxttldays"></a>[`signin.preprovision.maxTtlDays`](#signin.preprovision.maxTtlDays) | integer, 1 to 3650 | `90` | server |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
+| <a id="signin.preprovision.domainwide"></a>[`signin.preprovision.domainWide`](#signin.preprovision.domainWide) | on or off | `false` | server |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
+| <a id="signin.preprovision.retentiondays"></a>[`signin.preprovision.retentionDays`](#signin.preprovision.retentionDays) | integer, 0 to 365 | `30` | server |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
+| <a id="signin.domainmode"></a>[`signin.domainMode`](#signin.domainMode) | one of `any`, `listed` | `"any"` | server |  | Applied by the server. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
+| <a id="signin.refusaldetail"></a>[`signin.refusalDetail`](#signin.refusalDetail) | one of `explain`, `uniform` | `"explain"` | server |  | Applied by the server and the web app. Written only on its own console page (`/signin-policy`); the general settings route refuses it. |
+| <a id="signin.ldapbindprecheck"></a>[`signin.ldapBindPrecheck`](#signin.ldapBindPrecheck) | on or off | `false` | server | `MW_LDAP_BIND_AUTH` (pin) | **No effect when saved.** The LDAP check is switched on only by the environment variable `MW_LDAP_BIND_AUTH`. Written only on its own console page (`/integrations/directory`); the general settings route refuses it. |
+| <a id="twofa.pendingttlsecs"></a>[`twofa.pendingTtlSecs`](#twofa.pendingTtlSecs) | integer, 60 to 900 | `300` | server |  | Applied by the server. Some sign-in paths still use a fixed 300 seconds. |
+| <a id="twofa.maxattempts"></a>[`twofa.maxAttempts`](#twofa.maxAttempts) | integer, 3 to 10 | `5` | server |  | Applied by the server. Some sign-in paths still use a fixed limit of 5 attempts. |
+
+### Database maintenance keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="server.shutdowngraceseconds"></a>[`server.shutdownGraceSeconds`](#server.shutdownGraceSeconds) | integer, 1 to 120 | `30` | server |  | Applied by the server. |
+| <a id="performance.preparedmail"></a>[`performance.preparedMail`](#performance.preparedMail) | object (see Prepared mail metadata cache) | `{"enabled":false,"budgetMiB":64,"maxEntries":256,"maxAccounts":128,"idleSeconds":30}` | server |  | Applied by the server. |
+| <a id="maintenance.announceminutesdefault"></a>[`maintenance.announceMinutesDefault`](#maintenance.announceMinutesDefault) | integer, 0 to 10,080 | `15` | server |  | **No effect.** No code reads it. |
+| <a id="maintenance.defaultmessage"></a>[`maintenance.defaultMessage`](#maintenance.defaultMessage) | object mapping an interface language code to text of up to 500 characters | `{}` | server |  | **No effect.** No code reads it. |
+
+### Sieve keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="sieve.maxscriptbytes"></a>[`sieve.maxScriptBytes`](#sieve.maxScriptBytes) | integer, 1 to 1,048,576 | `65536` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="sieve.maxscripts"></a>[`sieve.maxScripts`](#sieve.maxScripts) | integer, 1 to 100 | `5` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="sieve.maxredirects"></a>[`sieve.maxRedirects`](#sieve.maxRedirects) | integer, 0 to 100 | `4` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="sieve.vacationallowed"></a>[`sieve.vacationAllowed`](#sieve.vacationAllowed) | on or off | `false` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="sieve.allowedextensions"></a>[`sieve.allowedExtensions`](#sieve.allowedExtensions) | list of up to 128 strings, each up to 64 characters; may be unset | `null` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.sieve.raw_edit`](#cap.sieve.raw_edit) | on or off | `false` | server, domain, one user (administrator only) |  | Applied by the server. |
+| [`cap.sieve.forward_external`](#cap.sieve.forward_external) | on or off | `false` | server, domain, one user (administrator only) |  | Applied by the server. |
+
+### Date and time keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| [`time.region`](#time.region) | text, up to 4 characters | `"auto"` | server, domain, user |  | Applied by the web app only. |
+| <a id="time.dateformat"></a>[`time.dateFormat`](#time.dateFormat) | text, up to 120 characters | `"auto"` | server, domain, user |  | Applied by the web app only. |
+| <a id="time.timeformat"></a>[`time.timeFormat`](#time.timeFormat) | text, up to 120 characters | `"auto"` | server, domain, user |  | Applied by the web app only. |
+| <a id="time.hourcycle"></a>[`time.hourCycle`](#time.hourCycle) | one of `auto`, `12`, `24` | `"auto"` | server, domain, user |  | Applied by the web app only. |
+| <a id="time.firstdayofweek"></a>[`time.firstDayOfWeek`](#time.firstDayOfWeek) | one of `auto`, `0`, `1`, `2`, `3`, `4`, `5`, `6` | `"auto"` | server, domain, user |  | Applied by the web app only. |
+| <a id="time.displayzone"></a>[`time.displayZone`](#time.displayZone) | text, up to 64 characters | `"local"` | server, domain, user |  | Applied by the web app only. |
+| <a id="time.comparisonzone"></a>[`time.comparisonZone`](#time.comparisonZone) | text, up to 64 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="time.showhelpers"></a>[`time.showHelpers`](#time.showHelpers) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`ui.language`](#ui.language) | `browser` or one of the interface languages (`en`, `de`, `fr`, `es`, `pt-BR`, `pt-PT`, `nl`, `it`, `pl`, `ru`, `uk`, `zh`, `ja`, `ar`) | `"browser"` | server, domain, user |  | Applied by the server and the web app. |
+
+### Keyboard shortcuts keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="shortcuts.activationtoast"></a>[`shortcuts.activationToast`](#shortcuts.activationToast) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| [`shortcuts.enabled`](#shortcuts.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`shortcuts.compose`](#shortcuts.compose) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| [`shortcuts.archive`](#shortcuts.archive) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| [`shortcuts.reply`](#shortcuts.reply) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| <a id="shortcuts.replyall"></a>[`shortcuts.replyAll`](#shortcuts.replyAll) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| [`shortcuts.forward`](#shortcuts.forward) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| [`shortcuts.next`](#shortcuts.next) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| [`shortcuts.previous`](#shortcuts.previous) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| [`shortcuts.search`](#shortcuts.search) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| [`shortcuts.refresh`](#shortcuts.refresh) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| [`shortcuts.settings`](#shortcuts.settings) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| [`shortcuts.trash`](#shortcuts.trash) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| <a id="shortcuts.markread"></a>[`shortcuts.markRead`](#shortcuts.markRead) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| <a id="shortcuts.markunread"></a>[`shortcuts.markUnread`](#shortcuts.markUnread) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| [`shortcuts.spam`](#shortcuts.spam) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| <a id="shortcuts.zoomin"></a>[`shortcuts.zoomIn`](#shortcuts.zoomIn) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| <a id="shortcuts.zoomout"></a>[`shortcuts.zoomOut`](#shortcuts.zoomOut) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| <a id="shortcuts.zoomreset"></a>[`shortcuts.zoomReset`](#shortcuts.zoomReset) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+| <a id="shortcuts.openintab"></a>[`shortcuts.openInTab`](#shortcuts.openInTab) | text, up to 64 characters | `"inherit"` | server, domain, user |  | Applied by the web app only. |
+
+### Contacts keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="contacts.avatarmode"></a>[`contacts.avatarMode`](#contacts.avatarMode) | one of `off`, `initials`, `contacts` | `"initials"` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="contacts.sendericons"></a>[`contacts.senderIcons`](#contacts.senderIcons) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="contacts.favoritesfirst"></a>[`contacts.favoritesFirst`](#contacts.favoritesFirst) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="contacts.savefrommessage.enabled"></a>[`contacts.saveFromMessage.enabled`](#contacts.saveFromMessage.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="contacts.savefrommessage.defaultscope"></a>[`contacts.saveFromMessage.defaultScope`](#contacts.saveFromMessage.defaultScope) | one of `sender`, `sender+replyto`, `all` | `"sender"` | server, domain, user |  | Applied by the web app only. |
+| <a id="contacts.savefrommessage.skipautomated"></a>[`contacts.saveFromMessage.skipAutomated`](#contacts.saveFromMessage.skipAutomated) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="contacts.savefrommessage.addnote"></a>[`contacts.saveFromMessage.addNote`](#contacts.saveFromMessage.addNote) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="contacts.savefrommessage.defaultbook"></a>[`contacts.saveFromMessage.defaultBook`](#contacts.saveFromMessage.defaultBook) | text, up to 128 characters | `"default"` | server, domain, user |  | Applied by the web app only. |
+| <a id="contacts.savesender.enabled"></a>[`contacts.saveSender.enabled`](#contacts.saveSender.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="contacts.savesender.usereplyto"></a>[`contacts.saveSender.useReplyTo`](#contacts.saveSender.useReplyTo) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+
+### Interface keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="web.i18n.retainedlocales"></a>[`web.i18n.retainedLocales`](#web.i18n.retainedLocales) | integer, 2 to 8 | `3` | server |  | Applied by the server and the web app. |
+| <a id="web.i18n.concurrentloads"></a>[`web.i18n.concurrentLoads`](#web.i18n.concurrentLoads) | integer, 1 to 8 | `4` | server |  | Applied by the server and the web app. |
+| <a id="web.assets.cache.compression.enabled"></a>`web.assets.cache.compression.enabled` | on or off | `true` | server |  | Applied by the server. |
+| <a id="web.assets.cache.compression.brotli"></a>`web.assets.cache.compression.brotli` | on or off | `true` | server |  | Applied by the server. |
+| <a id="web.assets.cache.compression.minBytes"></a><a id="web.assets.cache.compression.minbytes"></a>`web.assets.cache.compression.minBytes` | integer, 256 to 65,536 | `1024` | server |  | Applied by the server. |
+| [`web.assets.cache.enabled`](#web.assets.cache.enabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="web.assets.cache.budgetmib"></a>[`web.assets.cache.budgetMiB`](#web.assets.cache.budgetMiB) | integer, 8 to 512 | `64` | server |  | Applied by the server. |
+| <a id="web.assets.cache.maxfilemib"></a>[`web.assets.cache.maxFileMiB`](#web.assets.cache.maxFileMiB) | integer, 1 to 16 | `4` | server |  | Applied by the server. |
+| <a id="web.assets.cache.maxentries"></a>[`web.assets.cache.maxEntries`](#web.assets.cache.maxEntries) | integer, 16 to 4096 | `1024` | server |  | Applied by the server. |
+| <a id="web.assets.cache.revalidateseconds"></a>[`web.assets.cache.revalidateSeconds`](#web.assets.cache.revalidateSeconds) | integer, 1 to 60 | `1` | server |  | Applied by the server. |
+| [`web.assets.cache.preload`](#web.assets.cache.preload) | one of `off`, `shell`, `core` | `"shell"` | server |  | Applied by the server. |
+| [`web.prefetch.enabled`](#web.prefetch.enabled) | on or off | `true` | server |  | Applied by the server and the web app. |
+| <a id="web.prefetch.idledelayms"></a>[`web.prefetch.idleDelayMs`](#web.prefetch.idleDelayMs) | integer, 0 to 30,000 | `2500` | server |  | Applied by the server and the web app. |
+| <a id="ui.notifynewversion"></a>[`ui.notifyNewVersion`](#ui.notifyNewVersion) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="ui.undohistorysize"></a>[`ui.undoHistorySize`](#ui.undoHistorySize) | integer, 0 to 200 | `50` | server, domain, user |  | Applied by the web app only. |
+| <a id="ui.undohistorymax"></a>[`ui.undoHistoryMax`](#ui.undoHistoryMax) | integer, 0 to 200 | `200` | server |  | Applied by the web app only. |
+| <a id="ui.bar.mailtopbar"></a>[`ui.bar.mailTopBar`](#ui.bar.mailTopBar) | one of `pinned`, `auto` | `"pinned"` | server, domain, user |  | Applied by the web app only. |
+| <a id="ui.bar.workspacetabs"></a>[`ui.bar.workspaceTabs`](#ui.bar.workspaceTabs) | one of `pinned`, `auto` | `"pinned"` | server, domain, user |  | Applied by the web app only. |
+| <a id="ui.bar.mailribbon"></a>[`ui.bar.mailRibbon`](#ui.bar.mailRibbon) | one of `pinned`, `auto` | `"pinned"` | server, domain, user |  | Applied by the web app only. |
+| <a id="ui.bar.composerribbon"></a>[`ui.bar.composerRibbon`](#ui.bar.composerRibbon) | one of `pinned`, `auto` | `"pinned"` | server, domain, user |  | Applied by the web app only. |
+| [`compose.feature.*`](#compose.feature) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="compose.styles.maxcustom"></a>[`compose.styles.maxCustom`](#compose.styles.maxCustom) | integer, 0 to 100 | `20` | server, domain, user |  | Applied by the web app only. |
+| <a id="compose.styles.defaultset"></a>[`compose.styles.defaultSet`](#compose.styles.defaultSet) | one of `default`, `modern`, `classic`, `compact` | `"default"` | server, domain, user |  | Applied by the web app only. |
+| [`compose.styles.custom`](#compose.styles.custom) | text, up to 20000 characters | `""` | server, domain, user |  | Applied by the web app only. |
+| <a id="compose.insert.maxinlineimagemb"></a>[`compose.insert.maxInlineImageMB`](#compose.insert.maxInlineImageMB) | integer, 1 to 50 | `10` | server, domain, user |  | Applied by the web app only. |
+| <a id="compose.insert.imageresizedefault"></a>[`compose.insert.imageResizeDefault`](#compose.insert.imageResizeDefault) | one of `original`, `large`, `medium` | `"large"` | server, domain, user |  | Applied by the web app only. |
+
+### Offline cache keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="web.offline.precachemode"></a>[`web.offline.precacheMode`](#web.offline.precacheMode) | one of `all`, `core` | `"all"` | server |  | Applied by the server and the web app. |
+| <a id="web.offline.precacheconcurrency"></a>[`web.offline.precacheConcurrency`](#web.offline.precacheConcurrency) | integer, 1 to 4 | `4` | server |  | Applied by the server and the web app. |
+| <a id="web.offline.respectsavedata"></a>[`web.offline.respectSaveData`](#web.offline.respectSaveData) | on or off | `true` | server |  | Applied by the server and the web app. |
+| <a id="sync.headerswindow"></a>[`sync.headersWindow`](#sync.headersWindow) | one of `30`, `90`, `365`, `all` | `"90"` | server, domain, user |  | Applied by the web app only. |
+| [`sync.bodies`](#sync.bodies) | one of `on-demand`, `prefetch` | `"on-demand"` | server, domain, user |  | Applied by the web app only. |
+| [`sync.attachments`](#sync.attachments) | one of `on-demand`, `inline`, `all` | `"on-demand"` | server, domain, user |  | Applied by the web app only. |
+| [`offline.eviction`](#offline.eviction) | one of `lru`, `oldest`, `manual` | `"lru"` | server, domain, user |  | Applied by the web app only. |
+| <a id="offline.persistentstorageallowed"></a>[`offline.persistentStorageAllowed`](#offline.persistentStorageAllowed) | on or off | `true` | server, domain |  | Applied by the server and the web app. |
+| <a id="offline.requestpersistence"></a>[`offline.requestPersistence`](#offline.requestPersistence) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="offline.retentiondays"></a>[`offline.retentionDays`](#offline.retentionDays) | integer, 0 to 3650 | `30` | server, domain, user |  | Applied by the web app only. The web app accepts values up to 36500, above the range this setting validates. |
+| <a id="offline.budgetmb"></a>[`offline.budgetMb`](#offline.budgetMb) | integer, 0 to 100,000 | `250` | server, domain, user |  | Applied by the web app only. |
+
+### Notifications keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="notifications.pushallowed"></a>[`notifications.pushAllowed`](#notifications.pushAllowed) | on or off | `true` | server, domain |  | Applied by the server. |
+| [`realtime.actions.enabled`](#realtime.actions.enabled) | on or off | `true` | server, domain |  | Applied by the server and the web app. |
+| <a id="realtime.actions.preferwebsocket"></a>[`realtime.actions.preferWebSocket`](#realtime.actions.preferWebSocket) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="notifications.incoming.onlymatchingrules"></a>[`notifications.incoming.onlyMatchingRules`](#notifications.incoming.onlyMatchingRules) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.incoming.toast`](#notifications.incoming.toast) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.incoming.native`](#notifications.incoming.native) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.incoming.tab`](#notifications.incoming.tab) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.incoming.highlight`](#notifications.incoming.highlight) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.incoming.foreground`](#notifications.incoming.foreground) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="notifications.incoming.includejunk"></a>[`notifications.incoming.includeJunk`](#notifications.incoming.includeJunk) | on or off | `false` | server, domain, user |  | Applied by the web app only. |
+| <a id="notifications.incoming.durationseconds"></a>[`notifications.incoming.durationSeconds`](#notifications.incoming.durationSeconds) | integer, 2 to 120 | `15` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.incoming.scope`](#notifications.incoming.scope) | one of `received`, `inbox`, `selected` | `"received"` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.events.queued`](#notifications.events.queued) | one of `none`, `toast`, `native`, `both` | `"toast"` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.events.sent`](#notifications.events.sent) | one of `none`, `toast`, `native`, `both` | `"toast"` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.events.failed`](#notifications.events.failed) | one of `none`, `toast`, `native`, `both` | `"toast"` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.events.security`](#notifications.events.security) | one of `none`, `toast`, `native`, `both` | `"toast"` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.events.update`](#notifications.events.update) | one of `none`, `toast`, `native`, `both` | `"toast"` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.toasts.enabled`](#notifications.toasts.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.toasts.success`](#notifications.toasts.success) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.toasts.info`](#notifications.toasts.info) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.toasts.warning`](#notifications.toasts.warning) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.toasts.error`](#notifications.toasts.error) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="notifications.toasts.durationseconds"></a>[`notifications.toasts.durationSeconds`](#notifications.toasts.durationSeconds) | integer, 1 to 60 | `5` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.toasts.limit`](#notifications.toasts.limit) | integer, 1 to 8 | `3` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.toasts.swipe`](#notifications.toasts.swipe) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.incoming.folders`](#notifications.incoming.folders) | list of up to 256 strings, each up to 512 characters | `[]` | server, domain, user |  | Applied by the web app only. |
+| <a id="notifications.incoming.mutedfolders"></a>[`notifications.incoming.mutedFolders`](#notifications.incoming.mutedFolders) | list of up to 256 strings, each up to 512 characters | `[]` | server, domain, user |  | Applied by the web app only. |
+| <a id="notifications.askpermission"></a>[`notifications.askPermission`](#notifications.askPermission) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.view.enabled`](#notifications.view.enabled) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| <a id="notifications.view.showinsidebar"></a>[`notifications.view.showInSidebar`](#notifications.view.showInSidebar) | on or off | `true` | server, domain, user |  | Applied by the web app only. |
+| [`notifications.enabled`](#notifications.enabled) | on or off | `false` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="push.vapidcontact"></a>[`push.vapidContact`](#push.vapidContact) | `mailto:` address or https:// URL, up to 320 characters; may be unset | `null` | server | `MW_VAPID_CONTACT` (pin) | Applied by the server. |
+| <a id="push.quiethours"></a>[`push.quietHours`](#push.quietHours) | object `{"start": 0-23, "end": 0-23}` in UTC hours; may be unset | `null` | server |  | Applied by the server. |
+
+### AI assistant keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| [`assistant.enabled`](#assistant.enabled) | on or off | `true` | server, domain, user |  | **No behavioural effect.** It only decides whether the generated privacy policy and the compliance listing mention the AI assistant. The assistant itself does not check it. |
+| [`assist.profile`](#assist.profile) | lower-case letters, digits and hyphens, up to 64 characters (may be empty) | `""` | server, domain, one user (administrator only) |  | Applied by the server. |
+| <a id="assistant.ratelimitpermin"></a>[`assistant.rateLimitPerMin`](#assistant.rateLimitPerMin) | integer, 0 to 10,000 | `0` | server | `MW_ASSIST_RATE_LIMIT_PER_MIN` (pin) | **No effect when saved.** Only `MW_ASSIST_RATE_LIMIT_PER_MIN` is read. With that variable set to `0` every Assist request is refused (not "no limit"); with the variable unset there is no limit. |
+
+### Upstream mail server keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| [`upstream.default`](#upstream.default) | HTTP(S) JMAP URL or IMAP/POP3 mail transport URL, up to 2048 characters; may be unset | `null` | server | `MW_UPSTREAM_DEFAULT` (fallback) | Applied by the server. |
+| <a id="upstream.proxytimeoutsecs"></a>[`upstream.proxyTimeoutSecs`](#upstream.proxyTimeoutSecs) | integer, 30 to 900 | `300` | server |  | **No effect.** Requests to the upstream mail server use a fixed timeout of 300 seconds. |
+
+### Security keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| [`security.spray.enabled`](#security.spray.enabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="security.spray.windowsecs"></a>[`security.spray.windowSecs`](#security.spray.windowSecs) | integer, 60 to 86,400 | `900` | server |  | Applied by the server. |
+| <a id="security.spray.challengeat"></a>[`security.spray.challengeAt`](#security.spray.challengeAt) | integer, 2 to 1000 | `10` | server |  | Applied by the server. |
+| <a id="security.spray.paceat"></a>[`security.spray.paceAt`](#security.spray.paceAt) | integer, 2 to 1000 | `15` | server |  | Applied by the server. |
+| <a id="security.spray.lockat"></a>[`security.spray.lockAt`](#security.spray.lockAt) | integer, 2 to 1000 | `25` | server |  | Applied by the server. |
+| <a id="security.spray.pacesecs"></a>[`security.spray.paceSecs`](#security.spray.paceSecs) | integer, 1 to 300 | `10` | server |  | Applied by the server. |
+| <a id="security.spray.locksecs"></a>[`security.spray.lockSecs`](#security.spray.lockSecs) | integer, 30 to 86,400 | `900` | server |  | Applied by the server. |
+| <a id="security.spray.knownmultiplier"></a>[`security.spray.knownMultiplier`](#security.spray.knownMultiplier) | integer, 1 to 20 | `3` | server |  | Applied by the server. |
+| [`security.spray.capacity`](#security.spray.capacity) | integer, 100 to 200,000 | `20000` | server |  | Applied by the server. |
+| [`security.spike.enabled`](#security.spike.enabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="security.spike.multiplierpercent"></a>[`security.spike.multiplierPercent`](#security.spike.multiplierPercent) | integer, 150 to 2000 | `400` | server |  | Applied by the server. |
+| <a id="security.spike.minfailurespermin"></a>[`security.spike.minFailuresPerMin`](#security.spike.minFailuresPerMin) | integer, 1 to 10,000 | `20` | server |  | Applied by the server. |
+| <a id="security.spike.minsources"></a>[`security.spike.minSources`](#security.spike.minSources) | integer, 2 to 10,000 | `10` | server |  | Applied by the server. |
+| <a id="security.spike.minusernames"></a>[`security.spike.minUsernames`](#security.spike.minUsernames) | integer, 2 to 10,000 | `30` | server |  | Applied by the server. |
+| <a id="security.spike.signalsrequired"></a>[`security.spike.signalsRequired`](#security.spike.signalsRequired) | integer, 1 to 4 | `2` | server |  | Applied by the server. |
+| <a id="security.spike.warmuphours"></a>[`security.spike.warmupHours`](#security.spike.warmupHours) | integer, 1 to 720 | `48` | server |  | Applied by the server. |
+| <a id="security.spike.adapthours"></a>[`security.spike.adaptHours`](#security.spike.adaptHours) | integer, 6 to 2160 | `168` | server |  | Applied by the server. |
+| <a id="security.spike.durationsecs"></a>[`security.spike.durationSecs`](#security.spike.durationSecs) | integer, 60 to 86,400 | `1800` | server |  | Applied by the server. |
+| <a id="security.spike.forcechallenge"></a>[`security.spike.forceChallenge`](#security.spike.forceChallenge) | on or off | `true` | server |  | Applied by the server. |
+| <a id="security.spike.pacefactorpercent"></a>[`security.spike.paceFactorPercent`](#security.spike.paceFactorPercent) | integer, 100 to 1000 | `300` | server |  | Applied by the server. |
+| <a id="security.sessionbinding.enabled"></a>[`security.sessionBinding.enabled`](#security.sessionBinding.enabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="security.sessionbinding.attributes"></a>[`security.sessionBinding.attributes`](#security.sessionBinding.attributes) | list of up to 8 strings, each up to 16 characters | `["browser","os","hints","country"]` | server |  | Applied by the server. |
+| <a id="security.sessionbinding.strictness"></a>[`security.sessionBinding.strictness`](#security.sessionBinding.strictness) | one of `tolerant`, `strict` | `"tolerant"` | server |  | Applied by the server. |
+| <a id="security.sessionbinding.webmailaction"></a>[`security.sessionBinding.webmailAction`](#security.sessionBinding.webmailAction) | one of `off`, `detect`, `step-up`, `revoke` | `"step-up"` | server |  | Applied by the server. |
+| <a id="security.sessionbinding.adminaction"></a>[`security.sessionBinding.adminAction`](#security.sessionBinding.adminAction) | one of `off`, `detect`, `step-up`, `revoke` | `"revoke"` | server |  | Applied by the server. |
+| [`security.theft.enabled`](#security.theft.enabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="security.theft.rotationgracesecs"></a>[`security.theft.rotationGraceSecs`](#security.theft.rotationGraceSecs) | integer, 0 to 600 | `30` | server |  | Applied by the server. |
+| <a id="security.theft.mintravelsecs"></a>[`security.theft.minTravelSecs`](#security.theft.minTravelSecs) | integer, 60 to 172,800 | `3600` | server |  | Applied by the server. |
+| <a id="security.theft.concurrentuse"></a>[`security.theft.concurrentUse`](#security.theft.concurrentUse) | one of `off`, `country`, `network` | `"country"` | server |  | Applied by the server. |
+| <a id="security.theft.webmailaction"></a>[`security.theft.webmailAction`](#security.theft.webmailAction) | one of `alert`, `step-up`, `revoke` | `"step-up"` | server |  | Applied by the server. |
+| <a id="security.theft.adminaction"></a>[`security.theft.adminAction`](#security.theft.adminAction) | one of `alert`, `step-up`, `revoke` | `"revoke"` | server |  | Applied by the server. |
+| <a id="security.theft.retentiondays"></a>[`security.theft.retentionDays`](#security.theft.retentionDays) | integer, 1 to 3650 | `365` | server |  | Applied by the server. |
+| <a id="security.alerts.countrychange"></a>[`security.alerts.countryChange`](#security.alerts.countryChange) | on or off | `true` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="security.alerts.countrychangeenabled"></a>[`security.alerts.countryChangeEnabled`](#security.alerts.countryChangeEnabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="security.alerts.countrychangecooldownsecs"></a>[`security.alerts.countryChangeCooldownSecs`](#security.alerts.countryChangeCooldownSecs) | integer, 0 to 86,400 | `300` | server |  | Applied by the server. |
+| <a id="security.alerts.countrychangeusermute"></a>[`security.alerts.countryChangeUserMute`](#security.alerts.countryChangeUserMute) | on or off | `false` | server |  | Applied by the server. |
+| [`security.alerts.channels`](#security.alerts.channels) | one of `app`, `email`, `both` | `"both"` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="security.alerts.emailenabled"></a>[`security.alerts.emailEnabled`](#security.alerts.emailEnabled) | on or off | `true` | server |  | Applied by the server. |
+| [`security.alerts.sensitivity`](#security.alerts.sensitivity) | one of `low`, `normal`, `high` | `"normal"` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="security.alerts.noticeretentiondays"></a>[`security.alerts.noticeRetentionDays`](#security.alerts.noticeRetentionDays) | integer, 1 to 3650 | `730` | server |  | Applied by the server. |
+| <a id="security.protection.ratemode"></a>[`security.protection.rateMode`](#security.protection.rateMode) | one of `off`, `observe`, `enforce` | `"off"` | server |  | Applied by the server. |
+| <a id="security.protection.probepathmode"></a>[`security.protection.probePathMode`](#security.protection.probePathMode) | one of `off`, `observe`, `enforce` | `"enforce"` | server |  | Applied by the server. |
+| <a id="security.protection.adaptivemode"></a>[`security.protection.adaptiveMode`](#security.protection.adaptiveMode) | one of `off`, `observe`, `enforce` | `"off"` | server |  | Applied by the server. |
+| <a id="security.protection.clientrequests"></a>[`security.protection.clientRequests`](#security.protection.clientRequests) | integer, 0 to 1,000,000 | `600` | server |  | Applied by the server. |
+| <a id="security.protection.accountrequests"></a>[`security.protection.accountRequests`](#security.protection.accountRequests) | integer, 0 to 1,000,000 | `1800` | server |  | Applied by the server. |
+| <a id="security.protection.adminrequests"></a>[`security.protection.adminRequests`](#security.protection.adminRequests) | integer, 0 to 1,000,000 | `1200` | server |  | Applied by the server. |
+| <a id="security.protection.ratewindowsecs"></a>[`security.protection.rateWindowSecs`](#security.protection.rateWindowSecs) | integer, 1 to 3600 | `60` | server |  | Applied by the server. |
+| <a id="security.protection.adaptiveclients"></a>[`security.protection.adaptiveClients`](#security.protection.adaptiveClients) | on or off | `true` | server |  | Applied by the server. |
+| <a id="security.protection.adaptiveaccounts"></a>[`security.protection.adaptiveAccounts`](#security.protection.adaptiveAccounts) | on or off | `true` | server |  | Applied by the server. |
+| <a id="security.protection.adaptiveadmins"></a>[`security.protection.adaptiveAdmins`](#security.protection.adaptiveAdmins) | on or off | `true` | server |  | Applied by the server. |
+| <a id="security.protection.shortwindowsecs"></a>[`security.protection.shortWindowSecs`](#security.protection.shortWindowSecs) | integer, 60 to 3600 | `300` | server |  | Applied by the server. |
+| <a id="security.protection.shortminimumsamples"></a>[`security.protection.shortMinimumSamples`](#security.protection.shortMinimumSamples) | integer, 1 to 1,000,000 | `30` | server |  | Applied by the server. |
+| <a id="security.protection.shortabsoluteanomalies"></a>[`security.protection.shortAbsoluteAnomalies`](#security.protection.shortAbsoluteAnomalies) | integer, 0 to 1,000,000 | `20` | server |  | Applied by the server. |
+| <a id="security.protection.shortratiopercent"></a>[`security.protection.shortRatioPercent`](#security.protection.shortRatioPercent) | integer, 0 to 100 | `50` | server |  | Applied by the server. |
+| <a id="security.protection.longwindowsecs"></a>[`security.protection.longWindowSecs`](#security.protection.longWindowSecs) | integer, 3600 to 2,592,000 | `604800` | server |  | Applied by the server. |
+| <a id="security.protection.longminimumsamples"></a>[`security.protection.longMinimumSamples`](#security.protection.longMinimumSamples) | integer, 1 to 1,000,000 | `100` | server |  | Applied by the server. |
+| <a id="security.protection.longabsoluteanomalies"></a>[`security.protection.longAbsoluteAnomalies`](#security.protection.longAbsoluteAnomalies) | integer, 0 to 1,000,000 | `100` | server |  | Applied by the server. |
+| <a id="security.protection.longratiopercent"></a>[`security.protection.longRatioPercent`](#security.protection.longRatioPercent) | integer, 0 to 100 | `25` | server |  | Applied by the server. |
+| <a id="security.protection.normalcapperbucket"></a>[`security.protection.normalCapPerBucket`](#security.protection.normalCapPerBucket) | integer, 1 to 1,000,000 | `1000` | server |  | Applied by the server. |
+| [`security.protection.signals`](#security.protection.signals) | list of up to 6 strings, each up to 32 characters | `["malformed","oversized","credential-rejected"]` | server |  | Applied by the server. |
+| <a id="security.protection.throttlesecs"></a>[`security.protection.throttleSecs`](#security.protection.throttleSecs) | integer, 1 to 300 | `3` | server |  | Applied by the server. |
+| <a id="security.protection.blocksecs"></a>[`security.protection.blockSecs`](#security.protection.blockSecs) | integer, 1 to 86,400 | `300` | server |  | Applied by the server. |
+| <a id="security.protection.decaysecs"></a>[`security.protection.decaySecs`](#security.protection.decaySecs) | integer, 3600 to 2,592,000 | `86400` | server |  | Applied by the server. |
+| <a id="security.protection.exemptclients"></a>[`security.protection.exemptClients`](#security.protection.exemptClients) | list of up to 100 strings, each up to 64 characters | `[]` | server |  | Applied by the server. |
+| <a id="security.protection.exemptaccounts"></a>[`security.protection.exemptAccounts`](#security.protection.exemptAccounts) | list of up to 100 strings, each up to 512 characters | `[]` | server |  | Applied by the server. |
+| <a id="security.protection.exemptadmins"></a>[`security.protection.exemptAdmins`](#security.protection.exemptAdmins) | list of up to 100 strings, each up to 512 characters | `[]` | server |  | Applied by the server. |
+| <a id="security.protection.storagefailure"></a>[`security.protection.storageFailure`](#security.protection.storageFailure) | one of `closed`, `open` | `"closed"` | server |  | Applied by the server. |
+| <a id="security.protection.useragentmode"></a>[`security.protection.userAgentMode`](#security.protection.userAgentMode) | one of `off`, `observe`, `enforce` | `"enforce"` | server |  | Applied by the server. |
+| <a id="security.protection.useragentblockbots"></a>[`security.protection.userAgentBlockBots`](#security.protection.userAgentBlockBots) | on or off | `true` | server |  | Applied by the server. |
+| <a id="security.protection.useragentcategories"></a>[`security.protection.userAgentCategories`](#security.protection.userAgentCategories) | list of up to 7 strings, each up to 32 characters | `["missing","uncommon","automation","search","ai-training","ai-search","ai-user"]` | server |  | Applied by the server. |
+| <a id="security.protection.useragentweakrequests"></a>[`security.protection.userAgentWeakRequests`](#security.protection.userAgentWeakRequests) | integer, 1 to 1,000,000 | `600` | server |  | Applied by the server. |
+| <a id="security.protection.useragentcrawlerrequests"></a>[`security.protection.userAgentCrawlerRequests`](#security.protection.userAgentCrawlerRequests) | integer, 1 to 1,000,000 | `300` | server |  | Applied by the server. |
+| <a id="security.protection.useragentwindowsecs"></a>[`security.protection.userAgentWindowSecs`](#security.protection.userAgentWindowSecs) | integer, 1 to 3600 | `60` | server |  | Applied by the server. |
+| <a id="security.protection.useragentmaxaction"></a>[`security.protection.userAgentMaxAction`](#security.protection.userAgentMaxAction) | one of `throttle`, `block` | `"throttle"` | server |  | Applied by the server. |
+| <a id="security.protection.useragentscope"></a>[`security.protection.userAgentScope`](#security.protection.userAgentScope) | one of `anonymous`, `all` | `"anonymous"` | server |  | Applied by the server. |
+| <a id="security.protection.useragentadaptive"></a>[`security.protection.userAgentAdaptive`](#security.protection.userAgentAdaptive) | on or off | `true` | server |  | Applied by the server. |
+| <a id="security.protection.useragentpatterns"></a>[`security.protection.userAgentPatterns`](#security.protection.userAgentPatterns) | list of up to 32 strings, each up to 256 characters | `[]` | server |  | Applied by the server. |
+| <a id="security.protection.useragentexceptions"></a>[`security.protection.userAgentExceptions`](#security.protection.userAgentExceptions) | list of up to 32 strings, each up to 256 characters | `[]` | server |  | Applied by the server. |
+| <a id="security.protocol.framingmode"></a>[`security.protocol.framingMode`](#security.protocol.framingMode) | one of `off`, `detect`, `enforce` | `"enforce"` | server |  | Applied by the server. |
+| <a id="security.protocol.hostmode"></a>[`security.protocol.hostMode`](#security.protocol.hostMode) | one of `off`, `detect`, `enforce` | `"enforce"` | server |  | Applied by the server. |
+| <a id="security.protocol.hostpinningmode"></a>[`security.protocol.hostPinningMode`](#security.protocol.hostPinningMode) | one of `off`, `detect`, `enforce` | `"detect"` | server |  | Applied by the server. |
+| <a id="security.protocol.pathcontrolmode"></a>[`security.protocol.pathControlMode`](#security.protocol.pathControlMode) | one of `off`, `detect`, `enforce` | `"enforce"` | server |  | Applied by the server. |
+| <a id="security.protocol.targetmode"></a>[`security.protocol.targetMode`](#security.protocol.targetMode) | one of `off`, `detect`, `enforce` | `"detect"` | server |  | Applied by the server. |
+| <a id="security.protocol.pathlengthmode"></a>[`security.protocol.pathLengthMode`](#security.protocol.pathLengthMode) | one of `off`, `detect`, `enforce` | `"detect"` | server |  | Applied by the server. |
+| <a id="security.protocol.methodmode"></a>[`security.protocol.methodMode`](#security.protocol.methodMode) | one of `off`, `detect`, `enforce` | `"detect"` | server |  | Applied by the server. |
+| <a id="security.protocol.duplicateheadersmode"></a>[`security.protocol.duplicateHeadersMode`](#security.protocol.duplicateHeadersMode) | one of `off`, `detect`, `enforce` | `"detect"` | server |  | Applied by the server. |
+| <a id="security.protocol.forwardedmode"></a>[`security.protocol.forwardedMode`](#security.protocol.forwardedMode) | one of `off`, `detect`, `enforce` | `"detect"` | server |  | Applied by the server. |
+| <a id="security.protocol.headerhygienemode"></a>[`security.protocol.headerHygieneMode`](#security.protocol.headerHygieneMode) | one of `off`, `detect`, `enforce` | `"detect"` | server |  | Applied by the server. |
+| <a id="security.protocol.bodymode"></a>[`security.protocol.bodyMode`](#security.protocol.bodyMode) | one of `off`, `detect`, `enforce` | `"detect"` | server |  | Applied by the server. |
+| <a id="security.protocol.maxpathbytes"></a>[`security.protocol.maxPathBytes`](#security.protocol.maxPathBytes) | integer, 256 to 65,536 | `4096` | server |  | Applied by the server. |
+| <a id="security.protocol.maxquerybytes"></a>[`security.protocol.maxQueryBytes`](#security.protocol.maxQueryBytes) | integer, 256 to 262,144 | `8192` | server |  | Applied by the server. |
+| <a id="security.protocol.maxheadercount"></a>[`security.protocol.maxHeaderCount`](#security.protocol.maxHeaderCount) | integer, 16 to 256 | `64` | server |  | Applied by the server. |
+| <a id="security.protocol.maxheadervaluebytes"></a>[`security.protocol.maxHeaderValueBytes`](#security.protocol.maxHeaderValueBytes) | integer, 256 to 65,536 | `8192` | server |  | Applied by the server. |
+| <a id="security.protocol.maxcookiebytes"></a>[`security.protocol.maxCookieBytes`](#security.protocol.maxCookieBytes) | integer, 512 to 65,536 | `16384` | server |  | Applied by the server. |
+| <a id="security.protocol.maxbodybytes"></a>[`security.protocol.maxBodyBytes`](#security.protocol.maxBodyBytes) | integer, 1,048,576 to 1,099,511,627,776 | `134217728` | server |  | Applied by the server. |
+| <a id="security.protocol.allowedmethods"></a>[`security.protocol.allowedMethods`](#security.protocol.allowedMethods) | list of up to 32 strings, each up to 16 characters | built-in list of 16 entries | server |  | Applied by the server. |
+| <a id="security.protocol.allowedhosts"></a>[`security.protocol.allowedHosts`](#security.protocol.allowedHosts) | list of up to 50 strings, each up to 255 characters | `[]` | server |  | Applied by the server. |
+| <a id="security.protocol.exemptprefixes"></a>[`security.protocol.exemptPrefixes`](#security.protocol.exemptPrefixes) | list of up to 20 strings, each up to 200 characters | `[]` | server |  | Applied by the server. |
+| [`security.health.mode`](#security.health.mode) | one of `internal-only`, `allowlist`, `open` | `"internal-only"` | server |  | Applied by the server. |
+| [`security.health.networks`](#security.health.networks) | list of up to 50 strings, each up to 64 characters | `[]` | server |  | Applied by the server. |
+| <a id="security.adminprobe.enabled"></a>[`security.adminProbe.enabled`](#security.adminProbe.enabled) | on or off | `true` | server | `MW_ADMIN_PROBE_ENABLED` (pin) | Applied by the server. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| <a id="security.adminprobe.graceallowance"></a>[`security.adminProbe.graceAllowance`](#security.adminProbe.graceAllowance) | integer, 0 to 1000 | `10` | server |  | Applied by the server. A value of `0` behaves like `1`: the grace counter drains by at least one point per window. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| <a id="security.adminprobe.windowsecs"></a>[`security.adminProbe.windowSecs`](#security.adminProbe.windowSecs) | integer, 60 to 86,400 | `600` | server |  | Applied by the server. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| <a id="security.adminprobe.blockafter"></a>[`security.adminProbe.blockAfter`](#security.adminProbe.blockAfter) | integer, 1 to 1000 | `10` | server |  | Applied by the server. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| <a id="security.adminprobe.tarpitdelayms"></a>[`security.adminProbe.tarpitDelayMs`](#security.adminProbe.tarpitDelayMs) | integer, 0 to 10,000 | `1500` | server |  | Applied by the server. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| <a id="security.adminprobe.blocksecs"></a>[`security.adminProbe.blockSecs`](#security.adminProbe.blockSecs) | integer, 60 to 604,800 | `900` | server |  | Applied by the server. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| <a id="security.adminprobe.maxblocksecs"></a>[`security.adminProbe.maxBlockSecs`](#security.adminProbe.maxBlockSecs) | integer, 60 to 2,592,000 | `86400` | server |  | Applied by the server. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| <a id="security.adminprobe.repeatwindowsecs"></a>[`security.adminProbe.repeatWindowSecs`](#security.adminProbe.repeatWindowSecs) | integer, 0 to 2,592,000 | `86400` | server |  | Applied by the server. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| <a id="security.adminprobe.blockstatus"></a>[`security.adminProbe.blockStatus`](#security.adminProbe.blockStatus) | one of `429`, `403` | `"429"` | server |  | Applied by the server. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| <a id="security.adminprobe.signals"></a>[`security.adminProbe.signals`](#security.adminProbe.signals) | list of up to 4 strings, each up to 32 characters | `["probe-path","slug-guess","admin-signin-failed","admin-unauthenticated"]` | server |  | Applied by the server. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| <a id="security.adminprobe.probepaths"></a>[`security.adminProbe.probePaths`](#security.adminProbe.probePaths) | list of up to 512 strings, each up to 128 characters | built-in list of paths | server |  | Applied by the server. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| <a id="security.adminprobe.allowlist"></a>[`security.adminProbe.allowlist`](#security.adminProbe.allowlist) | list of up to 100 strings, each up to 64 characters | `[]` | server |  | Applied by the server. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| <a id="security.adminprobe.auditip"></a>[`security.adminProbe.auditIp`](#security.adminProbe.auditIp) | one of `masked`, `full` | `"masked"` | server |  | Applied by the server. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| <a id="security.adminprobe.fail2banlog"></a>[`security.adminProbe.fail2banLog`](#security.adminProbe.fail2banLog) | on or off | `true` | server |  | Applied by the server. Written only on its own console page (`/security/admin-probe`); the general settings route refuses it. |
+| [`security.trust.enabled`](#security.trust.enabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="security.trust.knownttldays"></a>[`security.trust.knownTtlDays`](#security.trust.knownTtlDays) | integer, 1 to 365 | `30` | server |  | Applied by the server. |
+| <a id="security.trust.knowncapacity"></a>[`security.trust.knownCapacity`](#security.trust.knownCapacity) | integer, 100 to 100,000 | `10000` | server |  | Applied by the server. |
+| [`security.trust.persist`](#security.trust.persist) | on or off | `true` | server |  | Applied by the server. |
+| <a id="security.trust.persistintervalsecs"></a>[`security.trust.persistIntervalSecs`](#security.trust.persistIntervalSecs) | integer, 30 to 3600 | `300` | server |  | Applied by the server. |
+| <a id="security.trust.unknownpercent"></a>[`security.trust.unknownPercent`](#security.trust.unknownPercent) | integer, 10 to 100 | `100` | server |  | Applied by the server. |
+| <a id="security.trust.knownpercent"></a>[`security.trust.knownPercent`](#security.trust.knownPercent) | integer, 100 to 1000 | `200` | server |  | Applied by the server. |
+| <a id="security.trust.uamissing"></a>[`security.trust.uaMissing`](#security.trust.uaMissing) | one of `allow`, `limit`, `block` | `"limit"` | server |  | Applied by the server. |
+| <a id="security.trust.uauncommon"></a>[`security.trust.uaUncommon`](#security.trust.uaUncommon) | one of `allow`, `limit`, `block` | `"limit"` | server |  | Applied by the server. |
+| <a id="security.trust.uaautomation"></a>[`security.trust.uaAutomation`](#security.trust.uaAutomation) | one of `allow`, `limit`, `block` | `"limit"` | server |  | Applied by the server. |
+| <a id="security.trust.uasearch"></a>[`security.trust.uaSearch`](#security.trust.uaSearch) | one of `allow`, `limit`, `block` | `"limit"` | server |  | Applied by the server. |
+| <a id="security.trust.uaaitraining"></a>[`security.trust.uaAiTraining`](#security.trust.uaAiTraining) | one of `allow`, `limit`, `block` | `"block"` | server |  | Applied by the server. |
+| <a id="security.trust.uaaisearch"></a>[`security.trust.uaAiSearch`](#security.trust.uaAiSearch) | one of `allow`, `limit`, `block` | `"block"` | server |  | Applied by the server. |
+| <a id="security.trust.uaaiuser"></a>[`security.trust.uaAiUser`](#security.trust.uaAiUser) | one of `allow`, `limit`, `block` | `"block"` | server |  | Applied by the server. |
+| <a id="security.trust.uacustom"></a>[`security.trust.uaCustom`](#security.trust.uaCustom) | one of `allow`, `limit`, `block` | `"limit"` | server |  | Applied by the server. |
+| <a id="security.trust.admingeoenabled"></a>[`security.trust.adminGeoEnabled`](#security.trust.adminGeoEnabled) | on or off | `true` | server | `MW_ADMIN_GEO_ENABLED` (pin) | Applied by the server. |
+| <a id="security.trust.admingeocountries"></a>[`security.trust.adminGeoCountries`](#security.trust.adminGeoCountries) | list of up to 249 strings, each up to 2 characters | `[]` | server |  | Applied by the server. |
+| <a id="security.trust.admingeolookupfailure"></a>[`security.trust.adminGeoLookupFailure`](#security.trust.adminGeoLookupFailure) | one of `allow`, `unknown` | `"allow"` | server |  | Applied by the server. |
+| <a id="security.trust.admingeothreshold"></a>[`security.trust.adminGeoThreshold`](#security.trust.adminGeoThreshold) | integer, 1 to 100 | `3` | server |  | Applied by the server. |
+| <a id="security.trust.admingeowindowsecs"></a>[`security.trust.adminGeoWindowSecs`](#security.trust.adminGeoWindowSecs) | integer, 60 to 86,400 | `600` | server |  | Applied by the server. |
+| <a id="security.trust.admingeoblockonfirst"></a>[`security.trust.adminGeoBlockOnFirst`](#security.trust.adminGeoBlockOnFirst) | on or off | `false` | server |  | Applied by the server. |
+| <a id="security.trust.admingeoblocksecs"></a>[`security.trust.adminGeoBlockSecs`](#security.trust.adminGeoBlockSecs) | integer, 60 to 2,592,000 | `3600` | server |  | Applied by the server. |
+| <a id="security.trust.admingeosecondblocksecs"></a>[`security.trust.adminGeoSecondBlockSecs`](#security.trust.adminGeoSecondBlockSecs) | integer, 60 to 2,592,000 | `86400` | server |  | Applied by the server. |
+| <a id="security.trust.admingeomaxblocksecs"></a>[`security.trust.adminGeoMaxBlockSecs`](#security.trust.adminGeoMaxBlockSecs) | integer, 60 to 2,592,000 | `604800` | server |  | Applied by the server. |
+| <a id="security.trust.admingeorepeatdays"></a>[`security.trust.adminGeoRepeatDays`](#security.trust.adminGeoRepeatDays) | integer, 1 to 365 | `30` | server |  | Applied by the server. |
+| <a id="security.signin.accountgeomode"></a>[`security.signin.accountGeoMode`](#security.signin.accountGeoMode) | one of `off`, `block-unusual-countries`, `block-foreign-countries` | `"off"` | server, domain, user |  | Applied by the server. |
+| <a id="security.signin.accountgeoallowcountries"></a>[`security.signin.accountGeoAllowCountries`](#security.signin.accountGeoAllowCountries) | list of up to 50 strings, each up to 2 characters | `[]` | server, domain, user |  | Applied by the server. |
+| <a id="security.signin.accountgeoallowips"></a>[`security.signin.accountGeoAllowIps`](#security.signin.accountGeoAllowIps) | list of up to 50 strings, each up to 64 characters | `[]` | server, domain, user |  | Applied by the server. |
+| <a id="security.signin.accountgeoglobalallowcountries"></a>[`security.signin.accountGeoGlobalAllowCountries`](#security.signin.accountGeoGlobalAllowCountries) | list of up to 100 strings, each up to 2 characters | `[]` | server |  | Applied by the server. |
+| <a id="security.signin.accountgeoglobalallowips"></a>[`security.signin.accountGeoGlobalAllowIps`](#security.signin.accountGeoGlobalAllowIps) | list of up to 100 strings, each up to 64 characters | `[]` | server |  | Applied by the server. |
+| <a id="security.signin.accountgeolookupfailure"></a>[`security.signin.accountGeoLookupFailure`](#security.signin.accountGeoLookupFailure) | one of `allow`, `deny` | `"allow"` | server |  | Applied by the server. |
+| <a id="security.signin.accountgeohistorydays"></a>[`security.signin.accountGeoHistoryDays`](#security.signin.accountGeoHistoryDays) | integer, 30 to 3650 | `365` | server |  | Applied by the server. |
+| <a id="security.geo.nodatabase"></a>[`security.geo.noDatabase`](#security.geo.noDatabase) | one of `allow`, `treat-as-unknown`, `block` | `"allow"` | server |  | Applied by the server. |
+| <a id="security.geo.notfound"></a>[`security.geo.notFound`](#security.geo.notFound) | one of `allow`, `treat-as-unknown`, `block` | `"allow"` | server |  | Applied by the server. |
+| <a id="security.signin.geonodatabase"></a>[`security.signin.geoNoDatabase`](#security.signin.geoNoDatabase) | one of `allow`, `block` | `"block"` | server |  | Applied by the server. |
+| <a id="security.geo.sessionlookupfailure"></a>[`security.geo.sessionLookupFailure`](#security.geo.sessionLookupFailure) | one of `ignore`, `alert` | `"ignore"` | server |  | Applied by the server. The alert is sent at most once per day per session, not once per session. |
+| <a id="security.signin.geoenforcesessions"></a>[`security.signin.geoEnforceSessions`](#security.signin.geoEnforceSessions) | on or off | `false` | server |  | Applied by the server. |
+| <a id="security.signin.geoscope"></a>[`security.signin.geoScope`](#security.signin.geoScope) | one of `off`, `mailbox`, `admin`, `all` | `"off"` | server |  | Applied by the server. |
+| <a id="security.signin.geomode"></a>[`security.signin.geoMode`](#security.signin.geoMode) | one of `allow`, `deny` | `"allow"` | server |  | Applied by the server. |
+| <a id="security.signin.geocountries"></a>[`security.signin.geoCountries`](#security.signin.geoCountries) | list of up to 249 strings, each up to 2 characters | `[]` | server |  | Applied by the server. |
+| <a id="security.signin.geounknown"></a>[`security.signin.geoUnknown`](#security.signin.geoUnknown) | one of `allow`, `deny` | `"deny"` | server |  | Applied by the server. |
+| <a id="security.signin.mailboxfailurelimit"></a>[`security.signin.mailboxFailureLimit`](#security.signin.mailboxFailureLimit) | integer, 1 to 100 | `10` | server |  | Applied by the server. |
+| <a id="security.signin.adminfailurelimit"></a>[`security.signin.adminFailureLimit`](#security.signin.adminFailureLimit) | integer, 1 to 100 | `5` | server |  | Applied by the server. |
+| <a id="security.signin.failurewindowsecs"></a>[`security.signin.failureWindowSecs`](#security.signin.failureWindowSecs) | integer, 30 to 86,400 | `900` | server |  | Applied by the server. |
+| <a id="security.signin.locksecs"></a>[`security.signin.lockSecs`](#security.signin.lockSecs) | integer, 30 to 86,400 | `900` | server |  | Applied by the server. |
+| <a id="ratelimit.diagnosticsburst"></a>[`rateLimit.diagnosticsBurst`](#rateLimit.diagnosticsBurst) | integer, 1 to 100 | `10` | server |  | Applied by the server. Written only on its own console page (`/rate-limits`); the general settings route refuses it. |
+| <a id="ratelimit.diagnosticsperminute"></a>[`rateLimit.diagnosticsPerMinute`](#rateLimit.diagnosticsPerMinute) | integer, 1 to 600 | `10` | server |  | Applied by the server. Written only on its own console page (`/rate-limits`); the general settings route refuses it. |
+| <a id="ratelimit.queuems"></a>[`ratelimit.queueMs`](#ratelimit.queueMs) | integer, 0 to 30,000 | `3000` | server, domain |  | Applied by the server. |
+| <a id="ratelimit.jmap.peraccountconcurrent"></a>[`ratelimit.jmap.perAccountConcurrent`](#ratelimit.jmap.perAccountConcurrent) | integer, 4 to 64 | `8` | server, domain |  | Applied by the server. |
+| <a id="ratelimit.jmap.globalconcurrent"></a>[`ratelimit.jmap.globalConcurrent`](#ratelimit.jmap.globalConcurrent) | integer, 4 to 4096 | `256` | server |  | Applied by the server. |
+| [`ratelimit.session.burst`](#ratelimit.session.burst) | integer, 1 to 1000 | `60` | server, domain |  | Applied by the server. |
+| <a id="ratelimit.session.perminute"></a>[`ratelimit.session.perMinute`](#ratelimit.session.perMinute) | integer, 1 to 600 | `30` | server, domain |  | Applied by the server. |
+| [`ratelimit.anon.burst`](#ratelimit.anon.burst) | integer, 1 to 1000 | `60` | server |  | Applied by the server. |
+| <a id="ratelimit.anon.perminute"></a>[`ratelimit.anon.perMinute`](#ratelimit.anon.perMinute) | integer, 1 to 600 | `30` | server |  | Applied by the server. |
+| <a id="ratelimit.trustedmultiplier"></a>[`ratelimit.trustedMultiplier`](#ratelimit.trustedMultiplier) | integer, 100 to 1000 | `150` | server |  | Applied by the server. |
+
+### Admin console sessions keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="admin.allowlastsuperadminloss"></a>[`admin.allowLastSuperadminLoss`](#admin.allowLastSuperadminLoss) | on or off | `false` | server |  | Applied by the server. |
+| <a id="admin.session.idlesecs"></a>[`admin.session.idleSecs`](#admin.session.idleSecs) | integer, 300 to 86,400 | `1800` | server |  | Applied by the server. The server caps the effective value at 7200 seconds. |
+| <a id="admin.session.absolutesecs"></a>[`admin.session.absoluteSecs`](#admin.session.absoluteSecs) | integer, 3600 to 604,800 | `43200` | server |  | Applied by the server. The server caps the effective value at 86400 seconds. |
+| <a id="admin.session.rotatesecs"></a>[`admin.session.rotateSecs`](#admin.session.rotateSecs) | integer, 0 to 86,400 | `900` | server |  | Applied by the server. Values from 1 to 59 are raised to 60 seconds. |
+
+### Passwords keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="passwd.policy.minlength"></a>[`passwd.policy.minLength`](#passwd.policy.minLength) | integer, 8 to 128 | `12` | server, domain |  | **No effect.** Password backends apply their own policy; nothing passes this value to them. |
+| <a id="passwd.policy.requireupper"></a>[`passwd.policy.requireUpper`](#passwd.policy.requireUpper) | on or off | `false` | server, domain |  | **No effect.** Password backends apply their own policy; nothing passes this value to them. |
+| <a id="passwd.policy.requirelower"></a>[`passwd.policy.requireLower`](#passwd.policy.requireLower) | on or off | `false` | server, domain |  | **No effect.** Password backends apply their own policy; nothing passes this value to them. |
+| <a id="passwd.policy.requiredigit"></a>[`passwd.policy.requireDigit`](#passwd.policy.requireDigit) | on or off | `false` | server, domain |  | **No effect.** Password backends apply their own policy; nothing passes this value to them. |
+| <a id="passwd.policy.requiresymbol"></a>[`passwd.policy.requireSymbol`](#passwd.policy.requireSymbol) | on or off | `false` | server, domain |  | **No effect.** Password backends apply their own policy; nothing passes this value to them. |
+
+### Attachments keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="attachments.previewallowed"></a>[`attachments.previewAllowed`](#attachments.previewAllowed) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="attachments.downloadallowed"></a>[`attachments.downloadAllowed`](#attachments.downloadAllowed) | on or off | `true` | server, domain |  | Applied by the server. |
+| <a id="attachments.maxbytes"></a>[`attachments.maxBytes`](#attachments.maxBytes) | integer, 0 to 1,125,899,906,842,624 | `0` | server, domain |  | Applied by the server. |
+| <a id="attachments.allowedextensions"></a>[`attachments.allowedExtensions`](#attachments.allowedExtensions) | list of up to 100 file extensions, each up to 127 characters | `[]` | server, domain |  | Applied by the server. |
+| <a id="attachments.allowedmimetypes"></a>[`attachments.allowedMimeTypes`](#attachments.allowedMimeTypes) | list of up to 100 MIME types (`type/subtype` or `type/*`), each up to 127 characters | `[]` | server, domain |  | Applied by the server. |
+| <a id="attachments.blockedextensions"></a>[`attachments.blockedExtensions`](#attachments.blockedExtensions) | list of up to 100 file extensions, each up to 127 characters | `[]` | server, domain |  | Applied by the server. |
+| <a id="attachments.blockedmimetypes"></a>[`attachments.blockedMimeTypes`](#attachments.blockedMimeTypes) | list of up to 100 MIME types (`type/subtype` or `type/*`), each up to 127 characters | `[]` | server, domain |  | Applied by the server. |
+| <a id="attachments.warnextensions"></a>[`attachments.warnExtensions`](#attachments.warnExtensions) | list of up to 100 file extensions, each up to 127 characters | `[]` | server, domain |  | Applied by the server. |
+| <a id="attachments.warnmimetypes"></a>[`attachments.warnMimeTypes`](#attachments.warnMimeTypes) | list of up to 100 MIME types (`type/subtype` or `type/*`), each up to 127 characters | `[]` | server, domain |  | Applied by the server. |
+
+### Limits and quotas keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| [`limit.attachment_bytes`](#limit.attachment_bytes) | integer, 0 to 1,125,899,906,842,624 | `50000000` | server, domain, one user (administrator only); per-user values are stored per address |  | Applied by the server. |
+| [`limit.send_per_hour`](#limit.send_per_hour) | integer, 0 to 1,000,000 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | **No effect.** The limit is shown in the capability editor, but nothing counts submissions against it. |
+| [`limit.recipients_per_message`](#limit.recipients_per_message) | integer, 0 to 1,000,000 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | Applied by the server. |
+| [`limit.storage_bytes`](#limit.storage_bytes) | integer, 0 to 1,125,899,906,842,624 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | **No effect.** The limit is shown in the capability editor, but nothing enforces it. |
+| [`limit.send_per_day`](#limit.send_per_day) | integer, 0 to 1,000,000 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | **No effect.** The limit is shown in the capability editor, but nothing counts submissions against it. |
+| [`limit.ai_calls_per_day`](#limit.ai_calls_per_day) | integer, 0 to 1,000,000 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | **No effect.** The limit is shown in the capability editor, but the assistant does not check it. |
+| [`limit.linked_mailboxes`](#limit.linked_mailboxes) | integer, 0 to 16 | `0` | server, domain, one user (administrator only); per-user values are stored per address |  | Applied by the server. |
+| <a id="quota.warnthresholds"></a>[`quota.warnThresholds`](#quota.warnThresholds) | strictly increasing list of up to 5 integers, 1 to 100 | `[80,95]` | server, domain; per-user values are stored per address |  | Applied by the web app only. |
+| <a id="quota.warnenabled"></a>[`quota.warnEnabled`](#quota.warnEnabled) | on or off | `true` | server, domain; per-user values are stored per address |  | Applied by the web app only. |
+| <a id="usage.retentiondays"></a>[`usage.retentionDays`](#usage.retentionDays) | integer, 31 to 3650 | `730` | server |  | **No behavioural effect.** The value appears in the retention overview; nothing deletes usage counters when they pass it. |
+| <a id="usage.meterapi"></a>[`usage.meterApi`](#usage.meterApi) | on or off | `true` | server |  | **No effect.** No metering code reads it. |
+| <a id="usage.measureintervalhours"></a>[`usage.measureIntervalHours`](#usage.measureIntervalHours) | integer, 1 to 168 | `6` | server |  | **No effect.** No code reads it. |
+
+### Plugins keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="plugins.kv.maxkeybytes"></a>[`plugins.kv.maxKeyBytes`](#plugins.kv.maxKeyBytes) | integer, 1 to 1024 | `256` | server | `MW_PLUGIN_KV_MAX_KEY_BYTES` (pin) | **No effect when saved.** Only `MW_PLUGIN_KV_MAX_KEY_BYTES` is read; otherwise the built-in value applies. |
+| <a id="plugins.kv.maxvaluebytes"></a>[`plugins.kv.maxValueBytes`](#plugins.kv.maxValueBytes) | integer, 1 to 262,144 | `65536` | server | `MW_PLUGIN_KV_MAX_VALUE_BYTES` (pin) | **No effect when saved.** Only `MW_PLUGIN_KV_MAX_VALUE_BYTES` is read; otherwise the built-in value applies. |
+| <a id="plugins.kv.maxtotalbytes"></a>[`plugins.kv.maxTotalBytes`](#plugins.kv.maxTotalBytes) | integer, 1 to 20,971,520 | `5242880` | server | `MW_PLUGIN_KV_MAX_TOTAL_BYTES` (pin) | **No effect when saved.** Only `MW_PLUGIN_KV_MAX_TOTAL_BYTES` is read; otherwise the built-in value applies. |
+| <a id="plugins.kv.maxkeys"></a>[`plugins.kv.maxKeys`](#plugins.kv.maxKeys) | integer, 1 to 4000 | `1000` | server | `MW_PLUGIN_KV_MAX_KEYS` (pin) | **No effect when saved.** Only `MW_PLUGIN_KV_MAX_KEYS` is read; otherwise the built-in value applies. |
+
+### Import keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="import.maxmessages"></a>[`import.maxMessages`](#import.maxMessages) | integer, 1 to 80,000 | `20000` | server, domain |  | **No effect.** The import routes use fixed limits. |
+| <a id="import.maxmessagebytes"></a>[`import.maxMessageBytes`](#import.maxMessageBytes) | integer, 1 to 268,435,456 | `67108864` | server, domain |  | **No effect.** The import route uses a fixed limit of 64 MiB per message. |
+
+### Webhooks keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="webhooks.maxattempts"></a>[`webhooks.maxAttempts`](#webhooks.maxAttempts) | integer, 1 to 10 | `3` | server |  | **No effect.** No code reads it. |
+| <a id="webhooks.timeoutsecs"></a>[`webhooks.timeoutSecs`](#webhooks.timeoutSecs) | integer, 1 to 60 | `10` | server |  | **No effect.** No code reads it. |
+
+### Live updates keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="realtime.rechecksecs"></a>[`realtime.recheckSecs`](#realtime.recheckSecs) | integer, 5 to 300 | `30` | server | `MW_REALTIME_RECHECK_SECS` (pin) | **No effect when saved.** Only `MW_REALTIME_RECHECK_SECS` is read; with it unset the live-update connection re-checks every 30 seconds. |
+
+### Observability keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="observability.errorforwardurl"></a>[`observability.errorForwardUrl`](#observability.errorForwardUrl) | https:// URL, up to 2048 characters; may be unset | `null` | server | `MW_ERROR_FORWARD_URL` (pin) | **No effect when saved.** Only `MW_ERROR_FORWARD_URL` is read. |
+| <a id="observability.otlpmetrics"></a>[`observability.otlpMetrics`](#observability.otlpMetrics) | on or off | `false` | server |  | **No effect.** No code reads it. |
+| <a id="metrics.drilldowntopn"></a>[`metrics.drilldownTopN`](#metrics.drilldownTopN) | integer, 1 to 1000 | `200` | server |  | **No effect.** No code reads it. |
+| <a id="metrics.defaultrangeseconds"></a>[`metrics.defaultRangeSeconds`](#metrics.defaultRangeSeconds) | integer, 60 to 34,560,000 | `3600` | server |  | Applied by the server. |
+| <a id="metrics.maxrangeseconds"></a>[`metrics.maxRangeSeconds`](#metrics.maxRangeSeconds) | integer, 3600 to 34,560,000 | `2592000` | server |  | Applied by the server. |
+| <a id="metrics.rollupdays"></a>[`metrics.rollupDays`](#metrics.rollupDays) | integer, 1 to 1095 | `1095` | server |  | Applied by the server. |
+| [`metrics.persist.enabled`](#metrics.persist.enabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="metrics.persist.flushseconds"></a>[`metrics.persist.flushSeconds`](#metrics.persist.flushSeconds) | integer, 5 to 3600 | `60` | server |  | Applied by the server. |
+| [`metrics.dimensions.enabled`](#metrics.dimensions.enabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="observability.clienttiming.enabled"></a>[`observability.clientTiming.enabled`](#observability.clientTiming.enabled) | on or off | `true` | server |  | Applied by the server. |
+| <a id="observability.clienttiming.sampleratepercent"></a>[`observability.clientTiming.sampleRatePercent`](#observability.clientTiming.sampleRatePercent) | integer, 1 to 100 | `100` | server |  | Applied by the server and the web app. |
+| <a id="database.pool"></a>`database.pool` | object (see Database connection pool) | built-in object | server | `MW_DB_POOL` (pin) | Applied by the server. |
+| <a id="observability.database.growthalerts"></a>[`observability.database.growthAlerts`](#observability.database.growthAlerts) | on or off | `true` | server |  | Applied by the server. |
+| <a id="observability.database.growthmibperminute"></a>[`observability.database.growthMiBPerMinute`](#observability.database.growthMiBPerMinute) | integer, 1 to 1,048,576 | `64` | server |  | Applied by the server. |
+| <a id="observability.clienttiming.minsamples"></a>[`observability.clientTiming.minSamples`](#observability.clientTiming.minSamples) | integer, 1 to 100,000 | `1` | server |  | Applied by the server. |
+| <a id="observability.clienttiming.folderloads"></a>[`observability.clientTiming.folderLoads`](#observability.clientTiming.folderLoads) | on or off | `true` | server, domain, user |  | Applied by the server and the web app. |
+| <a id="observability.clienttiming.messageloads"></a>[`observability.clientTiming.messageLoads`](#observability.clientTiming.messageLoads) | on or off | `true` | server, domain, user |  | Applied by the server and the web app. |
+| [`observability.client.enabled`](#observability.client.enabled) | on or off | `true` | server |  | Applied by the server and the web app. |
+| <a id="observability.client.samplerate"></a>[`observability.client.sampleRate`](#observability.client.sampleRate) | number, 0 to 1 | `1` | server |  | Applied by the server and the web app. |
+| <a id="observability.client.maxpersession"></a>[`observability.client.maxPerSession`](#observability.client.maxPerSession) | integer, 1 to 1000 | `20` | server |  | Applied by the server and the web app. |
+| <a id="observability.client.includeaccounthash"></a>[`observability.client.includeAccountHash`](#observability.client.includeAccountHash) | on or off | `false` | server |  | Applied by the server. |
+| <a id="observability.client.captureconsole"></a>[`observability.client.captureConsole`](#observability.client.captureConsole) | on or off | `false` | server |  | Applied by the server and the web app. |
+| <a id="observability.client.capturecsp"></a>[`observability.client.captureCsp`](#observability.client.captureCsp) | on or off | `true` | server |  | Applied by the server and the web app. |
+| <a id="observability.client.sourcemaps"></a>[`observability.client.sourceMaps`](#observability.client.sourceMaps) | on or off | `true` | server |  | Applied by the server. |
+| [`observability.client.forward`](#observability.client.forward) | on or off | `false` | server |  | Applied by the server. |
+| <a id="logs.auth.retentiondays"></a>[`logs.auth.retentionDays`](#logs.auth.retentionDays) | integer, 1 to 1095 | `1095` | server |  | Applied by the server. |
+| <a id="logs.auth.maxentries"></a>[`logs.auth.maxEntries`](#logs.auth.maxEntries) | integer, 1000 to 100,000 | `50000` | server |  | Applied by the server. |
+| [`logging.file.enabled`](#logging.file.enabled) | on or off | `false` | server |  | Applied by the server. |
+| [`logging.file.directory`](#logging.file.directory) | text, up to 500 characters | `"logs"` | server |  | Applied by the server. |
+| <a id="logging.file.maxsizemb"></a>[`logging.file.maxSizeMb`](#logging.file.maxSizeMb) | integer, 1 to 4096 | `50` | server |  | Applied by the server. |
+| <a id="logging.file.rotatehours"></a>[`logging.file.rotateHours`](#logging.file.rotateHours) | integer, 0 to 8760 | `24` | server |  | Applied by the server. |
+| <a id="logging.file.maxagedays"></a>[`logging.file.maxAgeDays`](#logging.file.maxAgeDays) | integer, 1 to 3650 | `365` | server |  | Applied by the server. Until the first policy refresh after start, the server uses 14 days. |
+| <a id="logging.file.maxfiles"></a>[`logging.file.maxFiles`](#logging.file.maxFiles) | integer, 1 to 1000 | `14` | server |  | Applied by the server. |
+| <a id="logging.file.maxtotalmb"></a>[`logging.file.maxTotalMb`](#logging.file.maxTotalMb) | integer, 1 to 102,400 | `500` | server |  | Applied by the server. |
+| [`logging.file.compress`](#logging.file.compress) | on or off | `true` | server |  | Applied by the server. |
+| [`logging.level`](#logging.level) | one of `error`, `warn`, `info`, `debug`, `trace` | `"info"` | server |  | Applied by the server. |
+| <a id="logging.componentlevels"></a>[`logging.componentLevels`](#logging.componentLevels) | list of up to 50 strings, each up to 80 characters | `[]` | server |  | Applied by the server. |
+| [`logging.redaction.addresses`](#logging.redaction.addresses) | one of `full`, `truncated`, `hashed`, `none` | `"full"` | server |  | Applied by the server. |
+| [`logging.redaction.ips`](#logging.redaction.ips) | one of `full`, `truncated`, `hashed`, `none` | `"full"` | server |  | Applied by the server. |
+| [`logging.redaction.tokens`](#logging.redaction.tokens) | on or off | `true` | server |  | Applied by the server. |
+
+### Outbound requests keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="egress.probeurl"></a>[`egress.probeUrl`](#egress.probeUrl) | https:// URL, up to 2048 characters | `"https://example.com/"` | server | `MW_EGRESS_PROBE_URL` (pin) | **No effect when saved.** Only `MW_EGRESS_PROBE_URL` is read. |
+
+### Updates keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| [`updates.check`](#updates.check) | one of `off`, `notify` | `"off"` | server |  | **No effect.** No update check exists. |
+| <a id="updates.feedurl"></a>[`updates.feedUrl`](#updates.feedUrl) | https:// URL, up to 2048 characters | `"https://api.github.com/repos/supermarsx/mailwoman/releases"` | server |  | **No effect.** No code reads it. |
+| [`updates.apply`](#updates.apply) | one of `disabled`, `agent` | `"disabled"` | server |  | **No effect.** No code reads it. |
+
+### Backups keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="backup.retentioncount"></a>[`backup.retentionCount`](#backup.retentionCount) | integer, 1 to 365 | `7` | server |  | **No effect.** Nothing prunes backups by this count. |
+
+### About keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="about.securitycontact"></a>[`about.securityContact`](#about.securityContact) | `mailto:` address or https:// URL, up to 320 characters; may be unset | `null` | server |  | **No effect.** No `security.txt` handler reads it. |
+| <a id="about.securitypolicyurl"></a>[`about.securityPolicyUrl`](#about.securityPolicyUrl) | https:// URL, up to 2048 characters; may be unset | `null` | server |  | **No effect.** No `security.txt` handler reads it. |
+| <a id="about.projectlinks"></a>[`about.projectLinks`](#about.projectLinks) | list of up to 10 objects with a `label` and an https:// `url` | `[]` | server |  | **No effect.** No code reads it. |
+
+### Configuration keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="config.snapshotskept"></a>[`config.snapshotsKept`](#config.snapshotsKept) | integer, 1 to 500 | `20` | server |  | **No effect.** No code reads it. |
+
+### Jobs keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="jobs.historydays"></a>[`jobs.historyDays`](#jobs.historyDays) | integer, 1 to 365 | `30` | server |  | **No effect.** No code reads it. |
+
+### Health checks keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="health.diskfreeminpercent"></a>[`health.diskFreeMinPercent`](#health.diskFreeMinPercent) | integer, 1 to 50 | `5` | server |  | **No effect.** The readiness check does not test free disk space. |
+
+### Diagnostics keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="diagnostics.retentiondays"></a>[`diagnostics.retentionDays`](#diagnostics.retentionDays) | integer, 1 to 365 | `180` | server |  | Applied by the server. |
+
+### Users keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="dataexport.linkhours"></a>[`dataExport.linkHours`](#dataExport.linkHours) | integer, 1 to 168 | `24` | server |  | Applied by the server. |
+
+### Server text keys
+
+| Key | Type | Default | Set at | Environment | Effect |
+|---|---|---|---|---|---|
+| <a id="servertext"></a>[`serverText.*`](#serverText) | object mapping an interface language code to text of up to 4000 characters | `{}` | server, domain |  | **No effect.** Server notices come from the bundled texts for the language set in `ui.language`; no `serverText.<id>` value is looked up. |
