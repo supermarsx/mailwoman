@@ -65,6 +65,14 @@ security-anomaly-envelopeFromDivergence = مرسل المغلف يختلف عن 
 security-anomaly-messageIdDomainAnomaly = نطاق Message-ID لا يطابق المرسل
 security-anomaly-dateSkew = يبدو تاريخ الإرسال منحرفًا
 security-anomaly-punycodeSender = يستخدم المرسل punycode (قد يكون نطاقًا مشابهًا)
+security-anomalies-detected = { $count ->
+    [zero] لم يُكتشف أي شذوذ في الترويسات.
+    [one] اكتُشف شذوذ واحد في الترويسات.
+    [two] اكتُشف شذوذان في الترويسات.
+    [few] اكتُشفت { $count } حالات شذوذ في الترويسات.
+    [many] اكتُشفت { $count } حالة شذوذ في الترويسات.
+   *[other] اكتُشفت { $count } حالة شذوذ في الترويسات.
+}
 
 # -- Sender controls --------------------------------------------------------
 security-control-block = حظر المرسل

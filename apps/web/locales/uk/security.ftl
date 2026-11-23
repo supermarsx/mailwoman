@@ -66,6 +66,12 @@ security-anomaly-envelopeFromDivergence = Відправник конверта 
 security-anomaly-messageIdDomainAnomaly = Домен Message-ID не відповідає відправнику
 security-anomaly-dateSkew = Дата надсилання виглядає зміщеною
 security-anomaly-punycodeSender = Відправник використовує punycode (можливо, схожий на справжній домен)
+security-anomalies-detected = { $count ->
+    [one] Виявлено { $count } аномалію в заголовках.
+    [few] Виявлено { $count } аномалії в заголовках.
+    [many] Виявлено { $count } аномалій в заголовках.
+   *[other] Виявлено { $count } аномалій в заголовках.
+}
 
 # -- Sender controls --------------------------------------------------------
 security-control-block = Заблокувати відправника

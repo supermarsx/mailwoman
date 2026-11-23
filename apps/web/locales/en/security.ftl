@@ -74,6 +74,10 @@ security-anomaly-envelopeFromDivergence = Envelope sender differs from the From 
 security-anomaly-messageIdDomainAnomaly = Message-ID domain doesn't match the sender
 security-anomaly-dateSkew = Send date looks skewed
 security-anomaly-punycodeSender = Sender uses punycode (possible look-alike domain)
+security-anomalies-detected = { $count ->
+    [one] { $count } header anomaly detected.
+   *[other] { $count } header anomalies detected.
+}
 
 # -- Sender controls --------------------------------------------------------
 security-control-block = Block sender

@@ -66,6 +66,9 @@ security-anomaly-envelopeFromDivergence = 信封发件人与 From 地址不同
 security-anomaly-messageIdDomainAnomaly = Message-ID 域名与发件人不匹配
 security-anomaly-dateSkew = 发送日期似乎有偏差
 security-anomaly-punycodeSender = 发件人使用 punycode（可能是仿冒域名）
+security-anomalies-detected = { $count ->
+   *[other] 检测到 { $count } 处标头异常。
+}
 
 # -- Sender controls --------------------------------------------------------
 security-control-block = 阻止发件人

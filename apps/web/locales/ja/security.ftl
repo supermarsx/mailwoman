@@ -65,6 +65,9 @@ security-anomaly-envelopeFromDivergence = エンベロープの送信者が From
 security-anomaly-messageIdDomainAnomaly = Message-ID のドメインが送信者と一致しません
 security-anomaly-dateSkew = 送信日時がずれているようです
 security-anomaly-punycodeSender = 送信者が punycode を使用しています（なりすましドメインの可能性）
+security-anomalies-detected = { $count ->
+   *[other] ヘッダーの異常を { $count } 件検出しました。
+}
 
 # -- Sender controls --------------------------------------------------------
 security-control-block = 送信者をブロック

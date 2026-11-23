@@ -65,6 +65,10 @@ security-anomaly-envelopeFromDivergence = Il mittente della busta è diverso dal
 security-anomaly-messageIdDomainAnomaly = Il dominio del Message-ID non corrisponde al mittente
 security-anomaly-dateSkew = La data di invio sembra sfasata
 security-anomaly-punycodeSender = Il mittente usa punycode (possibile dominio simile)
+security-anomalies-detected = { $count ->
+    [one] Rilevata { $count } anomalia nelle intestazioni.
+   *[other] Rilevate { $count } anomalie nelle intestazioni.
+}
 
 # -- Sender controls --------------------------------------------------------
 security-control-block = Blocca mittente

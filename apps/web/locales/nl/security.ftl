@@ -66,6 +66,10 @@ security-anomaly-envelopeFromDivergence = Envelop-afzender wijkt af van het From
 security-anomaly-messageIdDomainAnomaly = Domein van Message-ID komt niet overeen met de afzender
 security-anomaly-dateSkew = Verzenddatum lijkt niet te kloppen
 security-anomaly-punycodeSender = Afzender gebruikt punycode (mogelijk een domein dat op een ander lijkt)
+security-anomalies-detected = { $count ->
+    [one] { $count } afwijking in de headers gedetecteerd.
+   *[other] { $count } afwijkingen in de headers gedetecteerd.
+}
 
 # -- Sender controls --------------------------------------------------------
 security-control-block = Afzender blokkeren

@@ -25,7 +25,7 @@ import {PriorityMark} from '../PriorityMark.tsx';
 import {priorityOf} from '../messagePriority.ts';
 import {focusMessageInFolder} from '../messageFocus.ts';
 import {buildDownloadUrl} from '../../viewers/attachments.ts';
-import {AUTH_RESULT_LABEL,ANOMALY_LABEL} from '../security/model.ts';
+import {AUTH_RESULT_LABEL,ANOMALY_LABEL,plainLanguageOf} from '../security/model.ts';
 import {spamBand} from '../security/spamScore.ts';
 import {formatBytes} from './folderStats.ts';
 import {trackerCountFor,trainingState} from './scoringExtras.ts';
@@ -173,7 +173,7 @@ function Scoring(props:{verdict:SecurityVerdict|null;loading:boolean;raw:string|
      <Pair label={t('props-signals')}>{verdict().anomalies.length?verdict().anomalies.map(a=>ANOMALY_LABEL[a]).join('; '):t('props-none')}</Pair>
      <Pair label={t('props-att-risk')}>{verdict().attachments.filter(a=>a.risk!=='none'||a.mismatch).length?verdict().attachments.filter(a=>a.risk!=='none'||a.mismatch).map(a=>`${a.name}: ${a.risk}${a.mismatch?' (type mismatch)':''}`).join('; '):t('props-none')}</Pair>
     </dl>
-    <p class={css.note}>{verdict().plainLanguage}</p></section>
+    <p class={css.note}>{plainLanguageOf(verdict())}</p></section>
   </>}</Show>
  </div>;
 }

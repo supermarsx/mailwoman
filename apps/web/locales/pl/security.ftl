@@ -66,6 +66,12 @@ security-anomaly-envelopeFromDivergence = Nadawca z koperty różni się od adre
 security-anomaly-messageIdDomainAnomaly = Domena w Message-ID nie pasuje do nadawcy
 security-anomaly-dateSkew = Data wysłania wygląda na przesuniętą
 security-anomaly-punycodeSender = Nadawca używa punycode (możliwa domena podszywająca się)
+security-anomalies-detected = { $count ->
+    [one] Wykryto { $count } anomalię w nagłówkach.
+    [few] Wykryto { $count } anomalie w nagłówkach.
+    [many] Wykryto { $count } anomalii w nagłówkach.
+   *[other] Wykryto { $count } anomalii w nagłówkach.
+}
 
 # -- Sender controls --------------------------------------------------------
 security-control-block = Zablokuj nadawcę

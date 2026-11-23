@@ -66,6 +66,10 @@ security-anomaly-envelopeFromDivergence = O remetente do envelope é diferente d
 security-anomaly-messageIdDomainAnomaly = O domínio do Message-ID não corresponde ao remetente
 security-anomaly-dateSkew = A data de envio parece incorreta
 security-anomaly-punycodeSender = O remetente usa punycode (possível domínio parecido)
+security-anomalies-detected = { $count ->
+    [one] { $count } anomalia de cabeçalho detectada.
+   *[other] { $count } anomalias de cabeçalho detectadas.
+}
 
 # -- Sender controls --------------------------------------------------------
 security-control-block = Bloquear remetente

@@ -5,6 +5,10 @@
 // the component stays declarative. No I/O, no engine coupling.
 
 import { formatDurationMs } from '../../i18n/format.ts';
+import { t } from '../../i18n/registry.ts';
+import { loadCatalog } from '../../i18n/catalog.ts';
+
+void loadCatalog('security');
 import type {
   AuthResult,
   AttachmentRisk,
@@ -136,6 +140,20 @@ export function attachmentTone(a: AttachmentRisk): SecurityTone {
   const tones: SecurityTone[] = [ATTACHMENT_RISK_TONE[a.risk]];
   if (a.mismatch) tones.push('warning');
   return worstTone(tones);
+}
+
+/** The server writes this closing sentence of `plainLanguage` in English only. */
+const SERVER_ANOMALY_SENTENCE = /\d+ header anomaly\/anomalies detected\.$/;
+
+/**
+ * The verdict's plain-language summary with the header-anomaly sentence built here
+ * from the anomaly count (localized, correct plural). The server's own text stays
+ * when the count is zero or the sentence is not found.
+ */
+export function plainLanguageOf(v: { plainLanguage: string; anomalies: readonly unknown[] }): string {
+  const count = v.anomalies.length;
+  if (count === 0 || !SERVER_ANOMALY_SENTENCE.test(v.plainLanguage)) return v.plainLanguage;
+  return v.plainLanguage.replace(SERVER_ANOMALY_SENTENCE, t('security-anomalies-detected', { count }));
 }
 
 // ── Anomalies ────────────────────────────────────────────────────────────────

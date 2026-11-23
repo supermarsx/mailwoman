@@ -65,6 +65,10 @@ security-anomaly-envelopeFromDivergence = Envelope-Absender weicht von der From-
 security-anomaly-messageIdDomainAnomaly = Domain der Message-ID passt nicht zum Absender
 security-anomaly-dateSkew = Sendedatum scheint verschoben
 security-anomaly-punycodeSender = Absender verwendet Punycode (mögliche Doppelgänger-Domain)
+security-anomalies-detected = { $count ->
+    [one] { $count } Auffälligkeit in den Kopfzeilen erkannt.
+   *[other] { $count } Auffälligkeiten in den Kopfzeilen erkannt.
+}
 
 # -- Sender controls --------------------------------------------------------
 security-control-block = Absender blockieren

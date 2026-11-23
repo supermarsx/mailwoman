@@ -35,6 +35,7 @@ import {
   defaultSenderControl,
   formatDelay,
   overallTone,
+  plainLanguageOf,
   signatureTone,
   type SecurityTone,
   type SenderControlAction,
@@ -81,7 +82,7 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
   const [expanded, setExpanded] = createSignal(props.initiallyExpanded ?? false);
   const panelId = createUniqueId();
   const tone = createMemo(() => overallTone(props.verdict, props.hideAuth !== true));
-  const summary = (): string => (props.hideAuth === true ? t('security-panel-region') : props.verdict.plainLanguage);
+  const summary = (): string => (props.hideAuth === true ? t('security-panel-region') : plainLanguageOf(props.verdict));
   let chipRef: HTMLButtonElement | undefined;
 
   // Escape collapses the expanded panel and returns focus to the chip (WCAG 2.1.2).
@@ -123,7 +124,7 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
         <SecurityPopup onClose={()=>{setExpanded(false);chipRef?.focus();}}>
         <div id={panelId} class={css.panel} role="region" aria-label={t('security-panel-region')}>
           <Show when={props.hideAuth !== true}>
-            <p class={css.summary}>{props.verdict.plainLanguage}</p>
+            <p class={css.summary}>{plainLanguageOf(props.verdict)}</p>
             <AuthSection auth={props.verdict.auth} />
           </Show>
           <ReceivedSection hops={props.verdict.received} />
