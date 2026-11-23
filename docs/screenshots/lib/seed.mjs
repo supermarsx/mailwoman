@@ -10,9 +10,9 @@
 //   userTotp       true: enrol an authenticator (TOTP) for the demo user; the harness
 //                  keeps the secret and can type codes (step "totp")
 //   adminSettings  { "<registry key>": value }  PUT <admin>/settings/<key> {globalValue}
-//   admin          [{ "method", "path" (under the admin path), "body" }]
+//   admin          [{ "method", "path" (under the admin path), "body", "headers"? }]
 //   userSettings   { "<registry key>": value }  PUT /api/settings/<key> {value}
-//   user           [{ "method", "path", "body" }] as the signed-in demo user
+//   user           [{ "method", "path", "body", "headers"? }] as the signed-in demo user
 //   jmap           [{ "using": [...], "calls": [[method, args, id], ...] }] as the user
 //   pim            dataset file(s) under demo/ (pim.json): calendars, events, tasks,
 //                  notes, contacts, written through the user's JMAP session (stack E)
@@ -283,7 +283,7 @@ export async function applySeeds(browser, stack, names) {
       for (const [key, value] of Object.entries(seed.adminSettings ?? {})) {
         await client.must('PUT', `${stack.adminPath}/settings/${key}`, { globalValue: value });
       }
-      for (const req of seed.admin ?? []) await client.must(req.method ?? 'POST', `${stack.adminPath}${req.path}`, req.body);
+      for (const req of seed.admin ?? []) await client.must(req.method ?? 'POST', `${stack.adminPath}${req.path}`, req.body, req.headers);
     }
     stack.adminState = await adminContext.storageState();
   } finally {
@@ -300,7 +300,7 @@ export async function applySeeds(browser, stack, names) {
       for (const [key, value] of Object.entries(seed.userSettings ?? {})) {
         await client.must('PUT', `/api/settings/${key}`, { value });
       }
-      for (const req of seed.user ?? []) await client.must(req.method ?? 'POST', req.path, req.body);
+      for (const req of seed.user ?? []) await client.must(req.method ?? 'POST', req.path, req.body, req.headers);
       for (const batch of seed.jmap ?? []) await userJmap(client, batch.using, batch.calls);
       if (seed.pim) {
         const { seedPim } = await import('./pim.mjs');

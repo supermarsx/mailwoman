@@ -319,9 +319,9 @@ Keys of a seed, applied in this order:
 | `userStepUp` | `true`: confirm the demo user's password (`POST /api/security/step-up`) before this seed's user writes |
 | `userTotp` | `true`: enrol an authenticator app (TOTP) for the demo user; the harness keeps the secret and the `totp` step types valid codes |
 | `adminSettings` | `{ "<setting key>": value }`, written as the console administrator |
-| `admin` | `[{ "method", "path", "body" }]` requests to the console API; `path` is under the console path (`/domains/example.net`) |
+| `admin` | `[{ "method", "path", "body", "headers" }]` requests to the console API; `path` is under the console path (`/domains/example.net`); `headers` is optional, for writes that need one, such as `{ "If-None-Match": "*" }` when creating a Nextcloud instance with `PUT /nextcloud/instances/<id>` (answered `428` without it) |
 | `userSettings` | `{ "<setting key>": value }`, written as the demo user |
-| `user` | `[{ "method", "path", "body" }]` requests as the demo user (`/api/...`) |
+| `user` | `[{ "method", "path", "body", "headers" }]` requests as the demo user (`/api/...`); `headers` as for `admin` |
 | `jmap` | `[{ "using": [...], "calls": [[method, args, id], ...] }]` JMAP calls as the demo user |
 | `pim` | calendar/task/note/contact files under `demo/` (format of `demo/pim.json`) |
 
