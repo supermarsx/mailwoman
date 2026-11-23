@@ -5205,6 +5205,7 @@ dependencies = [
  "sha2 0.11.0",
  "toml 0.8.23",
 ]
+
 [[package]]
 name = "mw-cache"
 version = "26.19.0"
@@ -6001,6 +6002,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mw-sqlite-status"
+version = "26.19.0"
+dependencies = [
+ "libsqlite3-sys",
+ "sqlx",
+]
+
+[[package]]
 name = "mw-ssh-tunnel"
 version = "26.19.0"
 dependencies = [
@@ -6010,14 +6019,6 @@ dependencies = [
  "serde",
  "tokio",
  "zeroize",
-]
-
-[[package]]
-name = "mw-sqlite-status"
-version = "26.19.0"
-dependencies = [
- "libsqlite3-sys",
- "sqlx",
 ]
 
 [[package]]
