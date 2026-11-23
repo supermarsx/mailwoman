@@ -1,153 +1,49 @@
-# CalDAV / CardDAV, sharing, and holidays (V3 PIM)
+---
+title: Calendars, contacts and CalDAV
+---
 
-V3 turns Mailwoman into a personal-information manager: **calendars, tasks,
-notes, and contacts**. Calendars/tasks sync over **CalDAV** and contacts over
-**CardDAV** to whatever server you run; notes are Mailwoman-native (sealed at
-rest). The PIM surface rides the same session-authed JMAP envelope the mail
-client already speaks (`Calendar/*`, `CalendarEvent/*`, `Task/*`, `Note/*`,
-`AddressBook/*`, `ContactCard/*`, `ContactGroup/*` under
-`urn:mailwoman:{calendars,tasks,notes,contacts}`), so transport, offline, and
-realtime push light up for PIM with no new plumbing.
+# Calendars, contacts and CalDAV
 
-CalDAV/CardDAV sync is an **engine-mode** feature: the local `mw-engine` store
-holds the collections, drives the DAV clients (`mw-dav` / `mw-carddav`), and
-persists per-collection `sync-token`/`ctag`/`etag`. In proxy mode the
-Mailwoman-native sharing endpoints return `501 requires engine mode`.
+Mailwoman has calendars, tasks, notes and contacts. This page is for the person running the server. It says where that data lives, which remote servers the server can synchronise with, and which endpoints it exposes. The user's side is in [Calendar](/user/calendar), [Contacts](/user/contacts), [Tasks](/user/tasks) and [Notes](/user/notes).
 
-## Pairing a CalDAV/CardDAV account
+## Where the data lives
 
-A calendar or address book is attached by its collection URL. The engine runs
-RFC 6764 discovery for you — point it at the server root or the
-`.well-known/caldav` / `.well-known/carddav` path and it walks
-`current-user-principal → home-set → collection PROPFIND`. Sync is incremental
-via `sync-collection` (RFC 6578) where the server advertises `sync-token`, and
-degrades to a `getctag` + ETag-diff pull otherwise (feature-detected, the same
-discipline as the V1 IMAP sync engine). Local writes `PUT` with
-`If-Match:<etag>` (update) / `If-None-Match:*` (create); a `412` surfaces as a
-conflict and re-pulls (last-write-wins with a conflict toast).
+In engine mode the server keeps calendars, tasks, notes and contacts in its own database and the web app reaches them through JMAP methods under Mailwoman's own capabilities (`urn:mailwoman:calendars`, `tasks`, `notes` and `contacts`; see [Connecting clients through Mailwoman](/admin/jmap)). These screens need engine mode; in proxy mode the server has no store for them.
 
-Verified server families:
+Notes are always encrypted at rest with the server key (`MW_SERVER_KEY`). That is not zero-access encryption: the server can read them. A note's title, tags, colour and pinned state are stored in clear so that search and sorting work without a plaintext index of the body.
 
-| Server | Notes |
-|--------|-------|
-| **Radicale** | The reference testing target (below). Advertises `sync-token`; single Python process, trivial to seed/reset. |
-| **Nextcloud** | CalDAV/CardDAV base `https://<host>/remote.php/dav/`. Advertises `sync-token` + `getctag`. Works with app-password auth. |
-| **Baïkal** | sabre/dav-based; base `https://<host>/dav.php/`. `getctag` + ETag-diff fallback path. |
-| **Google** | CalDAV `https://apidata.googleusercontent.com/caldav/v2/…`, CardDAV `https://www.googleapis.com/carddav/v1/…`. Needs **OAuth (XOAUTH2)**; quirks (absolute hrefs, `D:`-prefixed namespaces, weak `W/"…"` ETags) are covered by recorded fixtures. Live OAuth is manual/nightly, never in CI (plan §0). |
-| **Microsoft 365 / Exchange** | No native CalDAV/CardDAV; a Graph/EWS bridge is a later milestone (V7). Recorded-quirk fixtures only. |
+## Synchronising with a CalDAV or CardDAV server
 
-The parser is deliberately namespace-prefix and case tolerant, and stores the
-raw `ical_raw`/`vcard_raw` body as the round-trip source of truth (unknown/`X-`
-properties survive re-emit), so the Google/M365 quirks parse the same as
-Radicale.
+The server synchronises calendars, task lists and address books with a remote CalDAV or CardDAV server only through the [Nextcloud integration](/integrations/nextcloud). A user links their Nextcloud account, discovers the collections on it, connects the ones they want, and the server pulls changes and writes edits back with conditional requests. There is no setting that attaches another CalDAV or CardDAV server (Radicale, Baïkal, a hosted service) to an account. Where the server supports it, the pull is incremental with a `sync-token`; otherwise the server compares the collection's `ctag` and entity tags.
 
-## Radicale — the testing / CI backend
+The **CalDAV URL** and **CardDAV URL** fields in a domain's connection settings (**Domains** in the admin console) are stored with the domain and are checked by the connection test and by the diagnostics. They do not make the server synchronise a user's calendar or contacts with that address.
 
-`docker-compose.dev.yml` ships a **Radicale 3.x** service (`radicale`, host
-port **5232**) with htpasswd auth (`testuser` / `testpass`, mirroring the
-Greenmail/Dovecot test account) and filesystem collections. Config +
-credentials live under `scripts/radicale/` (`config`, `users`); collections are
-created over the DAV protocol by `scripts/radicale/seed.sh` (a VEVENT calendar,
-a VTODO task list, and a CardDAV address book for `testuser`).
-
-> **License posture.** Radicale is GPLv3, but it is **CI infrastructure, not a
-> dependency** — a separate program invoked over the network only, never linked
-> into, imported by, or shipped with any Mailwoman crate or binary (mere
-> aggregation, the same posture as Greenmail/Dovecot in V1). It is excluded from
-> the `cargo-deny` / JS-license dependency scope by design; the actual-dependency
-> floor stays MIT/Apache/BSD/ISC/Zlib/MPL-2.0 (see `deny.toml`).
-
-Bring up a self-seeding stack (the `radicale-seed` one-shot waits for health
-then seeds):
-
-```sh
-docker compose -f docker-compose.dev.yml up -d --wait radicale radicale-seed
-```
-
-Or seed manually against an already-running server:
-
-```sh
-sh ./scripts/radicale/seed.sh 127.0.0.1 5232 60   # RADICALE_RESET=1 for a clean slate
-```
-
-Then run the env-gated live conformance tests (the `#[ignore]` create / sync /
-round-trip / `412`-conflict transcripts) — this is exactly what the CI
-`caldav-carddav-conformance` job does:
-
-```sh
-RADICALE_URL=http://127.0.0.1:5232 RADICALE_USER=testuser RADICALE_PASS=testpass \
-  cargo test -p mw-dav -p mw-carddav -p mw-engine -- --ignored
-```
-
-`mw-dav` proves discovery → sync-collection, `mw-carddav` proves address-book
-discovery → query → multiget projection, and `mw-engine` proves a full
-`sync_pim` round-trip (engine A `PUT`s an event to the real collection, engine B
-with a fresh store pulls it back). Log into the SPA against the stack with the
-collection URL `http://localhost:5232/testuser/` and `testuser` / `testpass`.
-
-## Calendar / address-book sharing endpoints
-
-V3 does **Mailwoman-native (on-server) ACL sharing** plus **read-only overlay**
-of a foreign CalDAV URL (bidirectional cross-server write-sharing is a
-documented follow-up). A calendar's `shareWith` list (`{principal, access:
-"read" | "readWrite"}`, set via `Calendar/set`) is enforced when another
-principal fetches the collection:
-
-| Endpoint | Meaning |
-|----------|---------|
-| `GET /dav/calendars/{accountId}/{calendarId}` | Serve a Mailwoman-native calendar to a grantee per `calendar_shares`. The owner always reads their own; a grantee with `read`/`readWrite` may fetch; everyone else gets `403`. Cookie-authed. |
-| `GET /dav/addressbooks/{accountId}/{addressBookId}` | Serve a Mailwoman-native address book. **Owner-only** in V3 (the frozen model has no address-book share ACL yet). |
-
-Both require engine mode (`501` otherwise) and pass the same CSRF / Origin /
-security-header layers as every other route. A **read-only overlay calendar**
-(`isReadOnlyOverlay`, backed by a foreign `caldavUrl`) is pull-only and never
-written back.
-
-## Merging contacts is local until you re-sync
-
-**A contact merge does not reach the CardDAV server by itself.** Merging two
-cards is a Mailwoman-native operation: the survivor is rewritten locally and the
-merged-away cards are removed locally, and neither change is pushed. Ordinary
-contact edits *are* pushed; merges are the exception.
-
-Until something re-syncs the address book, a CardDAV server therefore holds:
-
-* the **survivor's pre-merge** vCard — the merged content is not there yet; and
-* an **orphaned resource** for each merged-away card, which no longer exists in
-  Mailwoman.
-
-The visible consequence is that another client reading the same address book —
-a phone, a second desktop — still sees the duplicates you just merged, and sees
-the surviving card without whatever the merge folded into it. Re-syncing the
-account reconciles it.
-
-This is a stated limitation rather than a bug report: it is long-standing
-behaviour, the engine comments it at the merge (*"a Mailwoman-native merge; an
-explicit re-sync propagates"*), and it is logged as a fix for a later release.
-It is written down here because "merge" reads like an operation that would
-propagate, and nothing in the UI says otherwise.
+Calendars a user subscribes to by URL (an `.ics` address) are read-only copies. The server fetches them through the same checked fetcher as remote images, so the outbound connection rules apply; see [Outbound connections](/security/egress).
 
 ## Holiday feeds
 
-Bundled, subscribable holiday packs are compiled into the binary and served as
-RFC 5545 iCalendar (each holiday an all-day `VEVENT` with `RRULE:FREQ=YEARLY`):
+The server includes a few fixed-date holiday lists and serves them as iCalendar to signed-in users:
 
-| Endpoint | Meaning |
-|----------|---------|
-| `GET /api/holidays` | The region index — `{id, name, url}` per bundled pack. |
-| `GET /api/holidays/{region}` | The pack as a `text/calendar` feed (e.g. `/api/holidays/us`). |
+| Address | Answer |
+|---|---|
+| `GET /api/holidays` | The list of regions, each with an `id`, a `name` and a `url` |
+| `GET /api/holidays/{region}` | One region as a `text/calendar` feed, for example `/api/holidays/us` |
 
-Both are cookie-authed and read-only. V3 bundles **fixed-date** holidays only
-(correct every year with no Easter / nth-weekday computation); richer regional
-packs via `.hol` / ICS import (`mw_ics::parse_hol`, `CalendarEvent/import`) are
-a follow-up. Users can also subscribe to any external ICS holiday URL as an
-overlay calendar.
+The regions are `us`, `uk`, `ca` and `international`. Each holiday is an all-day yearly event on a fixed date; holidays whose date moves from year to year (such as Easter) are not included.
 
-## At-rest notes (not zero-access)
+## Contacts: merging
 
-Notes are Mailwoman-native and **always encrypted at rest** — bodies are sealed
-BLOBs under the existing `mw-store` server-held XChaCha20-Poly1305 key (the same
-seal that protects upstream credentials). This is **encrypted-at-rest, NOT
-zero-access**: the server can decrypt (V6 swaps the key source for a
-user-derived key hierarchy). Note title / tags / color / pinned are plaintext
-columns so search and sort work without a plaintext body index.
+Merging two contacts is a change made in Mailwoman's own store only. It is never written back to a remote address book: the merged-away cards stay on the remote server and the surviving card there keeps its earlier content. Synchronising again pulls from the remote server and does not carry the merge outward, so another program reading the same address book can still show the duplicates.
+
+## Troubleshooting
+
+- A user's calendar or contacts screen shows errors: the server is in proxy mode. Calendars, tasks, notes and contacts need engine mode.
+- A calendar of a remote server never appears: it has to be connected through the Nextcloud integration. A CalDAV or CardDAV URL in the domain settings does not attach it.
+- Discovery on a linked Nextcloud account finds nothing new, or sync stops: the app password may have been rejected. Link the account again. See the troubleshooting section of [Nextcloud](/integrations/nextcloud).
+
+## Related
+
+- [Nextcloud](/integrations/nextcloud)
+- [Calendar](/user/calendar)
+- [Contacts](/user/contacts)
+- [IMAP and POP3 mail servers](/deploy/imap-pop3)

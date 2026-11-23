@@ -1,77 +1,64 @@
-# Deploying V4 crypto & security
+---
+title: Encryption and mail security server configuration
+---
 
-V4 adds OpenPGP/S/MIME end-to-end encryption, a message Security panel, an
-outbound DLP pipeline, sender controls (WKD/ARF), the max-security opening mode,
-and the honest screen-capture watermark. This page is the operator reference:
-environment variables and HTTP endpoints. For the model and rationale see
-[`../security/`](../security/README.md).
+# Encryption and mail security server configuration
 
-All of it is additive and **off by default** — an operator opts in per feature.
-The crypto that matters (private-key operations) runs in the browser and needs no
-server configuration; the server only serves public keys, relays reports, loads
-DLP config, and toggles the watermark.
+Mailwoman supports OpenPGP and S/MIME encryption and signing, a message security panel, outbound data-loss rules, and sender controls such as reporting a message as phishing or junk. Private-key operations happen in the user's browser and need no server configuration. The server only publishes public keys, loads data-loss rules, and forwards abuse reports. This page lists the environment variables and HTTP endpoints involved. For the model behind them see [Security model](/security/README); for the data-loss rules see [Data loss prevention](/security/dlp).
+
+All of these are off until you set them.
 
 ## Environment
 
-| Env | Default | Meaning |
-|-----|---------|---------|
-| `MW_WKD_DIR` | *(unset → WKD off)* | Directory of public keys to publish over Web Key Directory. Two layouts are accepted (see below). |
-| `MW_DLP_RULES` | *(unset → no rules)* | A path to a JSON `[DlpRule]` file **or** an inline JSON array. See [`../security/dlp.md`](../security/dlp.md). Read per evaluation. |
-| `MW_ABUSE_ADDRESS` | *(unset → ARF off)* | Destination address for ARF abuse/feedback reports emitted by report-phishing / report-junk sender controls. Required for `POST /api/security/report`. |
-| `MW_ABUSE_SPOOL` | *(unset)* | Directory to write generated ARF reports as `<uuid>.eml`. When set, reports are spooled (`relayed:true`); otherwise the report is generated and logged. |
-| `MW_WATERMARK` | `false` | Enable the deterrent screen-capture watermark overlay. Read [`../security/screen-capture.md`](../security/screen-capture.md) first — it is not a security control. |
-| `MW_WATERMARK_OPACITY` | `0.08` | Overlay tile opacity, clamped to 0.0–1.0. |
+| Variable | Default | What it does |
+|---|---|---|
+| `MW_WKD_DIR` | Not set (publishing off) | Directory of public keys to publish over Web Key Directory. Two layouts are accepted, described below. |
+| `MW_DLP_RULES` | Not set (no rules) | A path to a JSON file holding an array of data-loss rules, or the JSON array itself. See [Data loss prevention](/security/dlp). The server reads it when it evaluates a message. |
+| `MW_ABUSE_ADDRESS` | Not set (reporting off) | The address abuse reports are sent to when a user reports a message as phishing or junk. |
+| `MW_ABUSE_SPOOL` | Not set | A directory where each generated report is written as `<uuid>.eml` for pickup by another program. When it is not set, the report is built and logged, and not delivered. |
+| `MW_WATERMARK` | `false` | Sets the value that `GET /api/security/watermark` reports as `enabled`. It does not draw anything; see below. |
+| `MW_WATERMARK_OPACITY` | `0.08` | The opacity that same endpoint reports, limited to 0 to 1. |
 
-These are engine/server-mode features; the private-key crypto is entirely
-client-side and has no server env.
+The settings `abuse.reportAddress` (**Abuse report address**) and `privacy.watermark.enabled` appear in the console's Settings and name these variables as their pin, but the server reads only the variables: a value saved in Settings changes nothing.
+
+### The watermark variables have no visible effect
+
+The web app does not draw a watermark and does not call `GET /api/security/watermark`. Setting `MW_WATERMARK=true` changes only what that endpoint answers (the flag, the opacity, the signed-in user's name, the server time and a note that a browser cannot prevent or detect screenshots). Nothing in the web app, desktop app or mobile app reads it, so no overlay appears in any version of the interface. See [Screen capture](/security/screen-capture).
 
 ## Endpoints
 
-| Method + path | Auth | Purpose |
-|---------------|------|---------|
-| `GET /.well-known/openpgpkey/hu/{hash}` | public | WKD **direct** method — key by z-base-32 hash; domain from `Host`. |
-| `GET /.well-known/openpgpkey/{domain}/hu/{hash}` | public | WKD **advanced** method — domain in path. |
-| `GET /.well-known/openpgpkey[/{domain}]/policy` | public | WKD policy probe (empty 200 signals a WKD-enabled domain). |
-| `POST /api/security/report` | cookie | Emit an ARF report for a message (`{emailId, kind:"phishing"\|"junk", note?}`). Engine mode only; needs `MW_ABUSE_ADDRESS`. |
-| `GET /api/security/dlp/config` | cookie | Read the active DLP rules parsed from `MW_DLP_RULES` (same shape the engine enforces). |
-| `GET /api/security/watermark` | cookie | Watermark config for the SPA — the flag, opacity, viewer identity, server time, and the mandatory honesty note. |
+| Method and path | Who can call it | Purpose |
+|---|---|---|
+| `GET /.well-known/openpgpkey/hu/{hash}` | Anyone | Web Key Directory, direct method: a key by its hash, for the domain in the `Host` header |
+| `GET /.well-known/openpgpkey/{domain}/hu/{hash}` | Anyone | Web Key Directory, advanced method: the domain is in the path |
+| `GET /.well-known/openpgpkey/policy`, `GET /.well-known/openpgpkey/{domain}/policy` | Anyone | Policy probe: an empty `200` tells a client the domain publishes keys |
+| `POST /api/security/report` | Signed-in user | Builds an abuse report for a message (`{emailId, kind: "phishing" or "junk", note}`) and sends or spools it. Engine mode only. Answers `501` when `MW_ABUSE_ADDRESS` is not set, `400` for another `kind`, `404` when the message is not found, and `202` with `relayed: true` when the report was written to the spool. |
+| `GET /api/security/dlp/config` | Signed-in user | The active data-loss rules, from `MW_DLP_RULES` and from the rules stored in the console, each marked with its source |
+| `GET /api/security/watermark` | Signed-in user | The watermark values described above |
 
-WKD responses are `application/octet-stream`, public (no cookie), and
-path-traversal-guarded (`hash` = 32 z-base-32 chars; `domain` rejects `..` / `/`).
+The web app's report-phishing and report-junk actions go through the mail interface rather than `POST /api/security/report`, and also use `MW_ABUSE_ADDRESS`. The web app does not call `GET /api/security/dlp/config` either.
 
-### `MW_WKD_DIR` layout
+Web Key Directory answers are served as `application/octet-stream`. The hash is 32 z-base-32 characters, and a domain containing `..` or `/` is refused.
+
+### Layout of `MW_WKD_DIR`
 
 Either layout works:
 
-- **Address-named files** — `alice@example.org` with an optional
-  `.asc`/`.pgp`/`.gpg`/`.key`/`.pub` extension, binary or armored. Armored input is
-  dearmored to binary on serve.
-- **Standard gpg-wks tree** — `<domain>/hu/<hash>` where `<hash>` is the WKD
-  z-base-32 of the SHA-1 of the lowercased local part (the canonical `gpg-wks`
-  layout).
+- **Files named after the address**: `alice@example.org`, with an optional `.asc`, `.pgp`, `.gpg`, `.key` or `.pub` extension, binary or armored. Armored keys are converted to binary when served.
+- **The standard `gpg-wks` tree**: `<domain>/hu/<hash>`, where `<hash>` is the z-base-32 encoding of the SHA-1 of the lower-cased local part.
 
-If you terminate TLS at a reverse proxy, forward `Host` verbatim so the WKD direct
-method resolves the right domain (and note the `openpgpkey.` vhost prefix is
-stripped).
+Only keys placed in this directory are served. When a reverse proxy terminates TLS, forward the `Host` header unchanged so the direct method finds the right domain; an `openpgpkey.` prefix on the host name is removed before the lookup.
 
-## What CI proves (and what only CI can)
+## Troubleshooting
 
-The V4 CI jobs (`.github/workflows/ci.yml`) gate:
+- `POST /api/security/report` answers **abuse reporting is not configured (set MW_ABUSE_ADDRESS)**: set `MW_ABUSE_ADDRESS` and restart.
+- A report is accepted but never arrives: with `MW_ABUSE_SPOOL` unset the report is only built and logged. Set the spool directory and have a program deliver the files.
+- The server logs **MW_DLP_RULES failed to load**: the path does not exist or the JSON does not parse. Fix the value. `GET /api/security/dlp/config` answers `500` with **DLP rules are misconfigured** until you do.
+- A Web Key Directory lookup answers `404`: the key is not in `MW_WKD_DIR`, or the file name or hash does not match the address.
 
-- **`wasm-build`** — builds `mw-crypto` + `mw-sanitize` to `wasm32` via `wasm-pack`
-  on **Windows *and* Linux** and runs a Node smoke that does a real
-  generateKey → encrypt → decrypt round-trip against the freshly built bundle. The
-  two-OS wasm toolchain is the one thing only CI exercises end-to-end; a local dev
-  build covers a single OS.
-- **`crypto-interop`** — decrypts/verifies recorded GnuPG- and openssl
-  (Outlook-style)-generated fixtures (`fixtures/crypto/**`), with no live keyserver
-  or DNS.
-- **`mail-auth-verdicts`** — DKIM verdicts (pass *and* fail) against a seeded
-  offline resolver, plus Received-chain / attachment-risk / anomaly detection.
-- **`e2e-crypto`** — Playwright drives the crypto/security UIs against the real
-  engine + real WASM worker (booting greenmail + `mailwoman-engine`).
+## Related
 
-The `deny` job keeps the license floor permissive-only (no GPL/LGPL/AGPL); the
-`rsa` "Marvin Attack" advisory (RUSTSEC-2023-0071) is accepted with a bounded
-threat model because S/MIME RSA decryption runs **client-side** on the user's own
-device — see `deny.toml` for the recorded rationale.
+- [Security model](/security/README)
+- [Data loss prevention](/security/dlp)
+- [Screen capture](/security/screen-capture)
+- [Settings reference](/admin/settings)
