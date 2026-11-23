@@ -41,6 +41,9 @@ phases! {
 #[serde(rename_all = "camelCase")]
 pub struct PhaseTotals {
     pub phase: &'static str,
+    /// Times a phase scope was entered (`in_phase`), independent of how many
+    /// statements ran inside it. `auth.total` entries are full authentications.
+    pub entries: u64,
     pub started: u64,
     pub completed: u64,
     pub failures: u64,
@@ -63,6 +66,11 @@ pub fn active() -> bool {
 }
 pub async fn in_phase<F: Future>(phase: Phase, future: F) -> F::Output {
     if active() {
+        if let Ok(scope) = CURRENT.try_with(Arc::clone) {
+            let mut data = scope.data.lock().unwrap_or_else(|p| p.into_inner());
+            data.phases[phase as usize].entries =
+                data.phases[phase as usize].entries.saturating_add(1);
+        }
         ACTIVE_PHASE.scope(phase, future).await
     } else {
         future.await

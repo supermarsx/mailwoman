@@ -227,6 +227,11 @@ async fn nested_and_concurrent_phases_keep_unknown_failures_and_full_query_total
     assert_eq!(phase("auth.account-gate").failures, 1);
     assert_eq!(phase("jmap.handler").completed, 1);
     assert_eq!(phase("jmap.engine").completed, 1);
+    // Entries count scope entries, including a scope that ran no statement.
+    assert_eq!(phase("guard.features").entries, 1);
+    assert_eq!(phase("auth.total").entries, 1);
+    assert_eq!(phase("auth.account-gate").entries, 1);
+    assert_eq!(phase("unknown").entries, 0);
     assert_eq!(
         report.phases.iter().map(|row| row.completed).sum::<u64>(),
         7
