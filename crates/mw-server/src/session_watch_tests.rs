@@ -400,6 +400,19 @@ fn cached_preferences_fold_exactly_like_user_prefs() {
     });
 }
 
+/// `realtime_certify_with` with a recheck that only succeeds (the real one is
+/// push.rs `recheck`; these tests need its ordering, not its reads).
+async fn certified(state: &AppState, session: &mw_store::Session, bearer: bool, mode: Mode) -> Option<RealtimeCertificate> {
+    let state = state.clone();
+    let session = session.clone();
+    snap::with_mode(mode, async move {
+        let (verdict, cert) = realtime_certify_with(&state, &session, bearer, || async { Ok::<_, ()>(7) }).await.unwrap();
+        assert_eq!(verdict, 7, "the recheck's own verdict is returned");
+        cert
+    })
+    .await
+}
+
 #[test]
 fn realtime_certificate_costs_no_statements_and_detects_revocation_within_the_bound() {
     run(|| async {
@@ -411,15 +424,14 @@ fn realtime_certificate_costs_no_statements_and_detects_revocation_within_the_bo
             let state = f.ready().await;
             let mirror = f.mirror(&state, SHORT).await;
             let session = state.store.get_session(&f.session).await.unwrap();
-            assert!(snap::with_mode(OFF, async { realtime_stamp(&state) }).await.is_none(), "mode off: no cheap path");
-            let cert = snap::with_mode(SHORT, async {
-                let stamped = realtime_stamp(&state).expect("fresh mirror stamps");
-                // (the full recheck runs here in push.rs)
-                assert!(realtime_certify(&state, &session, true, stamped).await.is_none(), "bearer: never");
-                realtime_certify(&state, &session, false, stamped).await
-            })
-            .await
-            .expect("published engine session certifies");
+            assert!(certified(&state, &session, false, OFF).await.is_none(), "mode off: no cheap path");
+            assert!(certified(&state, &session, true, SHORT).await.is_none(), "bearer: never");
+            // A failed recheck: its error is returned, no certificate, no fence read.
+            let (failed, sql) = mw_store::pool_telemetry::measure_queries(snap::with_mode(SHORT,
+                realtime_certify_with(&state, &session, false, || async { Err::<(), _>("revoked") }))).await;
+            assert!(matches!(failed, Err("revoked")));
+            assert_eq!(sql.read.calls, 0, "no fence after a failed recheck");
+            let cert = certified(&state, &session, false, SHORT).await.expect("published engine session certifies");
             let period = Duration::from_secs(30);
             let (check, sql) = mw_store::pool_telemetry::measure_queries(snap::with_mode(SHORT, async {
                 realtime_check(&state, &cert, period)
@@ -447,12 +459,7 @@ fn realtime_certificate_costs_no_statements_and_detects_revocation_within_the_bo
                     let ago = (chrono::Utc::now() - chrono::TimeDelta::seconds(3500)).to_rfc3339();
                     f.raw("UPDATE sessions SET activity_at=?1 WHERE id=?2", &[&ago, &f.session]).await;
                     let session = state.store.get_session(&f.session).await.unwrap();
-                    let near = snap::with_mode(SHORT, async {
-                        let stamped = realtime_stamp(&state).unwrap();
-                        realtime_certify(&state, &session, false, stamped).await
-                    })
-                    .await
-                    .expect("certifies");
+                    let near = certified(&state, &session, false, SHORT).await.expect("certifies");
                     let check = snap::with_mode(SHORT, async { realtime_check(&state, &near, period) }).await;
                     assert_eq!(check, RealtimeCheck::Revalidate, "deadline within period + margin is never certified current");
                     continue;
@@ -464,6 +471,59 @@ fn realtime_certificate_costs_no_statements_and_detects_revocation_within_the_bo
             assert_eq!(later, RealtimeCheck::Revalidate, "{case}");
             let _ = mirror.counters();
         }
+    });
+}
+
+/// The ordering hazard the API removes: an authority change committed while the
+/// full recheck runs (after the stamp, before the fence read). The publication
+/// worker republishes the entry at the new versions before the recheck returns,
+/// so the fence read afterwards matches the entry and a certificate IS issued;
+/// it must turn `Revalidate` once the mirror applied the change, because the
+/// stamp predates it.
+/// With a stamp taken after the recheck (not expressible: no public stamp) the
+/// same sequence would certify `Current`.
+#[test]
+fn realtime_change_during_the_recheck_is_never_certified_current() {
+    run(|| async {
+        let f = Fixture::new().await;
+        let state = f.ready().await;
+        let mirror = f.mirror(&state, SHORT).await;
+        let session = state.store.get_session(&f.session).await.unwrap();
+        let period = Duration::from_secs(30);
+        // A publication lookup that loses a race (try_lock) or finds the entry
+        // mid-rebuild is a safe `None`; retry until one attempt certifies.
+        let mut cert = None;
+        for attempt in 0..20i64 {
+            cert = snap::with_mode(SHORT, realtime_certify_with(&state, &session, false, || async {
+                // The change, through a second Store (no expedite), mid-recheck.
+                policy(&f.writer, "session.absoluteSecs", serde_json::json!(86_400 * 30 + attempt)).await;
+                // Until the worker published this session's inputs at the new versions.
+                for _ in 0..400 {
+                    let reply = f.get(HOME, CHROME, OFF).await;
+                    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+                    if reply.inputs.first_fences == 1 {
+                        return Ok::<_, ()>(());
+                    }
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+                panic!("request inputs never republished");
+            }))
+            .await
+            .unwrap()
+            .1;
+            if cert.is_some() {
+                break;
+            }
+        }
+        let cert = cert.expect("an attempt certifies after a change made during its recheck");
+        // After one complete poll that started after the change the certificate
+        // is refused (before it, within the bound, it may still read Current).
+        mirror.poll_now().await.unwrap();
+        let after = snap::with_mode(SHORT, async { realtime_check(&state, &cert, period) }).await;
+        assert_eq!(after, RealtimeCheck::Revalidate);
+        // A certificate stamped after the change (a fresh full path) is Current.
+        let fresh = certified(&state, &session, false, SHORT).await.expect("certifies");
+        assert_eq!(snap::with_mode(SHORT, async { realtime_check(&state, &fresh, period) }).await, RealtimeCheck::Current);
     });
 }
 
@@ -507,7 +567,6 @@ fn postgres_watch_is_inert_in_bounded_mode() {
             let state = state.expect("the watch ran");
             assert!(!state.store.uses_sqlite());
             assert!(crate::request_inputs::snapshot::mirror(&state).is_none(), "inert on PostgreSQL");
-            assert!(snap::with_mode(LONG, async { realtime_stamp(&state) }).await.is_none());
             assert_eq!(watch.prefs_reused + watch.geo_reused, 0);
         }
     });

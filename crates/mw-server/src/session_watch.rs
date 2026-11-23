@@ -344,22 +344,27 @@ async fn geo_failure_alerts(state: &AppState) -> bool {
 // ─── realtime streams: cheap "still valid as of the current epochs" ─────────
 //
 // For the WebSocket push loop (`push.rs` `recheck`, every
-// `MW_REALTIME_RECHECK_SECS`). Protocol, per open stream:
+// `MW_REALTIME_RECHECK_SECS`). Protocol, per open stream (three lines):
+//   1. Full path: `let (ok, cert) = realtime_certify_with(&state, &session, bearer, || recheck(..)).await;`
+//   2. Each later period: `realtime_check(&state, &cert?, period)`: `Current` keeps the stream (0 SQL).
+//   3. `Revalidate`, no certificate or a failed recheck: back to step 1 (or close the stream, as today).
 //
-//   let g = session_watch::realtime_stamp(&state);           // BEFORE the full recheck
-//   full recheck (unchanged) passes ->
-//       cert = session_watch::realtime_certify(&state, &session, bearer, g?).await;
-//   next periods: match session_watch::realtime_check(&state, &cert, period) {
-//       RealtimeCheck::Current => keep the stream, no SQL;
-//       RealtimeCheck::Revalidate => run the full recheck again (and re-certify);
-//   }
+// Soundness: the generation is stamped before the recheck's first read and the
+// certificate's fence is read after its last one, both inside
+// `realtime_certify_with`; the fence names every scope those reads depend on
+// (session, account, principal, the published entry's domains and subjects, the
+// global kinds and the settings revision). `still_valid(fence, g)` fails once
+// any of them changed after `g` (within the bound across processes, at once
+// after a local revocation through `expedite`).
 //
-// Soundness: `g` is stamped before every read of the full recheck, the
-// certificate's fence is read after it and names every scope those reads
-// depend on (session, account, principal, the published entry's domains and
-// subjects, the global kinds and the settings revision). `still_valid(fence, g)`
-// fails once any of them changed after `g` (within the bound across processes,
-// at once after a local revocation through `expedite`).
+// Why a late stamp cannot be expressed: there is no public stamp. The only way
+// to obtain a `RealtimeCertificate` is `realtime_certify_with`, which stamps,
+// then calls the caller's `recheck` closure (the recheck future does not exist
+// before the stamp, and a future does no work until awaited), then reads the
+// fence. The certificate's fields are private, it is neither `Clone` nor
+// constructible elsewhere, and the generation inside it never leaves it. The
+// one misuse left is a closure that only returns a verdict computed earlier;
+// the closure must BE the recheck (perform its reads when awaited).
 
 /// See the section comment. Opaque; holds no credential.
 pub(crate) struct RealtimeCertificate {
@@ -377,29 +382,44 @@ pub(crate) enum RealtimeCheck {
     Revalidate,
 }
 
-/// Call strictly BEFORE the full recheck whose success the certificate will
-/// carry. `None` (mode off, PostgreSQL, mirror not fresh): no cheap path.
+/// Runs the caller's full session recheck between a mirror stamp (0 SQL, taken
+/// first) and the certificate's fence read (one statement plus the clock-policy
+/// resolution: revision read and memo). The recheck's verdict is returned as
+/// is; a failed recheck yields no certificate and no fence read. The
+/// certificate is `None` (re-validate fully every period, today's path) for:
+/// mode off, PostgreSQL, a mirror that is not fresh, bearer streams, sessions
+/// outside the engine primary fence (linked, proxy), no published request-input
+/// entry for the session, an entry or account that no longer matches the
+/// fence, or any read error.
 #[allow(dead_code)] // wired into push.rs by a later t34 task
-pub(crate) fn realtime_stamp(state: &AppState) -> Option<mw_store::authority_publication::mirror::MirrorGen> {
-    crate::request_inputs::snapshot::mirror(state)?.stamp_gen()
-}
-
-/// After a full recheck that started after `stamped` passed for `session`. One
-/// fence statement plus the clock-policy resolution (revision read and memo).
-/// `None` (always re-validate fully): bearer streams, sessions outside the
-/// engine primary fence (linked, proxy), no published request-input entry for
-/// this session, an entry or account that no longer matches the fence.
-#[allow(dead_code)] // wired into push.rs by a later t34 task
-pub(crate) async fn realtime_certify(
+pub(crate) async fn realtime_certify_with<T, E, F>(
     state: &AppState,
     session: &mw_store::Session,
     bearer: bool,
+    recheck: impl FnOnce() -> F,
+) -> Result<(T, Option<RealtimeCertificate>), E>
+where
+    F: std::future::Future<Output = Result<T, E>>,
+{
+    // native_sessions (bearer) has no authority trigger: never certified.
+    // Strictly BEFORE the recheck's first read (EpochMirror correctness note).
+    let stamped = (!bearer)
+        .then(|| crate::request_inputs::snapshot::mirror(state).and_then(|mirror| mirror.stamp_gen()))
+        .flatten();
+    let verdict = recheck().await?;
+    let certificate = match stamped {
+        Some(stamped) => certify_after_recheck(state, session, stamped).await,
+        None => None,
+    };
+    Ok((verdict, certificate))
+}
+
+/// The fence read after a successful recheck that started after `stamped`.
+async fn certify_after_recheck(
+    state: &AppState,
+    session: &mw_store::Session,
     stamped: mw_store::authority_publication::mirror::MirrorGen,
 ) -> Option<RealtimeCertificate> {
-    if bearer {
-        // native_sessions has no authority trigger.
-        return None;
-    }
     crate::request_inputs::snapshot::mirror(state)?;
     // The same entry an ordinary request of this session would use.
     let process = crate::request_inputs::process_environment()?;
