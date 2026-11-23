@@ -10,7 +10,7 @@ async fn refresh(State(state):State<AppState>,headers:HeaderMap,Json(request):Js
  let session=match crate::authed(&state,&headers).await{Ok(session)=>session,Err(response)=>return response};
  if request.account_id!=session.account_id{return (StatusCode::CONFLICT,Json(json!({"code":"accountChanged"}))).into_response();}
  if let Some(engine)=&state.engine {
-  match tokio::time::timeout(std::time::Duration::from_secs(90),engine.refresh_mailbox(&session.account_id,request.mailbox_id.as_deref())).await {
+  match tokio::time::timeout(std::time::Duration::from_secs(90),crate::fixture_profile::measure(crate::fixture_profile::Phase::Handler,engine.refresh_mailbox(&session.account_id,request.mailbox_id.as_deref()))).await {
    Ok(Ok(()))=>{},_=>return (StatusCode::BAD_GATEWAY,Json(json!({"code":"mailRefreshFailed"}))).into_response(),
   }
  }
