@@ -1209,7 +1209,6 @@ mail-header-attachments =
         [one] { $count } attachment
        *[other] { $count } attachments
     }
-mail-compose-ribbon-autohide = Auto-hide ribbon (Ctrl+F1)
 mail-compose-ribbon-pin = Always show ribbon (Ctrl+F1)
 mail-compose-group-timing = Send timing
 mail-compose-group-priority = Priority

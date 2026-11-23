@@ -1210,7 +1210,6 @@ mail-compose-from-why-match-domain = 从 { $identity } 发送，因为邮件已�
 
 mail-compose-from-why-match-pattern = 从 { $identity } 发送，因为消息已发送到 { $address }，这符合该身份的地址模式。
 
-mail-compose-ribbon-autohide = 自动隐藏功能区 (Ctrl+F1)
 
 mail-compose-ribbon-pin = 始终显示功能区 (Ctrl+F1)
 

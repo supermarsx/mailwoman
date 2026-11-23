@@ -1227,7 +1227,6 @@ mail-compose-from-why-match-domain = Senden von { $identity }, da die Nachricht 
 
 mail-compose-from-why-match-pattern = Senden von { $identity }, da die Nachricht an { $address } gesendet wurde, was dem Adressmuster dieser Identität entspricht.
 
-mail-compose-ribbon-autohide = Multifunktionsleiste automatisch ausblenden (Strg+F1)
 
 mail-compose-ribbon-pin = Multifunktionsleiste immer anzeigen (Strg+F1)
 

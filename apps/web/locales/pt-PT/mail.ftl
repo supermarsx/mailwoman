@@ -1193,7 +1193,6 @@ mail-header-attachments =
         [one] { $count } anexo
        *[other] { $count } anexos
     }
-mail-compose-ribbon-autohide = Ocultar o friso automaticamente (Ctrl+F1)
 mail-compose-ribbon-pin = Mostrar sempre o friso (Ctrl+F1)
 mail-compose-group-timing = Hora de envio
 mail-compose-group-priority = Prioridade

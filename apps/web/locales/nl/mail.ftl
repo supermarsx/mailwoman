@@ -1246,7 +1246,6 @@ mail-compose-from-why-match-domain = Verzenden vanaf { $identity } omdat het ber
 
 mail-compose-from-why-match-pattern = Verzenden vanaf { $identity } omdat het bericht is verzonden naar { $address }, wat past bij het adrespatroon van die identiteit.
 
-mail-compose-ribbon-autohide = Lint automatisch verbergen (Ctrl+F1)
 
 mail-compose-ribbon-pin = Lint altijd tonen (Ctrl+F1)
 

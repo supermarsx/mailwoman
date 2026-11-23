@@ -1250,7 +1250,6 @@ mail-compose-from-why-match-domain = Envoi depuis { $identity } car le message a
 
 mail-compose-from-why-match-pattern = Envoi depuis { $identity } car le message a été envoyé vers { $address }, ce qui correspond au modèle d'adresse de cette identité.
 
-mail-compose-ribbon-autohide = Masquer automatiquement le ruban (Ctrl+F1)
 
 mail-compose-ribbon-pin = Toujours afficher le ruban (Ctrl+F1)
 

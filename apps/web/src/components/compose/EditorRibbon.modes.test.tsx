@@ -52,11 +52,14 @@ describe('composer ribbon corner toggle', () => {
     expect(pin().closest('.compose-ribbon__heading')).not.toBeNull();
     expect(pin()).toHaveAttribute('aria-pressed', 'true');
     expect(pin()).toHaveAttribute('aria-keyshortcuts', 'Control+F1');
+    // A stable name; the pressed state says whether the ribbon is kept open.
+    expect(pin()).toHaveAccessibleName('Always show ribbon (Ctrl+F1)');
     fireEvent.click(pin());
     expect(bar.calls).toEqual(['auto']);
     expect(root()).toHaveAttribute('data-mode', 'auto');
     expect(root()).toHaveAttribute('data-expanded', 'false');
     expect(pin()).toHaveAttribute('aria-pressed', 'false');
+    expect(pin()).toHaveAccessibleName('Always show ribbon (Ctrl+F1)');
     fireEvent.click(pin());
     expect(bar.calls).toEqual(['auto', 'pinned']);
     expect(root()).toHaveAttribute('data-expanded', 'true');

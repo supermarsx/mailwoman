@@ -1312,7 +1312,6 @@ mail-compose-from-why-match-domain = Wysyłam z { $identity }, ponieważ wiadomo
 
 mail-compose-from-why-match-pattern = Wysyłam z { $identity }, ponieważ wiadomość została wysłana na adres { $address }, co pasuje do wzorca adresu tej tożsamości.
 
-mail-compose-ribbon-autohide = Automatyczne ukrywanie wstążki (Ctrl+F1)
 
 mail-compose-ribbon-pin = Zawsze pokazuj wstążkę (Ctrl+F1)
 

@@ -1251,7 +1251,6 @@ mail-compose-from-why-match-domain = Enviando de { $identity } porque a mensagem
 
 mail-compose-from-why-match-pattern = Enviando de { $identity } porque a mensagem foi enviada para { $address }, que se enquadra no padrão de endereço dessa identidade.
 
-mail-compose-ribbon-autohide = Ocultar automaticamente a faixa de opções (Ctrl+F1)
 
 mail-compose-ribbon-pin = Sempre mostrar a faixa de opções (Ctrl+F1)
 

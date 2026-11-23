@@ -1228,7 +1228,6 @@ mail-compose-from-why-match-domain = Invio da { $identity } perché il messaggio
 
 mail-compose-from-why-match-pattern = Invio da { $identity } perché il messaggio è stato inviato a { $address }, che corrisponde al modello di indirizzo di tale identità.
 
-mail-compose-ribbon-autohide = Barra multifunzione Nascondi automaticamente (Ctrl+F1)
 
 mail-compose-ribbon-pin = Mostra sempre la barra multifunzione (Ctrl+F1)
 

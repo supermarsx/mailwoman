@@ -1347,7 +1347,6 @@ mail-compose-from-why-match-domain = Надсилання з { $identity }, ос
 
 mail-compose-from-why-match-pattern = Надсилання з { $identity }, оскільки повідомлення було надіслано на { $address }, що відповідає шаблону адреси цієї особи.
 
-mail-compose-ribbon-autohide = Автоматичне приховування стрічки (Ctrl+F1)
 
 mail-compose-ribbon-pin = Завжди показувати стрічку (Ctrl+F1)
 

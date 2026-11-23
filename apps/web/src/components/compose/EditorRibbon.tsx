@@ -189,8 +189,8 @@ export function EditorRibbon<T extends string>(props: EditorRibbonProps<T>): JSX
             data-testid="compose-ribbon-pin"
             aria-pressed={pinned() ? 'true' : 'false'}
             aria-keyshortcuts="Control+F1"
-            aria-label={pinned() ? t('mail-compose-ribbon-autohide') : t('mail-compose-ribbon-pin')}
-            data-tooltip={pinned() ? t('mail-compose-ribbon-autohide') : t('mail-compose-ribbon-pin')}
+            aria-label={t('mail-compose-ribbon-pin')}
+            data-tooltip={t('mail-compose-ribbon-pin')}
             onClick={flip}
           >
             <Icon name={pinned() ? 'pin' : 'pinOff'} />

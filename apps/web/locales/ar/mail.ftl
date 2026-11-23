@@ -1405,7 +1405,6 @@ mail-compose-from-why-match-domain = يتم الإرسال من { $identity } ل
 
 mail-compose-from-why-match-pattern = يتم الإرسال من { $identity } لأنه تم إرسال الرسالة إلى { $address }، وهو ما يناسب نمط عنوان تلك الهوية.
 
-mail-compose-ribbon-autohide = إخفاء الشريط تلقائيًا (Ctrl+F1)
 
 mail-compose-ribbon-pin = إظهار الشريط دائمًا (Ctrl+F1)
 

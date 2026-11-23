@@ -1188,7 +1188,6 @@ mail-compose-from-why-match-domain = メッセージは同じドメインのア�
 
 mail-compose-from-why-match-pattern = メッセージは { $address } に送信されたため、{ $identity } から送信されます。これはその ID のアドレス パターンに一致します。
 
-mail-compose-ribbon-autohide = リボンの自動非表示 (Ctrl+F1)
 
 mail-compose-ribbon-pin = 常にリボンを表示 (Ctrl+F1)
 

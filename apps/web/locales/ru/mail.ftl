@@ -1312,7 +1312,6 @@ mail-compose-from-why-match-domain = Отправка из { $identity }, пос
 
 mail-compose-from-why-match-pattern = Отправка с { $identity }, поскольку сообщение было отправлено на { $address }, что соответствует шаблону адреса этого идентификатора.
 
-mail-compose-ribbon-autohide = Автоматическое скрытие ленты (Ctrl+F1)
 
 mail-compose-ribbon-pin = Всегда показывать ленту (Ctrl+F1)
 

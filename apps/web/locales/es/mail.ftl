@@ -1228,7 +1228,6 @@ mail-compose-from-why-match-domain = Enviando desde { $identity } porque el mens
 
 mail-compose-from-why-match-pattern = Enviando desde { $identity } porque el mensaje fue enviado a { $address }, lo que se ajusta al patrón de dirección de esa identidad.
 
-mail-compose-ribbon-autohide = Ocultar cinta automáticamente (Ctrl+F1)
 
 mail-compose-ribbon-pin = Mostrar siempre cinta (Ctrl+F1)
 
