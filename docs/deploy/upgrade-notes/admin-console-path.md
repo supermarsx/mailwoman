@@ -20,7 +20,7 @@ Applies to every deployment.
 
 ## Moving an upgraded console off /admin
 
-1. In the console, open Security > Console address and save a path of your own
+1. In the console, open **Security centre** > **Console address** and save a path of your own
    or a generated one (you confirm your password or second factor first). Or, on
    the server, run `mailwoman admin console-path generate` (or `set /your-path`).
 2. Write the new address down.

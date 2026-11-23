@@ -79,11 +79,11 @@ bash deploy.sh deploy
 1. Open `https://mail.example.org` and sign in with the address and password of an account on your mail server. See [Sign in](./first-sign-in.md).
 2. Open the admin console address that `deploy` printed (`https://mail.example.org/<console path>/`). Sign in with the **Admin username** and **Password** from `app.env`.
 
-<!-- SCREENSHOT deploy/admin-signin: admin console sign-in form (Admin sign in), empty, crop of the form -->
+![The admin console sign-in form with empty Admin username and Password fields and the Sign in button.](/screenshots/deploy/admin-signin.webp){.mw-crop}
 
 The first sign-in with these credentials creates the first admin account, with the Super admin role. Set up two-factor sign-in for it, and create named admin accounts for the people who will administer the server. See [The admin console](../admin/index.md).
 
-<!-- SCREENSHOT deploy/admin-first-dashboard: admin console right after the first sign-in, full viewport -->
+![The top of the admin console after signing in: the navigation on the left and the dashboard's setup checklist and account counts.](/screenshots/deploy/admin-first-dashboard.webp){.mw-crop}
 
 ## 6. Keep it running
 

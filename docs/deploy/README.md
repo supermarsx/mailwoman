@@ -168,7 +168,7 @@ The admin console, its sign-in and its API answer at one path only; every other 
 
 To print the path: `mailwoman admin console-path show` (with Docker, `docker exec <container> mailwoman admin console-path show`).
 
-To change it, use the console (**Security** > **Console address**; you confirm your password or second factor first), or the CLI:
+To change it, use the console (**Security centre** > **Console address**; you confirm your password or second factor first), or the CLI:
 
 ```sh
 mailwoman admin console-path generate          # a new random path
@@ -181,7 +181,7 @@ A path you choose needs at least 12 characters after the `/`, and cannot be `/ad
 A hidden path keeps scanners and casual sign-in attempts away from the console, but it does not isolate it: the console runs on the same origin as the mail app. Keep a strong admin password, two-factor sign-in for admin accounts and, where you can, a network restriction on the path in your reverse proxy.
 :::
 
-<!-- SCREENSHOT deploy/admin-console-address: admin console, Security > Console address tab, crop of the tab content -->
+![The Console address tab of the Security centre: the current console address (masked), copy, share and email buttons, a note that MW_ADMIN_PATH sets it, and a warning that /admin is the first address scanners try.](/screenshots/deploy/admin-console-address.webp){.mw-crop}
 
 ## Reverse proxy and TLS
 

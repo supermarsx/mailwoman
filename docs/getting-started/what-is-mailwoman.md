@@ -2,7 +2,7 @@
 
 Mailwoman is a self-hosted webmail application. You run its server on your own machine or host, and your users sign in with a web browser, the desktop app or the Android app to read and send mail from a mail server you already have. This page explains what the parts are and how they fit together, so you can choose how to install it.
 
-<!-- SCREENSHOT deploy/overview-mailbox: the mailbox after sign-in with demo data (folder list, message list, open message), full viewport -->
+![The Mailwoman mailbox: the folder list on the left, the Inbox message list in the middle and an opened message on the right.](/screenshots/deploy/overview-mailbox.webp){.mw-shot}
 
 ## What it does and does not do
 
