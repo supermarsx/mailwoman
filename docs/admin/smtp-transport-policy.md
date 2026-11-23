@@ -1,78 +1,46 @@
 # SMTP transport policies
 
-Mailwoman submits messages to a configured SMTP relay. These controls protect
-that connection. They do not turn Mailwoman into a recipient-MX delivery server
-or configure the relay's onward delivery policy.
+In engine mode, Mailwoman sends mail by submitting it to the SMTP server configured for the account's domain. Two optional checks protect that connection: DANE (TLS certificates published in DNSSEC-signed DNS) and MTA-STS (a policy the mail domain publishes over HTTPS). They apply only to the connection from Mailwoman to that SMTP server. They do not make Mailwoman deliver mail to recipients' servers, and they do not change how that SMTP server delivers onward. In proxy mode the JMAP provider submits mail itself, and these checks do not apply.
 
-In **Admin → Domains → Backends**, edit an SMTP backend and enable **Customize
-transport security**. Select a fixed TLS or STARTTLS method, then configure:
+## Before you start
 
-- **DANE:** Off, enforce when securely validated TLSA records exist, or Required.
-  The lookup names the actual SMTP hostname and port. Required mode refuses an
-  endpoint without usable, DNSSEC-validated TLSA records.
-- **MTA-STS:** Off, follow the published policy, or Required. Set the policy
-  domain explicitly to the domain publishing a policy for this relay. Its MX
-  patterns must authorize the configured hostname. Recipient domains are never
-  substituted for this setting.
+- The SMTP connection must use a fixed encrypted method (TLS or STARTTLS) and no **TLS server name override**. The console refuses to save a policy otherwise.
+- DANE needs TLSA records for the SMTP host and port, signed with DNSSEC. MTA-STS needs a domain that publishes a policy whose `mx` lines name the SMTP host.
 
-Both controls default to Off for existing configurations. Enabled policies
-require a fixed encrypted connection method and do not permit a TLS server-name
-override. Policy checks finish before SMTP authentication or message transfer.
-JMAP proxy accounts delegate SMTP delivery to their upstream provider.
+## Turn the checks on
 
-When usable, securely validated DANE records exist, DANE authentication takes
-precedence over MTA-STS. A failed DANE match cannot fall back to MTA-STS or normal
-certificate validation. Without usable DANE records, the configured MTA-STS
-policy applies.
+1. Open **Domains**, choose the domain, and on **Connections and discovery** open its SMTP backend, or choose **Add backend** and set **Protocol and service** to SMTP.
+2. Under **Advanced transport security**, tick **Customize transport security**. Keep **Security selection** at **Fixed method** with TLS or STARTTLS, and leave **TLS server name override** empty.
+3. Set **DANE verification** and **MTA-STS verification**, and for MTA-STS enter the **SMTP policy domain**.
 
-DANE supports DANE-TA (usage 2) and DANE-EE (usage 3), certificate and public-key
-selectors, and full, SHA-256 and SHA-512 matching. The strongest supported digest
-is preferred for each usage/selector pair. A securely signed set containing only
-unsupported records still requires TLS and normal certificate validation in
-opportunistic mode; Required mode refuses it. Other DANE certificate usages are
-not implemented.
+   ![The DANE verification, MTA-STS verification and SMTP policy domain fields of an SMTP connection, with MTA-STS set to Follow the published policy and example.org as the policy domain.](/screenshots/admin-access/smtp-transport-policy-fields.webp){.mw-crop}
 
-MTA-STS `testing` policies do not block delivery in automatic mode; Required mode
-requires an enforcing policy when DANE does not take precedence. Mailwoman does
-not currently generate aggregate TLS-RPT reports.
+4. Save the connection.
 
-The persisted endpoint representation is:
+Both checks are **Off** for a new or existing connection until you set them.
 
-```json
-{
-  "host": "smtp.example.org",
-  "port": 465,
-  "tls": "implicit",
-  "security": {
-    "mode": "fixed",
-    "allowed": ["implicit"],
-    "smtpPolicy": {
-      "dane": "required",
-      "mtaSts": "auto",
-      "policyDomain": "example.org"
-    }
-  }
-}
-```
+## Options
 
-DNS wire requests use HTTPS through the `dns_auth` egress class. The default
-resolver is `https://cloudflare-dns.com/dns-query`; operators can set
-`MW_SMTP_POLICY_DOH_URL` to another public HTTPS DNS wire resolver. Enabling a
-policy authorizes these lookups. DNSSEC validation is local: a resolver's AD flag
-alone is not proof. A configured egress route must succeed; failures do not
-trigger a direct-network fallback.
+| Field | Values | Effect |
+|---|---|---|
+| **DANE verification** | **Off**, **Enforce when secure TLSA records exist**, **Required** | Looks up the TLSA records for the SMTP host name and port and validates their DNSSEC signatures. With usable records, the server's certificate must match them. **Required** refuses to send when no usable, validated records exist. |
+| **MTA-STS verification** | **Off**, **Follow the published policy**, **Required** | Fetches the MTA-STS policy of the **SMTP policy domain**. An enforcing policy must list the SMTP host name in its `mx` lines, or sending is refused. A policy in `testing` mode does not block sending; **Required** refuses to send unless an enforcing policy applies. |
+| **SMTP policy domain** | a domain name | The domain whose MTA-STS policy covers this SMTP server, usually your own mail domain. Recipient domains are never used. |
 
-MTA-STS policies are stored in the application database and survive restarts.
-The cache holds at most 1,024 entries of at most 64 KiB each, removes expired
-entries, and refuses new entries rather than evicting unexpired protections.
-An older concurrent fetch cannot replace a newer cached policy. An unexpired
-enforcing policy remains applicable when a refresh fails.
-Known policies are refreshed through HTTPS during submissions after one day,
-even if their TXT discovery record is unavailable. Failed refreshes are retried
-no more often than every five minutes and emit a bounded warning for enforcing
-policies. A failed refresh never extends a policy's original expiry.
+The checks run before Mailwoman authenticates or sends any part of a message. When usable DANE records exist, DANE decides and MTA-STS is not consulted; a certificate that does not match the DANE records is refused, with no fall back to MTA-STS or ordinary certificate checks.
 
-Standards: [SMTP DANE](https://www.rfc-editor.org/rfc/rfc7672.html),
-[MTA-STS, including smart-host policy selection in section 3.4](https://www.rfc-editor.org/rfc/rfc8461.html).
+DANE details: certificate usages DANE-TA (2) and DANE-EE (3), with full certificate or public-key selectors and full, SHA-256 or SHA-512 matching. Other usages are ignored. With **Enforce when secure TLSA records exist**, a signed record set that contains only unsupported records falls back to ordinary certificate validation (and to MTA-STS, if it is on); **Required** refuses it.
 
-Antivirus scanning is separate and is not provided by these controls.
+## DNS lookups and cached policies
+
+- DNS queries are sent as DNS-over-HTTPS to `https://cloudflare-dns.com/dns-query`, or to the URL in `MW_SMTP_POLICY_DOH_URL`. DNSSEC signatures are validated by Mailwoman itself; there is no fall back to the operating system's resolver. These lookups and the MTA-STS policy fetches follow the server's outbound connection rules for the DNS class (see [Outbound connections](../security/egress.md)).
+- MTA-STS policies are stored in the database, so they survive a restart: at most 1,024 policies of at most 64 KiB each. A stored policy is refreshed over HTTPS when a message is sent and the policy is more than a day old; a failed refresh is retried at most every five minutes, and an unexpired enforcing policy keeps applying meanwhile (with a warning in the log).
+- Mailwoman does not send TLS-RPT reports.
+
+These checks do not scan messages for viruses.
+
+## Related
+
+- [Domains](./domains.md)
+- [Internationalized SMTP submission](./smtp-internationalization.md)
+- [Outbound connections](../security/egress.md)
