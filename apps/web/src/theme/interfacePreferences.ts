@@ -4,11 +4,13 @@ import {settings} from '../api/settings.ts';
 /** Scoped to the app lifecycle, reset when settings/account ownership changes. */
 export function useInterfacePreferences(): void {
   const root = document.documentElement;
-  const keys = ['--mw-ui-font-size', '--mw-ui-scale', '--mw-ui-font-weight', '--mw-ui-medium-weight', '--mw-ui-bold-weight', '--mw-ui-heavy-weight', '--mw-ui-text-color', '--mw-ui-text-mix'];
+  const keys = ['--mw-ui-zoom', '--mw-ui-font-size', '--mw-ui-scale', '--mw-ui-font-weight', '--mw-ui-medium-weight', '--mw-ui-bold-weight', '--mw-ui-heavy-weight', '--mw-ui-text-color', '--mw-ui-text-mix'];
   const clear = () => keys.forEach(key => root.style.removeProperty(key));
   createEffect(() => {
     const map = settings();
     clear();
+    const scale=map['appearance.uiScale']?.value;
+    if(typeof scale==='number'&&Number.isFinite(scale)&&scale>=50&&scale<=200){root.style.setProperty('--mw-ui-zoom',String(scale/100));}
     const size = map['appearance.fontSize']?.value;
     if (typeof size === 'number' && size >= 12 && size <= 24) {root.style.setProperty('--mw-ui-scale', String(size / 14));root.style.setProperty('--mw-ui-font-size', `${size}px`);}
     const weight = map['appearance.fontWeight']?.value;

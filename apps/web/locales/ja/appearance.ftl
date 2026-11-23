@@ -216,3 +216,6 @@ appearance-preference-mail-conversations-enabled = メッセージを会話に�
 appearance-preference-mail-afterMove = メッセージ移動後の動作
 appearance-preference-mail-afterMove-help = 移動成功後に開いたままにする、次または前のメッセージを開く、閉じるから選択します。失敗時は表示を変更しません。リストの順序に従い、移動したメッセージは飛ばします。
 appearance-preference-option-keep = メッセージを開いたままにする
+
+appearance-preference-appearance-uiScale = インターフェースの倍率 (%)
+appearance-ui-scale-help = 操作部品、文字、余白を含む画面全体を拡大・縮小します（50～200%）。メッセージの倍率とは独立しています。

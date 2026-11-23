@@ -242,8 +242,8 @@ body {
   display: grid;
   grid-template-columns: 220px minmax(260px, 360px) 1fr;
   grid-template-rows: minmax(0, 1fr);
-  height: 100dvh;
-  max-height: 100dvh;
+  height: calc(100dvh / var(--mw-ui-zoom, 1));
+  max-height: calc(100dvh / var(--mw-ui-zoom, 1));
   min-height: 0;
   overflow: hidden;
 }
@@ -553,7 +553,7 @@ body {
   flex-direction: column;
   width: 100%;
   max-width: 560px;
-  max-height: 90vh;
+  max-height: calc(90vh / var(--mw-ui-zoom, 1));
   /* `max-height` alone was a trap: this is a flex column whose children default to
      `min-height:auto`, so they refuse to shrink and simply overflow the capped box
      — and the backdrop is `position:fixed` with `place-items:center`, which has no
@@ -782,7 +782,7 @@ body {
     flex-direction: column;
     /* `dvh` tracks the visible viewport as mobile browser chrome shows and
        hides; the `100%` above it in the cascade remains the fallback. */
-    height: 100dvh;
+    height: calc(100dvh / var(--mw-ui-zoom, 1));
     padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
   }
 
@@ -832,7 +832,7 @@ body {
   .shell__account-chip {
     flex: 0 1 auto;
     min-width: 0;
-    max-width: 42vw;
+    max-width: calc(42vw / var(--mw-ui-zoom, 1));
     min-height: 44px;
     gap: 0.3rem;
     padding-inline: 0.5rem;
@@ -853,7 +853,7 @@ body {
     inset-block: 0;
     inset-inline-start: 0;
     z-index: 21;
-    width: min(86vw, 320px);
+    width: min(calc(86vw / var(--mw-ui-zoom, 1)), 320px);
     overflow-y: auto;
     padding-block: calc(0.9rem + env(safe-area-inset-top)) calc(0.9rem + env(safe-area-inset-bottom));
     padding-inline: 0.9rem calc(0.9rem - 2px);
@@ -929,7 +929,7 @@ body {
     display: flex;
     position: fixed;
     inset: 0;
-    height: 100dvh;
+    height: calc(100dvh / var(--mw-ui-zoom, 1));
     background: var(--bg);
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
       env(safe-area-inset-left);
@@ -940,7 +940,7 @@ body {
      top edge. */
   .reader--open .reader__header {
     flex: 0 1 auto;
-    max-height: 42dvh;
+    max-height: calc(42dvh / var(--mw-ui-zoom, 1));
     overflow-y: auto;
     padding-block: 0 calc(0.6rem - 1px);
     padding-inline: 0.8rem;
@@ -963,7 +963,7 @@ body {
   }
   .reader--open .reader__attachments {
     flex: none;
-    max-height: 22dvh;
+    max-height: calc(22dvh / var(--mw-ui-zoom, 1));
     overflow-y: auto;
   }
   .reader--open .reader__frame {
@@ -979,8 +979,8 @@ body {
   }
   .compose {
     max-width: none;
-    height: 100dvh;
-    max-height: 100dvh;
+    height: calc(100dvh / var(--mw-ui-zoom, 1));
+    max-height: calc(100dvh / var(--mw-ui-zoom, 1));
     /* Restated beside the cap it serves (the base rule sets it too): the sheet
        is the scrollport for a form taller than the screen. */
     overflow-y: auto;
@@ -1057,5 +1057,5 @@ table.settings-package-table { min-inline-size:38rem; }
 .attachment-modal > .mw-viewer { flex:1 1 0; min-block-size:0; }
 
 .reader__quick-reply { margin-block: .75rem; }
-.reader__quick-reply > .workspace-compose { height: auto; max-height: min(65vh, 38rem); }
+.reader__quick-reply > .workspace-compose { height: auto; max-height: min(calc(65vh / var(--mw-ui-zoom, 1)), 38rem); }
 .reader__quick-reply > .workspace-compose > .compose { height: auto; border: 1px solid var(--border); }

@@ -1,3 +1,4 @@
+import {interfacePixels,interfaceScale} from '../theme/interfaceScale.ts';
 import {onCleanup,onMount} from 'solid-js';
 
 /** Keep floating controls inside their dialog so inertness, focus traps and outside-click handlers agree on ownership. */
@@ -25,17 +26,17 @@ export function useFloatingLayer(target:HTMLElement|(()=>HTMLElement),anchor?:()
     }
     const place=()=>{
       if(!anchor||!element.isConnected)return;
-      const rect=anchor().getBoundingClientRect(),margin=8,viewport=view.visualViewport;
+      const rect=anchor().getBoundingClientRect(),margin=8,viewport=view.visualViewport,scale=interfaceScale(doc);
       const left=viewport?.offsetLeft??0,top=viewport?.offsetTop??0;
       const width=viewport?.width??view.innerWidth,height=viewport?.height??view.innerHeight;
       element.style.position='fixed';element.style.inset='auto';element.style.margin='0';element.style.boxSizing='border-box';
-      element.style.width=`${Math.min(rect.width,Math.max(0,width-margin*2))}px`;
+      element.style.width=`${interfacePixels(Math.min(rect.width,Math.max(0,width-margin*2)),doc)}px`;
       const below=Math.max(0,top+height-rect.bottom-margin),above=Math.max(0,rect.top-top-margin);
-      const up=below<Math.min(element.scrollHeight,256)&&above>below;
-      element.style.maxHeight=`${Math.min(256,up?above:below)}px`;
+      const up=below<Math.min(element.scrollHeight,256)*scale&&above>below;
+      element.style.maxHeight=`${Math.min(256,interfacePixels(up?above:below,doc))}px`;
       const bounds=element.getBoundingClientRect();
-      element.style.left=`${Math.max(left+margin,Math.min(rect.left,left+width-bounds.width-margin))}px`;
-      element.style.top=`${up?rect.top-bounds.height:rect.bottom}px`;
+      element.style.left=`${interfacePixels(Math.max(left+margin,Math.min(rect.left,left+width-bounds.width-margin)),doc)}px`;
+      element.style.top=`${interfacePixels(up?rect.top-bounds.height:rect.bottom,doc)}px`;
     };
     place();
     const scroll=(event:Event)=>{const target=event.target as Node|null;if(target?.nodeType&&element.contains(target))return;place();};

@@ -10,7 +10,7 @@ export const notice = style({
   insetBlockEnd: vars.space[5],
   insetInlineEnd: vars.space[5],
   zIndex: 1100,
-  maxWidth: `min(28rem, calc(100vw - 2 * ${vars.space[5]}))`,
+  maxWidth: `min(28rem, calc(calc(100vw / var(--mw-ui-zoom, 1)) - 2 * ${vars.space[5]}))`,
   paddingBlock: vars.space[2],
   paddingInline: vars.space[3],
   border: `${vars.border.rule} solid ${vars.color.borderStrong}`,

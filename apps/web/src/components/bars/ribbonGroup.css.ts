@@ -165,7 +165,7 @@ export const moreText = style({
 export const popover = style({
   position: 'fixed',
   zIndex: 1400,
-  maxInlineSize: 'calc(100vw - 16px)',
+  maxInlineSize: 'calc(calc(100vw / var(--mw-ui-zoom, 1)) - 16px)',
   padding: vars.space[1],
   background: vars.color.surface,
   color: vars.color.text,

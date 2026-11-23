@@ -269,5 +269,5 @@ globalStyle(':root, :root[data-theme], :root[data-theme][data-accent]', {
 });
 
 // Interface text scale also scales controls expressed in rem.
-globalStyle('html', { fontSize: 'calc(16px * var(--mw-ui-scale, 1))' });
+globalStyle('html', { fontSize: 'calc(16px * var(--mw-ui-scale, 1))', zoom:'var(--mw-ui-zoom, 1)', '@media':{print:{zoom:1,vars:{'--mw-ui-zoom':'1 !important'}}} });
 globalStyle('body', { fontWeight: vars.weight.regular });

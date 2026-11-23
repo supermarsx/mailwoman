@@ -232,3 +232,6 @@ appearance-preference-mail-conversations-enabled = Grupuj wiadomości w rozmowy
 appearance-preference-mail-afterMove = Po przeniesieniu wiadomości
 appearance-preference-mail-afterMove-help = Po udanym przeniesieniu pozostaw otwartą, otwórz następną lub poprzednią wiadomość albo zamknij. Błąd nie zmienia czytnika. Nawigacja zachowuje kolejność listy i pomija przeniesione wiadomości.
 appearance-preference-option-keep = Pozostaw wiadomość otwartą
+
+appearance-preference-appearance-uiScale = Skala interfejsu (%)
+appearance-ui-scale-help = Zmienia rozmiar elementów sterujących, tekstu i odstępów (50–200%). Powiększenie wiadomości jest niezależne.

@@ -232,3 +232,6 @@ appearance-preference-mail-conversations-enabled = 将消息分组到对话中
 appearance-preference-mail-afterMove = 移动邮件后的操作
 appearance-preference-mail-afterMove-help = 移动成功后，可保持打开、打开下一封或上一封邮件，或关闭邮件。移动失败时不更改阅读器。导航遵循当前列表顺序并跳过已移动的邮件。
 appearance-preference-option-keep = 保持邮件打开
+
+appearance-preference-appearance-uiScale = 界面缩放比例 (%)
+appearance-ui-scale-help = 调整整个界面的控件、文字和间距（50–200%）。邮件缩放独立设置。

@@ -8,6 +8,7 @@ import type {CardSpec} from './layout/rows.tsx';
 import * as css from './styles.css.ts';
 
 const fields: {key:string; fallback:string|number|boolean; choices?:readonly string[]; choicePrefix?:string; help?:string; min?:number; max?:number; color?:boolean}[] = [
+  {key:'appearance.uiScale',fallback:100,min:50,max:200,help:'appearance-ui-scale-help'},
   {key:'appearance.fontSize',fallback:14,min:12,max:24},
   {key:'appearance.fontWeight',fallback:'400',choices:['300','400','500','600']},
   {key:'appearance.fontColor',fallback:'',color:true},

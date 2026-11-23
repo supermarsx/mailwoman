@@ -6,7 +6,7 @@ import { style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
 
 export const backdrop = style({
-  minHeight: '100vh',
+  minHeight: 'calc(100vh / var(--mw-ui-zoom, 1))',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',

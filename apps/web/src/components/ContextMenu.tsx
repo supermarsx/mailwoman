@@ -1,3 +1,4 @@
+import {interfacePixels} from '../theme/interfaceScale.ts';
 import {SearchInput} from './SearchInput.tsx';
 import {createEffect,createSignal,For,onCleanup,onMount,Show,type Accessor,type JSX} from 'solid-js';
 import {Portal} from 'solid-js/web';
@@ -86,7 +87,8 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
    onMount(()=>{
     const rect=element.getBoundingClientRect(),anchor=panel.anchor?.getBoundingClientRect();
     const rtl=host.getComputedStyle(element).direction==='rtl';
-    setCoords(placePanel({point:props.point,...(anchor?{anchor}:{}),size:{width:rect.width,height:rect.height},viewport:{width:host.innerWidth,height:host.innerHeight},rtl}));
+    const placed=placePanel({point:props.point,...(anchor?{anchor}:{}),size:{width:rect.width,height:rect.height},viewport:{width:host.innerWidth,height:host.innerHeight},rtl});
+    setCoords({left:interfacePixels(placed.left,doc),top:interfacePixels(placed.top,doc),maxHeight:interfacePixels(placed.maxHeight,doc)});
     if(searchInput){searchInput.focus({preventScroll:true});return;}
     const rows=buttons();((options.focusCurrent?rows.find(row=>row.getAttribute('aria-checked')==='true')??rows[0]:rows[0])??element).focus({preventScroll:true});
    });

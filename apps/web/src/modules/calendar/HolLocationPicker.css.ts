@@ -13,7 +13,7 @@ export const list = style({
   listStyle: 'none',
   margin: 0,
   padding: 0,
-  maxHeight: '45vh',
+  maxHeight: 'calc(45vh / var(--mw-ui-zoom, 1))',
   overflowY: 'auto',
   border: `${vars.border.hair} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.sm,

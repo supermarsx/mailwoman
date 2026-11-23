@@ -14,7 +14,7 @@ export const toggle = style({
   '@media': { '(forced-colors: active)': { color: 'ButtonText' } },
 });
 export const list = style({
-  position: 'absolute', insetInline: 0, insetBlockStart: '100%', zIndex: 30, maxBlockSize: 'min(20rem, 50dvh)', overflowY: 'auto', overscrollBehavior: 'contain',
+  position: 'absolute', insetInline: 0, insetBlockStart: '100%', zIndex: 30, maxBlockSize: 'min(20rem, calc(50dvh / var(--mw-ui-zoom, 1)))', overflowY: 'auto', overscrollBehavior: 'contain',
   background: vars.color.surface, color: vars.color.text, border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   boxShadow: vars.elevation[2], padding: vars.space[1],
   '@media': { '(forced-colors: active)': { background: 'Canvas', color: 'CanvasText', borderColor: 'CanvasText' } },

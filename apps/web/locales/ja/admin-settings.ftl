@@ -2827,3 +2827,7 @@ admin-settings-help-web-assets-cache-compression-min-bytes = 既定値は1024バ
 admin-settings-key-performance-prepared-mail = 準備済みメールメタデータキャッシュ
 admin-settings-help-performance-prepared-mail = メタデータのみ。各応答には最新のソースと権限の確認が必要です。
 admin-cache-prepared-invalid = 表示された範囲内ですべての項目を入力し、項目を追加しないでください。
+
+# Interface scaling
+admin-settings-key-appearance-ui-scale = インターフェースの倍率 (%)
+admin-settings-help-appearance-ui-scale = 操作部品、文字、余白を含む画面全体を拡大・縮小します（50～200%）。メッセージの倍率とは独立しています。

@@ -232,3 +232,6 @@ appearance-preference-mail-conversations-enabled = Raggruppare i messaggi in con
 appearance-preference-mail-afterMove = Dopo lo spostamento di un messaggio
 appearance-preference-mail-afterMove-help = Scegli se mantenere aperto, aprire il messaggio successivo o precedente, oppure chiudere dopo lo spostamento. Gli errori non cambiano il lettore. La navigazione segue la lista e salta i messaggi spostati.
 appearance-preference-option-keep = Mantieni il messaggio aperto
+
+appearance-preference-appearance-uiScale = Scala dell’interfaccia (%)
+appearance-ui-scale-help = Ridimensiona controlli, testo e spazi dell’intera interfaccia (50–200%). Lo zoom dei messaggi resta indipendente.

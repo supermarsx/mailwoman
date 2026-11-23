@@ -105,7 +105,7 @@ export const add = style({
 export const popover = style({
   position: 'fixed',
   zIndex: 60,
-  inlineSize: 'min(20rem, calc(100vw - 16px))',
+  inlineSize: 'min(20rem, calc(calc(100vw / var(--mw-ui-zoom, 1)) - 16px))',
   padding: '0.7rem',
   border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.md,

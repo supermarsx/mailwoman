@@ -1,3 +1,4 @@
+import {interfacePixels} from '../../theme/interfaceScale.ts';
 import {alertValue} from '../../api/notificationControls.ts';
 // Renders the shared toast store (./toast.ts). Mount it once per app shell:
 // App.tsx for the webmail, screens/Admin/index.tsx for the admin console.
@@ -158,7 +159,7 @@ export function ToastRegion(): JSX.Element {
       if (box.width === 0 || box.height === 0 || box.right <= span.left || box.left >= span.right) continue;
       lift = Math.max(lift, view.innerHeight - box.top + LIFT_GAP);
     }
-    if (lift > 0) region.style.setProperty('--mw-toast-lift', `${Math.ceil(lift)}px`);
+    if (lift > 0) region.style.setProperty('--mw-toast-lift', `${interfacePixels(Math.ceil(lift),region.ownerDocument)}px`);
     else region.style.removeProperty('--mw-toast-lift');
   }
   createEffect(() => {

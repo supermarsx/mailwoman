@@ -244,7 +244,7 @@ export const dialog = style({
   padding: `calc(${vars.space[5]} - 1px)`,
   maxWidth: '52rem',
   width: '100%',
-  maxHeight: '85vh',
+  maxHeight: 'calc(85vh / var(--mw-ui-zoom, 1))',
   overflowY: 'auto',
   display: 'flex',
   flexDirection: 'column',

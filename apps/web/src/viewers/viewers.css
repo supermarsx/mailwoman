@@ -31,7 +31,7 @@
   color: var(--danger);
 }
 .mw-viewer__error > p { margin: 0; }
-.mw-viewer__error-details { margin-block-start: .5rem; color: var(--text); max-height: 60vh; overflow: auto; }
+.mw-viewer__error-details { margin-block-start: .5rem; color: var(--text); max-height: calc(60vh / var(--mw-ui-zoom, 1)); overflow: auto; }
 .mw-viewer__error-details summary { cursor: pointer; }
 .mw-viewer__error-details summary:focus-visible { outline: var(--focus-ring-width) solid var(--focus); outline-offset: 2px; }
 .mw-viewer__error-details dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .25rem 1rem; margin: .5rem 0 0; font-size: .85em; }

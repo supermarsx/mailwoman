@@ -34,7 +34,7 @@ const smallLabel = {
 export const gate = style({
   display: 'grid',
   placeItems: 'center',
-  minHeight: '100vh',
+  minHeight: 'calc(100vh / var(--mw-ui-zoom, 1))',
   background: vars.color.bg,
   color: vars.color.text,
   fontFamily: vars.font.ui,

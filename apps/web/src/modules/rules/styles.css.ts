@@ -232,7 +232,7 @@ export const textarea = style({
   borderRadius: vars.radius.md,
   padding: less1(vars.space[3]),
   minHeight: '18rem',
-  maxHeight: '65vh',
+  maxHeight: 'calc(65vh / var(--mw-ui-zoom, 1))',
   width: '100%',
   resize: 'vertical',
   whiteSpace: 'pre',

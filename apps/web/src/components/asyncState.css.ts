@@ -52,7 +52,7 @@ export const skeletonShort = style([skeletonLine,{flex:'0 1 18%'}]);
 export const skeletonAvatar = style({display:'block',inlineSize:'2rem',blockSize:'2rem',flex:'0 0 auto',background:vars.color.bgAlt,border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:0});
 export const skeletonCards = style({display:'grid',minInlineSize:0,gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,9rem),1fr))',gap:vars.space[3],'@media':{'(max-width: 480px)':{gridTemplateColumns:'minmax(0,1fr)'}}});
 export const skeletonCard = style({display:'block',blockSize:'5rem',background:vars.color.bgAlt,border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:vars.radius.sm});
-export const boot = style({minBlockSize:'100dvh',maxInlineSize:'38rem',margin:'0 auto',padding:vars.space[6],justifyContent:'center',fontFamily:vars.font.ui,color:vars.color.text});
+export const boot = style({minBlockSize:'calc(100dvh / var(--mw-ui-zoom, 1))',maxInlineSize:'38rem',margin:'0 auto',padding:vars.space[6],justifyContent:'center',fontFamily:vars.font.ui,color:vars.color.text});
 
 // Message-list placeholders (`variant="messages"`). Each row uses the list
 // row's own density variables (styles/app.css `--mail-row-*`) and is given the

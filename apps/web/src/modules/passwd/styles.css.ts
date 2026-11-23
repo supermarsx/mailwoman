@@ -186,7 +186,7 @@ export const errorLine = style({ margin: 0, lineHeight: 1.5 });
 
 // -- Forced change screen (t27) ------------------------------------------------
 export const forced = style({
-  minHeight: '100vh',
+  minHeight: 'calc(100vh / var(--mw-ui-zoom, 1))',
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',

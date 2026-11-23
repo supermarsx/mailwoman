@@ -2853,3 +2853,7 @@ admin-settings-help-web-assets-cache-compression-min-bytes = По умолчан
 admin-settings-key-performance-prepared-mail = Кэш подготовленных метаданных почты
 admin-settings-help-performance-prepared-mail = Только метаданные; каждый ответ требует актуальной проверки источника и прав.
 admin-cache-prepared-invalid = Заполните все поля в указанных пределах без дополнительных полей.
+
+# Interface scaling
+admin-settings-key-appearance-ui-scale = Масштаб интерфейса (%)
+admin-settings-help-appearance-ui-scale = Изменяет размер элементов управления, текста и отступов (50–200%). Масштаб сообщений задаётся отдельно.

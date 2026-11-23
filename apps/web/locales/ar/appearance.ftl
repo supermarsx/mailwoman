@@ -232,3 +232,6 @@ appearance-preference-mail-conversations-enabled = تجميع الرسائل ف�
 appearance-preference-mail-afterMove = بعد نقل رسالة
 appearance-preference-mail-afterMove-help = اختر إبقاء الرسالة مفتوحة أو فتح التالية أو السابقة أو إغلاقها بعد نجاح النقل. لا يتغير القارئ عند الفشل. يتبع التنقل ترتيب القائمة ويتجاوز الرسائل المنقولة.
 appearance-preference-option-keep = إبقاء الرسالة مفتوحة
+
+appearance-preference-appearance-uiScale = مقياس الواجهة (%)
+appearance-ui-scale-help = يغير حجم عناصر التحكم والنصوص والمسافات في الواجهة كلها (50–200%). تكبير الرسائل مستقل.

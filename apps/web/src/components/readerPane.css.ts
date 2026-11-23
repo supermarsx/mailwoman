@@ -31,7 +31,7 @@ globalStyle('.reader__frame-loading', {inlineSize:'100%',boxSizing:'border-box',
 // so a cached or prefetched switch never flickers.
 globalStyle('.reader[data-switching] .reader__header > :not(.reader__subject)', {opacity:0,pointerEvents:'none',transition:'opacity 100ms linear 180ms'});
 
-globalStyle(':root .reader--open .reader__header', {'@media':{'(max-width: 760px)':{paddingBlock:'4px',paddingInline:'8px',maxBlockSize:'min(42dvh, 17rem)'}}});
+globalStyle(':root .reader--open .reader__header', {'@media':{'(max-width: 760px)':{paddingBlock:'4px',paddingInline:'8px',maxBlockSize:'min(calc(42dvh / var(--mw-ui-zoom, 1)), 17rem)'}}});
 globalStyle(':root .reader--open .reader__subject', {'@media':{'(max-width: 760px)':{fontSize:'1rem',lineHeight:'1.25',marginBlockEnd:'4px'}}});
 globalStyle(':root .reader--open .reader__close', {'@media':{'(max-width: 760px) and (pointer: fine)':{minHeight:'32px',marginBlockEnd:'4px',paddingBlock:'3px'}}});
 

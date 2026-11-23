@@ -232,3 +232,6 @@ appearance-preference-mail-conversations-enabled = Группируйте соо
 appearance-preference-mail-afterMove = После перемещения сообщения
 appearance-preference-mail-afterMove-help = После успешного перемещения оставить открытым, открыть следующее или предыдущее сообщение либо закрыть. Ошибки не меняют просмотр. Навигация следует порядку списка и пропускает перемещённые сообщения.
 appearance-preference-option-keep = Оставить сообщение открытым
+
+appearance-preference-appearance-uiScale = Масштаб интерфейса (%)
+appearance-ui-scale-help = Изменяет размер элементов управления, текста и отступов (50–200%). Масштаб сообщений задаётся отдельно.

@@ -1,3 +1,4 @@
+import {interfacePixels} from '../theme/interfaceScale.ts';
 import { createSignal, createUniqueId, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import {floatingMount,useFloatingLayer} from './floatingLayer.ts';
@@ -98,7 +99,7 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
     // covers the controls above it and takes their clicks.
     const wantsBelow = target.closest('[data-tooltip-placement="below"]') !== null && below + bounds.height <= top + height - 8;
     const y = Math.max(top + 8, Math.min(wantsBelow ? below : preferred >= top + 8 ? preferred : below, top + height - bounds.height - 8));
-    bubble.style.left = `${Math.round(x)}px`; bubble.style.top = `${Math.round(y)}px`;
+    bubble.style.left = `${interfacePixels(Math.round(x),bubble.ownerDocument)}px`; bubble.style.top = `${interfacePixels(Math.round(y),bubble.ownerDocument)}px`;
   };
   const schedulePosition = () => { scopeWindow.cancelAnimationFrame(frame); frame = scopeWindow.requestAnimationFrame(position); };
   const find = (event: Event) => isElement(event.target) ? event.target.closest<HTMLElement>(controls) : null;

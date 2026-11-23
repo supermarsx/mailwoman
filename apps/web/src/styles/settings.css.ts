@@ -21,7 +21,7 @@ export const panel = style({
   gap: vars.space[6],
   width: '100%',
   maxWidth: '520px',
-  maxHeight: '90vh',
+  maxHeight: 'calc(90vh / var(--mw-ui-zoom, 1))',
   overflowY: 'auto',
   padding: `calc(${vars.space[6]} - 1px)`,
   borderRadius: vars.radius.lg,

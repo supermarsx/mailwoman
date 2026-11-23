@@ -9,8 +9,8 @@ const shimmer=keyframes({'0%':{opacity:0.55},'50%':{opacity:1},'100%':{opacity:0
 const NARROW='(max-width: 40rem)';
 
 export const backdrop=style({position:'fixed',inset:0,zIndex:1200,background:vars.color.scrim,display:'grid',placeItems:'center',padding:vars.space[3],'@media':{[NARROW]:{padding:0}}});
-export const dialog=style({position:'relative',display:'flex',flexDirection:'column',background:vars.color.surface,color:vars.color.text,border:`${vars.border.rule} solid ${vars.color.borderStrong}`,borderRadius:vars.radius.md,boxShadow:vars.elevation[2],inlineSize:'min(45rem, 100%)',blockSize:'min(46rem, calc(100dvh - 2rem))',overflow:'hidden',minInlineSize:0,
- '@media':{[NARROW]:{blockSize:'100dvh',borderRadius:0,border:'none'}}});
+export const dialog=style({position:'relative',display:'flex',flexDirection:'column',background:vars.color.surface,color:vars.color.text,border:`${vars.border.rule} solid ${vars.color.borderStrong}`,borderRadius:vars.radius.md,boxShadow:vars.elevation[2],inlineSize:'min(45rem, 100%)',blockSize:'min(46rem, calc(calc(100dvh / var(--mw-ui-zoom, 1)) - 2rem))',overflow:'hidden',minInlineSize:0,
+ '@media':{[NARROW]:{blockSize:'calc(100dvh / var(--mw-ui-zoom, 1))',borderRadius:0,border:'none'}}});
 export const closeButton=style({appearance:'none',position:'absolute',insetBlockStart:vars.space[2],insetInlineEnd:vars.space[2],zIndex:1,display:'inline-grid',placeItems:'center',minInlineSize:vars.a11y.touchTarget,minBlockSize:vars.a11y.touchTarget,padding:0,border:'none',background:'transparent',color:vars.color.textDim,cursor:'pointer',borderRadius:vars.radius.sm,selectors:{'&:hover':{color:vars.color.text}}});
 /** Marks the dialog for the phone layout; also a test hook. */
 export const phone=style({});

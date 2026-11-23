@@ -3,7 +3,7 @@ import { vars } from '../theme/contract.css.ts';
 
 export const tooltip = style({
   position: 'fixed', zIndex: 21000, inset: 'auto', margin: 0,
-  maxWidth: 'min(22rem, calc(100vw - 16px))', maxHeight: 'calc(100vh - 16px)',
+  maxWidth: 'min(22rem, calc(calc(100vw / var(--mw-ui-zoom, 1)) - 16px))', maxHeight: 'calc(calc(100vh / var(--mw-ui-zoom, 1)) - 16px)',
   overflow: 'auto', overflowWrap: 'anywhere', whiteSpace: 'normal',
   padding: `${vars.space[2]} ${vars.space[3]}`,
   color: vars.color.text, background: vars.color.surface,

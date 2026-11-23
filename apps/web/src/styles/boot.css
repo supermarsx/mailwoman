@@ -308,7 +308,7 @@
   display: grid;
   box-sizing: border-box;
   min-inline-size: 0;
-  min-block-size: 100dvh;
+  min-block-size: calc(100dvh / var(--mw-ui-zoom, 1));
   background: var(--bg);
 }
 .mwb-admin-card {
@@ -389,7 +389,7 @@
 /* The console frame: the sidebar (a top bar on phones), the main column's head
    row and the dashboard's loading panel. */
 :root[data-mw-boot='admin-console'] #mw-boot .mwb-console {
-  grid-template-columns: minmax(180px, min(220px, 40vw)) 6px minmax(0, 1fr);
+  grid-template-columns: minmax(180px, min(220px, calc(40vw / var(--mw-ui-zoom, 1)))) 6px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   background: var(--bg);
 }

@@ -14,7 +14,7 @@
 .reader__address-disclosure[open] > summary svg { transform: rotate(90deg); }
 .reader__address-disclosure > summary:focus-visible { outline: 2px solid var(--accent); }
 .address-card-backdrop { position: fixed; inset: 0; z-index: 1800; }
-.address-card { position: fixed; box-sizing: border-box; inline-size: min(22rem, calc(100vw - 16px)); max-block-size: calc(100dvh - 16px); overflow: auto; overscroll-behavior: contain; padding: 1rem; border: 2px solid var(--border-strong, var(--border)); border-radius: var(--radius-md); background: var(--bg); color: var(--text); box-shadow: var(--elevation-3); font: inherit; }
+.address-card { position: fixed; box-sizing: border-box; inline-size: min(22rem, calc(calc(100vw / var(--mw-ui-zoom, 1)) - 16px)); max-block-size: calc(calc(100dvh / var(--mw-ui-zoom, 1)) - 16px); overflow: auto; overscroll-behavior: contain; padding: 1rem; border: 2px solid var(--border-strong, var(--border)); border-radius: var(--radius-md); background: var(--bg); color: var(--text); box-shadow: var(--elevation-3); font: inherit; }
 .address-card__header { display: flex; align-items: center; gap: .65rem; margin-block-end: .8rem; }
 .address-card__header > div { flex: 1; min-inline-size: 0; }
 .address-card__header h2 { font-size: 1.05em; margin: 0 0 .2rem; overflow-wrap: anywhere; }

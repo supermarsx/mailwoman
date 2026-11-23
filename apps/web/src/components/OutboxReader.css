@@ -1,6 +1,6 @@
 /* Outbox reader, edit-time dialog and the queued-count chip. Design tokens only. */
 .outbox-edit-time__scrim { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: var(--scrim); }
-.outbox-edit-time { display: flex; flex-direction: column; gap: 0.25rem; width: min(24rem, calc(100vw - 2rem)); padding: 0.9rem; border: var(--border-hair) solid var(--border); border-radius: var(--radius-md); background: var(--bg-alt); color: var(--text); }
+.outbox-edit-time { display: flex; flex-direction: column; gap: 0.25rem; width: min(24rem, calc(calc(100vw / var(--mw-ui-zoom, 1)) - 2rem)); padding: 0.9rem; border: var(--border-hair) solid var(--border); border-radius: var(--radius-md); background: var(--bg-alt); color: var(--text); }
 .outbox-edit-time__title { margin: 0 0 0.25rem; font-size: 1rem; }
 .outbox-edit-time__actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
 
@@ -20,7 +20,7 @@
 .outbox-chip { position: relative; display: inline-flex; }
 .outbox-chip__toggle { display: inline-flex; align-items: center; gap: 0.3rem; }
 .outbox-chip__count { font-size: 0.75rem; font-weight: 700; min-width: 1.1rem; text-align: center; }
-.outbox-chip__panel { position: absolute; inset-block-start: calc(100% + 0.25rem); inset-inline-end: 0; z-index: 40; width: min(22rem, calc(100vw - 1.5rem)); display: flex; flex-direction: column; gap: 0.35rem; padding: 0.5rem; border: var(--border-hair) solid var(--border); border-radius: var(--radius-md); background: var(--bg-alt); color: var(--text); }
+.outbox-chip__panel { position: absolute; inset-block-start: calc(100% + 0.25rem); inset-inline-end: 0; z-index: 40; width: min(22rem, calc(calc(100vw / var(--mw-ui-zoom, 1)) - 1.5rem)); display: flex; flex-direction: column; gap: 0.35rem; padding: 0.5rem; border: var(--border-hair) solid var(--border); border-radius: var(--radius-md); background: var(--bg-alt); color: var(--text); }
 .outbox-chip__next { margin: 0; color: var(--text-dim); font-size: 0.8rem; }
 .outbox-chip__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; max-height: 18rem; overflow: auto; }
 .outbox-chip__item { display: grid; gap: 0.15rem; padding: 0.35rem 0.25rem; border-block-end: var(--border-hair) solid var(--border); }

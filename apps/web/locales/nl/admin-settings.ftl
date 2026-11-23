@@ -2835,3 +2835,7 @@ admin-settings-help-web-assets-cache-compression-min-bytes = Standaard: 1024 byt
 admin-settings-key-performance-prepared-mail = Cache voor voorbereide e-mailmetadata
 admin-settings-help-performance-prepared-mail = Alleen metadata; elk antwoord vereist actuele bron- en autorisatiecontroles.
 admin-cache-prepared-invalid = Vul alle velden binnen de getoonde grenzen in, zonder extra velden.
+
+# Interface scaling
+admin-settings-key-appearance-ui-scale = Interfaceschaal (%)
+admin-settings-help-appearance-ui-scale = Schaalt alle bedieningselementen, tekst en ruimte (50–200%). Berichtzoom blijft onafhankelijk.

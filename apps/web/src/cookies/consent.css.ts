@@ -21,7 +21,7 @@ export const panel = style({
   flexDirection: 'column',
   gap: vars.space[3],
   padding: vars.space[4],
-  maxHeight: 'calc(100vh - 16px)',
+  maxHeight: 'calc(calc(100vh / var(--mw-ui-zoom, 1)) - 16px)',
   overflowY: 'auto',
   color: vars.color.text,
   background: vars.color.surface,
@@ -37,8 +37,8 @@ export const panel = style({
 
 export const layout = styleVariants({
   banner: { insetInline: vars.space[2], width: 'auto', maxWidth: '72rem', marginInline: 'auto' },
-  card: { width: 'min(26rem, calc(100vw - 16px))' },
-  modal: { width: 'min(34rem, calc(100vw - 16px))' },
+  card: { width: 'min(26rem, calc(calc(100vw / var(--mw-ui-zoom, 1)) - 16px))' },
+  modal: { width: 'min(34rem, calc(calc(100vw / var(--mw-ui-zoom, 1)) - 16px))' },
 });
 
 export const place = styleVariants({

@@ -72,7 +72,7 @@ globalStyle('.mail-workspace, .workspace-body, .workspace-pane',{position:'relat
 globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__total',{'@media':{[desktop]:{display:'none'}}});
 globalStyle('.workspace-show-folders',{position:'fixed',insetBlockStart:vars.space[2],insetInlineStart:vars.space[2],zIndex:40});
 globalStyle('.mail-workspace .subtab-strip',{display:'flex',alignItems:'stretch',gap:vars.space[1],overflowX:'auto',flexShrink:0,padding:vars.space[1],borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`});
-globalStyle('.mail-workspace .subtab',{display:'flex',alignItems:'center',flex:'0 0 auto',maxWidth:'min(70vw,320px)',gap:'2px',padding:'2px',border:`1px solid ${vars.color.border}`,borderRadius:vars.radius.sm,background:vars.color.bgAlt,color:vars.color.textDim});
+globalStyle('.mail-workspace .subtab',{display:'flex',alignItems:'center',flex:'0 0 auto',maxWidth:'min(calc(70vw / var(--mw-ui-zoom, 1)),320px)',gap:'2px',padding:'2px',border:`1px solid ${vars.color.border}`,borderRadius:vars.radius.sm,background:vars.color.bgAlt,color:vars.color.textDim});
 globalStyle('.mail-workspace .subtab__label',{minWidth:0,maxWidth:'220px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minHeight:'32px',paddingInline:vars.space[2],border:0,background:'transparent',color:'inherit',font:'inherit',textAlign:'start'});
 globalStyle('.mail-workspace .subtab--active',{background:vars.color.surface,color:vars.color.text,borderColor:vars.color.accent,boxShadow:`inset 0 3px 0 ${vars.color.accent}`});
 globalStyle('.mail-workspace .subtab--active .subtab__label',{fontWeight:vars.weight.bold});

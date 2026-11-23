@@ -44,8 +44,8 @@ globalStyle('[dir="rtl"] .icon--directional', { transform: 'scaleX(-1)' });
 // ── Frame ──────────────────────────────────────────────────────────────────────
 export const frame = style({
   display: 'grid',
-  gridTemplateColumns: 'minmax(180px, min(var(--admin-sidebar-width, 220px), 40vw)) 6px minmax(0, 1fr)',
-  minHeight: '100vh',
+  gridTemplateColumns: 'minmax(180px, min(var(--admin-sidebar-width, 220px), calc(40vw / var(--mw-ui-zoom, 1)))) 6px minmax(0, 1fr)',
+  minHeight: 'calc(100vh / var(--mw-ui-zoom, 1))',
   background: vars.color.bg,
   color: vars.color.text,
   fontFamily: vars.font.ui,
@@ -57,7 +57,7 @@ export const frame = style({
 
 export const sidebarResize = style({
   // A flex box, so the separator (height:auto, align-self:stretch) spans the full height.
-  display: 'flex', position: 'sticky', top: 0, height: '100vh',
+  display: 'flex', position: 'sticky', top: 0, height: 'calc(100vh / var(--mw-ui-zoom, 1))',
   selectors: { [`${frame}[data-sidebar-collapsed] &`]: { display: 'none' } },
   '@media': { [PHONE]: { display: 'none' } },
 });
@@ -82,7 +82,7 @@ export const sidebar = style({
   paddingInlineEnd: `calc(${vars.space[4]} - 2px)`,
   borderInlineEnd: `${vars.border.heavy} solid ${vars.color.borderStrong}`,
   background: vars.color.bgAlt,
-  maxHeight: '100vh',
+  maxHeight: 'calc(100vh / var(--mw-ui-zoom, 1))',
   overflowY: 'auto',
   position: 'sticky',
   top: 0,
@@ -218,7 +218,7 @@ export const drawer = style({
   position: 'fixed',
   insetBlock: 0,
   insetInlineStart: 0,
-  width: 'min(85vw, 300px)',
+  width: 'min(calc(85vw / var(--mw-ui-zoom, 1)), 300px)',
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[2],
@@ -241,7 +241,7 @@ export const main = style({
   flexDirection: 'column',
   gap: vars.space[6],
   overflowY: 'auto',
-  maxHeight: '100vh',
+  maxHeight: 'calc(100vh / var(--mw-ui-zoom, 1))',
   minWidth: 0,
   '@media': { [PHONE]: { padding: vars.space[5], maxHeight: 'none' } },
 });
@@ -268,10 +268,10 @@ export const crumbs = style({ minInlineSize: 0 });
 // ── Dialogs (confirm, leave, palette) ──────────────────────────────────────────
 export const dialog = style({
   position: 'fixed',
-  insetBlockStart: '12vh',
+  insetBlockStart: 'calc(12vh / var(--mw-ui-zoom, 1))',
   insetInline: 0,
   marginInline: 'auto',
-  width: 'min(calc(100vw - 32px), 480px)',
+  width: 'min(calc(calc(100vw / var(--mw-ui-zoom, 1)) - 32px), 480px)',
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[3],
@@ -282,7 +282,7 @@ export const dialog = style({
   borderRadius: vars.radius.lg,
   boxShadow: vars.elevation[3],
   zIndex: 31,
-  maxHeight: '76vh',
+  maxHeight: 'calc(76vh / var(--mw-ui-zoom, 1))',
   overflowY: 'auto',
 });
 export const dialogScrim = style([scrim, { zIndex: 30 }]);
@@ -300,7 +300,7 @@ globalStyle(`${dialogActions} > button`, {
 });
 
 // ── Command palette ────────────────────────────────────────────────────────────
-export const palette = style([dialog, { insetBlockStart: '10vh', width: 'min(calc(100vw - 32px), 560px)' }]);
+export const palette = style([dialog, { insetBlockStart: 'calc(10vh / var(--mw-ui-zoom, 1))', width: 'min(calc(calc(100vw / var(--mw-ui-zoom, 1)) - 32px), 560px)' }]);
 export const paletteList = style({ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column' });
 export const paletteOption = style({
   display: 'flex',

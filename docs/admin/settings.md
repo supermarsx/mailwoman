@@ -3673,6 +3673,9 @@ or HTML.
 The remote-image menu keeps its per-sender and per-domain grants available after a one-message Show images grant, so permission can be promoted without first revoking it. Existing image-blocking policy and blocked image hosts still take precedence; enabling links does not grant images.
 <a id="links.trustedSenders"></a>
 `links.trustedSenders` is a list of exact sender mailboxes (up to 100 entries, 254 characters each). Links in messages from a listed sender may open from Review links without per-message consent. Default empty. Global/domain/user policy.
+<a id="appearance.uiScale"></a>
+`appearance.uiScale` scales the whole webmail interface, including controls, spacing and text, from 50–200% (default 100). It is independent of message zoom. Global/domain/user defaults and locks apply. Floating menus remain anchored and viewport-sized panels stay within the browser window.
+
 <a id="appearance.fontSize"></a>
 `appearance.fontSize` is the interface font size in pixels, 12 to 24, default 14. Global/domain/user policy.
 <a id="appearance.fontWeight"></a>

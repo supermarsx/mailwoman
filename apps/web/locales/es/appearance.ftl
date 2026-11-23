@@ -216,3 +216,6 @@ appearance-preference-mail-conversations-enabled = Agrupar mensajes en conversac
 appearance-preference-mail-afterMove = Después de mover un mensaje
 appearance-preference-mail-afterMove-help = Elija mantener abierto, abrir el mensaje siguiente o anterior, o cerrar tras mover correctamente. Los errores no cambian el lector. La navegación sigue el orden de la lista y omite los mensajes movidos.
 appearance-preference-option-keep = Mantener el mensaje abierto
+
+appearance-preference-appearance-uiScale = Escala de la interfaz (%)
+appearance-ui-scale-help = Cambia el tamaño de controles, texto y espacios de toda la interfaz (50–200%). El zoom de los mensajes es independiente.

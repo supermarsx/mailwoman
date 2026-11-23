@@ -112,7 +112,7 @@ export const search=style({minInlineSize:0,maxInlineSize:'64rem',paddingInline:v
 export const commands=style({display:'flex',alignItems:'center',flexWrap:'wrap',alignContent:'center',gap:vars.space[1],blockSize:'100%',minInlineSize:0});
 globalStyle(`.${commands} > .workspace-bar`,{display:'contents'});
 
-globalStyle(`.${search} .mail-search-area > div`,{maxBlockSize:'min(40dvh, 22rem)',overflow:'auto'});
+globalStyle(`.${search} .mail-search-area > div`,{maxBlockSize:'min(calc(40dvh / var(--mw-ui-zoom, 1)), 22rem)',overflow:'auto'});
 
 globalStyle(`${ribbon} [data-ribbon-item=small] > button`,{inlineSize:"100%",justifyContent:"flex-start"});
 globalStyle(`${ribbon} [data-ribbon-item] svg`,{flexShrink:0});

@@ -2827,3 +2827,7 @@ admin-settings-help-web-assets-cache-compression-min-bytes = 默认值：1024 �
 admin-settings-key-performance-prepared-mail = 已准备邮件元数据缓存
 admin-settings-help-performance-prepared-mail = 仅缓存元数据；每个响应仍需最新的数据源和授权检查。
 admin-cache-prepared-invalid = 请在显示的范围内填写全部字段，不得添加其他字段。
+
+# Interface scaling
+admin-settings-key-appearance-ui-scale = 界面缩放比例 (%)
+admin-settings-help-appearance-ui-scale = 调整整个界面的控件、文字和间距（50–200%）。邮件缩放独立设置。

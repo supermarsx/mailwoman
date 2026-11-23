@@ -230,3 +230,6 @@ appearance-preference-conversations-help = Off by default. Fold related replies 
 appearance-preference-mail-afterMove = After moving a message
 appearance-preference-mail-afterMove-help = Choose what happens after a successful move: keep the message open, open the next or previous message, or close it. Failed moves leave the reader unchanged. Next and previous follow the current list order and skip moved messages.
 appearance-preference-option-keep = Keep message open
+
+appearance-preference-appearance-uiScale = Interface scale (%)
+appearance-ui-scale-help = Resize the entire interface, including controls, text and spacing (50–200%). Message zoom remains independent.

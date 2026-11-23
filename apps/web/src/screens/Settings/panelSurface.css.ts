@@ -4,7 +4,7 @@ import {vars} from '../../theme/contract.css.ts';
 /** One container treatment for settings cards, editors and management panels. */
 export const panelSurface=style({
   minInlineSize:0,boxSizing:'border-box',
-  padding:'clamp(.75rem, 2vw, 1.25rem)',
+  padding:'clamp(.75rem, calc(2vw / var(--mw-ui-zoom, 1)), 1.25rem)',
   border:`${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius:vars.radius.lg,background:vars.color.surface,
 });

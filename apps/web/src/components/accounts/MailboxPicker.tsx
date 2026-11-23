@@ -1,3 +1,4 @@
+import {interfacePixels} from '../../theme/interfaceScale.ts';
 // The mailbox picker (t40, t48 k): the one active-account indicator and
 // switcher in the sidebar head. `full` shows the active mailbox (avatar,
 // nickname or address, unread count) as the trigger; `icon` is a one-letter
@@ -156,9 +157,9 @@ export function MailboxPicker(props: {
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
     const view = trigger.ownerDocument.defaultView;
-    const width = menu?.offsetWidth ?? 0;
+    const width = menu?.getBoundingClientRect().width ?? 0;
     const maxLeft = Math.max(8, (view?.innerWidth ?? rect.right) - width - 8);
-    setPosition({ top: rect.bottom + 4, left: Math.min(Math.max(8, rect.left), maxLeft) });
+    setPosition({ top: interfacePixels(rect.bottom + 4,trigger.ownerDocument), left: interfacePixels(Math.min(Math.max(8, rect.left), maxLeft),trigger.ownerDocument) });
   }
   const items = (): HTMLButtonElement[] => Array.from(menu?.querySelectorAll<HTMLButtonElement>('[data-mailbox-item]') ?? []);
   function focusItem(index: number): void {

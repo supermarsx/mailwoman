@@ -6,7 +6,7 @@
 .st-categories { display:grid; grid-template-columns:repeat(auto-fit,minmax(12rem,1fr)); gap:.65rem; border:1px solid var(--border); border-radius:.5rem; padding:.75rem; }
 .st-categories label, .st-choice { display:flex; align-items:center; gap:.5rem; }
 .st-search { display:block; inline-size:min(100%,28rem); box-sizing:border-box; }
-.st-review { max-block-size:55dvh; overflow:auto; border-block:1px solid var(--border); }
+.st-review { max-block-size:calc(55dvh / var(--mw-ui-zoom, 1)); overflow:auto; border-block:1px solid var(--border); }
 .st-review-row { display:flex; align-items:flex-start; gap:.75rem; padding:.75rem .25rem; border-block-end:1px solid var(--border); }
 .st-review-row > div { min-inline-size:0; flex:1; overflow-wrap:anywhere; }
 .st-review-row small { display:block; opacity:.7; }

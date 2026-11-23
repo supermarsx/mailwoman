@@ -55,7 +55,7 @@ button.mw-badge--folder:hover { background: color-mix(in srgb, var(--accent) 28%
 .sanitized-detail { font-size: .85rem; } .sanitized-detail p { margin: .5rem 0; } .sanitized-detail dl { margin: 0; } .sanitized-detail dl div { display: flex; justify-content: space-between; gap: 1rem; padding-block: .15rem; border-block-end: var(--border-hair, 1px) solid var(--border); } .sanitized-detail dd { margin: 0; font-variant-numeric: tabular-nums; } .sanitized-detail__note { color: var(--text-dim); }
 /* The mailing list badge: neutral by default, quieter than the folder badge; its label shortens with an ellipsis. */
 .mw-badge--list { max-inline-size: 16rem; }
-.list-detail { display: grid; gap: .6rem; font-size: .85rem; min-inline-size: min(26rem, 80vw); }
+.list-detail { display: grid; gap: .6rem; font-size: .85rem; min-inline-size: min(26rem, calc(80vw / var(--mw-ui-zoom, 1))); }
 .list-detail dl, .list-detail p, .list-detail ul { margin: 0; }
 .list-detail ul { padding: 0; list-style: none; display: grid; gap: .3rem; }
 .list-detail__ident div { display: flex; gap: .75rem; padding-block: .15rem; border-block-end: var(--border-hair, 1px) solid var(--border); }

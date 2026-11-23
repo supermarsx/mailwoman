@@ -51,7 +51,7 @@ globalStyle('.reader', {
 globalStyle('.reader__frame', {
   '@media': {
     print: {
-      minHeight: '80vh',
+      minHeight: 'calc(80vh / var(--mw-ui-zoom, 1))',
       background: '#ffffff',
       border: 'none',
     },
@@ -61,7 +61,7 @@ globalStyle('.reader__frame', {
 // The body's zoom box (t79, readerZoom.css.ts): printed at 100%, full size. Two
 // attribute selectors outrank the box's own class rules whatever the CSS order.
 globalStyle('[data-testid="reader-zoom-box"][data-reader-zoom]', {
-  '@media': { print: { overflow: 'visible', minHeight: '80vh', border: 'none', background: '#ffffff' } },
+  '@media': { print: { overflow: 'visible', minHeight: 'calc(80vh / var(--mw-ui-zoom, 1))', border: 'none', background: '#ffffff' } },
 });
 globalStyle('[data-testid="reader-zoom-box"][data-reader-zoom] > iframe.reader__frame', {
   '@media': { print: { transform: 'none', width: '100%', height: '100%' } },

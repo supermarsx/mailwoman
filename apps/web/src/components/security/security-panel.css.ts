@@ -88,7 +88,7 @@ export const panel = style({
 });
 
 export const backdrop=style({position:'fixed',inset:0,zIndex:1200,background:vars.color.scrim,display:'grid',placeItems:'center',padding:vars.space[4]});
-export const dialog=style({background:vars.color.surface,color:vars.color.text,border:`${vars.border.rule} solid ${vars.color.borderStrong}`,boxShadow:vars.elevation[2],inlineSize:'min(38rem, 100%)',maxBlockSize:'calc(100dvh - 2rem)',overflow:'auto',padding:vars.space[4]});
+export const dialog=style({background:vars.color.surface,color:vars.color.text,border:`${vars.border.rule} solid ${vars.color.borderStrong}`,boxShadow:vars.elevation[2],inlineSize:'min(38rem, 100%)',maxBlockSize:'calc(calc(100dvh / var(--mw-ui-zoom, 1)) - 2rem)',overflow:'auto',padding:vars.space[4]});
 export const dialogHeader=style({display:'flex',alignItems:'center',justifyContent:'space-between',gap:vars.space[3],paddingBlockEnd:vars.space[2],borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`});
 export const dialogTitle=style({margin:0,fontSize:'1rem',minInlineSize:0,overflowWrap:'anywhere'});
 // Close sits at the inline-end edge of the header, inside the dialog padding.

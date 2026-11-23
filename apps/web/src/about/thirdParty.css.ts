@@ -84,7 +84,7 @@ export const textButton = style({ alignSelf: 'flex-start' });
 
 // The shell dialog, wider: licence texts have long lines. Still capped by the
 // viewport (16 px gutter each side) and scrolls inside.
-export const dialog = style([shell.dialog, { width: 'min(calc(100vw - 32px), 720px)' }]);
+export const dialog = style([shell.dialog, { width: 'min(calc(calc(100vw / var(--mw-ui-zoom, 1)) - 32px), 720px)' }]);
 
 export const textBlock = style({ display: 'flex', flexDirection: 'column', gap: vars.space[1], marginBlockStart: vars.space[2] });
 

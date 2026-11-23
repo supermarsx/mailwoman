@@ -3,6 +3,12 @@ import {render, waitFor} from '@solidjs/testing-library';
 import {clearSettings, loadSettings} from '../api/settings.ts';
 import {useInterfacePreferences} from './interfacePreferences.ts';
 afterEach(()=>{clearSettings();document.documentElement.removeAttribute('style');});
+it('applies app-wide scale independently of body zoom and resets account-owned scale',async()=>{
+ await loadSettings({fetcher:async()=>new Response(JSON.stringify({settings:{'appearance.uiScale':{value:150,source:'global',locked:true},'reader.zoom':{value:80,source:'user',locked:false}}}))});
+ const view=render(()=>{useInterfacePreferences();return null;});
+ expect(document.documentElement.style.getPropertyValue('--mw-ui-zoom')).toBe('1.5');
+ clearSettings();expect(document.documentElement.style.getPropertyValue('--mw-ui-zoom')).toBe('');view.unmount();
+});
 it('applies policy text settings and clears them on account reset and unmount',async()=>{
  const values:Record<string,unknown>={'appearance.fontSize':20,'appearance.fontWeight':'500','appearance.fontColor':'#123abc','appearance.lowContrast':true};
  await loadSettings({fetcher:async()=>new Response(JSON.stringify({settings:Object.fromEntries(Object.entries(values).map(([key,value])=>[key,{value,source:'domain',locked:true}]))}))});

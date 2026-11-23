@@ -264,7 +264,7 @@ export const streamStatus = style({
   selectors: { [noTrackingScripts]: plainLabel },
 });
 export const streamLog = style({
-  maxHeight: '60vh',
+  maxHeight: 'calc(60vh / var(--mw-ui-zoom, 1))',
   overflowY: 'auto',
   border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   borderRadius: vars.radius.md,
@@ -292,7 +292,7 @@ globalStyle(`[${FIELD_HIGHLIGHT_ATTR}]`, {
 });
 
 // ── Console appearance control (DC5) ──────────────────────────────────────────
-export const appearanceDialog = style({ width: 'min(calc(100vw - 32px), 720px)' });
+export const appearanceDialog = style({ width: 'min(calc(calc(100vw / var(--mw-ui-zoom, 1)) - 32px), 720px)' });
 export const appearanceSection = style({
   display: 'flex',
   flexDirection: 'column',

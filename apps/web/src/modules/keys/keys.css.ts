@@ -303,7 +303,7 @@ export const dialog = style({
   padding: less1(vars.space[5]),
   maxWidth: '40rem',
   width: '100%',
-  maxHeight: '85vh',
+  maxHeight: 'calc(85vh / var(--mw-ui-zoom, 1))',
   overflowY: 'auto',
   display: 'flex',
   flexDirection: 'column',

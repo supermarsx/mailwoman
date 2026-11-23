@@ -3932,6 +3932,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "appearance",
         "self-hosted interface font; account choice or administrator default/lock"
     ),
+    def!("appearance.uiScale", int(50, 200), "100", GDU, "appearance", "App-wide interface scale in percent, including buttons, spacing and text; independent of message zoom"),
     def!(
         "appearance.fontSize",
         int(12, 24),

@@ -27,7 +27,7 @@ export const region = style({
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'flex-end',
-  width: `min(28rem, calc(100vw - 2 * ${vars.space[5]}))`,
+  width: `min(28rem, calc(calc(100vw / var(--mw-ui-zoom, 1)) - 2 * ${vars.space[5]}))`,
   pointerEvents: 'none',
   '@media': {
     [PHONE]: {

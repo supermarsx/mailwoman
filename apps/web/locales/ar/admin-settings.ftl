@@ -2857,3 +2857,7 @@ admin-settings-help-web-assets-cache-compression-min-bytes = القيمة الا
 admin-settings-key-performance-prepared-mail = ذاكرة بيانات البريد الوصفية الجاهزة
 admin-settings-help-performance-prepared-mail = بيانات وصفية فقط؛ كل استجابة تتطلب فحوصًا حديثة للمصدر والصلاحيات.
 admin-cache-prepared-invalid = أدخل جميع الحقول ضمن الحدود المعروضة دون إضافة حقول.
+
+# Interface scaling
+admin-settings-key-appearance-ui-scale = مقياس الواجهة (%)
+admin-settings-help-appearance-ui-scale = يغير حجم عناصر التحكم والنصوص والمسافات في الواجهة كلها (50–200%). تكبير الرسائل مستقل.

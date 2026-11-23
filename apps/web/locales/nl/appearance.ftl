@@ -232,3 +232,6 @@ appearance-preference-mail-conversations-enabled = Groepeer berichten in gesprek
 appearance-preference-mail-afterMove = Na het verplaatsen van een bericht
 appearance-preference-mail-afterMove-help = Kies na een geslaagde verplaatsing: openhouden, volgend of vorig bericht openen, of sluiten. Bij fouten blijft de lezer ongewijzigd. Navigatie volgt de lijstvolgorde en slaat verplaatste berichten over.
 appearance-preference-option-keep = Bericht openhouden
+
+appearance-preference-appearance-uiScale = Interfaceschaal (%)
+appearance-ui-scale-help = Schaalt alle bedieningselementen, tekst en ruimte (50–200%). Berichtzoom blijft onafhankelijk.

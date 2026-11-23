@@ -366,8 +366,8 @@ export const dialog = style({
   border: rule,
   borderRadius: vars.radius.lg,
   padding: `calc(${vars.space[4]} - ${vars.border.rule})`,
-  width: 'min(32rem, 92vw)',
-  maxHeight: '90vh',
+  width: 'min(32rem, calc(92vw / var(--mw-ui-zoom, 1)))',
+  maxHeight: 'calc(90vh / var(--mw-ui-zoom, 1))',
   overflowY: 'auto',
   boxShadow: vars.elevation[3],
   display: 'flex',
@@ -497,7 +497,7 @@ export const attendeeStatus = style({
 
 // ── conflict resolver ───────────────────────────────────────────────────────
 
-export const resolverDialog = style([dialog, { width: 'min(46rem, 94vw)' }]);
+export const resolverDialog = style([dialog, { width: 'min(46rem, calc(94vw / var(--mw-ui-zoom, 1)))' }]);
 
 export const resolverGridTwo = style({
   display: 'grid',

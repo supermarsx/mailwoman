@@ -59,7 +59,7 @@ export const popover = style({
   inset: 'auto',
   margin: 0,
   boxSizing: 'border-box',
-  inlineSize: 'min(18.5rem, calc(100vw - 16px))',
+  inlineSize: 'min(18.5rem, calc(calc(100vw / var(--mw-ui-zoom, 1)) - 16px))',
   overflowY: 'auto',
   overscrollBehavior: 'contain',
   display: 'flex',

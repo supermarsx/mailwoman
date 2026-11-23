@@ -216,3 +216,6 @@ appearance-preference-mail-conversations-enabled = Regrouper les messages en con
 appearance-preference-mail-afterMove = Après le déplacement d’un message
 appearance-preference-mail-afterMove-help = Choisissez de garder ouvert, ouvrir le message suivant ou précédent, ou fermer après un déplacement réussi. Un échec ne modifie pas le lecteur. La navigation suit l’ordre de la liste et ignore les messages déplacés.
 appearance-preference-option-keep = Garder le message ouvert
+
+appearance-preference-appearance-uiScale = Échelle de l’interface (%)
+appearance-ui-scale-help = Redimensionne les commandes, le texte et les espacements de toute l’interface (50–200 %). Le zoom des messages est indépendant.

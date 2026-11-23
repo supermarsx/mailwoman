@@ -9,7 +9,7 @@ globalStyle('[data-dragging="true"]',{opacity:0.5});
 // Touch drag: a long press lifts the row; a floating label follows the finger. The page must not select text or open a callout.
 globalStyle('[data-dnd-id]',{WebkitTouchCallout:'none',WebkitUserSelect:'none',userSelect:'none'});
 globalStyle('[data-lifted="true"]',{opacity:1,transform:'scale(1.03)',outline:`2px solid ${vars.color.accent}`,background:`color-mix(in srgb, ${vars.color.accent} 12%, ${vars.color.bg})`,zIndex:3,transition:'transform 120ms, box-shadow 120ms','@media':{'(prefers-reduced-motion: reduce)':{transition:'none'}}});
-globalStyle('.folder-touch-ghost',{position:'fixed',zIndex:2000,pointerEvents:'none',transform:'translate(12px, -50%)',padding:'0.3rem 0.6rem',background:vars.color.bg,color:vars.color.text,border:`1px solid ${vars.color.accent}`,fontSize:'0.9rem',maxInlineSize:'60vw',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'});
+globalStyle('.folder-touch-ghost',{position:'fixed',zIndex:2000,pointerEvents:'none',transform:'translate(12px, -50%)',padding:'0.3rem 0.6rem',background:vars.color.bg,color:vars.color.text,border:`1px solid ${vars.color.accent}`,fontSize:'0.9rem',maxInlineSize:'calc(60vw / var(--mw-ui-zoom, 1))',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'});
 for(const zone of ['before','after'] as const){
  const edge=zone==='before'?{top:'-1px'}:{bottom:'-1px'};
  globalStyle(`[data-drop="${zone}"]::after`,{content:'""',position:'absolute',insetInlineStart:`calc(var(--drop-depth, 0) * ${indent})`,insetInlineEnd:0,height:'2px',background:vars.color.accent,pointerEvents:'none',zIndex:2,...edge});

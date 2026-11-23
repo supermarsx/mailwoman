@@ -114,7 +114,7 @@ export const popover = style({
   position: 'absolute',
   insetInlineStart: vars.space[3],
   insetBlockEnd: 'calc(100% + 6px)',
-  maxInlineSize: 'calc(100vw - 2 * 12px)',
+  maxInlineSize: 'calc(calc(100vw / var(--mw-ui-zoom, 1)) - 2 * 12px)',
   minInlineSize: '14rem',
   padding: vars.space[3],
   background: vars.color.surface,
@@ -137,14 +137,14 @@ globalStyle('[data-screen="admin"][data-session-bar]', {
   paddingBlockEnd: 'var(--admin-bar-h)',
 });
 
-// Columns that were `100vh` tall are shorter by the bar while it is shown.
+// Columns that were `calc(100vh / var(--mw-ui-zoom, 1))` tall are shorter by the bar while it is shown.
 globalStyle('[data-screen="admin"][data-session-bar] [data-admin-column]', {
-  maxBlockSize: 'calc(100vh - var(--admin-bar-h, 0px))',
+  maxBlockSize: 'calc(calc(100vh / var(--mw-ui-zoom, 1)) - var(--admin-bar-h, 0px))',
   '@media': { [PHONE]: { maxBlockSize: 'none' } },
 });
 globalStyle('[data-screen="admin"][data-session-bar] [data-admin-column="resize"]', {
-  blockSize: 'calc(100vh - var(--admin-bar-h, 0px))',
+  blockSize: 'calc(calc(100vh / var(--mw-ui-zoom, 1)) - var(--admin-bar-h, 0px))',
 });
 
-export const identity=style({fontSize:'.75rem',maxInlineSize:'min(42vw, 28rem)',minInlineSize:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'inherit',textDecoration:'none',selectors:{'&:hover':{color:vars.color.text,textDecoration:'underline'},'&:focus-visible':ring}});
+export const identity=style({fontSize:'.75rem',maxInlineSize:'min(calc(42vw / var(--mw-ui-zoom, 1)), 28rem)',minInlineSize:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'inherit',textDecoration:'none',selectors:{'&:hover':{color:vars.color.text,textDecoration:'underline'},'&:focus-visible':ring}});
 export const separator=style({flexShrink:0,marginInline:'-.25rem'});

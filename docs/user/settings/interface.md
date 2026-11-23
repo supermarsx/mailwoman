@@ -42,6 +42,7 @@ The **Colours** card sets the **Accent** used for actions and selection (**Theme
 |---|---|---|---|
 | **Density** | **Compact**, **Cozy** or **Relaxed** spacing of the interface. | Cozy | [`appearance.density`](/admin/settings#appearance.density) |
 | **Interface font** | Default, System, Serif, Mono, Inter, Roboto, Open Sans, Jost or Manrope. | Default | [`appearance.font`](/admin/settings#appearance.font) |
+| **Interface scale (%)** | Resize the whole interface, including controls and spacing, from 50–200%. Message zoom is separate. | 100% | [`appearance.uiScale`](/admin/settings#appearance.uiScale) |
 | **Interface font size** | 12 to 24 pixels. | 14 | [`appearance.fontSize`](/admin/settings#appearance.fontSize) |
 | **Interface font weight** | Light, Regular, Medium or Semibold. | Regular | [`appearance.fontWeight`](/admin/settings#appearance.fontWeight) |
 | **Interface font color** | A custom text colour. Empty uses the theme. | Theme colour | [`appearance.fontColor`](/admin/settings#appearance.fontColor) |

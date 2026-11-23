@@ -28,7 +28,7 @@ globalStyle(`${thumb} > img`,{maxInlineSize:`calc(1.5rem - 2 * ${vars.border.hai
 globalStyle(`${preview} > img`,{maxInlineSize:`calc(7.5rem - 2 * ${vars.border.hair})`,maxBlockSize:`calc(5rem - 2 * ${vars.border.hair})`});
 export const emptyMark=style({position:'relative',color:vars.color.textDim,fontSize:'0.75rem'});
 
-export const bubble=style({minInlineSize:'min(14rem, calc(100vw - 16px))'});
+export const bubble=style({minInlineSize:'min(14rem, calc(calc(100vw / var(--mw-ui-zoom, 1)) - 16px))'});
 export const columns=style({display:'flex',flexWrap:'wrap',gap:vars.space[3]});
 export const figure=style({display:'flex',flexDirection:'column',gap:vars.space[1],margin:0,minInlineSize:0});
 export const caption=style({fontWeight:vars.weight.bold});

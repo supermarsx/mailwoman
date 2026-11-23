@@ -16,6 +16,6 @@ export const bar=style({display:'flex',alignItems:'center',justifyContent:'space
 export const search=style({display:'grid',gap:vars.space[1],minInlineSize:0,flex:'1 1 16rem',maxInlineSize:'28rem'});
 export const editor=style({padding:vars.space[4],display:'grid',gap:vars.space[3],border:`1px solid ${vars.color.border}`,borderRadius:vars.radius.md,background:vars.color.surface,minInlineSize:0});
 export const headerFields=style({display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,16rem),1fr))',gap:vars.space[3]});
-export const workspace=style({padding:'clamp(.75rem,2vw,1.5rem)',display:'flex',flexDirection:'column',gap:vars.space[4],boxSizing:'border-box',maxInlineSize:'76rem',inlineSize:'100%',marginInline:'auto',minInlineSize:0});
+export const workspace=style({padding:'clamp(.75rem,calc(2vw / var(--mw-ui-zoom, 1)),1.5rem)',display:'flex',flexDirection:'column',gap:vars.space[4],boxSizing:'border-box',maxInlineSize:'76rem',inlineSize:'100%',marginInline:'auto',minInlineSize:0});
 
 export const barActions=style({display:'flex',alignItems:'center',justifyContent:'flex-end',gap:vars.space[2],flexWrap:'wrap',marginInlineStart:'auto'});

@@ -9,7 +9,7 @@ export const body = style({
   display: 'flex',
   flexDirection: 'column',
   minInlineSize: 0,
-  blockSize: 'clamp(14rem, calc(100dvh - 26rem), 36rem)',
+  blockSize: 'clamp(14rem, calc(calc(100dvh / var(--mw-ui-zoom, 1)) - 26rem), 36rem)',
   border: `${vars.border.rule} solid ${vars.color.border}`,
   borderRadius: vars.radius.sm,
   background: vars.color.bg,

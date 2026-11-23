@@ -3,7 +3,7 @@
 import {globalStyle,style} from '@vanilla-extract/css';
 import {vars} from '../../theme/contract.css.ts';
 
-export const body=style({display:'flex',flexDirection:'column',gap:vars.space[3],minWidth:0,maxWidth:'min(92vw, 44rem)',maxHeight:'min(80vh, 40rem)'});
+export const body=style({display:'flex',flexDirection:'column',gap:vars.space[3],minWidth:0,maxWidth:'min(calc(92vw / var(--mw-ui-zoom, 1)), 44rem)',maxHeight:'min(calc(80vh / var(--mw-ui-zoom, 1)), 40rem)'});
 /** Marks the dialog for the phone layout (the media rules on `grid` and `overrideRow`); also a test hook. */
 export const phone=style({});
 export const tabs=style({display:'flex',gap:vars.space[1],overflowX:'auto',borderBottom:`1px solid ${vars.color.border}`,flex:'0 0 auto',scrollbarWidth:'thin'});
