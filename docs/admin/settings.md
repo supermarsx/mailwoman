@@ -3066,7 +3066,7 @@ the aggregate and adaptive switches, which remain off by default. Observe record
 without refusing; Off disables this path rule. Honors
 `security.protection.exemptClients` and verified operator recovery. The editable
 scored admin-probe paths below do not replace this immediate catalog.
-See [Request protection](request-protection.md#immediate-scanner-path-blocking).
+See [Request protection](request-protection.md#console-addresses-and-scanner-paths).
 
 ### Probing protection (`security.adminProbe.*`)
 
