@@ -441,8 +441,6 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="cap.rules"></a>`cap.rules` | features | global+domain+admin_user | true | plain |  | yes | Mail rules |
 | <a id="cap.rules.forward"></a>`cap.rules.forward` | features | global+domain+admin_user | true | plain |  | yes | Rule forwarding |
 | <a id="cap.remote-images"></a>`cap.remote_images` | features | global+domain+admin_user | true | plain |  | yes | Remote images |
-| <a id="cap.user-background"></a>`cap.user_background` | features | global+domain+admin_user | false | plain |  | yes | Custom background |
-| <a id="cap.user-css"></a>`cap.user_css` | features | global+domain+admin_user | false | plain |  | yes | Custom CSS |
 | <a id="cap.compose.rich-text"></a>`cap.compose.rich_text` | features | global+domain+admin_user | true | plain |  | yes | JMAP Email/set create with an HTML body (feature_gate.rs); composer plain-text only |
 | <a id="cap.compose.attachments"></a>`cap.compose.attachments` | features | global+domain+admin_user | true | plain |  | yes | JMAP Email/set create with attachment parts (feature_gate.rs); composer attach button |
 | <a id="cap.compose.share-links"></a>`cap.compose.share_links` | features | global+domain+admin_user | true | plain |  | yes | POST /api/nextcloud/share-link (feature_gate.rs) |
@@ -536,7 +534,6 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="privacy.imageresizeenabled"></a>`privacy.imageResizeEnabled` | imageProxy | global | false | plain |  | yes | Scale oversized remote images down to the width the reader's frame asks for (320, 640, 960, 1280 or 1600 pixels) after the sandboxed decode; animated images pass through unchanged |
 | <a id="privacy.imageresizemaxwidth"></a>`privacy.imageResizeMaxWidth` | imageProxy | global | 1600 | plain |  | yes | Widest image the resize will produce, in pixels; a frame asking for more gets this width |
 | <a id="privacy.imageresizemaxpixels"></a>`privacy.imageResizeMaxPixels` | imageProxy | global | 4000000 | plain |  | yes | Largest decoded image, in pixels, the resize will touch; a larger one is served unscaled (checked from the image header before any pixel is decoded) |
-| <a id="privacy.imageresizeformat"></a>`privacy.imageResizeFormat` | imageProxy | global | "auto" | plain |  | yes | Format of a resized image; auto picks the best encoder in the build, which is PNG (there is no lossy WebP encoder) |
 | <a id="privacy.negativecachettlsecs"></a>`privacy.negativeCacheTtlSecs` | privacy | global | 10 | plain |  | yes | Maximum age of remembered remote-image failures in seconds; zero disables negative caching |
 | <a id="privacy.imagelatencytracking"></a>`privacy.imageLatencyTracking` | imageProxy | global | true | plain |  | yes | Record image proxy speed (median, p95, p99 and phase timings) as aggregate histogram buckets in memory; no URLs, hosts or accounts are stored |
 | <a id="privacy.imageretryattempts"></a>`privacy.imageRetryAttempts` | privacy | global+domain+user | 3 | plain |  | yes | Automatic retry rounds for transient image failures; zero disables automatic retries |
@@ -806,6 +803,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="appearance.badgecolor"></a>`appearance.badgeColor` | appearance | global+domain+user | "default" | plain |  | yes | appearance blob badgeColor: unread-count badge colour (default = the theme's signal colour; accent-lighter/accent-darker = the accent 0.2 OKLCH L lighter/darker) |
 | <a id="appearance.density"></a>`appearance.density` | appearance | global+domain+user | "cozy" | plain |  | yes | appearance blob density |
 | <a id="appearance.font"></a>`appearance.font` | appearance | global+domain+user | "default" | plain |  | yes | self-hosted interface font; account choice or administrator default/lock |
+| <a id="appearance.uiscale"></a>`appearance.uiScale` | appearance | global+domain+user | 100 | plain |  | yes | App-wide interface scale in percent, including buttons, spacing and text; independent of message zoom |
 | <a id="appearance.fontsize"></a>`appearance.fontSize` | appearance | global+domain+user | 14 | plain |  | yes | interface font size in pixels |
 | <a id="appearance.fontweight"></a>`appearance.fontWeight` | appearance | global+domain+user | "400" | plain |  | yes | interface base font weight; emphasized text keeps its hierarchy |
 | <a id="appearance.fontcolor"></a>`appearance.fontColor` | appearance | global+domain+user | "" | plain |  | yes | interface text color as #RRGGBB; empty follows theme |
@@ -841,6 +839,16 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="offline.persistentstorageallowed"></a>`offline.persistentStorageAllowed` | offline | global+domain | true | plain |  | yes | explicit browser persistent-storage permission request |
 | <a id="realtime.actions.enabled"></a>`realtime.actions.enabled` | notifications | global+domain | true | plain |  | yes | Allow authenticated JSON mailbox and settings actions over WebSocket; HTTP remains available and all normal security checks apply |
 | <a id="realtime.actions.preferwebsocket"></a>`realtime.actions.preferWebSocket` | notifications | global+domain+user | true | plain |  | yes | Prefer WebSocket for supported JSON actions, with HTTP fallback before dispatch when unavailable |
+| <a id="notifications.loginsummary.enabled"></a>`notifications.loginSummary.enabled` | notifications | global+domain+user | true | plain |  | yes | Show new Inbox and Spam counts since the last successful mail check. The first check establishes a baseline silently. |
+| <a id="notifications.loginsummary.inbox"></a>`notifications.loginSummary.inbox` | notifications | global+domain+user | true | plain |  | yes | Count messages received in the Inbox since the previous check. |
+| <a id="notifications.loginsummary.spam"></a>`notifications.loginSummary.spam` | notifications | global+domain+user | true | plain |  | yes | Include a separate Spam count, independently of live spam alerts. |
+| <a id="notifications.loginsummary.unreadonly"></a>`notifications.loginSummary.unreadOnly` | notifications | global+domain+user | false | plain |  | yes | Exclude messages already marked as read from the summary. |
+| <a id="notifications.loginsummary.linkedaccounts"></a>`notifications.loginSummary.linkedAccounts` | notifications | global+domain+user | true | plain |  | yes | Also check linked mailboxes. Each mailbox uses its own summary preferences and policy. |
+| <a id="notifications.loginsummary.quiethours"></a>`notifications.loginSummary.quietHours` | notifications | global+domain+user | true | plain |  | yes | Suppress this summary during configured quiet hours. The check is still recorded. |
+| <a id="notifications.loginsummary.showempty"></a>`notifications.loginSummary.showEmpty` | notifications | global+domain+user | false | plain |  | yes | Show the summary even when no new messages were found. |
+| <a id="notifications.loginsummary.durationseconds"></a>`notifications.loginSummary.durationSeconds` | notifications | global+domain+user | 15 | plain |  | yes | Seconds the summary stays visible; hover or focus pauses dismissal. |
+| <a id="notifications.loginsummary.minimumawayminutes"></a>`notifications.loginSummary.minimumAwayMinutes` | notifications | global+domain+user | 1 | plain |  | yes | Skip the summary after brief reloads or account switches. Zero allows every successful return. |
+| <a id="notifications.loginsummary.lookbackdays"></a>`notifications.loginSummary.lookbackDays` | notifications | global+domain+user | 60 | plain |  | yes | Count at most this many days of received mail after a long absence. |
 | <a id="notifications.incoming.onlymatchingrules"></a>`notifications.incoming.onlyMatchingRules` | notifications | global+domain+user | false | plain |  | yes | Only notify received mail matching a Notify content rule; matching mute rules and folder limits always take priority |
 | <a id="notifications.incoming.toast"></a>`notifications.incoming.toast` | notifications | global+domain+user | true | plain |  | yes | Show an in-app alert when matching mail arrives. |
 | <a id="notifications.incoming.native"></a>`notifications.incoming.native` | notifications | global+domain+user | true | plain |  | yes | Use browser or operating-system notifications. Browser permission is required. |
@@ -1093,15 +1101,13 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="quota.warnthresholds"></a>`quota.warnThresholds` | limits | global+domain | [80,95] | plain |  | yes | usage warning thresholds (percent) |
 | <a id="quota.warnenabled"></a>`quota.warnEnabled` | limits | global+domain | true | plain |  | yes | usage warnings on |
 | <a id="usage.retentiondays"></a>`usage.retentionDays` | limits | global | 730 | plain |  | yes | usage counter pruning |
-| <a id="usage.meterapi"></a>`usage.meterApi` | limits | global | true | plain |  | yes | API usage counters |
-| <a id="usage.measureintervalhours"></a>`usage.measureIntervalHours` | limits | global | 6 | plain |  | yes | storage measurer interval |
 | <a id="assistant.ratelimitpermin"></a>`assistant.rateLimitPerMin` | assistant | global | 0 | plain | `MW_ASSIST_RATE_LIMIT_PER_MIN` (pin) | yes | assistant rate limit; 0 = none (v7_mount.rs) |
 | <a id="plugins.kv.maxkeybytes"></a>`plugins.kv.maxKeyBytes` | plugins | global | 256 | plain | `MW_PLUGIN_KV_MAX_KEY_BYTES` (pin) | yes | plugin KV key size (v7_mount.rs) |
 | <a id="plugins.kv.maxvaluebytes"></a>`plugins.kv.maxValueBytes` | plugins | global | 65536 | plain | `MW_PLUGIN_KV_MAX_VALUE_BYTES` (pin) | yes | plugin KV value size |
 | <a id="plugins.kv.maxtotalbytes"></a>`plugins.kv.maxTotalBytes` | plugins | global | 5242880 | plain | `MW_PLUGIN_KV_MAX_TOTAL_BYTES` (pin) | yes | plugin KV total size |
 | <a id="plugins.kv.maxkeys"></a>`plugins.kv.maxKeys` | plugins | global | 1000 | plain | `MW_PLUGIN_KV_MAX_KEYS` (pin) | yes | plugin KV key count |
 | <a id="import.maxmessages"></a>`import.maxMessages` | import | global+domain | 20000 | plain |  | yes | import message count (import_routes.rs) |
-| <a id="import.maxmessagebytes"></a>`import.maxMessageBytes` | import | global+domain | 67108864 | plain |  | yes | import message size (import_routes.rs) |
+| <a id="import.maxmessagebytes"></a>`import.maxMessageBytes` | import | global+domain | 67108864 | plain |  | yes | import message size (also the request limit) |
 | <a id="webhooks.maxattempts"></a>`webhooks.maxAttempts` | webhooks | global | 3 | plain |  | yes | webhook delivery attempts |
 | <a id="webhooks.timeoutsecs"></a>`webhooks.timeoutSecs` | webhooks | global | 10 | plain |  | yes | webhook delivery timeout |
 | <a id="outbox.maxattempts"></a>`outbox.maxAttempts` | mail | global | 8 | plain |  | yes | submission attempts (engine dispatcher) |
@@ -1117,20 +1123,10 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="egress.probeurl"></a>`egress.probeUrl` | egress | global | "https://example.com/" | url | `MW_EGRESS_PROBE_URL` (pin) | yes | egress proxy test target |
 | <a id="push.vapidcontact"></a>`push.vapidContact` | notifications | global | null | url | `MW_VAPID_CONTACT` (pin) | yes | VAPID contact (push_relay.rs) |
 | <a id="push.quiethours"></a>`push.quietHours` | notifications | global | null | plain |  | yes | push quiet hours, UTC |
-| <a id="updates.check"></a>`updates.check` | updates | global | "off" | plain |  | yes | daily update check |
-| <a id="updates.feedurl"></a>`updates.feedUrl` | updates | global | "https://api.github.com/repos/supermarsx/mailwoman/releases" | url |  | yes | release feed |
-| <a id="updates.apply"></a>`updates.apply` | updates | global | "disabled" | plain |  | yes | update apply through the host agent |
-| <a id="backup.retentioncount"></a>`backup.retentionCount` | backups | global | 7 | plain |  | yes | SQLite backups kept |
 | <a id="about.securitycontact"></a>`about.securityContact` | about | global | null | url |  | yes | security.txt Contact |
 | <a id="about.securitypolicyurl"></a>`about.securityPolicyUrl` | about | global | null | url |  | yes | security.txt Policy |
 | <a id="about.projectlinks"></a>`about.projectLinks` | about | global | [] | url |  | yes | About screen links |
-| <a id="config.snapshotskept"></a>`config.snapshotsKept` | config | global | 20 | plain |  | yes | configuration snapshots kept |
-| <a id="jobs.historydays"></a>`jobs.historyDays` | jobs | global | 30 | plain |  | yes | job run history |
-| <a id="maintenance.announceminutesdefault"></a>`maintenance.announceMinutesDefault` | maintenance | global | 15 | plain |  | yes | maintenance announcement lead time |
-| <a id="maintenance.defaultmessage"></a>`maintenance.defaultMessage` | maintenance | global | {} | plain |  | yes | maintenance banner text per locale |
 | <a id="health.diskfreeminpercent"></a>`health.diskFreeMinPercent` | health | global | 5 | plain |  | yes | /readyz disk free floor |
-| <a id="observability.otlpmetrics"></a>`observability.otlpMetrics` | observability | global | false | plain |  | yes | OTLP metrics export |
-| <a id="metrics.drilldowntopn"></a>`metrics.drilldownTopN` | observability | global | 200 | plain |  | yes | metrics drill-down rows |
 | <a id="metrics.defaultrangeseconds"></a>`metrics.defaultRangeSeconds` | observability | global | 3600 | plain |  | yes | default request history range |
 | <a id="metrics.maxrangeseconds"></a>`metrics.maxRangeSeconds` | observability | global | 2592000 | plain |  | yes | maximum request history range |
 | <a id="metrics.rollupdays"></a>`metrics.rollupDays` | observability | global | 1095 | plain |  | yes | hourly metric rollups kept |
@@ -1192,6 +1188,13 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="dsr.export.include.sessions"></a>`dsr.export.include.sessions` | privacy | global+domain | true | plain |  | yes | sessions in an export |
 | <a id="dsr.export.include.consent"></a>`dsr.export.include.consent` | privacy | global+domain | true | plain |  | yes | consent in an export |
 | <a id="dsr.export.include.audit"></a>`dsr.export.include.audit` | privacy | global+domain | true | plain |  | yes | audit in an export |
+| <a id="dsr.export.include.mailstate"></a>`dsr.export.include.mailstate` | privacy | global+domain | true | plain |  | yes | mail state in an export |
+| <a id="dsr.export.include.tasks"></a>`dsr.export.include.tasks` | privacy | global+domain | true | plain |  | yes | tasks in an export |
+| <a id="dsr.export.include.security"></a>`dsr.export.include.security` | privacy | global+domain | true | plain |  | yes | security records in an export |
+| <a id="dsr.export.include.integrations"></a>`dsr.export.include.integrations` | privacy | global+domain | true | plain |  | yes | connected accounts and webhooks in an export |
+| <a id="dsr.export.include.delegation"></a>`dsr.export.include.delegation` | privacy | global+domain | true | plain |  | yes | delegation and shared mailboxes in an export |
+| <a id="dsr.export.include.usage"></a>`dsr.export.include.usage` | privacy | global+domain | true | plain |  | yes | usage and quota records in an export |
+| <a id="dsr.export.include.records"></a>`dsr.export.include.records` | privacy | global+domain | true | plain |  | yes | restrictions, retention and other records in an export |
 | <a id="dsr.export.maxmegabytes"></a>`dsr.export.maxMegabytes` | privacy | global | 500 | plain |  | yes | size cap of one export |
 | <a id="dsr.export.format"></a>`dsr.export.format` | privacy | global+domain | "json" | plain |  | yes | machine-readable formats in an export |
 | <a id="dsr.export.encrypt"></a>`dsr.export.encrypt` | privacy | global+domain | false | plain |  | yes | exports sealed at rest |
@@ -1288,7 +1291,6 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="breach.auto.dsrexport.threshold"></a>`breach.auto.dsrExport.threshold` | privacy | global | 0 | plain |  | yes | data request exports in the window that open a draft; 0 is off |
 | <a id="restriction.enabled"></a>`restriction.enabled` | privacy | global+domain | true | plain |  | yes | restrictions of processing allowed |
 | <a id="restriction.autoapplyonapproval"></a>`restriction.autoApplyOnApproval` | privacy | global+domain | true | plain |  | yes | restriction applied when a restriction request is approved |
-| <a id="restriction.maildelivery"></a>`restriction.mailDelivery` | privacy | global+domain | "keep" | plain |  | yes | new mail while restricted |
 | <a id="restriction.defaultexpirydays"></a>`restriction.defaultExpiryDays` | privacy | global+domain | 0 | plain |  | yes | days until a restriction ends (0 = until lifted) |
 | <a id="restriction.notifyuser"></a>`restriction.notifyUser` | privacy | global+domain | true | plain |  | yes | notice to the person on apply and lift |
 | <a id="restriction.scope.indexing"></a>`restriction.scope.indexing` | privacy | global+domain | true | plain |  | yes | indexing paused by default |
@@ -1301,10 +1303,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="consent.receipts.retentiondays"></a>`consent.receipts.retentionDays` | privacy | global | 1825 | plain |  | yes | days consent receipts are kept (0 = keep) |
 | <a id="consent.art22.notice"></a>`consent.art22.notice` | privacy | global+domain | true | plain |  | yes | automated processing notice shown to users |
 | <a id="consent.analytics.basis"></a>`consent.analytics.basis` | privacy | global+domain | "consent" | plain |  | yes | legal basis shown for analytics |
-| <a id="consent.analytics.version"></a>`consent.analytics.version` | privacy | global+domain | 1 | plain |  | yes | consent text version of analytics; raising it asks again |
 | <a id="consent.analytics.text"></a>`consent.analytics.text` | privacy | global+domain | {} | plain |  | yes | consent text of analytics |
 | <a id="consent.analyticstag.basis"></a>`consent.analyticsTag.basis` | privacy | global+domain | "consent" | plain |  | yes | legal basis shown for analyticsTag |
-| <a id="consent.analyticstag.version"></a>`consent.analyticsTag.version` | privacy | global+domain | 1 | plain |  | yes | consent text version of analyticsTag; raising it asks again |
 | <a id="consent.analyticstag.text"></a>`consent.analyticsTag.text` | privacy | global+domain | {} | plain |  | yes | consent text of analyticsTag |
 | <a id="consent.assistant.basis"></a>`consent.assistant.basis` | privacy | global+domain | "contract" | plain |  | yes | legal basis shown for assistant |
 | <a id="consent.assistant.version"></a>`consent.assistant.version` | privacy | global+domain | 1 | plain |  | yes | consent text version of assistant; raising it asks again |
@@ -1316,13 +1316,11 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="consent.opentracking.version"></a>`consent.openTracking.version` | privacy | global+domain | 1 | plain |  | yes | consent text version of openTracking; raising it asks again |
 | <a id="consent.opentracking.text"></a>`consent.openTracking.text` | privacy | global+domain | {} | plain |  | yes | consent text of openTracking |
 | <a id="consent.remotecontent.basis"></a>`consent.remoteContent.basis` | privacy | global+domain | "consent" | plain |  | yes | legal basis shown for remoteContent |
-| <a id="consent.remotecontent.version"></a>`consent.remoteContent.version` | privacy | global+domain | 1 | plain |  | yes | consent text version of remoteContent; raising it asks again |
 | <a id="consent.remotecontent.text"></a>`consent.remoteContent.text` | privacy | global+domain | {} | plain |  | yes | consent text of remoteContent |
 | <a id="consent.integrations.basis"></a>`consent.integrations.basis` | privacy | global+domain | "contract" | plain |  | yes | legal basis shown for integrations |
 | <a id="consent.integrations.version"></a>`consent.integrations.version` | privacy | global+domain | 1 | plain |  | yes | consent text version of integrations; raising it asks again |
 | <a id="consent.integrations.text"></a>`consent.integrations.text` | privacy | global+domain | {} | plain |  | yes | consent text of integrations |
 | <a id="consent.telemetry.basis"></a>`consent.telemetry.basis` | privacy | global+domain | "legitimateInterest" | plain |  | yes | legal basis shown for telemetry |
-| <a id="consent.telemetry.version"></a>`consent.telemetry.version` | privacy | global+domain | 1 | plain |  | yes | consent text version of telemetry; raising it asks again |
 | <a id="consent.telemetry.text"></a>`consent.telemetry.text` | privacy | global+domain | {} | plain |  | yes | consent text of telemetry |
 | <a id="logs.auth.retentiondays"></a>`logs.auth.retentionDays` | observability | global | 1095 | plain |  | yes | authentication history days kept |
 | <a id="logs.auth.maxentries"></a>`logs.auth.maxEntries` | observability | global | 50000 | plain |  | yes | maximum authentication history entries |
