@@ -120,15 +120,16 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
     let Some(target) = classify(&request) else {
         return next.run(request).await;
     };
-    match inspect(
+    let inspected = inspect(
         &state,
         &target,
         request.headers(),
         request.extensions(),
         request.uri().path(),
-    )
-    .await
-    {
+    );
+    #[cfg(test)]
+    let inspected = test_control::observe(&state, inspected);
+    match inspected.await {
         Some(response) => response,
         None => next.run(request).await,
     }
@@ -170,6 +171,323 @@ fn from_values(b:&sec_cfg::Values,t:&sec_cfg::Values,a:&sec_cfg::Values)->Config
         rules: theft::Rules::from_values(t, a),
         webmail_action: theft_action(&t.text("security.theft.webmailAction")),
         admin_action: theft_action(&t.text("security.theft.adminAction")),
+    }
+}
+
+// ─── t34 bounded guard snapshot: per-request settings reads ─────────────────
+//
+// With `MW_GUARD_SNAPSHOT=bounded` (SQLite, live mirror) the settings that
+// [`alerts::user_prefs`] and [`crate::geo_lookup::session_alerts_on_failure`]
+// read on a request are reused while `EpochMirror::globals_unchanged(G)` holds,
+// `G` stamped strictly before the reads. Every input of those reads is behind
+// the settings revision: setting_policy / setting_value / personal_setting_value
+// / user_group* / feature_profile* / domain_alias (0078) and the account's
+// sign-in address in `signin_identity` (0117). A revision change reaches the
+// mirror through the 0115 change log; a local write through HTTP expedites the
+// mirror (request layer). Per-request inputs (client address, user agent,
+// client hints, country) are never cached here. Without a live mirror (mode
+// off, PostgreSQL, invalid configuration) the original readers run unchanged.
+
+/// The alert-preference rows one account's request reads, as read.
+struct PrefInputs {
+    country_change: Option<crate::settings_registry::Effective>,
+    channels: Option<crate::settings_registry::Effective>,
+    sensitivity: Option<crate::settings_registry::Effective>,
+}
+type Certified<T> = (T, mw_store::authority_publication::mirror::MirrorGen);
+const PREFS_MAX: usize = 20_000;
+type PrefsCache = Mutex<HashMap<(uuid::Uuid, String), Certified<std::sync::Arc<PrefInputs>>>>;
+fn prefs_cache() -> &'static PrefsCache {
+    static C: OnceLock<PrefsCache> = OnceLock::new();
+    C.get_or_init(Default::default)
+}
+fn geo_cache() -> &'static Mutex<HashMap<uuid::Uuid, Certified<bool>>> {
+    static C: OnceLock<Mutex<HashMap<uuid::Uuid, Certified<bool>>>> = OnceLock::new();
+    C.get_or_init(Default::default)
+}
+
+/// [`alerts::user_prefs`] for the watch hot path.
+async fn alert_prefs(state: &AppState, account: &str) -> alerts::UserPrefs {
+    let Some(mirror) = crate::request_inputs::snapshot::mirror(state) else {
+        #[cfg(test)]
+        test_control::record(|c| c.prefs_fresh += 1);
+        return alerts::user_prefs(state, account).await;
+    };
+    // The administrator switches: the same process-wide reader user_prefs uses.
+    let globals = sec_cfg::values(&state.store, "security.alerts.").await;
+    let key = (state.store.cache_scope(), account.to_owned());
+    let cached = prefs_cache()
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(&key).cloned());
+    if let Some((inputs, built)) = cached
+        && mirror.globals_unchanged(built)
+    {
+        #[cfg(test)]
+        test_control::record(|c| c.prefs_reused += 1);
+        return fold_prefs(&globals, &inputs);
+    }
+    #[cfg(test)]
+    test_control::record(|c| c.prefs_fresh += 1);
+    // Strictly BEFORE the reads (EpochMirror correctness note).
+    let built = mirror.stamp_gen();
+    let (inputs, complete) = pref_inputs(state, account).await;
+    let inputs = std::sync::Arc::new(inputs);
+    if let (Some(built), true, Ok(mut cache)) = (built, complete, prefs_cache().lock()) {
+        if cache.len() >= PREFS_MAX && !cache.contains_key(&key) {
+            cache.clear();
+        }
+        cache.insert(key, (inputs.clone(), built));
+    }
+    fold_prefs(&globals, &inputs)
+}
+
+/// The per-account reads of [`alerts::user_prefs`], in its order. `complete` is
+/// false when any read failed: such a result is used once, never cached.
+async fn pref_inputs(state: &AppState, account: &str) -> (PrefInputs, bool) {
+    let mut complete = true;
+    let address = match state.store.security_account_address(account).await {
+        Ok(address) => address.unwrap_or_default(),
+        Err(_) => {
+            complete = false;
+            String::new()
+        }
+    };
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
+        domain: address.rsplit_once('@').map_or("", |(_, d)| d),
+        account_id: account,
+        address: &address,
+    };
+    let mut values = [None, None, None];
+    for (slot, key) in values.iter_mut().zip([
+        "security.alerts.countryChange",
+        "security.alerts.channels",
+        "security.alerts.sensitivity",
+    ]) {
+        match crate::settings_registry::effective_for(&state.store, key, &subject).await {
+            Ok(value) => *slot = value,
+            Err(_) => complete = false,
+        }
+    }
+    let [country_change, channels, sensitivity] = values;
+    let inputs = PrefInputs {
+        country_change,
+        channels,
+        sensitivity,
+    };
+    (inputs, complete)
+}
+
+/// Must stay identical to the folding in [`alerts::user_prefs`]; the test
+/// `cached_preferences_fold_exactly_like_user_prefs` compares the two.
+fn fold_prefs(globals: &sec_cfg::Values, inputs: &PrefInputs) -> alerts::UserPrefs {
+    use mw_store::settings_policy::SettingSource;
+    let mut prefs = alerts::UserPrefs {
+        email_allowed: globals.flag("security.alerts.emailEnabled"),
+        ..alerts::UserPrefs::default()
+    };
+    if let Some(e) = &inputs.country_change {
+        let value = e.value.as_bool().unwrap_or(true);
+        prefs.country_alert = value
+            || !(matches!(e.source, SettingSource::User)
+                && !globals.flag("security.alerts.countryChangeUserMute"));
+    }
+    if let Some(e) = &inputs.channels {
+        prefs.channels = match e.value.as_str() {
+            Some("app") => alerts::Channels::App,
+            Some("email") => alerts::Channels::Email,
+            _ => alerts::Channels::Both,
+        };
+    }
+    if let Some(e) = &inputs.sensitivity {
+        prefs.sensitivity = theft::Sensitivity::parse(e.value.as_str().unwrap_or("normal"));
+    }
+    prefs
+}
+
+/// [`crate::geo_lookup::session_alerts_on_failure`] for the watch hot path
+/// (read on every request whose country cannot be told, e.g. no GeoIP database).
+async fn geo_failure_alerts(state: &AppState) -> bool {
+    let Some(mirror) = crate::request_inputs::snapshot::mirror(state) else {
+        return crate::geo_lookup::session_alerts_on_failure(state).await;
+    };
+    let key = state.store.cache_scope();
+    let cached = geo_cache().lock().ok().and_then(|cache| cache.get(&key).copied());
+    if let Some((value, built)) = cached
+        && mirror.globals_unchanged(built)
+    {
+        #[cfg(test)]
+        test_control::record(|c| c.geo_reused += 1);
+        return value;
+    }
+    let built = mirror.stamp_gen();
+    // Same reader, same key; an error is `false` there and is not cached here.
+    let read = crate::settings_registry::effective_for(
+        &state.store,
+        crate::geo_lookup::SESSION_KEY,
+        &Default::default(),
+    )
+    .await;
+    let value = read
+        .as_ref()
+        .ok()
+        .and_then(Option::as_ref)
+        .and_then(|e| e.value.as_str().map(|v| v == "alert"))
+        .unwrap_or(false);
+    if let (Some(built), true, Ok(mut cache)) = (built, read.is_ok(), geo_cache().lock()) {
+        cache.insert(key, (value, built));
+    }
+    value
+}
+
+// ─── realtime streams: cheap "still valid as of the current epochs" ─────────
+//
+// For the WebSocket push loop (`push.rs` `recheck`, every
+// `MW_REALTIME_RECHECK_SECS`). Protocol, per open stream:
+//
+//   let g = session_watch::realtime_stamp(&state);           // BEFORE the full recheck
+//   full recheck (unchanged) passes ->
+//       cert = session_watch::realtime_certify(&state, &session, bearer, g?).await;
+//   next periods: match session_watch::realtime_check(&state, &cert, period) {
+//       RealtimeCheck::Current => keep the stream, no SQL;
+//       RealtimeCheck::Revalidate => run the full recheck again (and re-certify);
+//   }
+//
+// Soundness: `g` is stamped before every read of the full recheck, the
+// certificate's fence is read after it and names every scope those reads
+// depend on (session, account, principal, the published entry's domains and
+// subjects, the global kinds and the settings revision). `still_valid(fence, g)`
+// fails once any of them changed after `g` (within the bound across processes,
+// at once after a local revocation through `expedite`).
+
+/// See the section comment. Opaque; holds no credential.
+pub(crate) struct RealtimeCertificate {
+    session_id: String,
+    fence: std::sync::Arc<mw_store::authority_publication::NativeAuthorityFence>,
+    built: mw_store::authority_publication::mirror::MirrorGen,
+    idle_secs: u64,
+    absolute_secs: u64,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RealtimeCheck {
+    /// Nothing the full recheck depends on changed: keep the stream.
+    Current,
+    /// Run the full recheck.
+    Revalidate,
+}
+
+/// Call strictly BEFORE the full recheck whose success the certificate will
+/// carry. `None` (mode off, PostgreSQL, mirror not fresh): no cheap path.
+#[allow(dead_code)] // wired into push.rs by a later t34 task
+pub(crate) fn realtime_stamp(state: &AppState) -> Option<mw_store::authority_publication::mirror::MirrorGen> {
+    crate::request_inputs::snapshot::mirror(state)?.stamp_gen()
+}
+
+/// After a full recheck that started after `stamped` passed for `session`. One
+/// fence statement plus the clock-policy resolution (revision read and memo).
+/// `None` (always re-validate fully): bearer streams, sessions outside the
+/// engine primary fence (linked, proxy), no published request-input entry for
+/// this session, an entry or account that no longer matches the fence.
+#[allow(dead_code)] // wired into push.rs by a later t34 task
+pub(crate) async fn realtime_certify(
+    state: &AppState,
+    session: &mw_store::Session,
+    bearer: bool,
+    stamped: mw_store::authority_publication::mirror::MirrorGen,
+) -> Option<RealtimeCertificate> {
+    if bearer {
+        // native_sessions has no authority trigger.
+        return None;
+    }
+    crate::request_inputs::snapshot::mirror(state)?;
+    // The same entry an ordinary request of this session would use.
+    let process = crate::request_inputs::process_environment()?;
+    let entry = state
+        .native_publication
+        .as_ref()?
+        .request_inputs_by_fingerprint(&session.id, &process.fingerprint)?;
+    let fence = state
+        .store
+        .native_publication_fence(&session.id, &entry.domains, &entry.subjects)
+        .await
+        .ok()??;
+    // The entry's domain/subject lists are current only if it was built at the
+    // versions this fence reads; otherwise its scope list may miss a domain.
+    if fence.account_id() != session.account_id || !entry.matches(&fence) {
+        return None;
+    }
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
+        domain: session.username.rsplit_once('@').map_or("", |(_, d)| d),
+        account_id: &session.account_id,
+        address: &session.username,
+    };
+    let revision = state.store.settings_read_revision().await.ok()?;
+    let values = crate::settings_registry::effective_all_at_revision(
+        &state.store,
+        &subject,
+        |def| matches!(def.key, "session.idleSecs" | "session.absoluteSecs"),
+        &revision,
+    )
+    .await
+    .ok()?;
+    let policy = crate::security_center::clock_policy_from_values(
+        &values,
+        state.hardening.idle_timeout.as_secs(),
+        state.hardening.absolute_timeout.as_secs(),
+    );
+    Some(RealtimeCertificate {
+        session_id: session.id.clone(),
+        fence: std::sync::Arc::new(fence),
+        built: stamped,
+        idle_secs: policy.idle_secs,
+        absolute_secs: policy.absolute_secs,
+    })
+}
+
+/// Zero statements. `Current` only when the mirror is live and fresh, no
+/// expedite is pending, no scope of the certificate's fence, global kind or the
+/// settings revision changed since the stamp, the process session map does not
+/// expire it, and the session deadline computed from the certificate's clocks
+/// (which can only be older than the row) does not pass before the next check
+/// plus the snapshot clock margin. Anything else: `Revalidate`.
+#[allow(dead_code)] // wired into push.rs by a later t34 task
+pub(crate) fn realtime_check(
+    state: &AppState,
+    cert: &RealtimeCertificate,
+    period: std::time::Duration,
+) -> RealtimeCheck {
+    let Some(mirror) = crate::request_inputs::snapshot::mirror(state) else {
+        return RealtimeCheck::Revalidate;
+    };
+    if state
+        .sessions
+        .expired(&cert.session_id, &state.hardening)
+        .is_some()
+        || !mirror.still_valid(&cert.fence, cert.built)
+    {
+        return RealtimeCheck::Revalidate;
+    }
+    let ahead = chrono::TimeDelta::from_std(period)
+        .ok()
+        .and_then(|period| period.checked_add(&crate::request_inputs::snapshot::CLOCK_MARGIN));
+    let (created, activity) = cert.fence.clocks();
+    let clear = ahead
+        .and_then(|ahead| chrono::Utc::now().checked_add_signed(ahead))
+        .is_some_and(|later| {
+            !crate::security_center::session_deadline_passed(
+                created,
+                activity,
+                later,
+                cert.idle_secs,
+                cert.absolute_secs,
+            )
+        });
+    if clear {
+        RealtimeCheck::Current
+    } else {
+        RealtimeCheck::Revalidate
     }
 }
 
@@ -252,6 +570,10 @@ async fn revoke_session(state: &AppState, admin: bool, token: &str) {
         state.step_up.forget_user(token);
     }
     forget(state, &hash).await;
+    // t34: a theft-watch revocation can happen on any request, GET and JMAP
+    // included, which the request layer does not expedite. No cached authority
+    // fence may validate again until a poll that started after this delete.
+    crate::request_inputs::snapshot::expedite(state);
 }
 
 /// Revoke every live session of `account` whose record belongs to `family`.
@@ -287,6 +609,11 @@ pub(crate) async fn revoke_admin_family(state: &AppState, username: &str, family
             forget(state, &s.token_hash).await;
             revoked += 1;
         }
+    }
+    if revoked > 0 {
+        // Admin sessions are never served from the guard snapshot; expedite anyway
+        // so every revocation site in this module behaves the same.
+        crate::request_inputs::snapshot::expedite(state);
     }
     revoked
 }
@@ -348,7 +675,7 @@ async fn inspect(
             ..Default::default()
         }
     } else {
-        alerts::user_prefs(state, &sec.account).await
+        alert_prefs(state, &sec.account).await
     };
     let findings = sec.observe(
         t,
@@ -491,7 +818,7 @@ async fn inspect(
             crate::geo_lookup::classify(ip),
             crate::geo_lookup::Outcome::NoDatabase | crate::geo_lookup::Outcome::NotFound
         )
-        && crate::geo_lookup::session_alerts_on_failure(state).await
+        && geo_failure_alerts(state).await
         && sec.debounce("countryUnavailable", t, 86_400)
     {
         let user = alerts::user_prefs(state, &sec.account).await;
@@ -526,6 +853,10 @@ async fn inspect(
             reason: "session-security".into(),
             ts: t,
         });
+        // The step-up flag is enforced below from this module's own state, which
+        // the guard snapshot never caches. Expedite anyway: a step-up is a
+        // security transition and costs one poll.
+        crate::request_inputs::snapshot::expedite(state);
     }
 
     // A flagged session needs a live step-up proof for anything but sign-out.
@@ -762,6 +1093,65 @@ pub(crate) async fn sweep(state: &AppState, t: i64, retention_days: i64) -> usiz
     }
     removed
 }
+
+/// Test-only measurement of the watch middleware: statements issued while it
+/// runs, how its settings reads were served, and the AppState it ran with.
+/// Inactive (no nested measurement) unless a test opened [`measure`].
+#[cfg(test)]
+pub(crate) mod test_control {
+    use crate::AppState;
+    #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+    pub(crate) struct Counts {
+        pub inspections: u64,
+        pub reads: u64,
+        pub writes: u64,
+        pub other: u64,
+        pub prefs_fresh: u64,
+        pub prefs_reused: u64,
+        pub geo_reused: u64,
+    }
+    tokio::task_local! {
+        static COUNTS: std::cell::RefCell<Counts>;
+        static STATE: std::cell::RefCell<Option<AppState>>;
+    }
+    pub(crate) fn record(update: impl FnOnce(&mut Counts)) {
+        let _ = COUNTS.try_with(|counts| update(&mut counts.borrow_mut()));
+    }
+    pub(super) async fn observe<F>(state: &AppState, inspect: F) -> F::Output
+    where
+        F: std::future::Future,
+    {
+        if COUNTS.try_with(|_| ()).is_err() {
+            return inspect.await;
+        }
+        let _ = STATE.try_with(|slot| *slot.borrow_mut() = Some(state.clone()));
+        let (output, sql) = mw_store::pool_telemetry::measure_queries(Box::pin(inspect)).await;
+        record(|c| {
+            c.inspections += 1;
+            c.reads += sql.read.calls;
+            c.writes += sql.write.calls;
+            c.other += sql.other.calls;
+        });
+        output
+    }
+    pub(crate) async fn measure<F: std::future::Future>(future: F) -> (F::Output, Counts, Option<AppState>) {
+        COUNTS
+            .scope(std::cell::RefCell::new(Counts::default()), async {
+                STATE
+                    .scope(std::cell::RefCell::new(None), async {
+                        let output = future.await;
+                        let counts = COUNTS.with(|c| *c.borrow());
+                        (output, counts, STATE.with(|s| s.borrow().clone()))
+                    })
+                    .await
+            })
+            .await
+    }
+}
+
+#[cfg(test)]
+#[path = "session_watch_tests.rs"]
+mod snapshot_tests;
 
 #[cfg(test)]
 mod tests {
