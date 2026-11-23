@@ -95,16 +95,6 @@
           "body": {
             "password": "demo-pass-admin"
           }
-        },
-        {
-          "method": "PUT",
-          "path": "/nextcloud/instances/team-cloud",
-          "body": {
-            "name": "Team cloud",
-            "baseUrl": "https://cloud.example.org/",
-            "caPem": "",
-            "enabled": true
-          }
         }
       ]
     }

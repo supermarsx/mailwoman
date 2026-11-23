@@ -33,7 +33,11 @@ This is the section before an administrator approves an instance. Approved insta
 6. Turn on **Allow users to link this instance**.
 7. Save.
 
-![The Nextcloud instances page of the administration console with no approved instances and the Add Nextcloud instance button.](/screenshots/integrations/admin-nextcloud-instance.webp){.mw-shot}
+![The Add Nextcloud instance form filled in with the display name Team cloud, the URL https://cloud.example.org/ and Allow users to link this instance ticked.](/screenshots/integrations/admin-nextcloud-form.webp){.mw-crop}
+
+After saving, the **Nextcloud** page lists the instance with its **Display name**, **HTTPS installation URL** and **Status**. The pencil button edits it.
+
+![The Nextcloud instances page of the administration console listing the instance Team cloud at https://cloud.example.org/ with the status Enabled.](/screenshots/integrations/admin-nextcloud-instance.webp){.mw-shot}
 
 Saving any change to an instance asks users to verify their links again. Disabling an instance stops new operations at once; users can still remove their stale or disabled links.
 

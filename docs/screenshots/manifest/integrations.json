@@ -165,21 +165,62 @@
       "page": "integrations/nextcloud.md",
       "session": "admin",
       "seed": [
-        "admin-basic"
+        "integrations-nextcloud"
       ],
       "steps": [
         {
-          "goto": "{admin}#/nextcloud"
+          "goto": "{admin}"
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "@admin-nav-nextcloud",
+            "exact": false,
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@nextcloud-admin-add"
+          }
+        },
+        {
+          "fill": {
+            "role": "textbox",
+            "nth": 0,
+            "value": "Team cloud"
+          }
+        },
+        {
+          "fill": {
+            "role": "textbox",
+            "nth": 1,
+            "value": "https://cloud.example.org/"
+          }
+        },
+        {
+          "check": {
+            "role": "checkbox",
+            "name": "@nextcloud-admin-enable"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@common-save"
+          }
         },
         {
           "waitFor": {
-            "text": "@nextcloud-admin-empty",
+            "text": "Team cloud",
             "first": true
           }
         }
       ],
       "shot": "full",
-      "alt": "The Nextcloud instances page of the administration console with no approved instances and the Add Nextcloud instance button."
+      "alt": "The Nextcloud instances page of the administration console with no approved instances and the Add Nextcloud instance button.",
+      "isolate": true
     },
     {
       "id": "nextcloud-user-link",
@@ -448,6 +489,63 @@
       ],
       "shot": "full",
       "alt": "The Plugins list with the Microsoft Graph bridge approved and enabled but not running."
+    },
+    {
+      "id": "admin-nextcloud-form",
+      "page": "integrations/nextcloud.md",
+      "session": "admin",
+      "seed": [
+        "integrations-nextcloud"
+      ],
+      "isolate": true,
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "@admin-nav-nextcloud",
+            "exact": false,
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@nextcloud-admin-add"
+          }
+        },
+        {
+          "fill": {
+            "role": "textbox",
+            "nth": 0,
+            "value": "Team cloud"
+          }
+        },
+        {
+          "fill": {
+            "role": "textbox",
+            "nth": 1,
+            "value": "https://cloud.example.org/"
+          }
+        },
+        {
+          "check": {
+            "role": "checkbox",
+            "name": "@nextcloud-admin-enable"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "textbox",
+          "nth": 0,
+          "closest": "section"
+        },
+        "padding": 14
+      },
+      "alt": "The Add Nextcloud instance form filled in with the display name Team cloud, the URL https://cloud.example.org/ and Allow users to link this instance ticked."
     }
   ]
 }
