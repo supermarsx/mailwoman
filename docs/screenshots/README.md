@@ -406,18 +406,26 @@ rg -n -f docs/screenshots/jargon.txt <your pages>
 
 ## Building the site
 
-VitePress writes its cache to `docs/.vitepress/cache`, which every writer shares.
-Build through the lock:
+A plain `pnpm -C docs build` writes to `docs/.vitepress/dist` and
+`docs/.vitepress/cache`, which every writer shares. Build with a private output
+and cache folder instead, either through the helper:
 
 ```sh
 node docs/screenshots/docs-build.mjs              # output in a scratch folder, removed afterwards
 node docs/screenshots/docs-build.mjs --out <dir>  # keep the output
 ```
 
-The lock is the folder `docs/.vitepress/.docs-build.lock` with the owner's
-process id inside; a second build waits for it, and a lock left by a process that
-no longer runs is taken over. Do not run `pnpm -C docs build` directly while
-others are writing.
+or directly, from `docs/`:
+
+```sh
+node node_modules/vitepress/dist/node/cli.js build . --outDir <scratch>/out --cacheDir <scratch>/cache
+```
+
+The helper uses its own output and cache folders and also holds the lock
+`docs/.vitepress/.docs-build.lock` (a folder with the owner's process id inside;
+a second build waits, and a lock left by a process that no longer runs is taken
+over), so at most one build runs at a time on this machine. Do not run
+`pnpm -C docs build` while others are writing.
 
 ## Things you will see
 

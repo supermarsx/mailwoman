@@ -56,13 +56,14 @@ const release = await takeLock();
 let status = 1;
 try {
   log(`building the docs into ${out}`);
-  const result = spawnSync(process.execPath, [join(DOCS, 'node_modules', 'vitepress', 'bin', 'vitepress.js'), 'build', '.', '--outDir', out], {
+  const result = spawnSync(process.execPath, [join(DOCS, 'node_modules', 'vitepress', 'bin', 'vitepress.js'), 'build', '.', '--outDir', out, '--cacheDir', `${out}-cache`], {
     cwd: DOCS,
     stdio: 'inherit',
   });
   status = result.status ?? 1;
 } finally {
   release();
+  rmSync(`${out}-cache`, { recursive: true, force: true });
   if (outArg < 0) rmSync(out, { recursive: true, force: true });
 }
 log(status === 0 ? 'docs build passed' : `docs build FAILED (exit ${status})`);
