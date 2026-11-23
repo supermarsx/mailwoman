@@ -1,65 +1,49 @@
-# MSG / OFT / DOCX export (V7)
+---
+title: Outlook and Word formats
+---
 
-V7 (release 26.8.0) extends `mw-export` with three formats in addition to the existing
-mbox / Markdown / text / html2md exporters:
+# Outlook and Word formats
 
-| Format | Container | Library | What it is |
-|---|---|---|---|
-| `.msg` | OLE/CFB (MS-OXMSG) | `cfb` + Mailwoman's own MAPI encoder | an Outlook single-message file |
-| `.oft` | OLE/CFB (MS-OXMSG) | `cfb` + the MAPI encoder | an Outlook template |
-| `.docx` | OOXML (ZIP) | `docx-rs` | a Word document of the rendered message |
+The export dialog can save a message as an Outlook message file (`.msg`) or a Word document (`.docx`). This page says what each file contains. For the dialog itself, see [Exporting messages](./index.md).
 
-Existing export formats are byte-unchanged.
+## MSG (Outlook)
 
-## Scope: what is preserved
+An `.msg` file is a compound file in the Outlook message format (MS-OXMSG). Outlook and other readers of the format open it as a mail item of class `IPM.Note`.
 
-The committed floor is **faithful body + attachments + headers**:
+The file contains:
 
-- the message body (the rendered content goes through the existing sanitizer + print
-  pipeline),
-- attachments,
-- the standard headers (From/To/Cc/Subject/Date, etc.).
+- the subject, sender and recipients (To and Cc; Bcc is not written),
+- the plain text body and, when the message has one, the HTML body,
+- the internet headers, which carry the date and the rest of the original header block,
+- each attachment, including its data,
+- messages attached as `message/rfc822`, stored as embedded messages,
+- custom `X-*` headers, stored as named properties in the internet-headers namespace, as Outlook does.
 
-Rendered exports reuse the same sanitize/print path as the rest of Mailwoman, so an
-exported `.docx` reflects what the sanitized message looks like.
+A message with no `X-*` headers and no attached message is written without those parts.
 
-## Fidelity boundary (honest, per §28.8)
+What is not reproduced: the file is a rendition of the message as received, not a copy of an Outlook-authored item. Other embedded objects and Outlook-specific properties that have no counterpart in the original message are not created.
 
-Deep OLE write fidelity is **best-effort**, not a committed guarantee:
+## DOCX (Word)
 
-- embedded objects and custom/named MAPI properties are not guaranteed to round-trip
-  with full fidelity,
-- the goal is that Outlook (and compatible readers) open the `.msg`/`.oft` with the
-  body, attachments, and headers intact — not a byte-exact reproduction of an
-  Outlook-authored file's every named property.
+A `.docx` file is a Word document of the message:
 
-Deep write fidelity (embedded objects, custom named properties) is tracked for
-post-1.0.
+- one line each for **Subject**, **From**, **To**, **Cc** and **Date**, when the message has them, with bold labels,
+- the body as paragraphs. An HTML-only message is converted to plain text first, and script and style content is dropped, so no code text appears in the document,
+- an **Attachments** line listing the attachment file names.
 
-## Importing `.oft` (untrusted CFB parsing)
+Attachment data is not included in a DOCX file, and formatting, images and layout of an HTML message are not reproduced. Use EML or MSG if you need the attachments.
 
-Reading an `.oft` means parsing an untrusted OLE/CFB container. That parse is isolated
-behind a **size-limited, disposable render boundary** (a `Cfb`/`Msg` render job routed
-through the same disposable-child mechanism used for other untrusted document
-rendering), so a malformed container cannot affect the main process.
+## OFT (Outlook template)
 
-## CFB fuzzing
+The server library can also write an Outlook template (`.oft`), which has the same structure as an `.msg` file. The export dialog and the export route do not offer it.
 
-`mw-export` ships a fuzz target for the CFB parse path (`crates/mw-export/fuzz/`,
-§25). The `wasm`/plugin CI does not run the fuzzer; it is built and smoke-run to keep
-the parser exercised.
+## Importing an `.oft` or `.msg`
 
-## Supply chain note
+The route `POST /api/import/oft` accepts the base64 content of an `.oft` or `.msg` file from a signed-in user and returns the subject and the sanitized body, which a client can use to fill a new draft. The web client does not call this route.
 
-`docx-rs` (MIT) is at 0.4.22, which depends on `quick-xml` 0.41. Up to 26.19 it was
-at 0.4.20, which pinned `quick-xml` 0.36.2 with two denial-of-service advisories in
-the quick-xml reader (RUSTSEC-2026-0194 / -0195); those were a `cargo deny` ignore
-from 26.8 (`docs/RELEASE-NOTES-26.8.md`) and were removed in 26.20 when 0.36.2 left
-the lock. Every quick-xml consumer in the tree is now on 0.41.
+Reading an untrusted compound file is done only inside the server's isolated render worker, in a sandbox without network or secrets, and the input is limited to 4 MiB. Only the subject and the plain text body are read. If the render worker is not installed, the route refuses with an error rather than reading the file inside the server.
 
-`docx-rs` 0.4.22 depends on `zip` 8.6, which is in the affected range of three `zip`
-advisories (RUSTSEC-2026-0367 / -0368 / -0369; fixed in zip 9). All three concern
-`ZipArchive::extract` writing an archive's entries to a filesystem. docx-rs does not
-call `extract`, and Mailwoman uses docx-rs to write DOCX only; it never reads a
-`.docx` through it. The three advisories are a `cargo deny` ignore in `deny.toml`,
-to be removed when docx-rs releases on zip 9 or later.
+## Related
+
+- [Exporting messages](./index.md)
+- [Administrator settings](../admin/settings.md)
