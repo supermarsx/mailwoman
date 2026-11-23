@@ -97,7 +97,7 @@ plugin and does nothing.
 ::: warning
 A first-party bridge sees the full content of the mailbox it serves, and the EWS
 bridge sees that account's password. Their trust rests on the digest built into the
-server, which identifies the exact code shipped with your release.
+server, which identifies the exact code released with your server version.
 :::
 
 ## Resource limits
