@@ -387,6 +387,34 @@ describe('Compose', () => {
     expect(screen.getByRole('button', { name: 'Fix grammar' })).toBeInTheDocument();
   });
 
+  // The composer passes the draft's provenance and the Drafts mailbox id, so the
+  // server's redaction and folder ceiling see the right labels.
+  for (const quotesDecrypted of [false, true]) {
+    it(`labels the composer tools' context ${quotesDecrypted ? 'e2ee-decrypted for a draft quoting decrypted mail' : 'plain for an ordinary draft'}`, async () => {
+      const sent: Array<{ input: { context: Array<{ kind: string; folder: string }> } }> = [];
+      const service = new AssistService(async (input: string, init?: RequestInit) => {
+        if (input.includes('/api/assist/config')) {
+          return json({ availability: 'enabled', capabilities: ['grammar'], endpoint_host: 'assist.local', include_e2ee: true, include_attachments: false });
+        }
+        if (input.includes('/api/assist/invoke')) {
+          sent.push(JSON.parse(String(init?.body ?? '{}')) as (typeof sent)[number]);
+          return json({ text: 'Fixed.', disclosure: { endpoint_host: 'assist.local', sent: [], withheld: [] } });
+        }
+        return json({}, 404);
+      });
+      const initial = { mode: 'reply' as const, to: 'alice@outside.test', cc: '', subject: 'Re: Plans', bodyText: 'Quoted text', bodyHtml: '<p>Quoted text</p>', inReplyTo: [], references: [], attachments: [], quotesDecrypted };
+      const { app } = renderWithApp(() => <Compose onClose={() => undefined} initial={initial} />, { deps: { assistService: service } });
+      await app.assist.loadConfig();
+      fireEvent.click(screen.getByRole('tab', { name: 'Insert' }));
+      fireEvent.click(within(await screen.findByTestId('compose-assist')).getAllByRole('button')[0]!);
+      fireEvent.click(screen.getByRole('button', { name: 'Fix grammar' }));
+      await waitFor(() => expect(sent).toHaveLength(1));
+      const item = sent[0]!.input.context[0]!;
+      expect(item.kind).toBe(quotesDecrypted ? 'e2ee-decrypted' : 'plain');
+      expect(item.folder).toBe(app.draftsMailboxId() ?? '');
+    });
+  }
+
   it('attaches a Nextcloud file into the composer', async () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, {
       deps: { nextcloudFetcher },

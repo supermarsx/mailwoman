@@ -2304,6 +2304,8 @@ export function Compose(props: {
                           service={app.assist.service}
                           text={body()}
                           account={app.accountId() ?? ''}
+                          folder={app.draftsMailboxId() ?? ''}
+                          containsDecrypted={protectedDraft()}
                           onApply={setBody}
                           onDisclosure={(d) => app.assist.recordDisclosure('draft', d)}
                         />
