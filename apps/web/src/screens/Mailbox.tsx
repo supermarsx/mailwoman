@@ -1335,11 +1335,12 @@ export function MailboxScreen(): JSX.Element {
           <Show when={featureOn('views.attachments')&&viewShown('attachments',notableCount('attachments'),surface()==='attachments')}><button
             type="button"
             class={`sidebar__box ${a11y.focusable}`}
-            classList={{ 'sidebar__box--active': surface() === 'attachments' }} aria-label={t('mail-nav-attachments')} title={t('mail-nav-attachments')}
+            classList={{ 'sidebar__box--active': surface() === 'attachments' }} aria-label={viewName('attachments',t('mail-nav-attachments'))} title={viewName('attachments',t('mail-nav-attachments'))}
             onClick={() => router.navigate('attachments')}
             {...sidebarMenu.bind('attachments')}
           >
-            <Icon name="attachment"/><span class="sidebar__box-name">{t('mail-nav-attachments')}</span>
+            <Icon name="attachment"/><span class="sidebar__box-name">{viewName('attachments',t('mail-nav-attachments'))}</span>
+            <Show when={viewCountsShown('attachments')&&(notableCount('attachments')??0)>0}><span class="sidebar__badge" data-secondary="true" data-testid="badge-attachments">{notableCount('attachments')}</span></Show>
           </button></Show>
           <Show when={unifiedEnabled()}>
             <button type="button" class="sidebar__box" classList={{'sidebar__box--active':surface()==='unified'}}
@@ -1349,24 +1350,25 @@ export function MailboxScreen(): JSX.Element {
           </Show>
           <Show when={settings()['mail.templates.enabled']?.value === true && settings()['mail.templates.showInSidebar']?.value !== false&&viewShown('templates',notableCount('templates'),surface()==='templates')}>
             <button type="button" class={`sidebar__box ${a11y.focusable}`}
-              classList={{'sidebar__box--active': surface() === 'templates'}} aria-label={t('response-templates-workspace')}
+              classList={{'sidebar__box--active': surface() === 'templates'}} aria-label={viewName('templates',t('response-templates-workspace'))}
               {...sidebarMenu.bind('templates')} title={viewName('templates',t('response-templates-workspace'))} onClick={() => router.navigate('templates')}>
               <Icon name="book"/><span class="sidebar__box-name">{viewName('templates',t('response-templates-workspace'))}</span>
+              <Show when={viewCountsShown('templates')&&(notableCount('templates')??0)>0}><span class="sidebar__badge" data-secondary="true" data-testid="badge-templates">{notableCount('templates')}</span></Show>
             </button>
           </Show>
           <Show when={featureOn('views.events')}><EventsNavEntry onOpenTab={()=>openFolderTab(EVENTS_VIEW_ID)} active={surface() === 'mail' && app.selectedMailboxId() === EVENTS_VIEW_ID} onSelect={() => { router.navigate('mail'); subTabs.activate('mail'); void app.selectMailbox(EVENTS_VIEW_ID); }}/></Show>
           <Show when={viewShown('outbox',notableCount('outbox'),surface()==='outbox')}><button
             type="button"
             class={`sidebar__box ${a11y.focusable}`}
-            classList={{ 'sidebar__box--active': surface() === 'outbox' }} aria-label={t('mail-nav-outbox')} title={t('mail-nav-outbox')}
+            classList={{ 'sidebar__box--active': surface() === 'outbox' }} aria-label={viewName('outbox',t('mail-nav-outbox'))} title={viewName('outbox',t('mail-nav-outbox'))}
             {...sidebarMenu.bind('outbox')}
             onClick={() => {
               router.navigate('outbox');
               void app.refreshOutbox();
             }}
           >
-            <Icon name="clock"/><span class="sidebar__box-name">{t('mail-nav-outbox')}</span>
-            <Show when={app.cancelableOutbox().length > 0}>
+            <Icon name="clock"/><span class="sidebar__box-name">{viewName('outbox',t('mail-nav-outbox'))}</span>
+            <Show when={viewCountsShown('outbox')&&app.cancelableOutbox().length > 0}>
               <span class="sidebar__badge" data-secondary="true" title={t('mail-badge-outbox',{count:app.cancelableOutbox().length})} aria-label={t('mail-badge-outbox',{count:app.cancelableOutbox().length})}>{app.cancelableOutbox().length}</span>
             </Show>
           </button>

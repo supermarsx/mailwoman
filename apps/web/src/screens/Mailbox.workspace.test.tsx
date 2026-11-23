@@ -102,6 +102,19 @@ describe('retained mailbox workspace',()=>{
       await config(true,true);await waitFor(()=>expect(screen.getByTestId('nav-notifications')).toBeVisible());
     }finally{clearSettings();}
   });
+  it('applies views.*.name to the attachments, outbox and templates entries and views.*.showCount to their badges',async()=>{
+    const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    vi.spyOn(app,'cancelableOutbox').mockImplementation(()=>[{id:'o1'},{id:'o2'}] as never);
+    vi.spyOn(app,'listAttachmentsPage').mockResolvedValue({items:[{},{},{}]} as never);
+    const config=(extra:Record<string,unknown>)=>loadSettings({refresh:true,fetcher:async()=>Response.json({settings:Object.fromEntries(Object.entries({'mail.templates.enabled':true,'mail.templates.personal':[{id:'a',title:'A',body:'x'},{id:'b',title:'B',body:'y'}],'views.attachments.visibility':'notable',...extra}).map(([k,v])=>[k,{value:v,source:'user',locked:false}]))})});
+    try{
+      await config({'views.attachments.name':'Files','views.outbox.name':'Sending','views.templates.name':'Snippets'});show();
+      await screen.findByRole('button',{name:'Files'});expect(screen.getByRole('button',{name:'Sending'})).toBeVisible();expect(screen.getByRole('button',{name:'Snippets'})).toBeVisible();
+      await waitFor(()=>expect(screen.getByTestId('badge-attachments')).toHaveTextContent('3'));expect(screen.getByTestId('badge-templates')).toHaveTextContent('2');expect(within(screen.getByRole('button',{name:'Sending'})).getByText('2')).toBeVisible();
+      await config({'views.attachments.showCount':false,'views.outbox.showCount':false,'views.templates.showCount':false});
+      await waitFor(()=>expect(screen.queryByTestId('badge-templates')).toBeNull());expect(screen.queryByTestId('badge-attachments')).toBeNull();expect(within(screen.getByRole('button',{name:'Outbox'})).queryByText('2')).toBeNull();
+    }finally{clearSettings();}
+  });
   it('hides empty sidebar folders, restores them on count changes, and honors per-folder overrides',async()=>{
     const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
     const extras=[{id:'spam-empty',name:'Spam empty',role:'junk',totalEmails:0},{id:'drafts-empty',name:'Drafts empty',role:'drafts',totalEmails:0},{id:'parent-empty',name:'Empty parent',role:null,totalEmails:0},{id:'child-read',name:'Read child',role:null,totalEmails:2}].map(folder=>({...folder,parentId:folder.id==='child-read'?'parent-empty':null,sortOrder:10,unreadEmails:0}));
