@@ -18,7 +18,12 @@ export-done = Экспортировано { $name }.
 
 export-done-toast = Экспортировано { $name }
 
-export-estimate = Сообщения { $count }, около { $size }.
+export-estimate = { $count ->
+    [one] { $count } сообщение, около { $size }.
+    [few] { $count } сообщения, около { $size }.
+    [many] { $count } сообщений, около { $size }.
+   *[other] { $count } сообщения, около { $size }.
+}
 
 export-estimating = Проверка размера
 

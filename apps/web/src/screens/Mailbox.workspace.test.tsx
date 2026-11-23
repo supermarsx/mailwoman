@@ -383,7 +383,7 @@ describe('retained mailbox workspace',()=>{
       const dialog=await screen.findByRole('dialog',{name:'Export'});
       expect(within(dialog).getByTestId('export-scope-message')).toBeChecked();
       expect(within(dialog).getByRole('combobox',{name:'Format'})).toHaveValue('eml');
-      expect(within(dialog).getByTestId('export-estimate')).toHaveTextContent('1 messages');
+      expect(within(dialog).getByTestId('export-estimate')).toHaveTextContent('1 message, about');
       expect(screen.getByRole('tab',{name:'Subject a'})).toHaveAttribute('aria-selected','true');
       expect(screen.queryByRole('tab',{name:'Settings'})).toBeNull();
       expect(location.href).toBe(href);expect(realtime.subTabs.activeId()).toBe(active);

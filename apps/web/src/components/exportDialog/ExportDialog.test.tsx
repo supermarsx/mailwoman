@@ -59,7 +59,7 @@ describe('ExportDialog',()=>{
     expect(screen.getByTestId('export-scope-conversation')).toBeTruthy();
     expect(screen.getByTestId('export-scope-selection')).toBeTruthy();
     expect(screen.getByTestId('export-scope-folder')).toBeTruthy();
-    expect(screen.getByTestId('export-estimate').textContent).toMatch(/^1 messages/);
+    expect(screen.getByTestId('export-estimate').textContent).toMatch(/^1 message, about/);
     fireEvent.click(screen.getByTestId('export-scope-conversation'));
     await waitFor(()=>expect(screen.getByTestId('export-estimate').textContent).toMatch(/^3 messages, about 5.9/));
   });

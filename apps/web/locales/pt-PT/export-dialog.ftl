@@ -32,7 +32,10 @@ export-strip-received = Remover cabeçalhos Received
 export-redact-bcc = Remover Bcc
 export-privacy-note = Remover cabeçalhos altera a mensagem, por isso uma assinatura nela deixa de ser válida.
 export-estimating = A verificar o tamanho
-export-estimate = { $count } mensagens, cerca de { $size }.
+export-estimate = { $count ->
+    [one] { $count } mensagem, cerca de { $size }.
+   *[other] { $count } mensagens, cerca de { $size }.
+}
 export-running = A exportar
 export-progress = { $done } de { $total } mensagens ({ $percent }%)
 export-progress-bytes = Recebidos { $size }

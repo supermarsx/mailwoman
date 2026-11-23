@@ -18,7 +18,9 @@ export-done = { $name } を輸出しました。
 
 export-done-toast = 輸出されました { $name }
 
-export-estimate = { $count } メッセージ、約 { $size }。
+export-estimate = { $count ->
+   *[other] { $count } 件のメッセージ、約 { $size }。
+}
 
 export-estimating = サイズの確認
 

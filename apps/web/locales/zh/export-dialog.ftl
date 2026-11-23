@@ -18,7 +18,9 @@ export-done = 已导出{ $name }。
 
 export-done-toast = 已出口{ $name }
 
-export-estimate = { $count }条消息，大约{ $size }。
+export-estimate = { $count ->
+   *[other] { $count } 条消息，约 { $size }。
+}
 
 export-estimating = 检查尺寸
 

@@ -18,7 +18,10 @@ export-done = Geëxporteerd { $name }.
 
 export-done-toast = Geëxporteerd { $name }
 
-export-estimate = { $count } berichten, over { $size }.
+export-estimate = { $count ->
+    [one] { $count } bericht, ongeveer { $size }.
+   *[other] { $count } berichten, ongeveer { $size }.
+}
 
 export-estimating = Het controleren van de maat
 

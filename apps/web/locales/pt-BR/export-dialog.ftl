@@ -18,7 +18,10 @@ export-done = Exportado { $name }.
 
 export-done-toast = Exportado { $name }
 
-export-estimate = { $count } mensagens, cerca de { $size }.
+export-estimate = { $count ->
+    [one] { $count } mensagem, cerca de { $size }.
+   *[other] { $count } mensagens, cerca de { $size }.
+}
 
 export-estimating = Verificando o tamanho
 

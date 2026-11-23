@@ -18,7 +18,14 @@ export-done = تصدير { $name }.
 
 export-done-toast = تصدير { $name }
 
-export-estimate = { $count } رسائل، حول { $size }.
+export-estimate = { $count ->
+    [zero] لا رسائل، حوالي { $size }.
+    [one] رسالة واحدة، حوالي { $size }.
+    [two] رسالتان، حوالي { $size }.
+    [few] { $count } رسائل، حوالي { $size }.
+    [many] { $count } رسالة، حوالي { $size }.
+   *[other] { $count } رسالة، حوالي { $size }.
+}
 
 export-estimating = التحقق من الحجم
 

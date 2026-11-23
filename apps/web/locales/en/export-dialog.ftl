@@ -31,7 +31,10 @@ export-strip-received = Remove Received headers
 export-redact-bcc = Remove Bcc
 export-privacy-note = Removing headers changes the message, so a signature on it no longer verifies.
 export-estimating = Checking the size
-export-estimate = { $count } messages, about { $size }.
+export-estimate = { $count ->
+    [one] { $count } message, about { $size }.
+   *[other] { $count } messages, about { $size }.
+}
 export-running = Exporting
 export-progress = { $done } of { $total } messages ({ $percent }%)
 export-progress-bytes = Received { $size }
