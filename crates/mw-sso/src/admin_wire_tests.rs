@@ -272,3 +272,101 @@ fn unreadable_stored_config_lists_as_null() {
     });
     assert_eq!(listed["config"], Value::Null);
 }
+
+#[test]
+fn saml_security_fields_map_both_ways() {
+    // Every security-relevant SAML value survives console -> store -> list.
+    let v = parse_upsert(value(CONSOLE_SAML)).unwrap();
+    let (config_json, listed) = stored_then_listed(&v, false);
+    let stored: SsoConfig = serde_json::from_str(&config_json).unwrap();
+    let SsoConfig::Saml(c) = stored else { panic!() };
+    assert!(c.want_assertions_signed);
+    assert!(!c.want_encrypted);
+    assert_eq!(
+        c.sp_entity_id,
+        "https://mail.example.org/api/sso/corp-saml/metadata"
+    );
+    assert_eq!(c.acs_url, "https://mail.example.org/api/sso/corp-saml/acs");
+    assert_eq!(c.idp_sso_url, "https://idp.example.org/saml/sso");
+    assert_eq!(
+        c.idp_signing_certs_pem,
+        vec!["-----BEGIN CERTIFICATE-----\nMIIBfixture\n-----END CERTIFICATE-----"]
+    );
+    let console = value(CONSOLE_SAML);
+    for k in [
+        "wantAssertionsSigned",
+        "wantEncrypted",
+        "spEntityId",
+        "acsUrl",
+        "idpSsoUrl",
+        "idpSigningCertsPem",
+    ] {
+        assert_eq!(listed["config"][k], console["config"][k], "{k}");
+    }
+    assert_eq!(listed["scope"], console["scope"]);
+}
+
+#[test]
+fn omitted_want_assertions_signed_means_signed() {
+    let mut body = value(CONSOLE_SAML);
+    body["config"]
+        .as_object_mut()
+        .unwrap()
+        .remove("wantAssertionsSigned");
+    let v = parse_upsert(body).expect("omission is valid and means signed");
+    let SsoConfig::Saml(c) = &v.config else {
+        panic!()
+    };
+    assert!(c.want_assertions_signed);
+    let (config_json, _) = stored_then_listed(&v, false);
+    assert!(config_json.contains(r#""want_assertions_signed":true"#));
+}
+
+#[test]
+fn a_saml_provider_that_accepts_unsigned_assertions_is_not_saved() {
+    for name in ["wantAssertionsSigned", "want_assertions_signed"] {
+        let mut body = value(CONSOLE_SAML);
+        let cfg = body["config"].as_object_mut().unwrap();
+        cfg.remove("wantAssertionsSigned");
+        cfg.insert(name.into(), json!(false));
+        let Err(UpsertError::Invalid(f)) = parse_upsert(body) else {
+            panic!("{name}")
+        };
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].field, "config.wantAssertionsSigned");
+        assert!(
+            f[0].message
+                .contains("unsigned SAML assertions are not accepted")
+        );
+    }
+}
+
+#[test]
+fn stored_saml_rows_that_accept_unsigned_assertions_are_flagged() {
+    // Explicitly false, and missing (the storage Default gives false): both flagged.
+    for config_json in [
+        r#"{"kind":"saml","sp_entity_id":"https://m.example/sp","acs_url":"https://m.example/acs","idp_sso_url":"https://idp.example/sso","idp_signing_certs_pem":["PEM"],"want_assertions_signed":false,"nameid_format":"x"}"#,
+        r#"{"kind":"saml","sp_entity_id":"https://m.example/sp","acs_url":"https://m.example/acs","idp_sso_url":"https://idp.example/sso","idp_signing_certs_pem":["PEM"],"nameid_format":"x"}"#,
+    ] {
+        let listed = backend_view(&BackendView {
+            id: "s",
+            kind: "saml",
+            display_name: "S",
+            scope: "deployment",
+            enabled: true,
+            config_json,
+            claim_map_json: "{}",
+            has_secret: false,
+            created_at: TS,
+            updated_at: TS,
+        });
+        assert_eq!(listed["config"]["wantAssertionsSigned"], json!(false));
+        let fields: Vec<&str> = listed["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["field"].as_str().unwrap())
+            .collect();
+        assert_eq!(fields, vec!["config.wantAssertionsSigned"], "{config_json}");
+    }
+}

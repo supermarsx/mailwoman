@@ -410,6 +410,16 @@ pub fn config_problems(config: &SsoConfig) -> Vec<FieldError> {
             check_required(&mut e, "config.spEntityId", &c.sp_entity_id);
             check_url(&mut e, "config.acsUrl", &c.acs_url);
             check_required(&mut e, "config.nameidFormat", &c.nameid_format);
+            // With `want_assertions_signed = false`, sign-in (saml/acs.rs) accepts
+            // a response that carries no signature at all: anyone could post an
+            // assertion naming any subject. Such a provider is never saved, and a
+            // stored one is listed with this problem.
+            if !c.want_assertions_signed {
+                e.push(FieldError::new(
+                    "config.wantAssertionsSigned",
+                    "must be on: unsigned SAML assertions are not accepted",
+                ));
+            }
         }
     }
     e
