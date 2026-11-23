@@ -215,6 +215,26 @@ describe('paging — reaching past the first page', () => {
       expect(mail.loadedRange()).toEqual({start:0,end:50});expect(mail.messages()[0]?.id).toBe('inbox-1');expect(mail.hasMore()).toBe(true);
     });
   });
+  it('retains off-window selections for bulk actions without shifting the visible range',async()=>{
+    const server=makeServer({inbox:corpus('inbox',10000)});
+    await withServer(server,async mail=>{
+      mail.toggleSelection(['inbox-1']);
+      await mail.loadMore({position:5000});
+      expect([...mail.selectedIds()]).toEqual(['inbox-1']);
+      expect(mail.messages().some(message=>message.id==='inbox-1')).toBe(true);
+      expect(mail.listMessages().some(message=>message.id==='inbox-1')).toBe(false);
+      expect(mail.loadedRange()).toEqual({start:5000,end:5050});
+      mail.toggleSelection(['inbox-5001']);
+      expect(new Set(mail.actionTargets())).toEqual(new Set(['inbox-1','inbox-5001']));
+      await mail.loadMore();
+      expect(mail.loadedRange()).toEqual({start:5000,end:5100});
+      await mail.refreshCurrentMailbox();
+      expect(new Set(mail.selectedIds())).toEqual(new Set(['inbox-1','inbox-5001']));
+      expect(mail.listMessages()).toHaveLength(100);
+      await mail.selectMailbox('archive');
+      expect(mail.selectedIds().size).toBe(0);
+    });
+  });
   it('reaches message 51 of a 120-message folder, which was unreachable at any scroll depth', async () => {
     const server = makeServer({ inbox: corpus('inbox', 120) });
     await withServer(server, async (mail) => {

@@ -608,7 +608,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
 
   // ── paging state (t22-e4) ────────────────────────────────────────────────
   const [total, setTotal] = createSignal<number | null>(null);
-  const [loadedStart, setLoadedStart] = createSignal(0);
+  const [loadedStart, writeLoadedStart] = createSignal(0);
+  // A distant window retains selected headers for bulk actions, without putting
+  // those off-screen selections into the rendered window or its page cursor.
+  const [windowIds, setWindowIds] = createSignal<ReadonlySet<Id> | null>(null);
+  const windowMessages = createMemo(() => {
+    const ids=windowIds();return ids===null?messages():messages().filter(message=>ids.has(message.id));
+  });
+  function setLoadedStart(position:number):void {writeLoadedStart(position);if(position===0)setWindowIds(null);}
   const [loadingMore, setLoadingMore] = createSignal(false);
   const [loadMoreFailed, setLoadMoreFailed] = createSignal(false);
   let loadMoreAutoRetried = false;
@@ -628,7 +635,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   // re-notify it. `createMemo`'s default `equals` is reference identity, which a
   // freshly built object never satisfies.
   const loadedRange = createMemo(
-    () => ({ start: loadedStart(), end: loadedStart() + messages().length }),
+    () => ({ start: loadedStart(), end: loadedStart() + windowMessages().length }),
     undefined,
     { equals: (a, b) => a.start === b.start && a.end === b.end },
   );
@@ -1770,7 +1777,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   // ── derived views ─────────────────────────────────────────────────────────
   const visibleMessages = createMemo<Email[]>(() => {
     const now = Date.now();
-    const shown = messages().filter((m) => {
+    const shown = windowMessages().filter((m) => {
       const s = m.snoozedUntil;
       return s == null || new Date(s).getTime() <= now;
     });
@@ -1990,9 +1997,15 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       querySnapshot=captureQuery(pageReq,res,querySnapshot);
       const { page, serverLen, hidden: newHidden, relocated } = ingestPage(res, src, req);
       const before = messages();
-      const next = jump?page:appendPage(before, page);
+      const beforeWindow=windowMessages();
+      const nextWindow=jump?page:appendPage(beforeWindow,page);
+      const activeIds=new Set(nextWindow.map(message=>message.id));
+      const selected=selectedIds();
+      const retained=before.filter(message=>selected.has(message.id)&&!activeIds.has(message.id));
+      const next = retained.length>0?[...nextWindow,...retained]:nextWindow;
       batch(()=>{
-      if(jump){setLoadedStart(position);hiddenRows=0;}
+      if(jump){setLoadedStart(position);setWindowIds(new Set(page.map(message=>message.id)));hiddenRows=0;}
+      else if(windowIds()!==null)setWindowIds(new Set([...windowIds()!,...page.map(message=>message.id)]));
       setMessages(next);
       nextServerPosition=position+serverLen;
       hiddenRows+=newHidden;
@@ -2013,7 +2026,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // scroll event for as long as the user keeps scrolling — an unbounded
       // request loop whose only symptom is "the list feels slow".
       //
-      // The test is `next === before` — did the MESSAGE array move — and it must
+      // The test is `nextWindow === beforeWindow` — did the MESSAGE array move — and it must
       // stay that. The tempting rewrite is to compare a rendered row count, and
       // that version is wrong on a shape most fixtures do not contain: a page
       // that folds entirely into conversations already on screen adds messages
@@ -2021,7 +2034,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // the query on a folder that is one large thread. That is a worse bug than
       // the loop this guards, and it is the version written first.
       const knownTotal=t??total();
-      const done = (requestedWindow?.limit!==undefined&&knownTotal!==null?position+serverLen>=knownTotal||serverLen===0:serverLen<size) || (next === before&&relocated===0&&newHidden===0);
+      const done = (requestedWindow?.limit!==undefined&&knownTotal!==null?position+serverLen>=knownTotal||serverLen===0:serverLen<size) || (nextWindow === beforeWindow&&relocated===0&&newHidden===0);
       setExhausted(done);
       // The query ended short of the reported total (server clamped the page,
       // rows hidden or moved): drop the unfetched tail, or its skeleton rows
@@ -2227,10 +2240,16 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       }
       if (!isCurrent(req)) return;
       const { page, serverLen, hidden, relocated } = ingestPage(res, src, req);
-      setMessages(page);
+      batch(()=>{
+        const ids=new Set(page.map(message=>message.id));
+        const retained=windowIds()===null?[]:messages().filter(message=>!windowIds()!.has(message.id)&&selectedIds().has(message.id)&&!ids.has(message.id));
+        const windowed=windowIds()!==null;
+        setMessages([...page,...retained]);
+        setLoadedStart(range.start);
+        if(windowed)setWindowIds(ids);
+      });
       nextServerPosition=range.start+serverLen;
       hiddenRows=hidden;
-      setLoadedStart(range.start);
       const reportedTotal = pageTotal(res);
       setTotal(relocated>0||reportedTotal===null?null:Math.max(0,reportedTotal-hidden));
       setExhausted(serverLen < loaded);refreshFailures=0;onChecked?.(true);

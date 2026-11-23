@@ -195,6 +195,7 @@ function MessageRow(props: {
   top: number;
   height: number;
   index: number;
+  position?: number;
   total: number;
   focused: boolean;
   selected: boolean;
@@ -206,7 +207,7 @@ function MessageRow(props: {
   const app = useApp();
   const email = () => props.email;
   const prefetch=mailPrefetchEvents(trigger=>app.prefetchMessage?.(email().id,trigger)??(()=>undefined));
-  return <MessageRowFrame email={email()} top={props.top} height={props.height} index={props.index} total={props.total} selected={props.selected} focused={props.focused}
+  return <MessageRowFrame email={email()} top={props.top} height={props.height} index={props.index} position={props.position??props.index} total={props.total} selected={props.selected} focused={props.focused}
     active={app.openEmail()?.id===email().id} threadChild={props.threadChild} replyDraftId={props.replyDraft?.id}
     buttonProps={{ref:el=>props.setRef(el), 'aria-disabled':app.listLoading(),onClick:props.onClick,onDblClick:props.onDblClick,
       draggable:dragToFolderEnabled()&&!app.listLoading(),onDragStart:props.onDragStart,onDragEnd:clearMessageDrag,
@@ -218,11 +219,11 @@ function MessageRow(props: {
 }
 
 /** Shared row geometry, state styling and accessible position for every mailbox list. */
-export function MessageRowFrame(props:{email:Email;top:number;height:number;index:number;total:number;selected:boolean;focused:boolean;active?:boolean;threadChild?:boolean|undefined;replyDraftId?:string|undefined;slotProps?:JSX.LiHTMLAttributes<HTMLLIElement>&{[key:`data-${string}`]:string|number|undefined};buttonProps?:JSX.ButtonHTMLAttributes<HTMLButtonElement>&{[key:`data-${string}`]:string|number|undefined};actions?:JSX.Element;children:JSX.Element}):JSX.Element {
- return <li {...props.slotProps} class={`list__slot ${rowCss.slot}`} data-motion-row={`m:${props.email.id}`} data-reply-draft={props.replyDraftId} role="listitem" aria-posinset={props.index+1} aria-setsize={props.total} style={{transform:`translateY(${props.top}px)`,height:`${props.height}px`}}>
+export function MessageRowFrame(props:{email:Email;top:number;height:number;index:number;position?:number;total:number;selected:boolean;focused:boolean;active?:boolean;threadChild?:boolean|undefined;replyDraftId?:string|undefined;slotProps?:JSX.LiHTMLAttributes<HTMLLIElement>&{[key:`data-${string}`]:string|number|undefined};buttonProps?:JSX.ButtonHTMLAttributes<HTMLButtonElement>&{[key:`data-${string}`]:string|number|undefined};actions?:JSX.Element;children:JSX.Element}):JSX.Element {
+ return <li {...props.slotProps} class={`list__slot ${rowCss.slot}`} data-motion-row={`m:${props.email.id}`} data-reply-draft={props.replyDraftId} role="listitem" aria-posinset={(props.position??props.index)+1} aria-setsize={props.total} style={{transform:`translateY(${props.top}px)`,height:`${props.height}px`}}>
   <button {...props.buttonProps} type="button" class={`list__row ${rowCss.row} ${a11y.focusable}`} classList={{'list__row--active':props.active===true,'list__row--pinned':props.email.pinned===true,'list__row--unread':props.email.keywords?.['$seen']!==true,'list__row--selected':props.selected,[bulk.selectedRow]:props.selected,[thread.childRow]:props.threadChild===true,[rowCss.expired]:rowExpired(props.email)}} tabindex={props.focused?0:-1} aria-current={props.active?'true':undefined} data-index={props.index} data-email-id={props.email.id} data-incoming={incomingHighlighted(props.email.id)?'true':undefined}>
    <Show when={props.email.keywords?.['$seen']!==true}><span class={a11y.srOnly}>{t('mail-unread')}</span></Show>
-   <span class={a11y.srOnly}>{t('mail-row-position',{pos:props.index+1,total:props.total})}</span>{props.children}
+   <span class={a11y.srOnly}>{t('mail-row-position',{pos:(props.position??props.index)+1,total:props.total})}</span>{props.children}
   </button>{props.actions}
  </li>;
 }
@@ -486,7 +487,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   // toggled (a visual-row index), or `null` before any.
   const [anchor, setAnchor] = createSignal<number | null>(null);
   let rangeAdded:Id[]=[];
-  createEffect(on(()=>JSON.stringify([orderScope(),app.searchActive(),app.search?.(),order.value(),order.group()]),()=>{setAnchor(null);rangeAdded=[];}));
+  createEffect(on(()=>JSON.stringify([orderScope(),app.searchActive(),app.search?.(),order.value(),order.group(),app.loadedRange().start]),()=>{setAnchor(null);rangeAdded=[];}));
 
   const tableMode=()=>settings()['mail.messageListStyle']?.value==='table';
   const rowHeight = (): number => messageRowHeight(app.density(),tableMode());
@@ -827,6 +828,17 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   function moveCursor(to: number): void {
     const count = rows().length;
     if (count === 0) return;
+    // A distant window is not the start of the folder. Keyboard navigation
+    // crossing its edge fetches the adjacent range rather than getting stuck.
+    const target=rangeOffset()+to,total=app.total();
+    if(directPaging()&&(to<0||to>=count)&&target>=0&&(total===null||target<total)&&!app.loadingMore()){
+      const scope=pagingScope();
+      void app.loadMore({position:Math.max(0,target-6)}).then(()=>{
+        const local=target-rangeOffset();
+        if(pagingScope()===scope&&local>=0&&local<rows().length)moveCursor(local);
+      });
+      return;
+    }
     const next = Math.max(0, Math.min(count - 1, to));
     setCursor(next);
     if (scroller !== undefined) {
@@ -883,7 +895,13 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     else if (e.key === 'ArrowUp' && e.shiftKey && modifierSelectionEnabled()) extendTo(cursor() - 1);
     else if (e.key === 'ArrowDown') moveCursor(cursor() + 1);
     else if (e.key === 'ArrowUp') moveCursor(cursor() - 1);
-    else if (e.key === 'Home') moveCursor(0);
+    else if (e.key === 'Home') {
+      if(directPaging()&&rangeOffset()>0){
+        const scope=pagingScope();
+        if(scroller){scroller.scrollTop=0;setScrollTop(0);}
+        void app.loadMore({position:0}).then(()=>{if(pagingScope()===scope&&rangeOffset()===0)moveCursor(0);});
+      }else moveCursor(0);
+    }
     else if (e.key === 'End') moveCursor(count - 1);
     else if (e.key === 'PageDown' || e.key === 'PageUp') {
       const page = Math.max(1, Math.floor((scroller?.clientHeight || viewportH()) / rowHeight()) - 1);
@@ -1060,6 +1078,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
                           top={rowTop(index())}
                           height={rowHeight()}
                           index={index()}
+                          position={rangeOffset()+index()}
                           total={spanRows()}
                           focused={index() === cursor()}
                           selected={isSelected(row())}

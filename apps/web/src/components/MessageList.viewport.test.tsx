@@ -133,6 +133,12 @@ it('fetches the visible range first after a long scroll jump without walking int
  expect(calls.slice(before).length).toBeLessThan(5);
  expect(scroller.scrollTop).toBe(5000*72);
  expect(app.total()).toBe(10000);
+ const visible=result.container.querySelector<HTMLElement>('[data-email-id="inbox-5000"]')!;
+ expect(visible.closest('[role="listitem"]')?.getAttribute('aria-posinset')).toBe('5001');
+ fireEvent.keyDown(visible,{key:'Home'});
+ await waitFor(()=>expect(app.loadedRange().start).toBe(0));
+ await waitFor(()=>expect(result.container.querySelector('[data-email-id="inbox-0"]')).not.toBeNull());
+ expect(scroller.scrollTop).toBe(0);
 });
 it('keeps overlapping row elements and spacer height stable while appending older mail',async()=>{
  const state=await mount(200,{held:true});
