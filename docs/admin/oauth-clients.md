@@ -40,11 +40,13 @@ A registered app is always a public client that uses the authorization code flow
 <a id="allowedRedirectHostSuffixes"></a>
 ### Allowed redirect hosts
 
-Every redirect address an app registers must be on one of these hosts or on a subdomain of one: `example.org` allows `example.org` and `app.example.org`, not `notexample.org`. An empty list refuses every registration.
+Every redirect address an app registers is read as a browser would read it and must pass these checks, or the registration is refused:
 
-::: warning
-Only the host is checked, not the scheme: an `http://` redirect address on an allowed host is accepted. List only hosts you control.
-:::
+- It is a complete address, without a backslash, control characters, spaces, a user name or password (`user@`) or a fragment (`#...`).
+- It uses `https`, or `http` to a loopback IP address such as `http://127.0.0.1:8765/callback` or `http://[::1]/cb`. `http` to any other host, including `localhost`, and app-specific schemes such as `com.example.app:/cb` are refused.
+- Its host is on this list: an entry `example.org` (or `.example.org` or `*.example.org`) allows `example.org` and every name ending in `.example.org`, such as `app.example.org`, but not `notexample.org`. A loopback address must be on the list too (`127.0.0.1` or `::1`). An empty list refuses every registration.
+
+When an app later asks for sign-in, the redirect address must be exactly one it registered, port included, and it is checked against the same shape and scheme rules again; an app whose stored address no longer passes gets no authorization code. Clients registered by an administrator rather than by themselves keep app-specific schemes, but an address with a user name, a backslash or a fragment gets no code either.
 
 <a id="requireInitialAccessToken"></a>
 ### Require the shared registration token

@@ -13,6 +13,7 @@ To see which release you run, check the image tag or run `mailwoman --version`.
 - [deploy.sh files and admin variables](deploy-script-and-environment.md): older `deploy.env`/`app.env` files, and `MW_ADMIN_*` variables that now stop the start.
 - [Single sign-on provider settings and SAML signatures](sso-provider-settings.md): re-enter providers saved from the console, and review past SAML sign-ins if a provider accepted unsigned responses.
 - [Sign-in locks and two-factor enrolment](sign-in-locks-and-two-factor.md): IPv6 sign-in locks cover the /64, a full lock table no longer refuses new sources, and accounts without a second factor set one up at sign-in.
+- [OAuth client redirect addresses](oauth-client-redirects.md): self-registered apps need `https` (or `http` to a loopback IP) redirect addresses; unsafe addresses get no authorization code.
 
 ## 26.19
 
