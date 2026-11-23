@@ -4,7 +4,7 @@
 # -- Panel header ------------------------------------------------------------
 keys-panel-label = 鍵の管理
 keys-title = 鍵と証明書
-keys-subtitle = OpenPGP と S/MIME の鍵。秘密鍵はこのデバイスに保存され、サーバーには送信されません。
+keys-subtitle = OpenPGP と S/MIME の鍵。各秘密鍵のコピーは、その鍵のパスフレーズでロックされた状態でサーバーに保存され、他のデバイスでも鍵を使えるようになっています。サーバーはパスフレーズなしでは鍵を使えないため、そのコピーを守っているのはパスフレーズの強さです。
 keys-generate = 鍵を生成
 keys-import = 鍵をインポート
 
@@ -86,7 +86,7 @@ keys-generate-smime-note = RSA 3072 ビットの鍵と、下のアドレス用�
 keys-name = 名前
 keys-email = メールアドレス
 keys-key-passphrase = 鍵のパスフレーズ
-keys-passphrase-help = パスフレーズはこのデバイス上で秘密鍵を保護します。ブラウザーの外に送信されることはありません。
+keys-passphrase-help = パスフレーズはこのブラウザー内で秘密鍵をロックし、ブラウザーの外に出ることはありません。ロックされた鍵はサーバーにも保存されるため、強いパスフレーズを選んでください。
 keys-cancel = キャンセル
 keys-generate-submit = 生成
 keys-generating = 生成中…
@@ -112,6 +112,6 @@ keys-preview = プレビュー
 keys-preview-type = 種類：{ $kind }
 keys-preview-fingerprint-aria = プレビューのフィンガープリント
 keys-preview-fingerprint = フィンガープリント：{ $fp }
-keys-preview-has-private = 秘密鍵を含みます（このデバイスに保存されます）
+keys-preview-has-private = 秘密鍵を含みます（このデバイスと、パスフレーズでロックした状態でサーバーに保存されます）
 keys-preview-public-only = 公開鍵のみ
 keys-import-submit = インポート

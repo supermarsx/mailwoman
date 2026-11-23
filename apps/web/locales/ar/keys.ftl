@@ -4,7 +4,7 @@
 # -- Panel header ------------------------------------------------------------
 keys-panel-label = إدارة المفاتيح
 keys-title = المفاتيح والشهادات
-keys-subtitle = مفاتيح OpenPGP وS/MIME. تبقى المفاتيح الخاصة على هذا الجهاز ولا تصل إلى الخادم أبدًا.
+keys-subtitle = مفاتيح OpenPGP وS/MIME. تُحفظ على الخادم نسخة من كل مفتاح خاص، مقفلة بعبارة مرور المفتاح، لتتمكن من استخدام المفتاح على أجهزة أخرى. لا يستطيع الخادم استخدام المفتاح دون عبارة المرور، لذا فإن قوة عبارة المرور هي ما يحمي تلك النسخة.
 keys-generate = توليد مفتاح
 keys-import = استيراد مفتاح
 
@@ -93,7 +93,7 @@ keys-generate-smime-note = يُنشئ مفتاح RSA بطول 3072 بت وشها
 keys-name = الاسم
 keys-email = البريد الإلكتروني
 keys-key-passphrase = عبارة مرور المفتاح
-keys-passphrase-help = تحمي عبارة المرور المفتاح الخاص على هذا الجهاز. ولا تغادر المتصفح أبدًا.
+keys-passphrase-help = تقفل عبارة المرور المفتاح الخاص في هذا المتصفح ولا تغادره أبدًا. يُحفظ المفتاح المقفل على الخادم أيضًا، لذا اختر عبارة مرور قوية.
 keys-cancel = إلغاء
 keys-generate-submit = توليد
 keys-generating = جارٍ التوليد…
@@ -119,6 +119,6 @@ keys-preview = معاينة
 keys-preview-type = النوع: { $kind }
 keys-preview-fingerprint-aria = بصمة المعاينة
 keys-preview-fingerprint = البصمة: { $fp }
-keys-preview-has-private = يتضمن مفتاحًا خاصًا (سيُخزَّن على هذا الجهاز)
+keys-preview-has-private = يتضمن مفتاحًا خاصًا (سيُحفظ على هذا الجهاز، ومقفلًا بعبارة المرور على الخادم)
 keys-preview-public-only = مفتاح عام فقط
 keys-import-submit = استيراد

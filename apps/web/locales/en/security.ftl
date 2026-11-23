@@ -93,20 +93,20 @@ security-control-done-report-junk = Reported as junk
 security-za-title = Zero-access storage
 security-za-on = On
 security-za-off = Off
-security-za-protects = Zero-access encrypts your stored mail, notes, and PIM data so the hosting server keeps only ciphertext it cannot read. It defends the contents of your stored data against a curious operator or a breach of the storage host: anyone who reads the database, the on-disk files, or a stolen backup sees XChaCha20-Poly1305 ciphertext and cannot recover message bodies, subjects, attachments, note text, or the search index.
+security-za-protects = Zero-access keeps this account's mail out of the server's search index and keeps text taken from it out of shared caches. Turning it on also deletes the stored passwords of linked mailboxes. It does not change how mail is stored: message bodies and envelopes are sealed with the server's key whether this mode is on or off, and the server can open them. A copy of the database is protected only if the server key is kept separately from it; on a default SQLite installation the key file sits next to the database.
 
 security-za-server-sees-title = What the server still sees
-security-za-sees-1 = Ciphertext blobs — the encrypted rows themselves.
-security-za-sees-2 = Opaque row IDs — the identifiers used to store and fetch rows.
-security-za-sees-3 = Sizes — the length of each ciphertext (approximate message/attachment size).
+security-za-sees-1 = Message bodies and envelopes — sealed with the server's own key, which the server can use to open them.
+security-za-sees-2 = Mail in transit — the server connects to your mail provider for you and handles every message it fetches or sends.
+security-za-sees-3 = Sizes — the size of each message and attachment.
 security-za-sees-4 = Timestamps — when rows are written and updated.
 security-za-sees-5 = Envelope routing metadata needed to proxy IMAP/SMTP — the server still connects to your upstream mail provider on your behalf, so connection metadata and the routing envelope required to send and receive mail pass through it.
 
-security-za-active-server-caveat = Zero-access protects data AT REST against a curious or breached host. A fully malicious active server that proxies your live IMAP/SMTP traffic is a stronger adversary, and zero-access does NOT defend against it: such a server sits on the live connection to your mail provider and could observe or tamper with mail as it flows through, regardless of how the stored copy is encrypted. Choose zero-access when your concern is "I do not want whoever runs (or breaches) the storage host to read my stored mail." It is not a defense against an operator who subverts the live mail path.
+security-za-active-server-caveat = Zero-access does NOT defend your mail against the server or whoever runs it. The server holds the key that seals stored mail, so its operator, an attacker who breaches the server, or anyone with a copy of the database and the server key can read it. The server also sits on the live connection to your mail provider and could observe or change mail as it flows through. Choose zero-access to keep this account out of the server's search index; it is not encryption that the server cannot read.
 
-security-za-no-search-claim = There is no server-side searchable encryption here, and no such claim is made. Search runs entirely on the client over content it has decrypted locally; the server never holds a searchable form of your plaintext.
+security-za-no-search-claim = When zero-access is turned on, the server removes this account's documents from its search index and writes no new ones while the mode stays on. There is no server-side searchable encryption, and no such claim is made.
 
-security-za-recovery-tradeoff = Your keys are derived and held only on your devices — the server never receives a plaintext key. If you lose your passphrase (or passkey) AND every paired device AND your recovery phrase, the encrypted data cannot be recovered. Save the recovery phrase offline and treat it as equivalent to your account master secret.
+security-za-recovery-tradeoff = Turning zero-access on creates a key on this device from your passphrase or passkey; the server stores only a wrapped copy and never receives the key itself. Stored mail is not encrypted with this key yet, so the key does not decide who can read your mail. Keep the recovery phrase offline: anyone who has it can recreate the key.
 
 security-za-setup-key = Set up your key
 security-za-key-source = Key source
@@ -117,10 +117,10 @@ security-za-passphrase-label = Zero-access passphrase
 security-za-enable = Enable zero-access
 security-za-recovery-title = Recovery phrase
 security-za-recovery-heading = Recovery phrase — save this offline now
-security-za-recovery-note = This is the only copy. Anyone who has it can read your data; without it (and without a paired device) your data cannot be recovered.
+security-za-recovery-note = This is the only copy. Anyone who has it can recreate your zero-access key. Stored mail is not encrypted with that key yet.
 security-za-disable-section = Disable zero-access
 security-za-disable-heading = Turn off zero-access
-security-za-disable-note = New data will be stored unencrypted again. Existing encrypted data stays readable only while you can still derive your key.
+security-za-disable-note = The server can add this account's mail to its search index again. Storage does not change: mail stays sealed with the server's key either way.
 security-za-disable-btn = Disable zero-access
 security-za-err-passphrase-len = use a passphrase of at least 8 characters
 security-za-err-enable = could not enable zero-access

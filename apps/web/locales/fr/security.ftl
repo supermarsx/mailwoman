@@ -81,20 +81,20 @@ security-control-done-report-junk = Signalé comme indésirable
 security-za-title = Stockage à accès zéro
 security-za-on = Activé
 security-za-off = Désactivé
-security-za-protects = L’accès zéro chiffre votre courrier, vos notes et vos données PIM stockés, de sorte que le serveur d’hébergement ne conserve qu’un texte chiffré qu’il ne peut pas lire. Il protège le contenu de vos données stockées contre un opérateur curieux ou une intrusion sur l’hôte de stockage : quiconque lit la base de données, les fichiers sur disque ou une sauvegarde volée ne voit que du texte chiffré XChaCha20-Poly1305 et ne peut pas récupérer le corps des messages, les objets, les pièces jointes, le texte des notes ni l’index de recherche.
+security-za-protects = L’accès zéro tient le courrier de ce compte à l’écart de l’index de recherche du serveur et tient le texte qui en est tiré à l’écart des caches partagés. Son activation supprime aussi les mots de passe enregistrés des boîtes aux lettres liées. Il ne change pas la façon dont le courrier est stocké : le corps et l’enveloppe des messages sont scellés avec la clé du serveur, que ce mode soit activé ou non, et le serveur peut les ouvrir. Une copie de la base de données n’est protégée que si la clé du serveur est conservée séparément ; sur une installation SQLite par défaut, le fichier de clé se trouve à côté de la base de données.
 
 security-za-server-sees-title = Ce que le serveur voit encore
-security-za-sees-1 = Les blocs chiffrés — les lignes chiffrées elles-mêmes.
-security-za-sees-2 = Les identifiants de ligne opaques — les identifiants utilisés pour stocker et récupérer les lignes.
-security-za-sees-3 = Les tailles — la longueur de chaque texte chiffré (taille approximative des messages et pièces jointes).
+security-za-sees-1 = Le corps et l’enveloppe des messages — scellés avec la propre clé du serveur, qui lui permet de les ouvrir.
+security-za-sees-2 = Le courrier en transit — le serveur se connecte à votre fournisseur de messagerie pour vous et traite chaque message qu’il récupère ou envoie.
+security-za-sees-3 = Les tailles — la taille de chaque message et de chaque pièce jointe.
 security-za-sees-4 = Les horodatages — le moment où les lignes sont écrites et mises à jour.
 security-za-sees-5 = Les métadonnées de routage de l’enveloppe nécessaires pour relayer IMAP/SMTP — le serveur se connecte toujours à votre fournisseur de messagerie en votre nom ; les métadonnées de connexion et l’enveloppe de routage nécessaires pour envoyer et recevoir du courrier passent donc par lui.
 
-security-za-active-server-caveat = L’accès zéro protège les données AU REPOS contre un hôte curieux ou compromis. Un serveur actif entièrement malveillant qui relaie votre trafic IMAP/SMTP en direct est un adversaire plus puissant, et l’accès zéro ne protège PAS contre lui : un tel serveur se trouve sur la connexion en direct avec votre fournisseur de messagerie et pourrait observer ou altérer le courrier qui transite, quelle que soit la façon dont la copie stockée est chiffrée. Choisissez l’accès zéro si votre préoccupation est « Je ne veux pas que celui qui gère (ou compromet) l’hôte de stockage lise mon courrier stocké. » Ce n’est pas une protection contre un opérateur qui détourne le chemin du courrier en direct.
+security-za-active-server-caveat = L’accès zéro ne protège PAS votre courrier contre le serveur ni contre celui qui l’exploite. Le serveur détient la clé qui scelle le courrier stocké : son exploitant, un attaquant qui pénètre le serveur ou toute personne disposant d’une copie de la base de données et de la clé du serveur peut donc le lire. Le serveur se trouve aussi sur la connexion active avec votre fournisseur de messagerie et pourrait observer ou modifier le courrier qui y transite. Choisissez l’accès zéro pour tenir ce compte à l’écart de l’index de recherche du serveur ; ce n’est pas un chiffrement que le serveur ne peut pas lire.
 
-security-za-no-search-claim = Il n’y a pas ici de chiffrement interrogeable côté serveur, et aucune affirmation de ce type n’est faite. La recherche s’exécute entièrement sur le client, sur le contenu qu’il a déchiffré localement ; le serveur ne détient jamais de forme interrogeable de votre texte en clair.
+security-za-no-search-claim = Quand l’accès zéro est activé, le serveur retire les documents de ce compte de son index de recherche et n’en écrit pas de nouveaux tant que le mode reste activé. Il n’existe pas de chiffrement interrogeable côté serveur, et aucune affirmation de ce type n’est faite.
 
-security-za-recovery-tradeoff = Vos clés sont dérivées et conservées uniquement sur vos appareils — le serveur ne reçoit jamais de clé en clair. Si vous perdez votre phrase secrète (ou votre clé d’accès) ET tous les appareils associés ET votre phrase de récupération, les données chiffrées ne peuvent pas être récupérées. Conservez la phrase de récupération hors ligne et considérez-la comme équivalente au secret maître de votre compte.
+security-za-recovery-tradeoff = L’activation de l’accès zéro crée sur cet appareil une clé à partir de votre phrase secrète ou de votre clé d’accès ; le serveur n’en conserve qu’une copie enveloppée et ne reçoit jamais la clé elle-même. Le courrier stocké n’est pas encore chiffré avec cette clé : elle ne détermine donc pas qui peut lire votre courrier. Conservez la phrase de récupération hors ligne : quiconque la possède peut recréer la clé.
 
 security-za-setup-key = Configurer votre clé
 security-za-key-source = Source de la clé
@@ -105,10 +105,10 @@ security-za-passphrase-label = Phrase secrète d’accès zéro
 security-za-enable = Activer l’accès zéro
 security-za-recovery-title = Phrase de récupération
 security-za-recovery-heading = Phrase de récupération — conservez-la hors ligne maintenant
-security-za-recovery-note = C’est la seule copie. Quiconque la possède peut lire vos données ; sans elle (et sans appareil associé), vos données ne peuvent pas être récupérées.
+security-za-recovery-note = C’est la seule copie. Quiconque la possède peut recréer votre clé d’accès zéro. Le courrier stocké n’est pas encore chiffré avec cette clé.
 security-za-disable-section = Désactiver l’accès zéro
 security-za-disable-heading = Désactiver l’accès zéro
-security-za-disable-note = Les nouvelles données seront de nouveau stockées sans chiffrement. Les données chiffrées existantes restent lisibles uniquement tant que vous pouvez encore dériver votre clé.
+security-za-disable-note = Le serveur peut de nouveau ajouter le courrier de ce compte à son index de recherche. Le stockage ne change pas : le courrier reste scellé avec la clé du serveur dans les deux cas.
 security-za-disable-btn = Désactiver l’accès zéro
 security-za-err-passphrase-len = utilisez une phrase secrète d’au moins 8 caractères
 security-za-err-enable = impossible d’activer l’accès zéro

@@ -81,20 +81,20 @@ security-control-done-report-junk = Segnalato come posta indesiderata
 security-za-title = Archiviazione zero-access
 security-za-on = Attiva
 security-za-off = Disattiva
-security-za-protects = Zero-access cifra la posta, le note e i dati PIM archiviati, in modo che il server di hosting conservi solo testo cifrato che non può leggere. Protegge il contenuto dei dati archiviati da un operatore curioso o da una violazione dell'host di archiviazione: chiunque legga il database, i file su disco o un backup rubato vede testo cifrato XChaCha20-Poly1305 e non può recuperare il corpo dei messaggi, gli oggetti, gli allegati, il testo delle note o l'indice di ricerca.
+security-za-protects = Zero-access tiene la posta di questo account fuori dall'indice di ricerca del server e tiene il testo ricavato da essa fuori dalle cache condivise. Attivandolo vengono anche eliminate le password salvate delle caselle collegate. Non cambia il modo in cui la posta viene archiviata: il corpo e la busta dei messaggi sono sigillati con la chiave del server sia con questa modalità attiva sia senza, e il server può aprirli. Una copia del database è protetta solo se la chiave del server è conservata separatamente; in un'installazione SQLite predefinita il file della chiave si trova accanto al database.
 
 security-za-server-sees-title = Cosa vede ancora il server
-security-za-sees-1 = Blob di testo cifrato — le righe cifrate stesse.
-security-za-sees-2 = ID di riga opachi — gli identificatori usati per archiviare e recuperare le righe.
-security-za-sees-3 = Dimensioni — la lunghezza di ogni testo cifrato (dimensione approssimativa di messaggi e allegati).
+security-za-sees-1 = Corpo e busta dei messaggi — sigillati con la chiave del server stesso, con cui il server può aprirli.
+security-za-sees-2 = La posta in transito — il server si collega al tuo provider di posta per tuo conto e gestisce ogni messaggio che scarica o invia.
+security-za-sees-3 = Dimensioni — la dimensione di ogni messaggio e di ogni allegato.
 security-za-sees-4 = Marcature temporali — quando le righe vengono scritte e aggiornate.
 security-za-sees-5 = Metadati di instradamento della busta necessari per fare da proxy IMAP/SMTP — il server si connette comunque al provider di posta upstream per conto dell'utente, quindi i metadati di connessione e la busta di instradamento necessaria per inviare e ricevere posta passano attraverso di esso.
 
-security-za-active-server-caveat = Zero-access protegge i dati A RIPOSO da un host curioso o violato. Un server attivo del tutto malevolo che fa da proxy al traffico IMAP/SMTP in tempo reale è un avversario più forte, e zero-access NON protegge da esso: un server del genere si trova sulla connessione attiva con il provider di posta e potrebbe osservare o alterare la posta mentre transita, indipendentemente da come è cifrata la copia archiviata. Scegliere zero-access quando la preoccupazione è "non voglio che chi gestisce (o viola) l'host di archiviazione legga la mia posta archiviata." Non è una difesa contro un operatore che sovverte il percorso della posta in tempo reale.
+security-za-active-server-caveat = Zero-access NON protegge la tua posta dal server né da chi lo gestisce. Il server detiene la chiave che sigilla la posta archiviata, quindi il suo gestore, un attaccante che viola il server o chiunque abbia una copia del database e la chiave del server può leggerla. Il server si trova inoltre sulla connessione attiva con il tuo provider di posta e potrebbe osservare o modificare la posta che vi transita. Scegli zero-access per tenere questo account fuori dall'indice di ricerca del server; non è una cifratura che il server non può leggere.
 
-security-za-no-search-claim = Qui non c'è cifratura ricercabile lato server, e non viene dichiarato nulla del genere. La ricerca avviene interamente sul client, sul contenuto decifrato localmente; il server non detiene mai una forma ricercabile del testo in chiaro.
+security-za-no-search-claim = Quando zero-access viene attivato, il server rimuove i documenti di questo account dal suo indice di ricerca e non ne scrive di nuovi finché la modalità resta attiva. Non esiste una cifratura ricercabile lato server, e non viene affermato il contrario.
 
-security-za-recovery-tradeoff = Le chiavi vengono derivate e conservate solo sui dispositivi dell'utente — il server non riceve mai una chiave in chiaro. Se si perdono la passphrase (o la passkey) E tutti i dispositivi associati E la frase di recupero, i dati cifrati non possono essere recuperati. Conservare la frase di recupero offline e trattarla come equivalente al segreto principale dell'account.
+security-za-recovery-tradeoff = Attivando zero-access viene creata su questo dispositivo una chiave a partire dalla tua passphrase o passkey; il server conserva solo una copia avvolta e non riceve mai la chiave stessa. La posta archiviata non è ancora cifrata con questa chiave, quindi la chiave non decide chi può leggere la tua posta. Conserva la frase di recupero offline: chiunque la possieda può ricreare la chiave.
 
 security-za-setup-key = Configura la chiave
 security-za-key-source = Origine della chiave
@@ -105,10 +105,10 @@ security-za-passphrase-label = Passphrase zero-access
 security-za-enable = Attiva zero-access
 security-za-recovery-title = Frase di recupero
 security-za-recovery-heading = Frase di recupero — salvarla offline adesso
-security-za-recovery-note = Questa è l'unica copia. Chiunque la possieda può leggere i dati; senza di essa (e senza un dispositivo associato) i dati non possono essere recuperati.
+security-za-recovery-note = Questa è l'unica copia. Chiunque la possieda può ricreare la tua chiave zero-access. La posta archiviata non è ancora cifrata con quella chiave.
 security-za-disable-section = Disattiva zero-access
 security-za-disable-heading = Disattivare zero-access
-security-za-disable-note = I nuovi dati verranno di nuovo archiviati non cifrati. I dati cifrati esistenti restano leggibili solo finché è ancora possibile derivare la chiave.
+security-za-disable-note = Il server può di nuovo aggiungere la posta di questo account al suo indice di ricerca. L'archiviazione non cambia: la posta resta sigillata con la chiave del server in entrambi i casi.
 security-za-disable-btn = Disattiva zero-access
 security-za-err-passphrase-len = usare una passphrase di almeno 8 caratteri
 security-za-err-enable = impossibile attivare zero-access

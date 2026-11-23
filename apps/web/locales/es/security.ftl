@@ -81,20 +81,20 @@ security-control-done-report-junk = Denunciado como correo no deseado
 security-za-title = Almacenamiento de acceso cero
 security-za-on = Activado
 security-za-off = Desactivado
-security-za-protects = El acceso cero cifra su correo, sus notas y sus datos PIM almacenados, de modo que el servidor de alojamiento solo guarda texto cifrado que no puede leer. Protege el contenido de sus datos almacenados frente a un operador curioso o una brecha en el host de almacenamiento: quien lea la base de datos, los archivos en disco o una copia de seguridad robada ve texto cifrado XChaCha20-Poly1305 y no puede recuperar cuerpos de mensajes, asuntos, adjuntos, texto de notas ni el índice de búsqueda.
+security-za-protects = El acceso cero mantiene el correo de esta cuenta fuera del índice de búsqueda del servidor y mantiene el texto extraído de él fuera de las cachés compartidas. Al activarlo también se eliminan las contraseñas guardadas de los buzones vinculados. No cambia cómo se almacena el correo: los cuerpos y los sobres de los mensajes se sellan con la clave del servidor tanto si este modo está activado como si no, y el servidor puede abrirlos. Una copia de la base de datos solo está protegida si la clave del servidor se guarda por separado; en una instalación predeterminada con SQLite, el archivo de la clave está junto a la base de datos.
 
 security-za-server-sees-title = Lo que el servidor sigue viendo
-security-za-sees-1 = Bloques de texto cifrado — las propias filas cifradas.
-security-za-sees-2 = ID de fila opacos — los identificadores usados para guardar y obtener filas.
-security-za-sees-3 = Tamaños — la longitud de cada texto cifrado (tamaño aproximado del mensaje o adjunto).
+security-za-sees-1 = Cuerpos y sobres de los mensajes — sellados con la clave propia del servidor, con la que el servidor puede abrirlos.
+security-za-sees-2 = El correo en tránsito — el servidor se conecta a su proveedor de correo en su nombre y gestiona cada mensaje que recupera o envía.
+security-za-sees-3 = Tamaños — el tamaño de cada mensaje y de cada adjunto.
 security-za-sees-4 = Marcas de tiempo — cuándo se escriben y actualizan las filas.
 security-za-sees-5 = Metadatos de enrutamiento del sobre necesarios para hacer de proxy de IMAP/SMTP — el servidor sigue conectándose a su proveedor de correo en su nombre, por lo que los metadatos de conexión y el sobre de enrutamiento necesarios para enviar y recibir correo pasan por él.
 
-security-za-active-server-caveat = El acceso cero protege los datos EN REPOSO frente a un host curioso o comprometido. Un servidor activo totalmente malicioso que hace de proxy de su tráfico IMAP/SMTP en vivo es un adversario más fuerte, y el acceso cero NO protege contra él: ese servidor está en la conexión en vivo con su proveedor de correo y podría observar o manipular el correo mientras pasa, sin importar cómo esté cifrada la copia almacenada. Elija el acceso cero cuando su preocupación sea «no quiero que quien gestione (o vulnere) el host de almacenamiento lea mi correo almacenado». No es una defensa contra un operador que subvierta la ruta del correo en vivo.
+security-za-active-server-caveat = El acceso cero NO protege su correo frente al servidor ni frente a quien lo gestiona. El servidor tiene la clave que sella el correo almacenado, por lo que su operador, un atacante que vulnere el servidor o cualquiera que tenga una copia de la base de datos y la clave del servidor puede leerlo. Además, el servidor está en la conexión activa con su proveedor de correo y podría observar o modificar el correo a su paso. Elija el acceso cero para mantener esta cuenta fuera del índice de búsqueda del servidor; no es un cifrado que el servidor no pueda leer.
 
-security-za-no-search-claim = Aquí no hay cifrado con búsqueda en el servidor, y no se afirma tal cosa. La búsqueda se ejecuta íntegramente en el cliente sobre el contenido que ha descifrado localmente; el servidor nunca guarda una forma buscable de su texto sin cifrar.
+security-za-no-search-claim = Al activar el acceso cero, el servidor elimina los documentos de esta cuenta de su índice de búsqueda y no escribe otros nuevos mientras el modo siga activado. No hay cifrado con búsqueda en el servidor, y no se afirma que lo haya.
 
-security-za-recovery-tradeoff = Sus claves se derivan y se guardan solo en sus dispositivos — el servidor nunca recibe una clave sin cifrar. Si pierde su frase de contraseña (o llave de acceso) Y todos los dispositivos emparejados Y su frase de recuperación, los datos cifrados no se pueden recuperar. Guarde la frase de recuperación sin conexión y trátela como equivalente al secreto maestro de su cuenta.
+security-za-recovery-tradeoff = Al activar el acceso cero se crea una clave en este dispositivo a partir de su frase de contraseña o llave de acceso; el servidor solo guarda una copia envuelta y nunca recibe la clave en sí. El correo almacenado aún no se cifra con esta clave, así que la clave no decide quién puede leer su correo. Guarde la frase de recuperación sin conexión: quien la tenga puede volver a crear la clave.
 
 security-za-setup-key = Configurar su clave
 security-za-key-source = Origen de la clave
@@ -105,10 +105,10 @@ security-za-passphrase-label = Frase de contraseña de acceso cero
 security-za-enable = Activar acceso cero
 security-za-recovery-title = Frase de recuperación
 security-za-recovery-heading = Frase de recuperación — guárdela ahora sin conexión
-security-za-recovery-note = Esta es la única copia. Cualquiera que la tenga puede leer sus datos; sin ella (y sin un dispositivo emparejado) sus datos no se pueden recuperar.
+security-za-recovery-note = Esta es la única copia. Quien la tenga puede volver a crear su clave de acceso cero. El correo almacenado aún no se cifra con esa clave.
 security-za-disable-section = Desactivar acceso cero
 security-za-disable-heading = Desactivar el acceso cero
-security-za-disable-note = Los datos nuevos se volverán a guardar sin cifrar. Los datos cifrados existentes solo seguirán siendo legibles mientras pueda derivar su clave.
+security-za-disable-note = El servidor puede volver a añadir el correo de esta cuenta a su índice de búsqueda. El almacenamiento no cambia: el correo sigue sellado con la clave del servidor en ambos casos.
 security-za-disable-btn = Desactivar acceso cero
 security-za-err-passphrase-len = use una frase de contraseña de al menos 8 caracteres
 security-za-err-enable = no se pudo activar el acceso cero

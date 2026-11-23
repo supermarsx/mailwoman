@@ -89,7 +89,8 @@ async function apply(p: ClientPolicy, gen: number): Promise<void> {
     try {
       await getPlatform().setCaptureProtection(true);
     } catch {
-      // The platform could not do it; the reader's watermark still applies.
+      // The platform could not do it. Nothing else stands in: the web app renders
+      // no watermark, so the window can be captured.
     }
   }
 }

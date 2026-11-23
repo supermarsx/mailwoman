@@ -59,6 +59,10 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
   // A second line under a server refusal, saying what the user can do about it.
   const [errorHelp, setErrorHelp] = createSignal('');
   const [outcome, setOutcome] = createSignal<PasswordChangeOutcome | null>(null);
+  // Whether this change sent re-wrapped zero-access key material. The server's
+  // `zeroaccessRewrapRequired` only says the account is zero-access; it does not
+  // mean a re-wrap ran, so the "re-wrapped" line follows this instead.
+  const [rewrapped, setRewrapped] = createSignal(false);
 
   const isZeroAccess = (): boolean => props.zeroAccess?.account.enabled === true;
 
@@ -149,6 +153,7 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
           ? { oldPassword: oldPw(), newPassword: newPw(), rewrap }
           : { oldPassword: oldPw(), newPassword: newPw() };
       const result = await service.change(req);
+      setRewrapped(rewrap !== undefined);
       setOutcome(result);
       setPhase('done');
       // Wipe the in-memory secrets once applied.
@@ -296,7 +301,7 @@ export function PasswordChange(props: PasswordChangeProps): JSX.Element {
           <Show when={outcome()?.reencryptCredentials}>
             <p class={css.meta}>{t('passwd-done-reencrypt')}</p>
           </Show>
-          <Show when={outcome()?.zeroaccessRewrapRequired}>
+          <Show when={rewrapped()}>
             <p class={css.meta}>{t('passwd-done-rewrap')}</p>
           </Show>
         </section>

@@ -85,20 +85,20 @@ security-control-done-report-junk = Zgłoszono jako spam
 security-za-title = Przechowywanie zero-access
 security-za-on = Włączone
 security-za-off = Wyłączone
-security-za-protects = Zero-access szyfruje przechowywaną pocztę, notatki i dane PIM, tak że serwer hostingowy przechowuje tylko szyfrogram, którego nie może odczytać. Chroni zawartość przechowywanych danych przed ciekawskim operatorem lub włamaniem na host przechowujący dane: każdy, kto odczyta bazę danych, pliki na dysku lub skradzioną kopię zapasową, widzi szyfrogram XChaCha20-Poly1305 i nie może odzyskać treści wiadomości, tematów, załączników, tekstu notatek ani indeksu wyszukiwania.
+security-za-protects = Zero-access trzyma pocztę tego konta poza indeksem wyszukiwania serwera, a tekst z niej pobrany poza współdzielonymi pamięciami podręcznymi. Włączenie go usuwa też zapisane hasła połączonych skrzynek. Nie zmienia sposobu przechowywania poczty: treść i koperty wiadomości są zapieczętowane kluczem serwera niezależnie od tego, czy ten tryb jest włączony, a serwer może je otworzyć. Kopia bazy danych jest chroniona tylko wtedy, gdy klucz serwera jest przechowywany osobno; w domyślnej instalacji z SQLite plik klucza leży obok bazy danych.
 
 security-za-server-sees-title = Co serwer nadal widzi
-security-za-sees-1 = Bloki szyfrogramu — same zaszyfrowane wiersze.
-security-za-sees-2 = Nieprzejrzyste identyfikatory wierszy — identyfikatory używane do zapisywania i pobierania wierszy.
-security-za-sees-3 = Rozmiary — długość każdego szyfrogramu (przybliżony rozmiar wiadomości/załącznika).
+security-za-sees-1 = Treść i koperty wiadomości — zapieczętowane własnym kluczem serwera, którym serwer może je otworzyć.
+security-za-sees-2 = Poczta w drodze — serwer łączy się w Twoim imieniu z dostawcą poczty i obsługuje każdą wiadomość, którą pobiera lub wysyła.
+security-za-sees-3 = Rozmiary — rozmiar każdej wiadomości i każdego załącznika.
 security-za-sees-4 = Znaczniki czasu — kiedy wiersze są zapisywane i aktualizowane.
 security-za-sees-5 = Metadane routingu koperty potrzebne do pośredniczenia w IMAP/SMTP — serwer nadal łączy się w Twoim imieniu z nadrzędnym dostawcą poczty, więc przechodzą przez niego metadane połączenia oraz koperta routingu wymagana do wysyłania i odbierania poczty.
 
-security-za-active-server-caveat = Zero-access chroni dane W SPOCZYNKU przed ciekawskim lub przejętym hostem. W pełni złośliwy aktywny serwer, który pośredniczy w bieżącym ruchu IMAP/SMTP, jest silniejszym przeciwnikiem i zero-access NIE chroni przed nim: taki serwer znajduje się na bieżącym połączeniu z dostawcą poczty i może obserwować lub modyfikować pocztę podczas jej przepływu, niezależnie od tego, jak zaszyfrowana jest przechowywana kopia. Wybierz zero-access, jeśli chodzi Ci o to, by „osoba prowadząca (lub przejmująca) host przechowujący dane nie mogła czytać mojej przechowywanej poczty”. Nie jest to ochrona przed operatorem, który przejmuje bieżącą ścieżkę poczty.
+security-za-active-server-caveat = Zero-access NIE chroni Twojej poczty przed serwerem ani przed tym, kto nim zarządza. Serwer ma klucz, którym pieczętowana jest przechowywana poczta, więc jego operator, napastnik, który włamie się na serwer, lub każdy, kto ma kopię bazy danych i klucz serwera, może ją przeczytać. Serwer znajduje się też na aktywnym połączeniu z Twoim dostawcą poczty i może obserwować lub zmieniać przechodzącą przez nie pocztę. Wybierz zero-access, aby trzymać to konto poza indeksem wyszukiwania serwera; nie jest to szyfrowanie, którego serwer nie może odczytać.
 
-security-za-no-search-claim = Nie ma tu szyfrowania umożliwiającego wyszukiwanie po stronie serwera i nikt tego nie twierdzi. Wyszukiwanie odbywa się w całości po stronie klienta na treści odszyfrowanej lokalnie; serwer nigdy nie przechowuje przeszukiwalnej postaci tekstu jawnego.
+security-za-no-search-claim = Po włączeniu zero-access serwer usuwa dokumenty tego konta ze swojego indeksu wyszukiwania i nie zapisuje nowych, dopóki tryb pozostaje włączony. Nie ma szyfrowania z możliwością wyszukiwania po stronie serwera i nikt tego nie twierdzi.
 
-security-za-recovery-tradeoff = Klucze są wyprowadzane i przechowywane wyłącznie na Twoich urządzeniach — serwer nigdy nie otrzymuje klucza w postaci jawnej. Jeśli utracisz hasło (lub klucz dostępu) ORAZ wszystkie sparowane urządzenia ORAZ frazę odzyskiwania, zaszyfrowanych danych nie da się odzyskać. Zapisz frazę odzyskiwania offline i traktuj ją jak główny sekret konta.
+security-za-recovery-tradeoff = Włączenie zero-access tworzy na tym urządzeniu klucz z Twojego hasła lub klucza dostępu; serwer przechowuje tylko opakowaną kopię i nigdy nie otrzymuje samego klucza. Przechowywana poczta nie jest jeszcze szyfrowana tym kluczem, więc klucz nie decyduje o tym, kto może czytać Twoją pocztę. Przechowuj frazę odzyskiwania offline: każdy, kto ją ma, może odtworzyć klucz.
 
 security-za-setup-key = Skonfiguruj klucz
 security-za-key-source = Źródło klucza
@@ -109,10 +109,10 @@ security-za-passphrase-label = Hasło zero-access
 security-za-enable = Włącz zero-access
 security-za-recovery-title = Fraza odzyskiwania
 security-za-recovery-heading = Fraza odzyskiwania — zapisz ją teraz offline
-security-za-recovery-note = To jedyna kopia. Każdy, kto ją ma, może odczytać Twoje dane; bez niej (i bez sparowanego urządzenia) danych nie da się odzyskać.
+security-za-recovery-note = To jedyna kopia. Każdy, kto ją ma, może odtworzyć Twój klucz zero-access. Przechowywana poczta nie jest jeszcze szyfrowana tym kluczem.
 security-za-disable-section = Wyłącz zero-access
 security-za-disable-heading = Wyłączanie zero-access
-security-za-disable-note = Nowe dane będą ponownie przechowywane bez szyfrowania. Istniejące zaszyfrowane dane pozostają czytelne tylko dopóty, dopóki możesz wyprowadzić swój klucz.
+security-za-disable-note = Serwer może ponownie dodawać pocztę tego konta do swojego indeksu wyszukiwania. Przechowywanie się nie zmienia: w obu przypadkach poczta pozostaje zapieczętowana kluczem serwera.
 security-za-disable-btn = Wyłącz zero-access
 security-za-err-passphrase-len = użyj hasła o długości co najmniej 8 znaków
 security-za-err-enable = nie udało się włączyć zero-access

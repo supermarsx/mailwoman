@@ -4,7 +4,7 @@
 # -- Panel header ------------------------------------------------------------
 keys-panel-label = Sleutelbeheer
 keys-title = Sleutels en certificaten
-keys-subtitle = OpenPGP- en S/MIME-sleutels. Privésleutels blijven op dit apparaat en komen nooit op de server.
+keys-subtitle = OpenPGP- en S/MIME-sleutels. Een kopie van elke privésleutel, vergrendeld met de wachtwoordzin van de sleutel, wordt op de server opgeslagen zodat u de sleutel op andere apparaten kunt gebruiken. De server kan de sleutel niet gebruiken zonder de wachtwoordzin, dus de sterkte van de wachtwoordzin is wat die kopie beschermt.
 keys-generate = Sleutel aanmaken
 keys-import = Sleutel importeren
 
@@ -89,7 +89,7 @@ keys-generate-smime-note = Maakt een RSA-sleutel van 3072 bits en een certificaa
 keys-name = Naam
 keys-email = E-mail
 keys-key-passphrase = Wachtwoordzin voor de sleutel
-keys-passphrase-help = De wachtwoordzin beschermt de privésleutel op dit apparaat. Hij verlaat de browser nooit.
+keys-passphrase-help = De wachtwoordzin vergrendelt de privésleutel in deze browser en verlaat de browser nooit. De vergrendelde sleutel wordt ook op de server opgeslagen, dus kies een sterke wachtwoordzin.
 keys-cancel = Annuleren
 keys-generate-submit = Aanmaken
 keys-generating = Aanmaken…
@@ -115,6 +115,6 @@ keys-preview = Voorbeeld
 keys-preview-type = Type: { $kind }
 keys-preview-fingerprint-aria = Vingerafdruk in voorbeeld
 keys-preview-fingerprint = Vingerafdruk: { $fp }
-keys-preview-has-private = Bevat een privésleutel (wordt op dit apparaat opgeslagen)
+keys-preview-has-private = Bevat een privésleutel (wordt opgeslagen op dit apparaat en, vergrendeld met de wachtwoordzin, op de server)
 keys-preview-public-only = Alleen openbare sleutel
 keys-import-submit = Importeren

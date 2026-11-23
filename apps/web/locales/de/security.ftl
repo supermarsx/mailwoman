@@ -84,20 +84,20 @@ security-control-done-report-junk = Als Junk gemeldet
 security-za-title = Zero-Access-Speicherung
 security-za-on = An
 security-za-off = Aus
-security-za-protects = Zero-Access verschlüsselt Ihre gespeicherten E-Mails, Notizen und PIM-Daten, sodass der Hosting-Server nur Chiffretext aufbewahrt, den er nicht lesen kann. Es schützt den Inhalt Ihrer gespeicherten Daten vor einem neugierigen Betreiber oder einem Einbruch beim Speicher-Host: Wer die Datenbank, die Dateien auf der Festplatte oder eine gestohlene Sicherung liest, sieht XChaCha20-Poly1305-Chiffretext und kann weder Nachrichtentexte, Betreffzeilen, Anhänge, Notiztexte noch den Suchindex wiederherstellen.
+security-za-protects = Zero-Access hält die E-Mails dieses Kontos aus dem Suchindex des Servers heraus und hält daraus gewonnenen Text aus gemeinsamen Caches heraus. Beim Einschalten werden außerdem die gespeicherten Passwörter verknüpfter Postfächer gelöscht. An der Speicherung der E-Mails ändert sich nichts: Nachrichtentexte und Umschläge werden mit dem Schlüssel des Servers versiegelt, ob dieser Modus ein- oder ausgeschaltet ist, und der Server kann sie öffnen. Eine Kopie der Datenbank ist nur geschützt, wenn der Serverschlüssel getrennt von ihr aufbewahrt wird; bei einer Standardinstallation mit SQLite liegt die Schlüsseldatei neben der Datenbank.
 
 security-za-server-sees-title = Was der Server weiterhin sieht
-security-za-sees-1 = Chiffretext-Blobs — die verschlüsselten Zeilen selbst.
-security-za-sees-2 = Undurchsichtige Zeilen-IDs — die Kennungen, mit denen Zeilen gespeichert und abgerufen werden.
-security-za-sees-3 = Größen — die Länge jedes Chiffretexts (ungefähre Größe von Nachricht/Anhang).
+security-za-sees-1 = Nachrichtentexte und Umschläge — mit dem eigenen Schlüssel des Servers versiegelt, mit dem der Server sie öffnen kann.
+security-za-sees-2 = E-Mails bei der Übertragung — der Server verbindet sich für Sie mit Ihrem E-Mail-Anbieter und verarbeitet jede Nachricht, die er abruft oder sendet.
+security-za-sees-3 = Größen — die Größe jeder Nachricht und jedes Anhangs.
 security-za-sees-4 = Zeitstempel — wann Zeilen geschrieben und aktualisiert werden.
 security-za-sees-5 = Envelope-Routing-Metadaten, die zum Weiterleiten von IMAP/SMTP nötig sind — der Server verbindet sich weiterhin in Ihrem Namen mit Ihrem vorgelagerten E-Mail-Anbieter, daher laufen Verbindungsmetadaten und der zum Senden und Empfangen nötige Routing-Envelope über ihn.
 
-security-za-active-server-caveat = Zero-Access schützt gespeicherte Daten (AT REST) vor einem neugierigen oder kompromittierten Host. Ein vollständig bösartiger aktiver Server, der Ihren laufenden IMAP/SMTP-Verkehr weiterleitet, ist ein stärkerer Gegner, und Zero-Access schützt NICHT vor ihm: Ein solcher Server sitzt in der laufenden Verbindung zu Ihrem E-Mail-Anbieter und könnte E-Mails beim Durchlaufen beobachten oder manipulieren, unabhängig davon, wie die gespeicherte Kopie verschlüsselt ist. Wählen Sie Zero-Access, wenn Ihr Anliegen lautet: „Ich möchte nicht, dass derjenige, der den Speicher-Host betreibt (oder in ihn einbricht), meine gespeicherten E-Mails liest.“ Es ist kein Schutz vor einem Betreiber, der den laufenden E-Mail-Weg unterwandert.
+security-za-active-server-caveat = Zero-Access schützt Ihre E-Mails NICHT vor dem Server oder vor dem, der ihn betreibt. Der Server hält den Schlüssel, mit dem gespeicherte E-Mails versiegelt werden; sein Betreiber, ein Angreifer, der in den Server eindringt, oder jeder mit einer Kopie der Datenbank und dem Serverschlüssel kann sie daher lesen. Der Server sitzt außerdem auf der laufenden Verbindung zu Ihrem E-Mail-Anbieter und könnte E-Mails beim Durchlaufen beobachten oder verändern. Wählen Sie Zero-Access, um dieses Konto aus dem Suchindex des Servers herauszuhalten; es ist keine Verschlüsselung, die der Server nicht lesen kann.
 
-security-za-no-search-claim = Es gibt hier keine serverseitige durchsuchbare Verschlüsselung, und es wird auch keine solche behauptet. Die Suche läuft vollständig auf dem Client über Inhalte, die er lokal entschlüsselt hat; der Server hält nie eine durchsuchbare Form Ihres Klartexts.
+security-za-no-search-claim = Wenn Zero-Access eingeschaltet wird, entfernt der Server die Dokumente dieses Kontos aus seinem Suchindex und schreibt keine neuen, solange der Modus eingeschaltet bleibt. Es gibt keine serverseitige durchsuchbare Verschlüsselung, und dies wird auch nicht behauptet.
 
-security-za-recovery-tradeoff = Ihre Schlüssel werden nur auf Ihren Geräten abgeleitet und aufbewahrt — der Server erhält nie einen Klartext-Schlüssel. Wenn Sie Ihre Passphrase (oder Ihren Passkey) UND jedes gekoppelte Gerät UND Ihre Wiederherstellungsphrase verlieren, können die verschlüsselten Daten nicht wiederhergestellt werden. Bewahren Sie die Wiederherstellungsphrase offline auf und behandeln Sie sie wie das Hauptgeheimnis Ihres Kontos.
+security-za-recovery-tradeoff = Beim Einschalten von Zero-Access wird auf diesem Gerät aus Ihrer Passphrase oder Ihrem Passkey ein Schlüssel erzeugt; der Server speichert nur eine verpackte Kopie und erhält den Schlüssel selbst nie. Gespeicherte E-Mails werden noch nicht mit diesem Schlüssel verschlüsselt, daher entscheidet der Schlüssel nicht darüber, wer Ihre E-Mails lesen kann. Bewahren Sie die Wiederherstellungsphrase offline auf: Wer sie hat, kann den Schlüssel neu erzeugen.
 
 security-za-setup-key = Schlüssel einrichten
 security-za-key-source = Schlüsselquelle
@@ -108,10 +108,10 @@ security-za-passphrase-label = Zero-Access-Passphrase
 security-za-enable = Zero-Access aktivieren
 security-za-recovery-title = Wiederherstellungsphrase
 security-za-recovery-heading = Wiederherstellungsphrase — jetzt offline sichern
-security-za-recovery-note = Dies ist die einzige Kopie. Wer sie besitzt, kann Ihre Daten lesen; ohne sie (und ohne gekoppeltes Gerät) können Ihre Daten nicht wiederhergestellt werden.
+security-za-recovery-note = Dies ist die einzige Kopie. Wer sie besitzt, kann Ihren Zero-Access-Schlüssel neu erzeugen. Gespeicherte E-Mails werden noch nicht mit diesem Schlüssel verschlüsselt.
 security-za-disable-section = Zero-Access deaktivieren
 security-za-disable-heading = Zero-Access ausschalten
-security-za-disable-note = Neue Daten werden wieder unverschlüsselt gespeichert. Vorhandene verschlüsselte Daten bleiben nur lesbar, solange Sie Ihren Schlüssel noch ableiten können.
+security-za-disable-note = Der Server kann die E-Mails dieses Kontos wieder in seinen Suchindex aufnehmen. An der Speicherung ändert sich nichts: E-Mails bleiben in beiden Fällen mit dem Schlüssel des Servers versiegelt.
 security-za-disable-btn = Zero-Access deaktivieren
 security-za-err-passphrase-len = Verwenden Sie eine Passphrase mit mindestens 8 Zeichen
 security-za-err-enable = Zero-Access konnte nicht aktiviert werden

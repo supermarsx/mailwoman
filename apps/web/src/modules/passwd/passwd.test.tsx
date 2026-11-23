@@ -245,6 +245,25 @@ describe('zero-access re-wrap — recovery-phrase pre-prompt BEFORE the change (
     };
     expect(body.rewrap?.wrappedDataKeyB64).toBe('bmV3d3JhcA==');
     expect(body.rewrap?.saltB64).toBeTruthy();
+    // A re-wrap ran, so the done view says so.
+    expect(screen.getByTestId('change-done')).toHaveTextContent('re-wrapped');
+  });
+
+  it('does not claim a re-wrap when none ran, even if the server flags the account as zero-access', async () => {
+    const change = vi.fn(async (_input: string, _init?: RequestInit) =>
+      okJson({ changed: true, reencryptCredentials: false, zeroaccessRewrapRequired: true }),
+    );
+    render(() => <PasswordChange accountId="a" initialPolicy={POLICY} service={new PasswordService(change)} />);
+
+    fireEvent.input(screen.getByLabelText('Current password'), { target: { value: 'OldPass1' } });
+    fireEvent.input(screen.getByLabelText('New password'), { target: { value: 'NewPass1' } });
+    fireEvent.input(screen.getByLabelText('Confirm new password'), { target: { value: 'NewPass1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+
+    await waitFor(() => expect(screen.getByTestId('change-done')).toBeInTheDocument());
+    const body = JSON.parse((change.mock.calls[0]?.[1]?.body as string) ?? '{}') as Record<string, unknown>;
+    expect(body).not.toHaveProperty('rewrap');
+    expect(screen.getByTestId('change-done')).not.toHaveTextContent('re-wrapped');
   });
 });
 

@@ -4,7 +4,7 @@
 # -- Panel header ------------------------------------------------------------
 keys-panel-label = Gestione delle chiavi
 keys-title = Chiavi e certificati
-keys-subtitle = Chiavi OpenPGP e S/MIME. Le chiavi private restano su questo dispositivo e non raggiungono mai il server.
+keys-subtitle = Chiavi OpenPGP e S/MIME. Una copia di ogni chiave privata, bloccata con la sua passphrase, viene salvata sul server per poter usare la chiave su altri dispositivi. Il server non può usare la chiave senza la passphrase, quindi è la solidità della passphrase a proteggere quella copia.
 keys-generate = Genera chiave
 keys-import = Importa chiave
 
@@ -86,7 +86,7 @@ keys-generate-smime-note = Crea una chiave RSA a 3072 bit e un certificato per l
 keys-name = Nome
 keys-email = Email
 keys-key-passphrase = Passphrase della chiave
-keys-passphrase-help = La passphrase protegge la chiave privata su questo dispositivo. Non lascia mai il browser.
+keys-passphrase-help = La passphrase blocca la chiave privata in questo browser e non lo lascia mai. La chiave bloccata viene salvata anche sul server, quindi scegli una passphrase solida.
 keys-cancel = Annulla
 keys-generate-submit = Genera
 keys-generating = Generazione…
@@ -112,6 +112,6 @@ keys-preview = Anteprima
 keys-preview-type = Tipo: { $kind }
 keys-preview-fingerprint-aria = Impronta digitale in anteprima
 keys-preview-fingerprint = Impronta digitale: { $fp }
-keys-preview-has-private = Include una chiave privata (verrà archiviata su questo dispositivo)
+keys-preview-has-private = Include una chiave privata (salvata su questo dispositivo e, bloccata con la sua passphrase, sul server)
 keys-preview-public-only = Solo chiave pubblica
 keys-import-submit = Importa

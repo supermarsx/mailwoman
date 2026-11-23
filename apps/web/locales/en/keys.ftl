@@ -10,7 +10,7 @@
 # -- Panel header ------------------------------------------------------------
 keys-panel-label = Key management
 keys-title = Keys & certificates
-keys-subtitle = OpenPGP and S/MIME keys. Private keys stay on this device and never reach the server.
+keys-subtitle = OpenPGP and S/MIME keys. A copy of each private key, locked with its key passphrase, is stored on the server so you can use the key on other devices. The server cannot use the key without the passphrase, so the strength of the passphrase is what protects that copy.
 keys-generate = Generate key
 keys-import = Import key
 
@@ -95,7 +95,7 @@ keys-generate-smime-note = Makes an RSA 3072-bit key and a certificate for the a
 keys-name = Name
 keys-email = Email
 keys-key-passphrase = Key passphrase
-keys-passphrase-help = The passphrase wraps the private key on this device. It never leaves the browser.
+keys-passphrase-help = The passphrase locks the private key in this browser and never leaves it. The locked key is also stored on the server, so choose a strong passphrase.
 keys-cancel = Cancel
 keys-generate-submit = Generate
 keys-generating = Generating…
@@ -121,6 +121,6 @@ keys-preview = Preview
 keys-preview-type = Type: { $kind }
 keys-preview-fingerprint-aria = Preview fingerprint
 keys-preview-fingerprint = Fingerprint: { $fp }
-keys-preview-has-private = Includes a private key (will be stored on this device)
+keys-preview-has-private = Includes a private key (stored on this device and, locked with its passphrase, on the server)
 keys-preview-public-only = Public key only
 keys-import-submit = Import

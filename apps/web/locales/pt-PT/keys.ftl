@@ -4,7 +4,7 @@
 # -- Panel header ------------------------------------------------------------
 keys-panel-label = Gestão de chaves
 keys-title = Chaves e certificados
-keys-subtitle = Chaves OpenPGP e S/MIME. As chaves privadas ficam neste dispositivo e nunca chegam ao servidor.
+keys-subtitle = Chaves OpenPGP e S/MIME. Uma cópia de cada chave privada, bloqueada com a frase-passe da chave, é guardada no servidor para que possa usar a chave noutros dispositivos. O servidor não consegue usar a chave sem a frase-passe, pelo que é a robustez da frase-passe que protege essa cópia.
 keys-generate = Gerar chave
 keys-import = Importar chave
 
@@ -89,7 +89,7 @@ keys-generate-smime-note = Cria uma chave RSA de 3072 bits e um certificado para
 keys-name = Nome
 keys-email = E-mail
 keys-key-passphrase = Frase-passe da chave
-keys-passphrase-help = A frase-passe protege a chave privada neste dispositivo. Nunca sai do navegador.
+keys-passphrase-help = A frase-passe bloqueia a chave privada neste navegador e nunca sai dele. A chave bloqueada também é guardada no servidor, por isso escolha uma frase-passe robusta.
 keys-cancel = Cancelar
 keys-generate-submit = Gerar
 keys-generating = A gerar…
@@ -115,6 +115,6 @@ keys-preview = Pré-visualizar
 keys-preview-type = Tipo: { $kind }
 keys-preview-fingerprint-aria = Impressão digital pré-visualizada
 keys-preview-fingerprint = Impressão digital: { $fp }
-keys-preview-has-private = Inclui uma chave privada (será guardada neste dispositivo)
+keys-preview-has-private = Inclui uma chave privada (será guardada neste dispositivo e, bloqueada com a frase-passe, no servidor)
 keys-preview-public-only = Apenas chave pública
 keys-import-submit = Importar

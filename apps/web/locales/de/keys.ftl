@@ -4,7 +4,7 @@
 # -- Panel header ------------------------------------------------------------
 keys-panel-label = Schlüsselverwaltung
 keys-title = Schlüssel & Zertifikate
-keys-subtitle = OpenPGP- und S/MIME-Schlüssel. Private Schlüssel bleiben auf diesem Gerät und erreichen nie den Server.
+keys-subtitle = OpenPGP- und S/MIME-Schlüssel. Eine Kopie jedes privaten Schlüssels, gesperrt mit seiner Schlüssel-Passphrase, wird auf dem Server gespeichert, damit Sie den Schlüssel auf anderen Geräten verwenden können. Ohne die Passphrase kann der Server den Schlüssel nicht verwenden; diese Kopie ist also so gut geschützt, wie die Passphrase stark ist.
 keys-generate = Schlüssel erzeugen
 keys-import = Schlüssel importieren
 
@@ -86,7 +86,7 @@ keys-generate-smime-note = Erzeugt einen RSA-Schlüssel mit 3072 Bit und ein Zer
 keys-name = Name
 keys-email = E-Mail
 keys-key-passphrase = Schlüssel-Passphrase
-keys-passphrase-help = Die Passphrase schützt den privaten Schlüssel auf diesem Gerät. Sie verlässt den Browser nie.
+keys-passphrase-help = Die Passphrase sperrt den privaten Schlüssel in diesem Browser und verlässt ihn nie. Der gesperrte Schlüssel wird auch auf dem Server gespeichert, wählen Sie daher eine starke Passphrase.
 keys-cancel = Abbrechen
 keys-generate-submit = Erzeugen
 keys-generating = Wird erzeugt…
@@ -112,6 +112,6 @@ keys-preview = Vorschau
 keys-preview-type = Typ: { $kind }
 keys-preview-fingerprint-aria = Fingerabdruck der Vorschau
 keys-preview-fingerprint = Fingerabdruck: { $fp }
-keys-preview-has-private = Enthält einen privaten Schlüssel (wird auf diesem Gerät gespeichert)
+keys-preview-has-private = Enthält einen privaten Schlüssel (wird auf diesem Gerät und, mit seiner Passphrase gesperrt, auf dem Server gespeichert)
 keys-preview-public-only = Nur öffentlicher Schlüssel
 keys-import-submit = Importieren

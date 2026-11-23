@@ -85,20 +85,20 @@ security-control-done-report-junk = 已举报为垃圾邮件
 security-za-title = 零访问存储
 security-za-on = 开
 security-za-off = 关
-security-za-protects = 零访问会加密你存储的邮件、笔记和个人信息管理（PIM）数据，使托管服务器只保存它无法读取的密文。它针对好奇的运营者或存储主机遭到入侵的情况，保护你存储数据的内容：任何读取数据库、磁盘文件或被盗备份的人只能看到 XChaCha20-Poly1305 密文，无法恢复邮件正文、主题、附件、笔记文本或搜索索引。
+security-za-protects = 零访问会让此账户的邮件不进入服务器的搜索索引，并让从中提取的文本不进入共享缓存。开启时还会删除已关联邮箱的已存密码。它不会改变邮件的存储方式：无论此模式是否开启，邮件正文和信封都用服务器的密钥封存，服务器可以打开它们。只有当服务器密钥与数据库分开保存时，数据库副本才受到保护；在默认的 SQLite 安装中，密钥文件就放在数据库旁边。
 
 security-za-server-sees-title = 服务器仍能看到的内容
-security-za-sees-1 = 密文数据块——即加密的数据行本身。
-security-za-sees-2 = 不透明的行 ID——用于存储和获取数据行的标识符。
-security-za-sees-3 = 大小——每段密文的长度（大致对应邮件/附件的大小）。
+security-za-sees-1 = 邮件正文和信封——用服务器自己的密钥封存，服务器可以用它打开。
+security-za-sees-2 = 传输中的邮件——服务器代表你连接到你的邮件提供商，并处理它获取或发送的每一封邮件。
+security-za-sees-3 = 大小——每封邮件和每个附件的大小。
 security-za-sees-4 = 时间戳——数据行写入和更新的时间。
 security-za-sees-5 = 代理 IMAP/SMTP 所需的信封路由元数据——服务器仍会代表你连接到上游邮件服务商，因此收发邮件所需的连接元数据和路由信封会经过服务器。
 
-security-za-active-server-caveat = 零访问保护的是静态存储的数据，防范好奇的或遭到入侵的主机。一个代理你实时 IMAP/SMTP 流量的完全恶意的主动服务器是更强大的对手，零访问无法防御它：这样的服务器位于你与邮件服务商之间的实时连接上，无论存储副本如何加密，它都可以在邮件流经时观察或篡改邮件。如果你担心的是“我不希望运营（或入侵）存储主机的人读取我存储的邮件”，请选择零访问。它不能防御篡改实时邮件路径的运营者。
+security-za-active-server-caveat = 零访问并不能保护你的邮件免受服务器或其运营者的访问。封存已存邮件的密钥由服务器持有，因此其运营者、入侵服务器的攻击者，或任何持有数据库副本和服务器密钥的人都能读取这些邮件。服务器还位于与你的邮件提供商的实时连接上，可以观察或修改经过的邮件。选择零访问是为了让此账户不进入服务器的搜索索引；它不是服务器无法读取的加密。
 
-security-za-no-search-claim = 这里没有服务器端可搜索加密，也不作此声明。搜索完全在客户端上针对本地解密的内容进行；服务器从不持有你明文的可搜索形式。
+security-za-no-search-claim = 开启零访问后，服务器会从其搜索索引中删除此账户的文档，并且在此模式保持开启期间不再写入新文档。服务器端没有可搜索加密，也不作此声明。
 
-security-za-recovery-tradeoff = 你的密钥仅在你的设备上派生和保存——服务器从不接收明文密钥。如果你同时丢失了密码短语（或通行密钥）、所有已配对的设备以及恢复短语，加密数据将无法恢复。请离线保存恢复短语，并将其视同你账户的主密钥。
+security-za-recovery-tradeoff = 开启零访问时，会在此设备上根据你的密码短语或通行密钥创建一个密钥；服务器只保存封装后的副本，从不接收密钥本身。已存邮件尚未用此密钥加密，因此这个密钥并不决定谁能读取你的邮件。请离线保存恢复短语：任何持有它的人都能重新创建该密钥。
 
 security-za-setup-key = 设置密钥
 security-za-key-source = 密钥来源
@@ -109,10 +109,10 @@ security-za-passphrase-label = 零访问密码短语
 security-za-enable = 启用零访问
 security-za-recovery-title = 恢复短语
 security-za-recovery-heading = 恢复短语——请立即离线保存
-security-za-recovery-note = 这是唯一的副本。任何持有它的人都能读取你的数据；没有它（也没有已配对的设备），你的数据将无法恢复。
+security-za-recovery-note = 这是唯一的副本。任何持有它的人都能重新创建你的零访问密钥。已存邮件尚未用该密钥加密。
 security-za-disable-section = 停用零访问
 security-za-disable-heading = 关闭零访问
-security-za-disable-note = 新数据将再次以未加密方式存储。现有的加密数据只有在你仍能派生密钥时才可读取。
+security-za-disable-note = 服务器可以再次将此账户的邮件加入其搜索索引。存储方式不变：无论哪种情况，邮件都仍用服务器的密钥封存。
 security-za-disable-btn = 停用零访问
 security-za-err-passphrase-len = 请使用至少 8 个字符的密码短语
 security-za-err-enable = 无法启用零访问

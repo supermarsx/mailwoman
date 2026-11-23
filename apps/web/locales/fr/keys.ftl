@@ -4,7 +4,7 @@
 # -- Panel header ------------------------------------------------------------
 keys-panel-label = Gestion des clés
 keys-title = Clés et certificats
-keys-subtitle = Clés OpenPGP et S/MIME. Les clés privées restent sur cet appareil et ne parviennent jamais au serveur.
+keys-subtitle = Clés OpenPGP et S/MIME. Une copie de chaque clé privée, verrouillée par sa phrase secrète, est enregistrée sur le serveur pour que vous puissiez utiliser la clé sur d’autres appareils. Le serveur ne peut pas utiliser la clé sans la phrase secrète : c’est la solidité de la phrase secrète qui protège cette copie.
 keys-generate = Générer une clé
 keys-import = Importer une clé
 
@@ -89,7 +89,7 @@ keys-generate-smime-note = Crée une clé RSA de 3072 bits et un certificat pour
 keys-name = Nom
 keys-email = E-mail
 keys-key-passphrase = Phrase secrète de la clé
-keys-passphrase-help = La phrase secrète protège la clé privée sur cet appareil. Elle ne quitte jamais le navigateur.
+keys-passphrase-help = La phrase secrète verrouille la clé privée dans ce navigateur et ne le quitte jamais. La clé verrouillée est aussi enregistrée sur le serveur : choisissez une phrase secrète solide.
 keys-cancel = Annuler
 keys-generate-submit = Générer
 keys-generating = Génération…
@@ -115,6 +115,6 @@ keys-preview = Aperçu
 keys-preview-type = Type : { $kind }
 keys-preview-fingerprint-aria = Empreinte de l’aperçu
 keys-preview-fingerprint = Empreinte : { $fp }
-keys-preview-has-private = Inclut une clé privée (sera stockée sur cet appareil)
+keys-preview-has-private = Contient une clé privée (enregistrée sur cet appareil et, verrouillée par sa phrase secrète, sur le serveur)
 keys-preview-public-only = Clé publique uniquement
 keys-import-submit = Importer

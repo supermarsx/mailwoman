@@ -1,49 +1,54 @@
-// The HONEST zero-access tradeoff disclosure (plan §1.4 frozen wording, SPEC §9.2).
-// This copy mirrors `docs/security/zero-access.md` verbatim in substance: it states
-// exactly what the mode protects, what the server still sees, the malicious-active-
-// server caveat, and the no-searchable-encryption claim. Do NOT soften this into
-// marketing ("ultra secure" etc.) — it is a deliberate, narrow, factual statement
-// shown at the point the user enables the mode.
+// The zero-access disclosure (SPEC §9.2). It states what the mode does and does not
+// do, as the code behaves: the mode keeps the account out of the server's search
+// index and shared caches and deletes linked-mailbox passwords; stored mail is sealed
+// with the SERVER's key whether the mode is on or off, and the key the mode creates
+// encrypts no stored data yet. Do NOT soften this into marketing ("ultra secure"
+// etc.) or claim protection the code does not give. `locales/en/security.ftl`
+// carries the same English (security-za-*); the honesty tests compare the two.
 
-/** What zero-access DOES protect (data at rest). */
+/** What zero-access does, and what it does not change about storage. */
 export const ZA_PROTECTS =
-  'Zero-access encrypts your stored mail, notes, and PIM data so the hosting server ' +
-  'keeps only ciphertext it cannot read. It defends the contents of your stored data ' +
-  'against a curious operator or a breach of the storage host: anyone who reads the ' +
-  'database, the on-disk files, or a stolen backup sees XChaCha20-Poly1305 ciphertext ' +
-  'and cannot recover message bodies, subjects, attachments, note text, or the search index.';
+  "Zero-access keeps this account's mail out of the server's search index and keeps " +
+  'text taken from it out of shared caches. Turning it on also deletes the stored ' +
+  'passwords of linked mailboxes. It does not change how mail is stored: message ' +
+  "bodies and envelopes are sealed with the server's key whether this mode is on or " +
+  'off, and the server can open them. A copy of the database is protected only if the ' +
+  'server key is kept separately from it; on a default SQLite installation the key ' +
+  'file sits next to the database.';
 
-/** The exhaustive list of what the server still observes (SPEC §9.2). */
+/** What the server still holds and can read (SPEC §9.2). */
 export const ZA_SERVER_STILL_SEES: readonly string[] = [
-  'Ciphertext blobs — the encrypted rows themselves.',
-  'Opaque row IDs — the identifiers used to store and fetch rows.',
-  'Sizes — the length of each ciphertext (approximate message/attachment size).',
+  "Message bodies and envelopes — sealed with the server's own key, which the server " +
+    'can use to open them.',
+  'Mail in transit — the server connects to your mail provider for you and handles ' +
+    'every message it fetches or sends.',
+  'Sizes — the size of each message and attachment.',
   'Timestamps — when rows are written and updated.',
   'Envelope routing metadata needed to proxy IMAP/SMTP — the server still connects to ' +
     'your upstream mail provider on your behalf, so connection metadata and the routing ' +
     'envelope required to send and receive mail pass through it.',
 ];
 
-/** The honest caveat: a malicious ACTIVE server is out of scope (plan §1.4 / R5). */
+/** The caveat: the server, its operator, and a database copy with the key are not defended against. */
 export const ZA_ACTIVE_SERVER_CAVEAT =
-  'Zero-access protects data AT REST against a curious or breached host. A fully ' +
-  'malicious active server that proxies your live IMAP/SMTP traffic is a stronger ' +
-  'adversary, and zero-access does NOT defend against it: such a server sits on the ' +
-  'live connection to your mail provider and could observe or tamper with mail as it ' +
-  'flows through, regardless of how the stored copy is encrypted. Choose zero-access ' +
-  'when your concern is "I do not want whoever runs (or breaches) the storage host to ' +
-  'read my stored mail." It is not a defense against an operator who subverts the live ' +
-  'mail path.';
+  'Zero-access does NOT defend your mail against the server or whoever runs it. The ' +
+  'server holds the key that seals stored mail, so its operator, an attacker who ' +
+  'breaches the server, or anyone with a copy of the database and the server key can ' +
+  'read it. The server also sits on the live connection to your mail provider and ' +
+  'could observe or change mail as it flows through. Choose zero-access to keep this ' +
+  "account out of the server's search index; it is not encryption that the server " +
+  'cannot read.';
 
-/** No searchable-encryption claim is made (plan §1.4). */
+/** What happens to the search index; no searchable-encryption claim is made. */
 export const ZA_NO_SEARCH_CLAIM =
-  'There is no server-side searchable encryption here, and no such claim is made. ' +
-  'Search runs entirely on the client over content it has decrypted locally; the ' +
-  'server never holds a searchable form of your plaintext.';
+  "When zero-access is turned on, the server removes this account's documents from " +
+  'its search index and writes no new ones while the mode stays on. There is no ' +
+  'server-side searchable encryption, and no such claim is made.';
 
-/** The recovery-phrase / lost-key tradeoff, stated at enable time. */
+/** The key the mode creates, and what it does not yet protect. */
 export const ZA_RECOVERY_TRADEOFF =
-  'Your keys are derived and held only on your devices — the server never receives a ' +
-  'plaintext key. If you lose your passphrase (or passkey) AND every paired device AND ' +
-  'your recovery phrase, the encrypted data cannot be recovered. Save the recovery ' +
-  'phrase offline and treat it as equivalent to your account master secret.';
+  'Turning zero-access on creates a key on this device from your passphrase or ' +
+  'passkey; the server stores only a wrapped copy and never receives the key itself. ' +
+  'Stored mail is not encrypted with this key yet, so the key does not decide who can ' +
+  'read your mail. Keep the recovery phrase offline: anyone who has it can recreate ' +
+  'the key.';

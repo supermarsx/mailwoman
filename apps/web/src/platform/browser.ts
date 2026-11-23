@@ -235,7 +235,7 @@ export function createBrowserPlatform(): Platform {
 
     // ── Capture protection: a browser cannot prevent capture (§7.6 honesty). ──
     async setCaptureProtection(): Promise<CapabilityResult> {
-      return { supported: false }; // caller keeps the V4 watermark.
+      return { supported: false }; // nothing protects the page; no watermark is rendered either.
     },
 
     // ── Biometric: none in the browser default. ──

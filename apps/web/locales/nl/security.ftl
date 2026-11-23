@@ -85,20 +85,20 @@ security-control-done-report-junk = Gemeld als ongewenst
 security-za-title = Zero-access-opslag
 security-za-on = Aan
 security-za-off = Uit
-security-za-protects = Zero-access versleutelt uw opgeslagen mail, notities en PIM-gegevens, zodat de hostingserver alleen versleutelde gegevens bewaart die hij niet kan lezen. Het beschermt de inhoud van uw opgeslagen gegevens tegen een nieuwsgierige beheerder of een inbraak op de opslaghost: wie de database, de bestanden op schijf of een gestolen back-up leest, ziet XChaCha20-Poly1305-versleutelde gegevens en kan berichtteksten, onderwerpen, bijlagen, notitieteksten en de zoekindex niet terughalen.
+security-za-protects = Zero-access houdt de mail van dit account buiten de zoekindex van de server en houdt tekst die eruit is gehaald buiten gedeelde caches. Bij het inschakelen worden ook de opgeslagen wachtwoorden van gekoppelde mailboxen verwijderd. Het verandert niets aan hoe mail wordt opgeslagen: berichtteksten en enveloppen worden met de sleutel van de server verzegeld, of deze modus nu aan of uit staat, en de server kan ze openen. Een kopie van de database is alleen beschermd als de serversleutel apart ervan wordt bewaard; bij een standaardinstallatie met SQLite staat het sleutelbestand naast de database.
 
 security-za-server-sees-title = Wat de server nog wel ziet
-security-za-sees-1 = Versleutelde blobs — de versleutelde rijen zelf.
-security-za-sees-2 = Ondoorzichtige rij-ID's — de identificatoren waarmee rijen worden opgeslagen en opgehaald.
-security-za-sees-3 = Groottes — de lengte van elk versleuteld item (bij benadering de grootte van berichten/bijlagen).
+security-za-sees-1 = Berichtteksten en enveloppen — verzegeld met de eigen sleutel van de server, waarmee de server ze kan openen.
+security-za-sees-2 = Mail onderweg — de server maakt namens u verbinding met uw mailprovider en verwerkt elk bericht dat hij ophaalt of verstuurt.
+security-za-sees-3 = Groottes — de grootte van elk bericht en elke bijlage.
 security-za-sees-4 = Tijdstempels — wanneer rijen worden geschreven en bijgewerkt.
 security-za-sees-5 = Envelop- en routeringsmetadata die nodig zijn om IMAP/SMTP door te sturen — de server maakt nog steeds namens u verbinding met uw upstream-mailprovider, dus verbindingsmetadata en de routeringsenvelop die nodig zijn om mail te verzenden en te ontvangen, gaan via de server.
 
-security-za-active-server-caveat = Zero-access beschermt OPGESLAGEN gegevens tegen een nieuwsgierige of gehackte host. Een volledig kwaadwillende actieve server die uw live IMAP/SMTP-verkeer doorstuurt, is een sterkere tegenstander, en daartegen beschermt zero-access NIET: zo'n server zit op de live verbinding met uw mailprovider en kan mail bekijken of wijzigen terwijl die erdoorheen gaat, ongeacht hoe de opgeslagen kopie is versleuteld. Kies zero-access als uw zorg is: "Ik wil niet dat wie de opslaghost beheert (of hackt) mijn opgeslagen mail kan lezen." Het is geen bescherming tegen een beheerder die het live mailpad ondermijnt.
+security-za-active-server-caveat = Zero-access beschermt uw mail NIET tegen de server of tegen wie die beheert. De server heeft de sleutel waarmee opgeslagen mail wordt verzegeld, dus de beheerder, een aanvaller die de server binnendringt of iedereen met een kopie van de database en de serversleutel kan die lezen. De server zit ook op de actieve verbinding met uw mailprovider en kan mail die erdoorheen gaat bekijken of wijzigen. Kies zero-access om dit account buiten de zoekindex van de server te houden; het is geen versleuteling die de server niet kan lezen.
 
-security-za-no-search-claim = Er is hier geen doorzoekbare versleuteling aan de serverkant, en dat wordt ook niet beweerd. Zoeken gebeurt volledig in de client, op inhoud die lokaal is ontsleuteld; de server heeft nooit een doorzoekbare vorm van uw onversleutelde tekst.
+security-za-no-search-claim = Wanneer zero-access wordt ingeschakeld, verwijdert de server de documenten van dit account uit zijn zoekindex en schrijft hij geen nieuwe zolang de modus aan blijft. Er is geen doorzoekbare versleuteling op de server, en dat wordt ook niet beweerd.
 
-security-za-recovery-tradeoff = Uw sleutels worden alleen op uw apparaten afgeleid en bewaard — de server ontvangt nooit een onversleutelde sleutel. Als u uw wachtwoordzin (of passkey) EN al uw gekoppelde apparaten EN uw herstelzin kwijtraakt, kunnen de versleutelde gegevens niet worden hersteld. Bewaar de herstelzin offline en behandel hem als gelijkwaardig aan het hoofdgeheim van uw account.
+security-za-recovery-tradeoff = Bij het inschakelen van zero-access wordt op dit apparaat een sleutel gemaakt uit uw wachtwoordzin of passkey; de server bewaart alleen een ingepakte kopie en ontvangt de sleutel zelf nooit. Opgeslagen mail wordt nog niet met deze sleutel versleuteld, dus de sleutel bepaalt niet wie uw mail kan lezen. Bewaar de herstelzin offline: wie hem heeft, kan de sleutel opnieuw maken.
 
 security-za-setup-key = Uw sleutel instellen
 security-za-key-source = Sleutelbron
@@ -109,10 +109,10 @@ security-za-passphrase-label = Wachtwoordzin voor zero-access
 security-za-enable = Zero-access inschakelen
 security-za-recovery-title = Herstelzin
 security-za-recovery-heading = Herstelzin — bewaar deze nu offline
-security-za-recovery-note = Dit is de enige kopie. Wie hem heeft, kan uw gegevens lezen; zonder deze zin (en zonder gekoppeld apparaat) kunnen uw gegevens niet worden hersteld.
+security-za-recovery-note = Dit is de enige kopie. Wie hem heeft, kan uw zero-access-sleutel opnieuw maken. Opgeslagen mail wordt nog niet met die sleutel versleuteld.
 security-za-disable-section = Zero-access uitschakelen
 security-za-disable-heading = Zero-access uitzetten
-security-za-disable-note = Nieuwe gegevens worden weer onversleuteld opgeslagen. Bestaande versleutelde gegevens blijven alleen leesbaar zolang u uw sleutel nog kunt afleiden.
+security-za-disable-note = De server kan de mail van dit account weer aan zijn zoekindex toevoegen. De opslag verandert niet: mail blijft in beide gevallen verzegeld met de sleutel van de server.
 security-za-disable-btn = Zero-access uitschakelen
 security-za-err-passphrase-len = gebruik een wachtwoordzin van minstens 8 tekens
 security-za-err-enable = kan zero-access niet inschakelen

@@ -4,7 +4,7 @@
 # -- Panel header ------------------------------------------------------------
 keys-panel-label = 密钥管理
 keys-title = 密钥和证书
-keys-subtitle = OpenPGP 和 S/MIME 密钥。私钥保留在此设备上，永远不会发送到服务器。
+keys-subtitle = OpenPGP 和 S/MIME 密钥。每个私钥都会有一份用其密钥密码短语锁定的副本存储在服务器上，以便你在其他设备上使用该密钥。没有密码短语，服务器无法使用该密钥，因此保护这份副本的是密码短语的强度。
 keys-generate = 生成密钥
 keys-import = 导入密钥
 
@@ -89,7 +89,7 @@ keys-generate-smime-note = 为下方的地址生成一个 RSA 3072 位密钥和�
 keys-name = 姓名
 keys-email = 电子邮件
 keys-key-passphrase = 密钥密码短语
-keys-passphrase-help = 密码短语用于在此设备上封装私钥。它永远不会离开浏览器。
+keys-passphrase-help = 密码短语在此浏览器中锁定私钥，它永远不会离开浏览器。锁定后的密钥也会存储在服务器上，因此请选择一个强密码短语。
 keys-cancel = 取消
 keys-generate-submit = 生成
 keys-generating = 正在生成…
@@ -115,6 +115,6 @@ keys-preview = 预览
 keys-preview-type = 类型：{ $kind }
 keys-preview-fingerprint-aria = 预览指纹
 keys-preview-fingerprint = 指纹：{ $fp }
-keys-preview-has-private = 包含私钥（将保存在此设备上）
+keys-preview-has-private = 包含私钥（将存储在此设备上，并以密码短语锁定后存储在服务器上）
 keys-preview-public-only = 仅公钥
 keys-import-submit = 导入
