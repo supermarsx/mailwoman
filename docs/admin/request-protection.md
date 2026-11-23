@@ -37,7 +37,7 @@ The **Recognized scan paths** rule ([`security.protection.probePathMode`](/admin
 
 - The first response is `429` with the JSON code `requestProtectionLimited`, `retryAfterSecs` and a `Retry-After` header.
 - For the next [`security.protection.blockSecs`](/admin/settings#security.protection.blockSecs) seconds (300 by default) every request from that address is refused the same way: the mail app, sign-in and the admin console included, even for an administrator who is already signed in. Static assets, `/healthz`, `/readyz`, sign-out and `/api/public-config` are still answered.
-- The path of your own console is excluded. Below it, only foreign scanner paths count: `<console path>/users` is not a scanner path on its own server, but `/admin/users` on a server whose console is somewhere else is.
+- The path of your own console is excluded. Below it, only foreign scanner paths count: `<console path>/users` is not a scanner path on its own server, but `/admin/users` on a server whose console is somewhere else is. A path that ends in `/console` is on the list too, so `<console path>/security/console` (the Console address tab typed without `#`) blocks.
 - Addresses in **Exempt addresses** ([`security.protection.exemptClients`](/admin/settings#security.protection.exemptClients)) are never blocked by this rule.
 - The rule works on its own: it does not need request budgets or adaptive protection, and **Observe** records the decision without refusing. Some explanatory text on this tab says the block happens "with adaptive client protection enforcing"; in fact it applies whatever **Unusual request protection** is set to.
 - The block is not written to the server log as a fail2ban line. Only probing protection (below) writes one.
