@@ -193,3 +193,20 @@ admin-retention-data-complianceMail = Уведомления по почте
 
 admin-retention-store-operationalIncidents = Операционные инциденты
 admin-retention-data-operationalIncidents = Операционные инциденты
+
+# Scheduled retention jobs.
+admin-retention-jobs = Запланированные задачи хранения
+admin-retention-jobs-intro = Сервер сам планирует эти три задачи. На сервере, где при обновлении уже были учётные записи, каждая задача сначала 7 дней работает в режиме предпросмотра: ничего не меняет и записывает, что изменила бы. Выключенная задача остаётся выключенной после перезапуска.
+admin-retention-jobs-col-job = Задача
+admin-retention-jobs-col-state = Состояние
+admin-retention-jobs-col-next = Следующий запуск
+admin-retention-jobs-col-preview = Последний предпросмотр
+admin-retention-jobs-starts = Только предпросмотр; удаление начнётся { $date }
+admin-retention-jobs-no-preview = Предпросмотра ещё не было
+admin-retention-jobs-would = Изменила бы: { $count } (предпросмотр от { $date })
+admin-retention-job-user_retention = Правила хранения пользователей
+admin-retention-job-user_retention-what = Выполняет собственные правила каждого человека для почты, календаря и заметок, а также правила почты для всей организации.
+admin-retention-job-retention_archive = Проверка архива
+admin-retention-job-retention_archive-what = Проверяет файлы архива и удаляет те, что старше длинного класса хранения.
+admin-retention-job-gc_uploads = Очистка загрузок
+admin-retention-job-gc_uploads-what = Удаляет загруженные файлы старше 30 дней, на которые не ссылается ни сохранённый черновик, ни фото контакта, ни отправка.

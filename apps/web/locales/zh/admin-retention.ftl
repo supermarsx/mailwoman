@@ -199,3 +199,20 @@ admin-retention-data-complianceMail = 电子邮件通知
 
 admin-retention-store-operationalIncidents = 运行事件
 admin-retention-data-operationalIncidents = 运行事件
+
+# Scheduled retention jobs.
+admin-retention-jobs = 计划的保留任务
+admin-retention-jobs-intro = 服务器会自行安排这三个任务。在升级时已有账户的服务器上，每个任务先以预览方式运行 7 天：不做任何更改，只记录将会更改的内容。关闭的任务在重启后仍保持关闭。
+admin-retention-jobs-col-job = 任务
+admin-retention-jobs-col-state = 状态
+admin-retention-jobs-col-next = 下次运行
+admin-retention-jobs-col-preview = 最近预览
+admin-retention-jobs-starts = 仅预览；将于 { $date } 开始删除
+admin-retention-jobs-no-preview = 尚无预览
+admin-retention-jobs-would = 将更改 { $count } 项（{ $date } 的预览）
+admin-retention-job-user_retention = 用户的保留规则
+admin-retention-job-user_retention-what = 运行每个人自己的邮件、日历和笔记规则，以及整个组织的邮件规则。
+admin-retention-job-retention_archive = 归档检查
+admin-retention-job-retention_archive-what = 检查归档文件，并删除早于长期保留类别的文件。
+admin-retention-job-gc_uploads = 上传清理
+admin-retention-job-gc_uploads-what = 删除超过 30 天且没有任何已保存草稿、联系人照片或发送引用的上传文件。

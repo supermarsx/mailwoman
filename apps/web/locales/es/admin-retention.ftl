@@ -195,3 +195,20 @@ admin-retention-data-complianceMail = Notificaciones por correo
 
 admin-retention-store-operationalIncidents = Incidentes operativos
 admin-retention-data-operationalIncidents = Incidentes operativos
+
+# Scheduled retention jobs.
+admin-retention-jobs = Tareas de retención programadas
+admin-retention-jobs-intro = El servidor programa estas tres tareas por sí mismo. En un servidor que ya tenía cuentas al actualizarse, cada tarea se ejecuta primero durante 7 días como vista previa que no cambia nada y registra lo que cambiaría. Una tarea desactivada sigue desactivada tras un reinicio.
+admin-retention-jobs-col-job = Tarea
+admin-retention-jobs-col-state = Estado
+admin-retention-jobs-col-next = Próxima ejecución
+admin-retention-jobs-col-preview = Última vista previa
+admin-retention-jobs-starts = Solo vista previa; empieza a eliminar el { $date }
+admin-retention-jobs-no-preview = Aún no hay vista previa
+admin-retention-jobs-would = Cambiaría { $count } (vista previa del { $date })
+admin-retention-job-user_retention = Reglas de retención de las personas
+admin-retention-job-user_retention-what = Ejecuta las reglas propias de cada persona para correo, calendario y notas, y las reglas de correo de toda la organización.
+admin-retention-job-retention_archive = Comprobación del archivo
+admin-retention-job-retention_archive-what = Comprueba los archivos del archivo y elimina los que superan la clase de retención larga.
+admin-retention-job-gc_uploads = Limpieza de subidas
+admin-retention-job-gc_uploads-what = Elimina los archivos subidos con más de 30 días a los que no hace referencia ningún borrador guardado, foto de contacto ni envío.

@@ -193,7 +193,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     existing("securityNotices", Some("security.alerts.noticeRetentionDays"), None, None),
     existing("usageCounters", Some("usage.retentionDays"), None, Some("usage_counter")),
     existing("accountGeo", Some("security.signin.accountGeoHistoryDays"), None, None),
-    existing("uploads", None, Some(1), Some("uploaded_blobs")),
+    existing("uploads", None, Some(30), Some("uploaded_blobs")),
     existing("logFiles", Some("logging.file.maxAgeDays"), None, None),
 ];
 
@@ -407,6 +407,21 @@ pub(crate) async fn run_store(store: &Store, now: i64, dry_run: bool) -> Report 
         r.skipped = Some("dryRun");
     }
     report.stores.push(r);
+    // Usage counters whose period ended more than `usage.retentionDays` ago.
+    // Hourly metrics are compared by hour, the others by day (`usage_prune`).
+    let mut r = StoreReport { id: "usageCounters", rows: 0, more: false, skipped: None, error: None, archived: false };
+    let days = num(store, "usage.retentionDays").await;
+    if dry_run {
+        r.skipped = Some("dryRun");
+    } else if days <= 0 {
+        r.skipped = Some("keep");
+    } else {
+        match store.usage_prune(now - days * DAY).await {
+            Ok(rows) => r.rows = rows,
+            Err(err) => r.error = Some(err.to_string()),
+        }
+    }
+    report.stores.push(r);
     report
 }
 
@@ -610,6 +625,7 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(Method::POST, "/retention/run", Capability::SettingsWrite, run_route);
     crate::retention_tiers::register(r);
     crate::user_retention::register(r);
+    crate::jobs::retention_schedule::register(r);
 }
 
 fn no_store(value: Value) -> Response {

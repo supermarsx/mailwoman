@@ -13,24 +13,34 @@ The **Retention** tab of **Compliance** shows how long each store keeps personal
 - Most limits are server-wide. The rules for people's own mail (`retention.user.*`) can also be set per domain.
 - A limit of 0 keeps rows without limit for age limits; the console warns about it. For the "days after expiry" limits, 0 removes a row as soon as it expires.
 
-::: warning Four jobs are not scheduled automatically
-These jobs run only when a scheduled task exists for them. The server creates no such task, and the console has no screen to create one, so none of them runs by itself. The sweeper and the other stores below are not affected.
+## Scheduled retention jobs
 
-| Job | What it does | How to run it |
+The server schedules three retention jobs itself. Each runs once a day at a fixed time in UTC. **Scheduled retention jobs** on this tab lists them with an on/off switch, the next run and the result of the last preview.
+
+| Job | What it does | Runs at (UTC) |
 | --- | --- | --- |
-| `retention_archive` | Checks the archive files and removes expired ones | **Check the archive now** on this tab |
-| `user_retention` | Runs people's own retention rules and the organisation-wide mail rules (`retention.user.mandatory`) | Only **Run my rules now**, by each person for their own mailbox. There is no administrator trigger, so the organisation-wide rules run only for people who start a run |
-| `gc_uploads` | Removes uploaded files that were never attached | `mailwoman maintenance gc-uploads` |
-| `vacuum` | Compacts the database | `mailwoman maintenance vacuum` |
+| `user_retention` | Runs people's own retention rules for mail, calendars and notes, and the organisation-wide mail rules (`retention.user.mandatory`), for every account. An account whose last run is less than `retention.user.intervalHours` ago is skipped | 04:20 |
+| `retention_archive` | Checks the archive files and removes those older than the long class (see [Long-term archive](#long-term-archive)) | 05:10 |
+| `gc_uploads` | Removes uploaded files older than 30 days that nothing on the server refers to (see below) | 04:00 |
 
-For upload cleanup and compaction, set up a cron job or scheduled task on the server host that runs the two commands below.
-:::
+How the tasks are created:
+
+- The server creates the task of each job once, the first time it starts with this release, and records that in the setting `jobs.seeded.<job>`. It never creates the task again: a job you switch off stays off after a restart, and a task deleted through the API is not recreated. Switching a job on again on this tab creates its task when there is none.
+- **Preview for 7 days on an existing server.** On a server that already has accounts, a new task first runs for 7 days as a preview: each scheduled run changes nothing and records "would change N" as its result. The tab shows the count and the line "Previews only; starts deleting on &lt;date&gt;". After that date the same task deletes. Switch a job off before that date to keep it from deleting anything.
+- A new server without accounts starts deleting at once.
+- Starting a job by hand ("Run now" through the jobs API, **Check the archive now**, **Run my rules now**) is not affected by the preview.
+
+### Which uploads are removed
+
+An upload is a file a person added to a message they were writing. When the message is saved or sent, the server copies the file into the message, so a sent, scheduled or saved message does not need the upload any more. `gc_uploads` keeps an upload that any of these still names: a draft saved on the server (also one whose save has not been confirmed), a contact photo, or a submission. A draft whose saved state cannot be opened keeps every upload of its account.
+
+The server cannot see copies that exist only in a browser: a draft kept only in the browser's local storage, or a message waiting in a client's offline send queue. If such a draft is reopened after its uploads were removed, those attachments are missing from it. The 30-day age limit of the scheduled task is there to make this unlikely.
 
 ### Run upload cleanup and compaction from the command line
 
 Run these with the same environment as the server, so they open the same database:
 
-- `mailwoman maintenance gc-uploads [--older-than-hours N]` deletes uploads older than N hours (default 24) that were never attached to a message, both the database row and the stored file. Set `MW_UPLOAD_DIR` to the server's upload directory; without it, only the database rows are removed and the files stay on disk.
+- `mailwoman maintenance gc-uploads [--older-than-hours N]` deletes uploads older than N hours (default 24) that nothing on the server refers to, as above, both the database row and the stored file. Set `MW_UPLOAD_DIR` to the server's upload directory; without it, only the database rows are removed and the files stay on disk.
 - `mailwoman maintenance vacuum` runs a plain `VACUUM`: on SQLite the whole database; on Postgres only the notes table. It never runs `VACUUM FULL` and is safe to run again.
 
 The sweeper also compacts the database by itself after a run that removed at least `retention.sweeper.vacuumAfterRows` rows.
@@ -104,9 +114,9 @@ After `retention.ipAddresses.days` (1095) days, the IP address in authentication
 | Open tracking | `openTracking` | `privacy.openTracking.retentionDays` | 365 days | Only when open tracking is used |
 | Diagnostic runs | `diagnostics` | `diagnostics.retentionDays` | 180 days | After a diagnostic run, or when the history is viewed |
 | Security notices | `securityNotices` | `security.alerts.noticeRetentionDays` | 730 days | Only when another notice is written to the same account |
-| Usage counters | `usageCounters` | `usage.retentionDays` | 730 days | Nothing: no code reads this setting |
+| Usage counters | `usageCounters` | `usage.retentionDays` | 730 days | Sweeper: rows whose hour or day ended more than the limit ago. Counters are not tied to an account, so legal holds do not keep them |
 | Sign-in countries | `accountGeo` | `security.signin.accountGeoHistoryDays` | 365 days | The per-account country history of the sign-in country policy (country codes and dates only) |
-| Unattached uploads | `uploads` | none | 1 day | The `gc_uploads` job, which is not scheduled (see above) |
+| Unattached uploads | `uploads` | none | 30 days | The `gc_uploads` job (see [Scheduled retention jobs](#scheduled-retention-jobs)) |
 | Server log files | `logFiles` | `logging.file.maxAgeDays` | 365 days | Log rotation (see below) |
 
 Mail, calendars, contacts, notes, drafts and templates are people's own data and are not removed by age, except by the rules described in [People's own retention rules](#user-retention-rules). Account credentials and second factors are removed with the account. Database backups, write-ahead logs and copies of the archive directory keep rows this page removes until those copies are deleted.
@@ -129,13 +139,13 @@ A class may not be shorter than the class below it; a value that is raises to th
 
 With **Archive aged rows of the long class** (`retention.archive.enabled`, off by default), rows of `passwordChangeAudit`, `ssoLoginAudit`, `dlpAudit` and `assistAudit` that pass their limit are moved by the sweeper into archive files instead of being deleted. A file holds gzip-compressed JSON lines encrypted with the server key, and each file is sealed with an HMAC chain so a changed, missing or reordered file is detected. Files are written to `retention.archive.directory` on the local disk.
 
-**Check the archive now** checks every file and removes files whose newest row is older than the long class, unless **Legal hold on the archive** is on. The same check is the `retention_archive` job, which is not scheduled (see above), so files are only checked and removed when you start it. The archive keeps rows of people who were erased until their file is removed. You can look up archived rows by row id or account id, restore a file, or download it; each lookup is recorded in the audit log.
+**Check the archive now** checks every file and removes files whose newest row is older than the long class, unless **Legal hold on the archive** is on. The same check is the `retention_archive` job, which runs daily (see [Scheduled retention jobs](#scheduled-retention-jobs)). The archive keeps rows of people who were erased until their file is removed. You can look up archived rows by row id or account id, restore a file, or download it; each lookup is recorded in the audit log.
 
 ## User retention rules
 
 People can set rules for their own mail under **Settings > Mail > Retention** (see [Mail settings](/user/settings/mail#retention)): keep, delete after a number of days (to Trash first), move to Trash, Archive or a folder, mark as read, and, when you allow it, remove large attachments. Flagged mail is never touched, and mail with a `keep` label is left alone by default. `retention.user.mandatory` adds organisation-wide rules per folder role (for example `trash:30`) that people cannot change.
 
-The rules run through the mail engine, so they act on the mailbox on the upstream mail server, including accounts on an IMAP server. They run only when the `user_retention` job runs, which is not scheduled (see above), or when the person selects **Run my rules now**; organisation-wide rules therefore also run only for people who start a run. Each run changes at most `retention.user.maxPerRun` messages per account. Accounts listed in **Legal holds** are skipped, and so are restricted accounts unless **Run user rules for restricted accounts** is on.
+The rules run through the mail engine, so they act on the mailbox on the upstream mail server, including accounts on an IMAP server. They run when the daily `user_retention` job runs (see [Scheduled retention jobs](#scheduled-retention-jobs)) and when the person selects **Run my rules now**. Each run changes at most `retention.user.maxPerRun` messages per account. Accounts listed in **Legal holds** are skipped, and so are restricted accounts unless **Run user rules for restricted accounts** is on.
 
 Removing attachments rewrites the message: each removed part is replaced by a short text part, an `X-Mailwoman-Stripped` header is added, and the original is moved to Trash after the copy is stored. Signed or encrypted messages and messages over 128 MiB are never rewritten. At most 300 messages are rewritten per account per run.
 

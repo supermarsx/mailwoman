@@ -195,3 +195,20 @@ admin-retention-data-complianceMail = Email notifications
 
 admin-retention-store-operationalIncidents = Operational incidents
 admin-retention-data-operationalIncidents = Operational incidents
+
+# Scheduled retention jobs.
+admin-retention-jobs = Scheduled retention jobs
+admin-retention-jobs-intro = The server schedules these three jobs itself. On a server that already had accounts when it was upgraded, each job first runs for 7 days as a preview that changes nothing and records what it would change. Switching a job off keeps it off after a restart.
+admin-retention-jobs-col-job = Job
+admin-retention-jobs-col-state = State
+admin-retention-jobs-col-next = Next run
+admin-retention-jobs-col-preview = Last preview
+admin-retention-jobs-starts = Previews only; starts deleting on { $date }
+admin-retention-jobs-no-preview = No preview yet
+admin-retention-jobs-would = Would change { $count } (preview of { $date })
+admin-retention-job-user_retention = People's retention rules
+admin-retention-job-user_retention-what = Runs each person's own mail, calendar and notes rules and the organisation-wide mail rules.
+admin-retention-job-retention_archive = Archive check
+admin-retention-job-retention_archive-what = Checks the archive files and removes those older than the long retention class.
+admin-retention-job-gc_uploads = Upload cleanup
+admin-retention-job-gc_uploads-what = Removes uploaded files older than 30 days that no saved draft, contact photo or submission refers to.

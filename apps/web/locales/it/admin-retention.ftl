@@ -193,3 +193,20 @@ admin-retention-data-complianceMail = Notifiche email
 
 admin-retention-store-operationalIncidents = Incidenti operativi
 admin-retention-data-operationalIncidents = Incidenti operativi
+
+# Scheduled retention jobs.
+admin-retention-jobs = Attività di conservazione pianificate
+admin-retention-jobs-intro = Il server pianifica da solo queste tre attività. Su un server che aveva già account al momento dell'aggiornamento, ogni attività viene eseguita prima per 7 giorni come anteprima che non modifica nulla e registra cosa modificherebbe. Un'attività disattivata resta disattivata dopo un riavvio.
+admin-retention-jobs-col-job = Attività
+admin-retention-jobs-col-state = Stato
+admin-retention-jobs-col-next = Prossima esecuzione
+admin-retention-jobs-col-preview = Ultima anteprima
+admin-retention-jobs-starts = Solo anteprima; inizia a eliminare il { $date }
+admin-retention-jobs-no-preview = Nessuna anteprima
+admin-retention-jobs-would = Modificherebbe { $count } (anteprima del { $date })
+admin-retention-job-user_retention = Regole di conservazione delle persone
+admin-retention-job-user_retention-what = Esegue le regole di ciascuna persona per posta, calendario e note e le regole di posta dell'intera organizzazione.
+admin-retention-job-retention_archive = Controllo dell'archivio
+admin-retention-job-retention_archive-what = Controlla i file dell'archivio e rimuove quelli più vecchi della classe di conservazione lunga.
+admin-retention-job-gc_uploads = Pulizia dei caricamenti
+admin-retention-job-gc_uploads-what = Rimuove i file caricati da più di 30 giorni a cui non fa riferimento alcuna bozza salvata, foto di contatto o invio.

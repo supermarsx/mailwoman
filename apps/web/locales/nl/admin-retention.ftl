@@ -193,3 +193,20 @@ admin-retention-data-complianceMail = E-mailmeldingen
 
 admin-retention-store-operationalIncidents = Operationele incidenten
 admin-retention-data-operationalIncidents = Operationele incidenten
+
+# Scheduled retention jobs.
+admin-retention-jobs = Geplande bewaartaken
+admin-retention-jobs-intro = De server plant deze drie taken zelf. Op een server die bij de upgrade al accounts had, draait elke taak eerst 7 dagen als voorbeeld dat niets wijzigt en vastlegt wat het zou wijzigen. Een uitgeschakelde taak blijft uit na een herstart.
+admin-retention-jobs-col-job = Taak
+admin-retention-jobs-col-state = Status
+admin-retention-jobs-col-next = Volgende run
+admin-retention-jobs-col-preview = Laatste voorbeeld
+admin-retention-jobs-starts = Alleen voorbeeld; begint met verwijderen op { $date }
+admin-retention-jobs-no-preview = Nog geen voorbeeld
+admin-retention-jobs-would = Zou { $count } wijzigen (voorbeeld van { $date })
+admin-retention-job-user_retention = Bewaarregels van personen
+admin-retention-job-user_retention-what = Voert de eigen regels van elke persoon voor e-mail, agenda en notities uit, en de e-mailregels voor de hele organisatie.
+admin-retention-job-retention_archive = Archiefcontrole
+admin-retention-job-retention_archive-what = Controleert de archiefbestanden en verwijdert bestanden die ouder zijn dan de lange bewaarklasse.
+admin-retention-job-gc_uploads = Uploads opschonen
+admin-retention-job-gc_uploads-what = Verwijdert geüploade bestanden ouder dan 30 dagen waarnaar geen opgeslagen concept, contactfoto of verzending verwijst.

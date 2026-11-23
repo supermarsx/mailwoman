@@ -193,3 +193,20 @@ admin-retention-data-complianceMail = Сповіщення поштою
 
 admin-retention-store-operationalIncidents = Операційні інциденти
 admin-retention-data-operationalIncidents = Операційні інциденти
+
+# Scheduled retention jobs.
+admin-retention-jobs = Заплановані завдання зберігання
+admin-retention-jobs-intro = Сервер сам планує ці три завдання. На сервері, де під час оновлення вже були облікові записи, кожне завдання спочатку 7 днів працює як попередній перегляд: нічого не змінює і записує, що змінило б. Вимкнене завдання залишається вимкненим після перезапуску.
+admin-retention-jobs-col-job = Завдання
+admin-retention-jobs-col-state = Стан
+admin-retention-jobs-col-next = Наступний запуск
+admin-retention-jobs-col-preview = Останній перегляд
+admin-retention-jobs-starts = Лише перегляд; видалення почнеться { $date }
+admin-retention-jobs-no-preview = Попереднього перегляду ще не було
+admin-retention-jobs-would = Змінило б: { $count } (перегляд від { $date })
+admin-retention-job-user_retention = Правила зберігання користувачів
+admin-retention-job-user_retention-what = Виконує власні правила кожної людини для пошти, календаря й нотаток, а також правила пошти для всієї організації.
+admin-retention-job-retention_archive = Перевірка архіву
+admin-retention-job-retention_archive-what = Перевіряє файли архіву й видаляє ті, що старші за довгий клас зберігання.
+admin-retention-job-gc_uploads = Очищення завантажень
+admin-retention-job-gc_uploads-what = Видаляє завантажені файли, старші за 30 днів, на які не посилається жодна збережена чернетка, фото контакту чи надсилання.

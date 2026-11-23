@@ -19,6 +19,7 @@ import { describeAdminError } from '../shell/Feedback.tsx';
 import { StatTile } from '../shell/StatTile.tsx';
 import * as css from '../admin.css.ts';
 import { TiersPanel, type TiersApi } from './TiersPanel.tsx';
+import { JobsPanel, liveJobsApi, type JobsApi } from './JobsPanel.tsx';
 import { formatBytes, keepsForever, limitKeys, limitMessage, storeData, storeLabel, topBy } from './model.ts';
 
 const when = (s: number | null): string => (s === null ? t('admin-retention-never') : formatDateTime(s * 1000));
@@ -30,6 +31,8 @@ export interface RetentionApi {
   settings: () => Promise<AdminSetting[]>;
   /** Classes, archive tier and user rules; the panel is shown when present. */
   tiers?: TiersApi;
+  /** The scheduled retention jobs; the panel is shown when present. */
+  jobs?: JobsApi;
 }
 
 const loadSettings = async (): Promise<AdminSetting[]> => {
@@ -46,6 +49,7 @@ const liveApi: RetentionApi = {
     classes: loadClasses, archive: loadArchive, userRules: loadUserRules, verify: verifyArchive,
     search: searchArchive, restore: restoreArchive, settings: loadSettings,
   },
+  jobs: liveJobsApi,
 };
 
 function Limit(props: { store: RetentionStore }): JSX.Element {
@@ -134,6 +138,8 @@ export default function Retention(props: { api?: RetentionApi }): JSX.Element {
               <Show when={message()}><p role="status">{message()}</p></Show>
               <Show when={failure()}><p role="alert">{describeAdminError(failure())}</p></Show>
             </AdminSubsection>
+
+            <Show when={api.jobs}>{(jobs) => <JobsPanel api={jobs()} />}</Show>
 
             <AdminSubsection title={t('admin-retention-stores')}>
               <table class={css.table} data-testid="retention-stores">

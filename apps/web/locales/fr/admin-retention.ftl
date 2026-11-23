@@ -195,3 +195,20 @@ admin-retention-data-complianceMail = Notifications par e-mail
 
 admin-retention-store-operationalIncidents = Incidents opérationnels
 admin-retention-data-operationalIncidents = Incidents opérationnels
+
+# Scheduled retention jobs.
+admin-retention-jobs = Tâches de conservation planifiées
+admin-retention-jobs-intro = Le serveur planifie lui-même ces trois tâches. Sur un serveur qui avait déjà des comptes lors de la mise à niveau, chaque tâche s'exécute d'abord pendant 7 jours en aperçu : elle ne modifie rien et enregistre ce qu'elle modifierait. Une tâche désactivée le reste après un redémarrage.
+admin-retention-jobs-col-job = Tâche
+admin-retention-jobs-col-state = État
+admin-retention-jobs-col-next = Prochaine exécution
+admin-retention-jobs-col-preview = Dernier aperçu
+admin-retention-jobs-starts = Aperçu seulement ; commence à supprimer le { $date }
+admin-retention-jobs-no-preview = Pas encore d'aperçu
+admin-retention-jobs-would = Modifierait { $count } (aperçu du { $date })
+admin-retention-job-user_retention = Règles de conservation des personnes
+admin-retention-job-user_retention-what = Exécute les règles propres à chaque personne pour le courrier, le calendrier et les notes, ainsi que les règles de courrier de toute l'organisation.
+admin-retention-job-retention_archive = Vérification de l'archive
+admin-retention-job-retention_archive-what = Vérifie les fichiers d'archive et supprime ceux qui dépassent la classe de conservation longue.
+admin-retention-job-gc_uploads = Nettoyage des téléversements
+admin-retention-job-gc_uploads-what = Supprime les fichiers téléversés de plus de 30 jours auxquels aucun brouillon enregistré, photo de contact ou envoi ne fait référence.

@@ -193,3 +193,20 @@ admin-retention-data-complianceMail = Powiadomienia e-mail
 
 admin-retention-store-operationalIncidents = Incydenty operacyjne
 admin-retention-data-operationalIncidents = Incydenty operacyjne
+
+# Scheduled retention jobs.
+admin-retention-jobs = Zaplanowane zadania przechowywania
+admin-retention-jobs-intro = Serwer sam planuje te trzy zadania. Na serwerze, który miał już konta w chwili aktualizacji, każde zadanie najpierw przez 7 dni działa jako podgląd, który niczego nie zmienia i zapisuje, co by zmienił. Wyłączone zadanie pozostaje wyłączone po ponownym uruchomieniu.
+admin-retention-jobs-col-job = Zadanie
+admin-retention-jobs-col-state = Stan
+admin-retention-jobs-col-next = Następne uruchomienie
+admin-retention-jobs-col-preview = Ostatni podgląd
+admin-retention-jobs-starts = Tylko podgląd; usuwanie od { $date }
+admin-retention-jobs-no-preview = Brak podglądu
+admin-retention-jobs-would = Zmieniłoby: { $count } (podgląd z { $date })
+admin-retention-job-user_retention = Reguły przechowywania osób
+admin-retention-job-user_retention-what = Wykonuje własne reguły każdej osoby dla poczty, kalendarza i notatek oraz reguły poczty całej organizacji.
+admin-retention-job-retention_archive = Kontrola archiwum
+admin-retention-job-retention_archive-what = Sprawdza pliki archiwum i usuwa te starsze niż długa klasa przechowywania.
+admin-retention-job-gc_uploads = Czyszczenie przesłanych plików
+admin-retention-job-gc_uploads-what = Usuwa przesłane pliki starsze niż 30 dni, do których nie odwołuje się żaden zapisany szkic, zdjęcie kontaktu ani wysyłka.

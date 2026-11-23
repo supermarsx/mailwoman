@@ -3,9 +3,10 @@
 //! A **job kind** is a named piece of work with a run function, an optional default
 //! schedule and a lease length ([`JobSpec`]). Kinds are listed in [`builtin`]
 //! (one `r.register(..)` line per kind; later lanes add theirs there) or added at
-//! run time with [`register`]. Nothing runs unless an administrator creates an
-//! enabled `scheduled_task` for the kind or presses "Run now" (DC7: no task is
-//! enabled by default).
+//! run time with [`register`]. Nothing runs unless an enabled `scheduled_task`
+//! exists for the kind or an administrator presses "Run now". The server creates
+//! one task itself for each of the three retention jobs, once per installation
+//! ([`retention_schedule`]); every other kind needs a task an administrator made.
 //!
 //! One scheduler loop per process ([`start`], started from `build_app`) wakes every
 //! [`tick`] and:
@@ -44,6 +45,8 @@ use serde_json::{Value, json};
 use crate::AppState;
 #[path = "jobs_window.rs"]
 mod window;
+#[path = "retention_schedule.rs"]
+pub(crate) mod retention_schedule;
 
 // ─── job kinds ──────────────────────────────────────────────────────────────────
 
@@ -98,8 +101,8 @@ impl JobCtx {
 #[derive(Clone)]
 pub struct JobSpec {
     pub run: JobFn,
-    /// Offered when an administrator creates a task for the kind. Never applied by
-    /// itself.
+    /// Offered when an administrator creates a task for the kind, and used for the
+    /// tasks [`retention_schedule`] creates.
     pub default_schedule: Option<Schedule>,
     /// How long a run holds its task's lease between heartbeats; a run whose
     /// heartbeat is older than 3x this is abandoned.
@@ -615,6 +618,10 @@ pub(crate) fn new_scheduler() -> Arc<Scheduler> {
 pub(crate) fn start(state: AppState) {
     crate::auth_logs::sweeper::start(state.clone());
     tokio::spawn(async move {
+        match retention_schedule::ensure_default_tasks(&state.store, Utc::now().timestamp()).await {
+            Ok(_) => {}
+            Err(e) => tracing::warn!("creating the retention job tasks failed: {e}"),
+        }
         loop {
             if !paused() {
                 let s = &state.scheduler;
@@ -1032,7 +1039,9 @@ async fn vacuum(ctx: JobCtx) -> Result<JobOutput, String> {
     Ok(JobOutput::new("vacuum finished", json!({})))
 }
 
-/// Delete uploaded blobs older than `olderThanHours` (default 24, 1-720).
+/// Delete uploaded blobs older than `olderThanHours` (default 24, 1-720) that
+/// nothing on the server refers to. Before the task's `armAfter` a scheduled
+/// run only counts them.
 async fn gc_uploads(ctx: JobCtx) -> Result<JobOutput, String> {
     let hours = ctx
         .params
@@ -1041,6 +1050,17 @@ async fn gc_uploads(ctx: JobCtx) -> Result<JobOutput, String> {
         .unwrap_or(24)
         .clamp(1, 720);
     let state = ctx.state()?;
+    if let Some(until) = retention_schedule::preview_until(&ctx, Utc::now().timestamp()) {
+        let n = state
+            .store
+            .count_sweepable_uploads(chrono::Duration::hours(hours))
+            .await
+            .map_err(|e| format!("upload count failed: {e}"))?;
+        return Ok(JobOutput::new(
+            retention_schedule::preview_summary(until, n, "upload(s)"),
+            json!({ "dryRun": true, "armAfter": until, "wouldChange": n, "olderThanHours": hours }),
+        ));
+    }
     let n = state
         .store
         .sweep_uploads(chrono::Duration::hours(hours))

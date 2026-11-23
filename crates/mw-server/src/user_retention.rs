@@ -863,6 +863,9 @@ pub(crate) async fn run_job(ctx: JobCtx) -> Result<JobOutput, String> {
     let global = Who::of("", "");
     let interval = setting(store, "retention.user.intervalHours", &global).await.as_i64().unwrap_or(24).max(1) * 3600;
     let accounts = store.list_accounts().await.map_err(|e| e.to_string())?;
+    // A seeded task only previews until its `armAfter` (jobs::retention_schedule).
+    let preview = crate::jobs::retention_schedule::preview_until(&ctx, now);
+    let dry = preview.is_some();
     let (mut ran, mut changed, mut errors, mut skipped) = (0u64, 0u64, 0u64, 0u64);
     for a in accounts {
         let row = store.retention_account(&a.id).await.map_err(|e| e.to_string())?;
@@ -870,11 +873,11 @@ pub(crate) async fn run_job(ctx: JobCtx) -> Result<JobOutput, String> {
             skipped += 1;
             continue;
         }
-        match run_account(state, None, &a.id, &a.username, false, &ctx.triggered_by, None).await {
+        match run_account(state, None, &a.id, &a.username, dry, &ctx.triggered_by, None).await {
             Ok(s) if s.skipped.is_some() => skipped += 1,
             Ok(s) => {
                 ran += 1;
-                changed += s.done.total();
+                changed += if dry { s.would.total() } else { s.done.total() };
                 errors += s.errors;
             }
             Err(e) => {
@@ -883,14 +886,20 @@ pub(crate) async fn run_job(ctx: JobCtx) -> Result<JobOutput, String> {
             }
         }
         // Calendar events and notes, for people who opted in.
-        match pim::run_pim(state, &a.id, &a.username, false, &ctx.triggered_by).await {
+        match pim::run_pim(state, &a.id, &a.username, dry, &ctx.triggered_by).await {
             Ok(s) if s.skipped.is_none() => {
-                changed += s.changed();
+                changed += if dry { s.events_matched + s.notes_matched } else { s.changed() };
                 errors += s.errors;
             }
             Ok(_) => {}
             Err(e) => tracing::debug!("pim retention for {} not run: {e}", a.id),
         }
+    }
+    if let Some(until) = preview {
+        return Ok(JobOutput::new(
+            crate::jobs::retention_schedule::preview_summary(until, changed, "message(s) or item(s)"),
+            json!({"dryRun": true, "armAfter": until, "wouldChange": changed, "accounts": ran, "errors": errors, "skipped": skipped}),
+        ));
     }
     let _ = store.retention_runs_prune(now - HISTORY_DAYS * rr::DAY).await;
     // Notes whose undo window has ended are gone for good.

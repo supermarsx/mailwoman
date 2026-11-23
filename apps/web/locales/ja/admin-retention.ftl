@@ -199,3 +199,20 @@ admin-retention-data-complianceMail = メール通知
 
 admin-retention-store-operationalIncidents = 運用インシデント
 admin-retention-data-operationalIncidents = 運用インシデント
+
+# Scheduled retention jobs.
+admin-retention-jobs = スケジュールされた保持ジョブ
+admin-retention-jobs-intro = サーバーはこの3つのジョブを自動でスケジュールします。アップグレード時にすでにアカウントがあったサーバーでは、各ジョブは最初の7日間プレビューとして実行され、何も変更せずに変更される内容を記録します。オフにしたジョブは再起動後もオフのままです。
+admin-retention-jobs-col-job = ジョブ
+admin-retention-jobs-col-state = 状態
+admin-retention-jobs-col-next = 次回実行
+admin-retention-jobs-col-preview = 最新のプレビュー
+admin-retention-jobs-starts = プレビューのみ。{ $date } から削除を開始します
+admin-retention-jobs-no-preview = プレビューはまだありません
+admin-retention-jobs-would = { $count } 件を変更予定（{ $date } のプレビュー）
+admin-retention-job-user_retention = ユーザーの保持ルール
+admin-retention-job-user_retention-what = 各ユーザー自身のメール・カレンダー・メモのルールと、組織全体のメールルールを実行します。
+admin-retention-job-retention_archive = アーカイブの確認
+admin-retention-job-retention_archive-what = アーカイブファイルを確認し、長期保持クラスより古いものを削除します。
+admin-retention-job-gc_uploads = アップロードの整理
+admin-retention-job-gc_uploads-what = 保存済みの下書き、連絡先の写真、送信のいずれからも参照されていない30日より古いアップロードファイルを削除します。

@@ -195,3 +195,20 @@ admin-retention-data-complianceMail = E-Mail-Benachrichtigungen
 
 admin-retention-store-operationalIncidents = Betriebsvorfälle
 admin-retention-data-operationalIncidents = Betriebsvorfälle
+
+# Scheduled retention jobs.
+admin-retention-jobs = Geplante Aufbewahrungsjobs
+admin-retention-jobs-intro = Der Server plant diese drei Jobs selbst. Auf einem Server, der beim Upgrade bereits Konten hatte, läuft jeder Job zuerst 7 Tage lang als Vorschau, die nichts ändert und festhält, was sie ändern würde. Ein ausgeschalteter Job bleibt auch nach einem Neustart aus.
+admin-retention-jobs-col-job = Job
+admin-retention-jobs-col-state = Status
+admin-retention-jobs-col-next = Nächster Lauf
+admin-retention-jobs-col-preview = Letzte Vorschau
+admin-retention-jobs-starts = Nur Vorschau; löscht ab { $date }
+admin-retention-jobs-no-preview = Noch keine Vorschau
+admin-retention-jobs-would = Würde { $count } ändern (Vorschau vom { $date })
+admin-retention-job-user_retention = Aufbewahrungsregeln der Personen
+admin-retention-job-user_retention-what = Führt die eigenen Regeln jeder Person für E-Mail, Kalender und Notizen sowie die organisationsweiten E-Mail-Regeln aus.
+admin-retention-job-retention_archive = Archivprüfung
+admin-retention-job-retention_archive-what = Prüft die Archivdateien und entfernt die, die älter als die lange Aufbewahrungsklasse sind.
+admin-retention-job-gc_uploads = Upload-Bereinigung
+admin-retention-job-gc_uploads-what = Entfernt hochgeladene Dateien, die älter als 30 Tage sind und auf die kein gespeicherter Entwurf, kein Kontaktfoto und kein Versandauftrag verweist.

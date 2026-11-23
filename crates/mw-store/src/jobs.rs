@@ -619,6 +619,59 @@ impl Store {
         .await?;
         rows.iter().map(run_from_row).collect()
     }
+
+    /// Create `task` once per installation. In one transaction: claim the
+    /// marker setting `marker`; when someone already holds it, do nothing. When
+    /// a task of the same kind exists already, keep the marker and add nothing.
+    /// Otherwise insert `task`. `true` when the task was inserted.
+    ///
+    /// The marker outlives the task, so a task an administrator disabled or
+    /// deleted is never created again. With several processes on one database
+    /// the marker decides which one inserts.
+    pub async fn seed_scheduled_task(
+        &self,
+        marker: &str,
+        marker_value: &str,
+        t: &ScheduledTaskRow,
+    ) -> Result<bool, StoreError> {
+        let mut tx = self.backend.begin().await?;
+        let claimed = q("INSERT INTO settings(key, value) VALUES (?1, ?2) ON CONFLICT(key) DO NOTHING")
+            .bind(marker)
+            .bind(marker_value)
+            .execute_tx(&mut tx)
+            .await?;
+        if claimed == 0 {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        let existing = q("SELECT id FROM scheduled_task WHERE kind = ?1")
+            .bind(&t.kind)
+            .fetch_all_tx(&mut tx)
+            .await?;
+        if !existing.is_empty() {
+            tx.commit().await?;
+            return Ok(false);
+        }
+        q("INSERT INTO scheduled_task
+               (id, kind, schedule_json, params_json, enabled, only_in_window, created_by,
+                created_at, updated_at, last_run_at, last_status, next_run_at, lease_owner,
+                lease_until)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, NULL, ?10, NULL, NULL)")
+        .bind(&t.id)
+        .bind(&t.kind)
+        .bind(&t.schedule_json)
+        .bind(&t.params_json)
+        .bind(i64::from(t.enabled))
+        .bind(i64::from(t.only_in_window))
+        .bind(&t.created_by)
+        .bind(t.created_at)
+        .bind(t.updated_at)
+        .bind(t.next_run_at)
+        .execute_tx(&mut tx)
+        .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
 }
 
 #[cfg(test)]
@@ -663,6 +716,33 @@ mod tests {
             detail_json: None,
             triggered_by: "root".into(),
         }
+    }
+
+    #[tokio::test]
+    async fn seed_once_per_installation() {
+        seeding(&store().await).await;
+    }
+
+    async fn seeding(s: &Store) {
+        q("DELETE FROM settings WHERE key LIKE 'test.seeded.%'").execute(&s.backend).await.unwrap();
+        q("DELETE FROM scheduled_task WHERE kind IN ('seed_a', 'seed_b')").execute(&s.backend).await.unwrap();
+        let mut a = task("seed-a1", None);
+        a.kind = "seed_a".into();
+        assert!(s.seed_scheduled_task("test.seeded.a", "1", &a).await.unwrap());
+        // Seeding again is a no-op, even after the task is deleted.
+        a.id = "seed-a2".into();
+        assert!(!s.seed_scheduled_task("test.seeded.a", "1", &a).await.unwrap());
+        assert!(s.delete_scheduled_task("seed-a1").await.unwrap());
+        assert!(!s.seed_scheduled_task("test.seeded.a", "1", &a).await.unwrap());
+        assert!(s.get_scheduled_task("seed-a2").await.unwrap().is_none());
+        // A kind that already has a task gets the marker and no second task.
+        let mut b = task("seed-b1", None);
+        b.kind = "seed_b".into();
+        s.insert_scheduled_task(&b).await.unwrap();
+        b.id = "seed-b2".into();
+        assert!(!s.seed_scheduled_task("test.seeded.b", "1", &b).await.unwrap());
+        assert!(s.get_setting("test.seeded.b").await.unwrap().is_some());
+        assert!(s.get_scheduled_task("seed-b2").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -1035,6 +1115,7 @@ mod tests {
         lease(&s).await;
         runs(&s).await;
         ownership(&s).await;
+        seeding(&s).await;
         processes(&s, &dsn).await;
         // Concurrent starts of one kind on Postgres: exactly one wins.
         q("DELETE FROM job_run").execute(&s.backend).await.unwrap();

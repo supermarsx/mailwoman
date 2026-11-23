@@ -199,3 +199,20 @@ admin-retention-data-complianceMail = إشعارات البريد الإلكتر
 
 admin-retention-store-operationalIncidents = الحوادث التشغيلية
 admin-retention-data-operationalIncidents = الحوادث التشغيلية
+
+# Scheduled retention jobs.
+admin-retention-jobs = مهام الاحتفاظ المجدولة
+admin-retention-jobs-intro = يجدول الخادم هذه المهام الثلاث بنفسه. على خادم كانت لديه حسابات عند ترقيته، تعمل كل مهمة أولًا لمدة 7 أيام كمعاينة لا تغيّر شيئًا وتسجّل ما كانت ستغيّره. تبقى المهمة التي أوقفتها متوقفة بعد إعادة التشغيل.
+admin-retention-jobs-col-job = المهمة
+admin-retention-jobs-col-state = الحالة
+admin-retention-jobs-col-next = التشغيل التالي
+admin-retention-jobs-col-preview = آخر معاينة
+admin-retention-jobs-starts = معاينة فقط؛ يبدأ الحذف في { $date }
+admin-retention-jobs-no-preview = لا توجد معاينة بعد
+admin-retention-jobs-would = سيُغيّر { $count } (معاينة { $date })
+admin-retention-job-user_retention = قواعد الاحتفاظ للأشخاص
+admin-retention-job-user_retention-what = تشغّل قواعد كل شخص الخاصة بالبريد والتقويم والملاحظات وقواعد البريد على مستوى المؤسسة.
+admin-retention-job-retention_archive = فحص الأرشيف
+admin-retention-job-retention_archive-what = تفحص ملفات الأرشيف وتزيل الأقدم من فئة الاحتفاظ الطويلة.
+admin-retention-job-gc_uploads = تنظيف الملفات المرفوعة
+admin-retention-job-gc_uploads-what = تزيل الملفات المرفوعة الأقدم من 30 يومًا التي لا يشير إليها أي مسودة محفوظة أو صورة جهة اتصال أو عملية إرسال.

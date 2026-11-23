@@ -356,6 +356,14 @@ pub(crate) async fn maintain(store: &Store, now: i64, force: bool, dry_run: bool
 pub(crate) async fn archive_job(ctx: JobCtx) -> Result<JobOutput, String> {
     let state = ctx.state()?;
     let now = chrono::Utc::now().timestamp();
+    // A seeded task only previews until its `armAfter` (jobs::retention_schedule).
+    if let Some(until) = crate::jobs::retention_schedule::preview_until(&ctx, now) {
+        let run = maintain(&state.store, now, false, true).await?;
+        return Ok(JobOutput::new(
+            crate::jobs::retention_schedule::preview_summary(until, run.purged, "archive segment(s)"),
+            json!({"dryRun": true, "armAfter": until, "wouldChange": run.purged}),
+        ));
+    }
     let run = maintain(&state.store, now, false, false).await?;
     let mut status: Value = state
         .store
