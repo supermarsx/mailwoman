@@ -50,7 +50,7 @@ Users register a browser in **Settings** > **Notifications** under
 **Register background notifications**. The button is disabled while
 notifications are off or the administrator does not allow push.
 
-<!-- SCREENSHOT deploy/push-browser-registration: Settings > Notifications, "Background notifications on this browser" card with the Register button, crop of the card -->
+![The Background notifications on this browser card: the account chooser, the status This browser has no push subscription, and the Register background notifications button.](/screenshots/deploy/push-browser-registration.webp){.mw-crop}
 
 ## Server configuration
 

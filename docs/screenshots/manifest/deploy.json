@@ -1,0 +1,766 @@
+{
+  "defaults": {
+    "stack": "E",
+    "seed": [
+      "mail-basic"
+    ],
+    "theme": "dark",
+    "viewport": "desktop"
+  },
+  "entries": [
+    {
+      "id": "overview-mailbox",
+      "page": "getting-started/what-is-mailwoman.md",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "Sam Okoye",
+            "exact": false
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "Re: Spring catalogue: print proof"
+          }
+        },
+        {
+          "click": {
+            "role": "heading",
+            "name": "Re: Spring catalogue: print proof"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Mailwoman mailbox: the folder list on the left, the Inbox message list in the middle and an opened message on the right.",
+      "note": "Same state as core/mailbox: a message that is already read, so unread counts are stable."
+    },
+    {
+      "id": "signin-form",
+      "page": "getting-started/first-sign-in.md",
+      "session": "none",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@auth-sign-in"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The sign-in screen with empty Email or username and Password fields and the Sign in button."
+    },
+    {
+      "id": "signin-filled",
+      "page": "getting-started/first-sign-in.md",
+      "session": "none",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "fill": {
+            "label": "@auth-email",
+            "value": "alex@example.com"
+          }
+        },
+        {
+          "fill": {
+            "label": "@auth-password",
+            "value": "demo-pass-alex",
+            "first": true
+          }
+        },
+        {
+          "eval": "document.activeElement && document.activeElement.blur()"
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "form",
+          "name": "@auth-sign-in"
+        },
+        "padding": 12
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@auth-email"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@auth-password",
+            "first": true
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@auth-sign-in"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The sign-in form with an address in Email or username, a hidden password, and markers 1 to 3 on the address field, the password field and the Sign in button.",
+      "note": "eval removes focus from the password field so its tooltip is not in the image."
+    },
+    {
+      "id": "signin-remembered",
+      "page": "getting-started/first-sign-in.md",
+      "session": "none",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "eval": "localStorage.setItem('mw.successful-signins.v1:' + location.origin, JSON.stringify(['alex@example.com', 'jordan.ellis@example.com']))"
+        },
+        {
+          "reload": true
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@auth-remembered"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "jordan.ellis@example.com"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "form",
+          "name": "@auth-sign-in"
+        },
+        "padding": 12
+      },
+      "alt": "The sign-in form with the Previous sign-ins list open below the address field, listing two addresses, each with a delete icon to forget it.",
+      "note": "eval puts two addresses in the browser's remembered sign-ins (the same localStorage key the app writes after a successful sign-in), because the harness signs in through the API, not the form."
+    },
+    {
+      "id": "admin-signin",
+      "page": "getting-started/install-quick.md",
+      "session": "none",
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "waitFor": {
+            "role": "form",
+            "name": "@admin-login-form"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "form",
+          "name": "@admin-login-form"
+        },
+        "padding": 12
+      },
+      "alt": "The admin console sign-in form with empty Admin username and Password fields and the Sign in button."
+    },
+    {
+      "id": "admin-first-dashboard",
+      "page": "getting-started/install-quick.md",
+      "session": "admin",
+      "seed": [
+        "mail-basic",
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-dash-overview"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 1440,
+          "height": 449
+        }
+      },
+      "alt": "The top of the admin console after signing in: the navigation on the left and the dashboard's setup checklist and account counts."
+    },
+    {
+      "id": "admin-console-address",
+      "page": "deploy/README.md",
+      "session": "admin",
+      "seed": [
+        "mail-basic",
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "@admin-security-center-title",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "text": "@admin-security-tab-console",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-console-path-title"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-console-path-title"
+        },
+        "padding": 12
+      },
+      "alt": "The Console address tab of the Security centre: the current console address (masked), copy, share and email buttons, a note that MW_ADMIN_PATH sets it, and a warning that /admin is the first address scanners try.",
+      "mask": [
+        {
+          "text": "http://localhost",
+          "exact": false
+        }
+      ]
+    },
+    {
+      "id": "connection-limits-assessment",
+      "page": "deploy/connection-limits.md",
+      "session": "admin",
+      "seed": [
+        "mail-basic",
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "@admin-diag-title",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "text": "@admin-diagx-tab-posture",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "@admin-deployment-title"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-deployment-check-httpAdmission",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "text": "@admin-deployment-check-httpAdmission",
+            "first": true,
+            "closest": "tr"
+          },
+          {
+            "text": "@admin-deployment-check-connectionNegotiation",
+            "first": true,
+            "closest": "tr"
+          }
+        ],
+        "padding": 8
+      },
+      "alt": "The HTTP admission and request limits and Inbound connection negotiation limits rows of the Deployment security assessment, listing the default limits."
+    },
+    {
+      "id": "telemetry-editor",
+      "page": "deploy/telemetry.md",
+      "session": "admin",
+      "seed": [
+        "mail-basic",
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "@admin-nav-observability",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "text": "@admin-obs-telemetry-open",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-telemetry-collector",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Configure operational telemetry tab of Observability, with the Collector and signals section: Enable OTLP export, Export traces, Export metrics, OTLP gRPC endpoint and Service name."
+    },
+    {
+      "id": "online-conversion-card",
+      "page": "deploy/online-sqlite-maintenance.md",
+      "session": "admin",
+      "seed": [
+        "mail-basic",
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "@admin-nav-rethread",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "text": "@admin-db-title",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-db-online-title",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "role": "heading",
+            "name": "@admin-db-online-title",
+            "closest": "section"
+          },
+          {
+            "role": "heading",
+            "name": "@admin-db-retained-title",
+            "closest": "section"
+          }
+        ],
+        "padding": 12
+      },
+      "alt": "The Online SQLite conversion card with the Start conversion and Refresh buttons, and the Retained databases card with no retained database."
+    },
+    {
+      "id": "egress-routes",
+      "page": "deploy/egress-proxy.md",
+      "session": "admin",
+      "seed": [
+        "mail-basic",
+        "admin-basic",
+        "deploy-egress"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "@privacy-outbound-title",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-egress-heading",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Outbound proxy routes tab of Outbound connections with two routes: office-socks, in use, and office-connect, not in use."
+    },
+    {
+      "id": "push-browser-registration",
+      "page": "deploy/push.md",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-nav-settings"
+          }
+        },
+        {
+          "click": {
+            "text": "@settings-notif-title",
+            "last": true
+          }
+        },
+        {
+          "click": {
+            "text": "@settings-alert-tab-browser",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@settings-permissions-background-title",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "text": "@settings-permissions-background-title",
+          "first": true,
+          "closest": "section"
+        },
+        "padding": 12
+      },
+      "alt": "The Background notifications on this browser card: the account chooser, the status This browser has no push subscription, and the Register background notifications button."
+    },
+    {
+      "id": "compose-message-type",
+      "page": "deploy/compose-formats.md",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose"
+          }
+        },
+        {
+          "waitFor": {
+            "testid": "compose-group-message-type"
+          }
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "role": "tab",
+            "name": "@mail-compose-ribbon-format"
+          },
+          {
+            "testid": "compose-group-message-type"
+          }
+        ],
+        "padding": 8
+      },
+      "alt": "The composer ribbon with marker 1 on the Format text tab and marker 2 on the Message type control, set to HTML.",
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "tab",
+            "name": "@mail-compose-ribbon-format"
+          },
+          "place": "top"
+        },
+        {
+          "n": 2,
+          "target": {
+            "testid": "format-toggle"
+          },
+          "place": "left"
+        }
+      ]
+    },
+    {
+      "id": "signature-editor",
+      "page": "deploy/compose-formats.md",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-nav-settings"
+          }
+        },
+        {
+          "click": {
+            "text": "@settings-sig-title",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@settings-sig-new"
+          }
+        },
+        {
+          "fill": {
+            "label": "@settings-sig-name-label",
+            "value": "Work"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@settings-sig-plain-alternative",
+            "first": true
+          }
+        },
+        {
+          "scroll": {
+            "text": "@settings-sig-plain-alternative",
+            "first": true,
+            "block": "center"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "A new signature in the signature editor, scrolled to the size limits note, the Plain-text alternative field, Use as default, and the Save and Cancel buttons."
+    },
+    {
+      "id": "message-notices-settings",
+      "page": "deploy/compose-formats.md",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-nav-settings"
+          }
+        },
+        {
+          "click": {
+            "text": "@settings-compose-title",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "text": "@notices-title",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@notices-new"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@notices-rules",
+            "first": true
+          }
+        },
+        {
+          "scroll": {
+            "text": "@notices-rules",
+            "first": true,
+            "block": "center"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "A new notice in Composing and replies, Message notices, scrolled to the Enable notices and Apply automatically by default switches and the Applicability rules."
+    },
+    {
+      "id": "egress-add-route",
+      "page": "deploy/egress-proxy.md",
+      "session": "admin",
+      "seed": [
+        "mail-basic",
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "@privacy-outbound-title",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-egress-add-heading"
+          }
+        },
+        {
+          "waitFor": {
+            "testid": "egress-scheme"
+          }
+        },
+        {
+          "wait": 1500
+        },
+        {
+          "select": {
+            "testid": "egress-scheme",
+            "value": "socks5"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-egress-id",
+            "value": "office-socks"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-egress-host",
+            "value": "proxy.example.net"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-egress-port",
+            "value": "1080"
+          }
+        },
+        {
+          "eval": "document.activeElement && document.activeElement.blur()"
+        }
+      ],
+      "shot": "full",
+      "alt": "The Add a route form filled in for a SOCKS5 proxy at proxy.example.net, port 1080, with the route scope global and two kinds of traffic ticked.",
+      "note": "eval removes the focus ring from the last field."
+    },
+    {
+      "id": "egress-in-use",
+      "page": "deploy/egress-proxy.md",
+      "session": "admin",
+      "seed": [
+        "mail-basic",
+        "admin-basic",
+        "deploy-egress"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "@privacy-outbound-title",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "testid": "egress-in-use"
+          }
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "testid": "egress-in-use"
+          },
+          {
+            "role": "table"
+          }
+        ],
+        "padding": 12
+      },
+      "alt": "The routes table below the notice naming the route in use, with marker 1 on Stop using a proxy and marker 2 on the Test button of the route in use.",
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@admin-egress-deactivate"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@admin-egress-test"
+          },
+          "place": "bottom"
+        }
+      ]
+    },
+    {
+      "id": "signin-sso",
+      "page": "getting-started/first-sign-in.md",
+      "session": "none",
+      "seed": [
+        "mail-basic",
+        "admin-basic",
+        "deploy-sso"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@auth-sso-heading"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "form",
+          "name": "@auth-sign-in"
+        },
+        "padding": 12
+      },
+      "alt": "The sign-in form with a Sign in with Harbour Lane Studio button below or continue with."
+    }
+  ]
+}

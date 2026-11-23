@@ -1,0 +1,75 @@
+{
+  "seeds": {
+    "deploy-egress": {
+      "admin": [
+        {
+          "method": "POST",
+          "path": "/step-up",
+          "body": {
+            "password": "demo-pass-admin"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/egress/proxies",
+          "body": {
+            "id": "office-socks",
+            "scheme": "socks5",
+            "host": "proxy.example.net",
+            "port": 1080,
+            "scope": "global",
+            "trafficClasses": [
+              "remote_content",
+              "ics_feeds"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/egress/proxies",
+          "body": {
+            "id": "office-connect",
+            "scheme": "http",
+            "host": "proxy.example.org",
+            "port": 3128,
+            "scope": "global",
+            "trafficClasses": [
+              "remote_content"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/egress/proxies/office-socks/activate",
+          "body": {}
+        }
+      ]
+    },
+    "deploy-sso": {
+      "admin": [
+        {
+          "method": "POST",
+          "path": "/step-up",
+          "body": {
+            "password": "demo-pass-admin"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/sso",
+          "body": {
+            "id": "harbour-lane",
+            "displayName": "Harbour Lane Studio",
+            "enabled": true,
+            "config": {
+              "kind": "oidc",
+              "issuer_url": "https://login.example.com",
+              "client_id": "mailwoman",
+              "redirect_url": "http://localhost/api/sso/harbour-lane/callback"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

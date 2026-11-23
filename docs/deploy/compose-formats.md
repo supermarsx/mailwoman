@@ -6,7 +6,11 @@ This page explains the three body formats the composer offers, where an unsent m
 
 The **Message type** group on the **Format text** tab of the composer ribbon switches the body between three formats:
 
-<!-- SCREENSHOT deploy/compose-message-type: composer, Format text tab open with the Message type menu expanded, crop of the Message type group -->
+![The composer ribbon with marker 1 on the Format text tab and marker 2 on the Message type control, set to HTML.](/screenshots/deploy/compose-message-type.webp){.mw-crop}
+
+1. The **Format text** tab.
+2. The **Message type** control.
+{.mw-callouts}
 
 | Option | What you edit | What is sent |
 | --- | --- | --- |
@@ -62,7 +66,7 @@ The composer caches the account draft list for 15 seconds, shared by every open 
 
 Signatures are kept per account under **Settings** > **Account** > **Signatures**. Choose **New signature** to create one.
 
-<!-- SCREENSHOT deploy/signature-editor: Settings > Account > Signatures, editing a signature in Rich text format with the Plain-text alternative field visible, full -->
+![A new signature in the signature editor, scrolled to the size limits note, the Plain-text alternative field, Use as default, and the Save and Cancel buttons.](/screenshots/deploy/signature-editor.webp){.mw-shot}
 
 The signature editor uses the same editor and ribbon as the composer, without recipients, attachments or delivery options:
 
@@ -90,7 +94,7 @@ To assign a signature to a sending address, open **Settings** > **Account** > **
 
 Message notices are reusable blocks of text, such as a confidentiality notice, added after the signature and kept separate from it. Manage them in **Settings** > **Mail** > **Composing and replies** > **Message notices**.
 
-<!-- SCREENSHOT deploy/message-notices-settings: Settings > Mail > Composing and replies > Message notices, one notice open with Applicability rules visible, full -->
+![A new notice in Composing and replies, Message notices, scrolled to the Enable notices and Apply automatically by default switches and the Applicability rules.](/screenshots/deploy/message-notices-settings.webp){.mw-shot}
 
 1. Make sure **Enable notices** is on.
 2. Choose **New notice**.

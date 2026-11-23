@@ -108,10 +108,6 @@ and `.msg`, and `mailto:` links, and the app contains a biometric app-lock comma
 No screen in the web client uses them, so sharing to the app, opening those files
 with it or tapping a `mailto:` link starts the app without passing the content on.
 
-<!-- SCREENSHOT deploy/android-sign-in: Android app on a phone, first start against a configured server, full screen showing the sign-in screen with the Email or username and Password fields and the Sign in button -->
-
-<!-- SCREENSHOT deploy/android-not-configured: Android app on a phone, built without MW_SHELL_SERVER_URL, full screen showing "This app has not been set up for a server. Contact your administrator." -->
-
 ## F-Droid
 
 `packaging/fdroid/metadata/com.mailwoman.mobile.yml` is a draft recipe for the

@@ -6,7 +6,7 @@ builds that replacement while Mailwoman keeps serving requests, then switches to
 it. The replacement keeps the same SQLCipher encryption settings and sealed data.
 This applies to SQLite only; PostgreSQL installations do not use it.
 
-<!-- SCREENSHOT deploy/online-conversion-card: Admin console, Maintenance > Database, "Online SQLite conversion" and "Retained databases" cards, full -->
+![The Online SQLite conversion card with the Start conversion and Refresh buttons, and the Retained databases card with no retained database.](/screenshots/deploy/online-conversion-card.webp){.mw-crop}
 
 ## Before you start
 
@@ -30,8 +30,6 @@ database in `FULL` auto-vacuum mode is refused and left unchanged.
    and a conversion is running.
 4. To stop before the switch, select **Cancel conversion**. Once switching has
    begun, the card shows `Cancellation is no longer available at this stage.`
-
-<!-- SCREENSHOT deploy/online-conversion-progress: Admin console, Maintenance > Database, "Online SQLite conversion" card during the "Copying data" stage, crop of the card -->
 
 The stages are **Preparing**, **Copying data**, **Verifying the copy**,
 **Applying recent changes**, **Waiting to switch**, **Switching database** and
@@ -154,8 +152,6 @@ volume snapshots still include it.
 3. Select the delete button (**Delete** followed by the file name).
 4. In **Delete retained database?**, type the exact file name and select
    **Delete database copy**.
-
-<!-- SCREENSHOT deploy/retained-databases-confirm: Admin console, Maintenance > Database, "Delete retained database?" dialog with the typed-name field, crop of the dialog -->
 
 Only the previous file recorded by the active `CURRENT` can be deleted; other
 files in the directory are never offered. Deletion is refused while a conversion

@@ -5,7 +5,7 @@ Mailwoman can export request traces and metrics to an OpenTelemetry collector
 by default. This page covers the admin console screen, the environment variables
 that override it, and exactly what is exported.
 
-<!-- SCREENSHOT deploy/telemetry-editor: Admin console, Observability > Configure operational telemetry, full page with "Collector and signals" and "Sampling and export limits" -->
+![The Configure operational telemetry tab of Observability, with the Collector and signals section: Enable OTLP export, Export traces, Export metrics, OTLP gRPC endpoint and Service name.](/screenshots/deploy/telemetry-editor.webp){.mw-shot}
 
 ## Configure export in the admin console
 

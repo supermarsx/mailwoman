@@ -18,14 +18,10 @@ At start the app looks for an address in this order and uses the first it finds:
 3. none. The app then shows **This app has not been set up for a server. Contact
    your administrator.** and offers no way to continue.
 
-<!-- SCREENSHOT deploy/shell-not-configured: desktop app window, built without a server address and no provisioning file, full window showing "This app has not been set up for a server. Contact your administrator." -->
-
 The address is read once, at start. The sign-in screen has no server field and
 Settings has no server list. If the server does not answer at start, the app shows
 the error with **Retry** and, below it, **If this keeps happening, contact your
 administrator.**
-
-<!-- SCREENSHOT deploy/shell-server-unreachable: desktop app window, configured server not answering at start, crop of the error card with the Retry button and "If this keeps happening, contact your administrator." -->
 
 So each deployment needs its own build, or, for a desktop fleet, one build plus a
 provisioning file.

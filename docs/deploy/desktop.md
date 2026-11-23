@@ -114,8 +114,6 @@ Messages go to standard error with the prefix `[mailwoman]`. A release build on
 Windows has no console, so the fatal errors in steps 1 and 2 also appear in a
 message box.
 
-<!-- SCREENSHOT deploy/desktop-first-start: desktop app window on first start against a configured server, full window showing the sign-in screen with the Email or username and Password fields and the Sign in button -->
-
 ## Signing in
 
 The sign-in screen is the web client's: **Email or username**, **Password** and

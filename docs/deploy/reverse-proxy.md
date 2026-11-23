@@ -42,8 +42,6 @@ Mailwoman ignores every forwarded header and treats the proxy as the client.
    report the HTTPS your browser used. See [Deployment security
    assessment](../admin/deployment-security.md).
 
-<!-- SCREENSHOT deploy/reverse-proxy-assessment-https: Admin console, Diagnostics > Deployment security assessment, server behind a TLS proxy, crop of the HTTPS request and Secure cookies rows -->
-
 If you install with `deploy.sh`, it writes `MW_TRUSTED_PROXIES` and
 `MW_FORWARDED_MODE=xff` for you with `--domain` (its own Caddy) and with
 `--proxy-network` (an existing proxy on a Docker network), unless `app.env` already

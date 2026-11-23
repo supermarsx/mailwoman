@@ -17,7 +17,7 @@ apply only to Mailwoman's own listener; a reverse proxy in front has its own.
   admission and request limits** summarise them. See [Deployment security
   assessment](../admin/deployment-security.md).
 
-<!-- SCREENSHOT deploy/connection-limits-assessment: Admin console, Diagnostics > Deployment security assessment, default limits, crop of the Inbound connection negotiation limits and HTTP admission and request limits rows -->
+![The HTTP admission and request limits and Inbound connection negotiation limits rows of the Deployment security assessment, listing the default limits.](/screenshots/deploy/connection-limits-assessment.webp){.mw-crop}
 
 ## TLS handshakes and PROXY headers
 

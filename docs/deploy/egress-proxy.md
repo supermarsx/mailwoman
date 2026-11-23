@@ -7,7 +7,7 @@ of the admin console you can send some or all of these requests through an HTTP
 into use and test it. How the address policy works with a proxy, and its limits, is
 in [Outbound connections (egress)](../security/egress.md).
 
-<!-- SCREENSHOT deploy/egress-routes: Admin console, Configuration > Outbound connections, Outbound proxy routes tab with one route in use and one not in use, full -->
+![The Outbound proxy routes tab of Outbound connections with two routes: office-socks, in use, and office-connect, not in use.](/screenshots/deploy/egress-routes.webp){.mw-shot}
 
 ## Before you start
 
@@ -38,7 +38,7 @@ in [Outbound connections (egress)](../security/egress.md).
      off, only `https` destinations are fetched through the route.
 4. Click **Add**.
 
-<!-- SCREENSHOT deploy/egress-add-route: Admin console, Outbound connections > Add a route form filled in with an example SOCKS5 proxy, crop of the form -->
+![The Add a route form filled in for a SOCKS5 proxy at proxy.example.net, port 1080, with the route scope global and two kinds of traffic ticked.](/screenshots/deploy/egress-add-route.webp){.mw-shot}
 
 A saved route carries no traffic yet. The page says **No route is in use. Outbound
 fetches go direct.** until you put a route into use.
@@ -55,7 +55,11 @@ processes within 15 seconds.
 To stop using a proxy, click **Stop using a proxy**. Outbound requests then go
 direct.
 
-<!-- SCREENSHOT deploy/egress-in-use: Admin console, Outbound proxy routes table, one route In use, crop of the in-use notice, the State column and the Test button -->
+![The routes table below the notice naming the route in use, with marker 1 on Stop using a proxy and marker 2 on the Test button of the route in use.](/screenshots/deploy/egress-in-use.webp){.mw-crop}
+
+1. **Stop using a proxy** takes the route out of use.
+2. **Test** appears only on the route in use.
+{.mw-callouts}
 
 ## Test the route in use
 
