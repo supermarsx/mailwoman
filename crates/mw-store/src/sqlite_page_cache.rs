@@ -828,3 +828,7 @@ mod tests {
         store.close().await;
     }
 }
+
+#[cfg(test)]
+#[path = "sqlite_page_cache_working_set_tests.rs"]
+mod working_set_tests;
