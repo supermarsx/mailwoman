@@ -243,7 +243,7 @@ fn process_usage() -> (Option<u64>, Option<f64>) {
     (None, None)
 }
 #[cfg(unix)]
-fn disk_space(path: &Path) -> Option<(u64, u64)> {
+pub fn disk_space(path: &Path) -> Option<(u64, u64)> {
     use std::os::unix::ffi::OsStrExt;
     let path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
     let mut stat = std::mem::MaybeUninit::<libc::statvfs>::uninit();
@@ -259,7 +259,7 @@ fn disk_space(path: &Path) -> Option<(u64, u64)> {
     ))
 }
 #[cfg(windows)]
-fn disk_space(path: &Path) -> Option<(u64, u64)> {
+pub fn disk_space(path: &Path) -> Option<(u64, u64)> {
     use std::os::windows::ffi::OsStrExt;
     #[link(name = "kernel32")]
     unsafe extern "system" {
@@ -281,7 +281,7 @@ fn disk_space(path: &Path) -> Option<(u64, u64)> {
         .then_some((total, available))
 }
 #[cfg(not(any(unix, windows)))]
-fn disk_space(_path: &Path) -> Option<(u64, u64)> {
+pub fn disk_space(_path: &Path) -> Option<(u64, u64)> {
     None
 }
 #[cfg(test)]
