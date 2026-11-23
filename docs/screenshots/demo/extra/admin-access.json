@@ -1,0 +1,248 @@
+{
+  "seeds": {
+    "admin-access-domains": {
+      "admin": [
+        {
+          "method": "PUT",
+          "path": "/domains/example.org",
+          "body": {
+            "upstream": {
+              "version": 2,
+              "failover": true,
+              "backends": [
+                {
+                  "id": "imap-primary",
+                  "role": "mail",
+                  "protocol": "imap",
+                  "preferred": true,
+                  "priority": 10,
+                  "endpoint": {
+                    "host": "imap1.example.org",
+                    "port": 993,
+                    "tls": "implicit"
+                  }
+                },
+                {
+                  "id": "imap-standby",
+                  "role": "mail",
+                  "protocol": "imap",
+                  "priority": 20,
+                  "endpoint": {
+                    "host": "imap2.example.org",
+                    "port": 993,
+                    "tls": "implicit"
+                  }
+                },
+                {
+                  "id": "smtp",
+                  "role": "submission",
+                  "protocol": "smtp",
+                  "priority": 100,
+                  "endpoint": {
+                    "host": "smtp.example.org",
+                    "port": 465,
+                    "tls": "implicit"
+                  }
+                }
+              ]
+            },
+            "allowlist": [
+              "*@example.org"
+            ],
+            "blocklist": [
+              "former.*@example.org"
+            ]
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/domains/example.org/aliases/corp.example.org",
+          "body": {}
+        },
+        {
+          "method": "PUT",
+          "path": "/domains/example.org/hosts/webmail.example.org",
+          "body": {}
+        },
+        {
+          "method": "PUT",
+          "path": "/domains/example.com/preferred",
+          "body": {}
+        },
+        {
+          "method": "PUT",
+          "path": "/domains/example.net",
+          "body": {
+            "upstream": {
+              "version": 2,
+              "backends": [
+                {
+                  "id": "exchange",
+                  "role": "mail",
+                  "protocol": "ews",
+                  "preferred": true,
+                  "ews": {
+                    "endpointUrl": "https://exchange.example.net/EWS/Exchange.asmx",
+                    "authentication": "ntlm",
+                    "ntlmDomain": "EXAMPLE"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "admin-access-signin": {
+      "admin": [
+        {
+          "method": "POST",
+          "path": "/preprovisioned-users",
+          "body": {
+            "addresses": [
+              "jordan.ellis@example.com",
+              "lena.brooks@example.com"
+            ],
+            "note": "Starts in April"
+          }
+        }
+      ]
+    },
+    "centre-bans": {
+      "adminStepUp": true,
+      "admin": [
+        {
+          "method": "POST",
+          "path": "/bans",
+          "body": {
+            "ip": "203.0.113.45",
+            "reason": "Repeated password guessing against mailbox sign-in",
+            "expiresAt": null
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/bans",
+          "body": {
+            "ip": "198.51.100.23",
+            "reason": "Probing for the admin console",
+            "expiresAt": "2027-06-30T00:00:00Z"
+          }
+        }
+      ]
+    },
+    "admin-access-sso": {
+      "adminStepUp": true,
+      "admin": [
+        {
+          "method": "POST",
+          "path": "/sso",
+          "body": {
+            "id": "staff",
+            "displayName": "Staff sign-in",
+            "scope": "deployment",
+            "enabled": true,
+            "config": {
+              "kind": "oidc",
+              "issuer_url": "https://login.example.net/realms/staff",
+              "client_id": "mailwoman",
+              "redirect_url": "",
+              "scopes": [
+                "openid",
+                "email",
+                "profile"
+              ],
+              "first_login_policy": "allowlist"
+            },
+            "claimMap": {
+              "email": "email"
+            },
+            "secret": "fictional-client-secret"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/sso",
+          "body": {
+            "id": "partners",
+            "displayName": "Partner sign-in",
+            "scope": "domain:example.org",
+            "enabled": false,
+            "config": {
+              "kind": "oidc",
+              "issuer_url": "https://idp.example.org",
+              "client_id": "mail-example-org",
+              "redirect_url": "",
+              "scopes": [
+                "openid",
+                "email"
+              ],
+              "first_login_policy": "allowlist"
+            },
+            "claimMap": {},
+            "secret": "fictional-client-secret-2"
+          }
+        }
+      ]
+    },
+    "admin-access-oidc": {
+      "adminStepUp": true,
+      "admin": [
+        {
+          "method": "PUT",
+          "path": "/oidc",
+          "headers": {
+            "If-Match": "\"unconfigured\""
+          },
+          "body": {
+            "issuer": "https://mail.example.com/oidc",
+            "enabled": true
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/oidc/clients",
+          "body": {
+            "name": "Team wiki",
+            "enabled": true,
+            "secretAction": "rotate",
+            "config": {
+              "redirectUris": [
+                "https://wiki.example.com/oauth/callback"
+              ],
+              "postLogoutRedirectUris": [
+                "https://wiki.example.com/"
+              ],
+              "scopes": [
+                "openid",
+                "profile",
+                "email"
+              ],
+              "authMethod": "client_secret_basic"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/oidc/clients",
+          "body": {
+            "name": "Room booking desktop app",
+            "enabled": true,
+            "config": {
+              "redirectUris": [
+                "http://127.0.0.1:8765/callback"
+              ],
+              "postLogoutRedirectUris": [],
+              "scopes": [
+                "openid",
+                "email",
+                "offline_access"
+              ],
+              "authMethod": "none"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

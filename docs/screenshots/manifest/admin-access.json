@@ -1,0 +1,2875 @@
+{
+  "defaults": {
+    "stack": "E",
+    "session": "admin",
+    "seed": [
+      "admin-basic"
+    ]
+  },
+  "entries": [
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "domains-list",
+      "page": "admin/domains.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains"
+        },
+        {
+          "waitFor": {
+            "text": "corp.example.org"
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "testid": "admin-session-bar-text"
+        }
+      ],
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@domain-list-quick-add",
+            "exact": false
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@domain-list-guided-add",
+            "exact": false
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "link",
+            "name": "example.org"
+          },
+          "place": "left"
+        },
+        {
+          "n": 4,
+          "target": {
+            "role": "link",
+            "name": "@domain-list-edit",
+            "first": true
+          },
+          "place": "top"
+        }
+      ],
+      "alt": "The Domains screen: Quick add and Guided add buttons, a search field, and the table of example.com, example.net and example.org with their aliases, status, connections and row actions."
+    },
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "domains-overview",
+      "page": "admin/domains.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains/example.org"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@domain-page-overview"
+          }
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "role": "navigation",
+            "name": "@domain-editor-pages"
+          },
+          {
+            "role": "heading",
+            "name": "@domain-page-overview",
+            "closest": "section"
+          }
+        ],
+        "padding": 8
+      },
+      "alt": "The configuration pages of example.org (Overview, Connections and discovery, Sign-in policy, Domain aliases, Login hostnames, Diagnostics) above the overview counts of backends, aliases, login hosts and sign-in rules."
+    },
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "domains-backends",
+      "page": "admin/domains.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains/example.org/connections"
+        },
+        {
+          "waitFor": {
+            "text": "imap-standby"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@backend-list-title"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@backend-list-add",
+            "exact": false
+          },
+          "place": "left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "checkbox",
+            "first": true
+          },
+          "place": "left"
+        },
+        {
+          "n": 3,
+          "target": {
+            "text": "@backend-list-selected",
+            "first": true
+          },
+          "place": "left"
+        }
+      ],
+      "alt": "The Service backends list of example.org: the failover checkbox turned on, and three backends, imap-primary, imap-standby and smtp, with protocol, host and port, priority and status; imap-primary and smtp are marked Selected."
+    },
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "domains-backend-editor",
+      "page": "admin/domains.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains/example.org/backends/imap-primary"
+        },
+        {
+          "waitFor": {
+            "text": "@backend-editor-connection",
+            "first": true
+          }
+        },
+        {
+          "wait": 500
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "testid": "admin-session-bar-text"
+        }
+      ],
+      "alt": "The backend editor for imap-primary: Service and selection with ID, protocol, priority, Enabled and Preferred, then the Connection fields host, port, connection security and private-network permission."
+    },
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "domains-policy",
+      "page": "admin/domains.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains/example.org/policy"
+        },
+        {
+          "waitFor": {
+            "label": "@domain-editor-allowlist"
+          }
+        },
+        {
+          "scroll": {
+            "label": "@domain-editor-blocklist",
+            "block": "center"
+          }
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "label": "@domain-editor-allowlist",
+            "closest": "label"
+          },
+          {
+            "label": "@domain-editor-blocklist",
+            "closest": "label"
+          }
+        ],
+        "padding": 10
+      },
+      "alt": "The Allowlist field containing *@example.org and the Blocklist field containing former.*@example.org."
+    },
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "domains-review",
+      "page": "admin/domains.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains/example.org/policy"
+        },
+        {
+          "waitFor": {
+            "label": "@domain-editor-blocklist"
+          }
+        },
+        {
+          "fill": {
+            "label": "@domain-editor-blocklist",
+            "value": "former.*@example.org\ninterns@example.org"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@domain-editor-preview"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "alertdialog"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "alertdialog"
+        },
+        "padding": 8
+      },
+      "alt": "The Apply domain changes? dialog listing the Sign-in blocklist before and after the change, with Cancel and Apply changes buttons."
+    },
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "domains-aliases",
+      "page": "admin/domains.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains/example.org/aliases"
+        },
+        {
+          "waitFor": {
+            "text": "corp.example.org"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@domain-editor-aliases"
+        },
+        "padding": 8
+      },
+      "alt": "The Domain aliases page of example.org with the alias corp.example.org and the Add alias button."
+    },
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "domains-hosts",
+      "page": "admin/domains.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains/example.org/hosts"
+        },
+        {
+          "waitFor": {
+            "text": "webmail.example.org"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@domain-editor-hosts"
+        },
+        "padding": 8
+      },
+      "alt": "The Login host mappings page of example.org with the host webmail.example.org and a field to add another."
+    },
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "domains-diagnostics",
+      "page": "admin/domains.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains/example.org/diagnostics"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@domain-editor-test-dns"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@domain-editor-diagnostics"
+        },
+        "padding": 8
+      },
+      "alt": "The Connection and DNS checks card with the buttons Test saved connections and Check DNS."
+    },
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "guided-name",
+      "page": "admin/guided-domain-setup.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains/new/guided"
+        },
+        {
+          "fill": {
+            "label": "@admin-domain-guided-domain",
+            "value": "corp.example.com"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "testid": "admin-session-bar-text"
+        }
+      ],
+      "alt": "The Add a domain with guidance wizard on its first step, Domain identity, with corp.example.com entered as the domain name."
+    },
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "guided-connection",
+      "page": "admin/guided-domain-setup.md",
+      "viewport": {
+        "width": 1440,
+        "height": 1240
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/domains/new/guided"
+        },
+        {
+          "fill": {
+            "label": "@admin-domain-guided-domain",
+            "value": "corp.example.com"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-shell-wizard-next"
+          }
+        },
+        {
+          "select": {
+            "label": "@admin-domain-guided-connection",
+            "value": "manual"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-domain-guided-host",
+            "value": "imap.example.com"
+          }
+        },
+        {
+          "check": {
+            "label": "@admin-domain-guided-smtp"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-domain-guided-smtp-host",
+            "value": "smtp.example.com"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "testid": "admin-session-bar-text"
+        }
+      ],
+      "alt": "The Connection step of the wizard with Configure a mail server chosen: IMAP on imap.example.com port 993 with TLS from connection start, and an outgoing SMTP server smtp.example.com on port 465."
+    },
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "guided-review",
+      "page": "admin/guided-domain-setup.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains/new/guided"
+        },
+        {
+          "fill": {
+            "label": "@admin-domain-guided-domain",
+            "value": "corp.example.com"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-shell-wizard-next"
+          }
+        },
+        {
+          "select": {
+            "label": "@admin-domain-guided-connection",
+            "value": "manual"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-domain-guided-host",
+            "value": "imap.example.com"
+          }
+        },
+        {
+          "check": {
+            "label": "@admin-domain-guided-smtp"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-domain-guided-smtp-host",
+            "value": "smtp.example.com"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-shell-wizard-next"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-domain-guided-create"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "testid": "admin-session-bar-text"
+        }
+      ],
+      "alt": "The Review step of the wizard listing the domain corp.example.com, the IMAP and SMTP servers and the connection policy, with the Create domain button."
+    },
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "domain-providers-editor",
+      "page": "admin/domain-providers.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains/example.net/backends/exchange"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@backend-editor-connection"
+          }
+        },
+        {
+          "wait": 300
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "testid": "admin-session-bar-text"
+        }
+      ],
+      "alt": "The Edit backend screen for the backend exchange of example.net, with EWS chosen as the protocol, priority 100, and Enabled and Preferred for this service checked."
+    },
+    {
+      "seed": [
+        "admin-basic",
+        "admin-access-domains"
+      ],
+      "id": "domain-providers-ews",
+      "page": "admin/domain-providers.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains/example.net/backends/exchange"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@backend-editor-connection"
+          }
+        },
+        {
+          "scroll": {
+            "role": "group",
+            "name": "@backend-editor-connection",
+            "block": "start"
+          }
+        },
+        {
+          "wait": 300
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@backend-editor-connection"
+        },
+        "padding": 8
+      },
+      "alt": "The backend editor for the EWS backend exchange of example.net: the Exchange Web Services endpoint, EWS authentication set to NTLMv2 with the Windows domain EXAMPLE, and the optional CA certificates field."
+    },
+    {
+      "id": "preprovisioned-tab",
+      "page": "admin/preprovisioned-users.md",
+      "seed": [
+        "admin-basic",
+        "admin-access-signin"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/security/signin"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-signin-matrix"
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "testid": "admin-session-bar-text"
+        }
+      ],
+      "alt": "The Sign-in policy tab of the Security centre: the introduction and the start of the First sign-in rule by type table."
+    },
+    {
+      "id": "preprovisioned-matrix",
+      "page": "admin/preprovisioned-users.md",
+      "seed": [
+        "admin-basic",
+        "admin-access-signin"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/security/signin"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-signin-matrix"
+          }
+        },
+        {
+          "scroll": {
+            "text": "@admin-signin-matrix",
+            "block": "start"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "text": "@admin-signin-matrix",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The First sign-in rule by type table: New users set to Open and the password, single sign-on and linked mailbox rows set to Inherit."
+    },
+    {
+      "id": "preprovisioned-pending",
+      "page": "admin/preprovisioned-users.md",
+      "seed": [
+        "admin-basic",
+        "admin-access-signin"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/security/signin"
+        },
+        {
+          "waitFor": {
+            "text": "jordan.ellis@example.com"
+          }
+        },
+        {
+          "scroll": {
+            "role": "heading",
+            "name": "@admin-signin-pending-title",
+            "block": "start"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-signin-pending-title",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "mask": [
+        {
+          "css": "td:nth-child(3)",
+          "within": {
+            "role": "heading",
+            "name": "@admin-signin-pending-title",
+            "closest": "section"
+          }
+        }
+      ],
+      "alt": "The Pre-added users card: the address list, note and lifetime fields, the Add pending users button, and two pending entries for jordan.ellis@example.com and lena.brooks@example.com."
+    },
+    {
+      "id": "preprovisioned-check",
+      "page": "admin/preprovisioned-users.md",
+      "seed": [
+        "admin-basic",
+        "admin-access-signin"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/security/signin"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-signin-simulator"
+          }
+        },
+        {
+          "scroll": {
+            "role": "heading",
+            "name": "@admin-signin-simulator",
+            "block": "start"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-signin-simulator",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The Would a new sign-in be refused? check: an address field, the sign-in type and the Check button."
+    },
+    {
+      "id": "user-access-page",
+      "page": "admin/user-access-lifecycle.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/users"
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "alex@example.com"
+          }
+        },
+        {
+          "click": {
+            "text": "@admin-user-tab-access"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-users-access-help"
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "testid": "admin-session-bar-text"
+        }
+      ],
+      "alt": "The user alex@example.com on the Users screen with the Access and removal tab open, showing the Mailwoman access card."
+    },
+    {
+      "id": "user-access-tab",
+      "page": "admin/user-access-lifecycle.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/users"
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "alex@example.com"
+          }
+        },
+        {
+          "click": {
+            "text": "@admin-user-tab-access"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-users-access-help"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "text": "@admin-users-access-help",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "text": "@admin-users-lifecycle-block-confirm"
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 2,
+          "target": {
+            "text": "@admin-users-lifecycle-delete-confirm"
+          },
+          "place": "bottom"
+        }
+      ],
+      "alt": "The Mailwoman access card on the Access and removal tab of alex@example.com, with the Block login and Delete local access buttons."
+    },
+    {
+      "id": "user-access-block-dialog",
+      "page": "admin/user-access-lifecycle.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/users"
+        },
+        {
+          "click": {
+            "role": "link",
+            "name": "alex@example.com"
+          }
+        },
+        {
+          "click": {
+            "text": "@admin-user-tab-access"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-users-access-help"
+          }
+        },
+        {
+          "click": {
+            "text": "@admin-users-lifecycle-block-confirm"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "alertdialog"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "alertdialog"
+        },
+        "padding": 8
+      },
+      "alt": "The Block Mailwoman login confirmation for alex@example.com, explaining that blocking revokes current sessions and does not change the upstream mailbox."
+    },
+    {
+      "id": "request-protection-overview",
+      "page": "admin/request-protection.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-protect-summary-title"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Aggregate and adaptive protection tab of the Security centre: a notice that country features have no country database, the seven sub-tabs, and the Current policy card showing request budgets and adaptive protection both off."
+    },
+    {
+      "id": "request-protection-tabs",
+      "page": "admin/request-protection.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-protect-summary-title"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "navigation",
+          "name": "@admin-protection-tabs"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "link",
+            "name": "@admin-protection-tab-overview",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-protection-tabs"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "link",
+            "name": "@admin-protection-tab-aggregate",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-protection-tabs"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "link",
+            "name": "@admin-protection-tab-adaptive",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-protection-tabs"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 4,
+          "target": {
+            "role": "link",
+            "name": "@admin-protection-tab-protocol-guard",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-protection-tabs"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 5,
+          "target": {
+            "role": "link",
+            "name": "@admin-protection-tab-admin-probe",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-protection-tabs"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 6,
+          "target": {
+            "role": "link",
+            "name": "@admin-protection-tab-state",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-protection-tabs"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 7,
+          "target": {
+            "role": "link",
+            "name": "@admin-protection-tab-decisions",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-protection-tabs"
+            }
+          },
+          "place": "bottom"
+        }
+      ],
+      "alt": "The request protection sub-tabs Overview, Aggregate, Adaptive, Protocol guard, Probing, Object state and Decisions, numbered 1 to 7."
+    },
+    {
+      "id": "request-protection-summary",
+      "page": "admin/request-protection.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-protect-summary-title"
+          }
+        },
+        {
+          "scroll": {
+            "role": "region",
+            "name": "@admin-protect-summary-title",
+            "block": "start"
+          }
+        },
+        {
+          "wait": 300
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-protect-summary-title"
+        },
+        "padding": 8
+      },
+      "alt": "The What happens today card: request budget off, recognized scan paths enforced, unusual request protection off, and the slow-down, block and clean-record durations.",
+      "viewport": {
+        "width": 1440,
+        "height": 1600
+      }
+    },
+    {
+      "id": "request-protection-presets",
+      "page": "admin/request-protection.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-protect-presets-title"
+          }
+        },
+        {
+          "scroll": {
+            "role": "region",
+            "name": "@admin-protect-presets-title",
+            "block": "start"
+          }
+        },
+        {
+          "wait": 300
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-protect-presets-title"
+        },
+        "padding": 8
+      },
+      "alt": "The Presets card with the choices Relaxed, Balanced and Strict.",
+      "viewport": {
+        "width": 1440,
+        "height": 1600
+      }
+    },
+    {
+      "id": "request-protection-budget",
+      "page": "admin/request-protection.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection/aggregate"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-protect-group-budget"
+          }
+        },
+        {
+          "scroll": {
+            "role": "region",
+            "name": "@admin-protect-group-budget",
+            "block": "start"
+          }
+        },
+        {
+          "wait": 300
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-protect-group-budget"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "testid": "protect-rule-rate-mode"
+          },
+          "place": "inside-right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "testid": "protect-rule-client-requests"
+          },
+          "place": "inside-right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "testid": "protect-rule-account-requests"
+          },
+          "place": "inside-right"
+        },
+        {
+          "n": 4,
+          "target": {
+            "testid": "protect-rule-admin-requests"
+          },
+          "place": "inside-right"
+        },
+        {
+          "n": 5,
+          "target": {
+            "testid": "protect-rule-rate-window-secs"
+          },
+          "place": "inside-right"
+        }
+      ],
+      "alt": "The Request budget group on the Aggregate sub-tab: the Request budget switch set to Off, the requests per address, per mailbox and per administrator, and the budget window, numbered 1 to 5.",
+      "viewport": {
+        "width": 1440,
+        "height": 1600
+      }
+    },
+    {
+      "id": "request-protection-scan-paths",
+      "page": "admin/request-protection.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection/adaptive"
+        },
+        {
+          "waitFor": {
+            "testid": "protect-rule-probe-path-mode"
+          }
+        },
+        {
+          "scroll": {
+            "testid": "protect-rule-probe-path-mode",
+            "block": "start"
+          }
+        },
+        {
+          "wait": 300
+        }
+      ],
+      "shot": {
+        "element": {
+          "testid": "protect-rule-probe-path-mode"
+        },
+        "padding": 8
+      },
+      "alt": "The Recognized scan paths rule on the Adaptive sub-tab, with its setting key security.protection.probePathMode, its explanation and the value Enforce."
+    },
+    {
+      "id": "request-protection-actions",
+      "page": "admin/request-protection.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection/adaptive"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-protect-group-actions"
+          }
+        },
+        {
+          "scroll": {
+            "role": "region",
+            "name": "@admin-protect-group-actions",
+            "block": "start"
+          }
+        },
+        {
+          "wait": 300
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-protect-group-actions"
+        },
+        "padding": 8
+      },
+      "alt": "The What happens group on the Adaptive sub-tab: Slow-down 3 seconds, Block 5 minutes and Clean record after 1 day."
+    },
+    {
+      "id": "request-protection-probing",
+      "page": "admin/request-protection.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection/admin-probe"
+        },
+        {
+          "waitFor": {
+            "testid": "admin-probe-card"
+          }
+        },
+        {
+          "scroll": {
+            "testid": "admin-probe-card",
+            "block": "start"
+          }
+        },
+        {
+          "wait": 300
+        }
+      ],
+      "shot": {
+        "element": {
+          "testid": "admin-probe-card"
+        },
+        "padding": 8
+      },
+      "alt": "The Probing protection card: its explanation, the warning that a block also refuses the mail app from that address, and the Off and On buttons with On selected.",
+      "viewport": {
+        "width": 1440,
+        "height": 1600
+      }
+    },
+    {
+      "id": "protocol-guard-overall",
+      "page": "admin/protocol-guard.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection/protocol-guard"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-protocol-overall"
+          }
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "role": "heading",
+            "name": "@admin-protocol-overall"
+          },
+          {
+            "testid": "protocol-would-refuse"
+          }
+        ],
+        "padding": 12
+      },
+      "alt": "The Overall mode card of the Protocol guard sub-tab: the Off, Detect and Enforce buttons, the current state Mixed, and the count of requests that enforcing would refuse (masked).",
+      "mask": [
+        {
+          "testid": "protocol-would-refuse"
+        }
+      ]
+    },
+    {
+      "id": "protocol-guard-framing",
+      "page": "admin/protocol-guard.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection/protocol-guard"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-protocol-group-framing"
+          }
+        },
+        {
+          "scroll": {
+            "role": "region",
+            "name": "@admin-protocol-group-framing",
+            "block": "start"
+          }
+        },
+        {
+          "wait": 300
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-protocol-group-framing"
+        },
+        "padding": 8
+      },
+      "alt": "The Framing and smuggling group of the Protocol guard sub-tab, with the request framing and body framing classes and their modes."
+    },
+    {
+      "id": "crawler-identification-user-agent",
+      "page": "admin/crawler-identification.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection/aggregate"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-protect-group-user-agent"
+          }
+        },
+        {
+          "scroll": {
+            "testid": "protect-rule-user-agent-mode",
+            "block": "start"
+          }
+        },
+        {
+          "wait": 300
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "testid": "protect-rule-user-agent-mode"
+          },
+          {
+            "testid": "protect-rule-user-agent-categories"
+          }
+        ],
+        "padding": 8
+      },
+      "alt": "The first rules of the Browsers and crawlers group: User-Agent protection set to Enforce, Block recognized bots on the first request switched on, and the categories to count."
+    },
+    {
+      "id": "scan-path-catalog-detection",
+      "page": "admin/scan-path-catalog.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection/admin-probe"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-probe-group-detection"
+          }
+        },
+        {
+          "scroll": {
+            "role": "region",
+            "name": "@admin-probe-group-detection",
+            "block": "start"
+          }
+        },
+        {
+          "wait": 300
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "testid": "admin-probe-row-signals"
+          },
+          {
+            "testid": "admin-probe-row-probe-paths"
+          }
+        ],
+        "padding": 8
+      },
+      "alt": "The first two rules of the Detection and evidence group on the Probing sub-tab: the four counted misses, all selected, and the Probe paths list beginning with /+cscoe+, /.aws and /.env.",
+      "viewport": {
+        "width": 1440,
+        "height": 1600
+      }
+    },
+    {
+      "id": "fail2ban-probe-logging",
+      "page": "deploy/fail2ban.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection/admin-probe"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-probe-group-logging"
+          }
+        },
+        {
+          "scroll": {
+            "role": "region",
+            "name": "@admin-probe-group-logging",
+            "block": "start"
+          }
+        },
+        {
+          "wait": 300
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-probe-group-logging"
+        },
+        "padding": 8
+      },
+      "alt": "The Audit and logging group of the Probing sub-tab: the source address in the audit log set to masked and the fail2ban log line on block switched on."
+    },
+    {
+      "id": "ssh-tunnels-list",
+      "page": "admin/ssh-tunnels.md",
+      "steps": [
+        {
+          "goto": "{admin}#/integrations/ssh"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-ssh-empty"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The SSH tunnels tab of Integrations with no tunnels configured, and the New SSH tunnel and Refresh buttons."
+    },
+    {
+      "id": "ssh-tunnels-editor",
+      "page": "admin/ssh-tunnels.md",
+      "steps": [
+        {
+          "goto": "{admin}#/integrations/ssh"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-ssh-new"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-ssh-identity"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "A new SSH tunnel form with the SSH server identity section: tunnel name, SSH server hostname, port and login username."
+    },
+    {
+      "id": "smtp-transport-policy-fields",
+      "page": "admin/smtp-transport-policy.md",
+      "steps": [
+        {
+          "goto": "{admin}#/domains/example.com/backends/new"
+        },
+        {
+          "waitFor": {
+            "role": "combobox",
+            "name": "@backend-editor-protocol",
+            "exact": false
+          }
+        },
+        {
+          "select": {
+            "role": "combobox",
+            "name": "@backend-editor-protocol",
+            "exact": false,
+            "value": "smtp"
+          }
+        },
+        {
+          "check": {
+            "label": "@backend-security-customize"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "combobox",
+            "name": "@backend-security-dane",
+            "exact": false
+          }
+        },
+        {
+          "select": {
+            "role": "combobox",
+            "name": "@backend-security-sts",
+            "exact": false,
+            "value": "auto"
+          }
+        },
+        {
+          "fill": {
+            "role": "textbox",
+            "name": "@backend-security-policy-domain",
+            "exact": false,
+            "value": "example.org"
+          }
+        },
+        {
+          "blur": true
+        },
+        {
+          "scroll": {
+            "role": "combobox",
+            "name": "@backend-security-dane",
+            "exact": false,
+            "block": "center"
+          }
+        },
+        {
+          "wait": 300
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "role": "combobox",
+            "name": "@backend-security-dane",
+            "exact": false,
+            "closest": "label"
+          },
+          {
+            "role": "textbox",
+            "name": "@backend-security-policy-domain",
+            "exact": false,
+            "closest": "label"
+          }
+        ],
+        "padding": 8
+      },
+      "alt": "The DANE verification, MTA-STS verification and SMTP policy domain fields of an SMTP connection, with MTA-STS set to Follow the published policy and example.org as the policy domain."
+    },
+    {
+      "id": "directory-editor",
+      "page": "admin/directory.md",
+      "steps": [
+        {
+          "goto": "{admin}#/integrations/directory"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@directory-add"
+          }
+        },
+        {
+          "fill": {
+            "label": "@directory-url",
+            "value": "ldaps://ldap.example.com"
+          }
+        },
+        {
+          "fill": {
+            "label": "@directory-base",
+            "value": "ou=people,dc=example,dc=com"
+          }
+        },
+        {
+          "fill": {
+            "label": "@directory-bind",
+            "value": "cn=mailwoman-search,ou=services,dc=example,dc=com"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "css": "form fieldset legend"
+        },
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        }
+      ],
+      "alt": "The LDAP / GAL directory tab of Integrations with one new directory being filled in: server URL, search base, service bind DN, transport security and connection policy."
+    },
+    {
+      "id": "directory-endpoint",
+      "page": "admin/directory.md",
+      "steps": [
+        {
+          "goto": "{admin}#/integrations/directory"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@directory-add"
+          }
+        },
+        {
+          "fill": {
+            "label": "@directory-url",
+            "value": "ldaps://ldap.example.com"
+          }
+        },
+        {
+          "fill": {
+            "label": "@directory-base",
+            "value": "ou=people,dc=example,dc=com"
+          }
+        },
+        {
+          "fill": {
+            "label": "@directory-bind",
+            "value": "cn=mailwoman-search,ou=services,dc=example,dc=com"
+          }
+        },
+        {
+          "select": {
+            "label": "@directory-connection",
+            "value": "direct",
+            "exact": false
+          }
+        },
+        {
+          "select": {
+            "label": "@directory-secret-action",
+            "value": "set",
+            "exact": false
+          }
+        },
+        {
+          "check": {
+            "label": "@directory-enabled"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "css": "form fieldset"
+        },
+        "padding": 10
+      },
+      "mask": [
+        {
+          "css": "form fieldset legend"
+        }
+      ],
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@directory-url"
+          },
+          "place": "left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@directory-tls",
+            "exact": false
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "label": "@directory-priority"
+          },
+          "place": "right"
+        },
+        {
+          "n": 4,
+          "target": {
+            "label": "@directory-connection",
+            "exact": false
+          },
+          "place": "right"
+        },
+        {
+          "n": 5,
+          "target": {
+            "label": "@directory-enabled"
+          },
+          "place": "left"
+        },
+        {
+          "n": 6,
+          "target": {
+            "label": "@directory-private"
+          },
+          "place": "left"
+        },
+        {
+          "n": 7,
+          "target": {
+            "label": "@directory-secret-action",
+            "exact": false
+          },
+          "place": "right"
+        },
+        {
+          "n": 8,
+          "target": {
+            "label": "@directory-attr-display-name"
+          },
+          "place": "left"
+        }
+      ],
+      "alt": "One directory entry: server URL, search base, bind DN, transport security, priority, connection policy, the two checkboxes, the stored-password action with a new password field, and the five attribute fields.",
+      "viewport": {
+        "width": 1440,
+        "height": 1800
+      }
+    },
+    {
+      "id": "sso-list",
+      "page": "admin/sso.md",
+      "seed": [
+        "admin-basic",
+        "admin-access-sso"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/sso"
+        },
+        {
+          "waitFor": {
+            "text": "Partner sign-in",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        }
+      ],
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@admin-sso-add",
+            "first": true
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@admin-sso-filter-scope"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The Single sign-on page with two OpenID Connect providers: Staff sign-in for the whole deployment, enabled, and Partner sign-in for example.org, disabled."
+    },
+    {
+      "id": "sso-editor-oidc",
+      "page": "admin/sso.md",
+      "seed": [
+        "admin-basic",
+        "admin-access-sso"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/sso/staff/edit"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-sso-group-oidc"
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        },
+        {
+          "text": "Last changed on",
+          "exact": false
+        }
+      ],
+      "alt": "The editor of the Staff sign-in provider: backend ID, display name, protocol OIDC, scope, first-login policy and the OpenID Connect fields."
+    },
+    {
+      "id": "sso-claims",
+      "page": "admin/sso.md",
+      "seed": [
+        "admin-basic",
+        "admin-access-sso"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/sso/staff/edit"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-sso-claims"
+          }
+        },
+        {
+          "scroll": {
+            "role": "group",
+            "name": "@admin-sso-claims"
+          },
+          "block": "center"
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-sso-claims"
+        },
+        "padding": 8
+      },
+      "alt": "The Claim mapping group: email, username, display-name and groups claim fields."
+    },
+    {
+      "id": "sso-saml",
+      "page": "admin/sso.md",
+      "steps": [
+        {
+          "goto": "{admin}#/sso/new"
+        },
+        {
+          "waitFor": {
+            "label": "@admin-sso-kind"
+          }
+        },
+        {
+          "select": {
+            "label": "@admin-sso-kind",
+            "value": "saml"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-sso-group-saml-idp"
+          }
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "role": "group",
+            "name": "@admin-sso-group-saml-idp"
+          },
+          {
+            "role": "group",
+            "name": "@admin-sso-group-saml-sp"
+          }
+        ],
+        "padding": 8
+      },
+      "alt": "The SAML part of a new provider: provider metadata upload, IdP SSO and logout URLs, signing certificates, and this server's entity ID, ACS URL, NameID format and the signed and encrypted assertion switches.",
+      "viewport": {
+        "width": 1440,
+        "height": 2600
+      }
+    },
+    {
+      "id": "oauth-clients-page",
+      "page": "admin/oauth-clients.md",
+      "steps": [
+        {
+          "goto": "{admin}#/oauth-clients"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-oauth-group-registration"
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        }
+      ],
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-oauth-enabled",
+            "exact": false
+          },
+          "place": "left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "textbox",
+            "name": "@admin-oauth-hosts",
+            "exact": false
+          },
+          "place": "left"
+        },
+        {
+          "n": 3,
+          "target": {
+            "label": "@admin-oauth-token",
+            "exact": false
+          },
+          "place": "left"
+        }
+      ],
+      "alt": "The OAuth clients page with self-registration off, no allowed redirect host, and the shared registration token not required."
+    },
+    {
+      "id": "oauth-clients-scope",
+      "page": "admin/oauth-clients.md",
+      "steps": [
+        {
+          "goto": "{admin}#/oauth-clients"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-oauth-group-scope"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-oauth-group-scope"
+        },
+        "padding": 8
+      },
+      "alt": "The What a registered app gets group: the Read, Send and Delete permissions, the Mail and Calendar, contacts, tasks and notes parts of the account, and the requests-per-minute limit.",
+      "viewport": {
+        "width": 1440,
+        "height": 2000
+      }
+    },
+    {
+      "id": "identity-provider-page",
+      "page": "admin/identity-provider.md",
+      "seed": [
+        "admin-basic",
+        "admin-access-oidc"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/identity-provider"
+        },
+        {
+          "waitFor": {
+            "text": "Team wiki",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        },
+        {
+          "text": "oidc_client_",
+          "exact": false
+        }
+      ],
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@admin-identity-configure"
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@admin-identity-new"
+          },
+          "place": "bottom"
+        }
+      ],
+      "alt": "The Identity provider page with the issuer enabled at https://mail.example.com/oidc and two identity clients, Team wiki and Room booking desktop app."
+    },
+    {
+      "id": "client-access-form",
+      "page": "admin/client-access.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/client-access"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-client-access-save"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-client-access-title"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-client-access-slug-enable"
+          },
+          "place": "left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@admin-client-access-slug"
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "label": "@admin-client-access-psk-enable"
+          },
+          "place": "left"
+        },
+        {
+          "n": 4,
+          "target": {
+            "label": "@admin-client-access-psk"
+          },
+          "place": "right"
+        },
+        {
+          "n": 5,
+          "target": {
+            "label": "@admin-client-access-hours"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The Client access tab with both controls off: Require a private client address with its address segment, Require a pre-shared key with a new key field, and the grant lifetime of 24 hours.",
+      "viewport": {
+        "width": 1440,
+        "height": 1600
+      }
+    },
+    {
+      "id": "identity-provider-client",
+      "page": "admin/identity-provider.md",
+      "seed": [
+        "admin-basic",
+        "admin-access-oidc"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/identity-provider"
+        },
+        {
+          "waitFor": {
+            "text": "Team wiki",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-identity-edit",
+            "first": true
+          }
+        },
+        {
+          "wait": 1500
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        },
+        {
+          "text": "oidc_client_",
+          "exact": false
+        }
+      ],
+      "alt": "The editor of the identity client Room booking desktop app: public client authentication, a loopback callback URI and the allowed identity scopes."
+    },
+    {
+      "id": "identity-provider-issuer",
+      "page": "admin/identity-provider.md",
+      "seed": [
+        "admin-basic",
+        "admin-access-oidc"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/identity-provider"
+        },
+        {
+          "waitFor": {
+            "text": "Team wiki",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-identity-configure"
+          }
+        },
+        {
+          "wait": 1500
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        },
+        {
+          "text": "oidc_client_",
+          "exact": false
+        }
+      ],
+      "alt": "The issuer form of the identity provider with the public HTTPS issuer URL and the signing key rotation."
+    },
+    {
+      "id": "client-access-tab",
+      "page": "admin/client-access.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/client-access"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-client-access-save"
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        }
+      ],
+      "alt": "The Security centre on its Client access tab, below the notice that country features are on without a country database, with both entry controls off."
+    },
+    {
+      "id": "security-center-overview",
+      "page": "admin/security-center.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/overview"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-secdash-posture",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        },
+        {
+          "text": "@admin-secdash-updated",
+          "exact": false
+        },
+        {
+          "text": ", 2026,",
+          "exact": false
+        }
+      ],
+      "alt": "The Overview tab of the Security centre: the row of tabs, a warning that country features are on without a country database, and tiles for two-factor adoption, failed sign-ins, request protection, sign-in locks, probing blocks, admin sessions and security posture."
+    },
+    {
+      "id": "security-center-requirements",
+      "page": "admin/security-center.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/requirements"
+        },
+        {
+          "waitFor": {
+            "text": "example.org"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "testid": "security-requirements"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-2fa-global-label"
+          },
+          "place": "left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "text": "@admin-2fa-domains-heading"
+          },
+          "place": "left"
+        },
+        {
+          "n": 3,
+          "target": {
+            "text": "@admin-security-requirements-policies"
+          },
+          "place": "left"
+        }
+      ],
+      "alt": "The Two-factor & sign-in requirements tab: the Require two-factor for the whole deployment checkbox, a per-domain table for example.com and example.org, and the list of passkey and session policies.",
+      "viewport": {
+        "width": 1440,
+        "height": 1500
+      }
+    },
+    {
+      "id": "security-policy-tab",
+      "page": "admin/security-policy.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/policy"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-policy-group-connections"
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        }
+      ],
+      "alt": "The Security policy tab of the Security centre: the Connections group with the lowest TLS version, the start of the Sign-in group, and the Save bar."
+    },
+    {
+      "id": "security-policy-signin",
+      "page": "admin/security-policy.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/policy"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-policy-group-sign-in"
+          }
+        },
+        {
+          "scroll": {
+            "text": "@admin-policy-group-sign-in",
+            "block": "start"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "text": "@admin-policy-group-sign-in",
+          "closest": "fieldset"
+        },
+        "padding": 8
+      },
+      "alt": "The Sign-in group of the Security policy: Require a second factor for every account, Argon2 memory, Argon2 passes and Argon2 parallelism."
+    },
+    {
+      "id": "security-policy-reading",
+      "page": "admin/security-policy.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/policy"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-policy-group-reading"
+          }
+        },
+        {
+          "scroll": {
+            "text": "@admin-policy-group-reading",
+            "block": "start"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "text": "@admin-policy-group-reading",
+          "closest": "fieldset"
+        },
+        "padding": 8
+      },
+      "alt": "The Reading group of the Security policy: the Reading floor and Screen capture protection fields."
+    },
+    {
+      "id": "authenticator-personal-security",
+      "page": "admin/authenticator.md",
+      "steps": [
+        {
+          "goto": "{admin}#/preferences/security"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-totp-manage"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-personal-security",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@admin-passkeys-add"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@admin-totp-manage"
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@admin-personal-password-save"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The Personal security tab of My preferences: Administrator passkeys with a name field and Add administrator passkey, the Authenticator app section with Manage authenticator and recovery codes, and the Change your password form.",
+      "viewport": {
+        "width": 1440,
+        "height": 1300
+      }
+    },
+    {
+      "id": "authenticator-confirm",
+      "page": "admin/authenticator.md",
+      "steps": [
+        {
+          "goto": "{admin}#/preferences/totp"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-personal-totp-start"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "dialog"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "dialog"
+        },
+        "padding": 8
+      },
+      "alt": "The Confirm it is you dialog over the authenticator page, asking for the administrator's password before setup starts."
+    },
+    {
+      "id": "authenticator-setup",
+      "page": "admin/authenticator.md",
+      "steps": [
+        {
+          "stepUp": true
+        },
+        {
+          "goto": "{admin}#/preferences/totp"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-personal-totp-start"
+          }
+        },
+        {
+          "waitFor": {
+            "label": "@admin-totp-manual-key"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-personal-totp"
+        },
+        "padding": 8
+      },
+      "mask": [
+        {
+          "alt": "@admin-totp-qr-alt"
+        },
+        {
+          "label": "@admin-totp-manual-key"
+        }
+      ],
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "alt": "@admin-totp-qr-alt"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@admin-totp-manual-key"
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "label": "@admin-personal-totp-code"
+          },
+          "place": "right"
+        },
+        {
+          "n": 4,
+          "target": {
+            "role": "button",
+            "name": "@admin-personal-totp-confirm"
+          },
+          "place": "right"
+        }
+      ],
+      "isolate": true,
+      "alt": "Authenticator setup in progress: the QR code and the manual setup key (both hidden here), the Authenticator code field and the Confirm authenticator button."
+    },
+    {
+      "id": "sessions-list",
+      "page": "admin/sessions.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/sessions"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-session-revoke-account",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-nav-sessions",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "mask": [
+        {
+          "text": ", 2026,",
+          "exact": false
+        }
+      ],
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-sessions-domain"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@admin-sessions-preview"
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@admin-session-revoke-account",
+            "first": true
+          },
+          "place": "left"
+        }
+      ],
+      "alt": "The Sessions tab: domain, account ID and client type filters, Preview session revocation, and a table with Alex Rivera's mailbox session (times hidden) and its Revoke session button.",
+      "viewport": {
+        "width": 1440,
+        "height": 1500
+      }
+    },
+    {
+      "id": "signin-locks-tab",
+      "page": "admin/signin-locks.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/locks"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-obs-locks-configure"
+          }
+        },
+        {
+          "wait": 1500
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-obs-locks-title"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@admin-obs-locks-configure"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@admin-obs-lock-surface"
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@admin-obs-locks-refresh"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The Temporary sign-in locks tab with no locks: Configure sign-in limits, the Sign-in surface filter, the search field and Refresh locks."
+    },
+    {
+      "id": "signin-geography-diagnostic",
+      "page": "admin/signin-geography.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/geography"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-obs-geo-refresh"
+          }
+        },
+        {
+          "wait": 1500
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@admin-obs-geo-title"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@admin-obs-geo-configure"
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@admin-obs-geo-configure-sessions"
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "text": "@admin-obs-geo-field-admin"
+          },
+          "place": "left"
+        }
+      ],
+      "alt": "The Sign-in country policy diagnostic with no country database: the warning that active policies refuse sign-in, the configure buttons, and the table of the trusted source IP, resolved country, database state, scope and both sign-in decisions.",
+      "viewport": {
+        "width": 1440,
+        "height": 1500
+      }
+    },
+    {
+      "id": "ip-bans-list",
+      "page": "admin/ip-bans.md",
+      "seed": [
+        "admin-basic",
+        "centre-bans"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/security/bans"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-obs-unban-for",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-obs-bans",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@admin-obs-ban-add"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@admin-obs-ban-active-only"
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@admin-obs-unban-for",
+            "first": true
+          },
+          "place": "left"
+        }
+      ],
+      "alt": "The IP ban list with two bans, 203.0.113.45 active until removed and 198.51.100.23 with an expiry date, each with its reason and an Unban button."
+    },
+    {
+      "id": "ip-bans-editor",
+      "page": "admin/ip-bans.md",
+      "seed": [
+        "admin-basic",
+        "centre-bans"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/security/bans/new"
+        },
+        {
+          "fill": {
+            "label": "@admin-obs-ban-ip",
+            "value": "192.0.2.77"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-obs-ban-reason",
+            "value": "Credential stuffing seen in the sign-in log"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "button",
+          "name": "@admin-obs-ban-save",
+          "closest": "form"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-obs-ban-ip"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@admin-obs-ban-reason"
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "label": "@admin-obs-ban-expiry"
+          },
+          "place": "right"
+        },
+        {
+          "n": 4,
+          "target": {
+            "role": "button",
+            "name": "@admin-obs-ban-save"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The ban editor with the address 192.0.2.77 and a reason filled in, an empty expiry field and the Save IP ban button."
+    },
+    {
+      "id": "inbound-allowlists-admin",
+      "page": "admin/inbound-allowlists.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/inbound"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-inbound-admin",
+            "exact": false
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-inbound-cidrs",
+            "first": true,
+            "value": "192.0.2.10/32\n2001:db8:10::/48",
+            "exact": false
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-inbound-admin",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-inbound-enabled",
+            "first": true,
+            "exact": false
+          },
+          "place": "left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@admin-inbound-cidrs",
+            "first": true,
+            "exact": false
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "label": "@admin-inbound-hostnames",
+            "first": true,
+            "exact": false
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The Admin console and API card of Inbound access, not yet restricted, with two rescue entries typed in (192.0.2.10/32 and 2001:db8:10::/48) and an empty hostnames list.",
+      "viewport": {
+        "width": 1440,
+        "height": 1400
+      }
+    },
+    {
+      "id": "deployment-security-checks",
+      "page": "admin/deployment-security.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/deployment"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-deployment-check-https"
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        },
+        {
+          "text": "@admin-deployment-snapshot",
+          "exact": false
+        }
+      ],
+      "alt": "The Deployment checks tab: Find a check, the Status filter, and the start of the table with HTTP admission and request limits, inbound connection negotiation limits and the HTTPS request check marked Review needed."
+    },
+    {
+      "id": "deployment-security-review",
+      "page": "admin/deployment-security.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/deployment"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-deployment-check-https",
+            "exact": false
+          }
+        },
+        {
+          "select": {
+            "label": "@admin-deployment-status",
+            "value": "warning",
+            "exact": false
+          }
+        },
+        {
+          "waitForHidden": {
+            "text": "@admin-deployment-check-adminSessions"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "table"
+        },
+        "padding": 8
+      },
+      "alt": "The deployment checks filtered to Review needed on the plain-HTTP demo server: HTTPS request, Secure cookies, Enabled administrators without a second factor and Encryption at rest, with their observed values.",
+      "viewport": {
+        "width": 1440,
+        "height": 1600
+      }
+    }
+  ]
+}

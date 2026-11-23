@@ -1,104 +1,79 @@
-# LDAP / GAL directory (V7)
+# LDAP directory
 
-V7 (release 26.8.0) adds a read-only LDAP directory backend (`mw-directory`) for the
-Global Address List (GAL): recipient auto-complete against your directory, expanding
-a distribution group before send, S/MIME certificate lookup, and photo lookup. It
-also provides an LDAP-**bind** login backend (authenticate a user against the
-directory). Directory access is **read-only** in 1.0 — Mailwoman never writes to your
-LDAP tree.
+Mailwoman can read an LDAP directory (for example OpenLDAP or Active Directory) to offer a global address list while people write messages, to expand distribution groups, and to look up the S/MIME certificates and photos people publish there. It can also check each sign-in password against the directory. It never writes to the directory.
 
-`mw-directory` uses `ldap3` with **rustls** only; no `native-tls`/OpenSSL enters the
-build. It supports plaintext, StartTLS, and implicit LDAPS.
+You set up the directory servers in the admin console, under **Integrations** > **LDAP / GAL directory**; see [LDAP directory configuration](../admin/directory.md). This page explains what Mailwoman does with the directory.
 
-## What it does
+## What the directory is used for
 
-| Capability | LDAP operation |
+| Feature | What Mailwoman asks the directory |
 |---|---|
-| GAL search (recipient fields) | paged subtree search over the configured base DN |
-| Group expand-before-send | read `member` of a `groupOfNames`/`groupOfUniqueNames`, resolve each entry |
-| S/MIME cert lookup | read `userCertificate;binary` for an address |
-| Photo lookup | read `jpegPhoto` (or your mapped attribute) |
-| LDAP-bind login | bind as the resolved user DN with the supplied password |
+| Address suggestions in the message editor | A subtree search under the search base for entries whose display name, email, `cn`, `givenName`, `sn` or `sAMAccountName` contains what the person typed. Entries without an email address are left out, except groups. |
+| Expanding a distribution group | Reads the group's `member` and `uniqueMember` values (or the attribute you map), then reads each member; nested groups are followed up to 10 levels and at most 5,000 members are collected. In the message editor, picking a group offers to replace it with its members. |
+| S/MIME certificates | Reads `userCertificate;binary` (or the attribute you map) of the entry with the person's address. The **Contact security** panel of a contact lists what it finds. |
+| Photos | Reads `jpegPhoto` (or the attribute you map) of the entry with the address. |
+| Checking sign-in passwords | Optional, off by default. See [Checking passwords against the directory](#checking-passwords-against-the-directory). |
 
-Results are cached through `mw-cache` (the `GalDirectory` cache class) with a
-configurable refresh, so the GAL is usable offline between refreshes.
+An entry counts as a group when its object class is `group`, `groupOfNames`, `groupOfUniqueNames` or `groupOfURLs`, or when it has the group member attribute.
 
-## Configuration
+Search results are not cached: every suggestion, expansion and lookup asks the directory again.
 
-A directory is an **ordered list** of endpoints. Lower `priority` is queried first;
-results from multiple directories are merged in priority order (first hit wins for a
-given address). Each endpoint carries its own attribute mapping.
+The address suggestions appear only when a directory is configured. The status check the web app uses for this does not contact the directory.
 
-`DirectoryConfig` / `LdapEndpoint` fields:
+## Several directories
 
-| Field | Meaning |
-|---|---|
-| `url` | `ldap://host:389` or `ldaps://host:636` |
-| `base_dn` | search base, e.g. `dc=example,dc=com` |
-| `bind_dn` | optional service-account DN for the search bind (anonymous if omitted) |
-| `tls` | `None`, `StartTls`, or `Ldaps` |
-| `priority` | lower is queried first; used to merge multiple directories |
-| `attr_map` | attribute-name overrides (below) |
+You can list up to 32 directory servers. Mailwoman queries them in order of **Priority**, lowest number first:
 
-### Attribute mapping
+- Address suggestions combine the results of all of them; when two directories return the same address, the one with the lower priority number wins.
+- If one enabled directory fails during a search, the whole search fails.
+- A certificate lookup collects certificates from all directories; a photo lookup uses the first photo found.
 
-Directories vary in which attributes hold which data. `attr_map` overrides the
-defaults per endpoint (any field left unset uses the default):
+## Connection security
 
-| Mapping field | Default attribute | Holds |
+| Transport security | URL | What happens |
 |---|---|---|
-| `display_name` | `displayName` (falls back to `cn`) | shown name in the GAL |
-| `mail` | `mail` | primary email address |
-| `member` | `member` | group membership (for expand) |
-| `user_cert` | `userCertificate;binary` | S/MIME certificate (DER) |
-| `photo` | `jpegPhoto` | contact photo |
+| LDAPS | `ldaps://host` (port 636 by default) | TLS from the first byte |
+| StartTLS | `ldap://host` (port 389 by default) | Connects in plain text, then upgrades to TLS before binding |
+| Plaintext (anonymous only) | `ldap://host` | No encryption. A service password cannot be saved for it, and password checks are refused. |
 
-Active Directory example: `mail` is usually `mail`, groups use `member`, and the
-S/MIME cert is `userCertificate;binary`. Some deployments store the photo in
-`thumbnailPhoto` rather than `jpegPhoto` — set `photo = "thumbnailPhoto"` in that
-case.
+Mailwoman verifies the directory's certificate against the certificate store of the operating system the server runs on (the container image's store in Docker). There is no setting for a separate CA file: if your directory uses a private CA, add that CA to the system store.
 
-## Transport security
+Every connection is opened fresh for each request. Before connecting, Mailwoman applies the connection policy you chose for that server (see [LDAP directory configuration](../admin/directory.md#connection-policy)). LDAP connections cannot go through an outbound proxy: while an outbound proxy is active, every LDAP connection is refused.
 
-- **StartTLS** (`tls = "StartTls"`): connect on the plaintext port, then upgrade.
-- **LDAPS** (`tls = "Ldaps"`): TLS from the first byte, typically on 636.
-- **None**: plaintext — use only on a trusted network segment.
+## Checking passwords against the directory
 
-TLS is validated with the system/rustls root store. Point Mailwoman at an internal CA
-bundle if your directory uses a private CA.
+With `MW_LDAP_BIND_AUTH=1` (or `true`) in the server's environment, every mailbox sign-in with a password is first checked against the directory:
 
-## Multiple directories & priority
+1. Mailwoman searches each directory (as the service account, if one is set) for exactly one entry whose `mail` (or the mapped email attribute), `uid`, `sAMAccountName` or `userPrincipalName` equals the sign-in name. If none or several match, it moves to the next directory.
+2. It binds as that entry with the password typed.
+3. If a directory accepts the bind, the check passes. If no directory accepts it, the sign-in is refused.
 
-List several endpoints to merge, for example, a corporate directory ahead of a
-partner directory:
+The check comes **before** the usual check with the mail server, not instead of it: the person still needs a password the mail server accepts. An empty password is always refused, without contacting the directory.
 
-```
-priority 10  ldaps://ad.corp.example    base dc=corp,dc=example
-priority 20  ldap+starttls://partner…   base dc=partner,dc=example
-```
+Only the LDAP result "invalid credentials" (code 49) counts as a wrong password, and only that counts towards the [temporary sign-in locks](../admin/signin-locks.md). Any other failure (directory unreachable, busy, TLS error, or no usable directory) refuses the sign-in as well, but is recorded as "directory unavailable" rather than as a wrong password. The person sees the same message in both cases.
 
-GAL search queries both and merges by priority; the corporate directory's entry for a
-given address wins over the partner directory's.
+::: warning
+The environment variable is the only switch. The setting `signin.ldapBindPrecheck` that appears in the [settings reference](../admin/settings.md) is not read by the server, and the directory screen has no control for it.
+:::
 
-## S/MIME certificate lookup
+The check applies to the password sign-in only. Sign-ins through [single sign-on](../admin/sso.md) or [header authentication](./reverse-proxy.md#header-authentication) do not consult the directory.
 
-A cert found in the directory feeds the existing S/MIME path (`mw-crypto`, §8.2):
-Mailwoman can encrypt to a recipient whose certificate is published in the GAL without
-the user importing it manually. No new crypto is introduced — the directory only
-supplies the DER bytes.
+## Password changes
 
-## CI conformance
+Changing a password in the directory is a separate feature with its own settings (`MW_PASSWD_BACKEND=ldap3062`); it does not use the directory servers configured here. See [Password changes](../security/password-change.md).
 
-The `directory-vs-openldap` CI job runs `mw-directory`'s live tests against a real
-seeded OpenLDAP (`docker-compose.ci.yml`, service `openldap`; seed LDIF at
-`scripts/openldap/ldifs/`). The live legs are `#[ignore]`d and self-skip unless
-`MW_TEST_LDAP_URL` is set, so `cargo test -p mw-directory` stays deterministic
-locally. OpenLDAP is a **network-only CI service** (mere aggregation) and is out of
-`cargo deny` dependency scope, the same posture as the Postgres/Valkey test services.
+## Environment variables
 
-## Scope boundary (honest)
+| Variable | Effect |
+|---|---|
+| `MW_LDAP_BIND_AUTH` | `1` or `true` turns on the password check against the directory. Off by default. |
+| `MW_DIRECTORY_BIND_DN`, `MW_DIRECTORY_BIND_PW` | Together, supply the service password for the directory whose **Service bind DN** equals `MW_DIRECTORY_BIND_DN`, instead of a password stored in the console. |
 
-- **Read-only.** No LDAP write path ships in 1.0.
-- **Login is LDAP-bind only.** LDAP-bind authenticates an existing user against the
-  directory. Enterprise **OIDC/SAML single sign-on is not implemented** — it is a
-  tracked 1.0 gap (see `docs/ROADMAP-1.0.md`), not part of V7's committed scope.
+Directory changes in the console and these variables take effect after a server restart.
+
+## Related
+
+- [LDAP directory configuration](../admin/directory.md)
+- [Kerberos](./kerberos.md)
+- [Temporary sign-in locks](../admin/signin-locks.md)
+- [Password changes](../security/password-change.md)
