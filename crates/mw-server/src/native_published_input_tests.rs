@@ -802,3 +802,48 @@ fn bounded_snapshot_declared_read_reuses_authority_fences_but_keeps_final_mail_d
         assert_eq!(counts.reused, 0);
     });
 }
+
+// Cross-process ban writers (CLI `mailwoman admin observability ban/unban`, another
+// server process, raw SQL) write `v6:admin:bans` without this process's API or
+// expedite. Each settings write fires `authority_settings_*` (0111), which bumps
+// the `protection` global epoch; 0115 logs that epoch row and the mirror marks the
+// global changed, so the cached parsed ban list is not reused after one poll.
+#[test]
+fn bounded_snapshot_cached_bans_follow_cross_connection_ban_and_unban() {
+    run_fixture(|| async {
+        for writer in ["second-store", "raw-sql"] {
+            let f = Fixture::new().await;
+            f.writer.touch_session(&f.session).await.unwrap();
+            snapcase::published(&f).await;
+            let mirror = snapcase::started(&f, snapcase::SHORT).await;
+            let warm = snapcase::reusing(&f, snapcase::SHORT, || snapcase::mail(&f)).await;
+            assert_eq!(warm.snap.globals_reused, 1, "{writer}: ban list cached before the write");
+            let banned = json!([{"ip":"127.0.0.1","reason":"t34 cross-process","banned_at":chrono::Utc::now().to_rfc3339(),"expires_at":null}]).to_string();
+            let fr = &f;
+            let write = |value: String| async move {
+                let f = fr;
+                match writer {
+                    "second-store" => f.writer.set_setting("v6:admin:bans", &value).await.unwrap(),
+                    _ => {
+                        let options = mw_store::encryption::connect_options(&f.db, f.db_key.as_ref(), false);
+                        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
+                        sqlx::query("INSERT INTO settings(key,value) VALUES('v6:admin:bans',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+                            .bind(&value).execute(&pool).await.unwrap();
+                        pool.close().await;
+                    }
+                }
+            };
+            write(banned).await;
+            // Within the bound and without a manual poll (100 ms bound, 25 ms polls).
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            let denied = snapcase::send(&f, snapcase::mail(&f), snapcase::SHORT).await;
+            assert_eq!(denied.status, StatusCode::FORBIDDEN, "{writer}: {}", denied.body);
+            assert_eq!(denied.body["code"], "sourceUnavailable");
+            write("[]".into()).await;
+            mirror.poll_now().await.unwrap();
+            let allowed = snapcase::send(&f, snapcase::mail(&f), snapcase::SHORT).await;
+            assert_eq!(allowed.status, StatusCode::OK, "{writer}: unban honoured: {}", allowed.body);
+            assert_eq!(allowed.snap.globals_reused, 0, "{writer}: fresh ban read after the unban");
+        }
+    });
+}
