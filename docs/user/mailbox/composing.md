@@ -54,7 +54,7 @@ An encrypted message lists the key of every recipient, so a Bcc recipient would 
 
 ## The editor ribbon
 
-The ribbon has six tabs. Choose a tab to see its tools. The pin at the right end of the tab row, named **Auto-hide ribbon (Ctrl+F1)**, keeps the ribbon open, and pressing it again lets the ribbon hide when you are not using it (**Always show ribbon (Ctrl+F1)**).
+The ribbon has six tabs. Choose a tab to see its tools. The pin at the right end of the tab row is named **Always show ribbon (Ctrl+F1)**. When it is pressed the ribbon stays open; when it is not, the ribbon hides while you are not using it.
 
 ### Format text
 

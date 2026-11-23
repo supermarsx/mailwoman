@@ -98,7 +98,7 @@ Choose **Move to…**, then a folder from the list. Type in **Search folders** t
 
 ![The More actions menu: Export, Properties, Save sender as contact, Save contacts from this message, Create task from message, View source, Create filter from this message and Block sender.](/screenshots/user-mailbox/reading-more-menu.webp){.mw-crop}
 
-The menu holds **Export**, **Properties…**, **Save sender as contact**, **Save contacts from this message**, **Create task from message**, **View source**, **Create filter from this message** and **Block sender**. **Export** saves the message as EML, which keeps the original, or as a converted copy in text, Markdown or Word form; your administrator's export and attachment limits apply. See [Contacts](/user/contacts), [Tasks](/user/tasks) and [Rules and filters](/user/rules-filters) for the contact, task and filter entries.
+The menu holds **Export**, **Properties…**, **Save sender as contact**, **Save contacts from this message**, **Create task from message**, **View source**, **Create filter from this message** and **Block sender**. **Export** saves the message in the format you choose in the **Format** list, such as **EML (original message)**, which keeps the original, or a converted copy such as **Plain text**, **Markdown**, **MSG (Outlook)**, **DOCX (Word)** or **PDF**; your administrator's export and attachment limits apply. See [Contacts](/user/contacts), [Tasks](/user/tasks) and [Rules and filters](/user/rules-filters) for the contact, task and filter entries.
 
 ### Related searches from a message
 
@@ -108,7 +108,7 @@ The menu holds **Export**, **Properties…**, **Save sender as contact**, **Save
 
 ## Attachments
 
-When a message has files, the attachments bar shows the number of files and their total size, for example **1 attachment · 688 byte**. **Download all** downloads every file as one ZIP file. The arrow at the right shows or hides the list of files.
+When a message has files, the attachments bar shows the number of files and their total size, for example **1 attachment · 688 bytes**. **Download all** downloads every file as one ZIP file. The arrow at the right shows or hides the list of files.
 
 ![The attachments bar of a message: the summary 1 attachment, the Download all button, the arrow that shows the files, and the file catalogue-proof.pdf with its download and More actions buttons.](/screenshots/user-mailbox/reading-attachments.webp){.mw-crop}
 

@@ -43,6 +43,7 @@ Words you type are matched against the message text. Put a phrase in quotes to m
 | `is:` | state: `is:unread`, `is:read`, `is:flagged`, `is:answered`, `is:unanswered`, `is:forwarded`, `is:unforwarded`, `is:followup`, `is:finished`, `is:high-priority`, `is:low-priority` |
 | `after:`, `before:` | a date, written `YYYY-MM-DD` |
 | `larger:`, `smaller:` | a size such as `500k`, `2m` or `1g` |
+| `pinned:` or `is:pinned` | pinned messages |
 | `include:trash` | also search the Trash folder |
 
 Combine them with spaces, which mean "and". Put `-` or `NOT` before a term to exclude it, `OR` between terms to accept either, and parentheses to group. A group or an `OR` stays one chip, **Expression**, because it is not a flat list of filters.
