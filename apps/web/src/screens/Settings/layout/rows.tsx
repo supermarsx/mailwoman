@@ -21,7 +21,7 @@ export function SelectRow<T extends string>(props: { id: string; label: string; 
   return <SettingRow controlId={props.id} label={props.label} {...(props.help ? { help: props.help } : {})} handle={props.handle}>{describedBy =>
     <select id={props.id} class={legacy.select} value={props.handle.value()} disabled={frozen(props.handle)} aria-describedby={describedBy()}
       onChange={e => { const next = e.currentTarget.value; if (!props.accept(next)) return; if (props.onPick) props.onPick(next); else void props.handle.set(next); }}>
-      <For each={props.options}>{o => <option value={o.value}>{o.label}</option>}</For>
+      <For each={props.options}>{o => <option value={o.value} selected={o.value === props.handle.value()}>{o.label}</option>}</For>
     </select>
   }</SettingRow>;
 }
