@@ -499,6 +499,10 @@ pub const RULES: &[Rule] = &[
     Rule { last: true, ..del!("mail_data_outbox", "account_id", Bind::Account) },
     Rule { last: true, ..del!("mail_data_rows", "account_id", Bind::Account) },
     Rule { last: true, ..del!("mail_data_accounts", "account_id", Bind::Account) },
+    //0116: index replay hints have no account FK; message-delete triggers may add rows
+    // while the account is erased, so they are removed after the sources.
+    Rule { last: true, ..del!("index_publication_journal", "account_id", Bind::Account) },
+    keep!("index_publication_journal_control", "one global journal switch row; no person data"),
     Rule {
         table: "sessions",
         bind: Bind::Account,
