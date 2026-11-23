@@ -1,91 +1,94 @@
-# Privacy and attachment policy
+---
+screen: true
+---
+# Privacy and remote content
 
-Admin console sections: **Privacy** (`#/privacy`) and **Attachments** (`#/attachments`).
+The **Privacy** screen of the console sets how the mail app treats remote content in messages (images and other resources loaded from the sender's servers), tracking pixels and tracked links, and shows how the image proxy that fetches remote images is doing. This page also describes the **Attachment policy** screen, which decides which attachments are handed out for download and preview.
 
-## Privacy tabs
+![The Overview tab of Privacy and remote content: the image proxy status, the key figures and the time range buttons.](/screenshots/admin-privacy/privacy-overview.webp){.mw-shot}
 
-Privacy has one tab per topic, each with its own address, so a tab can be bookmarked:
+## Before you start
 
-| Tab | Address | Needs | Contents |
-| --- | --- | --- | --- |
-| Overview | `#/privacy` or `#/privacy/overview` | `egress.read`, not domain-scoped | Status, key remote-content settings, key figures, history charts |
-| Remote content and trackers | `#/privacy/remote` | `settings.read` | `privacy.remoteContent`, tracker blocking, link cleaning, direct loading, manual downloads, the loading toast, outgoing mailer headers |
-| Image proxy | `#/privacy/image-proxy` | `egress.read` or `settings.read`, not domain-scoped | Worker history charts, tier readout, the capacity mode card, and every `imageProxy` setting grouped as request rate, cache, memory tier, disk tier, tiering |
-| Fetch limits | `#/privacy/fetch-limits` | `settings.read` | Timeouts, redirects, parallel fetches, queue, retries, size and rate limits |
-| Traffic | `#/privacy/traffic` | `egress.read`, not domain-scoped | Allowed, refused and failed requests per traffic class, cache size, tracking pixels replaced, traffic charts |
+| Tab | Address | Needs |
+| --- | --- | --- |
+| **Overview** | `#/privacy/overview` | `egress.read`, all domains |
+| **Remote content and trackers** | `#/privacy/remote` | `settings.read` |
+| **Image proxy** | `#/privacy/image-proxy` | `egress.read` or `settings.read`, all domains |
+| **Fetch limits** | `#/privacy/fetch-limits` | `settings.read` |
+| **Traffic** | `#/privacy/traffic` | `egress.read`, all domains |
 
-A tab you cannot open is not listed. Opening its address shows "You do not have access to this tab."
+Changing a setting needs `settings.write`. The settings on these tabs are server-wide defaults with locks; most can also be set per domain with **Per-domain values**.
 
-`#/privacy/policy/<key>` links from earlier versions still work: they open the tab that edits the key and move focus to its row. A `privacy.*` key that no tab owns opens the single-setting page as before.
+## How remote images are loaded
 
-## Editing in place
+When a person allows remote images in a message, the browser asks this server for them; the server fetches each image itself through the image proxy:
 
-Every setting on these tabs is edited where it is listed. Each setting shows:
+- only for a signed-in person, and only within the permission to load images for that message;
+- it resolves the address itself and refuses private, loopback and cloud metadata addresses, and checks every redirect again;
+- it sends the user agent `Mailwoman-Image-Proxy` and forwards no cookie, referrer or authorization header from the browser;
+- it re-encodes each image to PNG in a sandbox, which drops the image's metadata;
+- it caches images in memory, and on disk when `privacy.imageDiskEnabled` is on (off by default).
 
-- its name, key and the source that decides the value now (default, stored, locked, pinned by an environment variable);
-- the value that is in effect;
-- the value editor for its type;
-- "Users may change it" and the lock, where the setting has narrower scopes;
-- **Save**, **Discard changes**, **Revert to default** and, behind "Per-domain values", the domain overrides.
+The remote server therefore sees the server's address, not the person's, and it still sees when an image is fetched, which can tell it that the message was opened. A permission is per message: a session that may load images for a message can have any public URL fetched under that message.
 
-Saving sends the stored version with `If-Match`. If someone else changed the setting first, the card keeps your edit and offers Reload or Keep mine. Locking a setting, or turning off user choice, over existing narrower values first shows a dry run of what would be overruled. Every write is recorded in the audit log like a write from the Settings page.
+## Set the remote content policy
 
-Without `settings.write`, values are shown and the controls are disabled with the reason. A setting pinned by an environment variable is read-only and names the variable. A setting another section owns links to that section.
+1. Open **Privacy** and select **Remote content and trackers**.
 
-While any card has unsaved edits, the page stops refreshing the statistics and the console asks before you leave.
+   ![The top of the Remote-content policy settings: Remote content set to ask, with the switch that lets people change it and the lock.](/screenshots/admin-privacy/privacy-remote.webp){.mw-crop}
 
-## Image proxy history
+2. Choose **Remote content**: `block`, `ask` (the default), `proxy` or `direct`. `direct` lets the browser load images from the sender's servers itself, exposing the person's address; it applies only when **Allow direct images** is on and the person is allowed direct content, and falls back to `ask` otherwise.
+3. Set the other switches (see [Options](#options)) and select **Save**.
 
-`GET /admin/egress/privacy-stats` returns the current figures and a `history` object. `?range=15m|1h|6h|24h` picks the window; any other value reads as `1h`.
+## Watch the image proxy
 
-- The server takes one sample every 15 seconds and keeps 24 hours (5,760 samples) in a ring buffer in memory.
-- **The history is empty after a restart** and is not shared between server processes. Each process answers for itself.
-- A response carries at most 120 points per series. Longer ranges are averaged or summed over wider steps (`stepSecs`), so the size does not grow with the range.
-- Series: images and bytes served per second, memory and disk hit rate, memory and disk size and entries, fetches in flight and waiting, average rate-limit wait, `429` and `503` answers, burst allowance and active accounts, tracking pixels replaced, and allowed, refused and failed requests per traffic class.
-- A counter that goes backwards (a reset) leaves a gap in the chart. It never draws a negative rate.
+The **Overview** and **Image proxy** tabs show the proxy's figures with a range of **15 minutes**, **1 hour**, **6 hours** or **24 hours**: images served, cache hit rate, tracking pixels replaced, data served, fetches in flight and waiting, and busy answers. The server samples every 15 seconds and keeps 24 hours in memory; the history is empty after a restart and each server process answers for itself. The page refreshes every 5 seconds while it is visible.
 
-### Image proxy speed
+The **Speed** section of **Image proxy** shows the time from a request arriving to the response being ready, split into queue, cache, upstream fetch and decode, with median and 95th percentile. With **Image proxy speed tracking** on (the default), each request adds to a histogram; no URL, host, account or message is recorded.
 
-The same response carries a `latency` object (additive; older clients ignore it), for the same `?range=` window. It is controlled by `privacy.imageLatencyTracking` (on by default). Per image request the server measures the time from the request arriving to the response being ready, and four phases of it: **queue** (waiting for a fetch slot, decoder, the rate limit or another request for the same image), **cache** (RAM, then disk lookup), **upstream** (the fetch) and **decode** (re-encode in the media jail).
-
-- Each request is counted into a fixed log-scale histogram (8 steps per power of two, 1 microsecond to about 67 seconds), so a reported percentile is within 6.25 % of the true value and nothing per request is stored. No URL, host, account or message is recorded, only bucket counts.
-- One set of histograms per minute is kept for 24 hours, next to the worker history: **in memory, empty after a restart, and per server process**. With several replicas each answers for itself.
-- The range is answered by adding the buckets of its slices together, then reading median (`p50Ms`), `p95Ms`, `p99Ms`, `maxMs` and `count`. Percentiles are never averaged across slices.
-- Outcomes: `hitRam`, `hitDisk`, `miss` (fetched upstream and answered), `timeout` (`504`), `upstreamError` (`502` and other `5xx`), `rejected` (policy, type or size refusals; not a speed signal), `busy` (`429` or `503`) and `cancelled` (the client went away). Requests refused before the cache is reached (no session, blocked by policy) are not counted.
-- `phases` describe requests that were not cache hits: each phase's median, p95 and its share of their total time (`sharePct`); `otherPct` is the rest (routing, grant checks, building the response).
-- `series` holds up to 120 points of count, p50, p95, p99 and max overall, p50 and p95 for misses and for hits separately, and counts of busy, timeout, upstream-error and cancelled answers; a point with no requests is `null`.
-- `health.verdict` is `healthy`, `slow`, `degraded` or `noData` for the range, from fixed thresholds (returned in `health.thresholds`): fewer than 10 requests is `noData`; **degraded** when 10 % or more of the requests ended busy, timed out or failed upstream, or the miss p95 is 8 s or more; **slow** when 2 % or more did, the miss p95 is 3 s or more, or the hit p95 is 250 ms or more; otherwise healthy. The thresholds are constants, not settings.
-
-The Image proxy tab shows this as the **Speed** section: median and p95 over time, tiles for the range, hit and miss side by side, where the time goes by phase, and the busy and timeout counts. The browser-side time to show an image is not part of this; it is measured by the client load timings.
-
-The charts are SVG with the console's theme colours and no animation. Each has a summary sentence and a "View as table" switch; the table is always in the page for screen readers. The Image proxy and Overview tabs show a range selector, a Refresh button and the time of the last update.
-
-## Remote-content links
-
-The reader loads remote images, inline parts and downloads of linked files through `/api/rc/i/<handle>`, `/api/rc/p/<handle>`, `/api/rc/f/<handle>` and `/api/rc/d/<handle>`. A handle is 22 URL-safe characters. The claims behind it (account, session, message, target, expiry) are stored on the server, in the shared `settings` table under `rc.h.<handle>`, so any replica sharing the database can resolve it and the link length does not depend on the remote URL.
-
-- Lifetimes are unchanged: one hour for an image, five minutes for a part or a file. A handle is checked against the same session, account, message and grant rules as before.
-- The store holds at most 100,000 live handles. Expired rows are removed on the next signing request; if the cap is still exceeded, the rows closest to expiry are dropped first. A dropped handle answers `403 invalid or expired link` and the reader signs again.
-- Links issued before this change (a long `payload.tag` token) keep working until they expire.
-- A remote URL longer than 4096 bytes is not signed. `POST /api/rc/sign` lists it under `refused` with the reason `length` and a message, and `GET /api/image-proxy?url=` answers `414`. Download file names in `Content-Disposition` are cut to 100 characters.
+The **Traffic** tab counts outbound requests per traffic class (allowed, refused by policy, failed, total time) since the server process started.
 
 ## Attachment policy
 
-The Attachments section has tabs: **Allow and block lists**, **Limits**, **Download and preview**, **Warnings** and **Test a file**. Every `attachments.*` setting is edited in place.
+The **Attachment policy** screen (`#/attachments`) decides which attachments the server hands out, using the file name and MIME type stated in the message.
 
-- **Lists** (allowed, blocked and warning extensions and MIME types) are chip lists. Extensions are normalised (`.PDF`, `*.pdf` and `pdf` all become `pdf`; `tar.gz` is allowed). MIME types are lowercased and may end in `/*` (`image/*`). Entries are checked with the same rules the server applies. Repeats, invalid entries and the limit of 100 rules per list are reported in words and nothing invalid is added.
-- **Paste many** accepts rules separated by spaces, commas, semicolons or lines. **Import** reads a text file the same way; **Export** writes one rule per line.
-- A list longer than eight rules gets a filter box.
-- **Conflicts** between lists are shown under the field: a rule that is also blocked is blocked (blocked rules win); a blocked rule that also has a warning never shows the warning; allowed plus warning is allowed with a warning. `image/*` in one list overlaps `image/png` in another.
-- **Maximum attachment size** takes an amount and a unit (B, KiB, MiB, GiB). Zero means no limit.
-- Nested messages (`message/rfc822`, `.eml`) and TNEF files are refused whenever any restriction is on, because their contents cannot be listed.
+![The Attachment policy screen on its Allow and block lists tab, with empty lists of allowed and blocked file name extensions and MIME types.](/screenshots/admin-privacy/attachments-lists.webp){.mw-shot}
 
-### Test a file
+- **Allow and block lists**: allowed, blocked and warning lists of file name extensions and MIME types, up to 100 rules each. A blocked rule wins over an allowed one. With an allow list set, a file that matches none of its rules is not delivered.
+- **Limits**: **Maximum attachment bytes**; 0 is no limit.
+- **Download and preview**: **Allow original attachment delivery** and **Allow attachment previews**.
+- **Warnings**: files that match are delivered only after the person confirms a warning.
+- **Test a file**: asks the server how the saved policy treats a file with a given name, type and size. It uses the server-wide policy, not a domain's values, and stores nothing.
 
-`POST /admin/attachments/simulate` runs the server's own evaluator (`attachment_policy.rs`) on a file name, MIME type and size under the stored global policy and returns the decision (delivered, preview allowed, warning, reason code) and which rule lists matched. It needs `settings.read`, changes and stores nothing, and never reads a message or attachment. The request may carry a `draft` object with any of the `attachments.*` fields (`blockedExtensions`, `maxBytes`, ...) to try an unsaved policy; the console does not send one. Draft rules are validated like saved ones.
+::: warning What the attachment policy does not do
+The policy is applied when the server hands an attachment out: download, preview, whole-message export and saving to Nextcloud. Messages with blocked attachments are still received and stored. When sending, only the mail app's composer refuses a blocked file; a client that talks to the server's JMAP interface directly can attach and send it. **Maximum attachment bytes** limits what is delivered, not what is received or sent. It is not malware scanning, and a preview that receives the original bytes cannot prevent saving them.
+:::
 
-Old links keep working: `#/settings/attachments.<key>` opens the Settings page for the key, and `#/attachments/attachments.<key>` opens the owning tab on that row.
+When any restriction is set, nested messages (`message/rfc822`, `.eml`) and TNEF files are refused, because their contents cannot be checked.
 
-## Cookies
+## Options
 
-The **Cookies** tab configures the cookie consent control, the cookie and storage inventory, the storage scan and the consent log. See [Cookie consent controls](cookies.md).
+| Setting | What it does | Default |
+| --- | --- | --- |
+| **Remote content** ([`privacy.remoteContent`](/admin/settings#privacy.remoteContent)) | `block`, `ask`, `proxy` or `direct` | `ask` |
+| **Block trackers** ([`privacy.trackers`](/admin/settings#privacy.trackers)) | Replaces known tracking pixels | on |
+| **Offer per-message tracker consent** ([`privacy.trackerOverrideAllowed`](/admin/settings#privacy.trackerOverrideAllowed)) | Lets a person load trackers for one message | on |
+| **Clean links** ([`privacy.cleanLinks`](/admin/settings#privacy.cleanLinks)) | Removes tracking parameters from links | on |
+| **Allow direct images** ([`privacy.allowDirect`](/admin/settings#privacy.allowDirect)) | Permits `direct` | off |
+| **Manual remote image downloads** ([`privacy.remoteImageDownloads`](/admin/settings#privacy.remoteImageDownloads)) | Offers downloading a remote image | off |
+| **Loading-images notification** ([`privacy.remoteImagesToast`](/admin/settings#privacy.remoteImagesToast)) | Shown in the mail app while images load | on |
+| **Remove outgoing mailer headers** ([`privacy.stripMailerHeaders`](/admin/settings#privacy.stripMailerHeaders)) | Removes mailer identification headers from sent mail | on |
+| **Remote image limit** ([`privacy.maxBytes`](/admin/settings#privacy.maxBytes)) | Largest remote image fetched | 8 MiB |
+| **Remote image redirects** ([`privacy.maxRedirects`](/admin/settings#privacy.maxRedirects)) | Redirects followed | 3 |
+| Timeouts and concurrency (`privacy.fetch*TimeoutMs`, `privacy.maxConcurrent*`, `privacy.maxQueuedRequests`, `privacy.imageDecodeTimeoutMs`) | On **Fetch limits** | see the reference |
+| **Remote image cache** (`privacy.cacheBytes`), **Successful image cache lifetime** (`privacy.cacheTtlSecs`), **Remote image request rate** (`privacy.ratePerMin`), **Image request burst allowance** (`privacy.rateBurst`) | Used only when the matching mode on **Image proxy** is manual; the default is automatic, which ignores these four values | 32 MiB, 3600 s, 1200, 1024 |
+| **Allow original attachment delivery** ([`attachments.downloadAllowed`](/admin/settings#attachments.downloadAllowed)), **Allow attachment previews** ([`attachments.previewAllowed`](/admin/settings#attachments.previewAllowed)) | Delivery and preview | on, on |
+| **Maximum attachment bytes** ([`attachments.maxBytes`](/admin/settings#attachments.maxBytes)) | Largest attachment delivered | 0 (no limit) |
+| Allow, block and warning lists (`attachments.*Extensions`, `attachments.*MimeTypes`) | See above | empty |
+
+## Related
+
+- [Outbound connections](/security/egress)
+- [Restrictions and consent](consent.md)
+- [Cookie consent](cookies.md)
+- [Message content settings in the mail app](/user/settings/account#message-content)

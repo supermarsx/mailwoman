@@ -1,182 +1,122 @@
+---
+screen: true
+---
 # Encryption at rest
 
-This page says what Mailwoman encrypts on disk, what it does not, and how to turn the encryption on, rotate its key, recover, and prove that it works. It describes configuration and observed file contents. It does not say that a deployment complies with any law or standard; that is for the operator to assess.
+The **Encryption** tab of **Compliance** shows where the server keeps data on disk, whether those bytes are encrypted, and how each answer was found. This page explains the tab, the variables that turn database encryption on, and the commands that convert, re-key, back up and check the database. How the two keys work, and what they protect against, is explained in [Encryption at rest](/security/encryption-at-rest) of the security model; this page does not repeat it. Neither page says that a configuration meets a law or standard.
 
-The live view is **Administration > Compliance > Encryption**. Every row there is one of:
+![The Encryption tab of Compliance on a default SQLite install: database Sealed columns only, mode Optional, no database key, and the first finding.](/screenshots/admin-privacy/encryption-overview.webp){.mw-shot}
 
-| State | Meaning |
-|---|---|
-| Encrypted | The bytes on disk were read and are ciphertext. |
-| Sealed columns only | The store can be read as a whole, but the sensitive columns inside it are sealed with the server key. |
-| Plaintext | Readable by anyone who can read the file or directory. |
-| Memory only / Not stored | Nothing is written to disk. |
-| Unknown | The application cannot observe it (for example a Postgres server's disk). |
+## Before you start
 
-## What is protected, store by store
+- The tab needs `settings.read` on all domains; **Verify encryption**, **Dry run a migration** and **Encrypt existing archive and log files** need `settings.write`.
+- Database encryption (SQLCipher) is configured with environment variables, because they are read before the database opens. The console cannot turn it on, change the key or convert the file.
 
-Implementation updated 2026-11-12. Check the live coverage view for the files present in your deployment.
+::: warning What a default install protects
+By default, `MW_DB_ENCRYPTION` is `optional` and no database key is set, so the SQLite file is plain. Message bodies, envelopes, credentials and other sealed columns are encrypted with the **server key**, and on a default SQLite install that key is created in a file beside the database (`<database>.server-key`). Anyone who copies the whole data directory has both. The finding "The key file is in the same directory as the database" checks only the database key file, not the server key. Keep the server key elsewhere (`MW_SERVER_KEY` or `MW_SERVER_KEY_FILE`) and set a database key if a copied data directory must not be readable. On Windows the generated server key file is protected with DPAPI for the account the server runs as; installs made with `deploy.sh` keep the server key in the environment file, outside the data volume.
+:::
 
-| Store | SQLite, key configured | SQLite, no key | Postgres |
-|---|---|---|---|
-| Database file, WAL and journal | Encrypted (SQLCipher 4, AES-256-CBC, HMAC-SHA512 per page) | Plain SQLite file. Credentials, cached message bodies and envelopes, notes, embeddings, second-factor secrets and other secrets are sealed per column (XChaCha20-Poly1305 under the server key); everything else is readable | Not encrypted by the application. Same per-column sealing. Disk or volume encryption is the operator's |
-| Data export parts (`dsr_part`) | Encrypted with the database | Sealed only when `dsr.export.encrypt` is on, otherwise plaintext | Same as the left column, minus the file |
-| Search index (`<db>.search-index` or `MW_SEARCH_DIR`) | Authenticated XChaCha20-Poly1305 files, with a purpose-separated server-key subkey | Same | Memory by default; encrypted files when a directory is configured |
-| Uploaded files (`MW_UPLOAD_DIR`) | Sealed per object with the server key | Same | Same |
-| Embeddings | Inside the database, sealed per vector | Same | Same |
-| Log files (`logging.file.*`) | Independently authenticated encrypted records, with redaction before encryption | Same | Same |
-| Retention archive (`retention.archive.directory`) | Gzip compressed in memory, then authenticated encryption; HMAC chain retained | Same | Same |
-| Server key (`<db>.server-key`, `MW_SERVER_KEY`, `MW_SERVER_KEY_FILE`) | A plain file protected by permissions, or an environment variable | Same | Same |
-| Database key (`MW_DB_KEY*`) | Never in the database or settings. A file, environment variable or command output | n/a | n/a |
-| Rollback copies (`<db>.pre-*`) | Plaintext after `db encrypt` until you purge them | n/a | n/a |
-| `deploy.sh backup` archives | Encrypted with age or gpg when a recipient is configured; the database file inside stays encrypted too | Plain unless a recipient is configured | Same |
+## Read the tab
 
-Not covered by anything here: process memory, swap, core dumps, the clear-text key while the server runs, the Redis/Valkey cache (see `docs/deploy/cache.md`), and your reverse proxy and mail servers.
+The **Summary** tiles give the state of the **Database**, the **Mode**, the database **Key source** and when the key is next due for rotation (**Rotation due**). **Findings** lists what the server considers a weakness:
 
-Persistent search migrates existing Tantivy metadata and segment files while
-holding the real index writer lock. File encryption binds each ciphertext to
-its filename. Wrong keys or tampering refuse opening; the server may rebuild a
-memory-only index from the database instead of writing plaintext. Decrypted
-index data lives in process memory, so encrypted search uses more RAM than
-plaintext memory mapping.
+| Finding | Meaning |
+| --- | --- |
+| The database file is readable as plain SQLite | No database key is in use. |
+| The database is encrypted but the mode is optional | A plaintext file put in its place would be opened. Set `MW_DB_ENCRYPTION=required`. |
+| The search index on disk holds message text in the clear | Move it to memory (`MW_SEARCH_DIR=memory`) or onto an encrypted volume. |
+| A plaintext copy of the database from an earlier migration is still beside the database file | Delete it with `mailwoman db purge-rollback` once the result is checked. |
+| The database key is past its rotation interval | The key is older than **Database key rotation interval (days)**. |
+| The key file is in the same directory as the database | The database key file (`MW_DB_KEY_FILE`) sits beside the database. |
+| The connection to Postgres is not using TLS | Postgres only. |
 
-**Administration → Compliance → Encryption → Encrypt existing archive and log
-files** migrates historical app-owned logs and archives. Archive metadata changes
-only after the new ciphertext is synced, and the old plaintext file is removed
-afterward. Migrated archives retain their original logical content hashes so the
-existing integrity chain remains valid. Read, export, restore, verification and
-log scrubbing support the encrypted formats. The current log migrates before
-its next append; the explicit action covers rotated historical logs too.
+The **Stores** table has one row per place data is kept.
 
-The coverage view reads current files, authenticates samples and archive
-metadata, and flags legacy plaintext or unverifiable files rather than assuming
-that an enabled setting proves encryption. Disabled file logging does not hide
-existing log files. An interrupted migration may leave extra files; investigate
-reported plaintext/unknown results before declaring coverage complete.
+![The Stores table of the Encryption tab: each place the server keeps data, whether it is encrypted, and how that was determined.](/screenshots/admin-privacy/encryption-stores.webp){.mw-crop}
 
-Migration cannot erase old filesystem snapshots, SSD blocks or existing backups.
-Use encrypted host volumes and protect the server key separately. Container/stdout
-logs and remote-provider storage remain the operator's responsibility.
+A store is **Encrypted** only when its file contents were read and are ciphertext. **Sealed columns only** means the store can be read as a whole but its sensitive columns are sealed with the server key. **Uploaded files** is judged from file headers; an empty upload folder is reported as **Sealed columns only**. In the image the server key is supplied through the environment, which is how the documentation stack runs.
 
-## How it works
+**Database key** shows the key source, its fingerprint, its age and the rotation interval. **Sealed columns** lists the columns the server seals before they are written, and some it does not.
 
-SQLite builds that include SQLCipher encrypt every page of the database file and of the write-ahead log, and cover temporary data too (`temp_store` is memory). The key is applied with `PRAGMA key` as the first statement of every pooled connection, so migrations, background jobs and the CLI tools are all covered.
+## Check the encryption
 
-- The crypto provider is written in Rust on the RustCrypto crates (`aes`, `cbc`, `hmac`, `sha2`, `pbkdf2`). OpenSSL is not used, which keeps `deny.toml`'s ban on `openssl` intact. The SQLCipher C code is built from the amalgamation shipped with `libsqlite3-sys` 0.30.1, vendored with one patch (`vendor/libsqlite3-sys-0.30.1/MAILWOMAN-PATCH.md`). The file format is stock SQLCipher 4.
-- A 64-character hex key is used as the key itself (no per-connection stretching). Any other secret is a passphrase of at least 16 characters, stretched once per process with PBKDF2-HMAC-SHA512 (310,000 rounds, fixed application salt). Prefer a random hex key: `mailwoman db keygen`.
-- A file that is not encrypted stays openable when no key is configured. The build always contains SQLCipher; encryption is chosen by configuration.
+![The Checks and commands section of the Encryption tab, with markers on its three buttons, and the list of commands.](/screenshots/admin-privacy/encryption-checks.webp){.mw-crop}
+
+1. **Encrypt existing archive and log files** encrypts retention archive files and rotated log files that are still in plaintext. It is recorded in the audit log (`encryption-files-migrated`).
+2. **Verify encryption** reads the database file and tests the key. It checks that the file does not start with the SQLite header, that a random key is refused, that the configured key opens the file, and that a row written and read back on a new connection does not appear in the file bytes. The result is recorded in the audit log (`encryption-verified`). It is available for SQLite only.
+3. **Dry run a migration** copies the live data under a throwaway key, compares it table by table and deletes the copy. It tells you how long a real conversion takes without stopping the server. SQLite only.
+{.mw-callouts}
+
+The same checks are available on the command line as `mailwoman db verify`.
 
 ## Configuration
 
-These are read from the environment before the database opens, which is why they are not settings (the settings table lives inside the database).
-
 | Variable | Meaning |
-|---|---|
-| `MW_DB_ENCRYPTION` | `off`, `optional` (default) or `required`. |
-| `MW_DB_KEY` | The key (64 hex characters, or a passphrase). |
-| `MW_DB_KEY_FILE` | A file holding the key. Its age is shown in the console. |
-| `MW_DB_KEY_COMMAND` | A program that prints the key, for a secret manager (`vault kv get -field=key secret/mailwoman`, a cloud CLI). Split on spaces, no shell. |
-| `MW_DB_NEW_KEY`, `_FILE`, `_COMMAND` | The new key for `db encrypt` and `db rekey`. |
-| `MW_DB_BACKUP_KEY`, `_FILE`, `_COMMAND` | A separate key for `db backup` and `db restore`; the database key is used when none is set. |
-| `MW_TEST_DB_KEY` | Test toggle: lowest-priority key source, used by the test suite (see below). Do not set it in production. |
-| `MW_DB_REQUIRE_TLS` | Postgres only. `1` refuses a DSN whose `sslmode` is not `require`, `verify-ca` or `verify-full`. |
+| --- | --- |
+| `MW_DB_ENCRYPTION` | `off`, `optional` (default) or `required` |
+| `MW_DB_KEY`, `MW_DB_KEY_FILE`, `MW_DB_KEY_COMMAND` | The database key: 64 hexadecimal characters, or a passphrase of at least 16 characters; or a file holding it; or a program that prints it |
+| `MW_DB_NEW_KEY`, `MW_DB_NEW_KEY_FILE`, `MW_DB_NEW_KEY_COMMAND` | The new key for `db encrypt` and `db rekey` |
+| `MW_DB_BACKUP_KEY`, `MW_DB_BACKUP_KEY_FILE`, `MW_DB_BACKUP_KEY_COMMAND` | A separate key for `db backup` and `db restore`; the database key is used when none is set |
+| `MW_DB_REQUIRE_TLS` | Postgres only: `1` refuses a connection string that does not force TLS |
+| `MW_SERVER_KEY`, `MW_SERVER_KEY_FILE` | The server key; Postgres refuses to start without one of them |
 
-Behaviour at start:
-
-| Mode | Key | File on disk | Result |
-|---|---|---|---|
-| `required` | missing | any | Refuses to start: no key |
-| `required` | set | plaintext | Refuses to start: run `mailwoman db encrypt` first |
-| `required` | set | encrypted or new | Starts; a new file is created encrypted |
-| `optional` | set | new | Starts; created encrypted |
-| `optional` | set | plaintext | Starts on the plaintext file and the console flags it |
-| `optional` | missing | encrypted | Refuses to start: encrypted file, no key |
-| `off` | any | encrypted | Refuses to start: file is encrypted but encryption is off |
-| any | wrong key | encrypted | Refuses to start: "the database key does not open ..." |
-
-Use `required` in production once the file is encrypted. `optional` would also accept a plaintext file that someone put in place of the real one.
-
-Settings (global): `encryption.rotationDays` (days until the key is reported as due, 0 for no due date) and `encryption.warnings.enabled` (show findings in the deployment assessment). The key itself is never stored in settings.
+At start, `required` refuses a plaintext file or a missing key; `optional` opens a plaintext file, or an encrypted file with its key; `off` refuses an encrypted file. A wrong key is reported as a wrong key. See [Startup rules](/security/encryption-at-rest#startup-rules). Use `required` once the file is encrypted.
 
 ## Runbook
 
-All `mailwoman db` commands work on the file named by `MW_DB_PATH` (or `--db-path`) and read keys only from the environment. Stop the server first; the commands refuse to run when another process holds the database.
+The `mailwoman db` commands work on the SQLite file and read keys only from the environment. Stop the server first.
 
-### Enable on a new install
+### Turn on encryption for a new install
 
-```sh
-export MW_DB_KEY=$(mailwoman db keygen)      # store it in your secret manager now
-export MW_DB_ENCRYPTION=required
-mailwoman serve
-```
+1. Generate a key with `mailwoman db keygen` and store it in your secret manager.
+2. Set `MW_DB_KEY` (or `MW_DB_KEY_FILE` or `MW_DB_KEY_COMMAND`) and `MW_DB_ENCRYPTION=required`.
+3. Start the server. The database is created encrypted.
 
-### Convert an existing plaintext database
+### Convert an existing database
 
-1. Stop the server and take a backup of the data directory.
-2. Set `MW_DB_KEY*` to a new key and keep the key somewhere other than the server.
-3. `mailwoman db encrypt --dry-run` reports the tables and rows it would copy and changes nothing.
-4. `mailwoman db encrypt`. It exports to `<db>.mw-new`, compares every table (row counts and a content digest) and `integrity_check`, renames the original to `<db>.pre-encrypt-<time>`, renames the new file into place and opens it once more. Any failure restores the original.
-5. Start with `MW_DB_ENCRYPTION=required`.
-6. Check in the console (Compliance > Encryption > Verify encryption), then `mailwoman db purge-rollback <db>.pre-encrypt-<time>`. Until you do, that file is a **plaintext copy** of the data, and the console warns about it. Purging overwrites with zeros and deletes; on SSDs and journaling file systems old blocks can survive, so use an encrypted volume if that matters.
+1. Stop the server and back up the data directory.
+2. Set `MW_DB_NEW_KEY` to the new key.
+3. Run `mailwoman db encrypt --dry-run`, then `mailwoman db encrypt`. The data is copied to `<database>.mw-new`, compared, and swapped in; the original is kept as `<database>.pre-encrypt-<time>`.
+4. Set the key as `MW_DB_KEY` and `MW_DB_ENCRYPTION=required`, and start.
+5. Select **Verify encryption**, then delete the rollback copy with `mailwoman db purge-rollback <copy>`. Until then the copy is a plaintext copy of the data. To undo instead, use `mailwoman db rollback --copy <copy>`.
 
-To undo before purging: `mailwoman db rollback --copy <db>.pre-encrypt-<time>`.
+### Rotate the database key
 
-### Rotate the key
+1. Generate a new key and set it as `MW_DB_NEW_KEY`.
+2. With the server stopped, run `mailwoman db rekey`.
+3. Point `MW_DB_KEY` at the new key and start. The rotation date is written to `<database>.encryption.json`.
 
-1. Generate a new key (`mailwoman db keygen`) and store it.
-2. With the server stopped: `MW_DB_NEW_KEY=... mailwoman db rekey --dry-run`, then without `--dry-run`.
-3. Point `MW_DB_KEY*` at the new key and start. Keep the old key until you have purged the rollback copy, which is encrypted under the old key.
-4. The rotation date is recorded in `<db>.encryption.json` (fingerprints and dates, no key). The console shows it and, when `encryption.rotationDays` passes, a finding.
+Re-keying re-encrypts the database file only. It does not change the server key, so the sealed columns, uploaded files, the search index, encrypted logs and the retention archive keep their keys. The server has no command to replace the server key.
 
-Rotation re-encrypts the whole file; it takes about as long as copying it. The dry run in the console (**Dry run a migration**) does the same copy against the live data under a throwaway key, compares it and deletes it, which tells you how long a real run will take without stopping anything.
+### Back up and restore
 
-### Backups
+`mailwoman db backup --to FILE` writes an encrypted copy under the backup key, and refuses to write a plaintext copy of an encrypted database unless you add `--plaintext`. `mailwoman db restore --from FILE --to NEW` restores it under the current key. A restore needs the server key as well; back it up separately from the database.
 
-`mailwoman db backup --to FILE` writes a consistent, verified copy encrypted under `MW_DB_BACKUP_KEY*` (or the database key). It refuses to write a plaintext copy of an encrypted database unless you pass `--plaintext`. `mailwoman db restore --from FILE --to NEW` restores it under the current key. Test a restore before you rely on it.
+### Turn encryption off
 
-The sealed columns inside the database are encrypted with the **server key**, which is separate from the database key. A restore needs both. Back up the server key too (see `docs/deploy/backups.md`), separately from the database.
+`mailwoman db decrypt` converts the file back to plaintext. Then set `MW_DB_ENCRYPTION` to `off` or `optional`.
 
-### Decrypt
+### A lost key
 
-`mailwoman db decrypt` converts back to plaintext. Set `MW_DB_ENCRYPTION=off` or `optional` afterwards.
-
-### Recovery and a lost key
-
-- **Wrong key.** Nothing is damaged. The server refuses to start and names the file. Fix the key source and start again.
-- **Key file lost, key in a secret manager or a copy.** Restore the key; no change to the database.
-- **A failed `db encrypt`, `rekey` or `decrypt`.** The original is untouched or restored; look for `<db>.mw-new` and delete it.
-- **The key is lost everywhere.** The database cannot be opened and the data cannot be recovered. SQLCipher has no back door and neither does Mailwoman. Restore from a backup whose key you still have. This is the cost of the protection, so keep at least two copies of the key in two places, separate from the database and its backups.
-- **The server key is lost.** The database opens, but sealed columns (credentials, cached bodies, notes, second-factor secrets), compliance notification payloads, encrypted file logs and retention archives cannot be read. The encrypted search index cannot be opened with the lost key; rebuild it from recoverable source messages only after arranging the replacement key. See `docs/security/zero-access.md`.
-
-## Checking that it works
-
-The **Verify encryption** button (and `mailwoman db verify`) does this against the live file:
-
-1. reads the first 16 bytes and checks they are not `SQLite format 3`;
-2. tries to open the file with a random key and expects a refusal;
-3. opens it with the configured key and reads the schema;
-4. writes a marker row, reads it back on a new connection, removes it, and checks that the marker text does not appear in the file bytes.
-
-Step 4 writes and deletes one row in the table `mw_encryption_probe`. The result is audited (`encryption-verified`).
-
-The tests that prove this in CI are `crates/mw-store/tests/db_encryption.rs`: raw bytes of the file and its WAL contain neither the SQLite header nor a known marker; a wrong or missing key fails; plaintext to encrypted keeps every row including the migrations table; rekey and decrypt; rollback; backups with a separate key; verification flags a plaintext file.
-
-To run the existing store tests against encrypted databases, set a key and use one thread:
-
-```sh
-MW_TEST_DB_KEY=$(mailwoman db keygen) cargo test -p mw-store -- --test-threads=1
-```
-
-With the variable set, every `Store::open` in the test run creates an encrypted file. Tests that read the file with their own `sqlx` pool use `mw_store::encryption::raw_options(path, read_only)`, which applies the key when the file is encrypted. The CI `rust` job runs this leg after the normal one. On 2026-11-05 the lib tests (388) and the 34 integration targets tracked in git of `mw-store` passed under it on Windows.
+- **Database key lost everywhere**: the database cannot be opened. Restore from a backup whose key you still have.
+- **Server key lost**: the database opens, but sealed columns (credentials, cached message bodies, notes, second-factor secrets), queued compliance email, encrypted logs, the retention archive and the search index cannot be read. A damaged server key file is never replaced automatically; the server stops instead.
 
 ## Postgres
 
-The application cannot encrypt a Postgres server's disk and does not claim to. What it does:
+The server cannot see a Postgres server's disk. The **Postgres** section shows what the connection reports: whether it uses TLS, the server's `ssl` setting, data checksums, whether `pgcrypto` is available, and settings or extensions whose names suggest disk encryption. None of these proves the disk is encrypted. Encrypt the volume and the Postgres backups yourself, and set `MW_DB_REQUIRE_TLS=1`.
 
-- **Detection.** The Postgres section of the console shows, from the connection: whether this connection uses TLS (`pg_stat_ssl`) and the TLS version, the server's `ssl` setting, `data_checksums` (corruption detection, not encryption), whether `pgcrypto` is installed or available, any setting or extension whose name contains `tde` or `encrypt`, and the tablespaces. None of that proves the disk is encrypted; absence of a TDE indicator proves nothing either.
-- **Mandatory TLS.** `MW_DB_REQUIRE_TLS=1` refuses a DSN that does not force TLS. Use `sslmode=verify-full` with the server's CA.
-- **Column sealing.** The coverage table in the console lists the columns the application seals before they reach Postgres and some that it does not.
-- **Operator's job.** Encrypt the volume (LUKS, cloud disk encryption) or use a Postgres build with TDE, encrypt Postgres backups and WAL archives, and restrict who can read `pg_dump` output.
+## Options
 
-## Build and CI
+| Setting | What it does | Default |
+| --- | --- | --- |
+| **Database key rotation interval (days)** ([`encryption.rotationDays`](/admin/settings#encryption.rotationDays)) | Days until the database key is reported as due; 0 for no due date | 365 |
+| **Report encryption findings** ([`encryption.warnings.enabled`](/admin/settings#encryption.warnings.enabled)) | Raises the findings in the deployment security assessment. The Encryption tab shows its findings either way | on |
 
-SQLCipher is compiled from C in `libsqlite3-sys` with the `cc` crate: a C compiler is needed on every platform (MSVC Build Tools on Windows, `cc`/`clang` on Linux and macOS), which the previous bundled-SQLite build already needed. The SQLCipher amalgamation is larger than plain SQLite's, so a clean build of that crate takes tens of seconds longer. No OpenSSL, perl or NASM is needed. The vendored crate adds about 10 MB to the repository. Licences: SQLCipher community edition is BSD-style (Zetetic); the RustCrypto crates were already in `Cargo.lock`.
+Both are server-wide.
+
+## Related
+
+- [Encryption at rest (security model)](/security/encryption-at-rest)
+- [Zero-access storage](/security/zero-access)
+- [Backups](/deploy/backups)
+- [Postgres](/deploy/postgres)
