@@ -8,7 +8,7 @@ A bridge connects a mailbox to a provider that does not offer plain IMAP and SMT
 
 Bridges need the server to run in **engine mode**. A server in proxy mode does not process mail itself and loads no bridge.
 
-<!-- screenshot: admin-plugins-bridges | Admin console > Plugins list showing bridge-graph, bridge-gmail and bridge-ews with Trust, Running and Approval columns | element: plugin list table | stack M, seed admin-basic -->
+![The Plugins page of the administration console listing the Exchange, Gmail and Microsoft Graph bridges and the Rspamd classifier, all first-party, none loaded and none approved.](/screenshots/integrations/admin-plugins-bridges.webp){.mw-shot}
 
 ## What each bridge supports
 

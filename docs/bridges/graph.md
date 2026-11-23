@@ -53,7 +53,16 @@ A secret is sent only with the application ID it belongs to. A public client nee
 6. Choose **Connect securely** to sign in at Microsoft in the browser, or **Use a device code** to enter a code at the Microsoft page from another device. The device code page checks for approval on its own and offers **Cancel**.
 7. After approval, the page shows **Provider connected. Reload to use the new connection.** Reload the page.
 
-<!-- screenshot: settings-provider-connection | Settings > Linked mailboxes, Provider connection section with Provider set to Microsoft Graph, client ID and tenant filled | element: provider connection section | callouts: 1 provider select, 2 client ID, 3 tenant, 4 Connect securely, 5 Use a device code | stack M | note: needs a seed where bridge-graph is approved; otherwise mark "stack unavailable" -->
+![The Provider connection section with Microsoft Graph selected, the client ID and tenant fields, and the Connect securely and Use a device code buttons, with markers 1 to 5.](/screenshots/integrations/settings-provider-connection.webp){.mw-crop}
+
+1. **Provider**
+2. **Application client ID**
+3. **Microsoft tenant (optional)**
+4. **Connect securely**
+5. **Use a device code**
+{.mw-callouts}
+
+The two buttons stay disabled until a client ID is entered or stored.
 
 The server accepts the connection only when all of these hold. If one fails, nothing is stored and you see **The provider connection could not be completed. Check the app registration, bridge permissions and mailbox identity, then retry.**
 

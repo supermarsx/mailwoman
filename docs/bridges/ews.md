@@ -29,7 +29,7 @@ The bridge plugin (`bridge-ews`) can reach only the EWS host of the account it i
 7. Optionally paste **Additional origin CA certificates (optional)**: PEM certificates only, one to eight, at most 64 KiB, no private keys. Hostname and certificate chain checks stay on.
 8. Save.
 
-<!-- screenshot: admin-domain-ews-backend | Admin > Domains > Backend configuration with protocol EWS, endpoint, NTLMv2 authentication, Windows domain and workstation fields | element: backend editor form | callouts: 1 protocol, 2 endpoint, 3 authentication, 4 Windows domain, 5 CA certificates | stack M | seed admin-basic with a domain in engine mode -->
+![The Add backend form for the domain example.com with the EWS protocol and NTLMv2 authentication selected, showing the endpoint, Windows domain, workstation and additional certificate fields.](/screenshots/integrations/admin-domain-ews-backend.webp){.mw-shot}
 
 Saving checks the configuration only, not the credentials or the Exchange server. The credentials are checked when a user signs in. If the first sign-in is rejected, the account is not created.
 

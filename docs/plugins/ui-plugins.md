@@ -26,7 +26,9 @@ An approved and enabled UI plugin appears as a labelled, empty frame in the web 
 7. Open the plugin and choose **Approve and enable** (then **Enable** or **Disable** later). **Disable** and **Delete** ask first.
 8. Under **Grant a capability**, choose **Grant** for each capability the manifest declares. `net:host-allowlist` takes a list of hosts. The page does not show which capabilities are already granted; granting again replaces the earlier grant.
 
-<!-- screenshot: admin-ui-plugins-register | Admin > UI plugins > Register a UI plugin with a manifest preview (id, signature, capabilities, extension points) | element: register form | callouts: 1 manifest file, 2 bundle file, 3 allow unsigned, 4 Register | stack M | seed admin-basic -->
+![The Register a UI plugin form with the manifest file, manifest address and paste inputs, and the bundle file input.](/screenshots/integrations/admin-ui-plugins-register.webp){.mw-shot}
+
+The unsigned-registration switch and the preview of what the manifest declares appear after a manifest is read.
 
 A plugin is offered to signed-in users once it is approved and enabled. The permissions **Plugins** (`cap.plugins`) and **Individual UI plugin** (`cap.ui_plugin.*`, per plugin) must also be on for the user.
 

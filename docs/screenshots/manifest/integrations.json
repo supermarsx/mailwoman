@@ -1,0 +1,424 @@
+{
+  "defaults": {
+    "stack": "E",
+    "theme": "dark",
+    "viewport": "desktop"
+  },
+  "entries": [
+    {
+      "id": "admin-plugins-bridges",
+      "page": "bridges/index.md",
+      "session": "admin",
+      "seed": [
+        "integrations-plugins"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/plugins"
+        },
+        {
+          "waitFor": {
+            "text": "Exchange EWS bridge",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Plugins page of the administration console listing the Graph, Gmail and Exchange bridges and the Rspamd classifier, none of them approved."
+    },
+    {
+      "id": "admin-plugin-detail",
+      "page": "plugins/index.md",
+      "session": "admin",
+      "seed": [
+        "integrations-plugins"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/plugins/bridge-graph"
+        },
+        {
+          "waitFor": {
+            "text": "@plugins-admin-grants-heading",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The page of the Microsoft Graph bridge plugin with its status, approval buttons, granted capabilities and network limits."
+    },
+    {
+      "id": "admin-plugin-classifier",
+      "page": "plugins/spam-trainers.md",
+      "session": "admin",
+      "seed": [
+        "integrations-plugins"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/plugins/spam-rspamd"
+        },
+        {
+          "waitFor": {
+            "text": "@plugins-admin-panel-classifier",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Rspamd plugin page with its status, granted capabilities, network limits and the Spam classifier panel with the classifier address field.",
+      "viewport": {
+        "width": 1440,
+        "height": 1300
+      }
+    },
+    {
+      "id": "admin-ui-plugins-register",
+      "page": "plugins/ui-plugins.md",
+      "session": "admin",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/ui-plugins/+register"
+        },
+        {
+          "waitFor": {
+            "text": "@plugins-admin-ui-manifest-file",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Register a UI plugin form with the manifest file, address and paste inputs and the bundle file input."
+    },
+    {
+      "id": "admin-domain-ews-backend",
+      "page": "bridges/ews.md",
+      "session": "admin",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/domains/example.com"
+        },
+        {
+          "click": {
+            "text": "Connections and discovery",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@backend-editor-add"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@backend-editor-add"
+          }
+        },
+        {
+          "select": {
+            "role": "combobox",
+            "name": "@backend-editor-protocol",
+            "exact": false,
+            "value": "ews"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "Exchange Web Services endpoint",
+            "first": true,
+            "exact": false
+          }
+        },
+        {
+          "select": {
+            "role": "combobox",
+            "name": "@backend-ews-auth",
+            "exact": false,
+            "value": "ntlm"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "Windows domain (NTLM)",
+            "first": true,
+            "exact": false
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Add backend form with the EWS protocol and NTLMv2 authentication selected, showing the endpoint, Windows domain, workstation and certificate fields.",
+      "viewport": {
+        "width": 1440,
+        "height": 1500
+      }
+    },
+    {
+      "id": "admin-nextcloud-instance",
+      "page": "integrations/nextcloud.md",
+      "session": "admin",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/nextcloud"
+        },
+        {
+          "waitFor": {
+            "text": "@nextcloud-admin-empty",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Nextcloud page of the administration console with no approved instances yet and the Add Nextcloud instance button."
+    },
+    {
+      "id": "nextcloud-user-link",
+      "page": "integrations/nextcloud.md",
+      "seed": [
+        "mail-basic"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-nav-settings"
+          }
+        },
+        {
+          "click": {
+            "text": "@nextcloud-account-title",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@nextcloud-account-no-instances",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Nextcloud accounts section of the settings, with no instance approved yet."
+    },
+    {
+      "id": "settings-provider-connection",
+      "page": "bridges/graph.md",
+      "seed": [
+        "mail-basic"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-nav-settings"
+          }
+        },
+        {
+          "click": {
+            "text": "@linked-accounts-title",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@provider-oauth-title"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@provider-oauth-title"
+        },
+        "padding": 12
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "combobox",
+            "within": {
+              "role": "region",
+              "name": "@provider-oauth-title"
+            }
+          },
+          "place": "left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "textbox",
+            "name": "@provider-oauth-client-id",
+            "within": {
+              "role": "region",
+              "name": "@provider-oauth-title"
+            }
+          },
+          "place": "left"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "textbox",
+            "name": "@provider-oauth-tenant",
+            "within": {
+              "role": "region",
+              "name": "@provider-oauth-title"
+            }
+          },
+          "place": "left"
+        },
+        {
+          "n": 4,
+          "target": {
+            "role": "button",
+            "name": "@provider-oauth-connect",
+            "within": {
+              "role": "region",
+              "name": "@provider-oauth-title"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 5,
+          "target": {
+            "role": "button",
+            "name": "@provider-oauth-device",
+            "within": {
+              "role": "region",
+              "name": "@provider-oauth-title"
+            }
+          },
+          "place": "bottom"
+        }
+      ],
+      "alt": "The Provider connection section with Microsoft Graph selected, the client ID and tenant fields, and the Connect securely and Use a device code buttons.",
+      "viewport": {
+        "width": 1440,
+        "height": 1300
+      }
+    },
+    {
+      "id": "settings-provider-connection-gmail",
+      "page": "bridges/gmail.md",
+      "seed": [
+        "mail-basic"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-nav-settings"
+          }
+        },
+        {
+          "click": {
+            "text": "@linked-accounts-title",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@provider-oauth-title",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@provider-oauth-title"
+          }
+        },
+        {
+          "select": {
+            "role": "combobox",
+            "within": {
+              "role": "region",
+              "name": "@provider-oauth-title"
+            },
+            "value": "bridge-gmail"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "region",
+          "name": "@provider-oauth-title"
+        },
+        "padding": 12
+      },
+      "alt": "The Provider connection section with Gmail API selected, showing only the client ID field and the Connect securely button.",
+      "viewport": {
+        "width": 1440,
+        "height": 1300
+      }
+    },
+    {
+      "id": "export-dialog",
+      "page": "export/index.md",
+      "seed": [
+        "mail-basic"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "Sam Okoye",
+            "exact": false
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "Re: Spring catalogue: print proof"
+          }
+        },
+        {
+          "rightclick": {
+            "role": "button",
+            "name": "Sam Okoye",
+            "exact": false,
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "text": "@mail-context-download"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@export-scope",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Export dialog for one message with the scope, format, packaging, file name pattern and privacy options."
+    }
+  ]
+}

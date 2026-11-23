@@ -46,7 +46,7 @@ A secret is sent only with the client ID it belongs to; another user's own proje
 5. Choose **Connect securely** and approve access at Google. The Gmail bridge offers only this browser flow; there is no device code option for it.
 6. After approval, the page shows **Provider connected. Reload to use the new connection.** Reload the page.
 
-<!-- screenshot: settings-provider-connection-gmail | Settings > Linked mailboxes, Provider connection with Gmail API selected (no tenant field, no device code button) | element: provider connection section | callouts: 1 provider select, 2 client ID, 3 Connect securely | stack M | note: needs approved bridge-gmail seed -->
+![The Provider connection section with Gmail API selected: only the client ID field and the Connect securely button are shown, with no tenant field and no device code button.](/screenshots/integrations/settings-provider-connection-gmail.webp){.mw-crop}
 
 The request uses an authorization code with an S256 PKCE challenge and asks for offline access with a consent prompt, so Google returns a refresh token. The server checks that the Gmail profile address equals the address of the mailbox you are signed in to, then stores the access and refresh tokens sealed. The PKCE verifier and tokens stay on the server. If Google returns no refresh token, the connection is refused and you must approve again.
 

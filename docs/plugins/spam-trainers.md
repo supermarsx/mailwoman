@@ -6,7 +6,7 @@ title: Spam classifier plugins
 
 Two first-party plugins let Mailwoman ask an existing spam filter whether a new message is spam: `spam-rspamd` talks to Rspamd and `spam-spamassassin` talks to SpamAssassin. They classify only. They do not train the filter.
 
-<!-- screenshot: admin-plugin-classifier | Admin > Plugins > spam-rspamd page, Spam classifier panel with Classifier address, Save address and Test classifier, and a Test verdict result | element: Spam classifier panel | callouts: 1 Classifier address, 2 Save address, 3 Test classifier | stack M | needs a classifier reachable or the "not loaded" state -->
+![The Rspamd plugin page with Status, Granted capabilities (spam-action, net, store-kv-scoped), Network and limits, and the Spam classifier panel with the classifier address field and the Save address and Test classifier buttons, the latter noting that the plugin is not loaded so it cannot be tested.](/screenshots/integrations/admin-plugin-classifier.webp){.mw-shot}
 
 ## What happens to a message
 

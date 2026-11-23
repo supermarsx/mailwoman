@@ -1,0 +1,39 @@
+{
+  "seeds": {
+    "integrations-plugins": {
+      "include": [
+        "admin-basic"
+      ],
+      "admin": [
+        {
+          "method": "POST",
+          "path": "/plugins",
+          "body": {
+            "id": "bridge-graph"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/plugins",
+          "body": {
+            "id": "bridge-gmail"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/plugins",
+          "body": {
+            "id": "bridge-ews"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/plugins",
+          "body": {
+            "id": "spam-rspamd"
+          }
+        }
+      ]
+    }
+  }
+}

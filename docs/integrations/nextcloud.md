@@ -13,7 +13,9 @@ What users can do:
 - **Large-file share links**: for a file over the attachment limit, upload it to Nextcloud and insert a share link instead.
 - **Contacts and calendars**: discover calendars, task lists and address books on the linked account, connect the ones you want, and synchronize them (native engine only).
 
-<!-- screenshot: nextcloud-user-link | Settings > Nextcloud accounts showing one approved instance in the states Not linked / Linked and ready | element: Nextcloud accounts section | stack M | seed settings-default plus a Nextcloud instance (needs admin API seed) -->
+![The Nextcloud accounts section of the settings. With no instance approved it reads: No enabled Nextcloud instances are available. Ask your administrator to configure one.](/screenshots/integrations/nextcloud-user-link.webp){.mw-shot}
+
+This is the section before an administrator approves an instance. Approved instances appear in it, each with its status.
 
 ## Before you start
 
@@ -31,7 +33,7 @@ What users can do:
 6. Turn on **Allow users to link this instance**.
 7. Save.
 
-<!-- screenshot: admin-nextcloud-instance | Admin > Nextcloud, Edit Nextcloud instance form with display name, URL and enable switch | element: instance form | callouts: 1 display name, 2 URL, 3 CA, 4 Allow users to link | stack M | seed admin-basic -->
+![The Nextcloud instances page of the administration console with no approved instances and the Add Nextcloud instance button.](/screenshots/integrations/admin-nextcloud-instance.webp){.mw-shot}
 
 Saving any change to an instance asks users to verify their links again. Disabling an instance stops new operations at once; users can still remove their stale or disabled links.
 
