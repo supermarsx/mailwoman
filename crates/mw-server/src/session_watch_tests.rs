@@ -358,6 +358,15 @@ fn theft_watch_revocation_expedites_and_the_next_request_is_refused() {
         assert!(mirror.counters().expedites > expedites, "revocation expedites");
         let next = f.get(HOME, CHROME, LONG).await;
         assert_eq!(next.status, StatusCode::UNAUTHORIZED, "{}", next.body);
+        assert_eq!(next.inputs.first_fences, 0, "no published inputs for a deleted session");
+        // The deleted id is never bound afresh: the watch found no live session
+        // behind it (without the expedite a reused fence handed it the old one).
+        let hash = crate::push_relay::hash_token(&f.session);
+        assert!(cache_lock().get(&hash).is_none(), "no in-memory watch record");
+        assert_eq!(state.store.get_setting(&state_key(&hash)).await.unwrap(), None, "no stored watch record");
+        let again = f.get(HOME, CHROME, LONG).await;
+        assert_eq!(again.status, StatusCode::UNAUTHORIZED, "{}", again.body);
+        assert_eq!(state.store.get_setting(&state_key(&hash)).await.unwrap(), None);
     });
 }
 
