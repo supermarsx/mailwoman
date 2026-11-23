@@ -51,7 +51,6 @@ pub(crate) const NOW_APPLIED: &[&str] = &[
     "webhooks.timeoutSecs",
     "outbox.maxAttempts",
     "upstream.proxyTimeoutSecs",
-    "jobs.historyDays",
     "health.diskFreeMinPercent",
     "about.securityContact",
     "about.securityPolicyUrl",
