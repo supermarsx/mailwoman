@@ -200,13 +200,24 @@ async fn invoke(
     // Content of a zero-access account never leaves: its accounts are taken out of
     // the scope, so redaction drops its context items as outside the ceiling.
     let scope = crate::v7_mount::assist_profiles::without_zero_access(&state, body.scope).await;
+    // `limit.ai_calls_per_day`: counted before dispatch, given back when the call
+    // does not get a reply stream.
+    let charge = match crate::v7_mount::assist_charge(&state, &session).await {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
     // `invoke_disclosed_via` enforces capability → ceiling → redaction → rate-limit →
     // audit, then dispatches the (server-side) adapter request. We only ever receive
     // the already redacted token stream, plus the redaction outcome to disclose.
-    match gateway
+    let result = gateway
         .invoke_disclosed_via(via.as_ref(), cap, scope, &body.input)
-        .await
+        .await;
+    if result.is_err()
+        && let Some(c) = charge
     {
+        c.refund(&state).await;
+    }
+    match result {
         Ok((stream, disclosure)) => {
             let frames = invoke_frames(stream, ProposalFilter::for_capability(cap), disclosure);
             let sse = frames.map(|(name, data)| -> std::result::Result<Event, Infallible> {

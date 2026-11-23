@@ -850,7 +850,7 @@ async fn settings(
                     "",
                     ENDPOINT_KEY,
                     value.as_bytes(),
-                    &v7_mount::plugin_kv_limits(),
+                    &v7_mount::plugin_kv_limits(&state.store).await,
                 )
                 .await
             {

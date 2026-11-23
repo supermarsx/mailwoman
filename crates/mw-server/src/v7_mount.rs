@@ -214,7 +214,6 @@ impl BasicCredentialProvider for StoreEwsCredProvider {
 /// `mw-plugin` surfaces to the guest as a visible (trapping) failure.
 struct StorePluginKv {
     store: Store,
-    limits: PluginKvLimits,
 }
 
 #[async_trait]
@@ -236,8 +235,9 @@ impl KvStore for StorePluginKv {
         key: &str,
         value: Vec<u8>,
     ) -> std::result::Result<(), String> {
+        let limits = plugin_kv_limits(&self.store).await;
         self.store
-            .plugin_kv_set(plugin_id, account_id, key, &value, &self.limits)
+            .plugin_kv_set(plugin_id, account_id, key, &value, &limits)
             .await
             .map_err(|e| e.to_string())
     }
@@ -257,23 +257,64 @@ impl KvStore for StorePluginKv {
     }
 }
 
-/// Build the plugin-KV quota ceilings, deployment-configurable via env with the
-/// advertised defaults (256 B key, 64 KiB value, 5 MiB total, 1000 keys per namespace).
-pub(crate) fn plugin_kv_limits() -> PluginKvLimits {
+/// The settings that set the plugin-KV quota ceilings, in [`plugin_kv_limits_from`]
+/// order. Each is pinned by its environment variable (`MW_PLUGIN_KV_MAX_KEY_BYTES`,
+/// `MW_PLUGIN_KV_MAX_VALUE_BYTES`, `MW_PLUGIN_KV_MAX_TOTAL_BYTES`,
+/// `MW_PLUGIN_KV_MAX_KEYS`): a set variable wins over the console value.
+const PLUGIN_KV_KEYS: [&str; 4] = [
+    "plugins.kv.maxKeyBytes",
+    "plugins.kv.maxValueBytes",
+    "plugins.kv.maxTotalBytes",
+    "plugins.kv.maxKeys",
+];
+
+/// The plugin-KV quota ceilings from the effective values of [`PLUGIN_KV_KEYS`]
+/// (in that order). A missing or unusable value keeps the built-in default (256 B
+/// key, 64 KiB value, 5 MiB total, 1000 keys per namespace).
+fn plugin_kv_limits_from(values: &[Option<serde_json::Value>]) -> PluginKvLimits {
     let mut l = PluginKvLimits::default();
-    if let Some(v) = env("MW_PLUGIN_KV_MAX_KEY_BYTES").and_then(|s| s.parse().ok()) {
+    let at = |i: usize| {
+        values
+            .get(i)
+            .and_then(Option::as_ref)
+            .and_then(serde_json::Value::as_u64)
+            .filter(|n| *n > 0)
+    };
+    if let Some(v) = at(0).and_then(|n| n.try_into().ok()) {
         l.max_key_bytes = v;
     }
-    if let Some(v) = env("MW_PLUGIN_KV_MAX_VALUE_BYTES").and_then(|s| s.parse().ok()) {
+    if let Some(v) = at(1).and_then(|n| n.try_into().ok()) {
         l.max_value_bytes = v;
     }
-    if let Some(v) = env("MW_PLUGIN_KV_MAX_TOTAL_BYTES").and_then(|s| s.parse().ok()) {
+    if let Some(v) = at(2).and_then(|n| n.try_into().ok()) {
         l.max_total_bytes = v;
     }
-    if let Some(v) = env("MW_PLUGIN_KV_MAX_KEYS").and_then(|s| s.parse().ok()) {
+    if let Some(v) = at(3).and_then(|n| n.try_into().ok()) {
         l.max_keys = v;
     }
     l
+}
+
+/// The plugin-KV quota ceilings in effect now: `plugins.kv.*` through the settings
+/// registry, so a console value applies at the next write and a set environment
+/// variable wins over it. A store error reading the settings keeps the built-in
+/// defaults for this write and is logged.
+pub(crate) async fn plugin_kv_limits(store: &Store) -> PluginKvLimits {
+    let subject = mw_store::settings_policy::SettingSubject::default();
+    match crate::settings_registry::effective_selected_for(store, &PLUGIN_KV_KEYS, &subject, &[])
+        .await
+    {
+        Ok(found) => plugin_kv_limits_from(
+            &found
+                .into_iter()
+                .map(|e| e.map(|e| e.value))
+                .collect::<Vec<_>>(),
+        ),
+        Err(e) => {
+            tracing::warn!("plugin KV limits read failed, using the defaults: {e}");
+            PluginKvLimits::default()
+        }
+    }
 }
 
 struct HostClock;
@@ -328,7 +369,6 @@ pub(crate) fn host_services(store: &Store) -> HostServices {
         }),
         kv: Arc::new(StorePluginKv {
             store: store.clone(),
-            limits: plugin_kv_limits(),
         }),
         clock: Arc::new(HostClock),
         rng: Arc::new(HostRng),
@@ -571,7 +611,10 @@ pub fn passwd_backend_from(
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Arc<dyn PasswordChangeBackend>, PasswdBackendConfigError> {
     use PasswdBackendConfigError::{Invalid, Missing, UnknownBackend};
-    let policy = PasswordPolicy::default();
+    // The floor only. Every caller checks the administrator's effective policy
+    // (`passwd.policy.*`, `crate::passwd::effective_policy_for`) first, which may
+    // be lower than `PasswordPolicy::default()`'s 12 but never below 8.
+    let policy = PasswordPolicy::floor();
     let lookup = |key: &str| lookup(key).filter(|v| !v.is_empty());
     let selected = lookup(PASSWD_BACKEND_ENV);
     match selected.as_deref() {
@@ -751,16 +794,17 @@ fn embed_model_of(adapter: Option<&AdapterConfig>) -> String {
     }
 }
 
-/// The environment variable an operator sets to bound Assist egress.
+/// The environment variable that pins `assist.rateLimitPerMin`.
+#[cfg(test)]
 const ASSIST_RATE_LIMIT_ENV: &str = "MW_ASSIST_RATE_LIMIT_PER_MIN";
 
-/// The per-account Assist request budget, in outbound endpoint requests per minute.
-///
-/// The 0008 `assist_config` table has no column for this, so until a migration adds
-/// one the setting is an environment variable — the same shape as every other
-/// deployment-level Assist/egress control (`MW_MCP_RESOURCE`, `MW_RENDER_JAIL`). It
-/// was previously hardcoded `None` with no operator-reachable setting anywhere, which
-/// made it a dead control end to end rather than a default someone had not changed.
+/// The settings key of the per-account Assist request budget.
+const ASSIST_RATE_LIMIT_KEY: &str = "assistant.rateLimitPerMin";
+
+/// The per-account Assist request budget, in outbound endpoint requests per minute:
+/// the deployment value of `assistant.rateLimitPerMin`, read through the settings
+/// registry when the gateway is built (at server start). Its environment variable
+/// `MW_ASSIST_RATE_LIMIT_PER_MIN` pins it: when set, it wins over the console value.
 ///
 /// **Sizing.** The unit is one outbound request, because bounding third-party API cost
 /// and bulk egress volume is the whole point; a scheme that charged a multi-request
@@ -770,25 +814,32 @@ const ASSIST_RATE_LIMIT_ENV: &str = "MW_ASSIST_RATE_LIMIT_PER_MIN";
 /// embedding cache fills. A chat invocation costs 1. Size the limit accordingly: 60
 /// permits roughly two cold semantic searches a minute, per account.
 ///
-/// - unset or empty ⇒ `None`, unlimited — the pre-26.19 behaviour, unchanged.
-/// - `0` ⇒ an explicit hard stop: every Assist request is refused. A kill switch that
-///   leaves the rest of the deployment running.
-/// - unparseable ⇒ `None` with a warning, because failing a server boot over a typo in
-///   an optional knob is worse than running without the knob.
-fn assist_rate_limit() -> Option<u32> {
-    parse_rate_limit(env(ASSIST_RATE_LIMIT_ENV).as_deref())
+/// - `0` (the default) ⇒ `None`, no limit, as the registry describes the key. Before
+///   t48 the environment variable read `0` as "refuse every request"; the kill
+///   switch (`POST /admin/assist/kill`) is the way to stop Assist.
+/// - a value that is not a non-negative integer ⇒ `None` with a warning, because
+///   failing a server boot over a typo in an optional knob is worse than running
+///   without the knob.
+async fn assist_rate_limit(store: &Store) -> Option<u32> {
+    let subject = mw_store::settings_policy::SettingSubject::default();
+    match crate::settings_registry::effective_for(store, ASSIST_RATE_LIMIT_KEY, &subject).await {
+        Ok(found) => rate_limit_from(found.map(|e| e.value).as_ref()),
+        Err(e) => {
+            tracing::warn!("{ASSIST_RATE_LIMIT_KEY} did not load; Assist runs without a rate limit: {e}");
+            None
+        }
+    }
 }
 
-/// The parsing half of [`assist_rate_limit`], split out so it is testable without
-/// mutating process environment (`set_var` is `unsafe` in edition 2024, and an env
-/// mutation is visible to every other test in the binary).
-fn parse_rate_limit(raw: Option<&str>) -> Option<u32> {
-    let raw = raw?;
-    match raw.trim().parse::<u32>() {
-        Ok(n) => Some(n),
-        Err(_) => {
+/// The parsing half of [`assist_rate_limit`]: `0`, absent or unusable ⇒ `None`.
+fn rate_limit_from(value: Option<&serde_json::Value>) -> Option<u32> {
+    let value = value?;
+    match value.as_u64().map(u32::try_from) {
+        Some(Ok(0)) => None,
+        Some(Ok(n)) => Some(n),
+        _ => {
             tracing::warn!(
-                "{ASSIST_RATE_LIMIT_ENV}={raw:?} is not a non-negative integer; \
+                "{ASSIST_RATE_LIMIT_KEY}={value} is not a non-negative integer; \
                  Assist runs without a rate limit"
             );
             None
@@ -887,7 +938,7 @@ pub(crate) async fn build_assist(store: &Store) -> (AssistHandle, Vec<AssistCapa
         }
     };
     let mut config = stored_assist_config(row.as_ref());
-    config.rate_limit_per_min = assist_rate_limit();
+    config.rate_limit_per_min = assist_rate_limit(store).await;
     // What was stored, before a refused adapter is taken out: the admin status
     // compares the stored row with this, and the row has not changed.
     let booted = assist_config_wire(&config);
@@ -1021,10 +1072,123 @@ pub(crate) async fn assist_route(
     gateway: &AssistHandle,
     session: &mw_store::Session,
 ) -> Result<Option<Arc<dyn EndpointAdapter>>, AssistError> {
+    // `assistant.enabled` (deployment, domain, then the user's own value) sits
+    // below the deployment switch: false answers as Assist being off.
+    if !assist_enabled_for(state, session).await {
+        return Err(AssistError::Disabled);
+    }
     match assist_profiles::resolve(state, session).await {
         assist_profiles::Resolved::Deployment => Ok(None),
         assist_profiles::Resolved::Profile(a) => Ok(Some(guard_profile_adapter(gateway, a))),
         assist_profiles::Resolved::Unavailable => Err(AssistError::Disabled),
+    }
+}
+
+/// The settings key that switches Assist off for a domain or a user.
+const ASSIST_ENABLED_KEY: &str = "assistant.enabled";
+/// The settings key of the daily Assist call budget.
+const ASSIST_DAILY_KEY: &str = "limit.ai_calls_per_day";
+
+/// The effective `assistant.enabled` for `session`'s user. A store error reads as
+/// off: the setting can only take Assist away, so failing closed sends nothing.
+async fn assist_enabled_for(state: &AppState, session: &mw_store::Session) -> bool {
+    match crate::settings_routes::effective_for_session(state, session, ASSIST_ENABLED_KEY).await {
+        Ok(found) => found.and_then(|e| e.value.as_bool()).unwrap_or(true),
+        Err(e) => {
+            tracing::warn!("{ASSIST_ENABLED_KEY} did not load; Assist is off for this request: {e}");
+            false
+        }
+    }
+}
+
+/// One Assist call counted against `limit.ai_calls_per_day`, to be given back with
+/// [`AssistCharge::refund`] when the call does not reach the endpoint.
+pub(crate) struct AssistCharge {
+    address: String,
+    period: i64,
+}
+
+impl AssistCharge {
+    /// Give the call back (the gateway refused it or the endpoint failed before
+    /// answering). A store error is logged; the counter then stays one high.
+    pub(crate) async fn refund(self, state: &AppState) {
+        if let Err(e) = state
+            .store
+            .usage_release(&self.address, mw_store::usage::ASSIST_CALLS, self.period, 1)
+            .await
+        {
+            tracing::warn!("assist daily counter release failed: {e}");
+        }
+    }
+}
+
+/// Count one Assist call for `session`'s user against `limit.ai_calls_per_day`
+/// (deployment, domain, then a per-user administrator value; `0` = no limit).
+///
+/// The counter is `usage_counter` metric `assist.calls` for the UTC day, reserved
+/// in one statement, so instances sharing a database admit no more than the limit
+/// together. `Ok(None)` when no limit applies (nothing is counted); `Ok(Some)` when
+/// the call was counted; `Err` with a `429 {code:"limit.ai_calls_per_day"}` when
+/// the day's budget is spent, or a `503` when the limit or the counter could not
+/// be read.
+pub(crate) async fn assist_charge(
+    state: &AppState,
+    session: &mw_store::Session,
+) -> Result<Option<AssistCharge>, axum::response::Response> {
+    use axum::response::IntoResponse;
+    let unavailable = |e: mw_store::StoreError| {
+        tracing::error!("assist daily limit unavailable: {e}");
+        (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(serde_json::json!({ "error": "assist daily limit unavailable" })),
+        )
+            .into_response()
+    };
+    let subject = crate::settings_routes::UserSubject::resolved(&state.store, session)
+        .await
+        .map_err(unavailable)?;
+    let limit = crate::settings_routes::effective_for_session(state, session, ASSIST_DAILY_KEY)
+        .await
+        .map_err(unavailable)?
+        .and_then(|e| e.value.as_i64())
+        .unwrap_or(0);
+    if limit <= 0 {
+        return Ok(None);
+    }
+    // The address is the per-user scope id of `limit.*`; a sign-in name that is
+    // not an address is counted under the account id.
+    let address = if subject.address.is_empty() {
+        subject.account_id.clone()
+    } else {
+        subject.address.clone()
+    };
+    let period = mw_store::usage::period_of(
+        mw_store::usage::ASSIST_CALLS,
+        chrono::Utc::now().timestamp(),
+    );
+    match state
+        .store
+        .usage_reserve(
+            &address,
+            &subject.domain,
+            mw_store::usage::ASSIST_CALLS,
+            period,
+            1,
+            limit,
+        )
+        .await
+        .map_err(unavailable)?
+    {
+        Some(_) => Ok(Some(AssistCharge { address, period })),
+        None => Err((
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            axum::Json(serde_json::json!({
+                "error": "assist daily call limit reached",
+                "code": ASSIST_DAILY_KEY,
+                "limit": limit,
+            })),
+        )
+            .into_response()),
     }
 }
 
@@ -3307,12 +3471,22 @@ async fn assist_transcribe(
         )
             .into_response();
     };
+    // `limit.ai_calls_per_day`: counted before dispatch, given back on failure.
+    let charge = match assist_charge(&state, &session).await {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
     match gateway
         .transcribe_via(via.as_ref(), body.scope, &audio, &body.mime)
         .await
     {
         Ok(text) => Json(json!({ "text": text })).into_response(),
-        Err(e) => crate::assist::assist_error(&e),
+        Err(e) => {
+            if let Some(c) = charge {
+                c.refund(&state).await;
+            }
+            crate::assist::assist_error(&e)
+        }
     }
 }
 
@@ -3968,6 +4142,12 @@ pub async fn cli_password_change(
     old: &str,
     new: &str,
 ) -> anyhow::Result<()> {
+    // The same policy `POST /api/password` applies: the administrator's for the
+    // account's domain, checked before the backend is asked.
+    let policy = cli_password_policy(store, backend, account_id).await?;
+    policy
+        .validate(&Secret::new(new))
+        .map_err(|e| anyhow::anyhow!("password change failed: {e}"))?;
     let ctx = Ctx {
         account_id: account_id.to_string(),
         username: account_id.to_string(),
@@ -3990,6 +4170,34 @@ pub async fn cli_password_change(
         outcome.zeroaccess_rewrap_required
     );
     Ok(())
+}
+
+/// The password policy `mailwoman password` applies to `account_id`: the
+/// `passwd.policy.*` values for the domain of the account's sign-in name (the
+/// stored account's username, or `account_id` itself when it is an address),
+/// combined with the backend's own policy.
+pub async fn cli_password_policy(
+    store: &Store,
+    backend: &dyn PasswordChangeBackend,
+    account_id: &str,
+) -> anyhow::Result<PasswordPolicy> {
+    let name = match store.get_account(account_id).await {
+        Ok(account) => account.username,
+        Err(mw_store::StoreError::NotFound) => account_id.to_string(),
+        Err(e) => return Err(e.into()),
+    };
+    let name = name.trim().to_ascii_lowercase();
+    let (address, domain) = match name.rsplit_once('@') {
+        Some((_, d)) if !d.is_empty() => (name.clone(), d.to_string()),
+        _ => (String::new(), String::new()),
+    };
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
+        domain: &domain,
+        account_id,
+        address: &address,
+    };
+    Ok(crate::passwd::effective_policy_for(store, &subject, &backend.policy()).await?)
 }
 
 #[cfg(test)]
@@ -4794,25 +5002,84 @@ mod tests {
 
     // ── 26.19 (t19-e16): S1(a) payload clamp + S2 operator-reachable rate limit ──
 
-    /// **Fails against the pre-fix code**: `parse_rate_limit` did not exist, because
-    /// there was no operator-reachable setting to parse — the limit was hardcoded
-    /// `None` at the mount site and the 0008 table has no column for it.
+    /// `assistant.rateLimitPerMin` as the gateway receives it. t48: `0` means no
+    /// limit, as the registry describes the key (it used to refuse every request).
     #[test]
-    fn the_rate_limit_setting_parses_every_operator_input() {
-        // Unset ⇒ unlimited, which is the pre-26.19 behaviour, unchanged.
-        assert_eq!(parse_rate_limit(None), None);
-        // A plain value, and one an operator pasted with whitespace.
-        assert_eq!(parse_rate_limit(Some("60")), Some(60));
-        assert_eq!(parse_rate_limit(Some(" 60 ")), Some(60));
-        // Zero is a deliberate hard stop, not "unset" — `check_rate` refuses every
-        // request at a limit of 0, which is a kill switch that leaves the rest of the
-        // deployment running.
-        assert_eq!(parse_rate_limit(Some("0")), Some(0));
-        // Junk degrades to unlimited with a warning rather than failing the boot: a
-        // typo in an optional knob must not take a mail server down.
-        assert_eq!(parse_rate_limit(Some("banana")), None);
-        assert_eq!(parse_rate_limit(Some("-5")), None);
-        assert_eq!(parse_rate_limit(Some("1.5")), None);
+    fn the_rate_limit_setting_reads_every_value() {
+        use serde_json::json;
+        assert_eq!(rate_limit_from(None), None);
+        assert_eq!(rate_limit_from(Some(&json!(60))), Some(60));
+        assert_eq!(rate_limit_from(Some(&json!(0))), None, "0 = no limit");
+        // An unusable value (an environment variable the registry could not parse
+        // as a number arrives as a string) degrades to no limit with a warning.
+        assert_eq!(rate_limit_from(Some(&json!("banana"))), None);
+        assert_eq!(rate_limit_from(Some(&json!(-5))), None);
+        assert_eq!(rate_limit_from(Some(&json!(1.5))), None);
+    }
+
+    /// Run `f` with `var` set to `value` (or removed), restoring it afterwards.
+    /// `set_var` is `unsafe` in edition 2024 and process-global; the gate runs with
+    /// `--test-threads=1`.
+    async fn with_env<T>(var: &str, value: Option<&str>, f: impl std::future::Future<Output = T>) -> T {
+        let previous = std::env::var(var).ok();
+        match value {
+            Some(v) => unsafe { std::env::set_var(var, v) },
+            None => unsafe { std::env::remove_var(var) },
+        }
+        let out = f.await;
+        match previous {
+            Some(v) => unsafe { std::env::set_var(var, v) },
+            None => unsafe { std::env::remove_var(var) },
+        }
+        out
+    }
+
+    async fn put_global(store: &Store, key: &str, value: serde_json::Value) {
+        store
+            .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+                key: key.into(),
+                global_value: Some(value.to_string()),
+                allow_user_override: false,
+                global_locked: false,
+                updated_by: "test".into(),
+                updated_at: 0,
+            })
+            .await
+            .unwrap();
+    }
+
+    /// `plugins.kv.*`: the console value applies with the environment variable
+    /// unset, and a set variable wins over it.
+    #[tokio::test]
+    async fn plugin_kv_limits_follow_the_console_and_the_env_pin_wins() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let var = "MW_PLUGIN_KV_MAX_KEYS";
+        let defaults = with_env(var, None, plugin_kv_limits(&store)).await;
+        assert_eq!(defaults.max_keys, PluginKvLimits::default().max_keys);
+        put_global(&store, "plugins.kv.maxKeys", serde_json::json!(3)).await;
+        put_global(&store, "plugins.kv.maxValueBytes", serde_json::json!(10)).await;
+        let console = with_env(var, None, plugin_kv_limits(&store)).await;
+        assert_eq!((console.max_keys, console.max_value_bytes), (3, 10));
+        let pinned = with_env(var, Some("5"), plugin_kv_limits(&store)).await;
+        assert_eq!(pinned.max_keys, 5, "the environment variable wins");
+        assert_eq!(pinned.max_value_bytes, 10);
+
+        // And the host KV enforces it on the next write.
+        let kv = StorePluginKv {
+            store: store.clone(),
+        };
+        let put = |k: &'static str| kv.put("p", "a", k, b"v".to_vec());
+        with_env(var, None, async {
+            for k in ["k1", "k2", "k3"] {
+                put(k).await.unwrap();
+            }
+            assert!(put("k4").await.is_err(), "the fourth key is over plugins.kv.maxKeys=3");
+            assert!(
+                kv.put("p", "a", "k1", vec![0; 11]).await.is_err(),
+                "an 11-byte value is over plugins.kv.maxValueBytes=10"
+            );
+        })
+        .await;
     }
 
     /// The wiring itself: an operator's configured value has to arrive at the object
@@ -4840,15 +5107,20 @@ mod tests {
             .await
             .unwrap();
 
-        // `set_var` is `unsafe` in edition 2024 and process-global; the gate runs with
-        // `--test-threads=1`, and the previous value is restored either way.
-        let previous = std::env::var(ASSIST_RATE_LIMIT_ENV).ok();
-        unsafe { std::env::set_var(ASSIST_RATE_LIMIT_ENV, "7") };
-        let (gateway, granted) = build_assist(&store).await;
-        match previous {
-            Some(v) => unsafe { std::env::set_var(ASSIST_RATE_LIMIT_ENV, v) },
-            None => unsafe { std::env::remove_var(ASSIST_RATE_LIMIT_ENV) },
-        }
+        // No value anywhere: no limit.
+        let (gateway, _) = with_env(ASSIST_RATE_LIMIT_ENV, None, build_assist(&store)).await;
+        assert_eq!(gateway.rate_limit_per_min(), None);
+        // The console value, with the environment variable unset.
+        put_global(&store, ASSIST_RATE_LIMIT_KEY, serde_json::json!(11)).await;
+        let (gateway, _) = with_env(ASSIST_RATE_LIMIT_ENV, None, build_assist(&store)).await;
+        assert_eq!(gateway.rate_limit_per_min(), Some(11), "the console value applies");
+        // `0` in the environment wins over the console value, and means no limit.
+        let (gateway, _) =
+            with_env(ASSIST_RATE_LIMIT_ENV, Some("0"), build_assist(&store)).await;
+        assert_eq!(gateway.rate_limit_per_min(), None, "env 0 = no limit, and wins");
+
+        let (gateway, granted) =
+            with_env(ASSIST_RATE_LIMIT_ENV, Some("7"), build_assist(&store)).await;
 
         assert_eq!(
             gateway.rate_limit_per_min(),

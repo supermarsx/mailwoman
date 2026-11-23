@@ -152,7 +152,7 @@ The line under it names the reason, for example that an administrator has not ap
 
 ### The AI assistant is not running
 
-`The AI assistant is not running. The configured program ... is not listed in MW_ASSIST_LOCAL_PROGRAMS` means the local program is not on the allow list. A provider key that does not open with this server's key (`MW_SERVER_KEY`) needs to be entered again. When `MW_ASSIST_RATE_LIMIT_PER_MIN` is 0 every request is refused. See [AI assistant](/admin/ai-assistant).
+`The AI assistant is not running. The configured program ... is not listed in MW_ASSIST_LOCAL_PROGRAMS` means the local program is not on the allow list. A provider key that does not open with this server's key (`MW_SERVER_KEY`) needs to be entered again. Requests answered `429` reached the per-minute limit (`assistant.rateLimitPerMin`, or `MW_ASSIST_RATE_LIMIT_PER_MIN` when set) or the daily limit (`limit.ai_calls_per_day`). See [AI assistant](/admin/ai-assistant).
 
 ### Import is refused
 

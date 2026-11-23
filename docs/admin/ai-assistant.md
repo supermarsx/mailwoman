@@ -67,13 +67,16 @@ Under **Data limits**, these limits apply to every request whatever the capabili
 ## Rate limit
 
 <a id="rateLimitPerMin"></a>
-The **Rate limit** group shows **Requests per minute** ([`assistant.rateLimitPerMin`](/admin/settings#assistant.ratelimitpermin)). **The server applies only `MW_ASSIST_RATE_LIMIT_PER_MIN`, read when it starts; a value saved here is not applied.**
+The **Rate limit** group shows **Requests per minute** ([`assistant.rateLimitPerMin`](/admin/settings#assistant.ratelimitpermin)). The server reads the saved value when it starts, so a change applies after a restart. When `MW_ASSIST_RATE_LIMIT_PER_MIN` is set where the server starts, it wins over the saved value and the field is disabled.
 
 ![The Rate limit group of the AI assistant page with the text that the server applies only MW_ASSIST_RATE_LIMIT_PER_MIN and the Requests per minute field.](/screenshots/admin-ops/opsc-assist-limits.webp){.mw-crop}
 
-The field in the image still carries the hint **Applies within 30 seconds** and **Default: 0 (refuses every request)**; neither describes what the server does, as explained here.
+The image was taken before the saved value was applied; its text and the hints **Applies within 30 seconds** and **Default: 0 (refuses every request)** describe the earlier behaviour.
 
-The limit counts outbound requests per account per minute. With the variable unset there is no limit. `0` refuses every assistant request. A chat turn counts 1; a semantic search on an empty cache counts up to 33. The field shows `0` as its default, but that is the stored setting's default, which the server does not read: with the variable unset the assistant is not limited. The daily limit `limit.ai_calls_per_day` that appears in the feature editor is not enforced either.
+The limit counts outbound requests per account per minute. `0` (the default) means no limit, for the saved value and for the variable alike. A chat turn counts 1; a semantic search on an empty cache counts up to 33. A request over the limit is answered `429`.
+
+<a id="dailyLimit"></a>
+The daily limit [`limit.ai_calls_per_day`](/admin/settings#limit.ai_calls_per_day) (deployment, domain or one user; set in the feature editor or under **Settings**) counts assistant requests (`/api/assist/invoke` and `/api/assist/transcribe`) per person per UTC day and applies at once. `0` means no limit. A request over it is answered `429` with `code: "limit.ai_calls_per_day"` and nothing is sent to the endpoint; a request the assistant refuses or that fails before the endpoint answers is not counted. Semantic search is not counted by the daily limit.
 
 ## Provider profiles
 
@@ -91,8 +94,9 @@ An endpoint on this machine or the local network is refused until its exact host
 
 | Label | What it does | Default | Who can change it |
 |---|---|---|---|
-| **Requests per minute** ([`assistant.rateLimitPerMin`](/admin/settings#assistant.ratelimitpermin)) | Saved but not applied; only `MW_ASSIST_RATE_LIMIT_PER_MIN` is read | 0 stored; unlimited in effect | Administrator (no effect) |
-| **AI assistant** ([`assistant.enabled`](/admin/settings#assistant.enabled)) | Lets a user turn the assistant off for themselves, below the deployment switch | On | Administrator, domain, user |
+| **Requests per minute** ([`assistant.rateLimitPerMin`](/admin/settings#assistant.ratelimitpermin)) | Outbound requests per account per minute; read at server start; `MW_ASSIST_RATE_LIMIT_PER_MIN` wins when set | 0 (no limit) | Administrator |
+| [`limit.ai_calls_per_day`](/admin/settings#limit.ai_calls_per_day) | Assistant requests per person per UTC day | 0 (no limit) | Administrator (deployment, domain or user) |
+| **AI assistant** ([`assistant.enabled`](/admin/settings#assistant.enabled)) | Turns the assistant off for a domain or a user, below the deployment switch | On | Administrator, domain, user |
 | [`assist.profile`](/admin/settings#assist.profile) | Which provider profile serves a user; empty means the deployment endpoint | Empty | Administrator (deployment, domain or user) |
 
 ## Troubleshooting
@@ -101,7 +105,8 @@ An endpoint on this machine or the local network is refused until its exact host
 - **The AI assistant is on but not running because no usable endpoint is configured.** Choose an endpoint type other than **None** and fill in its required fields, then restart the server.
 - **The stored AI assistant configuration cannot be read: its API key does not open with this server's key (MW_SERVER_KEY).** The configuration was saved under another key. Fill in the form, including the API key, and save.
 - **Could not load the AI assistant configuration. Saving is disabled so the stored configuration is not overwritten.** Reload the page; the form stays disabled until the stored configuration has been read.
-- Every assistant request is refused and the endpoint is set: check whether `MW_ASSIST_RATE_LIMIT_PER_MIN` is set to `0`.
+- Assistant requests answer `429`: the per-minute limit (`assistant.rateLimitPerMin` or `MW_ASSIST_RATE_LIMIT_PER_MIN`) or, with `code: "limit.ai_calls_per_day"`, the daily limit was reached.
+- The assistant is off for one user or domain only: check `assistant.enabled` for that domain and user.
 
 ## Related
 

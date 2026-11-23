@@ -72,12 +72,13 @@ opening a message must not contact the endpoint.
 
    Context that falls outside these limits is dropped whole; the server does not
    mask parts of a text (it does not remove names, numbers or addresses).
-6. **Rate limit**: `MW_ASSIST_RATE_LIMIT_PER_MIN`, counted in outbound requests per
-   account per minute. Unset means no limit; `0` refuses every request. A chat turn
-   costs 1; a semantic search on a cold cache costs up to 33. The environment
-   variable is read when the server starts. The console's **Rate limit** group shows a
-   **Requests per minute** field (`assistant.rateLimitPerMin`) and says that a value
-   saved there is not applied.
+6. **Rate limit**: `assistant.rateLimitPerMin` (the console's **Requests per
+   minute**), counted in outbound requests per account per minute; `0` means no
+   limit. `MW_ASSIST_RATE_LIMIT_PER_MIN`, when set, wins over the console value. A
+   chat turn costs 1; a semantic search on a cold cache costs up to 33. The value is
+   read when the server starts. Before this step, the route also checks
+   `assistant.enabled` for the user's domain and the user, and counts the request
+   against `limit.ai_calls_per_day` (per person per UTC day; `0` means no limit).
 7. **Audit record** (below), then the request is sent.
 
 ::: warning What the data limits rely on
@@ -94,7 +95,9 @@ policy for the supplied client, not a barrier against a user who sends their own
 to the endpoint.
 :::
 
-`limit.ai_calls_per_day` appears in the feature editor but is not enforced.
+`limit.ai_calls_per_day` (set in the feature editor or under **Settings**) limits
+assistant requests per person per UTC day; a request over it is answered `429` and
+nothing is sent. Semantic search is not counted by it.
 
 ## Endpoints
 

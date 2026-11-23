@@ -32,6 +32,36 @@ impl Default for PasswordPolicy {
 }
 
 impl PasswordPolicy {
+    /// The shortest minimum length any policy may set. An administrator's value
+    /// below it is raised to it ([`PasswordPolicy::with_floor`]).
+    pub const FLOOR_MIN_LENGTH: u32 = 8;
+
+    /// The policy a backend enforces on its own: at least
+    /// [`FLOOR_MIN_LENGTH`](Self::FLOOR_MIN_LENGTH) characters and nothing else.
+    ///
+    /// The server checks the administrator's effective policy (which can be lower
+    /// than the [`Default`] of 12) before it calls a backend, so a backend built
+    /// with the default would refuse a password the administrator allowed. A
+    /// backend built with this keeps only the floor.
+    #[must_use]
+    pub fn floor() -> Self {
+        Self {
+            min_length: Self::FLOOR_MIN_LENGTH,
+            description: "At least 8 characters.".into(),
+            ..Self::default()
+        }
+    }
+
+    /// This policy with `min_length` raised to
+    /// [`FLOOR_MIN_LENGTH`](Self::FLOOR_MIN_LENGTH) when it is lower, and
+    /// `description` set to the [`Display`](std::fmt::Display) text.
+    #[must_use]
+    pub fn with_floor(mut self) -> Self {
+        self.min_length = self.min_length.max(Self::FLOOR_MIN_LENGTH);
+        self.description = self.to_string();
+        self
+    }
+
     /// Validate a new password against this policy. Returns
     /// [`PasswordError::PolicyViolation`] describing the first unmet rule.
     ///
@@ -153,6 +183,38 @@ mod tests {
             p.validate(&Secret::new("NoSymbol123")),
             Err(PasswordError::PolicyViolation(_))
         ));
+    }
+
+    #[test]
+    fn floor_keeps_eight_characters_and_nothing_else() {
+        let f = PasswordPolicy::floor();
+        assert_eq!(f.min_length, 8);
+        assert!(!(f.require_upper || f.require_lower || f.require_digit || f.require_symbol));
+        assert!(f.validate(&Secret::new("ninechars")).is_ok());
+        assert!(f.validate(&Secret::new("seven77")).is_err());
+        assert_eq!(f.description, f.to_string());
+    }
+
+    #[test]
+    fn with_floor_raises_a_lower_minimum_only() {
+        let low = PasswordPolicy {
+            min_length: 3,
+            require_symbol: true,
+            ..PasswordPolicy::default()
+        }
+        .with_floor();
+        assert_eq!(low.min_length, 8);
+        assert!(low.require_symbol);
+        assert_eq!(
+            low.description,
+            "At least 8 characters, including a symbol."
+        );
+        let high = PasswordPolicy {
+            min_length: 20,
+            ..PasswordPolicy::default()
+        }
+        .with_floor();
+        assert_eq!(high.min_length, 20);
     }
 
     #[test]

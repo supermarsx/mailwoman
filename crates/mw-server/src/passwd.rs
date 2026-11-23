@@ -45,7 +45,7 @@ use sha2::{Digest, Sha256};
 
 use mw_passwd::{
     AuditEvent, AuditOutcome, AuditSink, BackendKind, Ctx, PasswordChangeBackend, PasswordError,
-    Secret, change_audited,
+    PasswordPolicy, Secret, change_audited,
 };
 
 use crate::AppState;
@@ -75,11 +75,14 @@ async fn policy(
 ) -> Response {
     // Reachable while held for a password change (`authed_with_gate`): the forced
     // screen shows the policy.
-    let gate = match crate::authed_with_gate(&state, &headers).await {
-        Ok((_, gate)) => gate,
+    let (session, gate) = match crate::authed_with_gate(&state, &headers).await {
+        Ok(pair) => pair,
         Err(resp) => return resp,
     };
-    let p = backend.policy();
+    let p = match effective_policy(&state, &session, backend.as_ref()).await {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
     Json(json!({
         "description": p.to_string(),
         "minLength": p.min_length,
@@ -107,8 +110,15 @@ async fn change_password(
 
     // Enforce the policy on the NEW password before touching any backend so a
     // rejected password never leaves the process (the crate's `Secret` guards it).
+    // The policy is the administrator's for this account's domain; it applies to
+    // the new password only, so an existing password that does not meet it still
+    // signs in.
+    let policy = match effective_policy(&state, &session, backend.as_ref()).await {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
     let new = Secret::new(&body.new_password);
-    if let Err(e) = backend.policy().validate(&new) {
+    if let Err(e) = policy.validate(&new) {
         return password_error(&e);
     }
     // "Changing" to the same password is not a change. Without this an account
@@ -223,6 +233,91 @@ async fn change_password(
     .into_response()
 }
 
+/// The settings that make up the password policy, in [`policy_from`] order.
+pub(crate) const POLICY_KEYS: [&str; 5] = [
+    "passwd.policy.minLength",
+    "passwd.policy.requireUpper",
+    "passwd.policy.requireLower",
+    "passwd.policy.requireDigit",
+    "passwd.policy.requireSymbol",
+];
+
+/// The password policy from the effective values of [`POLICY_KEYS`] (in that
+/// order; a missing or mistyped value reads as the registry default), combined
+/// with `backend`, the policy the backend enforces itself: the longer minimum and
+/// every character class either requires. The minimum is never below
+/// [`PasswordPolicy::FLOOR_MIN_LENGTH`].
+pub(crate) fn policy_from(
+    values: &[Option<serde_json::Value>],
+    backend: &PasswordPolicy,
+) -> PasswordPolicy {
+    let flag = |i: usize| {
+        values
+            .get(i)
+            .and_then(Option::as_ref)
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    };
+    let min = values
+        .first()
+        .and_then(Option::as_ref)
+        .and_then(serde_json::Value::as_u64)
+        .map_or(PasswordPolicy::default().min_length, |n| {
+            u32::try_from(n).unwrap_or(u32::MAX)
+        });
+    PasswordPolicy {
+        min_length: min.max(backend.min_length),
+        require_upper: flag(1) || backend.require_upper,
+        require_lower: flag(2) || backend.require_lower,
+        require_digit: flag(3) || backend.require_digit,
+        require_symbol: flag(4) || backend.require_symbol,
+        description: String::new(),
+    }
+    .with_floor()
+}
+
+/// The effective password policy for `subject` (`passwd.policy.*`: deployment
+/// value, then the domain's), combined with `backend` as [`policy_from`] says.
+/// The registry's own rules apply, including an environment pin.
+///
+/// # Errors
+/// The store's error reading the settings.
+pub(crate) async fn effective_policy_for(
+    store: &mw_store::Store,
+    subject: &mw_store::settings_policy::SettingSubject<'_>,
+    backend: &PasswordPolicy,
+) -> Result<PasswordPolicy, mw_store::StoreError> {
+    let values =
+        crate::settings_registry::effective_selected_for(store, &POLICY_KEYS, subject, &[])
+            .await?
+            .into_iter()
+            .map(|e| e.map(|e| e.value))
+            .collect::<Vec<_>>();
+    Ok(policy_from(&values, backend))
+}
+
+/// [`effective_policy_for`] the signed-in account, as a response on failure.
+async fn effective_policy(
+    state: &AppState,
+    session: &mw_store::Session,
+    backend: &dyn PasswordChangeBackend,
+) -> Result<PasswordPolicy, Response> {
+    let failed = |e: mw_store::StoreError| {
+        tracing::error!("password policy read failed: {e}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "password policy unavailable" })),
+        )
+            .into_response()
+    };
+    let subject = crate::settings_routes::UserSubject::resolved(&state.store, session)
+        .await
+        .map_err(failed)?;
+    effective_policy_for(&state.store, &subject.as_subject(), &backend.policy())
+        .await
+        .map_err(failed)
+}
+
 /// The 400 body for a new password equal to the current one.
 const SAME_PASSWORD: &str = "the new password must differ from the current password";
 
@@ -319,6 +414,45 @@ mod tests {
         assert_eq!(
             password_error(&PasswordError::PolicyViolation("x".into())).status(),
             StatusCode::BAD_REQUEST
+        );
+    }
+
+    /// `passwd.policy.*` values combined with a backend's own policy: the longer
+    /// minimum, every class either requires, never below 8.
+    #[test]
+    fn policy_from_combines_the_settings_with_the_backend_floor() {
+        let v = |n: u64, sym: bool| {
+            vec![
+                Some(json!(n)),
+                None,
+                None,
+                Some(json!(false)),
+                Some(json!(sym)),
+            ]
+        };
+        let floor = PasswordPolicy::floor();
+        let p = policy_from(&v(14, true), &floor);
+        assert_eq!(
+            (p.min_length, p.require_symbol, p.require_digit),
+            (14, true, false)
+        );
+        assert_eq!(p.description, "At least 14 characters, including a symbol.");
+        // Lower than the built-in default of 12 is honoured...
+        assert_eq!(policy_from(&v(9, false), &floor).min_length, 9);
+        // ...but never below 8, even if a stored value somehow is.
+        assert_eq!(policy_from(&v(3, false), &floor).min_length, 8);
+        // Nothing stored reads as the registry default of 12.
+        assert_eq!(policy_from(&[], &floor).min_length, 12);
+        // A stricter backend policy still holds.
+        let strict = PasswordPolicy {
+            min_length: 30,
+            require_digit: true,
+            ..PasswordPolicy::default()
+        };
+        let p = policy_from(&v(14, true), &strict);
+        assert_eq!(
+            (p.min_length, p.require_symbol, p.require_digit),
+            (30, true, true)
         );
     }
 
