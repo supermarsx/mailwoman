@@ -149,7 +149,7 @@ async function step(kind: 'undo' | 'redo', entry: UndoEntry): Promise<boolean> {
   setTo((list) => [...list, entry].slice(-Math.max(1, undoCapacity())));
   const text = t(kind === 'undo' ? 'undo-done' : 'redo-done', {label: entry.label});
   setAnnouncement(text);
-  toast.info(text, {id: 'undo-history'});
+  toast.info(text);
   entry.action.onSettled?.();
   return true;
 }

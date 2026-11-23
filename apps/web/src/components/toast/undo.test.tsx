@@ -1,10 +1,24 @@
 // The mail slice's undo window as a toast (replaces the old UndoToast tests).
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { screen, fireEvent, waitFor } from '@solidjs/testing-library';
+import { screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { ToastRegion, resetToasts, setToastPause, toasts } from './index.ts';
 import { renderWithApp, mkEmail } from '../appHarness.tsx';
 
 describe('undo toast', () => {
+  it('retains identical action notices and lets each Undo affect only its own messages',async()=>{
+    const {app}=renderWithApp(()=><ToastRegion/>,{emails:[mkEmail('a'),mkEmail('b')]});
+    await app.login({username:'me@example.org',password:'p'});
+    await app.applyTag('a','work');const first=toasts().find(row=>row.message==='Label added')!;
+    await app.applyTag('b','work');
+    expect(toasts().filter(row=>row.message==='Label added')).toHaveLength(2);
+    const node=document.querySelector<HTMLElement>(`[data-toast-id="${first.id}"]`)!;
+    fireEvent.click(within(node).getByRole('button',{name:'Undo'}));
+    await waitFor(()=>expect(app.messages().find(row=>row.id==='a')?.keywords?.['work']).not.toBe(true));
+    expect(app.messages().find(row=>row.id==='b')?.keywords?.['work']).toBe(true);
+    expect(toasts().filter(row=>row.message==='Label added')).toHaveLength(1);
+    expect(app.pendingUndo()).not.toBeNull();
+    await app.logout();expect(toasts().filter(row=>row.id.startsWith('mail-undo:'))).toHaveLength(0);
+  });
   beforeEach(() => {
     localStorage.clear();
     resetToasts();

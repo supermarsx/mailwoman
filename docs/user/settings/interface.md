@@ -190,6 +190,8 @@ Each event can be set to **No alert**, **In-app toast**, **Native notification**
 | **Visible toast limit** | How many ordinary toasts show together, 1 to 8. | 3 | [`notifications.toasts.limit`](/admin/settings#notifications.toasts.limit) |
 | **Swipe to dismiss** | Allows dismissing toasts with a horizontal touch or pen gesture. | On | [`notifications.toasts.swipe`](/admin/settings#notifications.toasts.swipe) |
 
+Completed actions keep separate toasts, including identical moves. Bursts wait in a bounded queue rather than replacing earlier feedback. Waiting ordinary toasts receive their full display time when shown; externally timed actions keep their original deadlines. Repeated warnings/errors and explicit progress IDs still coalesce.
+
 ### Browser and storage
 
 ![The Background notifications on this browser card: the mailbox chooser and the Register background notifications and Remove for this account buttons.](/screenshots/user-settings/interface-notifications-browser.webp){.mw-crop}

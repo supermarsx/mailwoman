@@ -773,7 +773,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     writeSetting(FOCUSED_INBOX_SETTING, on).catch(() => undefined);
   }
   const [pendingUndo, setPendingUndo] = createSignal<PendingUndo | null>(null);
-  let undoToastId=UNDO_TOAST_ID;
+  let undoToastId:string|undefined;
+  const undoNotices=new Map<string,PendingUndo>();
   const focusedSenders = createFocusedSenders();
   const [blocked, setBlocked] = createSignal<string[]>(loadList(BLOCK_KEY));
 
@@ -804,15 +805,15 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (undoReplaying()) return;
     if (redo !== undefined) void loadCatalog('undo');
     const entry: PendingUndo = { label, actionLabel, run, expiresAt: Date.now() + ttlMs };
+    const id=notice.id??`${UNDO_TOAST_ID}:${newIdempotencyKey()}`;
     // The global history (Undo/Redo buttons) records the same action; the toast's Undo goes through it.
     const recorded = redo === undefined ? null : recordUndoable({
       label, accountId: accountId(), undo: run, redo,
-      onSettled: () => { if (pendingUndo() === entry) dismissUndo(); },
+      onSettled: () => toast.dismiss(id),
     });
     if (recorded !== null) entry.historyId = recorded.id;
     setPendingUndo(entry);
-    const id=notice.id??UNDO_TOAST_ID;
-    if(undoToastId!==id)toast.dismiss(undoToastId);
+    undoNotices.set(id,entry);
     undoToastId=id;
     toast[notice.tone??'info'](label, {
       id,
@@ -822,14 +823,16 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       action: { label: actionLabel, run: () => runUndo(entry) },
       ...(notice.secondary?{secondaryAction:notice.secondary}:{}),
       onClose: () => {
-        if (pendingUndo() === entry) setPendingUndo(null);
+        undoNotices.delete(id);
+        if(pendingUndo()===entry){const latest=[...undoNotices].at(-1);undoToastId=latest?.[0];setPendingUndo(latest?.[1]??null);}
       },
     });
   }
   function dismissUndo(): void {
-    setPendingUndo(null);
-    toast.dismiss(undoToastId);
+    if(undoToastId)toast.dismiss(undoToastId);
   }
+  function clearUndoNotices():void{for(const id of [...undoNotices.keys()])toast.dismiss(id);undoNotices.clear();undoToastId=undefined;setPendingUndo(null);}
+  onCleanup(clearUndoNotices);
   async function undoNow(): Promise<void> {
     const p = pendingUndo();
     dismissUndo();
@@ -2734,7 +2737,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       setLoadedStart(0);
       setExhausted(true);
       setListLoading(false);
-      dismissUndo();
+      clearUndoNotices();
       clearUndoHistory();
       // What this browser holds for the account outside the store: the
       // composer's auto-saved drafts (plaintext in localStorage) and the
@@ -2802,7 +2805,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       batch(()=>{
         suspendAccountPreferences();
         for(const view of readerViews)view.closeMessage();
-        setActiveReader(null);cancelMarkRead();dismissUndo();clearUndoHistory();beginListRequest();
+        setActiveReader(null);cancelMarkRead();clearUndoNotices();clearUndoHistory();beginListRequest();
         setMailboxes([]);setMessages([]);setSelectedMailboxId(null);setSelectionRaw(new Set<Id>());
         setOpenEmail(null);setSanitizedHtml(null);setDownloadUrl(null);setExactFromDomain(false);setSearch('');setSearchActive(false);
         setPageSource(null);setTotal(null);setLoadedStart(0);setExhausted(true);setListLoading(false);setLoadingMore(false);
