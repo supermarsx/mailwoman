@@ -45,3 +45,5 @@ describe('pimRefetch', () => {
 });
 
 it('ignores session and notification metadata changes when the PIM store did not change',()=>{expect(shouldRefetchPim('calendar',{'@type':'StateChange',changed:{acct1:{Session:'s2',Notification:'n2'}}})).toBe(false);});
+
+it('ignores preference and version metadata without refetching PIM content',()=>{expect(shouldRefetchPim('calendar',{'@type':'StateChange',changed:{acct1:{Settings:'p2',WebVersion:'v2'}}})).toBe(false);});

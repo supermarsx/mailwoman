@@ -255,7 +255,9 @@ export function loadSettings(opts: { refresh?: boolean; fetcher?: Fetcher } = {}
           else delete merged[key];
         }
       }
-      setSettingsMap(merged);
+      // A reconnect/focus catch-up should not restart dependent work when the
+      // effective document is identical (for example, an appearance-only event).
+      if(JSON.stringify(merged)!==JSON.stringify(settingsMap()))setSettingsMap(merged);
       keepSnapshot(merged);
       setSettingsStatus('ready');
     })
@@ -269,6 +271,13 @@ export function loadSettings(opts: { refresh?: boolean; fetcher?: Fetcher } = {}
     });
   inflight = run;
   return run;
+}
+
+/** A pushed invalidation must not lose a peer change behind our pending PUT. */
+export async function refreshSettings():Promise<void> {
+  const current=generation;
+  await Promise.allSettled([...mutations.values()]);
+  if(current===generation)await loadSettings({refresh:true});
 }
 
 /** Replace one key's entry in the shared map. */

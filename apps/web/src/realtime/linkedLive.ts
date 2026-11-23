@@ -18,7 +18,7 @@ import { createSignal } from 'solid-js';
 import type { MailboxChange, TypeStates } from '../contracts/push.ts';
 import type { ChangedType } from './changes.ts';
 
-const TYPES: readonly ChangedType[] = ['Email', 'Mailbox', 'EmailSubmission', 'Thread'];
+const TYPES: readonly ChangedType[] = ['Email', 'Mailbox', 'EmailSubmission', 'Thread', 'Settings'];
 
 /** The linked mailbox open now, as this tab verified it. */
 export interface ActiveLinkedMailbox {

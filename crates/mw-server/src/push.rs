@@ -140,6 +140,7 @@ fn idle_beat(period: Duration) -> Interval {
 pub struct PushHandle {
     ws: broadcast::Sender<StateChange>,
     relay: broadcast::Sender<StateChange>,
+    preferences: broadcast::Sender<Option<String>>,
 }
 
 impl PushHandle {
@@ -148,7 +149,14 @@ impl PushHandle {
     pub fn new() -> Self {
         let (ws, _rx) = broadcast::channel(256);
         let (relay, _rx) = broadcast::channel(256);
-        Self { ws, relay }
+        let (preferences, _) = broadcast::channel(256);
+        Self { ws, relay, preferences }
+    }
+
+    /// Opaque invalidation after a committed preference write. None denotes an
+    /// administrator policy change; values are re-read through authenticated APIs.
+    pub(crate) fn preferences_changed(&self, account: Option<&str>) {
+        let _ = self.preferences.send(account.map(str::to_owned));
     }
 
     /// Publish a [`StateChange`] to every connected session. Returns the number
@@ -199,6 +207,7 @@ pub(crate) fn stream_accounts(session: &Session) -> Vec<String> {
 /// never reach the socket.
 pub(crate) struct ScopedChanges {
     rx: broadcast::Receiver<StateChange>,
+    preferences: Option<broadcast::Receiver<Option<String>>>,
     accounts: Vec<String>,
     /// The parent's linked mailboxes, when the stream carries any (t46).
     linked: Option<LinkedScope>,
@@ -224,6 +233,7 @@ struct LinkedScope {
 enum Incoming {
     /// A change of one of the session's own accounts.
     Own(StateChange),
+    Preferences(Option<String>),
     /// A change of a linked mailbox, still to be re-verified.
     Linked(LiveLink, StateChange),
 }
@@ -232,6 +242,7 @@ impl ScopedChanges {
     pub(crate) fn new(rx: broadcast::Receiver<StateChange>, accounts: Vec<String>) -> Self {
         Self {
             rx,
+            preferences: None,
             accounts,
             linked: None,
             links_epoch: None,
@@ -252,6 +263,7 @@ impl ScopedChanges {
         // Subscribed before the first resolution, so a link made meanwhile is
         // not missed.
         changes.links_epoch = Some(linked_accounts::subscribe_links());
+        changes.preferences = Some(state.push.preferences.subscribe());
         let parent_authority = state
             .store
             .session_storage_authority(&parent.id)
@@ -276,7 +288,22 @@ impl ScopedChanges {
     /// dropped whether or not the caller is still waiting.
     async fn recv(&mut self) -> Result<Incoming, broadcast::error::RecvError> {
         loop {
-            let change = self.rx.recv().await?;
+            let change = tokio::select! {
+                change = self.rx.recv() => change?,
+                event = async {match self.preferences.as_mut(){Some(rx)=>rx.recv().await,None=>std::future::pending().await}} => {
+                    // A slow receiver catches up its own settings; no foreign
+                    // account id or setting value ever goes onto its wire.
+                    let target=match event {
+                        Ok(target)=>target,
+                        Err(broadcast::error::RecvError::Lagged(_))=>None,
+                        Err(broadcast::error::RecvError::Closed)=>{self.preferences=None;continue;}
+                    };
+                    if target.as_ref().is_none_or(|account|self.accounts.contains(account)||self.linked.as_ref().is_some_and(|scope|scope.links.iter().any(|link|&link.account_id==account))) {
+                        return Ok(Incoming::Preferences(target));
+                    }
+                    continue;
+                }
+            };
             if self.accounts.contains(&change.account_id) {
                 return Ok(Incoming::Own(change));
             }
@@ -296,6 +323,21 @@ impl ScopedChanges {
     /// leaves the stream until a later resolution admits it again.
     async fn admit(&mut self, incoming: Incoming) {
         match incoming {
+            Incoming::Preferences(target) => {
+                let token=uuid::Uuid::new_v4().simple().to_string();
+                if target.as_ref().is_none_or(|account|self.accounts.contains(account)) {
+                    for account in &self.accounts {
+                        self.pending.push_back(serde_json::json!({"@type":"StateChange","changed":{account:{"Settings":token}}}).to_string());
+                    }
+                }
+                if let Some(scope)=&self.linked {
+                    for link in &scope.links {
+                        if target.as_ref().is_some_and(|account|account!=&link.account_id){continue;}
+                        if linked_accounts::verify_link(&scope.state,&scope.parent,&link.link).await.as_ref()!=Some(link){continue;}
+                        self.pending.push_back(serde_json::json!({"@type":"MailboxChange","link":link.link,"storageAuthority":link.storage_authority,"changed":{"Settings":token}}).to_string());
+                    }
+                }
+            }
             Incoming::Own(change) => {
                 let wire = change.to_wire().to_string();
                 self.pending.push_back(wire);
@@ -339,6 +381,11 @@ impl ScopedChanges {
         // Only opaque state tokens leave this authenticated account's stream.
         // Seed the initial baseline without emitting spurious changes.
         let mut changed = serde_json::Map::new();
+        if !scope.metadata.contains_key("Settings") {
+            let token=uuid::Uuid::new_v4().simple().to_string();
+            scope.metadata.insert("Settings".into(),token.clone());
+            changed.insert("Settings".into(),token.into());
+        }
         // A reconnect also carries the current web build so an old open tab
         // notices a server restart/deploy without waiting for its slow poll.
         let build=crate::client_policy::web_build_id(scope.state.web_dir.as_deref());
@@ -934,6 +981,26 @@ mod tests {
     async fn send_with_no_subscribers_is_not_an_error() {
         let h = PushHandle::new();
         assert_eq!(h.send(change()), 0);
+    }
+
+    #[tokio::test]
+    async fn preference_changes_are_private_opaque_and_survive_receiver_lag() {
+        let h=PushHandle::new();
+        let mut mine=ScopedChanges::new(h.subscribe(),vec!["acct1".into()]);
+        mine.preferences=Some(h.preferences.subscribe());
+        h.preferences_changed(Some("other-account"));
+        h.preferences_changed(Some("acct1"));
+        let event=mine.recv().await.unwrap();
+        assert_eq!(event,Incoming::Preferences(Some("acct1".into())));
+        mine.admit(event).await;
+        let frame:serde_json::Value=serde_json::from_str(&mine.pending.pop_front().unwrap()).unwrap();
+        assert!(frame["changed"]["acct1"]["Settings"].is_string());
+        assert_eq!(frame["changed"]["acct1"].as_object().unwrap().len(),1);
+        assert!(!frame.to_string().contains("other-account"));
+        h.preferences_changed(None);
+        assert_eq!(mine.recv().await.unwrap(),Incoming::Preferences(None));
+        for _ in 0..300 {h.preferences_changed(Some("other-account"));}
+        assert_eq!(mine.recv().await.unwrap(),Incoming::Preferences(None));
     }
 
     #[tokio::test]

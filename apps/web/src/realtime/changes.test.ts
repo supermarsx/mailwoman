@@ -7,6 +7,10 @@ function change(changed: StateChange['changed']): StateChange {
 }
 
 describe('changedTypes', () => {
+  it('recognizes settings changes without treating them as mail changes',()=>{
+    expect(changedTypes(undefined,change({a1:{Settings:'prefs-2'}}),'a1')).toEqual(['Settings']);
+    expect(changedTypes({Settings:'prefs-2'},change({a1:{Settings:'prefs-2'}}),'a1')).toEqual([]);
+  });
   it('reports every type present when there is no prior state', () => {
     const c = change({ a1: { Email: 'e1', Mailbox: 'm1' } });
     expect(changedTypes(undefined, c, 'a1').sort()).toEqual(['Email', 'Mailbox']);

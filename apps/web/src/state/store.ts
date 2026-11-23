@@ -1,3 +1,4 @@
+import {createPreferenceRefresh} from '../realtime/preferenceSync.ts';
 import {networkCoordinationMode} from '../worker/networkProxy.ts';
 import {syncPolicy} from '../offline/syncPolicy.ts';
 import {configureOfflinePolicy} from '../offline/runtime.ts';
@@ -227,10 +228,13 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
   // interruption; explicit refresh callers still receive errors, and transport
   // authentication handling continues to invalidate an expired session.
   const familyIncoming=createFamilyIncomingMail({activeLink:()=>activeLinkedMailbox()?.linkId??null,deliver:batch=>{for(const listener of incomingListeners)listener(batch);}});
+  const preferenceRefresh=createPreferenceRefresh();
+  onCleanup(()=>preferenceRefresh.dispose());
   const realtime = createRealtimeSlice(ctx, {
     onMailboxChanged:frame=>{if(frame.changed.Email!==undefined||frame.changed.Mailbox!==undefined)familyIncoming.changed(frame.link,frame.storageAuthority);},
-    onCatchUp:()=>{incoming.changed();familyIncoming.changed();void mail.refreshCurrentMailbox();},
+    onCatchUp:()=>{preferenceRefresh.changed();incoming.changed();familyIncoming.changed();void mail.refreshCurrentMailbox();},
     onChanged: (accountId, types) => {
+      if(types.includes('Settings'))preferenceRefresh.changed();
       if (accountId !== mail.accountId()) return;
       if(types.includes('Email'))incoming.changed();
       // A Mailbox change may be a folder created, renamed or deleted on another
@@ -242,6 +246,7 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
     // An open linked mailbox (t46) arrives on the same stream, already matched
     // to the verified link and its storage authority.
     onActiveLinkedChanged: (types) => {
+      if(types.includes('Settings'))preferenceRefresh.changed();
       if(types.includes('Email'))incoming.changed();
       if (types.includes('Email') || types.includes('Mailbox')) void mail.refreshCurrentMailbox();
       if (types.includes('EmailSubmission')) void outbox.refreshOutbox().catch(() => undefined);

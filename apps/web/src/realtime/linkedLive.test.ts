@@ -35,6 +35,14 @@ function harness(active: ActiveLinkedMailbox | null = null) {
 }
 
 describe('linked live routing', () => {
+  it('routes linked preference updates only through the verified active storage authority',()=>{
+    const h=harness({linkId:'link-1',storageAuthority:CHILD});
+    h.live.apply(frame({changed:{Settings:'prefs-2'}}));
+    expect(h.onActiveChanged).toHaveBeenLastCalledWith(['Settings']);
+    h.live.apply(frame({changed:{Settings:'prefs-2'}}));expect(h.onActiveChanged).toHaveBeenCalledTimes(1);
+    h.live.apply(frame({storageAuthority:'foreign-authority',changed:{Settings:'prefs-3'}}));
+    expect(h.onActiveChanged).toHaveBeenCalledTimes(1);expect(h.onAuthorityMismatch).toHaveBeenCalledOnce();
+  });
   it('refetches the open linked mailbox only for the datatypes that moved', () => {
     const h = harness({ linkId: 'link-1', storageAuthority: CHILD });
     h.live.apply(frame());

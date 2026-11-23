@@ -33,6 +33,31 @@ function slice(): ThemeSlice {
 
 const DEPLOYMENT = { theme: 'grove-light', brandName: 'Mailwoman', accent: null };
 
+it('adopts live peer appearance changes without writing them back',async()=>{
+  const app=slice(),fixture=fakeApi({appearance:{theme:'grove-light',chosen:true},updatedAt:1000,deploymentDefault:DEPLOYMENT});
+  const sync=createAppearanceSync(app,{api:fixture.api});
+  try{
+    await sync.start();
+    vi.spyOn(fixture.api,'load').mockResolvedValue({appearance:{theme:'dark',chosen:true,density:'compact'},updatedAt:2000,deploymentDefault:DEPLOYMENT});
+    await sync.refresh();
+    expect(app.appearancePrefs().density).toBe('compact');expect(app.appearancePrefs().theme).toBe('dark');expect(document.documentElement.dataset['theme']).toBe('dark');expect(sync.lastSyncedAt()).toBe(2000);
+    await sync.flush();expect(fixture.saved).toHaveLength(0);
+  }finally{sync.stop();}
+});
+
+it('does not overwrite an appearance edit made during a live refresh',async()=>{
+  const app=slice(),fixture=fakeApi({appearance:{theme:'grove-light',chosen:true},updatedAt:1000,deploymentDefault:DEPLOYMENT});
+  const sync=createAppearanceSync(app,{api:fixture.api});
+  try{
+    await sync.start();let finish!:(value:StoredAppearance)=>void;
+    vi.spyOn(fixture.api,'load').mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+    const refresh=sync.refresh();await Promise.resolve();
+    app.setAppearancePrefs({density:'relaxed'});
+    finish({appearance:{density:'compact'},updatedAt:2000,deploymentDefault:DEPLOYMENT});await refresh;
+    expect(app.appearancePrefs().density).toBe('relaxed');
+  }finally{sync.stop();}
+});
+
 /** A recording stand-in for the three HTTP calls. */
 function fakeApi(initial: StoredAppearance | Error): {
   api: AppearancePrefsApi;

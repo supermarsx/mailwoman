@@ -8,6 +8,7 @@ import type { Id } from '../api/jmap-types.ts';
  *  PIM datatypes (plan §1.8/§2.2) are additive + optional, so V2 push handling
  *  is unchanged; e10 registers the PIM refetch handlers. */
 export interface TypeStates {
+  Settings?: string;
   Session?: string;
   Notification?: string;
   WebVersion?: string;

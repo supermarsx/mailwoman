@@ -225,6 +225,7 @@ fn now() -> i64 {
 /// Append the `setting-changed` audit row (R-CFG 3). Best effort, like every
 /// other admin audit append: a failed append is logged and the write stands.
 async fn audit(state: &AppState, ctx: &AdminCtx, key: &str, detail: Value) {
+    state.push.preferences_changed(None);
     let entry = mw_admin::AuditLogEntry {
         id: uuid::Uuid::new_v4().to_string(),
         ts: chrono::Utc::now().to_rfc3339(),
@@ -1650,6 +1651,7 @@ pub(crate) async fn user_put(
     if let Err(e) = saved {
         return server_error(e);
     }
+    state.push.preferences_changed(Some(&session.account_id));
     match effective_for_session(&state,&session,&key).await {
         Ok(Some(e)) => Json(e.to_user_json()).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
@@ -1698,6 +1700,7 @@ pub(crate) async fn user_delete(
     if let Err(e) = deleted {
         return server_error(e);
     }
+    state.push.preferences_changed(Some(&session.account_id));
     match effective_for_session(&state,&session,&key).await {
         Ok(Some(e)) => Json(e.to_user_json()).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),

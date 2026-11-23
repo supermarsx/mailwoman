@@ -26,6 +26,11 @@ const LOCKED = { value: 'dark', source: 'global', locked: true, lockedBy: 'globa
 const FREE = { value: 'cozy', source: 'default', locked: false };
 
 describe('api/settings', () => {
+  it('keeps the reactive document stable when a live catch-up has no changes',async()=>{
+    const fetcher:Fetcher=async()=>json(200,{settings:{'appearance.theme':LOCKED}});
+    await loadSettings({refresh:true,fetcher});const before=settings();
+    await loadSettings({refresh:true,fetcher});expect(settings()).toBe(before);
+  });
   beforeEach(() => clearSettings());
   afterEach(() => suspendAccountPreferences());
 

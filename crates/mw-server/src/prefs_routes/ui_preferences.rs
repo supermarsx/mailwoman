@@ -542,6 +542,7 @@ pub(super) async fn save(
         .await
     {
         Ok(true) => {
+            state.push.preferences_changed(Some(&session.account_id));
             // Receipts for the analytics purposes when their state changed.
             let flags = |raw: Option<&str>| {
                 let v: serde_json::Value = raw.and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();

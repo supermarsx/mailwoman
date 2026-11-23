@@ -5,6 +5,7 @@ import type {NotificationConfig} from './types.ts';
 import {SettingsService} from './service.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
 import {clearSettings,loadSettings} from '../../api/settings.ts';
+import {configureNotificationRuntime} from '../../api/notificationRuntime.ts';
 const config={enabled:false,rules:[],quietHours:{enabled:false,start:'22:00',end:'07:00'}};
 afterEach(()=>{cleanup();suspendAccountPreferences();clearSettings();});
 async function mount(locked=false,save=vi.fn<(config:NotificationConfig)=>Promise<void>>(async()=>{})){
@@ -36,6 +37,14 @@ it('automatically saves notification changes without a Save button',async()=>{
  const {save}=await mount();const enabled=screen.getByRole('checkbox',{name:'Show notifications for new mail'});await waitFor(()=>expect(enabled).toBeEnabled());fireEvent.click(enabled);
  expect(screen.queryByTestId('notif-save')).toBeNull();await waitFor(()=>expect(save).toHaveBeenCalledWith(expect.objectContaining({enabled:true})));
  await screen.findByTestId('notif-saved');
+});
+it('updates an open notification form from a peer without saving the remote change again',async()=>{
+ const {save}=await mount();
+ const enabled=screen.getByRole('checkbox',{name:'Show notifications for new mail'});
+ await waitFor(()=>expect(enabled).toBeEnabled());
+ configureNotificationRuntime({...config,enabled:true});
+ await waitFor(()=>expect(enabled).toBeChecked());
+ await new Promise(resolve=>setTimeout(resolve,400));expect(save).not.toHaveBeenCalled();
 });
 it('serializes auto-saves and persists edits made while the previous request is in flight',async()=>{
  let finish!:()=>void;const save=vi.fn<(config:NotificationConfig)=>Promise<void>>().mockImplementationOnce(()=>new Promise<void>(resolve=>{finish=resolve;})).mockResolvedValue(undefined);

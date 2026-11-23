@@ -264,6 +264,8 @@ export interface AppearanceSyncOptions {
 export interface AppearanceSync {
   /** Reconcile with the server, then keep pushing changes. Safe to await. */
   start(): Promise<void>;
+  /** Adopt a committed peer update without echoing it as another write. */
+  refresh(): Promise<void>;
   /** Unsubscribe and discard queued writes before an authentication transition. */
   stop(): void;
   status(): SyncStatus;
@@ -305,6 +307,7 @@ export function createAppearanceSync(
   // Counts local edits so an edit made WHILE the initial GET is in flight is not
   // overwritten by the response it raced.
   let localEdits = 0;
+  let applyingRemote = false;
 
   const statusListeners = new Set<(s: SyncStatus) => void>();
 
@@ -391,6 +394,7 @@ export function createAppearanceSync(
     setStatus('loading');
     localEdits = 0;
     unsubscribe = prefs.subscribePrefs(() => {
+      if(applyingRemote)return;
       localEdits += 1;
       schedulePush();
     });
@@ -484,6 +488,27 @@ export function createAppearanceSync(
 
   return {
     start,
+    async refresh() {
+      if(!active||!loaded||!allowed())return;
+      const epoch=generation;
+      await pending;
+      if(timer!==undefined&&mark?.prefs===serialize(prefs.appearancePrefs())){clearTimeout(timer);timer=undefined;}
+      if(epoch!==generation||!active||!allowed()||timer!==undefined||mark?.prefs!==serialize(prefs.appearancePrefs()))return;
+      const edits=localEdits;
+      try {
+        const stored=await api.load();
+        if(epoch!==generation||!active||!allowed()||edits!==localEdits||timer!==undefined)return;
+        deployment=stored.deploymentDefault;
+        applyingRemote=true;
+        try{
+          const remote=parseAppearancePrefs(stored.appearance);
+          if((stored.appearance as Partial<AppearancePrefs>|null)?.font===undefined&&deployment.font)remote.font=deployment.font;
+          if(serialize(remote)!==serialize(prefs.appearancePrefs()))prefs.setAppearancePrefs(remote);
+        }finally{applyingRemote=false;}
+        markSynced(prefs.appearancePrefs(),stored.updatedAt);
+        setStatus('synced');
+      }catch(e){if(epoch===generation&&active)setStatus(isSignedOut(e)?'local-only':'error');}
+    },
     stop() {
       generation += 1;
       active = false;

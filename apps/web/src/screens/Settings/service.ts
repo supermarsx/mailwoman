@@ -318,7 +318,10 @@ export class SettingsService {
   // ── Notification rules + quiet hours (W15) ───────────────────────────────
 
   async notifications(): Promise<NotificationConfig> {
-    const value=await jsonOrThrow<NotificationConfig>(await this.personalRecordFetch.bind(this)(withBase('/api/account/notifications')));configureNotificationRuntime(value);return value;
+    const owner=preferenceAccount();
+    const value=await jsonOrThrow<NotificationConfig>(await this.personalRecordFetch.bind(this)(withBase('/api/account/notifications')));
+    if(owner&&preferenceAccountIsCurrent(owner))configureNotificationRuntime(value);
+    return value;
   }
 
   async saveNotifications(config: NotificationConfig): Promise<void> {

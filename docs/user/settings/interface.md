@@ -236,3 +236,9 @@ A **Format preview** line shows how a sample date and time look with your choice
 - [Keyboard shortcuts](/user/keyboard-shortcuts)
 - [Notifications](/user/notifications)
 - [Sync and offline access](/user/offline-sync)
+
+### Changes on other devices
+
+Saved account settings, appearance, and workspace/folder preferences update other open sessions through the existing WebSocket stream (EventSource fallback). Administrator setting defaults and locks also trigger a fresh read of each session's effective settings. Only an opaque invalidation is pushed; settings are read again using the receiving session's verified account and storage authority.
+
+Rapid changes are combined. Unsaved local edits are retained, and applying a remote appearance does not save it back to the server. Reconnecting or bringing a browser tab back into focus checks for changes missed while it was disconnected. This is live session propagation within a server process; a separate server process catches up on reconnect/focus rather than through this process-local channel.

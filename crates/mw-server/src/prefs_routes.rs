@@ -348,7 +348,7 @@ async fn notifications_put(
         Err(r) => return r,
     }
     match do_put_notifications(&state.store, &account, &body).await {
-        Ok(()) => ok(),
+        Ok(()) => {state.push.preferences_changed(Some(&session.account_id));ok()},
         Err(e) => server_error("put notifications", e),
     }
 }
@@ -974,12 +974,12 @@ async fn appearance_put(
         }
     }
     match do_put_appearance(&state.store, &owner, Some(prefs), now).await {
-        Ok(updated_at) => Json(json!({
+        Ok(updated_at) => {state.push.preferences_changed(Some(&session.account_id));Json(json!({
             "ok": true,
             "updatedAt": updated_at,
             "lockedFields": locked_fields,
         }))
-        .into_response(),
+        .into_response()},
         Err(e) => server_error("put appearance", e),
     }
 }
@@ -1004,7 +1004,7 @@ async fn appearance_delete(State(state): State<AppState>, headers: HeaderMap) ->
         return server_error("delete badge colour", e);
     }
     match do_put_appearance(&state.store, &account, None, now).await {
-        Ok(updated_at) => Json(json!({ "ok": true, "updatedAt": updated_at })).into_response(),
+        Ok(updated_at) => {state.push.preferences_changed(Some(&session.account_id));Json(json!({ "ok": true, "updatedAt": updated_at })).into_response()},
         Err(e) => server_error("delete appearance", e),
     }
 }
@@ -1109,7 +1109,7 @@ async fn mdn_policy_put(
         .set_setting(&mw_engine::Engine::mdn_policy_key(&account), &body.policy)
         .await
     {
-        Ok(()) => Json(json!({ "ok": true, "policy": body.policy })).into_response(),
+        Ok(()) => {state.push.preferences_changed(Some(&session.account_id));Json(json!({ "ok": true, "policy": body.policy })).into_response()},
         Err(e) => server_error("put mdn policy", e),
     }
 }

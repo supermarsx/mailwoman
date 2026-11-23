@@ -1,3 +1,4 @@
+import {notificationRuntimeConfig} from '../../api/notificationRuntime.ts';
 import {TimeZoneCombobox} from '../../components/TimeZoneCombobox.tsx';
 import {SettingsSubtabs} from './SettingsSubtabs.tsx';
 import {NotificationRules} from './NotificationRules.tsx';
@@ -91,6 +92,11 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
   });
 
   const locked = (): boolean => !hydrated();
+
+  createEffect(()=>{
+    const remote=notificationRuntimeConfig();
+    if(remote&&hydrated()&&!busy()&&!unsaved())setConfig(remote);
+  });
 
   const view = (): NotificationConfig =>
     enabledHold.locked() ? { ...config(), enabled: enabledHold.value() } : config();

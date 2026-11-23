@@ -134,6 +134,16 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
   let tagEdits: Record<string, {value: AccountTag | null; serial: number}> = {};
   let folderLabelEdits: Record<string,{value:string[]|null;serial:number}>={};
   let busy = false;
+  let refreshRequested = false;
+  let refreshTimer:ReturnType<typeof setTimeout>|undefined;
+  function drainRefresh(owner:PreferenceAccount):void {
+    if(!refreshRequested)return;
+    refreshRequested=false;
+    // Let a conflict-handling flush leave its finally block before a queued
+    // peer read starts, so that outer flush cannot clear the new read's mutex.
+    clearTimeout(refreshTimer);
+    refreshTimer=setTimeout(()=>{refreshTimer=undefined;if(active(owner))void refresh();},0);
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   /** Set until the first load after bind: a write left by the previous page. */
   let left: PendingAccountWrite | null = null;
@@ -159,7 +169,8 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
   }
   async function refresh(): Promise<void> {
     const owner = account;
-    if (!owner || busy) return;
+    if (!owner) return;
+    if(busy){refreshRequested=true;return;}
     busy = true;
     try {
       const loaded = await transport.load();
@@ -167,7 +178,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
       base = normalizeAccountUiPreferences(loaded.preferences); etag = loaded.etag; emit();
       report(Object.keys(dirty).length ? 'saving' : 'synced');
     } catch { if (active(owner)) report('error'); }
-    finally { if (active(owner)) { busy = false; if (Object.keys(dirty).length && etag) schedule(); } }
+    finally { if (active(owner)) { busy = false; if (Object.keys(dirty).length && etag) schedule(); drainRefresh(owner); } }
     // The write the previous page was sending as it went away: send it again,
     // unless the server has moved on (that write landed, or another device
     // wrote since) or this page has edits of its own already.
@@ -213,7 +224,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
         await refresh();
       } else report('error');
     } finally {
-      if (active(owner)) { busy = false; if (reschedule && Object.keys(dirty).length && etag) schedule(); }
+      if (active(owner)) { busy = false; if (reschedule && Object.keys(dirty).length && etag) schedule(); drainRefresh(owner); }
     }
   }
   // An edit made less than 400 ms before a reload or a closed tab would be lost
@@ -231,9 +242,10 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
   const api = {
     bind(next: PreferenceAccount | null): void {
       clearTimeout(timer); timer = undefined;
+      clearTimeout(refreshTimer);refreshTimer=undefined;
       stopHide?.(); stopHide = next ? onPageHide(flushOnHide) : null;
       left = next ? pendingStore(next).read() : null;
-      account = next; base = {}; dirty = {}; edits = {}; iconEdits = {}; tagEdits = {}; folderLabelEdits={}; etag = null; busy = false;
+      account = next; base = {}; dirty = {}; edits = {}; iconEdits = {}; tagEdits = {}; folderLabelEdits={}; etag = null; busy = false; refreshRequested=false;
       emit(); report(next ? 'loading' : 'idle');
       if (next) void refresh();
     },
@@ -273,7 +285,7 @@ let activeTransport:AccountPreferencesApi=api;
 export function startAccountUiPreferences(transport:AccountPreferencesApi=api): () => void {
   if (stop) return stop;
   activeTransport=transport;
-  const sync = createAccountPreferencesSync(transport, setPreferences, setStatus);
+  const sync = createAccountPreferencesSync(transport, value=>setPreferences(previous=>JSON.stringify(previous)===JSON.stringify(value)?previous:value), setStatus);
   controller = sync;
   const unsubscribe = observePreferenceAccount(account => sync.bind(account));
   const interval = setInterval(() => { if (preferenceAccount() && document.visibilityState === 'visible') void sync.refresh(); }, 30_000);
@@ -281,6 +293,7 @@ export function startAccountUiPreferences(transport:AccountPreferencesApi=api): 
   return stop;
 }
 export function setAccountUiPreferences(patch: AccountUiPreferences): void { controller?.update(patch); }
+export async function refreshAccountUiPreferences():Promise<void>{await controller?.refresh();}
 export async function retryAccountUiPreferences():Promise<void>{await controller?.flush();}
 
 /** Validate an imported patch on the server before it enters the optimistic queue.

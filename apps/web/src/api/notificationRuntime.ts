@@ -4,6 +4,7 @@ import {observePreferenceAccount} from './accountPreferenceLifecycle.ts';
 import {shouldNotify} from './notificationPolicy.ts';
 const [config,setConfig]=createSignal<NotificationConfig>();
 observePreferenceAccount(()=>setConfig(undefined));
+export const notificationRuntimeConfig=config;
 export function configureNotificationRuntime(value:NotificationConfig):void{setConfig(value);}
 /** Connection success toasts obey quiet hours without treating mail-matching
  * notification rules as connection rules. Persistent status remains visible. */

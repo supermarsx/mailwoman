@@ -3,6 +3,19 @@ import {createAccountPreferencesSync,normalizeAccountUiPreferences, PreferenceCo
 function deferred<T>() {let resolve!:(value:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return {promise,resolve};}
 const owner={id:'a',generation:1};
 afterEach(()=>vi.useRealTimers());
+it('does not lose a peer invalidation arriving during a preference load',async()=>{
+ vi.useFakeTimers();
+ const initial=deferred<{preferences:AccountUiPreferences;etag:string}>(),publish=vi.fn();
+ const load=vi.fn().mockImplementationOnce(()=>initial.promise).mockResolvedValue({preferences:{workspaceLayout:'stack'},etag:'"2"'});
+ const save=vi.fn(),sync=createAccountPreferencesSync({load,save},publish,vi.fn(),()=>true);
+ try{
+  sync.bind(owner);await sync.refresh();await sync.refresh();expect(load).toHaveBeenCalledTimes(1);
+  initial.resolve({preferences:{workspaceLayout:'tabs'},etag:'"1"'});
+  await vi.advanceTimersByTimeAsync(0);
+  expect(load).toHaveBeenCalledTimes(2);expect(publish.mock.calls.at(-1)?.[0]).toEqual({workspaceLayout:'stack'});
+  expect(save).not.toHaveBeenCalled();
+ }finally{sync.dispose();}
+});
 it('ignores old account loads and acknowledgements after rebinding',async()=>{
  const save=vi.fn();const publish=vi.fn();
  const old=deferred<{preferences:AccountUiPreferences;etag:string}>();let calls=0;

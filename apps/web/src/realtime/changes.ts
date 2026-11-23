@@ -11,9 +11,9 @@ import type { StateChange, TypeStates } from '../contracts/push.ts';
 import type { Id } from '../api/jmap-types.ts';
 
 /** The JMAP datatypes a `StateChange` can report (§2.2). */
-export type ChangedType = 'Email' | 'Mailbox' | 'EmailSubmission' | 'Thread';
+export type ChangedType = 'Email' | 'Mailbox' | 'EmailSubmission' | 'Thread' | 'Settings';
 
-const ALL_TYPES: readonly ChangedType[] = ['Email', 'Mailbox', 'EmailSubmission', 'Thread'];
+const ALL_TYPES: readonly ChangedType[] = ['Email', 'Mailbox', 'EmailSubmission', 'Thread', 'Settings'];
 
 /**
  * Which datatypes moved for `accountId`: a type is "changed" when the pushed
