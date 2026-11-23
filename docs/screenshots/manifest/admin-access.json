@@ -3237,7 +3237,7 @@
             "text": "@admin-dash-check-done",
             "first": true
           },
-          "place": "left"
+          "place": "right"
         },
         {
           "n": 2,
@@ -3314,12 +3314,18 @@
         }
       ],
       "shot": {
-        "element": {
-          "testid": "admin-session-bar"
-        },
-        "padding": 6
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 300,
+          "height": 28,
+          "relativeTo": {
+            "testid": "admin-session-bar"
+          }
+        }
       },
-      "alt": "The session bar at the bottom of the console: Signed in as admin and the idle timeout countdown."
+      "alt": "The session bar at the bottom of the console: Signed in as admin and the idle timeout countdown.",
+      "note": "The countdown is computed from the server clock, so its seconds can differ by one or two between runs."
     }
   ]
 }
