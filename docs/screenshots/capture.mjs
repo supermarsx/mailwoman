@@ -181,9 +181,53 @@ async function runStep(page, step, ctx) {
   const arg = step[kind];
   const target = async () => locate(page, arg);
   switch (kind) {
-    case 'goto':
+    case 'goto': {
+      // Console screens live after a '#'. A page load of {admin}/<path> is a request
+      // for an API route or an unknown path, which request protection's scan-path
+      // rule answers by blocking the source for five minutes: every later capture
+      // of the run would fail. Refuse it here instead.
+      if (/^\{admin\}\/[^#?]/.test(arg)) {
+        throw new Error(`goto ${arg}: console screens are at {admin}#/<section> (for example {admin}#/users); a page load of {admin}/<path> gets this machine blocked for five minutes`);
+      }
       await page.goto(new URL(arg.replaceAll('{admin}', ctx.stack.adminPath), ctx.stack.base).href);
       return;
+    }
+    case 'stepUp': {
+      // Confirm the password again, for screens and writes that ask for it.
+      const admin = ctx.entry.session === 'admin';
+      const path = admin ? `${ctx.stack.adminPath}/step-up` : '/api/security/step-up';
+      await ctx.client.must('POST', path, { password: admin ? ctx.stack.admin.password : ctx.stack.user.password });
+      return;
+    }
+    case 'localStorage': {
+      // { "key": ..., "value": ... } on the application's origin; strings are stored
+      // as given, anything else as JSON. Reload or goto afterwards so the app reads it.
+      if (!page.url().startsWith(ctx.stack.base)) await page.goto(ctx.stack.base + '/');
+      const value = typeof arg.value === 'string' ? arg.value : JSON.stringify(arg.value);
+      await page.evaluate(([k, v]) => localStorage.setItem(k, v), [arg.key, value]);
+      return;
+    }
+    case 'tidy': {
+      // After signing in through the form: remove the security notice and the
+      // notification entries that sign-in created, then reload.
+      const { tidy } = await import('./lib/seed.mjs');
+      await ctx.client.adoptUserSession();
+      await tidy(ctx.client, ctx.stack, { expectNotice: false });
+      await page.reload();
+      return;
+    }
+    case 'blur':
+      // Take focus away (from a field, or the given element), so no focus ring or
+      // tooltip stays in the image.
+      if (arg === true) await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+      else await (await target()).blur();
+      return;
+    case 'totp': {
+      // Type the demo user's current authenticator code (seed with "userTotp": true).
+      const { nextTotpCode } = await import('./lib/seed.mjs');
+      await (await target()).fill(await nextTotpCode(ctx.stack), { timeout: STEP_TIMEOUT });
+      return;
+    }
     case 'reload':
       await page.reload();
       return;
@@ -411,7 +455,12 @@ function pngSize(png) {
 async function captureEntry(browser, converter, stack, area, entry, opts) {
   const theme = opts.theme ?? entry.theme;
   const viewport = typeof entry.viewport === 'string' ? VIEWPORTS[entry.viewport] : entry.viewport;
-  const storageState = entry.session === 'user' ? stack.userState : entry.session === 'admin' ? stack.adminState : undefined;
+  // A signed-out entry still carries the browser-recognition cookie of the
+  // harness's earlier sign-in, so signing in through the form is not a "new
+  // browser or device" (which would mail a security notice dated today).
+  const device = stack.userState?.cookies?.filter((c) => c.name === 'mw_browser_device') ?? [];
+  const storageState =
+    entry.session === 'user' ? stack.userState : entry.session === 'admin' ? stack.adminState : { cookies: device, origins: [] };
   const context = await browser.newContext({
     viewport,
     deviceScaleFactor: entry.scale ?? 1,
@@ -455,7 +504,7 @@ async function captureEntry(browser, converter, stack, area, entry, opts) {
     if (!steps.some((s) => s.goto !== undefined)) {
       steps.unshift({ goto: entry.session === 'admin' ? '{admin}' : '/' });
     }
-    const ctx = { stack, setSetting };
+    const ctx = { stack, setSetting, entry, client };
     for (const [i, step] of steps.entries()) {
       try {
         await runStep(page, step, ctx);

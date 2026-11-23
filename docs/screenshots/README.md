@@ -111,6 +111,7 @@ Core seeds (`demo/seeds.json`):
 | `mail-basic` | 40 messages for Alex Rivera in Inbox (4 unread), Sent, Drafts, Archive, Spam, Trash and the folders Projects and Receipts; threads, a flagged message, a mailing list (City Library News), messages with PDF and PNG attachments, and one message that replaces an earlier one ("Agenda for Thursday (room change)" supersedes "Agenda for Thursday") |
 | `pim-week` | stack `E` only: six events in the week of 9 March 2026, five tasks, three notes, eight contacts |
 | `admin-basic` | the domains `example.com` and `example.org` |
+| `user-totp` | stack `E`: an authenticator app (TOTP) enrolled for Alex, so signing in asks for a code |
 
 The people are listed in `demo/people.json` (Jordan Ellis, Priya Raman, Sam Okoye,
 Mei Lindqvist, Tomás Varga, Nadia Haddad, Lena Brooks, and senders for billing,
@@ -149,7 +150,7 @@ every entry) and `entries`:
 | `alt` | required | one sentence saying what the image shows; never "Screenshot of ..." |
 | `stack` | `"E"` | `"E"` or `"M"` |
 | `seed` | `[]` | named seeds, applied in order (see "Seeding extra data") |
-| `session` | `"user"` | `"user"` (signed in as Alex), `"admin"` (console), `"none"` (signed out, for the sign-in page) |
+| `session` | `"user"` | `"user"` (signed in as Alex), `"admin"` (console), `"none"` (signed out, for the sign-in page; the browser is still recognised from the harness's earlier sign-in, so signing in through the form does not mail a "new browser or device" notice) |
 | `viewport` | `"desktop"` | `"desktop"` 1440x900, `"narrow"` 1024x768, `"phone"` 390x844, or `{ "width", "height" }` |
 | `theme` | `"dark"` | `"dark"` or `"light"` |
 | `steps` | `[]` | what to do before the capture (see "Steps"); without a `goto` the harness opens `/` (or the console) |
@@ -219,7 +220,7 @@ with `pnpm -C apps/web exec playwright show-trace <file>`.
 
 | Step | Example |
 |---|---|
-| `goto` | `{ "goto": "/" }`, `{ "goto": "/#/calendar" }`, `{ "goto": "{admin}/users" }` |
+| `goto` | `{ "goto": "/" }`, `{ "goto": "/#/calendar" }`, `{ "goto": "{admin}#/users" }` (console screens are always after `#`, see below) |
 | `click`, `dblclick`, `rightclick`, `hover`, `focus` | `{ "click": { "role": "button", "name": "@mail-compose" } }` |
 | `fill` | `{ "fill": { "label": "@mail-compose-subject", "value": "Booking page" } }` |
 | `type` | like `fill`, key by key (for fields that react to typing) |
@@ -231,6 +232,11 @@ with `pnpm -C apps/web exec playwright show-trace <file>`.
 | `wait` | `{ "wait": 500 }` (last resort; prefer `waitFor`) |
 | `setting` | `{ "setting": { "key": "reader.zoom", "value": 125 } }` sets a personal setting for this capture only |
 | `reload` | `{ "reload": true }` |
+| `blur` | `{ "blur": true }` takes focus away from the focused element (or `{ "blur": <locator> }`), so no focus ring or tooltip stays in the image |
+| `localStorage` | `{ "localStorage": { "key": "...", "value": ... } }` writes one browser storage value on the application's origin (strings as given, anything else as JSON); add a `reload` or `goto` after it so the application reads it. Example: remembered sign-in addresses |
+| `stepUp` | `{ "stepUp": true }` confirms the password again (administrator in a console entry, demo user otherwise), for screens and writes that ask for it |
+| `totp` | `{ "totp": { "label": "@settings-2fa-totp-code-label" } }` types the demo user's current authenticator code (needs the seed `user-totp`) |
+| `tidy` | `{ "tidy": true }` after signing in through the form: removes the security notice and the notifications that sign-in created, then reloads |
 | `eval` | JavaScript run in the page; avoid, and say why in `note` |
 
 Useful addresses in the application: `/` (Inbox), `/#/calendar`, `/#/tasks`,
@@ -238,7 +244,17 @@ Useful addresses in the application: `/` (Inbox), `/#/calendar`, `/#/tasks`,
 `/#/attachments`, `/#/outbox`. Settings has no address: click
 `{ "role": "button", "name": "@mail-nav-settings" }` and then the section, for
 example `{ "click": { "text": "@reader-settings-title", "first": true } }`.
-The console is at `{admin}`.
+The console is at `{admin}`, and every console screen is a fragment after it:
+`{admin}#/users`, `{admin}#/domains`, `{admin}#/settings`. The
+address bar of the console shows the fragment of the screen you are on. Never
+`goto` `{admin}/<path>` without the `#`: that address is an API route or an unknown
+path. The first such page load is answered `429 requestProtectionLimited` with
+`retryAfterSecs` close to 300, and the source address stays blocked for those five
+minutes: this is the scan-path rule (`security.protection.probePathMode`,
+**enforce** by default, blocking for `security.protection.blockSecs`). Every later
+request of the run then fails. The harness refuses such a `goto` before it is sent. Clicking through the
+console navigation works as well. The harness's own request rate does not reach
+any request-protection budget: the aggregate budgets are off by default.
 
 End with a `waitFor` on something that only exists once the screen has loaded
 (a heading, a row of demo data). Before the capture the harness moves the
@@ -299,6 +315,9 @@ Keys of a seed, applied in this order:
 | `include` | other seeds applied first |
 | `stacks` | `["E"]` if the seed only works on stack E |
 | `mail` | mail data files under `demo/` (same format as `demo/mail/basic.json`), loaded before the server starts |
+| `adminStepUp` | `true`: confirm the administrator's password (`POST <admin>/step-up`) before this seed's console writes. Needed for writes the console protects with a password confirmation, such as outbound proxies (`/egress/proxies`), single sign-on (`/sso`) and Nextcloud instances |
+| `userStepUp` | `true`: confirm the demo user's password (`POST /api/security/step-up`) before this seed's user writes |
+| `userTotp` | `true`: enrol an authenticator app (TOTP) for the demo user; the harness keeps the secret and the `totp` step types valid codes |
 | `adminSettings` | `{ "<setting key>": value }`, written as the console administrator |
 | `admin` | `[{ "method", "path", "body" }]` requests to the console API; `path` is under the console path (`/domains/example.net`) |
 | `userSettings` | `{ "<setting key>": value }`, written as the demo user |
@@ -435,6 +454,52 @@ The helper uses its own output and cache folders and also holds the lock
 a second build waits, and a lock left by a process that no longer runs is taken
 over), so at most one build runs at a time on this machine. Do not run
 `pnpm -C docs build` while others are writing.
+
+## Sign-in with a second factor
+
+With the seed `user-totp`, signing in through the form asks for the authenticator
+code. The `totp` step types a valid one:
+
+```json
+{
+  "id": "signin-second-factor", "session": "none", "seed": ["mail-basic", "user-totp"],
+  "steps": [
+    { "goto": "/" },
+    { "fill": { "label": "@auth-email", "value": "alex@example.com" } },
+    { "fill": { "label": "@auth-password", "value": "demo-pass-alex" } },
+    { "click": { "role": "button", "name": "@auth-sign-in" } },
+    { "totp": { "label": "@settings-2fa-totp-code-label" } },
+    { "blur": true }
+  ],
+  "shot": "full",
+  "alt": "The two-factor step of signing in, with an authenticator code entered."
+}
+```
+
+The server accepts each 30-second code once; when an entry needs a second code in
+the same half minute, the step waits for the next one (up to 30 seconds). After
+`{ "click": { "role": "button", "name": "@settings-2fa-challenge-verify" } }` the
+mailbox opens; add `{ "tidy": true }` before capturing it.
+
+## States the harness cannot reach
+
+Leave these without a screenshot (describe them in text), or ask the harness
+owner before you build something:
+
+- **A passkey** as the second factor or for sign-in (needs a WebAuthn
+  authenticator). An authenticator app (TOTP) works, see above.
+- **HTTPS in front of the server**: the stacks are plain HTTP on `localhost`, so
+  the HTTPS rows of the console's deployment security assessment show their
+  "not behind TLS" state, and anything that needs a TLS-terminating proxy cannot
+  be shown as configured.
+- **Short-lived states** that pass before a capture can see them reliably: sending
+  in progress, sync progress, a spinner, a toast that times out. Prefer the state
+  before or after.
+- **The desktop and mobile apps' own windows** (tray, native menus, system
+  notifications): the harness drives the web client in Chromium only.
+- **External services**: a real Nextcloud server, mail bridges to other
+  providers, push to a phone. Screens that configure them can be shown empty or
+  filled in, not connected.
 
 ## Things you will see
 

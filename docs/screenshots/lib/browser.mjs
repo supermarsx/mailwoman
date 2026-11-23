@@ -83,6 +83,13 @@ export function api(context, base) {
       account = me.json?.accountId;
       return me.json;
     },
+    /** Use the session the context already has (cookies from storage or a form sign-in). */
+    async adoptUserSession() {
+      const me = await must('GET', '/api/me');
+      authority = me.json?.storageAuthority;
+      account = me.json?.accountId;
+      return me.json;
+    },
     async signInAdmin(stack) {
       await must('POST', `${stack.adminPath}/login`, { username: stack.admin.username, password: stack.admin.password });
     },

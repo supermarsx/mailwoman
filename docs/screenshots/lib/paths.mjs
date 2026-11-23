@@ -9,7 +9,7 @@ export const HERE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const REPO = resolve(HERE, '..', '..');
 export const WEB_APP = join(REPO, 'apps', 'web');
 export const DEMO = join(HERE, 'demo');
-export const MANIFESTS = join(HERE, 'manifest');
+export const MANIFESTS = process.env.MW_SHOTS_MANIFESTS ?? join(HERE, 'manifest');
 export const META = join(HERE, 'meta');
 export const OUTPUT = join(REPO, 'docs', 'public', 'screenshots');
 /** Scratch root for web builds, binary copies, run directories and capture slots. */

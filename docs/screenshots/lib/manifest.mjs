@@ -20,6 +20,7 @@ export const areaOf = (file) => file.replace(/\.json$/, '').replace(/^_/, '');
 const STEP_KINDS = new Set([
   'goto', 'click', 'dblclick', 'rightclick', 'hover', 'focus', 'fill', 'type', 'press', 'check', 'uncheck',
   'select', 'waitFor', 'waitForHidden', 'wait', 'scroll', 'eval', 'setting', 'reload', 'keys',
+  'stepUp', 'localStorage', 'blur', 'totp', 'tidy',
 ]);
 const ENTRY_KEYS = new Set([
   'id', 'page', 'stack', 'seed', 'viewport', 'theme', 'session', 'clock', 'steps', 'shot', 'callouts', 'mask',

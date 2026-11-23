@@ -5,6 +5,10 @@
 //   stacks         ["M"], ["E"] or both (default both); a capture on another stack fails
 //   mail           dataset file(s) under demo/ (mail/basic.json): folders + messages,
 //                  put into the mail backend before the server starts
+//   adminStepUp    true: confirm the administrator's password (POST <admin>/step-up) first
+//   userStepUp     true: confirm the demo user's password (POST /api/security/step-up) first
+//   userTotp       true: enrol an authenticator (TOTP) for the demo user; the harness
+//                  keeps the secret and can type codes (step "totp")
 //   adminSettings  { "<registry key>": value }  PUT <admin>/settings/<key> {globalValue}
 //   admin          [{ "method", "path" (under the admin path), "body" }]
 //   userSettings   { "<registry key>": value }  PUT /api/settings/<key> {value}
@@ -16,6 +20,7 @@
 // Every value may use {{me}} (the demo address), {{admin}} (the admin path),
 // {{person:<key>}} (an address from people.json) and {{date:+3d}} / {{date:-2h}}
 // (ISO instant relative to the capture clock, 2026-03-10T09:30:00Z).
+import { createHmac } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEMO, log, waitFor } from './paths.mjs';
@@ -189,16 +194,66 @@ async function waitForSync(client, stack) {
 
 const MAIL_USING = ['urn:ietf:params:jmap:core', 'urn:ietf:params:jmap:mail'];
 
+// ── second factor ──────────────────────────────────────────────────────────────
+
+function base32Decode(text) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const c of text.replace(/=+$/, '').toUpperCase()) {
+    const v = alphabet.indexOf(c);
+    if (v < 0) continue;
+    bits += v.toString(2).padStart(5, '0');
+  }
+  const bytes = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) bytes.push(parseInt(bits.slice(i, i + 8), 2));
+  return Buffer.from(bytes);
+}
+
+/** RFC 6238 code (SHA-1, 6 digits, 30 s) for `secret` (base32) at time step `step`. */
+export function totpCode(secret, step) {
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(step));
+  const mac = createHmac('sha1', base32Decode(secret)).update(counter).digest();
+  const offset = mac[mac.length - 1] & 0x0f;
+  const value = (mac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000;
+  return String(value).padStart(6, '0');
+}
+
+/**
+ * A code for the demo user's authenticator that the server has not seen yet: the
+ * server refuses a code from a 30-second step it already accepted, so this waits
+ * for the next step when needed.
+ */
+export async function nextTotpCode(stack) {
+  if (!stack.totp) throw new Error("no authenticator is enrolled; add a seed with \"userTotp\": true");
+  let step = Math.floor(Date.now() / 30_000);
+  if (step <= stack.totp.lastStep) {
+    await new Promise((r) => setTimeout(r, (stack.totp.lastStep + 1) * 30_000 - Date.now() + 250));
+    step = Math.floor(Date.now() / 30_000);
+  }
+  stack.totp.lastStep = step;
+  return totpCode(stack.totp.secret, step);
+}
+
+/** Enrol an authenticator (TOTP) for the demo user and keep its secret on the stack. */
+async function enrolTotp(client, stack) {
+  const begin = await client.must('POST', '/api/account/2fa/totp/begin', {});
+  const secret = begin.json?.secret;
+  if (!secret) throw new Error(`authenticator enrolment returned no secret: ${begin.text.slice(0, 200)}`);
+  stack.totp = { secret, lastStep: -1 };
+  await client.must('POST', '/api/account/2fa/totp/confirm', { code: await nextTotpCode(stack) });
+}
+
 /**
  * Remove what the harness's own sign-ins leave behind: the "new browser or device"
  * security notices the server mails to the account, and the notification-centre
  * entries. They carry today's date and are not part of the demo.
  */
-async function tidy(client, stack) {
+export async function tidy(client, stack, { expectNotice = true } = {}) {
   const notices = async () => (await userJmap(client, MAIL_USING, [['Email/query', { filter: { text: 'from:security@mailwoman.invalid' } }, 'q']]))[0][1];
   let q = await notices();
   // On stack E the notice is appended in the background shortly after sign-in.
-  for (let i = 0; stack.kind === 'E' && !q.ids?.length && i < 20; i += 1) {
+  for (let i = 0; stack.kind === 'E' && !q.ids?.length && i < (expectNotice ? 20 : 3); i += 1) {
     await new Promise((r) => setTimeout(r, 500));
     q = await notices();
   }
@@ -222,6 +277,9 @@ export async function applySeeds(browser, stack, names) {
     const client = api(adminContext, stack.base);
     await client.signInAdmin(stack);
     for (const seed of seeds) {
+      // Some console writes (outbound proxies, single sign-on, Nextcloud) need a
+      // recent password confirmation of the administrator first.
+      if (seed.adminStepUp) await client.must('POST', `${stack.adminPath}/step-up`, { password: stack.admin.password });
       for (const [key, value] of Object.entries(seed.adminSettings ?? {})) {
         await client.must('PUT', `${stack.adminPath}/settings/${key}`, { globalValue: value });
       }
@@ -237,6 +295,8 @@ export async function applySeeds(browser, stack, names) {
     stack.me = await client.signInUser(stack.user);
     await waitForSync(client, stack);
     for (const seed of seeds) {
+      if (seed.userStepUp || seed.userTotp) await client.must('POST', '/api/security/step-up', { password: stack.user.password });
+      if (seed.userTotp) await enrolTotp(client, stack);
       for (const [key, value] of Object.entries(seed.userSettings ?? {})) {
         await client.must('PUT', `/api/settings/${key}`, { value });
       }

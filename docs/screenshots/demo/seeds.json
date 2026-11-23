@@ -5,14 +5,30 @@
       "mail": "mail/basic.json"
     },
     "pim-week": {
-      "stacks": ["E"],
+      "stacks": [
+        "E"
+      ],
       "pim": "pim.json"
     },
     "admin-basic": {
       "admin": [
-        { "method": "PUT", "path": "/domains/example.com", "body": {} },
-        { "method": "PUT", "path": "/domains/example.org", "body": {} }
+        {
+          "method": "PUT",
+          "path": "/domains/example.com",
+          "body": {}
+        },
+        {
+          "method": "PUT",
+          "path": "/domains/example.org",
+          "body": {}
+        }
       ]
+    },
+    "user-totp": {
+      "stacks": [
+        "E"
+      ],
+      "userTotp": true
     }
   }
 }
