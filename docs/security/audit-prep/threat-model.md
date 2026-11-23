@@ -33,7 +33,7 @@ TLS** (enforced by `cargo deny`, see [`deny.toml`](https://github.com/supermarsx
 | B3 | Browser main thread ↔ crypto worker | Main-thread JS, rendered content | The WASM `mw-crypto` / `mw-sanitize` worker (holds keys/plaintext) |
 | B4 | Host ↔ WASM plugin guest | Third-party plugin bytes | The `mw-plugin` wasmtime host |
 | B5 | Engine ↔ external AI endpoint | The AI provider (and its responses) | The `mw-assist` gateway |
-| B6 | Server ↔ at-rest store | A curious operator / breached DB / stolen backup | The client that holds the keys |
+| B6 | Server ↔ at-rest store | A thief of the database or a backup | The server key, when stored apart from the database (zero-access does not change this boundary) |
 | B7 | MCP/API caller → engine | Automation clients, LLM agents | Scoped-key enforcement + engine surface |
 
 A recurring principle: **secret material and E2EE plaintext live on the trusted side of
@@ -107,9 +107,15 @@ ciphertext.
 **Trust boundaries.** B6 (server ↔ at-rest store) and B3. Keys are derived and held on the
 client; the server never receives a plaintext key.
 
-**Adversary model.** A **curious operator** or a **breach of the storage host** (reads the
-DB, on-disk files, or a stolen backup). Explicitly **out of model:** a fully malicious
-*active* server that proxies live IMAP/SMTP.
+**Adversary model.** Zero-access does not protect stored mail from the operator, a breached
+server or a stolen backup. Stored message bodies and envelopes are sealed with the
+**server key** whether the mode is on or off; a copy of the database is protected only when
+the server key is stored separately from it (a default SQLite install keeps
+`<db>.server-key` beside the database). What the mode does: it keeps the account out of
+the search index (clearing it when turned on), keeps the account's text out of shared
+caches, and deletes linked-mailbox passwords. The client-side key it creates encrypts no
+stored data. Out of model, as before: a malicious *active* server that proxies live
+IMAP/SMTP.
 
 **Existing mitigations.**
 - Root key derived client-side (Argon2id / WebAuthn-PRF) inside the WASM worker; KEK wraps
@@ -343,15 +349,17 @@ custom detectors carry ReDoS risk worth a look.
   error payloads.
 - **Password-change** ([`password-change.md`](../password-change.md)) — `mw-passwd`
   backends (local / LDAP RFC 3062 / Dovecot HTTP / poppassd / HMAC webhook), sealed-
-  credential re-seal, and the client-side zero-access re-wrap. Residual: credential
-  re-seal correctness and backend transport (rustls/TLS) verification.
+  credential re-seal. No zero-access re-wrap runs on a password change (the login
+  password and the zero-access key are separate). Residual: credential re-seal
+  correctness and backend transport (rustls/TLS) verification.
 - **Admin panel** ([`admin-panel.md`](../admin-panel.md)) — separate session, append-only
   audit log, login monitor + ban list. Residual: privilege-separation between the admin
   session and the mailbox session.
 - **Message rendering** ([`max-security.md`](../max-security.md),
   [`screen-capture.md`](../screen-capture.md)) — the 3-position opening mode
-  (plain / sanitized-no-media / full-sanitized) and the **honest** screen-capture posture
-  (the web watermark's real, limited value). Residual: HTML-sanitizer bypass is a classic
+  (plain / sanitized-no-media / full-sanitized) and the screen-capture posture: OS
+  capture exclusion in the Windows, macOS and Android apps when the policy asks for it;
+  no watermark is rendered on any platform, and a browser has no capture control. Residual: HTML-sanitizer bypass is a classic
   high-value target (see the inventory).
 
 ---
