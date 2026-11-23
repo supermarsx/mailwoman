@@ -60,14 +60,22 @@ fn admin_v6() -> V6Config {
     }
 }
 
+const KEY_HEX: &str = "7e57a1b2c3d4e5f60718293a4b5c6d7e7e57a1b2c3d4e5f60718293a4b5c6d7e";
+
 async fn spawn_server(mode: ServerMode) -> String {
+    spawn_server_with_db(mode).await.0
+}
+
+/// The server's URL and its database path (opened with [`KEY_HEX`]).
+async fn spawn_server_with_db(mode: ServerMode) -> (String, String) {
     let base = test_db::unique_dir("mw-v7-mount");
     let web_dir = base.join("web");
     std::fs::create_dir_all(&web_dir).unwrap();
     std::fs::write(web_dir.join("index.html"), INDEX_HTML).unwrap();
+    let db_path = base.join("mw.db").to_string_lossy().into_owned();
     let config = AppConfig {
-        db_path: base.join("mw.db").to_string_lossy().into_owned(),
-        server_key_hex: None,
+        db_path: db_path.clone(),
+        server_key_hex: Some(KEY_HEX.into()),
         web_dir: Some(web_dir),
         cookie_secure: false,
         mode,
@@ -84,7 +92,24 @@ async fn spawn_server(mode: ServerMode) -> String {
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    format!("http://{addr}")
+    (format!("http://{addr}"), db_path)
+}
+
+/// Store an Argon2id hash of `password` as `account`'s local password-backend hash.
+async fn provision_local_hash(db: &str, account: &str, password: &str) {
+    use argon2::password_hash::{PasswordHasher, SaltString};
+    let store = mw_store::Store::open(db, mw_store::ServerKey::from_hex(KEY_HEX).unwrap())
+        .await
+        .unwrap();
+    let salt = SaltString::encode_b64(b"v7-mount-salt-16").unwrap();
+    let phc = argon2::Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .unwrap()
+        .to_string();
+    store
+        .set_setting(&format!("passwd_local:{account}"), &phc)
+        .await
+        .unwrap();
 }
 
 fn client() -> reqwest::Client {
@@ -122,7 +147,7 @@ async fn admin_login(c: &reqwest::Client, server: &str) {
 #[tokio::test]
 async fn v7_mailbox_routes_are_wired() {
     let mock = spawn_mock().await;
-    let server = spawn_server(ServerMode::Proxy).await;
+    let (server, db) = spawn_server_with_db(ServerMode::Proxy).await;
     let c = client();
     let account = login(&c, &server, &mock).await;
 
@@ -156,18 +181,29 @@ async fn v7_mailbox_routes_are_wired() {
             .is_some(),
         "policy carries the displayed rules"
     );
-    // A change against the local backend (no stored hash) → wrong-current 403, NOT a
-    // 404/SPA — the route + injected backend answered.
-    let change = c
-        .post(format!("{server}/api/password"))
-        .json(&json!({ "oldPassword": "whatever-old", "newPassword": "A-strong-passw0rd!" }))
-        .send()
-        .await
-        .unwrap();
-    assert!(
-        change.status() == 403 || change.status() == 400,
-        "password change routed to the backend (got {})",
-        change.status()
+    // The default local backend with no stored hash for the account: 501 "not
+    // configured", whatever current password is offered (not a wrong-password 403,
+    // which no input could fix), and not a 404/SPA: the route and backend answered.
+    let change_password = |old: &'static str| {
+        c.post(format!("{server}/api/password"))
+            .json(&json!({ "oldPassword": old, "newPassword": "A-strong-passw0rd!" }))
+            .send()
+    };
+    for old in ["whatever-old", mw_mock_jmap::PASS] {
+        let change = change_password(old).await.unwrap();
+        assert_eq!(change.status(), 501, "no local hash provisioned");
+        let body: Value = change.json().await.unwrap();
+        assert_eq!(body["error"], json!("password change not configured"));
+    }
+    // Once a local hash is provisioned, a wrong current password is a 403.
+    // Boxed: the store-open future would otherwise sit in this test's already
+    // large state machine and overflow the default test-thread stack.
+    Box::pin(provision_local_hash(&db, &account, mw_mock_jmap::PASS)).await;
+    let change = change_password("whatever-old").await.unwrap();
+    assert_eq!(
+        change.status(),
+        403,
+        "provisioned hash, wrong current password"
     );
 
     // ── assist: unconfigured ⇒ enabled=false; invoke ⇒ 404 (Disabled) ──────────
