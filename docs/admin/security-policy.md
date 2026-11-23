@@ -1,105 +1,95 @@
-# Admin console: Security policy
+---
+screen: true
+---
+# Security policy
 
-The **Security policy** page (`#/security-policy`) edits the deployment-wide policy stored by
-`PUT /admin/security-policy`. Every server process reads it again within 30 seconds. A field that an
-environment variable sets is shown disabled with the variable's name; the server refuses a change to it
-(409).
+The **Security policy** tab of the **Security centre** (`#/security/policy`) holds a
+few deployment-wide rules: the lowest TLS version, whether every account needs a
+second factor, the password hashing cost, the reading floor, screen capture
+protection and the stored data loss prevention (DLP) rules.
 
-<a id="minTls"></a>
-## Lowest TLS version
+![The Security policy tab of the Security centre with the Connections group and the Save bar.](/screenshots/admin-access/security-policy-tab.webp){.mw-shot}
 
-`1.2` (the default) or `1.3`. Applies to the HTTPS listener and to new outbound IMAP, SMTP, POP3,
-ManageSieve and proxy-tunnel connections. Connections that are already open keep their version.
-`MW_ADMIN_MIN_TLS` pins it.
+## Before you start
 
-<a id="require2fa"></a>
-## Require a second factor for every account
+- Viewing needs **security.read**; saving needs **security_policy.write**.
+- Two fields can also be set by an environment variable, whose name is shown beside
+  the label: **Lowest TLS version** (`MW_ADMIN_MIN_TLS`) and **Require a second
+  factor for every account** (`MW_ADMIN_REQUIRE_2FA`). When the variable is set, the
+  field cannot be changed here; the server refuses the change.
 
-The global two-factor rule (the global row of the two-factor policy). Accounts without a second factor
-are asked to enrol at their next sign-in. Per-domain rules are on the **Two-factor** page.
-`MW_ADMIN_REQUIRE_2FA` pins it.
+## Change the policy
 
-<a id="argon2MCost"></a>
-## Argon2 memory
+1. Open **Security centre** > **Security policy**.
+2. Change the fields. The bar at the bottom shows that there are unsaved changes.
+3. Select **Save**, or **Discard changes**.
 
-Memory for each new password and recovery-code hash, in KiB: 19456 to 1048576 (the default is 19456).
-With a single pass the server requires at least 47104 KiB. Existing hashes keep their cost until the
-password changes.
+The server that receives the save applies it at once. Every other server process
+that shares the database reads the policy again within 30 seconds. **History**
+opens the change history of the policy. An out-of-range value is refused with the
+reason, and nothing is saved.
 
-<a id="argon2TCost"></a>
-## Argon2 passes
+## Connections
 
-Passes over the memory, 1 to 10 (default 2).
+**Lowest TLS version**: **TLS 1.2 and later** (default) or **TLS 1.3 only**. It
+applies to the HTTPS listener (when Mailwoman terminates TLS itself) and to new
+outgoing IMAP, SMTP, POP3, ManageSieve and outbound-proxy connections. Connections
+that are already open keep their version. It does not apply to TLS terminated by a
+reverse proxy in front of Mailwoman.
 
-<a id="argon2PCost"></a>
-## Argon2 parallelism
+## Sign-in
 
-Threads per hash, 1 to 16 (default 1).
+![The Sign-in group of the Security policy.](/screenshots/admin-access/security-policy-signin.webp){.mw-crop}
 
-<a id="maxSecurityFloor"></a>
-## Reading floor
+| Field | Default | What it does |
+|---|---|---|
+| **Require a second factor for every account** | off | The same rule as **Require two-factor for the whole deployment** on [Two-factor & sign-in requirements](./security-center.md#two-factor-sign-in-requirements). |
+| **Argon2 memory, in KiB** | 19456 | Memory for each new hash, 19456 to 1048576. With a single pass at least 47104. |
+| **Argon2 passes** | 2 | 1 to 10. |
+| **Argon2 parallelism** | 1 | Threads per hash, 1 to 16. |
 
-The least restrictive view a Mailwoman client may use for a message: no floor (default), sanitised HTML
-with media, sanitised HTML without remote media, or plain text. A person can choose a stricter view.
-Clients read it from `GET /api/policy`; other mail clients do not apply it.
+The Argon2 cost applies to new hashes of console passwords, locally stored passwords
+and recovery codes. A higher cost makes each sign-in use more memory and time on the
+server.
 
-<a id="capturePolicy"></a>
-## Screen capture protection
+::: warning
+With **Require a second factor for every account** on, a mailbox account that has
+no second factor cannot finish signing in to the web app: the sign-in screen says
+that two-step verification is required but no method is set up, and stops. The
+people concerned must set up a second factor before you turn this on.
+:::
 
-`off` (default) or `protect`. Mailwoman apps that can block screenshots and screen recording do so;
-browsers cannot enforce it.
+## Reading
 
-<a id="dlpRules"></a>
-## Data loss prevention rules
+![The Reading group of the Security policy.](/screenshots/admin-access/security-policy-reading.webp){.mw-crop}
 
-Rules checked on outgoing mail sent through the server in engine mode, beside the rules in
-`MW_DLP_RULES`. Each rule has a name, an on/off switch, a priority (higher first), an action (warn,
-block, require encryption, or send and notify an administrator), an optional message for the sender,
-and at least one condition: built-in detectors (payment card numbers, IBAN, national identity numbers,
-US social security numbers, Portuguese NIF, NISS and Citizen Card/civil ID, and English/Portuguese
-credential keywords), custom words or phrases, a custom regular expression, recipient domains (inside or outside the
-list), attachment types and a largest attachment size in bytes. A classification set
-outside the console is kept as stored. A rule from `MW_DLP_RULES` with the same id wins over a stored
-rule; the page lists those rules read-only.
+| Field | Default | What it does |
+|---|---|---|
+| **Reading floor** | **No floor** | The least restrictive way the Mailwoman reader may show a message: **Sanitised HTML with media**, **Sanitised HTML without remote media** or **Plain text only**. A person can still choose a stricter view. |
+| **Screen capture protection** | **Off** | **Protect** asks the Mailwoman desktop and Android apps to keep their window out of screenshots and screen recordings. |
 
-Portuguese detectors (`pt-nif`, `pt-niss`, `pt-citizen-card`) check local format and check digits;
-they do not establish whether an identifier was issued. NIF and NISS accept common digit separators.
-Citizen Card accepts the full document number, including its alphanumeric version, or the civil
-number with its check digit. Full-document validation follows the
-[AMA algorithm](https://www.autenticacao.gov.pt/documents/20126/0/Valida%C3%A7%C3%A3o%2Bde%2BN%C3%BAmero%2Bde%2BDocumento%2Bdo%2BCart%C3%A3o%2Bde%2BCidad%C3%A3o%2B%281%29.pdf/7d5745ba-2bcc-e861-3954-bafe9f7591a0).
-Checks validate structure, not a government registry; identifiers must be delimited rather than
-embedded in a longer word or number. The generic `national-id` detector remains broader.
+Both are applied by Mailwoman's own apps after they read the policy. Other mail
+clients that connect to the same mailboxes do not see them, and a browser cannot
+block screenshots. See [Message view modes](/security/max-security) and
+[Screen capture](/security/screen-capture) for what each app does.
 
-The `credentials` detector matches whole words and phrases without case sensitivity, including
-password/passwords, senha/senhas, palavra-passe, passphrase, API keys, access tokens and private keys.
-It detects mentions, not proof that a secret is present. Start with a warning rule if ordinary
-discussion of credentials should remain possible. Custom keyword entries are literal phrases;
-spaces inside an entry are preserved, and matches use word boundaries. These detectors are opt-in
-per rule, using the same action, priority and enabled controls as other DLP conditions.
+## Data loss prevention
 
-Coverage is message subject/body and attachment metadata, not OCR or extraction of attachment
-contents. Verdicts and audit records contain detector names rather than matched identity/secret
-values. Enforcement applies to the engine submission path; this is not a claim that external
-mail clients or independently sending third-party services are covered.
+**Stored rules** are checked on outgoing mail sent through this server in engine
+mode, beside any rules in `MW_DLP_RULES` (listed read-only under **Rules from
+MW_DLP_RULES**; an environment rule with the same id replaces a stored one). Each
+rule has a **Name**, **Rule is on**, a **Priority**, an action under **When a
+message matches** (**Warn the sender**, **Block the message**, **Require
+encryption**, **Send and notify an administrator**), an optional **Message to the
+sender**, and what to **Look for**: built-in detectors, **A pattern of my own**,
+**Recipient domains**, **Attachment types** and **Largest attachment, in bytes**.
 
-### Authoritative checks and proxy limitations
+What the rules inspect, how they behave in proxy mode and what they do not cover is
+described in [Outbound DLP](/security/dlp).
 
-Unavailable or malformed configured rules refuse submission with `dlpPolicyUnavailable`;
-missing, oversized or unavailable authoritative draft bodies refuse with `dlpInputUnavailable`.
-No configured rules remains an empty policy. Native sends check again immediately before SMTP,
-using the exact outgoing bytes and actual envelope recipients, including queued releases and
-recipient overrides. A recipient-domain exclusion applies if **any** recipient is outside the list.
-Draft scans require the authenticated account to own the draft.
+## Related
 
-Proxy-mode submissions with any enabled DLP rule are refused before any operation in the batch
-is forwarded (`dlpProxyUnsupported`). Fetching an upstream draft and later submitting it does not
-guarantee the inspected bytes were sent; same-request composition is not an upstream atomicity
-guarantee. Cancellation-only updates remain available. This deliberately does not claim proxy
-content inspection. Administrators must remove/disable those rules or use the native engine to
-send; warnings and notify rules also require authoritative inspection.
-
-A matching `require-encryption` verdict refuses server submission, just like a blocking verdict;
-merely declaring an encrypted Content-Type does not grant an exemption. This is conservative:
-a recipient-only encryption rule can also refuse a genuinely encrypted message until authoritative
-cryptographic validation is supported. Content-based rules cannot inspect encrypted ciphertext;
-this policy does not decrypt encrypted messages or attachments and does not certify encryption.
+- [Security centre](./security-center.md)
+- [Admin console security](/security/admin-panel#security-policy)
+- [Outbound DLP](/security/dlp)
+- [Settings reference](./settings.md)

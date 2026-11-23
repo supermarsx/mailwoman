@@ -1,208 +1,164 @@
+---
+screen: true
+---
 # Security centre
 
-The account Security centre contains authentication factors, active sessions,
-sign-in history, remembered devices and account activity. Session listings show
-client metadata and opaque handles, never authentication tokens or passwords.
-Country labels use only the local country database ([Country database](country-database.md):
-downloaded or uploaded in the console, or `MW_GEOIP_DB`); without one no country is displayed. Exporting sign-in history requires recent verification.
+The **Security centre** collects the console's security screens in one place: an
+overview of what the server recorded recently, the sign-in requirements, the address
+controls (bans, locks, country policy, inbound access), the deployment-wide security
+policy, the deployment checks and the session list. Open it from **Security centre**
+in the console's navigation (`#/security`).
 
-## Administrator navigation
+![The Overview tab of the Security centre with its row of tabs, the country database warning and the summary tiles.](/screenshots/admin-access/security-center-overview.webp){.mw-shot}
 
-The administrator **Security centre** (`#/security`) groups overview and factor
-policy, IP bans, temporary sign-in locks, sign-in country policy, aggregate and
-adaptive protection, security policy, inbound access, deployment checks and sessions.
-Only authorized pages mount or fetch data. Shared source-IP controls require
-unscoped grants; mailbox-session listings retain their domain-scoped permissions.
-Each write still uses its existing capability, fresh verification and confirmation.
+## The tabs
 
-Old `#/two-factor`, `#/sessions`, `#/security-policy`, `#/inbound-allowlist` and
-`#/observability/bans`, `/locks`, `/geography`, `/protection` bookmarks resolve to
-the corresponding Security centre page, including the ban editor and field query.
-The **Request protection** page (`#/security/protection`) has its own subtabs, each a
-deep link: Overview (`/overview`: status, protocol guard, admin probe, presets),
-Aggregate (`/aggregate`: request budgets and user-agent limits), Adaptive
-(`/adaptive`: unusual-request rules, actions, exceptions and the simulator),
-Protocol guard (`/protocol-guard`: every HTTP protocol guard policy edited in place, grouped by class, with an overall off, detect or enforce switch that asks before enforcing),
-Admin probe (`/admin-probe`: every admin-probe policy in five groups, Detection and evidence, Responses and bans, Countries and trust tiers, Exemptions and allowlists, Audit and logging, with an On/Off switch that asks before turning on, live counters, evidence by type with the last time seen, the blocked sources with Unblock and the top offenders; the dedicated admin-probe keys save through the ban step-up, the country-block keys through the ordinary settings route; the Overview keeps a compact summary with an Edit policies link),
-Object state (`/state`) and Decisions (`/decisions`). Aggregate, Adaptive and the Overview share one range selector (15 minutes, 1, 6 or 24 hours) and show tiles and charts from `GET {console}/bans/protection/history?range=` (needs `bans.read`): Aggregate has requests evaluated, allowed, throttled and blocked, the share limited, the most limited budget and user-agent class, a requests-over-time line, the share limited per budget and the requests per claimed user-agent class; Adaptive has the adaptive mode, objects tracked, restrictions applied, actions that observe mode would have taken, requests per trust tier, the most triggered rule, adaptive actions over time, the tier distribution, ranked rules and the simulator's last result. Every chart has a View as table switch with the same numbers. The history is a bounded in-memory ring of per-minute counts (24 hours, always on, no setting): counts only, never an address, account or user-agent text; it starts again on restart and is not shared between replicas. The server does not yet count de-escalations or exemption hits, and a budget has no single fill level (it counts per address, account or class), so the screen shows the share of requests limited instead. The Overview lists the guard's counters and the session watch figures as tiles and compact tables (relative times with the exact time in a tooltip, zero rows dimmed or hidden, rows stacked as cards on a phone). Object state and Decisions list
-the most recent first, 100 rows per page by default (25, 50, 100 or 250), with
-Previous/Next and the page count and total. The API pages with `limit` (1-250) and an
-opaque `after` cursor over a stable order (newest first, key as tie-break) and returns
-`total`.
+Each tab is also an address of its own, so you can bookmark it. A tab you have no
+permission for is not shown. Tabs marked "all domains" need the capability granted
+for all domains, not only for some.
 
-Observability contains audit, request statistics and telemetry. Audit and ban lists
-load independently, so lacking one capability does not break the other page.
+| Tab | Address | What it is for | Needs |
+|---|---|---|---|
+| **Overview** | `#/security/overview` | Summary tiles and recent events (below). | any one of security.read, bans.read, diagnostics.read, logs.read, admins.read, audit.read; all domains |
+| **Aggregate and adaptive protection** | `#/security/protection` | Request budgets, unusual-request rules, protocol guard and admin-probe protection. See [Request protection](./request-protection.md). | bans.read, all domains |
+| **Two-factor & sign-in requirements** | `#/security/requirements` | Who must use a second factor, and the passkey and session policies. [Below](#two-factor-sign-in-requirements). | security.read, all domains |
+| **IP ban list** | `#/security/bans` | [IP ban list](./ip-bans.md) | bans.read, all domains |
+| **Temporary sign-in locks** | `#/security/locks` | [Temporary sign-in locks](./signin-locks.md) | bans.read, all domains |
+| **Sign-in country policy** | `#/security/geography` | [Sign-in country policy](./signin-geography.md) | bans.read, all domains |
+| **Country database** | `#/security/geoip` | [Country database](./country-database.md) | security.read, all domains |
+| **Sign-in policy** | `#/security/signin` | Who may sign in for the first time. See [Pre-provisioned users](./preprovisioned-users.md). | settings.read |
+| **Security policy** | `#/security/policy` | [Security policy](./security-policy.md) | security.read, all domains |
+| **Inbound access** | `#/security/inbound` | [Inbound access](./inbound-allowlists.md) | security.read, all domains |
+| **Deployment checks** | `#/security/deployment` | [Deployment checks](./deployment-security.md) | diagnostics.read, all domains |
+| **Console address** | `#/security/console` | The console's private path. See [Moving the admin console](/deploy/README#moving-the-admin-console). | security.read, all domains |
+| **Client access** | `#/security/client-access` | [Client access](./client-access.md) | settings.read, all domains |
+| **Sessions** | `#/security/sessions` | [Sessions](./sessions.md) | sessions.read |
 
-## Passwordless sign-in
+Changing something on a tab needs the matching write capability as well, and some
+changes (bans, unlocks, inbound access, the console address) ask you to confirm it is
+you first.
 
-Browser passkeys support engine-mode sign-in using required user verification
-and a single-use challenge. The server reconnects the existing account using
-its sealed upstream credentials. Proxy mode continues to require the upstream
-password; its passkeys remain second factors. Native shell passwordless sign-in
-is not exposed until platform relying-party integration is available.
+::: tip
+Always open console screens with the `#` form shown in the table
+(`https://mail.example.org/<console path>#/security/bans`). Loading a path without
+the `#`, such as `<console path>/security`, is treated as probing for hidden
+addresses and blocks your address for five minutes by default (see
+[Request protection](./request-protection.md)).
+:::
 
-## Recent verification
+## Overview
 
-Sensitive actions challenge the user through the shared confirmation dialog.
-A proof lasts five minutes and belongs to one session. Password verification
-also needs the account's TOTP when enrolled; a user-verified passkey can confirm
-on its own. TOTP codes cannot be replayed. Changing authentication factors
-invalidates outstanding proofs. Header-auth service passwords never count as
-end-user proof: sign-in provenance is persisted with the session.
+The **Overview** tab shows what the server has recorded recently. Each tile opens the
+screen with the details:
 
-## Session policy and remembered devices
+| Tile | Shows |
+|---|---|
+| **Two-factor adoption** | The share of accounts with a second factor, split into passkey and authenticator app. |
+| **Failed sign-ins, 24 h** | Failed and blocked sign-ins in the last 24 hours and 7 days. |
+| **Request protection actions, 24 h** | Actions request protection took in the last 24 hours, with the counts it only observed. |
+| **Temporary sign-in locks** | Addresses locked now after rejected passwords. |
+| **Probing blocks** | Sources blocked for probing for the console, and requests refused. |
+| **Admin sessions** | Administrators signed in now. |
+| **Security posture** | How many [deployment checks](./deployment-security.md) need review. |
 
-Settings `session.maxConcurrent`, `session.idleSecs`, `session.absoluteSecs`,
-`twofa.required`, `twofa.passkeysEnabled` and `twofa.rememberDays` use scoped
-policy resolution. Deployment timeout limits remain caps. Rotation preserves
-the original timestamps, device and authentication method; concurrent logout
-cannot be undone by rotating a stale cookie.
+Below the tiles are panels with the details: second-factor adoption (including
+administrators without a second factor), failed and blocked sign-ins per hour and per
+day, recent security events from the audit log, the latest administrator sign-ins,
+the security posture rows, and whether sessions survive a server restart
+("Sessions survive restarts: yes" or "no", with the reason; see
+[Sessions](./sessions.md#server-restarts)). **Refresh** reads the figures again. You
+see only the tiles your capabilities allow.
 
-## Passkey policy
+### The country database warning
 
-Five settings narrow which mailbox passkeys count. Each one can be set
-globally or for a domain, and locked like any other registry setting
-(Admin › Settings, category `signin`). The defaults keep the behaviour from
-before these settings existed.
+When a feature that needs a country database is switched on and no database is
+loaded, every Security centre tab starts with **Country features are on but no
+country database is loaded** and lists those features. On a new installation it lists
+two features that are on by default:
 
-| Setting | Values (default first) | Effect |
-| --- | --- | --- |
-| `twofa.passkeyAttachment` | `any`, `platform`, `cross-platform` | `platform`: passkeys stored on the device (Windows Hello, Touch ID, Android screen lock). `cross-platform`: security keys and phones. |
-| `twofa.passkeyUserVerification` | `preferred`, `required`, `discouraged` | `required`: the passkey must check a PIN or biometric at registration and at every sign-in. |
-| `twofa.passkeyResidentKey` | `discouraged`, `preferred`, `required` | `required`: the credential must be stored on the authenticator (discoverable). |
-| `twofa.passkeyLegacy` | `allow`, `refuse` | What happens to a passkey added before a stricter policy. See below. |
-| `twofa.lastFactorRemoval` | `allow`, `block` | See [Removing the last factor](#removing-the-last-factor). |
+- **Unknown-country admin console block** ([`security.trust.adminGeoEnabled`](/admin/settings#security.trust.admingeoenabled)):
+  without a database it blocks nothing.
+- **Session country-change alerts** ([`security.alerts.countryChangeEnabled`](/admin/settings#security.alerts.countrychangeenabled)):
+  without a database it cannot tell a country change.
 
-The values are sent to the browser in the registration and sign-in options,
-and the server checks the result:
+Install a database under **Country database**, or turn those settings off, to remove
+the warning. See [Country database](./country-database.md).
 
-- **User verification** is a flag the authenticator signs. With `required`, a
-  registration or sign-in without it is refused after the signature has been
-  checked.
-- **Attachment** is what the browser reports (`authenticatorAttachment`) and
-  the transports it lists. Mailwoman requests attestation `none`, so the
-  authenticator does not sign this. The server refuses a browser that reports
-  the wrong kind, or reports nothing while the setting is not `any`. It cannot
-  prove which hardware was used.
-- **Resident key**: the browser is asked for one. A registration whose
-  `credProps.rk` is reported `false` while the setting is `required` is
-  refused. A browser that does not report `credProps` is trusted to have
-  followed `residentKey: "required"`.
+## Two-factor & sign-in requirements
 
-In engine mode a passkey is also a passwordless sign-in credential, so
-registration always asks for a discoverable, user-verified credential. There
-the settings can only make user verification and resident key stricter.
+![The Two-factor & sign-in requirements tab.](/screenshots/admin-access/security-center-requirements.webp){.mw-crop}
 
-The same rules apply to passkey step-up confirmation. Every refusal gives the
-user a message that names the rule. It writes a `passkey-policy-refused` audit
-entry (actor: the user; detail: flow and reason) and a failed sign-in event in
-the account's activity. A policy refusal is only shown once the signature has
-been checked. A forged or tampered assertion still gets the uniform
-"did not verify" answer.
+1. **Require two-factor for the whole deployment**: every account needs a second factor.
+2. **Per-domain requirements**: require it for the accounts of one domain only.
+3. **Passkey and session policies**: links to the settings below.
+{.mw-callouts}
 
-### Passkeys added before a stricter policy
+A second factor is a passkey or an authenticator app. The requirement applies to an
+account when any of these is on: the deployment-wide rule, the rule for the account's
+domain, or the setting **Require two-factor authentication**
+([`twofa.required`](/admin/settings#twofa.required)), which can also be set for one
+account. The deployment-wide rule is the same as **Require a second
+factor for every account** on the [Security policy](./security-policy.md) tab.
 
-The default is **grandfathering** (`twofa.passkeyLegacy = allow`), so that a
-policy change does not lock anyone out. An older passkey that does not meet
-the current policy keeps working under the rule it was registered with. In
-Settings › Two-factor authentication it is marked "Added before the current
-policy and does not meet it", with a request to add a new passkey and remove
-the old one. A passkey that has completed user verification at least once is
-then always asked for it when user verification is `required`, so it cannot
-fall back to signing in without verification.
+When a required account has a second factor, sign-in asks for it. When it has none,
+the server holds the sign-in until a factor is set up, but the web app does not offer
+the setup at that point: it shows "This account requires two-step verification, but
+no method is set up yet" and the person cannot sign in.
 
-With `refuse`, a passkey whose stored attachment or resident-key property does
-not meet the policy is refused with "This passkey was added before your
-organization's current passkey policy and no longer meets it". User
-verification is checked at every sign-in rather than stored, so with `refuse`
-a passkey that has not verified the user before is asked to do so, and is
-refused only if it does not. The user can still sign in with an authenticator
-app code or a recovery code and add a new passkey. Before switching to
-`refuse`, check that affected users have another factor.
+::: warning
+The text on this tab says that requiring two-factor "forces accounts in scope to
+enrol on their next sign-in". In the web app they cannot enrol during sign-in.
+Before you require two-factor for a domain or the deployment, make sure the people
+concerned have set up a factor in their own settings.
+:::
 
-An older passkey with no recorded transports has an unknown attachment. Under
-an attachment policy it counts as not meeting it.
+### Passkey and session policies
 
-### Removing the last factor
+The list links to these settings. Each can be set for the whole server, a domain or
+an account, and locked:
 
-When removing an authenticator app or passkey would leave the account with no
-second factor (recovery codes do not count: they only replace a lost factor):
+| Setting | Key | Default | What it does |
+|---|---|---|---|
+| **Require two-factor authentication** | [`twofa.required`](/admin/settings#twofa.required) | off | As above. |
+| **Allow passkeys** | [`twofa.passkeysEnabled`](/admin/settings#twofa.passkeysenabled) | on | Off: passkeys are not offered as a second factor. An account whose only factor is a passkey then cannot sign in. |
+| **Passkey authenticator type** | [`twofa.passkeyAttachment`](/admin/settings#twofa.passkeyattachment) | `any` | `platform`: passkeys stored on the device (Windows Hello, Touch ID, Android screen lock). `cross-platform`: security keys and phones. |
+| **Passkey user verification** | [`twofa.passkeyUserVerification`](/admin/settings#twofa.passkeyuserverification) | `preferred` | `required`: the passkey must check a PIN or biometric at registration and every sign-in. |
+| **Discoverable passkeys** | [`twofa.passkeyResidentKey`](/admin/settings#twofa.passkeyresidentkey) | `discouraged` | `required`: the passkey must be stored on the authenticator. |
+| **Passkeys added before the current policy** | [`twofa.passkeyLegacy`](/admin/settings#twofa.passkeylegacy) | `allow` | What happens to an older passkey that does not meet a stricter policy. |
+| **Removing the last second factor** | [`twofa.lastFactorRemoval`](/admin/settings#twofa.lastfactorremoval) | `allow` | `block`: a person cannot remove their only passkey or authenticator app until they add another. |
+| **Remembered device lifetime** | [`twofa.rememberDays`](/admin/settings#twofa.rememberdays) | 0 (off) | Days a browser may skip the second factor after a correct password (up to 90). |
+| **Concurrent sessions** | [`session.maxConcurrent`](/admin/settings#session.maxconcurrent) | 10 | Mailbox sessions per account. |
+| **Session idle timeout** | [`session.idleSecs`](/admin/settings#session.idlesecs) | 7 days | See [Sessions](./sessions.md). |
+| **Session lifetime** | [`session.absoluteSecs`](/admin/settings#session.absolutesecs) | 0 (none) | See [Sessions](./sessions.md). |
 
-- if `twofa.required` (or a two-factor policy row) applies to the account,
-  the removal is refused with `409 lastFactorRequired`;
-- otherwise `twofa.lastFactorRemoval` decides: `allow` removes it (two-step
-  sign-in turns off); `block` refuses with `409 lastFactorBlocked`.
+What the server can check about a passkey:
 
-The user adds another passkey or an authenticator app first, then removes the
-old one. In Settings, the remove button of the only factor is shown as
-unavailable, with "Add another sign-in method first" beside it and in its
-tooltip. Each refusal writes a `passkey-policy-refused` audit entry with flow
-`last-factor-removal` and the reason code. Both removal routes
-(`/api/account/2fa/totp/disable` and `/api/account/2fa/passkey/remove`) apply
-the rule; cancelling an authenticator app setup that was never confirmed is not
-a removal. Regenerating recovery codes does not change the outcome.
-Administrators have no route that removes a user's factors.
+- **User verification** is signed by the authenticator, so `required` is enforced.
+- **Authenticator type** is what the browser reports. Mailwoman does not ask for
+  attestation, so it cannot prove which hardware was used; it refuses a browser that
+  reports the wrong type, or none while the setting is not `any`.
+- **Discoverable passkeys**: a registration that the browser reports as not
+  discoverable is refused when the setting is `required`; a browser that reports
+  nothing is trusted.
+- In engine mode a passkey can also be used to sign in without a password, so
+  registration there always asks for a discoverable, user-verified passkey; the
+  settings can only make this stricter.
 
-Before release 26.20 a third value, `requireRecoveryCodes`, allowed the
-removal once the account had unused recovery codes, after which the account
-signed in with the password alone. It now means `block`: migration 0074
-rewrites stored values, the server reads any remaining one as `block`, and a
-write or import of `requireRecoveryCodes` is stored as `block`.
+With **Passkeys added before the current policy** at `allow`, an older passkey keeps
+working, and the person's settings mark it and ask them to add a new one. With
+`refuse`, it is refused with a message that says so; the person can still sign in
+with an authenticator app code or a recovery code. Check that people have another
+factor before you choose `refuse`.
 
-Remembered devices are disabled by default. A remembered-device cookie can
-skip a login factor after the password verifies; it does not satisfy fresh
-verification. Tokens are hashed with the current password/factors and expire
-according to policy. Factor or password changes invalidate their use.
+With **Removing the last second factor** at `block`, or when two-factor is required
+for the account, removing the only passkey or authenticator app is refused; recovery
+codes do not count as a factor. Administrators cannot remove a user's factors.
+Refusals are recorded in the audit log as `passkey-policy-refused`.
 
-New-browser or device alerts use a separate, first-party HttpOnly recognition
-cookie with SameSite=Lax and Secure on HTTPS. The server stores only a digest
-scoped to the verified account identity and provider realm; this marker grants
-no sign-in or second-factor trust. A returning browser keeps its recognition
-through logout, browser updates and network changes, so changes to User-Agent
-or IP alone do not produce a new-device alert. Clearing cookies or using a new
-private browsing profile resets this marker and is treated as a new browser.
+## Related
 
-## Administrator sessions
-
-The Sessions page requires `sessions.read`; revocation requires
-`sessions.revoke`. Domain grants apply to both. Preview is the default and does
-not revoke anything. Confirmation submits only the opaque handles reviewed;
-newly opened sessions are not implicitly added to the action. Results are
-bounded at 1,000 and explicitly report truncation.
-
-## Security notices
-
-Security events are recorded durably in account activity. Inbox delivery uses
-backend APPEND in engine mode and guarded JMAP upload/import in proxy mode.
-Delivery runs asynchronously with a 30-second bound; transport refusal leaves
-the activity entry and writes an operator warning. Read-only POP3 backends
-cannot accept APPEND and therefore retain the activity notice only.
-
-Subjects and bodies follow the resolved `ui.language` policy. Bundled server
-notices cover ar, de, en, es, fr, it, ja, nl, pl, pt-BR, ru, uk and zh. Regional
-variants use the matching base language; unknown languages fall back to English.
-Messages contain fixed security guidance, not raw request headers, credentials,
-or user-supplied message content.
-
-Upgrading to the provenance schema (migration 0036) signs existing mailbox
-sessions out once because their authentication origin cannot be recovered
-safely. Native mailbox markers are removed with them. Accounts, mailbox data
-and administrator sessions remain intact. Newly created sessions without
-recorded provenance cannot mint sensitive-action proofs or enroll factors;
-a fresh sign-in records the method.
-
-## Mailbox activity and rolling sessions
-
-Mailbox sessions default to seven days since foreground use, with no fixed
-total lifetime. Opening a verified mailbox, returning to it, and trusted
-pointer, keyboard, wheel and touch interactions renew the window, at most once
-every thirty seconds. Background requests and scripted scrolling do not.
-Explicit deployment or account policy limits still apply: administrators can
-require a shorter inactivity period or a fixed lifetime up to fifteen days.
-Existing stored timestamps and explicit policy values are preserved on upgrade.
-
-The idle clock is persisted separately from request telemetry. Token rotation
-preserves both original sign-in time and user activity. Browser session and CSRF
-cookies persist for the remaining permitted window and renew on foreground use.
-Native bearer sessions use the same persisted clocks and optional absolute cap.
-Administrator idle/absolute limits and fresh verification remain unchanged.
+- [Security policy](./security-policy.md)
+- [Sessions](./sessions.md)
+- [Request protection](./request-protection.md)
+- [Admin console security](/security/admin-panel)
+- [Administrator authenticator and passkeys](./authenticator.md)
