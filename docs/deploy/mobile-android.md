@@ -1,105 +1,148 @@
-# Mobile shell (Tauri v2) — Android build, iOS & store gaps
+# Android app
 
-The V5 mobile shell (`apps/mobile`) is the same thin-client model as the desktop
-shell: it ships the hash-verified shared SPA and adds mobile OS integration only.
-**Android is the buildable gate; iOS is best-effort/documented.**
+The Android app (`apps/mobile`) is a Tauri 2 app that embeds the same web client the
+server serves (`apps/web/dist`) and talks to one Mailwoman server, compiled into the
+build. It contains no mail protocol code of its own. This page is for whoever builds
+and distributes the APK; the server address and branding are set as described in
+[Building the desktop and Android apps](./shells.md), and what users see is in
+[Desktop and mobile apps](../user/apps-desktop-mobile.md). There is no iOS app, and
+the server does not send Apple push notifications (APNs).
 
-## What ships on Android
+## Requirements
 
-Reached through the SPA's feature-detected capability layer, backed by the frozen
-`mw_*` commands (registered app-level in `apps/mobile/src-tauri/src/lib.rs`) and two
-custom Kotlin plugins:
+These are the versions the `android-apk` CI job uses:
 
-- **Server address** compiled into the build (`MW_SHELL_SERVER_URL`); users cannot
-  enter or change it, and there is no provisioning file on Android yet (see
-  [`shells.md`](./shells.md)),
-- **Secure store** (`mw_keychain_*`,
-  backed by Android `EncryptedSharedPreferences` — AES-256 keyed by the hardware
-  Android Keystore, the mobile counterpart of desktop's `keyring`),
-- **UnifiedPush** registration (`mw_push_*`) — the self-hostable, no-Google push path
-  (see [`push.md`](./push.md)),
-- **Share targets & file handlers** for `.eml`/`.ics`/`.vcf`/`.msg`, **badge**,
-  **native notifications** (`mw_notify`), **biometric app-lock** (`mw_biometric_*`),
-- **Screen-capture protection** via `FLAG_SECURE` (`mw_set_capture_protection`) — a
-  real OS control on Android; see [`../security/screen-capture.md`](../security/screen-capture.md),
-- **`mailto:` / deep links** — declared statically in the manifest. ⚠️ **Inert
-  today**: the shared web composer takes no prefill props, so a `mailto:` URL has
-  nowhere to deliver its recipient/subject/body and opens an empty composer. Shell
-  side is fine; see the note in [`desktop.md`](./desktop.md).
+- a JDK 17 (CI: Temurin 17);
+- the Android SDK with `platform-tools`, and NDK r27 (the exact package is
+  `ndk_version` in the `android-apk` job of `.github/workflows/ci.yml`), with
+  `NDK_HOME` set to the NDK folder, `$ANDROID_HOME/ndk/<ndk version>`;
+- the Rust toolchain from `rust-toolchain.toml` (1.98.1) with the four Android
+  targets:
 
-The command names are the **frozen bare `mw_*` names** the SPA invokes (identical to
-the desktop shell), so the one SPA drives both shells with no forked UI.
+  ```sh
+  rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+  ```
 
-> ⚠️ **Known limitation — the app cannot display a message body (recorded 26.19).**
-> Because the shell points at the same web bundle (`"frontendDist": "../../web/dist"`),
-> it inherits the web client's narrow layout, and that layout removes the reader pane
-> outright: `@media (max-width: 760px) { .reader { display: none } }`, with every
-> reading-pane rule guarded to `min-width: 761px`. On a phone you can list, triage and
-> compose, but not read.
->
-> This is stated here rather than left to be discovered because this shell is meant to
-> be store-listed. Building a narrow reading layout is the prerequisite for taking the
-> mobile shells seriously, and it lands in the web client, not in the shell.
+- Node.js 22, pnpm (CI: 11.12.0) and Python 3.
 
-## Building the APK
+The app runs on Android 7.0 and later (`minSdkVersion` 24 in
+`apps/mobile/src-tauri/tauri.conf.json`).
 
-The dev machine used for V5 has the Android SDK + NDK but **no JDK on PATH**, so
-`tauri android init/build` runs only in CI (the `android-apk` job). The APK build is
-the mobile-shell verification gate: it cross-compiles the Rust cdylib for the Android
-targets (exercising the `#[cfg(mobile)]` capability bindings and the `mw_*`
-registration) and compiles the custom Kotlin plugins.
+## Build the APK
 
-The CI job:
+Run these from the repository root.
 
-1. Provisions a JDK (`temurin` 17), the Android SDK, and NDK (`ndk;27.0.12077973`)
-   plus the four Android Rust targets.
-2. Builds the shared SPA and emits the UI-bundle hash.
-3. `tauri android init --ci` generates `gen/android/` (git-ignored).
-4. `python3 apps/mobile/src-tauri/android-src/merge.py` merges the tracked Kotlin plugins
-   (`MailwomanMobilePlugin.kt`, `UnifiedPushReceiver.kt`, `FlagSecurePlugin.kt`), the
-   share/file-handler/deep-link `<intent-filter>`s + UnifiedPush `<receiver>` +
-   runtime `<uses-permission>`s into the manifest, and the Gradle deps
-   (`org.unifiedpush.android:connector`, `androidx.security:security-crypto`).
-5. `tauri android build --apk` and uploads the APK artifact.
+1. Build the web client and its hash manifest:
 
-Locally, the merge steps are documented in
-`apps/mobile/src-tauri/android-src/README.md`.
+   ```sh
+   pnpm -C apps/web install --frozen-lockfile
+   pnpm -C apps/web build
+   node scripts/emit-bundle-hash.mjs
+   ```
 
-> **Honest status:** the `android-apk` job is **`continue-on-error`**. The full
-> Android toolchain provisioning + the `gen/` project merge cannot be verified on the
-> Windows dev machine (no JDK), so a provisioning or merge failure is a **tracked
-> gap**, not a pipeline-red — the same discipline V4 used for its wasm/iOS deferrals.
-> The Rust host build, the `mw_*` command-name reconciliation (grep-verified against
-> the frozen `tauri.ts`), and the mobile unit tests are green locally; the APK build
-> is the CI-only leg.
+2. Generate the Android project in `apps/mobile/src-tauri/gen/android/` (not tracked
+   in git):
 
-## ACL note
+   ```sh
+   pnpm -C apps/mobile install
+   pnpm -C apps/mobile exec tauri android init --ci
+   ```
 
-The `mw_*` capability commands are registered at the **app level** (not as plugin
-commands), and Tauri v2 does not ACL-gate an app's own commands. So the frozen
-commands need **no** `permissions/` schema or `mailwoman-mobile:default` grant — this
-resolves the earlier deferred mobile-plugin-ACL item. `capabilities/default.json`
-still grants only the third-party plugin defaults (`core`/`os`/`notification`/
-`deep-link`), and `capabilities/mobile.json` grants `biometric:default`.
+3. Merge Mailwoman's Android sources into the generated project:
 
-## F-Droid friendliness
+   ```sh
+   python3 apps/mobile/src-tauri/android-src/merge.py
+   ```
 
-The Android build uses no proprietary dependencies: push is **UnifiedPush** (no
-Google Play Services / FCM), and the crypto is RustCrypto/pure-Rust. This keeps the
-build F-Droid-compatible. **Store submission itself is out of V5** (see below).
+4. Build the APK with your server's address:
 
-## Documented gaps (ops / sponsorship follow-ups, §28.7 — not V5 gates)
+   ```sh
+   MW_SHELL_SERVER_URL=https://mail.example.org pnpm -C apps/mobile exec tauri android build --apk
+   ```
 
-- **iOS shell build/run** — needs macOS + Xcode + a paid Apple account, unavailable
-  on the Windows dev/CI machine. The iOS code is a tracked best-effort skeleton
-  (`apps/mobile/src-tauri/ios-src/`): matching command names, an APNs registration
-  stub, and screen-capture **detection** (there is no iOS prevention API). The local
-  build is the gap.
-- **APNs live delivery** — needs an Apple account; **mocked/recorded in CI**. The
-  wake is opaque (no content) as on every transport.
-- **App-store submission + signing accounts** — Play Console / Apple Developer
-  account logistics are org/legal, not code. V5 plans the **build** + F-Droid-friendly
-  config + the Tauri updater signing plumbing only; submission is a sponsorship/ops
-  follow-up.
-- **Auto-update feed hosting** — the updater config is wired but inactive; a hosted
-  update feed + signing key is an ops follow-up (shared with the desktop shell).
+   To change the app name, add `--config '{"productName":"Example Mail"}'` (see
+   [Branding the build](./shells.md#branding-the-build)).
+
+The APK is written under `apps/mobile/src-tauri/gen/android/app/build/outputs/`. It
+is not signed with a release key; sign it for your distribution channel as described
+in [Packaging](./packaging.md).
+
+`merge.py` can run again safely: each step is skipped when it has already been
+applied. It does four things:
+
+1. copies `MailwomanMobilePlugin.kt`, `UnifiedPushReceiver.kt` and
+   `FlagSecurePlugin.kt` into the app's `com.mailwoman.mobile` package;
+2. adds the Gradle dependencies `org.unifiedpush.android:connector:2.5.0` and
+   `androidx.security:security-crypto:1.1.0-alpha06`;
+3. adds to `AndroidManifest.xml` the share and file-open intent filters
+   (`message/rfc822`, `text/calendar`, `text/vcard`, `application/vnd.ms-outlook`),
+   the `mailto:` and `mailwoman:` link filter, the UnifiedPush receiver, and the
+   `POST_NOTIFICATIONS` and `USE_BIOMETRIC` permissions;
+4. writes `proguard-mailwoman.pro` with the R8 rules the release build needs for
+   those dependencies.
+
+The steps are also described by hand in `apps/mobile/src-tauri/android-src/README.md`.
+
+## What the app does on Android
+
+- **Server address**: compiled in from `MW_SHELL_SERVER_URL`. There is no
+  provisioning file and no managed configuration on Android. Without an address the
+  app shows **This app has not been set up for a server. Contact your
+  administrator.**
+- **Sign-in**: the same bearer-token sign-in as the desktop app (see
+  [Desktop app](./desktop.md#signing-in)). The token is kept in
+  `EncryptedSharedPreferences`, encrypted with AES-256-GCM under a key held in the
+  Android Keystore.
+- **Push**: UnifiedPush, so the app needs no Google Play Services. Registering needs
+  a UnifiedPush distributor app on the phone; if several are installed and none was
+  chosen before, the app uses the first one Android lists. Server setup is in
+  [Push relay](./push.md).
+- **Notifications and unread count**: new-mail notifications, and the unread count as
+  a notification reading `<count> unread`.
+- **Screen-capture protection**: `FLAG_SECURE` on the app window when the
+  administrator's client policy requires it (see
+  [Screen capture](../security/screen-capture.md)).
+
+The manifest also declares share targets, file handlers for `.eml`, `.ics`, `.vcf`
+and `.msg`, and `mailto:` links, and the app contains a biometric app-lock command.
+No screen in the web client uses them, so sharing to the app, opening those files
+with it or tapping a `mailto:` link starts the app without passing the content on.
+
+<!-- SCREENSHOT deploy/android-sign-in: Android app on a phone, first start against a configured server, full screen showing the sign-in screen with the Email or username and Password fields and the Sign in button -->
+
+<!-- SCREENSHOT deploy/android-not-configured: Android app on a phone, built without MW_SHELL_SERVER_URL, full screen showing "This app has not been set up for a server. Contact your administrator." -->
+
+## F-Droid
+
+`packaging/fdroid/metadata/com.mailwoman.mobile.yml` is a draft recipe for the
+F-Droid repository; its notes are in `packaging/fdroid/README.md`. The app has no
+proprietary dependencies: push goes through UnifiedPush instead of Firebase Cloud
+Messaging. The recipe has not been submitted to F-Droid or built on F-Droid's build
+server.
+
+::: warning The recipe builds an app without a server address
+The recipe's build steps do not set `MW_SHELL_SERVER_URL`, so an APK built from it
+shows the not-set-up notice for every user. Add the variable for your server before
+you use the recipe.
+:::
+
+## Updates
+
+The Android app has no updater of its own. Users get new versions from the store or
+repository they installed it from.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `tauri android init` fails with `Android NDK invalid. Make sure the NDK_HOME environment variable has correct value.` | `NDK_HOME` is empty or points at the wrong folder. | Set `NDK_HOME` to the installed NDK folder, such as `$ANDROID_HOME/ndk/<ndk version>`. |
+| `merge.py` prints `[android-merge] ERROR: … build.gradle.kts not found — did 'tauri android init' run?` | The generated project does not exist yet. | Run step 2 first. |
+| The build fails with `MW_SHELL_SERVER_URL must be https://host[:port][/path] …` | The address has another form. | Use `https://`, or `http://` only to a loopback host. |
+
+## Related
+
+- [Building the desktop and Android apps](./shells.md)
+- [Desktop app](./desktop.md)
+- [Push relay](./push.md)
+- [Packaging and store channels](./packaging.md)
+- [Desktop and mobile apps (user guide)](../user/apps-desktop-mobile.md)
