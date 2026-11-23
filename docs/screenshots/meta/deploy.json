@@ -170,6 +170,48 @@
       "webBuiltAt": "2026-11-23T03:29:15.202Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
+    "signin-2fa-enrol": {
+      "hash": "116289658e8189b1",
+      "bytes": 11088,
+      "width": 332,
+      "height": 294,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "fe24b02e",
+      "stack": "E",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "signin-2fa-enrol-totp": {
+      "hash": "fa8c57f65c6f540f",
+      "bytes": 16010,
+      "width": 332,
+      "height": 736,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "fe24b02e",
+      "stack": "E",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "signin-2fa-recovery": {
+      "hash": "11cccb22502969af",
+      "bytes": 15636,
+      "width": 332,
+      "height": 497,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "fe24b02e",
+      "stack": "E",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
     "signin-filled": {
       "hash": "978a149555a6972f",
       "bytes": 9280,

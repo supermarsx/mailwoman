@@ -69,13 +69,30 @@ If the code is wrong, the screen says "That did not verify. Try again." To start
 
 If your administrator requires two-step verification and your account has no method set up yet, the screen after **Sign in** is **Set up two-step verification to continue**. You set up a method there and then finish signing in.
 
-<!-- SCREENSHOT-PENDING deploy/signin-2fa-enrol -->
+![The Set up two-step verification to continue step of signing in, with the Set up an authenticator app button and Back to sign in.](/screenshots/deploy/signin-2fa-enrol.webp){.mw-crop}
 
 1. Under **Choose a verification method**, select **Set up an authenticator app**. In a browser that supports passkeys, and if your administrator allows them, you can choose **Add a passkey** instead and follow your browser's prompts.
-2. Scan the QR code with your authenticator app, or type the **Setup key** into the app by hand.
+2. Scan the QR code with your authenticator app, or type the **Setup key** into the app by hand. On a device that has an authenticator app, **Open in an authenticator app** adds the account directly.
 3. Type the code the app shows into **Authenticator code** and select **Confirm**.
+
+![The authenticator setup card of the sign-in screen, with the QR code and setup key masked, and markers on the QR code, the Setup key, the Authenticator code field and Confirm.](/screenshots/deploy/signin-2fa-enrol-totp.webp){.mw-crop}
+
+1. The QR code (hidden in this image).
+2. **Setup key** (hidden in this image).
+3. **Authenticator code**
+4. **Confirm**
+{.mw-callouts}
+
+When the code is accepted:
+
 4. The screen says "Two-step verification is set up and you are signed in." and shows your **Recovery codes**. Save them somewhere safe: they are shown once, and each code works one time.
 5. Tick **I have saved these codes** and select **Continue**. The mailbox opens.
+
+![The recovery codes step after setting up two-step verification at sign-in, with the codes masked, I have saved these codes ticked, and markers on that box and Continue.](/screenshots/deploy/signin-2fa-recovery.webp){.mw-crop}
+
+1. **I have saved these codes**
+2. **Continue**
+{.mw-callouts}
 
 From then on, signing in asks for a code as described in [Confirm your second factor](#confirm-your-second-factor).
 

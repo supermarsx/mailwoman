@@ -843,6 +843,250 @@
         }
       ],
       "note": "The code changes every 30 seconds, so the field is masked."
+    },
+    {
+      "id": "signin-2fa-enrol",
+      "page": "getting-started/first-sign-in.md",
+      "session": "none",
+      "seed": [
+        "mail-basic",
+        "twofa-required"
+      ],
+      "isolate": true,
+      "clock": false,
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "fill": {
+            "label": "@auth-email",
+            "value": "alex@example.com"
+          }
+        },
+        {
+          "fill": {
+            "label": "@auth-password",
+            "value": "demo-pass-alex",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@auth-sign-in"
+          }
+        },
+        {
+          "waitFor": {
+            "testid": "twofa-enrol"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "testid": "twofa-enrol"
+        },
+        "padding": 12
+      },
+      "alt": "The Set up two-step verification to continue step of signing in, with the Set up an authenticator app button and Back to sign in."
+    },
+    {
+      "id": "signin-2fa-enrol-totp",
+      "page": "getting-started/first-sign-in.md",
+      "session": "none",
+      "seed": [
+        "mail-basic",
+        "twofa-required"
+      ],
+      "isolate": true,
+      "clock": false,
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "fill": {
+            "label": "@auth-email",
+            "value": "alex@example.com"
+          }
+        },
+        {
+          "fill": {
+            "label": "@auth-password",
+            "value": "demo-pass-alex",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@auth-sign-in"
+          }
+        },
+        {
+          "waitFor": {
+            "testid": "twofa-enrol"
+          }
+        },
+        {
+          "click": {
+            "testid": "enrol-totp"
+          }
+        },
+        {
+          "waitFor": {
+            "testid": "enrol-totp-qr"
+          }
+        }
+      ],
+      "mask": [
+        {
+          "testid": "enrol-totp-qr"
+        },
+        {
+          "testid": "enrol-totp-secret"
+        }
+      ],
+      "shot": {
+        "element": {
+          "testid": "twofa-enrol"
+        },
+        "padding": 12
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "testid": "enrol-totp-qr"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "testid": "enrol-totp-secret"
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "label": "@settings-2fa-totp-code-label"
+          },
+          "place": "right"
+        },
+        {
+          "n": 4,
+          "target": {
+            "testid": "enrol-totp-confirm"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The authenticator setup card of the sign-in screen, with the QR code and setup key masked, and markers on the QR code, the Setup key, the Authenticator code field and Confirm.",
+      "note": "QR code and key are random for each run, so they are masked. clock false: the server checks codes against real time."
+    },
+    {
+      "id": "signin-2fa-recovery",
+      "page": "getting-started/first-sign-in.md",
+      "session": "none",
+      "seed": [
+        "mail-basic",
+        "twofa-required"
+      ],
+      "isolate": true,
+      "clock": false,
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "fill": {
+            "label": "@auth-email",
+            "value": "alex@example.com"
+          }
+        },
+        {
+          "fill": {
+            "label": "@auth-password",
+            "value": "demo-pass-alex",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@auth-sign-in"
+          }
+        },
+        {
+          "waitFor": {
+            "testid": "twofa-enrol"
+          }
+        },
+        {
+          "click": {
+            "testid": "enrol-totp"
+          }
+        },
+        {
+          "waitFor": {
+            "testid": "enrol-totp-secret"
+          }
+        },
+        {
+          "eval": "(async()=>{const s=document.querySelector('[data-testid=enrol-totp-secret]').textContent.replace(/[^A-Za-z2-7]/g,'').toUpperCase();const a='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits='';for(const c of s)bits+=a.indexOf(c).toString(2).padStart(5,'0');const b=new Uint8Array(Math.floor(bits.length/8));for(let i=0;i<b.length;i++)b[i]=parseInt(bits.slice(i*8,i*8+8),2);const k=await crypto.subtle.importKey('raw',b,{name:'HMAC',hash:'SHA-1'},false,['sign']);const t=Math.floor(Date.now()/30000);const m=new ArrayBuffer(8);const v=new DataView(m);v.setUint32(0,Math.floor(t/4294967296));v.setUint32(4,t>>>0);const h=new Uint8Array(await crypto.subtle.sign('HMAC',k,m));const o=h[19]&15;const n=(((h[o]&127)<<24)|(h[o+1]<<16)|(h[o+2]<<8)|h[o+3])%1000000;const inp=document.querySelector('[data-testid=enrol-totp-setup] input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(inp,String(n).padStart(6,'0'));inp.dispatchEvent(new Event('input',{bubbles:true}));})()"
+        },
+        {
+          "click": {
+            "testid": "enrol-totp-confirm"
+          }
+        },
+        {
+          "waitFor": {
+            "testid": "enrol-recovery-codes"
+          }
+        },
+        {
+          "check": {
+            "testid": "enrol-recovery-ack"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "mask": [
+        {
+          "css": "[data-testid=enrol-recovery-codes] > div:not([class*=actions])",
+          "first": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "testid": "twofa-enrol"
+        },
+        "padding": 12
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "text": "@settings-2fa-recovery-ack"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "testid": "enrol-continue"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The recovery codes step after setting up two-step verification at sign-in, with the codes masked, I have saved these codes ticked, and markers on that box and Continue.",
+      "note": "eval computes the current code from the setup key the page shows (the harness totp step only knows keys it enrolled itself) and types it. Codes are masked: they are random and work as credentials."
     }
   ]
 }
