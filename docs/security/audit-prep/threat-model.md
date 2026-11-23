@@ -119,12 +119,16 @@ IMAP/SMTP.
 
 **Existing mitigations.**
 - Root key derived client-side (Argon2id / WebAuthn-PRF) inside the WASM worker; KEK wraps
-  per-account data keys; per-class keys via a domain-separated SHA-256 KDF. Only wrapped
-  keys + ciphertext persist server-side.
-- Rows are **XChaCha20-Poly1305** ciphertext framed `nonce(24) ‖ ct+tag`, authenticated
-  with **AAD = `table ‖ 0x1F ‖ row_id ‖ 0x1F ‖ schema_version`** — decryption fails if a
-  row is relocated, re-labelled, or read under a different schema version (anti-replay /
-  anti-relocation).
+  per-account data keys; per-class keys via a domain-separated SHA-256 KDF. The server
+  stores only the wrapped keys. It does not store mail encrypted under them: stored
+  bodies and envelopes stay sealed with the server key, the same as for any account.
+- Row sealing under the client keys exists but is unused. `mw-crypto` implements it
+  (`seal_row` / `zaSealRow` in `crates/mw-crypto/src/zeroaccess.rs`: XChaCha20-Poly1305,
+  `nonce(24) ‖ ct+tag`, AAD = `table ‖ 0x1F ‖ row_id ‖ 0x1F ‖ schema_version`), and the web
+  app wraps it in `ZeroAccessService.sealRow` / `openRow`
+  (`apps/web/src/modules/zeroaccess/service.ts`), but nothing outside tests calls those
+  methods. No stored row is sealed this way, so the anti-relocation property is not a
+  control to test.
 - Caching of plaintext-derived data is **disabled** for zero-access accounts (SPEC §15.6).
 - **No server-side searchable-encryption claim.** ⚠️ **Corrected in 26.19:** this bullet
   previously asserted that search runs entirely client-side over a browser-built Tantivy
