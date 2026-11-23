@@ -30,7 +30,7 @@ On the server:
 - The account is recorded as zero-access (table `zeroaccess_accounts`).
 - The account's documents are removed from the full-text search index, and no new ones are written while the mode is on. Server-side search returns nothing for the account.
 - Plaintext-derived values for the account (header windows, message bodies) are never placed in the memory cache or the Redis/Valkey cache; they are read from the store for each request.
-- Sealed credentials for linked mailboxes are deleted, and new links that would store a credential are refused, for the account both as the owner and as the linked mailbox.
+- Sealed credentials for linked mailboxes are deleted, for the account both as the owner and as the linked mailbox. New links are still made, but without a stored password, so access has to be renewed by signing in to the linked mailbox again when it ends (the linked-mailbox screen says "Zero-access mode is on, so this server will not keep the mailbox password.").
 - Saving drafts to the server (account drafts) is refused for the account.
 - AI Assist requests leave the account's content out, whatever the request asks for.
 - Some security verdicts computed from stored mail are not cached for the account.
