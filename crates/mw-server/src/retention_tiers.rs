@@ -667,7 +667,7 @@ mod tests {
         let find = |v: &[Value], id: &str| v.iter().find(|x| x["id"] == id).cloned().unwrap();
         let before = effective_system(&s, "a", "a@example.test").await;
         let dlp = find(&before, "dlpAudit");
-        assert_eq!((dlp["class"].as_str(), dlp["archived"].as_bool(), dlp["days"].as_i64()), (Some("long"), Some(false), Some(365)));
+        assert_eq!((dlp["class"].as_str(), dlp["archived"].as_bool(), dlp["days"].as_i64()), (Some("long"), Some(false), Some(1825)));
         assert!(before.iter().all(|x| x["id"] != "jobRuns"), "only stores that hold a person's data");
 
         set(&s, "retention.archive.enabled", "true").await;
