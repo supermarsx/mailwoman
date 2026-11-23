@@ -3447,13 +3447,26 @@ async fn jmap_session(
         Err(r) => return r,
     };
     let scripts_only = scoped.is_some();
+    // t34-e11 (bounded mode only): the feature guard deferred its check here,
+    // so this is the request's one full authentication (feature_auth_boundary).
+    let deferred = ext.get::<feature_gate::DeferredJmapFeatures>().cloned();
     let session = match scoped {
         Some(s) => s,
-        None => match authed(&state, &headers).await {
-            Ok(s) => s,
-            Err(r) => return r,
+        None => match deferred {
+            Some(features) => match feature_gate::authenticate_deferred(&state, &headers, features, &[]).await {
+                Ok(s) => s,
+                Err(feature_gate::BoundaryError::Authentication(r) | feature_gate::BoundaryError::Features(r)) => return r,
+            },
+            None => match authed(&state, &headers).await {
+                Ok(s) => s,
+                Err(r) => return r,
+            },
         },
     };
+    fixture_profile::measure(fixture_profile::Phase::Handler, jmap_session_document(&state, session, scripts_only)).await
+}
+
+async fn jmap_session_document(state: &AppState, session: mw_store::Session, scripts_only: bool) -> Response {
     if let Some(engine) = &state.engine {
         if let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await {
             tracing::warn!("engine account not available: {e}");
@@ -3480,13 +3493,16 @@ async fn jmap_session(
             }
             document["accounts"][&session.account_id]["accountCapabilities"] = json!({});
         }
-        if let Ok(context) = sieve_sync::context(&state, &session, None).await {
+        if let Ok(context) = sieve_sync::context(state, &session, None).await {
             let capability = mw_engine::sieve_jmap::CAPABILITY;
             document["capabilities"][capability] = json!({"implementation":"Mailwoman"});
             document["accounts"][&session.account_id]["accountCapabilities"][capability] =
                 context.account_capability();
             document["primaryAccounts"][capability] = session.account_id.clone().into();
         }
+        // A request on published inputs (bounded mode) re-observes its source
+        // after the awaits above, as `/api/me` does; otherwise a no-op.
+        if let Err(response) = request_inputs::seal().await { return response; }
         return Json(prefix_session_urls(document, &state.base_path)).into_response();
     }
     let mut upstream =

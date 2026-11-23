@@ -119,8 +119,8 @@ pub(crate) enum BoundaryError {
 }
 
 pub(super) fn eligible(state: &AppState, request: &Request) -> bool {
-    if request.method() != Method::POST
-        || request.uri().path() != "/jmap/api"
+    let jmap_api = request.method() == Method::POST && request.uri().path() == "/jmap/api";
+    if !(jmap_api || session_document_deferred(request))
         || request.headers().contains_key(header::AUTHORIZATION)
         || request
             .headers()
@@ -147,6 +147,20 @@ pub(super) fn eligible(state: &AppState, request: &Request) -> bool {
         .extensions()
         .get::<SettingsReadRevision>()
         .is_some_and(|proof| proof.scope() == state.store.cache_scope() && proof.number().is_some())
+}
+/// t34-e11, `MW_GUARD_SNAPSHOT=bounded` only: the cookie `GET /jmap/session`
+/// takes the same deferred path as cookie JMAP, so it authenticates ONCE, in its
+/// handler, instead of here and again there. Nothing authenticated crosses the
+/// boundary: the handler runs [`authenticate_deferred`] (feature decision on a
+/// source hint, then one complete fresh authentication, then the source fence).
+/// An API key (`x-api-key`) keeps the original two-boundary path; the handler
+/// prefers a key over the cookie, so a deferred cookie decision must not exist.
+/// Off mode never defers this route.
+fn session_document_deferred(request: &Request) -> bool {
+    request.method() == Method::GET
+        && request.uri().path() == "/jmap/session"
+        && !request.headers().contains_key("x-api-key")
+        && crate::request_inputs::snapshot::mode() != crate::request_inputs::snapshot::Mode::Off
 }
 pub(super) fn same_session(hint: &Session, authenticated: &Session) -> bool {
     hint.id == authenticated.id

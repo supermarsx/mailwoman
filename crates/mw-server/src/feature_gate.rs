@@ -597,6 +597,35 @@ fn metadata_read_restart_needs(body:&[u8])->Option<Needs> {
     Some(needs)
 }
 
+/// The settings revision both presence checks share (see the caller).
+///
+/// t34-e11, `MW_GUARD_SNAPSHOT=bounded` only: a GET has no body for this guard
+/// to wait on, and a request running on published inputs already carries its
+/// revision in its source fence. That fence is re-observed at THIS point first
+/// (`request_inputs::refresh`: a reuse the mirror certifies now, else one fresh
+/// fence read), so the revision is at most the staleness bound old, and a
+/// changed source is the request input's own classified refusal. Off mode, a
+/// request with a body, and a request without published inputs keep the fresh
+/// read.
+async fn policy_boundary(state: &AppState, req: &mut Request) -> Result<(), Response> {
+    if req.method() == Method::GET
+        && crate::request_inputs::snapshot::mode() != crate::request_inputs::snapshot::Mode::Off
+        && crate::request_inputs::active()
+        // Marks the frame consumed, so the refresh below always re-observes.
+        && crate::request_inputs::revision(&state.store, false).await.is_some()
+    {
+        crate::request_inputs::refresh().await?;
+        if let Some(revision) = crate::request_inputs::revision(&state.store, false).await {
+            req.extensions_mut().insert(revision);
+            return Ok(());
+        }
+    }
+    crate::settings_request_revision::refresh(&state.store, req)
+        .await
+        .map(drop)
+        .map_err(|_| unavailable())
+}
+
 /// The guard (see the module docs). Layered innermost on the user router.
 pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let method = req.method().clone();
@@ -666,9 +695,9 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
     // Body parsing above may have waited while an administrator changed policy.
     // Refresh here once; both presence checks share this feature-boundary proof.
     if (needs.native || needs.protocol)
-        && crate::settings_request_revision::refresh(&state.store, &mut req).await.is_err()
+        && let Err(response) = policy_boundary(&state, &mut req).await
     {
-        return unavailable();
+        return response;
     }
     // The two checks that touch most requests are skipped while nothing is
     // stored for their key (every subject then has the default: allowed).
