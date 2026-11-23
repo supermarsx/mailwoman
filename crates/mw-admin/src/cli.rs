@@ -34,7 +34,7 @@ pub struct AdminCli {
     pub command: AdminCommand,
 }
 
-/// The `admin` noun tree — one variant per §19 panel section.
+/// The `admin` noun tree.
 #[derive(Debug, Subcommand)]
 pub enum AdminCommand {
     /// Manage console administrator accounts (not mailbox users).
