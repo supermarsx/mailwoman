@@ -13,6 +13,9 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
+mod journal;
+pub use journal::{IndexJournalEntry, IndexJournalMode, MAX_INDEX_JOURNAL_BATCH};
+
 pub const MAX_PUBLICATION_ACCOUNTS: usize = 64;
 pub const MAX_PUBLICATION_MESSAGES: usize = 4096;
 const MAX_INPUT_BYTES: usize = 1024 * 1024;
