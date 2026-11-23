@@ -13,10 +13,13 @@ export function ThemedSelects(){
    }})):[];
  }});
  onMount(()=>{
+   let pressed:HTMLSelectElement|undefined;
    const find=(event:Event)=>{const target=event.target;if(!(target instanceof Element))return;const select=target.closest('select');return select&&!select.multiple&&select.size<=1&&!select.matches(':disabled')?select:undefined;};
    const open=(select:HTMLSelectElement)=>{if(menu.isOpen()&&control()===select){menu.close();return;}menu.close(false);setControl(select);select.focus();menu.openBelow(select);};
-   const pointer=(event:MouseEvent|PointerEvent)=>{const select=find(event);if(!select||event.button!==0)return;event.preventDefault();event.stopPropagation();open(select);};
-   const mouse=(event:MouseEvent)=>{const select=find(event);if(!select)return;event.preventDefault();if(!menu.isOpen())open(select);};
+   const pointer=(event:MouseEvent|PointerEvent)=>{const select=find(event);if(!select||event.button!==0)return;event.preventDefault();event.stopPropagation();pressed=select;open(select);};
+   // A physical activation produces pointerdown, mousedown and click. Toggle
+   // only once; the compatibility mouse events must not reopen a closed menu.
+   const mouse=(event:MouseEvent)=>{const select=find(event);if(!select||event.button!==0)return;event.preventDefault();event.stopPropagation();if(event.type==='click'){const handled=pressed===select;pressed=undefined;if(!handled)open(select);}else if(pressed!==select){pressed=select;open(select);}};
    const keyboard=(event:KeyboardEvent)=>{const select=find(event);if(!select||!['ArrowDown','ArrowUp',' ','Enter','F4'].includes(event.key))return;event.preventDefault();event.stopPropagation();if(!menu.isOpen())open(select);};
    document.addEventListener('pointerdown',pointer,true);document.addEventListener('mousedown',mouse,true);document.addEventListener('click',mouse,true);document.addEventListener('keydown',keyboard,true);
    const stop=observePreferenceAccount(()=>menu.close(false));

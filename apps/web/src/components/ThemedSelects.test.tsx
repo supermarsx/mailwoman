@@ -4,6 +4,20 @@ import {ThemedSelects} from './ThemedSelects.tsx';
 import {installPointerEvent} from './accounts/pointerEventPolyfill.test-util.ts';
 installPointerEvent();
 afterEach(cleanup);
+it('toggles once for the complete physical pointer/mouse/click sequence',async()=>{
+ render(()=><><ThemedSelects/><label>Choice<select><option>One</option><option>Two</option></select></label></>);
+ const select=screen.getByRole('combobox',{name:'Choice'});
+ const click=()=>{fireEvent.pointerDown(select,{button:0});fireEvent.mouseDown(select,{button:0});fireEvent.mouseUp(select,{button:0});fireEvent.click(select,{button:0,detail:1});};
+ click();expect(await screen.findByRole('menu')).toBeInTheDocument();
+ click();expect(screen.queryByRole('menu')).toBeNull();
+ click();expect(await screen.findByRole('menu')).toBeInTheDocument();
+});
+it('toggles programmatic accessible clicks without compatibility mouse events',()=>{
+ render(()=><><ThemedSelects/><label>Choice<select><option>One</option></select></label></>);
+ const select=screen.getByRole('combobox',{name:'Choice'});
+ fireEvent.click(select);expect(screen.getByRole('menu')).toBeInTheDocument();
+ fireEvent.click(select);expect(screen.queryByRole('menu')).toBeNull();
+});
 it('uses the themed menu and fires the real form change for a pointer selection',async()=>{
  const change=vi.fn();render(()=><><ThemedSelects/><label>Choice<select onChange={change}><option value="one">One</option><option value="two">Two</option></select></label></>);
  const select=screen.getByRole('combobox',{name:'Choice'});fireEvent.pointerDown(select,{button:0});
