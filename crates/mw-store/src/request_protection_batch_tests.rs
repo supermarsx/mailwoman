@@ -96,3 +96,52 @@ async fn grouped_sqlcipher_commit_survives_encrypted_reopen() {
     let header=std::fs::read(&path).unwrap();assert_ne!(&header[..16],b"SQLite format 3\0");
     let reopened=Store::open_with_encryption(path.to_str().unwrap(),key,&cfg).await.unwrap();assert_eq!(inventory(&reopened).await,before);reopened.close().await;
 }
+#[tokio::test]
+async fn grouped_state_is_the_committed_row_and_load_reads_it_back() {
+    let store=Store::open_in_memory(ServerKey::generate()).await.unwrap();let p=policy();
+    let r=ProtectionObservation {kind:"account",value:"seeded",policy:&p,now:1000,signal:None,source:ProtectionSource::default()};
+    let out=store.request_protection_sqlite_batch_with_state(&[r,r,ProtectionObservation{signal:Some(Signal::Ignored),..r}]).await.unwrap();
+    assert!(out[2].1.is_none(),"an ignored observation touches no state");
+    let committed=out[1].1.clone().unwrap();
+    let key=store.request_protection_subject("account","seeded").unwrap();
+    let loaded=store.request_protection_load(&key,"account",1000).await.unwrap().unwrap();
+    assert_eq!(loaded.state,committed.state);assert_eq!(loaded.expires_at,committed.expires_at);
+    assert_eq!(loaded.revision,committed.revision);assert_eq!(out[1].0.revision,committed.revision);
+    assert!(store.request_protection_load(&key,"admin",1000).await.is_err(),"kind is validated");
+    let other=store.request_protection_subject("account","absent").unwrap();
+    assert!(store.request_protection_load(&other,"account",1000).await.unwrap().is_none());
+    // An expired row reads as the default state, as the transactional path treats it.
+    let expired=store.request_protection_load(&key,"account",committed.expires_at).await.unwrap().unwrap();
+    assert_eq!(expired.state,crate::request_protection_model::State::default());
+}
+#[tokio::test]
+async fn in_memory_evaluator_matches_transactional_decisions_and_rows() {
+    // Deterministic pseudo-random sequences over subjects, signals, policies and time.
+    let store=Store::open_in_memory(ServerKey::generate()).await.unwrap();
+    let mut variants=vec![policy()];let mut v=policy();v.rate_limit=1;variants.push(v);
+    let mut v=policy();v.max_stage=1;v.signals=5;variants.push(v);
+    let mut v=policy();v.adaptive_mode=Mode::Observe;variants.push(v);
+    let signals=[None,None,Some(Signal::Normal),Some(Signal::Malformed),Some(Signal::CredentialRejected),
+        Some(Signal::ProbePath),Some(Signal::BotUserAgent),Some(Signal::Protocol),Some(Signal::Ignored)];
+    let mut seed=0x9e37_79b9_7f4a_7c15_u64;let mut next=|n:u64| {seed^=seed<<13;seed^=seed>>7;seed^=seed<<17;seed%n};
+    let mut local:std::collections::HashMap<String,(crate::request_protection_model::State,i64)>=Default::default();
+    let mut now=10_000i64;let mut refused=0;let mut transitions=0;
+    for _ in 0..600 {
+        now+=next(40) as i64;if next(50)==0 {now+=4000;}
+        let kind=["client","account"][next(2) as usize];
+        let value=if kind=="client" {["192.0.2.1","192.0.2.2","2001:db8::1"][next(3) as usize]}else{["a","b"][next(2) as usize]};
+        let p=&variants[next(variants.len() as u64) as usize];let signal=signals[next(signals.len() as u64) as usize];
+        let source=ProtectionSource{country:Some("PT"),ip:None};
+        let expected=store.request_protection_with_source(kind,value,p,now,signal,source).await.unwrap();
+        let Some(prepared)=store.request_protection_prepare(kind,value,p,now,signal,source).unwrap() else {
+            assert!(expected.subject_key.is_empty());continue;
+        };
+        let (state,expires)=local.entry(prepared.subject_key().to_owned()).or_default();
+        let step=evaluate_protection(state,expires,&prepared,p,now,signal,source);
+        assert_eq!(step.decision,expected.decision);
+        let row=store.request_protection_load(prepared.subject_key(),kind,now).await.unwrap().unwrap();
+        assert_eq!(&row.state,state);assert_eq!(row.expires_at,*expires);
+        refused+=usize::from(step.decision.enforced);transitions+=usize::from(step.transition);
+    }
+    assert!(refused>0&&transitions>0,"refusals {refused} transitions {transitions} must be exercised");
+}

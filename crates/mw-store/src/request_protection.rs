@@ -35,10 +35,60 @@ pub struct ProtectionObservation<'a> {
     pub signal: Option<Signal>,
     pub source: ProtectionSource<'a>,
 }
-struct PreparedProtection {
+/// A validated observation: its subject key and canonical source. Pure; no SQL.
+#[derive(Clone, Debug)]
+pub struct PreparedProtection {
     key: String,
     source_subject: bool,
     observed_ip: Option<String>,
+}
+impl PreparedProtection {
+    pub fn subject_key(&self) -> &str {
+        &self.key
+    }
+}
+/// A subject row as the durable evaluator reads it. An expired row reads as
+/// the default state, exactly as the transactional path treats it.
+#[derive(Clone, Debug)]
+pub struct StoredProtection {
+    pub state: State,
+    pub expires_at: i64,
+    pub revision: String,
+}
+/// What one observation did to a subject.
+#[derive(Clone, Copy, Debug)]
+pub struct ProtectionStep {
+    pub decision: Decision,
+    /// A throttle/block/stage transition: the durable path audits it.
+    pub transition: bool,
+}
+/// The single request-protection evaluator. The transactional SQL path and
+/// the in-memory write-behind accounting both call it, so equal inputs give
+/// equal decisions and equal post-states. `expires_at` is the row expiry
+/// (0 for a subject without a row) and is advanced like the stored column.
+pub fn evaluate_protection(
+    state: &mut State, expires_at: &mut i64, prepared: &PreparedProtection,
+    policy: &Policy, now: i64, signal: Option<Signal>, source: ProtectionSource<'_>,
+) -> ProtectionStep {
+    if *expires_at <= now {
+        *state = State::default();
+    }
+    let previous = state.clone();
+    if prepared.source_subject && let Some(country) = source.country {
+        state.set_country_code(country);
+    }
+    if let Some(ip) = prepared.observed_ip.as_deref() {
+        state.set_source_ip(ip);
+    }
+    let decision = match signal {
+        None => state.admit(policy, now),
+        Some(value) => state.observe(policy, now, value),
+    };
+    state.counts(policy, now);
+    *expires_at = now
+        .saturating_add(i64::from(policy.retention_secs()))
+        .max(state.active_until());
+    ProtectionStep { decision, transition: state.transition_from(&previous, decision, policy) }
 }
 fn empty_protection_outcome() -> ProtectionOutcome {
     ProtectionOutcome { subject_key: String::new(), decision: Decision::default(),
@@ -1139,24 +1189,63 @@ impl Store {
     pub async fn request_protection_sqlite_batch(
         &self, requests: &[ProtectionObservation<'_>],
     ) -> Result<Vec<ProtectionOutcome>, StoreError> {
+        Ok(self.request_protection_sqlite_batch_with_state(requests).await?
+            .into_iter().map(|(outcome, _)| outcome).collect())
+    }
+
+    /// The same ordered group, also returning each subject's committed row
+    /// (`None` for an observation that touched no state), so an in-memory
+    /// cache can re-seed from what the database now holds.
+    pub async fn request_protection_sqlite_batch_with_state(
+        &self, requests: &[ProtectionObservation<'_>],
+    ) -> Result<Vec<(ProtectionOutcome, Option<StoredProtection>)>, StoreError> {
         if !self.uses_sqlite() || requests.len() > 64 { return Err(corrupt()); }
         let prepared = requests.iter().map(|r| self.prepare_request_protection(
             r.kind, r.value, r.policy, r.now, r.signal, r.source,
         )).collect::<Result<Vec<_>, _>>()?;
         if prepared.iter().all(Option::is_none) {
-            return Ok(requests.iter().map(|_| empty_protection_outcome()).collect());
+            return Ok(requests.iter().map(|_| (empty_protection_outcome(), None)).collect());
         }
         let mut tx = self.backend.begin().await?;
         let mut outcomes = Vec::with_capacity(requests.len());
         for (request, prepared) in requests.iter().zip(prepared) {
             outcomes.push(match prepared {
-                Some(prepared) => self.apply_request_protection(&mut tx, request.kind,
-                    request.policy, request.now, request.signal, request.source, prepared).await?,
-                None => empty_protection_outcome(),
+                Some(prepared) => {
+                    let (outcome, stored) = self.apply_request_protection_with_state(&mut tx,
+                        request.kind, request.policy, request.now, request.signal,
+                        request.source, prepared).await?;
+                    (outcome, Some(stored))
+                }
+                None => (empty_protection_outcome(), None),
             });
         }
         tx.commit().await?;
         Ok(outcomes)
+    }
+
+    /// Validate one observation without any storage access. `None` means the
+    /// observation touches no state (policy off or an ignored signal).
+    pub fn request_protection_prepare(
+        &self, kind: &str, value: &str, policy: &Policy, now: i64,
+        signal: Option<Signal>, source: ProtectionSource<'_>,
+    ) -> Result<Option<PreparedProtection>, StoreError> {
+        self.prepare_request_protection(kind, value, policy, now, signal, source)
+    }
+
+    /// One indexed read of a subject row, with the same kind and state
+    /// validation as the transactional path. `None` when no row exists.
+    pub async fn request_protection_load(
+        &self, key: &str, kind: &str, now: i64,
+    ) -> Result<Option<StoredProtection>, StoreError> {
+        let rows = q("SELECT state_json,subject_kind,expires_at,revision FROM request_protection_subject WHERE subject_key=?1")
+            .bind(key).fetch_all(&self.backend).await?;
+        let Some(row) = rows.first() else { return Ok(None); };
+        if row.get_string("subject_kind") != kind {
+            return Err(corrupt());
+        }
+        let expires_at = row.get_i64("expires_at");
+        let state = if expires_at <= now { State::default() } else { load(&row.get_string("state_json"), now)? };
+        Ok(Some(StoredProtection { state, expires_at, revision: row.get_string("revision") }))
     }
 
     fn prepare_request_protection(
@@ -1203,7 +1292,16 @@ impl Store {
         &self, tx: &mut Tx, kind: &str, policy: &Policy, now: i64,
         signal: Option<Signal>, source: ProtectionSource<'_>, prepared: PreparedProtection,
     ) -> Result<ProtectionOutcome, StoreError> {
-        let PreparedProtection { key, source_subject, observed_ip } = prepared;
+        Ok(self.apply_request_protection_with_state(tx, kind, policy, now, signal, source, prepared)
+            .await?.0)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn apply_request_protection_with_state(
+        &self, tx: &mut Tx, kind: &str, policy: &Policy, now: i64,
+        signal: Option<Signal>, source: ProtectionSource<'_>, prepared: PreparedProtection,
+    ) -> Result<(ProtectionOutcome, StoredProtection), StoreError> {
+        let key = prepared.key.clone();
         // An existing subject uses its own row lock; independent PostgreSQL
         // subjects need not serialize every request through one global lock.
         let locked =
@@ -1244,36 +1342,25 @@ impl Store {
         if row.get_string("subject_kind") != kind {
             return Err(corrupt());
         }
-        let mut state = if row.get_i64("expires_at") <= now {
+        let mut expires = row.get_i64("expires_at");
+        let mut state = if expires <= now {
             State::default()
         } else {
             load(&row.get_string("state_json"), now)?
         };
-        let previous = state.clone();
-        if source_subject && let Some(country) = source.country {
-            state.set_country_code(country);
-        }
-        if let Some(ip) = observed_ip.as_deref() {
-            state.set_source_ip(ip);
-        }
-        let decision = match signal {
-            None => state.admit(policy, now),
-            Some(value) => state.observe(policy, now, value),
-        };
-        state.counts(policy, now);
+        let ProtectionStep { decision, transition } = evaluate_protection(
+            &mut state, &mut expires, &prepared, policy, now, signal, source,
+        );
         let snapshot = state.snapshot();
         let rev = revision();
         let json = serde_json::to_string(&state).map_err(|_| corrupt())?;
         if json.len() > MAX_STATE_BYTES {
             return Err(corrupt());
         }
-        let expires = now
-            .saturating_add(i64::from(policy.retention_secs()))
-            .max(state.active_until());
         q("UPDATE request_protection_subject SET state_json=?1,updated_at=?2,expires_at=?3,revision=?4 WHERE subject_key=?5").bind(json).bind(now).bind(expires).bind(&rev).bind(&key).execute_tx(tx).await?;
-        if state.transition_from(&previous, decision, policy) {
+        if transition {
             let mut event_snapshot = snapshot.clone();
-            event_snapshot.source_ip = observed_ip;
+            event_snapshot.source_ip = prepared.observed_ip;
             audit(
                 tx,
                 &key,
@@ -1294,12 +1381,10 @@ impl Store {
             )
             .await?;
         }
-        Ok(ProtectionOutcome {
-            subject_key: key,
-            decision,
-            snapshot,
-            revision: rev,
-        })
+        Ok((
+            ProtectionOutcome { subject_key: key, decision, snapshot, revision: rev.clone() },
+            StoredProtection { state, expires_at: expires, revision: rev },
+        ))
     }
     /// Live row totals `(subjects, events)` for the admin pagination controls.
     pub async fn request_protection_totals(&self, now: i64) -> Result<(i64, i64), StoreError> {
