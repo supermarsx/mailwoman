@@ -668,3 +668,127 @@ async fn without_a_request_frame_every_state_read_is_fresh() {
     .await;
     assert_eq!(stmts.len(), 2, "{stmts:#?}");
 }
+
+// ── the client's refresh pair (t50hp-e7) ─────────────────────────────────────
+
+/// The push-fallback poll of the web client (`realtime/queryDelta.ts`):
+/// `Email/queryChanges` over the open folder plus `Email/changes`, from the
+/// states the last list read returned.
+async fn refresh_pair(hot: &Hot, account: &str) -> Vec<Value> {
+    let boxes = hot.send(account, vec![json!(["Mailbox/get", {"accountId":account}, "m"])]).await;
+    let inbox = boxes["methodResponses"][0][1]["list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["role"] == "inbox")
+        .unwrap()["id"]
+        .clone();
+    let listed = hot
+        .send(
+            account,
+            vec![
+                json!(["Email/query", {"accountId":account,"filter":{"inMailbox":inbox},"limit":25,"calculateTotal":true}, "q"]),
+                json!(["Email/get", {"accountId":account,"#ids":{"resultOf":"q","name":"Email/query","path":"/ids"},"properties":["id"]}, "g"]),
+            ],
+        )
+        .await;
+    let query = &listed["methodResponses"][0][1];
+    let state = &listed["methodResponses"][1][1]["state"];
+    vec![
+        json!(["Email/queryChanges", {"accountId":account,"filter":{"inMailbox":inbox},"sinceQueryState":query["queryState"],"maxChanges":1000,"calculateTotal":true,"upToId":query["ids"][24]}, "delta-query"]),
+        json!(["Email/changes", {"accountId":account,"sinceState":state,"maxChanges":1000}, "delta-emails"]),
+    ]
+}
+
+/// Warm statements of a refresh pair with nothing changed. Before t50hp-e7: 9
+/// (queryChanges: state, state, change log, mailbox, count; Email/changes:
+/// state, state, change log; closing sessionState). After: the shared state
+/// frame, the mailbox ownership read and the `calculateTotal` count.
+const REFRESH_PAIR_UNCHANGED: usize = 3;
+
+async fn refresh_pair_budget(hot: &Hot, backend: &str) {
+    let calls = refresh_pair(hot, &hot.a).await;
+    let (response, stmts) = hot.warm(&hot.a, calls).await;
+    eprintln!("t50hp-e7 {backend} refresh-pair unchanged={}", stmts.len());
+    for f in families(&stmts) {
+        eprintln!("t50hp-e7 {backend} refresh-pair   {f}");
+    }
+    let methods = method_responses(&response);
+    assert_eq!(methods[0][0], "Email/queryChanges", "{response}");
+    assert_eq!(methods[0][1]["oldQueryState"], methods[0][1]["newQueryState"], "{response}");
+    assert_eq!(methods[0][1]["removed"], json!([]), "{response}");
+    assert_eq!(methods[0][1]["total"], json!(SEEDED), "{response}");
+    assert_eq!(methods[1][0], "Email/changes", "{response}");
+    assert_eq!(methods[1][1]["oldState"], methods[1][1]["newState"], "{response}");
+    assert_eq!(methods[1][1]["hasMoreChanges"], json!(false), "{response}");
+    assert_eq!(stmts.len(), REFRESH_PAIR_UNCHANGED, "{backend}: {:#?}", families(&stmts));
+}
+
+#[tokio::test]
+async fn the_unchanged_refresh_pair_reads_state_once_sqlite() {
+    refresh_pair_budget(&Hot::sqlite().await, "sqlite").await;
+}
+
+#[tokio::test]
+async fn the_unchanged_refresh_pair_reads_state_once_postgres() {
+    let Some(hot) = Hot::pg().await else {
+        mw_test_gate::skip("DATABASE_URL_PG and MW_E14_PG_DSN unset: refresh pair budget on PostgreSQL");
+        return;
+    };
+    refresh_pair_budget(&hot, "postgres").await;
+}
+
+/// The pair answers as the oracle (each method its own request, every state
+/// read fresh): unchanged, after a change in the folder, after a destroy, from
+/// a state the account never reached, and after a change of another account.
+async fn refresh_pair_differential(hot: &Hot, backend: &str) {
+    let a = &hot.a;
+    let calls = refresh_pair(hot, a).await;
+    assert_matches_oracle(hot, &format!("{backend} refresh unchanged"), a, calls.clone()).await;
+    hot.store().record_change(&hot.b, "Email", "b-only", "created").await.unwrap();
+    assert_matches_oracle(hot, &format!("{backend} refresh other account"), a, calls.clone()).await;
+    hot.engine.record_change(a, ChangeType::Email, &hot.a_ids[3], ChangeOp::Updated).await.unwrap();
+    hot.engine.record_change(a, ChangeType::Email, "gone", ChangeOp::Destroyed).await.unwrap();
+    let response = assert_matches_oracle(hot, &format!("{backend} refresh changed"), a, calls.clone()).await;
+    let methods = method_responses(&response);
+    assert_eq!(methods[0][1]["added"], json!([{"id": hot.a_ids[3], "index": 3}]), "{response}");
+    assert_eq!(methods[1][1]["updated"], json!([hot.a_ids[3]]), "{response}");
+    assert_eq!(methods[1][1]["destroyed"], json!(["gone"]), "{response}");
+    assert_ne!(methods[1][1]["oldState"], methods[1][1]["newState"], "{response}");
+    // A state from the future is refused, as before.
+    let mut future = calls.clone();
+    future[0][1]["sinceQueryState"] = json!("999999");
+    future[1][1]["sinceState"] = json!("999999");
+    let response = assert_matches_oracle(hot, &format!("{backend} refresh unknown state"), a, future).await;
+    for method in method_responses(&response) {
+        assert_eq!(method[0], "error", "{response}");
+        assert_eq!(method[1]["type"], "cannotCalculateChanges", "{response}");
+    }
+    // A write earlier in the same request: the changes read after it is fresh.
+    let id = &hot.a_ids[0];
+    let current = hot.store().current_state(a, "Email").await.unwrap().to_string();
+    let response = hot
+        .send(a, vec![
+            json!(["Email/set", {"accountId":a,"update":{id.clone():{"keywords/$seen":true}}}, "write"]),
+            json!(["Email/changes", {"accountId":a,"sinceState":current,"maxChanges":1000}, "after"]),
+        ])
+        .await;
+    let methods = method_responses(&response);
+    assert_eq!(methods[1][1]["updated"], json!([id]), "{backend}: {response}");
+    assert_eq!(methods[1][1]["newState"], methods[0][1]["newState"], "{backend}: {response}");
+    assert_eq!(response["sessionState"], json!(hot.engine.session_state(a).await), "{backend}: {response}");
+}
+
+#[tokio::test]
+async fn the_refresh_pair_answers_as_the_unshared_oracle_sqlite() {
+    refresh_pair_differential(&Hot::sqlite().await, "sqlite").await;
+}
+
+#[tokio::test]
+async fn the_refresh_pair_answers_as_the_unshared_oracle_postgres() {
+    let Some(hot) = Hot::pg().await else {
+        mw_test_gate::skip("DATABASE_URL_PG and MW_E14_PG_DSN unset: refresh pair differential on PostgreSQL");
+        return;
+    };
+    refresh_pair_differential(&hot, "postgres").await;
+}

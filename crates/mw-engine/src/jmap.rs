@@ -480,9 +480,9 @@ impl Engine {
             .map(|n| n.min(i64::MAX as u64) as i64)
             .unwrap_or(DEFAULT_MAX_QUERY_CHANGES);
 
-        let current = match self.store().current_state(account_id, kind.as_str()).await {
+        let current = match self.change_counter(account_id, kind).await {
             Ok(n) => n,
-            Err(e) => return server_fail(&EngineError::Store(e)),
+            Err(e) => return server_fail(&e),
         };
         if since.parse::<u64>().map(|n| n > current).unwrap_or(true) {
             return cannot_calculate_changes("sinceState is not a known state");
@@ -1185,10 +1185,7 @@ impl Engine {
         let Ok(n) = since.parse::<u64>() else {
             return Ok(false);
         };
-        let current = self
-            .store()
-            .current_state(account_id, ChangeType::Email.as_str())
-            .await?;
+        let current = self.change_counter(account_id, ChangeType::Email).await?;
         Ok(n <= current)
     }
 

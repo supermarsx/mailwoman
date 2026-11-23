@@ -122,6 +122,66 @@ pub struct ListProjection {
     _attachment_text: SkipString,
 }
 
+/// The recipients of one indexed message, for the Focus "written to" check
+/// (t50hp-e7). Every other field keeps [`crate::IndexDoc`]'s required/type
+/// rules, as in [`ListProjection`], so a document `fetch_doc` would reject is
+/// absent here too.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecipientProjection {
+    pub stable_id: String,
+    pub account_id: String,
+    pub to: String,
+    pub cc: String,
+    #[serde(rename = "keywords")]
+    _keywords: SkipStrings,
+    #[serde(default, rename = "calendar")]
+    _calendar: Option<CalendarHint>,
+    #[serde(default, rename = "listSignal")]
+    _list_signal: Option<SkipString>,
+    #[serde(rename = "mailboxId")]
+    _mailbox_id: SkipString,
+    #[serde(rename = "from")]
+    _from: SkipString,
+    #[serde(default, rename = "fromDomains")]
+    _from_domains: SkipStrings,
+    #[serde(rename = "subject")]
+    _subject: SkipString,
+    #[serde(rename = "body")]
+    _body: SkipString,
+    #[serde(rename = "date")]
+    _date: i64,
+    #[serde(default, rename = "sentAt")]
+    _sent_at: Option<i64>,
+    #[serde(default, rename = "fromAddress")]
+    _from_address: Option<SkipString>,
+    #[serde(rename = "hasAttachment")]
+    _has_attachment: bool,
+    #[serde(rename = "size")]
+    _size: u64,
+    #[serde(rename = "filenames")]
+    _filenames: SkipStrings,
+    #[serde(rename = "pinned")]
+    _pinned: bool,
+    #[serde(default, rename = "attachmentText")]
+    _attachment_text: SkipString,
+}
+
+/// A thin projection bound to the account and id it was read for.
+trait Bound {
+    fn binding(&self) -> (&str, &str);
+}
+impl Bound for ListProjection {
+    fn binding(&self) -> (&str, &str) {
+        (&self.account_id, &self.stable_id)
+    }
+}
+impl Bound for RecipientProjection {
+    fn binding(&self) -> (&str, &str) {
+        (&self.account_id, &self.stable_id)
+    }
+}
+
 impl Index {
     /// One account-filtered index search per bounded chunk. Callers must supply
     /// only IDs from fresh account-owned SQL rows: the index is never an
@@ -133,6 +193,26 @@ impl Index {
         account_id: &str,
         stable_ids: &[String],
     ) -> Result<HashMap<String, ListProjection>> {
+        self.fetch_bound(account_id, stable_ids)
+    }
+
+    /// [`Index::fetch_list_projections`]'s batched, account-bound read, for
+    /// the `to`/`cc` of documents (t50hp-e7): one search per chunk instead of
+    /// one `fetch_doc` search and full document decode per id. The same
+    /// ownership rule applies: pass only ids from account-owned SQL rows.
+    pub fn fetch_recipient_projections(
+        &self,
+        account_id: &str,
+        stable_ids: &[String],
+    ) -> Result<HashMap<String, RecipientProjection>> {
+        self.fetch_bound(account_id, stable_ids)
+    }
+
+    fn fetch_bound<T: serde::de::DeserializeOwned + Bound>(
+        &self,
+        account_id: &str,
+        stable_ids: &[String],
+    ) -> Result<HashMap<String, T>> {
         let ids = stable_ids
             .iter()
             .map(String::as_str)
@@ -188,11 +268,12 @@ impl Index {
                 else {
                     continue;
                 };
-                let Ok(projection) = serde_json::from_str::<ListProjection>(json) else {
+                let Ok(projection) = serde_json::from_str::<T>(json) else {
                     continue;
                 };
-                if projection.account_id != account_id
-                    || projection.stable_id != stored_id
+                let (bound_account, bound_id) = projection.binding();
+                if bound_account != account_id
+                    || bound_id != stored_id
                     || chunk.binary_search(&stored_id).is_err()
                 {
                     continue;
@@ -204,7 +285,7 @@ impl Index {
                     found.remove(stored_id);
                     ambiguous.insert(stored_id.to_owned());
                 } else {
-                    found.insert(projection.stable_id.clone(), projection);
+                    found.insert(stored_id.to_owned(), projection);
                 }
             }
         }

@@ -115,6 +115,21 @@ impl Engine {
         self.type_state(account_id, kind).await
     }
 
+    /// The numeric `(account, type)` change counter for `*/changes` and
+    /// `Email/queryChanges`: the request frame's counter while a
+    /// [`crate::request_scope::SHARES_STATE`] method runs for `account_id`,
+    /// otherwise (or when the joint read failed) exactly
+    /// [`mw_store::Store::current_state`] (t50hp-e7).
+    pub(crate) async fn change_counter(&self, account_id: &str, kind: ChangeType) -> Result<u64> {
+        if matches!(kind, ChangeType::Email | ChangeType::Mailbox | ChangeType::EmailSubmission)
+            && let Some(frame) = crate::request_scope::RequestFrame::current(account_id)
+            && let Some(counters) = frame.mail_counters(self.store()).await
+        {
+            return Ok(counter(&counters.mail, kind));
+        }
+        Ok(self.store().current_state(account_id, kind.as_str()).await?)
+    }
+
     // ── PIM state tokens + `*/changes` (plan §1.8/§2.2) ─────────────────────
     // Sourced from the separate `pim_changes` log so PIM counters are disjoint
     // from the mail `changes` counters — a Calendar and an Email can share the
@@ -320,12 +335,24 @@ impl Engine {
         let Ok(since) = since_state.parse::<u64>() else {
             return Ok(None);
         };
-        let current = self
-            .store()
-            .current_state(account_id, kind.as_str())
-            .await?;
+        let current = self.change_counter(account_id, kind).await?;
         if since > current {
             return Ok(None);
+        }
+        // Nothing newer than `since`: the log read below would return no rows
+        // and `has_more == false`. The retention floor cannot exceed `since`
+        // here: a prune records `pruned_through <= head_state <= current` in
+        // one transaction (`change_log_retention::persist_floor`), so this is
+        // exactly the answer the read would give (t50hp-e7).
+        if since == current {
+            return Ok(Some(Changes {
+                old_state: since.to_string(),
+                new_state: current.to_string(),
+                created: Vec::new(),
+                updated: Vec::new(),
+                destroyed: Vec::new(),
+                has_more_changes: false,
+            }));
         }
         let result = self
             .store()

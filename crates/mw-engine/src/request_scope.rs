@@ -33,8 +33,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Read methods that may fill and reuse the request's state frame. Anything
-/// else invalidates it before it runs.
-pub(crate) const SHARES_STATE: [&str; 3] = ["Mailbox/get", "Email/get", "Email/query"];
+/// else invalidates it before it runs. The `*/changes` methods served by the
+/// shared mail handler and `Email/queryChanges` read their current counter
+/// from the frame (t50hp-e7): the client's refresh pair, `Email/queryChanges`
+/// and `Email/changes`, then reads the three mail counters once, and the
+/// closing `sessionState` reuses that read.
+pub(crate) const SHARES_STATE: [&str; 7] = [
+    "Mailbox/get",
+    "Email/get",
+    "Email/query",
+    "Email/changes",
+    "Email/queryChanges",
+    "Mailbox/changes",
+    "EmailSubmission/changes",
+];
 
 /// The joint counters read once for this request, or nothing yet.
 pub(crate) struct RequestFrame {

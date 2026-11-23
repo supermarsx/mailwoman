@@ -357,9 +357,10 @@ impl Engine {
         senders: &HashSet<String>,
         index_allowed: bool,
     ) -> Result<FocusContext> {
-        // The correspondent signal reads Sent's To/Cc from the index. A refused
-        // read fence (journal mode) drops the signal rather than reading stale.
-        let index_allowed = index_allowed && self.index_read_fence(account_id).await.is_ok();
+        // The correspondent signal reads Sent's To/Cc from the index. The
+        // caller's `index_allowed` already includes the index read fence of
+        // this request (`build_emails`), taken for the list projections this
+        // Focus pass shares; a refused fence arrives here as `false`.
         let mut ctx = FocusContext::default();
         // The Sent mailbox, its newest SENT_SCAN ids and their owned thread
         // ids in one statement (t34-e12; previously the mailbox list, the id
@@ -396,20 +397,61 @@ impl Engine {
                 }
             },
         }
-        for addr in senders {
-            if index_allowed
-                && let Some(sent) = &sent
-                && self.wrote_to(sent, &ctx.sent_ids, addr)
-            {
-                ctx.correspondents.insert(addr.clone());
-            }
+        if index_allowed && let Some(sent) = &sent {
+            ctx.correspondents = self.written_to(account_id, sent, &ctx.sent_ids, senders);
         }
         Ok(ctx)
     }
 
-    /// Whether one of the scanned Sent messages has `addr` in To or Cc, read
-    /// from the index (a phrase match, confirmed on the stored document).
-    fn wrote_to(&self, sent_mailbox: &str, scanned: &HashSet<String>, addr: &str) -> bool {
+    /// The senders that one of the scanned Sent messages has in To or Cc, read
+    /// from the index: per sender, a phrase match over Sent (its top 20 hits,
+    /// as before), restricted to the scanned ids and confirmed on the stored
+    /// `to`/`cc`. The confirming documents of every sender are read in one
+    /// account-bound batch (t50hp-e7) instead of one `fetch_doc` search and
+    /// full document decode per hit. An index error drops the signal (a failed
+    /// batch read drops it for every sender of the page), as a failed search
+    /// or document read did before.
+    fn written_to(
+        &self,
+        account_id: &str,
+        sent_mailbox: &str,
+        scanned: &HashSet<String>,
+        senders: &HashSet<String>,
+    ) -> HashSet<String> {
+        let mut candidates: Vec<(&String, Vec<String>)> = Vec::new();
+        for addr in senders {
+            let hits = self.sent_hits(sent_mailbox, addr);
+            let hits: Vec<String> = hits.into_iter().filter(|id| scanned.contains(id)).collect();
+            if !hits.is_empty() {
+                candidates.push((addr, hits));
+            }
+        }
+        if candidates.is_empty() {
+            return HashSet::new();
+        }
+        let ids: Vec<String> = candidates.iter().flat_map(|(_, hits)| hits.iter().cloned()).collect();
+        let Ok(docs) = self.search().fetch_recipient_projections(account_id, &ids) else {
+            return HashSet::new();
+        };
+        candidates
+            .into_iter()
+            .filter(|(addr, hits)| {
+                hits.iter().any(|id| {
+                    docs.get(id).is_some_and(|doc| {
+                        format!("{} {}", doc.to, doc.cc)
+                            .to_lowercase()
+                            .split(|c: char| c.is_whitespace() || c == ',' || c == '<' || c == '>')
+                            .any(|word| word == addr.as_str())
+                    })
+                })
+            })
+            .map(|(addr, _)| addr.clone())
+            .collect()
+    }
+
+    /// The top 20 Sent ids whose To or Cc phrase-matches `addr` (empty on an
+    /// index error).
+    fn sent_hits(&self, sent_mailbox: &str, addr: &str) -> Vec<String> {
         let text = |field| {
             Expr::Clause(Clause::Text {
                 field,
@@ -425,21 +467,7 @@ impl Engine {
             ]),
             sort: Sort::default(),
         };
-        let Ok(hits) = self.search().search(&query, 20) else {
-            return false;
-        };
-        hits.iter().filter(|id| scanned.contains(*id)).any(|id| {
-            self.search()
-                .fetch_doc(id)
-                .ok()
-                .flatten()
-                .is_some_and(|doc| {
-                    format!("{} {}", doc.to, doc.cc)
-                        .to_lowercase()
-                        .split(|c: char| c.is_whitespace() || c == ',' || c == '<' || c == '>')
-                        .any(|word| word == addr)
-                })
-        })
+        self.search().search(&query, 20).unwrap_or_default()
     }
 }
 

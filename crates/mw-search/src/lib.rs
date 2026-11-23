@@ -25,7 +25,7 @@ pub use publication::{PublicationChange, PublicationReceipt, PublicationOwnerCla
 mod publication_contract_tests;
 mod list_projection;
 mod projection_observation;
-pub use list_projection::{ListProjection, MAX_LIST_PROJECTION_IDS};
+pub use list_projection::{ListProjection, MAX_LIST_PROJECTION_IDS, RecipientProjection};
 /// A8 (26.19): cosine re-rank of an already-retrieved lexical hit list, behind the
 /// opt-in `semantic` flag. Pure vector math over `std` — retrieval is untouched, so
 /// the default search path is byte-identical to 26.18.

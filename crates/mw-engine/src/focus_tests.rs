@@ -304,3 +304,20 @@ async fn the_property_is_filled_only_when_named() {
         .await;
     assert!(resp["list"][0].get("mailwomanFocus").is_none(), "{resp}");
 }
+
+/// t50hp-e7: the "written to" check reads its confirming documents in one
+/// account-bound batch, not one `fetch_doc` per Sent hit; the answers do not
+/// change.
+#[tokio::test]
+async fn correspondents_are_confirmed_by_one_batched_document_read() {
+    let s = seeded().await;
+    let names = ["contact", "from-dave", "thread-reply", "person", "noreply", "news"];
+    let index = s.engine.search();
+    let (searches, docs) = (index.list_projection_search_count(), index.doc_fetch_count());
+    let got = s.focus(&names).await;
+    let reasons: Vec<&str> = got.iter().map(|v| v["reason"].as_str().unwrap()).collect();
+    assert_eq!(reasons, ["contact", "correspondent", "thread", "default", "keyword", "listHeader"]);
+    assert_eq!(index.doc_fetch_count() - docs, 0, "no per-hit fetch_doc");
+    // One list-projection search for the page, one recipient batch.
+    assert_eq!(index.list_projection_search_count() - searches, 2);
+}
