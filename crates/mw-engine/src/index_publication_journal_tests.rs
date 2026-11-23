@@ -416,6 +416,30 @@ async fn commit_mode_email_set_still_waits_and_reads_are_unfenced() {
 }
 
 #[tokio::test]
+async fn search_index_status_is_not_ready_while_journal_rows_are_unapplied() {
+    let f = fixture(journal_options()).await;
+    let status = f.engine.search_index_status().await.unwrap();
+    assert!(status.ready() && status.journal_rows == 0, "{status:?}");
+    // A raw writer with no publication leaves a row until the sweeper runs.
+    f.store.set_flags(&f.id, "[\"Seen\"]").await.unwrap();
+    let status = f.engine.search_index_status().await.unwrap();
+    assert!(status.journal_rows >= 1 && !status.ready(), "{status:?}");
+    f.engine.index_publisher.sweep_for_test(i64::MAX).await;
+    let status = f.engine.search_index_status().await.unwrap();
+    assert!(status.ready() && status.journal_rows == 0, "{status:?}");
+}
+
+#[tokio::test]
+async fn commit_mode_search_index_status_reports_zero_journal_rows() {
+    let (store, account, _inbox, _archive, id) = seed().await;
+    let search = Arc::new(mw_search::Index::open_in_ram().unwrap());
+    let engine = engine_over(&store, &search, &account, PublicationOptions { collection_window: Duration::ZERO, ..Default::default() }).await;
+    engine.publish_current_index(&account, vec![id], PublicationMode::Rebuild).await.unwrap();
+    let status = engine.search_index_status().await.unwrap();
+    assert!(status.ready() && status.journal_rows == 0, "{status:?}");
+}
+
+#[tokio::test]
 async fn journal_mode_is_refused_on_options_validation_bounds() {
     let mut options = journal_options();
     options.read_fence_timeout = Duration::from_millis(99);

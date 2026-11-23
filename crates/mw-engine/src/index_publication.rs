@@ -922,6 +922,14 @@ impl Publisher {
         self.0.core.journal.rows_known.store(true, Ordering::Release);
         Ok(rows)
     }
+    /// [`Publisher::journal_rows`] while the journal is in use; 0 without a
+    /// SQL read otherwise (commit mode after startup).
+    pub(crate) async fn journal_rows_if_active(&self) -> Result<u64> {
+        if !self.0.core.journal.active.load(Ordering::Acquire) {
+            return Ok(0);
+        }
+        self.journal_rows().await
+    }
     async fn refresh_journal_rows(&self) {
         if let Err(reason) = self.journal_rows().await {
             tracing::warn!("index publication journal: row count unavailable: {reason}");

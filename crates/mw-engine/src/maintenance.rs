@@ -294,6 +294,23 @@ pub struct SearchIndexStatus {
     pub rebuild_done: u64,
     /// Messages the running rebuild set out to process, or the last one did.
     pub rebuild_total: u64,
+    /// Index publication journal rows not yet applied to the index (t34,
+    /// `MW_INDEX_PUBLICATION_ACK=journal`). Always 0 while the journal is not
+    /// in use in this process, without a SQL read. The index is not ready
+    /// while this is above 0.
+    pub journal_rows: u64,
+}
+
+impl SearchIndexStatus {
+    /// Whether the index agrees with the store and has nothing pending: no
+    /// rebuild running, one document per indexable message, no zero-access
+    /// documents and no unapplied journal rows.
+    pub fn ready(&self) -> bool {
+        !self.rebuilding
+            && self.documents == self.messages
+            && self.zero_access_documents == 0
+            && self.journal_rows == 0
+    }
 }
 
 fn index_err(e: mw_search::SearchError) -> EngineError {
@@ -343,6 +360,7 @@ pub(crate) async fn search_index_status(engine: &Engine) -> Result<SearchIndexSt
         rebuilding: engine.index_rebuild.running.load(Ordering::SeqCst),
         rebuild_done: engine.index_rebuild.done.load(Ordering::SeqCst),
         rebuild_total: engine.index_rebuild.total.load(Ordering::SeqCst),
+        journal_rows: engine.index_publisher.journal_rows_if_active().await?,
         ..Default::default()
     };
     for account_id in all_account_ids(engine).await? {
