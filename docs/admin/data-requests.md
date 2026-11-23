@@ -87,6 +87,13 @@ The export is a ZIP file with a `manifest.json` that lists the sections, the fil
 | `calendars/*.ics`, `calendars.json` | One file per calendar | **Export: calendars** |
 | `notes.json` | Notes, with their text | **Export: notes** |
 | `rules/*.sieve`, `rules.json` | Filter scripts | **Export: filters and rules** |
+| `mailstate.json` | Tags, saved searches, masked addresses, focused senders, remote-image grants, read-receipt rules and receipt status, queued submissions, pins, snoozes and follow-up dates, sender actions; a marker when drafts are saved on the server | **Export: tags, saved searches and sending records** |
+| `tasks.json` | Tasks, with their iCalendar text | **Export: tasks** |
+| `security.json` | Passkey labels and credential ids, sign-in addresses, password change history, API key prefixes, OAuth token metadata, sign-in consents given to applications, encryption key metadata and key associations; markers for authenticator secrets, recovery codes and zero-access keys | **Export: security records** |
+| `integrations.json` | External mail (EWS) and DAV connections, added and linked mailboxes, webhooks and inbound webhooks; markers for sealed credentials | **Export: connected accounts and webhooks** |
+| `delegation.json` | Delegations the person granted and received, the shared mailbox row when the account is a shared mailbox, group memberships | **Export: delegations and shared mailboxes** |
+| `usage.json` | Last activity, usage counters, storage measurements, quotas | **Export: usage and quota records** |
+| `records.json`, `records/compliance-notifications.json` | Restrictions, the consent ledger, retention rules, settings and runs, contact and calendar retention, uploaded file metadata, open tracking and opens, data-loss-prevention decisions, plug-in data keys and sizes; compliance emails sent to the person (event, status, time and attempts, no content) | **Export: restrictions, retention rules and other records** |
 | `sessions.json` | Sessions (at most 200) and sign-in history (at most 500 entries per account) | **Export: sessions, devices and sign-in history** |
 | `consent.json` | Cookie consent records | **Export: consent records** |
 | `audit.json` | Audit entries where the person is the actor or the target (at most 5000 per account) | **Export: audit entries about the person** |
@@ -97,7 +104,13 @@ The caps on sessions, sign-in history and audit entries are applied without a no
 
 **Mail** is included only when **Mail in exports** is on (off by default) and the person ticked the box when filing. It covers the messages this server has in its message list for the person's accounts, up to 100,000 per account. A body that is not cached is fetched again from the upstream mail server, so the export includes mail that lives upstream. Attachments are inside the messages. The manifest always carries the sentence "Mail that stays on the upstream mail server is not part of this export", whatever the export contains. The console form for filing a request on someone's behalf never asks for mail; a request filed through the console API (`POST /dsr` with `includeMail`) can include it when **Mail in exports** is on.
 
-**Not exported**: drafts saved on the server, signatures saved apart from an identity, tasks, mail state such as flags and folders, security records, connected services, delegations, usage records, and the "records" section: the consent ledger, restrictions, retention rules, open-tracking data, uploaded files and data-loss-prevention decisions. These parts of the server's data map have no export switch and are always left out.
+The seven sections from `mailstate.json` to `records.json` are read from the server's data map (see [Erasure coverage](erasure-coverage.md#export-sections)) and are written as JSON only; **Export formats** adds no CSV copies of them. Each row names its source table. They leave out:
+
+- **Secrets.** A sealed or secret row (authenticator secrets, recovery codes, zero-access keys, stored passwords and OAuth credentials of connected accounts, bridge tokens, linked-mailbox credentials, Nextcloud links, server-saved drafts) appears as a marker with the table name, the number of rows and the status `present, not exported`. Key values, token values, hashes, webhook signing secrets, passkey public keys, private key backups (only a yes/no flag is exported) and plug-in values are never selected. A test fails when an exported column is named like a secret, token, password, hash or key and is not on its reviewed allow list.
+- **Parts of URLs.** A webhook URL and an EWS endpoint URL are exported as `scheme://host/path`: the user name, password, query string and fragment are removed, because they can hold tokens. A token that a service puts in the path itself is kept.
+- **Other people.** Rows are found by the person's account ids, personal owner keys, address and identity principals only. A delegation the person granted names the delegate's account id, since that says who can read the person's mail; a delegation the person received does not name the owner's account id. Rows of other accounts are not read through joins, delegations or shared mailboxes.
+
+**Not exported**: signatures saved apart from an identity, and mail flags and folders (the mail itself is in `mail/` when included).
 
 **Size**: an export stops at **Export size cap** (500 MB by default). A section that would go over it is left out and the manifest says so; this can leave out all mail.
 

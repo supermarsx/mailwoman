@@ -29,19 +29,19 @@ generated from the registry and a second test fails when it is out of date
 
 ## Export sections
 
-The registry names an export section for each table. Only some sections are
-included in a data export; see [What an export contains](data-requests.md#what-an-export-contains).
+The registry names an export section for each table. Every section is in a
+data export unless its switch is off; see [What an export contains](data-requests.md#what-an-export-contains).
 
 | Section | Holds | In an export |
 |---|---|---|
 | `profile`, `settings`, `identities`, `contacts`, `calendars`, `notes`, `rules` | the directory row, user settings, identities, address books, calendars, notes, mail rules | yes; each section except `profile` can be switched off |
-| `mailstate` | pins and snoozes, tags, saved searches, trusted senders, read-receipt rules and status, remote-image grants, masked addresses, queued submissions | no: the section has no export switch, so it is never included |
-| `tasks` | tasks | no: the section has no export switch, so it is never included |
-| `security` | key metadata and associations, API key prefixes, passkey labels, OAuth token metadata, authorization consents, password change history, markers for sealed secrets | no: the section has no export switch, so it is never included |
-| `integrations` | external mail and DAV connections, linked mailboxes, bridges, webhooks, markers for sealed credentials | no: the section has no export switch, so it is never included |
-| `delegation` | delegations granted and received, shared mailboxes, group membership | no: the section has no export switch, so it is never included |
-| `usage` | usage counters, storage measurements, quotas, last activity | no: the section has no export switch, so it is never included |
-| `records` | consent ledger, restrictions, retention rules, tracking pixels and opens, uploads, plug-in data keys, DLP decisions | no: the section has no export switch, so it is never included |
+| `mailstate` | pins and snoozes, tags, saved searches, trusted senders, read-receipt rules and status, remote-image grants, masked addresses, queued submissions | yes; switch `dsr.export.include.mailstate` |
+| `tasks` | tasks | yes; switch `dsr.export.include.tasks` |
+| `security` | key metadata and associations, API key prefixes, passkey labels, OAuth token metadata, authorization consents, password change history, markers for sealed secrets | yes; switch `dsr.export.include.security` |
+| `integrations` | external mail and DAV connections, linked mailboxes, bridges, webhooks (URLs as `scheme://host/path`), markers for sealed credentials | yes; switch `dsr.export.include.integrations` |
+| `delegation` | delegations granted (with the delegate) and received (without the owner), shared mailboxes, group membership | yes; switch `dsr.export.include.delegation` |
+| `usage` | usage counters, storage measurements, quotas, last activity | yes; switch `dsr.export.include.usage` |
+| `records` | consent ledger, restrictions, retention rules, tracking pixels and opens, uploads, plug-in data keys, DLP decisions | yes; switch `dsr.export.include.records` |
 | `sessions`, `consent`, `audit`, `requests`, `mail` | sessions and sign-in history, cookie consent, audit entries about the person, data requests, mail | yes; `requests` always, mail only when allowed and chosen |
 
 ## What stays after an erasure
