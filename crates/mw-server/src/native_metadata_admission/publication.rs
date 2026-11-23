@@ -411,6 +411,36 @@ impl Worker {
             memory.entries.remove(&key);
         }
     }
+    /// Lookup for a caller whose outer guards already CONSUMED published inputs.
+    /// There a miss is a terminal refusal, not a fallback, so a lookup that only
+    /// lost a race for the memory mutex must wait for it. Every critical section
+    /// on this mutex is synchronous and short (no await while held). t34: the
+    /// nonblocking lookup returned a spurious 503 `publishedGuardFenceRefusal`
+    /// under concurrent load on a multi-thread runtime.
+    pub(super) fn get_consumed(&self, cookie: &str, needs: &Needs) -> Option<Arc<Published>> {
+        let selector = selector(needs)?;
+        let key = key(cookie, &selector);
+        let mut memory = self.memory.lock().ok()?;
+        memory.clock = memory.clock.wrapping_add(1);
+        let used = memory.clock;
+        let cell = memory.entries.get_mut(&key)?;
+        cell.used = used;
+        Some(cell.entry.clone())
+    }
+    /// Test-only: hold the memory mutex on another OS thread for `hold`, the
+    /// way a concurrent request on another runtime worker does for a moment.
+    /// The returned receiver fires once the mutex is held.
+    #[cfg(test)]
+    pub(super) fn contend_for_test(self: Arc<Self>, hold: Duration) -> std::sync::mpsc::Receiver<()> {
+        let (held, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let guard = self.memory.lock().unwrap();
+            held.send(()).unwrap();
+            std::thread::sleep(hold);
+            drop(guard);
+        });
+        receiver
+    }
     fn get_selector(&self, cookie: &str, selector: &[String]) -> Option<Arc<Published>> {
         let key = key(cookie, &selector);
         let mut memory = self.memory.try_lock().ok()?;

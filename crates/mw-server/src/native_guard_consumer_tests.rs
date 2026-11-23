@@ -370,6 +370,39 @@ fn declared_denied_source_does_not_poll_body_and_cold_unmarked_route_keeps_origi
     });
 }
 
+// t34 bench regression: under concurrent load a declared read whose outer guards
+// had consumed published inputs got HTTP 503 `publishedGuardFenceRefusal` with no
+// authority change at all. Cause: the dispatch-time publication lookup used a
+// nonblocking `try_lock`, and another runtime worker holding the publication
+// memory mutex for a moment turned it into a miss; after consumption a miss is a
+// terminal refusal. This holds the mutex from another OS thread exactly at that
+// lookup, which is what a concurrent request does, and requires the ordinary
+// successful reply. Before the fix this returned 503.
+#[test]
+fn declared_read_survives_publication_memory_contention_at_dispatch_lookup() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        f.warm_published().await;
+        f.writer.touch_session(&f.session).await.unwrap();
+        let warm = f.send_declared().await;
+        assert_eq!(warm.0, StatusCode::OK);
+        let worker = publication::Worker::start(f.measured.clone()).unwrap();
+        let pause = test_control::pause(test_control::Stage::BeforePublishedLookup, &f.session);
+        let pending = f.send_declared();
+        tokio::pin!(pending);
+        tokio::select! {_=pause.entered.notified()=>{},reply=&mut pending=>panic!("must reach the dispatch lookup: {} {}",reply.0,reply.1)}
+        let held = worker.contend_for_test(Duration::from_millis(300));
+        held.recv_timeout(Duration::from_secs(5)).expect("contending thread holds the mutex");
+        pause.release.notify_one();
+        let reply = tokio::time::timeout(Duration::from_secs(10), pending).await.expect("bounded");
+        assert_ne!(reply.1["code"], "publishedGuardFenceRefusal", "contention is not a source change");
+        assert_eq!(reply.0, StatusCode::OK, "{}", reply.1);
+        assert_ne!(reply.4, 0, "outer guards consumed published inputs");
+        assert_eq!(reply.2.dispatches + reply.2.prepared_results, 1);
+        assert_eq!(reply.1["methodResponses"][0][1]["list"].as_array().unwrap().len(), 50);
+    });
+}
+
 #[test]
 fn declared_initial_expiry_keeps_original_cleanup_without_application_fallback() {
     run_fixture(|| async {

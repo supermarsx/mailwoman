@@ -563,7 +563,11 @@ pub(crate) async fn try_dispatch(
     let mut observed_published=false;
     if state.store.uses_sqlite() && publication_enabled() {
         if let Some(worker)=&state.native_publication {
-            if let Some(entry)=worker.get(&id,&deferred.0) {
+            #[cfg(test)] test_control::wait(test_control::Stage::BeforePublishedLookup,&id).await;
+            // After outer guards consumed published inputs a miss below refuses
+            // the request, so a lookup must not lose a race for the mutex.
+            let entry=if crate::published_guard_context::consumed() {worker.get_consumed(&id,&deferred.0)} else {worker.get(&id,&deferred.0)};
+            if let Some(entry)=entry {
                 observed_published=true;
                 if let Ok(Some(fence))=observe_published_guard(state,&id,&entry,&deferred.0,None).await {
                     #[cfg(test)] test_control::record_fence();
@@ -807,6 +811,7 @@ mod test_control {
         BeforeConnector,
         RestartBeforeFinal,
         PublicationBeforeFinal,
+        BeforePublishedLookup,
     }
     pub(super) struct Pause {
         pub entered: tokio::sync::Notify,
