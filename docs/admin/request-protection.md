@@ -79,7 +79,7 @@ Choosing a preset lists the rules it would change, with their current and new va
 | **Slow-down** | 3 s | 3 s | 10 s |
 | **Block** | 120 s | 300 s | 1800 s |
 
-The server's defaults are those of **Balanced** except for the three modes: request budgets and unusual-request protection are **Off** until you change them.
+The server's defaults are those of **Balanced** except for two of the three modes: **Request budget** and **Unusual request protection** are **Off** until you change them; **Recognized scan paths** is **Enforce**, as in **Balanced**.
 
 ## Request budgets
 
@@ -129,7 +129,7 @@ The first time a subject crosses a threshold it is slowed down for **Slow-down**
 
 ![The Probing protection card: its explanation, the warning that a block also refuses the mail app from that address, and the Off and On buttons with On selected.](/screenshots/admin-access/request-protection-probing.webp){.mw-crop}
 
-Four kinds of miss count, one point each, per client address (IPv6 per /64): **A known scanner path** (a path on the **Probe paths** list outside the console), **A guess at the console address** (a `404` at the console path's depth), **A failed admin sign-in** and **An admin request without a session**. The first 10 misses in 10 minutes are forgiven; the score drains at that rate. After that each miss is answered with a 1.5 second delay, and 10 more misses block the source for 15 minutes. A block that starts within a day of the previous one doubles in length, up to one day. A blocked source gets `429` (or `403`, **Blocked answer status**) with `Retry-After` for every path. A successful admin sign-in clears its source.
+Four kinds of miss count, one point each, per client address (IPv6 per /64): **A known scanner path** (a path on the **Probe paths** list outside the console), **A guess at the console address** (a `404` at the console path's depth), **A failed admin sign-in** and **An admin request without a session**. The first 10 misses in 10 minutes are forgiven; the score drains at that rate. After that each miss is answered with a 1.5 second delay, and 10 more misses block the source for 15 minutes. A block that starts within a day after the previous block ended doubles in length, up to one day. A blocked source gets `429` (or `403`, **Blocked answer status**) with `Retry-After` for every path. A successful admin sign-in clears its source.
 
 | Setting | Key | Default |
 |---|---|---|

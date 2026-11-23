@@ -80,7 +80,7 @@ The command needs the same `MW_DB_PATH` and `MW_SERVER_KEY` as the server.
 | Refused | Every HTTP request from the address, with `403` and no detail. |
 | Still answered | `/healthz` and `/readyz`, so deployment health checks keep working. |
 | Not affected | SMTP, IMAP and other listeners, and anything in front of Mailwoman. A ban is an application check, not a firewall rule. Fail2ban and firewall rules work independently (see [fail2ban](/deploy/fail2ban)). |
-| Expiry | At its expiry time a ban stops applying. Expired bans stay in the list for review until removed. |
+| Expiry | At its expiry time a ban stops applying. An expired ban stays in the list until it is removed, or until any new ban is added, which removes every expired ban. |
 | Same address again | Saving a ban for an address that is already banned replaces the earlier ban (reason and expiry). |
 | Limit | At most 10,000 bans. Expired bans are pruned when a new ban is added. |
 | Database unreachable | If the ban list cannot be read, requests are refused with `503` rather than let through. |

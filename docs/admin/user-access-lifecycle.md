@@ -71,7 +71,7 @@ The sign-in check reads all blocked and deleted users at once and gives up when 
 
 `GET`, `PUT` and `DELETE <console>/users/{id}/lifecycle` read, block or unblock (`{"disabled": true|false}`) and delete; `GET` and `DELETE <console>/users/{id}/legacy-block` read and clear the older flag. Every write needs the `If-Match` revision from a fresh `GET`: without it the answer is `428`, with an outdated one `412`, and changing a deleted record `409`.
 
-Each change is written to the admin audit log as `user-login-blocked`, `user-directory-block-cleared` or `user-local-access-deleted`, with the number of sessions it ended.
+Each change is written to the admin audit log: blocking, unblocking and deleting as `user-login-blocked`, `user-directory-block-cleared` or `user-local-access-deleted`, with the number of sessions it ended; clearing the older flag as `user-legacy-login-block-cleared`, without a session count.
 
 ## Troubleshooting
 

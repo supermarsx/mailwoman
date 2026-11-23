@@ -18,7 +18,7 @@ This OAuth server gives apps access to the mail API. It is separate from the [id
 
 - Viewing the page needs a role with `integrations.read`; saving needs `oauth_clients.write`.
 - Self-registration is off until you turn it on. While it is off, `POST /oauth/register` is answered `403`.
-- The server reads the policy from the database for every registration request, so a saved change applies to the next registration.
+- The server reads the policy from the database for every registration request, so a saved change applies to the next registration. The page's note "Applies within 30 seconds on every server process" is the console's general wording; this policy takes effect sooner.
 
 ## Allow apps to register
 

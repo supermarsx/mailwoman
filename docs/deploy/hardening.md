@@ -19,9 +19,10 @@ Configurable:
 
 ## Cross-site request checks
 
-Every `POST`, `PUT`, `PATCH` and `DELETE` passes an origin check, which cannot be turned off:
+Every `POST`, `PUT`, `PATCH` and `DELETE` passes an origin check, which cannot be turned off (the exceptions are listed below):
 
-- a `Sec-Fetch-Site: cross-site` header is refused;
+- a `Sec-Fetch-Site` header that is `cross-site`, or that has any value other than `same-origin`, `same-site` or `none`, is refused;
+- a request that repeats the `Host`, `Origin`, `Referer` or `Sec-Fetch-Site` header is refused;
 - otherwise the `Origin` header, or else the `Referer` header, must name the same host as the request; a request with neither is allowed (native clients send neither), except that `Sec-Fetch-Site: same-site` without either is refused;
 - a request without a `Host` (or HTTP/2 authority) is refused.
 
@@ -33,7 +34,8 @@ On top of that, **strict CSRF** (`MW_CSRF_STRICT=true` or `--csrf-strict`) makes
 - The web app sends it on every write. A script that signs in with a cookie must read `mw_csrf` and send the header itself.
 - Not asked for a token (they are still origin-checked): the sign-in routes of webmail and the console, which run before a session exists, and routes no cookie authorises, such as `/oauth/token`, `/oauth/revoke`, `/oauth/register`, `/api/webhooks/inbound` and `/mcp`.
 - A request authorised only by an `Authorization: Bearer` header (the desktop and mobile apps, API keys, OAuth clients) skips both checks. If it also carries a session cookie, both checks apply.
-- The single sign-on callback routes (`/api/sso/<id>/callback`, `/api/sso/<id>/acs`) skip both checks; they carry state the server bound to the sign-in when it started.
+- The single sign-on callback routes (`/api/sso/<id>/callback`, `/api/sso/<id>/acs`) skip both checks; they carry state the server bound to the sign-in when it started. The identity provider's `/oidc/token` and `/oidc/revoke` also skip both checks; no cookie authorises them.
+- A desktop or Android app signing in (`/api/login`, `/api/login/2fa...`, `/api/discover`) with its app origin (or one listed in `MW_NATIVE_ORIGINS`) and no session cookie skips both checks.
 
 ## Sessions
 

@@ -44,13 +44,13 @@ Every connection is opened fresh for each request. Before connecting, Mailwoman 
 
 With `MW_LDAP_BIND_AUTH=1` (or `true`) in the server's environment, every mailbox sign-in with a password is first checked against the directory:
 
-1. Mailwoman searches each directory (as the service account, if one is set) for exactly one entry whose `mail` (or the mapped email attribute), `uid`, `sAMAccountName` or `userPrincipalName` equals the sign-in name. If none or several match, it moves to the next directory.
+1. Mailwoman searches each directory (as the service account, if one is set) for exactly one entry whose `mail` (or the mapped email attribute), `uid`, `sAMAccountName` or `userPrincipalName` equals the sign-in name. If none or several match, it moves to the next directory. A sign-in name that contains `=` is not searched for: it is used as the entry's DN as typed.
 2. It binds as that entry with the password typed.
 3. If a directory accepts the bind, the check passes. If no directory accepts it, the sign-in is refused.
 
 The check comes **before** the usual check with the mail server, not instead of it: the person still needs a password the mail server accepts. An empty password is always refused, without contacting the directory.
 
-Only the LDAP result "invalid credentials" (code 49) counts as a wrong password, and only that counts towards the [temporary sign-in locks](../admin/signin-locks.md). Any other failure (directory unreachable, busy, TLS error, or no usable directory) refuses the sign-in as well, but is recorded as "directory unavailable" rather than as a wrong password. The person sees the same message in both cases.
+These count as a wrong password, and towards the [temporary sign-in locks](../admin/signin-locks.md): an empty password, and, when no directory failed, no directory with exactly one matching entry or a bind refused with "invalid credentials" (code 49). Any other failure (directory unreachable, busy, TLS error, or no usable directory) refuses the sign-in as well, but is recorded as "directory unavailable" rather than as a wrong password. The person sees the same message in both cases.
 
 ::: warning
 The environment variable is the only switch. The setting `signin.ldapBindPrecheck` that appears in the [settings reference](../admin/settings.md) is not read by the server, and the directory screen has no control for it.
