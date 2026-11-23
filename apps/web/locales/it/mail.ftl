@@ -633,6 +633,7 @@ mail-draft-limit = Questo account ha già 100 bozze salvate. Scartare una bozza 
 mail-draft-quota-help = Vengono mantenute fino a 100 bozze dell'account. Scarta rimuove la copia confermata sul server prima di liberare il posto.
 mail-draft-discard-confirm = Conferma la rimozione della bozza
 mail-draft-discard-confirm-detail = Rimuovere definitivamente “{ $subject }” dalle Bozze dell'account? Chiudere invece l'editor mantiene la bozza.
+mail-draft-discard-confirm-detail-untitled = Rimuovere definitivamente questa bozza dalle Bozze dell'account? Chiudere invece l'editor mantiene la bozza.
 mail-draft-discard-title = Scartare questa bozza?
 mail-draft-keep-editing = Continua a modificare
 mail-draft-discard-action = Scarta

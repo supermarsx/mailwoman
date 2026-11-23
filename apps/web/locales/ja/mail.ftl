@@ -616,6 +616,7 @@ mail-draft-limit = このアカウントにはすでに 100 件の下書きが�
 mail-draft-quota-help = アカウントの下書きは最大 100 件まで保持されます。破棄すると、確認済みのサーバー上のコピーを削除してから枠が解放されます。
 mail-draft-discard-confirm = 下書きの削除を確認
 mail-draft-discard-confirm-detail = アカウントの下書きから「{ $subject }」を完全に削除しますか？代わりに作成画面を閉じると、下書きは保持されます。
+mail-draft-discard-confirm-detail-untitled = アカウントの下書きからこの下書きを完全に削除しますか？代わりに作成画面を閉じると、下書きは保持されます。
 mail-draft-discard-title = この下書きを破棄しますか？
 mail-draft-keep-editing = 編集を続ける
 mail-draft-discard-action = 破棄

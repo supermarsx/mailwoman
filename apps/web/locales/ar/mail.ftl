@@ -733,6 +733,7 @@ mail-draft-limit = لدى هذا الحساب بالفعل 100 مسودة محف
 mail-draft-quota-help = يُحتفظ بما يصل إلى 100 مسودة في الحساب. يزيل التجاهل النسخة المؤكدة على الخادم قبل تحرير مكانها.
 mail-draft-discard-confirm = تأكيد إزالة المسودة
 mail-draft-discard-confirm-detail = إزالة «{ $subject }» نهائيًا من مسودات الحساب؟ إغلاق نافذة الإنشاء بدلًا من ذلك يُبقي المسودة.
+mail-draft-discard-confirm-detail-untitled = إزالة هذه المسودة نهائيًا من مسودات الحساب؟ إغلاق نافذة الإنشاء بدلًا من ذلك يُبقي المسودة.
 mail-draft-discard-title = تجاهل هذه المسودة؟
 mail-draft-keep-editing = متابعة التحرير
 mail-draft-discard-action = تجاهل

@@ -633,6 +633,7 @@ mail-draft-limit = Esta cuenta ya tiene 100 borradores guardados. Descarte un bo
 mail-draft-quota-help = Se conservan hasta 100 borradores de la cuenta. Descartar elimina la copia confirmada en el servidor antes de liberar su espacio.
 mail-draft-discard-confirm = Confirmar eliminación del borrador
 mail-draft-discard-confirm-detail = ¿Eliminar definitivamente «{ $subject }» de los borradores de la cuenta? Si cierra el editor en su lugar, el borrador se conserva.
+mail-draft-discard-confirm-detail-untitled = ¿Eliminar definitivamente este borrador de los borradores de la cuenta? Si cierra el editor en su lugar, el borrador se conserva.
 mail-draft-discard-title = ¿Descartar este borrador?
 mail-draft-keep-editing = Seguir editando
 mail-draft-discard-action = Descartar

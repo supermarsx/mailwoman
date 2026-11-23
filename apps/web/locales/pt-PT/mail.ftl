@@ -697,6 +697,7 @@ mail-draft-limit = Esta conta já tem 100 rascunhos guardados. Descarte um rascu
 mail-draft-quota-help = São mantidos até 100 rascunhos na conta. «Descartar» remove a cópia confirmada no servidor antes de libertar o espaço.
 mail-draft-discard-confirm = Confirmar remoção do rascunho
 mail-draft-discard-confirm-detail = Remover permanentemente «{ $subject }» dos Rascunhos da conta? Se, em vez disso, fechar o editor de mensagens, o rascunho é mantido.
+mail-draft-discard-confirm-detail-untitled = Remover permanentemente este rascunho dos Rascunhos da conta? Se, em vez disso, fechar o editor de mensagens, o rascunho é mantido.
 # The discard confirmation dialog (t42): Keep editing is the safe default.
 mail-draft-discard-title = Descartar este rascunho?
 mail-draft-keep-editing = Continuar a editar

@@ -76,6 +76,7 @@ import {
 } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { rawT, t, isolate, loadCatalog } from '../i18n/index.ts';
+import { discardDetail } from './compose/discardDetail.ts';
 import * as a11y from './mailA11y.css.ts';
 import { AsyncBoundary } from './ErrorBoundary.tsx';
 import type { EditorContext, RichTextApi } from './compose/RichTextEditor.tsx';
@@ -2038,11 +2039,11 @@ export function Compose(props: {
           <Show when={(checkPrompt()?.rememberable.length??0)>0}><label class="compose-check-remember"><input type="checkbox" checked={rememberChecked()} onChange={event=>setRememberChecked(event.currentTarget.checked)}/>{t('mail-check-remember')}</label></Show>
         </ConfirmDialog>
         <ConfirmDialog open={discardCurrentOpen()} testId="compose-discard-confirm" mount={dialogMount()}
-          title={t('mail-draft-discard-title')} body={t('mail-draft-discard-confirm-detail',{subject:subject()||t('mail-no-subject')})}
+          title={t('mail-draft-discard-title')} body={discardDetail(subject())}
           confirmLabel={t('mail-draft-discard-action')} cancelLabel={t('mail-draft-keep-editing')}
           onCancel={()=>{if(!discardCurrentBusy())setDiscardCurrentOpen(false);}} onConfirm={discardCurrentDraft}/>
         <ConfirmDialog open={discardConfirmation()!==null} testId="compose-discard-account-confirm" mount={dialogMount()}
-          title={t('mail-draft-discard-title')} body={t('mail-draft-discard-confirm-detail',{subject:discardConfirmation()?.summary.subject||t('mail-no-subject')})}
+          title={t('mail-draft-discard-title')} body={discardDetail(discardConfirmation()?.summary.subject)}
           confirmLabel={t('mail-draft-discard-action')} cancelLabel={t('mail-draft-keep-editing')}
           onCancel={()=>setDiscardConfirmation(null)} onConfirm={async()=>{const row=discardConfirmation();if(row)await discardRemoteDraft(row);setDiscardConfirmation(null);}}/>
         <ConfirmDialog open={closePrompt()!==null} testId="compose-close-confirm" mount={dialogMount()}

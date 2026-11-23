@@ -635,6 +635,7 @@ mail-draft-limit = 此账户已有 100 份已保存的草稿。保存新草稿�
 mail-draft-quota-help = 最多保留 100 份账户草稿。丢弃时会先删除已确认的上游副本，再释放其名额。
 mail-draft-discard-confirm = 确认删除草稿
 mail-draft-discard-confirm-detail = 从账户草稿中永久删除“{ $subject }”？若仅关闭撰写窗口，则会保留该草稿。
+mail-draft-discard-confirm-detail-untitled = 从账户草稿中永久删除这份草稿？若仅关闭撰写窗口，则会保留该草稿。
 mail-draft-discard-title = 丢弃此草稿？
 mail-draft-keep-editing = 继续编辑
 mail-draft-discard-action = 丢弃

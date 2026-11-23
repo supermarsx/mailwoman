@@ -654,6 +654,7 @@ mail-draft-limit = Ce compte contient déjà 100 brouillons enregistrés. Abando
 mail-draft-quota-help = Jusqu’à 100 brouillons de compte sont conservés. Abandonner supprime la copie confirmée en amont avant de libérer son emplacement.
 mail-draft-discard-confirm = Confirmer la suppression du brouillon
 mail-draft-discard-confirm-detail = Supprimer définitivement « { $subject } » des brouillons du compte ? Fermer l’éditeur à la place conserve le brouillon.
+mail-draft-discard-confirm-detail-untitled = Supprimer définitivement ce brouillon des brouillons du compte ? Fermer l’éditeur à la place conserve le brouillon.
 mail-draft-discard-title = Abandonner ce brouillon ?
 mail-draft-keep-editing = Continuer la modification
 mail-draft-discard-action = Abandonner

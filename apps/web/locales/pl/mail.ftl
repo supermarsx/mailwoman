@@ -682,6 +682,7 @@ mail-draft-limit = To konto ma już 100 zapisanych wersji roboczych. Odrzuć nie
 mail-draft-quota-help = Przechowywanych jest do 100 wersji roboczych konta. Odrzucenie usuwa potwierdzoną kopię na serwerze, zanim zwolni jej miejsce.
 mail-draft-discard-confirm = Potwierdź usunięcie wersji roboczej
 mail-draft-discard-confirm-detail = Trwale usunąć „{ $subject }” z Wersji roboczych konta? Zamknięcie edytora zachowuje wersję roboczą.
+mail-draft-discard-confirm-detail-untitled = Trwale usunąć tę wersję roboczą z Wersji roboczych konta? Zamknięcie edytora zachowuje wersję roboczą.
 mail-draft-discard-title = Odrzucić tę wersję roboczą?
 mail-draft-keep-editing = Edytuj dalej
 mail-draft-discard-action = Odrzuć

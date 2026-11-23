@@ -633,6 +633,7 @@ mail-draft-limit = Dieses Konto hat bereits 100 gespeicherte Entwürfe. Verwerfe
 mail-draft-quota-help = Es werden bis zu 100 Kontoentwürfe aufbewahrt. Verwerfen entfernt die bestätigte Kopie auf dem Server, bevor der Platz freigegeben wird.
 mail-draft-discard-confirm = Entfernen des Entwurfs bestätigen
 mail-draft-discard-confirm-detail = „{ $subject }“ endgültig aus den Kontoentwürfen entfernen? Wenn Sie stattdessen den Editor schließen, bleibt der Entwurf erhalten.
+mail-draft-discard-confirm-detail-untitled = Diesen Entwurf endgültig aus den Kontoentwürfen entfernen? Wenn Sie stattdessen den Editor schließen, bleibt der Entwurf erhalten.
 mail-draft-discard-title = Diesen Entwurf verwerfen?
 mail-draft-keep-editing = Weiter bearbeiten
 mail-draft-discard-action = Verwerfen

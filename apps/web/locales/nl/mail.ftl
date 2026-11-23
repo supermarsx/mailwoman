@@ -652,6 +652,7 @@ mail-draft-limit = Dit account heeft al 100 opgeslagen concepten. Negeer een ong
 mail-draft-quota-help = Maximaal 100 accountconcepten worden bewaard. Negeren verwijdert de bevestigde upstreamkopie voordat de plek wordt vrijgegeven.
 mail-draft-discard-confirm = Verwijdering van het concept bevestigen
 mail-draft-discard-confirm-detail = “{ $subject }” definitief uit de Concepten van het account verwijderen? Als u de editor in plaats daarvan sluit, blijft het concept behouden.
+mail-draft-discard-confirm-detail-untitled = Dit concept definitief uit de Concepten van het account verwijderen? Als u de editor in plaats daarvan sluit, blijft het concept behouden.
 mail-draft-discard-title = Dit concept negeren?
 mail-draft-keep-editing = Blijven bewerken
 mail-draft-discard-action = Negeren
