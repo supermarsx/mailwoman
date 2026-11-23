@@ -109,10 +109,33 @@ fn place_with_default(
 /// not creatable, read-only, held by another process, or holding an index
 /// Tantivy cannot read) does not stop start-up: the index is kept in RAM for
 /// this run and the reason is logged.
+///
+/// # Panics
+///
+/// When the index publication variables ([`publication_options_from_env`]) are
+/// invalid, including `MW_INDEX_PUBLICATION_ACK=journal` on PostgreSQL: start-up
+/// is refused rather than silently running another mode. Call
+/// [`publication_options_from_env`] first to turn that into an error instead.
 pub(crate) fn build_engine(store: &mw_store::Store, db_path: &str) -> Arc<Engine> {
+    let publication = match publication_options_from_env(db_path) {
+        Ok(options) => options,
+        Err(e) => panic!("refusing to start: {e}"),
+    };
+    if publication.ack == mw_engine::PublicationAck::Journal {
+        tracing::info!(
+            "index publication: journal acknowledgement (Email/set returns after the SQL commit; index reads wait on a per-account fence of at most {} ms)",
+            publication.read_fence_timeout.as_millis()
+        );
+    }
+    let in_ram = |publication: mw_engine::PublicationOptions| {
+        Arc::new(
+            Engine::new_with_publication_options(store.clone(), publication)
+                .expect("publication options were validated"),
+        )
+    };
     let search_dir = std::env::var("MW_SEARCH_DIR").ok();
     match search_index_place(db_path, search_dir.as_deref()) {
-        SearchIndexPlace::Disk(dir) => match open_index_dir(store, &dir) {
+        SearchIndexPlace::Disk(dir) => match open_index_dir(store, &dir, publication.clone()) {
             Ok(engine) => {
                 tracing::info!("search index: authenticated encryption at rest at {}",dir.display());
                 Arc::new(engine)
@@ -122,16 +145,79 @@ pub(crate) fn build_engine(store: &mw_store::Store, db_path: &str) -> Arc<Engine
                     "search index: {} could not be opened ({e}); keeping the index in RAM for this run and rebuilding it from the store. If the directory holds a damaged index, delete it and restart.",
                     dir.display()
                 );
-                Arc::new(Engine::new(store.clone()))
+                in_ram(publication)
             }
         },
         SearchIndexPlace::Memory(why) => {
             tracing::info!(
                 "search index: in RAM ({why}); it is rebuilt from the store at every start"
             );
-            Arc::new(Engine::new(store.clone()))
+            in_ram(publication)
         }
     }
+}
+
+/// Index publication options from the environment (t34 Workstream B):
+///
+/// * `MW_INDEX_PUBLICATION_ACK` = `commit` (default) | `journal`. `journal` is
+///   SQLite-only (one process owns the index; on PostgreSQL several processes
+///   share the database) and is refused for a `postgres://` database.
+/// * `MW_INDEX_PUBLICATION_WINDOW_MS` 0..=10 (default 1): grouping window.
+/// * `MW_INDEX_PUBLICATION_MAX_BATCH_JOBS` 1..=max pending jobs (default 64).
+/// * `MW_INDEX_READ_FENCE_TIMEOUT_MS` 100..=30000 (default 5000).
+/// * `MW_INDEX_PUBLICATION_DRAIN_SECS` 0..=60 (default 10): shutdown drain.
+///
+/// An unset or empty variable takes its default; anything else out of range
+/// is an error naming the variable.
+pub(crate) fn publication_options_from_env(
+    db_path: &str,
+) -> Result<mw_engine::PublicationOptions, String> {
+    publication_options_from(db_path, |name| std::env::var(name).ok())
+}
+
+fn publication_options_from(
+    db_path: &str,
+    var: impl Fn(&str) -> Option<String>,
+) -> Result<mw_engine::PublicationOptions, String> {
+    let mut options = mw_engine::PublicationOptions::default();
+    let value = |name: &str| var(name).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    let number = |name: &str, low: u64, high: u64| -> Result<Option<u64>, String> {
+        match value(name) {
+            None => Ok(None),
+            Some(raw) => match raw.parse::<u64>() {
+                Ok(n) if (low..=high).contains(&n) => Ok(Some(n)),
+                _ => Err(format!("{name}={raw} is not an integer in {low}..={high}")),
+            },
+        }
+    };
+    if let Some(raw) = value("MW_INDEX_PUBLICATION_ACK") {
+        options.ack = mw_engine::PublicationAck::parse(&raw).ok_or_else(|| {
+            format!("MW_INDEX_PUBLICATION_ACK={raw} is not one of commit, journal")
+        })?;
+    }
+    if options.ack == mw_engine::PublicationAck::Journal
+        && (db_path.starts_with("postgres://") || db_path.starts_with("postgresql://"))
+    {
+        return Err("MW_INDEX_PUBLICATION_ACK=journal is SQLite-only: on PostgreSQL the index is per process while the database is shared, and journal sequence order is not commit order. Unset it or set it to commit.".into());
+    }
+    if let Some(ms) = number("MW_INDEX_PUBLICATION_WINDOW_MS", 0, 10)? {
+        options.collection_window = Duration::from_millis(ms);
+    }
+    if let Some(jobs) = number(
+        "MW_INDEX_PUBLICATION_MAX_BATCH_JOBS",
+        1,
+        options.max_pending_jobs as u64,
+    )? {
+        options.max_batch_jobs = jobs as usize;
+    }
+    if let Some(ms) = number("MW_INDEX_READ_FENCE_TIMEOUT_MS", 100, 30_000)? {
+        options.read_fence_timeout = Duration::from_millis(ms);
+    }
+    if let Some(secs) = number("MW_INDEX_PUBLICATION_DRAIN_SECS", 0, 60)? {
+        options.drain_timeout = Duration::from_secs(secs);
+    }
+    options.validate().map_err(|e| e.to_string())?;
+    Ok(options)
 }
 
 /// Create `dir` readable by its owner only, where the platform has such a mode,
@@ -142,9 +228,14 @@ pub(crate) fn build_engine(store: &mw_store::Store, db_path: &str) -> Arc<Engine
 /// which does not matter while the directory itself admits nobody else. On
 /// other platforms (Windows) the directory inherits its parent's access control
 /// list and nothing is changed here.
-fn open_index_dir(store: &mw_store::Store, dir: &std::path::Path) -> Result<Engine, String> {
+fn open_index_dir(
+    store: &mw_store::Store,
+    dir: &std::path::Path,
+    publication: mw_engine::PublicationOptions,
+) -> Result<Engine, String> {
     restrict_to_owner(dir).map_err(|e| format!("create or restrict the directory: {e}"))?;
-    Engine::open_with_search(store.clone(), dir).map_err(|e| e.to_string())
+    Engine::open_with_search_and_publication(store.clone(), dir, publication)
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(unix)]
@@ -176,6 +267,9 @@ pub(crate) fn start_background(engine: &Arc<Engine>, security: crate::SecurityCo
 
     let reconcile = Arc::clone(engine);
     tokio::spawn(async move {
+        // Journal replay first: until it ends, journal-mode index reads wait on
+        // the read fence (bounded) and are refused rather than served stale.
+        start_index_publication(&reconcile).await;
         match reconcile.reconcile_search_index().await {
             Ok(Some(_)) => {}
             Ok(None) => tracing::info!("search index: agrees with the store, no rebuild"),
@@ -185,6 +279,41 @@ pub(crate) fn start_background(engine: &Arc<Engine>, security: crate::SecurityCo
 
     let register = Arc::clone(engine);
     tokio::spawn(async move { register_stored_accounts(&register, &security).await });
+}
+
+/// Reconcile the index publication journal with the configured mode
+/// ([`Engine::start_index_publication`]) and log the outcome. Idempotent apart
+/// from the replay itself; [`start_background`] runs it before the search-index
+/// reconciliation.
+pub(crate) async fn start_index_publication(engine: &Engine) {
+    match engine.start_index_publication().await {
+        Ok(startup) if startup.replayed_keys > 0 || !startup.ready => tracing::info!(
+            "index publication journal ({}): replayed {} key(s), {} failed, {} row(s) remain, reads {}",
+            startup.mode.as_str(),
+            startup.replayed_keys,
+            startup.failed_keys,
+            startup.remaining_rows.map_or_else(|| "unknown".into(), |n| n.to_string()),
+            if startup.ready { "served" } else { "refused until a clean replay" }
+        ),
+        Ok(_) => {}
+        Err(e) => tracing::error!("index publication journal: start-up failed: {e}"),
+    }
+}
+
+/// Close index publication admission and wait for accepted jobs, at most
+/// `MW_INDEX_PUBLICATION_DRAIN_SECS`. For graceful shutdown (t34 e8 wires it).
+/// Returns whether the queue drained; rows of undrained jobs replay at the
+/// next start.
+// Unused until e8 wires it into graceful shutdown in lib.rs.
+#[allow(dead_code)]
+pub(crate) async fn drain_index_publication(engine: &Engine) -> bool {
+    let drained = engine.drain_index_publication().await;
+    if !drained {
+        tracing::warn!(
+            "index publication: shutdown drain deadline passed; queued work replays from the journal at the next start"
+        );
+    }
+    drained
 }
 
 /// How many stored accounts are connected at the same time at start-up.
@@ -1430,6 +1559,51 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn publication(db: &str, vars: &[(&str, &str)]) -> Result<mw_engine::PublicationOptions, String> {
+        let vars: HashMap<String, String> =
+            vars.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+        publication_options_from(db, |name| vars.get(name).cloned())
+    }
+
+    #[test]
+    fn index_publication_env_defaults_parse_ranges_and_refuse_journal_on_postgres() {
+        let defaults = publication("mail.db", &[]).unwrap();
+        assert_eq!(defaults.ack, mw_engine::PublicationAck::Commit);
+        assert_eq!(defaults.collection_window, Duration::from_millis(1));
+        assert_eq!(defaults.max_batch_jobs, 64);
+        assert_eq!(defaults.read_fence_timeout, Duration::from_secs(5));
+        assert_eq!(defaults.drain_timeout, Duration::from_secs(10));
+        let set = publication("mail.db", &[
+            ("MW_INDEX_PUBLICATION_ACK", " Journal "),
+            ("MW_INDEX_PUBLICATION_WINDOW_MS", "0"),
+            ("MW_INDEX_PUBLICATION_MAX_BATCH_JOBS", "128"),
+            ("MW_INDEX_READ_FENCE_TIMEOUT_MS", "100"),
+            ("MW_INDEX_PUBLICATION_DRAIN_SECS", "60"),
+        ]).unwrap();
+        assert_eq!(set.ack, mw_engine::PublicationAck::Journal);
+        assert_eq!(set.collection_window, Duration::ZERO);
+        assert_eq!(set.max_batch_jobs, 128);
+        assert_eq!(set.read_fence_timeout, Duration::from_millis(100));
+        assert_eq!(set.drain_timeout, Duration::from_secs(60));
+        assert!(publication("mail.db", &[("MW_INDEX_PUBLICATION_ACK", "")]).is_ok());
+        for (name, bad) in [
+            ("MW_INDEX_PUBLICATION_ACK", "async"),
+            ("MW_INDEX_PUBLICATION_WINDOW_MS", "11"),
+            ("MW_INDEX_PUBLICATION_MAX_BATCH_JOBS", "0"),
+            ("MW_INDEX_PUBLICATION_MAX_BATCH_JOBS", "129"),
+            ("MW_INDEX_READ_FENCE_TIMEOUT_MS", "99"),
+            ("MW_INDEX_READ_FENCE_TIMEOUT_MS", "30001"),
+            ("MW_INDEX_PUBLICATION_DRAIN_SECS", "61"),
+            ("MW_INDEX_PUBLICATION_DRAIN_SECS", "-1"),
+        ] {
+            let err = publication("mail.db", &[(name, bad)]).unwrap_err();
+            assert!(err.contains(name), "{err}");
+        }
+        let pg = publication("postgres://db/mail", &[("MW_INDEX_PUBLICATION_ACK", "journal")]).unwrap_err();
+        assert!(pg.contains("SQLite-only"), "{pg}");
+        assert!(publication("postgresql://db/mail", &[("MW_INDEX_PUBLICATION_ACK", "commit")]).is_ok());
+    }
 
     #[test]
     fn fresh_mail_configuration_checks_binding_kind_host_port_and_tls() {
