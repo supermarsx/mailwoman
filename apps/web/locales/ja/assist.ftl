@@ -33,6 +33,7 @@ assist-tone-assertive = はっきりした
 assist-busy = { $label }…
 assist-composer-empty-error = 先に何か入力してください。
 assist-composer-error = AI アシスタントは現在その処理を完了できません。
+assist-composer-decrypted-withheld = AI アシスタントには送信されませんでした。この下書きには暗号化されたメッセージのテキストが含まれている可能性があり、復号済みの内容の送信は許可されていません。
 assist-suggested-edit = 提案された編集
 assist-apply-draft = 下書きに適用
 assist-discard = 破棄
@@ -71,6 +72,7 @@ assist-disclosure-sentence = AI アシスタントのツールを使用すると
 assist-disclosure-excl-one = { $a }は決して送信しません。
 assist-disclosure-excl-two = { $a }や{ $b }は決して送信しません。
 assist-disclosure-admin-allowed = 管理者が、暗号化されたコンテンツと添付ファイルの送信を許可しています。
+assist-disclosure-autotag = 自動タグ付けがオンです。メッセージを開くたびに、その件名とプレビューがラベルの提案のために { $host } に送信されます。あなたが何かを選択する必要はありません。
 assist-excluded-e2ee = エンドツーエンド暗号化されたコンテンツ
 assist-excluded-attachments = 添付ファイル
 

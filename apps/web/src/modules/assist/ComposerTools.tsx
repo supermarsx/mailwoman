@@ -12,6 +12,7 @@ import { AssistService } from './service.ts';
 import {
   COMPOSER_TOOLS,
   hasCapability,
+  textKind,
   type AssistConfig,
   type ComposerTool,
   type ComposerToolSpec,
@@ -34,9 +35,17 @@ export interface ComposerToolsProps {
   service: AssistService;
   /** The current draft body. */
   text: string;
-  /** The account/folder the draft belongs to (tags the context for redaction). */
+  /** The account the draft belongs to (tags the context for redaction). */
   account: string;
+  /** The mailbox ID the draft is filed in (the Drafts mailbox); omitted = not in a mailbox. */
   folder?: string;
+  /**
+   * Whether the draft holds text from a decrypted message (a reply or forward that
+   * quotes one) or is going to be encrypted. Such a draft is tagged
+   * `e2ee-decrypted`, which the server withholds unless the administrator allows
+   * decrypted content. Omitted = not known, which is treated as decrypted.
+   */
+  containsDecrypted?: boolean;
   /** Apply the transformed text to the draft (the user's explicit choice). */
   onApply: (text: string) => void;
   /** Record what left the device (fed to the per-message disclosure log). */
@@ -80,12 +89,19 @@ export function ComposerTools(props: ComposerToolsProps): JSX.Element {
       setError(t('assist-composer-empty-error'));
       return;
     }
+    const kind = textKind(props.containsDecrypted);
+    // Decrypted text is withheld by the server unless the administrator allows it;
+    // say so instead of sending a request that would run without the draft.
+    if (kind === 'e2ee-decrypted' && !props.config.includeE2ee) {
+      setError(t('assist-composer-decrypted-withheld'));
+      return;
+    }
     setBusy(spec.id);
     try {
       const req: InvokeRequest = {
         capability: spec.capability,
         prompt: promptFor(spec),
-        context: [{ account: props.account, folder: props.folder ?? 'Drafts', text: props.text, kind: 'plain' }],
+        context: [{ account: props.account, folder: props.folder ?? '', text: props.text, kind }],
       };
       const result = await props.service.invoke(req);
       setPending({ tool: spec.id, text: result.text });

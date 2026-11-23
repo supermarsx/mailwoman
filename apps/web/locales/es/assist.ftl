@@ -33,6 +33,7 @@ assist-tone-assertive = Firme
 assist-busy = { $label }…
 assist-composer-empty-error = Escriba algo primero.
 assist-composer-error = El asistente de IA no ha podido completarlo en este momento.
+assist-composer-decrypted-withheld = No se ha enviado al asistente de IA: este borrador puede contener texto de un mensaje cifrado y no se permite enviar contenido descifrado.
 assist-suggested-edit = Edición sugerida
 assist-apply-draft = Aplicar al borrador
 assist-discard = Descartar
@@ -71,6 +72,7 @@ assist-disclosure-sentence = Cuando usa una herramienta del asistente de IA, el 
 assist-disclosure-excl-one = Nunca envía { $a }.
 assist-disclosure-excl-two = Nunca envía { $a } ni { $b }.
 assist-disclosure-admin-allowed = Su administrador ha permitido enviar contenido cifrado y archivos adjuntos.
+assist-disclosure-autotag = El etiquetado automático está activado: cada vez que abre un mensaje, su asunto y su vista previa se envían a { $host } para sugerir etiquetas, sin que usted seleccione nada.
 assist-excluded-e2ee = contenido cifrado de extremo a extremo
 assist-excluded-attachments = archivos adjuntos
 

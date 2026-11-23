@@ -33,6 +33,7 @@ assist-tone-assertive = Stellig
 assist-busy = { $label }…
 assist-composer-empty-error = Schrijf eerst iets.
 assist-composer-error = De AI-assistent kon dat nu niet voltooien.
+assist-composer-decrypted-withheld = Niet naar de AI-assistent verzonden: dit concept kan tekst uit een versleuteld bericht bevatten, en ontsleutelde inhoud mag niet worden verzonden.
 assist-suggested-edit = Voorgestelde wijziging
 assist-apply-draft = Toepassen op concept
 assist-discard = Negeren
@@ -71,6 +72,7 @@ assist-disclosure-sentence = Wanneer u een tool van de AI-assistent gebruikt, wo
 assist-disclosure-excl-one = Er wordt nooit { $a } verzonden.
 assist-disclosure-excl-two = Er wordt nooit { $a } of { $b } verzonden.
 assist-disclosure-admin-allowed = Uw beheerder heeft toegestaan dat versleutelde inhoud en bijlagen worden verzonden.
+assist-disclosure-autotag = Automatisch labelen staat aan: telkens wanneer u een bericht opent, worden het onderwerp en de voorvertoning naar { $host } verzonden om labels voor te stellen, zonder dat u iets selecteert.
 assist-excluded-e2ee = end-to-end versleutelde inhoud
 assist-excluded-attachments = bijlagen
 

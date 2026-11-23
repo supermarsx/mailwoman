@@ -39,6 +39,7 @@ assist-tone-assertive = Assertive
 assist-busy = { $label }…
 assist-composer-empty-error = Write something first.
 assist-composer-error = The AI assistant could not complete that just now.
+assist-composer-decrypted-withheld = Not sent to the AI assistant: this draft may contain text from an encrypted message, and decrypted content is not allowed to be sent.
 assist-suggested-edit = Suggested edit
 assist-apply-draft = Apply to draft
 assist-discard = Discard
@@ -77,6 +78,7 @@ assist-disclosure-sentence = When you use an AI assistant tool, the selected mes
 assist-disclosure-excl-one = It never sends { $a }.
 assist-disclosure-excl-two = It never sends { $a } or { $b }.
 assist-disclosure-admin-allowed = Your admin has allowed encrypted content and attachments to be sent.
+assist-disclosure-autotag = Auto-tag is on: each time you open a message, its subject and preview are sent to { $host } to suggest labels, without you selecting anything.
 assist-excluded-e2ee = end-to-end-encrypted content
 assist-excluded-attachments = attachments
 

@@ -42,6 +42,8 @@ export {
   configFromWire,
   disclosureSentence,
   hasCapability,
+  textKind,
+  autoTagContext,
   type AssistAvailability,
   type AssistCapability,
   type AssistConfig,

@@ -33,6 +33,7 @@ assist-tone-assertive = Stanowczy
 assist-busy = { $label }…
 assist-composer-empty-error = Najpierw coś napisz.
 assist-composer-error = Asystent AI nie mógł teraz tego wykonać.
+assist-composer-decrypted-withheld = Nie wysłano do asystenta AI: ta wersja robocza może zawierać tekst z zaszyfrowanej wiadomości, a wysyłanie odszyfrowanej treści jest niedozwolone.
 assist-suggested-edit = Sugerowana zmiana
 assist-apply-draft = Zastosuj w wersji roboczej
 assist-discard = Odrzuć
@@ -71,6 +72,7 @@ assist-disclosure-sentence = Gdy używasz narzędzia asystenta AI, zaznaczony te
 assist-disclosure-excl-one = Nigdy nie wysyła { $a }.
 assist-disclosure-excl-two = Nigdy nie wysyła { $a } ani { $b }.
 assist-disclosure-admin-allowed = Administrator zezwolił na wysyłanie treści szyfrowanych i załączników.
+assist-disclosure-autotag = Automatyczne tagowanie jest włączone: za każdym razem, gdy otwierasz wiadomość, jej temat i podgląd są wysyłane do { $host }, aby zaproponować etykiety, bez wybierania czegokolwiek przez Ciebie.
 assist-excluded-e2ee = treści szyfrowanej end-to-end
 assist-excluded-attachments = załączników
 

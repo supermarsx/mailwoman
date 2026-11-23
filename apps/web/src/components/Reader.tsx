@@ -80,7 +80,7 @@ import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} f
 import { InviteCard, hasCalendarPart } from './InviteCard.tsx';
 // V7 auto-tag (SPEC §14.3, e14b): model-suggested labels for the open message.
 // Gated on the `auto-tag` Assist capability, so a Disabled gateway renders nothing.
-import { AutoTag, type TagSuggestion } from '../modules/assist/index.ts';
+import { AutoTag, autoTagContext, type TagSuggestion } from '../modules/assist/index.ts';
 import type { SenderControlRequest, SenderControlResult } from './security/model.ts';
 import { defaultSenderControl } from './security/model.ts';
 import { createMaxSecurityStore } from '../viewers/max-security.ts';
@@ -688,17 +688,14 @@ function AutoTagSection(props: { email: Email }): JSX.Element {
     async (): Promise<TagSuggestion[]> => {
       const acct = app.accountId();
       if (acct === null) return [];
-      const boxId = Object.keys(app.openEmail()?.mailboxIds ?? {})[0] ?? '';
-      const box = app.mailboxes().find((m) => m.id === boxId);
-      const text = [props.email.subject ?? '', props.email.preview ?? '']
-        .filter((s) => s.length > 0)
-        .join('\n');
+      // Subject + preview tagged with the mailbox ID, not its name (see autoTagContext).
+      const item = autoTagContext(acct, app.openEmail()?.mailboxIds, props.email.subject, props.email.preview);
       try {
         const res = await app.assist.service.invoke({
           capability: 'auto-tag',
           prompt:
             'Suggest up to 6 short single-word labels for this message. Reply with a comma-separated list only.',
-          context: [{ account: acct, folder: box?.name ?? 'Mail', text, kind: 'plain' }],
+          context: [item],
         });
         app.assist.recordDisclosure('auto-tag', res.disclosure);
         return parseTagSuggestions(res.text);

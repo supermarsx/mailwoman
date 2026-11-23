@@ -33,6 +33,7 @@ assist-tone-assertive = 坚定
 assist-busy = { $label }…
 assist-composer-empty-error = 请先写点内容。
 assist-composer-error = AI 助手暂时无法完成此操作。
+assist-composer-decrypted-withheld = 未发送给 AI 助手：此草稿可能包含来自加密邮件的文本，而解密后的内容不允许发送。
 assist-suggested-edit = 建议的修改
 assist-apply-draft = 应用到草稿
 assist-discard = 放弃
@@ -71,6 +72,7 @@ assist-disclosure-sentence = 使用 AI 助手工具时，所选的邮件文本�
 assist-disclosure-excl-one = 它绝不发送{ $a }。
 assist-disclosure-excl-two = 它绝不发送{ $a }或{ $b }。
 assist-disclosure-admin-allowed = 你的管理员已允许发送加密内容和附件。
+assist-disclosure-autotag = 自动标记已开启：每次你打开一封邮件时，其主题和预览都会发送到 { $host } 以建议标签，无需你选择任何内容。
 assist-excluded-e2ee = 端到端加密的内容
 assist-excluded-attachments = 附件
 

@@ -37,6 +37,7 @@ assist-tone-assertive = Assertivo
 assist-busy = { $label }…
 assist-composer-empty-error = Escreva algo primeiro.
 assist-composer-error = O assistente de IA não conseguiu concluir isso neste momento.
+assist-composer-decrypted-withheld = Não enviado ao assistente de IA: este rascunho pode conter texto de uma mensagem encriptada, e não é permitido enviar conteúdo desencriptado.
 assist-suggested-edit = Edição sugerida
 assist-apply-draft = Aplicar ao rascunho
 assist-discard = Descartar
@@ -75,6 +76,7 @@ assist-disclosure-sentence = Quando utiliza uma ferramenta do assistente de IA, 
 assist-disclosure-excl-one = Nunca envia { $a }.
 assist-disclosure-excl-two = Nunca envia { $a } nem { $b }.
 assist-disclosure-admin-allowed = O seu administrador permitiu o envio de conteúdo encriptado e de anexos.
+assist-disclosure-autotag = A etiquetagem automática está ativa: sempre que abre uma mensagem, o assunto e a pré-visualização são enviados para { $host } para sugerir etiquetas, sem que selecione nada.
 assist-excluded-e2ee = conteúdo encriptado ponto a ponto
 assist-excluded-attachments = anexos
 

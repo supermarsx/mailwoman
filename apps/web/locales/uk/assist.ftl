@@ -33,6 +33,7 @@ assist-tone-assertive = Наполегливий
 assist-busy = { $label }…
 assist-composer-empty-error = Спочатку щось напишіть.
 assist-composer-error = ШІ-помічник зараз не може цього виконати.
+assist-composer-decrypted-withheld = Не надіслано ШІ-асистенту: ця чернетка може містити текст із зашифрованого повідомлення, а надсилати розшифрований вміст не дозволено.
 assist-suggested-edit = Запропонована правка
 assist-apply-draft = Застосувати до чернетки
 assist-discard = Відкинути
@@ -71,6 +72,7 @@ assist-disclosure-sentence = Коли ви користуєтеся інстру
 assist-disclosure-excl-one = Він ніколи не надсилає { $a }.
 assist-disclosure-excl-two = Він ніколи не надсилає { $a } або { $b }.
 assist-disclosure-admin-allowed = Ваш адміністратор дозволив надсилати зашифрований вміст і вкладення.
+assist-disclosure-autotag = Автоматичні мітки ввімкнено: щоразу, коли ви відкриваєте повідомлення, його тема й попередній перегляд надсилаються на { $host }, щоб запропонувати мітки, без жодного вибору з вашого боку.
 assist-excluded-e2ee = наскрізно зашифрований вміст
 assist-excluded-attachments = вкладення
 

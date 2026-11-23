@@ -33,6 +33,7 @@ assist-tone-assertive = Affirmé
 assist-busy = { $label }…
 assist-composer-empty-error = Écrivez d’abord quelque chose.
 assist-composer-error = L’assistant IA n’a pas pu terminer cette opération pour le moment.
+assist-composer-decrypted-withheld = Non envoyé à l’assistant IA : ce brouillon peut contenir du texte d’un message chiffré, et l’envoi de contenu déchiffré n’est pas autorisé.
 assist-suggested-edit = Modification suggérée
 assist-apply-draft = Appliquer au brouillon
 assist-discard = Ignorer
@@ -71,6 +72,7 @@ assist-disclosure-sentence = Lorsque vous utilisez un outil de l’assistant IA,
 assist-disclosure-excl-one = Il n’envoie jamais { $a }.
 assist-disclosure-excl-two = Il n’envoie jamais { $a } ni { $b }.
 assist-disclosure-admin-allowed = Votre administrateur a autorisé l’envoi du contenu chiffré et des pièces jointes.
+assist-disclosure-autotag = L’étiquetage automatique est activé : chaque fois que vous ouvrez un message, son objet et son aperçu sont envoyés à { $host } pour proposer des étiquettes, sans que vous ayez rien sélectionné.
 assist-excluded-e2ee = le contenu chiffré de bout en bout
 assist-excluded-attachments = les pièces jointes
 

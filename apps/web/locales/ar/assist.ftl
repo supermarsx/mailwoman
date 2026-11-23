@@ -33,6 +33,7 @@ assist-tone-assertive = حازمة
 assist-busy = { $label }…
 assist-composer-empty-error = اكتب شيئًا أولًا.
 assist-composer-error = تعذّر على مساعد الذكاء الاصطناعي إكمال ذلك الآن.
+assist-composer-decrypted-withheld = لم يُرسَل إلى مساعد الذكاء الاصطناعي: قد تحتوي هذه المسودة على نص من رسالة مشفّرة، وإرسال المحتوى المفكوك تشفيره غير مسموح به.
 assist-suggested-edit = تعديل مقترح
 assist-apply-draft = تطبيق على المسودة
 assist-discard = تجاهل
@@ -71,6 +72,7 @@ assist-disclosure-sentence = عند استخدام أداة من أدوات مس
 assist-disclosure-excl-one = لا يرسل أبدًا { $a }.
 assist-disclosure-excl-two = لا يرسل أبدًا { $a } أو { $b }.
 assist-disclosure-admin-allowed = سمح المسؤول بإرسال المحتوى المشفّر والمرفقات.
+assist-disclosure-autotag = الوسم التلقائي مشغّل: في كل مرة تفتح فيها رسالة، يُرسَل موضوعها ومعاينتها إلى { $host } لاقتراح تسميات، دون أن تحدد أنت أي شيء.
 assist-excluded-e2ee = المحتوى المشفّر من طرف إلى طرف
 assist-excluded-attachments = المرفقات
 

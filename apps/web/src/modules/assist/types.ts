@@ -88,15 +88,48 @@ export function hasCapability(config: AssistConfig, cap: AssistCapability): bool
 
 // ── Invoke (the one path context can leave the device) ─────────────────────────
 
-/** How the mailbox context is tagged so redaction (server-side) can honour ceilings. */
-export type ContentKind = 'plain' | 'e2ee' | 'attachment';
+/**
+ * How the mailbox context is tagged so redaction (server-side) can honour ceilings.
+ * The values are the server's `ContentKind` wire names (kebab-case): an item the
+ * server cannot classify is rejected, and an item tagged `plain` is never redacted
+ * as end-to-end-encrypted content, so text from a decrypted message must be
+ * `e2ee-decrypted`.
+ */
+export type ContentKind = 'plain' | 'e2ee-decrypted' | 'attachment';
+
+/**
+ * The kind for text whose source is known: decrypted text (or text that quotes it)
+ * is `e2ee-decrypted`; `undefined` means the source is unknown and is treated as
+ * decrypted, so unknown provenance is redacted rather than forwarded.
+ */
+export function textKind(containsDecrypted: boolean | undefined): ContentKind {
+  return containsDecrypted === false ? 'plain' : 'e2ee-decrypted';
+}
 
 /** A piece of mailbox context handed to a capability. */
 export interface ContextItem {
   readonly account: string;
+  /** The owning mailbox ID (the server's folder ceiling lists IDs, not names); empty = not in a mailbox. */
   readonly folder: string;
   readonly text: string;
   readonly kind: ContentKind;
+}
+
+/**
+ * The auto-tag context for an opened message: the subject and preview the server
+ * already holds (never a decrypted body, so `plain` even for an encrypted message),
+ * tagged with the message's first mailbox ID, since the server's folder ceiling
+ * lists mailbox IDs rather than names.
+ */
+export function autoTagContext(
+  account: string,
+  mailboxIds: Readonly<Record<string, boolean>> | undefined,
+  subject: string | null | undefined,
+  preview: string | null | undefined,
+): ContextItem {
+  const folder = Object.keys(mailboxIds ?? {})[0] ?? '';
+  const text = [subject ?? '', preview ?? ''].filter((s) => s.length > 0).join('\n');
+  return { account, folder, text, kind: 'plain' };
 }
 
 /** A capability invocation (`POST /api/assist/invoke`). Never a send. */
@@ -246,5 +279,8 @@ export function disclosureSentence(config: AssistConfig): string {
   if (parts.length === 0) excl = t('assist-disclosure-admin-allowed');
   else if (parts.length === 1) excl = t('assist-disclosure-excl-one', { a: parts[0] ?? '' });
   else excl = t('assist-disclosure-excl-two', { a: parts[0] ?? '', b: parts[1] ?? '' });
-  return t('assist-disclosure-sentence', { host: isolate(config.endpointHost), excl });
+  const sentence = t('assist-disclosure-sentence', { host: isolate(config.endpointHost), excl });
+  // Auto-tag sends without a selection: the reader asks for labels on every open.
+  if (!hasCapability(config, 'auto-tag')) return sentence;
+  return `${sentence} ${t('assist-disclosure-autotag', { host: isolate(config.endpointHost) })}`;
 }

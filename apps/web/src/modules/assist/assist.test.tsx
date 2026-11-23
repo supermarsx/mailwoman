@@ -6,7 +6,7 @@ import { SemanticSearchToggle } from './SemanticSearchToggle.tsx';
 import { AutoTag } from './AutoTag.tsx';
 import { Dictation } from './Dictation.tsx';
 import { AssistService } from './service.ts';
-import { DISABLED_CONFIG, type AssistConfig, type InvokeResult, type TagAuditEntry } from './types.ts';
+import { DISABLED_CONFIG, autoTagContext, disclosureSentence, textKind, type AssistConfig, type InvokeRequest, type InvokeResult, type TagAuditEntry } from './types.ts';
 
 afterEach(() => cleanup());
 
@@ -134,6 +134,7 @@ describe('composer tools', () => {
         service={service}
         text="teh quick brown"
         account="acct-1"
+        containsDecrypted={false}
         onApply={onApply}
         onDisclosure={onDisclosure}
       />
@@ -165,7 +166,7 @@ describe('composer tools', () => {
   it('shows tone and language options as localized text and keeps the prompt in English', async () => {
     const { service, invoke } = fakeService(noActions);
     render(() => (
-      <ComposerTools config={enabled(['draft'])} service={service} text="hallo" account="a" onApply={() => undefined} />
+      <ComposerTools config={enabled(['draft'])} service={service} text="hallo" account="a" containsDecrypted={false} onApply={() => undefined} />
     ));
     const tone = screen.getByRole('combobox', { name: 'Tone' }) as HTMLSelectElement;
     expect([...tone.options].map((o) => [o.value, o.textContent])).toContainEqual(['friendly', 'Friendly']);
@@ -314,5 +315,72 @@ describe('dictation', () => {
     } finally {
       delete (globalThis as unknown as { SpeechRecognition?: unknown }).SpeechRecognition;
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Content kind + folder ID: what the server's redaction and folder ceiling see.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('assist context labelling', () => {
+  const sentContext = (invoke: ReturnType<typeof vi.fn>) =>
+    (invoke.mock.calls[0]?.[0] as InvokeRequest).context;
+
+  it('labels a draft quoting a decrypted message e2ee-decrypted (sent only when the admin allows it)', async () => {
+    const { service, invoke } = fakeService(noActions);
+    const config: AssistConfig = { ...enabled(['grammar']), includeE2ee: true };
+    render(() => (
+      <ComposerTools config={config} service={service} text="> decrypted quote" account="acct-1" folder="mb-drafts" containsDecrypted onApply={() => undefined} />
+    ));
+    fireEvent.click(screen.getByRole('button', { name: 'Fix grammar' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    expect(sentContext(invoke)).toEqual([{ account: 'acct-1', folder: 'mb-drafts', text: '> decrypted quote', kind: 'e2ee-decrypted' }]);
+  });
+
+  it('does not send a decrypted draft when decrypted content is not allowed, and says why', async () => {
+    const { service, invoke } = fakeService(noActions);
+    render(() => (
+      <ComposerTools config={enabled(['grammar'])} service={service} text="> decrypted quote" account="acct-1" containsDecrypted onApply={() => undefined} />
+    ));
+    fireEvent.click(screen.getByRole('button', { name: 'Fix grammar' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('may contain text from an encrypted message'));
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('treats a draft of unknown provenance as decrypted', async () => {
+    const { service, invoke } = fakeService(noActions);
+    render(() => (
+      <ComposerTools config={enabled(['grammar'])} service={service} text="hello" account="acct-1" onApply={() => undefined} />
+    ));
+    fireEvent.click(screen.getByRole('button', { name: 'Fix grammar' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    expect(invoke).not.toHaveBeenCalled();
+    expect(textKind(undefined)).toBe('e2ee-decrypted');
+  });
+
+  it('labels an ordinary draft plain and sends no folder name', async () => {
+    const { service, invoke } = fakeService(noActions);
+    render(() => (
+      <ComposerTools config={enabled(['grammar'])} service={service} text="hello" account="acct-1" containsDecrypted={false} onApply={() => undefined} />
+    ));
+    fireEvent.click(screen.getByRole('button', { name: 'Fix grammar' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    expect(sentContext(invoke)).toEqual([{ account: 'acct-1', folder: '', text: 'hello', kind: 'plain' }]);
+  });
+
+  it('tags auto-tag context with the mailbox ID and labels the server-held subject and preview plain', () => {
+    expect(autoTagContext('acct-1', { 'mb-7f3': true }, 'Invoice', 'Due Friday')).toEqual({
+      account: 'acct-1',
+      folder: 'mb-7f3',
+      text: 'Invoice\nDue Friday',
+      kind: 'plain',
+    });
+    expect(autoTagContext('acct-1', undefined, null, null)).toEqual({ account: 'acct-1', folder: '', text: '', kind: 'plain' });
+  });
+});
+
+describe('auto-tag disclosure', () => {
+  it('says the subject and preview are sent each time a message is opened when auto-tag is granted', () => {
+    expect(disclosureSentence(enabled(['auto-tag']))).toContain('each time you open a message, its subject and preview are sent to');
+    expect(disclosureSentence(enabled(['assistant']))).not.toContain('each time you open a message');
   });
 });

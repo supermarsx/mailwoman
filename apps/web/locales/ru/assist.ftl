@@ -33,6 +33,7 @@ assist-tone-assertive = Уверенный
 assist-busy = { $label }…
 assist-composer-empty-error = Сначала напишите что-нибудь.
 assist-composer-error = ИИ-ассистент сейчас не может это выполнить.
+assist-composer-decrypted-withheld = Не отправлено ИИ-ассистенту: этот черновик может содержать текст из зашифрованного сообщения, а отправлять расшифрованное содержимое не разрешено.
 assist-suggested-edit = Предлагаемая правка
 assist-apply-draft = Применить к черновику
 assist-discard = Отклонить
@@ -71,6 +72,7 @@ assist-disclosure-sentence = Когда вы используете инстру
 assist-disclosure-excl-one = Он никогда не отправляет { $a }.
 assist-disclosure-excl-two = Он никогда не отправляет { $a } и { $b }.
 assist-disclosure-admin-allowed = Ваш администратор разрешил отправку зашифрованного содержимого и вложений.
+assist-disclosure-autotag = Автоматические метки включены: каждый раз, когда вы открываете сообщение, его тема и превью отправляются на { $host }, чтобы предложить метки, без какого-либо выбора с вашей стороны.
 assist-excluded-e2ee = содержимое со сквозным шифрованием
 assist-excluded-attachments = вложения
 

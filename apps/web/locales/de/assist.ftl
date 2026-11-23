@@ -33,6 +33,7 @@ assist-tone-assertive = Bestimmt
 assist-busy = { $label }…
 assist-composer-empty-error = Schreiben Sie zuerst etwas.
 assist-composer-error = Der KI-Assistent konnte das gerade nicht erledigen.
+assist-composer-decrypted-withheld = Nicht an den KI-Assistenten gesendet: Dieser Entwurf kann Text aus einer verschlüsselten Nachricht enthalten, und entschlüsselte Inhalte dürfen nicht gesendet werden.
 assist-suggested-edit = Vorgeschlagene Änderung
 assist-apply-draft = In Entwurf übernehmen
 assist-discard = Verwerfen
@@ -71,6 +72,7 @@ assist-disclosure-sentence = Wenn Sie ein Werkzeug des KI-Assistenten verwenden,
 assist-disclosure-excl-one = Er sendet nie { $a }.
 assist-disclosure-excl-two = Er sendet nie { $a } oder { $b }.
 assist-disclosure-admin-allowed = Ihr Admin hat erlaubt, dass verschlüsselte Inhalte und Anhänge gesendet werden.
+assist-disclosure-autotag = Auto-Tagging ist eingeschaltet: Jedes Mal, wenn Sie eine Nachricht öffnen, werden ihr Betreff und ihre Vorschau an { $host } gesendet, um Labels vorzuschlagen, ohne dass Sie etwas auswählen.
 assist-excluded-e2ee = Ende-zu-Ende-verschlüsselte Inhalte
 assist-excluded-attachments = Anhänge
 
