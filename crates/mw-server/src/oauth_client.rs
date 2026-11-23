@@ -284,11 +284,10 @@ impl FormPoster for ReqwestPoster {
                 .map_err(|_| OauthError::Transport("invalid OAuth endpoint".into()))?;
             let allowed: Vec<String> = serde_json::from_str(&plugin.net_allowlist_json)
                 .map_err(|_| OauthError::Transport("invalid plugin host permissions".into()))?;
-            if !target.host_str().is_some_and(|host| {
-                allowed
-                    .iter()
-                    .any(|allowed| allowed.eq_ignore_ascii_case(host))
-            }) {
+            if !target
+                .host_str()
+                .is_some_and(|host| plugin_net_allows(&allowed, host))
+            {
                 return Err(OauthError::Transport(
                     "OAuth host permission revoked".into(),
                 ));
@@ -649,6 +648,26 @@ fn parse_token_response(
     }))
 }
 
+/// Whether `host` is inside a plugin's `net_allowlist`: an entry matches by exact
+/// host (case-insensitive), or as a `*.suffix` / `.suffix` wildcard that covers the
+/// suffix itself and any subdomain of it, on a label boundary.
+///
+/// Same rule as the WASM host's `CapGate::net_allows` (mw-plugin `host_state.rs`),
+/// so a plugin reaches the same OAuth hosts here as it does through `http-fetch`.
+/// One deliberate difference: a wildcard with an empty suffix (`*.` or `.`) matches
+/// nothing here, where the host side would accept any host ending in a dot.
+fn plugin_net_allows(allowlist: &[String], host: &str) -> bool {
+    let host = host.trim().to_ascii_lowercase();
+    allowlist.iter().any(|entry| {
+        let entry = entry.trim().to_ascii_lowercase();
+        match entry.strip_prefix("*.").or_else(|| entry.strip_prefix('.')) {
+            Some("") => false,
+            Some(suffix) => host == suffix || host.ends_with(&format!(".{suffix}")),
+            None => host == entry,
+        }
+    })
+}
+
 /// Whether a cached token (RFC-3339 `expires_at`) is due for a proactive refresh now.
 /// An unparseable timestamp is treated as expired (fail toward a refresh, never serve a
 /// possibly-dead token).
@@ -902,6 +921,39 @@ mod tests {
     use std::sync::Mutex;
 
     use mw_store::ServerKey;
+
+    /// The plugin OAuth path admits the same hosts as the WASM host's
+    /// `net_allows`: wildcards included, on label boundaries only.
+    #[test]
+    fn plugin_oauth_allowlist_matches_wildcards_on_label_boundaries() {
+        let list = |entries: &[&str]| entries.iter().map(|e| e.to_string()).collect::<Vec<_>>();
+        let cases: &[(&[&str], &str, bool)] = &[
+            (&["login.example.com"], "login.example.com", true),
+            (&["Login.Example.com"], "login.example.com", true),
+            (&["login.example.com"], "example.com", false),
+            (&["*.example.com"], "login.example.com", true),
+            (&["*.example.com"], "a.b.example.com", true),
+            (&["*.example.com"], "example.com", true),
+            (&["*.example.com"], "evilexample.com", false),
+            (&["*.example.com"], "example.com.evil.net", false),
+            (&["*.example.com"], "login.example.com.evil.net", false),
+            (&["*.example.com"], "example.co", false),
+            (&[".example.com"], "login.example.com", true),
+            (&[" *.EXAMPLE.com "], "Login.example.COM", true),
+            (&["*."], "example.com.", false),
+            (&["."], "example.com.", false),
+            (&["*"], "example.com", false),
+            (&[], "example.com", false),
+            (&["other.net", "*.example.com"], "id.example.com", true),
+        ];
+        for (entries, host, expected) in cases {
+            assert_eq!(
+                plugin_net_allows(&list(entries), host),
+                *expected,
+                "{entries:?} vs {host}"
+            );
+        }
+    }
 
     #[test]
     fn separate_provider_and_per_client_secrets_do_not_cross_app_registrations() {
