@@ -1,126 +1,161 @@
-# Sessions and server restarts
+---
+screen: true
+---
+# Sessions
 
-After the server process restarts (a deploy, a crash, a systemd restart, a
-container recreate) people and administrators stay signed in and keep working
-without typing a password again. This page lists what is stored, what is held in
-memory only, what a restart does to each, and the settings that control it.
+A session is what keeps a person signed in after they enter their password. This
+page covers the **Sessions** tab of the **Security centre**, where you can see and
+end mailbox sessions, how long sessions last, and what a server restart does to them.
 
-The same status is on the Security overview ("Sessions and restarts"): it reads
-"Sessions survive restarts: yes" or "no" with the reason, and the number of
-stored mailbox, app and console sessions.
+![The Sessions tab of the Security centre with its filters and the session revocation controls.](/screenshots/admin-access/sessions-page.webp){.mw-shot}
 
-Mailbox sessions default to **seven days since the last foreground use**.
-Opening mail on day three renews the window for another seven days. The login
-and activity responses issue persistent session and CSRF cookies, so closing
-and reopening the browser does not discard the session. Opening a verified
-mailbox, returning to it, or interacting with it renews activity; background
-polling and unattended tabs do not. An expired or revoked session cannot be
-renewed.
+The filters, the revocation controls and the session list:
 
-There is no fixed total mailbox-session lifetime by default. Administrators can
-still enforce a shorter inactivity window or an absolute sign-in limit using
-the policy/deployment controls below. Existing explicit values remain in effect.
-Original sign-in times are preserved during renewal and token rotation. Console
-sessions retain their separate limits.
+![The Sessions tab with the filters and one mailbox session.](/screenshots/admin-access/sessions-list.webp){.mw-crop}
 
-## What is stored in the database
+1. **Domain filter**, **Account ID filter** and **Client type filter** narrow the list.
+2. **Preview session revocation** lists the sessions the filters match, before anything is ended.
+3. The **×** button (**Revoke session**) ends one session.
+{.mw-callouts}
+
+## The Sessions tab
+
+**Security centre** > **Sessions** (`#/security/sessions`) lists mailbox sessions
+(web and app), most recently seen first, with the **Account**, **Device and client**,
+**IP address**, **Last activity** and **Created**. At most 1,000 sessions are listed;
+narrow the filters to see others. Console sessions are not listed here.
+
+You need **sessions.read** to see the tab and **sessions.revoke** to end sessions.
+A role limited to some domains sees and ends only sessions of accounts in those
+domains.
+
+### End one session
+
+Select the **×** button (**Revoke session**) on its row and confirm. The account can sign in again.
+
+### End several sessions
+
+1. Set the filters, for example **Domain filter** `example.com`.
+2. Select **Preview session revocation**. The list now shows only the sessions that
+   match; nothing has been ended yet.
+3. Select **Revoke these sessions** and confirm.
+
+Only the sessions shown in the preview are ended; a session opened after the preview
+is not included. You can also tick rows (or **Select all visible sessions**) and
+select **Revoke selected sessions**; the result says how many were revoked, had
+already ended, or could not be confirmed. Each ended session is recorded in the audit
+log.
+
+## How long a mailbox session lasts
+
+By default a mailbox session ends after **seven days without foreground use**, and
+has no fixed total lifetime.
+
+- Opening the mailbox, returning to it, and clicking, typing, scrolling with the
+  wheel or touching it in the foreground renew the seven days. The web app sends a
+  renewal at most once every 30 seconds.
+- Background requests (sync, notifications, a tab left open in the background) do
+  not renew it.
+- The session and CSRF cookies are kept for the remaining time, so closing and
+  reopening the browser keeps the session.
+- An expired or revoked session cannot be renewed.
+
+You can shorten this, or add a fixed lifetime, in **Settings**. Both can be set for
+the whole server, a domain or an account:
+
+| Setting | Key | Default | Range |
+|---|---|---|---|
+| **Session idle timeout** | [`session.idleSecs`](/admin/settings#session.idlesecs) | 604800 (7 days) | 60 to 604800 |
+| **Session lifetime** | [`session.absoluteSecs`](/admin/settings#session.absolutesecs) | 0 (no fixed lifetime) | 0, or 300 to 1296000 (15 days) |
+| **Concurrent sessions** | [`session.maxConcurrent`](/admin/settings#session.maxconcurrent) | 10 | 1 to 100 |
+
+The server's start-up options cap these: `MW_SESSION_IDLE_SECS` (default 604800)
+is the longest idle time any setting can give, and `MW_SESSION_ABSOLUTE_SECS`
+(default 0) adds a fixed lifetime for everyone. When both a setting and the start-up
+option give a fixed lifetime, the shorter one applies, and never more than 15 days.
+
+::: warning
+With the defaults, a session that is used at least once a week never expires. If
+that is too long for your users, set **Session lifetime**.
+:::
+
+Console sessions have their own limits: **Console idle timeout**
+([`admin.session.idleSecs`](/admin/settings#admin.session.idlesecs), default 1800
+seconds) and **Console session limit**
+([`admin.session.absoluteSecs`](/admin/settings#admin.session.absolutesecs),
+default 43200 seconds). The server applies them within 300 to 7200 seconds and 3600
+to 86400 seconds; a larger saved value is used as the upper bound. See
+[Admin console security](/security/admin-panel#sessions-cookies-and-csrf).
+
+## Server restarts
+
+Sessions are stored in the database, so a restart (a deploy, a crash, a container
+re-created) does not sign anyone out. Any server that shares the database and the
+server key can serve any session. The **Overview** tab of the Security centre shows
+"Sessions survive restarts: yes" or "no", with the reason.
+
+### What is stored
 
 | State | Where | After a restart |
-| --- | --- | --- |
-| Mailbox (webmail) session | `sessions` table, cookie `mw_session` holds only the random id | Valid. Creation time, last activity (`activity_at`) and last-seen are columns, so the idle and absolute deadlines are unchanged. |
-| Upstream credentials (IMAP, JMAP, DAV password) | `sessions.sealed_creds`, sealed with the server key | Opened lazily with the server key on the next request that needs them. Never written in plaintext. |
-| Native app session | `native_sessions` (hash of the bearer token) plus its `sessions` row | Valid, same as a mailbox session. |
-| Console (admin) session | `admin_sessions`: token hash, `expires_at` (idle), `absolute_expires_at` | Valid. The absolute deadline is stored when the session is created and never reset. The idle deadline is the stored one. |
-| CSRF token | Not stored. It is derived from the server key and the session id (HMAC), and the `mw_csrf` cookie carries it | A token issued before the restart verifies after it, as long as the server key is the same. |
-| Remembered devices (skip the second factor) | `remembered_device` (hash of the device token, its own expiry) | Still recognised. |
-| New-device and sign-in history | `signin_event`, `remembered_device` | Unchanged. Serving a restored session records no sign-in, so a restart never triggers the "new device" email. |
-| Pending single sign-on flows (OIDC state, nonce, PKCE verifier; SAML request id) | `ephemeral_state`, payload sealed with the server key, lookup key stored hashed, single use, 10 minute expiry | A sign-in that was in flight when the server restarted still completes. A callback that reaches a different instance finds the flow too. |
-| Outbox queue, drafts, settings, push subscriptions | their own tables | Durable. |
-| Session retention | The retention sweeper prunes `sessions` by `last_seen` | Unchanged. `last_seen` is written at most every `session.lastActivityFlushSeconds` seconds, so a pruned session is at most that many seconds staler than before. |
+|---|---|---|
+| Mailbox session | `sessions` table. The `mw_session` cookie carries the session id, and the table stores that same id. | Valid. Creation time and last activity are stored, so the deadlines do not move. |
+| Mail server password and other upstream credentials | `sessions.sealed_creds`, sealed with the server key | Opened with the server key when next needed. |
+| App (native) session | `native_sessions`, storing a hash of the bearer token, plus its `sessions` row | Valid. |
+| Console session | `admin_sessions`, storing a hash of the session token, with both deadlines | Valid. The fixed deadline is set at sign-in and never extended. |
+| CSRF token | Not stored: computed from the server key and the session id | Tokens issued before the restart still work if the server key is unchanged. |
+| Remembered devices | `remembered_device`, storing a hash of the device token | Still recognised. |
+| Sign-in history | `signin_event` | Unchanged. A restart does not record a sign-in or send a "new device" notice. |
+| Single sign-on in progress | Sealed with the server key, single use, ten-minute expiry | A sign-in that was in progress still completes, also on another server. |
 
-Session validity needs nothing from the process that created it. Several
-instances behind a load balancer share one database and one server key, and any
-of them can serve any session.
+::: warning
+Because the database holds mailbox session ids as they are and the sealed
+credentials beside them, a copy of the database together with the server key gives
+access to signed-in mailboxes. Protect backups of both. To end every session, set
+**Keep sessions across restarts** off and restart, or revoke the sessions on this tab.
+:::
 
-## What is held in memory only, on purpose
+### What is kept in memory only
 
-| State | Why | After a restart |
-| --- | --- | --- |
-| Step-up proof ("confirm it is you", five minutes) and its failure lockout counter | A short proof for sensitive actions; persisting it would let a database copy mint one. | The person confirms again. A proof never carries over to another session. Behind a load balancer the confirmation has to land on the instance that serves the action; use client affinity for `/api/security/step-up` or accept one extra confirmation. |
-| Two-factor sign-in in progress (password accepted, code not yet entered), passkey challenges, TOTP enrolment secrets, console sign-in in progress | These hold a password-checked identity or a one-time secret for a minute or two. | The person starts that sign-in again. Not shared between instances; use client affinity during sign-in if you run several. |
-| Sign-in rate limits, cooldowns, trust tiers | Abuse counters. Trust tiers are flushed to the database on a clean shutdown (SIGTERM or Ctrl+C). | Counters restart empty after a crash. |
-| IMAP IDLE connections, engine caches, JMAP state strings, the search index handle | Connections and caches that are rebuilt on demand. | Reconnected lazily on the next request. |
-| Sanitizer and remote-content caches | Derived data. | Rebuilt. |
-| Undo history | Lives in the browser tab. | Survives, because the page is not reloaded. |
-| Realtime connections (WebSocket, EventSource) | A connection cannot outlive its process. | The web app reconnects with exponential backoff and jitter and, once back, re-reads the lists once to catch up on changes missed while it was down. |
+| State | After a restart |
+|---|---|
+| "Confirm it is you" confirmations (five minutes) and their failed-attempt counter | The person confirms again. With several servers, a confirmation is known only to the server that received it. |
+| A sign-in waiting for the second factor, passkey challenges, authenticator setup in progress | The person starts that sign-in or setup again. |
+| Sign-in retry cooldowns and trust tiers | Counters start empty after a crash; trust tiers are written to the database on a clean stop. |
+| Mail server connections, caches, the search index handle | Rebuilt when next needed. |
+| Live update connections (WebSocket, EventSource) | The web app reconnects, waiting a little longer after each failure, and then reloads the lists once. |
 
-## What the web app does while the server is away
+While the server is away, the web app does not sign the person out: an answer of 502,
+503 or 504, or no answer, shows "Reconnecting…" and retries for about a minute. Only
+a `401` ends the session in the browser.
 
-* A request that gets 502, 503 or 504, or no answer at all, is not a sign-out.
-  Only a 401 is. The page-load session check waits (backoff from 0.5 s to 5 s with
-  jitter, about a minute in all) and shows "Reconnecting…" instead of the sign-in
-  form; after that it shows the usual retry card.
-* The realtime connection backs off with jitter, and when it returns the app
-  re-reads each datatype once.
-* Writes that opted in to recovery are retried on 502/503/504 with the same
-  backoff; an idempotency key makes a repeat safe.
+### The server key
+
+Sessions are sealed with the server key: `MW_SERVER_KEY`, the file named by
+`MW_SERVER_KEY_FILE`, or `<database>.server-key` next to a SQLite file. With
+PostgreSQL, every server needs the same `MW_SERVER_KEY` or key file.
+
+- If the key file is missing and the database exists, a new key is created and the
+  stored sessions can no longer be opened: those people see the sign-in screen, and
+  the Overview says why. Restore the original key file to bring the sessions back.
+- An in-memory database, or a data directory that is wiped on restart, loses the
+  sessions. Mount the data directory, or set `MW_SERVER_KEY`.
+- A clock jump moves deadlines with it: forward past a deadline ends the session;
+  backward lengthens live sessions.
 
 ## Settings
 
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `session.persistAcrossRestarts` | on | Off ends every stored session (mailbox, app, console) when the server starts. Use it where you want a restart to sign everyone out. Applies at the next start. |
-| `session.lastActivityFlushSeconds` | 15 | A session's `last_seen` is written at most this often (0 to 300). It is request telemetry, not the idle clock, so it does not extend a session. Applies at the next start. |
-| `server.shutdownGraceSeconds` | 30 | How long a stopping server lets in-flight requests finish before it closes connections (1 to 120). `MW_HTTP_SHUTDOWN_TIMEOUT_MS` overrides it. Applies at the next start. |
+| Setting | Key | Default | Effect |
+|---|---|---|---|
+| **Keep sessions across restarts** | [`session.persistAcrossRestarts`](/admin/settings#session.persistacrossrestarts) | on | Off ends every stored mailbox, app and console session when the server starts. Read at start. |
+| **Last-seen write interval** | [`session.lastActivityFlushSeconds`](/admin/settings#session.lastactivityflushseconds) | 15 | How often (0 to 300 seconds) a session's last-seen time is written. It does not extend the session. Read at start. |
+| **Shutdown grace period** | [`server.shutdownGraceSeconds`](/admin/settings#server.shutdowngraceseconds) | 30 | How long a stopping server lets running requests finish (1 to 120 seconds). `MW_HTTP_SHUTDOWN_TIMEOUT_MS` overrides it. Read at start. |
 
-Idle and absolute limits keep their existing keys: `session.idleSecs`,
-`session.absoluteSecs`, `admin.session.idleSecs`, `admin.session.absoluteSecs`.
-The mailbox idle default and deployment cap are `604800` seconds (seven days).
-`session.absoluteSecs` and `MW_SESSION_ABSOLUTE_SECS` default to `0` (no fixed
-cutoff); any nonzero policy/deployment limit still applies, with the shorter
-nonzero limit winning. An enabled mailbox absolute limit is capped at 15 days.
+The server stops on SIGTERM or Ctrl+C: it stops accepting connections, lets running
+requests finish for up to the grace period, then closes the rest. Give your service
+manager a longer stop timeout than the grace period.
 
-A "memory-only" upstream credential mode (credentials sealed with a secret held
-only in the cookie, so the database alone cannot open them) is not implemented:
-background work such as sync and sending needs the credentials with no browser
-present. To trade convenience for safety, turn `session.persistAcrossRestarts`
-off.
+## Related
 
-## Shutdown
-
-The server stops on SIGTERM (systemd, Docker, Kubernetes) or Ctrl+C. It stops
-accepting connections, lets in-flight requests finish for up to the grace period,
-then closes the rest, and writes the trust-tier state. Make the service manager's
-stop timeout longer than the grace period.
-
-## The server key
-
-Sessions are sealed with the server key. It comes from, in order: `MW_SERVER_KEY`,
-the file named by `MW_SERVER_KEY_FILE`, or `<database>.server-key` beside a SQLite
-file. PostgreSQL requires the first two, shared by every instance.
-
-* A **missing key file** with an existing database creates a new key. Stored
-  sessions then cannot be opened: those people see the sign-in page, the server
-  does not crash, and the Security overview shows "Sessions survive restarts: no
-  (stored sessions do not open with the current server key)". Restore the original
-  key file to bring them back; a damaged key file is never replaced silently.
-* An **in-memory database, or a data directory that is wiped on restart** loses
-  the key (or the database). Sessions cannot survive; the overview says so.
-  Mount the data directory, or set `MW_SERVER_KEY`, on a container.
-* A **clock jump** moves deadlines with it. A forward jump past a deadline ends the
-  session. A backward jump lengthens live sessions by the size of the jump; a
-  session that already ended is deleted and stays ended.
-
-## Verified by tests
-
-`crates/mw-server/tests/t_session_restart_survival.rs` builds a second app over
-the same database and key and checks: a mailbox cookie still works and its
-creation and activity times do not move, upstream credentials re-open, a restart
-adds no sign-in event or device, the CSRF token still verifies (and a forged one
-does not), a console session keeps its absolute deadline and is refused once that
-passes, a step-up proof is per session and not carried over, turning persistence
-off ends sessions at start, a different server key signs people out without a
-crash and the overview says why, and a pending sign-on state is shared between
-instances and single use. `crates/mw-server/tests/session_restart.rs` repeats the
-mailbox case across a real process restart. The browser behaviour is covered by
-`apps/web/src/state/bootRetry.test.ts`.
+- [Security centre](./security-center.md)
+- [Admin console security](/security/admin-panel)
+- [Backups](/deploy/backups)
