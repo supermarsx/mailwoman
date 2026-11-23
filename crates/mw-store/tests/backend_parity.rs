@@ -1045,6 +1045,7 @@ const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
     ("authority_subject_anchor", "0112: derived live-session absence anchors; destination starts cold and seeds only its own verified source/vector"),
     ("authority_epoch", "0111: local derived publication epochs; destination starts cold with new incarnations and lazily seeds live scopes; source authorities follow existing copy rules"),
     ("authority_publication_outbox", "0111: source-deployment worker claims/acknowledgements; destination rebuilds locally and must not inherit claims or treat another process acknowledgement as installed RAM"),
+    ("authority_change_log", "0115: derived broadcast record of source epoch incarnations; destination epochs get new incarnations, so source rows can never match and readers start at the destination head"),
     ("mail_data_accounts", "0113: derived process/source DATA identities; destination source-copy triggers create a fresh account incarnation, never copy a prepared-result proof."),
     ("mail_data_rows", "0113: derived per-message DATA revisions; destination source-copy triggers regenerate them. All user-owned Message/envelope/body/meta rows remain copied."),
     ("mail_data_outbox", "0113: coalesced source invalidation hints, not user mail or mutation history. Destination source writes create its own pending hints; source work claims are not transferred."),

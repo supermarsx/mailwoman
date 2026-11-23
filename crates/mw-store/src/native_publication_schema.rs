@@ -5,12 +5,18 @@ use super::*;
 const SQLITE_SQL: &str = concat!(
     include_str!("../migrations/0111_authority_publication.sql"),
     "\n",
-    include_str!("../migrations/0112_authority_subject_anchor.sql")
+    include_str!("../migrations/0112_authority_subject_anchor.sql"),
+    "
+",
+    include_str!("../migrations/0115_authority_change_log.sql")
 );
 const PG_SQL: &str = concat!(
     include_str!("../migrations_pg/0111_authority_publication.sql"),
     "\n",
-    include_str!("../migrations_pg/0112_authority_subject_anchor.sql")
+    include_str!("../migrations_pg/0112_authority_subject_anchor.sql"),
+    "
+",
+    include_str!("../migrations_pg/0115_authority_change_log.sql")
 );
 const TABLES: &[&str] = &[
     "accounts",
@@ -39,6 +45,10 @@ const TABLES: &[&str] = &[
     "authority_epoch",
     "authority_publication_outbox",
     "authority_subject_anchor",
+    // 0115: the bounded guard snapshot reads the change log and depends on the
+    // settings_revision row; both join the shadowing/identity stamp.
+    "settings_revision",
+    "authority_change_log",
 ];
 pub(super) fn stamp_expression(dialect: Dialect) -> &'static str {
     static SQL: OnceLock<[String; 2]> = OnceLock::new();

@@ -429,4 +429,6 @@ pub use native_seed::NativeAuthoritySeed;
 pub use fence::NativeAuthorityFence;
 #[path = "global_guard_publication.rs"]
 mod global_guard;
+/// t34 bounded guard snapshot: a polled mirror of the 0115 change log.
+pub mod mirror;
 pub use global_guard::{GlobalGuardConfigFence, GlobalGuardConfigSource};
