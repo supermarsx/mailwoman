@@ -182,6 +182,16 @@ index of a restored install, which is rebuilt from the restored cache.
 | `audit_rechain` | - | kept: anchor records of chain-preserving pseudonymisation; hold hashes only | - | - |
 | `auth_failure` | `key_kind='account' AND key=id` | deleted | - | retention: window expiry |
 | `auth_source_failure` | - | kept: keyed by source address and surface, not by person; expires on its own (expires_at) | - | - |
+| `authority_epoch` | - | kept: global/domain and opaque session/watch epochs remain operational; explicit final-order person rules below remove account/subject/principal identifiers; absent-source session/watch cleanup still requires an explicit bounded maintenance invocation | - | - |
+| `authority_epoch` | `scope_kind='account' AND scope_id=id` | deleted | - | - |
+| `authority_epoch` | `scope_kind='subject' AND scope_id=id` | deleted | - | - |
+| `authority_epoch` | `scope_kind='principal' AND scope_id=id` | deleted | - | - |
+| `authority_publication_outbox` | - | kept: coalesced targets follow the corresponding epoch; explicit person rules verify their cascade; absent-source session/watch cleanup is not yet an automatic worker | - | - |
+| `authority_publication_outbox` | `scope_kind='account' AND scope_id=id` | removed with its parent row | - | - |
+| `authority_publication_outbox` | `scope_kind='subject' AND scope_id=id` | removed with its parent row | - | - |
+| `authority_publication_outbox` | `scope_kind='principal' AND scope_id=id` | removed with its parent row | - | - |
+| `authority_subject_anchor` | `account_id=id` | removed with its parent row | - | - |
+| `authority_subject_anchor` | `account_id=id` | deleted | - | - |
 | `backup_register` | - | kept: backup manifests: label, time and tombstone watermark, no identifiers | - | - |
 | `bodies` | `account_id=id` | removed with its parent row | `mail` (built by code) | - |
 | `brand_asset` | `owner_account=id` | deleted | - | - |
@@ -226,6 +236,8 @@ index of a restored install, which is rebuilt from the restored cache.
 | `identity_principal` | - | kept: an opaque random id with no identifier once its bindings are deleted | - | - |
 | `identity_verification` | - | kept: one-time identity verification tokens (hash only); expire on their own | - | - |
 | `inbound_webhooks` | `account_id=id` | deleted | `integrations` | - |
+| `index_publication_journal` | `account_id=id` | deleted | - | - |
+| `index_publication_journal_control` | - | kept: one global journal switch row; no person data | - | - |
 | `ip_block` | - | kept: abuse-prevention block keyed by network, expires on its own | - | - |
 | `key_associations` | `account_id=id` | deleted | `security` | - |
 | `linked_account` | `owner_principal_id=id` | deleted | `integrations` | - |
@@ -236,6 +248,9 @@ index of a restored install, which is rebuilt from the restored cache.
 | `linked_grant` | `link_id IN (SELECT id FROM linked_account WHERE owner_principal_id=id)` | deleted | - | - |
 | `linked_layout` | `owner_principal_id=id` | deleted | - | - |
 | `linked_primary` | `owner_principal_id=id` | deleted | - | - |
+| `mail_data_accounts` | `account_id=id` | deleted | - | - |
+| `mail_data_outbox` | `account_id=id` | deleted | - | - |
+| `mail_data_rows` | `account_id=id` | deleted | - | - |
 | `mail_user` | - | kept: the directory row is closed (status deleted), not removed, so the address cannot be re-enrolled without an administrator | `profile` (built by code) | - |
 | `mail_user_account` | `account_id=id` | deleted | - | - |
 | `mailboxes` | `account_id=id` | removed with its parent row | - | - |
