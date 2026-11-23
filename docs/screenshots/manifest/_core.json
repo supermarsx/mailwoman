@@ -1,16 +1,241 @@
 {
-  "defaults": { "stack": "E", "seed": ["mail-basic"], "theme": "dark", "viewport": "desktop" },
+  "defaults": {
+    "stack": "E",
+    "seed": [
+      "mail-basic"
+    ],
+    "theme": "dark",
+    "viewport": "desktop",
+    "page": "screenshots/README.md"
+  },
   "entries": [
     {
       "id": "mailbox",
-      "page": "screenshots/README.md",
       "steps": [
-        { "goto": "/" },
-        { "click": { "text": "Re: Venue options for the launch evening", "first": true } },
-        { "waitFor": { "role": "heading", "name": "Re: Venue options for the launch evening" } }
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button", "name": "Sam Okoye",
+            "exact": false
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "Re: Spring catalogue: print proof"
+          }
+        },
+        {
+          "click": {
+            "role": "heading",
+            "name": "Re: Spring catalogue: print proof"
+          }
+        }
       ],
       "shot": "full",
-      "alt": "The mailbox: folders on the left, the Inbox message list in the middle, and an opened message with an image attachment on the right."
+      "alt": "The mailbox: folders on the left, the Inbox message list in the middle, and an opened message with a PDF attachment on the right.",
+      "note": "Opens a message that is already read, so the unread counts do not depend on how fast the capture runs."
+    },
+    {
+      "id": "reader-actions",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button", "name": "Sam Okoye",
+            "exact": false
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "Re: Spring catalogue: print proof"
+          }
+        },
+        {
+          "click": {
+            "role": "heading",
+            "name": "Re: Spring catalogue: print proof"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "toolbar",
+            "name": "@mail-reader-actions"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "toolbar",
+          "name": "@mail-reader-actions"
+        },
+        "padding": 6
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@mail-reply",
+            "within": {
+              "role": "toolbar",
+              "name": "@mail-reader-actions"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@mail-reply-all",
+            "within": {
+              "role": "toolbar",
+              "name": "@mail-reader-actions"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@mail-forward",
+            "within": {
+              "role": "toolbar",
+              "name": "@mail-reader-actions"
+            }
+          },
+          "place": "bottom"
+        }
+      ],
+      "alt": "The message actions toolbar above an opened message, with markers 1 to 3 on Reply, Reply all and Forward."
+    },
+    {
+      "id": "compose",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose"
+          }
+        },
+        {
+          "fill": {
+            "role": "combobox",
+            "name": "@mail-compose-to",
+            "value": "priya.raman@example.com"
+          }
+        },
+        {
+          "press": {
+            "role": "combobox",
+            "name": "@mail-compose-to",
+            "key": "Enter"
+          }
+        },
+        {
+          "fill": {
+            "role": "textbox",
+            "name": "@mail-compose-subject",
+            "value": "Booking page: cancellation text"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "A new message with one recipient and a subject, the editor ribbon open on Format text, and an empty message body."
+    },
+    {
+      "id": "settings-text-colors",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-nav-settings"
+          }
+        },
+        {
+          "click": {
+            "text": "@reader-settings-title",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@reader-settings-title"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@reader-card-text",
+          "closest": "section"
+        },
+        "padding": 12
+      },
+      "alt": "The Text and colors card of the Message display settings: message colors, reading font size, line height, reading width and message zoom."
+    },
+    {
+      "id": "admin-dashboard",
+      "session": "admin",
+      "seed": [
+        "mail-basic",
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-dash-overview"
+          }
+        }
+      ],
+      "mask": [],
+      "shot": {
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 1440,
+          "height": 449
+        }
+      },
+      "alt": "The top of the administration console: the navigation on the left, and on the dashboard the setup checklist and the account and session counts."
+    },
+    {
+      "id": "calendar-week",
+      "seed": [
+        "mail-basic",
+        "pim-week"
+      ],
+      "steps": [
+        {
+          "goto": "/#/calendar"
+        },
+        {
+          "waitFor": {
+            "text": "Print proof review",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The calendar in week view for 8 to 14 March 2026 with the week's events, and the month overview and calendar list on the left."
     }
   ]
 }

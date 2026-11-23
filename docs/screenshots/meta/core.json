@@ -1,0 +1,76 @@
+{
+  "entries": {
+    "admin-dashboard": {
+      "hash": "346e8bd11fb1957a",
+      "bytes": 36818,
+      "width": 1440,
+      "height": 449,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "b26ba4b5",
+      "stack": "E",
+      "web": "given",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "calendar-week": {
+      "hash": "4ced773ca318fcfe",
+      "bytes": 61836,
+      "width": 1440,
+      "height": 900,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "b26ba4b5",
+      "stack": "E",
+      "web": "given",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "compose": {
+      "hash": "a137da9b8430b9fd",
+      "bytes": 53284,
+      "width": 1440,
+      "height": 900,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "b26ba4b5",
+      "stack": "E",
+      "web": "given",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "mailbox": {
+      "hash": "e15d6a8fb4e99334",
+      "bytes": 99062,
+      "width": 1440,
+      "height": 900,
+      "quality": 0.9,
+      "kind": "full",
+      "commit": "b26ba4b5",
+      "stack": "E",
+      "web": "given",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "reader-actions": {
+      "hash": "04f7c102eaa3a129",
+      "bytes": 7564,
+      "width": 851,
+      "height": 70,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "b26ba4b5",
+      "stack": "E",
+      "web": "given",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "settings-text-colors": {
+      "hash": "39de3d829e38acba",
+      "bytes": 33542,
+      "width": 1005,
+      "height": 417,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "b26ba4b5",
+      "stack": "E",
+      "web": "given",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    }
+  }
+}
