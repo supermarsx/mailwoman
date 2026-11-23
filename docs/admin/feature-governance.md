@@ -15,6 +15,14 @@ The **Feature profiles** screen of the console groups feature switches, limits a
 ## Create a profile
 
 1. Open **Feature profiles** and select **New profile**.
+
+   ![The top of a new feature profile: the profile name, the preset picker with Apply preset, Import JSON and Export JSON, and the feature search.](/screenshots/admin-privacy/features-preset.webp){.mw-crop}
+
+   1. **Profile name**.
+   2. **Apply preset**, after choosing a preset.
+   3. **Import JSON**; **Export JSON** is beside it.
+   {.mw-callouts}
+
 2. Enter the **Profile name**. Under **Start from a preset**, choose **Full**, **Standard**, **Mail only** or **Minimal / kiosk** and select **Apply preset**; a preset fills the switches and is not stored itself.
 3. For each switch, choose **Allowed**, **Not allowed** or **Inherit** (the profile holds no value, so the next profile, the domain or the server-wide value decides), and tick **Locked** to stop narrower scopes from changing it. Limits take **Inherit** or **Set a value**. **Find a feature** filters the list. **Allow all**, **Disallow all** and **Clear** change every switch at once. **Other settings a profile can hold** lists the other settings a profile may set.
 4. Select **Create profile** (or **Save profile** for an existing one).
@@ -29,7 +37,8 @@ The **Feature profiles** screen of the console groups feature switches, limits a
 
 ## Check what a person gets
 
-Under **Effective values**, choose **Preview for** and **Who**, then **Show**. The preview lists each switch with its effective value (**Effective**) and the scope that decided it (**Decided by**). It uses the same resolver as the server's checks, on saved values only: unsaved changes in the editor are not included.
+Under **Effective values**, choose **Preview for** and **Who**, then **Show**.
+ The preview lists each switch with its effective value (**Effective**) and the scope that decided it (**Decided by**). It uses the same resolver as the server's checks, on saved values only: unsaved changes in the editor are not included.
 
 A value is chosen like this:
 

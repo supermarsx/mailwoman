@@ -211,17 +211,17 @@
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "dsr-queue": {
-      "hash": "9299295fdf172989",
-      "bytes": 56212,
+      "hash": "fe6e4479e91a0ecc",
+      "bytes": 58266,
       "width": 1440,
       "height": 900,
       "quality": 0.9,
       "kind": "full",
-      "commit": "de6cb871",
+      "commit": "1f50d09c",
       "stack": "E",
-      "web": "21c593b8424404d9",
-      "webRevision": "0b4d7978+local changes",
-      "webBuiltAt": "2026-11-23T05:02:02.038Z",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "encryption-checks": {
@@ -267,17 +267,17 @@
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "erasure-scrub": {
-      "hash": "4a3511ff66a2a023",
-      "bytes": 10284,
+      "hash": "c5ae5f02a28c118a",
+      "bytes": 9836,
       "width": 1182,
       "height": 283,
       "quality": 0.9,
       "kind": "crop",
-      "commit": "26ed4f7c",
+      "commit": "22bdab0a",
       "stack": "E",
-      "web": "86e3b49c853cca4f",
-      "webRevision": "0e1e9021+local changes",
-      "webBuiltAt": "2026-11-23T05:08:35.602Z",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "features-overview": {
@@ -294,6 +294,20 @@
       "webBuiltAt": "2026-11-23T05:02:02.038Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
+    "features-preset": {
+      "hash": "84aac66cd1246e0a",
+      "bytes": 18382,
+      "width": 1140,
+      "height": 331,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "22bdab0a",
+      "stack": "E",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
     "geoip-overview": {
       "hash": "3890621455183cf8",
       "bytes": 76304,
@@ -308,6 +322,20 @@
       "webBuiltAt": "2026-11-23T05:02:02.038Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
+    "geoip-source": {
+      "hash": "8c25cb922be07cae",
+      "bytes": 35722,
+      "width": 1190,
+      "height": 754,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "3da3b39e",
+      "stack": "E",
+      "web": "cfc31de1e2a968c2",
+      "webRevision": "c5ff1ae9+local changes",
+      "webBuiltAt": "2026-11-23T06:27:57.355Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
     "governance-contracts": {
       "hash": "f74008c877d83012",
       "bytes": 16092,
@@ -320,6 +348,34 @@
       "web": "d94ef8a61340ca83",
       "webRevision": "127f9b49+local changes",
       "webBuiltAt": "2026-11-23T05:16:42.485Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "incidents-automation": {
+      "hash": "1ada788f543e7b77",
+      "bytes": 76136,
+      "width": 776,
+      "height": 1394,
+      "quality": 0.85,
+      "kind": "crop",
+      "commit": "c5ff1ae9",
+      "stack": "E",
+      "web": "978f408cd91cbf94",
+      "webRevision": "2a06d219+local changes",
+      "webBuiltAt": "2026-11-23T06:26:06.387Z",
+      "serverBuilt": "2026-11-21T06:28:40.506Z"
+    },
+    "incidents-editor": {
+      "hash": "e2444c96598e6c8d",
+      "bytes": 11474,
+      "width": 560,
+      "height": 884,
+      "quality": 0.9,
+      "kind": "crop",
+      "commit": "22bdab0a",
+      "stack": "E",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "incidents-list": {
@@ -421,31 +477,31 @@
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "restrictions-apply": {
-      "hash": "742a0fa7b3010b22",
-      "bytes": 14832,
+      "hash": "0190babe1c18d759",
+      "bytes": 14810,
       "width": 728,
       "height": 608,
       "quality": 0.9,
       "kind": "crop",
-      "commit": "f15c2fc5",
+      "commit": "22bdab0a",
       "stack": "E",
-      "web": "8daecccdf34e7849",
-      "webRevision": "f15c2fc5+local changes",
-      "webBuiltAt": "2026-11-23T05:13:34.338Z",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "restrictions-list": {
-      "hash": "1ea4081fe1f148c8",
-      "bytes": 72188,
+      "hash": "aba0bd0729b0808e",
+      "bytes": 70408,
       "width": 1440,
       "height": 900,
       "quality": 0.9,
       "kind": "full",
-      "commit": "26ed4f7c",
+      "commit": "22bdab0a",
       "stack": "E",
-      "web": "86e3b49c853cca4f",
-      "webRevision": "0e1e9021+local changes",
-      "webBuiltAt": "2026-11-23T05:08:35.602Z",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "retention-dry-run": {

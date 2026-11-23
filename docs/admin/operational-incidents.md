@@ -14,6 +14,9 @@ Reading the tab needs `privacy.read`, changing it `privacy.write`, both on all d
 ## Record an incident
 
 1. Open **Compliance** and select **Operational incidents**, then **Add incident**.
+
+   ![The form for a new operational incident with its title, category, status, significance, awareness time, owner, impact and recovery fields.](/screenshots/admin-privacy/incidents-editor.webp){.mw-crop}
+
 2. Enter the **Title**, **Category** (Outage, Suspected account compromise, Service disruption or Vulnerability), **Status**, **Significance**, **Awareness time**, **Owner** and **Impact**.
 3. As work goes on, fill in **Root cause**, **Measures taken**, **Recovery plan**, **Recovery evidence** and, if you track them, the recovery time and recovery point in minutes. Resolving or closing an incident by hand needs a root cause and recovery evidence.
 4. Under **Regulatory reporting**, use **Record authority submission** for each report you made, with the time and the authority's reference.
@@ -28,7 +31,9 @@ With **Automatically detect incident candidates** on (the default), a worker run
 - **Monitoring gaps.** A gap of more than three minutes in the server's own heartbeat opens a candidate; the service's state during the gap is unknown.
 - **External monitors.** `POST /admin/incidents/observations` (under your console path) with a component name and a state (`ok`, `fail`, `warn` or `disabled`) counts like a health sample. It needs `privacy.write` on all domains and is refused while automatic detection is off.
 
-**Check signals now** runs the worker at once.
+**Check signals now** runs the worker at once. The settings are under **Automation and notifications** on the tab:
+
+![The Automation and notifications settings of the Operational incidents tab, opened.](/screenshots/admin-privacy/incidents-automation.webp){.mw-crop}
 
 ::: warning Short disruptions are closed automatically
 With `incidents.auto.resolveTransient` on (the default), a service disruption from the health checks that recovers within `incidents.auto.transientMinutes` (15) with at least `incidents.auto.recoverySamples` (2) healthy samples, while still unassessed, unowned and without reports, is set to **Resolved** by the server. Its recovery is recorded as verified, with the owner "Automated health monitor" and generated recovery evidence, and no root cause. These three settings are not shown on the tab; change them on the **Settings** screen.

@@ -16,7 +16,15 @@ The **Country database** tab of the **Security centre** manages the local file t
 ## Install the database
 
 1. Open **Security centre** and select **Country database**.
-2. Under **Source and updates**, choose the provider and, for MaxMind or IPinfo, enter the licence key or token. Select **Save source**.
+2. Under **Source and updates**, choose the **Provider** and, for MaxMind or IPinfo, enter the licence key or token. Select **Save source**.
+
+   ![The Country database actions, the upload form and the Source and updates settings, with markers on Download now, the provider and Save source.](/screenshots/admin-privacy/geoip-source.webp){.mw-crop}
+
+   1. **Download now**.
+   2. **Provider**.
+   3. **Save source**.
+   {.mw-callouts}
+
 3. Select **Download now**. The server fetches the file, checks it and puts it in use at once; no restart is needed.
 4. Check the status table: **Database**, **Source**, **Built**, **Networks with a country**, **Verification**, **Installed**.
 
@@ -39,7 +47,7 @@ Downloads use the `geoip` outbound traffic class (see [Outbound connections](/se
 
 The data directory holds `active.mmdb` and `previous.mmdb`. A new database replaces `active.mmdb` and the old one becomes `previous.mmdb`; **Roll back** swaps the two.
 
-**Automatic updates** are on by default, every 7 days (1 to 90). The schedule runs only when the database in use came from the provider you chose, so the server contacts no provider until you select **Download now** once. A database installed by `deploy.sh init --geoip` or `deploy.sh geoip` is a starting copy and does not start the schedule either. A failed check is retried after 1 hour, then 2, 4, 8, 16 and at most 24 hours. A database built more than 45 days ago is shown as stale.
+**Update automatically** is on by default, with **Check every** 7 days (1 to 90). The schedule runs only when the database in use came from the provider you chose, so the server contacts no provider until you select **Download now** once. A database installed by `deploy.sh init --geoip` or `deploy.sh geoip` is a starting copy and does not start the schedule either. A failed check is retried after 1 hour, then 2, 4, 8, 16 and at most 24 hours. A database built more than 45 days ago is shown as stale.
 
 ## When the database is missing
 

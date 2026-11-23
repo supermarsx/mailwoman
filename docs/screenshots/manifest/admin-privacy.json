@@ -222,6 +222,26 @@
           }
         },
         {
+          "select": {
+            "role": "combobox",
+            "name": "@admin-dr-col-status",
+            "within": {
+              "role": "search",
+              "name": "@admin-dr-filters"
+            },
+            "value": "Any"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "Access to my data",
+            "within": {
+              "role": "table",
+              "hasText": "alex@example.com"
+            }
+          }
+        },
+        {
           "scroll": {
             "role": "search",
             "name": "@admin-dr-filters",
@@ -236,7 +256,7 @@
         }
       ],
       "shot": "full",
-      "alt": "The Data requests tab scrolled to the filters and the queue, with three open requests from alex@example.com: an access request, a correction and an erasure."
+      "alt": "The Data requests tab scrolled to the filters and the queue, with the status filter set to Any: three requests from alex@example.com, an access request, a correction and an erasure."
     },
     {
       "id": "dsr-filters",
@@ -420,7 +440,7 @@
         {
           "fill": {
             "label": "@admin-erasure-address",
-            "value": "nadia.haddad@example.com"
+            "value": "sam@example.org"
           }
         },
         {
@@ -1065,6 +1085,146 @@
       "alt": "The Operational incidents tab of Compliance with one active incident, and the buttons to add an incident and check signals now."
     },
     {
+      "id": "geoip-source",
+      "page": "admin/country-database.md",
+      "viewport": {
+        "width": 1440,
+        "height": 1600
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/security/geoip"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-geoip-save"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": -12,
+          "y": -14,
+          "width": 1190,
+          "height": 740,
+          "relativeTo": {
+            "role": "button",
+            "name": "@admin-geoip-download"
+          }
+        }
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@admin-geoip-download"
+          },
+          "place": "top"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "combobox",
+            "name": "@admin-geoip-provider",
+            "exact": false,
+            "first": true
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@admin-geoip-save"
+          },
+          "place": "right"
+        }
+      ],
+      "hide": [
+        {
+          "testid": "admin-session-bar"
+        }
+      ],
+      "alt": "The Country database actions, the upload form and the Source and updates settings, with markers on Download now, the provider and Save source."
+    },
+    {
+      "id": "incidents-editor",
+      "page": "admin/operational-incidents.md",
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/incidents"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@res-add"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@res-add"
+          }
+        },
+        {
+          "waitFor": {
+            "testid": "incident-editor"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "testid": "incident-editor"
+        },
+        "padding": 8
+      },
+      "alt": "The form for a new operational incident with its title, category, status, significance, awareness time, owner, impact and recovery fields."
+    },
+    {
+      "id": "incidents-automation",
+      "page": "admin/operational-incidents.md",
+      "viewport": {
+        "width": 1440,
+        "height": 1800
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/compliance/incidents"
+        },
+        {
+          "waitFor": {
+            "text": "@res-automation"
+          }
+        },
+        {
+          "click": {
+            "text": "@res-automation"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@res-incidents-auto-enabled",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "text": "@res-automation",
+          "closest": "details"
+        },
+        "padding": 8
+      },
+      "hide": [
+        {
+          "testid": "admin-session-bar"
+        }
+      ],
+      "alt": "The Automation and notifications settings of the Operational incidents tab, opened."
+    },
+    {
       "id": "restrictions-apply",
       "page": "admin/consent.md",
       "steps": [
@@ -1085,7 +1245,7 @@
         {
           "fill": {
             "label": "@admin-restrictions-reason",
-            "value": "Accuracy of the directory entry contested; correction request open."
+            "value": "Correction request open."
           }
         },
         {
@@ -1128,7 +1288,7 @@
         {
           "fill": {
             "label": "@admin-restrictions-reason",
-            "value": "Accuracy of the directory entry contested; correction request open."
+            "value": "Correction request open."
           }
         },
         {
@@ -1147,7 +1307,7 @@
         },
         {
           "waitFor": {
-            "text": "Accuracy of the directory entry contested; correction request open."
+            "text": "Correction request open."
           }
         }
       ],
@@ -1204,6 +1364,78 @@
       ],
       "shot": "full",
       "alt": "The cookie consent banner at the bottom of the sign-in page, with Accept all, Reject all and Choose categories."
+    },
+    {
+      "id": "features-preset",
+      "page": "admin/feature-governance.md",
+      "steps": [
+        {
+          "goto": "{admin}#/features"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-features-new"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-features-new"
+          }
+        },
+        {
+          "waitFor": {
+            "label": "@admin-features-name"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-features-name",
+            "value": "Front desk"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": -12,
+          "y": -36,
+          "width": 1140,
+          "height": 330,
+          "relativeTo": {
+            "label": "@admin-features-name"
+          }
+        }
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-features-name"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@admin-features-preset-apply"
+          },
+          "place": "top"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@admin-features-import"
+          },
+          "place": "top"
+        }
+      ],
+      "alt": "The top of a new feature profile: the profile name, the preset picker with Apply preset, Import JSON and Export JSON, and the feature search."
     }
   ]
 }
