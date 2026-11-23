@@ -1,42 +1,97 @@
-# Configuration transfer and backup destinations
+---
+title: Configuration & backups
+screen: true
+---
+# Configuration & backups
 
-Admin → Configuration transfer exports and imports **registered global setting policies**. Exports include stored values, locks and user-override rules; they exclude domain definitions, account preferences, environment variables, credentials and dedicated integration records. Use a full deployment backup for recovery of the database and its configuration.
+**Configuration & backups** (under **Configuration** in the console navigation) moves the administrator's global settings between installations and sends a copy of them to Nextcloud. It also lists the destinations for full deployment backups, which you set up on the deployment host. The portable file holds the stored global setting values, their locks and the rules for user overrides. It does not hold domains, user data, credentials, environment variables or the records of integrations such as hosting panels. For recovering a deployment use a full backup.
 
-Imports first validate every entry and show a before/after preview. Applying requires the configuration-import permission and a fresh authentication proof. The preview records revisions: changed settings must be reviewed again. Imports update listed keys only. Writes are individually audited and protected against concurrent changes, but the whole bundle is **not a transaction**; if a concurrent change interrupts application, the result identifies applied, failed and unattempted entries. A server error can occur after the current key was committed: the response marks that outcome uncertain, and the UI requires a fresh review rather than retrying automatically. The last-superadmin-loss setting cannot be imported.
+![Configuration and backups with the Export settings tab open: a note on what portable files contain, three tabs, and the Download settings button.](/screenshots/admin-ops/opsa-transfer-export.webp){.mw-shot}
 
-## Settings backups to Nextcloud
+## Before you start
 
-Admin → Configuration & backups → Backup destinations → **Settings backups to Nextcloud** sends the same portable export to a Nextcloud folder, from this server. It needs the configuration-export permission; saving or removing the destination also needs a fresh authentication proof.
+- Opening the page needs `config.read`. **Download settings** and the Nextcloud backup need `config.export`. **Import settings** needs `config.import`.
+- Applying an import, and saving or removing the Nextcloud destination, ask for a recent confirmation of your password.
 
-| Field | Meaning |
+## Export settings
+
+1. Open the **Export settings** tab.
+2. Choose **Download settings**. Your browser saves `mailwoman-settings.json`.
+3. The page reports how many policies were exported and how many dedicated policies were left out (**Exported 12 policies; 3 dedicated policies were excluded.**).
+
+The file is a versioned JSON document (`"format": "mailwoman-settings"`, `"version": 1`) with one entry per stored setting: `key`, `globalValue`, `locked` and `allowUserOverride`. A setting that was never stored is not in it, so it stays unset on the target. Settings that have their own security confirmation, and the last-administrator safeguard, are left out. At most 1,024 stored policies can be exported at once.
+
+## Import settings
+
+1. Open the **Import settings** tab.
+2. Under **Settings JSON file**, choose a file of less than 2 MiB. The server validates every entry before anything is changed; a file that does not validate is refused with its reason.
+3. Read **Review settings changes**. For each setting it shows the **Setting**, the **Current policy** and the **Imported policy**. Keys that are not in the file are left unchanged.
+4. Choose **Apply reviewed changes**, read the confirmation and confirm. You are asked to confirm your password.
+
+An import is not one transaction. Each setting is written and audited on its own, with a check of its current revision, so a concurrent change can stop the import after earlier entries were applied. The result then says **Applied 5 policies, then stopped at <key> (HTTP 409). Reload and review the file again before continuing.** If the server fails after it wrote the current setting, the result says that outcome is uncertain and asks you to review a fresh preview instead of repeating it. The setting that allows losing the last administrator cannot be imported.
+
+## Send settings backups to Nextcloud
+
+![The Settings backups to Nextcloud form: server URL, username, app password, target folder, copies to keep, keep days and private certificate authority, with Save destination, Test connection and Back up now.](/screenshots/admin-ops/opsa-transfer-nextcloud.webp){.mw-crop}
+
+In **Backup destinations**, **Settings backups to Nextcloud** sends the same export from this server to a Nextcloud folder you own. It uses its own app password, separate from the accounts that users link in their settings, which are never used for backups.
+
+1. Fill in the form.
+
+   | Field | Meaning |
+   |---|---|
+   | **Nextcloud server URL** | HTTPS only, for example `https://cloud.example.com` or `https://example.com/nextcloud`. The WebDAV path is added. |
+   | **Nextcloud username** | The account whose files hold the backups. |
+   | **App password** | An app password made in Nextcloud under **Personal settings → Security → Devices & sessions**, not the login password. |
+   | **Target folder** | A folder in that account, for example `Backups/Mailwoman`. Missing folders are created. |
+   | **Copies to keep** | How many copies stay; 7 for a new destination. |
+   | **Keep days (optional)** | A copy outside the newest ones is removed only when it is also older than this many days. |
+   | **Private certificate authority** | A disclosure that opens **Additional CA certificates (PEM)**, only for a server whose certificate a private CA signed. |
+
+2. Choose **Save destination**. The app password is sealed with the server key and never shown again: the page says **An app password is saved and cannot be shown. Enter a new one only to replace it.** Changing the URL or the username drops the saved password until you enter it again.
+3. Choose **Test connection** (it stays unavailable until a destination is saved). It signs in, opens or creates the folder, writes a small test file, reads it back and deletes it. A failure names the step (**Configuration**, **Sign-in**, **Folder access**, **Upload**, **Verification**, **Deletion** or **Retention**) and the cause, for example **Nextcloud rejected the username or app password. Create a new app password and save it.**
+4. Choose **Back up now** (also unavailable until a destination is saved). It uploads `mailwoman-settings-<UTC time>.json` without overwriting a file, downloads it again and compares its size and checksum, and only then applies the retention. Retention removes only files named `mailwoman-settings-<time>.json` in that folder, never the copy just written. If it fails, extra copies stay and the result says so.
+5. The page shows the last result (**Last backup: …**). Each run is audited. Backups run when an administrator starts them; there is no schedule. The file has the format of an export, so **Import settings** accepts it.
+
+Every request goes through the guarded outbound path for Nextcloud traffic: HTTPS with certificate verification, no redirects, and the address policy that refuses private, loopback and metadata addresses. A Nextcloud on a private network is reached through an egress proxy route for the Nextcloud class (see [Outbound connections](/deploy/egress-proxy)). One backup or test runs at a time.
+
+A settings backup is not a recovery backup. It holds no database, uploads or server key.
+
+## Full deployment backups
+
+The lower half of **Backup destinations** lists **Supported backup destinations** for the backups that `deploy.sh backup` makes (the database, uploads, configuration and server key, encrypted). Destinations are configured on the deployment host, not in the console: the web server gets no access to the host's files or to Docker.
+
+| Method | What you need |
 |---|---|
-| Nextcloud server URL | HTTPS only, for example `https://cloud.example.com` or `https://example.com/nextcloud`. The WebDAV address `…/remote.php/dav/files/<username>/<folder>/` is built from it. |
-| Nextcloud username | The account whose files hold the backups. |
-| App password | An app password made in Nextcloud under Personal settings → Security → Devices & sessions ([Nextcloud documentation](https://docs.nextcloud.com/server/latest/user_manual/en/session_management.html#managing-devices)), not the login password. |
-| Target folder | A folder in that account, such as `Backups/Mailwoman`. Missing segments are created with `MKCOL`. |
-| Copies to keep / Keep days | Retention with the meaning of `BACKUP_KEEP` and `BACKUP_KEEP_DAYS` (default 7 copies; days optional). |
-| Additional CA certificates | Only for a server certificate signed by a private CA; it is the only extra trust added. |
+| **Local directory** | An existing absolute directory on the host. |
+| **S3-compatible object storage** | A named S3 rclone remote with bucket and path. An endpoint that is set must use HTTPS. |
+| **SFTP / SSH tunnel** | A named SFTP remote with a pinned `known_hosts_file`; accepting new host keys automatically is refused. |
+| **WebDAV** | A named WebDAV remote over HTTPS. |
+| **Nextcloud** | The server URL, a user, a file with an app password and a target folder. It uses the WebDAV route with chunked uploads. |
+| **SMB / CIFS** | A named SMB remote with the share and path. |
+| **NFS** | An existing NFS mount. A directory that is not an NFS mount is refused instead of writing to the local disk. |
 
-The app password is sealed with the server key (XChaCha20-Poly1305, bound to the server URL and username). The API accepts it but never returns it; reads answer only whether one is saved, and changing the URL or username drops it until it is entered again. It is not written to logs or audit records. This credential is separate from the account-isolated Nextcloud links users make in their own settings, which are never used for server backups.
+1. Choose **Download destination template**. It is a JSON file with every destination disabled; downloading it changes nothing.
+2. Edit it on the host: enable the destinations you want and fill in their fields. Save it where only the deployment account can read it.
+3. In `.deploy.local/deploy.env`, set:
 
-**Test connection** signs in, opens (or creates) the folder, uploads a small probe file, downloads it to compare it, and deletes it. Each failure names its step and cause: rejected app password, unknown user, a path that is a file, a folder the account may not create, no write permission, quota exceeded, a redirect, a timeout, a connection or certificate failure, or an address the outbound-connection policy blocks.
+   ```dotenv
+   BACKUP_TARGETS_FILE=/etc/mailwoman/backup-targets.json
+   BACKUP_RECIPIENT=age1YOUR_PUBLIC_RECIPIENT
+   ```
 
-**Back up now** uploads `mailwoman-settings-<UTC time>.json` (never overwriting a file), downloads it again and compares its size and SHA-256, and only then applies retention. Retention removes only files named `mailwoman-settings-<time>.json` in that folder, never the copy just written; a failed retention leaves extra copies and is reported with the result. The last result is shown on the page and each run is audited. The file has the export's format, so Import settings accepts it.
+4. Install Python 3 and, for the S3, SFTP, WebDAV, Nextcloud and SMB methods, rclone. Configure the named remotes with `rclone config` in an unencrypted file that only the deployment account can read. Remote credentials are not in the template.
+5. Check and test:
 
-Every request uses the guarded outbound path for Nextcloud traffic: HTTPS with certificate verification, no redirects, the address policy that refuses private, loopback and metadata addresses, and the egress proxy routes an operator configured for the `nextcloud` class (a Nextcloud on a private network is reached through such a route). Files are limited to 8 MiB. One backup or test runs at a time. Backups run when an administrator starts them; there is no schedule.
+   ```sh
+   bash deploy.sh doctor
+   python3 scripts/backup-destinations.py test --config /etc/mailwoman/backup-targets.json --destination object-store
+   bash deploy.sh backup
+   ```
 
-This is a settings backup, not a recovery backup. For the database, uploads and server key, use the host-side deployment backups below, which can also go to Nextcloud.
+   `doctor` checks the configuration and the installed tools, not the connection. `test` signs in, writes a test file, checks it and deletes it.
 
-## Destination setup
-
-The Backup destinations tab downloads a disabled JSON template. This is host configuration, not a web-server file writer or remote scheduler. Enable selected destinations in an operator-owned file, and set these entries in `.deploy.local/deploy.env`:
-
-```dotenv
-BACKUP_TARGETS_FILE=/etc/mailwoman/backup-targets.json
-BACKUP_RECIPIENT=age1YOUR_PUBLIC_RECIPIENT
-```
-
-Example:
+An example template:
 
 ```json
 {
@@ -45,44 +100,19 @@ Example:
     {"id": "local-copy", "type": "local", "path": "/srv/mailwoman-backups", "enabled": true},
     {"id": "object-store", "type": "s3", "remote": "backup-s3", "path": "my-bucket/mailwoman", "rcloneConfig": "/etc/mailwoman/rclone.conf", "enabled": false},
     {"id": "ssh-copy", "type": "sftp", "remote": "backup-ssh", "path": "mailwoman", "rcloneConfig": "/etc/mailwoman/rclone.conf", "enabled": false},
-    {"id": "dav-copy", "type": "webdav", "remote": "backup-dav", "path": "mailwoman", "rcloneConfig": "/etc/mailwoman/rclone.conf", "enabled": false},
     {"id": "nextcloud-copy", "type": "nextcloud", "url": "https://cloud.example.com", "user": "mailwoman-backup", "appPasswordFile": "/etc/mailwoman/nextcloud-app-password", "path": "Backups/Mailwoman", "keep": 7, "enabled": false},
-    {"id": "smb-copy", "type": "smb", "remote": "backup-smb", "path": "backups/mailwoman", "rcloneConfig": "/etc/mailwoman/rclone.conf", "enabled": false},
     {"id": "nfs-copy", "type": "nfs", "path": "/mnt/backups/mailwoman", "enabled": false}
   ]
 }
 ```
 
-Install Python 3 and, for S3/SFTP/WebDAV/Nextcloud/SMB, rclone on the deployment host. Configure named remotes using `rclone config`; keep that file private to the deployment account. The helper expects a readable, unencrypted rclone configuration file, while stored backup archives must be encrypted. Remote credentials are not included in the destination JSON. `timeoutSeconds` bounds each transfer command (default 900; allowed 10–7200).
+Local and NFS directories must exist. `timeoutSeconds` limits each transfer (900 by default). `keep` and `keepDays` set a remote retention with the same meaning as `BACKUP_KEEP` and `BACKUP_KEEP_DAYS`; without them the destination keeps everything and local retention is not affected. For a `nextcloud` destination, `chunkSizeMiB` sets the upload chunk size (10 by default, 0 turns chunking off), and `appPasswordFile` must be an absolute path to a regular file that only its owner can read (`chmod 600`).
 
-Local and NFS directories must already exist. NFS requires `findmnt` and a detected NFS mount; the helper refuses a directory that has fallen back to local storage. Operators remain responsible for maintaining mounts during transfers. WebDAV requires HTTPS. SFTP requires a pinned `known_hosts_file`; automatic acceptance of new host keys is refused.
+`deploy.sh backup` makes the snapshot and the encryption, copies the encrypted archive and its release metadata to every enabled destination, checks the sizes and SHA-256 hashes by downloading the copies, and writes the completion manifest last. Plan for the bandwidth of those downloads. A file that already exists is not overwritten on purpose. If a copy fails, the local backup is kept and local retention is skipped; other destinations are still tried for ordinary transfer failures. The same command runs from the timers described in [Backups](/deploy/backups).
 
-### Nextcloud
+The helper refuses an rclone remote that sets `global.*` or `override.*` options, and it refuses `RCLONE_*` environment variables except `RCLONE_CA_CERT`, which adds a private CA. A refusal names the option, not its value.
 
-A `nextcloud` destination is a preset over the WebDAV route and needs no rclone remote. `url` is the HTTPS server URL (no credentials, query or `remote.php` path), `user` the Nextcloud username, `path` the target folder in that account, and `appPasswordFile` an absolute path to a file holding one [app password](https://docs.nextcloud.com/server/latest/user_manual/en/session_management.html#managing-devices), readable only by the deployment account (`chmod 600`; the helper refuses a group- or world-readable file). For each run the helper checks the credentials, creates missing folder segments with `MKCOL`, and writes a private temporary rclone remote (`vendor = nextcloud`, password obscured, file mode 0600) that is removed afterwards. Large archives are uploaded in chunks through Nextcloud's chunked-upload endpoint; `chunkSizeMiB` sets the size (default 10, `0` disables chunking). Requests never follow redirects. A private CA is trusted through `RCLONE_CA_CERT`, as for the other remotes.
-
-```sh
-install -m 600 /dev/null /etc/mailwoman/nextcloud-app-password
-printf '%s\n' 'APP-PASSWORD' > /etc/mailwoman/nextcloud-app-password
-python3 scripts/backup-destinations.py test --config /etc/mailwoman/backup-targets.json --destination nextcloud-copy
-```
-
-`test` signs in, opens or creates the folder, writes, verifies and deletes a probe file, and reports a rejected app password, a missing user and a folder that cannot be created as separate errors.
-
-For SSH tunnelling/jump hosts, configure the SFTP remote's external `ssh` command with `ssh -o StrictHostKeyChecking=yes -o BatchMode=yes` and an SSH host alias with `ProxyJump`. Pin host keys for both the destination and jump host in the operator's SSH configuration. External SSH uses OpenSSH authentication and host configuration, rather than rclone's internal SFTP settings; see the [rclone SFTP documentation](https://rclone.org/sftp/). SMB paths include the share name; see [rclone SMB](https://rclone.org/smb/).
-
-```sh
-bash deploy.sh doctor
-bash deploy.sh backup
-```
-
-Doctor checks configuration and installed prerequisites, not provider connectivity; `python3 scripts/backup-destinations.py test --config FILE [--destination ID]` checks connectivity and write access with a probe file it deletes again. Backup performs the existing snapshot and encryption, copies the encrypted archive and release metadata, then verifies file sizes and SHA-256 hashes. It publishes the completion manifest last. Remote copies are downloaded for verification, so plan for that bandwidth. Existing conflicting files are not intentionally overwritten. A failed copy retains the local backup and skips local retention. Other enabled destinations are still attempted for ordinary transfer failures.
-
-Existing deployment timers invoke the same backup command. Local retention remains controlled by `BACKUP_KEEP` and `BACKUP_KEEP_DAYS`. Remote retention is off unless a destination sets `keep` and/or `keepDays`, with the same meaning (a copy outside the newest `keep`, default 7, is removed only when it is also older than `keepDays`). It runs after a verified copy and removes only complete sets (archive, release metadata and completion manifest; the manifest first) whose names are deploy.sh snapshot names; archives without a manifest, other files and the archive just published are kept. A failed retention is reported and leaves extra copies. Without these keys, configure storage lifecycle rules separately, preserving archive, release metadata and completion manifest together. Deployment images and decryption keys must remain available for recovery.
-
-## Retrieve and restore
-
-Fetch checks the completion manifest and verifies both files before publishing them into an existing local recovery directory:
+### Retrieve and restore
 
 ```sh
 python3 scripts/backup-destinations.py fetch \
@@ -92,29 +122,31 @@ python3 scripts/backup-destinations.py fetch \
   --output /srv/mailwoman-recovery
 ```
 
-Fetch does not modify running services. Use the existing `deploy.sh restore` command with the retrieved archive and the appropriate decryption identity when intentionally restoring. Keep the adjacent `.release.env` file. SHA-256 detects transfer corruption; trust in the completion manifest depends on access control of the destination. Test recovery before relying on a backup policy.
+`fetch` verifies the completion manifest and both files before it puts them in an existing local directory. It does not touch the running services. To restore, run `deploy.sh restore` with the retrieved archive and its decryption identity, and keep the `.release.env` file next to it. Test a restore before you rely on a backup policy: a checksum finds a damaged transfer, but trust in the manifest depends on who can write to the destination.
 
-## Verification
+## Options
 
-`python3 scripts/test_backup_destinations.py` checks local copies, manifests, bounds and failure handling. `bash scripts/test-deploy-backup-targets.sh` exercises deployment ordering and retention on failure. Optional transport tests run disposable loopback servers and never contact configured storage accounts:
+| Label | What it does | Default | Who can change it |
+|---|---|---|---|
+| **Copies to keep** (Nextcloud settings backup) | Copies of the settings file that stay. | 7 | Administrators with `config.export` |
+| **Keep days (optional)** | Age after which a copy outside the newest ones may be removed. | None | Same |
+| `BACKUP_TARGETS_FILE`, `BACKUP_RECIPIENT` | Destination file and age recipient for full backups, in `deploy.env`. | Not set | Whoever administers the host |
 
-```sh
-python3 scripts/test-backup-transports.py --rclone /absolute/path/to/rclone --method s3
-python3 scripts/test-backup-transports.py --rclone /absolute/path/to/rclone --method webdav
-python3 scripts/test-backup-transports.py --rclone /absolute/path/to/rclone --method sftp
-```
+## Troubleshooting
 
-A live Nextcloud check runs against a disposable account (for example `nextcloud:stable` with an app password from `occ user:auth-tokens:add`) and covers folder creation, publication, chunked upload, fetch, tamper refusal, pruning, a wrong app password, an uncreatable folder and failure isolation:
+- **"Choose a settings file smaller than 2 MiB."** The file is not a settings export, or it is too large.
+- **The import preview is empty.** Every entry already equals the current policy.
+- **"Applied N policies, then stopped at … (HTTP …)."** Another change interrupted the import. Reload, review the file again and apply it again.
+- **Test connection: "Nextcloud redirected the request (HTTP …). Enter the final HTTPS server URL."** The URL is an old or alternative address.
+- **Test connection: "The outbound-connection policy blocks this address. A server on a private network needs an egress proxy route for Nextcloud traffic."** See [Outbound connections](/deploy/egress-proxy).
+- **Test connection: "The folder is missing and this account may not create it (HTTP …)."** Create the folder in Nextcloud or pick another one.
+- **Test connection: "The Nextcloud account is out of storage space."** Free space or raise the quota.
+- **`deploy.sh doctor` passes, but a destination fails during a backup.** Doctor does not test connectivity. Run `scripts/backup-destinations.py test` for that destination.
+- **`Use the configured rclone file; only RCLONE_CA_CERT is allowed.`** An `RCLONE_*` environment variable is set. Remove it and put the setting in the rclone file.
 
-```sh
-RCLONE_CA_CERT=/path/to/test-ca.pem python3 scripts/test-backup-nextcloud.py \
-  --url https://cloud.test/ --user backup --app-password-file /path/to/app-password --readonly-folder ReadOnlyShare
-```
+## Related
 
-These require rclone with the relevant `serve` command, OpenSSL, and `ssh-keygen` for SFTP. They check publication, retrieval and tamper rejection; SFTP also checks host-key mismatch rejection. They do not replace acceptance against the operator's storage provider, SMB server, NFS mount or SSH jump-host configuration.
-
-### Backup helper configuration boundaries
-
-Nonempty custom S3 endpoints must use HTTPS; an empty endpoint keeps the standard provider endpoint. The selected rclone remote may not contain `global.*` or `override.*` options. Runtime `RCLONE_*` environment overrides are refused, except `RCLONE_CA_CERT` for explicit private-CA trust. Put credentials and remote settings in the operator-owned configuration file. HTTP(S) proxy environment routing remains available. Refusal diagnostics name options or environment variables but do not print their values.
-
-External SSH commands must put `StrictHostKeyChecking=yes` and `BatchMode=yes` in leading `-o` options, followed by one destination. Extra remote-command arguments are refused; rclone supplies its own SFTP subsystem command. Jump-host trust remains the operator's separately pinned SSH configuration responsibility.
+- [Settings reference](/admin/settings)
+- [Backups](/deploy/backups)
+- [Outbound connections](/deploy/egress-proxy)
+- [Nextcloud](/admin/nextcloud)
