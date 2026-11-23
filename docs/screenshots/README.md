@@ -138,7 +138,7 @@ every entry) and `entries`:
 | `id` | required | lowercase letters, digits and dashes; the file name of the image |
 | `page` | required | the page (relative to `docs/`) that shows the image; `check.mjs` requires the reference |
 | `alt` | required | one sentence saying what the image shows; never "Screenshot of ..." |
-| `stack` | `"M"` (set `"E"` in your defaults) | `"E"` or `"M"` |
+| `stack` | `"E"` | `"E"` or `"M"` |
 | `seed` | `[]` | named seeds, applied in order (see "Seeding extra data") |
 | `session` | `"user"` | `"user"` (signed in as Alex), `"admin"` (console), `"none"` (signed out, for the sign-in page) |
 | `viewport` | `"desktop"` | `"desktop"` 1440x900, `"narrow"` 1024x768, `"phone"` 390x844, or `{ "width", "height" }` |

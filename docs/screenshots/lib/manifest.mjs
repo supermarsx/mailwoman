@@ -71,7 +71,7 @@ export const outputOf = (area, id) => join(OUTPUT, area, `${id}.webp`);
 /** The URL a page uses: /screenshots/<area>/<id>.webp */
 export const urlOf = (area, id) => `/screenshots/${area}/${id}.webp`;
 
-const DEFAULTS = { stack: 'M', seed: [], viewport: 'desktop', theme: 'dark', session: 'user', steps: [], callouts: [], mask: [] };
+const DEFAULTS = { stack: 'E', seed: [], viewport: 'desktop', theme: 'dark', session: 'user', steps: [], callouts: [], mask: [] };
 
 /** Parse one manifest file into merged entries. */
 export function readManifest(file) {
