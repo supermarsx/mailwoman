@@ -214,6 +214,7 @@ struct Route {
     uri: String,
     body: Option<Value>,
     intent: bool,
+    link: Option<String>,
 }
 async fn route_request(router: axum::Router, principal: &Value, route: &Route) -> (StatusCode, Value, Report) {
     let mut builder = Request::builder()
@@ -221,8 +222,12 @@ async fn route_request(router: axum::Router, principal: &Value, route: &Route) -
         .uri(route.uri.as_str())
         .header("host", "localhost")
         .header("origin", "http://localhost")
+        .header("user-agent", "Mozilla/5.0 Chrome/140.0 Safari/537.36")
         .header("cookie", principal["cookie"].as_str().unwrap())
         .header("x-csrf-token", principal["csrfToken"].as_str().unwrap());
+    if let Some(link) = &route.link {
+        builder = builder.header("x-mailwoman-link", link.as_str());
+    }
     if route.intent {
         builder = builder.header("x-mailwoman-read-shape", "native-metadata-v1");
     }
@@ -254,7 +259,7 @@ async fn route_request(router: axum::Router, principal: &Value, route: &Route) -
 fn jmap_body(calls: Vec<Value>) -> Value {
     json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":calls})
 }
-fn emit_route(route: &str, label: &str, status: StatusCode, report: &Report) {
+fn emit_route(profile: &str, route: &str, label: &str, status: StatusCode, report: &Report) {
     let shapes = report.shapes.iter().map(|shape| json!({
         "class":shape.class,"families":shape.static_token_families,"calls":shape.calls,
         "failures":shape.failures,"rows":shape.returned_rows,"affected":shape.affected_rows,
@@ -263,17 +268,50 @@ fn emit_route(route: &str, label: &str, status: StatusCode, report: &Report) {
         .collect::<Vec<_>>();
     let phases = report.phases.iter().filter(|p| p.completed > 0)
         .map(|p| json!({"phase":p.phase,"calls":p.completed})).collect::<Vec<_>>();
-    eprintln!("t34-route-baseline {}", json!({"route":route,"label":label,"status":status.as_u16(),
+    // Phase entry counts: `auth.total` entries are full authentication chains.
+    let entries = report.phases.iter().filter(|p| p.entries > 0)
+        .map(|p| json!({"phase":p.phase,"entries":p.entries})).collect::<Vec<_>>();
+    eprintln!("t34-route-baseline {}", json!({"profile":profile,"route":route,"reads":report.query_counts.read.calls,
+        "writes":report.query_counts.write.calls,"other":report.query_counts.other.calls,"entries":entries,"label":label,"status":status.as_u16(),
         "operations":report.operations_completed,"phases":phases,"shapes":shapes}));
 }
 #[test]
 fn actual_router_route_sql_baseline_t34() {
+    run_route_baseline(native_enforced_policy::Profile::Defaults);
+}
+#[test]
+fn actual_router_route_sql_baseline_t34_enforced() {
+    run_route_baseline(native_enforced_policy::Profile::Enforced);
+}
+// Seeds a real linked mailbox through public Store APIs only: a second
+// verified principal, a dedicated source session for it (linking promotes the
+// source to an internal session), the global linking policy, then the link.
+async fn seed_link(store: &Store, owner: &Value, child: &Value) -> String {
+    let session_of = |p: &Value| p["cookie"].as_str().unwrap().strip_prefix("mw_session=").unwrap()
+        .split(';').next().unwrap().to_owned();
+    for key in ["accounts.linkingEnabled", "accounts.useLinked"] {
+        store.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: key.into(), global_value: Some("true".into()), allow_user_override: false,
+            global_locked: true, updated_by: "t34-e14".into(), updated_at: chrono::Utc::now().timestamp(),
+        }).await.unwrap();
+    }
+    let child_session = store.get_primary_session(&session_of(child)).await.unwrap();
+    let source = store.create_session(&child_session.account_id, &child_session.username, "engine", "engine",
+        &child_session.credentials).await.unwrap();
+    store.set_session_authentication(&source, "password").await.unwrap();
+    store.bind_verified_primary(&source, mw_store::identity_principal::VerifiedPrimary {
+        account_id: &child_session.account_id, kind: "mailbox", authority: "isolated-native-load",
+        subject: &child_session.account_id }, chrono::Utc::now().timestamp()).await.unwrap().unwrap();
+    store.attach_verified_link(&session_of(owner), &source, "t34 linked", 2, chrono::Utc::now().timestamp())
+        .await.unwrap().expect("link must attach").id
+}
+fn run_route_baseline(profile: native_enforced_policy::Profile) {
     install_sql_capture();
     assert_ne!(std::env::var("MW_FIXTURE_REQUEST_PROFILE").as_deref(), Ok("1"));
     let fixture = std::thread::Builder::new()
         .name("mw-sql-route-baseline".into())
         .stack_size(16 * 1024 * 1024)
-        .spawn(|| {
+        .spawn(move || {
             tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .thread_stack_size(8 * 1024 * 1024)
@@ -286,9 +324,15 @@ fn actual_router_route_sql_baseline_t34() {
                     let key = ServerKey::generate();
                     let seed_store = Store::open(&path, key.clone()).await.unwrap();
                     let (principals, mut runtimes) =
-                        seed_profile(&seed_store, 1, 50, true, 4096, 65536).await;
+                        seed_profile(&seed_store, 2, 50, true, 4096, 65536).await;
                     set_protocol_policy(&seed_store, &["imap"]).await;
-                    let principal = principals.into_iter().next().unwrap();
+                    let link = seed_link(&seed_store, &principals[0], &principals[1]).await;
+                    if profile == native_enforced_policy::Profile::Enforced {
+                        native_enforced_policy::install(&seed_store).await;
+                    }
+                    let profile_name = if profile == native_enforced_policy::Profile::Enforced { "enforced" } else { "defaults" };
+                    let child = principals[1].clone();
+                    let principal = principals[0].clone();
                     let account = principal["accountId"].as_str().unwrap().to_owned();
                     seed_store.close().await;
                     drop(seed_store);
@@ -296,7 +340,7 @@ fn actual_router_route_sql_baseline_t34() {
                     std::fs::create_dir(&search_dir).unwrap();
                     let installed = Arc::new(std::sync::OnceLock::<Arc<Engine>>::new());
                     let capture = installed.clone();
-                    let runtime_account = account.clone();
+                    let runtime_accounts = vec![account.clone(), child["accountId"].as_str().unwrap().to_owned()];
                     let (router, push) = build_app_with_fixture_engine(
                         AppConfig {
                             db_path: path.clone(),
@@ -310,14 +354,16 @@ fn actual_router_route_sql_baseline_t34() {
                         V6Config::default(),
                         move |store| {
                             let engine = Arc::new(Engine::open_with_search(store.clone(), &search_dir).unwrap());
-                            engine.register_backend(
-                                runtime_account.clone(),
-                                AccountRuntime::new(
-                                    runtimes.remove(&runtime_account).unwrap(),
-                                    Arc::new(NoSend),
-                                    "user0@native-load.invalid",
-                                ),
-                            );
+                            for (index, runtime_account) in runtime_accounts.iter().enumerate() {
+                                engine.register_backend(
+                                    runtime_account.clone(),
+                                    AccountRuntime::new(
+                                        runtimes.remove(runtime_account).unwrap(),
+                                        Arc::new(NoSend),
+                                        &format!("user{index}@native-load.invalid"),
+                                    ),
+                                );
+                            }
                             assert!(capture.set(engine.clone()).is_ok());
                             engine
                         },
@@ -325,7 +371,7 @@ fn actual_router_route_sql_baseline_t34() {
                     .await
                     .unwrap();
                     let engine = installed.get().unwrap();
-                    startup_readiness(engine, &[account.clone()], 50, Instant::now(), 30)
+                    startup_readiness(engine, &[account.clone(), child["accountId"].as_str().unwrap().to_owned()], 50, Instant::now(), 30)
                         .await
                         .expect("real rebuild must complete before attribution");
                     let ids = principal["messageIds"].clone();
@@ -348,11 +394,11 @@ fn actual_router_route_sql_baseline_t34() {
                         a
                     };
                     let jmap = |name: &'static str, intent: bool, calls: Vec<Value>| Route {
-                        name, method: "POST", uri: "/jmap/api".into(), intent, body: Some(jmap_body(calls)),
+                        name, method: "POST", uri: "/jmap/api".into(), intent, body: Some(jmap_body(calls)), link: None,
                     };
                     let routes = vec![
-                        Route { name: "identity", method: "GET", uri: "/api/me".into(), body: None, intent: false },
-                        Route { name: "jmap-session", method: "GET", uri: "/jmap/session".into(), body: None, intent: false },
+                        Route { name: "identity", method: "GET", uri: "/api/me".into(), body: None, intent: false, link: None },
+                        Route { name: "jmap-session", method: "GET", uri: "/jmap/session".into(), body: None, intent: false, link: None },
                         jmap("mailbox-get", false, vec![call("Mailbox/get", json!({}), "m")]),
                         jmap("email-query", false, vec![call("Email/query", json!({"limit":25}), "q")]),
                         jmap("email-get-headers-50-noIntentHeader", false,
@@ -362,7 +408,7 @@ fn actual_router_route_sql_baseline_t34() {
                         jmap("email-get-headers-2-nativeIntent", true,
                             vec![call("Email/get", json!({"ids":two,"properties":header_props}), "g")]),
                         Route { name: "refresh", method: "POST", uri: "/api/mail/refresh".into(),
-                            body: Some(json!({"accountId":acct})), intent: false },
+                            body: Some(json!({"accountId":acct})), intent: false, link: None },
                         jmap("reader-body", false, vec![call("Email/get", reader_args, "r")]),
                         jmap("batch-query-get-2method", false, vec![
                             call("Email/query", json!({"limit":25,"position":0,"calculateTotal":true}), "page1"),
@@ -373,16 +419,34 @@ fn actual_router_route_sql_baseline_t34() {
                             call("Email/query", json!({"limit":25,"position":25,"calculateTotal":true}), "page2"),
                             by_ref("Email/get", "headers2", "page2")]),
                     ];
+                    let child_acct = child["accountId"].clone();
+                    let linked_call = |name: &str, args: Value, id: &str| {
+                        let mut args = args;
+                        args["accountId"] = child_acct.clone();
+                        json!([name, args, id])
+                    };
+                    let linked_by_ref = |id: &str, query: &str| linked_call("Email/get", json!({"#ids":{"resultOf":query,"name":"Email/query","path":"/ids"},"properties":header_props}), id);
+                    let mut routes = routes;
+                    routes.push(Route { name: "linked-identity", method: "GET", uri: "/api/me".into(), body: None, intent: false, link: Some(link.clone()) });
+                    routes.push(Route { name: "linked-jmap-session", method: "GET", uri: "/jmap/session".into(), body: None, intent: false, link: Some(link.clone()) });
+                    routes.push(Route { name: "linked-mailbox-get", method: "POST", uri: "/jmap/api".into(), intent: false, link: Some(link.clone()),
+                        body: Some(jmap_body(vec![linked_call("Mailbox/get", json!({}), "m")])) });
+                    routes.push(Route { name: "linked-batch-query-get-2method", method: "POST", uri: "/jmap/api".into(), intent: false, link: Some(link.clone()),
+                        body: Some(jmap_body(vec![linked_call("Email/query", json!({"limit":25,"position":0,"calculateTotal":true}), "page1"), linked_by_ref("headers1", "page1")])) });
+                    // Identity/session are first in the list, before the published entry exists;
+                    // measure them again after every other route so they are warm.
+                    routes.push(Route { name: "identity-late", method: "GET", uri: "/api/me".into(), body: None, intent: false, link: None });
+                    routes.push(Route { name: "jmap-session-late", method: "GET", uri: "/jmap/session".into(), body: None, intent: false, link: None });
                     for route in &routes {
                         // first = first request of this shape after startup (route-cold);
                         // warm1/warm2 = immediately repeated requests with the same cookie.
                         for label in ["first", "warm1", "warm2"] {
                             let (status, value, report) = route_request(router.clone(), &principal, route).await;
                             if label == "first" {
-                                eprintln!("t34-route-response {} status={} head={}", route.name, status,
+                                eprintln!("t34-route-response {} {} status={} head={}", profile_name, route.name, status,
                                     value.to_string().chars().take(200).collect::<String>());
                             }
-                            emit_route(route.name, label, status, &report);
+                            emit_route(profile_name, route.name, label, status, &report);
                         }
                     }
                     emit_captured_sql();
