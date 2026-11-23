@@ -85,6 +85,20 @@
     },
     "integrations-nextcloud": {
       "include": [
+        "admin-basic"
+      ],
+      "admin": [
+        {
+          "method": "POST",
+          "path": "/step-up",
+          "body": {
+            "password": "demo-pass-admin"
+          }
+        }
+      ]
+    },
+    "integrations-nextcloud-saved": {
+      "include": [
         "mail-basic",
         "admin-basic"
       ],
@@ -94,6 +108,19 @@
           "path": "/step-up",
           "body": {
             "password": "demo-pass-admin"
+          }
+        },
+        {
+          "method": "PUT",
+          "path": "/nextcloud/instances/team-cloud",
+          "headers": {
+            "If-None-Match": "*"
+          },
+          "body": {
+            "name": "Team cloud",
+            "baseUrl": "https://cloud.example.org/",
+            "caPem": "",
+            "enabled": true
           }
         }
       ]

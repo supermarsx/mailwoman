@@ -226,7 +226,7 @@
       "id": "nextcloud-user-link",
       "page": "integrations/nextcloud.md",
       "seed": [
-        "mail-basic"
+        "integrations-nextcloud-saved"
       ],
       "steps": [
         {
@@ -246,13 +246,13 @@
         },
         {
           "waitFor": {
-            "text": "@nextcloud-account-no-instances",
+            "text": "Team cloud",
             "first": true
           }
         }
       ],
       "shot": "full",
-      "alt": "The Nextcloud accounts section of the settings, with no instance approved yet."
+      "alt": "The Nextcloud accounts section of the settings listing the Team cloud instance, which is not linked yet."
     },
     {
       "id": "settings-provider-connection",

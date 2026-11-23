@@ -13,9 +13,9 @@ What users can do:
 - **Large-file share links**: for a file over the attachment limit, upload it to Nextcloud and insert a share link instead.
 - **Contacts and calendars**: discover calendars, task lists and address books on the linked account, connect the ones you want, and synchronize them (native engine only).
 
-![The Nextcloud accounts section of the settings. With no instance approved it reads: No enabled Nextcloud instances are available. Ask your administrator to configure one.](/screenshots/integrations/nextcloud-user-link.webp){.mw-shot}
+![The Nextcloud accounts section of the settings listing the instance Team cloud at https://cloud.example.org/ with the status Not linked and a Link account button.](/screenshots/integrations/nextcloud-user-link.webp){.mw-shot}
 
-This is the section before an administrator approves an instance. Approved instances appear in it, each with its status.
+Before an administrator approves an instance, the section reads **No enabled Nextcloud instances are available. Ask your administrator to configure one.**
 
 ## Before you start
 
