@@ -168,9 +168,9 @@ pub(crate) fn delegation_grants(request: &Value, response: &Value) -> Vec<String
 fn message(notice: &crate::server_text::Notice) -> Vec<u8> {
     message_text(
         notice.locale,
-        notice.subject,
-        notice.description,
-        notice.guidance,
+        &notice.subject,
+        &notice.description,
+        &notice.guidance,
     )
 }
 fn message_text(locale: &str, subject: &str, description: &str, guidance: &str) -> Vec<u8> {
@@ -212,13 +212,13 @@ async fn deliver(
         };
         message_text(
             notice.locale,
-            notice.subject,
+            &notice.subject,
             &format!(
                 "{}\n\n{label}: {timestamp}\n{}",
                 notice.description,
                 context.text(notice.locale == "pt-PT")
             ),
-            notice.guidance,
+            &notice.guidance,
         )
     } else {
         message(&notice)
