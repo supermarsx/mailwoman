@@ -65,7 +65,23 @@ If your account uses two-step verification, the password alone does not sign you
 
 If the code is wrong, the screen says "That did not verify. Try again." To start over, for example to use another account, select **Back to sign in**.
 
-If your administrator requires two-step verification but your account has no method yet, the screen says so and you cannot finish signing in there. Sign in on a device where you can complete the setup, or contact your administrator.
+## Set up two-step verification
+
+If your administrator requires two-step verification and your account has no method set up yet, the screen after **Sign in** is **Set up two-step verification to continue**. You set up a method there and then finish signing in.
+
+<!-- SCREENSHOT-PENDING deploy/signin-2fa-enrol -->
+
+1. Under **Choose a verification method**, select **Set up an authenticator app**. In a browser that supports passkeys, and if your administrator allows them, you can choose **Add a passkey** instead and follow your browser's prompts.
+2. Scan the QR code with your authenticator app, or type the **Setup key** into the app by hand.
+3. Type the code the app shows into **Authenticator code** and select **Confirm**.
+4. The screen says "Two-step verification is set up and you are signed in." and shows your **Recovery codes**. Save them somewhere safe: they are shown once, and each code works one time.
+5. Tick **I have saved these codes** and select **Continue**. The mailbox opens.
+
+From then on, signing in asks for a code as described in [Confirm your second factor](#confirm-your-second-factor).
+
+You have 5 minutes to finish the setup. If it takes longer, the screen goes back to the sign-in form with "Sign-in timed out before setup was finished. …". Sign in again: you get a new setup key, so remove the unfinished entry from your authenticator app before you add the new one.
+
+If the server offers no method this device can set up (for example only passkeys, in a browser without passkey support), the screen says "This account requires two-step verification, but no method is set up yet. …". Sign in on a device where you can finish the setup, or contact your administrator.
 
 ## If sign-in fails
 
@@ -78,6 +94,8 @@ If your administrator requires two-step verification but your account has no met
 | This account has been disabled by an administrator. … | An administrator disabled the account. | Ask your administrator to enable it again. |
 | Too many sign-in attempts. Please wait before trying again. | Too many attempts in a short time. The button shows **Try again in** *n*s. | Wait for the countdown to end. |
 | Complete a new sign-in verification before trying again. | The server now asks for the sign-in verification check. | Complete the check, then select **Sign in** again. |
+| That code was not accepted. Enter the current code from your authenticator app, and check that your device's clock is correct. | While setting up two-step verification, the code did not match: it was mistyped, expired, or your device's clock is off. | Type the code the app shows now. If it keeps failing, correct the device's time setting. |
+| Sign-in timed out before setup was finished. … | Setting up two-step verification took longer than 5 minutes. | Sign in again, and remove the unfinished entry from your authenticator app before adding the new key. |
 | Sign-in timed out. … | The server did not answer in time. Nothing was retried automatically. | Check your connection and try again. |
 | Sign-in stopped: the mail server sent a reply this server could not read. … | The mail server answered in a way Mailwoman could not use. This is not a password problem. | Try again later, or tell your administrator. |
 | Webmail is temporarily paused for maintenance. … | An administrator paused sign-in for maintenance. The screen may show their own message instead. | Try again later. |
