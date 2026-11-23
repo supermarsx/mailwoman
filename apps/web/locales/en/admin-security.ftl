@@ -115,7 +115,7 @@ admin-secdash-status-warning = Warning
 admin-secdash-status-info = For information
 
 ## t97: Adaptive protection, in plain language, with editable rules
-admin-protect-not-country = This protection uses request volume, typed rejections and recognized scan paths. With adaptive client protection enforcing, a request for a recognized scan path such as /.env, /.git/config, /wp-admin or /cmd_sco blocks its source immediately; ordinary unknown addresses alone never count. Displayed countries are informational and do not affect these decisions. For country or device controls, see Sign-in country policy and Temporary sign-in locks.
+admin-protect-not-country = This protection uses request volume, typed rejections and recognized scan paths. When the Recognized scan paths mode is Enforce (whatever the adaptive mode is), a request for a recognized scan path such as /.env, /.git/config, /wp-admin or /cmd_sco blocks its source immediately; ordinary unknown addresses alone never count. Displayed countries are informational and do not affect these decisions. For country or device controls, see Sign-in country policy and Temporary sign-in locks.
 admin-protection-country = Country
 admin-protection-country-unknown = Unknown
 admin-protection-country-not-applicable = Not applicable
@@ -127,7 +127,7 @@ admin-protect-summary-unusual = Unusual requests: { $mode }.
 admin-protect-summary-unusual-off = Unusual requests are not counted.
 admin-protect-summary-unusual-on = Counted as unusual: { $signals }. Action starts at { $shortCount } unusual requests or { $shortRatio } % of requests within { $shortWindow }, or at { $longCount } or { $longRatio } % within { $longWindow } (0 turns that trigger off).
 admin-protect-summary-step = Repeated unusual requests are slowed down, then blocked.
-admin-protect-summary-step-detail = The first time a repeated-request trigger is reached, requests wait { $throttle }. If it is reached again before { $decay } pass without unusual requests, requests are refused for { $block }. With adaptive client protection enforcing, recognized scan paths trigger a block on the first request for { $block }; client exemptions still apply. Nothing is permanent.
+admin-protect-summary-step-detail = The first time a repeated-request trigger is reached, requests wait { $throttle }. If it is reached again before { $decay } pass without unusual requests, requests are refused for { $block }. When the Recognized scan paths mode is Enforce (whatever the adaptive mode is), recognized scan paths trigger a block on the first request for { $block }; client exemptions still apply. Nothing is permanent.
 admin-protect-summary-observe = In "Observe only", every action above is recorded in the history below but no request is slowed or refused. Use it to try a policy safely.
 admin-protect-presets-title = Presets
 admin-protect-presets-help = Start from a preset, check what it changes, then apply it. Exemptions and the storage failure behaviour are never changed by a preset.
@@ -219,7 +219,7 @@ admin-protect-rule-adaptive-mode = Unusual request protection
 admin-protect-rule-adaptive-mode-help = Off: nothing is counted. Observe only: actions are recorded but not applied. Enforce: clients that send too many unusual requests are slowed down, then blocked for a while. Recognized scan paths have their own independent mode.
 admin-protect-rule-adaptive-mode-example = Use Observe only for a week, read the history, then switch to Enforce.
 admin-protect-rule-signals = What counts as unusual
-admin-protect-rule-signals-help = These choices control repeated-request evidence. Recognized scan paths trigger an immediate block independently of these choices and thresholds when adaptive client protection is enforcing. Ordinary "not found" answers, busy-server refusals and browser names never count.
+admin-protect-rule-signals-help = These choices control repeated-request evidence. Recognized scan paths trigger an immediate block independently of these choices, the thresholds and the adaptive mode when their own mode is Enforce. Ordinary "not found" answers, busy-server refusals and browser names never count.
 admin-protect-rule-signals-example = Counting wrong passwords catches password guessing; counting unknown admin console addresses catches scanners looking for the console.
 admin-protect-rule-adaptive-clients = Count per client
 admin-protect-rule-adaptive-clients-help = Count unusual requests per IP address.

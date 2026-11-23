@@ -118,7 +118,7 @@ admin-secdash-status-warning = Aviso
 admin-secdash-status-info = Para informação
 
 ## t97: Proteção adaptativa, em linguagem simples, com regras editáveis
-admin-protect-not-country = Esta proteção usa o volume de pedidos, recusas tipificadas e caminhos de sondagem reconhecidos. Quando a proteção adaptativa de clientes está a ser aplicada, um pedido para um caminho de sondagem reconhecido, como /.env, /.git/config, /wp-admin ou /cmd_sco, bloqueia imediatamente a sua origem; um endereço desconhecido normal, por si só, nunca conta. Os países apresentados são informativos e não afetam estas decisões. Para controlos de países ou dispositivos, veja Política de países de início de sessão e Bloqueios temporários de início de sessão.
+admin-protect-not-country = Esta proteção usa o volume de pedidos, recusas tipificadas e caminhos de sondagem reconhecidos. Quando o modo de caminhos de sondagem reconhecidos está a ser aplicado (seja qual for o modo adaptativo), um pedido para um caminho de sondagem reconhecido, como /.env, /.git/config, /wp-admin ou /cmd_sco, bloqueia imediatamente a sua origem; um endereço desconhecido normal, por si só, nunca conta. Os países apresentados são informativos e não afetam estas decisões. Para controlos de países ou dispositivos, veja Política de países de início de sessão e Bloqueios temporários de início de sessão.
 admin-protection-country = País
 admin-protection-country-unknown = Desconhecido
 admin-protection-country-not-applicable = Não aplicável
@@ -130,7 +130,7 @@ admin-protect-summary-unusual = Pedidos invulgares: { $mode }.
 admin-protect-summary-unusual-off = Os pedidos invulgares não são contados.
 admin-protect-summary-unusual-on = Contam como invulgares: { $signals }. A ação começa com { $shortCount } pedidos invulgares ou { $shortRatio } % dos pedidos em { $shortWindow }, ou com { $longCount } ou { $longRatio } % em { $longWindow } (0 desativa esse critério).
 admin-protect-summary-step = Os pedidos invulgares repetidos são atrasados e depois bloqueados.
-admin-protect-summary-step-detail = Da primeira vez que um critério de pedidos repetidos é atingido, os pedidos esperam { $throttle }. Se for atingido de novo antes de passarem { $decay } sem pedidos invulgares, os pedidos são recusados durante { $block }. Quando a proteção adaptativa de clientes está a ser aplicada, os caminhos de sondagem reconhecidos desencadeiam um bloqueio no primeiro pedido durante { $block }; as exceções de clientes continuam a aplicar-se. Nada é permanente.
+admin-protect-summary-step-detail = Da primeira vez que um critério de pedidos repetidos é atingido, os pedidos esperam { $throttle }. Se for atingido de novo antes de passarem { $decay } sem pedidos invulgares, os pedidos são recusados durante { $block }. Quando o modo de caminhos de sondagem reconhecidos está a ser aplicado (seja qual for o modo adaptativo), os caminhos de sondagem reconhecidos desencadeiam um bloqueio no primeiro pedido durante { $block }; as exceções de clientes continuam a aplicar-se. Nada é permanente.
 admin-protect-summary-observe = Em "Apenas observar", todas as ações acima ficam registadas no histórico abaixo, mas nenhum pedido é atrasado ou recusado. Use este modo para experimentar uma política em segurança.
 admin-protect-presets-title = Predefinições
 admin-protect-presets-help = Comece por uma predefinição, veja o que muda e depois aplique-a. Uma predefinição nunca altera as exceções nem o comportamento em caso de falha de armazenamento.
@@ -222,7 +222,7 @@ admin-protect-rule-adaptive-mode = Proteção contra pedidos invulgares
 admin-protect-rule-adaptive-mode-help = Desligado: nada é contado. Observar apenas: as ações são registadas sem aplicação. Aplicar: abranda e bloqueia temporariamente clientes com demasiados pedidos invulgares. Os caminhos de varrimento conhecidos têm um modo independente.
 admin-protect-rule-adaptive-mode-example = Use Apenas observar durante uma semana, leia o histórico e depois mude para Aplicar.
 admin-protect-rule-signals = O que conta como invulgar
-admin-protect-rule-signals-help = Estas opções controlam a evidência de pedidos repetidos. Os caminhos de sondagem reconhecidos desencadeiam um bloqueio imediato, independentemente destas opções e limites, quando a proteção adaptativa de clientes está a ser aplicada. Respostas normais de "não encontrado", recusas por servidor ocupado e nomes de navegadores nunca contam.
+admin-protect-rule-signals-help = Estas opções controlam a evidência de pedidos repetidos. Os caminhos de sondagem reconhecidos desencadeiam um bloqueio imediato, independentemente destas opções, dos limites e do modo adaptativo, quando o seu próprio modo está a ser aplicado. Respostas normais de "não encontrado", recusas por servidor ocupado e nomes de navegadores nunca contam.
 admin-protect-rule-signals-example = Contar palavras-passe erradas apanha tentativas de adivinhar palavras-passe; contar endereços desconhecidos da consola de administração apanha quem procura a consola.
 admin-protect-rule-adaptive-clients = Contar por cliente
 admin-protect-rule-adaptive-clients-help = Contar os pedidos invulgares por endereço IP.

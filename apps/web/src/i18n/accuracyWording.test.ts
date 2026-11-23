@@ -32,6 +32,16 @@ const CASES: Array<[string, RegExp]> = [
   ['admin-geoip-refusing', /unless the sign-in policy without a database is set to allow/],
   ['admin-dash-warn-geoip-missing', /unless the sign-in policy without a database is set to allow/],
   ['admin-settings-help-security-signin-geo-scope', /unless the sign-in policy without a database is set to allow/],
+  ['admin-session-batch-confirm', /^admin-session-batch-confirm = Revoke only the selected sessions\. Failed/],
+  ['admin-policy-group-sign-in-help', /upgraded at its next successful sign-in/],
+  ['admin-settings-help-security-admin-probe-audit-ip', /only when IP addresses in logs is set to Full/],
+  ['admin-protect-not-country', /Recognized scan paths mode is Enforce \(whatever the adaptive mode is\)/],
+  ['admin-protect-summary-step-detail', /whatever the adaptive mode is/],
+  ['admin-protect-rule-signals-help', /adaptive mode when their own mode is Enforce/],
+  ['dr-reauth', /confirm your identity/],
+  ['admin-settings-help-dsr-reauth-required', /password and second factor, or a passkey/],
+  ['admin-settings-help-security-session-binding-webmail-action', /confirm their identity again/],
+  ['session-alerts-action-step-up', /confirm your identity/],
 ];
 
 describe('accurate console wording', () => {

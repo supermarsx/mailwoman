@@ -463,7 +463,7 @@ admin-settings-help-dsr-approval-erasure = auto agenda o apagamento quando o ped
 admin-settings-key-dsr-approval-other = Tratamento de outros pedidos
 admin-settings-help-dsr-approval-other = auto marca o pedido como em curso depois de confirmado. admin aguarda a aprovação de um administrador.
 admin-settings-key-dsr-reauth-required = Reautenticação nos pedidos
-admin-settings-help-dsr-reauth-required = Exigir uma palavra-passe ou segundo fator recente para submeter um pedido de exportação ou apagamento e para criar uma ligação de transferência.
+admin-settings-help-dsr-reauth-required = Exige uma nova confirmação de identidade (palavra-passe e segundo fator, ou uma chave de acesso) para registar um pedido de exportação ou eliminação e para criar uma ligação de transferência.
 admin-settings-key-dsr-confirmation-required = Mensagem de confirmação
 admin-settings-help-dsr-confirmation-required = Enviar uma mensagem de confirmação com um código para a caixa de entrada de quem pede; o pedido só avança depois de o código ser introduzido.
 admin-settings-key-dsr-admin-step-up = Confirmar de novo antes de aprovar
@@ -985,7 +985,7 @@ admin-settings-help-security-admin-probe-probe-paths = Caminhos que os scanners 
 admin-settings-key-security-admin-probe-allowlist = Redes nunca bloqueadas
 admin-settings-help-security-admin-probe-allowlist = Endereços IP ou redes CIDR (escritório, VPN) que nunca são contados nem bloqueados.
 admin-settings-key-security-admin-probe-audit-ip = Endereço de origem no registo de auditoria
-admin-settings-help-security-admin-probe-audit-ip = masked mostra /24 IPv4 e /48 IPv6; full mostra o endereço. A linha do fail2ban tem sempre o endereço completo.
+admin-settings-help-security-admin-probe-audit-ip = masked mostra IPv4 /24 e IPv6 /48; full mostra o endereço. A linha do fail2ban tem o endereço completo apenas quando «Endereços IP nos registos» está em Completo.
 admin-settings-key-security-admin-probe-fail2ban-log = Linha de registo fail2ban ao bloquear
 admin-settings-help-security-admin-probe-fail2ban-log = Escrever uma linha mailwoman[admin-probe] com rhost=<endereço> quando uma origem é bloqueada.
 
@@ -1591,7 +1591,7 @@ admin-settings-help-security-session-binding-attributes = Atributos associados: 
 admin-settings-key-security-session-binding-strictness = Associação da sessão: rigor
 admin-settings-help-security-session-binding-strictness = Tolerante aceita atualizações do navegador e a alteração de um único atributo ligeiro; rigoroso assinala qualquer diferença ligeira.
 admin-settings-key-security-session-binding-webmail-action = Associação da sessão: ação no webmail
-admin-settings-help-security-session-binding-webmail-action = O que faz uma discrepância numa sessão de webmail: off, detect (apenas regista), step-up (pede de novo palavra-passe e segundo fator) ou revoke (revoga a sessão). Predefinição step-up.
+admin-settings-help-security-session-binding-webmail-action = O que faz uma discrepância numa sessão de webmail: desativado, detetar (apenas registar), step-up (pedir ao utilizador que confirme novamente a identidade) ou revogar a sessão. Predefinição: step-up.
 admin-settings-key-security-session-binding-admin-action = Associação da sessão: ação na consola de administração
 admin-settings-help-security-session-binding-admin-action = O que faz uma discrepância numa sessão da consola de administração: off, detect, step-up ou revoke. Predefinição revoke.
 admin-settings-key-security-theft-enabled = Deteção de roubo de sessão

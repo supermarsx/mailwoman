@@ -16,7 +16,7 @@ admin-policy-min-tls-12 = TLS 1.2 and later
 admin-policy-min-tls-13 = TLS 1.3 only
 
 admin-policy-group-sign-in = Sign-in
-admin-policy-group-sign-in-help = The password hashing cost applies to new password and recovery-code hashes; existing hashes keep their cost until the password changes.
+admin-policy-group-sign-in-help = The password hashing cost applies to newly created password and recovery-code hashes. A local mailbox account's existing hash is upgraded at its next successful sign-in; an administrator password keeps its cost until it is changed. Accounts checked by a directory or mail server have no hash here.
 admin-policy-require-2fa = Require a second factor for every account
 admin-policy-require-2fa-help = Accounts without a second factor are asked to set one up at their next sign-in; per-domain rules are on the two-factor page.
 admin-policy-argon-memory = Argon2 memory, in KiB

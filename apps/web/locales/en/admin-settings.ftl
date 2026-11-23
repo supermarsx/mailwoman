@@ -463,7 +463,7 @@ admin-settings-help-dsr-approval-erasure = auto schedules the erasure once the r
 admin-settings-key-dsr-approval-other = Handling of other requests
 admin-settings-help-dsr-approval-other = auto marks the request as in progress once confirmed. admin waits for an administrator to approve it.
 admin-settings-key-dsr-reauth-required = Re-authentication for requests
-admin-settings-help-dsr-reauth-required = Require a fresh password or second factor to file an export or erasure request and to create a download link.
+admin-settings-help-dsr-reauth-required = Require identity confirmation again (password and second factor, or a passkey) to file an export or erasure request and to create a download link.
 admin-settings-key-dsr-confirmation-required = Confirmation message
 admin-settings-help-dsr-confirmation-required = Send a confirmation message with a code to the requester's inbox; the request does not proceed until the code is entered.
 admin-settings-key-dsr-admin-step-up = Confirm again before approving
@@ -985,7 +985,7 @@ admin-settings-help-security-admin-probe-probe-paths = Paths scanners ask for, s
 admin-settings-key-security-admin-probe-allowlist = Never-blocked networks
 admin-settings-help-security-admin-probe-allowlist = IP addresses or CIDR networks (office, VPN) that are never counted or blocked.
 admin-settings-key-security-admin-probe-audit-ip = Source address in the audit log
-admin-settings-help-security-admin-probe-audit-ip = masked shows IPv4 /24 and IPv6 /48; full shows the address. The fail2ban line always has the full address.
+admin-settings-help-security-admin-probe-audit-ip = masked shows IPv4 /24 and IPv6 /48; full shows the address. The fail2ban line has the full address only when IP addresses in logs is set to Full.
 admin-settings-key-security-admin-probe-fail2ban-log = fail2ban log line on block
 admin-settings-help-security-admin-probe-fail2ban-log = Write one mailwoman[admin-probe] line with rhost=<address> when a source is blocked.
 
@@ -1591,7 +1591,7 @@ admin-settings-help-security-session-binding-attributes = Attributes bound: brow
 admin-settings-key-security-session-binding-strictness = Session binding: strictness
 admin-settings-help-security-session-binding-strictness = Tolerant accepts browser updates and a single soft attribute change; strict flags any soft difference.
 admin-settings-key-security-session-binding-webmail-action = Session binding: webmail action
-admin-settings-help-security-session-binding-webmail-action = What a webmail session mismatch does: off, detect (record only), step-up (ask for password and second factor again) or revoke the session. Default step-up.
+admin-settings-help-security-session-binding-webmail-action = What a webmail session mismatch does: off, detect (record only), step-up (ask the user to confirm their identity again) or revoke the session. Default step-up.
 admin-settings-key-security-session-binding-admin-action = Session binding: admin console action
 admin-settings-help-security-session-binding-admin-action = What an admin console session mismatch does: off, detect, step-up or revoke. Default revoke.
 admin-settings-key-security-theft-enabled = Session theft detection
