@@ -886,7 +886,7 @@ pub static CATALOGUE: &[Knob] = &[
         Gr::Admin,
         Plain,
         R::Boot,
-        "true when user and password are set",
+        "true",
         "admin console on or off",
     ),
     boot(
