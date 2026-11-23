@@ -84,6 +84,62 @@ impl Environment {
     pub(crate) fn retained_bytes(&self) -> usize {
         self.values.iter().map(|(key, (_, value))| key.len() + value.as_ref().map_or(0, |v| v.len()) + 96).sum()
     }
+    /// Whether the process environment still equals this captured DATA. Before
+    /// [`freeze_environment`] this is the full [`Environment::matches`] scan.
+    /// After it, the frozen snapshot IS the process environment (the caller
+    /// promised no further mutation), so comparing with it is the same answer
+    /// without a `vars_os` scan per boundary.
+    pub(crate) fn unchanged(&self) -> bool {
+        match frozen_snapshot() {
+            Some(Some(process)) => *process.environment == *self,
+            Some(None) => false,
+            None => self.matches(),
+        }
+    }
+}
+
+/// One process environment observation and its selector fingerprint.
+pub(crate) struct ProcessEnvironment {
+    pub(crate) environment: Arc<Environment>,
+    pub(crate) fingerprint: String,
+}
+impl ProcessEnvironment {
+    fn capture() -> Option<Arc<Self>> {
+        let environment = Environment::capture()?;
+        let fingerprint = environment.fingerprint();
+        Some(Arc::new(Self { environment: Arc::new(environment), fingerprint }))
+    }
+}
+static FROZEN: std::sync::OnceLock<Option<Arc<ProcessEnvironment>>> = std::sync::OnceLock::new();
+
+/// t34: the production entry point calls this once, after startup configuration
+/// and before serving, to declare the process environment immutable from then
+/// on (no production code calls `set_var`/`remove_var`; only `#[cfg(test)]`
+/// modules do). Every request then reuses one snapshot and fingerprint instead
+/// of scanning `std::env::vars_os` at capture and at each of its boundaries.
+/// Processes that never call it (integration tests that change the environment
+/// at runtime) keep the full scans. Idempotent; the first call's snapshot wins.
+#[allow(dead_code)] // called from main.rs serve() / the load fixture (handed over)
+pub fn freeze_environment() {
+    let _ = FROZEN.get_or_init(ProcessEnvironment::capture);
+}
+
+/// `None`: not frozen (scan). `Some(None)`: frozen, but the environment could
+/// not be captured (request inputs stay unavailable, as before).
+fn frozen_snapshot() -> Option<Option<Arc<ProcessEnvironment>>> {
+    #[cfg(test)]
+    if let Some(frozen) = test_control::frozen_environment() {
+        return Some(frozen);
+    }
+    FROZEN.get().cloned()
+}
+
+/// The environment a request compares published inputs against.
+pub(crate) fn process_environment() -> Option<Arc<ProcessEnvironment>> {
+    match frozen_snapshot() {
+        Some(frozen) => frozen,
+        None => ProcessEnvironment::capture(),
+    }
 }
 
 /// Stable typed reader inputs. No Session, password, gate result or deadline
@@ -295,10 +351,11 @@ pub(crate) async fn current(store: &Store) -> Option<Arc<Current>> {
     let scope = SCOPE.try_with(Arc::clone).ok()?;
     if scope.state.store.cache_scope() != store.cache_scope() { return None; }
     scope.first.get_or_init(|| async {
-        let environment = Environment::capture()?;
-        let entry = scope.state.native_publication.as_ref()?.request_inputs(&scope.cookie, &environment)?;
+        let process = process_environment()?;
+        let environment = &*process.environment;
+        let entry = scope.state.native_publication.as_ref()?.request_inputs_by_fingerprint(&scope.cookie, &process.fingerprint)?;
         let prepared = entry.request.as_ref()?;
-        if entry.environment.as_deref()? != &environment { return None; }
+        if entry.environment.as_deref()? != environment { return None; }
         let guard = entry.guard.as_ref()?;
         if !guard.ordinary_supported() { return None; }
         #[cfg(feature="load-test-fixtures")]
@@ -314,7 +371,7 @@ pub(crate) async fn current(store: &Store) -> Option<Arc<Current>> {
                 |fence| snapshot::touch_not_due(store, fence) && snapshot::clocks_clear(fence, idle, absolute)))
                 .await.ok()??;
             #[cfg(test)] if !observed.reused { test_control::record(|counts| counts.first_fences += 1); }
-            match first_frame(&scope, store, &environment, &entry, prepared, guard, &observed) {
+            match first_frame(&scope, store, &process.fingerprint, &entry, prepared, guard, &observed) {
                 Some(current) => return Some(current),
                 None if observed.reused => allow_reuse = false,
                 None => return None,
@@ -330,19 +387,19 @@ fn effective_clock(state: &AppState, prepared: &Prepared) -> (u64, u64) {
      crate::hardening::mailbox_absolute_secs(prepared.absolute, state.hardening.absolute_timeout.as_secs()))
 }
 
-fn first_frame(scope: &Scope, store: &Store, environment: &Environment, entry: &Arc<Published>,
+fn first_frame(scope: &Scope, store: &Store, fingerprint: &str, entry: &Arc<Published>,
     prepared: &Prepared, guard: &crate::published_guard_inputs::PreparedGuardInputs,
     observed: &snapshot::Observed,
 ) -> Option<Arc<Current>> {
     let fence = &observed.fence;
-    if !entry.environment.as_ref()?.matches()
+    if !entry.environment.as_ref()?.unchanged()
         || !entry.matches(fence) || !guard.matches_configuration(store, fence).ok()?
         || fence.primary_policy_revision(store).ok()??.number().is_none()
     {
         // A certified reuse does not by itself prove the entry stale; the fresh
         // retry decides, exactly as without the snapshot.
         if !observed.reused {
-            scope.state.native_publication.as_ref()?.discard_request_inputs(&scope.cookie, environment, entry);
+            scope.state.native_publication.as_ref()?.discard_request_inputs_by_fingerprint(&scope.cookie, fingerprint, entry);
         }
         return None;
     }
@@ -424,6 +481,19 @@ pub(crate) mod test_control {
         pub first_fences: u64, pub refresh_fences: u64, pub session_decodes: u64,
         pub legacy_session_reads: u64, pub failure_classifications: u64,
         pub stored_reader_hits: u64, pub legacy_guard_session_reads: u64,
+    }
+    tokio::task_local! { static FROZEN_ENV: Option<std::sync::Arc<super::ProcessEnvironment>>; }
+    pub(super) fn frozen_environment() -> Option<Option<std::sync::Arc<super::ProcessEnvironment>>> {
+        FROZEN_ENV.try_with(Clone::clone).ok()
+    }
+    /// Run `future` as if `freeze_environment` had captured `frozen` (test-only;
+    /// the process-wide freeze is never set by the unit test binary).
+    pub(crate) async fn with_frozen_environment<F: std::future::Future>(
+        frozen: Option<std::sync::Arc<super::ProcessEnvironment>>, future: F) -> F::Output {
+        FROZEN_ENV.scope(frozen, future).await
+    }
+    pub(crate) fn capture_process_environment() -> Option<std::sync::Arc<super::ProcessEnvironment>> {
+        super::ProcessEnvironment::capture()
     }
     tokio::task_local! { static ENABLED: bool; static COUNTS: std::cell::RefCell<Counts>;
         static CONNECTOR: std::sync::Arc<tokio::sync::Notify>;
@@ -589,7 +659,7 @@ async fn reobserve(scope: &Scope, current: &Current) -> Result<(), ()> {
         let fence = &observed.fence;
         if current.first.same_published_source(fence).unwrap_or(false)
             && current.entry.matches(fence)
-            && current.entry.environment.as_ref().is_some_and(|environment| environment.matches())
+            && current.entry.environment.as_ref().is_some_and(|environment| environment.unchanged())
             && current.entry.guard.as_ref().is_some_and(|guard|
                 guard.matches_configuration(&scope.state.store, fence).unwrap_or(false))
         {

@@ -368,8 +368,8 @@ impl Worker {
             if !crate::request_inputs_fixture::enabled() { return; }
             crate::request_inputs_fixture::record(crate::request_inputs_fixture::Event::Hint);
         }
-        let Some(environment) = crate::request_inputs::Environment::capture() else { return; };
-        self.hint_selector(cookie, account, vec![REQUEST_INPUT_SELECTOR.into(), environment.fingerprint()]);
+        let Some(environment) = crate::request_inputs::process_environment() else { return; };
+        self.hint_selector(cookie, account, vec![REQUEST_INPUT_SELECTOR.into(), environment.fingerprint.clone()]);
     }
     fn hint_selector(&self, cookie: &str, account: &str, selector: Vec<String>) {
         if cookie.is_empty()
@@ -419,11 +419,15 @@ impl Worker {
         let selector = selector(needs)?;
         self.get_selector(cookie, &selector)
     }
+    #[cfg(test)]
     pub(crate) fn request_inputs(&self, cookie: &str, environment: &crate::request_inputs::Environment) -> Option<Arc<Published>> {
-        self.get_selector(cookie, &[REQUEST_INPUT_SELECTOR.into(), environment.fingerprint()])
+        self.request_inputs_by_fingerprint(cookie, &environment.fingerprint())
     }
-    pub(crate) fn discard_request_inputs(&self, cookie: &str, environment: &crate::request_inputs::Environment, expected: &Arc<Published>) {
-        let key = key(cookie, &[REQUEST_INPUT_SELECTOR.into(), environment.fingerprint()]);
+    pub(crate) fn request_inputs_by_fingerprint(&self, cookie: &str, fingerprint: &str) -> Option<Arc<Published>> {
+        self.get_selector(cookie, &[REQUEST_INPUT_SELECTOR.into(), fingerprint.into()])
+    }
+    pub(crate) fn discard_request_inputs_by_fingerprint(&self, cookie: &str, fingerprint: &str, expected: &Arc<Published>) {
+        let key = key(cookie, &[REQUEST_INPUT_SELECTOR.into(), fingerprint.into()]);
         if let Ok(mut memory) = self.memory.try_lock()
             && memory.entries.get(&key).is_some_and(|cell| Arc::ptr_eq(&cell.entry, expected)) {
             memory.entries.remove(&key);

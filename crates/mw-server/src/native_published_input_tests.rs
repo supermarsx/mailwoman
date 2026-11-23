@@ -847,3 +847,27 @@ fn bounded_snapshot_cached_bans_follow_cross_connection_ban_and_unban() {
         }
     });
 }
+
+// t34: a frozen process environment (request_inputs::freeze_environment) is the
+// same input as the per-boundary scan: identical reply, statements and frames.
+#[test]
+fn frozen_environment_keeps_published_request_counts_and_reply() {
+    run_fixture(|| async {
+        let f = Fixture::new().await;
+        f.writer.touch_session(&f.session).await.unwrap();
+        snapcase::published(&f).await;
+        let frozen = crate::request_inputs::test_control::capture_process_environment().unwrap();
+        for request in [snapcase::me as fn(&Fixture) -> Request<Body>, snapcase::mail] {
+            let scanned = snapcase::send(&f, request(&f), snapcase::OFF).await;
+            let reused = crate::request_inputs::test_control::with_frozen_environment(Some(frozen.clone()),
+                snapcase::send(&f, request(&f), snapcase::OFF)).await;
+            assert_eq!(scanned.status, StatusCode::OK);
+            assert_eq!(reused.body, scanned.body);
+            assert_eq!(reused.sql.read.calls, scanned.sql.read.calls);
+            assert_eq!(reused.sql.write.calls, scanned.sql.write.calls);
+            assert_eq!((reused.inputs.first_fences, reused.inputs.refresh_fences, reused.inputs.session_decodes),
+                (scanned.inputs.first_fences, scanned.inputs.refresh_fences, scanned.inputs.session_decodes));
+            assert_eq!(reused.inputs.first_fences, 1, "published inputs still used");
+        }
+    });
+}

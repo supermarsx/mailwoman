@@ -355,6 +355,80 @@ mod tests {
         assert!(mirror.stamp_gen().is_none());
         store.close().await;
     }
+    // ---- t34 frozen process environment (request_inputs::freeze_environment) ----
+    use super::super::{Environment, test_control as inputs};
+
+    fn registry_env_name() -> &'static str {
+        crate::settings_registry::REGISTRY.iter().find_map(|d| d.env.map(|v| v.0))
+            .expect("registry declares environment-backed settings")
+    }
+
+    #[tokio::test]
+    async fn frozen_snapshot_equals_the_full_scan() {
+        let frozen = inputs::capture_process_environment().expect("capturable test environment");
+        let scanned = Environment::capture().unwrap();
+        assert!(*frozen.environment == scanned);
+        assert_eq!(frozen.fingerprint, scanned.fingerprint());
+        assert!(scanned.matches());
+        // Unfrozen: `unchanged` IS the full scan.
+        assert_eq!(scanned.unchanged(), scanned.matches());
+        // Frozen: the same answer without a scan.
+        let frozen_answer = inputs::with_frozen_environment(Some(frozen.clone()), async {
+            (scanned.unchanged(), super::super::process_environment().map(|p| Arc::ptr_eq(&p, &frozen)))
+        }).await;
+        assert_eq!(frozen_answer, (true, Some(true)), "requests reuse the one snapshot");
+        assert!(!inputs::with_frozen_environment(None, async { scanned.unchanged() }).await,
+            "an uncapturable frozen environment never certifies published inputs");
+    }
+
+    #[tokio::test]
+    async fn unfrozen_boundary_still_sees_a_runtime_environment_change() {
+        let name = registry_env_name();
+        let before = Environment::capture().unwrap();
+        let previous = std::env::var_os(name);
+        // SAFETY: test-only, single-threaded test binary run (--test-threads=1);
+        // restored below before any other assertion can observe it.
+        unsafe { std::env::set_var(name, "t34-e6-runtime-change") };
+        let changed = (before.matches(), before.unchanged(), Environment::capture().map(|e| e == before));
+        match previous {
+            Some(value) => unsafe { std::env::set_var(name, value) },
+            None => unsafe { std::env::remove_var(name) },
+        }
+        assert_eq!(changed, (false, false, Some(false)),
+            "without freeze_environment every boundary still rescans and refuses");
+        assert!(before.unchanged());
+    }
+
+    /// Cost of the 13 environment checks a published request makes (first
+    /// fence + 12 boundaries). Timing only; run explicitly:
+    /// `cargo test -p mw-server-core --lib env_check_cost -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "timing report, not an assertion"]
+    async fn env_check_cost_per_published_request() {
+        let entry = Environment::capture().unwrap();
+        let frozen = inputs::capture_process_environment().unwrap();
+        const REQUESTS: u32 = 2000;
+        let started = std::time::Instant::now();
+        for _ in 0..REQUESTS {
+            let process = Environment::capture().unwrap();
+            let _ = std::hint::black_box(process.fingerprint());
+            for _ in 0..13 { assert!(std::hint::black_box(&entry).matches()); }
+        }
+        let scan = started.elapsed() / REQUESTS;
+        let frozen_cost = inputs::with_frozen_environment(Some(frozen), async {
+            let started = std::time::Instant::now();
+            for _ in 0..REQUESTS {
+                let process = super::super::process_environment().unwrap();
+                let _ = std::hint::black_box(&process.fingerprint);
+                for _ in 0..13 { assert!(std::hint::black_box(&entry).unchanged()); }
+            }
+            started.elapsed() / REQUESTS
+        }).await;
+        eprintln!("{}", serde_json::json!({"kind":"t34-env-check-cost-per-request",
+            "processEnvVars": std::env::vars_os().count(),
+            "scanMicros": scan.as_secs_f64() * 1e6, "frozenMicros": frozen_cost.as_secs_f64() * 1e6,
+            "debugBuild": cfg!(debug_assertions)}));
+    }
     #[test]
     fn only_state_changing_non_jmap_requests_expedite() {
         use axum::http::Method;
