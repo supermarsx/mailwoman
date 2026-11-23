@@ -5,7 +5,7 @@ screen: true
 
 People can ask what this server holds about them, ask for a copy, and ask for their data to be corrected, erased or restricted, or object to a use of it. The **Data requests** tab of **Compliance** is the queue where you handle those requests. This page describes what the server does with each request. It does not say that handling requests this way meets any law: what a request must cover, who may make one and how quickly it must be answered is for your own legal advice.
 
-![The Data requests tab scrolled to the filters and the queue, with three open requests from alex@example.com: an access request, a correction and an erasure.](/screenshots/admin-privacy/dsr-queue.webp){.mw-shot}
+![The Data requests tab scrolled to the filters and the queue, with the status filter set to Any: three requests from alex@example.com, an access request, a correction and an erasure.](/screenshots/admin-privacy/dsr-queue.webp){.mw-shot}
 
 ## Before you start
 
@@ -95,9 +95,9 @@ The export is a ZIP file with a `manifest.json` that lists the sections, the fil
 
 The caps on sessions, sign-in history and audit entries are applied without a note in the manifest.
 
-**Mail** is included only when **Mail in exports** is on (off by default) and the person ticked the box when filing. It covers the messages this server has in its message list for the person's accounts, up to 100,000 per account. A body that is not cached is fetched again from the upstream mail server, so the export includes mail that lives upstream. Attachments are inside the messages. The manifest always carries the sentence "Mail that stays on the upstream mail server is not part of this export", whatever the export contains. A request filed by an administrator never includes mail.
+**Mail** is included only when **Mail in exports** is on (off by default) and the person ticked the box when filing. It covers the messages this server has in its message list for the person's accounts, up to 100,000 per account. A body that is not cached is fetched again from the upstream mail server, so the export includes mail that lives upstream. Attachments are inside the messages. The manifest always carries the sentence "Mail that stays on the upstream mail server is not part of this export", whatever the export contains. The console form for filing a request on someone's behalf never asks for mail; a request filed through the console API (`POST /dsr` with `includeMail`) can include it when **Mail in exports** is on.
 
-**Not exported**: drafts saved on the server, signatures saved apart from an identity, tasks, mail state such as flags and folders, security records, connected services, delegations, usage records and uploaded files. These parts of the server's data map have no export switch and are always left out.
+**Not exported**: drafts saved on the server, signatures saved apart from an identity, tasks, mail state such as flags and folders, security records, connected services, delegations, usage records, and the "records" section: the consent ledger, restrictions, retention rules, open-tracking data, uploaded files and data-loss-prevention decisions. These parts of the server's data map have no export switch and are always left out.
 
 **Size**: an export stops at **Export size cap** (500 MB by default). A section that would go over it is left out and the manifest says so; this can leave out all mail.
 
@@ -112,14 +112,13 @@ When an erasure runs, the server:
 1. Checks for a legal hold.
 2. Sends the person a notice that the erasure is about to run.
 3. Removes the person's documents from the search index, ends their sessions, and deletes message embeddings and compliance email records.
-4. Runs every delete rule of the erasure registry, ending with the account rows, whose deletion also removes cached mail, calendars, contacts and notes.
-5. Deletes uploaded files.
-6. Marks the directory entry as deleted, so the address can no longer sign in and the entry cannot be reactivated.
-7. Deletes stored exports for the same address.
-8. Counts the remaining rows of every deleted table, then writes an erasure tombstone (a keyed hash of the address, used to repeat the erasure after a restore).
-9. With **Scrub after erasure** on (off by default), replaces the person's identifiers in the audit history and log files (see [Erasure and scrubbing](#erasure-and-scrubbing)).
+4. Deletes uploaded files, then runs every delete rule of the erasure registry, ending with the account rows, whose deletion also removes cached mail, calendars, contacts and notes.
+5. Marks the directory entry as deleted, so the address can no longer sign in and the entry cannot be reactivated.
+6. Counts the remaining rows of every deleted table and, when none remain, writes an erasure tombstone (a keyed hash of the address, used to repeat the erasure after a restore).
+7. With **Scrub after erasure** on (off by default), replaces the person's identifiers in the audit history and log files (see [Erasure and scrubbing](#erasure-and-scrubbing)).
+8. Deletes stored exports for the same address.
 
-If rows remain or a step fails, it tries again up to three times, 60 seconds apart, and then marks the request **Failed, will be retried**. The tables the registry covers, and what each rule does, are listed in the generated [Erasure coverage](erasure-coverage.md) page.
+If rows remain or a step fails, the erasure is scheduled again 60 seconds later; after three attempts in total the request is marked **Failed, will be retried**, and **Run now** starts it again. The tables the registry covers, and what each rule does, are listed in the generated [Erasure coverage](erasure-coverage.md) page.
 
 The completion record lists the per-table counts, the number of export parts deleted, and a digest of the record. The digest is an unkeyed hash, not a signature.
 
@@ -129,7 +128,7 @@ Erasure does **not** remove:
 - **Backups.** They are not changed. Restoring a backup with the `mailwoman erasure restore` command repeats the erasures recorded since the backup, when **Replay erasures on restore** is on.
 - **The request itself.** The request, its free-text details and its trail, including identity-check notes, are kept for **Finished request retention** (1825 days by default).
 - **The audit log and log files.** Entries that name the person stay unless the person is scrubbed.
-- **Records the registry keeps on purpose**: bans, the identity record, client error reports, and the retention archive, which keeps archived rows until each archive file expires.
+- **Records the registry keeps on purpose**: single sign-on, assistant and alert records and the breach trail and delivery log (kept for their retention periods; a scrub replaces the person's identifiers in them), breach incidents themselves, including any affected addresses entered in them, bans, the identity record, client error reports, group definitions, administrator accounts, and the retention archive, which keeps archived rows until each archive file expires. The generated [Erasure coverage](erasure-coverage.md) page lists every table and why it is kept.
 
 ### Erasure and scrubbing
 

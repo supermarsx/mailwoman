@@ -57,7 +57,7 @@ A restriction acts only inside this server. It does not reach the upstream mail 
 3. **Export ledger (CSV)** downloads every decision: time, domain, purpose, decision, text version, legal basis, source and account id. The export is recorded in the audit log.
 4. Edit the settings of each purpose in the **Settings** section below the charts. This tab sets values for all domains; to set a value for one domain, use the **Settings** screen of the console.
 
-People record decisions under **Settings > Privacy** in the mail app; the server does not ask them with a prompt or a dialog. A decision is stored with the purpose, the decision, the text version, the legal basis shown, the source (`settings`, or `dsr` when an approved objection withdrew it), the time and the account id. It holds no address, IP address or browser details. The ledger is part of the person's data export and is deleted when the person is erased.
+People record decisions under **Settings > Privacy** in the mail app; the server does not ask them with a prompt or a dialog. A decision is stored with the purpose, the decision, the text version, the legal basis shown, the source (`settings`, or `dsr` when an approved objection withdrew it), the time and the account id. It holds no address, IP address or browser details. The ledger is deleted when the person is erased. It is not part of the person's data export: it belongs to an export section that has no export switch and is always left out (see [What an export contains](data-requests.md#what-an-export-contains)).
 
 ### Purposes
 
