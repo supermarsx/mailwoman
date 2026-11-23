@@ -114,12 +114,12 @@ async fn foreign_cached_verdict_is_uniform_not_found_and_mixed_ids_stay_scoped()
     )]);
     let mut values = vec![Some(json!({"id":id}))];
     engine
-        .fill_auth(&b, &mut values, &source_rows)
+        .fill_auth(&b, &mut values, &source_rows, None)
         .await
         .unwrap();
     assert_eq!(values[0].as_ref().unwrap()["mailwomanAuth"], Value::Null);
     engine
-        .fill_auth(&a, &mut values, &source_rows)
+        .fill_auth(&a, &mut values, &source_rows, None)
         .await
         .unwrap();
     assert!(values[0].as_ref().unwrap()["mailwomanAuth"].is_object());
@@ -133,7 +133,7 @@ async fn foreign_cached_verdict_is_uniform_not_found_and_mixed_ids_stay_scoped()
         id.clone(),
         fresh[0].as_ref().unwrap().cache_revision.clone(),
     )]);
-    engine.fill_auth(&a, &mut values, &fresh).await.unwrap();
+    engine.fill_auth(&a, &mut values, &fresh, None).await.unwrap();
     assert!(values[0].as_ref().unwrap()["mailwomanAuth"].is_object());
 }
 #[tokio::test]
@@ -200,7 +200,7 @@ async fn zero_access_and_deleted_sources_cannot_reuse_cached_or_computed_verdict
     engine.attach_v6(crate::v6::V6Hooks::new().with_posture_source(std::sync::Arc::new(Zero)));
     assert!(engine.raw_for_email(&a, &id).await.is_none());
     let mut list = vec![Some(json!({"id":id}))];
-    engine.fill_auth(&a, &mut list, &source_rows).await.unwrap();
+    engine.fill_auth(&a, &mut list, &source_rows, None).await.unwrap();
     assert_eq!(list[0].as_ref().unwrap()["mailwomanAuth"], Value::Null);
     assert!(
         engine

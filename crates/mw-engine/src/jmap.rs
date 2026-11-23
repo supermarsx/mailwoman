@@ -67,6 +67,10 @@ mod focus_tests;
 #[cfg(test)]
 #[path = "mentions_jmap_tests.rs"]
 mod mentions_jmap_tests;
+// t34-e12: hot read routes as whole requests (statement budgets, shared reads).
+#[cfg(test)]
+#[path = "hot_route_sql_tests.rs"]
+mod hot_route_sql_tests;
 #[cfg(test)]
 #[path = "list_projection_tests.rs"]
 mod list_projection_tests;
@@ -160,7 +164,24 @@ impl Engine {
         &self,
         account_id: &str,
         request: &Value,
+        sieve: Option<&mut crate::sieve_jmap::SieveContext>,
+    ) -> Value {
+        // One request-scoped state frame per JMAP request (t34-e12): read
+        // methods share one joint state read; see `request_scope`.
+        let frame = crate::request_scope::RequestFrame::new(account_id);
+        crate::request_scope::RequestFrame::scope(
+            std::sync::Arc::clone(&frame),
+            self.handle_jmap_request(account_id, request, sieve, &frame),
+        )
+        .await
+    }
+
+    async fn handle_jmap_request(
+        &self,
+        account_id: &str,
+        request: &Value,
         mut sieve: Option<&mut crate::sieve_jmap::SieveContext>,
+        frame: &crate::request_scope::RequestFrame,
     ) -> Value {
         if let Err(problem) = core::validate(request, 0, false) {
             return problem;
@@ -196,6 +217,7 @@ impl Engine {
                 continue;
             }
             let name = arr[0].as_str().unwrap_or_default();
+            frame.begin_method(name);
             let call_id = arr[2].as_str().unwrap_or("c0");
             let mut args = arr[1].clone();
             if let Err(kind) = resolve_references(&mut args, &responses) {
@@ -326,6 +348,7 @@ impl Engine {
             self.broadcast_state(account_id).await;
         }
 
+        frame.end_methods();
         let mut response = json!({
             "methodResponses": responses,
             "sessionState": self.session_state(account_id).await
@@ -521,6 +544,13 @@ impl Engine {
         }
         let wants_synced = folders::wants_property(args, "mailwomanSynced");
         let account_ready = self.initial_sync_status(account_id) == "ready";
+        // One cursor read for every mailbox, not one per mailbox (t34-e12). A
+        // failed read answers "not synced", as each failed per-mailbox read did.
+        let synced_ids = if wants_synced && !account_ready {
+            self.store().mailboxes_with_cursor(account_id).await.unwrap_or_default()
+        } else {
+            std::collections::HashSet::new()
+        };
         // Optional id filter (the web client usually omits it to list all).
         let wanted: Option<Vec<&str>> = args
             .get("ids")
@@ -555,26 +585,20 @@ impl Engine {
                 entry["isSubscribed"] = json!(names.contains(&m.name));
             }
             if wants_synced {
-                let synced = account_ready
-                    || matches!(
-                        self.store().load_cursor(account_id, &m.id).await,
-                        Ok(Some(_))
-                    );
+                let synced = account_ready || synced_ids.contains(&m.id);
                 entry["mailwomanSynced"] = json!(synced);
             }
             list.push(entry);
         }
         // Saved searches surface as virtual folders (role:null +
         // mailwomanSearchQuery). Querying one runs its stored filter (§2.1).
-        let owner = match self.store().native_personal_subject(account_id).await {
-            Ok(Some(owner)) => owner,
+        // The owner's existence check and its saved searches share one
+        // statement (t34-e12).
+        let saved = match self.store().native_personal_saved_searches(account_id).await {
+            Ok(Some((_owner, saved))) => saved,
             Ok(None) => {
                 return json!({"type":"serverFail","description":"Personal owner unavailable"});
             }
-            Err(error) => return server_fail(&error),
-        };
-        let saved = match self.store().list_personal_saved_searches(&owner).await {
-            Ok(saved) => saved,
             Err(error) => return server_fail(&error),
         };
         for s in &saved {
@@ -618,7 +642,7 @@ impl Engine {
         };
         json!({
             "accountId": account_id,
-            "state": role_view.state(&self.type_state(account_id, ChangeType::Mailbox).await.unwrap_or_default()),
+            "state": role_view.state(&self.response_type_state(account_id, ChangeType::Mailbox).await.unwrap_or_default()),
             "mailwomanRoleMappingProblems": role_view.problems,
             "mailwomanFolderRoleGuard": true,
             "mailwomanInitialSync": self.initial_sync_status(account_id),
@@ -644,7 +668,7 @@ impl Engine {
 
         let mut out = json!({
             "accountId": account_id,
-            "queryState": self.type_state(account_id, ChangeType::Email).await.unwrap_or_default(),
+            "queryState": self.response_type_state(account_id, ChangeType::Email).await.unwrap_or_default(),
             "ids": page.ids,
             "position": page.position,
             "canCalculateChanges": true
@@ -1381,7 +1405,7 @@ impl Engine {
                 .is_none_or(|named| named.iter().any(|property| property == "mailwomanMentions")),
             headers: wanted_header_properties(args),
         };
-        let EmailAssembly { emails: mut assembled, list_projections, index_allowed, auth_sources } = match self.build_emails(account_id, &requested, fill).await {
+        let EmailAssembly { emails: mut assembled, list_projections, index_allowed, auth_sources, posture } = match self.build_emails(account_id, &requested, fill).await {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
         };
@@ -1399,7 +1423,7 @@ impl Engine {
                     .iter()
                     .any(|p| p == crate::security::list_auth::AUTH_PROPERTY)
             });
-        if wants_auth && let Err(e) = self.fill_auth(account_id, &mut assembled, &auth_sources).await {
+        if wants_auth && let Err(e) = self.fill_auth(account_id, &mut assembled, &auth_sources, posture).await {
             return server_fail(&e);
         }
 
@@ -1424,7 +1448,7 @@ impl Engine {
         }
         json!({
             "accountId": account_id,
-            "state": self.type_state(account_id, ChangeType::Email).await.unwrap_or_default(),
+            "state": self.response_type_state(account_id, ChangeType::Email).await.unwrap_or_default(),
             "list": list,
             "notFound": not_found
         })
@@ -1469,7 +1493,7 @@ impl Engine {
         fill: EmailFill,
     ) -> Result<EmailAssembly> {
         if stable_ids.is_empty() {
-            return Ok(EmailAssembly {emails:Vec::new(),list_projections:HashMap::new(),index_allowed:false,auth_sources:HashMap::new()});
+            return Ok(EmailAssembly {emails:Vec::new(),list_projections:HashMap::new(),index_allowed:false,auth_sources:HashMap::new(),posture:None});
         }
         let mut unique: Vec<String> = Vec::with_capacity(stable_ids.len());
         let mut slot: HashMap<&str, usize> = HashMap::with_capacity(stable_ids.len());
@@ -1481,8 +1505,18 @@ impl Engine {
         }
 
         // One fresh owner-scoped snapshot; metadata never authorizes a row.
-        let (msgs, metas): (Vec<_>, Vec<_>) = self.store()
-            .get_account_messages_with_metas(account_id, &unique).await?
+        // When the posture source is this Store, the account's zero-access flag
+        // comes from the same statement (t34-e12): one read instead of one live
+        // posture read here plus two in `fill_auth`.
+        let sql_posture = self.posture_from_store_sql();
+        let (rows, row_posture) = if sql_posture {
+            let (rows, zero_access) = self.store()
+                .get_account_messages_with_metas_and_posture(account_id, &unique).await?;
+            (rows, zero_access.map(|zero| if zero {crate::v6::AccountPosture::ZeroAccess} else {crate::v6::AccountPosture::Standard}))
+        } else {
+            (self.store().get_account_messages_with_metas(account_id, &unique).await?, None)
+        };
+        let (msgs, metas): (Vec<_>, Vec<_>) = rows
             .into_iter().map(|row| match row {
                 Some((message, metadata)) => (Some(message), metadata),
                 None => (None, None),
@@ -1493,13 +1527,19 @@ impl Engine {
                 !source.matches_owned_cache_revision(&message.stable_id,&message.cache_revision))
             {return Err(EngineError::Protocol("prepared compact source changed; use ordinary reader".into()));}
         }
-        let cache_postures = self.mail_cache_postures(&msgs).await;
+        let cache_postures = match row_posture {
+            // Every row is owned by `account_id`, so this one entry covers them.
+            Some(posture) if self.v6_hooks().has_cache() => HashMap::from([(account_id.to_owned(), posture)]),
+            _ => self.mail_cache_postures(&msgs).await,
+        };
         // The index never establishes ownership. Restrict the query to rows
         // returned by the fresh account-scoped SQL read, then check live posture
         // before any derived projection (including a stale pre-toggle index).
         let owned_ids = msgs.iter().flatten().map(|message|message.stable_id.clone()).collect::<Vec<_>>();
         let index_allowed = !owned_ids.is_empty() && (fill.mentions || fill.calendar || fill.focus)
-            && if self.v6_hooks().has_cache() {
+            && if let Some(posture) = row_posture {
+                posture==crate::v6::AccountPosture::Standard
+            } else if self.v6_hooks().has_cache() {
                 cache_postures.get(account_id)==Some(&crate::v6::AccountPosture::Standard)
             } else {
                 self.account_posture_live(account_id).await==crate::v6::AccountPosture::Standard
@@ -1687,6 +1727,7 @@ impl Engine {
             list_projections,
             index_allowed,
             auth_sources,
+            posture: row_posture.or_else(|| cache_postures.get(account_id).copied()),
         })
     }
 
@@ -5890,6 +5931,10 @@ struct EmailAssembly {
     emails:Vec<Option<Value>>,
     list_projections:HashMap<String,mw_search::ListProjection>,
     index_allowed:bool,
+    /// The account's posture as this request established it with its owned
+    /// rows (t34-e12). `None` when no requested row was owned, so nothing was
+    /// established; a consumer then reads it live.
+    posture:Option<crate::v6::AccountPosture>,
 }
 
 /// What [`Engine::build_emails`] adds to the stored envelope.

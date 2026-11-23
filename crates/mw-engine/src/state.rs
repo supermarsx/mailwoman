@@ -42,6 +42,16 @@ fn sum_counters(counters: &HashMap<String, u64>, kinds: &[ChangeType]) -> u64 {
     kinds.iter().map(|k| counter(counters, *k)).sum()
 }
 
+/// The composite `sessionState` string of one joint counter read.
+fn session_state_string(frame: &mw_store::SessionStateCounters) -> String {
+    let e = counter(&frame.mail, ChangeType::Email);
+    let m = counter(&frame.mail, ChangeType::Mailbox);
+    let s = counter(&frame.mail, ChangeType::EmailSubmission);
+    let p = sum_counters(&frame.pim, &PIM_STATE_TYPES);
+    let c = sum_counters(&frame.crypto, &CRYPTO_STATE_TYPES);
+    format!("e{e}m{m}s{s}p{p}c{c}")
+}
+
 impl Engine {
     /// Append one change and return the new `(account, type)` state. Best-effort
     /// for callers that do not care about the exact number.
@@ -76,15 +86,33 @@ impl Engine {
     /// falls back to the original independent readers and per-family defaults.
     /// Method-result state tokens retain their original separate read points.
     pub(crate) async fn session_state(&self, account_id: &str) -> String {
-        let frame = self.store().session_state_counters(account_id).await;
-        let (mail, pim, crypto) = (frame.mail, frame.pim, frame.crypto);
+        // Inside a JMAP request whose methods so far only read, reuse the frame
+        // those methods already read (t34-e12, `request_scope`). A frame is
+        // cleared before any other method runs, so this is fresh after a write.
+        if let Some(frame) = crate::request_scope::RequestFrame::current(account_id)
+            && let Some(counters) = frame.mail_counters(self.store()).await
+        {
+            return session_state_string(&counters);
+        }
+        session_state_string(&self.store().session_state_counters(account_id).await)
+    }
 
-        let e = counter(&mail, ChangeType::Email);
-        let m = counter(&mail, ChangeType::Mailbox);
-        let s = counter(&mail, ChangeType::EmailSubmission);
-        let p = sum_counters(&pim, &PIM_STATE_TYPES);
-        let c = sum_counters(&crypto, &CRYPTO_STATE_TYPES);
-        format!("e{e}m{m}s{s}p{p}c{c}")
+    /// The state token a shared read method (`Mailbox/get`, `Email/get`,
+    /// `Email/query`) returns: the request frame's counter when this runs inside
+    /// a JMAP request for `account_id`, otherwise (or when the joint read fails)
+    /// exactly [`Engine::type_state`]. Writers must keep calling `type_state`.
+    pub(crate) async fn response_type_state(
+        &self,
+        account_id: &str,
+        kind: ChangeType,
+    ) -> Result<String> {
+        if matches!(kind, ChangeType::Email | ChangeType::Mailbox | ChangeType::EmailSubmission)
+            && let Some(frame) = crate::request_scope::RequestFrame::current(account_id)
+            && let Some(counters) = frame.mail_counters(self.store()).await
+        {
+            return Ok(counter(&counters.mail, kind).to_string());
+        }
+        self.type_state(account_id, kind).await
     }
 
     // ── PIM state tokens + `*/changes` (plan §1.8/§2.2) ─────────────────────
@@ -1237,26 +1265,25 @@ pub(crate) mod session_state_tests {
             .expect("Mailbox/get returned a list");
         assert_eq!(list.len(), 3, "three mailboxes: {resp}");
 
-        // One joint session-state statement plus the method's own state read.
+        // t34-e12: the method's Mailbox state and `sessionState` share the
+        // request's one state frame, the account row joins the mailbox list, and
+        // the owner-existence check joins the saved searches: 11 -> 8 (cold; the
+        // policy and value reads are memoized at the revision when warm).
         let session_state = stmts.against("AS family");
-        // 0fc5f380 moved saved searches to `personal_saved_search`, keyed by the
-        // verified personal subject; the engine resolves that subject with one
-        // existence read of the account (`native_personal_subject`), so the method
-        // costs four statements now. Still fixed, still independent of the
-        // mailbox count (asserted below).
         assert_eq!(
             stmts.len(),
-            11,
-            "a whole Mailbox/get request: 1 sessionState + 4 method statements + \
-             5 fixed account/policy resolution reads + 1 `settings_revision` read \
+            8,
+            "a whole Mailbox/get request: 1 state frame + 2 method statements + \
+             4 cold account/policy resolution reads + 1 `settings_revision` read \
              (one fresh revision validates the shared resolution inputs). \
              Got {stmts:#?}"
         );
         assert_eq!(stmts.against("FROM settings_revision"), 1, "one fresh policy revision: {stmts:#?}");
         assert_eq!(
             session_state, 1,
-            "one joint change-log statement is sessionState's; got {stmts:#?}"
+            "one joint change-log statement serves the method state and sessionState; got {stmts:#?}"
         );
+        assert_eq!(stmts.against("FROM changes"), 1, "no separate method state read: {stmts:#?}");
 
         assert_eq!(
             stmts.against("FROM setting_policy"),
@@ -1267,22 +1294,21 @@ pub(crate) mod session_state_tests {
         // Named individually, so a regression says WHICH read came back rather
         // than only that the total moved.
         assert_eq!(
-            stmts.against("FROM mailboxes"),
+            stmts.against("JOIN mailboxes"),
             1,
-            "one mailbox list; got {stmts:#?}"
+            "one mailbox list, joined to its account row; got {stmts:#?}"
         );
         assert_eq!(
-            stmts.against("FROM personal_saved_search"),
+            stmts.against("JOIN personal_saved_search"),
             1,
             "saved searches surface as virtual folders, so the method reads them \
-             unconditionally — this is one of the two statements e0's 4 omits; \
-             got {stmts:#?}"
+             unconditionally; got {stmts:#?}"
         );
         assert_eq!(
-            stmts.against("SELECT id FROM accounts WHERE id="),
-            1,
-            "one existence read resolves the saved searches' owner subject; \
-             got {stmts:#?}"
+            stmts.against("FROM accounts"),
+            2,
+            "the identity rides the mailbox list and the owner-subject existence \
+             check rides the saved-search statement; got {stmts:#?}"
         );
 
         // And the property e0 DID establish, which stands: none of this scales
@@ -1319,7 +1345,7 @@ pub(crate) mod session_state_tests {
             "seven mailboxes must not cost more than three did; got {stmts7:#?}"
         );
         assert_eq!(
-            stmts7.against("FROM mailboxes"),
+            stmts7.against("JOIN mailboxes"),
             1,
             "one mailbox list however many mailboxes; got {stmts7:#?}"
         );

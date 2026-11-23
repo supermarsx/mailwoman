@@ -33,6 +33,7 @@ impl Engine {
         account_id: &str,
         emails: &mut [Option<Value>],
         sources: &std::collections::HashMap<String,String>,
+        request_posture: Option<crate::v6::AccountPosture>,
     ) -> Result<()> {
         let ids: Vec<String> = emails
             .iter()
@@ -40,10 +41,28 @@ impl Engine {
             .filter_map(|e| e.get("id").and_then(Value::as_str).map(String::from))
             .collect();
         let rows=ids.iter().filter_map(|id|sources.get(id).map(|revision|(id.clone(),revision.clone()))).collect::<Vec<_>>();
+        // The posture this request already established for the page's owned
+        // rows is reused (cache-coherence: once per account per request). When
+        // the source is this Store, the verdict statement re-checks
+        // `zeroaccess_accounts` itself, at its own snapshot, so a toggle during
+        // the request still empties the result. Any other source keeps the
+        // original live read before and after the verdict read (t34-e12).
+        if let Some(posture)=request_posture && self.posture_from_store_sql() {
+            let cached=if posture==crate::v6::AccountPosture::Standard {
+                self.store().security_verdicts_for_rows(account_id,&rows).await?
+            } else {std::collections::HashMap::new()};
+            Self::apply_auth(emails,&cached);
+            return Ok(());
+        }
         let mut cached=if self.account_posture_live(account_id).await==crate::v6::AccountPosture::Standard {
             self.store().security_verdicts_for_rows(account_id,&rows).await?
         } else {std::collections::HashMap::new()};
         if self.account_posture_live(account_id).await!=crate::v6::AccountPosture::Standard {cached.clear();}
+        Self::apply_auth(emails,&cached);
+        Ok(())
+    }
+
+    fn apply_auth(emails: &mut [Option<Value>], cached: &std::collections::HashMap<String,Vec<u8>>) {
         for email in emails.iter_mut().flatten() {
             let summary = email
                 .get("id")
@@ -55,7 +74,6 @@ impl Engine {
                 .unwrap_or(Value::Null);
             email[AUTH_PROPERTY] = summary;
         }
-        Ok(())
     }
 }
 

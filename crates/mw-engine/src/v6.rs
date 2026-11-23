@@ -421,6 +421,19 @@ impl Engine {
             .into_inner())
     }
 
+    /// Whether the attached posture source answers from **this engine's own
+    /// Store** (`PreparedMailPosture::Store` naming this Store's cache scope).
+    /// Then a statement that joins `zeroaccess_accounts` for the rows it reads
+    /// gives the same answer as [`AccountPostureSource::posture_live`], at the
+    /// same snapshot as those rows, and a separate live read is redundant
+    /// (t34-e12). Any other source keeps its live read.
+    pub(crate) fn posture_from_store_sql(&self) -> bool {
+        matches!(
+            self.v6_hooks().posture.prepared_mail_posture(),
+            PreparedMailPosture::Store(scope) if scope == *self.store().cache_scope().as_bytes()
+        )
+    }
+
     /// Request-local posture proof; storage-backed sources fail closed. At most
     /// one live posture read per account, reused for all headers and body repairs.
     pub(crate) async fn mail_cache_postures(

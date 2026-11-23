@@ -138,18 +138,23 @@ fn project(
 impl Engine {
     pub async fn mailbox_role_view(&self, account: &str) -> Result<RoleView> {
         use mw_store::settings_policy::{ResolveInput, SettingSubject, resolve};
-        let identity = self.store().get_account(account).await?.username;
+        // One statement for the account's identity and its mailboxes, and one
+        // revision read for the role values and policies (t34-e12); the same
+        // rows as `get_account` + `list_mailboxes` + the two settings reads.
+        let (identity, mailboxes) = self.store().account_username_and_mailboxes(account).await?;
         let subject = SettingSubject {
             personal_owner: None,
             domain: identity.rsplit_once('@').map_or("", |(_, domain)| domain),
             account_id: account,
             address: &identity,
         };
-        let rows = self.store().setting_values_for_subject(&subject).await?;
         let keys = ROLES.map(|role| format!("mail.folderRole.{role}"));
-        let policies = self
+        let (rows, policies) = self
             .store()
-            .get_setting_policies_batch(&keys.iter().map(String::as_str).collect::<Vec<_>>())
+            .setting_values_and_policies_for_subject(
+                &subject,
+                &keys.iter().map(String::as_str).collect::<Vec<_>>(),
+            )
             .await?;
         let mut targets = BTreeMap::new();
         for (index, role) in ROLES.iter().enumerate() {
@@ -169,10 +174,7 @@ impl Engine {
                 .map_err(|_| EngineError::Protocol("invalid folder role target".into()))?;
             targets.insert((*role).to_owned(), target);
         }
-        Ok(project(
-            self.store().list_mailboxes(account).await?,
-            &targets,
-        ))
+        Ok(project(mailboxes, &targets))
     }
     pub async fn effective_mailboxes(&self, account: &str) -> Result<Vec<Mailbox>> {
         Ok(self.mailbox_role_view(account).await?.mailboxes)

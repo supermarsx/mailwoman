@@ -361,31 +361,20 @@ impl Engine {
         // read fence (journal mode) drops the signal rather than reading stale.
         let index_allowed = index_allowed && self.index_read_fence(account_id).await.is_ok();
         let mut ctx = FocusContext::default();
-        let sent = self
-            .store()
-            .list_mailboxes(account_id)
-            .await?
-            .into_iter()
-            .find(|m| m.role.as_deref() == Some("sent"));
-        if let Some(sent) = &sent {
-            let ids = self
-                .store()
-                .list_message_ids(&sent.id, SENT_SCAN, 0)
-                .await?;
-            for msg in self
-                .store()
-                .get_account_messages(account_id, &ids)
-                .await?
-                .into_iter()
-                .flatten()
-            {
-                if let Some(t) = msg.thread_id {
-                    ctx.my_threads.insert(t);
+        // The Sent mailbox, its newest SENT_SCAN ids and their owned thread
+        // ids in one statement (t34-e12; previously the mailbox list, the id
+        // page and an account-scoped message read).
+        let sent = self.store().focus_sent_scan(account_id, SENT_SCAN).await?;
+        if let Some((sent_id, page)) = &sent {
+            for (id, thread) in page {
+                if let Some(t) = thread {
+                    ctx.my_threads.insert(t.clone());
                 }
+                ctx.sent_ids.insert(id.clone());
             }
-            ctx.sent_ids = ids.into_iter().collect();
-            ctx.sent_mailbox = Some(sent.id.clone());
+            ctx.sent_mailbox = Some(sent_id.clone());
         }
+        let sent = sent.map(|(id, _)| id);
         // One fresh bounded candidate query for the whole page. Each selected
         // vCard is parsed once, while per-sender ranking/cutoff stays unchanged.
         let inputs=senders.iter().cloned().collect::<Vec<_>>();
@@ -410,7 +399,7 @@ impl Engine {
         for addr in senders {
             if index_allowed
                 && let Some(sent) = &sent
-                && self.wrote_to(&sent.id, &ctx.sent_ids, addr)
+                && self.wrote_to(sent, &ctx.sent_ids, addr)
             {
                 ctx.correspondents.insert(addr.clone());
             }

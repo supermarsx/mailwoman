@@ -12,6 +12,7 @@ mod header_projection;
 mod header_metadata;
 mod index_publication;
 mod mail_projection_proof;
+mod request_scope;
 mod mail_data_publication;
 pub use mail_data_publication::{PreparedMetadataCandidate,PreparedMetadataBytes,PreparedMailStatus,PreparedMailOptions};
 pub use index_publication::{PublicationOptions, PublicationStatus, IndexPublicationReceipt, AccountIndexErasure, PublicationAck, JournalStartup};
