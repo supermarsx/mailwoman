@@ -1,93 +1,127 @@
+---
+screen: true
+---
 # Breach register
 
-A register for personal-data breaches: the incident record, a notice clock that runs from the moment you became aware, a document for the supervisory authority, a message to the people affected, automations that open draft incidents from detections, and containment checklists. This page describes the controls the server provides. It does not say that using them meets any law; whether an incident must be notified, to whom and by when is for your own legal advice. Mailwoman never sends anything to an authority.
+The **Breach register** tab of **Compliance** keeps a record of personal-data breaches: what happened, when you became aware, a notice clock that runs from that moment, a document to submit to the supervisory authority, a message to the people affected, and checklists. The register records and reminds; it never contacts an authority itself. Whether an incident must be notified, and to whom, is for you to decide.
 
-You work the register under **Admin > Compliance > Breach register** (needs the `privacy.read` capability to read and `privacy.write` to change; both are for all-domain grants). The settings below are the `breach.*` keys in [settings](settings.md), set globally or per domain where noted, each with an admin default and lock.
+![The breach register scrolled to its filters and list, with one incident whose notice clock is running and one draft.](/screenshots/admin-privacy/breaches-list.webp){.mw-shot}
 
-## An incident
+## Before you start
 
-| Field | Meaning |
-| --- | --- |
-| Reference | `BR-` and the first eight characters of the id, to quote in notes and messages. |
-| Detected at | When the incident was first noticed. |
-| Aware at | When the organisation became aware. This starts the notice clock. It can be changed, but only with a written reason, and the change is kept in the incident's trail and in the audit log. |
-| Source | Entered by hand, automatic detection, data request or third party. |
-| Type | Credential compromise, mailbox access, lost device, misdirected message, insider or administrator misuse, malware, processor or third party, other. The type selects the checklist. |
-| Description, people and data | What happened, categories of people and of data, approximate number of people and records, likely consequences, measures taken and proposed. |
-| Affected addresses | Optional list of addresses. Addresses that have signed in to this server are linked to their accounts, which the message and the playbook actions use. |
-| Timeline | Detection, containment, closure, note and "people informed" entries with the time and the person. |
-| Evidence | Text or links (`http://` or `https://` only). |
-| Assignee | Who is handling it. |
+- Reading the register needs `privacy.read`, changing it `privacy.write`, both on all domains.
+- Enter the **Supervisory authority** details and the **Data protection contact** under **Authority and data protection contact** on the same tab. They are copied into the authority document.
+- Incident records, their trail and the delivery log are stored in the database without encryption (see [Encryption at rest](encryption.md)).
 
-Nothing is deleted from an incident: every change is an entry in its trail, and also a `breach-changed` security event in the audit log.
+## Record an incident
 
-## Status
+1. Open **Compliance** and select **Breach register**.
+2. In the new incident form, enter a title and select **Open incident**. The notice clock starts at once, unless you tick **Open as a draft (clock not started)**. A draft, including one opened by an automation, has no clock until someone confirms it with the awareness time.
+3. Select **Open** on the incident's row.
 
-`detected`, `assessing`, `contained`, `notified-authority`, `notified-subjects`, `closed` and `not-notifiable`. Some moves have conditions that the server enforces:
+   ![The top of an opened breach incident: its reference and title, the notice clock, and the status and assignment controls.](/screenshots/admin-privacy/breach-detail.webp){.mw-crop}
 
-* **Not notifiable** needs a "no risk" assessment and written reasoning (at least ten characters).
-* **Authority notified** needs a recorded authority notice (below). Recording one moves the incident there by itself.
-* **Data subjects notified** needs a data-subject message on record, or a timeline entry of the type "people informed" for a notice made outside Mailwoman.
-* **Closed** needs an assessment. A risk or high-risk incident that has no authority notice on record needs a closing reason.
-* **Reopening** a closed or not-notifiable incident needs a reason.
+4. Fill in the details: type, description, the categories of people and data, the approximate numbers, the likely consequences and the measures taken and proposed, and, if you know them, the affected addresses. Addresses that have signed in to this server are linked to their accounts.
+5. Answer the questions under **Risk assessment**. The answers give a **Suggested level** (no risk, risk or high risk). You choose the **Risk level**; when it differs from the suggestion, or questions are unanswered, you must give the **Reasoning** (at least 10 characters).
+6. Add **Timeline** entries and **Evidence** (text, or `http://` and `https://` links) as you go, and **Assign** the incident.
 
-## Risk assessment
+Each incident has a reference, `BR-` and the first eight characters of its id. Changing the awareness time needs a reason of at least five characters. Every change is added to the incident's trail and recorded in the audit log. When you edit the details, the new values replace the old ones and the trail records which fields changed, not their earlier values.
 
-A guided questionnaire (who could have seen the data, special categories or credentials, identifiability, number of people, vulnerable people, whether the data was unreadable to whoever got it, containment and seriousness of the consequences) gives a score and a suggested level: **no risk**, **risk** or **high risk**. The suggestion is an aid. You choose the level; when it differs from the suggestion, or the questionnaire is incomplete, you must write the reasoning. The answers, the suggestion, the chosen level and who set it are kept.
+### Statuses
+
+**Detected**, **Assessing**, **Contained**, **Authority notified**, **Data subjects notified**, **Closed** and **Not notifiable**. The server enforces these conditions:
+
+- **Not notifiable** needs a "no risk" assessment and reasoning of at least ten characters.
+- **Authority notified** needs a recorded authority notice; recording one moves the incident there.
+- **Data subjects notified** needs, for every affected person, a successful delivery of the in-app notice or the mailbox message, or an email accepted by the relay; or a "people informed" timeline entry for a notice made outside the server.
+- **Closed** needs an assessment. A risk or high-risk incident without a recorded authority notice also needs a closing reason.
+- Reopening a closed or not-notifiable incident needs a reason.
 
 ## The notice clock
 
-The deadline is *aware at* plus `breach.noticeHours` (72 by default; per domain if you set it). The list and the incident show the time left, "under 24 hours" in the list's due-soon filter, and the time past the deadline once it has passed. The clock stops when the first authority notice is recorded; it is shown as on time or late. Closing without a notice shows it as not required.
+The deadline is the awareness time plus **Hours to notify the authority** (72 by default). The list and the incident show the time left, and the time past the deadline once it has passed. The clock stops when the first authority notice is recorded.
 
-**Reminders.** `breach.reminders.hours` lists hours before the deadline (default 6, 24 and 48). The worker, which runs every minute, records each reminder once in the trail and tells the operators through the configured channels. If several thresholds passed since the last pass only the tightest is announced. Once the deadline has passed it reminds at once, then every `breach.reminders.overdueRepeatHours` (24; 0 reminds once). Recording an authority notice ends the reminders. **Check deadlines now** in the console runs the same pass on demand.
+A background worker runs every minute. It records a reminder in the trail at each of the **Reminder times** before the deadline (6, 24 and 48 hours by default), once each, and tells the operators. After the deadline it reminds at once and then every **Overdue repeat** hours (24; 0 reminds once). **Check deadlines now** runs the same pass immediately. When the deadline has passed with no authority notice, the incident asks for the reasons for the delay, and a late notice cannot be recorded without them.
 
-**Reasons for delay.** When the deadline has passed with no authority notice recorded, the incident asks for the reasons for the delay, and a late initial notice cannot be recorded without them.
+**How operators are told** (each reminder, overdue notice, automatic draft and escalation):
 
-**Operator channels.** `breach.notify.audit` (security events in the audit log), `breach.notify.webhookUrls` (signed POST to each URL, using the same address checks as other outbound webhooks; treat the URLs as secrets) and `breach.notify.operatorAddresses` (the text goes into the inbox of a local account for each address; an address nobody has signed in with is logged as not delivered). Outbound SMTP email is available through the separately configured, default-off compliance mail service: `breach.notify.email` sends operator notices, and `breach.subjects.email` adds email to the explicit affected-person preview/send workflow. See [Governance and email](compliance-governance.md).
+- security events in the audit log, with **Record notices in the audit log** on (the default);
+- a signed request to each of the **Webhook addresses**;
+- a message in the mailbox of each of the **Operator mailboxes** that has signed in to this server. This channel has no switch of its own: it is used whenever addresses are listed;
+- email through the compliance relay, with **Email breach operators** on (see [Compliance: Email notifications](compliance.md#email-notifications)).
 
-## Notice to the supervisory authority
+## Notify the supervisory authority
 
-The incident page produces a document with the content grouped as the items of a notification: the nature of the breach (description, categories and approximate numbers of people and records), the data protection contact, the likely consequences and the measures taken or proposed, plus the incident times, the assessed risk and the reasons for delay when late. It is offered as a printable HTML page (English or Portuguese) and as JSON. The authority name, page and contact (`breach.authority.*`) and the contact person (`breach.dpo.*`) are settings that a domain can override.
+1. On the incident, generate the authority notice. The document groups the description, the categories and numbers of people and records, the data protection contact, the likely consequences, the measures, the incident times, the assessed risk and, when late, the reasons for delay. It is offered as a printable HTML page and as JSON. Generating it is recorded in the audit log.
+2. Submit it through the authority's own channel. The server sends nothing.
+3. Use **Record submission** with its time and the reference the authority gave. Later notices are recorded as an update or a final notice; each keeps a copy of the document as it stood.
 
-You submit the document through the authority's own channel. Then **Record submission** with the time, the reference the authority gave and, if late, the reasons for delay. Later notices are recorded as an update or a final notice; each keeps a copy of the document as it stood. Generating a document is recorded in the trail; nothing is sent.
+## Notify the people affected
 
-## Message to the people affected
+1. Choose the audience (all affected addresses, selected addresses or one domain), the language (or each person's own) and optional advice.
+2. Use **Preview (dry run)**. It lists each recipient with the channels that would be used, and shows the subject and text. Nothing is sent.
+3. Select **Send**. Delivery runs in the background and writes one row per recipient and channel to the delivery log.
 
-Pick an audience (all affected addresses, selected addresses, or one domain), a language (or each person's own language), and optional advice. **Preview** is a dry run: it lists each recipient with the channels that would be used and shows the rendered subject and text, and flags variables it does not know. **Send** then delivers in the background and writes one delivery-log row per recipient and channel (sent, failed or skipped, with the reason).
+| Channel | Setting | Default |
+| --- | --- | --- |
+| A notice in the person's account | **Notice in the person's account** | on |
+| A message in the person's own mailbox | **Message to the person's mailbox** | on |
+| A request to each webhook address | **Also send to webhooks** | off |
+| Email through the compliance relay, also to addresses with no account here | **Email affected people** | off |
 
-Channels, each a setting: a notice inside the person's account (`breach.subjects.inApp`; it shows under `GET /api/privacy/breach-notices` and can be acknowledged), a message in the person's own mailbox by the same path as the data-request confirmations (`breach.subjects.inbox`), and the webhook addresses (`breach.subjects.webhook`, one payload per notice with the text and the number of recipients, not their addresses). An address with no account on this server is skipped for the first two.
+The first two need an account on this server. An email counts as delivered when the relay accepts it, which does not prove it reached the mailbox. The webhook payload carries the text and the number of recipients; the text is filled in with the first recipient's values, so a template that uses `{{recipient}}` sends that person's address to the webhook. Notices shown in people's accounts are not removed when the incident is removed from the register.
 
-The wording is `breach.template.subject` and `breach.template.body`, one text per language; an empty one uses the built-in English or Portuguese text. Variables are written in double braces: `incident`, `reference`, `title`, `date`, `description`, `categories`, `consequences`, `measures`, `advice`, `dpo`, `dpoName`, `dpoEmail`, `dpoPhone`, `authority`, `domain`, `recipient`. An unknown variable is left as written.
+The wording is **Message subject** and **Message text**, per language; empty uses the built-in text. Variables in double braces: `incident`, `reference`, `title`, `date`, `description`, `categories`, `consequences`, `measures`, `advice`, `dpo`, `dpoName`, `dpoEmail`, `dpoPhone`, `authority`, `domain`, `recipient`. An unknown variable is left as written.
 
 ## Automations
 
-Off until `breach.auto.enabled` is on. Each rule has a threshold in a `breach.auto.<rule>.threshold` setting (0 is off) and counts matching audit events over `breach.auto.windowMinutes`:
+With **Automations** on (off by default), each rule counts matching audit events over **Counting window in minutes** (60) and opens a draft incident when its threshold is reached. Every threshold is 0 (off) until you set it.
 
-| Rule | Counts |
+| Rule (console name) | Counts |
 | --- | --- |
-| theft | `session-security-alert` events for impossible travel, concurrent use, rotated-session reuse and client mismatch |
-| credentialStuffing | `signin-spray-source` and `signin-spike-heightened` |
-| massForward | any audit action whose name contains `forward` |
-| roleEscalation | `admin-roles-changed`, `admin-role-updated`, `admin-overrides-changed` |
-| exportVolume | `audit-export`, `cookie-consent-exported` |
-| auditChain | audit actions naming a failed or broken audit chain |
-| backupAnomaly | audit actions naming a failed backup or a restore |
-| dsrExport | `dsr-export-ready` |
+| **Session theft alerts** | session security alerts for impossible travel, concurrent use, reuse of a rotated session and client mismatch |
+| **Sign-in spray or spike** | sign-in spray and heightened sign-in spike events |
+| **Forwarding rules in bulk** | audit actions whose name contains `forward` |
+| **Administrator role changes** | changes to administrator roles and overrides |
+| **Unusual exports** | audit log exports and cookie consent log exports |
+| **Audit chain failures** | audit actions that name a failed audit chain |
+| **Backup or restore failures** | audit actions that name a failed backup or a restore |
+| **Many data request exports** | finished data request exports |
 
-When a rule reaches its threshold it opens a **draft** incident (source "automatic"), assigned to `breach.auto.assignee`, and tells the operators. A draft has no clock: it starts when someone confirms it with the time they became aware, unless `breach.auto.startClock` is `onDetect`. A rule that matches again while its draft is still open adds to the draft instead of opening another. A draft or unassigned automatic incident older than `breach.auto.escalateAfterHours` is escalated once: assigned to `breach.auto.escalateTo` and the operators are told.
-
-The worker reads the audit log from a cursor, so enabling automation does not replay history, and counts events in memory; with several server processes each counts what it sees. A rule only fires for events the server records: the audit-chain, backup and forwarding rules match by action name and fire once such events are written.
+A draft is assigned to **Assign drafts to** and has no clock until someone confirms it with the awareness time, unless **Draft clock** is `onDetect`. A rule that matches again while its draft is open adds to the draft. An automatic incident still a draft or unassigned after **Escalate after hours** (4) is assigned to **Escalate to** once and the operators are told. The worker counts in memory from the time automation was turned on; with several server processes each counts what it sees.
 
 ## Checklists and containment
 
-Each type has a checklist (preserve evidence, identify the data, revoke sessions, review forwarding rules, decide on notifying the authority and the people, document the measures, root cause, lessons) with who ticked each step and when. Two steps have one-click actions on the affected accounts: **End sessions** and **Require password change**. Each has a preview that lists the accounts and, for sessions, how many would end; applying needs the preview's confirmation, is recorded in the trail and the audit log, and ticks the step.
+Each incident type has a checklist (preserve evidence, identify the data, revoke sessions, review forwarding rules, decide on notifying, document the measures, root cause, lessons), recording who ticked each step and when. **End sessions** and **Require password change** act on the affected accounts: each shows a preview first, and applying it is recorded in the trail and the audit log.
 
-## Register export and retention
+## Export and retention
 
-Under **Register export**, download one year (by detection date) as CSV, JSON or HTML. Each incident also has a report (HTML, JSON or CSV) with its trail. Exports are recorded in the audit log.
+Export the register for one year (by detection date) as CSV, JSON or HTML, or one incident's report with its trail. Exports are recorded in the audit log.
 
-Closed and not-notifiable incidents are removed, with their trail and delivery log, after `breach.retention.years` (10 by default). Open incidents are never removed.
+Closed and not-notifiable incidents are deleted, with their trail and delivery log, when they were last changed more than **Register retention in years** ago (10 by default; counted as 365-day years). The check runs every hour and does not consider legal holds. Open incidents are not deleted.
 
-## API
+## Options
 
-Admin routes under `/admin`: `GET/POST /breaches`, `GET /breaches/meta`, `GET /breaches/export`, `POST /breaches/run`, `GET /breaches/{id}`, `GET /breaches/{id}/report`, and `POST /breaches/{id}/` `details`, `assign`, `confirm`, `aware-at`, `assess`, `status`, `timeline`, `evidence`, `subject-notice`, `playbook`, `lockdown`, plus `GET` and `POST /breaches/{id}/authority-notice`. People: `GET /api/privacy/breach-notices` and `POST /api/privacy/breach-notices/ack`.
+| Setting | Default | Scope |
+| --- | --- | --- |
+| **Breach register** ([`breach.enabled`](/admin/settings#breach.enabled)) | on | domain |
+| **Hours to notify the authority** ([`breach.noticeHours`](/admin/settings#breach.noticeHours)) | 72 | domain |
+| **Reminder times** ([`breach.reminders.hours`](/admin/settings#breach.reminders.hours)) | 6, 24, 48 | domain |
+| **Overdue repeat** ([`breach.reminders.overdueRepeatHours`](/admin/settings#breach.reminders.overdueRepeatHours)) | 24 | domain |
+| **Supervisory authority**, **Authority notification page**, **Authority contact** (`breach.authority.*`) | empty | domain |
+| **Data protection contact name**, **email**, **phone** (`breach.dpo.*`) | empty | domain |
+| **Message subject**, **Message text** (`breach.template.*`) | built-in text | domain |
+| **Record notices in the audit log** ([`breach.notify.audit`](/admin/settings#breach.notify.audit)) | on | domain |
+| **Webhook addresses** ([`breach.notify.webhookUrls`](/admin/settings#breach.notify.webhookUrls)) | empty | server |
+| **Operator mailboxes** ([`breach.notify.operatorAddresses`](/admin/settings#breach.notify.operatorAddresses)) | empty | server |
+| **Notice in the person's account**, **Message to the person's mailbox**, **Also send to webhooks** (`breach.subjects.*`) | on, on, off | domain |
+| **Email breach operators** ([`breach.notify.email`](/admin/settings#breach.notify.email)), **Email affected people** ([`breach.subjects.email`](/admin/settings#breach.subjects.email)) | off, off | server |
+| **Register retention in years** ([`breach.retention.years`](/admin/settings#breach.retention.years)) | 10 | server |
+| **Automations** and its rules (`breach.auto.*`) | off, thresholds 0 | server |
+
+## Related
+
+- [Compliance](compliance.md)
+- [Data requests](data-requests.md)
+- [Operational incidents](operational-incidents.md)
+- [Audit log and retention](retention.md)
