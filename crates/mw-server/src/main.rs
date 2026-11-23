@@ -781,6 +781,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         hardening,
         security: SecurityConfig::from_env(),
     };
+    mw_server::freeze_environment(); // t34: no env mutation after this point; one snapshot per process
     let app = build_app(config).await?;
 
     // Decide the transport: ACME > external cert > plaintext.
