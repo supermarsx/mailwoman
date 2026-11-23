@@ -1,93 +1,87 @@
-# Exchange Web Services (EWS) bridge (V7)
+---
+title: Exchange (EWS) bridge
+---
 
-The EWS bridge (`plugins/bridge-ews`) connects Mailwoman to on-premises Exchange
-Server (2013–2019 / Subscription Edition) via Exchange Web Services (SOAP). It is a
-first-party **WASM plugin** (`wasm32-wasip2`) implementing the engine account-backend
-seam; once loaded, an EWS account looks like any other backend to the engine.
+# Exchange (EWS) bridge
 
-The SOAP subset is parsed/emitted with `quick-xml`. As with all bridges, the guest
-uses the host `http-fetch` import — it opens no sockets.
+The EWS bridge connects mailboxes on an on-premises Exchange Server to Mailwoman through Exchange Web Services (SOAP over HTTPS). Mail comes from Exchange, and free/busy lookups can use it. For Exchange Online use the [Microsoft Graph bridge](./graph.md).
 
-## What it delivers
+Unlike the Graph and Gmail bridges, the EWS bridge is configured by an administrator on a domain, not by each user. Users sign in with their Exchange username and password.
 
-- **Mail** — sync/send/fetch through the real jail, indistinguishable from IMAP.
-- **Calendar + free/busy + rooms, GAL, Out-of-Office (OOF), message-recall, and
-  voting** — implemented, mapped, and fixture-tested. The bridge targets the
-  `plugin-pim` WIT world, so these PIM/parity surfaces are exported across the plugin
-  seam (not mail-only) and round-trip through the real jail in the recorded-fixture
-  suite. **See the scope boundary below** for what is seam-proven vs.
-  user-surface-complete.
+The bridge plugin (`bridge-ews`) can reach only the EWS host of the account it is bound to. The server keeps the credential sealed and hands it to the plugin for each call; the plugin does not store it between calls.
 
-## Authentication
+## Before you start
 
-EWS on-premises authentication supported in V7:
+- The server runs in engine mode.
+- The Exchange server is reachable over HTTPS from the Mailwoman server and its certificate is trusted, or you have the CA certificates to add (see below).
+- Exchange accepts HTTPS Basic or NTLMv2 on the EWS endpoint. Kerberos is not spoken by the bridge; see [Kerberos](#kerberos).
+- An administrator has approved and enabled `bridge-ews` and granted it `account-backend` and `net`. See [Plugins](../plugins/index.md#approve-and-enable). Private Exchange servers also need an internal-destination entry for the **Approved plugin and provider requests** traffic class in **Egress**.
+- **Plugins** and the individual integration permission for `bridge-ews` are on for the users (`cap.plugins`, default on).
 
-- **Basic** authentication.
-- **NTLMv2** — a **pure-Rust, hand-rolled** implementation (MD4/MD5/HMAC-MD5, verified
-  against RFC / MS-NLMP known-answer test vectors). **Zero new dependencies**, no
-  GSSAPI, no C.
+## Set up the domain
 
-The domain connection editor exposes Basic and NTLM. NTLM requires an explicit NT
-domain; a workstation name is optional. Requests use one host-owned HTTP/1.1
-connection for the Type 1/2/3 exchange, including through the configured egress
-proxy. The authentication session identifier stays inside Mailwoman. The Type 3
-message includes a transcript MIC, the verified Exchange TLS certificate channel
-binding and an `HTTP/<endpoint host>` service binding. Missing TLS binding or a
-weaker negotiated authentication mode is refused. Basic and NTLM both require an
-exact HTTPS endpoint and verified trust roots; neither follows an arbitrary redirect.
+1. In the admin console open **Domains** and select the domain.
+2. Choose **Add backend**.
+3. Under **Protocol and service** choose **EWS**. EWS handles both mail and submission, so disable separate SMTP and Sieve backends on this domain, or select another mail backend; the form refuses to save otherwise.
+4. Enter the **Exchange Web Services endpoint**, an exact HTTPS URL such as `https://exchange.example.org/EWS/Exchange.asmx`. A URL with credentials, a query string or a fragment is refused.
+5. Choose the **EWS authentication**: **HTTPS Basic** or **NTLMv2**.
+6. For NTLMv2, enter the **Windows domain (NTLM)** (required, up to 128 letters, digits, `.`, `_` or `-`) and, optionally, the **Workstation (optional)** (up to 64 of the same characters).
+7. Optionally paste **Additional origin CA certificates (optional)**: PEM certificates only, one to eight, at most 64 KiB, no private keys. Hostname and certificate chain checks stay on.
+8. Save.
 
-Folder and item synchronization consume all pages before committing a new cursor.
-Updates and read-flag changes are refetched, SOAP errors cannot masquerade as an
-empty successful sync, and expired sync state requests an engine reconciliation.
-Item identity uses the stable EWS ItemId rather than the changing ChangeKey, so a
-read flag or deletion without a revision can resolve the cached message.
+<!-- screenshot: admin-domain-ews-backend | Admin > Domains > Backend configuration with protocol EWS, endpoint, NTLMv2 authentication, Windows domain and workstation fields | element: backend editor form | callouts: 1 protocol, 2 endpoint, 3 authentication, 4 Windows domain, 5 CA certificates | stack M | seed admin-basic with a domain in engine mode -->
 
-### Kerberos SSO is via a BYO reverse-proxy (not native)
+Saving checks the configuration only, not the credentials or the Exchange server. The credentials are checked when a user signs in. If the first sign-in is rejected, the account is not created.
 
-**Kerberos / SPNEGO single sign-on via the system GSSAPI is not spoken by the bridge.**
-A production pure-Rust Kerberos/GSSAPI stack is not viable within Mailwoman's
-permissive-only, no-openssl / no-`-sys`-C license floor, so the bridge does not hold a
-Kerberos ticket. This is **not** "Kerberos supported"; it is one of:
+::: warning
+Authentication failures never fall back to another method or another backend.
+:::
 
-- **BYO reverse-proxy (the supported path).** Front EWS with a Kerberos-capable reverse
-  proxy (IIS+ARR+KCD, Apache `mod_auth_gssapi`, or nginx) that terminates Kerberos on
-  the back leg and accepts the bridge's already-shipped **Basic / NTLMv2** on the front
-  leg. Concrete config sketches, SPN/keytab setup, and the `net_allowlist` wiring are in
-  **`docs/deploy/kerberos.md`**.
-- **Basic / NTLMv2 directly** where your Exchange accepts them without Kerberos.
+## Sign-in and usernames
 
-**Native GSSAPI Kerberos is a human-gated license-floor exception**, not an autonomous
-build — it would require accepting a non-permissive `-sys`-C GSSAPI dependency,
-feature-gated and off by default. See the decision memo at the bottom of
-`docs/deploy/kerberos.md`. It is tracked as such in `docs/ROADMAP-1.0.md`.
+A user signs in to Mailwoman with their address and password. The server sends the username to Exchange as follows:
 
-### App registration / endpoint
+- **HTTPS Basic:** the username configured for the backend (by default the full email address).
+- **NTLMv2:** the user name without a domain. `user@example.org` is sent as `user`. `CORP\user` is accepted when `CORP` matches the configured Windows domain (case-insensitive); another domain is refused.
 
-On-prem EWS is typically reached at `https://mail.example.com/EWS/Exchange.asmx`.
-Provide the EWS URL and the account credentials (Basic or NTLMv2) when adding the
-account. There is no cloud app registration for on-prem EWS; for Exchange Online use
-the **Graph bridge** instead.
+## What works
 
-## CI
+| Area | Behaviour |
+|---|---|
+| Mail | Folder hierarchy, item sync, fetch, flags, move and send. Sending uses `SendAndSaveCopy`. Item identity uses the stable item ID, so a read flag or delete works on the cached message. |
+| Free/busy | Looking up another person's free/busy asks Exchange when no shared calendar answers. |
+| Calendar and tasks | The plugin can read the primary calendar and the task folder, but the server does not copy them into the calendar and task screens. See [Calendars and tasks through a bridge](./pim.md). |
 
-The `bridge-fixtures` job replays recorded SOAP request/response pairs (including an
-NTLM handshake) through the real engine. The nightly, secret-gated `live-interop` job
-hits a real EWS endpoint only when secrets are present.
+The plugin also contains code for the global address list, rooms, Out-of-Office, recall and voting. The server and web client do not call it, so none of these features are available.
 
-## Scope boundary (honest)
+## Authentication details
 
-- **Mail is delivered through the real plugin jail** and is drivable end-to-end today.
-- **Calendar / free-busy / rooms / GAL / OOF / recall / voting are implemented and
-  exported through the `plugin-pim` WIT seam** (the `calendar`, `tasks`, and
-  `bridge-parity` interfaces) and round-trip through the real jail in the fixture
-  suite. What is not yet fully proven is the **end-to-end engine→CalDAV/JMAP
-  user-facing surface** and **live-tenant interop** (the nightly, secret-gated
-  `live-interop` job). Treat these surfaces as seam-proven and fixture-proven, not yet
-  user-surface-complete against a live endpoint; where a surface is not yet driven
-  through the engine end-to-end, the UI's existing standards fallbacks handle it.
-- **Kerberos SSO is via a BYO reverse-proxy** (Basic + NTLMv2 ship natively; native
-  GSSAPI is a human-gated license-floor exception). See above and
-  `docs/deploy/kerberos.md`.
-- The crate uses `deny(unsafe_code)` rather than `forbid` because the generated
-  wit-bindgen glue is unsafe-by-construction and localized; the bridge's own logic is
-  unsafe-free, and `mw-plugin` remains the `forbid(unsafe_code)` trust boundary.
+- **HTTPS Basic** and **NTLMv2** both require an exact HTTPS endpoint with a verified certificate. Neither follows a redirect.
+- NTLMv2 is implemented in the plugin in Rust. It runs the three NTLM messages over one connection that the server owns, including through a configured outbound proxy. The final message carries a message integrity code, the certificate channel binding of the verified TLS connection and an `HTTP/<endpoint host>` service binding. If the TLS binding is missing or a weaker mode is negotiated, the server refuses.
+
+## Kerberos
+
+The bridge does not speak Kerberos or SPNEGO and never holds a Kerberos ticket. The only supported way to use Kerberos-protected Exchange is a Kerberos-capable reverse proxy that you run in front of EWS: the bridge signs in to the proxy with Basic or NTLMv2 and the proxy authenticates to Exchange. See [Kerberos](../deploy/kerberos.md) for proxy configuration. The domain form states the same: Kerberos requires a separately configured gateway.
+
+## Limits
+
+- The server requests EWS schema version Exchange2013, so Exchange 2013 or later is needed.
+- Folder and item syncs read every page before they store a new position. A SOAP error cannot be taken for an empty result, and expired sync state makes the server read the mailbox again.
+- Changing the EWS endpoint or disabling the domain backend stops requests for its accounts. Removing the generic plugin hostname alone does not revoke the endpoint.
+- The guided domain setup does not offer EWS; use **Add backend**.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| The form refuses to save with a service conflict. | An SMTP or Sieve backend is enabled on the same domain. | Disable them, or select another mail backend. |
+| Sign-in fails for every user. | Wrong NTLM domain, or Exchange does not accept the chosen method. | Check **Windows domain (NTLM)** and the authentication methods on the EWS virtual directory. |
+| Sign-in fails on a private network. | The server is not allowed to contact a private address. | Add an internal-destination permission for the **Approved plugin and provider requests** class. |
+| Certificate errors. | The Exchange certificate is not trusted by the server. | Add its CA under **Additional origin CA certificates (optional)**. |
+
+## Related
+
+- [Mail provider bridges](./index.md)
+- [Plugins](../plugins/index.md)
+- [Kerberos](../deploy/kerberos.md)
+- [Domains](../admin/domains.md)

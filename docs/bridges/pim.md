@@ -1,67 +1,40 @@
-# Bridge PIM through the plugin seam — WIT `plugin-pim` world (SPEC §6.5/§22)
+---
+title: Calendars and tasks through a bridge
+---
 
-> **Status:** scaffold (t10-e0). Host probing filled by t10-e1; bridge guests by
-> t10-e2/e3/e4; engine routing by t10-e5; mounted by t10-e13.
+# Calendars and tasks through a bridge
 
-The Graph / EWS / Gmail bridges already implement calendar, tasks, reactions,
-voting, recall, and Focused-Inbox sync as pure functions. t10 **wires** those to the
-plugin seam via an **additive, second-world** WIT extension — the bridges are not
-rewritten.
+The Microsoft Graph and Exchange (EWS) plugins can read calendars and tasks from the provider, and the server has code that would copy them into the calendar and task screens. In the running server that copy is not started. A mailbox connected through a bridge therefore has its mail from the provider, and its calendar and task screens work on local data and on any CalDAV or Nextcloud collections you add.
 
-## Why a second world (`plugin-pim`), not `@0.2.0` (the §5 fallback, taken)
+This page states what is and is not connected, so you can plan around it.
 
-The plan's first choice (§2.1) was to add the PIM exports to `world plugin` and bump
-the package `0.1.0 → 0.2.0`. **That breaks backward-compat at the wasmtime linker:**
-bumping the package renames every interface id to `…@0.2.0`, and wasmtime's
-semver-aware component linker treats `0.1.x → 0.2.0` as INCOMPATIBLE — so the
-committed `@0.1.0` bridge / LanguageTool / Nextcloud `.wasm` fixtures (which import
-`mailwoman:plugin/host@0.1.0`) fail to link against a host that now provides
-`host@0.2.0`. t10-e0 proved this (the `bridge-ews` jail-load tests broke) and took the
-plan's **§5 fallback**: keep the package at `@0.1.0` and `world plugin` byte-unchanged,
-add the three PIM interfaces, and add a **second world `plugin-pim`** that `include`s
-`world plugin` and additionally exports the three. Committed fixtures keep loading;
-PIM-capable guests target `plugin-pim`.
+## What reaches users
 
-## Additive, backward-compatible
+| Feature | Graph | EWS | Gmail |
+|---|---|---|---|
+| Free/busy for another person, asked from the calendar | Yes | Yes | No |
+| Provider calendars shown on the calendar screen | No | No | No |
+| Provider tasks shown on the task screen | No | No | No |
+| Completing a task marks it complete at the provider | No | No | No |
 
-`types` + `account-backend` (and every other interface) are **byte-unchanged**, and
-so is `world plugin`. The extension only **adds three OPTIONAL guest interfaces** and
-exports them from the new `world plugin-pim`:
+Free/busy lookups try three sources in order and use the first that answers: a calendar shared with you by another account on the same server, then the bridge, then your CalDAV server. An address no source answers for is shown as unknown.
 
-- `interface calendar` — `supports-calendar()`, `list-calendars`, `sync-events`,
-  `find-rooms`, `get-schedule`. Records: `cal-info`, `room-info`, `event-info`,
-  `event-delta`. iCalendar (RFC 5545) text crosses the seam.
-- `interface tasks` — `supports-tasks()`, `list-tasks`, `sync-tasks`, `complete`.
-- `interface bridge-parity` — `supports-{reactions,voting,recall,focused}()`;
-  `set-reaction`/`get-reactions`, `cast-vote`/`tally`,
-  `recall -> recall-outcome{requested|unsupported|failed}` (mirrors
-  `mw_engine::v7::RecallOutcome`), `get-focused`/`set-focused`.
+## Why calendars and tasks are not shown
 
-## The "host probes optional exports" contract (frozen — plan §5)
+The engine copies bridge calendars and tasks only in a full calendar sync, and the server's calendar syncs (the Nextcloud collection refresh, started on demand or on a timer) always pass a list of selected collections, which skips the bridge. No other server code starts the copy. The plugins' `calendar` and `tasks` interfaces (list collections, read changes, find rooms, get a schedule, complete a task) exist and are tested through the sandbox, but only the schedule call is reachable.
 
-The host (`mw-plugin`, e1) **enumerates a component's exported interfaces at load and
-binds only the ones present**. A shipped 0.1.0 component (LanguageTool / Nextcloud)
-exports none of the three, so the host binds no PIM adapter and the account advertises
-no PIM caps. A guest that targets @0.2.0 but does not support an interface exports a
-trivial `supports-*() -> false` stub (its data funcs may return `unsupported`); the
-host treats "interface absent" and "`supports-* == false`" identically.
+Even if the copy were started, the interfaces have no call to create or change an event or task, so edits made in Mailwoman would stay local.
 
-`types.backend-caps` is **not** modified: calendar/tasks presence is advertised by the
-new `supports-*` funcs; the coarse reactions/voting/recall/focused-sync bools already
-in `backend-caps` stay the account-level advertisement.
+## Calendars and tasks for a bridge mailbox
 
-Fallback if wasmtime resists optional-export probing: a **second world `plugin-pim`**
-(documented, not silent) — see plan §5.
+The calendar and task screens work on collections stored in Mailwoman. See [CalDAV and CardDAV](../deploy/caldav-carddav.md) for connecting external collections and [Nextcloud](../integrations/nextcloud.md) for the Nextcloud integration. Neither reads Microsoft 365, Exchange or Google calendars through the bridge.
 
-## Engine routing (byte-unchanged fallback — plan §2.2)
+## Other provider features in the plugins
 
-`mw-engine` gains symmetric `BridgeCalendar` / `BridgeTasks` traits alongside the
-existing `BridgeReactions` / `BridgeVoting` / `BridgeRecall` / `BridgeFocusedSync`, and
-`Engine::bridge_calendar` / `bridge_tasks` accessors (via
-`BridgeCapabilitySource::calendar` / `::tasks`). When a bridge advertises a capability
-the engine routes to it; **absence ⇒ the existing CalDAV/standards fallback runs
-byte-for-byte unchanged** (the hard regression gate). e1 backs the trait objects with
-through-the-jail WIT calls; e5 wires the routing preference in `mw-engine/src/pim/**`.
+The Graph and EWS plugins also contain code for voting, message recall, Focused Inbox, contact and directory search, room lists and, for EWS, Out-of-Office. Neither provider offers mailbox reactions. No server or web client code calls these, so none of them are available.
 
-<!-- e1: probe-and-bind loader + PIM adapters. e2/e3/e4: wire each bridge guest.rs.
-e5: engine routing + the byte-unchanged-fallback proof. -->
+## Related
+
+- [Mail provider bridges](./index.md)
+- [Plugins](../plugins/index.md)
+- [CalDAV and CardDAV](../deploy/caldav-carddav.md)

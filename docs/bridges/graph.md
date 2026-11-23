@@ -1,117 +1,98 @@
-# Microsoft Graph bridge (V7)
+---
+title: Microsoft Graph bridge
+---
 
-The Graph bridge (`plugins/bridge-graph`) connects Mailwoman to Microsoft 365 /
-Outlook.com / Exchange Online via the Microsoft Graph API. It is a first-party
-**WASM plugin** (`wasm32-wasip2`) that implements the engine account-backend seam, so
-once loaded the engine treats a Graph account the same as an IMAP account.
+# Microsoft Graph bridge
 
-The guest never opens a socket and never holds OAuth secrets: all HTTP goes through
-the host `http-fetch` import (restricted to the Graph hosts in the plugin's
-`net_allowlist`), and tokens are injected by the host `oauth-token` import.
+The Graph bridge connects a mailbox on Microsoft 365, Exchange Online or Outlook.com to Mailwoman through the Microsoft Graph API. Mail comes from Graph, and free/busy lookups can use it. The mailbox owner signs in once with Microsoft, and the server keeps the refresh token sealed on the server.
 
-## What it delivers
+The bridge plugin (`bridge-graph`) can reach only `graph.microsoft.com` and `login.microsoftonline.com`. It never sees an access token's secrets: the server obtains and refreshes the token and hands the plugin a short-lived access token for each call.
 
-- **Mail** — folders, message sync (delta), fetch (MIME), flag/move/submit — through
-  the real jail, indistinguishable from IMAP.
-- **Calendar (including shared calendars and rooms), contacts + GAL, To-Do,
-  voting, message-recall, and Focused-Inbox sync** — implemented, mapped,
-  and fixture-tested. The bridge targets the `plugin-pim` WIT world, so these
-  PIM/parity surfaces are exported across the plugin seam (not mail-only) and
-  round-trip through the real jail in the recorded-fixture suite. Provider limits are
-  stated honestly — e.g. message recall is best-effort and org-internal (the recall
-  honesty matrix never reports a false success). **See the scope boundary below** for
-  what is seam-proven vs. user-surface-complete.
+## Before you start
 
-## Authentication (OAuth)
+- The server runs in engine mode and has a public HTTPS address (plain HTTP is accepted only for `localhost`, `127.0.0.1` and `[::1]`).
+- An administrator has approved and enabled `bridge-graph` and granted it `account-backend` and `net`. See [Plugins](../plugins/index.md#approve-and-enable).
+- The administrator permission **Microsoft bridge** is on (`cap.integration.microsoft`, default on) together with **Plugins** (`cap.plugins`).
+- You have an app registration in Microsoft Entra ID. Mailwoman does not register an app for you and does not use dynamic client registration.
 
-Graph uses OAuth 2.0. The bridge supports the device-code flow and the authorization-
-code flow; the host acquires and refreshes the token. You register an application in
-Microsoft Entra ID (Azure AD) and give Mailwoman its client ID.
+## Register the app in Entra ID
 
-### Admin app registration (Entra ID)
+1. In the Entra admin center, open **App registrations** and choose **New registration**.
+2. Pick the **Supported account types** that match your users.
+3. For browser authorization, add a **Web** redirect URI that is the address your users open Mailwoman at, ending in `/`, including any sub-path. For example `https://mail.example.com/`. For the device code flow, turn on **Allow public client flows**.
+4. Under **API permissions**, add delegated Microsoft Graph permissions for the data the bridge reads and writes, and grant consent. The server requests the scope `https://graph.microsoft.com/.default` plus `offline_access`, so the token carries the permissions already consented on the registration. The plugin calls the mail folder and message endpoints, `sendMail`, `/me/events/delta`, `/me/calendar/getSchedule` and the To Do list and task endpoints, and the server reads `/me` to check the mailbox address. Consent at least:
+   - `Mail.ReadWrite` and `Mail.Send`
+   - `Calendars.Read`
+   - `Tasks.ReadWrite`
+   - `User.Read`
+   - `offline_access`
+5. Copy the **Application (client) ID** and, for a single-tenant registration, the **Directory (tenant) ID**.
 
-1. In the Entra admin center, go to **App registrations** → **New registration**.
-2. Name it (e.g. "Mailwoman"). For **Supported account types**, choose the tenancy
-   that matches your users (single-tenant, multitenant, or personal + work/school).
-3. Add a **redirect URI** for the authorization-code flow (your Mailwoman callback
-   URL), or enable **Allow public client flows** for the device-code flow.
-4. Under **API permissions**, add the **Microsoft Graph delegated** permissions the
-   bridge uses, then grant admin consent:
-   - `Mail.ReadWrite`, `Mail.Send`
-   - `Calendars.ReadWrite`, `Contacts.ReadWrite`, `Tasks.ReadWrite`
-   - `User.Read`, `offline_access`
-   - `People.Read` / directory read for GAL, as your policy allows.
-5. Copy the **Application (client) ID** and the **Directory (tenant) ID**.
+The redirect URI cannot carry a query string. Mailwoman sends exactly `<public address><sub-path>/`.
 
-### Bring-your-own app ID
+## Confidential client (optional)
 
-Provide the client ID (and tenant ID) to Mailwoman when adding the account. Mailwoman
-acts as an OAuth **client** to your registration — it does not self-register. Using
-your own registration keeps consent, conditional-access, and audit under your tenant's
-control. There is no dynamic client registration in V7 (tracked for post-1.0).
+For a registration that has a client secret, set these environment variables on the server:
 
-## CI
+| Variable | Meaning |
+|---|---|
+| `MW_GRAPH_OAUTH_CLIENT_ID` | The application ID. It must equal the ID a user enters. |
+| `MW_GRAPH_OAUTH_CLIENT_SECRET` | The secret for that application. |
+| `MW_BRIDGE_OAUTH_CLIENT_SECRETS` | A JSON object mapping application IDs to secrets, for users who bring their own registrations. It takes precedence. Up to 64 KiB. |
+| `MW_BRIDGE_OAUTH_CLIENT_ID`, `MW_BRIDGE_OAUTH_CLIENT_SECRET` | A pair shared by both bridges, used when no provider-specific pair matches. |
 
-The `bridge-fixtures` job replays recorded Graph request/response pairs through the
-real engine (no live service). The nightly, secret-gated `live-interop` job hits a
-real tenant only when tenant secrets are present.
+A secret is sent only with the application ID it belongs to. A public client needs none of these.
 
-## Scope boundary (honest)
+## Connect a mailbox
 
-- **Mail is delivered through the real plugin jail** and is drivable end-to-end today.
-- **Calendar / tasks / contacts / voting / recall / Focused-sync are
-  implemented and exported through the `plugin-pim` WIT seam** (the `calendar`,
-  `tasks`, and `bridge-parity` interfaces) and round-trip through the real jail in the
-  fixture suite. What is not yet fully proven is the **end-to-end engine→CalDAV/JMAP
-  user-facing surface** and **live-tenant interop** (the nightly, secret-gated
-  `live-interop` job). Treat these surfaces as seam-proven and fixture-proven, not yet
-  user-surface-complete against a live tenant. Where a surface is not yet driven
-  through the engine end-to-end, the UI's existing standards/header-convention
-  fallbacks handle it.
+1. Sign in to Mailwoman as the mailbox owner, using your primary sign-in account. The section is not shown while a linked mailbox is active.
+2. Open **Settings → Linked mailboxes**. The **Provider connection** section sits on that page.
+3. Under **Provider**, choose **Microsoft Graph**.
+4. Enter the **Application client ID**. If an administrator has already stored one for this mailbox, it appears as the placeholder.
+5. Enter **Microsoft tenant (optional)**. Leave it empty to use `common`.
+6. Choose **Connect securely** to sign in at Microsoft in the browser, or **Use a device code** to enter a code at the Microsoft page from another device. The device code page checks for approval on its own and offers **Cancel**.
+7. After approval, the page shows **Provider connected. Reload to use the new connection.** Reload the page.
 
-## Connect an authenticated account
+<!-- screenshot: settings-provider-connection | Settings > Linked mailboxes, Provider connection section with Provider set to Microsoft Graph, client ID and tenant filled | element: provider connection section | callouts: 1 provider select, 2 client ID, 3 tenant, 4 Connect securely, 5 Use a device code | stack M | note: needs a seed where bridge-graph is approved; otherwise mark "stack unavailable" -->
 
-After an administrator approves the first-party plugin and grants `net` and
-`account-backend`, open **Settings → Linked accounts → Mail provider**. Enter the
-application ID and tenant, then choose browser authorization or a device code.
-Register this exact browser callback in Entra (include any deployment sub-path):
+The server accepts the connection only when all of these hold. If one fails, nothing is stored and you see **The provider connection could not be completed. Check the app registration, bridge permissions and mailbox identity, then retry.**
 
-`https://mail.example.com/`
+- The Microsoft mailbox address equals the address of the mailbox you are signed in to.
+- The sign-in returned a refresh token.
+- The plugin is still approved and granted when the flow completes, and your session is still valid.
+- The application ID has only letters, digits, `-`, `_` and `.`; the tenant has only letters, digits, `-` and `.`.
 
-Authorization-code enrollment uses S256 PKCE and a one-use server-side state,
-bound to the current primary session and storage authority. The host verifies the
-provider's mailbox address against the signed-in account before atomically storing
-sealed tokens. A canceled, expired, revoked-session or mismatched-identity flow
-does not install credentials. Approval and grants are checked again at completion.
-Refresh tokens and PKCE verifiers are never returned to the browser.
+A browser flow expires after 10 minutes. A device code flow expires after the time Microsoft gives, at most 30 minutes.
 
-For confidential app registrations, configure `MW_GRAPH_OAUTH_CLIENT_ID` and
-`MW_GRAPH_OAUTH_CLIENT_SECRET` on the server. The configured ID must exactly match
-the app ID entered by the user. To support different users' own app registrations, configure
-`MW_BRIDGE_OAUTH_CLIENT_SECRETS` as a JSON object mapping application IDs to their
-secrets. These override the legacy `MW_BRIDGE_OAUTH_CLIENT_ID` /
-`MW_BRIDGE_OAUTH_CLIENT_SECRET` pair. A secret is never sent for an unrelated
-user-supplied application ID.
+## What works
 
-Reauthorization of the same backend preserves cached messages. Switching a
-populated account between backend types is refused with
-`provider_migration_required`; automatic cache/source migration is not implemented.
-Enrollment requires an existing authenticated account. A new standalone Microsoft
-sign-in and automatic account provisioning are not part of this enrollment route.
+| Area | Behaviour |
+|---|---|
+| Mail | Folders (nested folders included), delta sync, fetch, flags, move and send. |
+| Free/busy | Looking up another person's free/busy asks Graph when no shared calendar answers. |
+| Calendar and tasks | The plugin can read Graph calendars and To Do tasks, but the server does not copy them into the calendar and task screens. See [Calendars and tasks through a bridge](./pim.md). |
 
-## Sync and provider limits
+Mail changes are picked up by polling; the bridge reports no push connection.
 
-Collection pagination is consumed before a completed delta cursor is stored.
-Nested folders are enumerated, and expired delta tokens request a full baseline;
-the engine removes stale membership only after that baseline has been fetched.
-Poll-only bridges wake the engine every 30 seconds. This is a polling fallback,
-not a Graph webhook subscription.
+## Limits
 
-Recall uses Microsoft's documented **beta** Sent Items action and reports only
-that the request was accepted. The sender's `isRead` property is not a recipient
-read receipt. Tenant policy and the provider's recall report determine the result.
-See [Microsoft's recall API](https://learn.microsoft.com/en-us/graph/api/message-recall?view=graph-rest-beta).
+- Switching a mailbox that already has cached messages from one backend to another is refused with the message **This mailbox already contains mail from another backend. Provider migration is required before changing it. Your mail and connection were preserved.** Reconnecting the same provider keeps the cached mail.
+- The connection enrolls an existing signed-in mailbox. It does not provide Microsoft sign-in to Mailwoman and does not create accounts.
+- A domain that has an EWS backend selected cannot also be connected here; the server refuses the connection.
+- The plugin contains code for message recall (a Graph beta action), voting and Focused Inbox, and for contacts and directory search. The server and web client do not call it, so none of these features are available. Graph has no Outlook reaction endpoint.
 
-Microsoft Graph has no documented Outlook mailbox reaction endpoint. Native mail
-reactions are not advertised; the engine retains its standards fallback. Teams
-chat reactions do not constitute Outlook mailbox reaction support.
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| The Provider connection section is missing. | A linked mailbox is active, or no bridge is approved. | Switch to the primary sign-in account; ask an administrator to approve the plugin. |
+| **Connect securely** is disabled. | No application client ID is entered or stored. | Enter the **Application client ID**. |
+| The connection fails after consent. | The Microsoft address differs from the mailbox address, or the registration returns no refresh token. | Sign in with the matching Microsoft account; keep `offline_access` consented. |
+| The page says migration is required. | The mailbox already holds mail from IMAP or another backend. | Use a new mailbox for the provider connection. |
+
+## Related
+
+- [Mail provider bridges](./index.md)
+- [Plugins](../plugins/index.md)
+- [Linked mailboxes](../user/mailbox/linked-accounts.md)
+- [Outbound connections](../security/egress.md)
