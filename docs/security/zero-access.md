@@ -1,139 +1,89 @@
-# Zero-Access Storage Mode
+# Zero-access storage
 
-Optional, per-deployment (admin) and per-account (user). When enabled, the hosting
-server stores mail and PIM data **only as ciphertext it cannot read**. The keys are
-derived and held on the client; the server never receives a plaintext key.
+Zero-access storage is a per-account mode that a user turns on in their own settings. It sets up a key hierarchy that exists only on the user's devices, and it switches off several server features that would otherwise keep a readable form of the account's mail. This page states exactly what the mode does in the current code, and what it does not do.
 
-This document states exactly what that does and does not protect. It is deliberately
-narrow: the guarantee is about **data at rest**, not about a server that has turned
-actively malicious.
+::: warning What zero-access does not do today
+Turning zero-access on does **not** make the server store the account's mail as ciphertext it cannot read. In engine mode the server still fetches the account's mail from the mail server and stores message bodies and list envelopes sealed with the **server key**, the same as for every other account (see [Encryption at rest](./encryption-at-rest.md)). Anyone who holds the server key, including the operator, can decrypt them. The client-side keys are created and stored, but nothing in the web app encrypts mail, notes or other data with them yet.
 
-## What it protects
+The text shown on the settings panel describes a stronger property than this. Rely on this page.
+:::
 
-Zero-access defends the **contents of your stored mail, notes, and PIM data against a
-curious operator or a breach of the storage host**. An attacker who reads the database,
-the on-disk files, or a stolen backup sees XChaCha20-Poly1305 ciphertext and cannot
-recover message bodies, subjects, attachment contents, note text, or the search index.
+## What turning it on does
 
-## What the server still sees
+<!-- screenshot: id=security/zero-access-panel; screen=Settings > Security centre > Encryption; state=zero-access off, passphrase selected; element=whole Zero-access storage panel -->
 
-Even with zero-access enabled, the server observes, by necessity:
+When a user selects **Enable zero-access** under **Settings** > **Security centre** > **Encryption**, the following happens.
 
-- **Ciphertext blobs** — the encrypted rows themselves.
-- **Opaque row IDs** — the identifiers used to store and fetch rows.
-- **Sizes** — the length of each ciphertext (approximate message/attachment size).
-- **Timestamps** — when rows are written and updated.
-- **Envelope routing metadata** needed to proxy IMAP/SMTP — the server still connects
-  to your upstream mail provider on your behalf, so the connection metadata and the
-  routing envelope required to send and receive mail pass through it. Where the upstream
-  does not offer OAuth, the upstream credentials are sealed to the client session.
+In the browser (inside a Web Worker running the WebAssembly build of `mw-crypto`):
 
-Zero-access does **not** hide this metadata, and it makes no attempt to.
+1. A root key is derived from the chosen secret with Argon2id (19,456 KiB memory, 2 passes, 1 lane) and a random 16-byte salt. The secret is either a **Passphrase** of at least 8 characters, or the output of a passkey's WebAuthn PRF extension (**Passkey (passwordless)**).
+2. A key-encryption key is derived from the root key, and a random 32-byte data key is generated.
+3. The data key is wrapped (XChaCha20-Poly1305) under the key-encryption key.
+4. The root key is shown once as a 33-word recovery phrase (32 words for the key bytes and one checksum word) under **Recovery phrase — save this offline now**.
 
-## The boundary we do not cross (the honest caveat)
+The browser sends the server only the salt, the Argon2id parameters and the wrapped data key. The passphrase, the root key and the unwrapped data key are not sent.
 
-Zero-access protects **data at rest** against a curious or breached host. **A fully
-malicious _active_ server that proxies your live IMAP/SMTP traffic is a stronger
-adversary, and zero-access does not defend against it.** Such a server sits on the live
-connection to your mail provider and could observe or tamper with mail as it flows
-through, regardless of how the stored copy is encrypted. The user interface states this
-same difference plainly at the point where the mode is enabled.
+On the server:
 
-Choose zero-access when your threat model is *"I do not want the people running (or
-breaching) the storage host to be able to read my stored mail."* It is not a defense
-against an operator who actively subverts the live mail path.
+- The account is recorded as zero-access (table `zeroaccess_accounts`).
+- The account's documents are removed from the full-text search index, and no new ones are written while the mode is on. Server-side search returns nothing for the account.
+- Plaintext-derived values for the account (header windows, message bodies) are never placed in the memory cache or the Redis/Valkey cache; they are read from the store for each request.
+- Sealed credentials for linked mailboxes are deleted, and new links that would store a credential are refused, for the account both as the owner and as the linked mailbox.
+- Saving drafts to the server (account drafts) is refused for the account.
+- AI Assist requests leave the account's content out, whatever the request asks for.
+- Some security verdicts computed from stored mail are not cached for the account.
 
-## No searchable-encryption claim
+## What the server still holds and sees
 
-There is **no server-side searchable encryption** here, and we make no such claim. That
-half is true and is the part worth keeping.
+With zero-access on, in engine mode the server still holds:
 
-**The other half of this section was wrong and is corrected here.** It said search runs
-entirely on the client over a browser-built Tantivy index slice in OPFS, encrypted under
-the search-index key. **That is not built.** `apps/web/src/wasm/` contains `mw-crypto`
-and `mw-sanitize` only — there is no client-side Tantivy — the derived `'search'` subkey
-has no consumer anywhere, and the only search that runs in the browser is a
-case-insensitive substring scan over the header window the client already has in memory.
+- Message bodies and list envelopes, sealed with the server key. An operator or an attacker with the server key can read them.
+- Message metadata used for folders, threads and flags (sizes, dates, flags, folder membership, message and thread ids).
+- Notes, contacts, calendars and other personal data, stored the same way as for any other account.
+- The account's upstream mail credentials or tokens, as needed to sync and send.
 
-What that means for a zero-access account today, stated plainly: **there is no working
-full-text search over your mail.** The server-side index (SPEC §4.2) is built over
-plaintext, so it holds nothing for an account whose rows are ciphertext to the server;
-the client-side index that was meant to replace it does not exist yet. You get substring
-matching over what is currently loaded, and nothing more. The design in SPEC §9.3 is the
-plan; do not read it, or the sentence that used to be here, as a shipped property.
+The server also sees all mail as it passes through when it syncs from the mail server, sends, or proxies a request.
 
-## Key hierarchy (SPEC §9.1)
+## Device pairing
 
-```text
-passphrase  |  WebAuthn-PRF secret (passwordless)
-        │  Argon2id (client-side, in the WASM crypto worker)
-        ▼
-    Root Key   (never leaves the client)
-        ├─► Key-Encryption Key (KEK) ──wraps──► per-account Data Keys
-        │                                         ├─► message-cache key
-        │                                         ├─► search-index key
-        │                                         ├─► notes key
-        │                                         └─► attachment-cache key
-        └─► Recovery phrase (printable, optional — an explicit offline backup)
-```
+<!-- screenshot: id=security/zero-access-pairing; screen=Settings > Security centre > Encryption; state=pairing started on the new device; element=Device pairing section with QR code and six words -->
 
-- The **root key** is derived on the client with Argon2id from a passphrase, or from a
-  passkey's WebAuthn-PRF output (passwordless). The Argon2id parameters and salt are
-  stored so any of the user's devices can re-derive the same root key.
-- The **KEK** wraps each per-account **data key**; per-class keys (message cache, search,
-  notes, attachments) are derived from the data key by a domain-separated SHA-256 KDF.
-- Only wrapped keys and ciphertext are persisted server-side. No plaintext key is
-  serialized out of the WASM worker; keys are addressed there by opaque session refs and
-  zeroized on lock/logout.
+**Device pairing** copies the root key to another device without giving it to the server:
 
-## Encryption at rest (SPEC §9.3)
+1. The new device (**This is the new device**) creates a P-256 key pair and shows the public key as a QR code.
+2. The existing device (**Pair another device from here**) reads the QR code, creates its own ephemeral P-256 key, derives a shared key by ECDH and seals the root key with it (XChaCha20-Poly1305). It uploads `ephemeral public key ‖ nonce ‖ ciphertext`.
+3. The server stores that envelope and hands it to the new device, which derives the same shared key and opens it.
+4. Both devices show six words derived (SHA-256) from both public keys and the ciphertext. The user compares them. Matching words mean no one replaced a key in between; if they differ, stop.
 
-- Rows for zero-access accounts hold only **XChaCha20-Poly1305 ciphertext**, framed as
-  `nonce(24) ‖ ciphertext+tag` — the same construction the server already uses to seal
-  credentials at rest.
-- Each row is authenticated with associated data (AAD) binding it to its location:
-
-  ```text
-  AAD = table ‖ 0x1F ‖ row_id ‖ 0x1F ‖ schema_version
-  ```
-
-  where `‖` is concatenation and `0x1F` is the ASCII unit separator. Decryption fails if
-  a row is moved to a different table, re-labelled with a different id, or read under a
-  different schema version — so ciphertext cannot be silently relocated or replayed.
-- **Caching:** Redis/memory caching of plaintext-derived data is disabled for zero-access
-  accounts (SPEC §15.6) — the cache never holds a decrypted form.
-
-## Multi-device pairing (SPEC §9.1)
-
-A new device obtains the root key from an existing one through a SAS-verified,
-client-to-client exchange. **The server only relays an opaque sealed envelope; it never
-sees a plaintext key.**
-
-1. The **new device** generates an ephemeral P-256 key pair and shows its public point in
-   a QR code. The secret stays on the new device.
-2. The **existing device** (which holds the root key) scans the QR, performs P-256 ECDH
-   with its own ephemeral key, and seals the root key into an envelope
-   (`ephemeral_public ‖ nonce ‖ ciphertext`). Both devices derive the same short
-   authentication string (SAS) — six words — from the full transcript.
-3. The envelope is relayed **through the server as ciphertext** to the new device, which
-   performs the matching ECDH and recovers the root key.
-4. The user **compares the six SAS words on both screens**. A match authenticates the
-   channel and defeats a machine-in-the-middle relay; a mismatch means the pairing is
-   aborted.
+The server only relays the sealed envelope. A server that swaps keys during pairing is detected only if the user actually compares the six words.
 
 ## Recovery phrase
 
-The recovery phrase is an **explicit, user-initiated export** of the root key as a
-printable word list, for offline backup. It is the only path by which key material is
-meant to leave a device, and only when the user asks for it. Anyone who holds the recovery
-phrase can derive every account key, so it must be stored offline and treated as
-equivalent to the account's master secret. Losing it, with no other paired device, means
-the encrypted data cannot be recovered — this tradeoff is stated at the point of enabling
-the mode.
+The recovery phrase is the root key itself, written as words. Anyone who has it can derive the account's keys. It is displayed once and not stored on the server. If the user loses the passphrase or passkey, every paired device and the recovery phrase, the client-side keys cannot be recovered. Because no stored mail is encrypted with those keys today, losing them does not make mail unreadable.
 
-## Implementation
+## Turning it off
 
-The client hierarchy and pairing live in `crates/mw-crypto/src/zeroaccess.rs`, compiled to
-WebAssembly for the browser crypto worker. It composes existing, reviewed primitives —
-Argon2id, XChaCha20-Poly1305 (the same at-rest cipher as `mw-store::seal`), P-256 ECDH,
-and SHA-256 — and introduces no new cipher of its own.
+<!-- screenshot: id=security/zero-access-disable; screen=Settings > Security centre > Encryption; state=zero-access on; element=Turn off zero-access section and Disable zero-access button -->
+
+**Disable zero-access** marks the account as standard again. Search indexing and caching resume for new and re-indexed mail. The wrapped key stays stored. Deleted linked-mailbox credentials are not restored; the links have to be signed in again.
+
+## For administrators
+
+The **Zero-access** column on the admin console's **Users** page is a record only. Ticking it does not encrypt anything and clearing it does not turn the user's mode off; only the user can turn zero-access on or off. The search index maintenance view reports how many zero-access accounts were left unindexed.
+
+## Threat model summary
+
+| Who | Can they read the account's stored mail? |
+|---|---|
+| Thief of the database file only (SQLCipher key and server key kept elsewhere) | No, as for any account (see [Encryption at rest](./encryption-at-rest.md)) |
+| Thief of the database and the server key | Yes |
+| Operator of the running server | Yes |
+| Someone with access to the search index files | No index documents exist for the account |
+| Someone with access to the Redis/Valkey cache | No plaintext-derived values are cached for the account |
+
+## Related
+
+- [Encryption at rest](./encryption-at-rest.md)
+- [OpenPGP and S/MIME](./crypto.md) for end-to-end encrypted mail, which the server cannot read
+- [Password change](./password-change.md)
+- [Passkeys](./passkeys.md)
