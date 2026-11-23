@@ -642,6 +642,7 @@ async fn dispatch_wakes(store: &Store, change: &StateChange) {
     // needs it). `None` before first-boot init — WebPush is skipped, others proceed.
     let vapid = vapid_for_dispatch(store.load_vapid_keypair().await.ok().flatten());
     let vapid_private = vapid.as_ref().map(|(_, private)| private.as_slice());
+    let contact = vapid_contact_for(store).await;
     for sub in subs {
         if sub.expires_at.as_ref().is_some_and(|expiry| {
             chrono::DateTime::parse_from_rfc3339(expiry)
@@ -653,7 +654,7 @@ async fn dispatch_wakes(store: &Store, change: &StateChange) {
             continue;
         }
         let result = match sub.transport.as_str() {
-            "webpush" => send_webpush(Some(&subject.domain), &sub, vapid_private).await,
+            "webpush" => send_webpush(Some(&subject.domain), &sub, vapid_private, &contact).await,
             "unifiedpush" => send_unifiedpush(Some(&subject.domain), &sub).await,
             "apns" => send_apns_mock(&sub),
             other => {
@@ -694,6 +695,7 @@ async fn send_webpush(
     domain: Option<&str>,
     sub: &PushSubscriptionRow,
     vapid_private: Option<&[u8]>,
+    contact: &str,
 ) -> anyhow::Result<u16> {
     let Some(private_scalar) = vapid_private else {
         anyhow::bail!("no VAPID keypair available");
@@ -706,7 +708,7 @@ async fn send_webpush(
         p256dh,
         auth,
         private_scalar,
-        &vapid_contact(),
+        contact,
         WAKE_MARKER,
     )?;
 
@@ -922,6 +924,31 @@ fn send_apns_mock(sub: &PushSubscriptionRow) -> anyhow::Result<u16> {
 /// delivery problems). From `MW_VAPID_CONTACT`, else a neutral default.
 fn vapid_contact() -> String {
     vapid_contact_from(std::env::var("MW_VAPID_CONTACT").ok())
+}
+
+/// The contact for one dispatch: the `push.vapidContact` setting when it is set
+/// (the registry lets `MW_VAPID_CONTACT` pin it), else [`vapid_contact`].
+async fn vapid_contact_for(store: &Store) -> String {
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
+        account_id: "",
+        address: "",
+        domain: "",
+    };
+    let effective = crate::settings_registry::effective_for(store, "push.vapidContact", &subject)
+        .await
+        .ok()
+        .flatten();
+    vapid_contact_with_setting(effective.as_ref().map(|e| &e.value))
+}
+
+/// [`vapid_contact_for`] for a given effective setting value: a non-empty string
+/// wins; `null`, an empty string or a failed read falls back to [`vapid_contact`].
+fn vapid_contact_with_setting(setting: Option<&serde_json::Value>) -> String {
+    match setting.and_then(serde_json::Value::as_str).filter(|s| !s.is_empty()) {
+        Some(contact) => contact.to_string(),
+        None => vapid_contact(),
+    }
 }
 
 /// [`vapid_contact`] for a given `MW_VAPID_CONTACT` value.
@@ -1534,6 +1561,25 @@ mod tests {
     }
 
     #[test]
+    fn vapid_contact_setting_wins_and_null_falls_back() {
+        let set = serde_json::json!("mailto:admin@example.org");
+        assert_eq!(
+            vapid_contact_with_setting(Some(&set)),
+            "mailto:admin@example.org"
+        );
+        // Unset (null), empty or unreadable: the env var / default path.
+        assert_eq!(
+            vapid_contact_with_setting(Some(&serde_json::Value::Null)),
+            vapid_contact()
+        );
+        assert_eq!(
+            vapid_contact_with_setting(Some(&serde_json::json!(""))),
+            vapid_contact()
+        );
+        assert_eq!(vapid_contact_with_setting(None), vapid_contact());
+    }
+
+    #[test]
     fn vapid_contact_is_unchanged() {
         // Condition 4: `sub` is MW_VAPID_CONTACT, else the old neutral default.
         assert_eq!(vapid_contact_from(None), "mailto:push@mailwoman.invalid");
@@ -1588,7 +1634,7 @@ mod tests {
             send_unifiedpush(None, &sub("unifiedpush"))
                 .await
                 .unwrap_err(),
-            send_webpush(None, &sub("webpush"), Some(scalar.as_slice()))
+            send_webpush(None, &sub("webpush"), Some(scalar.as_slice()), "mailto:ops@example.org")
                 .await
                 .unwrap_err(),
         ];
