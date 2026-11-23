@@ -76,6 +76,6 @@ The server also writes a copy of the server key wrapped with a hybrid X25519 + M
 ## Related
 
 - [Encryption at rest (admin guide)](/admin/encryption)
-- [Zero-access storage](./zero-access.md), which keeps mail encrypted under keys the server never holds
+- [Zero-access storage](./zero-access.md): keeps an account out of the search index and shared caches; its stored mail stays sealed with the server key
 - [Backups](/deploy/backups)
 - [Postgres](/deploy/postgres)
