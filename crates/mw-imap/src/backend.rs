@@ -67,6 +67,13 @@ pub struct ImapBackend {
     caps: BackendCaps,
     /// Names are UTF-8 on the wire (IMAP4rev2 or UTF8=ACCEPT enabled).
     utf8_names: bool,
+    /// The hierarchy delimiter learned on the current command connection
+    /// (`LIST "" ""`), kept here so `Mailbox/get` does not take the session
+    /// lock (and, after 30 s idle, send a NOOP) only to read it. `None` until
+    /// asked; cleared whenever [`Self::ready_session`] opens a new connection,
+    /// so it is asked again on the replacement connection. Written and cleared
+    /// only while the session lock is held.
+    delimiter: std::sync::Mutex<Option<Option<char>>>,
 }
 
 struct CommandSession {
@@ -105,6 +112,7 @@ impl ImapBackend {
             }),
             caps,
             utf8_names,
+            delimiter: std::sync::Mutex::new(None),
         })
     }
 
@@ -135,6 +143,9 @@ impl ImapBackend {
                 ));
             }
             state.session = fresh;
+            // A new connection may reach a different server behind the same
+            // name: learn its delimiter again.
+            *self.delimiter.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         }
         state.last_used = Instant::now();
         Ok(MutexGuard::map(state, |state| &mut state.session))
@@ -341,8 +352,14 @@ impl AccountBackend for ImapBackend {
     }
 
     async fn hierarchy_delimiter(&self) -> Result<Option<char>> {
+        if let Some(known) = *self.delimiter.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
+            return Ok(known);
+        }
         let mut session = self.ready_session().await?;
-        Ok(session.hierarchy_delimiter().await?)
+        let found = session.hierarchy_delimiter().await?;
+        // Still under the session lock: a reconnect cannot clear in between.
+        *self.delimiter.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(found);
+        Ok(found)
     }
 
     async fn create_mailbox(&self, name: &str) -> Result<()> {

@@ -1438,3 +1438,66 @@ async fn no_idle_server_keeps_polling_without_reconnecting() {
  assert_eq!(log.lock().unwrap().iter().filter(|line|line.contains("NOOP")).count(),1);
  handle.stop();
 }
+
+// t50hp-e7: the delimiter is asked once per command connection, not once per
+// `Mailbox/get`; repeated calls do not take the connection (no LIST, no NOOP).
+#[tokio::test]
+async fn hierarchy_delimiter_is_asked_once_per_connection() {
+    let (addr, log) = spawn_mock(vec![dovecot_script(vec![Ex::Cmd {
+        expect: "LIST \"\" \"\"",
+        respond: "* LIST (\\Noselect) \"/\" \"\"\r\n{tag} OK List completed\r\n".into(),
+    }])])
+    .await;
+    let backend = connect_dovecot(addr, vec![]).await;
+    for _ in 0..3 {
+        assert_eq!(backend.hierarchy_delimiter().await.unwrap(), Some('/'));
+    }
+    let lines = log.lock().unwrap();
+    assert_eq!(lines.iter().filter(|line| line.contains("LIST \"\" \"\"")).count(), 1, "{lines:?}");
+    assert_eq!(lines.iter().filter(|line| line.contains("NOOP")).count(), 0, "{lines:?}");
+}
+
+// A replacement connection learns the delimiter again (it may reach another
+// server behind the same name).
+#[tokio::test]
+async fn hierarchy_delimiter_is_asked_again_after_a_reconnect() {
+    let (addr, log) = spawn_mock(vec![
+        dovecot_script(vec![
+            Ex::Cmd {
+                expect: "LIST \"\" \"\"",
+                respond: "* LIST (\\Noselect) \"/\" \"\"\r\n{tag} OK List completed\r\n".into(),
+            },
+            Ex::Literal {
+                expect: "APPEND",
+                respond: String::new(),
+            },
+        ]),
+        dovecot_script(vec![
+            Ex::Cmd {
+                expect: "CREATE",
+                respond: "{tag} OK created\r\n".into(),
+            },
+            Ex::Cmd {
+                expect: "LIST \"\" \"\"",
+                respond: "* LIST (\\Noselect) \".\" \"\"\r\n{tag} OK List completed\r\n".into(),
+            },
+        ]),
+    ])
+    .await;
+    let backend = connect_dovecot(addr, vec![]).await;
+    assert_eq!(backend.hierarchy_delimiter().await.unwrap(), Some('/'));
+    let mailbox = RawMailboxRef {
+        name: "INBOX".into(),
+        uidvalidity: 1,
+    };
+    assert!(backend.append(&mailbox, b"Subject: x\r\n\r\nbody", &[]).await.is_err());
+    tokio::time::timeout(std::time::Duration::from_secs(10), backend.create_mailbox("Next"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(backend.hierarchy_delimiter().await.unwrap(), Some('.'));
+    assert_eq!(backend.hierarchy_delimiter().await.unwrap(), Some('.'));
+    let lines = log.lock().unwrap();
+    assert_eq!(lines.iter().filter(|line| line.contains("AUTHENTICATE PLAIN")).count(), 2);
+    assert_eq!(lines.iter().filter(|line| line.contains("LIST \"\" \"\"")).count(), 2, "{lines:?}");
+}
