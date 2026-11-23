@@ -527,6 +527,12 @@ jobs:
         run: node --test scripts/shells/*.test.mjs
       - name: build
         run: pnpm -C apps/web build
+      # Every path a consumer asks the build for (HTML, chunk imports, CSS,
+      # sw.js integrity/offline lists, precompressed variants, pinned PDF.js,
+      # socket-delivered public assets, Rust includes vs Dockerfile COPY lines)
+      # must exist in the real output just built.
+      - name: build output serves every referenced path
+        run: node apps/web/scripts/check-build-assets.mjs apps/web/dist
       - uses: actions/upload-artifact@v4
         with:
           name: product-security-frontend
