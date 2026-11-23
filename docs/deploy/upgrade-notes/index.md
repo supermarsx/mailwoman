@@ -8,7 +8,7 @@ To see which release you run, check the image tag or run `mailwoman --version`.
 
 - [Console settings that now apply](console-settings-now-applied.md): import, webhook, proxy-timeout, LDAP pre-check, masked-address, abuse-address and security.txt settings saved in the console start to apply; the first start writes one audit entry listing them.
 - [Password policy and Assist settings from the console](password-policy-enforced.md): saved password rules and Assist values start to apply.
-- [Retention jobs are scheduled](retention-jobs-scheduled.md).
+- [Retention jobs are scheduled](retention-jobs-scheduled.md): user_retention, retention_archive and gc_uploads now run daily; 7-day preview on servers that already have accounts.
 - [Seven more sections in data exports](dsr-export-sections.md): data exports get larger; existing requests are unaffected.
 - [The server chooses the mail server](mail-server-chosen-by-server.md): the sign-in form has no server field; set `MW_UPSTREAM_DEFAULT` or configure domains.
 - [Proxy-mode upstreams are checked](proxy-upstream-checked.md): a JMAP server on a private address must be named in the configuration.
