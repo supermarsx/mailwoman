@@ -1,0 +1,14 @@
+# Legitimate hits of docs/screenshots/jargon.txt (plan t40 section 7.2), one per line as
+# path:line  # reason. Owned by the fact-check pass. Paths are relative to the repo root.
+docs/V0-BUILD-SUMMARY.md:3  # redirect stub: target path /engineering/history/V0-BUILD-SUMMARY
+docs/V0-BUILD-SUMMARY.md:7  # redirect stub: link to the moved page
+docs/V1-BUILD-SUMMARY.md:3  # redirect stub: target path /engineering/history/V1-BUILD-SUMMARY
+docs/V1-BUILD-SUMMARY.md:7  # redirect stub: link to the moved page
+docs/RELEASE-NOTES-26.8.md:3  # redirect stub: target path /changelog/26.8
+docs/RELEASE-NOTES-26.8.md:7  # redirect stub: link text names the release page
+docs/deploy/proxy/README.md:134  # IPv4 subnet 172.28.10.0/24 of the proxy test network
+docs/deploy/proxy/README.md:135  # IPv4 subnet 172.28.20.0/24 of the proxy test network
+docs/deploy/proxy/README.md:136  # IPv4 gateway address 172.28.0.1
+docs/deploy/proxy/README.md:139  # IPv4 gateway address 172.28.0.1
+docs/deploy/proxy/README.md:166  # IPv4 client address 172.28.30.5
+docs/deploy/proxy/README.md:175  # IPv4 client address 172.28.30.5
