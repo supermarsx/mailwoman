@@ -32,8 +32,7 @@ with it on every change under `docs/`.
 
 ## Writing docs
 
-- **Page template**: screen pages follow section 4 of `.orchestration/plans/t40-docs-overhaul.md`
-  (title as the UI labels it, one-paragraph purpose, orientation shot, numbered
+- **Page template**: a screen page has the title as the UI labels it, one-paragraph purpose, orientation shot, numbered
   callout legend, steps, settings and limits).
 - **Images** use markdown-it attributes (built into VitePress); raw HTML is off.
   Put the class in braces directly after the image or list, no space before `{`:
@@ -69,6 +68,13 @@ with it on every change under `docs/`.
   ```
 
   `redirect` is a site-absolute path without `.md`.
+- **Jargon check** (run from `docs/`; the `**/` globs also work from the repo root with `docs` as the path). Reader-facing pages must be clean; engineering notes, generated references and redirect stubs are excluded explicitly:
+
+  ```sh
+  rg -n -P -f screenshots/jargon.txt . -g '*.md' -g '!**/node_modules/**' -g '!**/perf/**' -g '!**/testing/**' -g '!**/engineering/**' -g '!**/changelog/**' -g '!**/deploy/upgrade-notes/**' -g '!**/security/audit-prep/**' -g '!**/admin/configuration.md' -g '!**/admin/erasure-coverage.md' -g '!**/protocols/imap-extensions.md' -g '!**/session-completion.md' -g '!**/ROADMAP-1.0.md' -g '!**/i18n.md' -g '!**/engineering-practices.md' -g '!**/deploy/scaling.md' -g '!**/deploy/load-testing.md' -g '!**/deploy/websocket-load-testing.md' -g '!**/screenshots/**'
+  ```
+
+  Remaining hits are listed in `screenshots/jargon-allow.txt`.
 - **Building without colliding**: `docs/.vitepress/dist` and the cache are shared, so
   build into scratch: `node node_modules/vitepress/dist/node/cli.js build . --outDir
   <scratch>/out --cacheDir <scratch>/cache` from `docs/`. Serve the output with any
@@ -122,4 +128,4 @@ with it on every change under `docs/`.
   **release history**, where each entry records what a release was believed to
   deliver at the time, with later corrections appended rather than rewritten.
 - [`../SECURITY.md`](https://github.com/supermarsx/mailwoman/blob/master/SECURITY.md) — reporting a vulnerability.
-- [`ROADMAP-1.0.md`](./ROADMAP-1.0.md).
+- [Engineering history notes](./ROADMAP-1.0.md).
