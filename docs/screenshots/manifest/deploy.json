@@ -176,15 +176,14 @@
         },
         "padding": 12
       },
-      "alt": "The admin console sign-in form with empty Admin username and Password fields and the Sign in button."
+      "alt": "The admin console sign-in form with empty Admin username and Password fields, the Sign in button and Sign in with a passkey."
     },
     {
       "id": "admin-first-dashboard",
       "page": "getting-started/install-quick.md",
       "session": "admin",
       "seed": [
-        "mail-basic",
-        "admin-basic"
+        "mail-basic"
       ],
       "steps": [
         {
@@ -205,7 +204,7 @@
           "height": 449
         }
       },
-      "alt": "The top of the admin console after signing in: the navigation on the left and the dashboard's setup checklist and account counts."
+      "alt": "The top of the admin console after the first sign-in: the navigation on the left, a setup checklist with three open items, and the account and session counts."
     },
     {
       "id": "admin-console-address",
@@ -240,13 +239,19 @@
         }
       ],
       "shot": {
-        "element": {
-          "role": "region",
-          "name": "@admin-console-path-title"
-        },
+        "element": [
+          {
+            "role": "heading",
+            "name": "@admin-console-path-title"
+          },
+          {
+            "role": "button",
+            "name": "@admin-console-path-copy"
+          }
+        ],
         "padding": 12
       },
-      "alt": "The Console address tab of the Security centre: the current console address (masked), copy, share and email buttons, a note that MW_ADMIN_PATH sets it, and a warning that /admin is the first address scanners try.",
+      "alt": "The Console address tab of the Security centre: what the console address does, the current address (masked) and buttons to copy, share or email it.",
       "mask": [
         {
           "text": "http://localhost",

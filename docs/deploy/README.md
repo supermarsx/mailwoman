@@ -181,7 +181,7 @@ A path you choose needs at least 12 characters after the `/`, and cannot be `/ad
 A hidden path keeps scanners and casual sign-in attempts away from the console, but it does not isolate it: the console runs on the same origin as the mail app. Keep a strong admin password, two-factor sign-in for admin accounts and, where you can, a network restriction on the path in your reverse proxy.
 :::
 
-![The Console address tab of the Security centre: the current console address (masked), copy, share and email buttons, a note that MW_ADMIN_PATH sets it, and a warning that /admin is the first address scanners try.](/screenshots/deploy/admin-console-address.webp){.mw-crop}
+![The Console address tab of the Security centre: what the console address does, the current address (masked) and buttons to copy, share or email it.](/screenshots/deploy/admin-console-address.webp){.mw-crop}
 
 ## Reverse proxy and TLS
 

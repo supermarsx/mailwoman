@@ -1,27 +1,31 @@
 {
   "entries": {
     "admin-console-address": {
-      "hash": "cb11a13cef3477b2",
-      "bytes": 23190,
+      "hash": "bca3ce7cc8e7c87b",
+      "bytes": 15804,
       "width": 784,
-      "height": 326,
+      "height": 255,
       "quality": 0.9,
       "kind": "crop",
-      "commit": "ad9af4fa",
+      "commit": "1f50d09c",
       "stack": "E",
-      "web": "5e780284b9c81ee7",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "admin-first-dashboard": {
-      "hash": "54ce361854ec4fed",
-      "bytes": 36818,
+      "hash": "8e603b8de0acf572",
+      "bytes": 37452,
       "width": 1440,
       "height": 449,
       "quality": 0.9,
       "kind": "crop",
-      "commit": "95f343e3",
+      "commit": "f823e09e",
       "stack": "E",
-      "web": "1d17bc8c06852a39",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "admin-signin": {
@@ -122,14 +126,16 @@
     },
     "overview-mailbox": {
       "hash": "9eaaf8102f5bc00b",
-      "bytes": 99062,
+      "bytes": 99118,
       "width": 1440,
       "height": 900,
       "quality": 0.9,
       "kind": "full",
-      "commit": "95f343e3",
+      "commit": "f823e09e",
       "stack": "E",
-      "web": "1d17bc8c06852a39",
+      "web": "994ceebcda39814c",
+      "webRevision": "36d39e20+local changes",
+      "webBuiltAt": "2026-11-23T06:01:18.941Z",
       "serverBuilt": "2026-11-21T06:28:40.506Z"
     },
     "push-browser-registration": {
