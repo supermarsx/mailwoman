@@ -110,6 +110,7 @@ pub(crate) async fn refresh_session(
             return Err(crate::unauthorized());
         }
         state.step_up.forget_user(&session.id);
+        crate::request_inputs::snapshot::expedite(state); // t34: session authority repointed
         session.account_id = account;
         session.jmap_url = upstream.url().into();
         session.api_url = api;

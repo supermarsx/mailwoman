@@ -373,6 +373,7 @@ async fn enforce_policy(
             .await
             .map_err(unavailable)?
     {
+        crate::request_inputs::snapshot::expedite(state); // t34: linked credential rejected
         audit(
             state,
             "system",
@@ -401,6 +402,7 @@ async fn refuse(state: &AppState, parent: &mw_store::Session, link: &str, reason
         .await
         .unwrap_or(false)
     {
+        crate::request_inputs::snapshot::expedite(state); // t34: linked credential rejected
         audit(
             state,
             "system",
@@ -591,7 +593,7 @@ async fn renew(
     }
     .await;
     match bound {
-        Ok(true) => {}
+        Ok(true) => crate::request_inputs::snapshot::expedite(state), // t34: old child sessions deleted
         other => {
             let _ = state.store.delete_session(&id).await;
             if matches!(other, Ok(false)) {

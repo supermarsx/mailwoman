@@ -311,6 +311,7 @@ pub(crate) async fn record_login(
         state.sessions.forget(old);
         state.step_up.forget_user(old);
     }
+    if !revoked.is_empty() { crate::request_inputs::snapshot::expedite(state); } // t34: sessions over the cap deleted
     if !revoked.is_empty() {
         crate::audit::security_event(
             state,

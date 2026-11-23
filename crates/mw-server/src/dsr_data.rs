@@ -576,6 +576,7 @@ pub(crate) async fn erase(state: &AppState, s: &Subj, request_id: Option<&str>) 
                     for id in sessions {
                         state.sessions.forget(&id);
                     }
+                    crate::request_inputs::snapshot::expedite(state); // t34: erasure closed the directory entry
                     add(&mut out, "directory_entry_closed", 1);
                 }
                 Ok(_) => {}
