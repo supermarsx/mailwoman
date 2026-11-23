@@ -41,6 +41,20 @@ afterEach(() => {
 });
 
 describe('toast store', () => {
+  it('keeps identical completed actions separate and queues bursts for their full visible duration',()=>{
+    const ids=Array.from({length:5},()=>toast.success('Moved 1 message'));
+    expect(new Set(ids).size).toBe(5);expect(toasts().map(row=>row.id)).toEqual(ids.slice(0,3));
+    vi.advanceTimersByTime(TOAST_DURATIONS.success);
+    expect(toasts().map(row=>row.id)).toEqual(ids.slice(3));
+    vi.advanceTimersByTime(TOAST_DURATIONS.success-1);expect(toasts()).toHaveLength(2);
+    vi.advanceTimersByTime(1);expect(toasts()).toHaveLength(0);
+  });
+  it('removes queued actions on sign-out and preserves externally timed deadlines',()=>{
+    for(let i=0;i<3;i++)toast.info(`Visible ${i}`,{duration:Infinity});
+    const timed=toast.info('Undo send',{duration:1000,pausable:false});
+    expect(toastTimeLeft(timed)).toBe(1000);vi.advanceTimersByTime(1000);expect(toastTimeLeft(timed)).toBe(0);
+    toast.success('Queued');toast.clear();vi.advanceTimersByTime(60000);expect(toasts()).toHaveLength(0);
+  });
   it('raises notifications from error effects without subscribing to toast mutations', () => {
     const [failure, setFailure] = createSignal('');
     const notified = vi.fn();
@@ -104,11 +118,12 @@ describe('toast store', () => {
     expect(messages()).toEqual([]);
   });
 
-  it(`shows at most ${TOAST_LIMIT}; the oldest goes first and is told why`, () => {
+  it(`shows at most ${TOAST_LIMIT}; later actions wait without evicting earlier ones`, () => {
     const closed: string[] = [];
     for (const n of [1, 2, 3, 4]) toast.info(`m${n}`, { onClose: (r) => closed.push(`m${n}:${r}`) });
-    expect(messages()).toEqual(['m2', 'm3', 'm4']);
-    expect(closed).toEqual(['m1:evicted']);
+    expect(messages()).toEqual(['m1', 'm2', 'm3']);
+    expect(closed).toEqual([]);
+    toast.dismiss(toasts()[0]!.id);expect(messages()).toEqual(['m2','m3','m4']);
   });
 
   it('replaces a toast with the same id in place and restarts its clock', () => {
@@ -189,7 +204,7 @@ describe('ToastRegion', () => {
     const statuses = screen.getAllByRole('status');
     expect(statuses.map((n) => n.textContent)).toEqual(['Archived', 'Partly saved']);
     toast.success('Saved');
-    expect(screen.getAllByRole('status').map((n) => n.textContent)).toEqual(['Partly saved', 'Saved']);
+    expect(screen.getAllByRole('status').map((n) => n.textContent)).toEqual(['Archived', 'Partly saved']);
     for (const s of screen.getAllByRole('status')) {
       expect(polite.contains(s)).toBe(true);
       // Announced once, by the container.
@@ -339,7 +354,8 @@ it('reserves one persistent job slot without increasing the ordinary notificatio
  expect(toasts().filter(item=>!item.persistent)).toHaveLength(TOAST_LIMIT);
  expect(toasts().find(item=>item.id==='job')).toBeDefined();expect(closed).not.toHaveBeenCalled();
  toast.info('Replacement job',{id:'replacement',persistent:true,duration:Infinity});
- expect(toasts().filter(item=>item.persistent)).toHaveLength(1);expect(closed).toHaveBeenCalledWith('evicted');
+ expect(toasts().filter(item=>item.persistent)).toHaveLength(1);expect(closed).not.toHaveBeenCalled();
+ toast.dismiss('job');expect(toasts().find(item=>item.id==='replacement')).toBeDefined();
 });
 
 describe('touch toast dismissal',()=>{

@@ -1,0 +1,22 @@
+import {afterEach,expect,it,vi} from 'vitest';
+const wire=vi.hoisted(()=>({publish:vi.fn(async()=>{}),listener:undefined as undefined|((view:{topic:string;value:unknown})=>void)}));
+vi.mock('../../worker/networkProxy.ts',()=>({sharedWindowId:'this-window',publishSharedView:wire.publish,readSharedView:async()=>null,observeSharedViews:(listener:typeof wire.listener)=>{wire.listener=listener;return()=>{wire.listener=undefined;};}}));
+import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
+import {startSharedToasts} from './shared.ts';
+import {toast,resetToasts,allToasts} from './toast.ts';
+let stop:(()=>void)|undefined;
+afterEach(()=>{stop?.();resetToasts();suspendAccountPreferences();vi.clearAllMocks();});
+it('shares queued actions and retains their one-use callbacks beyond the old 64-action limit',async()=>{
+ activateAccountPreferences('account','shared_toast_authority');stop=startSharedToasts();
+ const runs=Array.from({length:80},()=>vi.fn());
+ runs.forEach((run,i)=>toast.info(`Moved ${i}`,{action:{label:'Undo',run}}));
+ expect(allToasts()).toHaveLength(80);
+ const latest=wire.publish.mock.calls.at(-1) as unknown as [string,{items:{id:string;message:string;action:{token:string}}[]}];
+ expect(latest[1].items).toHaveLength(80);
+ const queued=latest[1].items.find(row=>row.message==='Moved 70')!;
+ wire.listener?.({topic:'toast-action',value:{owner:'this-window',token:queued.action.token}});
+ await Promise.resolve();expect(runs[70]).toHaveBeenCalledOnce();
+ wire.listener?.({topic:'toast-action',value:{owner:'this-window',token:queued.action.token}});
+ await Promise.resolve();expect(runs[70]).toHaveBeenCalledOnce();
+ toast.clear();expect(allToasts()).toHaveLength(0);
+});

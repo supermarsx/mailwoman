@@ -17,10 +17,11 @@ import {alertValue} from '../../api/notificationControls.ts';
 // keeps running through all of that: its deadline is set elsewhere (the
 // server's undo-send hold ends whether or not the pointer rests on it).
 //
-// At most TOAST_LIMIT toasts are shown; a new one pushes the oldest out.
+// At most TOAST_LIMIT ordinary toasts are shown; additional actions wait
+// in a bounded queue and receive their full display time when promoted.
 // Showing a toast with an `id` that is on screen replaces it in place and
-// restarts its clock; without an `id`, the same tone and text count as the
-// same toast, so a failure repeated five times shows once.
+// restarts its clock. Repeated warnings/errors coalesce; completed actions
+// without an explicit id are independent, even when their wording matches.
 //
 // Module state, so a slice can raise a toast without a component in scope;
 // timers are plain `setTimeout`s, which fake timers drive in tests.
@@ -107,6 +108,9 @@ const pauses = new Set<PauseReason>();
 const [paused, setPaused] = createSignal(false);
 const [regions, setRegions] = createSignal(0);
 let seq = 0;
+const idPrefix=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+let waiting:ToastItem[]=[];
+const MAX_WAITING=200;
 export type ToastEvent={kind:'show';item:ToastItem;options:ToastOptions}|{kind:'dismiss';id:string;reason:ToastCloseReason}|{kind:'clear'};
 const observers=new Set<(event:ToastEvent)=>void>();
 export function observeToastEvents(listener:(event:ToastEvent)=>void):()=>void{observers.add(listener);return()=>observers.delete(listener);}
@@ -142,9 +146,9 @@ function show(tone: ToastTone, message: string, opts: ToastOptions = {}): string
   // Raising a notification must not subscribe its caller to the toast list.
   // Resource-error effects would otherwise rerun after their own notification.
   if(!opts.persistent&&!opts.busy&&(opts.respectPreferences||!opts.action&&!opts.secondaryAction&&!opts.countdown)&&(!alertValue('notifications.toasts.enabled',true)||!alertValue(`notifications.toasts.${tone}`,true)))return opts.id??`muted:${++seq}`;
-  const list = untrack(items);
+  const list = [...untrack(items),...waiting];
   const id =
-    opts.id ?? list.find((i) => i.id.startsWith('auto:') && i.tone === tone && i.message === message)?.id ?? `auto:${++seq}`;
+    opts.id ?? ((tone==='warning'||tone==='error')?list.find((i) => i.id.startsWith('auto:') && i.tone === tone && i.message === message)?.id:undefined) ?? `auto:${idPrefix}:${++seq}`;
   const item: ToastItem = {
     id,
     persistent: opts.persistent === true,
@@ -162,21 +166,27 @@ function show(tone: ToastTone, message: string, opts: ToastOptions = {}): string
   if (old !== undefined) clearTimeout(old.handle);
   clocks.set(id, { left: item.duration, startedAt: null, handle: undefined, onClose: opts.onClose });
 
-  let evicted: ToastItem[] = [];
-  if (list.some((i) => i.id === id)) {
-    setItems(list.map((i) => (i.id === id ? item : i)));
-  } else {
-    const next = [...list, item];
-    const ordinary = next.filter(entry => !entry.persistent);
-    const jobs = next.filter(entry => entry.persistent);
-    evicted = [...ordinary.slice(0, Math.max(0, ordinary.length - Math.max(1,Math.min(8,alertValue('notifications.toasts.limit',TOAST_LIMIT))))), ...jobs.slice(0, Math.max(0, jobs.length - 1))];
-    const removed = new Set(evicted.map(entry => entry.id));
-    setItems(next.filter(entry => !removed.has(entry.id)));
-  }
-  if (!item.pausable || pauses.size === 0) startClock(id);
-  for (const e of evicted) close(e.id, 'evicted');
+  const next=list.some(entry=>entry.id===id)?list.map(entry=>entry.id===id?item:entry):[...list,item];
+  arrange(next);
   emit({kind:'show',item,options:opts});
   return id;
+}
+
+/** Preserve every action until it has had a chance to be read. Timed actions
+ * with an external deadline continue expiring even while queued. */
+function arrange(all:readonly ToastItem[]):void {
+  const visible:ToastItem[]=[],pending:ToastItem[]=[];
+  const limit=Math.max(1,Math.min(8,alertValue('notifications.toasts.limit',TOAST_LIMIT)));
+  let ordinary=0,jobs=0;
+  for(const item of all){
+    if(item.persistent?jobs<1:ordinary<limit){visible.push(item);if(item.persistent)jobs++;else ordinary++;}
+    else pending.push(item);
+  }
+  waiting=pending.slice(0,MAX_WAITING);
+  setItems(visible);
+  for(const item of waiting){if(item.pausable)stopClock(item.id);else startClock(item.id);}
+  for(const item of visible)if(!item.pausable||pauses.size===0)startClock(item.id);
+  for(const item of pending.slice(MAX_WAITING))close(item.id,'evicted');
 }
 
 function close(id: string, reason: ToastCloseReason): void {
@@ -189,8 +199,9 @@ function close(id: string, reason: ToastCloseReason): void {
 
 /** Take a toast off the screen. Unknown ids are ignored. */
 function dismiss(id: string, reason: ToastCloseReason = 'dismiss'): void {
-  if (!items().some((i) => i.id === id)) return;
-  setItems(items().filter((i) => i.id !== id));
+  const all=[...untrack(items),...waiting];
+  if (!all.some((i) => i.id === id)) return;
+  arrange(all.filter((i)=>i.id!==id));
   close(id, reason);
   emit({kind:'dismiss',id,reason});
 }
@@ -213,8 +224,8 @@ export const toast = {
   },
   /** Close every toast (sign-out, tests). */
   clear(): void {
-    const ids = items().map((i) => i.id);
-    setItems([]);
+    const ids = [...items(),...waiting].map((i) => i.id);
+    waiting=[];setItems([]);
     for (const id of ids) close(id, 'cleared');
     emit({kind:'clear'});
   },
@@ -222,6 +233,8 @@ export const toast = {
 
 /** The toasts on screen, oldest first. */
 export const toasts: Accessor<readonly ToastItem[]> = items;
+/** Bounded shared snapshot includes queued actions as well as visible alerts. */
+export const allToasts=():readonly ToastItem[]=>[...items(),...waiting];
 
 /** Stop (`on`) or restart (`!on`) the clocks for one reason; they run while no reason holds. */
 export function setToastPause(reason: PauseReason, on: boolean): void {
