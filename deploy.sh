@@ -43,6 +43,8 @@ ACME_CA=
 ACME_CA_ROOT=
 MEMORY_LIMIT=
 CPU_LIMIT=
+DEFAULT_MEMORY_LIMIT=4g
+DEFAULT_CPU_LIMIT=4
 SIGNATURE_IDENTITY=
 SIGNATURE_ISSUER=
 UPSTREAM_DEFAULT=
@@ -815,8 +817,8 @@ initialize() {
     [[ ${#key} == 64 && ${#password} == 48 && ${#metrics} == 64 && ${#admin_path} == 20 && $admin_user =~ ^admin-[0-9a-f]{12}$ ]] || die "Failed to generate secrets"
     # New installations get the Helm chart's limits; deploy.env files written
     # before these keys existed keep running without one.
-    MEMORY_LIMIT=4g
-    CPU_LIMIT=4
+    MEMORY_LIMIT=$DEFAULT_MEMORY_LIMIT
+    CPU_LIMIT=$DEFAULT_CPU_LIMIT
     write_config > "$STATE/deploy.env"
     cat > "$STATE/app.env" <<EOF
 # Raw Docker environment: values are literal; do not quote or escape dollars.
@@ -1827,7 +1829,7 @@ case "$ACTION" in
         unlimited=
         [[ -n $MEMORY_LIMIT ]] || unlimited=memory
         [[ -n $CPU_LIMIT ]] || unlimited+="${unlimited:+ or }CPU"
-        [[ -z $unlimited ]] || log "No $unlimited limit for the app: MEMORY_LIMIT and CPU_LIMIT in $STATE/deploy.env set them (new installations get 1g and 2)"
+        [[ -z $unlimited ]] || log "No $unlimited limit for the app: MEMORY_LIMIT and CPU_LIMIT in $STATE/deploy.env set them (new installations get $DEFAULT_MEMORY_LIMIT and $DEFAULT_CPU_LIMIT)"
         POSTGRES_VOLUME=${POSTGRES_VOLUME:-${PROJECT}_postgres}
         if [[ $STACK == full && ! -f $ACTIVE/release.env ]] && docker volume inspect "$POSTGRES_VOLUME" >/dev/null 2>&1; then
             die "PostgreSQL volume $POSTGRES_VOLUME already exists without this deployment's state; recover its original state or choose another project"
