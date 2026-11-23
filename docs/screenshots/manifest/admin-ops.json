@@ -1,0 +1,2866 @@
+{
+  "defaults": {
+    "stack": "E",
+    "session": "admin",
+    "theme": "dark",
+    "viewport": "desktop"
+  },
+  "entries": [
+    {
+      "id": "opsc-plugins-list",
+      "page": "admin/plugins.md",
+      "seed": [
+        "opsc-plugins"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/plugins"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@plugins-admin-register-heading"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "Rspamd spam classifier",
+            "exact": false,
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Plugins page of the administration console with the registered plugins, their trust, whether they are running and their approval, and the Register a plugin button."
+    },
+    {
+      "id": "opsc-webhooks-list",
+      "page": "admin/webhooks.md",
+      "seed": [
+        "opsc-webhooks"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/integrations/webhooks"
+        },
+        {
+          "waitFor": {
+            "text": "Filing robot",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Webhooks tab of Integrations with one outbound and one inbound webhook listed above the Add a webhook form."
+    },
+    {
+      "id": "opsc-assist-screen",
+      "page": "admin/ai-assistant.md",
+      "seed": [
+        "opsc-assist"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 2800
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/ai-assistant"
+        },
+        {
+          "waitFor": {
+            "text": "@assist-admin-endpoint",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@assist-profiles-title",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The AI assistant page of the administration console: the running status, the endpoint, the capabilities, the data limits, the rate limit and the provider profiles."
+    },
+    {
+      "id": "opsc-ui-plugins-list",
+      "page": "admin/ui-plugins.md",
+      "seed": [
+        "opsc-ui-plugin"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/ui-plugins"
+        },
+        {
+          "waitFor": {
+            "text": "Demo panel",
+            "first": true
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The UI plugins page listing one registered plugin with its signature state and its approval."
+    },
+    {
+      "id": "opsc-settings-push",
+      "page": "admin/notifications.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/settings/notifications.pushAllowed"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-settings-key-notifications-push-allowed",
+            "first": true
+          }
+        },
+        {
+          "waitForHidden": {
+            "text": "Loading…",
+            "first": true
+          }
+        },
+        {
+          "wait": 800
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "main"
+        },
+        "padding": 8
+      },
+      "alt": "The setting Background push notifications allowed in the console's Settings, with its value for the whole server, per domain and per user."
+    },
+    {
+      "id": "branding-screen",
+      "page": "admin/branding.md",
+      "seed": [
+        "opsb-branding"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/branding"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-branding-title"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Branding screen of the administration console, with the product name and sign-in notice at the top and one section for each image."
+    },
+    {
+      "id": "package-tracking-screen",
+      "page": "admin/package-tracking.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/package-tracking"
+        },
+        {
+          "waitFor": {
+            "text": "@packages-admin-title"
+          }
+        }
+      ],
+      "shot": "full",
+      "alt": "The Package tracking screen of the console with the AfterShip provider form."
+    },
+    {
+      "id": "composer-features-card",
+      "page": "admin/composer-features.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/settings"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-settings-title"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-settings-search",
+            "value": "compose"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@cf-admin-title"
+          }
+        },
+        {
+          "scroll": {
+            "text": "@cf-admin-title",
+            "block": "start"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": "full",
+      "alt": "The Composer features card in the Settings screen."
+    },
+    {
+      "id": "opsc-plugins-register",
+      "page": "admin/plugins.md",
+      "seed": [
+        "opsc-plugins"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/plugins/+register"
+        },
+        {
+          "waitFor": {
+            "text": "@plugins-admin-register-heading",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "main"
+        },
+        "padding": 8
+      },
+      "alt": "The Register a plugin form with the Component choice, the plugin id, and the capabilities and hosts fields."
+    },
+    {
+      "id": "opsc-plugins-detail",
+      "page": "admin/plugins.md",
+      "seed": [
+        "opsc-plugins"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1500
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/plugins/spam-rspamd"
+        },
+        {
+          "waitFor": {
+            "text": "@plugins-admin-panel-classifier",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "testid": "plugin-card"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "heading",
+            "name": "@plugins-admin-panel-status"
+          },
+          "place": "left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "heading",
+            "name": "@plugins-admin-grants-heading"
+          },
+          "place": "left"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "heading",
+            "name": "@plugins-admin-panel-network"
+          },
+          "place": "left"
+        },
+        {
+          "n": 4,
+          "target": {
+            "role": "heading",
+            "name": "@plugins-admin-panel-classifier"
+          },
+          "place": "left"
+        }
+      ],
+      "alt": "The page of the Rspamd plugin with markers on Status, Granted capabilities, Network and limits and Spam classifier."
+    },
+    {
+      "id": "opsc-webhooks-add",
+      "page": "admin/webhooks.md",
+      "seed": [
+        "opsc-webhooks"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1300
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/integrations/webhooks"
+        },
+        {
+          "waitFor": {
+            "text": "Filing robot",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "form",
+          "name": "@admin-webhooks-add"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "radio",
+            "name": "@admin-webhooks-direction-outbound",
+            "exact": false
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@admin-webhooks-add-account"
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 3,
+          "target": {
+            "label": "@admin-webhooks-add-url"
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 4,
+          "target": {
+            "role": "button",
+            "name": "@admin-webhooks-add-submit"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The Add a webhook form for an outbound webhook, with markers on the direction, the account, the URL and the Create webhook button."
+    },
+    {
+      "id": "opsc-webhooks-secret",
+      "page": "admin/webhooks.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "isolate": true,
+      "viewport": {
+        "width": 1440,
+        "height": 1400
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/integrations/webhooks"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-webhooks-add",
+            "first": true
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-webhooks-add-account",
+            "value": "alex@example.com"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-webhooks-add-label",
+            "value": "Ticket desk"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-webhooks-add-url",
+            "value": "https://example.org/hooks/mailwoman"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-webhooks-add-submit"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-webhooks-secret-once",
+            "first": true
+          }
+        },
+        {
+          "scroll": {
+            "role": "button",
+            "name": "@admin-webhooks-secret-done"
+          }
+        }
+      ],
+      "mask": [
+        {
+          "testid": "admin-webhooks-secret-value"
+        }
+      ],
+      "shot": {
+        "element": {
+          "testid": "admin-webhooks-secret"
+        },
+        "padding": 8
+      },
+      "alt": "The secret of a new webhook, hidden here, with the line saying it is not shown again, how deliveries are signed, and the button I have copied it."
+    },
+    {
+      "id": "opsa-observability-overview",
+      "page": "admin/observability.md",
+      "seed": [
+        "opsa-observed"
+      ],
+      "steps": [
+        {
+          "wait": 32000
+        },
+        {
+          "goto": "{admin}#/observability"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-stats-group-traffic"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-ct-group",
+            "first": true
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "mask": [
+        {
+          "role": "paragraph",
+          "hasText": "60 seconds per bucket"
+        },
+        {
+          "role": "paragraph",
+          "hasText": "History covers"
+        }
+      ],
+      "shot": "full",
+      "alt": "The Overview tab of Observability: the tab strip, the period control, notes about what the figures mean, and the first key figures for traffic and client load times."
+    },
+    {
+      "id": "opsa-observability-tabs",
+      "page": "admin/observability.md",
+      "seed": [
+        "opsa-observed"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/observability"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-stats-group-traffic"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "navigation",
+          "name": "@admin-obs-title"
+        },
+        "padding": 6
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "link",
+            "name": "@admin-obs-overview",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-obs-title"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "link",
+            "name": "@admin-obs-audit",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-obs-title"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "link",
+            "name": "@admin-obs-telemetry-open",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-obs-title"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 4,
+          "target": {
+            "role": "link",
+            "name": "@admin-obs-client-errors",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-obs-title"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 5,
+          "target": {
+            "role": "link",
+            "name": "@admin-db-title",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-obs-title"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 6,
+          "target": {
+            "role": "link",
+            "name": "@admin-resources-title",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-obs-title"
+            }
+          },
+          "place": "bottom"
+        }
+      ],
+      "alt": "The six tabs of Observability with markers 1 to 6: Overview, Audit log, Configure operational telemetry, Client errors, Database and Resources."
+    },
+    {
+      "id": "opsa-observability-client-timing",
+      "page": "admin/observability.md",
+      "seed": [
+        "opsa-observed"
+      ],
+      "steps": [
+        {
+          "wait": 32000
+        },
+        {
+          "goto": "{admin}#/observability"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-ct-group"
+          }
+        },
+        {
+          "scroll": {
+            "role": "heading",
+            "name": "@admin-ct-group",
+            "block": "start"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": -8,
+          "y": -8,
+          "width": 1116,
+          "height": 270,
+          "relativeTo": {
+            "role": "heading",
+            "name": "@admin-ct-group"
+          }
+        }
+      },
+      "alt": "The Client load times group of key figures: median, 95th and 99th percentile for time to usable, first contentful paint, largest contentful paint and page load, with the number of samples under each."
+    },
+    {
+      "id": "compose-ribbon",
+      "page": "deploy/composer-ribbon.md",
+      "session": "user",
+      "seed": [
+        "mail-basic"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "textbox",
+            "name": "@mail-compose-subject"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": "full",
+      "alt": "A new message with the composer ribbon open on the Format text tab."
+    },
+    {
+      "id": "outbox-screen",
+      "page": "admin/outbox-recall.md",
+      "session": "user",
+      "seed": [
+        "opsb-hold"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "textbox",
+            "name": "@mail-compose-subject"
+          }
+        },
+        {
+          "fill": {
+            "role": "combobox",
+            "name": "@mail-compose-to",
+            "value": "priya.raman@example.com"
+          }
+        },
+        {
+          "press": {
+            "role": "combobox",
+            "name": "@mail-compose-to",
+            "key": "Enter"
+          }
+        },
+        {
+          "fill": {
+            "role": "textbox",
+            "name": "@mail-compose-subject",
+            "value": "Booking page: cancellation text"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose-send"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@send-queued-undo"
+          }
+        },
+        {
+          "click": {
+            "text": "@mail-outbox-label",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@outbox-recall-edit"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 1440,
+          "height": 830
+        }
+      },
+      "alt": "The Outbox screen with one message waiting to send, its status, its Send now, Recall and edit and Cancel buttons, and the Outbox count in the folder list.",
+      "isolate": true,
+      "mask": [
+        {
+          "text": "Sends in",
+          "exact": false
+        }
+      ]
+    },
+    {
+      "id": "opsc-assist-endpoint",
+      "page": "admin/ai-assistant.md",
+      "seed": [
+        "opsc-assist"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 2800
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/ai-assistant"
+        },
+        {
+          "waitFor": {
+            "text": "@assist-admin-endpoint",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@assist-admin-endpoint"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@assist-admin-kind"
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@assist-admin-base-url"
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@assist-admin-api-key-remove"
+          },
+          "place": "right"
+        },
+        {
+          "n": 4,
+          "target": {
+            "label": "@assist-admin-chat-model"
+          },
+          "place": "top-left"
+        }
+      ],
+      "alt": "The Endpoint group of the AI assistant page: endpoint type, base URL, the stored API key, and the chat, embedding and speech-to-text models."
+    },
+    {
+      "id": "opsc-assist-limits",
+      "page": "admin/ai-assistant.md",
+      "seed": [
+        "opsc-assist"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 2800
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/ai-assistant"
+        },
+        {
+          "waitFor": {
+            "text": "@assist-admin-rate-heading",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@assist-admin-rate-heading"
+        },
+        "padding": 8
+      },
+      "alt": "The Rate limit group of the AI assistant page with the text that the server applies only MW_ASSIST_RATE_LIMIT_PER_MIN and the Requests per minute field."
+    },
+    {
+      "id": "opsc-assist-profiles",
+      "page": "admin/ai-assistant.md",
+      "seed": [
+        "opsc-assist"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 2800
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/ai-assistant"
+        },
+        {
+          "waitFor": {
+            "text": "@assist-profiles-title",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@assist-profiles-title",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The Provider profiles section of the AI assistant page with no profiles yet and the Add profile button."
+    },
+    {
+      "id": "compose-view-group",
+      "page": "deploy/composer-ribbon.md",
+      "session": "user",
+      "seed": [
+        "mail-basic"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "textbox",
+            "name": "@mail-compose-subject"
+          }
+        },
+        {
+          "click": {
+            "testid": "rt-group-view"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@mail-compose-dark-background"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 1000,
+          "y": 300,
+          "width": 420,
+          "height": 210
+        }
+      },
+      "alt": "The View group of the composer ribbon opened, showing the Dark background button and the Editor zoom selector."
+    },
+    {
+      "id": "compose-send-later",
+      "page": "admin/outbox-recall.md",
+      "session": "user",
+      "seed": [
+        "mail-basic"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "textbox",
+            "name": "@mail-compose-subject"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@send-later-menu"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@send-later-preset-hour"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 235,
+          "y": 84,
+          "width": 360,
+          "height": 260
+        }
+      },
+      "alt": "The Send later menu under the arrow beside Send: In 1 hour, Later today 17:00, Tomorrow morning 09:00, Monday morning 09:00 and Pick date and time."
+    },
+    {
+      "id": "compose-drafts-popup",
+      "page": "deploy/account-drafts.md",
+      "session": "user",
+      "seed": [
+        "mail-basic"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "textbox",
+            "name": "@mail-compose-subject"
+          }
+        },
+        {
+          "fill": {
+            "role": "combobox",
+            "name": "@mail-compose-to",
+            "value": "priya.raman@example.com"
+          }
+        },
+        {
+          "press": {
+            "role": "combobox",
+            "name": "@mail-compose-to",
+            "key": "Enter"
+          }
+        },
+        {
+          "fill": {
+            "role": "textbox",
+            "name": "@mail-compose-subject",
+            "value": "Booking page: cancellation text"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-draft-save-now"
+          }
+        },
+        {
+          "wait": 2500
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose-drafts",
+            "last": true
+          }
+        },
+        {
+          "waitFor": {
+            "text": "Booking page: cancellation text",
+            "last": true
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 880,
+          "y": 56,
+          "width": 546,
+          "height": 280
+        }
+      },
+      "mask": [
+        {
+          "text": "in 8 months"
+        }
+      ],
+      "alt": "The Drafts list of the composer with the Account drafts tab selected and one account draft, marked Open now and Account."
+    },
+    {
+      "id": "opsc-settings-quiet",
+      "page": "admin/notifications.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/settings/push.quietHours"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-settings-key-push-quiet-hours",
+            "first": true
+          }
+        },
+        {
+          "waitForHidden": {
+            "text": "Loading…",
+            "first": true
+          }
+        },
+        {
+          "wait": 800
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "main"
+        },
+        "padding": 8
+      },
+      "alt": "The setting Push quiet hours in the console's Settings."
+    },
+    {
+      "id": "opsa-observability-saved-stats",
+      "page": "admin/metrics-persistence.md",
+      "seed": [
+        "opsa-observed"
+      ],
+      "steps": [
+        {
+          "wait": 32000
+        },
+        {
+          "goto": "{admin}#/observability"
+        },
+        {
+          "waitFor": {
+            "testid": "persisted-clientTiming"
+          }
+        },
+        {
+          "waitFor": {
+            "testid": "persisted-badge"
+          }
+        },
+        {
+          "scroll": {
+            "testid": "persisted-clientTiming",
+            "block": "start"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "mask": [
+        {
+          "testid": "persisted-last-flush"
+        },
+        {
+          "testid": "persisted-since"
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 900,
+          "height": 210,
+          "relativeTo": {
+            "testid": "persisted-clientTiming"
+          }
+        }
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@mp-range-24h"
+          },
+          "place": "top"
+        },
+        {
+          "n": 2,
+          "target": {
+            "testid": "persisted-badge"
+          },
+          "place": "bottom"
+        }
+      ],
+      "alt": "The top of the Saved statistics card on the Observability Overview, with markers 1 and 2 on the range buttons and the Saved badge with the row count."
+    },
+    {
+      "id": "opsa-observability-not-found",
+      "page": "admin/latency-metrics.md",
+      "seed": [
+        "opsa-observed"
+      ],
+      "steps": [
+        {
+          "goto": "/api/old-endpoint/1234"
+        },
+        {
+          "goto": "/api/old-endpoint/5678"
+        },
+        {
+          "goto": "/api/does-not-exist-demo"
+        },
+        {
+          "wait": 20000
+        },
+        {
+          "goto": "{admin}#/observability"
+        },
+        {
+          "waitFor": {
+            "testid": "not-found-paths"
+          }
+        },
+        {
+          "scroll": {
+            "testid": "not-found-paths",
+            "block": "start"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "mask": [
+        {
+          "role": "paragraph",
+          "hasText": "paths per hour, from"
+        }
+      ],
+      "shot": {
+        "element": {
+          "testid": "not-found-paths"
+        },
+        "padding": 8
+      },
+      "alt": "The Most frequent not-found paths table: each row has the method, the redacted path and a count, with the app's own clients listed apart from other traffic."
+    },
+    {
+      "id": "opsa-observability-client-errors",
+      "page": "admin/observability.md",
+      "seed": [
+        "opsa-observed"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/observability/client-errors"
+        },
+        {
+          "waitFor": {
+            "role": "link",
+            "name": "TypeError"
+          }
+        },
+        {
+          "select": {
+            "label": "@ce-filter-build",
+            "value": "demo-build",
+            "exact": false
+          }
+        },
+        {
+          "waitFor": {
+            "role": "link",
+            "name": "NetworkError"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "mask": [
+        {
+          "css": "table td:nth-child(5)"
+        },
+        {
+          "css": "table td:nth-child(6)"
+        }
+      ],
+      "shot": "full",
+      "alt": "The Client errors tab: filters for status, build, location and age, buttons to export CSV or JSON, and a table of two error groups."
+    },
+    {
+      "id": "opsa-logs-authentication",
+      "page": "admin/logs.md",
+      "seed": [
+        "opsa-observed"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/logs"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-auth-title",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "text": "admin-local",
+            "first": true
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "mask": [
+        {
+          "css": "table tbody td:first-child"
+        }
+      ],
+      "shot": "full",
+      "alt": "The Authentication logs tab of Logs: the filter form and a table of sign-in attempts with area, backend, result, reason, method and source address."
+    },
+    {
+      "id": "opsa-logs-filters",
+      "page": "admin/logs.md",
+      "seed": [
+        "opsa-observed"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/logs"
+        },
+        {
+          "waitFor": {
+            "text": "admin-local",
+            "first": true
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "button",
+          "name": "@admin-auth-apply",
+          "closest": "form"
+        },
+        "padding": 10
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-auth-search",
+            "exact": false
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@admin-auth-surface",
+            "exact": false
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 3,
+          "target": {
+            "label": "@admin-auth-result",
+            "exact": false
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 4,
+          "target": {
+            "label": "@admin-auth-backend",
+            "exact": false
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 5,
+          "target": {
+            "label": "@admin-auth-reason",
+            "exact": false
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 6,
+          "target": {
+            "role": "button",
+            "name": "@admin-auth-apply"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The filter form of the Authentication logs with markers 1 to 6 on the search box, Sign-in area, Result, Backend, Reason and Apply filters."
+    },
+    {
+      "id": "opsa-logs-application",
+      "page": "admin/logs.md",
+      "seed": [
+        "opsa-observed"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/logs/application"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-app-logs-title",
+            "first": true
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "mask": [
+        {
+          "css": "table tbody td:first-child"
+        }
+      ],
+      "shot": "full",
+      "alt": "The Application logs tab: a note on what is captured, the count of discarded entries, search, component and severity filters, and warnings captured since the server started."
+    },
+    {
+      "id": "opsa-diagnostics-overview",
+      "page": "admin/diagnostics.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/diagnostics"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-diagx-run-all"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-diagx-run-all"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-diagx-run-all-done",
+            "first": true
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "mask": [
+        {
+          "css": "dl dd"
+        }
+      ],
+      "shot": "full",
+      "alt": "The Overview tab of Diagnostics after Run all checks: one tile per group with counts of OK, warning, failed and not run checks, and the Needs attention list.",
+      "hide": [
+        {
+          "testid": "toast-region"
+        }
+      ]
+    },
+    {
+      "id": "opsa-diagnostics-tabs",
+      "page": "admin/diagnostics.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/diagnostics"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-diagx-run-all"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "navigation",
+          "name": "@admin-diagx-tabs"
+        },
+        "padding": 6
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "link",
+            "name": "@admin-diagx-tab-overview",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-diagx-tabs"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "link",
+            "name": "@admin-diagx-tab-server",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-diagx-tabs"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "link",
+            "name": "@admin-diagx-tab-connectivity",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-diagx-tabs"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 4,
+          "target": {
+            "role": "link",
+            "name": "@admin-diagx-tab-backends",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-diagx-tabs"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 5,
+          "target": {
+            "role": "link",
+            "name": "@admin-diagx-tab-posture",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-diagx-tabs"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 6,
+          "target": {
+            "role": "link",
+            "name": "@admin-diagx-tab-tools",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-diagx-tabs"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 7,
+          "target": {
+            "role": "link",
+            "name": "@admin-diagx-tab-history",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-diagx-tabs"
+            }
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 8,
+          "target": {
+            "role": "link",
+            "name": "@admin-diagx-tab-report",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-diagx-tabs"
+            }
+          },
+          "place": "bottom"
+        }
+      ],
+      "alt": "The eight tabs of Diagnostics with markers 1 to 8: Overview, Server, Connectivity, Mail backends, Security posture, Tools, History and Report."
+    },
+    {
+      "id": "opsa-diagnostics-posture",
+      "page": "admin/diagnostics.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/diagnostics"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-diagx-run-all"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-diagx-run-all"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-diagx-run-all-done",
+            "first": true
+          }
+        },
+        {
+          "goto": "{admin}#/diagnostics/posture"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-diagx-tab-posture-intro"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": "full",
+      "alt": "The Security posture tab of Diagnostics after a run: rows for HTTPS, secure cookies, HSTS, CSRF protection and the other posture checks, each with a status chip, its result and, for a warning, how to fix it.",
+      "hide": [
+        {
+          "testid": "toast-region"
+        }
+      ]
+    },
+    {
+      "id": "opsa-maintenance-mode",
+      "page": "admin/maintenance.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/maintenance"
+        },
+        {
+          "waitFor": {
+            "text": "@maintenance-mode-inactive"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": "full",
+      "alt": "The Maintenance mode tab: a status line saying webmail is accepting requests, the Pause user access switch, a message box, the retry delay and Save."
+    },
+    {
+      "id": "opsa-maintenance-mode-form",
+      "page": "admin/maintenance.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/maintenance"
+        },
+        {
+          "waitFor": {
+            "text": "@maintenance-mode-inactive"
+          }
+        },
+        {
+          "fill": {
+            "label": "@maintenance-mode-message",
+            "value": "Mail is paused until 14:00 UTC while the database is repaired."
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "checkbox",
+          "name": "@maintenance-mode-enabled",
+          "closest": "form"
+        },
+        "padding": 10
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "checkbox",
+            "name": "@maintenance-mode-enabled"
+          },
+          "place": "left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "textbox",
+            "name": "@maintenance-mode-message"
+          },
+          "place": "left"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "spinbutton",
+            "name": "@maintenance-mode-retry"
+          },
+          "place": "left"
+        },
+        {
+          "n": 4,
+          "target": {
+            "role": "button",
+            "name": "@common-save"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The Maintenance mode form with markers 1 to 4 on the Pause user access switch, the message for users with a sample text, the retry delay and Save."
+    },
+    {
+      "id": "opsa-maintenance-database",
+      "page": "admin/database-maintenance.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/maintenance/database"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-db-background-title"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-db-background-run"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "Scanned:",
+            "exact": false,
+            "first": true
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "mask": [
+        {
+          "role": "paragraph",
+          "hasText": "Updated:"
+        },
+        {
+          "role": "paragraph",
+          "hasText": "Next batch:"
+        }
+      ],
+      "shot": "full",
+      "alt": "The Database tab of Maintenance: online SQLite conversion, retained databases, and background database maintenance with Configure maintenance and Run a batch."
+    },
+    {
+      "id": "opsa-maintenance-repair-commands",
+      "page": "admin/database-maintenance.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/maintenance/jobs"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-db-offline-cleanup"
+          }
+        },
+        {
+          "scroll": {
+            "role": "heading",
+            "name": "@admin-db-offline-cleanup",
+            "block": "start"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-db-offline-cleanup",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The Offline database repair card on the Repair jobs tab: the preview and apply commands with a Copy command button each, and the optional flags."
+    },
+    {
+      "id": "opsa-database-storage",
+      "page": "admin/database-maintenance.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/observability/database"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-db-storage"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "mask": [
+        {
+          "role": "paragraph",
+          "hasText": "Updated:"
+        }
+      ],
+      "shot": "full",
+      "alt": "The Database tab of Observability: file size, occupied pages, reusable space and write-ahead log size, with connection details and pool usage below."
+    },
+    {
+      "id": "opsa-transfer-export",
+      "page": "admin/configuration-transfer.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/configuration-transfer"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-transfer-download"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": "full",
+      "alt": "Configuration and backups with the Export settings tab open: a note on what portable files contain, three tabs, and the Download settings button."
+    },
+    {
+      "id": "opsa-transfer-nextcloud",
+      "page": "admin/configuration-transfer.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/configuration-transfer"
+        },
+        {
+          "click": {
+            "role": "tab",
+            "name": "@admin-transfer-backups"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-ncbackup-title"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-ncbackup-title",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The Settings backups to Nextcloud form: server URL, username, app password, target folder, copies to keep, keep days and private certificate authority, with Save destination, Test connection and Back up now.",
+      "viewport": {
+        "width": 1440,
+        "height": 1400
+      }
+    },
+    {
+      "id": "opsa-hosting-list",
+      "page": "admin/hosting.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/integrations/hosting"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-hosting-list-empty"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": "full",
+      "alt": "The Hosting panels page under Integrations: the description, the New hosting connection button, and the empty list."
+    },
+    {
+      "id": "opsa-hosting-form",
+      "page": "admin/hosting.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/integrations/hosting"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-hosting-new"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-hosting-new",
+            "first": true
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": "full",
+      "alt": "The New hosting connection form: connection name, provider, HTTPS panel origin, credential choice, connection route and TLS options."
+    },
+    {
+      "id": "opsa-server-metadata",
+      "page": "admin/server-metadata.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/server-metadata"
+        },
+        {
+          "waitFor": {
+            "text": "@admin-servermeta-select-prompt"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": "full",
+      "alt": "The Server metadata page: an Account selector and the prompt to select an account before its annotations are shown."
+    },
+    {
+      "id": "opsa-config-effective",
+      "page": "admin/config-catalogue.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/config"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-config-table"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": "full",
+      "alt": "The Effective configuration page: the search and filter row and a table of settings with their reported value, source and how a change applies."
+    },
+    {
+      "id": "opsc-ui-plugins-register",
+      "page": "admin/ui-plugins.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 1230
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/ui-plugins/+register"
+        },
+        {
+          "waitFor": {
+            "text": "@plugins-admin-ui-register-heading",
+            "first": true
+          }
+        },
+        {
+          "fill": {
+            "label": "@plugins-admin-ui-manifest-paste",
+            "value": "{\"id\":\"demo-panel\",\"name\":\"Demo panel\",\"version\":\"1.0.0\",\"signature\":null,\"capabilities\":[\"ui:settings-panel\"],\"extensionPoints\":[\"settings-panel\"]}"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@plugins-admin-ui-preview",
+            "first": true
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "main"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@plugins-admin-ui-manifest-paste"
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "text": "@plugins-admin-ui-preview",
+            "first": true
+          },
+          "place": "top-left"
+        }
+      ],
+      "alt": "The Register a UI plugin form with a manifest pasted in and the preview of what the manifest declares."
+    },
+    {
+      "id": "opsa-config-filters",
+      "page": "admin/config-catalogue.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/config"
+        },
+        {
+          "waitFor": {
+            "role": "region",
+            "name": "@admin-config-table"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "label": "@admin-config-search",
+            "exact": false
+          },
+          {
+            "label": "@admin-config-group",
+            "exact": false
+          },
+          {
+            "label": "@admin-config-source",
+            "exact": false
+          }
+        ],
+        "padding": 10
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-config-search",
+            "exact": false
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@admin-config-group",
+            "exact": false
+          },
+          "place": "top-left"
+        },
+        {
+          "n": 3,
+          "target": {
+            "label": "@admin-config-source",
+            "exact": false
+          },
+          "place": "top-left"
+        }
+      ],
+      "alt": "The search and filter row of Effective configuration with markers 1 to 3 on Search configuration, Area and Source."
+    },
+    {
+      "id": "branding-text",
+      "page": "admin/branding.md",
+      "seed": [
+        "opsb-branding"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/branding"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-branding-title"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-branding-text",
+          "closest": "section"
+        },
+        "padding": 12
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-branding-name"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@admin-branding-notice"
+          },
+          "place": "bottom"
+        }
+      ],
+      "alt": "The Name and sign-in notice section of the Branding screen, with the product name and the sign-in notice filled in."
+    },
+    {
+      "id": "branding-logo",
+      "page": "admin/branding.md",
+      "seed": [
+        "opsb-branding"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/branding"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-branding-title"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-branding-logo",
+          "closest": "section"
+        },
+        "padding": 12
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "text": "@admin-branding-current-default",
+            "first": true,
+            "within": {
+              "role": "heading",
+              "name": "@admin-branding-logo",
+              "closest": "section"
+            }
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "css": "input[type=file]",
+            "within": {
+              "role": "heading",
+              "name": "@admin-branding-logo",
+              "closest": "section"
+            }
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@admin-branding-remove",
+            "within": {
+              "role": "heading",
+              "name": "@admin-branding-logo",
+              "closest": "section"
+            }
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The Logo section: a thumbnail of the current image, the file chooser and the Restore default button."
+    },
+    {
+      "id": "branding-app-icons",
+      "page": "admin/branding.md",
+      "seed": [
+        "opsb-branding"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/branding"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-branding-title"
+          }
+        },
+        {
+          "waitFor": {
+            "css": "[data-admin-subsection]",
+            "hasText": "Maskable installed app icon"
+          }
+        },
+        {
+          "scroll": {
+            "css": "[data-admin-subsection]",
+            "hasText": "Maskable installed app icon",
+            "block": "center"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "css": "[data-admin-subsection]",
+          "hasText": "Maskable installed app icon"
+        },
+        "padding": 12
+      },
+      "alt": "The Maskable installed app icon (512 px) section, with its size and 80 percent circle guidance."
+    },
+    {
+      "id": "package-tracking-form",
+      "page": "admin/package-tracking.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/package-tracking"
+        },
+        {
+          "waitFor": {
+            "text": "@packages-admin-provider"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@packages-admin-provider",
+          "closest": "section"
+        },
+        "padding": 12
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@packages-admin-enabled"
+          },
+          "place": "left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "css": "input[type=password]",
+            "within": {
+              "role": "heading",
+              "name": "@packages-admin-provider",
+              "closest": "section"
+            }
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "css": "input[type=number]",
+            "within": {
+              "role": "heading",
+              "name": "@packages-admin-provider",
+              "closest": "section"
+            }
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The AfterShip Tracking card: a checkbox to allow opted-in accounts to contact the provider, the provider API key field and the minimum refresh interval, set to 900 seconds."
+    },
+    {
+      "id": "composer-features-controls",
+      "page": "admin/composer-features.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/settings"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-settings-title"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-settings-search",
+            "value": "compose"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@cf-admin-title"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 0,
+          "y": 0,
+          "width": 1160,
+          "height": 250,
+          "relativeTo": {
+            "testid": "composer-features-admin"
+          }
+        }
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@cf-admin-scope"
+          },
+          "place": "top",
+          "dy": 8
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@cf-presets"
+          },
+          "place": "top",
+          "dy": 8
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@cf-preset-apply"
+          },
+          "place": "top",
+          "dy": 8
+        },
+        {
+          "n": 4,
+          "target": {
+            "css": "[data-feature='format.fontSizeStep'] label:nth-of-type(1)"
+          },
+          "place": "top"
+        },
+        {
+          "n": 5,
+          "target": {
+            "css": "[data-feature='format.fontSizeStep'] label:nth-of-type(2)"
+          },
+          "place": "top"
+        },
+        {
+          "n": 6,
+          "target": {
+            "css": "[data-feature='format.fontSizeStep'] button"
+          },
+          "place": "top"
+        }
+      ],
+      "alt": "The top of the Composer features card: the Applies to and Profiles selectors, the Apply profile button and the first feature row with its Value and Lock for users checkboxes and the Use default button."
+    },
+    {
+      "id": "settings-send-limits",
+      "page": "admin/outbox-recall.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/settings"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-settings-title"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-settings-search",
+            "value": "mail.send"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "mail.send.maxQueued",
+            "first": true
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "table"
+        },
+        "padding": 8
+      },
+      "alt": "The Settings screen searched for mail.send, listing the undo-send window, its maximum, the recall switch, the scheduling horizon and the queue size."
+    },
+    {
+      "id": "settings-receipts",
+      "page": "deploy/read-receipts.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/settings"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-settings-title"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-settings-search",
+            "value": "receipt"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "receipts.dsnAllowed",
+            "first": true
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "table"
+        },
+        "padding": 8
+      },
+      "alt": "The Settings screen searched for receipt, listing the read receipt, delivery notification and scheduled receipt settings."
+    },
+    {
+      "id": "settings-mailer-headers",
+      "page": "deploy/outgoing-header-privacy.md",
+      "seed": [
+        "admin-basic"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/settings"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-settings-title"
+          }
+        },
+        {
+          "fill": {
+            "label": "@admin-settings-search",
+            "value": "mailer"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "privacy.stripMailerHeaders",
+            "first": true
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "table"
+        },
+        "padding": 8
+      },
+      "alt": "The Settings screen searched for mailer, showing the Remove outgoing mailer headers setting switched on by default."
+    },
+    {
+      "id": "compose-ribbon-actions",
+      "page": "deploy/composer-ribbon.md",
+      "session": "user",
+      "seed": [
+        "mail-basic"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "textbox",
+            "name": "@mail-compose-subject"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 235,
+          "y": 84,
+          "width": 1195,
+          "height": 38
+        }
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@mail-compose-send"
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@send-later-menu"
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@mail-draft-discard-action",
+            "exact": false
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 4,
+          "target": {
+            "role": "button",
+            "name": "@mail-draft-save-now"
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 5,
+          "target": {
+            "role": "button",
+            "name": "@mail-compose-drafts",
+            "last": true
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 6,
+          "target": {
+            "role": "button",
+            "name": "@mail-compose-recall"
+          },
+          "place": "bottom"
+        }
+      ],
+      "alt": "The top row of the composer: Send and its Send later arrow on the left, and Discard, Save to Drafts, Drafts and Recall on the right, numbered 1 to 6."
+    },
+    {
+      "id": "outbox-queued",
+      "page": "admin/outbox-recall.md",
+      "session": "user",
+      "seed": [
+        "opsb-hold"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "textbox",
+            "name": "@mail-compose-subject"
+          }
+        },
+        {
+          "fill": {
+            "role": "combobox",
+            "name": "@mail-compose-to",
+            "value": "priya.raman@example.com"
+          }
+        },
+        {
+          "press": {
+            "role": "combobox",
+            "name": "@mail-compose-to",
+            "key": "Enter"
+          }
+        },
+        {
+          "fill": {
+            "role": "textbox",
+            "name": "@mail-compose-subject",
+            "value": "Booking page: cancellation text"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose-send"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@send-queued-undo"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 970,
+          "y": 834,
+          "width": 462,
+          "height": 64
+        }
+      },
+      "alt": "The notice after pressing Send: Message queued, the time left to undo, and the Undo and Send now buttons."
+    },
+    {
+      "id": "outbox-list",
+      "page": "admin/outbox-recall.md",
+      "session": "user",
+      "seed": [
+        "opsb-hold"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "textbox",
+            "name": "@mail-compose-subject"
+          }
+        },
+        {
+          "fill": {
+            "role": "combobox",
+            "name": "@mail-compose-to",
+            "value": "priya.raman@example.com"
+          }
+        },
+        {
+          "press": {
+            "role": "combobox",
+            "name": "@mail-compose-to",
+            "key": "Enter"
+          }
+        },
+        {
+          "fill": {
+            "role": "textbox",
+            "name": "@mail-compose-subject",
+            "value": "Booking page: cancellation text"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-compose-send"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@send-queued-undo"
+          }
+        },
+        {
+          "click": {
+            "text": "@mail-outbox-label",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@outbox-recall-edit"
+          }
+        },
+        {
+          "blur": true
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 240,
+          "y": 134,
+          "width": 1190,
+          "height": 82
+        }
+      },
+      "alt": "One message in the Outbox, marked Sending soon, with its Send now, Recall and edit and Cancel buttons numbered 1 to 3.",
+      "isolate": true,
+      "mask": [
+        {
+          "text": "Sends in",
+          "exact": false
+        }
+      ],
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "button",
+            "name": "@mail-outbox-send-now",
+            "first": true
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@outbox-recall-edit"
+          },
+          "place": "bottom"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@mail-outbox-cancel"
+          },
+          "place": "bottom"
+        }
+      ]
+    },
+    {
+      "id": "reader-list-badge",
+      "page": "deploy/mailing-list-actions.md",
+      "session": "user",
+      "seed": [
+        "mail-basic"
+      ],
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "text": "Spring reading list",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "text": "City Library News",
+            "exact": false,
+            "last": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "Mailing list",
+            "exact": false
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@mailing-list-methods"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": 415,
+          "y": 240,
+          "width": 615,
+          "height": 425
+        }
+      },
+      "alt": "The Mailing list dialog for City Library News: the list name, List-Id and sender, the ways to unsubscribe, and buttons including Unsubscribe and Always keep, numbered 1 to 3.",
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "text": "@mailing-list-methods"
+          },
+          "place": "left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "button",
+            "name": "@mailing-list-unsubscribe"
+          },
+          "place": "left"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@mailing-list-action-keep"
+          },
+          "place": "top"
+        }
+      ]
+    }
+  ]
+}
