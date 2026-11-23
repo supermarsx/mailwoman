@@ -1049,6 +1049,8 @@ const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
     ("mail_data_accounts", "0113: derived process/source DATA identities; destination source-copy triggers create a fresh account incarnation, never copy a prepared-result proof."),
     ("mail_data_rows", "0113: derived per-message DATA revisions; destination source-copy triggers regenerate them. All user-owned Message/envelope/body/meta rows remain copied."),
     ("mail_data_outbox", "0113: coalesced source invalidation hints, not user mail or mutation history. Destination source writes create its own pending hints; source work claims are not transferred."),
+    ("index_publication_journal", "0116: crash-replay hints for the source process's own search index; the destination builds and reconciles its own index, and copying rows would replay keys it never published."),
+    ("index_publication_journal_control", "0116: journal switch; the destination starts with the journal off (absent row) and its own process enables it per MW_INDEX_PUBLICATION_ACK."),
     (
         "ephemeral_state",
         "0097: sealed ceremony state (an in-flight single sign-on redirect) that lives for minutes and is consumed once; it is sealed with the source server key and a person mid-flow starts again after a store move.",
