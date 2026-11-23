@@ -3469,6 +3469,9 @@ async fn jmap_session(
 async fn jmap_session_document(state: &AppState, session: mw_store::Session, scripts_only: bool) -> Response {
     if let Some(engine) = &state.engine {
         if let Err(e) = engine_mode::ensure_account(engine, &session.account_id).await {
+            // A changed published source is classified (refused) here, as in
+            // `jmap_api`, not reported as an upstream error; else a no-op.
+            if let Err(response) = request_inputs::seal().await { return response; }
             tracing::warn!("engine account not available: {e}");
             return upstream_error();
         }
