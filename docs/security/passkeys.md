@@ -9,7 +9,7 @@ and what it does not.
 Users add and remove passkeys in **Settings** → **Security centre** → **Sign-in &
 passkeys** → **Passkeys** (**Add a passkey**).
 
-<!-- screenshot: id=security/passkeys-user-list; screen=Settings > Security centre > Sign-in & passkeys; state=one passkey enrolled; element=Passkeys list with Add a passkey and Remove -->
+![The Passkeys section of the Security centre: the authenticator requirements, a passkey name field and Add a passkey.](/screenshots/security/passkeys-user-list.webp){.mw-crop}
 
 What a passkey does depends on how the server reaches mail:
 
@@ -43,7 +43,7 @@ Administrators enrol and remove passkeys in the console under **My preferences**
 (**Administrator passkeys**, **Add administrator passkey**). Enrolment requires a
 fresh confirmation of the administrator's identity.
 
-<!-- screenshot: id=security/passkeys-admin-preferences; screen=Admin console > My preferences; state=one administrator passkey; element=Administrator passkeys section with Add administrator passkey and recovery code count -->
+![The Administrator passkeys section of My preferences, with no passkey registered.](/screenshots/security/passkeys-admin-preferences.webp){.mw-crop}
 
 - Enrolment and sign-in always require user verification and a discoverable
   credential.
@@ -65,7 +65,7 @@ that account's passkeys with **Admin accounts** → **Password and authenticator
 transaction, deletes the account's passkeys, its recovery codes and its active
 console sessions.
 
-<!-- screenshot: id=security/passkeys-admin-revoke; screen=Admin console > Admin accounts > account detail; state=account with passkeys; element=Password and authenticator section with Revoke all passkeys -->
+![The Password and authenticator group of an administrator's account details: the passkey count, Revoke all passkeys, a new-password field with Reset password and end sessions, Issue a new authenticator secret and Remove authenticator.](/screenshots/security/passkeys-admin-revoke.webp){.mw-crop}
 
 ## What the server verifies
 

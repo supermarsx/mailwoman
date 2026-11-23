@@ -139,7 +139,7 @@ the request is not sent elsewhere.
   reply, or an error code. The provider's error message is not shown, because some
   providers echo part of the key in it. Tests are audited.
 
-<!-- screenshot: id=security/assist-admin-limits; screen=Admin > AI assistant; state=OpenAI-compatible endpoint configured, two capabilities granted, one account listed; element=Data limits group -->
+![The Data limits group of the AI assistant page: account ids whose mail may be sent, folder ids to limit sending to, and the switches that allow end-to-end-encrypted content and attachments, both off.](/screenshots/security/assist-admin-limits.webp){.mw-crop}
 
 Presets for new profiles: OpenAI-compatible (any endpoint), Anthropic
 (`https://api.anthropic.com`), OpenAI, Azure OpenAI, Google Gemini
@@ -169,8 +169,6 @@ withheld, and on each request reports what was sent and what was withheld before
 reply streams in. When auto-tag is granted, the disclosure adds: "Auto-tag is on: each
 time you open a message, its subject and preview are sent to <host> to suggest labels,
 without you selecting anything."
-
-<!-- screenshot: id=security/assist-disclosure; screen=Mailbox > AI assistant panel; state=assistant enabled, disclosure expanded; element=What can leave this device -->
 
 ## Related
 

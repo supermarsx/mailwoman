@@ -1,0 +1,16 @@
+{
+  "_comment": "Security area: one newsletter whose HTML has a remote image and a 1x1 tracking image, for the remote-content banner.",
+  "folders": [],
+  "messages": [
+    {
+      "id": "sec-remote-1",
+      "folder": "Inbox",
+      "from": "newsletter",
+      "to": ["alex"],
+      "date": "2026-03-10T07:15:00Z",
+      "subject": "Spring events at the City Library",
+      "text": "Spring events at the City Library\n\nAuthor talks every Thursday in March. See the full programme on our website.",
+      "html": "<h2>Spring events at the City Library</h2><p><img src=\"https://images.example.net/library/spring-banner.png\" alt=\"Spring programme banner\" width=\"560\" height=\"180\"></p><p>Author talks every Thursday in March. See the full programme on our website.</p><img src=\"https://track.example.net/open.gif?id=8f2c\" width=\"1\" height=\"1\" alt=\"\">"
+    }
+  ]
+}

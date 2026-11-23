@@ -103,7 +103,7 @@ for the classes it lists. The class and the signed-in account's domain pick the 
 no request field, header or destination does. A server process that has not loaded
 the egress configuration refuses every class request rather than sending it direct.
 
-<!-- screenshot: id=security/egress-routes; screen=Admin > egress proxy routes list; state=one global http route and one domain-scoped socks5 route; element=routes table with class lists -->
+![The Outbound proxy routes tab with no routes configured and the Add a route button.](/screenshots/security/egress-routes.webp){.mw-crop}
 
 How the address policy is kept through a proxy:
 
@@ -181,7 +181,7 @@ The reader's remote-content mode is
 | `proxy` | Remote images load through the server for every message, without asking. |
 | `direct` | The browser loads images straight from the sender's servers. Available only when the administrator turns on [`privacy.allowDirect`](/admin/settings#privacy.allowdirect) and the account has [`cap.remote_content.direct`](/admin/settings#cap.remote_content.direct) (both default off); otherwise it behaves as `ask`. |
 
-<!-- screenshot: id=security/remote-images-banner; screen=Mailbox > reader; state=message with blocked remote images and a removed tracker; element=the remote content banner with Show images and More image options -->
+![The remote content notice above a newsletter, with Show images and More image options.](/screenshots/security/remote-images-banner.webp){.mw-crop}
 
 **Through the server** means the reader's browser contacts only Mailwoman. The server
 fetches the image under the address policy above, checks the response type against

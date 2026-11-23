@@ -3,20 +3,23 @@
 Data-loss prevention checks outgoing mail against rules an administrator sets, and
 can warn the sender, refuse the message, or tell an administrator. The checks run on
 the server, in engine mode, when a message is submitted and again just before it is
-handed to the SMTP server. In JMAP-proxy mode the upstream server sends the mail and
-these rules do not apply.
+handed to the SMTP server. In JMAP-proxy mode the upstream server sends the mail, so
+Mailwoman cannot inspect what is actually sent. There, as long as any rule is enabled,
+the server refuses every `EmailSubmission/set` that would send mail through the proxy
+(`403`, `dlpProxyUnsupported`), and refuses it with `503` (`dlpPolicyUnavailable`) when
+the rules cannot be read. With no enabled rule, proxy-mode sending is not checked.
 
 ## Where rules come from
 
 The rules in force are the rules in the `MW_DLP_RULES` environment variable followed
-by the rules stored in the admin security policy (**Security policy** in the admin
+by the rules stored in the admin security policy (**Security centre** → **Security policy** in the admin
 console, or `mailwoman admin security-policy set --dlp-rules-json`). When a stored rule
 has the same `id` as an environment rule, the environment rule is used and the stored
 one is ignored, so the console cannot replace or remove an environment rule. The
 console lists environment rules under **Rules from MW_DLP_RULES** and marks a shadowed
 stored rule.
 
-<!-- screenshot: id=security/dlp-rules-editor; screen=Admin > Security policy; state=one stored rule expanded, one environment rule listed; element=the DLP rules group -->
+![The Data loss prevention group of the Security policy tab, with no stored rules and the Add a rule button.](/screenshots/security/dlp-rules-editor.webp){.mw-crop}
 
 `MW_DLP_RULES` is either inline JSON (a value that starts with `[`) or a path to a
 JSON file holding the rule list. The file is read on every evaluation, so you can

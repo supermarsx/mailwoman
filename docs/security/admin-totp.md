@@ -5,7 +5,7 @@ An administrator can protect their console sign-in with an authenticator app
 similar name, and is managed by the administrator themselves under **My
 preferences** → **Personal security** → **Authenticator app**.
 
-<!-- screenshot: id=security/admin-totp-preferences; screen=Admin console > My preferences; state=no authenticator enrolled; element=Personal security section with Authenticator app and Set up authenticator -->
+![The Authenticator app section of Personal security in My preferences, with the Manage authenticator and recovery codes button.](/screenshots/security/admin-totp-preferences.webp){.mw-crop}
 
 ## What the factor is
 
@@ -29,9 +29,10 @@ credentials come from the server configuration and has no local account sees
 "Your sign-in credentials are managed by the server configuration" and cannot
 enrol here.
 
-1. Open **My preferences** and select **Set up authenticator**. The console asks
-   you to confirm it is you first (password plus any enrolled factor, or a
-   user-verified passkey).
+1. Open **My preferences** → **Personal security**, select **Manage authenticator
+   and recovery codes**, then **Set up authenticator**. The console asks you to
+   confirm it is you first (**Confirm it is you**: password plus any enrolled
+   factor, or a user-verified passkey).
 2. Scan the QR code or type the **Manual setup key** into your authenticator app.
    The QR code is drawn in your browser from the setup URI; the setup key is not
    sent to any other service. The server answers with `Cache-Control: no-store`.
@@ -40,7 +41,7 @@ enrol here.
 4. If this is your first second factor, save the recovery codes that appear and
    select **I have saved my recovery codes**. They are shown only once.
 
-<!-- screenshot: id=security/admin-totp-setup; screen=Admin console > My preferences > Authenticator app setup; state=pending setup with QR code; element=QR code, Manual setup key, Authenticator code field -->
+![The authenticator setup step: instructions, the QR code and manual setup key (greyed out in this image), and the field for the six-digit authenticator code.](/screenshots/security/admin-totp-setup.webp){.mw-crop}
 
 Limits of the pending setup:
 

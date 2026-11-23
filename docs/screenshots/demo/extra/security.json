@@ -1,0 +1,9 @@
+{
+  "seeds": {
+    "security-remote": {
+      "include": ["mail-basic"],
+      "stacks": ["E"],
+      "mail": "extra/security-mail.json"
+    }
+  }
+}

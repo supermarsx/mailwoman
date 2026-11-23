@@ -6,10 +6,14 @@ systems provide a way to exclude a window from capture, and web browsers do not.
 
 ## Turning it on
 
-<!-- screenshot: id=security/admin-capture-policy; screen=Admin console > Security policy; state=default policy; element=the "Screen capture protection" field with Off / Protect -->
+![The Reading group of the Security policy tab, with Screen capture protection set to Off.](/screenshots/security/admin-capture-policy.webp){.mw-crop}
 
-In the admin console, open **Security policy** and set **Screen capture protection**
-to **Protect** (the default is **Off**). Each server process reads the policy again
+1. **Screen capture protection**
+{.mw-callouts}
+
+In the admin console, open **Security centre** → **Security policy** and set
+**Screen capture protection** in the **Reading** group to **Protect** (the default is
+**Off**), or run `mailwoman admin security-policy set --capture-policy protect`. Each server process reads the policy again
 within 30 seconds, and signed-in clients receive it as `capturePolicy` from
 `GET /api/policy`.
 

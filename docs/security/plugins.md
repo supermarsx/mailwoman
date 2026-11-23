@@ -39,7 +39,7 @@ Trust is decided by the SHA-256 digest of the component file:
   bytes, so a file swapped after the check is not loaded. Revoking a digest disables
   the plugin and stops it if it is running.
 
-<!-- screenshot: id=security/plugins-registry; screen=Admin > Plugins; state=one first-party plugin and one third-party plugin with an approved digest; element=plugin list with trust column (First-party, digest built in / Third-party, digest approved) -->
+![The Third-party plugin allowlist on the Plugins page, explaining digest pinning, with no components on disk and no pins recorded.](/screenshots/security/plugins-registry.webp){.mw-crop}
 
 A component's manifest may carry an Ed25519 signature field. The server holds no
 trusted signing key for engine plugins, so a manifest that carries a signature fails

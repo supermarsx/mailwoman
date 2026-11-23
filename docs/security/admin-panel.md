@@ -6,7 +6,7 @@ mailbox, how administrators sign in, how their sessions and permissions work, wh
 is recorded, and what the hidden console path and probing protection do and do not
 achieve.
 
-<!-- screenshot: id=security/admin-signin; screen=Admin console sign-in page; state=empty form; element=Admin username, Password, Sign in -->
+![The admin console sign-in form with Admin username and Password fields, Sign in, and Sign in with a passkey.](/screenshots/security/admin-signin.webp){.mw-crop}
 
 ## Separation from the mailbox
 
@@ -112,8 +112,6 @@ Administrator passwords set in the console need at least 12 characters (at most
   mailbox session's token does not authorise a console request, or the other way
   round.
 
-<!-- screenshot: id=security/admin-session-bar; screen=Admin console header; state=signed in, session about to end; element=session countdown bar -->
-
 ## Roles and capabilities
 
 Every console API route names one capability, and a request is refused with
@@ -130,7 +128,7 @@ reset its password and replace its authenticator, so `admins.manage` is effectiv
 the power to take over the accounts it covers. The server refuses to remove or
 disable the last enabled Super admin.
 
-<!-- screenshot: id=security/admin-accounts-roles; screen=Admin console > Admin accounts > account detail; state=account with Domain admin role limited to one domain; element=roles and domain fields -->
+![The Roles group of an administrator's account details: Auditor, Domain admin, Helpdesk, Security officer and Super admin, a domains field that limits the roles, and Save role assignments.](/screenshots/security/admin-accounts-roles.webp){.mw-crop}
 
 ## Confirmation of sensitive actions
 
@@ -184,13 +182,13 @@ the password there, or an administrator clears the flag.
 
 ## Security policy
 
-**Security policy** in the console (`GET`/`PUT {console}/security-policy`, CLI
+**Security centre** → **Security policy** in the console (`GET`/`PUT {console}/security-policy`, CLI
 `mailwoman admin security-policy show|set`) holds deployment-wide fields.
 `PUT` takes all of them; it answers `422` with the reason for an out-of-range
 value or DLP rules that do not parse, and `409` naming the variable for a field an
 environment variable pins.
 
-<!-- screenshot: id=security/admin-security-policy; screen=Admin console > Security policy; state=defaults; element=minimum TLS, Argon2 cost fields, rendering floor, capture policy -->
+![The Connections and Sign-in groups of the Security policy tab: lowest TLS version, the second-factor requirement and the Argon2 password hashing cost.](/screenshots/security/admin-security-policy.webp){.mw-crop}
 
 | Field | Values (default) | What it does |
 |---|---|---|
@@ -214,7 +212,7 @@ the administrator's roles, the capability used, and redacted before and after
 values) and, where the writer knows it, the source address. It is shown under
 **Observability** → **Audit log** and can be exported.
 
-<!-- screenshot: id=security/admin-audit-log; screen=Admin console > Observability > Audit log; state=a few entries; element=audit table with actor, action, target, address -->
+![The Audit log table with time, actor and actor kind, action and target for each entry, and the Export JSONL button.](/screenshots/security/admin-audit-log.webp){.mw-crop}
 
 What protects the log, precisely:
 
@@ -242,7 +240,7 @@ The console page, its sign-in and every console API route are served at one path
 relative to `MW_BASE_PATH`. With `/ops-7f3k` as the path, the server answers
 `POST /ops-7f3k/login`, `GET /ops-7f3k/users` and so on.
 
-<!-- screenshot: id=security/admin-console-address; screen=Admin console > Security centre > Console address; state=generated path; element=current path and change controls -->
+![The Console address tab: the current console address (greyed out here), copy, share and email buttons, and a warning that the console is at /admin.](/screenshots/security/admin-console-address.webp){.mw-crop}
 
 - **Where it comes from:** `MW_ADMIN_PATH` when set (it pins the path); otherwise
   the path stored in the database; on the first start without either, a generated
@@ -285,7 +283,7 @@ leaves room for honest mistakes. It is managed under **Security centre** →
 **Probing protection**; see [Security centre](/admin/security-center) for every
 control.
 
-<!-- screenshot: id=security/admin-probe-card; screen=Admin console > Security centre > Probing protection; state=one blocked source; element=policy summary, blocked sources with Unblock -->
+![The Probing protection card: what counts as probing, the warning that a block refuses every request from that address, the Off and On switch, and the current grace and block rules.](/screenshots/security/admin-probe-card.webp){.mw-crop}
 
 **What counts as a miss** (one point each, per IPv4 address or IPv6 /64):
 

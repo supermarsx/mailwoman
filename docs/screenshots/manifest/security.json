@@ -1,0 +1,1037 @@
+{
+  "defaults": {
+    "stack": "E",
+    "seed": [
+      "mail-basic",
+      "admin-basic"
+    ],
+    "theme": "dark",
+    "viewport": "desktop"
+  },
+  "entries": [
+    {
+      "id": "admin-signin",
+      "page": "security/admin-panel.md",
+      "session": "none",
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "waitFor": {
+            "label": "@admin-login-username"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "label": "@admin-login-username",
+          "closest": "form"
+        },
+        "padding": 16
+      },
+      "alt": "The admin console sign-in form with Admin username and Password fields, Sign in, and Sign in with a passkey."
+    },
+    {
+      "id": "admin-security-policy",
+      "page": "security/admin-panel.md",
+      "session": "admin",
+      "steps": [
+        {
+          "goto": "{admin}#/security/policy"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-policy-group-reading"
+          }
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "role": "group",
+            "name": "@admin-policy-group-connections"
+          },
+          {
+            "role": "group",
+            "name": "@admin-policy-group-sign-in"
+          }
+        ],
+        "padding": 8
+      },
+      "alt": "The Connections and Sign-in groups of the Security policy tab: lowest TLS version, the second-factor requirement and the Argon2 password hashing cost.",
+      "viewport": {
+        "width": 1440,
+        "height": 2000
+      }
+    },
+    {
+      "id": "admin-reading-floor",
+      "page": "security/max-security.md",
+      "session": "admin",
+      "steps": [
+        {
+          "goto": "{admin}#/security/policy"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-policy-group-reading"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-policy-group-reading"
+        },
+        "padding": 8
+      },
+      "alt": "The Reading group of the Security policy tab, with the Reading floor set to No floor and Screen capture protection set to Off.",
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-policy-floor"
+          },
+          "place": "inside-right",
+          "box": true
+        }
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 2000
+      }
+    },
+    {
+      "id": "admin-capture-policy",
+      "page": "security/screen-capture.md",
+      "session": "admin",
+      "steps": [
+        {
+          "goto": "{admin}#/security/policy"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-policy-group-reading"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-policy-group-reading"
+        },
+        "padding": 8
+      },
+      "alt": "The Reading group of the Security policy tab, with Screen capture protection set to Off.",
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-policy-capture"
+          },
+          "place": "inside-right",
+          "box": true
+        }
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 2000
+      }
+    },
+    {
+      "id": "dlp-rules-editor",
+      "page": "security/dlp.md",
+      "session": "admin",
+      "steps": [
+        {
+          "goto": "{admin}#/security/policy"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-policy-group-reading"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-policy-group-dlp"
+        },
+        "padding": 8
+      },
+      "alt": "The Data loss prevention group of the Security policy tab, with no stored rules and the Add a rule button.",
+      "viewport": {
+        "width": 1440,
+        "height": 2000
+      }
+    },
+    {
+      "id": "admin-totp-preferences",
+      "page": "security/admin-totp.md",
+      "session": "admin",
+      "steps": [
+        {
+          "goto": "{admin}#/preferences/security"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-personal-totp"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-personal-totp",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The Authenticator app section of Personal security in My preferences, with the Manage authenticator and recovery codes button."
+    },
+    {
+      "id": "passkeys-admin-preferences",
+      "page": "security/passkeys.md",
+      "session": "admin",
+      "steps": [
+        {
+          "goto": "{admin}#/preferences/security"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-passkeys-title"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-passkeys-title",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The Administrator passkeys section of My preferences, with no passkey registered."
+    },
+    {
+      "id": "admin-console-address",
+      "page": "security/admin-panel.md",
+      "session": "admin",
+      "steps": [
+        {
+          "goto": "{admin}#/security/console"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-console-path-title"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-console-path-title",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The Console address tab: the current console address (greyed out here), copy, share and email buttons, and a warning that the console is at /admin.",
+      "mask": [
+        {
+          "text": "http://localhost",
+          "exact": false
+        }
+      ]
+    },
+    {
+      "id": "admin-probe-card",
+      "page": "security/admin-panel.md",
+      "session": "admin",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection/admin-probe"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-probe-title"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": -24,
+          "y": -35,
+          "width": 1166,
+          "height": 432,
+          "relativeTo": {
+            "role": "heading",
+            "name": "@admin-probe-title"
+          }
+        }
+      },
+      "alt": "The Probing protection card: what counts as probing, the warning that a block refuses every request from that address, the Off and On switch, and the current grace and block rules.",
+      "viewport": {
+        "width": 1440,
+        "height": 2000
+      }
+    },
+    {
+      "id": "admin-audit-log",
+      "page": "security/admin-panel.md",
+      "session": "admin",
+      "steps": [
+        {
+          "goto": "{admin}#/observability/audit"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "Export JSONL"
+          }
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "role": "button",
+            "name": "Export JSONL"
+          },
+          {
+            "role": "table",
+            "first": true
+          }
+        ],
+        "padding": 12
+      },
+      "alt": "The Audit log table with time, actor and actor kind, action and target for each entry, and the Export JSONL button.",
+      "mask": [
+        {
+          "css": "table tbody td:first-child"
+        },
+        {
+          "text": "account:",
+          "exact": false
+        }
+      ]
+    },
+    {
+      "id": "admin-oauth-clients",
+      "page": "security/api-keys-oauth.md",
+      "session": "admin",
+      "steps": [
+        {
+          "goto": "{admin}#/oauth-clients"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-oauth-group-registration"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-oauth-group-registration"
+        },
+        "padding": 8
+      },
+      "alt": "The Self-registration group of OAuth clients: Let apps register themselves is off, no allowed redirect hosts, and the shared registration token is not required."
+    },
+    {
+      "id": "assist-admin-limits",
+      "page": "assist.md",
+      "session": "admin",
+      "steps": [
+        {
+          "goto": "{admin}#/ai-assistant"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@assist-admin-ceilings"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@assist-admin-ceilings"
+        },
+        "padding": 8
+      },
+      "alt": "The Data limits group of the AI assistant page: account ids whose mail may be sent, folder ids to limit sending to, and the switches that allow end-to-end-encrypted content and attachments, both off.",
+      "viewport": {
+        "width": 1440,
+        "height": 2000
+      }
+    },
+    {
+      "id": "plugins-registry",
+      "page": "security/plugins.md",
+      "session": "admin",
+      "steps": [
+        {
+          "goto": "{admin}#/plugins"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-allowlist-title"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-allowlist-title",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The Third-party plugin allowlist on the Plugins page, explaining digest pinning, with no components on disk and no pins recorded."
+    },
+    {
+      "id": "egress-routes",
+      "page": "security/egress.md",
+      "session": "admin",
+      "steps": [
+        {
+          "goto": "{admin}#/egress"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-egress-heading"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@admin-egress-heading",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The Outbound proxy routes tab with no routes configured and the Add a route button."
+    },
+    {
+      "id": "reader-view-mode-menu",
+      "page": "security/max-security.md",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "Sam Okoye",
+            "exact": false
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "Re: Spring catalogue: print proof"
+          }
+        },
+        {
+          "click": {
+            "role": "heading",
+            "name": "Re: Spring catalogue: print proof"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-maxsec-view",
+            "args": {
+              "mode": "Full"
+            }
+          }
+        },
+        {
+          "waitFor": {
+            "role": "menu"
+          }
+        }
+      ],
+      "shot": {
+        "element": [
+          {
+            "role": "button",
+            "name": "@mail-maxsec-view",
+            "args": {
+              "mode": "Full"
+            }
+          },
+          {
+            "role": "menu"
+          }
+        ],
+        "padding": 8
+      },
+      "alt": "The View mode menu open from the View: Full button in the reader toolbar, offering Full, No media and Plain text."
+    },
+    {
+      "id": "remote-images-banner",
+      "page": "security/egress.md",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "text": "Spring events at the City Library",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@remote-banner-show"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "button",
+          "name": "@remote-banner-show",
+          "closest": "div"
+        },
+        "padding": 8
+      },
+      "alt": "The remote content notice above a newsletter, with Show images and More image options.",
+      "seed": [
+        "security-remote",
+        "admin-basic"
+      ]
+    },
+    {
+      "id": "keys-overview",
+      "page": "security/crypto.md",
+      "steps": [
+        {
+          "goto": "/#/keys"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@keys-title"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": -16,
+          "y": -16,
+          "width": 380,
+          "height": 568,
+          "relativeTo": {
+            "role": "heading",
+            "name": "@keys-title"
+          }
+        }
+      },
+      "alt": "The Keys & certificates panel: the note that a passphrase-locked copy of each private key is stored on the server, Generate key and Import key, empty Your keys and Contact keys lists, and the Look up a key form."
+    },
+    {
+      "id": "keys-generate",
+      "page": "security/crypto.md",
+      "steps": [
+        {
+          "goto": "/#/keys"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@keys-generate"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "dialog"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "dialog"
+        },
+        "padding": 8
+      },
+      "alt": "The Generate a key dialog with OpenPGP selected, the name and email fields, and the Key passphrase field with its note that the locked key is also stored on the server."
+    },
+    {
+      "id": "password-change-form",
+      "page": "security/password-change.md",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-nav-settings"
+          }
+        },
+        {
+          "click": {
+            "text": "@security-center-title",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@passwd-heading"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@passwd-heading",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The Change password form: Current password, New password and Confirm new password, the length rule, and the Change password button."
+    },
+    {
+      "id": "passkeys-user-list",
+      "page": "security/passkeys.md",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-nav-settings"
+          }
+        },
+        {
+          "click": {
+            "text": "@security-center-title",
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@settings-2fa-passkey-title"
+          }
+        }
+      ],
+      "shot": {
+        "clip": {
+          "x": -22,
+          "y": -30,
+          "width": 982,
+          "height": 150,
+          "relativeTo": {
+            "role": "heading",
+            "name": "@settings-2fa-passkey-title"
+          }
+        }
+      },
+      "alt": "The Passkeys section of the Security centre: the authenticator requirements, a passkey name field and Add a passkey.",
+      "viewport": {
+        "width": 1440,
+        "height": 1400
+      }
+    },
+    {
+      "id": "zero-access-panel",
+      "page": "security/zero-access.md",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-nav-settings"
+          }
+        },
+        {
+          "click": {
+            "text": "@security-center-title",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "text": "@security-center-encryption",
+            "exact": true,
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@security-za-title"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@security-za-title",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The top of the Zero-access storage panel, marked Off, stating that the mode keeps the account out of the search index and shared caches and that stored mail stays sealed with the server's key.",
+      "viewport": {
+        "width": 1440,
+        "height": 2400
+      }
+    },
+    {
+      "id": "apikeys-create",
+      "page": "security/api-keys-oauth.md",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-nav-settings"
+          }
+        },
+        {
+          "click": {
+            "text": "@settings-nav-access",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@apikeys-create"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@apikeys-create"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "heading",
+          "name": "@apikeys-create",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The Create key form: label, capabilities Read, Send and Delete, surface Mail, PIM or Sieve, accounts, folders, and the expiry, rate limit and IP allowlist constraints.",
+      "viewport": {
+        "width": 1440,
+        "height": 1800
+      }
+    },
+    {
+      "id": "apikeys-reveal",
+      "page": "security/api-keys-oauth.md",
+      "isolate": true,
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@mail-nav-settings"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@mail-nav-settings"
+          }
+        },
+        {
+          "click": {
+            "text": "@settings-nav-access",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@apikeys-create"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@apikeys-create"
+          }
+        },
+        {
+          "fill": {
+            "placeholder": "@apikeys-label-placeholder",
+            "value": "backup script"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@apikeys-create",
+            "last": true
+          }
+        },
+        {
+          "waitFor": {
+            "role": "dialog",
+            "name": "@security-stepup-title"
+          }
+        },
+        {
+          "fill": {
+            "role": "textbox",
+            "value": "demo-pass-alex",
+            "within": {
+              "role": "dialog",
+              "name": "@security-stepup-title"
+            }
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@security-stepup-confirm"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@apikeys-reveal-warning"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "text": "@apikeys-reveal-warning",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "mask": [
+        {
+          "css": "code"
+        }
+      ],
+      "alt": "A new API key shown once, with the warning to copy it now, Copy and I have saved it; the secret itself is greyed out in this image.",
+      "viewport": {
+        "width": 1440,
+        "height": 1800
+      },
+      "note": "Creating a key asks for the password again (step-up); the demo password is entered in that dialog."
+    },
+    {
+      "id": "admin-accounts-roles",
+      "page": "security/admin-panel.md",
+      "session": "admin",
+      "viewport": {
+        "width": 1440,
+        "height": 2400
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/admins"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "admin (admin)"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-accounts-credentials"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-accounts-roles"
+        },
+        "padding": 8
+      },
+      "alt": "The Roles group of an administrator's account details: Auditor, Domain admin, Helpdesk, Security officer and Super admin, a domains field that limits the roles, and Save role assignments."
+    },
+    {
+      "id": "passkeys-admin-revoke",
+      "page": "security/passkeys.md",
+      "session": "admin",
+      "viewport": {
+        "width": 1440,
+        "height": 2400
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/admins"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "admin (admin)"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-accounts-credentials"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "group",
+          "name": "@admin-accounts-credentials"
+        },
+        "padding": 8
+      },
+      "alt": "The Password and authenticator group of an administrator's account details: the passkey count, Revoke all passkeys, a new-password field with Reset password and end sessions, Issue a new authenticator secret and Remove authenticator."
+    },
+    {
+      "id": "pdf-preview",
+      "page": "security/pdf-preview.md",
+      "steps": [
+        {
+          "goto": "/"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "Sam Okoye",
+            "exact": false
+          }
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "Re: Spring catalogue: print proof"
+          }
+        },
+        {
+          "click": {
+            "role": "heading",
+            "name": "Re: Spring catalogue: print proof"
+          }
+        },
+        {
+          "click": {
+            "text": "1 attachment",
+            "exact": false,
+            "first": true
+          }
+        },
+        {
+          "waitFor": {
+            "text": "catalogue-proof.pdf",
+            "first": true
+          }
+        },
+        {
+          "click": {
+            "text": "catalogue-proof.pdf",
+            "first": true
+          }
+        },
+        {
+          "wait": 3000
+        }
+      ],
+      "shot": "full",
+      "alt": "A PDF attachment open in its own tab in the built-in PDF viewer, with the page toolbar, and the download and information buttons above it."
+    },
+    {
+      "id": "admin-totp-setup",
+      "page": "security/admin-totp.md",
+      "session": "admin",
+      "isolate": true,
+      "steps": [
+        {
+          "goto": "{admin}#/preferences/security"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "Manage authenticator and recovery codes"
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@admin-personal-totp-start"
+          }
+        },
+        {
+          "waitFor": {
+            "role": "dialog",
+            "name": "@security-stepup-title"
+          }
+        },
+        {
+          "fill": {
+            "role": "textbox",
+            "value": "demo-pass-admin",
+            "within": {
+              "role": "dialog",
+              "name": "@security-stepup-title"
+            }
+          }
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "@security-stepup-confirm"
+          }
+        },
+        {
+          "waitFor": {
+            "text": "@admin-totp-setup-help"
+          }
+        },
+        {
+          "wait": 600
+        }
+      ],
+      "shot": {
+        "element": {
+          "text": "@admin-totp-setup-help",
+          "closest": "section"
+        },
+        "padding": 8
+      },
+      "alt": "The authenticator setup step: instructions, the QR code and manual setup key (greyed out in this image), and the field for the six-digit authenticator code.",
+      "mask": [
+        {
+          "alt": "@admin-totp-qr-alt"
+        },
+        {
+          "label": "@admin-totp-manual-key"
+        }
+      ],
+      "note": "The setup asks for the administrator password again (step-up). The QR code and manual key change on every run, so both are masked."
+    }
+  ]
+}

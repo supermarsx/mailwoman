@@ -5,12 +5,13 @@ choice controls how much of the sender's HTML reaches your screen. An
 administrator can set a **Reading floor** that stops anyone from choosing a looser
 view than the deployment allows.
 
-<!-- screenshot: id=security/reader-view-mode-menu; screen=Reader (message open); state=View mode menu open, "Full" checked; element=the "View: Full" toolbar button and its menu -->
+![The View mode menu open from the View: Full button in the reader toolbar, offering Full, No media and Plain text.](/screenshots/security/reader-view-mode-menu.webp){.mw-crop}
 
 ## The three view modes
 
-The reader toolbar shows the current mode as **View: Full**, **View: No media** or
-**View: Plain text**. Opening it shows the **View mode** menu.
+The reader toolbar has a view mode button with an icon for the current mode; its
+accessible name is **View: Full**, **View: No media** or **View: Plain text**.
+Selecting it opens the **View mode** menu.
 
 | Mode | What is rendered | Images and media | Remote content |
 |---|---|---|---|
@@ -38,9 +39,14 @@ the per-sender choice, then **Full**.
 
 ## Setting a reading floor (administrators)
 
-<!-- screenshot: id=security/admin-reading-floor; screen=Admin console > Security policy; state=default policy; element=the "Reading floor" field and its options -->
+![The Reading group of the Security policy tab, with the Reading floor set to No floor and Screen capture protection set to Off.](/screenshots/security/admin-reading-floor.webp){.mw-crop}
 
-In the admin console, open **Security policy** and set **Reading floor**:
+1. **Reading floor**
+{.mw-callouts}
+
+In the admin console, open **Security centre** → **Security policy** and set
+**Reading floor** in the **Reading** group (or run
+`mailwoman admin security-policy set --max-security-floor <none|full-sanitized|sanitized-no-media|plain-text>`):
 
 | Option | Effect |
 |---|---|
