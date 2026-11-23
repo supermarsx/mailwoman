@@ -1,11 +1,96 @@
+---
+screen: true
+---
 # Temporary sign-in locks
 
-Failed credentials create a durable, temporary lock for the trusted source IP and sign-in surface. Administrator and mailbox counters are separate. The default limits are five administrator failures or ten mailbox failures in fifteen minutes, followed by a fifteen-minute lock. Configure `security.signin.adminFailureLimit`, `security.signin.mailboxFailureLimit`, `security.signin.failureWindowSecs`, and `security.signin.lockSecs` in Admin Settings.
+After several rejected passwords from one source IP address, Mailwoman refuses
+further sign-ins from that address for a while. Mailbox sign-in and console
+sign-in are counted separately. The **Temporary sign-in locks** tab of the
+**Security centre** (`#/security/locks`) lists the addresses that are locked now
+and lets you unlock one early.
 
-This is separate from the configurable retry cooldown. Incorrect passwords, verified credential rejections and second-factor rejections count. Expired challenges, disabled accounts, storage failures, upstream outages and session creation failures do not count. Successful sign-in clears the matching source/surface counter. Requests refused by an active lock do not extend its expiry. Administrator session idle/absolute limits and fresh security proofs remain unchanged.
+![The Temporary sign-in locks tab of the Security centre with no active locks.](/screenshots/admin-access/signin-locks-page.webp){.mw-shot}
 
-The server resolves source IPs using the existing trusted-proxy policy; client-supplied forwarding headers from an untrusted peer cannot change the source. Shared NAT users can share a counter. A lock applies to new sign-in, including SSO; it does not revoke existing sessions. Manual global IP bans remain separate and continue to apply after an automatic lock is cleared.
+The controls of the tab:
 
-Observability → Temporary sign-in locks lists active locks, with source/surface filtering and bounded pages. Reading requires unscoped `bans.read`. Unlocking requires unscoped `bans.write`, a fresh security proof, and the exact revision returned by the list. A stale unlock is refused rather than clearing a newer lock. The response is private and non-cacheable.
+![The Temporary sign-in locks tab with no active locks.](/screenshots/admin-access/signin-locks-tab.webp){.mw-crop}
 
-Migration 0052 stores counters and deadlines in the shared database, including migration between SQLite and PostgreSQL. Writes serialize threshold transitions; retries cannot extend an existing deadline. Expired entries are pruned on writes. At most 10,000 source/surface records remain live; capacity exhaustion refuses untracked sign-ins instead of evicting active protection. Database/policy lookup failures refuse admission. A failed post-authentication counter write emits a bounded operational warning; it does not turn an invalid credential into a successful login.
+1. **Configure sign-in limits** opens the settings below.
+2. **Sign-in surface** shows locks for **Administrator**, **Mailbox** or **All sign-in surfaces**.
+3. **Refresh locks** reloads the list.
+{.mw-callouts}
+
+Each row shows the **IP address**, the surface, the number of **Rejected
+credentials** and **Locked until**, with an **Unlock** button.
+
+## How a lock works
+
+- A sign-in attempt counts against its source address and surface when the
+  credentials are rejected: a wrong password, a mail server that refuses the
+  credentials, or a refused second-factor code.
+- These do not count: an expired sign-in step, a disabled account, the mail server
+  or database being unreachable, and errors while creating the session.
+- When the count reaches the limit within the counting window, the address is
+  locked for the lock duration. During the lock every sign-in from that address on
+  that surface is refused with "Too many rejected credentials; wait before trying
+  again" and a retry time, before the password is checked.
+- Attempts made during a lock do not extend it.
+- A successful sign-in from the address clears its counter.
+- The lock covers new sign-ins of every kind on that surface, including single
+  sign-on. It does not end sessions that are already open.
+
+The source address is the one Mailwoman resolves with its trusted-proxy settings
+(see [Reverse proxy](/deploy/reverse-proxy)); a forwarded header from an untrusted
+peer cannot change it. People behind one NAT address share a counter, so one of
+them can lock the others out.
+
+Counters and locks are stored in the database, so they survive a restart and are
+shared by every server that uses the same database. At most 10,000
+address-and-surface records are tracked at a time, across both surfaces; when that
+is full, sign-ins from addresses that are not yet tracked are refused rather than
+older locks being dropped. Records expire after the counting window or the lock,
+whichever is later. If the lock state cannot be read, sign-in is refused.
+
+## Unlock an address
+
+1. Open **Security centre** > **Temporary sign-in locks**.
+2. Find the address (filter by **Sign-in surface** or search).
+3. Select **Unlock** and confirm. You are asked to confirm it is you unless you did
+   in the last five minutes.
+
+Unlocking resets the counter for that address and surface. If the lock changed
+since you loaded the list (for example it expired and the address was locked
+again), the unlock is refused; refresh and try again. A ban on the
+[IP ban list](./ip-bans.md) is separate and still applies.
+
+Reading the list needs **bans.read** and unlocking needs **bans.write**, both
+granted for all domains.
+
+## Options
+
+Set in **Settings** (or with **Configure sign-in limits**). All four are global.
+
+| Setting | Key | Default | Range |
+|---|---|---|---|
+| **Mailbox failed-credential limit** | [`security.signin.mailboxFailureLimit`](/admin/settings#security.signin.mailboxfailurelimit) | 10 | 1 to 100 |
+| **Administrator failed-credential limit** | [`security.signin.adminFailureLimit`](/admin/settings#security.signin.adminfailurelimit) | 5 | 1 to 100 |
+| **Failed-credential counting window** | [`security.signin.failureWindowSecs`](/admin/settings#security.signin.failurewindowsecs) | 900 seconds | 30 to 86400 |
+| **Temporary sign-in lock duration** | [`security.signin.lockSecs`](/admin/settings#security.signin.locksecs) | 900 seconds | 30 to 86400 |
+
+These locks are separate from the short wait after every unsuccessful attempt,
+**Sign-in retry cooldown** ([`signin.retryCooldownSecs`](/admin/settings#signin.retrycooldownsecs),
+3 seconds by default).
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Every user in an office is refused at sign-in at once | They share one public address, and it reached the mailbox limit. | Unlock the address. Raise the mailbox limit if this repeats. |
+| All sign-ins show the proxy's address in the list | The reverse proxy is not configured as trusted, so every request appears to come from it. | Set `MW_TRUSTED_PROXIES` and `MW_FORWARDED_MODE`. |
+
+## Related
+
+- [IP ban list](./ip-bans.md)
+- [Sign-in country policy](./signin-geography.md)
+- [Security centre](./security-center.md)
+- [fail2ban](/deploy/fail2ban): block repeated failures at the firewall

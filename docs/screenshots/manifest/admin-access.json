@@ -2137,6 +2137,28 @@
       "alt": "The Security centre on its Client access tab, below the notice that country features are on without a country database, with both entry controls off."
     },
     {
+      "id": "protocol-guard-page",
+      "page": "admin/protocol-guard.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/protection/protocol-guard"
+        },
+        {
+          "waitFor": {
+            "role": "group",
+            "name": "@admin-protocol-overall"
+          }
+        }
+      ],
+      "mask": [
+        {
+          "testid": "protocol-would-refuse"
+        }
+      ],
+      "shot": "full",
+      "alt": "The Protocol guard sub-tab of Aggregate and adaptive protection, with its explanation and the Overall mode card."
+    },
+    {
       "id": "security-center-overview",
       "page": "admin/security-center.md",
       "steps": [
@@ -2457,17 +2479,13 @@
         },
         {
           "waitFor": {
-            "role": "button",
-            "name": "@admin-session-revoke-account",
-            "first": true
+            "css": "tbody tr"
           }
         }
       ],
       "shot": {
         "element": {
-          "role": "heading",
-          "name": "@admin-nav-sessions",
-          "closest": "section"
+          "css": "section:has(tbody)"
         },
         "padding": 8
       },
@@ -2496,11 +2514,9 @@
         {
           "n": 3,
           "target": {
-            "role": "button",
-            "name": "@admin-session-revoke-account",
-            "first": true
+            "css": "tbody tr:first-child td:last-child button"
           },
-          "place": "left"
+          "place": "bottom"
         }
       ],
       "alt": "The Sessions tab: domain, account ID and client type filters, Preview session revocation, and a table with Alex Rivera's mailbox session (times hidden) and its Revoke session button.",
@@ -2528,8 +2544,9 @@
       ],
       "shot": {
         "element": {
-          "role": "region",
-          "name": "@admin-obs-locks-title"
+          "role": "heading",
+          "name": "@admin-obs-locks-title",
+          "closest": "section"
         },
         "padding": 8
       },
@@ -2545,7 +2562,8 @@
         {
           "n": 2,
           "target": {
-            "label": "@admin-obs-lock-surface"
+            "label": "@admin-obs-lock-surface",
+            "exact": false
           },
           "place": "right"
         },
@@ -2628,8 +2646,7 @@
         },
         {
           "waitFor": {
-            "role": "button",
-            "name": "@admin-obs-unban-for",
+            "css": "tbody tr",
             "first": true
           }
         }
@@ -2662,9 +2679,7 @@
         {
           "n": 3,
           "target": {
-            "role": "button",
-            "name": "@admin-obs-unban-for",
-            "first": true
+            "css": "tbody tr:first-child td:last-child button"
           },
           "place": "left"
         }
@@ -2712,21 +2727,21 @@
           "target": {
             "label": "@admin-obs-ban-ip"
           },
-          "place": "right"
+          "place": "top-right"
         },
         {
           "n": 2,
           "target": {
             "label": "@admin-obs-ban-reason"
           },
-          "place": "right"
+          "place": "top-right"
         },
         {
           "n": 3,
           "target": {
             "label": "@admin-obs-ban-expiry"
           },
-          "place": "right"
+          "place": "top-right"
         },
         {
           "n": 4,
@@ -2734,7 +2749,7 @@
             "role": "button",
             "name": "@admin-obs-ban-save"
           },
-          "place": "right"
+          "place": "bottom"
         }
       ],
       "alt": "The ban editor with the address 192.0.2.77 and a reason filled in, an empty expiry field and the Save IP ban button."
@@ -2870,6 +2885,157 @@
         "width": 1440,
         "height": 1600
       }
+    },
+    {
+      "id": "ip-bans-tab",
+      "page": "admin/ip-bans.md",
+      "seed": [
+        "admin-basic",
+        "centre-bans"
+      ],
+      "steps": [
+        {
+          "goto": "{admin}#/security/bans"
+        },
+        {
+          "waitFor": {
+            "css": "tbody tr",
+            "first": true
+          }
+        }
+      ],
+      "alt": "The IP ban list tab of the Security centre, below the country database warning: the explanation of what a ban does, Add ban, the search field and two bans.",
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        }
+      ]
+    },
+    {
+      "id": "signin-locks-page",
+      "page": "admin/signin-locks.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/locks"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-obs-locks-configure"
+          }
+        },
+        {
+          "wait": 1000
+        }
+      ],
+      "alt": "The Temporary sign-in locks tab of the Security centre with no active locks.",
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        }
+      ]
+    },
+    {
+      "id": "signin-geography-page",
+      "page": "admin/signin-geography.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/geography"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-obs-geo-refresh"
+          }
+        },
+        {
+          "wait": 1000
+        }
+      ],
+      "alt": "The Sign-in country policy tab of the Security centre on a server without a country database.",
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        }
+      ]
+    },
+    {
+      "id": "inbound-allowlists-page",
+      "page": "admin/inbound-allowlists.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/inbound"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-inbound-refresh"
+          }
+        },
+        {
+          "wait": 1000
+        }
+      ],
+      "alt": "The Inbound access tab of the Security centre: Refresh saved policy and DNS status and the start of the Admin console and API card.",
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        }
+      ]
+    },
+    {
+      "id": "sessions-page",
+      "page": "admin/sessions.md",
+      "steps": [
+        {
+          "goto": "{admin}#/security/sessions"
+        },
+        {
+          "waitFor": {
+            "css": "tbody tr",
+            "first": true
+          }
+        }
+      ],
+      "alt": "The Sessions tab of the Security centre with its filters and the session revocation controls.",
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        }
+      ]
+    },
+    {
+      "id": "authenticator-page",
+      "page": "admin/authenticator.md",
+      "steps": [
+        {
+          "goto": "{admin}#/preferences/security"
+        },
+        {
+          "waitFor": {
+            "role": "button",
+            "name": "@admin-totp-manage"
+          }
+        }
+      ],
+      "alt": "My preferences open on the Personal security tab, with Administrator passkeys and the Authenticator app section.",
+      "shot": "full",
+      "mask": [
+        {
+          "text": "@admin-session-bar-idle",
+          "exact": false
+        }
+      ]
     }
   ]
 }
