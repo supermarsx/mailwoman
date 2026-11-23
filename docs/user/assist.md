@@ -9,9 +9,9 @@ service your administrator chose. It is off unless your administrator turns it o
 what it may do and see is set by them. This page explains what you will see and what
 leaves your device. The administrator side is described in [AI assistant: data flows and controls](/assist).
 
-::: warning Not shown here
-The AI assistant is not available in the demonstration setup used for the screenshots in
-this manual, so this page has no screenshots. The labels are the ones in the application.
+::: warning No screenshots
+This manual has no screenshots of the assistant, because it needs an AI service to be
+set up. The labels below are the ones in the application.
 :::
 
 ## Before you start
@@ -71,8 +71,9 @@ Write something first; with an empty message the tool says "Write something firs
 whole text of your draft is sent to the AI service. The result appears as a **Suggested
 edit**. Choose **Apply to draft** to replace your text, or **Discard** to keep yours.
 
-If a draft may contain text from an encrypted message, for example a reply that quotes
-it, the tools do not send it and say "Not sent to the AI assistant: this draft may contain
+The tools work on ordinary drafts. If a draft quotes a decrypted message, such as a reply
+or forward of one, or is set to be encrypted, the tools do not run on it unless your
+administrator allows decrypted content to be sent, and they say "Not sent to the AI assistant: this draft may contain
 text from an encrypted message, and decrypted content is not allowed to be sent."
 
 If dictation is granted, **Hold to dictate** records while you hold the button. It uses

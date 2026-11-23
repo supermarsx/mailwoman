@@ -48,6 +48,10 @@ settings, and the screen says so under its title.
 10. **Save rule**.
 {.mw-callouts}
 
+When you choose **Save rule**, the rule is stored, a "Rule created" notice appears and the rule shows in the list under **Mail rules**.
+
+![The Rules and filters screen after saving: the list Mail rules holds one rule, Print shop mail, and the rule builder is closed.](/screenshots/user-features/rules-saved.webp){.mw-shot}
+
 **Stop processing** ends the rule list for that message: rules below it are not applied.
 
 ### Start from a message
@@ -69,9 +73,16 @@ Under the form, a badge says where the rule will be applied:
 
 ## Manage your rules
 
-Saved rules are listed under **Mail rules**, each with its name, the badge above, an
-**Enabled** checkbox, **Edit** and **Delete**. Untick **Enabled** to switch a rule off
-without deleting it.
+Saved rules are listed under **Mail rules**.
+
+![One saved rule in the Mail rules list with markers on its name, the Engine badge, the Enabled checkbox, Edit and Delete.](/screenshots/user-features/rules-list.webp){.mw-crop}
+
+1. The rule name.
+2. The badge that says where the rule runs.
+3. **Enabled**: untick it to switch the rule off without deleting it.
+4. **Edit** opens the rule in the builder; change it and choose **Save rule** again.
+5. **Delete** removes the rule.
+{.mw-callouts}
 
 ## Raw Sieve
 

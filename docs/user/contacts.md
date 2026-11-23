@@ -68,16 +68,18 @@ Choose **New contact**, or **Edit** on a card.
 
 ![The Edit contact form for Priya Raman, with Name and work, Email and phone, and Notes and preferences sections; markers on Full name, Organization, Add email and Add phone.](/screenshots/user-features/contacts-editor.webp){.mw-crop}
 
-1. **Full name**. The form also has **Given** and **Surname**.
+1. **Full name**. The form also has **Given name** and **Surname**.
 2. **Organization**, with a **Title** field below it.
 3. **Add email** adds another address row, each with a label such as "work".
 4. **Add phone** adds another number.
 {.mw-callouts}
 
 Further down, **Notes** holds free text, **Favorite** stars the contact, and **Security
-key** stores text for display only. Mailwoman does not use that text to encrypt or
-sign anything; to use encryption keys see [Encryption keys](/user/encryption-keys).
-If saving fails, the form keeps your changes so you can try again.
+key** holds a key or certificate shown for information only. Mailwoman does not use it to
+encrypt or sign anything; to use encryption keys see [Encryption keys](/user/encryption-keys).
+Choose **Save** at the bottom of the form to store the contact. The card then shows the new details. If saving fails, the form keeps your changes so you can try again.
+
+![The card of Priya Raman after saving the editor with a new phone number, +1 555 0111, listed under Phone.](/screenshots/user-features/contacts-saved.webp){.mw-crop}
 
 ## Groups
 
@@ -161,7 +163,7 @@ Message display settings.
 |---|---|---|---|
 | **Offer Save contacts from this message** ([`contacts.saveFromMessage.enabled`](/admin/settings#contacts.savefrommessage.enabled)) | Adds the item to message menus and the reader More menu | On | You, unless an administrator locks it |
 | **Offer Save sender as contact** ([`contacts.saveSender.enabled`](/admin/settings#contacts.savesender.enabled)) | Adds a one-click item to message menus | On | You, unless locked |
-| **Ticked first in the dialog** ([`contacts.saveFromMessage.defaultScope`](/admin/settings#contacts.savefrommessage.defaultscope)) | Sender only, sender and Reply-To, or everyone on the message | Sender only | You, unless locked |
+| **Ticked first in the dialog** ([`contacts.saveFromMessage.defaultScope`](/admin/settings#contacts.savefrommessage.defaultscope)) | **Sender only**, **Sender and Reply-To**, or **Everyone on the message** | **Sender only** | You, unless locked |
 | **Skip automated senders** ([`contacts.saveFromMessage.skipAutomated`](/admin/settings#contacts.savefrommessage.skipautomated)) | Leaves out no-reply, notification and bounce addresses unless you tick them | On | You, unless locked |
 | **Add a note with the date** ([`contacts.saveFromMessage.addNote`](/admin/settings#contacts.savefrommessage.addnote)) | Adds "Saved from a message on" and the date to the contact | On | You, unless locked |
 | **Use Reply-To for list and notification senders** ([`contacts.saveSender.useReplyTo`](/admin/settings#contacts.savesender.usereplyto)) | Saves the Reply-To address instead of From for those senders | Off | You, unless locked |

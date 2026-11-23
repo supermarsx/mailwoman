@@ -10,10 +10,9 @@ in bulk. It is off until you turn it on in Settings, and it needs at least one l
 mailbox that is ready. See [Linked mailboxes](/user/mailbox/linked-accounts) for how to
 link one.
 
-::: warning Not shown here
-Unified mail is not available in the demonstration setup used for the screenshots in this
-manual, because that setup has no linked mailbox, so this page has no screenshot of the
-unified list itself. The labels below are the ones in the application.
+::: warning No screenshot of the list
+This manual has no screenshot of the unified list, because it needs a linked mailbox that
+is ready. The labels below are the ones in the application.
 :::
 
 ## Turn it on

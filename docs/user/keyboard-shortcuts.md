@@ -66,6 +66,7 @@ Other keys work only in one place:
 
 - In the message list, `↓` and `↑` move between messages; with Shift they extend the
   selection when selecting with modifier keys is turned on.
+- `Ctrl+Z` and `Ctrl+Shift+Z` undo and redo in the mailbox when **Enable undo and redo history** is on in Settings, outside text fields.
 - In the message editor, `Ctrl+K` starts inserting a link, `Alt+H` folds or unfolds the
   message header, and `Ctrl+F1` pins or auto-hides the ribbon.
 

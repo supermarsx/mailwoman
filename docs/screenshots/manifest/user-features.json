@@ -1407,7 +1407,7 @@
     },
     "padding": 6
    },
-   "alt": "The Save contacts from this message dialog with the sender of a newsletter listed, a Name, Email, Address book and Group choice, and a Save 1 contact button.",
+   "alt": "The Save contacts from this message dialog with the sender of a newsletter ticked and your own address unticked, each row with a Name and an Address book, and the Save 1 contact button.",
    "callouts": [
     {
      "n": 1,
@@ -1698,7 +1698,7 @@
       "role": "button",
       "name": "@keys-generate-submit"
      },
-     "place": "top"
+     "place": "right"
     }
    ],
    "alt": "The Generate a key dialog with the type OpenPGP, the name Alex Rivera, the address alex@example.com and a passphrase entered, and a note that the locked key is also stored on the server."
@@ -2189,7 +2189,7 @@
       "role": "button",
       "name": "@settings-kbd-default"
      },
-     "place": "top"
+     "place": "left"
     },
     {
      "n": 2,
@@ -2467,72 +2467,6 @@
    ],
    "shot": "full",
    "alt": "The Rules and filters screen with the Builder, Raw Sieve and Forwarding tabs, and the rule builder open with a new rule named Print shop mail."
-  },
-  {
-   "id": "snooze-done",
-   "page": "user/snooze.md",
-   "isolate": true,
-   "steps": [
-    {
-     "goto": "/"
-    },
-    {
-     "click": {
-      "role": "button",
-      "name": "Sam Okoye",
-      "exact": false,
-      "first": true
-     }
-    },
-    {
-     "waitFor": {
-      "role": "heading",
-      "name": "Re: Spring catalogue: print proof"
-     }
-    },
-    {
-     "rightclick": {
-      "role": "button",
-      "name": "Sam Okoye",
-      "exact": false,
-      "first": true
-     }
-    },
-    {
-     "click": {
-      "role": "menuitem",
-      "name": "@mail-snooze"
-     }
-    },
-    {
-     "click": {
-      "role": "menuitem",
-      "name": "@mail-snooze-tomorrow"
-     }
-    },
-    {
-     "waitFor": {
-      "text": "@mail-toast-snoozed",
-      "first": true
-     }
-    },
-    {
-     "reload": true
-    },
-    {
-     "waitFor": {
-      "role": "button",
-      "name": "Priya Raman",
-      "exact": false,
-      "first": true
-     }
-    },
-    {
-     "wait": 1500
-    }
-   ],
-   "shot": "full",
-   "alt": "The mailbox after snoozing a message and reloading the page."
   },
   {
    "id": "contacts-dups",
@@ -2895,14 +2829,14 @@
      "target": {
       "label": "@crypto-encrypt-label"
      },
-     "place": "right"
+     "place": "left"
     },
     {
      "n": 2,
      "target": {
       "label": "@crypto-sign-label"
      },
-     "place": "right"
+     "place": "left"
     }
    ],
    "alt": "The Security tab of the message editor ribbon with the Encrypt (end-to-end) switch greyed out and the Sign switch available."
@@ -2991,6 +2925,269 @@
    ],
    "shot": "full",
    "alt": "The Package tracking page in Settings, with the settings list on the left and the Package tracking card on the right."
+  },
+  {
+   "id": "rules-saved",
+   "page": "user/rules-filters.md",
+   "isolate": true,
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@settings-nav-rules",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@rules-new"
+     }
+    },
+    {
+     "fill": {
+      "label": "@rules-name-label",
+      "value": "Print shop mail"
+     }
+    },
+    {
+     "fill": {
+      "label": "@rules-cond-value-label",
+      "value": "sam@example.org"
+     }
+    },
+    {
+     "fill": {
+      "label": "@rules-act-value-label",
+      "value": "Projects"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@rules-save"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "list",
+      "name": "@rules-list-label"
+     }
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "shot": "full",
+   "alt": "The Rules and filters screen after saving: the list Mail rules holds one rule, Print shop mail, and the rule builder is closed."
+  },
+  {
+   "id": "rules-list",
+   "page": "user/rules-filters.md",
+   "isolate": true,
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@settings-nav-rules",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@rules-new"
+     }
+    },
+    {
+     "fill": {
+      "label": "@rules-name-label",
+      "value": "Print shop mail"
+     }
+    },
+    {
+     "fill": {
+      "label": "@rules-cond-value-label",
+      "value": "sam@example.org"
+     }
+    },
+    {
+     "fill": {
+      "label": "@rules-act-value-label",
+      "value": "Projects"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@rules-save"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "list",
+      "name": "@rules-list-label"
+     }
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "listitem",
+     "first": true,
+     "within": {
+      "role": "list",
+      "name": "@rules-list-label"
+     }
+    },
+    "padding": 8
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "text": "Print shop",
+      "exact": false,
+      "first": true
+     },
+     "place": "top"
+    },
+    {
+     "n": 2,
+     "target": {
+      "text": "@rules-runs-engine",
+      "first": true,
+      "within": {
+       "role": "list",
+       "name": "@rules-list-label"
+      }
+     },
+     "place": "top"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "checkbox",
+      "name": "@rules-enabled",
+      "within": {
+       "role": "list",
+       "name": "@rules-list-label"
+      },
+      "first": true
+     },
+     "place": "top"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "button",
+      "name": "@common-edit",
+      "within": {
+       "role": "list",
+       "name": "@rules-list-label"
+      },
+      "first": true
+     },
+     "place": "top"
+    },
+    {
+     "n": 5,
+     "target": {
+      "role": "button",
+      "name": "Delete rule",
+      "exact": false,
+      "first": true,
+      "within": {
+       "role": "list",
+       "name": "@rules-list-label"
+      }
+     },
+     "place": "top"
+    }
+   ],
+   "alt": "One saved rule in the Mail rules list with markers on its name, the Engine badge, the Enabled checkbox, Edit and Delete."
+  },
+  {
+   "id": "contacts-saved",
+   "page": "user/contacts.md",
+   "isolate": true,
+   "steps": [
+    {
+     "goto": "/#/contacts"
+    },
+    {
+     "waitFor": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@common-edit"
+     }
+    },
+    {
+     "waitFor": {
+      "text": "@contacts-edit-contact",
+      "first": true
+     }
+    },
+    {
+     "fill": {
+      "label": "Phone 1",
+      "value": "+1 555 0111"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@common-save"
+     }
+    },
+    {
+     "waitFor": {
+      "text": "+1 555 0111",
+      "first": true
+     }
+    },
+    {
+     "wait": 500
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 819,
+     "y": 87,
+     "width": 606,
+     "height": 340
+    }
+   },
+   "alt": "The card of Priya Raman after saving the editor with a new phone number, +1 555 0111, listed under Phone."
   }
  ]
 }

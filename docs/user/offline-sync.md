@@ -51,7 +51,7 @@ downloaded even when they are older than the window. Attachments you prefetch ar
 limited to 10 MiB each. A file you attach while offline can be up to 50 MiB.
 
 The card also shows how much browser storage the site uses, a **Request persistent
-storage** button, and a line such as "Cached: 0 byte in 0 items · Protected: 0 byte".
+storage** button, and a line such as "Cached: 0 bytes in 0 items · Protected: 0 bytes".
 The browser decides the quota and may grant persistence without showing a dialog.
 
 ::: warning

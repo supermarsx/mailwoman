@@ -28,8 +28,6 @@ change which presets the menu offers in Settings.
 2. Choose a preset. The message is snoozed until the time the preset gives, and a
    **Snoozed** notice with an **Undo** button appears for about ten seconds.
 
-   ![The mailbox just after snoozing Re: Spring catalogue: print proof until tomorrow, with a Snooze badge in the message header and the Snoozed notice with Undo at the bottom right.](/screenshots/user-features/snooze-done.webp){.mw-shot}
-
 3. To pick any other time, choose **Choose date and time…**. The dialog shows the
    time zone it uses (for example **Timezone: UTC**), taken from your Regional
    settings. Enter a time in the future and choose **Snooze**.
