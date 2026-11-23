@@ -56,6 +56,7 @@ These settings were listed in the console, but no part of Mailwoman acted on the
 
 ## Other notes for this release
 
+- [Send limits and the storage limit are enforced](limits-enforced.md)
 - [Password policy and Assist settings from the console](password-policy-enforced.md)
 - [Retention jobs are scheduled](retention-jobs-scheduled.md)
 - [Seven more sections in data exports](dsr-export-sections.md)

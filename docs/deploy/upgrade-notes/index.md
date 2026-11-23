@@ -7,6 +7,7 @@ To see which release you run, check the image tag or run `mailwoman --version`.
 ## 26.20
 
 - [Console settings that now apply](console-settings-now-applied.md): import, webhook, proxy-timeout, LDAP pre-check, masked-address, abuse-address and security.txt settings saved in the console start to apply; the first start writes one audit entry listing them.
+- [Send limits and the storage limit are enforced](limits-enforced.md): saved `limit.send_per_hour`, `limit.send_per_day` and `limit.storage_bytes` values start to apply.
 - [Password policy and Assist settings from the console](password-policy-enforced.md): saved password rules and Assist values start to apply.
 - [Retention jobs are scheduled](retention-jobs-scheduled.md): user_retention, retention_archive and gc_uploads now run daily; 7-day preview on servers that already have accounts.
 - [Seven more sections in data exports](dsr-export-sections.md): data exports get larger; existing requests are unaffected.
