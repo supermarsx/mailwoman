@@ -822,6 +822,9 @@ impl WebhookRegistry for WebhookRegistryAdapter {
             })
             .collect()
     }
+    async fn delivery_limits(&self) -> crate::webhooks::DeliveryLimits {
+        crate::webhooks::DeliveryLimits::from_store(&self.store).await
+    }
 }
 
 // ─── Engine posture source + audit feed ───────────────────────────────────────

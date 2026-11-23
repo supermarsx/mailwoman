@@ -1230,7 +1230,8 @@ pub(crate) async fn send_webhook(state: &AppState, url: &str, event_name: &str, 
         secret: state.store.derive_key("mw-breach-webhook-v1").to_vec(),
         events: vec![],
     };
-    crate::webhooks::deliver_event_with(&endpoint, event_name, payload.to_string().as_bytes(), policy)
+    let limits = crate::webhooks::DeliveryLimits::from_store(&state.store).await;
+    crate::webhooks::deliver_event_limited(&endpoint, event_name, payload.to_string().as_bytes(), policy, limits)
         .await
         .map(|s| s.as_u16())
         .map_err(|e| e.to_string())

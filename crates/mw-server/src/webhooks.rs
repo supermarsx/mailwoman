@@ -86,12 +86,40 @@ pub const SIGNATURE_WINDOW_SECS: i64 = 300;
 /// The action kinds an inbound webhook can be allowed to run.
 pub const INBOUND_ACTIONS: [&str; 2] = ["run_rules", "sieve"];
 
-/// How many times a delivery is attempted before it is dropped (1 initial + retries).
-const MAX_ATTEMPTS: u32 = 3;
 /// Base backoff between retry attempts; doubles each attempt.
 const RETRY_BASE: Duration = Duration::from_millis(200);
-/// Per-attempt request timeout.
-const DELIVERY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How a delivery is attempted: `webhooks.maxAttempts` (1 initial + retries,
+/// 1 to 10) and `webhooks.timeoutSecs` (per attempt, 1 to 60 seconds). Read at
+/// delivery time; [`Default`] is the registry default (3 attempts, 10 s).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeliveryLimits {
+    pub max_attempts: u32,
+    pub timeout: Duration,
+}
+
+impl Default for DeliveryLimits {
+    fn default() -> Self {
+        Self {
+            max_attempts: 3,
+            timeout: Duration::from_secs(10),
+        }
+    }
+}
+
+impl DeliveryLimits {
+    /// The stored settings, clamped to the registry range, so a stored `0` or an
+    /// absurd timeout can neither stop delivery nor hold a dispatcher for long.
+    pub async fn from_store(store: &mw_store::Store) -> Self {
+        let subject = crate::newly_effective::global();
+        let attempts = crate::newly_effective::int(store, "webhooks.maxAttempts", &subject).await;
+        let timeout = crate::newly_effective::int(store, "webhooks.timeoutSecs", &subject).await;
+        Self {
+            max_attempts: u32::try_from(attempts).unwrap_or(3).clamp(1, 10),
+            timeout: Duration::from_secs(u64::try_from(timeout).unwrap_or(10).clamp(1, 60)),
+        }
+    }
+}
 /// Typed events waiting for the dispatcher. A full queue drops the event (counted)
 /// rather than slow the mutation that emitted it.
 const EVENT_QUEUE: usize = 1024;
@@ -145,6 +173,12 @@ impl WebhookEndpoint {
 pub trait WebhookRegistry: Send + Sync {
     /// The active webhooks for an account, secrets already unsealed.
     async fn list_for_account(&self, account_id: &str) -> Vec<WebhookEndpoint>;
+
+    /// The attempt count and timeout for the next deliveries. The store-backed
+    /// registry reads the settings; the default is the registry default.
+    async fn delivery_limits(&self) -> DeliveryLimits {
+        DeliveryLimits::default()
+    }
 }
 
 /// An in-memory registry for tests.
@@ -359,7 +393,8 @@ pub async fn run_webhook_dispatcher_with(
                     .collect();
                 if !wanted.is_empty() {
                     let body = build_payload(&change);
-                    deliver_all(&wanted, "StateChange", &body, policy).await;
+                    let limits = registry.delivery_limits().await;
+                    deliver_all(&wanted, "StateChange", &body, policy, limits).await;
                 }
             }
             Err(broadcast::error::RecvError::Lagged(n)) => {
@@ -387,7 +422,8 @@ pub async fn run_event_dispatcher_with(
             continue;
         }
         let body = build_event_payload(&event);
-        deliver_all(&wanted, event.kind.as_str(), &body, policy).await;
+        let limits = registry.delivery_limits().await;
+        deliver_all(&wanted, event.kind.as_str(), &body, policy, limits).await;
     }
 }
 
@@ -397,9 +433,10 @@ async fn deliver_all(
     event: &str,
     body: &[u8],
     policy: AddressPolicy,
+    limits: DeliveryLimits,
 ) {
     for endpoint in endpoints {
-        match deliver_event_with(endpoint, event, body, policy).await {
+        match deliver_event_limited(endpoint, event, body, policy, limits).await {
             Ok(status) => {
                 metrics::counter!("mw_webhook_deliveries_total", "result" => "ok").increment(1);
                 // Only opaque ids are logged — never the URL host's data or secret.
@@ -452,12 +489,25 @@ pub async fn deliver_event_with(
     body: &[u8],
     policy: AddressPolicy,
 ) -> Result<StatusCode, DeliveryError> {
+    deliver_event_limited(endpoint, event, body, policy, DeliveryLimits::default()).await
+}
+
+/// [`deliver_event_with`] with the attempt count and per-attempt timeout given
+/// (see [`DeliveryLimits::from_store`]).
+pub async fn deliver_event_limited(
+    endpoint: &WebhookEndpoint,
+    event: &str,
+    body: &[u8],
+    policy: AddressPolicy,
+    limits: DeliveryLimits,
+) -> Result<StatusCode, DeliveryError> {
+    let max_attempts = limits.max_attempts.max(1);
     let url = reqwest::Url::parse(&endpoint.url).map_err(|_| {
         DeliveryError::Refused(mw_egress::Refusal::BadRequest("malformed webhook URL"))
     })?;
     let signature = sign(&endpoint.secret, body);
     let mut last_err: Option<String> = None;
-    for attempt in 0..MAX_ATTEMPTS {
+    for attempt in 0..max_attempts {
         if attempt > 0 {
             tokio::time::sleep(RETRY_BASE * 2u32.pow(attempt - 1)).await;
         }
@@ -467,7 +517,7 @@ pub async fn deliver_event_with(
         // `harden_client` pins host → the checked address, turns redirects off and
         // refuses ambient proxies (which would resolve the name themselves).
         let http = mw_egress::harden_client(reqwest::Client::builder(), &target.host, target.addr)
-            .timeout(DELIVERY_TIMEOUT)
+            .timeout(limits.timeout.max(Duration::from_secs(1)))
             .build()
             .map_err(|e| DeliveryError::Failed(e.to_string()))?;
         let sent = http
@@ -498,7 +548,7 @@ pub async fn deliver_event_with(
         }
     }
     Err(DeliveryError::Failed(format!(
-        "{MAX_ATTEMPTS} attempts failed: {}",
+        "{max_attempts} attempts failed: {}",
         last_err.unwrap_or_else(|| "unknown".into())
     )))
 }
@@ -1513,6 +1563,43 @@ mod tests {
 
         drop(tx);
         let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn stored_delivery_limits_apply_and_stay_in_range() {
+        use crate::newly_effective::test_support::{put_global, store};
+        let store = store().await;
+        assert_eq!(DeliveryLimits::from_store(&store).await, DeliveryLimits::default());
+
+        put_global(&store, "webhooks.maxAttempts", "1").await;
+        put_global(&store, "webhooks.timeoutSecs", "5").await;
+        let limits = DeliveryLimits::from_store(&store).await;
+        assert_eq!(limits.max_attempts, 1);
+        assert_eq!(limits.timeout, Duration::from_secs(5));
+
+        // A failing receiver gets exactly one request with maxAttempts = 1.
+        let (url, rec) = spawn_recorder(10).await;
+        let endpoint = WebhookEndpoint {
+            id: "wh1".into(),
+            account_id: "acct1".into(),
+            url,
+            secret: b"s".to_vec(),
+            events: vec![],
+        };
+        let outcome =
+            deliver_event_limited(&endpoint, "StateChange", b"{}", loopback_ok, limits).await;
+        assert!(matches!(outcome, Err(DeliveryError::Failed(_))), "{outcome:?}");
+        assert_eq!(rec.hits.load(Ordering::SeqCst), 1);
+
+        // Raw rows outside the range (the console refuses them) are clamped:
+        // 0 attempts still delivers once, a day-long timeout becomes 60 s.
+        put_global(&store, "webhooks.maxAttempts", "0").await;
+        put_global(&store, "webhooks.timeoutSecs", "86400").await;
+        let limits = DeliveryLimits::from_store(&store).await;
+        assert_eq!(limits.max_attempts, 1);
+        assert_eq!(limits.timeout, Duration::from_secs(60));
+        put_global(&store, "webhooks.maxAttempts", "99").await;
+        assert_eq!(DeliveryLimits::from_store(&store).await.max_attempts, 10);
     }
 
     #[tokio::test]

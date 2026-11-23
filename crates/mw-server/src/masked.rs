@@ -139,14 +139,18 @@ fn generate_alias_addr(seed: &str, domain: &str, existing: &[String]) -> String 
     }
 }
 
-/// The masking domain for a session: `MW_MASKED_EMAIL_DOMAIN` when configured, else the
-/// account's own mail domain, else a safe fallback.
-fn masked_domain(username: &str) -> String {
-    if let Ok(d) = std::env::var("MW_MASKED_EMAIL_DOMAIN") {
-        let d = d.trim();
-        if !d.is_empty() {
-            return d.to_ascii_lowercase();
-        }
+/// The masking domain for a session: the setting `maskedEmail.domain` (the
+/// environment variable `MW_MASKED_EMAIL_DOMAIN` wins over a console value),
+/// else the account's own mail domain, else a safe fallback.
+async fn masked_domain(store: &Store, username: &str) -> String {
+    let configured = crate::newly_effective::text(
+        store,
+        "maskedEmail.domain",
+        &crate::newly_effective::global(),
+    )
+    .await;
+    if let Some(d) = configured {
+        return d.to_ascii_lowercase();
     }
     username
         .rsplit_once('@')
@@ -196,7 +200,7 @@ async fn create_alias(
         .into_iter()
         .map(|r| r.alias_addr)
         .collect();
-    let domain = masked_domain(username);
+    let domain = masked_domain(store, username).await;
     // Fresh random seed ⇒ the alias is unguessable; the collision loop stays deterministic.
     let seed = uuid::Uuid::new_v4().simple().to_string();
     let alias = generate_alias_addr(&seed, &domain, &existing);
@@ -533,14 +537,30 @@ mod tests {
         assert_ne!(first, generate_alias_addr("seed-2", "masked.test", &[]));
     }
 
-    #[test]
-    fn masked_domain_prefers_env_then_account_domain() {
-        // Not asserting the env branch (process-global); the account-domain fallback:
+    #[tokio::test]
+    async fn masked_domain_console_value_applies_and_the_environment_wins() {
+        let var = "MW_MASKED_EMAIL_DOMAIN";
+        let old = std::env::var(var).ok();
+        // Process-wide; the gate runs with --test-threads=1.
+        unsafe { std::env::remove_var(var) };
+        let store = store().await;
+        assert_eq!(masked_domain(&store, "Alice@Corp.Example").await, "corp.example");
+        assert_eq!(masked_domain(&store, "no-domain").await, "masked.local");
+        crate::newly_effective::test_support::put_global(
+            &store,
+            "maskedEmail.domain",
+            "\"Mask.Example\"",
+        )
+        .await;
+        assert_eq!(masked_domain(&store, "alice@corp.example").await, "mask.example");
+        unsafe { std::env::set_var(var, "env.example") };
+        assert_eq!(masked_domain(&store, "alice@corp.example").await, "env.example");
         unsafe {
-            std::env::remove_var("MW_MASKED_EMAIL_DOMAIN");
+            match old {
+                Some(v) => std::env::set_var(var, v),
+                None => std::env::remove_var(var),
+            }
         }
-        assert_eq!(masked_domain("Alice@Corp.Example"), "corp.example");
-        assert_eq!(masked_domain("no-domain"), "masked.local");
     }
 
     #[test]

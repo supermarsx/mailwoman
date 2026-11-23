@@ -50,18 +50,49 @@ use serde_json::{Value, json};
 
 use crate::{AppState, payload_too_large};
 
-/// Hard cap on messages accepted in one import call — bounds work + upload writes
-/// for a single request (a larger archive is split client-side).
+/// Default cap on messages accepted in one import call — bounds work + upload
+/// writes for a single request (a larger archive is split client-side). The
+/// domain-scoped setting `import.maxMessages` (1 to 80,000) replaces it; see
+/// [`ImportLimits`].
 const MAX_IMPORT_MESSAGES: usize = 20_000;
 /// Hard cap on one message's size (also the per-file cap for a maildir tar entry)
 /// **and, since t20 (26.19, B7), the whole-request body limit of every import
 /// route** — see [`import_router`]. An mbox/maildir archive therefore travels in
 /// slices of at most this size; the same "split the archive" advice that
 /// [`MAX_IMPORT_MESSAGES`] gives applies to bytes as well as message count.
+///
+/// The domain-scoped setting `import.maxMessageBytes` can lower the per-message
+/// cap. It cannot raise it: the request body limit stays this constant, which
+/// keeps the two admitted imports within a fixed amount of memory.
 const MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
 /// The `limit` name reported in the JSON `413` — the constant that was hit, as
 /// `/jmap/upload` reports `maxSizeUpload` for its own cap.
 const MESSAGE_LIMIT_NAME: &str = "maxMessageBytes";
+
+/// The import limits that apply to one account's domain (t48): the settings
+/// `import.maxMessages` and `import.maxMessageBytes`, clamped to the registry
+/// range, with the message size also capped at [`MAX_MESSAGE_BYTES`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ImportLimits {
+    pub max_messages: usize,
+    pub max_message_bytes: usize,
+}
+
+impl ImportLimits {
+    /// The limits for the domain of `username`.
+    pub(crate) async fn for_user(store: &mw_store::Store, username: &str) -> Self {
+        let domain = crate::admin_ctx::domain_of(username);
+        let subject = crate::newly_effective::domain(&domain);
+        let messages = crate::newly_effective::int(store, "import.maxMessages", &subject).await;
+        let bytes = crate::newly_effective::int(store, "import.maxMessageBytes", &subject).await;
+        Self {
+            max_messages: usize::try_from(messages).unwrap_or(MAX_IMPORT_MESSAGES).max(1),
+            max_message_bytes: usize::try_from(bytes)
+                .unwrap_or(MAX_MESSAGE_BYTES)
+                .clamp(1, MAX_MESSAGE_BYTES),
+        }
+    }
+}
 
 // Admit work before Bytes extraction: at most two bounded archives occupy memory.
 async fn import_admission(
@@ -139,6 +170,7 @@ async fn import_formats(State(state): State<AppState>, headers: HeaderMap) -> Re
     if let Err(response) = crate::mailbox_target_fence(&state, &session, &headers).await {
         return response;
     }
+    let limits = ImportLimits::for_user(&state.store, &session.username).await;
     let engine_ready = state.engine.is_some();
     let available = match &state.engine {
         Some(engine) => match engine.import_available(&session.account_id).await {
@@ -166,8 +198,8 @@ async fn import_formats(State(state): State<AppState>, headers: HeaderMap) -> Re
         ],
         // The real, enforced limits — so the wizard can slice an archive to fit
         // instead of discovering the cap as a 413 (t20 B7).
-        "maxBytes": MAX_MESSAGE_BYTES,
-        "maxMessages": MAX_IMPORT_MESSAGES,
+        "maxBytes": limits.max_message_bytes,
+        "maxMessages": limits.max_messages,
         "targetMailbox": "pass ?mailboxId=<id>; omitted → the account inbox"
     }))
     .into_response()
@@ -266,15 +298,16 @@ async fn ingest_messages(
     if messages.is_empty() {
         return bad_request("no messages to import");
     }
-    if messages.len() > MAX_IMPORT_MESSAGES {
+    let limits = ImportLimits::for_user(&state.store, &session.username).await;
+    if messages.len() > limits.max_messages {
         return bad_request("too many messages in one import (split the archive)");
     }
-    // Defence in depth: the route's body limit already caps the whole request at
-    // `MAX_MESSAGE_BYTES`, so a single message cannot exceed it — but the check
-    // stays, and answers with the same `413` shape as the body limit rather than
-    // a `400`, so a size refusal looks identical wherever it is raised.
-    if messages.iter().any(|m| m.len() > MAX_MESSAGE_BYTES) {
-        return import_too_large();
+    // The route's body limit caps the whole request at `MAX_MESSAGE_BYTES`; the
+    // domain's `import.maxMessageBytes` can set a lower per-message cap. Either
+    // refusal answers with the same `413` shape as the body limit rather than a
+    // `400`, so a size refusal looks identical wherever it is raised.
+    if messages.iter().any(|m| m.len() > limits.max_message_bytes) {
+        return payload_too_large(MESSAGE_LIMIT_NAME, limits.max_message_bytes);
     }
     let account = &session.account_id;
 

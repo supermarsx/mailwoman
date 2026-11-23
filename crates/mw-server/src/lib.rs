@@ -247,6 +247,8 @@ mod user_lifecycle;
 mod account_drafts;
 pub mod image_proxy;
 pub mod import_routes;
+mod newly_effective;
+mod well_known;
 mod linked_accounts;
 mod linked_login;
 mod maintenance_mode;
@@ -1291,6 +1293,8 @@ async fn build_app_inner(
         matches!(config.mode, ServerMode::Engine),
     )
     .await?;
+    newly_effective::report_at_start(&store).await;
+    newly_effective::start(store.clone());
     let engine = match config.mode {
         ServerMode::Engine => {
             tracing::info!("engine mode: driving IMAP/POP3 accounts behind the JMAP surface");
@@ -1756,6 +1760,7 @@ fn router(
         .merge(packages::router())
         .route("/.well-known/jmap", get(jmap_discovery::session))
         .route("/.well-known/mailwoman", get(jmap_discovery::connection))
+        .merge(well_known::router())
         .route("/jmap/session", get(jmap_session))
         .route(
             "/jmap/api",
@@ -3014,13 +3019,15 @@ fn header_auth_peer_allowed_with(raw_list: &str, peer: Option<std::net::IpAddr>)
     }
 }
 
-/// A1 (LDAP-bind login backend, §18.3). When `MW_LDAP_BIND_AUTH` is set, authenticate
+/// A1 (LDAP-bind login backend, §18.3). When `signin.ldapBindPrecheck` is on
+/// (`MW_LDAP_BIND_AUTH` wins over the console value), authenticate
 /// the presented password against the configured directory via the directory
 /// handle's `bind_auth` BEFORE the mail-backend credential check; a denied
 /// bind (or, fail-closed, a bind error while enabled) is the uniform 401. Off by
 /// default → `Ok(())`, leaving the mail backend as the sole authority.
 async fn directory_bind_gate(state: &AppState, user: &str, pass: &str) -> Result<(), &'static str> {
-    if !env_flag("MW_LDAP_BIND_AUTH") {
+    let precheck = newly_effective::flag(&state.store, "signin.ldapBindPrecheck", &newly_effective::global()).await;
+    if !precheck {
         return Ok(());
     }
     directory_bind_result(state.directory.bind_auth(user, pass).await)
@@ -3935,10 +3942,11 @@ fn upstream_error() -> Response {
 // only by deployment configuration, and the upstream here is request-derived; the
 // policy and pinning primitives are what apply.
 
-/// Total time allowed for one upstream request. `harden_client` sets
-/// `mw_egress::FETCH_TIMEOUT` (10 s), which suits an image fetch but not a 50 MB
-/// upload or a large `Email/get`; before t24 these requests had no limit at all.
-const UPSTREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+// Total time allowed for one upstream request: `upstream.proxyTimeoutSecs`
+// (30 to 900 s, default 300), cached by `newly_effective::proxy_timeout`.
+// `harden_client` sets `mw_egress::FETCH_TIMEOUT` (10 s), which suits an image
+// fetch but not a 50 MB upload or a large `Email/get`; before t24 these requests
+// had no limit at all.
 
 /// Why an upstream URL was not used. Logged for the operator; the client only
 /// ever sees the uniform `401` (login) or `502` (relayed legs).
@@ -4066,7 +4074,7 @@ pub(crate) async fn upstream_client(
         .await
         .map_err(UpstreamRefusal::Egress)?;
     let http = mw_egress::harden_client(reqwest::Client::builder(), &pinned.host, pinned.addr)
-        .timeout(UPSTREAM_TIMEOUT)
+        .timeout(newly_effective::proxy_timeout())
         .connect_timeout(mw_egress::FETCH_TIMEOUT)
         .build()
         .map_err(|_| UpstreamRefusal::Client)?;
@@ -5211,10 +5219,19 @@ async fn arf_report(
         Ok(s) => s,
         Err(resp) => return resp,
     };
-    let Some(abuse) = state.security.abuse_address.clone() else {
+    // `MW_ABUSE_ADDRESS` (or the configured value) wins; else the console value
+    // `abuse.reportAddress` for the reporter's domain.
+    let abuse = match state.security.abuse_address.clone() {
+        Some(a) => Some(a),
+        None => {
+            let domain = admin_ctx::domain_of(&session.username);
+            newly_effective::text(&state.store, "abuse.reportAddress", &newly_effective::domain(&domain)).await
+        }
+    };
+    let Some(abuse) = abuse else {
         return (
             StatusCode::NOT_IMPLEMENTED,
-            Json(json!({ "error": "abuse reporting is not configured (set MW_ABUSE_ADDRESS)" })),
+            Json(json!({ "error": "abuse reporting is not configured (set abuse.reportAddress or MW_ABUSE_ADDRESS)" })),
         )
             .into_response();
     };
