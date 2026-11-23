@@ -1004,20 +1004,34 @@ fn is_notify_action(action: &str) -> bool {
     matches!(action, "notify" | "notify-admin")
 }
 
-/// The env-configured DLP admin notification address (redacted notices only).
-fn dlp_admin_address() -> Option<String> {
-    std::env::var("MW_DLP_ADMIN")
+/// The DLP admin notification address: `MW_DLP_ADMIN` when set (it pins the
+/// setting), else the saved global `dlp.adminAddress`. Read on every notice so
+/// a console change applies at once.
+async fn dlp_admin_address(store: &mw_store::Store) -> Option<String> {
+    let saved = store
+        .get_setting_policy("dlp.adminAddress")
+        .await
         .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+        .flatten()
+        .and_then(|row| row.global_value);
+    admin_address_from(std::env::var("MW_DLP_ADMIN").ok(), saved.as_deref())
+}
+
+fn admin_address_from(env: Option<String>, saved: Option<&str>) -> Option<String> {
+    let clean = |s: &str| Some(s.trim().to_string()).filter(|s| !s.is_empty());
+    env.as_deref().and_then(clean).or_else(|| {
+        saved
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+            .and_then(|v| v.as_str().and_then(clean))
+    })
 }
 
 /// Best-effort redacted admin notification for `notify`/`notify-admin` verdicts:
-/// emails `MW_DLP_ADMIN` (when set) a content-free notice carrying the rule +
+/// emails the DLP admin address (`MW_DLP_ADMIN`, else `dlp.adminAddress`) a content-free notice carrying the rule +
 /// matched detector tokens only — NEVER the matched content or the message body.
 /// No-op when the address is unset or the account has no live submitter.
 async fn notify_admin(engine: &Engine, account_id: &str, verdicts: &[DlpVerdict]) {
-    let Some(admin) = dlp_admin_address() else {
+    let Some(admin) = dlp_admin_address(engine.store()).await else {
         return;
     };
     let Some(rt) = engine.runtime(account_id) else {
@@ -1074,6 +1088,38 @@ fn build_dlp_notice(from: &str, to: &str, verdicts: &[&DlpVerdict]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn admin_address_env_wins_over_the_saved_value() {
+        use super::admin_address_from as f;
+        assert_eq!(f(None, None), None);
+        assert_eq!(f(None, Some("null")), None);
+        assert_eq!(f(None, Some("\"\"")), None);
+        assert_eq!(f(None, Some("\" dlp@example.org \"")).as_deref(), Some("dlp@example.org"));
+        assert_eq!(f(Some("env@example.org".into()), Some("\"dlp@example.org\"")).as_deref(), Some("env@example.org"));
+        assert_eq!(f(Some("  ".into()), Some("\"dlp@example.org\"")).as_deref(), Some("dlp@example.org"));
+    }
+
+    #[tokio::test]
+    async fn saved_admin_address_is_read_from_the_store() {
+        let store = mw_store::Store::open_in_memory(mw_store::ServerKey::generate()).await.unwrap();
+        if std::env::var_os("MW_DLP_ADMIN").is_some() {
+            return;
+        }
+        assert_eq!(super::dlp_admin_address(&store).await, None);
+        store
+            .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+                key: "dlp.adminAddress".into(),
+                global_value: Some("\"sec@example.org\"".into()),
+                allow_user_override: false,
+                global_locked: false,
+                updated_by: "test".into(),
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+        assert_eq!(super::dlp_admin_address(&store).await.as_deref(), Some("sec@example.org"));
+    }
+
     use super::*;
     use crate::security::types::{DlpConditions, DlpRule};
 

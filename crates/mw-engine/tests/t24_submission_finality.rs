@@ -575,6 +575,47 @@ async fn every_recipient_refused_fails_at_once_and_is_not_retried() {
     assert!(result(&cancel, "u")["notUpdated"].get("sub-550").is_some());
 }
 
+/// `outbox.maxAttempts` saved in the console replaces the built-in 8: with 2, the
+/// submission fails after its second refused attempt and is never sent again.
+#[tokio::test]
+async fn a_saved_outbox_max_attempts_sets_the_cap() {
+    let h = setup(SentAppend::Accept, Smtp::TransportError).await;
+    h.engine
+        .store()
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: "outbox.maxAttempts".into(),
+            global_value: Some("2".into()),
+            allow_user_override: false,
+            global_locked: false,
+            updated_by: "test".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
+    let draft = create_draft(&h).await;
+    enqueue_due(&h, "sub-two", &draft).await;
+
+    let t0 = Utc::now();
+    h.engine.dispatch_tick_at(t0).await.unwrap();
+    let sub = submission(&h, "sub-two").await;
+    assert_eq!(sub["undoStatus"], "pending", "first attempt is retried: {sub}");
+    let next = next_attempt_at(&sub);
+
+    h.engine.dispatch_tick_at(next).await.unwrap();
+    let sub = submission(&h, "sub-two").await;
+    assert_eq!(sub["mailwomanAttempts"], 2);
+    assert_eq!(sub["undoStatus"], "canceled");
+    assert_eq!(sub["mailwomanFailed"], true);
+
+    for day in 1..=5i64 {
+        h.engine
+            .dispatch_tick_at(next + chrono::Duration::days(day))
+            .await
+            .unwrap();
+    }
+    assert_eq!(h.submitter.calls(), 2, "no attempt after the cap");
+}
+
 /// A transient failure (the SMTP connection is refused): each attempt is counted,
 /// the next one waits out the backoff however many scans happen meanwhile, and
 /// after the cap the submission fails and is never sent.
