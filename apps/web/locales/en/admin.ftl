@@ -398,15 +398,15 @@ admin-sso-sp-entity-id-help = The name this server uses towards the provider; le
 admin-sso-acs-url-help = Where the provider posts its answer; leave empty to use /api/sso/<id>/acs on this server.
 admin-sso-nameid-format-help = The kind of user identifier asked from the provider.
 admin-sso-want-signed-help = Refuse assertions that are not signed by one of the certificates above.
-admin-sso-want-encrypted-help = Refuse assertions that are not encrypted to this server; needs the service provider key below.
+admin-sso-want-encrypted-help = Not applied yet: this server refuses every encrypted assertion, whatever this setting says.
 admin-sso-sp-key = Service provider private key
-admin-sso-sp-key-help = The PEM private key this server decrypts assertions with; it is stored sealed and never shown again.
+admin-sso-sp-key-help = Not used yet: this server does not decrypt SAML assertions. A key you enter is stored sealed and never shown again.
 
 admin-sso-claims-help = Which claim or attribute of the provider's answer fills each part of the account.
 admin-sso-claim-email-help = The email address of the person.
 admin-sso-claim-username-help = The name the account is matched or made with.
-admin-sso-claim-display-help = The name shown to others.
-admin-sso-claim-groups-help = Group membership; leave empty when not used.
+admin-sso-claim-display-help = Not applied yet: sign-in does not read the display name from the provider.
+admin-sso-claim-groups-help = Not applied yet: sign-in does not read group membership from the provider.
 
 # -- Server metadata editor (t14, RFC 5464 annotations under /admin) ----------
 # The editor body (entry list, add form) reuses the servermeta.ftl catalog; these
@@ -482,7 +482,7 @@ admin-2fa-add-save = Add domain rule
 # -- Egress proxy routes (26.20 t22-e16) -------------------------------------
 admin-nav-egress = Egress
 admin-egress-heading = Outbound proxy routes
-admin-egress-intro = Route the server's outbound fetches through an HTTP CONNECT or SOCKS5 proxy. Mailwoman still enforces its own address policy — the proxy is never asked to resolve a name.
+admin-egress-intro = Route the server's outbound fetches through an HTTP CONNECT or SOCKS5 proxy. Mailwoman still enforces its own address policy: it resolves each name itself, checks every address and gives the proxy only the address. A socks5h route is the exception: it hands the proxy the name to resolve, so its addresses cannot be checked, and saving it needs an explicit acceptance.
 admin-egress-empty = No routes configured. Outbound fetches go direct.
 admin-egress-none-active = No route is in use. Outbound fetches go direct. A saved route carries traffic only after you choose "Use this route".
 admin-egress-in-use = Outbound fetches use the route "{ $id }".

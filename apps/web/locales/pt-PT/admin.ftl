@@ -392,15 +392,15 @@ admin-sso-sp-entity-id-help = O nome que este servidor usa perante o fornecedor;
 admin-sso-acs-url-help = Para onde o fornecedor envia a sua resposta; deixe vazio para usar /api/sso/<id>/acs neste servidor.
 admin-sso-nameid-format-help = O tipo de identificador de utilizador pedido ao fornecedor.
 admin-sso-want-signed-help = Recusar asserções que não estejam assinadas por um dos certificados acima.
-admin-sso-want-encrypted-help = Recusar asserções que não estejam encriptadas para este servidor; requer a chave do fornecedor de serviços abaixo.
+admin-sso-want-encrypted-help = Ainda não aplicado: este servidor recusa todas as asserções encriptadas, seja qual for esta definição.
 admin-sso-sp-key = Chave privada do fornecedor de serviços
-admin-sso-sp-key-help = A chave privada PEM com que este servidor desencripta as asserções; é guardada selada e nunca volta a ser apresentada.
+admin-sso-sp-key-help = Ainda não usada: este servidor não desencripta asserções SAML. Uma chave introduzida é guardada selada e nunca mais é apresentada.
 
 admin-sso-claims-help = Que claim ou atributo da resposta do fornecedor preenche cada parte da conta.
 admin-sso-claim-email-help = O endereço de e-mail da pessoa.
 admin-sso-claim-username-help = O nome com que a conta é associada ou criada.
-admin-sso-claim-display-help = O nome apresentado aos outros.
-admin-sso-claim-groups-help = Pertença a grupos; deixe vazio se não for utilizado.
+admin-sso-claim-display-help = Ainda não aplicado: o início de sessão não lê o nome a apresentar do fornecedor.
+admin-sso-claim-groups-help = Ainda não aplicado: o início de sessão não lê a pertença a grupos do fornecedor.
 
 # -- Server metadata editor (t14, RFC 5464 annotations under /admin) ----------
 admin-servermeta-title = Metadados do servidor
@@ -467,7 +467,7 @@ admin-2fa-add-save = Adicionar regra de domínio
 # -- Egress proxy routes (26.20 t22-e16) -------------------------------------
 admin-nav-egress = Saída
 admin-egress-heading = Rotas de proxy de saída
-admin-egress-intro = Encaminhe os pedidos de saída do servidor através de um proxy HTTP CONNECT ou SOCKS5. O Mailwoman continua a aplicar a sua própria política de endereços — nunca é pedido ao proxy que resolva um nome.
+admin-egress-intro = Encaminha as obtenções de saída do servidor através de um proxy HTTP CONNECT ou SOCKS5. O Mailwoman continua a aplicar a sua própria política de endereços: resolve cada nome ele próprio, verifica cada endereço e entrega ao proxy apenas o endereço. Uma rota socks5h é a exceção: entrega ao proxy o nome a resolver, pelo que os seus endereços não podem ser verificados, e guardá-la exige uma aceitação explícita.
 admin-egress-empty = Nenhuma rota configurada. Os pedidos de saída são diretos.
 admin-egress-none-active = Nenhuma rota está em uso. Os pedidos de saída são diretos. Uma rota guardada só transporta tráfego depois de escolher «Usar esta rota».
 admin-egress-in-use = Os pedidos de saída usam a rota «{ $id }».
