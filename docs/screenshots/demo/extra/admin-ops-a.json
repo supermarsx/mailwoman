@@ -1,0 +1,132 @@
+{
+  "seeds": {
+    "opsa-observed": {
+      "include": [
+        "admin-basic"
+      ],
+      "user": [
+        {
+          "method": "POST",
+          "path": "/api/client-timing",
+          "body": {
+            "device": "desktop",
+            "metrics": [
+              {
+                "name": "timeToUsable",
+                "ms": 820
+              },
+              {
+                "name": "fcp",
+                "ms": 310
+              },
+              {
+                "name": "lcp",
+                "ms": 640
+              },
+              {
+                "name": "load",
+                "ms": 900
+              }
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/client-timing",
+          "body": {
+            "device": "mobile",
+            "metrics": [
+              {
+                "name": "timeToUsable",
+                "ms": 1450
+              },
+              {
+                "name": "fcp",
+                "ms": 620
+              },
+              {
+                "name": "lcp",
+                "ms": 1100
+              },
+              {
+                "name": "load",
+                "ms": 1600
+              }
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/client-timing",
+          "body": {
+            "device": "desktop",
+            "metrics": [
+              {
+                "name": "folderLoadCold",
+                "ms": 240
+              },
+              {
+                "name": "folderLoadCached",
+                "ms": 35
+              },
+              {
+                "name": "messageLoadCold",
+                "ms": 180
+              },
+              {
+                "name": "messageLoadCached",
+                "ms": 28
+              }
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/observability/client-errors/session",
+          "body": {
+            "reports": [
+              {
+                "id": "0a1b2c3d-0000-4000-8000-000000000001",
+                "fingerprint": "a1b2c3d4e5f60718",
+                "count": 3,
+                "visit": "visit-one",
+                "kind": "boundary",
+                "name": "TypeError",
+                "message": "Cannot read properties of undefined (reading 'length')",
+                "stack": "TypeError: Cannot read properties of undefined (reading 'length')\n    at s (/assets/Reader-3f9a1c2b.js:1:4821)\n    at o (/assets/index-8d1e77aa.js:1:20211)",
+                "boundary": "Reader/AttachmentViewer/text",
+                "route": "/mail/:id",
+                "build": "demo-build",
+                "uaFamily": "Chrome",
+                "uaVersion": "138",
+                "osFamily": "Windows",
+                "viewport": "wide",
+                "locale": "en-US",
+                "online": true
+              },
+              {
+                "id": "0a1b2c3d-0000-4000-8000-000000000002",
+                "fingerprint": "b7c8d9e0f1a21324",
+                "count": 1,
+                "visit": "visit-two",
+                "kind": "unhandledrejection",
+                "name": "NetworkError",
+                "message": "Failed to fetch a dynamically imported module",
+                "stack": "NetworkError: Failed to fetch a dynamically imported module\n    at i (/assets/index-8d1e77aa.js:1:30211)",
+                "boundary": "Calendar",
+                "route": "/calendar",
+                "build": "demo-build",
+                "uaFamily": "Firefox",
+                "uaVersion": "139",
+                "osFamily": "Linux",
+                "viewport": "medium",
+                "locale": "en-US",
+                "online": true
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

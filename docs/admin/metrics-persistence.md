@@ -1,103 +1,80 @@
+---
+title: Statistics that survive a restart
+---
 # Statistics that survive a restart
 
-The performance statistics in the admin console (median and 95th percentile
-cards, the Speed panels, rate-limit and request-protection counts) used to live
-in memory for several sources, so a restart emptied them. This page lists what
-was kept where before, and what is stored now.
+Some performance statistics in the console are saved to the database, so a restart does not empty them. They appear as a **Saved statistics** card with a range selector. This page lists what is saved, where the cards are, how long the data is kept and how to reset it.
 
-## What was in memory and what was persisted (audit)
+![The top of the Saved statistics card on the Observability Overview, with markers 1 and 2 on the range buttons and the Saved badge with the row count.](/screenshots/admin-ops/opsa-observability-saved-stats.webp){.mw-crop}
 
-| Statistic | Where it is recorded | Before | Now |
-|---|---|---|---|
-| Browser page / app load (`timeToUsable`, `ttfb`, `dcl`, `load`, `fcp`, `lcp`) | `client_timing.rs`, beacon `POST /api/client-timing` | Hourly histograms in memory for the current and previous hour, written to `client_timing_bucket` every 30 s. The admin view read the database, so history already survived a restart; up to 30 s were lost on a hard stop. Hour resolution only. | Unchanged, and the same samples also go to `metrics_bucket` at one-minute resolution with a device-class dimension (see below). |
-| Folder load, message load (`folderLoadCold/Cached`, `messageLoadCold/Cached`, `folderOpen`) | same | same as above | same as above |
-| Sanitize time, search time | not measured by the browser beacon | none | none (the beacon has no such metric; the sanitize rate limiter is counted under rate limits) |
-| Image proxy latency: median, p95, p99, miss latency, phases, outcomes | `remote_image_latency.rs`, process-wide recorder | One-minute slices in a 24 h ring in memory only; empty after a restart; `resetsOnRestart: true` | Every request also lands in `metrics_bucket`; at start-up the ring is filled from the stored minutes, so the panel is not empty. |
-| Image proxy worker history (served, busy, bytes) | `remote_image_history.rs` | In memory only | Unchanged (counters of the live process; the panel says so). |
-| Request metrics by route class (requests, 4xx, 5xx, latency) | `http_metrics.rs` (60 minute ring and Prometheus counters), `request_history.rs` | The ring is in memory; `request_history` writes minute and hour buckets to `request_metrics_bucket` every 15 s | Unchanged: already persisted. |
-| Request-protection decision counts (allowed, throttled, blocked) | `request_protection/history.rs` | 24 h ring in memory only; decision samples go to `request_protection_event` (kept 30 days) | Counts also go to `metrics_bucket` (`requestProtection.*`). |
-| Rate-limit counters per limiter class: allowed, queued, rejected | `rate_leeway.rs` | Process counters and a recent list in memory; empty after a restart | The change in the counters is written to `metrics_bucket` at each flush (`rateLimit.<class>.<outcome>`). The recent-refusals list stays in memory. |
-| Job runtimes | `jobs.rs` | `job_run` rows (start, finish, outcome), kept `retention.jobRuns.days` | Unchanged: already persisted. |
+1. The range buttons: **Last hour**, **Last 24 hours**, **Last 7 days**, **Last 30 days** and **Last year**.
+2. The **Saved** badge, with the time of the last save, the number of stored rows and the start of the history.
+{.mw-callouts}
 
-## The store
+Below the charts of each card is the **Reset statistics** button, described under [Reset the saved statistics](#reset-the-saved-statistics).
 
-Table `metrics_bucket` (migration `0098`, SQLite and Postgres). One row per
-instance, metric, bucket and dimension set. The primary key is
-`(instance_id, metric, bucket_start, resolution_seconds, dim_domain, dim_folder_class, dim_client_kind, dim_device_class, dim_backend)`, every part `NOT NULL`.
+## What is saved and where it is shown
 
-| Column | Meaning |
-|---|---|
-| `instance_id` | Random id of the server process that wrote the row; a restart is a new instance. |
-| `metric` | A fixed name from the code, for example `imageProxy.outcome.miss`, `clientTiming.folderLoadCold`, `rateLimit.jmap.rejected`, `requestProtection.blocked`. |
-| `bucket_start`, `resolution_seconds` | Start of the bucket (unix seconds) and its length: 60, 3600 or 86400. |
-| `dim_*` | Bounded dimensions; empty string when not applicable. Filled today: `dim_client_kind` (`web`) and `dim_device_class` (`desktop`, `mobile`, `unknown`) for browser timings. `dim_domain`, `dim_folder_class` and `dim_backend` are reserved for later and always empty now. |
-| `sample_count`, `sum_value`, `min_value`, `max_value` | Exact count, sum, minimum and maximum. For a counter metric the count is the sum of increments. |
-| `sketch` | The distribution: counts per log-linear bucket (values 0 to 7 each have a bucket; every power of two above is split into 8; up to 2^26), stored as varint pairs of non-empty buckets. Latencies are stored in the metric's own unit: microseconds for the image proxy, milliseconds for browser timings. |
-| `flushed_at` | When the row was last written; the console shows the newest as "last saved". |
+| Source | What it records | Where the card is |
+|---|---|---|
+| Browser load times | The same samples as the Client load times figures, at one-minute resolution and with a device class. | **Observability → Overview** |
+| Image proxy | Latency of image proxy requests: median and 95th percentile, fetched images and cache hits. | **Privacy → Image proxy → Speed** |
+| Rate limits | The change in the allowed, queued and rejected counters of each rate limiter. | **Security centre → Aggregate and adaptive protection** |
+| Request protection | Decisions of request protection: allowed, throttled and blocked. | **Security centre → Aggregate and adaptive protection** |
 
-A percentile is never stored. Sketches merge by adding bucket counts, so a
-range, or several instances, give the median and 95th percentile of the union
-exactly as if every sample had been recorded in one sketch. A reported value is
-within 1/16 (6.25 percent) of the true one above 7 units, and exact below.
+Other statistics keep their own storage. Request counts and response times of the Dashboard and Overview are written every 15 seconds ([Request latency and 404 paths](/admin/latency-metrics)). Job runs are kept as job history.
 
-No user id, session, address, path, message or folder name is stored. At most 32
-distinct dimension sets are kept per metric and minute; further ones are folded
-into `other`. With `metrics.dimensions.enabled` off every row has empty
-dimensions.
+Each card has line charts of the median and the 95th percentile (or counts, for counters). Percentiles are never stored. They are read from stored counts, which can be added together, so a range, or several servers that share one database, give the same median and 95th percentile as if every sample had been recorded in one place. A reported value is within 6.25% of the true value above 7 units, and exact below that.
 
-## Flush, restart and shutdown
+## How saving works
 
-* Samples are added to an in-memory sketch of their minute. Every
-  `metrics.persist.flushSeconds` (default 60) the minutes that changed are
-  written as absolute snapshots under this process's instance id. A snapshot only
-  replaces a row with fewer samples, so a retried write never counts twice. A
-  failed write keeps the minutes and retries at the next flush.
-* On a graceful stop (SIGTERM or Ctrl+C) the server flushes once more, in the same
-  shutdown hook as the other final saves (`flush_trust_tiers`), before exiting. A
-  hard kill loses at most one flush interval.
-* After a restart the new process has a new instance id. Reads merge every
-  instance's rows, so history is continuous and medians and p95 appear at once.
-  The image proxy panel's live ring is filled from the stored minutes at start-up.
-* Several instances on one database each write their own rows and need no
-  locking; a read merges them.
-* The admin read first flushes the local process, so the newest samples are in
-  the answer.
+- Samples are added to an in-memory sketch for their minute. Every `metrics.persist.flushSeconds` seconds the minutes that changed are written to the database under the id of the server process. A retried write never counts twice, and a failed write keeps the minutes and retries at the next flush.
+- On a graceful stop (SIGTERM or Ctrl+C) the server saves once more before it exits. A hard kill loses at most one flush interval.
+- After a restart the new process finds the earlier rows and shows them at once, so medians and percentiles are not empty. The image proxy panel is refilled from the stored minutes.
+- Servers that share one database each write their own rows without locking, and a read merges them. A read from the console saves the local server's newest samples first.
+- No user, session, address, path, message or folder name is stored. At most 32 different dimension sets are kept per metric and minute; further ones are folded into `other`. The dimensions in use are the client kind (`web`) and the device class (`desktop`, `mobile`, `unknown`) of browser load times. With **Split statistics by client kind and device class** off, every row has empty dimensions.
 
-## Retention and roll-up
+## Retention
 
-The retention sweeper (`retention_sweep` job, daily) rolls the table up:
+A retention sweep (the `retention_sweep` job, daily) rolls the saved rows up:
 
 | Resolution | Kept | Setting |
 |---|---|---|
-| 1 minute | 48 hours | `retention.metrics.minuteBucketsHours` (at least 1) |
-| 1 hour | 60 days | `retention.metrics.hourBucketsDays` (at least 1) |
-| 1 day | 1095 days | `retention.metrics.dayBucketsDays` (0 keeps without limit; the console warns) |
+| 1 minute | 48 hours | **Minute statistics kept (hours)**, at least 1 |
+| 1 hour | 60 days | **Hourly statistics kept (days)**, at least 1 |
+| 1 day | 1095 days | **Daily statistics kept (days)**; 0 keeps them without limit |
 
-Minute rows older than the first limit are merged into hour rows (sketches
-added, per instance and dimension set), hour rows older than the second into day
-rows; day rows past the third are deleted. The roll-up is idempotent. The data
-map lists `metrics_bucket` as exempt: aggregate metrics with no person
-identifiers.
+Minute rows older than the first limit are merged into hourly rows and hourly rows older than the second into daily rows. Daily rows older than the third limit are deleted. The roll-up can be repeated safely. The saved statistics are listed in the data map as aggregate metrics with no person identifiers.
 
-## Settings
+## Reset the saved statistics
 
-* `metrics.persist.enabled` (default on): turn the store off; the console shows
-  "Statistics are not being saved" and nothing is written.
-* `metrics.persist.flushSeconds` (default 60, 5 to 3600).
-* `metrics.dimensions.enabled` (default on).
-* `retention.metrics.minuteBucketsHours`, `retention.metrics.hourBucketsDays`,
-  `retention.metrics.dayBucketsDays`.
+1. Open the card and choose **Reset statistics**. You need the `settings.write` permission.
+2. Read the confirmation (**Reset these statistics?**). It deletes the stored history of that statistic for every server instance, including the older hourly table for browser load times. This cannot be undone.
+3. Choose **Reset statistics** to confirm. The reset is recorded in the audit log as `metrics-reset`.
 
-## Console
+## Options
 
-The Speed panel (Privacy, Image proxy), Client load times and Request protection
-show a "Saved statistics" card with a range selector (last hour, 24 hours, 7
-days, 30 days, 1 year), a "Saved" badge with the time of the last save and the
-row count, "History since" the first stored bucket, line charts of the median and
-95th percentile (counts for counters) and a "Reset statistics" action. Reset asks
-for confirmation, deletes the stored buckets of that source (and, for browser
-load times, the older hourly table) and writes an audit entry `metrics-reset`.
+| Label | What it does | Default | Who can change it |
+|---|---|---|---|
+| **Keep statistics across restarts** ([`metrics.persist.enabled`](/admin/settings#metrics.persist.enabled)) | Save statistics. When it is off the card says **Statistics are not being saved. Turn on "Keep statistics across restarts" in Settings to keep them after a restart.** and nothing is written. | On | Administrators (global) |
+| **Statistics save interval (seconds)** ([`metrics.persist.flushSeconds`](/admin/settings#metrics.persist.flushseconds)) | Seconds between saves, 5 to 3600. | 60 | Administrators (global) |
+| **Split statistics by client kind and device class** ([`metrics.dimensions.enabled`](/admin/settings#metrics.dimensions.enabled)) | Keep the client kind and device class as dimensions. | On | Administrators (global) |
+| **Minute statistics kept (hours)** ([`retention.metrics.minuteBucketsHours`](/admin/settings#retention.metrics.minutebucketshours)) | Hours of one-minute rows, 1 to 8760. | 48 | Administrators (global) |
+| **Hourly statistics kept (days)** ([`retention.metrics.hourBucketsDays`](/admin/settings#retention.metrics.hourbucketsdays)) | Days of one-hour rows, 1 to 3650. | 60 | Administrators (global) |
+| **Daily statistics kept (days)** ([`retention.metrics.dayBucketsDays`](/admin/settings#retention.metrics.daybucketsdays)) | Days of one-day rows, 0 to 3650 (0 keeps them without limit). | 1095 | Administrators (global) |
 
-API: `GET /admin/metrics/persisted?source=imageProxy|clientTiming|rateLimit|requestProtection&range=1h|24h|7d|30d|1y`
-(`observability.read`) and `POST /admin/metrics/persisted/reset` with
-`{"source": ...}` (`settings.write`).
+The request history minute figures follow **Minute statistics kept (hours)** too; its hourly figures keep their own limit, **Metrics history** (`metrics.rollupDays`).
+
+## Troubleshooting
+
+- **The card says "Saved statistics are temporarily unavailable."** The read failed or took longer than eight seconds. Reload; if it persists, check the database with **Diagnostics**.
+- **The card says "Nothing saved yet."** The server has not written a save since the last reset or since the first start. The first save follows within the flush interval.
+- **The history starts after the day the server was installed.** **History since** is the first stored row. Rows older than the retention limits are rolled up or deleted.
+- **A chart says "Nothing was recorded in this range."** No samples fell in the range. Browser load times need signed-in browsers that report ([Observability](/admin/observability#client-load-times)).
+
+## Related
+
+- [Observability](/admin/observability)
+- [Request latency and 404 paths](/admin/latency-metrics)
+- [Request protection](/admin/request-protection)
+- [Retention](/admin/retention)

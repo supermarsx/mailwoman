@@ -1,162 +1,200 @@
+---
+title: Observability
+screen: true
+---
 # Observability
+
+**Observability** (under **Operations** in the console navigation) shows how the server and the web app are behaving: request counts and response times, how long browsers take to load, errors that browsers report, the administrator audit log, database size and server resources. This page also covers how to watch an installation from outside the console, with Prometheus and with the health check of `deploy.sh`.
+
+![The Overview tab of Observability: the tab strip, the period control, notes about what the figures mean, and the first key figures for traffic and client load times.](/screenshots/admin-ops/opsa-observability-overview.webp){.mw-shot}
+
+## Before you start
+
+- **Overview**, **Configure operational telemetry**, **Client errors**, **Database** and **Resources** need the `observability.read` permission. **Audit log** needs `audit.read`. A tab you may not open is not shown.
+- The account, session, sign-in and storage figures of **Overview** also need `dashboard.read`.
+
+![The six tabs of Observability with markers 1 to 6: Overview, Audit log, Configure operational telemetry, Client errors, Database and Resources.](/screenshots/admin-ops/opsa-observability-tabs.webp){.mw-crop}
+
+1. **Overview**: request statistics, browser load times and saved statistics.
+2. **Audit log**: what administrators did.
+3. **Configure operational telemetry**: the page for exporting traces and metrics to a collector. See [Operational telemetry](/deploy/telemetry).
+4. **Client errors**: errors the web app caught in browsers.
+5. **Database**: file size, growth and write origins. See [Database growth and maintenance](/admin/database-maintenance).
+6. **Resources**: CPU, memory and disk of the server. See [Database growth and maintenance](/admin/database-maintenance#resources).
+{.mw-callouts}
+
+## Read the Overview
+
+1. Choose the **Period**: **Administrator default**, **Last 60 minutes**, **Last 6 hours**, **Last 24 hours**, **Last 7 days**, **Last 30 days** or **Custom period**. The refresh button next to it (**Refresh statistics**) reloads every figure. **Administrator default** is the range set by `metrics.defaultRangeSeconds`, and a custom period cannot be longer than `metrics.maxRangeSeconds`.
+2. Read the notes under the period. They say which range is shown, how much of it has recorded history (**History covers 1 of 61 requested minutes. Missing periods are not counted as zero.**), and what the figures measure: response time is when the response is ready, not when a streamed download finishes.
+3. **Key figures** has these groups:
+   - **Traffic in this period**: **Requests**, **Server errors (5xx)**, **Not found (404)**, **Slowest 95th percentile** and the median, 95th and 99th percentile of **Response time**.
+   - **Client load times**, **Folder load times** and **Message load times**: browser-measured figures, described below.
+   - **Accounts and sessions**: **Provisioned users**, **Domains**, **Active webmail sessions**, **Active admin sessions** and accounts signed in over the last 24 hours and 7 days. These are the situation now, not for the period.
+   - **Sign-in security**, and **Storage and delivery, now**: **Database file**, **Write-ahead log**, **Search index**, **Database query time**, **Pending outbox messages** and **Failed sends, last hour**.
+4. **Charts** plots requests, server errors, 404 answers and response time over the period, the browser charts, and a bar chart of blocked accounts per domain. **View as table** shows the same numbers as a table.
+5. **Tables** lists the **Most frequent not-found paths** and **Client load times by device**.
+
+A figure that says **Not available** has no recorded data for the period. A tile for a percentile says why: **No samples in this period.** or **Only 3 samples; at least 5 are needed.**
+
+How request statistics are measured and kept is on [Request latency and 404 paths](/admin/latency-metrics) and [Statistics that survive a restart](/admin/metrics-persistence).
 
 ## Client load times
 
-Admin > Observability > Statistics shows how long the web app takes to load in
-signed-in browsers: the median (50th percentile) and the 95th percentile of
-"time to usable", first contentful paint, largest contentful paint and page
-load (app load); of folder loads and of message loads, each split into
-"from cache" and "from the network"; a chart of each over the selected period,
-and a breakdown by device class. Every card shows its sample count. It follows the same period control as the rest of the page and
-needs the `observability.read` capability.
+The web app measures how long it takes to load and reports the result to the server. The report is sent once per page load, after the message list has shown its first rows, and folder and message loads are sent in batches every few seconds.
 
-### What is collected
+![The Client load times group of key figures: median, 95th and 99th percentile for time to usable, first contentful paint, largest contentful paint and page load, with the number of samples under each.](/screenshots/admin-ops/opsa-observability-client-timing.webp){.mw-crop}
 
-Once per page load, after the signed-in user's message list has shown its first
-rows, the browser sends one small request, `POST /api/client-timing`, with:
+The measures are:
 
-- a device class, `desktop` or `mobile` (from the browser's mobile hint or a
-  narrow viewport), or none when the browser cannot say;
-- up to sixteen timings, each a name and a whole number of milliseconds:
-  `timeToUsable` (navigation start until the message list first shows rows),
-  `ttfb` (first byte), `dcl` (DOM content loaded), `load`, `fcp`, `lcp`, and
-  the first release's `folderOpen`, which is no longer sent but is still shown
-  for periods that contain it.
+| Label | What it measures |
+|---|---|
+| **Time to usable** | From the start of navigation until the message list first shows rows. |
+| **First byte** | Until the first byte of the page arrived. |
+| **DOM ready** | Until the page's document was ready. |
+| **Page load** | Until the page finished loading. |
+| **First contentful paint**, **Largest contentful paint** | The browser's own paint timings. |
+| **Folder load, from the network**, **Folder load, from cache** | From choosing a folder until its message list is on screen. "From cache" means rows were shown at once from the browser's read cache. |
+| **Message load, from the network**, **Message load, from cache or prefetch** | From opening a message until its headers and body are on screen. "From cache or prefetch" covers a message that was already prefetched or read. |
 
-Folder and message loads are sent in the same shape, batched into one request
-every few seconds (and when the page is hidden), from the moment the user
-asked until the result was painted:
+What a report contains: a device class (**Desktop**, **Mobile** or **Unknown**) and up to 16 pairs of a metric name and a whole number of milliseconds. It contains no URL, folder or message name, subject, address, account, session, IP address or user agent. The server adds each value to a counter and keeps, per hour, metric and device class, a count, a sum and a histogram of 48 bins; nothing is stored per person or per session.
 
-- `folderLoadCold` and `folderLoadCached`: the user picks a folder (or the
-  mailbox) until its message list is on screen. "Cached" means rows were shown
-  at once from the browser's read cache; "cold" waited for the network.
-- `messageLoadCold` and `messageLoadCached`: the user opens a message until its
-  headers and sanitised body are on screen, in full. "Cached" covers a message
-  that was already prefetched or read; "cold" waited for the network. A
-  refresh of the message already open is not a new open.
+The browser sends nothing when Do Not Track or Global Privacy Control is on, when the server says collection is off, when the session is outside the sampled share, or when the browser has no performance interface. Only signed-in browsers report; the sign-in page and other anonymous pages do not. A report is answered with an empty success even when collection is off. An unknown metric name, an unknown field or a malformed body is refused, and a single session that reports too often is refused with a retry delay.
 
-The browser also records each as a `performance.measure` (`mw:folder`,
-`mw:message`) so the same figures can be seen in DevTools. Time to load images
-is not measured. Only the metric name and whole milliseconds are sent: no
-folder or message id or name, subject, address or folder kind.
+A percentile is read from a histogram, so it is an estimate: one bin under 10 ms, then 47 bins from 10 ms to 120,000 ms, each about 22% wider than the one before. A percentile is therefore at most about 22% off and usually under 10%. Counts and means are exact. A value above 120 seconds is counted as 120 seconds. Slow loads that a person abandoned before the browser reported are not in the figures. A percentile is shown only when the period has at least `observability.clientTiming.minSamples` samples.
 
-The server adds each value to a counter and discards the request. It keeps, per
-hour, per metric and per device class: a sample count, a sum, and a 48-bin
-histogram. That is all.
+Each person can switch off folder and message load times for themselves in **Settings → Privacy** (**Load times**), unless the administrator locked the setting. When either is off for a person, that browser sends nothing for it and the server drops what it still receives from them. When the instance default is off, the page says **Folder load times are switched off by default. Only people who turned them on are measured.** (or the same for messages).
 
-### What is not collected
-
-No URL or path, account, address, session, IP address, user agent string,
-browser name, clock timestamp or any mail content is sent or stored. The
-server records only its own receive time, rounded to the hour. There is no
-per-session or per-account row, so a figure cannot be traced to a person. The
-signed-in session is used only in memory, to rate limit a single browser
-(at most 6 page-load beacons at once, then one every 30 seconds; at most 12
-folder/message beacons at once, then one every 5 seconds); it is never stored.
-An unknown metric name, an unknown field or a negative or fractional value is
-refused with `400`; values above 120 s are clamped to 120 s.
-Nothing is collected on the sign-in screen or any other anonymous page, and
-the endpoint answers `401` without a session.
-
-The browser sends nothing when Do Not Track or Global Privacy Control is on
-(the same rule as the optional analytics tag), when its session is outside the
-sample, when the server says collection is off, or when its performance APIs
-are missing. Failures are silent and never block the page.
-
-### Accuracy
-
-Each metric is a log-scale histogram: one bin under 10 ms, then 47 bins from
-10 ms to 120 000 ms, each about 22% wider than the one before. A percentile is
-located by rank across the merged histograms of the period and interpolated
-inside its bin, so it is within one bin of the true value: at most about 22%
-off, usually under 10%. Counts and means are exact. Values above 120 s are
-counted as 120 s. Figures are sampled (see `sampleRatePercent`) and come only
-from browsers that stayed on the page long enough to report, so very slow
-loads that were abandoned are under-represented. Percentiles are hidden for a
-period or chart interval with fewer samples than the minimum (default 1).
-
-Checked in a browser against the real server (a deliberate error through an error boundary, `VITE_MW_E2E_HOOKS=1` build, reported, opened in Client errors): the frames resolve to `src/...:line:col` only when the bundle and its map describe the same text. `vite-plugin-top-level-await` re-printed every chunk after the map was written and did not remap it, so with that plugin the hidden maps no longer lined up and the raw frames were shown unresolved. The plugin has been removed: the wasm modules' top-level await is native (build target es2022) and the Web Workers are built as ES modules (`worker.format: 'es'` in `apps/web/vite.config.ts`). Measured on the two builds, resolving 430 `throw`/`new Error(` positions through the shipped maps landed on a source line containing the same text for 88% of them without the plugin and 13% with it. The sanitize worker (a message opened in the reader), the crypto worker (a real OpenPGP `generateKey` call), the zero-access worker and the PDF viewer all load and answer in Chrome from the plugin-free build. Check a release by building with `MW_SOURCEMAP=hidden`, throwing through a boundary and looking for a `src/` path in the group's stack. `VITE_MW_E2E_HOOKS=1` adds `window.__mwThrow(message)` for that (a normal build contains neither the hook nor its file).
-
-### Settings
-
-| Key | Default | Effect |
-| --- | --- | --- |
-| `observability.clientTiming.enabled` | on | Turn collection on or off. Hot reload; browsers pick the change up at their next page load, and the server ignores beacons meanwhile. |
-| `observability.clientTiming.sampleRatePercent` | 100 | Share of sessions that report (1 to 100). |
-| `observability.clientTiming.minSamples` | 1 | Samples needed before a percentile is shown. |
-| `observability.clientTiming.folderLoads` | on | Folder load times. Global, domain and user scope: the administrator sets the default or locks it, and each person can switch it off for themselves in Settings > Privacy unless it is locked. |
-| `observability.clientTiming.messageLoads` | on | Message load times. Same scopes and behaviour as `folderLoads`. |
-
-Folder and message loads also need `observability.clientTiming.enabled`. When
-either is off for a person, that browser sends nothing for it (the switch is
-read live, no reload needed), and the server answers `204` and discards any
-folder or message figure it still receives from that person (a stale tab, for
-example). Admin > Observability notes when the instance default is off.
-
-History is kept for `metrics.rollupDays` (default 1095 days, hourly), the same
-as request history. It is isolated per application instance and written
-every 30 seconds, so a restart keeps it. Both SQLite and PostgreSQL store it
-in `client_timing_bucket`.
-
-### Turning it off
-
-Set **Browser load times** to off in Admin > Settings > Observability (key
-`observability.clientTiming.enabled`). The server stops recording at once and
-tells browsers on their next policy read. Existing aggregates stay until they
-age out of `metrics.rollupDays`.
+To turn collection off, switch off [`observability.clientTiming.enabled`](/admin/settings#observability.clienttiming.enabled). The server stops recording at once, and browsers learn of it at their next page load. Stored figures stay until they age out. The page then says **Collection of client load times is switched off. The figures below are from before it was switched off.**
 
 ## Client errors
 
-When part of the web app fails in a browser, the app can report it to the server so an administrator sees it under **Observability > Client errors**, with a stack trace. This covers the "Something went wrong" panels (error boundaries), uncaught errors, unhandled promise rejections, failed lazy chunks, errors in the sanitizer and crypto workers, Content-Security-Policy violations, and optionally `console.error`.
+When part of the web app fails in a browser, the app can report it, and the report appears under **Client errors** with a stack trace. This covers the "Something went wrong" panels, uncaught errors, unhandled promise rejections, failed lazy-loaded files, errors in the helper workers, Content-Security-Policy violations and, if switched on, `console.error` calls.
 
-### What a report contains
+![The Client errors tab: filters for status, build, location and age, buttons to export CSV or JSON, and a table of two error groups.](/screenshots/admin-ops/opsa-observability-client-errors.webp){.mw-shot}
 
-* The error class and a scrubbed message (addresses, long tokens, file names, URL queries and hashes removed, 300 characters at most).
-* The JavaScript stack frames of the bundle: paths only, without the origin, query or hash.
-* The boundary or surface (for example `Reader/AttachmentViewer/text`), and the route with ids replaced by `:id`.
-* The build id, the browser family and major version, the OS family, a viewport class (`narrow`, `medium`, `wide`), the language, whether the browser was online, reduced motion, and the theme id.
-* A fingerprint (a hash of the error name, the normalised message, the boundary and the chunk names of the top frames) used to group reports of one defect across builds.
-* A random id for the page load, held in memory only, so the console can estimate how many sessions a defect affects.
+1. Open **Client errors**. Reports are grouped by cause, one row per group, with **Occurrences**, **Sessions (estimate)**, **Trend**, **First seen**, **Last seen**, **Build**, **Where** and **Status**.
+2. Filter by **Status** (**All**, **Open**, **Resolved** or **Ignored**), **Build**, **Where** and **Last seen within** (1h, 24h, 7d, 30d or 90d). **Export CSV** and **Export JSON** download the list.
+3. Open a group to see **Where** the error happened, **First seen** and **Last seen**, **Occurrences over time**, breakdowns by **Browser**, **Operating system**, **Build** and **Route**, the **Stack trace** and **Recent occurrences**.
+4. Choose **Mark resolved**, **Ignore**, **Reopen** or **Delete group**. A group marked resolved reopens, with a **Regressed** label, when a build that never saw it reports it again. A group that is ignored still counts new occurrences but does not store them. **Copy as text** and **Copy as issue** copy the report.
 
-It never contains a user id, address, IP address, token, message content, attachment or file name, or a URL with a query. The server scrubs again on arrival. A keyed one-way hash of the account is added only when `observability.client.includeAccountHash` is on and only for signed-in reports. Reports are never audited one by one, and the browser stores nothing for them.
+What a report contains: the error class and a scrubbed message (addresses, long tokens, file names, URL queries and hashes removed, at most 300 characters); the stack frames of the bundle as paths without origin, query or hash; the part of the app (for example `Reader/AttachmentViewer/text`) and the route with ids replaced by `:id`; the build id, browser family and major version, operating system family, a viewport class (`narrow`, `medium` or `wide`), the language, whether the browser was online, reduced motion and the theme. A fingerprint, a hash of the error name, the normalised message, the location and the chunk names, groups reports of one defect across builds. A random id for the page load, held in memory only, lets the console estimate how many sessions a defect affects. A report never contains a user id, address, IP address, token, message content, attachment or file name, or a URL with a query, and the server scrubs again on arrival. A keyed one-way hash of the account is added only when [`observability.client.includeAccountHash`](/admin/settings#observability.client.includeaccounthash) is on and only to signed-in reports.
 
-### How reports are sent
+Limits: a signed-in session sends batches of at most 20 reports; the anonymous route, used by the sign-in page, takes at most 5 reports of 16 KB per request and four requests per address with a refill of one every 20 seconds. The browser does not retry a refused batch, stops sending after three failures in a row, sends one report per fingerprint every 60 seconds (repeats are folded into one follow-up with a count), and stops at [`observability.client.maxPerSession`](/admin/settings#observability.client.maxpersession) reports for a page load. A group stores details for its first 20 occurrences in an hour and only counts after that. Each person can switch reporting off for themselves in **Settings → Privacy** (**Error reports**), unless it is locked.
 
-`POST /api/observability/client-errors` takes anonymous reports (the sign-in page, and the unload `sendBeacon` fallback). It reads no cookie, so like `/api/cookies/consent` it is exempt from the CSRF token. At most 5 reports of 16 KB each per request, and 4 requests per address with a refill of one every 20 seconds. `POST /api/observability/client-errors/session` takes up to 20 reports from a signed-in session, checks the person's `privacy.errorReports` choice and applies the account hash setting. The browser does not retry a refused batch, opens a circuit breaker after three consecutive failures, sends the same fingerprint once per 60 seconds (repeats are folded into one follow-up with a count) and stops at `observability.client.maxPerSession`. `GET /api/observability/client-errors/policy` tells the browser whether to report.
+Each stored report writes one `info` log line with the target `client_error`. The metrics endpoint exposes `mw_client_errors_total{kind,boundary}` and `mw_client_error_groups_open`. With [`observability.client.forward`](/admin/settings#observability.client.forward) on and `MW_ERROR_FORWARD_URL` set, each scrubbed report is also posted to that address. There is no built-in OpenTelemetry or Sentry exporter for browser errors.
 
-A group over 20 stored occurrences in an hour keeps counting but stops storing details. A group marked **resolved** reopens when a build that never saw it reports it again.
+### Stack traces
 
-### Stack traces and source maps
+Production stack frames point into minified files. The Dockerfile builds the web app with `MW_SOURCEMAP=hidden` unless you pass `--build-arg MW_SOURCEMAP=`: source maps are written next to the files without a reference in them, and the server answers every request for a `.map` file with 404, so browsers never receive them. The server reads the map of the exact file named in a frame and stores the resolved stack beside the raw one. With no matching map the group shows **No source map matched this stack: showing the raw frames.**, and when `observability.client.sourceMaps` is off the tab says **Source maps are switched off (observability.client.sourceMaps): stack traces show bundle positions.**
 
-Production stack frames point into minified bundles. Build the web app with `MW_SOURCEMAP=hidden` (the Dockerfile does by default; pass `--build-arg MW_SOURCEMAP=` to turn it off) to write source maps next to the bundles without a `sourceMappingURL` comment. They are embedded with the other assets (or read from `MW_WEB_DIR`), but the static handler answers every `.map` path with 404, so browsers never receive them. The server reads the map of the exact file named in a frame (the file name carries the build's content hash) and stores the resolved stack beside the raw one. With no map the raw frames are shown and the console says so. `observability.client.sourceMaps` turns resolution off.
+## Audit log
 
-### Settings
+The **Audit log** tab lists what administrators and the system did (**Time**, **Actor**, **Action**, **Target**); it loads the latest 100 entries. **Export JSONL** downloads up to 1,000 entries as `audit-log.jsonl`. Below the list, **Audit log retention** sets how long entries are kept for each category, with an optional legal hold; **Prune now** applies the policy at once. See [Retention](/admin/retention).
 
-`observability.client.enabled`, `observability.client.sampleRate`, `observability.client.maxPerSession`, `observability.client.includeAccountHash`, `observability.client.captureConsole`, `observability.client.captureCsp`, `observability.client.sourceMaps`, `observability.client.forward`, `retention.clientErrors.eventDays`, `retention.clientErrors.groupDays` (all global) and `privacy.errorReports` (the person's own choice in Settings > Privacy, with an administrator default and lock). See [settings.md](settings.md).
+## Watch the server from outside
 
-### Logs, metrics and forwarding
+### Prometheus metrics
 
-Each stored report writes one `info` log line with target `client_error` (fingerprint, name, kind, boundary, build, route). The metrics endpoint exposes `mw_client_errors_total{kind,boundary}` and `mw_client_error_groups_open`. With `observability.client.forward` on and `MW_ERROR_FORWARD_URL` set, each scrubbed report is also posted to that sink. No OpenTelemetry or Sentry exporter is built in.
+`GET /metrics` serves the Prometheus text format and requires `Authorization: Bearer <MW_METRICS_TOKEN>`. Without the token, or with a wrong one, it answers `401`, and with `MW_METRICS_TOKEN` unset it answers `401` to everyone, so metrics are never open. No mail content is a metric name or a label ([Observability and privacy](/security/observability)).
 
-For database growth, write origins, size inspections and repair commands, see
-[Database growth and maintenance](database-maintenance.md).
+`bash deploy.sh init`, which the first deploy also runs, writes a random 64-digit hexadecimal `MW_METRICS_TOKEN` into `app.env`. `bash deploy.sh status` prints a `Metrics:` line saying whether the applied `app.env` has a token. To add a token to an installation that has none, then apply it:
 
+```sh
+printf 'MW_METRICS_TOKEN=%s\n' "$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')" >> .deploy.local/app.env
+bash deploy.sh deploy --no-build
+bash deploy.sh status
+```
 
-## Automatic statistics compaction
+To turn metrics off, delete the line and run `deploy --no-build` again. Give Prometheus the token as a file that only Prometheus can read:
 
-The scheduled retention job merges histogram bucket counts, totals and extrema;
-it does not average already-calculated percentiles. General performance metrics
-keep minute buckets for 48 hours, hourly buckets for 60 days and daily buckets for
-1,095 days by default. Administrators can change these under
-`retention.metrics.minuteBucketsHours`, `retention.metrics.hourBucketsDays` and
-`retention.metrics.dayBucketsDays`. The retention job is enabled by default and
-can also be run on demand.
+```yaml
+scrape_configs:
+  - job_name: mailwoman
+    scheme: https                     # http for a local installation
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/mailwoman-metrics-token
+    static_configs:
+      - targets: ['mail.example.org']  # localhost:8080 for a local installation
+```
 
-HTTP request history already maintains hourly histograms alongside minute detail.
-Its minute detail now follows the same configurable minute-retention setting,
-rather than a separate hardcoded 48-hour window. Older chart ranges automatically
-use hourly data, so expiring minutes does not remove the historical counters or
-latency distribution. Replayed flushes skip expired minute snapshots instead of
-recreating and deleting them repeatedly. Request hourly history and browser-load
-histograms retain their separate `metrics.rollupDays` limit; browser-load histograms
-are hourly from the outset. Text/audit logs are not converted into histogram buckets.
+With `--proxy-network`, a Prometheus container on the same Docker network can scrape `http://<project>:8080/metrics` directly.
+
+### Health check
+
+```sh
+bash deploy.sh check
+```
+
+exits 0 only when, on a full-stack installation, the `postgres` and `valkey` containers are running and Docker reports them `healthy`; the app container is running and Docker reports it `healthy`; and `/healthz` answers at the public URL from `deploy.env`. For `network` exposure, whose public URL a proxy that `deploy.sh` does not manage serves, it checks `http://<project>:8080/healthz` on the proxy network instead. Otherwise it prints `CHECK FAILED (<check>): <message>` with `<check>` one of `postgres`, `valkey`, `container`, `public-url` or `proxy-network`, runs `ALERT_HOOK`, and exits 1.
+
+By default `/healthz` answers only to loopback, private, link-local and unique-local client addresses; other clients get the same `404` as for an unknown path. The setting is [`security.health.mode`](/admin/settings#security.health.mode) (**internal-only**, **allowlist** or **open**). A request that carries the token in `MW_HEALTH_TOKEN`, as the `X-Health-Token` header or a `token` query parameter, is always admitted, and `check` sends the token when `app.env` has one. If a trusted proxy hides the real client address, the server may see the check as a public address; set `MW_HEALTH_TOKEN` then. See [the health endpoint behind a proxy](/deploy/reverse-proxy#the-health-endpoint-behind-a-proxy).
+
+`check` only reads, takes no lock and changes nothing, so it can run during a backup or deploy; the app is briefly stopped during those, and a check at that moment fails. It proves that the app answers over HTTP(S). It does not sign in to a mailbox or send mail. [Backups](/deploy/backups#scheduling-timers) shows how to run it every five minutes with systemd or cron.
+
+### `ALERT_HOOK`
+
+`ALERT_HOOK` in `deploy.env` is the absolute path of an executable that `check` runs when a check fails, with two arguments, the name of the check and the message, as the user that runs `deploy.sh`. Its exit status is logged but does not change the exit status of `check` (always 1 on failure). The hook runs on every failing check, every five minutes with the timer, so it must remove duplicates itself if that matters. `deploy.sh` accepts only an absolute path made of letters, digits and `._/+@-`. If the file is not an executable, `check` logs `ALERT_HOOK <path> is not an executable file; no alert was sent`.
+
+```sh
+#!/bin/sh
+# Send the failure to an ntfy topic (or any webhook).
+exec curl -fsS -m 10 -d "mailwoman: $1: $2" https://ntfy.example.org/mailwoman-alerts
+```
+
+### Logs and traces
+
+`RUST_LOG` sets the log filter at start-up. `deploy.sh` writes `RUST_LOG=info` into `app.env`, and when it is set it takes precedence over `MW_LOG`, whose default is `info`. `MW_OTLP_ENDPOINT` turns on the export of traces and metrics to an OpenTelemetry collector. See [Operational telemetry](/deploy/telemetry). Recent warnings and errors of the running server are in [Logs](/admin/logs).
+
+## Options
+
+| Label | What it does | Default | Who can change it |
+|---|---|---|---|
+| **Browser load times** ([`observability.clientTiming.enabled`](/admin/settings#observability.clienttiming.enabled)) | Collect client load times. | On | Administrators (global) |
+| **Browser load time sample rate** ([`observability.clientTiming.sampleRatePercent`](/admin/settings#observability.clienttiming.sampleratepercent)) | Share of sessions that report, 1 to 100. | 100 | Administrators (global) |
+| **Load time minimum samples** ([`observability.clientTiming.minSamples`](/admin/settings#observability.clienttiming.minsamples)) | Samples a period needs before a percentile is shown. | 1 | Administrators (global) |
+| **Folder load times** ([`observability.clientTiming.folderLoads`](/admin/settings#observability.clienttiming.folderloads)) | Measure folder loads. Also needs the setting above. | On | Administrators (global, domain, user); each person can switch it off unless locked |
+| **Message load times** ([`observability.clientTiming.messageLoads`](/admin/settings#observability.clienttiming.messageloads)) | Measure message loads. Also needs the first setting. | On | Same as folder loads |
+| **Browser error reports** ([`observability.client.enabled`](/admin/settings#observability.client.enabled)) | Collect browser error reports. | On | Administrators (global) |
+| **Error report sample rate** ([`observability.client.sampleRate`](/admin/settings#observability.client.samplerate)) | Fraction of error reports sent, 0 to 1. | 1 | Administrators (global) |
+| **Error reports per page load** ([`observability.client.maxPerSession`](/admin/settings#observability.client.maxpersession)) | Reports one page load may send, 1 to 1000. | 20 | Administrators (global) |
+| **Add account hash to error reports** ([`observability.client.includeAccountHash`](/admin/settings#observability.client.includeaccounthash)) | Add a keyed one-way hash of the account to signed-in reports. | Off | Administrators (global) |
+| **Report console errors** ([`observability.client.captureConsole`](/admin/settings#observability.client.captureconsole)) | Also report `console.error` calls, at a throttled rate. | Off | Administrators (global) |
+| **Report CSP violations** ([`observability.client.captureCsp`](/admin/settings#observability.client.capturecsp)) | Report Content-Security-Policy violations the browser sees. | On | Administrators (global) |
+| **Resolve stack traces with source maps** ([`observability.client.sourceMaps`](/admin/settings#observability.client.sourcemaps)) | Resolve stack frames with the build's hidden source maps. | On | Administrators (global) |
+| **Forward error reports** ([`observability.client.forward`](/admin/settings#observability.client.forward)) | Also post scrubbed reports to `MW_ERROR_FORWARD_URL`. | Off | Administrators (global) |
+| **Error occurrences kept (days)** ([`retention.clientErrors.eventDays`](/admin/settings#retention.clienterrors.eventdays)) | Days an individual occurrence is kept, 1 to 3650. | 30 | Administrators (global) |
+| **Error groups kept (days)** ([`retention.clientErrors.groupDays`](/admin/settings#retention.clienterrors.groupdays)) | Days a group is kept after it was last seen, 1 to 3650. | 180 | Administrators (global) |
+| **Send error reports** ([`privacy.errorReports`](/admin/settings#privacy.errorreports)) | Whether a browser sends error reports. | On | Administrators (global, domain, user); each person can switch it off unless locked |
+| **Default request history range** ([`metrics.defaultRangeSeconds`](/admin/settings#metrics.defaultrangeseconds)) | Range of **Administrator default**. | 3600 | Administrators (global) |
+| **Maximum request history range** ([`metrics.maxRangeSeconds`](/admin/settings#metrics.maxrangeseconds)) | Longest range a request statistics query may cover. | 2592000 | Administrators (global) |
+| **Metrics history** ([`metrics.rollupDays`](/admin/settings#metrics.rollupdays)) | Days of hourly request and browser statistics kept, 1 to 1095. | 1095 | Administrators (global) |
+| **Request path detail retention** ([`retention.requestMetrics.detailDays`](/admin/settings#retention.requestmetrics.detaildays)) | Days normalised not-found paths are kept. | 30 | Administrators (global) |
+
+Changes to the `observability.clientTiming` settings are picked up within about ten seconds. History is written every 30 seconds, so a restart keeps it, and the same tables are used with SQLite and with PostgreSQL.
+
+### Settings that have no effect
+
+[`observability.otlpMetrics`](/admin/settings#observability.otlpmetrics) and [`metrics.drilldownTopN`](/admin/settings#metrics.drilldowntopn) can be saved but nothing in the server reads them. Operational telemetry is configured on the **Configure operational telemetry** tab and by `MW_OTLP_ENDPOINT`.
+
+## Troubleshooting
+
+- **Every figure says "Not available" right after the server started.** The history is written every 15 to 30 seconds. Reload after a minute.
+- **A percentile tile says "Only 3 samples; at least 5 are needed."** The period has fewer samples than [`observability.clientTiming.minSamples`](/admin/settings#observability.clienttiming.minsamples). Choose a longer period or lower the setting.
+- **No client load times at all.** Check that collection is on, that the sample rate is above 0, and that browsers do not have Do Not Track or Global Privacy Control on. Browsers pick up a change at their next page load.
+- **`/metrics` answers 401.** The token is missing or wrong, or `MW_METRICS_TOKEN` is not set on the server. `deploy.sh status` shows whether the applied `app.env` has one.
+- **`/healthz` answers 404 from a monitor outside the network.** The address is not internal. Use `MW_HEALTH_TOKEN`, or change [`security.health.mode`](/admin/settings#security.health.mode).
+- **`CHECK FAILED (container): the app container of <project> is not running`** (or `is starting, not healthy`). Look at `bash deploy.sh logs`.
+- **A client error group shows raw frames.** No source map matched. The web build must have been made with `MW_SOURCEMAP=hidden`, and the server must serve the same build.
+- **The Client errors tab says "Browser error reporting is switched off (observability.client.enabled). Existing reports are kept until they expire."** Switch the setting on to receive new reports.
+
+## Related
+
+- [Request latency and 404 paths](/admin/latency-metrics)
+- [Statistics that survive a restart](/admin/metrics-persistence)
+- [Database growth and maintenance](/admin/database-maintenance)
+- [Logs](/admin/logs)
+- [Diagnostics](/admin/diagnostics)
+- [Observability and privacy](/security/observability)
