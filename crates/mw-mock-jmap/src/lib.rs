@@ -28,9 +28,31 @@ pub const HOSTILE_HTML: &str = concat!(
     "<a href=\"javascript:alert(1)\" onclick=\"steal()\">click</a>",
 );
 
+/// The one account the mock serves: sign-in credentials and the display name
+/// of its sending identity. [`router`] uses `USER` / `PASS` / "Test User";
+/// [`router_for`] takes others (the binary reads `MW_MOCK_USER`, `MW_MOCK_PASS`
+/// and `MW_MOCK_NAME`, for demo data such as documentation screenshots).
+#[derive(Clone, Debug)]
+pub struct MockAccount {
+    pub user: String,
+    pub pass: String,
+    pub name: String,
+}
+
+impl Default for MockAccount {
+    fn default() -> Self {
+        Self {
+            user: USER.to_string(),
+            pass: PASS.to_string(),
+            name: "Test User".to_string(),
+        }
+    }
+}
+
 #[derive(Clone)]
 struct MailStore {
     inner: Arc<Mutex<Inner>>,
+    account: Arc<MockAccount>,
 }
 
 struct Inner {
@@ -45,7 +67,7 @@ struct Inner {
 }
 
 impl MailStore {
-    fn seeded() -> Self {
+    fn seeded(account: MockAccount) -> Self {
         let mut emails = HashMap::new();
         let mut order = Vec::new();
 
@@ -124,11 +146,12 @@ impl MailStore {
                 next_id: 100,
                 mailboxes,
             })),
+            account: Arc::new(account),
         }
     }
 }
 
-fn check_auth(headers: &HeaderMap) -> bool {
+fn check_auth(store: &MailStore, headers: &HeaderMap) -> bool {
     let Some(v) = headers.get("authorization").and_then(|v| v.to_str().ok()) else {
         return false;
     };
@@ -138,11 +161,16 @@ fn check_auth(headers: &HeaderMap) -> bool {
     let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(b64) else {
         return false;
     };
-    decoded == format!("{USER}:{PASS}").into_bytes()
+    decoded == format!("{}:{}", store.account.user, store.account.pass).into_bytes()
 }
 
 pub fn router() -> Router {
-    let store = MailStore::seeded();
+    router_for(MockAccount::default())
+}
+
+/// [`router`] for another account (see [`MockAccount`]).
+pub fn router_for(account: MockAccount) -> Router {
+    let store = MailStore::seeded(account);
     Router::new()
         .route("/.well-known/jmap", get(session))
         .route("/jmap/session", get(session))
@@ -153,8 +181,8 @@ pub fn router() -> Router {
         .with_state(store)
 }
 
-async fn session(headers: HeaderMap) -> impl IntoResponse {
-    if !check_auth(&headers) {
+async fn session(State(store): State<MailStore>, headers: HeaderMap) -> impl IntoResponse {
+    if !check_auth(&store, &headers) {
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
     axum::Json(json!({
@@ -166,7 +194,7 @@ async fn session(headers: HeaderMap) -> impl IntoResponse {
             "urn:mailwoman:security": {}
         },
         "accounts": {
-            ACCOUNT_ID: { "name": USER, "isPersonal": true, "isReadOnly": false, "accountCapabilities": {
+            ACCOUNT_ID: { "name": store.account.user, "isPersonal": true, "isReadOnly": false, "accountCapabilities": {
                 // RFC 8621 §1.3.1; `mailwomanMailboxSet` as the engine sends it
                 // (the mock implements `Mailbox/set`).
                 "urn:ietf:params:jmap:mail": {
@@ -188,7 +216,7 @@ async fn session(headers: HeaderMap) -> impl IntoResponse {
             "urn:mailwoman:crypto": ACCOUNT_ID,
             "urn:mailwoman:security": ACCOUNT_ID
         },
-        "username": USER,
+        "username": store.account.user,
         "apiUrl": "/jmap",
         "downloadUrl": "/jmap/download/{accountId}/{blobId}/{name}",
         "uploadUrl": "/jmap/upload/{accountId}",
@@ -203,7 +231,7 @@ async fn api(
     headers: HeaderMap,
     body: String,
 ) -> impl IntoResponse {
-    if !check_auth(&headers) {
+    if !check_auth(&store, &headers) {
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
     let req: Value = match serde_json::from_str(&body) {
@@ -254,10 +282,11 @@ async fn api(
 /// coordinates so a proxy test can prove the request was forwarded verbatim with
 /// auth injected; a real server would stream the blob bytes here.
 async fn download(
+    State(store): State<MailStore>,
     headers: HeaderMap,
     Path((account, blob, name)): Path<(String, String, String)>,
 ) -> Response {
-    if !check_auth(&headers) {
+    if !check_auth(&store, &headers) {
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
     let mut resp = Response::new(Body::from(format!("BLOB:{account}:{blob}:{name}")));
@@ -277,8 +306,13 @@ async fn download(
 /// The `blobId` echoes the byte length so a proxy test can prove the bytes and the
 /// client-declared `Content-Type` were forwarded verbatim with auth injected; a real
 /// server would seal + store the bytes here.
-async fn upload(headers: HeaderMap, Path(account): Path<String>, body: Body) -> Response {
-    if !check_auth(&headers) {
+async fn upload(
+    State(store): State<MailStore>,
+    headers: HeaderMap,
+    Path(account): Path<String>,
+    body: Body,
+) -> Response {
+    if !check_auth(&store, &headers) {
         return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
     let content_type = headers
@@ -324,7 +358,7 @@ fn dispatch(store: &MailStore, name: &str, args: &Value) -> Value {
         // asks for it before it saves a sending identity, to check the address.
         "Identity/get" => json!({
             "accountId": ACCOUNT_ID, "state": "id-0",
-            "list": [{ "id": "ident-1", "name": "Test User", "email": USER }],
+            "list": [{ "id": "ident-1", "name": store.account.name, "email": store.account.user }],
             "notFound": []
         }),
         "Email/query" => {
