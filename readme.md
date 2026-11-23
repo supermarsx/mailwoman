@@ -6,10 +6,9 @@
 
 **Self-hosted webmail and personal workspace for the mail accounts you already use.**
 
-[![ci](https://github.com/supermarsx/mailwoman/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/supermarsx/mailwoman/actions/workflows/ci.yml)
-[![Documentation](https://github.com/supermarsx/mailwoman/actions/workflows/docs.yml/badge.svg?branch=master)](https://github.com/supermarsx/mailwoman/actions/workflows/docs.yml)
-[![Latest tag](https://img.shields.io/github/v/tag/supermarsx/mailwoman?label=release&sort=date)](VERSIONING.md)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](license.md)
+[![CI status](https://img.shields.io/github/actions/workflow/status/supermarsx/mailwoman/ci.yml?branch=master&style=flat-square&label=ci&labelColor=111111)](https://github.com/supermarsx/mailwoman/actions/workflows/ci.yml)
+[![Latest release tag](https://img.shields.io/github/v/tag/supermarsx/mailwoman?sort=date&style=flat-square&label=release&labelColor=111111&color=f5c400)](VERSIONING.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-4d7cff?style=flat-square&labelColor=111111)](license.md)
 
 [Features](#features) · [Quick start](#quick-start) · [Architecture](#architecture) · [Documentation](#documentation) · [Status](#project-status)
 
