@@ -4,7 +4,7 @@
 image:
   # Point this at your registry. The hardened FROM-scratch image is built with
   #   docker build --target runtime-static -t <repo>:<tag> .
-  repository: ghcr.io/mailwoman/mailwoman
+  repository: ghcr.io/supermarsx/mailwoman
   # Defaults to .Chart.AppVersion when empty.
   tag: ""
   pullPolicy: IfNotPresent
