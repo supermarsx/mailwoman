@@ -164,7 +164,7 @@ impl Default for OidcConfig {
 /// SAML-specific configuration (plan §3/§5). The SP private key (if any) is **not**
 /// here — it lives sealed in the 0009 `secret_sealed` column and is injected into
 /// [`SsoBackend::secret`] after unsealing.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SamlConfig {
     /// This SP's entity id (the audience the IdP asserts to).
@@ -182,7 +182,10 @@ pub struct SamlConfig {
     /// PEM-encoded IdP signing certificates (pinned; the assertion signature must
     /// verify against one of these).
     pub idp_signing_certs_pem: Vec<String>,
-    /// Require the assertion to be signed (default `true` — a security-positive).
+    /// Require the assertion to be signed (default `true` — a security-positive; a
+    /// stored row without the key reads as `true`). Sign-in requires a signature
+    /// regardless (`saml/acs.rs`).
+    #[serde(default = "default_true")]
     pub want_assertions_signed: bool,
     /// Accept `EncryptedAssertion` (default `false`).
     pub want_encrypted: bool,
@@ -190,6 +193,28 @@ pub struct SamlConfig {
     pub nameid_format: String,
     /// First-login policy (default deny / allowlist).
     pub first_login_policy: FirstLoginPolicy,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for SamlConfig {
+    fn default() -> Self {
+        SamlConfig {
+            sp_entity_id: String::new(),
+            acs_url: String::new(),
+            idp_metadata_url: None,
+            idp_metadata_xml: None,
+            idp_sso_url: String::new(),
+            idp_slo_url: None,
+            idp_signing_certs_pem: Vec::new(),
+            want_assertions_signed: true,
+            want_encrypted: false,
+            nameid_format: String::new(),
+            first_login_policy: FirstLoginPolicy::default(),
+        }
+    }
 }
 
 /// Kind-specific configuration, tagged by protocol (plan §3). Serializes into the
@@ -456,6 +481,17 @@ mod tests {
         assert_eq!(
             SamlConfig::default().first_login_policy,
             FirstLoginPolicy::Allowlist
+        );
+    }
+
+    #[test]
+    fn saml_config_requires_signed_assertions_by_default() {
+        assert!(SamlConfig::default().want_assertions_signed);
+        let stored: SamlConfig =
+            serde_json::from_str(r#"{"idp_sso_url":"https://idp.example/sso"}"#).unwrap();
+        assert!(
+            stored.want_assertions_signed,
+            "a row without the key reads as signed"
         );
     }
 

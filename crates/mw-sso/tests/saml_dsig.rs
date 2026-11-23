@@ -400,3 +400,126 @@ fn every_rejection_is_uniform_401() {
         }
     }
 }
+
+// ── Signature always required; no wrapping; no vacuous checks (t46-e1) ──────────
+
+/// Sign `assertion_xml` (enveloped, after its Issuer) with the fixture RSA key.
+fn signed_assertion(p: &Params) -> String {
+    String::from_utf8(B64.decode(build_response(p)).unwrap())
+        .unwrap()
+        .split_once("<saml:Assertion")
+        .map(|(_, rest)| {
+            format!(
+                "<saml:Assertion{}",
+                rest.trim_end_matches("</samlp:Response>")
+            )
+        })
+        .unwrap()
+}
+
+/// A Response (ID `_resp-1`) around `inner`, unsigned.
+fn response_xml(inner: &str) -> String {
+    format!(
+        "<samlp:Response xmlns:samlp=\"urn:oasis:names:tc:SAML:2.0:protocol\" \
+         ID=\"_resp-1\" Version=\"2.0\" IssueInstant=\"{ii}\" InResponseTo=\"_req-abc\" \
+         Destination=\"{ACS_URL}\">\
+         <samlp:Status><samlp:StatusCode Value=\"urn:oasis:names:tc:SAML:2.0:status:Success\"/></samlp:Status>\
+         {inner}</samlp:Response>",
+        ii = Utc::now().format("%Y-%m-%dT%H:%M:%SZ"),
+    )
+}
+
+/// Sign the whole Response (enveloped signature as its first child).
+fn sign_response(xml: &str) -> String {
+    let digest = digest_of(xml, "_resp-1");
+    let si = signed_info_xml("_resp-1", &digest, RSA256);
+    let sig = signature_block(&si, &rsa_sign(&canon_signed_info(&si)));
+    let at = xml.find('>').unwrap() + 1;
+    format!("{}{sig}{}", &xml[..at], &xml[at..])
+}
+
+fn unsigned_assertion(id: &str) -> String {
+    assertion_body(&Params {
+        assertion_id: id.into(),
+        ..Default::default()
+    })
+}
+
+fn process(
+    xml: &str,
+    certs: &[String],
+    want_signed: bool,
+) -> Result<mw_sso::SsoIdentity, SsoError> {
+    acs::process_response(&B64.encode(xml), &ctx(certs, want_signed, Some("_req-abc")))
+        .map(|r| r.identity)
+}
+
+#[test]
+fn unsigned_response_is_rejected_even_when_signing_is_not_required() {
+    let certs = vec![idp_cert_pem()];
+    let p = Params {
+        sign: false,
+        ..Default::default()
+    };
+    let resp = build_response(&p);
+    assert!(matches!(
+        acs::process_response(&resp, &ctx(&certs, false, Some("_req-abc"))),
+        Err(SsoError::SignatureInvalid(_))
+    ));
+}
+
+#[test]
+fn signed_response_around_an_unsigned_assertion_is_accepted() {
+    let certs = vec![idp_cert_pem()];
+    let xml = sign_response(&response_xml(&unsigned_assertion("_assert-1")));
+    let id = process(&xml, &certs, true).expect("response signature covers the assertion");
+    assert_eq!(id.subject, NAME_ID);
+}
+
+#[test]
+fn a_second_assertion_beside_a_signed_one_is_rejected() {
+    let certs = vec![idp_cert_pem()];
+    let good = signed_assertion(&Params::default());
+    let evil = unsigned_assertion("_evil").replace(NAME_ID, "admin@acme.test");
+    for inner in [format!("{evil}{good}"), format!("{good}{evil}")] {
+        let err = process(&response_xml(&inner), &certs, true).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                SsoError::TokenValidation(_) | SsoError::SignatureInvalid(_)
+            ),
+            "{err:?}"
+        );
+    }
+    // Also inside a signed Response: an ambiguous document is refused.
+    let two = format!("{}{}", unsigned_assertion("_a1"), unsigned_assertion("_a2"));
+    let err = process(&sign_response(&response_xml(&two)), &certs, true).unwrap_err();
+    assert!(matches!(err, SsoError::TokenValidation(_)), "{err:?}");
+}
+
+#[test]
+fn a_provider_with_nothing_pinned_fails_closed() {
+    let certs = vec![idp_cert_pem()];
+    let resp = build_response(&Params::default());
+    // No certificates, even with signing "not required" and an unsigned response.
+    let unsigned = build_response(&Params {
+        sign: false,
+        ..Default::default()
+    });
+    assert!(matches!(
+        acs::process_response(&unsigned, &ctx(&[], false, Some("_req-abc"))),
+        Err(SsoError::Config(_))
+    ));
+    // Empty audience (SP entity id) or ACS URL: refused before any check runs.
+    for (sp, acs_url) in [("", ACS_URL), (SP_ENTITY_ID, "")] {
+        let c = AcsContext {
+            sp_entity_id: sp,
+            acs_url,
+            ..ctx(&certs, true, Some("_req-abc"))
+        };
+        assert!(matches!(
+            acs::process_response(&resp, &c),
+            Err(SsoError::Config(_))
+        ));
+    }
+}

@@ -343,11 +343,10 @@ fn a_saml_provider_that_accepts_unsigned_assertions_is_not_saved() {
 
 #[test]
 fn stored_saml_rows_that_accept_unsigned_assertions_are_flagged() {
-    // Explicitly false, and missing (the storage Default gives false): both flagged.
-    for config_json in [
-        r#"{"kind":"saml","sp_entity_id":"https://m.example/sp","acs_url":"https://m.example/acs","idp_sso_url":"https://idp.example/sso","idp_signing_certs_pem":["PEM"],"want_assertions_signed":false,"nameid_format":"x"}"#,
-        r#"{"kind":"saml","sp_entity_id":"https://m.example/sp","acs_url":"https://m.example/acs","idp_sso_url":"https://idp.example/sso","idp_signing_certs_pem":["PEM"],"nameid_format":"x"}"#,
-    ] {
+    // Explicitly false is flagged. (A row missing the key reads as true since the
+    // storage default was fixed; see `missing_want_assertions_signed_reads_as_signed`.)
+    {
+        let config_json = r#"{"kind":"saml","sp_entity_id":"https://m.example/sp","acs_url":"https://m.example/acs","idp_sso_url":"https://idp.example/sso","idp_signing_certs_pem":["PEM"],"want_assertions_signed":false,"nameid_format":"x"}"#;
         let listed = backend_view(&BackendView {
             id: "s",
             kind: "saml",
@@ -369,4 +368,22 @@ fn stored_saml_rows_that_accept_unsigned_assertions_are_flagged() {
             .collect();
         assert_eq!(fields, vec!["config.wantAssertionsSigned"], "{config_json}");
     }
+}
+
+#[test]
+fn missing_want_assertions_signed_reads_as_signed() {
+    let listed = backend_view(&BackendView {
+        id: "s",
+        kind: "saml",
+        display_name: "S",
+        scope: "deployment",
+        enabled: true,
+        config_json: r#"{"kind":"saml","sp_entity_id":"https://m.example/sp","acs_url":"https://m.example/acs","idp_sso_url":"https://idp.example/sso","idp_signing_certs_pem":["PEM"],"nameid_format":"x"}"#,
+        claim_map_json: "{}",
+        has_secret: false,
+        created_at: TS,
+        updated_at: TS,
+    });
+    assert_eq!(listed["config"]["wantAssertionsSigned"], json!(true));
+    assert_eq!(listed["problems"], json!([]));
 }

@@ -26,7 +26,9 @@ pub struct AcsContext<'a> {
     pub acs_url: &'a str,
     /// Pinned IdP signing certificates (PEM) — the sole trust anchor.
     pub certs_pem: &'a [String],
-    /// Require a valid signature covering the assertion.
+    /// The configured "require signed assertions" flag. Not relied on: a valid
+    /// signature covering the assertion (on it or on the enclosing Response) is
+    /// always required.
     pub want_signed: bool,
     /// The pending AuthnRequest `ID` to match against `InResponseTo`.
     pub expected_in_response_to: Option<&'a str>,
@@ -54,6 +56,18 @@ pub fn process_response(saml_response_b64: &str, ctx: &AcsContext) -> Result<Acs
         .map_err(|_| SsoError::TokenValidation("SAMLResponse not base64".into()))?;
     let xml = std::str::from_utf8(&xml_bytes)
         .map_err(|_| SsoError::TokenValidation("SAMLResponse not UTF-8".into()))?;
+    // Fail closed on a provider that cannot pin anything: with no trust anchor, no
+    // audience or no ACS address, the checks below could pass vacuously.
+    if ctx.certs_pem.is_empty() {
+        return Err(SsoError::Config(
+            "no IdP signing certificate configured".into(),
+        ));
+    }
+    if ctx.sp_entity_id.is_empty() || ctx.acs_url.is_empty() {
+        return Err(SsoError::Config(
+            "SP entity id and ACS URL must be configured".into(),
+        ));
+    }
     let root = c14n::parse_document(xml)?;
     if root.local != "Response" || root.ns_uri() != SAML_PROTOCOL_NS {
         return Err(SsoError::TokenValidation("not a samlp:Response".into()));
@@ -88,9 +102,22 @@ pub fn process_response(saml_response_b64: &str, ctx: &AcsContext) -> Result<Acs
         ));
     }
 
-    let assertion = root
-        .child(SAML_ASSERTION_NS, "Assertion")
-        .ok_or_else(|| SsoError::TokenValidation("Response carries no Assertion".into()))?;
+    // Exactly one Assertion, a direct child of the Response: the one we consume is
+    // the one a signature covers (no second, unsigned assertion beside it).
+    let assertions = root.children_named(SAML_ASSERTION_NS, "Assertion");
+    let assertion = match assertions.as_slice() {
+        [one] => *one,
+        [] => {
+            return Err(SsoError::TokenValidation(
+                "Response carries no Assertion".into(),
+            ));
+        }
+        _ => {
+            return Err(SsoError::TokenValidation(
+                "Response carries more than one Assertion".into(),
+            ));
+        }
+    };
 
     // ── Signature: verify the one that covers the assertion we consume ──
     let mut signature_ok = false;
@@ -102,7 +129,9 @@ pub fn process_response(saml_response_b64: &str, ctx: &AcsContext) -> Result<Acs
         dsig::verify_signed_element(&root, ctx.certs_pem)?;
         signature_ok = true;
     }
-    if ctx.want_signed && !signature_ok {
+    // A signature is always required, whatever `want_signed` says: an unsigned
+    // response must never authenticate.
+    if !signature_ok {
         return Err(SsoError::SignatureInvalid(
             "no signature covers the assertion".into(),
         ));
