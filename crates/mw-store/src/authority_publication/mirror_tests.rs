@@ -496,26 +496,44 @@ async fn invalid_bound_and_postgres_are_inert() {
             .unwrap()
         }
     };
-    let before = count(&pg).await;
-    assert!(before > 0);
+    // 0118 (t34 S2): no change-log triggers on PostgreSQL.
+    assert_eq!(count(&pg).await, 0);
     pg.update_sync_policy(&account, r#"{"pg":1}"#).await.unwrap();
-    assert!(count(&pg).await > before, "epoch update appends");
-    let rows = q("SELECT scope_kind,incarnation FROM authority_change_log WHERE scope_kind<>'settings-revision'")
-        .fetch_all(&pg.backend)
-        .await
-        .unwrap();
-    assert!(rows.iter().all(|row| text(row, "incarnation").unwrap().len() == 32));
     q("UPDATE settings_revision SET n=n+1").execute(&pg.backend).await.unwrap();
-    let revisions = q("SELECT COUNT(*) AS n FROM authority_change_log WHERE scope_kind='settings-revision'")
+    assert_eq!(count(&pg).await, 0, "PostgreSQL authority writes no longer append");
+    let triggers = q("SELECT COUNT(*) AS n FROM pg_catalog.pg_trigger WHERE tgname LIKE 'authority_change_log%' AND tgrelid IN (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema())")
         .fetch_one(&pg.backend)
         .await
         .unwrap();
-    assert!(number(&revisions, "n").unwrap().unwrap() >= 1, "settings revision appends");
+    assert_eq!(number(&triggers, "n").unwrap().unwrap(), 0);
+
+    // The S2 interleaving: A bumps a session epoch, B bumps an account epoch
+    // and commits while A is still open, then A bumps the same account. With the
+    // 0115 per-insert prune and a log past the horizon, B waited on A's delete of
+    // the oldest log row and A then waited on B: 40P01.
     q("INSERT INTO authority_change_log(scope_kind,incarnation,at) SELECT 'probe','probe',0 FROM generate_series(1,66000)")
         .execute(&pg.backend)
         .await
         .unwrap();
-    assert!(count(&pg).await <= RETAINED_SEQ, "PostgreSQL prune keeps the horizon");
+    let bump = "INSERT INTO authority_epoch(scope_kind,scope_id) VALUES($1,$2) ON CONFLICT(scope_kind,scope_id) DO UPDATE SET version=authority_epoch.version+1";
+    let mut a = sqlx::PgConnection::connect(scoped.as_str()).await.unwrap();
+    let mut b = sqlx::PgConnection::connect(scoped.as_str()).await.unwrap();
+    sqlx::query("BEGIN").execute(&mut a).await.unwrap();
+    sqlx::query(bump).bind("session").bind(session.as_str()).execute(&mut a).await.unwrap();
+    let b_done = tokio::time::timeout(Duration::from_secs(5), async {
+        sqlx::query("BEGIN").execute(&mut b).await?;
+        sqlx::query(bump).bind("account").bind(account.as_str()).execute(&mut b).await?;
+        sqlx::query("COMMIT").execute(&mut b).await
+    })
+    .await;
+    assert!(
+        matches!(b_done, Ok(Ok(_))),
+        "B must not wait on A's open transaction: {b_done:?}"
+    );
+    sqlx::query(bump).bind("account").bind(account.as_str()).execute(&mut a).await.unwrap();
+    sqlx::query("COMMIT").execute(&mut a).await.unwrap();
+    a.close().await.unwrap();
+    b.close().await.unwrap();
     pg.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
         .execute(&mut admin)

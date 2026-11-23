@@ -6,17 +6,14 @@ const SQLITE_SQL: &str = concat!(
     include_str!("../migrations/0111_authority_publication.sql"),
     "\n",
     include_str!("../migrations/0112_authority_subject_anchor.sql"),
-    "
-",
+    "\n",
     include_str!("../migrations/0115_authority_change_log.sql")
 );
 const PG_SQL: &str = concat!(
     include_str!("../migrations_pg/0111_authority_publication.sql"),
     "\n",
-    include_str!("../migrations_pg/0112_authority_subject_anchor.sql"),
-    "
-",
-    include_str!("../migrations_pg/0115_authority_change_log.sql")
+    include_str!("../migrations_pg/0112_authority_subject_anchor.sql")
+    // No 0115 here: 0118 drops the change-log triggers on PostgreSQL (t34 S2).
 );
 const TABLES: &[&str] = &[
     "accounts",

@@ -87,7 +87,9 @@
 //! * `native_sessions`, admin tables, `request_protection_subject`,
 //!   `sess-sec:v1:`/`sess-rot:v1:` watch state as read by `session_watch`, and
 //!   `v6:admin:bans` as read by `source_bans` today: read fresh, outside the fence.
-//! * TRUNCATE on PostgreSQL fires no row trigger. PostgreSQL is not supported here.
+//! * PostgreSQL: migration 0118 drops the 0115 change-log triggers there (t34
+//!   review S2: the per-insert prune made concurrent authority writers wait on
+//!   each other and could deadlock). The table stays, empty, for schema parity.
 use super::*;
 use std::{
     collections::HashMap,
