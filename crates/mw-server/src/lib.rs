@@ -197,6 +197,7 @@ mod request_protection;
 mod published_guard_inputs;
 mod published_guard_context;
 mod request_inputs;
+pub use request_inputs::freeze_environment;
 #[cfg(feature="load-test-fixtures")]
 pub mod request_inputs_fixture;
 mod sanitize_gate;
