@@ -95,7 +95,9 @@ Leave empty to use this server's `/api/sso/<id>/callback`. Register the same add
 
 The scopes asked for at sign-in. `openid` is required. Default: `openid`, `email`, `profile`.
 
-Sign-in uses the authorization code flow with PKCE (S256) and a nonce. Mailwoman checks the ID token's signature against the provider's published keys, its issuer, audience, expiry and nonce, then also reads the provider's user information endpoint if it has one.
+Sign-in uses the authorization code flow with PKCE (S256) and a nonce. Mailwoman checks the ID token's signature against the provider's published keys, its issuer, audience, expiry and nonce, then also reads the provider's user information endpoint if it has one. Claims from that endpoint are used only when its `sub` is the ID token's subject; otherwise they are ignored.
+
+When the answer contains an email (the mapped **Email claim**, else `email`), the provider must also send `email_verified` as `true` (a boolean or the string `"true"`); otherwise the sign-in is refused. A provider can be exempted only through the console API (`requireVerifiedEmail: false` in its settings); the console has no control for it and keeps the stored value when you save.
 
 ## SAML 2.0
 
@@ -186,7 +188,7 @@ Apart from the first-sign-in rule for new users, every refusal shows the same me
 Points to plan for:
 
 - **No second factor from Mailwoman.** A sign-in through a provider does not ask for the authenticator code or passkey the person may have set up in Mailwoman. Require a second factor at the provider.
-- **Matching by address.** Mailwoman matches accounts by the address in the answer and does not look at an `email_verified` claim. Use a provider where people cannot choose or change their own email address, or map **Email claim** to an attribute only your administrators can set.
+- **Matching by address.** Mailwoman matches accounts by the address in the answer. For OpenID Connect it requires the provider to mark that email as verified (see above); for SAML there is no such check. Use a provider where people cannot choose or change their own email address, or map **Email claim** to an attribute only your administrators can set.
 - **No mail password.** A session opened through a provider stores no mail password and no mail server address. Actions that ask the person to confirm their password cannot use one for these sessions.
 - **Signing out.** Signing out of Mailwoman ends the Mailwoman session only. The web app does not send people to the provider's sign-out address, so they stay signed in at the provider, and the next click on the provider's button may sign them in again without a password.
 
