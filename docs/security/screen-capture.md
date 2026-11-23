@@ -1,105 +1,78 @@
-# Screen-capture protection: an honest statement
+# Screen-capture protection
 
-Mailwoman's rule for this feature has not changed since V4: **say exactly what
-each platform can and cannot do, and never pretend otherwise.** What changed in
-**V5** is that the thin desktop and mobile shells now carry **real, OS-enforced
-capture exclusion** where the operating system provides it — and honestly fall
-back to the visible watermark where it does not.
+An administrator can ask the Mailwoman apps to keep their window out of screenshots
+and screen recordings. Whether that works depends on the platform: some operating
+systems provide a way to exclude a window from capture, and web browsers do not.
 
-**A web browser still cannot prevent, block, or detect screenshots or screen
-recordings.** There is no web API for it. Any product that claims its *web app*
-stops screen capture is wrong or lying. Mailwoman does not make that claim.
+## Turning it on
 
-> ⚠️ **Correction (26.19) — the browser watermark does not render.** This
-> document said that in the browser you get the watermark deterrent. You do not.
-> The server side is real: `watermark.rs` and its route exist and the admin
-> setting is honoured server-side. **The web client has no consumer for it** —
-> no overlay component, no CSS, no fetch. So a web deployment today has *no*
-> screen-capture control of any kind, not a weak one. Two source comments
-> elsewhere also refer to "the V4 watermark" as though it shipped.
->
-> This is the file that exists to be the honest edition, which makes it the
-> worst place in the tree to have been wrong. Where the matrix below says
-> "Watermark-only", read **"nothing, until the overlay is built"**. The
-> `{ supported: false }` return value and the OS-enforced rows are unaffected
-> and remain accurate.
+<!-- screenshot: id=security/admin-capture-policy; screen=Admin console > Security policy; state=default policy; element=the "Screen capture protection" field with Off / Protect -->
 
-## The honest matrix
+In the admin console, open **Security policy** and set **Screen capture protection**
+to **Protect** (the default is **Off**). Each server process reads the policy again
+within 30 seconds, and signed-in clients receive it as `capturePolicy` from
+`GET /api/policy`.
 
-| Platform | Mechanism | What it does | Result |
-|---|---|---|---|
-| **Windows** (desktop shell) | `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` via Tauri `set_content_protected` | OS excludes the window from screenshots + screen recording; a capture of the window is **black** | **Prevents** — `{ supported: true }` |
-| **macOS** (desktop shell) | `NSWindow.sharingType = .none` via Tauri `set_content_protected` | OS excludes the window from `ScreenCaptureKit`/screenshot capture | **Prevents** — `{ supported: true }` |
-| **Android** (mobile shell) | `FLAG_SECURE` on the activity window (custom Kotlin plugin) | OS excludes the app from screenshots, screen recording, and the recents thumbnail | **Prevents** — `{ supported: true }` |
-| **iOS** (mobile shell) | Capture **detection** (`UIScreen.isCaptured`, screenshot notification) | Cannot prevent capture; can **detect** recording and react (hide content, blur snapshot, notify) | **Detect-only** — `{ supported: false }` + watermark |
-| **Linux** (desktop shell) | none reliable (X11/Wayland/WebKitGTK expose no exclusion) | nothing | **Watermark-only** — `{ supported: false }` |
-| **Browser** (any web deployment) | none (no web API exists) | nothing | **Watermark-only** — `{ supported: false }` |
+When a client loads the policy and finds **Protect**, it asks its platform to
+protect the whole app window. Details:
 
-`{ supported }` is the value the frozen `Platform.setCaptureProtection(enabled)`
-capability returns (§2.1). When it is `false`, the SPA keeps the V4 watermark. This
-is deliberate: **no security theatre.** A platform either genuinely excludes the
-window from capture, or it says it cannot and shows the deterrent instead.
+- Protection starts when the policy is loaded after sign-in. The sign-in screen and
+  anything shown before the policy arrives are not protected.
+- The client only turns protection on. Changing the policy back to **Off** takes
+  effect in the desktop and Android apps after they restart.
 
-## Where the code lives
+## What each platform does
 
-- **Desktop** (`apps/desktop/src-tauri/src/capture.rs`) — the `set_capture_protection`
-  Tauri command. On Windows/macOS it calls
-  `WebviewWindow::set_content_protected(enabled)` and returns `{ supported: true }`;
-  on Linux it makes **no** OS call and returns `{ supported: false }`.
-- **Android** (`apps/mobile/src-tauri/android-src/FlagSecurePlugin.kt`) — a custom
-  Kotlin Tauri plugin toggling `FLAG_SECURE`, resolving `{ supported: true }`.
-- **iOS** (`apps/mobile/src-tauri/ios-src/ScreenCaptureDetection.swift`) — a
-  best-effort **detection** skeleton (there is no prevention API). Documented gap:
-  iOS needs macOS + Xcode + an Apple account, unavailable on the Windows dev/CI
-  machine — the code is tracked, the local build is the gap.
-- **Browser / any unsupported platform** — the capability layer's browser
-  implementation returns `{ supported: false }`, and the SPA renders the watermark.
+| Platform | Mechanism | Result |
+|---|---|---|
+| Windows desktop app | Tauri `set_content_protected(true)`, which sets `WDA_EXCLUDEFROMCAPTURE` on the window | The OS excludes the window from screenshots and recordings; it appears black in a capture. |
+| macOS desktop app | Tauri `set_content_protected(true)`, which sets the window's sharing type to none | The OS excludes the window from screenshot and screen-recording APIs. |
+| Android app | `FLAG_SECURE` on the activity window | The OS blocks screenshots and screen recording of the app and hides it in the recent-apps view. |
+| Linux desktop app | None. The app makes no call and reports the feature as unsupported. | No protection. |
+| Web browser | None. Browsers have no API to prevent or detect capture. | No protection. |
+| iOS | No iOS app is built. The source tree contains a detection-only Swift template, not wired into any build. | Not available. |
 
-## The watermark (the fallback that stays)
+Sources: `apps/desktop/src-tauri/src/capture.rs`,
+`apps/mobile/src-tauri/android-src/FlagSecurePlugin.kt`,
+`apps/mobile/src-tauri/src/commands/capture.rs`,
+`apps/web/src/platform/browser.ts`.
 
-Where genuine capture protection is impossible (Linux, iOS, browser), Mailwoman
-falls back to V4's **visible watermark overlay** — and only that. It is a deterrent,
-not a control.
+## Limits
 
-When enabled (`MW_WATERMARK=true`), the SPA tiles a low-opacity overlay across
-sensitive views stamping the **viewer's identity and a server timestamp**, to:
+Where the OS does exclude the window, it still cannot stop:
 
-- discourage casual sharing, and
-- make a leaked screenshot **attributable** to whoever took it.
+- a photo of the screen taken with another device;
+- capture by software running with enough privilege to bypass the OS mechanism, or
+  on a modified OS;
+- someone copying text out of a message, printing it, or downloading attachments;
+- remote-desktop or screen-sharing tools that do not honour the exclusion.
 
-It is pure DOM/CSS under the existing `script-src 'self'` policy, pulls no external
-resource (CSP-safe), and its opacity is tunable via `MW_WATERMARK_OPACITY` (0.0–1.0,
-default 0.08). It does **not** prevent, block, or detect a screenshot, a screen
-recording, a photo of the monitor, or the print-screen key — it only makes a capture
-attributable.
+Treat it as a way to prevent casual or accidental capture on managed devices, not as
+a data-loss control.
 
-The canonical honesty note the server returns with every watermark config response
-(mirrored verbatim from `mw-server`'s `watermark::HONEST_NOTE`):
+## The web watermark is not rendered
 
-> This watermark is a visual deterrent only. A web browser cannot prevent, block,
-> or detect screenshots or screen recordings, so this overlay cannot stop this
-> content from being captured. It stamps the viewer's identity and the time across
-> the view to discourage casual sharing and to make a leaked screenshot
-> attributable — it is not a security control. Genuine screen-capture protection
-> requires the native desktop application, planned for a later release.
+The server has a watermark setting (`MW_WATERMARK`, `MW_WATERMARK_OPACITY`) and an
+endpoint, `GET /api/security/watermark`, that returns the viewer's identity, a
+timestamp and a note that a watermark is a deterrent only. The web app does not
+call this endpoint and draws no watermark. Setting `MW_WATERMARK` has no visible
+effect, and a browser session has no screen-capture control of any kind.
 
-The note names "the native desktop application" as the path to genuine protection —
-**that path is what V5 ships** (the Windows/macOS/Android exclusion above). The
-watermark remains the honest fallback for the platforms that cannot enforce it.
+## Checking it on Windows
 
-## Manual verification (Windows)
+The Windows path is covered by unit tests and an end-to-end test that checks the
+command reports `{ supported: true }`. Whether the OS actually blacks out the
+window is checked by hand:
 
-The desktop content-protection path is unit-tested (`capture.rs` asserts the call
-path and the honest `{ supported }` matrix), but OS enforcement is verified by hand,
-since a headless runner cannot prove a real screenshot came out black:
+1. Set **Screen capture protection** to **Protect**.
+2. Sign in to the Windows desktop app and open a message.
+3. Take a screenshot with Print Screen or the Snipping Tool, or start a screen
+   recording.
+4. Expected: the Mailwoman window is black in the capture while it stays visible on
+   screen.
 
-1. Launch the desktop shell on Windows and open a sensitive view.
-2. Call `setCaptureProtection(true)` (the SPA's screen-capture setting, or `invoke('set_capture_protection', { enabled: true })` from the devtools console).
-3. Take a screenshot (PrtSc) or start a screen recording, and/or use the Snipping
-   Tool.
-4. **Expected:** the Mailwoman window appears **black / blank** in the capture while
-   remaining visible on screen. Toggling `setCaptureProtection(false)` restores
-   normal capture.
+## Related
 
-This manual check is recorded in the e4 log and is the documented fallback for the
-capture assertion in the native E2E (plan §6 R7).
+- [Security policy (admin)](/admin/security-policy)
+- [Desktop and mobile apps](/user/apps-desktop-mobile)
+- [Security model overview](./README.md)
