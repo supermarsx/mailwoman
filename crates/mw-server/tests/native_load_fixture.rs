@@ -27,6 +27,8 @@ mod fixture_runtime;
 mod linked_login_preflight;
 #[path = "common/native_enforced_policy.rs"]
 mod native_enforced_policy;
+#[path = "common/t34_modes.rs"]
+mod t34_modes;
 #[cfg(feature = "sql-shape-diagnostics")]
 #[path = "common/native_sql_shapes.rs"]
 mod native_sql_shapes;
@@ -36,6 +38,8 @@ fn index_ready(status: &mw_engine::maintenance::SearchIndexStatus, expected: u64
         && status.documents == expected
         && status.messages == expected
         && status.zero_access_documents == 0
+        // t34: a journal-mode start must have replayed every leftover row.
+        && status.journal_rows == 0
 }
 
 async fn startup_readiness(
@@ -860,6 +864,10 @@ fn cache_experiment_expectation_is_explicit_and_bounded() {
 async fn run(workers: usize) {
     mw_server::request_inputs_fixture::initialize_from_environment()
         .expect("valid immutable ordinary request-input fixture mode before all fixture effects");
+    mw_server::freeze_environment(); // t34-e6: per-request env scans become one snapshot (5be7dde6)
+    // t34 modes: every selector is validated before any database creation or seeding.
+    let t34_selection = t34_modes::T34Selection::from_environment().unwrap_or_else(|error| panic!("invalid t34 fixture mode: {error}"));
+    let t34_publication = t34_selection.publication_options().unwrap_or_else(|error| panic!("invalid t34 index publication options: {error}"));
     let cache_expectation_env=std::env::var_os("MW_LOAD_FIXTURE_SQLITE_CACHE_EXPECT")
         .map(|value|value.into_string().unwrap_or_else(|_|panic!("cache experiment expectation must be Unicode")));
     let cache_experiment=fixture_cache_experiment(cache_expectation_env.as_deref()).expect("valid cache experiment expectation");
@@ -1032,13 +1040,14 @@ async fn run(workers: usize) {
                         use std::os::unix::fs::PermissionsExt;
                         std::fs::set_permissions(&fixture_index_dir,std::fs::Permissions::from_mode(0o700)).unwrap();
                     }
-                    Engine::open_with_search_options(store.clone(),&fixture_index_dir,writer_options)
+                    Engine::open_with_search_and_publication_options(store.clone(),&fixture_index_dir,writer_options,t34_publication.clone())
                         .expect("construct sealed diagnostic search index")
                 }
                 FixtureIndexMode::Memory=>{
                     let index=mw_search::Index::open_in_ram_with_writer_options(writer_options)
                         .expect("construct explicit memory diagnostic search index");
-                    Engine::with_search(store.clone(),Arc::new(index))
+                    Engine::with_search_and_publication_options(store.clone(),Arc::new(index),t34_publication.clone())
+                        .expect("validated t34 publication options")
                 }
             });
             for account in accounts {
@@ -1085,6 +1094,10 @@ async fn run(workers: usize) {
             principal["accountId"].as_str().unwrap()
         );
     }
+    // Production starts the journal (trigger capture, startup replay) before serving.
+    // Always call it so the fixture matches `engine_mode::start_index_publication`.
+    let t34_startup = measured_engine.get().unwrap().start_index_publication().await.expect("start index publication");
+    eprintln!("native fixture: index publication start: {t34_startup:?}");
     let startup_readiness = startup_readiness(
         measured_engine.get().unwrap(),
         &push_accounts,
@@ -1131,6 +1144,7 @@ async fn run(workers: usize) {
                 }
                 snapshot["preparedMail"] = serde_json::to_value(engine.prepared_mail_status()).unwrap();
                 snapshot["ordinaryRequestInputs"] = serde_json::to_value(mw_server::request_inputs_fixture::snapshot()).unwrap();
+                snapshot["t34Modes"] = t34_modes::witness(&engine);
                 snapshot["httpTelemetry"] = mw_server::http_telemetry_snapshot();
                 snapshot["searchIndex"] = json!({
                     "storage":fixture_storage_proof(&engine,index_mode),
@@ -1345,6 +1359,7 @@ async fn run(workers: usize) {
     let data = json!({"base":base,"cookie":principals[0]["cookie"],"engineMode":"native","fixtureFeatures":["load-test-fixtures"],"uniquePrincipalCount":count,"clientSimulation":{"mode":"fixture-loopback-trusted-proxy","clientCount":count},"principals":principals,"backend":backend,"buildProfile":if cfg!(debug_assertions){"debug"}else{option_env!("MW_CARGO_BUILD_MODE").unwrap_or("release")},"runtimeWorkerThreads":workers,"runtimeWorkerStackBytes":worker_stack_bytes(),"startupReadiness":startup_readiness,"protection":"administrator defaults","budgets":budgets,"diagnostics":{"path":diagnostic_path,"token":diagnostic_token},"pushTrigger":{"path":push_path,"token":push_token}});
     let mut data = data;
     data["ordinaryRequestInputs"] = serde_json::to_value(mw_server::request_inputs_fixture::snapshot()).unwrap();
+    data["t34Modes"] = t34_modes::handoff(&t34_selection, t34_modes::witness(measured_engine.get().unwrap()));
     if let Some(experiment)=cache_experiment {data["sqliteCacheExperiment"]=experiment;}
     data["searchStorage"]=fixture_storage_proof(measured_engine.get().unwrap(),index_mode);
     let configuration=measured_engine.get().unwrap().search().writer_configuration();
