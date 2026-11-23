@@ -5,6 +5,8 @@ Zero-access storage is a per-account mode that a user turns on in their own sett
 ::: warning What zero-access does not do today
 Turning zero-access on does **not** make the server store the account's mail as ciphertext it cannot read. In engine mode the server still fetches the account's mail from the mail server and stores message bodies and list envelopes sealed with the **server key**, the same as for every other account (see [Encryption at rest](./encryption-at-rest.md)). Anyone who holds the server key, including the operator, can decrypt them. The client-side keys are created and stored, but nothing in the web app encrypts mail, notes or other data with them yet.
 
+A copy of the database is therefore protected only when the server key is stored somewhere else; on a default SQLite installation the key file `<database>.server-key` sits next to the database. The key that zero-access creates (from its own passphrase or passkey; the server stores only a wrapped copy) encrypts no stored data yet.
+
 The settings panel says the same: "It does not change how mail is stored: message bodies and envelopes are sealed with the server's key whether this mode is on or off, and the server can open them."
 :::
 
