@@ -27,6 +27,46 @@ fn hash_key(key: &str) -> String {
 }
 
 impl Store {
+    /// Last successful mail check, isolated from settings revisions. One bounded,
+    /// sealed row per account; expires after a year without use.
+    pub async fn mail_check_checkpoint(&self, account: &str) -> Result<Option<i64>, StoreError> {
+        let row = q("SELECT sealed FROM ephemeral_state WHERE kind='mail-check' AND key_hash=?1 AND expires_at>?2")
+            .bind(hash_key(account)).bind(Utc::now().timestamp()).fetch_optional(&self.backend).await?;
+        Ok(row
+            .and_then(|r| self.key.open(&r.get_blob("sealed")).ok())
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .and_then(|v| v.parse().ok()))
+    }
+
+    /// Compare-and-set: only one browser may acknowledge a given baseline.
+    /// Never move the clock backwards, including delayed requests from old tabs.
+    pub async fn advance_mail_check(
+        &self,
+        account: &str,
+        expected: Option<i64>,
+        checked: i64,
+    ) -> Result<bool, StoreError> {
+        const TTL: i64 = 366 * 86400;
+        let now = Utc::now().timestamp();
+        if checked > now
+            || checked < now - 600
+            || expected.is_some_and(|old| old < 0 || old >= checked)
+        {
+            return Ok(false);
+        }
+        let sealed = self.key.seal(checked.to_string().as_bytes())?;
+        let hash = hash_key(account);
+        let changed = if let Some(old) = expected {
+            q("UPDATE ephemeral_state SET sealed=?3,expires_at=?4 WHERE kind='mail-check' AND key_hash=?1 AND expires_at=?2")
+                .bind(hash).bind(old + TTL).bind(sealed).bind(checked + TTL).execute(&self.backend).await?
+        } else {
+            // Expired rows may be replaced, but never a live concurrent claim.
+            q("INSERT INTO ephemeral_state(kind,key_hash,sealed,expires_at) VALUES('mail-check',?1,?2,?3) ON CONFLICT(kind,key_hash) DO UPDATE SET sealed=excluded.sealed,expires_at=excluded.expires_at WHERE ephemeral_state.expires_at<=?4")
+                .bind(hash).bind(sealed).bind(checked + TTL).bind(now).execute(&self.backend).await?
+        };
+        Ok(changed == 1)
+    }
+
     /// Store `payload` under `(kind, key)` for `ttl_secs`, sealed with the server
     /// key. Replaces an existing entry and sweeps expired ones.
     pub async fn put_ephemeral(
@@ -186,6 +226,94 @@ mod session_touch_tests {
     use super::*;
     use crate::{Credentials, ServerKey};
     use chrono::{DateTime, Duration, TimeZone};
+    #[tokio::test]
+    async fn mail_checks_are_account_scoped_atomic_and_monotonic() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let now = Utc::now().timestamp();
+        assert_eq!(store.mail_check_checkpoint("a").await.unwrap(), None);
+        let (a, b) = tokio::join!(
+            store.advance_mail_check("a", None, now - 120),
+            store.advance_mail_check("a", None, now - 120)
+        );
+        assert_ne!(
+            a.unwrap(),
+            b.unwrap(),
+            "only one tab may claim the first check"
+        );
+        assert_eq!(
+            store.mail_check_checkpoint("a").await.unwrap(),
+            Some(now - 120)
+        );
+        assert_eq!(store.mail_check_checkpoint("b").await.unwrap(), None);
+        let (a, b) = tokio::join!(
+            store.advance_mail_check("a", Some(now - 120), now),
+            store.advance_mail_check("a", Some(now - 120), now)
+        );
+        assert_ne!(
+            a.unwrap(),
+            b.unwrap(),
+            "only one tab may acknowledge a baseline"
+        );
+        assert!(
+            !store
+                .advance_mail_check("a", Some(now - 120), now - 60)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !store
+                .advance_mail_check("a", Some(now), now - 1)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !store
+                .advance_mail_check("a", Some(now), now + 3600)
+                .await
+                .unwrap()
+        );
+        assert_eq!(store.mail_check_checkpoint("a").await.unwrap(), Some(now));
+        // A checkpoint never publishes a settings revision on each check.
+        assert_eq!(
+            q("SELECT COUNT(*) AS n FROM personal_setting_value")
+                .fetch_one(&store.backend)
+                .await
+                .unwrap()
+                .get_i64("n"),
+            0
+        );
+        store.close().await;
+    }
+
+    #[tokio::test]
+    async fn expired_mail_checks_restart_silently_without_exposing_their_payload() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let now = Utc::now().timestamp();
+        assert!(
+            store
+                .advance_mail_check("account", None, now - 2)
+                .await
+                .unwrap()
+        );
+        let row = q("SELECT sealed,key_hash FROM ephemeral_state WHERE kind='mail-check'")
+            .fetch_one(&store.backend)
+            .await
+            .unwrap();
+        assert_ne!(row.get_blob("sealed"), (now - 2).to_string().as_bytes());
+        assert_ne!(row.get_string("key_hash"), "account");
+        q("UPDATE ephemeral_state SET expires_at=0 WHERE kind='mail-check'")
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert_eq!(store.mail_check_checkpoint("account").await.unwrap(), None);
+        assert!(
+            store
+                .advance_mail_check("account", None, now)
+                .await
+                .unwrap()
+        );
+        store.close().await;
+    }
     async fn session(store: &Store) -> String {
         store
             .create_session(

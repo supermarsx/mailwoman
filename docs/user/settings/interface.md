@@ -141,6 +141,12 @@ Notifications has four tabs. For what the notification centre shows, see [Notifi
 
 ### New mail
 
+The **Mail since your last check** card controls a sign-in toast with separate Inbox and Spam counts. It is enabled by default and counts received messages rather than your entire unread backlog. The first successful check establishes a baseline without showing a toast. The server stores one small checkpoint per verified mailbox, so it follows you between devices; concurrent tabs cannot show the same summary twice.
+
+You can independently include Inbox, Spam and linked mailboxes, count unread mail only, respect quiet hours, or show an empty result. Defaults are a **15-second** display, **1 minute** away, and a **60-day** maximum lookback. The toast names the shorter period after a long absence. Linked mailboxes use their own preferences and policies. Successful foreground folder checks renew the active mailbox checkpoint at most once a minute; failed or offline reads preserve the previous checkpoint. A checkpoint expires after a year without use.
+
+Administrators can set and lock all ten `notifications.loginSummary.*` controls at global, domain or user scope. These preferences are independent of live spam-folder alerts and browser notification permission; the general toast preferences still apply.
+
 ![The top of the New mail tab: the Notifications and Permission on this device cards and the first New-mail channels.](/screenshots/user-settings/interface-notifications-mail.webp){.mw-crop}
 
 | Label | What it does | Default | Setting |

@@ -62,6 +62,7 @@ use crate::AppState;
 mod badge_scope;
 mod contact_photo;
 mod focused_senders;
+mod mail_check;
 pub(crate) mod personal_storage;
 mod receipt_preferences;
 mod sender_resolution;
@@ -1416,6 +1417,7 @@ pub(crate) fn prefs_router() -> Router<AppState> {
             ),
         )
         .route("/api/account/signatures/{name}", delete(signatures_delete))
+        .route("/api/account/mail-check", get(mail_check::read).post(mail_check::advance))
         .route(
             "/api/account/notifications",
             get(notifications_get).put(notifications_put),

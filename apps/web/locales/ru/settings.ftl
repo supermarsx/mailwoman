@@ -1033,3 +1033,26 @@ settings-signature-position = Расположение подписи
 settings-signature-position-help = По умолчанию подпись располагается после вашего текста перед цитируемыми сообщениями. В новых сообщениях — в конце.
 settings-signature-position-own = После моего текста, перед цитируемыми сообщениями
 settings-signature-position-end = В конце всего сообщения
+
+# Sign-in mail summary
+settings-alert-loginSummary-title = Почта с последней проверки
+settings-alert-notifications-login-summary-enabled = Сводка почты при входе
+settings-alert-help-notifications-login-summary-enabled = Показывает новые сообщения с последней успешной проверки. Первая проверка сохраняет точку отсчёта без уведомления.
+settings-alert-notifications-login-summary-inbox = Учитывать Входящие
+settings-alert-help-notifications-login-summary-inbox = Считает сообщения во Входящих, полученные после предыдущей проверки.
+settings-alert-notifications-login-summary-spam = Учитывать Спам
+settings-alert-help-notifications-login-summary-spam = Отдельный счётчик Спама не зависит от уведомлений в реальном времени.
+settings-alert-notifications-login-summary-unread-only = Только непрочитанные сообщения
+settings-alert-help-notifications-login-summary-unread-only = Исключает уже прочитанные сообщения.
+settings-alert-notifications-login-summary-linked-accounts = Учитывать связанные ящики
+settings-alert-help-notifications-login-summary-linked-accounts = Проверяет связанные ящики с учётом их настроек и политик.
+settings-alert-notifications-login-summary-quiet-hours = Соблюдать тихие часы
+settings-alert-help-notifications-login-summary-quiet-hours = Скрывает сводку в тихие часы; проверка сохраняется.
+settings-alert-notifications-login-summary-show-empty = Показывать пустую сводку
+settings-alert-help-notifications-login-summary-show-empty = Показывает сводку даже без новых сообщений.
+settings-alert-notifications-login-summary-duration-seconds = Длительность показа (секунды)
+settings-alert-help-notifications-login-summary-duration-seconds = Секунды показа; наведение или фокус приостанавливает закрытие.
+settings-alert-notifications-login-summary-minimum-away-minutes = Минимальное отсутствие (минуты)
+settings-alert-help-notifications-login-summary-minimum-away-minutes = Пропускает краткие перезагрузки. Ноль разрешает каждый возврат.
+settings-alert-notifications-login-summary-lookback-days = Максимальный период (дни)
+settings-alert-help-notifications-login-summary-lookback-days = Максимальное число дней после долгого отсутствия.

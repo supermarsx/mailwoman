@@ -2755,6 +2755,26 @@ admin-settings-key-performance-prepared-mail = Prepared mail metadata cache
 admin-settings-help-performance-prepared-mail = Prepared metadata only; each response still needs fresh source and authorization checks.
 admin-cache-prepared-invalid = Enter every field within its displayed bounds, with no additional fields.
 
-# Interface scaling
+# Sign-in mail summary and interface scaling
+admin-settings-key-notifications-login-summary-enabled = Sign-in mail summary
+admin-settings-help-notifications-login-summary-enabled = Show new Inbox and Spam counts since the last successful mail check. The first check establishes a baseline silently.
+admin-settings-key-notifications-login-summary-inbox = Include Inbox
+admin-settings-help-notifications-login-summary-inbox = Count messages received in the Inbox since the previous check.
+admin-settings-key-notifications-login-summary-spam = Include Spam
+admin-settings-help-notifications-login-summary-spam = Include a separate Spam count, independently of live spam alerts.
+admin-settings-key-notifications-login-summary-unread-only = Count unread messages only
+admin-settings-help-notifications-login-summary-unread-only = Exclude messages already marked as read from the summary.
+admin-settings-key-notifications-login-summary-linked-accounts = Include linked mailboxes
+admin-settings-help-notifications-login-summary-linked-accounts = Also check linked mailboxes. Each mailbox uses its own summary preferences and policy.
+admin-settings-key-notifications-login-summary-quiet-hours = Respect quiet hours
+admin-settings-help-notifications-login-summary-quiet-hours = Suppress this summary during configured quiet hours. The check is still recorded.
+admin-settings-key-notifications-login-summary-show-empty = Show an empty summary
+admin-settings-help-notifications-login-summary-show-empty = Show the summary even when no new messages were found.
+admin-settings-key-notifications-login-summary-duration-seconds = Summary duration (seconds)
+admin-settings-help-notifications-login-summary-duration-seconds = Seconds the summary stays visible; hover or focus pauses dismissal.
+admin-settings-key-notifications-login-summary-minimum-away-minutes = Minimum time away (minutes)
+admin-settings-help-notifications-login-summary-minimum-away-minutes = Skip the summary after brief reloads or account switches. Zero allows every successful return.
+admin-settings-key-notifications-login-summary-lookback-days = Maximum lookback (days)
+admin-settings-help-notifications-login-summary-lookback-days = Count at most this many days of received mail after a long absence.
 admin-settings-key-appearance-ui-scale = Interface scale (%)
 admin-settings-help-appearance-ui-scale = Resize the entire interface, including controls, text and spacing (50–200%). Message zoom remains independent.

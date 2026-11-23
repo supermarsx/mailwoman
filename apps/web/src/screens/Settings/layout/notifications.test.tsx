@@ -13,10 +13,10 @@ const service={notifications:async()=>({enabled:true,rules:[{id:'r1',label:'',ma
 
 it('Notifications: every previous control appears once, inside registered cards',async()=>{
  render(()=><Notifications service={service}/>);
- await screen.findByTestId('notif-rule-list');
+ await screen.findByRole('tab',{name:t('settings-alert-tab-mail')});
  await screen.findByRole('checkbox',{name:t('settings-notif-enabled-label')});
  const cards=SETTINGS_REGISTRY.filter(c=>c.section==='notifications');
- expect(cards.length).toBe(6);
+ expect(cards.some(card=>card.id==='notif-card-loginSummary')).toBe(true);
  for(const card of cards){
   expect(document.querySelectorAll(`section[id="${card.id}"]`),card.id).toHaveLength(1);
   for(const row of card.rows){
@@ -24,12 +24,12 @@ it('Notifications: every previous control appears once, inside registered cards'
    expect(screen.getAllByText(t(row.label),{selector:'label'}),row.label).toHaveLength(1);
   }
  }
- // controls that the old section also had
- for(const name of [t('settings-notif-rule-match-placeholder')])expect(screen.getAllByLabelText(name)).toHaveLength(1);
- expect(screen.getByRole('combobox',{name:t('settings-notif-rule-action-label')})).toBeInTheDocument();
- expect(screen.getByTestId('notif-add-rule')).toBeInTheDocument();
+ // Content rules now live in their dedicated page; the mail tab remains compact.
+ expect(screen.queryByTestId('notif-rule-list')).toBeNull();
  expect(screen.queryByTestId('notif-save')).toBeNull();
- fireEvent.click(screen.getByTestId('notif-add-rule'));
- expect(screen.getAllByLabelText(t('settings-notif-rule-match-placeholder'))).toHaveLength(2);
- for(const el of document.querySelectorAll('section[id][aria-labelledby]'))expect(SETTINGS_REGISTRY.some(c=>c.id===el.id),el.id).toBe(true);
+ fireEvent.click(screen.getByRole('tab',{name:t('settings-alert-tab-quiet')}));
+ expect(screen.getByRole('button',{name:t('settings-alert-manage-rules')})).toBeEnabled();
+ expect(document.getElementById('notif-card-loginSummary')?.closest('[role="tabpanel"]')).toHaveAttribute('hidden');
+ fireEvent.click(screen.getByRole('tab',{name:t('settings-alert-tab-mail')}));
+ expect(document.getElementById('notif-card-loginSummary')?.closest('[role="tabpanel"]')).not.toHaveAttribute('hidden');
 });

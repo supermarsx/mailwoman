@@ -1922,17 +1922,19 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const key=JSON.stringify(request);
     const hit=src.kind==='mailbox'&&owner?readCache.peek(owner,key,'mailbox')?.value:undefined;
     const cached=hit?.kind==='mailbox'?hit.response:primaryIdentity?.storageAuthority&&owner?.storageAuthority&&readMailCachePolicy().enabled?linkedMailboxCachedPage(primaryIdentity.storageAuthority,activeLinkedMailbox()?.linkId??null,acct,owner.storageAuthority,request):undefined;
+    let networkChecked=false;
     const apply=(res:JmapResponse)=>{querySnapshot=captureQuery(request,res);const {page,serverLen,hidden,relocated}=ingestPage(res,src,req);setMessages(page);setLoadedStart(0);nextServerPosition=serverLen;hiddenRows=hidden;const t=pageTotal(res);setTotal(relocated>0?null:t===null?null:Math.max(0,t-hidden));setExhausted(serverLen<pageSize());};
     if(cached)apply(cached);
     setListLoading(!cached);
     try {
       let res:JmapResponse;
-      if(src.kind==='mailbox'&&owner){const result=await readCache.load(owner,key,'mailbox',async signal=>({kind:'mailbox',response:await jmapCall(request,{signal})}),{signal:req.signal,force:readMailCachePolicy().refreshOnOpen});if(result.kind!=='mailbox')throw new Error(t('mail-toast-load-more-failed'));res=result.response;}
-      else res=await jmapCall(request,{signal:req.signal});
+      if(src.kind==='mailbox'&&owner){const result=await readCache.load(owner,key,'mailbox',async signal=>({kind:'mailbox',response:await jmapCall(request,{signal}).then(response=>{networkChecked=true;return response;})}),{signal:req.signal,force:readMailCachePolicy().refreshOnOpen});if(result.kind!=='mailbox')throw new Error(t('mail-toast-load-more-failed'));res=result.response;}
+      else {res=await jmapCall(request,{signal:req.signal});networkChecked=true;}
       if (!isCurrent(req)) return;
       res=await fillMissing(res,request,req.signal);
       if (!isCurrent(req)) return;
       apply(res);
+      if(networkChecked&&src.kind==='mailbox')window.dispatchEvent(new CustomEvent('mw:mail-network-checked',{detail:{accountId:acct}}));
     } catch (err) {
       // A superseded request's failure is not the user's problem: the request
       // that replaced it owns the outcome, including the error surface.
@@ -2229,6 +2231,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       const reportedTotal = pageTotal(res);
       setTotal(relocated>0||reportedTotal===null?null:Math.max(0,reportedTotal-hidden));
       setExhausted(serverLen < loaded);refreshFailures=0;onChecked?.(true);
+      if(src.kind==='mailbox')window.dispatchEvent(new CustomEvent('mw:mail-network-checked',{detail:{accountId:acct}}));
     } catch {
       // A pushed state has already been acknowledged by the reconciler. Retry a
       // transient list failure ourselves rather than waiting for a second mail.

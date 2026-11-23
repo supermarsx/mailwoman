@@ -2836,6 +2836,26 @@ admin-settings-key-performance-prepared-mail = Cache dei metadati di posta prepa
 admin-settings-help-performance-prepared-mail = Solo metadati; ogni risposta richiede controlli aggiornati di origine e autorizzazione.
 admin-cache-prepared-invalid = Compila tutti i campi entro i limiti indicati, senza campi aggiuntivi.
 
-# Interface scaling
+# Sign-in mail summary and interface scaling
+admin-settings-key-notifications-login-summary-enabled = Riepilogo della posta all’accesso
+admin-settings-help-notifications-login-summary-enabled = Mostra i nuovi messaggi dall’ultimo controllo riuscito. Il primo imposta un riferimento senza avvisi.
+admin-settings-key-notifications-login-summary-inbox = Includi Posta in arrivo
+admin-settings-help-notifications-login-summary-inbox = Conta i messaggi ricevuti in Posta in arrivo dal controllo precedente.
+admin-settings-key-notifications-login-summary-spam = Includi Spam
+admin-settings-help-notifications-login-summary-spam = Include un conteggio Spam indipendente dagli avvisi in tempo reale.
+admin-settings-key-notifications-login-summary-unread-only = Conta solo i messaggi non letti
+admin-settings-help-notifications-login-summary-unread-only = Esclude i messaggi già letti.
+admin-settings-key-notifications-login-summary-linked-accounts = Includi caselle collegate
+admin-settings-help-notifications-login-summary-linked-accounts = Controlla anche le caselle collegate con le rispettive preferenze e politiche.
+admin-settings-key-notifications-login-summary-quiet-hours = Rispetta gli orari silenziosi
+admin-settings-help-notifications-login-summary-quiet-hours = Nasconde il riepilogo negli orari silenziosi; il controllo viene registrato.
+admin-settings-key-notifications-login-summary-show-empty = Mostra un riepilogo vuoto
+admin-settings-help-notifications-login-summary-show-empty = Mostra il riepilogo anche senza nuovi messaggi.
+admin-settings-key-notifications-login-summary-duration-seconds = Durata del riepilogo (secondi)
+admin-settings-help-notifications-login-summary-duration-seconds = Secondi di visualizzazione; puntatore o focus sospendono la chiusura.
+admin-settings-key-notifications-login-summary-minimum-away-minutes = Assenza minima (minuti)
+admin-settings-help-notifications-login-summary-minimum-away-minutes = Ignora i ricaricamenti brevi. Zero consente ogni ritorno.
+admin-settings-key-notifications-login-summary-lookback-days = Periodo massimo (giorni)
+admin-settings-help-notifications-login-summary-lookback-days = Numero massimo di giorni conteggiati dopo una lunga assenza.
 admin-settings-key-appearance-ui-scale = Scala dell’interfaccia (%)
 admin-settings-help-appearance-ui-scale = Ridimensiona controlli, testo e spazi dell’intera interfaccia (50–200%). Lo zoom dei messaggi resta indipendente.

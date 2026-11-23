@@ -20,6 +20,38 @@ async fn setting(pool: &sqlx::SqlitePool, key: &str, value: Value) {
     sqlx::query("INSERT INTO setting_policy(key,global_value,updated_by,updated_at) VALUES(?1,?2,'test',0) ON CONFLICT(key) DO UPDATE SET global_value=excluded.global_value").bind(key).bind(value.to_string()).execute(pool).await.unwrap();
 }
 #[tokio::test]
+async fn login_summary_checkpoint_is_fenced_and_claimed_once() {
+    let upstream=serve(mw_mock_jmap::router()).await;
+    let db=common::test_db::unique_db_path("login-mail-summary");
+    let (router,_)=build_app_full(AppConfig{
+        db_path:db.to_string_lossy().into(),server_key_hex:None,web_dir:None,cookie_secure:false,
+        mode:ServerMode::Proxy,hardening:HardeningConfig::default(),
+        security:SecurityConfig{upstream_default:Some(upstream.clone()),jmap_upstreams:Some(vec![upstream]),..Default::default()},
+    },V6Config{admin_enabled:false,admin_username:None,admin_password:None,redis_url:None}).await.unwrap();
+    let base=serve(router).await;
+    let endpoint=format!("{base}/api/account/mail-check");
+    assert_eq!(reqwest::get(&endpoint).await.unwrap().status(),401);
+    let client=reqwest::Client::builder().cookie_store(true).build().unwrap();
+    let login:Value=client.post(format!("{base}/api/login")).json(&json!({"username":mw_mock_jmap::USER,"password":mw_mock_jmap::PASS})).send().await.unwrap().json().await.unwrap();
+    let authority=login["storageAuthority"].as_str().unwrap();
+    let before:Value=client.get(&endpoint).send().await.unwrap().json().await.unwrap();
+    assert!(before["checkedAt"].is_null());
+    let now=before["now"].as_i64().unwrap();
+    let body=json!({"expected":null,"checkedAt":now-120});
+    assert_eq!(client.post(&endpoint).json(&body).send().await.unwrap().status(),428);
+    assert_eq!(client.post(&endpoint).header("x-mailwoman-storage-authority","foreign").json(&body).send().await.unwrap().status(),409);
+    let first:Value=client.post(&endpoint).header("x-mailwoman-storage-authority",authority).json(&body).send().await.unwrap().json().await.unwrap();
+    assert_eq!(first["accepted"],true);
+    let claim=json!({"expected":now-120,"checkedAt":now});
+    let (a,b)=tokio::join!(client.post(&endpoint).header("x-mailwoman-storage-authority",authority).json(&claim).send(),client.post(&endpoint).header("x-mailwoman-storage-authority",authority).json(&claim).send());
+    let a:Value=a.unwrap().json().await.unwrap();let b:Value=b.unwrap().json().await.unwrap();
+    assert_ne!(a["accepted"],b["accepted"]);
+    assert_eq!(client.post(&endpoint).header("x-mailwoman-storage-authority",authority).json(&json!({"expected":now,"checkedAt":now+3600})).send().await.unwrap().status(),422);
+    let config:Value=client.get(format!("{base}/api/account/notifications")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(config["presentation"]["notifications.loginSummary.enabled"],true);
+    assert_eq!(config["presentation"]["notifications.loginSummary.spam"],true);
+}
+#[tokio::test]
 async fn notification_policy_and_push_ownership_are_enforced_hot() {
     let upstream = serve(mw_mock_jmap::router()).await;
     let db = common::test_db::unique_db_path("notification-policy");

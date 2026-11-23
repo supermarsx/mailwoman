@@ -2858,6 +2858,26 @@ admin-settings-key-performance-prepared-mail = ذاكرة بيانات البر�
 admin-settings-help-performance-prepared-mail = بيانات وصفية فقط؛ كل استجابة تتطلب فحوصًا حديثة للمصدر والصلاحيات.
 admin-cache-prepared-invalid = أدخل جميع الحقول ضمن الحدود المعروضة دون إضافة حقول.
 
-# Interface scaling
+# Sign-in mail summary and interface scaling
+admin-settings-key-notifications-login-summary-enabled = ملخص البريد عند تسجيل الدخول
+admin-settings-help-notifications-login-summary-enabled = يعرض الرسائل الجديدة منذ آخر تحقق ناجح. ينشئ التحقق الأول نقطة بداية دون تنبيه.
+admin-settings-key-notifications-login-summary-inbox = تضمين الوارد
+admin-settings-help-notifications-login-summary-inbox = يعد الرسائل الواردة منذ التحقق السابق.
+admin-settings-key-notifications-login-summary-spam = تضمين البريد المزعج
+admin-settings-help-notifications-login-summary-spam = يتضمن عدادا منفصلا للبريد المزعج مستقلا عن التنبيهات الفورية.
+admin-settings-key-notifications-login-summary-unread-only = عد الرسائل غير المقروءة فقط
+admin-settings-help-notifications-login-summary-unread-only = يستبعد الرسائل المقروءة بالفعل.
+admin-settings-key-notifications-login-summary-linked-accounts = تضمين صناديق البريد المرتبطة
+admin-settings-help-notifications-login-summary-linked-accounts = يتحقق أيضا من الصناديق المرتبطة وفقا لتفضيلات وسياسات كل منها.
+admin-settings-key-notifications-login-summary-quiet-hours = احترام ساعات الهدوء
+admin-settings-help-notifications-login-summary-quiet-hours = يخفي الملخص خلال ساعات الهدوء مع تسجيل التحقق.
+admin-settings-key-notifications-login-summary-show-empty = إظهار ملخص فارغ
+admin-settings-help-notifications-login-summary-show-empty = يعرض الملخص حتى دون رسائل جديدة.
+admin-settings-key-notifications-login-summary-duration-seconds = مدة عرض الملخص (ثوانٍ)
+admin-settings-help-notifications-login-summary-duration-seconds = مدة العرض بالثواني؛ يوقف التحويم أو التركيز الإغلاق مؤقتا.
+admin-settings-key-notifications-login-summary-minimum-away-minutes = الحد الأدنى للغياب (دقائق)
+admin-settings-help-notifications-login-summary-minimum-away-minutes = يتجاوز عمليات إعادة التحميل السريعة. يسمح الصفر بكل عودة.
+admin-settings-key-notifications-login-summary-lookback-days = أقصى فترة مراجعة (أيام)
+admin-settings-help-notifications-login-summary-lookback-days = أقصى عدد أيام للمراجعة بعد غياب طويل.
 admin-settings-key-appearance-ui-scale = مقياس الواجهة (%)
 admin-settings-help-appearance-ui-scale = يغير حجم عناصر التحكم والنصوص والمسافات في الواجهة كلها (50–200%). تكبير الرسائل مستقل.

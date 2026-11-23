@@ -1012,3 +1012,26 @@ settings-signature-position = Position der Signatur
 settings-signature-position-help = Die Signatur steht standardmäßig nach Ihrem Text und vor zitierten Nachrichten. Bei neuen Nachrichten steht sie am Ende.
 settings-signature-position-own = Nach meinem Text, vor zitierten Nachrichten
 settings-signature-position-end = Ende der gesamten Nachricht
+
+# Sign-in mail summary
+settings-alert-loginSummary-title = Post seit der letzten Prüfung
+settings-alert-notifications-login-summary-enabled = Postübersicht bei der Anmeldung
+settings-alert-help-notifications-login-summary-enabled = Zeigt neue Nachrichten seit der letzten erfolgreichen Prüfung. Die erste Prüfung setzt still den Ausgangspunkt.
+settings-alert-notifications-login-summary-inbox = Posteingang einbeziehen
+settings-alert-help-notifications-login-summary-inbox = Zählt seit der vorherigen Prüfung im Posteingang eingegangene Nachrichten.
+settings-alert-notifications-login-summary-spam = Spam einbeziehen
+settings-alert-help-notifications-login-summary-spam = Zeigt einen separaten Spamzähler unabhängig von Live-Spamhinweisen.
+settings-alert-notifications-login-summary-unread-only = Nur ungelesene Nachrichten zählen
+settings-alert-help-notifications-login-summary-unread-only = Schließt bereits gelesene Nachrichten aus.
+settings-alert-notifications-login-summary-linked-accounts = Verknüpfte Postfächer einbeziehen
+settings-alert-help-notifications-login-summary-linked-accounts = Prüft auch verknüpfte Postfächer mit deren eigenen Einstellungen und Richtlinien.
+settings-alert-notifications-login-summary-quiet-hours = Ruhezeiten beachten
+settings-alert-help-notifications-login-summary-quiet-hours = Unterdrückt die Übersicht während der Ruhezeiten; die Prüfung wird gespeichert.
+settings-alert-notifications-login-summary-show-empty = Leere Übersicht anzeigen
+settings-alert-help-notifications-login-summary-show-empty = Zeigt die Übersicht auch ohne neue Nachrichten.
+settings-alert-notifications-login-summary-duration-seconds = Anzeigedauer (Sekunden)
+settings-alert-help-notifications-login-summary-duration-seconds = Anzeigedauer in Sekunden; Mauszeiger oder Fokus pausiert das Schließen.
+settings-alert-notifications-login-summary-minimum-away-minutes = Mindestabwesenheit (Minuten)
+settings-alert-help-notifications-login-summary-minimum-away-minutes = Überspringt kurze Neuladungen. Null erlaubt jede Rückkehr.
+settings-alert-notifications-login-summary-lookback-days = Maximaler Rückblick (Tage)
+settings-alert-help-notifications-login-summary-lookback-days = Maximale Anzahl berücksichtigter Tage nach langer Abwesenheit.

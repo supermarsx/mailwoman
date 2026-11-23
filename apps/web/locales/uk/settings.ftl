@@ -1033,3 +1033,26 @@ settings-signature-position = Розташування підпису
 settings-signature-position-help = За замовчуванням підпис розташовується після вашого тексту перед цитованими повідомленнями. У нових повідомленнях — у кінці.
 settings-signature-position-own = Після мого тексту, перед цитованими повідомленнями
 settings-signature-position-end = У кінці всього повідомлення
+
+# Sign-in mail summary
+settings-alert-loginSummary-title = Пошта з останньої перевірки
+settings-alert-notifications-login-summary-enabled = Зведення пошти під час входу
+settings-alert-help-notifications-login-summary-enabled = Показує нові повідомлення з останньої успішної перевірки. Перша перевірка зберігає початкову точку без сповіщення.
+settings-alert-notifications-login-summary-inbox = Враховувати Вхідні
+settings-alert-help-notifications-login-summary-inbox = Рахує повідомлення у Вхідних, отримані після попередньої перевірки.
+settings-alert-notifications-login-summary-spam = Враховувати Спам
+settings-alert-help-notifications-login-summary-spam = Окремий лічильник Спаму не залежить від сповіщень наживо.
+settings-alert-notifications-login-summary-unread-only = Лише непрочитані повідомлення
+settings-alert-help-notifications-login-summary-unread-only = Виключає вже прочитані повідомлення.
+settings-alert-notifications-login-summary-linked-accounts = Враховувати пов’язані скриньки
+settings-alert-help-notifications-login-summary-linked-accounts = Перевіряє пов’язані скриньки з урахуванням їхніх налаштувань і політик.
+settings-alert-notifications-login-summary-quiet-hours = Дотримуватися тихих годин
+settings-alert-help-notifications-login-summary-quiet-hours = Приховує зведення в тихі години; перевірка зберігається.
+settings-alert-notifications-login-summary-show-empty = Показувати порожнє зведення
+settings-alert-help-notifications-login-summary-show-empty = Показує зведення навіть без нових повідомлень.
+settings-alert-notifications-login-summary-duration-seconds = Тривалість показу (секунди)
+settings-alert-help-notifications-login-summary-duration-seconds = Секунди показу; наведення чи фокус призупиняє закриття.
+settings-alert-notifications-login-summary-minimum-away-minutes = Мінімальна відсутність (хвилини)
+settings-alert-help-notifications-login-summary-minimum-away-minutes = Пропускає короткі перезавантаження. Нуль дозволяє кожне повернення.
+settings-alert-notifications-login-summary-lookback-days = Максимальний період (дні)
+settings-alert-help-notifications-login-summary-lookback-days = Максимальна кількість днів після довгої відсутності.

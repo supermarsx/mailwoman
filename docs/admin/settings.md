@@ -4287,6 +4287,23 @@ rate limits, feature policy, idempotency and auditing intact. HTTP fallback happ
 only before dispatch; losing a mutation acknowledgement is an uncertain outcome,
 never proof that it should be replayed.
 
+### Sign-in mail summary
+
+These global/domain/user settings control the welcome toast in Settings → Notifications → New mail. Administrators can hold each value. The first successful check establishes a baseline silently; later checks count received mail within a bounded time window. Checkpoints are sealed, scoped to verified mailbox authority, shared across devices and atomically acknowledged to avoid duplicate tab alerts. Foreground checks renew only the active mailbox checkpoint, at most once per minute; offline or failed counts do not advance it. Inactive checkpoints expire after 366 days.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| <a id="notifications.loginSummary.enabled"></a>`notifications.loginSummary.enabled` | `true` | Show new Inbox and Spam counts since the last successful mail check. The first check establishes a baseline silently. |
+| <a id="notifications.loginSummary.inbox"></a>`notifications.loginSummary.inbox` | `true` | Count messages received in the Inbox since the previous check. |
+| <a id="notifications.loginSummary.spam"></a>`notifications.loginSummary.spam` | `true` | Include a separate Spam count, independently of live spam alerts. |
+| <a id="notifications.loginSummary.unreadOnly"></a>`notifications.loginSummary.unreadOnly` | `false` | Exclude messages already marked as read from the summary. |
+| <a id="notifications.loginSummary.linkedAccounts"></a>`notifications.loginSummary.linkedAccounts` | `true` | Also check linked mailboxes. Each mailbox uses its own summary preferences and policy. |
+| <a id="notifications.loginSummary.quietHours"></a>`notifications.loginSummary.quietHours` | `true` | Suppress this summary during configured quiet hours. The check is still recorded. |
+| <a id="notifications.loginSummary.showEmpty"></a>`notifications.loginSummary.showEmpty` | `false` | Show the summary even when no new messages were found. |
+| <a id="notifications.loginSummary.durationSeconds"></a>`notifications.loginSummary.durationSeconds` | `15` | Seconds the summary stays visible; hover or focus pauses dismissal. |
+| <a id="notifications.loginSummary.minimumAwayMinutes"></a>`notifications.loginSummary.minimumAwayMinutes` | `1` | Skip the summary after brief reloads or account switches. Zero allows every successful return. |
+| <a id="notifications.loginSummary.lookbackDays"></a>`notifications.loginSummary.lookbackDays` | `60` | Count at most this many days of received mail after a long absence. |
+
 <a id="notifications.incoming.toast"></a>
 ### New-mail toast (`notifications.incoming.toast`)
 

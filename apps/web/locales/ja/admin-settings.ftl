@@ -2828,6 +2828,26 @@ admin-settings-key-performance-prepared-mail = 準備済みメールメタデー
 admin-settings-help-performance-prepared-mail = メタデータのみ。各応答には最新のソースと権限の確認が必要です。
 admin-cache-prepared-invalid = 表示された範囲内ですべての項目を入力し、項目を追加しないでください。
 
-# Interface scaling
+# Sign-in mail summary and interface scaling
+admin-settings-key-notifications-login-summary-enabled = ログイン時のメール概要
+admin-settings-help-notifications-login-summary-enabled = 前回の確認成功以降の新着を表示します。初回は通知せず基準のみ保存します。
+admin-settings-key-notifications-login-summary-inbox = 受信トレイを含める
+admin-settings-help-notifications-login-summary-inbox = 前回の確認以降に受信トレイに届いたメッセージを数えます。
+admin-settings-key-notifications-login-summary-spam = 迷惑メールを含める
+admin-settings-help-notifications-login-summary-spam = リアルタイム通知とは別に迷惑メールの件数を表示します。
+admin-settings-key-notifications-login-summary-unread-only = 未読メッセージのみ数える
+admin-settings-help-notifications-login-summary-unread-only = 既読メッセージを除外します。
+admin-settings-key-notifications-login-summary-linked-accounts = リンク済みメールボックスを含める
+admin-settings-help-notifications-login-summary-linked-accounts = 各メールボックスの設定とポリシーでリンク済みアカウントも確認します。
+admin-settings-key-notifications-login-summary-quiet-hours = 通知休止時間を尊重
+admin-settings-help-notifications-login-summary-quiet-hours = 通知休止時間中は概要を表示しません。確認時刻は保存します。
+admin-settings-key-notifications-login-summary-show-empty = 新着がなくても表示
+admin-settings-help-notifications-login-summary-show-empty = 新着がない場合も概要を表示します。
+admin-settings-key-notifications-login-summary-duration-seconds = 表示時間 (秒)
+admin-settings-help-notifications-login-summary-duration-seconds = 表示秒数。ポインターを重ねるかフォーカスすると閉じるまでの時間を一時停止します。
+admin-settings-key-notifications-login-summary-minimum-away-minutes = 最短不在時間 (分)
+admin-settings-help-notifications-login-summary-minimum-away-minutes = 短い再読み込みでは表示しません。0で毎回表示可能になります。
+admin-settings-key-notifications-login-summary-lookback-days = 最大集計期間 (日)
+admin-settings-help-notifications-login-summary-lookback-days = 長期間不在だった場合に集計する最大日数です。
 admin-settings-key-appearance-ui-scale = インターフェースの倍率 (%)
 admin-settings-help-appearance-ui-scale = 操作部品、文字、余白を含む画面全体を拡大・縮小します（50～200%）。メッセージの倍率とは独立しています。

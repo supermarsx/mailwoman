@@ -276,6 +276,17 @@ mod tests {
 }
 
 pub(crate) const PRESENTATION_KEYS: &[&str] = &[
+    "notifications.loginSummary.enabled",
+    "notifications.loginSummary.inbox",
+    "notifications.loginSummary.spam",
+    "notifications.loginSummary.unreadOnly",
+    "notifications.loginSummary.linkedAccounts",
+    "notifications.loginSummary.quietHours",
+    "notifications.loginSummary.showEmpty",
+    "notifications.loginSummary.durationSeconds",
+    "notifications.loginSummary.minimumAwayMinutes",
+    "notifications.loginSummary.lookbackDays",
+
     "notifications.incoming.onlyMatchingRules",
     "notifications.incoming.toast",
     "notifications.incoming.native",

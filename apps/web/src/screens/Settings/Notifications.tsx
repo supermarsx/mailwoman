@@ -27,7 +27,7 @@ import * as css from './styles.css.ts';
 
 /** Search-index entries (static; the rows render once the configuration loads). */
 export const NOTIFICATION_CARDS: readonly CardSpec[] = [
-  ...(['incoming','events','toasts'] as const).map(group=>({id:`notif-card-${group}`,section:'notifications',title:`settings-alert-${group==='incoming'?'channels':group}-title`,rows:ALERT_CONTROLS.filter(row=>row[0].startsWith(`notifications.${group}.`)).map(row=>({id:`alert-${alertSlug(row[0])}`,label:`settings-alert-${alertSlug(row[0])}`}))})),
+  ...(['incoming','events','toasts','loginSummary'] as const).map(group=>({id:`notif-card-${group}`,section:'notifications',title:`settings-alert-${group==='incoming'?'channels':group}-title`,rows:ALERT_CONTROLS.filter(row=>row[0].startsWith(`notifications.${group}.`)).map(row=>({id:`alert-${alertSlug(row[0])}`,label:`settings-alert-${alertSlug(row[0])}`}))})),
   { id: 'notif-card-general', section: 'notifications', title: 'settings-notif-title', help: 'settings-notif-intro', rows: [{ id: 'notif-enabled', label: 'settings-notif-enabled-label' }, { id: 'notif-view-enabled', label: 'settings-notif-view-enabled' }, { id: 'notif-view-sidebar', label: 'settings-notif-view-sidebar' }] },
   { id: 'notif-card-device', section: 'notifications', title: 'settings-notif-device-title', help: 'settings-notif-device-help', rows: [{ id: 'notif-ask-permission', label: 'settings-notif-ask-permission', help: 'settings-notif-ask-permission-help' }] },
   { id: 'notif-card-quiet', section: 'notifications', title: 'settings-notif-quiet-title', rows: [{ id: 'notif-quiet-enabled', label: 'settings-notif-quiet-enabled-label' }, { id: 'notif-quiet-start', label: 'settings-notif-quiet-start' }, { id: 'notif-quiet-end', label: 'settings-notif-quiet-end' }, { id: 'notif-quiet-timezone', label: 'settings-notif-timezone' }] },
@@ -130,7 +130,7 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
     <div class={container} data-testid="notifications-settings">
       <Show when={!rulesPage()} fallback={<NotificationRules rules={view().rules} save={saveRules} back={()=>void navigation.navigate({section:'notifications',card:'notif-card-rules'})}/>}>
       <SettingsSubtabs section="notifications" label="settings-notif-title" {...(navigation.shared?{navigation:navigation.shared}:{})} tabs={[
-        {id:'mail',label:'settings-alert-tab-mail',cards:['notif-card-general','notif-card-device','notif-card-incoming','notif-card-folders'],content:<>
+        {id:'mail',label:'settings-alert-tab-mail',cards:['notif-card-general','notif-card-device','notif-card-incoming','notif-card-folders','notif-card-loginSummary'],content:<>
       <SettingsCard id="notif-card-general" title={t('settings-notif-title')} description={t('settings-notif-intro')}>
         <For each={[
           {id:'notif-view-enabled',label:'settings-notif-view-enabled',handle:viewEnabled},
@@ -170,7 +170,7 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
         </fieldset>
       </SettingsCard>
 
-<NotificationControls group="incoming"/></>},
+<NotificationControls group="incoming"/><NotificationControls group="loginSummary"/></>},
         {id:'events',label:'settings-alert-tab-events',cards:['notif-card-events','notif-card-toasts'],content:<><NotificationControls group="events"/><NotificationControls group="toasts"/></>},
         {id:'browser',label:'settings-alert-tab-browser',cards:['notif-card-storage','notif-card-background','notif-card-storage-offer'],content:<>
       <SettingsCard id="notif-card-storage-offer" title={t('settings-permissions-storage-title')}><StorageRequestControl/></SettingsCard>

@@ -2842,6 +2842,26 @@ admin-settings-key-performance-prepared-mail = Caché de metadatos de correo pre
 admin-settings-help-performance-prepared-mail = Solo metadatos; cada respuesta necesita comprobaciones actuales de origen y autorización.
 admin-cache-prepared-invalid = Introduzca todos los campos dentro de los límites mostrados, sin campos adicionales.
 
-# Interface scaling
+# Sign-in mail summary and interface scaling
+admin-settings-key-notifications-login-summary-enabled = Resumen de correo al iniciar sesión
+admin-settings-help-notifications-login-summary-enabled = Muestra mensajes nuevos desde la última consulta correcta. La primera crea una referencia sin avisar.
+admin-settings-key-notifications-login-summary-inbox = Incluir Bandeja de entrada
+admin-settings-help-notifications-login-summary-inbox = Cuenta mensajes recibidos en la Bandeja de entrada desde la consulta anterior.
+admin-settings-key-notifications-login-summary-spam = Incluir Spam
+admin-settings-help-notifications-login-summary-spam = Incluye un recuento de Spam independiente de las alertas en tiempo real.
+admin-settings-key-notifications-login-summary-unread-only = Contar solo mensajes no leídos
+admin-settings-help-notifications-login-summary-unread-only = Excluye los mensajes ya leídos.
+admin-settings-key-notifications-login-summary-linked-accounts = Incluir buzones vinculados
+admin-settings-help-notifications-login-summary-linked-accounts = Consulta también buzones vinculados con sus propias preferencias y políticas.
+admin-settings-key-notifications-login-summary-quiet-hours = Respetar horas de silencio
+admin-settings-help-notifications-login-summary-quiet-hours = Oculta el resumen durante las horas de silencio; la consulta se registra.
+admin-settings-key-notifications-login-summary-show-empty = Mostrar resumen vacío
+admin-settings-help-notifications-login-summary-show-empty = Muestra el resumen aunque no haya mensajes nuevos.
+admin-settings-key-notifications-login-summary-duration-seconds = Duración del resumen (segundos)
+admin-settings-help-notifications-login-summary-duration-seconds = Segundos visibles; el cursor o el foco pausan el cierre.
+admin-settings-key-notifications-login-summary-minimum-away-minutes = Ausencia mínima (minutos)
+admin-settings-help-notifications-login-summary-minimum-away-minutes = Omite el resumen tras recargas breves. Cero permite cada regreso.
+admin-settings-key-notifications-login-summary-lookback-days = Período máximo (días)
+admin-settings-help-notifications-login-summary-lookback-days = Máximo de días que se cuentan tras una ausencia larga.
 admin-settings-key-appearance-ui-scale = Escala de la interfaz (%)
 admin-settings-help-appearance-ui-scale = Cambia el tamaño de controles, texto y espacios de toda la interfaz (50–200%). El zoom de los mensajes es independiente.

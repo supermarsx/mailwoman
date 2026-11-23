@@ -2854,6 +2854,26 @@ admin-settings-key-performance-prepared-mail = Кеш підготовлених
 admin-settings-help-performance-prepared-mail = Лише метадані; кожна відповідь потребує актуальної перевірки джерела та прав.
 admin-cache-prepared-invalid = Заповніть усі поля в наведених межах без додаткових полів.
 
-# Interface scaling
+# Sign-in mail summary and interface scaling
+admin-settings-key-notifications-login-summary-enabled = Зведення пошти під час входу
+admin-settings-help-notifications-login-summary-enabled = Показує нові повідомлення з останньої успішної перевірки. Перша перевірка зберігає початкову точку без сповіщення.
+admin-settings-key-notifications-login-summary-inbox = Враховувати Вхідні
+admin-settings-help-notifications-login-summary-inbox = Рахує повідомлення у Вхідних, отримані після попередньої перевірки.
+admin-settings-key-notifications-login-summary-spam = Враховувати Спам
+admin-settings-help-notifications-login-summary-spam = Окремий лічильник Спаму не залежить від сповіщень наживо.
+admin-settings-key-notifications-login-summary-unread-only = Лише непрочитані повідомлення
+admin-settings-help-notifications-login-summary-unread-only = Виключає вже прочитані повідомлення.
+admin-settings-key-notifications-login-summary-linked-accounts = Враховувати пов’язані скриньки
+admin-settings-help-notifications-login-summary-linked-accounts = Перевіряє пов’язані скриньки з урахуванням їхніх налаштувань і політик.
+admin-settings-key-notifications-login-summary-quiet-hours = Дотримуватися тихих годин
+admin-settings-help-notifications-login-summary-quiet-hours = Приховує зведення в тихі години; перевірка зберігається.
+admin-settings-key-notifications-login-summary-show-empty = Показувати порожнє зведення
+admin-settings-help-notifications-login-summary-show-empty = Показує зведення навіть без нових повідомлень.
+admin-settings-key-notifications-login-summary-duration-seconds = Тривалість показу (секунди)
+admin-settings-help-notifications-login-summary-duration-seconds = Секунди показу; наведення чи фокус призупиняє закриття.
+admin-settings-key-notifications-login-summary-minimum-away-minutes = Мінімальна відсутність (хвилини)
+admin-settings-help-notifications-login-summary-minimum-away-minutes = Пропускає короткі перезавантаження. Нуль дозволяє кожне повернення.
+admin-settings-key-notifications-login-summary-lookback-days = Максимальний період (дні)
+admin-settings-help-notifications-login-summary-lookback-days = Максимальна кількість днів після довгої відсутності.
 admin-settings-key-appearance-ui-scale = Масштаб інтерфейсу (%)
 admin-settings-help-appearance-ui-scale = Змінює розмір елементів керування, тексту й відступів (50–200%). Масштаб повідомлень задається окремо.

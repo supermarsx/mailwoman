@@ -1,3 +1,4 @@
+import {startLoginMailSummary} from './realtime/loginMailSummary.ts';
 import {folderAlertAllowed,alertValue} from './api/notificationControls.ts';
 import {newMailAttention,clearNotificationAttention} from './realtime/notificationAttention.ts';
 import {StoragePersistencePrompt} from './components/StoragePersistencePrompt.tsx';
@@ -236,6 +237,7 @@ export function App(): JSX.Element {
 
   const [notificationAccount, setNotificationAccount] = createSignal<PreferenceAccount | null>(null);
   createEffect(()=>{if(notificationAccount()&&inMail())void new SettingsService().notifications().catch(()=>undefined);});
+  createEffect(()=>{const owner=notificationAccount();if(owner&&inMail()){const stop=startLoginMailSummary(owner);onCleanup(stop);}});
   const notificationTargets=new Map<string,{owner:PreferenceAccount;messageId:string;target?:WorkspaceMailbox}>();
   let notificationActionsOff:(()=>void)|undefined,disposed=false,genericPushUntil=0;
   function clearIncomingAlerts():void{incomingDelivery.clear();clearNotificationAttention();for(const id of notificationTargets.keys())toast.dismiss(id);notificationTargets.clear();}

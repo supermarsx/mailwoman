@@ -1033,3 +1033,26 @@ settings-signature-position = Położenie podpisu
 settings-signature-position-help = Domyślnie umieszcza podpis po Twoim tekście, przed cytowanymi wiadomościami. W nowych wiadomościach podpis jest na końcu.
 settings-signature-position-own = Po moim tekście, przed cytowanymi wiadomościami
 settings-signature-position-end = Koniec całej wiadomości
+
+# Sign-in mail summary
+settings-alert-loginSummary-title = Poczta od ostatniego sprawdzenia
+settings-alert-notifications-login-summary-enabled = Podsumowanie poczty po zalogowaniu
+settings-alert-help-notifications-login-summary-enabled = Pokazuje nowe wiadomości od ostatniego udanego sprawdzenia. Pierwsze ustala punkt odniesienia bez alertu.
+settings-alert-notifications-login-summary-inbox = Uwzględnij Odebrane
+settings-alert-help-notifications-login-summary-inbox = Liczy wiadomości otrzymane w Odebranych od poprzedniego sprawdzenia.
+settings-alert-notifications-login-summary-spam = Uwzględnij Spam
+settings-alert-help-notifications-login-summary-spam = Uwzględnia oddzielny licznik Spamu niezależnie od alertów na żywo.
+settings-alert-notifications-login-summary-unread-only = Licz tylko nieprzeczytane wiadomości
+settings-alert-help-notifications-login-summary-unread-only = Pomija przeczytane wiadomości.
+settings-alert-notifications-login-summary-linked-accounts = Uwzględnij połączone skrzynki
+settings-alert-help-notifications-login-summary-linked-accounts = Sprawdza też połączone skrzynki zgodnie z ich ustawieniami i zasadami.
+settings-alert-notifications-login-summary-quiet-hours = Przestrzegaj godzin ciszy
+settings-alert-help-notifications-login-summary-quiet-hours = Ukrywa podsumowanie w godzinach ciszy; sprawdzenie jest zapisywane.
+settings-alert-notifications-login-summary-show-empty = Pokaż puste podsumowanie
+settings-alert-help-notifications-login-summary-show-empty = Pokazuje podsumowanie także bez nowych wiadomości.
+settings-alert-notifications-login-summary-duration-seconds = Czas wyświetlania (sekundy)
+settings-alert-help-notifications-login-summary-duration-seconds = Sekundy wyświetlania; kursor lub fokus wstrzymuje zamknięcie.
+settings-alert-notifications-login-summary-minimum-away-minutes = Minimalna nieobecność (minuty)
+settings-alert-help-notifications-login-summary-minimum-away-minutes = Pomija krótkie przeładowania. Zero zezwala na każdy powrót.
+settings-alert-notifications-login-summary-lookback-days = Maksymalny okres (dni)
+settings-alert-help-notifications-login-summary-lookback-days = Maksymalna liczba dni po długiej nieobecności.

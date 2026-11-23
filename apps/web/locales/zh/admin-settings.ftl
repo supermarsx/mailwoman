@@ -2828,6 +2828,26 @@ admin-settings-key-performance-prepared-mail = 已准备邮件元数据缓存
 admin-settings-help-performance-prepared-mail = 仅缓存元数据；每个响应仍需最新的数据源和授权检查。
 admin-cache-prepared-invalid = 请在显示的范围内填写全部字段，不得添加其他字段。
 
-# Interface scaling
+# Sign-in mail summary and interface scaling
+admin-settings-key-notifications-login-summary-enabled = 登录时显示邮件摘要
+admin-settings-help-notifications-login-summary-enabled = 显示上次成功检查以来的新邮件。首次检查仅记录基准，不显示提醒。
+admin-settings-key-notifications-login-summary-inbox = 包括收件箱
+admin-settings-help-notifications-login-summary-inbox = 统计上次检查后收到的收件箱邮件。
+admin-settings-key-notifications-login-summary-spam = 包括垃圾邮件
+admin-settings-help-notifications-login-summary-spam = 单独统计垃圾邮件，不受实时垃圾邮件提醒设置影响。
+admin-settings-key-notifications-login-summary-unread-only = 仅统计未读邮件
+admin-settings-help-notifications-login-summary-unread-only = 不统计已读邮件。
+admin-settings-key-notifications-login-summary-linked-accounts = 包括关联邮箱
+admin-settings-help-notifications-login-summary-linked-accounts = 按照各邮箱的偏好和策略检查关联邮箱。
+admin-settings-key-notifications-login-summary-quiet-hours = 遵循免打扰时段
+admin-settings-help-notifications-login-summary-quiet-hours = 免打扰时段不显示摘要，但仍记录检查时间。
+admin-settings-key-notifications-login-summary-show-empty = 显示空摘要
+admin-settings-help-notifications-login-summary-show-empty = 没有新邮件时也显示摘要。
+admin-settings-key-notifications-login-summary-duration-seconds = 摘要显示时长 (秒)
+admin-settings-help-notifications-login-summary-duration-seconds = 显示秒数；悬停或聚焦时暂停关闭倒计时。
+admin-settings-key-notifications-login-summary-minimum-away-minutes = 最短离开时间 (分钟)
+admin-settings-help-notifications-login-summary-minimum-away-minutes = 短暂刷新后不显示摘要。设为零可在每次返回时显示。
+admin-settings-key-notifications-login-summary-lookback-days = 最长回溯时间 (天)
+admin-settings-help-notifications-login-summary-lookback-days = 长时间离开后统计的最多天数。
 admin-settings-key-appearance-ui-scale = 界面缩放比例 (%)
 admin-settings-help-appearance-ui-scale = 调整整个界面的控件、文字和间距（50–200%）。邮件缩放独立设置。

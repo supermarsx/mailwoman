@@ -1002,3 +1002,26 @@ settings-signature-position = 署名の位置
 settings-signature-position-help = 既定では自分の本文の後、引用メッセージの前に署名を配置します。新規メッセージでは末尾に配置します。
 settings-signature-position-own = 自分の本文の後、引用の前
 settings-signature-position-end = メッセージ全体の末尾
+
+# Sign-in mail summary
+settings-alert-loginSummary-title = 前回の確認以降のメール
+settings-alert-notifications-login-summary-enabled = ログイン時のメール概要
+settings-alert-help-notifications-login-summary-enabled = 前回の確認成功以降の新着を表示します。初回は通知せず基準のみ保存します。
+settings-alert-notifications-login-summary-inbox = 受信トレイを含める
+settings-alert-help-notifications-login-summary-inbox = 前回の確認以降に受信トレイに届いたメッセージを数えます。
+settings-alert-notifications-login-summary-spam = 迷惑メールを含める
+settings-alert-help-notifications-login-summary-spam = リアルタイム通知とは別に迷惑メールの件数を表示します。
+settings-alert-notifications-login-summary-unread-only = 未読メッセージのみ数える
+settings-alert-help-notifications-login-summary-unread-only = 既読メッセージを除外します。
+settings-alert-notifications-login-summary-linked-accounts = リンク済みメールボックスを含める
+settings-alert-help-notifications-login-summary-linked-accounts = 各メールボックスの設定とポリシーでリンク済みアカウントも確認します。
+settings-alert-notifications-login-summary-quiet-hours = 通知休止時間を尊重
+settings-alert-help-notifications-login-summary-quiet-hours = 通知休止時間中は概要を表示しません。確認時刻は保存します。
+settings-alert-notifications-login-summary-show-empty = 新着がなくても表示
+settings-alert-help-notifications-login-summary-show-empty = 新着がない場合も概要を表示します。
+settings-alert-notifications-login-summary-duration-seconds = 表示時間 (秒)
+settings-alert-help-notifications-login-summary-duration-seconds = 表示秒数。ポインターを重ねるかフォーカスすると閉じるまでの時間を一時停止します。
+settings-alert-notifications-login-summary-minimum-away-minutes = 最短不在時間 (分)
+settings-alert-help-notifications-login-summary-minimum-away-minutes = 短い再読み込みでは表示しません。0で毎回表示可能になります。
+settings-alert-notifications-login-summary-lookback-days = 最大集計期間 (日)
+settings-alert-help-notifications-login-summary-lookback-days = 長期間不在だった場合に集計する最大日数です。

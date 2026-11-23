@@ -1021,3 +1021,26 @@ settings-signature-position = 签名位置
 settings-signature-position-help = 默认将签名放在您的正文之后、引用邮件之前。新邮件的签名始终位于末尾。
 settings-signature-position-own = 我的正文之后，引用邮件之前
 settings-signature-position-end = 整封邮件末尾
+
+# Sign-in mail summary
+settings-alert-loginSummary-title = 自上次检查以来的邮件
+settings-alert-notifications-login-summary-enabled = 登录时显示邮件摘要
+settings-alert-help-notifications-login-summary-enabled = 显示上次成功检查以来的新邮件。首次检查仅记录基准，不显示提醒。
+settings-alert-notifications-login-summary-inbox = 包括收件箱
+settings-alert-help-notifications-login-summary-inbox = 统计上次检查后收到的收件箱邮件。
+settings-alert-notifications-login-summary-spam = 包括垃圾邮件
+settings-alert-help-notifications-login-summary-spam = 单独统计垃圾邮件，不受实时垃圾邮件提醒设置影响。
+settings-alert-notifications-login-summary-unread-only = 仅统计未读邮件
+settings-alert-help-notifications-login-summary-unread-only = 不统计已读邮件。
+settings-alert-notifications-login-summary-linked-accounts = 包括关联邮箱
+settings-alert-help-notifications-login-summary-linked-accounts = 按照各邮箱的偏好和策略检查关联邮箱。
+settings-alert-notifications-login-summary-quiet-hours = 遵循免打扰时段
+settings-alert-help-notifications-login-summary-quiet-hours = 免打扰时段不显示摘要，但仍记录检查时间。
+settings-alert-notifications-login-summary-show-empty = 显示空摘要
+settings-alert-help-notifications-login-summary-show-empty = 没有新邮件时也显示摘要。
+settings-alert-notifications-login-summary-duration-seconds = 摘要显示时长 (秒)
+settings-alert-help-notifications-login-summary-duration-seconds = 显示秒数；悬停或聚焦时暂停关闭倒计时。
+settings-alert-notifications-login-summary-minimum-away-minutes = 最短离开时间 (分钟)
+settings-alert-help-notifications-login-summary-minimum-away-minutes = 短暂刷新后不显示摘要。设为零可在每次返回时显示。
+settings-alert-notifications-login-summary-lookback-days = 最长回溯时间 (天)
+settings-alert-help-notifications-login-summary-lookback-days = 长时间离开后统计的最多天数。

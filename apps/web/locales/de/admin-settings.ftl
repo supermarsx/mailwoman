@@ -2842,6 +2842,26 @@ admin-settings-key-performance-prepared-mail = Cache für vorbereitete E-Mail-Me
 admin-settings-help-performance-prepared-mail = Nur Metadaten; jede Antwort benötigt aktuelle Quellen- und Berechtigungsprüfungen.
 admin-cache-prepared-invalid = Alle Felder innerhalb der angezeigten Grenzen und keine zusätzlichen Felder eingeben.
 
-# Interface scaling
+# Sign-in mail summary and interface scaling
+admin-settings-key-notifications-login-summary-enabled = Postübersicht bei der Anmeldung
+admin-settings-help-notifications-login-summary-enabled = Zeigt neue Nachrichten seit der letzten erfolgreichen Prüfung. Die erste Prüfung setzt still den Ausgangspunkt.
+admin-settings-key-notifications-login-summary-inbox = Posteingang einbeziehen
+admin-settings-help-notifications-login-summary-inbox = Zählt seit der vorherigen Prüfung im Posteingang eingegangene Nachrichten.
+admin-settings-key-notifications-login-summary-spam = Spam einbeziehen
+admin-settings-help-notifications-login-summary-spam = Zeigt einen separaten Spamzähler unabhängig von Live-Spamhinweisen.
+admin-settings-key-notifications-login-summary-unread-only = Nur ungelesene Nachrichten zählen
+admin-settings-help-notifications-login-summary-unread-only = Schließt bereits gelesene Nachrichten aus.
+admin-settings-key-notifications-login-summary-linked-accounts = Verknüpfte Postfächer einbeziehen
+admin-settings-help-notifications-login-summary-linked-accounts = Prüft auch verknüpfte Postfächer mit deren eigenen Einstellungen und Richtlinien.
+admin-settings-key-notifications-login-summary-quiet-hours = Ruhezeiten beachten
+admin-settings-help-notifications-login-summary-quiet-hours = Unterdrückt die Übersicht während der Ruhezeiten; die Prüfung wird gespeichert.
+admin-settings-key-notifications-login-summary-show-empty = Leere Übersicht anzeigen
+admin-settings-help-notifications-login-summary-show-empty = Zeigt die Übersicht auch ohne neue Nachrichten.
+admin-settings-key-notifications-login-summary-duration-seconds = Anzeigedauer (Sekunden)
+admin-settings-help-notifications-login-summary-duration-seconds = Anzeigedauer in Sekunden; Mauszeiger oder Fokus pausiert das Schließen.
+admin-settings-key-notifications-login-summary-minimum-away-minutes = Mindestabwesenheit (Minuten)
+admin-settings-help-notifications-login-summary-minimum-away-minutes = Überspringt kurze Neuladungen. Null erlaubt jede Rückkehr.
+admin-settings-key-notifications-login-summary-lookback-days = Maximaler Rückblick (Tage)
+admin-settings-help-notifications-login-summary-lookback-days = Maximale Anzahl berücksichtigter Tage nach langer Abwesenheit.
 admin-settings-key-appearance-ui-scale = Oberflächenskalierung (%)
 admin-settings-help-appearance-ui-scale = Skaliert alle Bedienelemente, Texte und Abstände (50–200 %). Der Nachrichtenzoom bleibt unabhängig.

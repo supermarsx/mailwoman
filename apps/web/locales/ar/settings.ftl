@@ -1034,3 +1034,26 @@ settings-signature-position = موضع التوقيع
 settings-signature-position-help = يوضع التوقيع افتراضيًا بعد نصك وقبل الرسائل المقتبسة. في الرسائل الجديدة، يوضع في النهاية.
 settings-signature-position-own = بعد نصي وقبل الرسائل المقتبسة
 settings-signature-position-end = نهاية الرسالة كاملة
+
+# Sign-in mail summary
+settings-alert-loginSummary-title = البريد منذ آخر تحقق
+settings-alert-notifications-login-summary-enabled = ملخص البريد عند تسجيل الدخول
+settings-alert-help-notifications-login-summary-enabled = يعرض الرسائل الجديدة منذ آخر تحقق ناجح. ينشئ التحقق الأول نقطة بداية دون تنبيه.
+settings-alert-notifications-login-summary-inbox = تضمين الوارد
+settings-alert-help-notifications-login-summary-inbox = يعد الرسائل الواردة منذ التحقق السابق.
+settings-alert-notifications-login-summary-spam = تضمين البريد المزعج
+settings-alert-help-notifications-login-summary-spam = يتضمن عدادا منفصلا للبريد المزعج مستقلا عن التنبيهات الفورية.
+settings-alert-notifications-login-summary-unread-only = عد الرسائل غير المقروءة فقط
+settings-alert-help-notifications-login-summary-unread-only = يستبعد الرسائل المقروءة بالفعل.
+settings-alert-notifications-login-summary-linked-accounts = تضمين صناديق البريد المرتبطة
+settings-alert-help-notifications-login-summary-linked-accounts = يتحقق أيضا من الصناديق المرتبطة وفقا لتفضيلات وسياسات كل منها.
+settings-alert-notifications-login-summary-quiet-hours = احترام ساعات الهدوء
+settings-alert-help-notifications-login-summary-quiet-hours = يخفي الملخص خلال ساعات الهدوء مع تسجيل التحقق.
+settings-alert-notifications-login-summary-show-empty = إظهار ملخص فارغ
+settings-alert-help-notifications-login-summary-show-empty = يعرض الملخص حتى دون رسائل جديدة.
+settings-alert-notifications-login-summary-duration-seconds = مدة عرض الملخص (ثوانٍ)
+settings-alert-help-notifications-login-summary-duration-seconds = مدة العرض بالثواني؛ يوقف التحويم أو التركيز الإغلاق مؤقتا.
+settings-alert-notifications-login-summary-minimum-away-minutes = الحد الأدنى للغياب (دقائق)
+settings-alert-help-notifications-login-summary-minimum-away-minutes = يتجاوز عمليات إعادة التحميل السريعة. يسمح الصفر بكل عودة.
+settings-alert-notifications-login-summary-lookback-days = أقصى فترة مراجعة (أيام)
+settings-alert-help-notifications-login-summary-lookback-days = أقصى عدد أيام للمراجعة بعد غياب طويل.

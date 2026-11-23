@@ -2836,6 +2836,26 @@ admin-settings-key-performance-prepared-mail = Cache voor voorbereide e-mailmeta
 admin-settings-help-performance-prepared-mail = Alleen metadata; elk antwoord vereist actuele bron- en autorisatiecontroles.
 admin-cache-prepared-invalid = Vul alle velden binnen de getoonde grenzen in, zonder extra velden.
 
-# Interface scaling
+# Sign-in mail summary and interface scaling
+admin-settings-key-notifications-login-summary-enabled = E-mailoverzicht bij aanmelden
+admin-settings-help-notifications-login-summary-enabled = Toont nieuwe berichten sinds de laatste geslaagde controle. De eerste controle stelt stil een beginpunt in.
+admin-settings-key-notifications-login-summary-inbox = Postvak IN opnemen
+admin-settings-help-notifications-login-summary-inbox = Telt ontvangen berichten in Postvak IN sinds de vorige controle.
+admin-settings-key-notifications-login-summary-spam = Spam opnemen
+admin-settings-help-notifications-login-summary-spam = Toont een afzonderlijke spamtelling, los van livemeldingen.
+admin-settings-key-notifications-login-summary-unread-only = Alleen ongelezen berichten tellen
+admin-settings-help-notifications-login-summary-unread-only = Sluit reeds gelezen berichten uit.
+admin-settings-key-notifications-login-summary-linked-accounts = Gekoppelde postvakken opnemen
+admin-settings-help-notifications-login-summary-linked-accounts = Controleert ook gekoppelde postvakken met hun eigen voorkeuren en beleid.
+admin-settings-key-notifications-login-summary-quiet-hours = Stille uren respecteren
+admin-settings-help-notifications-login-summary-quiet-hours = Verbergt het overzicht tijdens stille uren; de controle wordt opgeslagen.
+admin-settings-key-notifications-login-summary-show-empty = Leeg overzicht tonen
+admin-settings-help-notifications-login-summary-show-empty = Toont het overzicht ook zonder nieuwe berichten.
+admin-settings-key-notifications-login-summary-duration-seconds = Weergaveduur (seconden)
+admin-settings-help-notifications-login-summary-duration-seconds = Aantal seconden; aanwijzen of focus pauzeert het sluiten.
+admin-settings-key-notifications-login-summary-minimum-away-minutes = Minimale afwezigheid (minuten)
+admin-settings-help-notifications-login-summary-minimum-away-minutes = Slaat kort herladen over. Nul staat elke terugkeer toe.
+admin-settings-key-notifications-login-summary-lookback-days = Maximale terugblik (dagen)
+admin-settings-help-notifications-login-summary-lookback-days = Maximaal aantal dagen na een lange afwezigheid.
 admin-settings-key-appearance-ui-scale = Interfaceschaal (%)
 admin-settings-help-appearance-ui-scale = Schaalt alle bedieningselementen, tekst en ruimte (50–200%). Berichtzoom blijft onafhankelijk.

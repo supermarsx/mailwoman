@@ -1012,3 +1012,26 @@ settings-signature-position = Posición de la firma
 settings-signature-position-help = Por defecto, coloca la firma después de tu texto y antes de los mensajes citados. En mensajes nuevos, va al final.
 settings-signature-position-own = Después de mi texto, antes de los mensajes citados
 settings-signature-position-end = Final del mensaje completo
+
+# Sign-in mail summary
+settings-alert-loginSummary-title = Correo desde la última consulta
+settings-alert-notifications-login-summary-enabled = Resumen de correo al iniciar sesión
+settings-alert-help-notifications-login-summary-enabled = Muestra mensajes nuevos desde la última consulta correcta. La primera crea una referencia sin avisar.
+settings-alert-notifications-login-summary-inbox = Incluir Bandeja de entrada
+settings-alert-help-notifications-login-summary-inbox = Cuenta mensajes recibidos en la Bandeja de entrada desde la consulta anterior.
+settings-alert-notifications-login-summary-spam = Incluir Spam
+settings-alert-help-notifications-login-summary-spam = Incluye un recuento de Spam independiente de las alertas en tiempo real.
+settings-alert-notifications-login-summary-unread-only = Contar solo mensajes no leídos
+settings-alert-help-notifications-login-summary-unread-only = Excluye los mensajes ya leídos.
+settings-alert-notifications-login-summary-linked-accounts = Incluir buzones vinculados
+settings-alert-help-notifications-login-summary-linked-accounts = Consulta también buzones vinculados con sus propias preferencias y políticas.
+settings-alert-notifications-login-summary-quiet-hours = Respetar horas de silencio
+settings-alert-help-notifications-login-summary-quiet-hours = Oculta el resumen durante las horas de silencio; la consulta se registra.
+settings-alert-notifications-login-summary-show-empty = Mostrar resumen vacío
+settings-alert-help-notifications-login-summary-show-empty = Muestra el resumen aunque no haya mensajes nuevos.
+settings-alert-notifications-login-summary-duration-seconds = Duración del resumen (segundos)
+settings-alert-help-notifications-login-summary-duration-seconds = Segundos visibles; el cursor o el foco pausan el cierre.
+settings-alert-notifications-login-summary-minimum-away-minutes = Ausencia mínima (minutos)
+settings-alert-help-notifications-login-summary-minimum-away-minutes = Omite el resumen tras recargas breves. Cero permite cada regreso.
+settings-alert-notifications-login-summary-lookback-days = Período máximo (días)
+settings-alert-help-notifications-login-summary-lookback-days = Máximo de días que se cuentan tras una ausencia larga.

@@ -1100,3 +1100,26 @@ settings-signature-position = Signature position
 settings-signature-position-help = Place the signature after your text and before quoted messages by default. New messages always place it at the end.
 settings-signature-position-own = After my text, before quoted messages
 settings-signature-position-end = End of the entire message
+
+# Sign-in mail summary
+settings-alert-loginSummary-title = Mail since your last check
+settings-alert-notifications-login-summary-enabled = Sign-in mail summary
+settings-alert-help-notifications-login-summary-enabled = Show new Inbox and Spam counts since the last successful mail check. The first check establishes a baseline silently.
+settings-alert-notifications-login-summary-inbox = Include Inbox
+settings-alert-help-notifications-login-summary-inbox = Count messages received in the Inbox since the previous check.
+settings-alert-notifications-login-summary-spam = Include Spam
+settings-alert-help-notifications-login-summary-spam = Include a separate Spam count, independently of live spam alerts.
+settings-alert-notifications-login-summary-unread-only = Count unread messages only
+settings-alert-help-notifications-login-summary-unread-only = Exclude messages already marked as read from the summary.
+settings-alert-notifications-login-summary-linked-accounts = Include linked mailboxes
+settings-alert-help-notifications-login-summary-linked-accounts = Also check linked mailboxes. Each mailbox uses its own summary preferences and policy.
+settings-alert-notifications-login-summary-quiet-hours = Respect quiet hours
+settings-alert-help-notifications-login-summary-quiet-hours = Suppress this summary during configured quiet hours. The check is still recorded.
+settings-alert-notifications-login-summary-show-empty = Show an empty summary
+settings-alert-help-notifications-login-summary-show-empty = Show the summary even when no new messages were found.
+settings-alert-notifications-login-summary-duration-seconds = Summary duration (seconds)
+settings-alert-help-notifications-login-summary-duration-seconds = Seconds the summary stays visible; hover or focus pauses dismissal.
+settings-alert-notifications-login-summary-minimum-away-minutes = Minimum time away (minutes)
+settings-alert-help-notifications-login-summary-minimum-away-minutes = Skip the summary after brief reloads or account switches. Zero allows every successful return.
+settings-alert-notifications-login-summary-lookback-days = Maximum lookback (days)
+settings-alert-help-notifications-login-summary-lookback-days = Count at most this many days of received mail after a long absence.

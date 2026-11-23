@@ -13,10 +13,12 @@ async function saveControl<T>(handle:SettingHandle<T>,value:T):Promise<void>{if(
 
 function Control(props:{row:Control}):JSX.Element{
  const [key,fallback]=props.row,handle=useSetting<unknown>(key,fallback),id=`alert-${alertSlug(key)}`;
+ const ranges:Record<string,readonly [number,number]>={'notifications.loginSummary.minimumAwayMinutes':[0,1440],'notifications.loginSummary.lookbackDays':[1,365],'notifications.loginSummary.durationSeconds':[2,120],'notifications.incoming.durationSeconds':[2,120],'notifications.toasts.limit':[1,8]};
+ const [min,max]=ranges[key]??[1,60];
  const options=key.endsWith('.scope')?['received','inbox','selected']:['none','toast','native','both'];
  return <SettingRow controlId={id} label={t(`settings-alert-${alertSlug(key)}`)} help={t(`settings-alert-help-${alertSlug(key)}`)} handle={{...handle,error:()=>''}}>{description=>
   <Show when={typeof fallback!=='boolean'} fallback={<input id={id} type="checkbox" checked={handle.value()===true} disabled={!handle.entry()||handle.locked()||handle.saving()} aria-describedby={description()} onChange={e=>void saveControl(handle,e.currentTarget.checked)}/>}>
-   <Show when={typeof fallback==='string'} fallback={<input id={id} type="number" min={key.startsWith('notifications.incoming')&&key.includes('durationSeconds')?2:1} max={key.endsWith('.limit')?8:key.startsWith('notifications.incoming')?120:60} class={css.input} value={Number(handle.value())} disabled={!handle.entry()||handle.locked()||handle.saving()} aria-describedby={description()} onChange={e=>void saveControl(handle,Number(e.currentTarget.value))}/>}>
+   <Show when={typeof fallback==='string'} fallback={<input id={id} type="number" min={min} max={max} class={css.input} value={Number(handle.value())} disabled={!handle.entry()||handle.locked()||handle.saving()} aria-describedby={description()} onChange={e=>void saveControl(handle,Number(e.currentTarget.value))}/>}>
     <select id={id} class={css.select} value={String(handle.value())} disabled={!handle.entry()||handle.locked()||handle.saving()} aria-describedby={description()} onChange={e=>void saveControl(handle,e.currentTarget.value)}><For each={options}>{option=><option value={option}>{t(`settings-alert-${key.endsWith('.scope')?'scope':'mode'}-${option}`)}</option>}</For></select>
    </Show>
   </Show>
@@ -28,7 +30,7 @@ function FolderChoices(props:{muted?:boolean}):JSX.Element{
   <fieldset id={`alert-${alertSlug(key)}`} class={`${css.bareFieldset} ${css.stack}`} disabled={!handle.entry()||handle.locked()||handle.saving()}><For each={(app?.mailboxes()??[]).filter(box=>!['sent','drafts','trash'].includes(box.role??''))}>{box=><label class={css.actions}><input type="checkbox" checked={handle.value().includes(box.id)} onChange={e=>void saveControl(handle,e.currentTarget.checked?[...handle.value(),box.id]:handle.value().filter(id=>id!==box.id))}/>{box.name}</label>}</For></fieldset>
  }</SettingRow>;
 }
-export function NotificationControls(props:{group?:'incoming'|'events'|'toasts'}):JSX.Element{
+export function NotificationControls(props:{group?:'incoming'|'events'|'toasts'|'loginSummary'}):JSX.Element{
  return <>
   <For each={props.group?[props.group]:['incoming','events','toasts'] as const}>{group=><SettingsCard id={`notif-card-${group}`} title={t(`settings-alert-${group==='incoming'?'channels':group}-title`)}><For each={ALERT_CONTROLS.filter(row=>row[0].startsWith(`notifications.${group}.`))}>{row=><Control row={row}/>}</For></SettingsCard>}</For>
   <Show when={!props.group||props.group==='incoming'}><SettingsCard id="notif-card-folders" title={t('settings-alert-folders-title')} description={t('settings-alert-folder-help')}><FolderChoices/><FolderChoices muted/><p class={css.meta}>{t('settings-alert-background-scope')}</p></SettingsCard></Show>

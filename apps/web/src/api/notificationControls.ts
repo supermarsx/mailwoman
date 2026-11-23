@@ -1,5 +1,16 @@
 import {settings,type SettingsMap} from './settings.ts';
 export const ALERT_CONTROLS = [
+ ["notifications.loginSummary.enabled", true, "Sign-in mail summary", "Show new Inbox and Spam counts since the last successful mail check. The first check establishes a baseline silently."],
+ ["notifications.loginSummary.inbox", true, "Include Inbox", "Count messages received in the Inbox since the previous check."],
+ ["notifications.loginSummary.spam", true, "Include Spam", "Include a separate Spam count, independently of live spam alerts."],
+ ["notifications.loginSummary.unreadOnly", false, "Count unread messages only", "Exclude messages already marked as read from the summary."],
+ ["notifications.loginSummary.linkedAccounts", true, "Include linked mailboxes", "Also check linked mailboxes. Each mailbox uses its own summary preferences and policy."],
+ ["notifications.loginSummary.quietHours", true, "Respect quiet hours", "Suppress this summary during configured quiet hours. The check is still recorded."],
+ ["notifications.loginSummary.showEmpty", false, "Show an empty summary", "Show the summary even when no new messages were found."],
+ ["notifications.loginSummary.durationSeconds", 15, "Summary duration", "Seconds the summary stays visible; hover or focus pauses dismissal."],
+ ["notifications.loginSummary.minimumAwayMinutes", 1, "Minimum time away", "Skip the summary after brief reloads or account switches. Zero allows every successful return."],
+ ["notifications.loginSummary.lookbackDays", 60, "Maximum lookback", "Count at most this many days of received mail after a long absence."],
+
  ['notifications.incoming.toast',true,'New-mail toast','Show an in-app alert when matching mail arrives.'],
  ['notifications.incoming.native',true,'Native new-mail notification','Use browser or operating-system notifications. Browser permission is required.'],
  ['notifications.incoming.tab',false,'Flash the browser tab','Alternate the tab title until focused or the alert timeout expires. Reduced motion uses a steady indicator.'],

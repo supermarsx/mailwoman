@@ -1031,3 +1031,26 @@ settings-signature-position = Positie van handtekening
 settings-signature-position-help = Plaatst de handtekening standaard na je tekst en vóór geciteerde berichten. Bij nieuwe berichten staat deze aan het einde.
 settings-signature-position-own = Na mijn tekst, vóór geciteerde berichten
 settings-signature-position-end = Einde van het volledige bericht
+
+# Sign-in mail summary
+settings-alert-loginSummary-title = E-mail sinds de laatste controle
+settings-alert-notifications-login-summary-enabled = E-mailoverzicht bij aanmelden
+settings-alert-help-notifications-login-summary-enabled = Toont nieuwe berichten sinds de laatste geslaagde controle. De eerste controle stelt stil een beginpunt in.
+settings-alert-notifications-login-summary-inbox = Postvak IN opnemen
+settings-alert-help-notifications-login-summary-inbox = Telt ontvangen berichten in Postvak IN sinds de vorige controle.
+settings-alert-notifications-login-summary-spam = Spam opnemen
+settings-alert-help-notifications-login-summary-spam = Toont een afzonderlijke spamtelling, los van livemeldingen.
+settings-alert-notifications-login-summary-unread-only = Alleen ongelezen berichten tellen
+settings-alert-help-notifications-login-summary-unread-only = Sluit reeds gelezen berichten uit.
+settings-alert-notifications-login-summary-linked-accounts = Gekoppelde postvakken opnemen
+settings-alert-help-notifications-login-summary-linked-accounts = Controleert ook gekoppelde postvakken met hun eigen voorkeuren en beleid.
+settings-alert-notifications-login-summary-quiet-hours = Stille uren respecteren
+settings-alert-help-notifications-login-summary-quiet-hours = Verbergt het overzicht tijdens stille uren; de controle wordt opgeslagen.
+settings-alert-notifications-login-summary-show-empty = Leeg overzicht tonen
+settings-alert-help-notifications-login-summary-show-empty = Toont het overzicht ook zonder nieuwe berichten.
+settings-alert-notifications-login-summary-duration-seconds = Weergaveduur (seconden)
+settings-alert-help-notifications-login-summary-duration-seconds = Aantal seconden; aanwijzen of focus pauzeert het sluiten.
+settings-alert-notifications-login-summary-minimum-away-minutes = Minimale afwezigheid (minuten)
+settings-alert-help-notifications-login-summary-minimum-away-minutes = Slaat kort herladen over. Nul staat elke terugkeer toe.
+settings-alert-notifications-login-summary-lookback-days = Maximale terugblik (dagen)
+settings-alert-help-notifications-login-summary-lookback-days = Maximaal aantal dagen na een lange afwezigheid.
