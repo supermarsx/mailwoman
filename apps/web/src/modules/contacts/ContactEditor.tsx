@@ -54,8 +54,9 @@ export function ContactEditor(props: {
       name: { ...draft.name, full },
       organizations: draft.organizations.filter((o) => o.trim().length > 0),
       titles: draft.titles.filter((t) => t.trim().length > 0),
-      emails: draft.emails.filter((em) => em.value.trim().length > 0),
-      phones: draft.phones.filter((p) => p.value.trim().length > 0),
+      // Plain copies: the draft is a Solid store, and its proxies cannot cross postMessage to the network worker.
+      emails: draft.emails.filter((em) => em.value.trim().length > 0).map((em) => ({ ...em })),
+      phones: draft.phones.filter((p) => p.value.trim().length > 0).map((p) => ({ ...p })),
       notes: draft.notes,
       pgpKey: draft.pgpKey.trim().length > 0 ? draft.pgpKey.trim() : null,
       isFavorite: draft.isFavorite,
