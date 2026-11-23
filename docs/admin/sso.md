@@ -1,130 +1,205 @@
-# Admin console: Single sign-on
+---
+screen: true
+---
+# Single sign-on
 
-The **Single sign-on** page (`#/sso`) lists the OpenID Connect and SAML 2.0 sign-in providers. Each
-enabled provider is a "Sign in with …" button on the mail sign-in page. The list shows the protocol,
-where the provider applies, whether it is on and, for SAML, whether its signing certificates are valid,
-expire within 30 days or have expired. Edit opens a dedicated page at `#/sso/<id>/edit`; **Add a login backend** opens
-an empty page at `#/sso/new`. The table is not displayed beside either editor. Save returns to the
-table; Back and Cancel ask before discarding unsaved changes. Turning a provider off and deleting
-it ask first.
+The **Single sign-on** page lists the OpenID Connect (OIDC) and SAML 2.0 providers people can use to sign in to their mailbox. Each enabled provider appears as a button on the mailbox sign-in page, either for everyone or only for addresses in one domain.
 
-Search by provider name, ID or scope. Protocol and enabled-state filters combine with the scope
-selector, so you can inspect, for example, disabled SAML providers for one domain. Clearing a
-filter restores those rows without changing any provider configuration.
+![The Single sign-on page with two OpenID Connect providers: Staff sign-in for the whole deployment, enabled, and Partner sign-in for example.org, disabled.](/screenshots/admin-access/sso-list.webp){.mw-shot}
 
-The server stores providers per scope (`GET /admin/sso?scope=deployment|domain:<d>`); the page asks for
-the deployment and for every domain the console lists.
+1. **Add a login backend** opens an empty editor.
+2. **Filter by scope** shows the providers of the whole deployment or of one domain. The search box and the **OIDC**, **SAML 2.0**, **Enabled** and **Disabled** buttons narrow the list further; they change only what is shown.
+{.mw-callouts}
+
+Each row has buttons to edit the provider, turn it off or on, and delete it. Turning a provider off and deleting it ask first; accounts made through a provider are kept in both cases.
+
+::: danger The editor does not store the protocol settings
+The editor on this page and the server use different names for the protocol fields (the editor sends `issuerUrl`, `clientId`, `idpSsoUrl` and so on; the server reads `issuer_url`, `client_id`, `idp_sso_url`). The server ignores the names it does not know, so:
+
+- a provider created or saved with the editor keeps its ID, display name, scope, enabled state, scopes, claim mapping and secret, but its issuer URL, client ID, redirect URL, first-login policy and all SAML fields are stored empty or at the server's defaults. A provider without an issuer URL (OIDC) or IdP SSO URL (SAML) cannot be used to sign in;
+- the editor shows those fields empty for every provider, including providers stored correctly by other means. Saving such a provider from the editor empties them.
+
+The descriptions below say what each field is for and what the server does with it once it is stored.
+:::
+
+## Before you start
+
+- Register Mailwoman at your provider first. For OIDC you need the issuer address, a client ID and a client secret; for SAML, the provider's metadata or its sign-in address and signing certificate.
+- Mailwoman's addresses for a provider contain its **Backend ID**: `/api/sso/<id>/callback` (OIDC), `/api/sso/<id>/acs` and `/api/sso/<id>/metadata` (SAML), under your server's public address.
+- Viewing the page needs a role with `sso.read`, changing it `sso.write`; both must cover the whole deployment.
+
+## Add a provider
+
+1. Click **Add a login backend**.
+2. Fill in the **Provider** group: backend ID, display name, protocol, scope, first-login policy and **Enabled**.
+3. Fill in the group for the protocol you chose: **OpenID Connect**, or **Identity provider (SAML)** and **This server (SAML)**.
+4. Check **Claim mapping**.
+5. Click **Add backend** (or **Save changes** when editing). The page returns to the list.
+
+![The editor of the Staff sign-in provider: backend ID, display name, protocol OIDC, scope, first-login policy and the OpenID Connect fields.](/screenshots/admin-access/sso-editor-oidc.webp){.mw-shot}
+
+The provider in this image is stored with an issuer URL and a client ID; the editor shows both fields empty because of the problem described above.
+
+**Back to sign-in providers** and **Cancel** ask before they discard unsaved changes.
+
+## Provider
 
 <a id="id"></a>
-## Backend ID
+### Backend ID
 
-Lower-case letters, digits and hyphens. It is part of this server's addresses for the provider
-(`/api/sso/<id>/callback`, `/api/sso/<id>/acs`, `/api/sso/<id>/metadata`), so it cannot change once the
-provider exists: delete it and add it again to use another id.
+Lower-case letters, digits and hyphens, starting with a letter or digit. It is part of Mailwoman's addresses for the provider, so it cannot change once the provider exists: delete the provider and add it again to use another ID.
 
 <a id="displayName"></a>
-## Display name
+### Display name
 
-The text of the sign-in button.
+The text of the button on the sign-in page.
 
 <a id="kind"></a>
-## Protocol
+### Protocol
 
-OpenID Connect or SAML 2.0. The form shows the fields of the chosen protocol.
+**OIDC** or **SAML 2.0**. The form shows the fields of the chosen protocol.
 
 <a id="scope"></a>
-## Scope and domain
+### Scope
 
-**Whole deployment** shows the button to everyone; **One domain** only for addresses in that domain.
+**Whole deployment** shows the button to everyone; **One domain** shows it only for addresses in the chosen domain.
 
 <a id="firstLoginPolicy"></a>
-## First-login policy
+### First-login policy
 
-**Allowlist** (the default) refuses a person whose account does not exist yet. **Auto-create** makes an
-account at the first sign-in.
+What happens when the provider confirms someone who has no account on this server yet:
+
+- **Allowlist (deny unknown users)**, the default: the sign-in is refused.
+- **Auto-create accounts on first login**: an account is made with the address from the provider. The server's rule for new users of the type "single sign-on" still applies; see [Pre-provisioned users and the first-sign-in rule](./preprovisioned-users.md).
 
 <a id="enabled"></a>
-## Enabled
+### Enabled
 
-Off keeps the settings and takes the button off the sign-in page.
+Off keeps the settings but takes the button off the sign-in page, and nobody can sign in with the provider until it is turned on again.
+
+## OpenID Connect
 
 <a id="issuerUrl"></a>
-## Issuer URL (OIDC)
+### Issuer URL
 
-The provider's issuer; the server reads the discovery document from it.
+The provider's issuer address. Mailwoman reads the provider's discovery document (`.well-known/openid-configuration`) and signing keys from it at each sign-in.
 
 <a id="clientId"></a>
-## Client ID and client secret (OIDC)
+### Client ID and client secret
 
-The client this server was registered as at the provider. The secret is write-only: it is stored sealed,
-never returned, and kept when the field is left empty.
+The client this server was registered as at the provider. The secret is stored encrypted and never shown again; leaving the field empty when editing keeps the stored secret.
 
 <a id="redirectUrl"></a>
-## Redirect URL (OIDC)
+### Redirect URL
 
-Left empty, the form uses this server's `/api/sso/<id>/callback`. Register the same address at the
-provider.
+Leave empty to use this server's `/api/sso/<id>/callback`. Register the same address at the provider.
 
 <a id="scopes"></a>
-## Scopes (OIDC)
+### Scopes
 
-The scopes asked for at sign-in, one per entry; `openid` is required. Default `openid email profile`.
+The scopes asked for at sign-in. `openid` is required. Default: `openid`, `email`, `profile`.
+
+Sign-in uses the authorization code flow with PKCE (S256) and a nonce. Mailwoman checks the ID token's signature against the provider's published keys, its issuer, audience, expiry and nonce, then also reads the provider's user information endpoint if it has one.
+
+## SAML 2.0
+
+![The SAML part of a new provider: provider metadata upload, IdP SSO and logout URLs, signing certificates, and this server's entity ID, ACS URL, NameID format and the signed and encrypted assertion switches.](/screenshots/admin-access/sso-saml.webp){.mw-crop}
 
 <a id="idpMetadata"></a>
-## Provider metadata (SAML)
+### Provider metadata
 
-Upload or paste the identity provider's metadata. The page shows the provider's entity id, its sign-in
-address for the HTTP-Redirect binding, its sign-out address and each signing certificate with its end
-date. **Use these values** fills the sign-in address, sign-out address and certificate list, and keeps the
-metadata text with the provider. The metadata address field is kept for reference only: the server does
-not fetch metadata from it.
+Upload or paste the provider's metadata. The page shows what it contains (entity ID, sign-in address for the HTTP-Redirect binding, sign-out address, signing certificates with their dates). **Use these values** copies the sign-in address, sign-out address and certificates into the form and keeps the metadata with the provider. The **IdP metadata URL** field is kept for reference only: the server does not fetch metadata from it.
 
 <a id="idpSsoUrl"></a>
-## IdP SSO URL (SAML)
+### IdP SSO URL
 
-Where people are sent to sign in (HTTP-Redirect binding).
+Where people are sent to sign in. Mailwoman sends its request with the HTTP-Redirect binding.
 
 <a id="idpSloUrl"></a>
-## IdP logout URL (SAML)
+### IdP logout (SLO) URL
 
-Where people are sent to sign out; empty when the provider has none.
+Where people are sent to sign out; leave empty when the provider has none.
 
 <a id="idpCerts"></a>
-## IdP signing certificates (SAML)
+### IdP signing certificates (PEM)
 
-The certificates the provider signs with. A response signed with any other certificate is refused. Each
-certificate shows its subject and end date; add one from a `.pem`/`.crt` file or pasted PEM. At least one
-is required.
+The certificates the provider signs with. A signature by any other certificate is refused. Add one from a `.pem` or `.crt` file or paste it. At least one is required. The list on the provider page shows whether each certificate is valid, expires within 30 days, or has expired.
 
 <a id="spEntityId"></a>
-## SP entity ID (SAML)
+### SP entity ID
 
-The name this server uses towards the provider; left empty, `/api/sso/<id>/metadata` on this server.
+The name this server uses towards the provider. Leave empty to use `/api/sso/<id>/metadata` on this server.
 
 <a id="acsUrl"></a>
-## ACS URL (SAML)
+### ACS URL
 
-Where the provider posts its answer; left empty, `/api/sso/<id>/acs` on this server.
+Where the provider posts its answer. Leave empty to use `/api/sso/<id>/acs` on this server.
 
 <a id="nameidFormat"></a>
-## NameID format (SAML)
+### NameID format
 
-The kind of user identifier asked from the provider. Default
-`urn:oasis:names:tc:SAML:2.0:nameid-format:persistent`.
+The kind of user identifier asked from the provider. Default: `urn:oasis:names:tc:SAML:2.0:nameid-format:persistent`.
 
 <a id="wantAssertionsSigned"></a>
-## Require signed assertions (SAML)
+### Require signed assertions
 
-Refuse assertions not signed by one of the certificates. On by default.
+On by default. Mailwoman accepts an answer when a signature by one of the certificates covers the assertion, either on the assertion itself or on the whole response.
+
+::: danger
+Do not turn this off. Without it, Mailwoman accepts an unsigned answer, and anyone who can send a request to the ACS address can sign in as any user of this provider. The editor shows the switch on for a new provider, but the server's own default, used when the stored settings do not contain the switch (see the warning at the top of this page), is off.
+:::
 
 <a id="wantEncrypted"></a>
-## Require encrypted assertions and the service provider key (SAML)
+### Require encrypted assertions and the service provider private key
 
-Refuse assertions that are not encrypted to this server. Needs the service provider private key (PEM),
-which is write-only like the OIDC client secret.
+Mailwoman cannot decrypt SAML assertions: an answer that contains an encrypted assertion is always refused, whatever this switch says. The switch and the **Service provider private key** are stored but have no effect. Configure the provider to send unencrypted, signed assertions.
 
-<a id="claims"></a>
 ## Claim mapping
 
-Which claim (OIDC) or attribute (SAML) fills the email address, the account name, the display name and
-the groups. Email and account name are required.
+![The Claim mapping group: email, username, display-name and groups claim fields.](/screenshots/admin-access/sso-claims.webp){.mw-crop}
+
+<a id="claims"></a>
+Which claim (OIDC) or attribute (SAML) of the provider's answer fills each part of the account.
+
+| Field | Used for |
+|---|---|
+| **Email claim** | The address the person signs in as. Default: `email`. |
+| **Username claim** | Used as the address only when the answer has no email. |
+| **Display-name claim** | Read, but not used by the server. |
+| **Groups claim** | Read, but not used by the server: group membership does not give roles or access. |
+
+## How a sign-in through a provider works
+
+1. The person clicks the provider's button on the sign-in page and signs in at the provider.
+2. Mailwoman checks the answer as described above. Each sign-in attempt can be completed only once and must finish within 10 minutes.
+3. Mailwoman takes the address from the mapped email claim, then the email the provider asserted, then the username claim, then the provider's subject identifier, and looks for an account with that address (case does not matter). Without one, the first-login policy decides.
+4. The sign-in is refused if the address's domain may not sign in, if an administrator disabled the account, or if the sign-in source is locked ([temporary sign-in locks](./signin-locks.md)).
+5. Mailwoman opens a mailbox session.
+
+Apart from the first-sign-in rule for new users, every refusal shows the same message, so the person cannot tell which check failed. The reason is recorded in the server's sign-in records.
+
+Points to plan for:
+
+- **No second factor from Mailwoman.** A sign-in through a provider does not ask for the authenticator code or passkey the person may have set up in Mailwoman. Require a second factor at the provider.
+- **Matching by address.** Mailwoman matches accounts by the address in the answer and does not look at an `email_verified` claim. Use a provider where people cannot choose or change their own email address, or map **Email claim** to an attribute only your administrators can set.
+- **No mail password.** A session opened through a provider stores no mail password and no mail server address. Actions that ask the person to confirm their password cannot use one for these sessions.
+- **Signing out.** Signing out of Mailwoman ends the Mailwoman session only. The web app does not send people to the provider's sign-out address, so they stay signed in at the provider, and the next click on the provider's button may sign them in again without a password.
+
+## Header authentication
+
+A reverse proxy that authenticates people itself can pass the user name to Mailwoman in a header instead (`MW_HEADER_AUTH`). It is configured with environment variables, not on this page. Before you turn it on, read [Header authentication](../deploy/reverse-proxy.md#header-authentication): the proxy must remove any copy of the header that the browser sends, and none of the example proxy configurations does this.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| The button does not appear on the sign-in page | The provider is off, or scoped to another domain. | Turn it on, or check **Scope**. |
+| Everyone gets a refusal after the provider's sign-in | **Allowlist (deny unknown users)** and no account exists for the address, or the claim mapping yields another address. | Create the accounts, choose **Auto-create accounts on first login**, or correct **Email claim**. |
+| SAML sign-ins are always refused | The provider sends encrypted assertions, or signs with a certificate that is not in the list. | Turn off assertion encryption at the provider; add its current signing certificate. |
+
+## Related
+
+- [Header authentication](../deploy/reverse-proxy.md#header-authentication)
+- [Pre-provisioned users and the first-sign-in rule](./preprovisioned-users.md)
+- [Mailwoman identity provider](./identity-provider.md)
+- [Signing in](../getting-started/first-sign-in.md)
