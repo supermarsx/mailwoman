@@ -13,9 +13,27 @@ The **Retention** tab of **Compliance** shows how long each store keeps personal
 - Most limits are server-wide. The rules for people's own mail (`retention.user.*`) can also be set per domain.
 - A limit of 0 keeps rows without limit for age limits; the console warns about it. For the "days after expiry" limits, 0 removes a row as soon as it expires.
 
-::: warning Jobs that are not scheduled
-The archive check (`retention_archive`), people's own retention rules and the organisation-wide mail rules (`user_retention`), and the removal of unattached uploads (`gc_uploads`) are jobs that run only when a scheduled task exists for them. The server creates no such task, and the console has no screen to create one. They run only when started by hand: **Check the archive now** on this tab, or **Run my rules now** by a person for their own mailbox. The sweeper and the other stores below run without a task.
+::: warning Four jobs are not scheduled automatically
+These jobs run only when a scheduled task exists for them. The server creates no such task, and the console has no screen to create one, so none of them runs by itself. The sweeper and the other stores below are not affected.
+
+| Job | What it does | How to run it |
+| --- | --- | --- |
+| `retention_archive` | Checks the archive files and removes expired ones | **Check the archive now** on this tab |
+| `user_retention` | Runs people's own retention rules and the organisation-wide mail rules (`retention.user.mandatory`) | Only **Run my rules now**, by each person for their own mailbox. There is no administrator trigger, so the organisation-wide rules run only for people who start a run |
+| `gc_uploads` | Removes uploaded files that were never attached | `mailwoman maintenance gc-uploads` |
+| `vacuum` | Compacts the database | `mailwoman maintenance vacuum` |
+
+For upload cleanup and compaction, set up a cron job or scheduled task on the server host that runs the two commands below.
 :::
+
+### Run upload cleanup and compaction from the command line
+
+Run these with the same environment as the server, so they open the same database:
+
+- `mailwoman maintenance gc-uploads [--older-than-hours N]` deletes uploads older than N hours (default 24) that were never attached to a message, both the database row and the stored file. Set `MW_UPLOAD_DIR` to the server's upload directory; without it, only the database rows are removed and the files stay on disk.
+- `mailwoman maintenance vacuum` runs a plain `VACUUM`: on SQLite the whole database; on Postgres only the notes table. It never runs `VACUUM FULL` and is safe to run again.
+
+The sweeper also compacts the database by itself after a run that removed at least `retention.sweeper.vacuumAfterRows` rows.
 
 ## The sweeper
 
