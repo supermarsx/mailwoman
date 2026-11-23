@@ -3036,6 +3036,290 @@
           "exact": false
         }
       ]
+    },
+    {
+      "id": "admin-index-signin",
+      "page": "admin/index.md",
+      "session": "none",
+      "steps": [
+        {
+          "goto": "{admin}"
+        },
+        {
+          "waitFor": {
+            "role": "form",
+            "name": "@admin-login-form"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "form",
+          "name": "@admin-login-form"
+        },
+        "padding": 12
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "label": "@admin-login-username"
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "label": "@admin-login-password"
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The admin console sign-in form with the Admin username and Password fields and the Sign in button, markers 1 and 2 on the two fields."
+    },
+    {
+      "id": "admin-index-console",
+      "page": "admin/index.md",
+      "steps": [
+        {
+          "goto": "{admin}#/dashboard"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-dash-overview"
+          }
+        }
+      ],
+      "shot": "full",
+      "mask": [
+        {
+          "text": "seconds per bucket",
+          "exact": false
+        },
+        {
+          "testid": "admin-session-bar-text"
+        }
+      ],
+      "alt": "The admin console on the Dashboard: the navigation grouped under My account, Overview, People, Security and Configuration on the left, the search button at the top right, and the setup checklist, account counts and request history in the main column."
+    },
+    {
+      "id": "admin-index-nav",
+      "page": "admin/index.md",
+      "viewport": {
+        "width": 1440,
+        "height": 1400
+      },
+      "steps": [
+        {
+          "goto": "{admin}#/dashboard"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-dash-overview"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "navigation",
+          "name": "@admin-nav",
+          "first": true
+        },
+        "padding": 4
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "role": "heading",
+            "name": "@admin-personal-group",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-nav",
+              "first": true
+            }
+          },
+          "place": "right"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "heading",
+            "name": "@admin-shell-group-overview",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-nav",
+              "first": true
+            }
+          },
+          "place": "right"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "heading",
+            "name": "@admin-shell-group-people",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-nav",
+              "first": true
+            }
+          },
+          "place": "right"
+        },
+        {
+          "n": 4,
+          "target": {
+            "role": "heading",
+            "name": "@admin-shell-group-security",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-nav",
+              "first": true
+            }
+          },
+          "place": "right"
+        },
+        {
+          "n": 5,
+          "target": {
+            "role": "heading",
+            "name": "@admin-shell-group-configuration",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-nav",
+              "first": true
+            }
+          },
+          "place": "right"
+        },
+        {
+          "n": 6,
+          "target": {
+            "role": "heading",
+            "name": "@admin-shell-group-operations",
+            "within": {
+              "role": "navigation",
+              "name": "@admin-nav",
+              "first": true
+            }
+          },
+          "place": "right"
+        }
+      ],
+      "alt": "The console navigation with markers 1 to 6 on its groups: My account, Overview, People, Security, Configuration and Operations, each listing its sections."
+    },
+    {
+      "id": "admin-index-checklist",
+      "page": "admin/index.md",
+      "steps": [
+        {
+          "goto": "{admin}#/dashboard"
+        },
+        {
+          "waitFor": {
+            "testid": "dash-checklist"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "testid": "dash-checklist"
+        },
+        "padding": 8
+      },
+      "callouts": [
+        {
+          "n": 1,
+          "target": {
+            "text": "@admin-dash-check-done",
+            "first": true
+          },
+          "place": "left"
+        },
+        {
+          "n": 2,
+          "target": {
+            "role": "link",
+            "name": "@admin-dash-check-go",
+            "first": true
+          },
+          "place": "top"
+        },
+        {
+          "n": 3,
+          "target": {
+            "role": "button",
+            "name": "@admin-dash-check-hide",
+            "first": true
+          },
+          "place": "top"
+        }
+      ],
+      "alt": "The dashboard setup checklist with one item done and two open, each with an Open link and a Hide button; markers on a Done status, an Open link and a Hide button."
+    },
+    {
+      "id": "admin-index-search",
+      "page": "admin/index.md",
+      "steps": [
+        {
+          "goto": "{admin}#/dashboard"
+        },
+        {
+          "waitFor": {
+            "role": "heading",
+            "name": "@admin-dash-overview"
+          }
+        },
+        {
+          "press": "Control+k"
+        },
+        {
+          "waitFor": {
+            "role": "dialog"
+          }
+        },
+        {
+          "type": {
+            "role": "combobox",
+            "name": "@admin-shell-palette-label",
+            "value": "domain"
+          }
+        },
+        {
+          "wait": 1200
+        }
+      ],
+      "shot": {
+        "element": {
+          "role": "dialog"
+        },
+        "padding": 8
+      },
+      "alt": "The console search window with domain typed, listing matching sections, domains and settings."
+    },
+    {
+      "id": "admin-index-session-bar",
+      "page": "admin/index.md",
+      "steps": [
+        {
+          "goto": "{admin}#/dashboard"
+        },
+        {
+          "waitFor": {
+            "testid": "admin-session-bar"
+          }
+        }
+      ],
+      "shot": {
+        "element": {
+          "testid": "admin-session-bar"
+        },
+        "padding": 6
+      },
+      "alt": "The session bar at the bottom of the console: Signed in as admin and the idle timeout countdown."
     }
   ]
 }

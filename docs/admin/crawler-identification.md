@@ -1,45 +1,64 @@
-# Crawler identification reference
+# Crawler identification
 
-Reviewed 2026-10-30. These names identify **claims in a request's User-Agent**, not authenticated operators. A matching name must never grant access or bypass CSRF, authentication, outbound-request policy or message isolation. Classification performs no per-request DNS or external lookup.
+Request protection sorts each request by the product name in its `User-Agent` header: a browser or mail client, a search crawler, an AI crawler, a script, an unfamiliar client, or no header at all. Some classes are refused on the first request by default. A `User-Agent` is whatever the client chooses to send: these classes describe what a request claims to be, not who sent it. A matching name never grants access and never skips sign-in, CSRF checks or any other control, and the server makes no DNS or other lookup to confirm a crawler.
 
-## Published identifiers
+The rules are on **Security centre** > **Aggregate and adaptive protection** > **Aggregate**, in the group **Browsers and crawlers**.
 
-| Publisher | HTTP user-agent identifiers | Source |
-| --- | --- | --- |
-| Google | Googlebot, Googlebot-Image, Googlebot-Video, GoogleOther, GoogleOther-Image, GoogleOther-Video, Google-CloudVertexBot | [Google crawler reference](https://developers.google.com/crawling/docs/crawlers-fetchers/google-common-crawlers) |
-| Microsoft | bingbot, AdIdxBot | [Bing crawler reference](https://www.bing.com/webmasters/help/which-crawlers-does-bing-use-8c184ec0) |
-| OpenAI | GPTBot, OAI-SearchBot, ChatGPT-User | [OpenAI crawler reference](https://developers.openai.com/api/docs/bots) |
-| Anthropic | ClaudeBot, Claude-SearchBot, Claude-User | [Anthropic crawler reference](https://support.claude.com/en/articles/8896518-does-anthropic-crawl-data-from-the-web-and-how-can-site-owners-block-the-crawler) |
-| Perplexity | PerplexityBot, Perplexity-User | [Perplexity crawler reference](https://docs.perplexity.ai/docs/resources/perplexity-crawlers) |
-| Amazon | Amazonbot, Amzn-SearchBot, Amzn-User | [Amazon crawler reference](https://developer.amazon.com/docs/amazonbot/amazonbot.html) |
-| Apple | Applebot | [Apple crawler reference](https://support.apple.com/en-us/119829) |
-| DuckDuckGo | DuckDuckBot, DuckAssistBot | [Search crawler](https://duckduckgo.com/duckduckgo-help-pages/results/duckduckbot), [AI answer crawler](https://duckduckgo.com/duckduckgo-help-pages/results/duckassistbot) |
-| Common Crawl | CCBot | [Common Crawl reference](https://commoncrawl.org/ccbot) |
-| Yandex | YandexBot, YandexMobileBot, YandexComBot | [Yandex crawler reference](https://yandex.com/support/webmaster/en/robot-workings/check-yandex-robots) |
+![The first rules of the Browsers and crawlers group: User-Agent protection set to Enforce, Block recognized bots on the first request switched on, and the categories to count.](/screenshots/admin-access/crawler-identification-user-agent.webp){.mw-crop}
 
-Cloudflare's maintained [AI bot reference](https://developers.cloudflare.com/ai-crawl-control/reference/bots/) additionally lists Bytespider, meta-externalagent, meta-externalfetcher, FacebookBot and MistralAI-User. Meta's publisher documentation returned HTTP429 during this review; the Cloudflare reference is the source for those entries, not a claim of publisher verification.
+## Classes and built-in names
 
-Training collectors, AI search crawlers and user-triggered fetchers have different purposes; keep their controls separate. User-agent versions change, so matching should use product names without pinning a browser or bot version. Custom patterns remain available for operators and products not covered by the built-in catalog.
+Names are matched case-insensitively as whole words anywhere in the header. When several match, the class higher in this table wins.
 
-## Robots-only controls are different
+| Class (console label) | Built-in names |
+|---|---|
+| `ai-user` (**User-triggered AI fetches**) | ChatGPT-User, Claude-User, Perplexity-User, Amzn-User, MistralAI-User, meta-externalfetcher |
+| `ai-search` (**AI search crawlers**) | OAI-SearchBot, Claude-SearchBot, PerplexityBot, DuckAssistBot, Amzn-SearchBot |
+| `ai-training` (**AI training crawlers**) | GPTBot, ClaudeBot, CCBot, Amazonbot, Google-CloudVertexBot, Bytespider, meta-externalagent, FacebookBot, Google-Extended, Applebot-Extended |
+| `search` (**Search engines**) | Googlebot (and -Image, -News, -Video, -StoreBot), Google-InspectionTool, GoogleOther (and -Image, -Video), bingbot, AdIdxBot, Applebot, DuckDuckBot, YandexBot, YandexMobileBot, YandexComBot |
+| `automation` (**Automation and custom patterns**) | curl, wget, python-requests, python-urllib, httpx, Go-http-client, HeadlessChrome, PhantomJS, Selenium, Scrapy, aiohttp, libwww-perl, Java; and any product name ending in `bot`, `spider` or `crawler` that is not listed above |
+| `missing` (**Missing header**) | an empty or absent `User-Agent` |
+| `uncommon` (**Uncommon browser or client**) | anything else, except a `Mozilla/5.0` header naming Chrome, Chromium, Firefox, Safari, Edge or Opera, and headers starting with Mailwoman, Thunderbird, Outlook, Microsoft Office, AppleMail or DAVx5, which are not classed |
+| `custom` | headers matching **Additional User-Agent patterns** (`security.protection.userAgentPatterns`, case-insensitive regular expressions) |
 
-Google-Extended has no separate HTTP user agent. It controls permitted uses of data collected by existing Google crawlers. Applebot-Extended similarly controls training use of Applebot-collected data. Neither should appear as a supposed independently detectable HTTP crawler. Blocking a robots.txt token is not an HTTP enforcement capability and does not authenticate a crawler.
+Google-Extended and Applebot-Extended are names publishers use in `robots.txt` rather than in a `User-Agent`; they are in the list so that a request claiming them is handled like the other training crawlers. Headers longer than the server's limit are treated as `uncommon`.
 
-## Default enforcement
+## What happens by default
 
-User-agent protection defaults to `userAgentMode: enforce` and
-`userAgentBlockBots: true`. Selected recognized search, AI, automation and custom
-bot classes trigger a temporary HTTP 429 block on their first request, for the
-configured `security.protection.blockSecs`. This is a configured access policy
-for self-claimed headers, not verification of the caller's identity or intent.
-Anonymous scope, category selection and explicit exceptions still apply.
+For requests without a session (and sign-in requests):
 
-Missing or unfamiliar headers remain weak evidence and keep their bounded
-request budgets; a single such header does not cause an immediate block. Set
-`security.protection.userAgentBlockBots` to `false` to restore request budgets
-for bot headers too. `userAgentMaxAction` caps weak/repeated escalation, while
-the first-request bot rule has its own block action. Observe records decisions
-without refusing requests; off disables this dimension. Record the matched
-category and reason so an administrator can explain and tune a decision.
+| Class | Default action | Answer |
+|---|---|---|
+| AI training, AI search, user-triggered AI fetches | refused on every request | `403` `automatedClientBlocked` |
+| Search engines, automation, custom patterns | blocked on the first request for **Block** (`security.protection.blockSecs`, 300 s) | `429` `requestProtectionLimited` with `Retry-After` |
+| Missing header, uncommon client | allowed up to 600 requests per address per 60 seconds | `429` above that |
+| Browsers and mail clients | no user-agent rule | |
 
-This reference describes catalog provenance and policy design. The settings registry and policy simulator are the authority for the currently implemented defaults, categories, thresholds and actions.
+The first-request block applies to that class from that address only: a browser on the same address is still served. `/healthz`, `/readyz` and sign-out are not covered; static assets are covered by the refusals and blocks but not by the budgets.
+
+Requests with a valid mailbox or console session are not refused for their user-agent class, and by default are not counted against a user-agent budget either.
+
+## Settings
+
+| Label | Key | Default | Effect |
+|---|---|---|---|
+| **User-Agent protection** | [`security.protection.userAgentMode`](/admin/settings#security.protection.userAgentMode) | Enforce | **Observe** records decisions without refusing; **Off** turns off the budgets and the first-request block, but not the `403` refusals below |
+| **Block recognized bots on the first request** | [`security.protection.userAgentBlockBots`](/admin/settings#security.protection.userAgentBlockBots) | on | off: search, automation and custom claims get the crawler or weak budget instead of a block |
+| **Categories to count** | `security.protection.userAgentCategories` | all seven | a class not selected gets no budget and no first-request block; its `403` refusal still applies |
+| **Missing, uncommon and automation request budget** | `security.protection.userAgentWeakRequests` | 600 | per address per window |
+| **Crawler request budget** | `security.protection.userAgentCrawlerRequests` | 300 | per address per window, used when the first-request block is off |
+| **User-Agent counting window** | `security.protection.userAgentWindowSecs` | 60 s | |
+| **Strongest User-Agent action** | `security.protection.userAgentMaxAction` | throttle | cap for repeated weak-signal escalation; the first-request block is not affected |
+| **Requests covered** | `security.protection.userAgentScope` | anonymous | **all** also counts requests with a session |
+| **Combine with repeated unusual requests** | `security.protection.userAgentAdaptive` | on | |
+| **Additional User-Agent patterns** | `security.protection.userAgentPatterns` | empty | up to 32 regular expressions, class `custom` |
+| **User-Agent exceptions** | `security.protection.userAgentExceptions` | empty | up to 32 regular expressions; a matching header is not classed at all |
+
+The refuse-or-allow action per class is set by the `security.trust.ua*` settings: `uaAiTraining`, `uaAiSearch` and `uaAiUser` are `block` by default ([`security.trust.uaAiTraining`](/admin/settings#security.trust.uaAiTraining)), `uaMissing`, `uaUncommon`, `uaAutomation`, `uaSearch` and `uaCustom` are `limit`. `allow` skips the user-agent budget for that class. These actions apply only to requests without a session.
+
+To let one client through, for example a monitoring agent that sends `curl`, add a pattern for its exact header to **User-Agent exceptions**. An exception exempts the request from these rules only; request budgets, adaptive protection and sign-in rules still apply.
+
+## Related
+
+- [Aggregate and adaptive protection](./request-protection.md)
+- [Scanner-path catalog](./scan-path-catalog.md)
