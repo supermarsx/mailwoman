@@ -41,3 +41,8 @@ it('saves follow-up presets independently and applies administrator locks to tha
  await waitFor(()=>expect(screen.getByTestId('setting-lock-note')).toBeInTheDocument());
  expect(screen.getByRole('button',{name:'Add preset'})).toBeDisabled();
 });
+it('words the follow-up preset table as reminders, not snoozes',()=>{
+ render(()=><SnoozePreferences followUp/>);
+ expect(screen.getByText('Next reminder time')).toBeInTheDocument();
+ expect(screen.queryByText('Next snooze time')).toBeNull();
+});

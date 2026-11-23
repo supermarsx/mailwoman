@@ -60,3 +60,4 @@ snooze-calendar-advanced-help = Le prochain jour de la semaine est toujours à u
 follow-up-help = Choisissez les rappels de suivi indépendamment du report. Le suivi garde les messages visibles ; le report les masque jusqu’à l’heure choisie. Les choix locaux peuvent remplacer les valeurs héritées si la politique administrateur l’autorise.
 follow-up-title = Marquer pour suivi
 follow-up-save = Enregistrer
+follow-up-next-time = Prochain rappel

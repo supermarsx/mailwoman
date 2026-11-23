@@ -60,3 +60,4 @@ snooze-calendar-advanced-help = Il prossimo giorno della settimana è sempre una
 follow-up-help = Scegli i promemoria di completamento indipendentemente dal rinvio. I contrassegni mantengono visibili i messaggi; il rinvio li nasconde fino all’ora scelta. I valori locali possono sostituire quelli ereditati se consentito dall’amministratore.
 follow-up-title = Contrassegna per completamento
 follow-up-save = Salva
+follow-up-next-time = Prossimo promemoria

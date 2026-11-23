@@ -54,3 +54,4 @@ snooze-calendar-advanced-help = De volgende weekdag is altijd een latere datum. 
 follow-up-help = Kies opvolgherinneringen onafhankelijk van sluimeren. Opvolgen houdt berichten zichtbaar; sluimeren verbergt ze tot het gekozen tijdstip. Lokale keuzes kunnen overgenomen waarden vervangen als beheerbeleid dit toestaat.
 follow-up-title = Markeren voor opvolging
 follow-up-save = Opslaan
+follow-up-next-time = Volgend herinneringstijdstip

@@ -54,3 +54,4 @@ snooze-calendar-advanced-help = Następny dzień tygodnia zawsze oznacza późni
 follow-up-help = Wybierz przypomnienia niezależnie od odraczania. Flagi zachowują widoczność wiadomości; odroczenie ukrywa je do wybranego czasu. Lokalne wybory mogą zastąpić dziedziczone wartości, jeśli administrator na to pozwala.
 follow-up-title = Oznacz do wykonania
 follow-up-save = Zapisz
+follow-up-next-time = Następny termin przypomnienia

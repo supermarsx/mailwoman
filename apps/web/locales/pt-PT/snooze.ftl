@@ -60,3 +60,4 @@ snooze-calendar-advanced-help = O próximo dia da semana é sempre uma data post
 follow-up-help = Escolha os horários de seguimento independentemente do adiamento. O seguimento mantém as mensagens visíveis; o adiamento oculta-as até à data escolhida. As escolhas locais podem substituir valores herdados quando a política do administrador permitir.
 follow-up-title = Sinalizar para seguimento
 follow-up-save = Guardar
+follow-up-next-time = Próxima hora do lembrete

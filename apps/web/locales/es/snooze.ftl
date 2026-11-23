@@ -60,3 +60,4 @@ snooze-calendar-advanced-help = El próximo día de la semana siempre es una fec
 follow-up-help = Elija recordatorios de seguimiento independientes de la posposición. El seguimiento mantiene los mensajes visibles; posponer los oculta hasta la hora elegida. Las preferencias locales pueden sustituir valores heredados si la política administrativa lo permite.
 follow-up-title = Marcar para seguimiento
 follow-up-save = Guardar
+follow-up-next-time = Próxima fecha de recordatorio

@@ -54,3 +54,4 @@ snooze-calendar-advanced-help = 次の曜日は必ず後の日付です。指定
 follow-up-help = フォローアップ通知はスヌーズとは別に設定できます。フォローアップではメールを表示したままにし、スヌーズでは指定時刻まで非表示にします。管理者ポリシーが許可する場合、個別設定で継承値を変更できます。
 follow-up-title = フォローアップのフラグ
 follow-up-save = 保存
+follow-up-next-time = 次回のリマインダー日時

@@ -60,3 +60,4 @@ snooze-calendar-advanced-help = Next weekday always means a later date. An ordin
 follow-up-help = Choose follow-up reminder times independently of snooze. Follow-up flags keep messages visible; snoozing hides them until the selected time. Local choices can override inherited defaults when administrator policy allows.
 follow-up-title = Flag for follow-up
 follow-up-save = Save
+follow-up-next-time = Next reminder time

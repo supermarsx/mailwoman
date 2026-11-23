@@ -60,3 +60,4 @@ snooze-calendar-advanced-help = Der nächste Wochentag liegt immer an einem spä
 follow-up-help = Wählen Sie Nachverfolgungserinnerungen unabhängig vom Zurückstellen. Nachverfolgung lässt Nachrichten sichtbar; Zurückstellen verbirgt sie bis zum gewählten Zeitpunkt. Lokale Werte können geerbte Vorgaben überschreiben, wenn Administratorrichtlinien es erlauben.
 follow-up-title = Zur Nachverfolgung markieren
 follow-up-save = Speichern
+follow-up-next-time = Nächster Erinnerungszeitpunkt

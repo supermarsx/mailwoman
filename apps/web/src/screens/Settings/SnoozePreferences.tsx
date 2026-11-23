@@ -24,7 +24,7 @@ export function SnoozePreferences(props:{followUp?:boolean}={}):JSX.Element{
  const guard=useEditorGuard(dirty,setting.saving);
  return <SettingsCard id={card().id} wide title={t(card().title)} description={t(card().help!)}>
   <LockNote locked={setting.locked()}/><p class={css.meta}>{t('schedule-defaults-help')}</p>
-  <ControlRow controlId={props.followUp?'follow-up-presets-editor':'snooze-presets-editor'} group label={t(card().title)}>{()=> <SnoozePresetEditor value={draft()} onChange={setDraft} disabled={disabled()}/>}</ControlRow>
+  <ControlRow controlId={props.followUp?'follow-up-presets-editor':'snooze-presets-editor'} group label={t(card().title)}>{()=> <SnoozePresetEditor value={draft()} onChange={setDraft} disabled={disabled()} followUp={props.followUp===true}/>}</ControlRow>
   <Show when={!validSnoozePresets(draft())}><p role="alert" class={css.error}>{t('snooze-invalid-presets')}</p></Show>
   <Show when={setting.error()}><p role="alert" class={css.error}>{setting.error()}</p></Show>
   <div class={css.actions}><button type="button" class={css.button} disabled={disabled()||!dirty()||!validSnoozePresets(draft())} onClick={()=>void setting.set(draft())}>{t(props.followUp?'follow-up-save':'snooze-save')}</button><button type="button" class={inheritLink} disabled={disabled()} onClick={()=>void setting.reset()}>{t('reader-inherit')}</button></div>

@@ -54,3 +54,4 @@ snooze-calendar-advanced-help = 下一个星期几始终指较晚的日期。指
 follow-up-help = 后续跟进提醒与稍后处理可分别设置。跟进标记保留邮件可见；稍后处理会隐藏邮件直到指定时间。管理员策略允许时，个人选择可以覆盖继承的默认值。
 follow-up-title = 标记为待跟进
 follow-up-save = 保存
+follow-up-next-time = 下次提醒时间
