@@ -104,9 +104,9 @@ a user's behalf.
   who holds a token can learn its scope, account id and expiry, or revoke it.
   Tokens are 256-bit random values, so this does not let anyone discover tokens
   they do not already have.
-- Redeeming a code and rotating a refresh token check the token and then revoke
-  it in two steps, not in one atomic operation. Two simultaneous requests with the
-  same code and verifier could each receive a token pair.
+- An authorization code or refresh token is used up by one conditional database
+  write (`UPDATE … WHERE revoked_at IS NULL`). Of two simultaneous requests with the
+  same code or refresh token, only one receives a token pair.
 - An OAuth access token is checked on `/mcp`. The REST API under `/api/v1` accepts
   API keys and browser sessions, not OAuth tokens.
 
