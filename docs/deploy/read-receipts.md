@@ -1,194 +1,95 @@
-# Read-receipt authority and delivery outcomes
+---
+title: Read receipts and delivery notifications
+---
 
-`mail.readReceipts` currently accepts `ask`, `never`, and `always`. A personal
-preference controls automatic responses. An administrator-held `never` also
-forbids manual `MDN/send` calls and raw disposition-notification submissions.
-The native engine checks that authority before queueing and again immediately
-before transmission, including delayed submissions. Policy read failures do
-not grant permission.
+# Read receipts and delivery notifications
 
-An SMTP outcome can be uncertain after message data has left the client. In
-that case the receipt claim remains consumed and a retry is refused. A definite
-pre-transmission authentication or capability refusal releases the claim. This
-favors avoiding duplicate receipts over silently retrying an uncertain send.
+Two different things can tell a sender what happened to a message. A **read receipt** is a reply from the recipient's mail program that says the message was displayed. A **delivery notification** is a report from a mail server about delivery. Neither proves that a person read the message. This page describes how Mailwoman handles both, the settings an administrator controls, and what the user sees.
 
-In proxy mode the whole JMAP request is checked before forwarding any mutation.
-A held prohibition refuses explicit `MDN/send` and uninspectable submissions.
-Normal immediate `Email/set` composition followed by a creation-reference
-`EmailSubmission/set` is admitted only with explicit safe MIME structure. Opaque
-raw imports, existing mutable upstream drafts, custom MIME header overrides,
-creation-ID aliases, ambiguous patches, and deferred sends are refused under
-that prohibition. Attachment-only convenience composition is also refused;
-attachments require an explicit ordinary text/HTML body. Explicit `bodyStructure`
-cannot be combined with convenience body or attachment fields. This follows the
-unambiguous creation constraints in [RFC 8621, section 4.6](https://www.rfc-editor.org/rfc/rfc8621.html#section-4.6)
-without assuming the MIME root an upstream would generate from attachments alone.
-MIME-changing `Email/set` writes through this gateway are
-checked independently, preventing another gateway request from replacing the
-checked composition with a receipt. Ordinary typed draft edits, keyword changes,
-and cancellation remain available. Clients connected directly to the upstream
-service are outside this gateway's authority. These checks cannot recall a
-message or scheduled send already accepted by an upstream service, and are not
-a claim that the upstream server executes a JMAP batch transactionally.
+![The Settings screen searched for receipt, listing the read receipt, delivery notification and scheduled receipt settings with their default values.](/screenshots/admin-ops/settings-receipts.webp){.mw-crop}
 
-`receipts.dsnAllowed` independently controls requests for SMTP delivery-status
-notifications. Administrators may set it globally, by domain, or by address.
-The engine checks it both when queueing and when dispatching; malformed held
-values and lookup failures deny DSN requests. Proxy mode checks SMTP envelope
-parameters before forwarding any batch operation. It refuses opaque result
-references and release of existing upstream submissions when DSN is prohibited,
-since the gateway cannot recheck those submissions at their transmission boundary.
-Parameter-free composition and cancellation remain available.
+## Before you start
 
-Engine accounts support `never`, `ask`, `always`, `contactsOnly`, `orgOnly`, and
-`orgAlwaysAskOthers`. Contacts are matched against parsed email addresses in
-the same account's address books (at most64 candidate cards of64KiB each).
-Organisation matching uses the signed-in account domain and administrator-defined
-domain aliases, not a message-supplied identity. A return-path mismatch or list
-message always requires confirmation, even when its sender otherwise qualifies
-for automatic handling.
+- Read receipt policy, scheduled receipts and delivery notifications are enforced by Mailwoman's mail engine, which handles accounts that Mailwoman reaches itself. For accounts that Mailwoman forwards to a JMAP server, the dedicated policy editor is not offered. Mailwoman still checks administrator prohibitions on the requests it forwards, see [Accounts behind a JMAP server](#accounts-behind-a-jmap-server).
+- The user's own choices are in their **Settings**, in **Read receipts**.
+- Two settings in the console are both labelled **Read receipts**. `mail.readReceipts` is the response policy. `mail.badge.receipts` only decides when a badge is shown in the reader.
 
-The Read receipts settings section has a dedicated policy editor and exact-address
-sender exceptions. Sender edits require the current ETag and have an atomic500-row
-account quota. A personal `never` suppresses prompts and automatic responses even
-when an older `always` exception exists; any administrator-held policy ignores
-personal exceptions. Explicit manual sends remain subject to administrator authority.
+## How a read receipt is answered
 
-The Reader requests eligibility only after its body frame reports displaying the
-current message. Automatic sending additionally requires a visible, active full
-message view and a1.5-second dwell. Preview panes never automatically answer.
-Background tabs, failed display acknowledgement and unavailable policy evidence
-do not send. Uncertain outcomes have no automatic client retry. Proxy accounts
-do not expose these engine-specific controls.
+When a message asks for a read receipt, the reader shows "<sender> requests a read receipt. Sending it reveals that this message was displayed." with **Send read receipt** and **Not now**. What happens automatically depends on the policy.
 
-### Standard JMAP MDNs
+| Policy (`mail.readReceipts`) | Label in **Settings** | What Mailwoman does |
+| --- | --- | --- |
+| `ask` (default) | **Ask before sending** | Shows the question |
+| `never` | **Never send read receipts** | Shows nothing and sends nothing |
+| `always` | **Send automatically when safe** | Sends automatically |
+| `contactsOnly` | **Send automatically to contacts only** | Sends automatically when the sender's address is in the user's address books, otherwise does nothing |
+| `orgOnly` | **Send automatically inside my organisation only** | Sends automatically when the sender is in the user's own domain or an alias of it, otherwise does nothing |
+| `orgAlwaysAskOthers` | **Send inside my organisation; ask for other senders** | Sends automatically inside the organisation and asks otherwise |
 
-Engine accounts expose `urn:ietf:params:jmap:mdn` in both the session and account
-capabilities. Requests using it use the [RFC 9007](https://www.rfc-editor.org/rfc/rfc9007.html)
-`MDN/send` creation map and `MDN/parse` blob map; the legacy custom
-`MDN/send {emailId, automatic}` remains available without that capability.
-Standard sends also require the mail capability and an account-owned Identity.
+A message whose return address is not the sender, or that comes from a mailing list, is always asked about, even when the sender would otherwise qualify. A message that already got a receipt, a draft, or a message in a folder that never answers receipts is not offered one.
 
-Every send entry must have an `onSuccessUpdateEmail` creation reference setting
-`keywords/$mdnsent` to true. Missing or conflicting patches are rejected before
-sending. The keyword must be recorded before SMTP; successful operations include
-the implicit `Email/set` response. The durable duplicate ledger also survives an
-uncertain transport result, which must not be retried automatically. An explicit
-final recipient must match the selected identity and be visible in the original
-To/Cc; an identity removed or changed before dispatch is refused.
+The user can add sender exceptions for exact addresses, up to 500, under **Sender exceptions**: **Suppress prompts and automatic receipts** or **Send automatically when safe**. The user's own `never` beats any exception. When an administrator locks the policy, personal exceptions are ignored.
 
-Subject, plain-text body, Reporting-UA, all four dispositions, original-message
-inclusion and extension fields are supported. Server-set gateway, original
-recipient, original Message-ID and error properties are returned as applicable.
-The server is not a foreign-MDN gateway, so it does not invent gateway/error data.
-Including the original is explicit and may disclose its contents and headers to
-the receipt recipient; no decrypted replacement is generated. Reports use the
-null SMTP reverse path. Existing administrator and automatic-response policy
-checks apply to standard sends too. The exact outgoing report bytes and SMTP
-recipient also pass ordinary DLP enforcement before transmission; malformed
-policy, unavailable inspection input and matching blocks refuse the send.
+An automatic receipt is sent only when the message is open in a full message view, is displayed and visible, and has stayed so for 1.5 seconds. A preview pane, a background tab, or a display that could not be confirmed never sends one. An uncertain result is not retried by the browser.
 
-Limits: 32 records per method, 8 MiB original messages for sending, 9 MiB blobs
-for parsing, 64 KiB report/plain-text fields, 4 KiB subjects, and 32 extension
-fields when sending. Oversized/ambiguous report fields are refused rather than
-silently truncated. Upload ownership and plaintext size are checked before
-reading the sealed object, separately from encryption-envelope overhead. Reads
-use bounded cached raw messages and parts; a missing cache object is unavailable
-rather than causing an unbounded upstream fetch. `MDN/parse` leaves `forEmailId`
-null instead of guessing a relationship or scanning every message in an account,
-as permitted by RFC 9007. Duplicate field names are treated as ambiguous.
-RFC 6533 internationalized receipt construction is not implemented; ASCII
-recipient/report fields are enforced while human-readable content supports Unicode.
+### What an administrator controls
 
-A received delivery report does not establish that a person read a message;
-a disposition notification reports another mail program's claim rather than
-independently proving human reading.
+| Label | What it does | Default | Who can change it |
+| --- | --- | --- | --- |
+| **Read receipts** ([`mail.readReceipts`](/admin/settings#mail.readreceipts)) | The policy above | `ask` | Administrators globally and per domain, and users, unless locked |
+| **Request read receipts by default** ([`mail.requestReadReceipt`](/admin/settings#mail.requestreadreceipt)) | Whether new messages ask for a read receipt | off | Same |
+| **Delivery status requests** ([`receipts.dsnAllowed`](/admin/settings#receipts.dsnallowed)) | Whether messages may ask for delivery notifications at all | on | Administrators globally, per domain and per administrator-assigned user |
+| **Request delivery notifications by default** ([`mail.requestDeliveryReceipt`](/admin/settings#mail.requestdeliveryreceipt)) | Whether new messages start with the delivery notification option ticked | off | Same as the first row |
+| **Scheduled read receipts** ([`receipts.scheduleAllowed`](/admin/settings#receipts.scheduleallowed)) | Offers **Schedule receipt** on messages | off | Administrators globally and per domain |
+| **Request read receipts** ([`cap.compose.read_receipts`](/admin/settings#cap.compose.read_receipts)) | Whether the composer can ask for read receipts | on | Administrators |
+| **Allow Return-Receipt-To** ([`compose.headers.allowReturnReceiptTo`](/admin/settings#compose.headers.allowreturnreceiptto)) | Whether the old `Return-Receipt-To` header may be used | off | Administrators |
 
-## Outgoing SMTP DSN support
+When an administrator locks **Read receipts** to `never`, the engine refuses every receipt: automatic ones, manual **Send read receipt**, and a raw disposition notification that a client submits. The check happens when the receipt is queued and again just before it is transmitted, including for delayed submissions. A failure to read the policy never grants permission.
 
-Native engine session publication now lists `DSN` only after a recent successful
-EHLO observation through the configured SMTP egress, TLS and authentication path,
-and only when effective `receipts.dsnAllowed` permits it. Unknown, expired,
-failed-authentication and unsupported observations do not advertise support.
-The probe sends no MAIL, RCPT or DATA. Its network work is limited to two seconds;
-concurrent callers share a probe. Positive observations last five minutes,
-negative observations thirty seconds. Each immutable submitter owns its cache:
-changing endpoint, credentials or dialer cannot reuse another authority's result.
-Legacy `smtp_dsn:<account>` settings are no longer capability authority.
+Locking **Request delivery notifications by default** does not forbid a user from choosing a notification for one message. To forbid requests, set **Delivery status requests** to off. The engine checks that setting when the message is queued and again when it is sent. A value that cannot be read counts as off.
 
-Submission checks actual EHLO support again. If a requested DSN becomes
-unavailable, the submission fails before MAIL; the engine does not retry it as
-an ordinary send. The masked-address wrapper preserves DSN options after the
-same account/alias authorization used for ordinary submission. A successful
-SMTP acceptance still does not prove delivery or reading, and downstream
-report generation remains under the receiving mail systems' control.
+## Delivery notifications
 
-This implements truthful [RFC 8621 submission extension publication](https://www.rfc-editor.org/rfc/rfc8621.html#section-1.3.2)
-and the configured submission hop of [RFC 3461](https://www.rfc-editor.org/rfc/rfc3461.html).
-It does not claim Mailwoman is a complete DSN-generating relay. Existing native
-parameter limits remain: common NOTIFY across recipients, ASCII ENVID, RET
-FULL/HDRS, and ORCPT restricted to each recipient's own address. Proxy sessions
-retain their upstream capability authority; Mailwoman still enforces its own
-administrative DSN restriction at admission.
+The composer offers a delivery notification checkbox only when the account's mail server advertises the `DSN` extension and **Delivery status requests** allows it. The request asks for the headers of the original in the report (`RET=HDRS`) and a report for success, failure and delay (`NOTIFY=SUCCESS,FAILURE,DELAY`) for every recipient, including Bcc.
 
-Compose offers a separate delivery-notification checkbox only as an available
-choice when the selected account advertises DSN and effective policy permits it.
-The dedicated Read receipts settings editor saves `mail.requestDeliveryReceipt`
-(default false) per account; administrators can supply and lock this default.
-Locking the default does not prohibit a per-message choice: use
-`receipts.dsnAllowed=false` to prohibit requests. Drafts retain their explicit
-choice; losing capability or permission produces an error rather than silently
-removing the request. The web control requests RET=HDRS and
-NOTIFY=SUCCESS,FAILURE,DELAY for every envelope recipient, including Bcc.
-Incoming DSN display is separate and always identifies reports as unverified
-mail content.
+Mailwoman learns whether the server supports `DSN` by a short check of its greeting that sends no message. The check has a 2 second limit. A positive answer is remembered for 5 minutes and a negative one for 30 seconds. If a requested notification becomes unavailable before sending, the send fails before any mail is transferred. It is not sent as an ordinary message.
 
-## Uncertain SMTP acceptance
-
-If DATA/BDAT content transmission begins but the server's final acceptance or
-refusal is lost, Mailwoman records delivery as unknown. It does not automatically
-resend that attempt. This addresses the duplicate-delivery risk described in
-[RFC 5321 section 4.5.3.2.6](https://www.rfc-editor.org/rfc/rfc5321.html#section-4.5.3.2.6).
-An explicit negative final reply remains a refusal; a confirmed acceptance is
-recorded before filing the Sent copy.
-
-Each queued attempt acquires a durable unique claim before SMTP. Competing
-processes cannot claim the same row, stale workers cannot record another
-attempt's result, and a crash leaves a claim excluded from the retry queue.
-The Outbox conservatively labels both active/unreconciled claims and lost replies
-as “Delivery status unknown”, with no release/resend action. Ordinary failures
-known to precede acceptance retain the bounded retry behavior.
-
-Check Sent or contact the recipient before deliberately creating a new send.
-A missing Sent copy does not prove non-delivery: filing is separate from SMTP
-acceptance. Mailwoman cannot recall an upstream-accepted message. This provides
-per-submission retry safety, not global deduplication of separately created
-messages or a complete SMTP relay retry implementation. Proxy submissions remain
-subject to their upstream implementation's queue and outcome semantics.
-
-Connected-provider adapters cannot infer the transport phase from opaque provider
-errors. They therefore retain explicit authentication/unsupported-operation
-refusals, but classify other send failures as uncertain rather than automatically
-retrying a possibly accepted message. This does not provide provider-side
-idempotency or recall.
-
-## Recipient receipts on sent mail
-
-Open **Receipts** in the Sent message header to see read and delivery reports by
-recipient. Read receipt times are the times the reports arrived. A displayed
-report is a recipient application's claim. The badge matches the original
-Message-ID and recipient and does not treat missing reports as delivery failures
-or unread messages. Use **Check older messages** to continue the bounded lookup.
+A draft keeps its choice. Losing the capability or the permission gives an error, and the request is not dropped silently. Incoming reports are shown as described in [Delivery status reports](/deploy/delivery-status).
 
 ## Scheduled read receipts
 
-Enable `receipts.scheduleAllowed` in Admin Settings to offer **Schedule receipt**
-on eligible messages in native mailboxes. Choose a local date and time up to
-30 days ahead. A sender schedule also queues eligible requests from that exact
-sender when the user opens them in a full message view before the chosen time.
-Stop the sender schedule to stop enrolling new messages, or cancel a queued
-receipt from the original message.
+When **Scheduled read receipts** is on, an eligible message shows **Schedule receipt**. The user picks a date and time up to 30 days ahead, for this message or for every request from that sender that the user opens in a full view before then. **Stop scheduling for this sender** ends the sender schedule, and a queued receipt can be cancelled from the original message. The server keeps the schedule across sessions and checks the policy again before it sends.
 
-The server keeps the schedule across browser sessions and rechecks receipt policy
-and the original request before sending. A disconnected mailbox retries when it
-becomes available, for up to seven days after the scheduled time.
+## Sent messages
+
+**Receipts** in the header of a sent message lists reports by recipient. See [Delivery status reports](/deploy/delivery-status#sent-messages-receipts).
+
+## When delivery is uncertain
+
+If a message's data has been sent but the final answer of the mail server is lost, Mailwoman records the delivery as unknown and does not send that attempt again. This applies to read receipts too: the receipt is marked as used and a retry is refused. A refusal before any data is sent, such as a failed login or an unsupported feature, frees the receipt so it can be tried again.
+
+The Outbox shows **Delivery unknown** for such a message. Check **Sent** or ask the recipient before sending again. A missing copy in **Sent** does not prove non-delivery, because the copy is filed after the mail server accepts the message.
+
+## Accounts behind a JMAP server
+
+For an account that Mailwoman forwards to a JMAP server, the dedicated read receipt editor is not offered. Mailwoman still checks administrator prohibitions on requests that pass through it:
+
+- With read receipts locked to `never`, it refuses an explicit receipt send and refuses submissions it cannot inspect. A normal message with an explicit, ordinary body and its submission is still allowed.
+- With **Delivery status requests** off, it refuses delivery notification parameters.
+- It cannot recall a message that the upstream server has already accepted, and it cannot see what a client connected directly to the upstream server does.
+
+## Troubleshooting
+
+- **A user sees no read receipt prompt.** The policy is `never`, or a message is not eligible, or the sender is on the user's suppress list. A preview pane never shows or sends receipts.
+- **A receipt is refused with "read receipts are disabled by administrator policy".** An administrator locked **Read receipts** to `never` for that account.
+- **A send is refused with "delivery status notifications are turned off by the administrator".** **Delivery status requests** is off for the account.
+- **"The receipt outcome could not be confirmed. It will not be retried automatically."** See [When delivery is uncertain](#when-delivery-is-uncertain).
+- **The delivery notification checkbox does not appear.** The mail server does not advertise `DSN`, or **Delivery status requests** is off.
+- **"Your administrator does not allow this change. Reopen the editor to refresh its policy."** The user saved a receipt policy while an administrator lock was in force.
+
+## Related
+
+- [Delivery status reports](/deploy/delivery-status)
+- [Outbox, recall and scheduled sending](/admin/outbox-recall)
+- [Settings](/admin/settings)

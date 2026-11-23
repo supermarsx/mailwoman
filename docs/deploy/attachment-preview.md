@@ -1,23 +1,64 @@
-# Attachment preview isolation and supported formats
+---
+title: Attachment preview
+---
 
-The authenticated attachment-preview route passes decoded bytes to a disposable `mw-render` child. The child's no-import WASM guest parses TNEF/MAPI and RFC822/MIME. The render child sanitizes guest HTML with the existing mail sanitizer before returning it. The parent never parses TNEF or MIME attachment structure. Remote resources are not fetched while previewing.
+# Attachment preview
 
-Supported in this bounded implementation:
+When someone opens an attachment that is itself an email message, Mailwoman can show what is inside it: the headers, the text, and the files it contains. This applies to message files (`.eml`, `message/rfc822`) and to the `winmail.dat` files that some Microsoft mail programs send (TNEF, `application/ms-tnef`). This page describes what the preview does, where it runs, and what limits and settings apply.
 
-- `message/rfc822`/EML: decoded subject and addresses, date, plain and HTML bodies, transfer-decoded attachments, and nested message bytes.
-- `application/ms-tnef`/winmail.dat: legacy and MAPI binary attachments, Unicode filenames, named/multivalue property traversal, declared common Windows/East Asian/UTF8 codepages, plain/HTML message body properties, and embedded-message object bytes.
-- Attachment bytes remain unchanged. Filenames are normalized display/download suggestions; no file is extracted to a filesystem. OLE objects are opaque downloads, never executed.
+## Before you start
 
-Limits are 4 MiB raw input, 6 MiB JSON input frame, 64 returned attachments, 4 MiB aggregate extracted attachment data, 1 MiB for each body representation, 256 MIME parts and three nested message levels. The WASM store caps memory at512 MiB and guest execution at5 seconds. The server independently limits concurrent workers, lifetime and output bytes. The child bounds stdin before allocating a complete line. Failed checksums, corrupt lengths, unsupported property types and excessive counts fail closed.
+- The preview is available when **Allow attachment previews** ([`attachments.previewAllowed`](/admin/settings#attachments.previewallowed)) and **Allow original attachment delivery** ([`attachments.downloadAllowed`](/admin/settings#attachments.downloadallowed)) are both on. Turning off delivery also turns off raw previews. Both default to on and can be set globally or per domain.
+- The server needs its render worker program. When it is missing the preview is unavailable and the viewer says "This message attachment could not be previewed."
 
-Compressed RTF (LZFu) and uncompressed RTF (MELA) bodies are checksum/size checked and projected to plain text when no plain/HTML body is available. Unicode fallback escapes, surrogate pairs and common codepages are handled; object/picture data, field instructions, hidden text and metadata destinations are omitted. Invalid/unsupported RTF produces a warning while valid attachments remain available.
+## What the preview shows
 
-Remaining limits: rich RTF formatting, font-specific legacy encodings and layout are not reproduced. OLE rendering, external-reference retrieval, Outlook-specific appointment/task UI, arbitrary legacy codepages and encrypted inner message decryption are unsupported. Unrecognized codepages currently use Windows-1252 for display strings; binary extraction remains unchanged. Nested message attachments are returned as downloadable message bytes; the viewer decides whether to request a further bounded preview. This is not a claim of complete Outlook/TNEF fidelity.
+The preview lists:
 
-On Linux the existing render-child kernel jail must install successfully. On other platforms the documented process-isolation/WASM protections remain, without claiming Linux seccomp/Landlock enforcement.
+- for a message: the subject, sender, recipients, date, and the text and HTML bodies;
+- for a `winmail.dat` file: the message text from it, and the files it carries;
+- under **Files inside this message**, each contained file with its size and a **Download file** button. A file that is itself a message is offered as a download.
 
-The canonical guest is built using `rust:1.98.1-bookworm` and `crates/mw-media-wasm/build.sh`. The script honors the authorized `CARGO_TARGET_DIR`. Independent source mounts produced identical bytes; `plugins/verify-artifacts.py` pins the hash and zero-import/export contract. Its committed-tree mode is expected to refuse an uncommitted artifact; rerun that mode after integration.
+Attachment bytes are not changed. File names are cleaned for display and download, and nothing is written to the server's file system. Embedded objects (OLE) are offered as opaque downloads and are never run. A message body in TNEF can be rich text. Mailwoman shows its plain text when there is no plain or HTML body, and it shows a warning when the rich text is invalid or unsupported while the attached files stay available. Remote images and other remote resources are not loaded in the preview.
 
-The retained independent [MimeKit corpus](https://github.com/jstedfast/MimeKit/tree/a250ce09775904ad1af532fc1f92c5d01cc89e37/UnitTests/TestData/tnef) includes license, provenance and hashes under `crates/mw-media-wasm/fixtures/tnef`. Tests compare binary attachments exactly and normalize CRLF/LF for upstream text fixture comparisons. Format parsing follows Microsoft's [TNEF framing](https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-oxtnef/b03b5704-ef54-4390-b981-dc78f8e79a05) and [MAPI property encapsulation](https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-oxtnef/c27c89ec-7f8b-48d3-9e27-dc7600d23854).
+A file listed in the preview is checked against the same attachment rules as a normal download, such as the allowed types. A file that the rules refuse is left out.
 
-RTF decoding follows [MS-OXRTFCP framing](https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-oxrtfcp/a1f226ed-31e3-4565-9d26-af3c6714c93f), [dictionary references](https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-oxrtfcp/b12474df-e0ef-4731-9315-454a49a984d8) and [CRC calculation](https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-oxrtfcp/a395d090-82f6-4ac0-85c4-057678b2c8e8). The published compressed vector and independent MimeKit body fixtures test decompression and plain-text projection.
+## How it is isolated
+
+The server never parses these formats itself. It passes the attachment to a separate short-lived worker process. Inside the worker, a WebAssembly module with no imports does the parsing. The worker then cleans the HTML with the same sanitiser that is used for received mail, and the browser shows the result in a sandboxed frame. On Linux the worker also runs under a kernel jail made of seccomp, Landlock, a network namespace and resource limits. On other systems the process and WebAssembly isolation remain and the kernel jail is not available.
+
+## Limits
+
+| Limit | Value |
+| --- | --- |
+| Size of the attachment | 4 MiB. A larger one shows "Message attachment previews are limited to 4 MiB. You can still download the original attachment." |
+| Size of one request | 6 MiB |
+| Files returned from one preview | 64 |
+| Size of one body | 1 MiB |
+| Previews running at once | 2 workers on the server. A third waits briefly and is then refused |
+| Time for one preview | 15 seconds |
+
+A file that is damaged, has a failed checksum, has an unsupported property or has too many entries is refused as a whole. Rich text formatting, legacy font encodings and layout are not reproduced, and encrypted inner messages are not decrypted. The preview is not a complete Outlook viewer.
+
+## Options
+
+| Label | What it does | Default | Who can change it |
+| --- | --- | --- | --- |
+| **Allow attachment previews** ([`attachments.previewAllowed`](/admin/settings#attachments.previewallowed)) | Allows the preview | on | Administrators globally and per domain |
+| **Allow original attachment delivery** ([`attachments.downloadAllowed`](/admin/settings#attachments.downloadallowed)) | Allows downloading the original. Off also disables previews | on | Administrators globally and per domain |
+
+Users choose how the preview buttons look, and whether images show thumbnails, in the **Attachment previews** card of their settings. Thumbnails are off by default.
+
+## Troubleshooting
+
+- **"This message attachment could not be previewed. The file may be unsupported, damaged, or the preview worker unavailable. You can still download the original."** The file is not a message or TNEF file the worker could read, it is damaged, or the render worker is not running. Download the original instead.
+- **"Attachment access is restricted by administrator policy" (error code `attachmentPreviewDisabled`).** Previews or deliveries are switched off for the user's domain. See [Options](#options).
+- **The preview is refused with `attachmentTooLarge`.** The attachment is larger than the maximum attachment size set in the attachment policy.
+- **"attachment preview workers are busy; retry shortly".** Both worker slots are in use. Try again.
+- **A file inside a `winmail.dat` is missing.** The attachment policy refuses its type or size, so it is left out of the list.
+
+## Related
+
+- [Settings](/admin/settings) for the attachment settings
+- [Outbound connections (egress)](/security/egress) for how remote images are handled in mail
+- [PDF attachment preview](/security/pdf-preview) for how PDF attachments are shown
