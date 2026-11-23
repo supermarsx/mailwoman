@@ -1,0 +1,2996 @@
+{
+ "defaults": {
+  "stack": "E",
+  "seed": [
+   "mail-basic",
+   "pim-week"
+  ],
+  "theme": "dark",
+  "viewport": "desktop",
+  "page": "user/calendar.md"
+ },
+ "entries": [
+  {
+   "id": "tasks-screen",
+   "page": "user/tasks.md",
+   "steps": [
+    {
+     "goto": "/#/tasks"
+    },
+    {
+     "waitFor": {
+      "text": "Approve the print run",
+      "first": true
+     }
+    }
+   ],
+   "shot": "full",
+   "alt": "The Tasks screen: lists on the left, the add-a-task field and five tasks in the middle, and the convert fields below them."
+  },
+  {
+   "id": "tasks-lists",
+   "page": "user/tasks.md",
+   "steps": [
+    {
+     "goto": "/#/tasks"
+    },
+    {
+     "waitFor": {
+      "text": "Approve the print run",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 240,
+     "y": 84,
+     "width": 216,
+     "height": 126
+    },
+    "padding": 4
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@tasks-all"
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@tasks-my-day"
+     },
+     "place": "right"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "Tasks",
+      "exact": true,
+      "within": {
+       "role": "navigation",
+       "name": "@tasks-lists"
+      }
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The list pane of the Tasks screen with markers on All tasks, My Day and the Tasks list."
+  },
+  {
+   "id": "tasks-add",
+   "page": "user/tasks.md",
+   "steps": [
+    {
+     "goto": "/#/tasks"
+    },
+    {
+     "waitFor": {
+      "text": "Approve the print run",
+      "first": true
+     }
+    },
+    {
+     "fill": {
+      "label": "@tasks-new-title",
+      "value": "Call the caterer"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "label": "@tasks-new-title",
+     "closest": "form"
+    },
+    "padding": 8
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@tasks-new-title"
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@common-add"
+     },
+     "place": "bottom"
+    }
+   ],
+   "alt": "The add-a-task row with the title Call the caterer typed in, a marker on the title field and a marker on the Add button."
+  },
+  {
+   "id": "tasks-row",
+   "page": "user/tasks.md",
+   "steps": [
+    {
+     "goto": "/#/tasks"
+    },
+    {
+     "waitFor": {
+      "text": "Approve the print run",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "text": "Approve the print run",
+     "closest": "li"
+    },
+    "padding": 8
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "checkbox",
+      "name": "Complete Approve the print run"
+     },
+     "place": "top"
+    },
+    {
+     "n": 2,
+     "target": {
+      "label": "@tasks-high-priority"
+     },
+     "place": "top"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "Edit Approve the print run"
+     },
+     "place": "top"
+    }
+   ],
+   "alt": "One task row, Approve the print run, with markers on its checkbox, its high-priority mark and its Edit button."
+  },
+  {
+   "id": "tasks-edit",
+   "page": "user/tasks.md",
+   "steps": [
+    {
+     "goto": "/#/tasks"
+    },
+    {
+     "waitFor": {
+      "text": "Approve the print run",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "Edit Approve the print run"
+     }
+    },
+    {
+     "waitFor": {
+      "label": "@tasks-field-title"
+     }
+    }
+   ],
+   "shot": "full",
+   "alt": "A task open for editing: Title, Due date and Priority fields with Save, Cancel and Delete buttons."
+  },
+  {
+   "id": "tasks-myday",
+   "page": "user/tasks.md",
+   "steps": [
+    {
+     "goto": "/#/tasks"
+    },
+    {
+     "waitFor": {
+      "text": "Approve the print run",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@tasks-my-day"
+     }
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 240,
+     "y": 84,
+     "width": 1190,
+     "height": 130
+    }
+   },
+   "alt": "The My Day view of the Tasks screen, which lists only Approve the print run, the one task due today."
+  },
+  {
+   "id": "notes-screen",
+   "page": "user/notes.md",
+   "steps": [
+    {
+     "goto": "/#/notes"
+    },
+    {
+     "waitFor": {
+      "text": "Launch evening checklist",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "text": "Launch evening checklist",
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "textbox",
+      "name": "@notes-title-label"
+     }
+    }
+   ],
+   "shot": "full",
+   "alt": "The Notes screen: the note list on the left and the open note Launch evening checklist on the right."
+  },
+  {
+   "id": "notes-list",
+   "page": "user/notes.md",
+   "steps": [
+    {
+     "goto": "/#/notes"
+    },
+    {
+     "waitFor": {
+      "text": "Launch evening checklist",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 228,
+     "y": 72,
+     "width": 320,
+     "height": 218
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@notes-new"
+     },
+     "place": "top"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "searchbox",
+      "name": "@notes-search"
+     },
+     "place": "top"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "option",
+      "hasText": "Launch evening checklist"
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The note list with markers on New note, the search field and the pinned note Launch evening checklist."
+  },
+  {
+   "id": "notes-detail",
+   "page": "user/notes.md",
+   "steps": [
+    {
+     "goto": "/#/notes"
+    },
+    {
+     "waitFor": {
+      "text": "Launch evening checklist",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "text": "Launch evening checklist",
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "textbox",
+      "name": "@notes-title-label"
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 556,
+     "y": 76,
+     "width": 880,
+     "height": 120
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "textbox",
+      "name": "@notes-title-label"
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@notes-unpin"
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@notes-delete"
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 4,
+     "target": {
+      "label": "@notes-add-tag"
+     },
+     "place": "bottom"
+    }
+   ],
+   "alt": "The top of an open note with markers on the title, the Unpin note button, the Delete note button and the tag field."
+  },
+  {
+   "id": "notes-editor",
+   "page": "user/notes.md",
+   "steps": [
+    {
+     "goto": "/#/notes"
+    },
+    {
+     "waitFor": {
+      "text": "Launch evening checklist",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "text": "Launch evening checklist",
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "textbox",
+      "name": "@notes-title-label"
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 556,
+     "y": 206,
+     "width": 880,
+     "height": 334
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@notes-fmt-bold"
+     },
+     "place": "top"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@notes-fmt-ul"
+     },
+     "place": "top"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@notes-fmt-link"
+     },
+     "place": "top"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "combobox",
+      "name": "@notes-link-type"
+     },
+     "place": "top"
+    }
+   ],
+   "alt": "The formatting toolbar and body of a note, and the Links area below it, with markers on Bold, Bulleted list, Insert link and the link type menu."
+  },
+  {
+   "id": "cal-week",
+   "page": "user/calendar.md",
+   "steps": [
+    {
+     "goto": "/#/calendar"
+    },
+    {
+     "waitFor": {
+      "text": "Weekly planning",
+      "first": true
+     }
+    }
+   ],
+   "shot": "full",
+   "alt": "The Calendar screen in week view for 8 to 14 March 2026: the toolbar on top, the date navigator and calendar list on the left, and the week's events in the time grid."
+  },
+  {
+   "id": "cal-toolbar",
+   "page": "user/calendar.md",
+   "steps": [
+    {
+     "goto": "/#/calendar"
+    },
+    {
+     "waitFor": {
+      "text": "Weekly planning",
+      "first": true
+     }
+    },
+    {
+     "wait": 200
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 228,
+     "y": 72,
+     "width": 1212,
+     "height": 72
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@calendar-today",
+      "first": true
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "tab",
+      "name": "@calendar-view-week"
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@calendar-new-event"
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 4,
+     "target": {
+      "label": "@calendar-quick-add"
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 5,
+     "target": {
+      "role": "button",
+      "name": "@calendar-import"
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 6,
+     "target": {
+      "role": "button",
+      "name": "@calendar-export"
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The calendar toolbar with markers on Today, the Week view tab, New event, the quick add field, Import and Export."
+  },
+  {
+   "id": "cal-sidebar",
+   "page": "user/calendar.md",
+   "steps": [
+    {
+     "goto": "/#/calendar"
+    },
+    {
+     "waitFor": {
+      "text": "Weekly planning",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 228,
+     "y": 146,
+     "width": 240,
+     "height": 496
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@calendar-mini"
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "checkbox",
+      "name": "Toggle Calendar"
+     },
+     "place": "top"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "Share",
+      "exact": false,
+      "first": true,
+      "within": {
+       "label": "@calendar-calendars-heading"
+      }
+     },
+     "place": "top"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "button",
+      "name": "@calendar-add-calendar"
+     },
+     "place": "right"
+    },
+    {
+     "n": 5,
+     "target": {
+      "label": "@calendar-filter-category"
+     },
+     "place": "right"
+    },
+    {
+     "n": 6,
+     "target": {
+      "role": "button",
+      "name": "@calendar-subscribe-add"
+     },
+     "place": "top"
+    }
+   ],
+   "alt": "The calendar side panel with markers on the date navigator, a calendar's visibility checkbox, its Share button, Add calendar, the category filter and the Subscribe button."
+  },
+  {
+   "id": "cal-month",
+   "page": "user/calendar.md",
+   "steps": [
+    {
+     "goto": "/#/calendar"
+    },
+    {
+     "waitFor": {
+      "text": "Weekly planning",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@calendar-view-month"
+     }
+    },
+    {
+     "waitFor": {
+      "text": "Lunch with Sam",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 468,
+     "y": 72,
+     "width": 972,
+     "height": 540
+    }
+   },
+   "alt": "The calendar in month view for March 2026 with the week's events on their days."
+  },
+  {
+   "id": "cal-editor",
+   "page": "user/calendar.md",
+   "steps": [
+    {
+     "goto": "/#/calendar"
+    },
+    {
+     "waitFor": {
+      "text": "Weekly planning",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@calendar-new-event"
+     }
+    },
+    {
+     "fill": {
+      "label": "@calendar-field-title",
+      "value": "Budget review",
+      "within": {
+       "role": "dialog"
+      }
+     }
+    },
+    {
+     "fill": {
+      "label": "@calendar-field-location",
+      "value": "Meeting room 2",
+      "within": {
+       "role": "dialog"
+      }
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "dialog"
+    },
+    "padding": 6
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@calendar-field-title",
+      "within": {
+       "role": "dialog"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "label": "@calendar-field-calendar",
+      "within": {
+       "role": "dialog"
+      }
+     },
+     "place": "left"
+    },
+    {
+     "n": 3,
+     "target": {
+      "label": "@calendar-field-all-day",
+      "within": {
+       "role": "dialog"
+      }
+     },
+     "place": "top"
+    },
+    {
+     "n": 4,
+     "target": {
+      "label": "@calendar-field-start",
+      "within": {
+       "role": "dialog"
+      }
+     },
+     "place": "top"
+    },
+    {
+     "n": 5,
+     "target": {
+      "label": "@calendar-field-duration",
+      "within": {
+       "role": "dialog"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 6,
+     "target": {
+      "label": "@calendar-repeats",
+      "within": {
+       "role": "dialog"
+      }
+     },
+     "place": "left"
+    },
+    {
+     "n": 7,
+     "target": {
+      "role": "combobox",
+      "name": "@calendar-add-reminder",
+      "within": {
+       "role": "dialog"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 8,
+     "target": {
+      "label": "@calendar-add-attendee",
+      "within": {
+       "role": "dialog"
+      }
+     },
+     "place": "left"
+    }
+   ],
+   "alt": "The New event form with the title Budget review and the location Meeting room 2 filled in, and markers on its main fields."
+  },
+  {
+   "id": "cal-repeat",
+   "page": "user/calendar.md",
+   "steps": [
+    {
+     "goto": "/#/calendar"
+    },
+    {
+     "waitFor": {
+      "text": "Weekly planning",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@calendar-new-event"
+     }
+    },
+    {
+     "check": {
+      "label": "@calendar-repeats"
+     }
+    },
+    {
+     "wait": 500
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "dialog"
+    },
+    "padding": 6
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@calendar-frequency"
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "label": "@calendar-interval"
+     },
+     "place": "right"
+    },
+    {
+     "n": 3,
+     "target": {
+      "label": "@calendar-end-mode"
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The New event form with Repeats ticked, showing the Frequency, Interval and Ends fields."
+  },
+  {
+   "id": "cal-share",
+   "page": "user/calendar.md",
+   "steps": [
+    {
+     "goto": "/#/calendar"
+    },
+    {
+     "waitFor": {
+      "text": "Weekly planning",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "Share",
+      "exact": false,
+      "first": true,
+      "within": {
+       "label": "@calendar-calendars-heading"
+      }
+     }
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "dialog"
+    },
+    "padding": 6
+   },
+   "alt": "The Share Calendar dialog: a note about access, the list of people it is shared with, and a field to add a person."
+  },
+  {
+   "id": "contacts-screen",
+   "page": "user/contacts.md",
+   "steps": [
+    {
+     "goto": "/#/contacts"
+    },
+    {
+     "waitFor": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "button",
+      "name": "@common-edit"
+     }
+    }
+   ],
+   "shot": "full",
+   "alt": "The Contacts screen: address books and groups on the left, the contact list in the middle, and the card of Priya Raman on the right."
+  },
+  {
+   "id": "contacts-books",
+   "page": "user/contacts.md",
+   "steps": [
+    {
+     "goto": "/#/contacts"
+    },
+    {
+     "waitFor": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 243,
+     "y": 87,
+     "width": 202,
+     "height": 216
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "text": "@contacts-all",
+      "first": true
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "text": "@contacts-favorites",
+      "first": true
+     },
+     "place": "right"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@contacts-membership-title"
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "button",
+      "name": "@contacts-new-group"
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 5,
+     "target": {
+      "role": "button",
+      "name": "@contacts-import",
+      "exact": false
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The address book pane with markers on All contacts, Favorites, the group membership button, the new group button and Import."
+  },
+  {
+   "id": "contacts-list",
+   "page": "user/contacts.md",
+   "steps": [
+    {
+     "goto": "/#/contacts"
+    },
+    {
+     "waitFor": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 451,
+     "y": 87,
+     "width": 362,
+     "height": 232
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@contacts-search"
+     },
+     "place": "top"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@contacts-new"
+     },
+     "place": "left"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@contacts-find-duplicates"
+     },
+     "place": "right"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "checkbox",
+      "name": "Select Jordan Ellis"
+     },
+     "place": "left"
+    },
+    {
+     "n": 5,
+     "target": {
+      "role": "button",
+      "name": "Favorite Jordan Ellis"
+     },
+     "place": "top"
+    }
+   ],
+   "alt": "The top of the contact list with markers on the search field, New contact, Find duplicates, a contact's selection checkbox and its favorite star."
+  },
+  {
+   "id": "contacts-card",
+   "page": "user/contacts.md",
+   "steps": [
+    {
+     "goto": "/#/contacts"
+    },
+    {
+     "waitFor": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "button",
+      "name": "@common-edit"
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 819,
+     "y": 87,
+     "width": 606,
+     "height": 297
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "Favorite Priya Raman",
+      "last": true
+     },
+     "place": "top"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@contacts-share"
+     },
+     "place": "top"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@common-edit"
+     },
+     "place": "top"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "button",
+      "name": "@common-delete"
+     },
+     "place": "top"
+    }
+   ],
+   "alt": "The card of Priya Raman with markers on the Favorited, Share contact, Edit and Delete buttons."
+  },
+  {
+   "id": "contacts-editor",
+   "page": "user/contacts.md",
+   "steps": [
+    {
+     "goto": "/#/contacts"
+    },
+    {
+     "waitFor": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@common-edit"
+     }
+    },
+    {
+     "waitFor": {
+      "text": "@contacts-edit-contact",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 243,
+     "y": 87,
+     "width": 1181,
+     "height": 545
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@contacts-full-name"
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "label": "@contacts-organization"
+     },
+     "place": "right"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@contacts-add-email"
+     },
+     "place": "right"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "button",
+      "name": "@contacts-add-phone"
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The Edit contact form for Priya Raman, with Name and work, Email and phone, and Notes and preferences sections; markers on Full name, Organization, Add email and Add phone."
+  },
+  {
+   "id": "contacts-import",
+   "page": "user/contacts.md",
+   "steps": [
+    {
+     "goto": "/#/contacts"
+    },
+    {
+     "waitFor": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@contacts-import",
+      "exact": false
+     }
+    },
+    {
+     "fill": {
+      "label": "@contacts-paste",
+      "value": "BEGIN:VCARD\nVERSION:3.0\nFN:Hana Weber\nEMAIL:hana.weber@example.net\nTEL:+1 555 0188\nEND:VCARD"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@contacts-preview"
+     }
+    },
+    {
+     "waitFor": {
+      "text": "Hana Weber",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 243,
+     "y": 87,
+     "width": 1181,
+     "height": 420
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@contacts-import-file"
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "label": "@contacts-paste"
+     },
+     "place": "right"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@contacts-preview"
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The Import contacts screen with a pasted vCard for Hana Weber, the Preview button, and the Review pane listing the contact that was found."
+  },
+  {
+   "id": "contacts-save-menu",
+   "page": "user/contacts.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "City Library News",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "Spring reading list"
+     }
+    },
+    {
+     "rightclick": {
+      "role": "button",
+      "name": "City Library News",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "menuitem",
+      "name": "@contacts-save-contacts"
+     }
+    },
+    {
+     "hover": {
+      "role": "menuitem",
+      "name": "@contacts-save-contacts"
+     }
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 396,
+     "y": 143,
+     "width": 480,
+     "height": 400
+    }
+   },
+   "alt": "The message context menu with the Save contacts from this message submenu open: Save new contacts, Save sender as contact, Save all recipients and Choose contacts."
+  },
+  {
+   "id": "notifications-screen",
+   "page": "user/notifications.md",
+   "steps": [
+    {
+     "goto": "/#/notifications"
+    },
+    {
+     "waitFor": {
+      "text": "@notification-center-help"
+     }
+    }
+   ],
+   "shot": "full",
+   "alt": "The Notifications screen with its Active, Archived and Dismissed tabs, a search field, a type filter and the message No notifications in this view."
+  },
+  {
+   "id": "keys-screen",
+   "page": "user/encryption-keys.md",
+   "steps": [
+    {
+     "goto": "/#/keys"
+    },
+    {
+     "waitFor": {
+      "text": "@keys-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": "full",
+   "alt": "The Keys and certificates screen with the Generate key and Import key buttons, the Your keys and Contact keys lists, and the Look up a key form."
+  },
+  {
+   "id": "contacts-save-dialog",
+   "page": "user/contacts.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "City Library News",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "Spring reading list"
+     }
+    },
+    {
+     "rightclick": {
+      "role": "button",
+      "name": "City Library News",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "menuitem",
+      "name": "@contacts-save-contacts"
+     }
+    },
+    {
+     "click": {
+      "role": "menuitem",
+      "name": "@contacts-save-choose"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "dialog"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "dialog"
+    },
+    "padding": 6
+   },
+   "alt": "The Save contacts from this message dialog with the sender of a newsletter listed, a Name, Email, Address book and Group choice, and a Save 1 contact button.",
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "checkbox",
+      "first": true,
+      "within": {
+       "role": "dialog"
+      }
+     },
+     "place": "left"
+    },
+    {
+     "n": 2,
+     "target": {
+      "label": "@contacts-save-name",
+      "first": true,
+      "within": {
+       "role": "dialog"
+      }
+     },
+     "place": "top"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "combobox",
+      "first": true,
+      "within": {
+       "role": "dialog"
+      }
+     },
+     "place": "right"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "button",
+      "name": "Save 1 contact",
+      "within": {
+       "role": "dialog"
+      }
+     },
+     "place": "top"
+    }
+   ]
+  },
+  {
+   "id": "tasks-convert",
+   "page": "user/tasks.md",
+   "steps": [
+    {
+     "goto": "/#/tasks"
+    },
+    {
+     "waitFor": {
+      "text": "Approve the print run",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "label": "@tasks-mail-id",
+     "closest": "div"
+    },
+    "padding": 6
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@tasks-mail-id"
+     },
+     "place": "top"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@tasks-mail-to-task"
+     },
+     "place": "top"
+    },
+    {
+     "n": 3,
+     "target": {
+      "label": "@tasks-event-id"
+     },
+     "place": "top"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "button",
+      "name": "@tasks-event-to-task"
+     },
+     "place": "top"
+    }
+   ],
+   "alt": "The Convert row of the Tasks screen with a message id field, a Mail to task button, an event id field and an Event to task button."
+  },
+  {
+   "id": "keys-actions",
+   "page": "user/encryption-keys.md",
+   "steps": [
+    {
+     "goto": "/#/keys"
+    },
+    {
+     "waitFor": {
+      "text": "@keys-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 240,
+     "y": 86,
+     "width": 366,
+     "height": 150
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@keys-generate"
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@keys-import"
+     },
+     "place": "bottom"
+    }
+   ],
+   "alt": "The top of the Keys and certificates screen with the note about where private keys are stored and markers on Generate key and Import key."
+  },
+  {
+   "id": "keys-lookup",
+   "page": "user/encryption-keys.md",
+   "steps": [
+    {
+     "goto": "/#/keys"
+    },
+    {
+     "waitFor": {
+      "text": "@keys-title",
+      "first": true
+     }
+    },
+    {
+     "fill": {
+      "label": "@keys-lookup-address",
+      "value": "sam@example.org"
+     }
+    },
+    {
+     "eval": "document.activeElement && document.activeElement.blur()"
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "form",
+     "name": "@keys-lookup-form"
+    },
+    "padding": 8
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@keys-lookup-address"
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "group",
+      "name": "@keys-lookup-sources"
+     },
+     "place": "right"
+    },
+    {
+     "n": 3,
+     "target": {
+      "text": "Looking a key up",
+      "exact": false,
+      "first": true
+     },
+     "place": "left"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "button",
+      "name": "@keys-lookup-button"
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The Look up a key form with an address typed in, the four lookup sources WKD, VKS, Autocrypt and Harvested, the consent checkbox and the Look up button.",
+   "note": "eval only blurs the address field so its focus tooltip is not in the crop."
+  },
+  {
+   "id": "keys-generate",
+   "page": "user/encryption-keys.md",
+   "steps": [
+    {
+     "goto": "/#/keys"
+    },
+    {
+     "waitFor": {
+      "text": "@keys-title",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@keys-generate"
+     }
+    },
+    {
+     "fill": {
+      "label": "@keys-name",
+      "value": "Alex Rivera"
+     }
+    },
+    {
+     "fill": {
+      "label": "@keys-email",
+      "value": "alex@example.com"
+     }
+    },
+    {
+     "fill": {
+      "label": "@keys-key-passphrase",
+      "value": "a long passphrase only Alex knows"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "dialog"
+    },
+    "padding": 6
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@keys-key-type"
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "label": "@keys-name"
+     },
+     "place": "right"
+    },
+    {
+     "n": 3,
+     "target": {
+      "label": "@keys-email"
+     },
+     "place": "right"
+    },
+    {
+     "n": 4,
+     "target": {
+      "label": "@keys-key-passphrase"
+     },
+     "place": "right"
+    },
+    {
+     "n": 5,
+     "target": {
+      "role": "button",
+      "name": "@keys-generate-submit"
+     },
+     "place": "top"
+    }
+   ],
+   "alt": "The Generate a key dialog with the type OpenPGP, the name Alex Rivera, the address alex@example.com and a passphrase entered, and a note that the locked key is also stored on the server."
+  },
+  {
+   "id": "snooze-orientation",
+   "page": "user/snooze.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "Sam Okoye",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "Re: Spring catalogue: print proof"
+     }
+    },
+    {
+     "rightclick": {
+      "role": "button",
+      "name": "Sam Okoye",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "menuitem",
+      "name": "@mail-snooze"
+     }
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "shot": "full",
+   "alt": "The mailbox with the message context menu open on Re: Spring catalogue: print proof and its Snooze submenu showing Choose date and time, Later today, Tomorrow and Next week."
+  },
+  {
+   "id": "snooze-menu",
+   "page": "user/snooze.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "Sam Okoye",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "Re: Spring catalogue: print proof"
+     }
+    },
+    {
+     "rightclick": {
+      "role": "button",
+      "name": "Sam Okoye",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "menuitem",
+      "name": "@mail-snooze"
+     }
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 396,
+     "y": 562,
+     "width": 480,
+     "height": 130
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "menuitem",
+      "name": "@mail-snooze"
+     },
+     "place": "left"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "menuitem",
+      "name": "@snooze-custom"
+     },
+     "place": "right"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "menuitem",
+      "name": "@mail-snooze-later"
+     },
+     "place": "right"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "menuitem",
+      "name": "@mail-snooze-tomorrow"
+     },
+     "place": "right"
+    },
+    {
+     "n": 5,
+     "target": {
+      "role": "menuitem",
+      "name": "@mail-snooze-next-week"
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The Snooze entry of the message menu with its submenu: Choose date and time, Later today, Tomorrow and Next week, each with a marker."
+  },
+  {
+   "id": "snooze-custom",
+   "page": "user/snooze.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "Sam Okoye",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "Re: Spring catalogue: print proof"
+     }
+    },
+    {
+     "rightclick": {
+      "role": "button",
+      "name": "Sam Okoye",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "menuitem",
+      "name": "@mail-snooze"
+     }
+    },
+    {
+     "click": {
+      "role": "menuitem",
+      "name": "@snooze-custom"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "dialog"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "dialog"
+    },
+    "padding": 6
+   },
+   "alt": "The custom snooze dialog with a date and time field and the time zone it uses."
+  },
+  {
+   "id": "snooze-settings",
+   "page": "user/snooze.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@reader-settings-title",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@mail-snooze"
+     }
+    },
+    {
+     "wait": 800
+    }
+   ],
+   "shot": "full",
+   "alt": "The Snooze tab of Message display settings, listing the snooze presets with their schedule rules."
+  },
+  {
+   "id": "rules-from-message",
+   "page": "user/rules-filters.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "Sam Okoye",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "Re: Spring catalogue: print proof"
+     }
+    },
+    {
+     "rightclick": {
+      "role": "button",
+      "name": "Sam Okoye",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "menuitem",
+      "name": "Create filter from this message"
+     }
+    },
+    {
+     "waitFor": {
+      "role": "form",
+      "name": "@rules-builder-title"
+     }
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "form",
+     "name": "@rules-builder-title"
+    },
+    "padding": 8
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@rules-name-label"
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "label": "@rules-match-all"
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 3,
+     "target": {
+      "label": "@rules-cond-type-label"
+     },
+     "place": "top"
+    },
+    {
+     "n": 4,
+     "target": {
+      "label": "@rules-cond-op-label"
+     },
+     "place": "top"
+    },
+    {
+     "n": 5,
+     "target": {
+      "label": "@rules-cond-value-label"
+     },
+     "place": "top"
+    },
+    {
+     "n": 6,
+     "target": {
+      "role": "button",
+      "name": "@rules-add-condition"
+     },
+     "place": "right"
+    },
+    {
+     "n": 7,
+     "target": {
+      "label": "@rules-act-type-label"
+     },
+     "place": "top"
+    },
+    {
+     "n": 8,
+     "target": {
+      "label": "@rules-act-value-label"
+     },
+     "place": "top"
+    },
+    {
+     "n": 9,
+     "target": {
+      "role": "button",
+      "name": "@rules-add-action"
+     },
+     "place": "right"
+    },
+    {
+     "n": 10,
+     "target": {
+      "role": "button",
+      "name": "@rules-save"
+     },
+     "place": "bottom"
+    }
+   ],
+   "alt": "The rule builder opened from a message, with the rule name, the match choice, one condition on the sender, one Move to mailbox action, and the Save rule button."
+  },
+  {
+   "id": "rules-raw",
+   "page": "user/rules-filters.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@settings-nav-rules",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@rules-tab-raw"
+     }
+    },
+    {
+     "wait": 1000
+    }
+   ],
+   "shot": "full",
+   "alt": "The Raw Sieve tab of Rules and filters with the script list and editor."
+  },
+  {
+   "id": "rules-forward",
+   "page": "user/rules-filters.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@settings-nav-rules",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@rules-forward-title"
+     }
+    },
+    {
+     "wait": 1000
+    }
+   ],
+   "shot": "full",
+   "alt": "The Forwarding tab of Rules and filters with the Forward to field and the Keep a copy option."
+  },
+  {
+   "id": "packages-settings",
+   "page": "user/packages.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@packages-title",
+      "first": true
+     }
+    },
+    {
+     "wait": 800
+    }
+   ],
+   "shot": {
+    "element": {
+     "role": "region",
+     "name": "@packages-title"
+    },
+    "padding": 10
+   },
+   "alt": "The Package tracking settings with the privacy note, the message that tracking is not set up by the administrator, the opt-in checkbox, Add package and the empty package table."
+  },
+  {
+   "id": "shortcuts-presets",
+   "page": "user/keyboard-shortcuts.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@settings-nav-keyboard-display",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "text": "View preset bindings",
+      "first": true
+     }
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "shot": {
+    "element": {
+     "text": "@settings-kbd-preset-title",
+     "first": true,
+     "closest": "section"
+    },
+    "padding": 8
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@settings-kbd-default"
+     },
+     "place": "top"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@settings-kbd-off"
+     },
+     "place": "top"
+    },
+    {
+     "n": 3,
+     "target": {
+      "text": "View preset bindings",
+      "first": true
+     },
+     "place": "left"
+    }
+   ],
+   "alt": "The Shortcut preset card with the presets Mailwoman, Gmail, Outlook, Vim and Off, and the table of preset bindings opened."
+  },
+  {
+   "id": "offline-settings",
+   "page": "user/offline-sync.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@settings-nav-keyboard-display",
+      "first": true
+     }
+    },
+    {
+     "scroll": {
+      "text": "@settings-offline-title",
+      "first": true,
+      "block": "start"
+     }
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "shot": {
+    "element": {
+     "text": "@settings-offline-title",
+     "first": true,
+     "closest": "section"
+    },
+    "padding": 8
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "checkbox",
+      "name": "@settings-offline-enabled"
+     },
+     "place": "left"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "combobox",
+      "name": "@settings-sync-headers-window"
+     },
+     "place": "left"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "combobox",
+      "name": "@settings-sync-bodies"
+     },
+     "place": "left"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "combobox",
+      "name": "@settings-sync-attachments",
+      "within": {
+       "testid": "account-settings"
+      }
+     },
+     "place": "left"
+    },
+    {
+     "n": 5,
+     "target": {
+      "label": "@settings-offline-budget-label"
+     },
+     "place": "left"
+    },
+    {
+     "n": 6,
+     "target": {
+      "label": "@settings-offline-retention-label"
+     },
+     "place": "left"
+    }
+   ],
+   "alt": "The Offline cache card with markers on Offline access, the header window, message bodies, attachments, the cache budget and the keep-for days."
+  },
+  {
+   "id": "shortcuts-custom",
+   "page": "user/keyboard-shortcuts.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@settings-nav-keyboard-display",
+      "first": true
+     }
+    },
+    {
+     "scroll": {
+      "text": "@settings-shortcuts-enabled",
+      "first": true,
+      "block": "start"
+     }
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "shot": {
+    "element": [
+     {
+      "text": "@settings-shortcuts-enabled",
+      "first": true
+     },
+     {
+      "role": "table"
+     }
+    ],
+    "padding": 8
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "checkbox",
+      "name": "@settings-shortcuts-enabled"
+     },
+     "place": "left"
+    },
+    {
+     "n": 2,
+     "target": {
+      "label": "@settings-shortcuts-search"
+     },
+     "place": "top"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "Edit Compose shortcut"
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The Keyboard shortcuts card with the switch Enable application shortcuts, a search field, and the table of actions with their bindings and an edit button on each row."
+  },
+  {
+   "id": "unified-settings",
+   "page": "user/unified-mail.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@settings-folders-title",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "Folders and sidebar"
+     }
+    },
+    {
+     "wait": 800
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 447,
+     "y": 415,
+     "width": 983,
+     "height": 125
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "checkbox",
+      "name": "@unified-mail-virtual-account"
+     },
+     "place": "left"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "checkbox",
+      "name": "@unified-mail-view-setting"
+     },
+     "place": "left"
+    }
+   ],
+   "alt": "Two rows of the Folders and sidebar settings: Unified virtual account and Unified message view, each with a checkbox."
+  },
+  {
+   "id": "rules-screen",
+   "page": "user/rules-filters.md",
+   "isolate": false,
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@settings-nav-rules",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@rules-new"
+     }
+    },
+    {
+     "fill": {
+      "label": "@rules-name-label",
+      "value": "Print shop mail"
+     }
+    },
+    {
+     "waitFor": {
+      "label": "@rules-cond-value-label"
+     }
+    }
+   ],
+   "shot": "full",
+   "alt": "The Rules and filters screen with the Builder, Raw Sieve and Forwarding tabs, and the rule builder open with a new rule named Print shop mail."
+  },
+  {
+   "id": "snooze-done",
+   "page": "user/snooze.md",
+   "isolate": true,
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "Sam Okoye",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "waitFor": {
+      "role": "heading",
+      "name": "Re: Spring catalogue: print proof"
+     }
+    },
+    {
+     "rightclick": {
+      "role": "button",
+      "name": "Sam Okoye",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "menuitem",
+      "name": "@mail-snooze"
+     }
+    },
+    {
+     "click": {
+      "role": "menuitem",
+      "name": "@mail-snooze-tomorrow"
+     }
+    },
+    {
+     "waitFor": {
+      "text": "@mail-toast-snoozed",
+      "first": true
+     }
+    },
+    {
+     "reload": true
+    },
+    {
+     "waitFor": {
+      "role": "button",
+      "name": "Priya Raman",
+      "exact": false,
+      "first": true
+     }
+    },
+    {
+     "wait": 1500
+    }
+   ],
+   "shot": "full",
+   "alt": "The mailbox after snoozing a message and reloading the page."
+  },
+  {
+   "id": "contacts-dups",
+   "page": "user/contacts.md",
+   "seed": [
+    "uf-pim-duplicate"
+   ],
+   "steps": [
+    {
+     "goto": "/#/contacts"
+    },
+    {
+     "waitFor": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@contacts-find-duplicates"
+     }
+    },
+    {
+     "waitFor": {
+      "text": "@contacts-merge-title",
+      "first": true
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 243,
+     "y": 87,
+     "width": 1181,
+     "height": 420
+    }
+   },
+   "alt": "The Merge duplicates screen listing the possible duplicates found among the contacts."
+  },
+  {
+   "id": "keys-card",
+   "page": "user/encryption-keys.md",
+   "isolate": true,
+   "steps": [
+    {
+     "goto": "/#/keys"
+    },
+    {
+     "waitFor": {
+      "text": "@keys-title",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@keys-generate"
+     }
+    },
+    {
+     "fill": {
+      "label": "@keys-name",
+      "value": "Alex Rivera"
+     }
+    },
+    {
+     "fill": {
+      "label": "@keys-email",
+      "value": "alex@example.com"
+     }
+    },
+    {
+     "fill": {
+      "label": "@keys-key-passphrase",
+      "value": "a long passphrase only Alex knows"
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@keys-generate-submit"
+     }
+    },
+    {
+     "waitFor": {
+      "text": "alex@example.com",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "text": "alex@example.com",
+      "first": true
+     }
+    },
+    {
+     "wait": 1200
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 619,
+     "y": 87,
+     "width": 790,
+     "height": 622
+    }
+   },
+   "alt": "The details of an OpenPGP key: its fingerprint, safe words, a QR code, the Autocrypt state, the trust level, a contact to associate it with, and the backup export button.",
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "text": "@keys-fingerprint",
+      "first": true
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "text": "@keys-safe-words",
+      "first": true
+     },
+     "place": "right"
+    },
+    {
+     "n": 3,
+     "target": {
+      "label": "@keys-qr-label"
+     },
+     "place": "right"
+    },
+    {
+     "n": 4,
+     "target": {
+      "label": "@keys-trust-level"
+     },
+     "place": "top"
+    },
+    {
+     "n": 5,
+     "target": {
+      "role": "button",
+      "name": "@keys-associate-button"
+     },
+     "place": "right"
+    },
+    {
+     "n": 6,
+     "target": {
+      "role": "button",
+      "name": "@keys-export-backup"
+     },
+     "place": "right"
+    }
+   ]
+  },
+  {
+   "id": "contacts-group",
+   "page": "user/contacts.md",
+   "steps": [
+    {
+     "goto": "/#/contacts"
+    },
+    {
+     "waitFor": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@contacts-new-group"
+     }
+    },
+    {
+     "wait": 800
+    },
+    {
+     "fill": {
+      "label": "@contacts-new-group-name",
+      "value": "Print shop"
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 243,
+     "y": 87,
+     "width": 1181,
+     "height": 360
+    }
+   },
+   "alt": "The New group form with the name Print shop entered, the address book choice and the Create button.",
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@contacts-new-group-name"
+     },
+     "place": "top"
+    },
+    {
+     "n": 2,
+     "target": {
+      "label": "@contacts-address-books"
+     },
+     "place": "top"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@contacts-create"
+     },
+     "place": "right"
+    }
+   ]
+  },
+  {
+   "id": "contacts-share",
+   "page": "user/contacts.md",
+   "steps": [
+    {
+     "goto": "/#/contacts"
+    },
+    {
+     "waitFor": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "text": "Priya Raman",
+      "first": true
+     }
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@contacts-share"
+     }
+    },
+    {
+     "wait": 600
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 819,
+     "y": 87,
+     "width": 606,
+     "height": 297
+    }
+   },
+   "alt": "The Share contact menu on a contact card: Send contact by email, Copy as vCard and Download .vcf."
+  },
+  {
+   "id": "notifications-filters",
+   "page": "user/notifications.md",
+   "steps": [
+    {
+     "goto": "/#/notifications"
+    },
+    {
+     "waitFor": {
+      "text": "@notification-center-help"
+     }
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 228,
+     "y": 72,
+     "width": 1025,
+     "height": 215
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "role": "button",
+      "name": "@notification-center-active"
+     },
+     "place": "top"
+    },
+    {
+     "n": 2,
+     "target": {
+      "role": "button",
+      "name": "@notification-center-archived"
+     },
+     "place": "top"
+    },
+    {
+     "n": 3,
+     "target": {
+      "role": "button",
+      "name": "@notification-center-dismissed"
+     },
+     "place": "top"
+    },
+    {
+     "n": 4,
+     "target": {
+      "role": "searchbox",
+      "name": "@common-search"
+     },
+     "place": "bottom"
+    },
+    {
+     "n": 5,
+     "target": {
+      "role": "combobox",
+      "name": "@notification-center-type"
+     },
+     "place": "bottom"
+    }
+   ],
+   "alt": "The top of the Notifications screen with markers on the Active, Archived and Dismissed buttons, the search field and the Type menu."
+  },
+  {
+   "id": "keys-compose-security",
+   "page": "user/encryption-keys.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-compose"
+     }
+    },
+    {
+     "click": {
+      "role": "tab",
+      "name": "@mail-compose-ribbon-security"
+     }
+    },
+    {
+     "wait": 800
+    }
+   ],
+   "shot": {
+    "clip": {
+     "x": 244,
+     "y": 268,
+     "width": 1180,
+     "height": 156
+    }
+   },
+   "callouts": [
+    {
+     "n": 1,
+     "target": {
+      "label": "@crypto-encrypt-label"
+     },
+     "place": "right"
+    },
+    {
+     "n": 2,
+     "target": {
+      "label": "@crypto-sign-label"
+     },
+     "place": "right"
+    }
+   ],
+   "alt": "The Security tab of the message editor ribbon with the Encrypt (end-to-end) switch greyed out and the Sign switch available."
+  },
+  {
+   "id": "shortcuts-screen",
+   "page": "user/keyboard-shortcuts.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@settings-nav-keyboard-display",
+      "first": true
+     }
+    },
+    {
+     "wait": 800
+    }
+   ],
+   "shot": "full",
+   "alt": "The Keyboard and display settings page with the Shortcut preset card at the top and the Offline cache card below it."
+  },
+  {
+   "id": "offline-screen",
+   "page": "user/offline-sync.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@settings-nav-keyboard-display",
+      "first": true
+     }
+    },
+    {
+     "scroll": {
+      "text": "@settings-offline-title",
+      "first": true,
+      "block": "start"
+     }
+    },
+    {
+     "wait": 800
+    }
+   ],
+   "shot": "full",
+   "alt": "The Keyboard and display settings page scrolled to the Offline cache card, with Offline access unticked."
+  },
+  {
+   "id": "packages-screen",
+   "page": "user/packages.md",
+   "steps": [
+    {
+     "goto": "/"
+    },
+    {
+     "click": {
+      "role": "button",
+      "name": "@mail-nav-settings"
+     }
+    },
+    {
+     "click": {
+      "text": "@packages-title",
+      "first": true
+     }
+    },
+    {
+     "wait": 800
+    }
+   ],
+   "shot": "full",
+   "alt": "The Package tracking page in Settings, with the settings list on the left and the Package tracking card on the right."
+  }
+ ]
+}

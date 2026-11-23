@@ -1,0 +1,7 @@
+{
+  "_comment": "Extra contact for the user-features area: shares an email address with Priya Raman so that Find duplicates has a pair to show.",
+  "timeZone": "UTC",
+  "contacts": [
+    { "org": "Priya Raman", "email": "priya.raman@example.com", "phone": "+1 555 0102" }
+  ]
+}

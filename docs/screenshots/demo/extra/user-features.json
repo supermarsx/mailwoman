@@ -1,0 +1,14 @@
+{
+  "seeds": {
+    "uf-pim-duplicate": {
+      "stacks": [
+        "E"
+      ],
+      "include": [
+        "mail-basic",
+        "pim-week"
+      ],
+      "pim": "extra/user-features-pim.json"
+    }
+  }
+}
