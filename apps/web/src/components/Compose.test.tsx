@@ -415,6 +415,25 @@ describe('Compose', () => {
     });
   }
 
+  it('withholds a draft quoting decrypted mail when decrypted content is not allowed', async () => {
+    const invoked: string[] = [];
+    const service = new AssistService(async (input: string) => {
+      if (input.includes('/api/assist/config')) {
+        return json({ availability: 'enabled', capabilities: ['grammar'], endpoint_host: 'assist.local', include_e2ee: false, include_attachments: false });
+      }
+      if (input.includes('/api/assist/invoke')) invoked.push(input);
+      return json({}, 404);
+    });
+    const initial = { mode: 'reply' as const, to: 'alice@outside.test', cc: '', subject: 'Re: Plans', bodyText: 'Quoted text', bodyHtml: '<p>Quoted text</p>', inReplyTo: [], references: [], attachments: [], quotesDecrypted: true };
+    const { app } = renderWithApp(() => <Compose onClose={() => undefined} initial={initial} />, { deps: { assistService: service } });
+    await app.assist.loadConfig();
+    fireEvent.click(screen.getByRole('tab', { name: 'Insert' }));
+    fireEvent.click(within(await screen.findByTestId('compose-assist')).getAllByRole('button')[0]!);
+    fireEvent.click(screen.getByRole('button', { name: 'Fix grammar' }));
+    expect(await screen.findByText(/may contain text from an encrypted message/)).toBeInTheDocument();
+    expect(invoked).toEqual([]);
+  });
+
   it('attaches a Nextcloud file into the composer', async () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, {
       deps: { nextcloudFetcher },
