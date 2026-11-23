@@ -1,152 +1,134 @@
-# Routing outbound fetches through your own proxy
+# Routing outbound requests through a proxy
 
-Mailwoman makes server-side outbound fetches (remote images, webcal, autoconfig,
-key lookups, webhooks). 26.20 adds the machinery for an operator to require those
-to go through an HTTP `CONNECT` or SOCKS5 proxy they control — see the status
-note below for which parts of it are wired.
+Mailwoman makes HTTP requests of its own: remote images in messages, calendar
+subscriptions, key lookups, webhooks and more. On the **Outbound connections** page
+of the admin console you can send some or all of these requests through an HTTP
+`CONNECT` or SOCKS5 proxy that you run. This page explains how to add a route, put it
+into use and test it. How the address policy works with a proxy, and its limits, is
+in [Outbound connections (egress)](../security/egress.md).
 
-The threat model and the guarantees — including the one this design cannot make —
-are in [`../security/egress.md`](../security/egress.md). **Read that before
-deciding to enable this**; the summary is that Mailwoman still enforces its own
-address policy and never asks the proxy to resolve a name, but it cannot prove
-the proxy dialled the address it was given.
+<!-- SCREENSHOT deploy/egress-routes: Admin console, Configuration > Outbound connections, Outbound proxy routes tab with one route in use and one not in use, full -->
 
-> ## ⚠️ STATUS — verify before publishing this page
->
-> **This page was written before the feature was fully wired, and describes the
-> intended complete behaviour.** At the time of writing, at commit `439ebb6`:
->
-> * The transport (HTTP `CONNECT`, SOCKS5, IP-literal only), the config store
->   (migration `0026`, sealed password), the admin API (list / save / delete) and
->   the admin UI **have landed**.
-> * **No fetch path consumes a configured route yet.** `list_egress_proxies` and
->   `get_egress_proxy` have no callers outside the store and the admin API, so
->   saving a route currently routes nothing. Wiring it into the hardened fetches
->   is a separate, later task.
-> * **The route-test endpoint is not implemented.** The admin UI's Test button is
->   built against an agreed contract; the server half does not exist yet, so the
->   button cannot succeed.
->
-> **Whoever tags the release must re-check all three and either delete this banner
-> or cut the corresponding sections.** Shipping this page as-is would describe a
-> capability an operator cannot actually obtain — which is the exact class of
-> claim this project has had to correct before.
+## Before you start
 
----
+- You need an administrator account that can change outbound settings. With
+  read-only access the page shows the routes but the controls are disabled.
+- Saving, deleting, starting or stopping a route may ask you to confirm your
+  identity again.
+- `docker-compose.proxy.yml` in the repository is not a forward proxy. It runs
+  reverse proxies in front of Mailwoman for testing. To try this feature, run a
+  forward proxy such as Squid or a SOCKS5 server.
 
-## A filename that means the opposite of what you want
+## Add a route
 
-**`docker-compose.proxy.yml` is not this feature's rig.** It is the *reverse*-proxy
-conformance stack — nginx/haproxy sitting **in front of** Mailwoman, from the
-reverse-proxy compatibility work. What egress needs is a **forward** proxy, which
-Mailwoman dials *outbound*.
+1. In the admin console, open **Outbound connections** (under **Configuration**) and
+   stay on the **Outbound proxy routes** tab.
+2. Click **Add a route**.
+3. Fill in the form:
+   - **Id**: your name for the route. It cannot be changed after the route is saved.
+   - **Scheme**: **HTTP CONNECT** or **SOCKS5**.
+   - **Host** and **Port**: the proxy's address.
+   - **Username** and **Password**: only if the proxy requires them. A password
+     needs a username.
+   - **Route scope**: `global`, or `domain:example.org` to use the route only for
+     accounts of that configured domain.
+   - **Traffic carried by this route**: tick at least one kind of request. Kinds you
+     leave unticked are not sent through this route.
+   - **Allow plaintext http origins through this route**: off by default. When it is
+     off, only `https` destinations are fetched through the route.
+4. Click **Add**.
 
-Two separate lanes reached for that file on the strength of its name before
-checking what was inside it, which is enough evidence to assume a third will. If
-you are standing up a rig to exercise egress, you want a forward proxy container
-(Squid, or a SOCKS5 server) — not that stack.
+<!-- SCREENSHOT deploy/egress-add-route: Admin console, Outbound connections > Add a route form filled in with an example SOCKS5 proxy, crop of the form -->
 
----
+A saved route carries no traffic yet. The page says **No route is in use. Outbound
+fetches go direct.** until you put a route into use.
 
-## Configuring a route
+## Put a route into use
 
-Admin console → **Egress**. A route is:
+1. In the routes table, click **Use this route** on the row.
+2. The row's **State** changes to **In use**, and the page names the route in use.
 
-| field | notes |
+Only one route is in use at a time; choosing another one takes the first out of use.
+The change applies on the server that handled it at once, and on other server
+processes within 15 seconds.
+
+To stop using a proxy, click **Stop using a proxy**. Outbound requests then go
+direct.
+
+<!-- SCREENSHOT deploy/egress-in-use: Admin console, Outbound proxy routes table, one route In use, crop of the in-use notice, the State column and the Test button -->
+
+## Test the route in use
+
+1. On the row that is **In use**, click **Test**.
+2. Read the result under the row. It names the outcome, where the attempt stopped,
+   the route, whether the request **Traversed the proxy**, and the URL fetched.
+
+The test fetches one fixed URL through the route: `https://example.com/` unless
+`MW_EGRESS_PROBE_URL` is set on the server. It changes nothing.
+
+| Outcome | Meaning |
 |---|---|
-| **Id** | Your name for the route. It is the primary key: editing it would create a second route rather than rename this one, so it is fixed once saved. |
-| **Scheme** | `http` (CONNECT) or `socks5`. |
-| **Host**, **Port** | The proxy itself. |
-| **Username** | Optional. Required if you set a password. |
-| **Password** | Optional. **Write-only** — see below. |
-| **Allow plaintext** | Off by default. Permits `http` origins through this route. |
+| **Connected** | The URL was fetched through the proxy. Any HTTP answer from the URL counts. |
+| **Authentication rejected** | The proxy refused the username or password. |
+| **Refused by policy** | Mailwoman's address policy refused the URL, the URL is `http` and the route does not allow plaintext, or the proxy refused to open the tunnel. |
+| **Name did not resolve** | The proxy's host name did not resolve. |
+| **Unreachable** | No TCP connection to the proxy, or the exchange failed or timed out. |
+| **Origin TLS failed** | The tunnel opened, but the URL's certificate did not verify. |
+| **Route is not valid** | The route's settings cannot be used. |
 
-### The password is write-only, and what that means when you edit
+Where the attempt stopped is shown as **stopped at name resolution**, **stopped while
+connecting to the proxy**, **stopped while opening the tunnel** or **stopped at the
+origin**. If the page shows **The test could not be run, so nothing is known about
+this route.**, the test itself failed to run (for example the route was deleted); it
+says nothing about the route.
 
-The server **never returns the password**, not even masked — the API carries only
-a `hasCredentials` flag. So the admin form cannot show it to you, and cannot send
-it back.
+## Edit or delete a route
 
-**Leave the password field blank to keep the stored one.** Editing a route's host
-or port with the field blank preserves the credential; type a new value only when
-you want to replace it. (Sending an explicit empty value clears it.)
+- Click **Edit** on the row, change the fields and click **Save**. Leave **Password**
+  empty to keep the stored password; type a new one only to replace it.
+- Click **Delete** on the row to remove the route.
 
-This is worth stating because the alternative behaviour is a real hazard and was
-briefly present during development: if an omitted password were written as empty,
-every edit to an unrelated field would silently destroy the route's
-authentication, and you would not find out until the next fetch failed.
+The server never sends a stored password back to the browser. The **Password**
+column shows only **Set** or **None**.
 
----
+## What happens when the proxy is down
 
-## Testing a route
+A request whose kind is assigned to the route in use fails when the proxy cannot be
+reached. It does not fall back to a direct connection. With the default kinds,
+remote images stop loading and calendar subscriptions stop refreshing until the proxy is back or you click **Stop
+using a proxy**. Use **Test** to tell whether the proxy is down or Mailwoman refused
+the destination.
 
-**Not available yet.** The admin UI renders a **Test** control, but the endpoint
-behind it does not exist — see the status note at the top. The button cannot
-succeed today. This section describes what it will report once the server half
-lands; it is here so the contract is reviewable, not because you can use it.
+## What is recorded
 
-Once available, each route has a **Test** button that performs a live attempt and
-reports what happened. It reports an **outcome** and the **stage** it reached:
+Every save, delete, start, stop and test writes an audit entry naming the route. A
+save records the route's `scheme://host:port`, whether it has a password, and the
+username; a test records the outcome and stage. No entry contains the password.
 
-| outcome | meaning |
-|---|---|
-| `connected` | Reached the origin through the route. |
-| `authRejected` | The proxy refused the credentials. |
-| `refusedByPolicy` | Mailwoman's own address policy refused the target. |
-| `dnsFailed` | The name did not resolve. |
-| `unreachable` | The proxy could not be reached. |
-| `originTlsFailed` | The tunnel opened, but the origin's TLS did not verify. |
-| `routeInvalid` | The route's own configuration is not usable. |
+## Internal destination permissions
 
-The **stage** (`dns`, `connect`, `tunnel`, `origin`) is where it stopped, which
-is usually what tells you which thing to fix: the same refusal at `tunnel` and at
-`origin` are different faults. The result also states whether the proxy was
-**actually traversed** — taken from the transport's own progress, not from the
-fact that a route is configured.
+The **Internal destination permissions** tab on the same page is a separate list. It
+lets a few kinds of request (outgoing webhooks, security event collectors, Nextcloud)
+reach a named private service that the address policy would otherwise refuse. See
+[Outbound connections (egress)](../security/egress.md).
 
-A test that could not be *run* (the route no longer exists, you are not
-authenticated, the probe itself failed) is reported separately from a verdict. It
-means nothing was learned about the route, which is different from learning the
-route is broken.
+## Options
 
----
+| Field | What it does | Default |
+|---|---|---|
+| **Id** | Name of the route; fixed after saving | none |
+| **Scheme** | **HTTP CONNECT** or **SOCKS5** | **HTTP CONNECT** |
+| **Host**, **Port** | Address of the proxy | none |
+| **Username**, **Password** | Credentials sent to the proxy | none |
+| **Route scope** | `global`, or `domain:<configured domain>` | `global` |
+| **Traffic carried by this route** | Which kinds of request use the route | **Remote message images and files**, **Calendar subscription feeds** |
+| **Allow plaintext http origins through this route** | Allow `http` destinations through the route | off |
 
-## Fail-closed, and what that looks like when it goes wrong
+| Variable | What it does | Default |
+|---|---|---|
+| `MW_EGRESS_PROBE_URL` | URL fetched by **Test** | `https://example.com/` |
 
-**If the proxy is unavailable, the fetch fails. It does not fall back to a direct
-connection.** This is deliberate: a fallback would mean your routing requirement
-silently stops applying exactly when the proxy is down.
+## Related
 
-The operational consequence is that **a briefly unavailable proxy looks like a
-bug** — remote images stop loading, webcal refreshes fail. If you are diagnosing
-that, the audit row records which actually happened rather than what was
-configured. (The route Test button will be the fastest way to tell "the proxy is
-down" from "Mailwoman refused the target" — once its endpoint exists; see above.)
-
----
-
-## What is audited
-
-Every route change — save and delete — writes an `audit_log` row. The row records
-`scheme://host:port`, the only form of a route that may be logged, and never the
-credentials. (`audit_log` is append-only by design: there is no update or delete
-method, so a secret written into it could never be redacted afterwards. That is
-why the rule is absolute rather than best-effort.)
-
-Once fetches are routed, the audit row for a fetch is specified to record whether
-the proxy was **actually** traversed — taken from the transport's own progress,
-not from the configuration. Setting that field from the intended configuration
-rather than the observed connection is exactly the bug that makes an audit log
-worthless, so it is worth knowing it was designed against.
-
----
-
-## Not supported (deliberately)
-
-* **Per-origin routing rules.** One default route per deployment. Host-pattern
-  routing is separately threat-modelled work, not an extension of this.
-* **Per-account proxies.** An SSRF primitive with extra steps.
-* **A user-selectable proxy.** Admin-only.
-* **HTTP/2 over the tunnel, and connection pooling through a route.** No measured
-  need; pooling in particular interacts with the DNS pin and would need its own
-  "the pin still holds on hop N" proof.
+- [Outbound connections (egress)](../security/egress.md)
+- [Running behind a reverse proxy](reverse-proxy.md)
