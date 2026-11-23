@@ -72,6 +72,7 @@ pub mod client_errors;
 pub mod client_timing;
 pub mod metrics_bucket;
 pub mod dsr;
+pub mod usage;
 pub mod data_map;
 pub mod erasure;
 pub mod scrub;
