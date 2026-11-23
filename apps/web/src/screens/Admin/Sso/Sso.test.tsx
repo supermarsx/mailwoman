@@ -9,6 +9,8 @@ import { sectionPath, type AdminRoute } from '../shell/router.ts';
 import { renderInShell } from '../shell/testkit.tsx';
 import { expectNoAxeViolations, expectNoInlineStyle } from '../shell/uxTestkit.ts';
 import { stripIsolates } from '../../../i18n';
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
 // openssl req -x509 -newkey rsa:1024 -subj "/CN=idp.example.org/O=Example IdP" -days 3650 (2026-10-25 → 2036-10-22).
 const CERT_B64 =
@@ -342,5 +344,61 @@ describe('SAML helpers', () => {
     expect(body).toEqual({ id: 'corp-saml', displayName: 'Contoso SAML', scope: 'domain:example.org', enabled: false, config: SAML_ROW.config, claimMap: SAML_ROW.claimMap });
     const v = { ...ssoValues(null), id: 'x', kind: 'saml' };
     expect(ssoInput(v, 'https://m.example', '/mail').config).toMatchObject({ acsUrl: 'https://m.example/mail/api/sso/x/acs', spEntityId: 'https://m.example/mail/api/sso/x/metadata' });
+  });
+});
+
+// The `/admin/sso` wire contract, shared with the server: the fixtures live in
+// crates/mw-sso/tests/fixtures/admin-sso and the server's `admin_wire` tests parse
+// the same files (console-*.json must validate and store the right issuer, client
+// id and endpoints; list-*.json is exactly what the server lists for them). Before
+// 26.20 the console sent camelCase and the server read snake_case, and both sides'
+// tests used their own fixtures, so neither noticed.
+const WIRE = resolve(process.cwd(), '../../crates/mw-sso/tests/fixtures/admin-sso');
+const wire = (name: string): Record<string, unknown> => JSON.parse(readFileSync(join(WIRE, name), 'utf8')) as Record<string, unknown>;
+
+describe('Admin › SSO wire contract (shared server fixtures)', () => {
+  const ORIGIN = 'https://mail.example.org';
+
+  it('the OIDC form builds exactly the body the server test accepts', () => {
+    const v = {
+      ...ssoValues(null),
+      id: 'corp-oidc',
+      displayName: 'Acme SSO',
+      issuerUrl: 'https://idp.example.org/realms/staff',
+      clientId: 'mailwoman',
+      oidcSecret: 'fixture-client-secret',
+      firstLoginPolicy: 'autocreate',
+      claimGroups: '',
+    };
+    expect(ssoInput(v, ORIGIN, '')).toEqual(wire('console-oidc.json'));
+  });
+
+  it('the SAML form builds exactly the body the server test accepts', () => {
+    const v = {
+      ...ssoValues(null),
+      id: 'corp-saml',
+      displayName: 'Contoso SAML',
+      kind: 'saml',
+      scopeKind: 'domain',
+      domain: 'example.org',
+      enabled: false,
+      idpSsoUrl: 'https://idp.example.org/saml/sso',
+      idpSloUrl: 'https://idp.example.org/saml/slo',
+      idpCerts: ['-----BEGIN CERTIFICATE-----\nMIIBfixture\n-----END CERTIFICATE-----'],
+      claimEmail: 'mail',
+      claimUsername: 'uid',
+      claimDisplay: 'cn',
+      claimGroups: 'memberOf',
+    };
+    expect(ssoInput(v, ORIGIN, '')).toEqual(wire('console-saml.json'));
+  });
+
+  it.each([
+    ['list-oidc.json', 'console-oidc.json'],
+    ['list-saml.json', 'console-saml.json'],
+  ])('a row as the server lists it (%s) reopens with every field and saves back unchanged', (list, console) => {
+    const row = wire(list) as unknown as SsoBackendRow;
+    const { secret: _secret, ...expected } = wire(console);
+    expect(ssoInput(ssoValues(row), ORIGIN, '')).toEqual(expected);
   });
 });

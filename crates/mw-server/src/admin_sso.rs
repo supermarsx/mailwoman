@@ -20,7 +20,7 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::json;
 
-use mw_sso::{ClaimMap, SsoConfig};
+use mw_sso::admin_wire;
 
 use crate::AppState;
 use crate::admin_ctx::AdminCtx;
@@ -58,64 +58,44 @@ async fn list(
             return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
         }
     };
+    // The wire view (camelCase names, `problems` for a stored config that cannot
+    // sign anyone in, never the secret) is defined once in `mw_sso::admin_wire`.
     let backends: Vec<_> = rows
-        .into_iter()
+        .iter()
         .map(|r| {
-            // Re-parse the config so a client always sees the canonical shape; a
-            // malformed row is surfaced as null config rather than dropped silently.
-            let config = serde_json::from_str::<SsoConfig>(&r.config_json).ok();
-            let claim_map = serde_json::from_str::<ClaimMap>(&r.claim_map_json).ok();
-            json!({
-                "id": r.id,
-                "kind": r.kind,
-                "displayName": r.display_name,
-                "scope": r.scope,
-                "enabled": r.enabled,
-                "config": config,
-                "claimMap": claim_map,
-                "hasSecret": r.secret.is_some(),
-                "createdAt": r.created_at,
-                "updatedAt": r.updated_at,
+            admin_wire::backend_view(&admin_wire::BackendView {
+                id: &r.id,
+                kind: &r.kind,
+                display_name: &r.display_name,
+                scope: &r.scope,
+                enabled: r.enabled,
+                config_json: &r.config_json,
+                claim_map_json: &r.claim_map_json,
+                has_secret: r.secret.is_some(),
+                created_at: &r.created_at,
+                updated_at: &r.updated_at,
             })
         })
         .collect();
     Json(json!({ "backends": backends })).into_response()
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UpsertReq {
-    /// Stable id, e.g. `"corp-oidc"`.
-    id: String,
-    /// Admin-facing label.
-    display_name: String,
-    /// `deployment` | `domain:<d>` (defaults to `deployment`).
-    #[serde(default)]
-    scope: Option<String>,
-    /// Whether the backend is live/advertised.
-    #[serde(default)]
-    enabled: bool,
-    /// Kind-specific config (validated against [`SsoConfig`]; secrets NOT here).
-    config: SsoConfig,
-    /// Claim/attribute mapping.
-    #[serde(default)]
-    claim_map: ClaimMap,
-    /// The OIDC client secret / SAML SP private key (PEM). Sealed at the store.
-    /// Omit on an update to preserve the existing sealed secret.
-    #[serde(default)]
-    secret: Option<String>,
-}
-
-/// `POST /admin/sso` — create or update a backend. Validates the config, seals the
-/// secret at the store, and preserves an existing secret when none is supplied.
+/// `POST /admin/sso` — create or update a backend. The body is parsed and validated
+/// by [`admin_wire::parse_upsert`] (camelCase names, snake_case accepted, unknown
+/// fields refused, every invalid field listed — `400` with a JSON body); the secret
+/// is sealed at the store, and an existing secret is kept when none is supplied.
 async fn upsert(
     State(state): State<AppState>,
     _ctx: AdminCtx,
-    Json(body): Json<UpsertReq>,
+    Json(raw): Json<serde_json::Value>,
 ) -> Response {
+    let body = match admin_wire::parse_upsert(raw) {
+        Ok(body) => body,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(e.body())).into_response(),
+    };
     // `kind` is derived from the (validated) config so the column can never disagree.
     let kind = body.config.kind().as_db().to_string();
-    let scope = body.scope.unwrap_or_else(|| "deployment".to_string());
+    let scope = body.scope;
     let config_json = match serde_json::to_string(&body.config) {
         Ok(s) => s,
         Err(e) => {

@@ -1,0 +1,26 @@
+{
+  "id": "corp-saml",
+  "kind": "saml",
+  "displayName": "Contoso SAML",
+  "scope": "domain:example.org",
+  "enabled": false,
+  "config": {
+    "kind": "saml",
+    "spEntityId": "https://mail.example.org/api/sso/corp-saml/metadata",
+    "acsUrl": "https://mail.example.org/api/sso/corp-saml/acs",
+    "idpMetadataUrl": null,
+    "idpMetadataXml": null,
+    "idpSsoUrl": "https://idp.example.org/saml/sso",
+    "idpSloUrl": "https://idp.example.org/saml/slo",
+    "idpSigningCertsPem": ["-----BEGIN CERTIFICATE-----\nMIIBfixture\n-----END CERTIFICATE-----"],
+    "wantAssertionsSigned": true,
+    "wantEncrypted": false,
+    "nameidFormat": "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+    "firstLoginPolicy": "allowlist"
+  },
+  "claimMap": { "email": "mail", "username": "uid", "display": "cn", "groups": "memberOf" },
+  "hasSecret": false,
+  "createdAt": "2026-11-23T00:00:00Z",
+  "updatedAt": "2026-11-23T00:00:00Z",
+  "problems": []
+}

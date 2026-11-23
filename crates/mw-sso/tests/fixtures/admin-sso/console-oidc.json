@@ -1,0 +1,16 @@
+{
+  "id": "corp-oidc",
+  "displayName": "Acme SSO",
+  "scope": "deployment",
+  "enabled": true,
+  "config": {
+    "kind": "oidc",
+    "issuerUrl": "https://idp.example.org/realms/staff",
+    "clientId": "mailwoman",
+    "redirectUrl": "https://mail.example.org/api/sso/corp-oidc/callback",
+    "scopes": ["openid", "email", "profile"],
+    "firstLoginPolicy": "autocreate"
+  },
+  "claimMap": { "email": "email", "username": "preferred_username", "display": "name", "groups": null },
+  "secret": "fixture-client-secret"
+}

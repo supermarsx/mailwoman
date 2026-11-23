@@ -1,8 +1,9 @@
 // SSO wire DTOs (t9 e4 web) — the `/api/sso/*` (public, login) + `/admin/sso`
 // (admin CRUD) JSON contract the web consumes, coding to e0's frozen `mw-sso`
 // shapes (`.orchestration/logs/t9-e0.md` §1/§3). Field casing follows the
-// house admin convention (serde `rename_all = "camelCase"`, like `Domain`,
-// `ApiKeyInfo`), NOT Rust snake_case — e3 serialises the rows to camelCase.
+// house admin convention (camelCase), NOT Rust snake_case. The server side of the
+// `/admin/sso` contract is `crates/mw-sso/src/admin_wire.rs`; both sides test
+// against the shared fixtures in `crates/mw-sso/tests/fixtures/admin-sso`.
 
 /** IdP protocol (e0 `SsoKind`; serde `'oidc' | 'saml'`). */
 export type SsoKind = 'oidc' | 'saml';
@@ -66,6 +67,9 @@ export interface SsoBackendRow {
   /** `GET` only (RFC 3339). */
   createdAt?: string;
   updatedAt?: string;
+  /** `GET` only: what stops the stored config from signing anyone in, by wire
+   *  field name (`config.issuerUrl`, ...); empty when nothing does. */
+  problems?: { field: string; message: string }[];
 }
 
 /**
