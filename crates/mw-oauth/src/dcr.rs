@@ -197,8 +197,8 @@ pub fn validate_metadata(
         ));
     }
     for uri in &request.redirect_uris {
-        let host = redirect_host(uri).ok_or_else(|| {
-            DcrError::InvalidRedirectUri(format!("unparseable redirect_uri: {uri}"))
+        let host = checked_redirect_host(uri, true).map_err(|reason| {
+            DcrError::InvalidRedirectUri(format!("redirect_uri {reason}: {uri}"))
         })?;
         if !host_allowed(&host, &policy.allowed_redirect_host_suffixes) {
             return Err(DcrError::InvalidRedirectUri(format!(
@@ -400,34 +400,72 @@ fn scope_display(s: &Scope) -> String {
     parts.join(" ")
 }
 
-/// Extract the lower-cased host from a `redirect_uri`. Returns `None` if there is no
-/// `scheme://` authority or the host is empty. Handles userinfo, ports, and IPv6
-/// literals.
-fn redirect_host(uri: &str) -> Option<String> {
-    let after_scheme = uri.split_once("://").map(|(_, rest)| rest)?;
-    let authority = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
-    // strip userinfo
-    let hostport = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
-    let host = if let Some(rest) = hostport.strip_prefix('[') {
-        // IPv6 literal: [::1]:port
-        rest.split(']').next().unwrap_or("")
-    } else {
-        hostport.split(':').next().unwrap_or("")
+/// Check the shape of a `redirect_uri` and return its lower-cased host as a
+/// browser will resolve it (WHATWG URL parsing, via `url::Url`); an IPv6 host
+/// comes back without brackets, and a URI with no host gives an empty string.
+/// `Err` carries a short reason.
+///
+/// Always refused: anything that does not parse as an absolute URL, a backslash
+/// anywhere (browsers read `\` as `/` in an authority, so
+/// `https://evil.test\@app.example.com/` goes to `evil.test`), control characters
+/// or whitespace (WHATWG parsing silently drops tabs and newlines), userinfo, and
+/// a fragment (RFC 6749 §3.1.2).
+///
+/// `self_registered` (a DCR client) also restricts the scheme: `https`, or `http`
+/// to a loopback IP literal (`127.0.0.0/8`, `::1`) for native apps (RFC 8252
+/// §7.3). Private-use schemes (RFC 8252 §7.1) and `http://localhost` are refused
+/// for DCR: a private-use scheme has no host the allowlist could vouch for and
+/// any installed app may claim it. A client an operator registered keeps
+/// whatever scheme the operator chose.
+pub fn checked_redirect_host(uri: &str, self_registered: bool) -> Result<String, &'static str> {
+    if uri.contains('\\') {
+        return Err("contains a backslash");
+    }
+    if uri.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err("contains control characters or whitespace");
+    }
+    let url = url::Url::parse(uri).map_err(|_| "is not an absolute URL")?;
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("carries userinfo");
+    }
+    if url.fragment().is_some() {
+        return Err("carries a fragment");
+    }
+    let (host, loopback) = match url.host() {
+        Some(url::Host::Domain(d)) => (d.to_ascii_lowercase(), false),
+        Some(url::Host::Ipv4(ip)) => (ip.to_string(), ip.is_loopback()),
+        Some(url::Host::Ipv6(ip)) => (ip.to_string(), ip.is_loopback()),
+        None => (String::new(), false),
     };
-    if host.is_empty() {
-        None
-    } else {
-        Some(host.to_ascii_lowercase())
+    if !self_registered {
+        return Ok(host);
+    }
+    match url.scheme() {
+        "https" if !host.is_empty() => Ok(host),
+        "http" if loopback => Ok(host),
+        "http" => Err("uses http to a host other than a loopback IP"),
+        _ => Err("uses a scheme other than https"),
     }
 }
 
 /// Whether `host` matches any allowed suffix (`example.com` matches `example.com` and
-/// `*.example.com`, but not `notexample.com`). An empty allowlist matches nothing.
+/// any subdomain, but not `notexample.com`). An empty allowlist matches nothing.
+/// An entry is a suffix written bare, as `.example.com` or as `*.example.com`; the
+/// label-boundary match is [`crate::host_in_allowlist`], the rule plugin OAuth
+/// egress uses too.
 fn host_allowed(host: &str, suffixes: &[String]) -> bool {
-    suffixes.iter().any(|s| {
-        let s = s.trim().trim_start_matches('.').to_ascii_lowercase();
-        !s.is_empty() && (host == s || host.ends_with(&format!(".{s}")))
-    })
+    let wildcards: Vec<String> = suffixes
+        .iter()
+        .map(|s| {
+            let s = s.trim();
+            let bare = s
+                .strip_prefix("*.")
+                .or_else(|| s.strip_prefix('.'))
+                .unwrap_or(s);
+            format!("*.{bare}")
+        })
+        .collect();
+    crate::host_in_allowlist(&wildcards, host)
 }
 
 #[cfg(test)]
@@ -538,11 +576,78 @@ mod tests {
     #[test]
     fn redirect_host_parsing() {
         assert_eq!(
-            redirect_host("https://user:pw@app.example.com:8443/cb?x=1"),
-            Some("app.example.com".into())
+            checked_redirect_host("https://App.Example.com:8443/cb?x=1", true),
+            Ok("app.example.com".into())
         );
-        assert_eq!(redirect_host("http://[::1]:9000/cb"), Some("::1".into()));
-        assert_eq!(redirect_host("not-a-uri"), None);
+        assert_eq!(
+            checked_redirect_host("http://[::1]:9000/cb", true),
+            Ok("::1".into())
+        );
+        assert!(checked_redirect_host("not-a-uri", true).is_err());
+        // An operator-registered client may keep a private-use scheme.
+        assert_eq!(
+            checked_redirect_host("com.example.app:/cb", false),
+            Ok(String::new())
+        );
+        assert!(checked_redirect_host("https://u@app.example.com/cb", false).is_err());
+    }
+
+    /// Redirect URIs a self-registered client may not use, even on an allowed host.
+    #[test]
+    fn unsafe_redirect_uris_are_rejected() {
+        let p = policy(true, &["example.com", "127.0.0.1"], no_scope());
+        for uri in [
+            "https://evil.test\\@app.example.com/cb",
+            "https://evil.test\\.app.example.com/cb",
+            "https://user@app.example.com/cb",
+            "https://user:pw@app.example.com/cb",
+            "https://evil.test:x@app.example.com/cb",
+            "javascript://app.example.com/%0aalert(1)",
+            "javascript:alert(1)",
+            "data:text/html,app.example.com",
+            "http://app.example.com/cb",
+            "http://localhost/cb",
+            "https://app.example.com/cb#frag",
+            "https://app.example.com/cb#",
+            "https://app.exa\tmple.com/cb",
+            "https://app.example.com/c b",
+            "com.example.app:/cb",
+            "myapp://app.example.com/cb",
+        ] {
+            assert!(
+                matches!(
+                    validate_metadata(&req(uri), &p),
+                    Err(DcrError::InvalidRedirectUri(_))
+                ),
+                "{uri} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn https_on_allowed_host_and_loopback_http_are_accepted() {
+        let p = policy(
+            true,
+            &["example.com", "*.example.net", "127.0.0.1", "::1"],
+            no_scope(),
+        );
+        for uri in [
+            "https://app.example.com/cb",
+            "https://example.com:8443/cb?state=x",
+            "https://id.example.net/cb",
+            "http://127.0.0.1:53111/cb",
+            "http://[::1]:53111/cb",
+        ] {
+            assert!(validate_metadata(&req(uri), &p).is_ok(), "{uri}");
+        }
+        // Loopback is still subject to the allowlist.
+        assert!(
+            validate_metadata(
+                &req("http://127.0.0.1:53111/cb"),
+                &policy(true, &["example.com"], no_scope())
+            )
+            .is_err()
+        );
     }
 
     #[test]

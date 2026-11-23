@@ -42,3 +42,23 @@ pub(crate) fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     }
     diff == 0
 }
+
+/// Whether `host` is inside a host allowlist: an entry matches by exact host
+/// (case-insensitive), or as a `*.suffix` / `.suffix` wildcard that covers the
+/// suffix itself and any subdomain of it, on a label boundary (`*.example.com`
+/// matches `example.com` and `a.example.com`, never `evilexample.com` or
+/// `example.com.evil.net`). A wildcard with an empty suffix matches nothing.
+///
+/// The same rule as the WASM plugin host's `net_allows`; plugin OAuth egress
+/// and the DCR redirect-host allowlist both use it.
+pub fn host_in_allowlist(allowlist: &[String], host: &str) -> bool {
+    let host = host.trim().to_ascii_lowercase();
+    allowlist.iter().any(|entry| {
+        let entry = entry.trim().to_ascii_lowercase();
+        match entry.strip_prefix("*.").or_else(|| entry.strip_prefix('.')) {
+            Some("") => false,
+            Some(suffix) => host == suffix || host.ends_with(&format!(".{suffix}")),
+            None => !host.is_empty() && host == entry,
+        }
+    })
+}

@@ -656,16 +656,11 @@ fn parse_token_response(
 /// so a plugin reaches the same OAuth hosts here as it does through `http-fetch`.
 /// One deliberate difference: a wildcard with an empty suffix (`*.` or `.`) matches
 /// nothing here, where the host side would accept any host ending in a dot.
+///
+/// The rule is [`mw_oauth::host_in_allowlist`], which the DCR redirect-host
+/// allowlist uses as well.
 fn plugin_net_allows(allowlist: &[String], host: &str) -> bool {
-    let host = host.trim().to_ascii_lowercase();
-    allowlist.iter().any(|entry| {
-        let entry = entry.trim().to_ascii_lowercase();
-        match entry.strip_prefix("*.").or_else(|| entry.strip_prefix('.')) {
-            Some("") => false,
-            Some(suffix) => host == suffix || host.ends_with(&format!(".{suffix}")),
-            None => host == entry,
-        }
-    })
+    mw_oauth::host_in_allowlist(allowlist, host)
 }
 
 /// Whether a cached token (RFC-3339 `expires_at`) is due for a proactive refresh now.

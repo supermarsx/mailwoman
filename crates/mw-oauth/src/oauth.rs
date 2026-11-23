@@ -204,6 +204,13 @@ impl<S: OAuthStore> AuthServer<S> {
         if !client.redirect_uris.iter().any(|u| u == &req.redirect_uri) {
             return Err(OAuthError::InvalidClient);
         }
+        // A registered URI is still checked for shape: a self-registered client
+        // stored before DCR validated it strictly, or an operator entry carrying
+        // userinfo, a backslash or a fragment, gets no code.
+        let self_registered = client.approved_by == crate::dcr::DCR_APPROVED_BY;
+        if crate::dcr::checked_redirect_host(&req.redirect_uri, self_registered).is_err() {
+            return Err(OAuthError::InvalidClient);
+        }
 
         let code = b64url(&random_bytes::<32>());
         let now = Utc::now();
@@ -469,6 +476,64 @@ mod tests {
         assert_eq!(next.scope, expected);
         let info = server.introspect(&next.access_token).await.unwrap();
         assert_eq!(info.scope, Some(expected));
+    }
+
+    /// A registered redirect URI that is unsafe gets no code: a self-registered
+    /// client stored before DCR checked URIs strictly, and an operator client
+    /// whose URI carries a backslash. A sound one of each still does.
+    #[tokio::test]
+    async fn authorize_refuses_an_unsafe_registered_redirect_uri() {
+        let server = AuthServer::new(InMemoryOAuthStore::new());
+        let cases = [
+            (
+                "dcr-bad",
+                crate::dcr::DCR_APPROVED_BY,
+                "http://app.example.com/cb",
+                false,
+            ),
+            (
+                "dcr-ok",
+                crate::dcr::DCR_APPROVED_BY,
+                "https://app.example.com/cb",
+                true,
+            ),
+            (
+                "op-bad",
+                "admin",
+                "https://evil.test\\@app.example.com/cb",
+                false,
+            ),
+            ("op-native", "admin", "com.example.app:/cb", true),
+        ];
+        for (id, approved_by, uri, ok) in cases {
+            server
+                .store()
+                .put_client(crate::OAuthClient {
+                    client_id: id.into(),
+                    name: id.into(),
+                    redirect_uris: vec![uri.into()],
+                    approved_by: approved_by.into(),
+                    created_at: Utc::now().to_rfc3339(),
+                })
+                .await
+                .unwrap();
+            let got = server
+                .authorize(
+                    &AuthorizeRequest {
+                        response_type: "code".into(),
+                        client_id: id.into(),
+                        redirect_uri: uri.into(),
+                        scope: Scope::read_only("acct-1"),
+                        state: None,
+                        code_challenge: crate::pkce::challenge_s256(&"v".repeat(64)),
+                        code_challenge_method: "S256".into(),
+                        resource: "https://mw.test/mcp".into(),
+                    },
+                    "acct-1",
+                )
+                .await;
+            assert_eq!(got.is_ok(), ok, "{id}: {got:?}");
+        }
     }
 
     /// Holds every `get_token` caller at a barrier until `parties` of them have

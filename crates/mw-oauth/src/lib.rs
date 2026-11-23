@@ -42,6 +42,7 @@ pub use oauth::{
 };
 pub use pkce::challenge_s256;
 pub use store::{InMemoryOAuthStore, OAuthStore};
+pub use util::host_in_allowlist;
 
 use serde::{Deserialize, Serialize};
 
