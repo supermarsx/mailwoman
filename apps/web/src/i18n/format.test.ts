@@ -67,14 +67,23 @@ describe('format.ts uses the active app locale', () => {
   });
 
   it('formats byte sizes in 1024 steps with localized unit names', () => {
-    expect(formatBytes(512)).toBe('512 byte');
+    expect(formatBytes(512)).toBe('512 bytes');
+    expect(formatBytes(0)).toBe('0 bytes');
+    expect(formatBytes(1)).toBe('1 byte');
+    expect(formatBytes(1023)).toBe('1,023 bytes');
+    expect(formatBytes(1024)).toBe('1 kB');
     expect(formatBytes(2048)).toBe('2 kB');
     expect(formatBytes(1_500_000)).toBe('1.4 MB');
     expect(formatBytes(3 * 1024 ** 3)).toBe('3 GB');
-    expect(formatBytes(-1)).toBe('0 byte');
+    expect(formatBytes(-1)).toBe('0 bytes');
     setActiveLocale('de');
     expect(formatBytes(1_500_000)).toBe('1,4 MB');
+    expect(formatBytes(1).replace(/\s/g, ' ')).toBe('1 Byte');
+    expect(formatBytes(688).replace(/\s/g, ' ')).toBe('688 Byte');
     setActiveLocale('ru');
+    expect(formatBytes(1).replace(/\s/g, ' ')).toBe('1 байт');
+    expect(formatBytes(3).replace(/\s/g, ' ')).toBe('3 байта');
+    expect(formatBytes(5).replace(/\s/g, ' ')).toBe('5 байт');
     expect(formatBytes(1_500_000)).toBe('1,4 МБ');
   });
 

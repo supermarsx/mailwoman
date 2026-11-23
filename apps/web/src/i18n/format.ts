@@ -143,7 +143,7 @@ export function formatPercent(ratio: number, options: Intl.NumberFormatOptions =
 const BYTE_UNITS = ['byte', 'kilobyte', 'megabyte', 'gigabyte', 'terabyte'] as const;
 
 /**
- * A byte count with a localized unit, e.g. "512 byte", "1.4 MB" in `en` or
+ * A byte count with a localized unit, e.g. "512 bytes", "1.4 MB" in `en` or
  * "1,4 MB" in `de`. Steps are 1024 (the convention the UI used before this
  * file); the unit names are the locale's CLDR short forms. At most one decimal
  * place, none for whole bytes.
@@ -158,7 +158,9 @@ export function formatBytes(bytes: number, options: { maximumFractionDigits?: nu
   return numberFormat({
     style: 'unit',
     unit: BYTE_UNITS[i],
-    unitDisplay: 'short',
+    // CLDR's short English form of a byte is the unpluralized "byte" ("688 byte"); the
+    // long form pluralizes per locale ("1 byte", "688 bytes"). Larger units stay short.
+    unitDisplay: i === 0 ? 'long' : 'short',
     maximumFractionDigits: i === 0 ? 0 : (options.maximumFractionDigits ?? 1),
   }).format(n);
 }
