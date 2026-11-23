@@ -131,6 +131,8 @@ async fn subjects(
         .map_err(|()| {
             AdminApiError::invalid("invalidCursor", "Invalid subject cursor", "/after")
         })?;
+    // Write-behind: show committed counts and revisions (best effort).
+    state.request_protection.flush_for_read().await;
     let rows = state
         .store
         .request_protection_rows(
@@ -226,8 +228,8 @@ async fn clear(
             )
         })?;
     if !state
-        .store
-        .clear_request_protection(&key, revision, chrono::Utc::now().timestamp())
+        .request_protection
+        .clear_subject(&state.store, &key, revision, chrono::Utc::now().timestamp())
         .await
         .map_err(|_| super::unavailable())?
     {

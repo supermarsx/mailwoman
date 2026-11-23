@@ -9,6 +9,8 @@ mod history;
 mod probe_path;
 mod tier_sim;
 pub(crate) mod user_agent;
+/// Optional in-memory accounting with background durable flush (t34).
+pub(crate) mod write_behind;
 use crate::{AppState, admin_ctx::AdminApiError};
 pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
     api::register(r);
@@ -51,10 +53,29 @@ pub(crate) struct Runtime {
     pub(crate) protocol: crate::protocol_guard::Cache,
     /// Who may reach `/healthz` (`security.health.*`).
     pub(crate) health: crate::health_access::Cache,
+    /// `Some` only with `MW_REQUEST_PROTECTION_ACCOUNTING=write-behind` on SQLite.
+    accounting: Option<Arc<write_behind::WriteBehind>>,
 }
 impl Runtime {
+    /// Reads the accounting switches; an invalid value stops startup.
     pub fn start(store: mw_store::Store) -> Arc<Self> {
-        let runtime = Arc::new(Self::default());
+        Self::try_start(store).unwrap_or_else(|error| panic!("{error}"))
+    }
+    /// `start`, returning an invalid accounting switch as an error.
+    pub fn try_start(store: mw_store::Store) -> Result<Arc<Self>, String> {
+        Ok(Self::start_with(store, write_behind::AccountingConfig::from_env()?))
+    }
+    pub(crate) fn start_with(
+        store: mw_store::Store,
+        config: write_behind::AccountingConfig,
+    ) -> Arc<Self> {
+        let mode = config.mode.effective(store.uses_sqlite());
+        if mode != config.mode {
+            tracing::warn!(target: "request_protection", "{}=write-behind is SQLite-only; using synchronous accounting", write_behind::MODE_VAR);
+        }
+        let accounting = (mode == write_behind::AccountingMode::WriteBehind)
+            .then(|| write_behind::WriteBehind::start(store.clone(), config));
+        let runtime = Arc::new(Self { accounting, ..Self::default() });
         let weak = Arc::downgrade(&runtime);
         tokio::spawn(async move {
             loop {
@@ -75,7 +96,51 @@ impl Runtime {
         });
         runtime
     }
+    pub(crate) fn write_behind(&self) -> Option<&write_behind::WriteBehind> {
+        self.accounting.as_deref()
+    }
+    /// Graceful shutdown hook: commit queued protection observations before
+    /// `deadline`. Always `Ok` in synchronous mode.
+    pub async fn flush_all(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), write_behind::FlushIncomplete> {
+        match &self.accounting {
+            Some(accounting) => accounting.flush_all(deadline).await,
+            None => Ok(()),
+        }
+    }
+    /// Commit queued observations before an administrative read; errors are left
+    /// to the read itself.
+    pub(crate) async fn flush_for_read(&self) {
+        if let Some(accounting) = &self.accounting
+            && accounting.flush_pending().await.is_err()
+        {
+            warning();
+        }
+    }
+    /// Write-behind counters; `None` in synchronous mode.
+    pub(crate) fn accounting_status(&self) -> Option<write_behind::WriteBehindStatus> {
+        self.accounting.as_ref().map(|accounting| accounting.status())
+    }
+    /// Administrative clear by expected revision. Write-behind commits pending
+    /// observations first and resets the cached subject.
+    pub(crate) async fn clear_subject(
+        &self,
+        store: &mw_store::Store,
+        key: &str,
+        expected: &str,
+        now: i64,
+    ) -> Result<bool, mw_store::StoreError> {
+        match &self.accounting {
+            Some(accounting) => accounting.clear(key, expected, now).await,
+            None => store.clear_request_protection(key, expected, now).await,
+        }
+    }
     pub fn invalidate(&self) {
+        if let Some(accounting) = &self.accounting {
+            accounting.invalidate();
+        }
         crate::trust_tier::invalidate();
         crate::rate_leeway::forget_knobs();
         self.cache.invalidate();
@@ -107,6 +172,28 @@ pub(crate) async fn observe_source(
         mw_engine::security::CountryLookup::Known(country) => Some(country),
         _ => None,
     };
+    if let Some(accounting) = state.request_protection.write_behind() {
+        let answer = accounting
+            .record(
+                "client",
+                &source_ip,
+                &policy,
+                chrono::Utc::now().timestamp(),
+                Some(signal),
+                mw_store::request_protection::ProtectionSource {
+                    country: country.as_deref(),
+                    ip: Some(&source_ip),
+                },
+            )
+            .await;
+        if answer.storage_failed {
+            warning();
+        }
+        return answer
+            .decision
+            .enforced
+            .then(|| response(limited(answer.decision)));
+    }
     match state
         .store
         .request_protection_with_source(
@@ -175,6 +262,23 @@ fn response(error: AdminApiError) -> Response {
         .insert(header::CACHE_CONTROL, "private, no-store".parse().unwrap());
     response
 }
+/// Write-behind storage failure at admission: `storageFailure: closed` with an
+/// enforcing mode answers 503, as the synchronous path does. Otherwise the local
+/// decision stands, so a subject already over its limit in this process is refused.
+fn storage_failure_answer(
+    fail_closed: bool,
+    policy: &Policy,
+    local: Decision,
+) -> Result<(), AdminApiError> {
+    use mw_store::request_protection_model::Mode;
+    if fail_closed && (policy.rate_mode == Mode::Enforce || policy.adaptive_mode == Mode::Enforce) {
+        Err(unavailable())
+    } else if local.enforced {
+        Err(limited(local))
+    } else {
+        Ok(())
+    }
+}
 fn warning() {
     use std::sync::atomic::AtomicI64;
     static LAST: AtomicI64 = AtomicI64::new(0);
@@ -236,6 +340,37 @@ impl Context {
         // owns one charge, and never accepts caller-selected subject identifiers.
         if charged.len() >= 4 {
             return Err(unavailable());
+        }
+        if let Some(accounting) = self.state.request_protection.write_behind() {
+            let answer = accounting
+                .record(
+                    kind,
+                    value,
+                    &policy,
+                    chrono::Utc::now().timestamp(),
+                    kind.strip_prefix("ua-")
+                        .filter(|category| self.config.user_agent.blocks_bot(category))
+                        .map(|_| Signal::BotUserAgent),
+                    mw_store::request_protection::ProtectionSource {
+                        country: self.source_country.as_deref(),
+                        ip: self.source_ip.as_deref(),
+                    },
+                )
+                .await;
+            if !answer.storage_failed {
+                history::note_decision(kind, &answer.decision);
+                if answer.decision.enforced {
+                    return Err(limited(answer.decision));
+                }
+                charged.push(Charged {
+                    kind,
+                    value: value.to_owned(),
+                    policy,
+                });
+                return Ok(());
+            }
+            warning();
+            return storage_failure_answer(self.config.fail_closed, &policy, answer.decision);
         }
         let answer = self
             .state
@@ -299,6 +434,28 @@ impl Context {
             return;
         }
         for subject in self.charged.lock().await.iter() {
+            if let Some(accounting) = self.state.request_protection.write_behind() {
+                // Ordinary completions are queued; only a transition is committed
+                // before the response returns.
+                if accounting
+                    .record(
+                        subject.kind,
+                        &subject.value,
+                        &subject.policy,
+                        chrono::Utc::now().timestamp(),
+                        Some(signal),
+                        mw_store::request_protection::ProtectionSource {
+                            country: self.source_country.as_deref(),
+                            ip: self.source_ip.as_deref(),
+                        },
+                    )
+                    .await
+                    .storage_failed
+                {
+                    warning()
+                }
+                continue;
+            }
             if self
                 .state
                 .store
@@ -709,6 +866,40 @@ pub(crate) async fn guard(
     {
         let probe_subject = format!("probe-path:{source}");
         let now = chrono::Utc::now().timestamp();
+        if let Some(accounting) = state.request_protection.write_behind() {
+            let answer = if probe {
+                accounting
+                    .record(
+                        "client",
+                        &probe_subject,
+                        &policy,
+                        now,
+                        Some(Signal::ProbePath),
+                        mw_store::request_protection::ProtectionSource {
+                            country: source_country.as_deref(),
+                            ip: source_ip.as_deref(),
+                        },
+                    )
+                    .await
+            } else {
+                accounting
+                    .probe_decision("client", &probe_subject, &policy, now)
+                    .await
+            };
+            if answer.storage_failed {
+                warning();
+                if config.fail_closed
+                    && policy.adaptive_mode == mw_store::request_protection_model::Mode::Enforce
+                {
+                    return response(unavailable());
+                }
+            } else {
+                history::note_decision("client", &answer.decision);
+            }
+            if answer.decision.enforced {
+                return response(limited(answer.decision));
+            }
+        } else {
         // Strong scanner evidence belongs to the transport source even when a
         // cookie is present. Subsequent checks never charge an anonymous budget
         // or revise a subject simply because an authenticated page was read.
@@ -748,6 +939,7 @@ pub(crate) async fn guard(
                 }
             }
             _ => {}
+        }
         }
     }
     if let Err(response) = crate::request_inputs::effect_boundary(&state.store, crate::published_guard_context::Guard::Trust).await { return response; }

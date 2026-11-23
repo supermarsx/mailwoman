@@ -1,0 +1,698 @@
+//! Write-behind request-protection accounting (`MW_REQUEST_PROTECTION_ACCOUNTING=write-behind`).
+//!
+//! Decisions are made in memory with `mw_store::request_protection::evaluate_protection`,
+//! the same evaluator the transactional path uses. Observations are appended to one
+//! ordered queue and written in the background through
+//! `Store::request_protection_sqlite_batch_with_state` (at most 64 per transaction, in
+//! queue order), after which each cached subject is re-seeded from the committed row.
+//!
+//! What is synchronous:
+//! - any observation whose evaluation is a transition (throttle, block or stage change).
+//!   That observation and everything queued before it are committed, with its audit
+//!   event, before the decision is returned;
+//! - the first observation of a subject without a row (or whose row has expired), so the
+//!   subject-capacity check still runs before the request is answered;
+//! - loading a subject that is not cached (one read).
+//!
+//! What can be lost on a crash: queued ordinary observations not yet flushed. Under
+//! healthy storage they are at most `FLUSH_MS` old (plus one flush), and never more than
+//! `MAX_PENDING`. A restarted process therefore under-counts each subject by at most
+//! those observations. Transitions are never in that set: they are committed before
+//! their decision is returned (a failed write-through is a storage failure, below).
+//!
+//! Storage failure: a failed flush keeps its observations (bounded by `MAX_PENDING`) and
+//! marks the accounting degraded. The request is reported as a storage failure, so the
+//! caller applies its configured failure policy (`storageFailure: closed` with an
+//! enforcing mode answers 503), when the accounting has been degraded for longer than
+//! `2 x FLUSH_MS`, when the queue is full, when a write-through fails, or when a cold
+//! load fails. Otherwise the local decision is used.
+//!
+//! Single process only. Each process decides from its own cache between flushes, so N
+//! processes sharing one SQLite file may together admit up to about (N - 1) x a
+//! subject's requests within one flush interval beyond its limit. Active subjects are
+//! reconciled from the database at every flush that carries one of their observations;
+//! idle cached subjects are re-read when older than one flush interval. The default
+//! `synchronous` mode keeps exact serialization across processes.
+use mw_store::{
+    Store, StoreError,
+    request_protection::{
+        PreparedProtection, ProtectionObservation, ProtectionOutcome, ProtectionSource,
+        SUBJECT_CAPACITY, StoredProtection, evaluate_protection,
+    },
+    request_protection_model::{Decision, Policy, Signal, State},
+};
+use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::time::{Duration, Instant};
+
+pub(crate) const MODE_VAR: &str = "MW_REQUEST_PROTECTION_ACCOUNTING";
+pub(crate) const FLUSH_VAR: &str = "MW_REQUEST_PROTECTION_FLUSH_MS";
+pub(crate) const MAX_PENDING_VAR: &str = "MW_REQUEST_PROTECTION_MAX_PENDING";
+/// The batch API's group limit.
+const BATCH: usize = 64;
+const SHARDS: usize = 64;
+const SHARD_CAPACITY: usize = SUBJECT_CAPACITY as usize / SHARDS;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AccountingMode {
+    Synchronous,
+    WriteBehind,
+}
+impl AccountingMode {
+    /// `write-behind` builds on the SQLite-only batch API; PostgreSQL stays synchronous.
+    pub(crate) fn effective(self, sqlite: bool) -> Self {
+        if sqlite { self } else { Self::Synchronous }
+    }
+}
+/// Process-immutable accounting switches, read once at startup.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct AccountingConfig {
+    pub mode: AccountingMode,
+    pub flush_every: Duration,
+    pub max_pending: usize,
+}
+impl Default for AccountingConfig {
+    fn default() -> Self {
+        Self {
+            mode: AccountingMode::Synchronous,
+            flush_every: Duration::from_millis(250),
+            max_pending: 4096,
+        }
+    }
+}
+impl AccountingConfig {
+    pub(crate) fn from_env() -> Result<Self, String> {
+        let read = |name| std::env::var(name).ok();
+        Self::parse(
+            read(MODE_VAR).as_deref(),
+            read(FLUSH_VAR).as_deref(),
+            read(MAX_PENDING_VAR).as_deref(),
+        )
+    }
+    /// Unset or empty values take the default; anything else must be valid.
+    pub(crate) fn parse(
+        mode: Option<&str>,
+        flush_ms: Option<&str>,
+        max_pending: Option<&str>,
+    ) -> Result<Self, String> {
+        fn set(value: Option<&str>) -> Option<&str> {
+            value.map(str::trim).filter(|value| !value.is_empty())
+        }
+        let mut config = Self::default();
+        match set(mode) {
+            None | Some("synchronous") => {}
+            Some("write-behind") => config.mode = AccountingMode::WriteBehind,
+            Some(other) => {
+                return Err(format!(
+                    "{MODE_VAR}={other:?} is invalid; use \"synchronous\" or \"write-behind\""
+                ));
+            }
+        }
+        let ranged = |name: &str, value: Option<&str>, range: std::ops::RangeInclusive<u64>| {
+            set(value)
+                .map(|raw| {
+                    raw.parse::<u64>()
+                        .ok()
+                        .filter(|value| range.contains(value))
+                        .ok_or_else(|| {
+                            format!(
+                                "{name}={raw:?} is invalid; use an integer from {} to {}",
+                                range.start(),
+                                range.end()
+                            )
+                        })
+                })
+                .transpose()
+        };
+        if let Some(ms) = ranged(FLUSH_VAR, flush_ms, 50..=5000)? {
+            config.flush_every = Duration::from_millis(ms);
+        }
+        if let Some(max) = ranged(MAX_PENDING_VAR, max_pending, 64..=65536)? {
+            config.max_pending = max as usize;
+        }
+        Ok(config)
+    }
+}
+
+/// The answer for one observation or probe read.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Answer {
+    /// The decision from the cached state (or from the database after a write-through).
+    pub decision: Decision,
+    /// Apply the caller's storage-failure policy. `decision` is still the best local answer.
+    pub storage_failed: bool,
+}
+impl Answer {
+    fn ok(decision: Decision) -> Self {
+        Self { decision, storage_failed: false }
+    }
+    fn failed(decision: Decision) -> Self {
+        Self { decision, storage_failed: true }
+    }
+}
+
+/// Counters for the status view and tests.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WriteBehindStatus {
+    pub pending: usize,
+    pub flushed: u64,
+    pub batches: u64,
+    pub write_throughs: u64,
+    pub write_through_failures: u64,
+    pub flush_failures: u64,
+    /// Observations the database refused deterministically (for example subject capacity).
+    pub rejected: u64,
+    /// Observations not recorded because the queue was full.
+    pub dropped: u64,
+    pub loads: u64,
+    pub degraded: bool,
+    pub cache_size: usize,
+    pub evictions: u64,
+}
+#[derive(Default)]
+struct Counters {
+    flushed: AtomicU64,
+    batches: AtomicU64,
+    write_throughs: AtomicU64,
+    write_through_failures: AtomicU64,
+    flush_failures: AtomicU64,
+    rejected: AtomicU64,
+    dropped: AtomicU64,
+    loads: AtomicU64,
+    evictions: AtomicU64,
+}
+fn bump(counter: &AtomicU64, by: u64) {
+    counter.fetch_add(by, Ordering::Relaxed);
+}
+
+/// The graceful-shutdown flush did not finish before its deadline, or storage failed.
+#[derive(Debug)]
+pub(crate) struct FlushIncomplete {
+    pub remaining: usize,
+}
+
+/// One queued observation, owned so it can outlive the request.
+struct Pending {
+    seq: u64,
+    kind: &'static str,
+    value: String,
+    prepared: PreparedProtection,
+    policy: Policy,
+    now: i64,
+    signal: Option<Signal>,
+    country: Option<String>,
+    ip: Option<String>,
+    /// The committed decision, once flushed.
+    durable: OnceLock<Decision>,
+}
+impl Pending {
+    fn source(&self) -> ProtectionSource<'_> {
+        ProtectionSource { country: self.country.as_deref(), ip: self.ip.as_deref() }
+    }
+    fn observation(&self) -> ProtectionObservation<'_> {
+        ProtectionObservation {
+            kind: self.kind,
+            value: &self.value,
+            policy: &self.policy,
+            now: self.now,
+            signal: self.signal,
+            source: self.source(),
+        }
+    }
+    fn replay(&self, state: &mut State, expires_at: &mut i64) {
+        evaluate_protection(
+            state, expires_at, &self.prepared, &self.policy, self.now, self.signal, self.source(),
+        );
+    }
+}
+
+/// A cached subject: the committed row plus every not-yet-committed observation.
+struct Entry {
+    state: State,
+    expires_at: i64,
+    /// A row is known to exist.
+    persisted: bool,
+    /// Re-read before the next use unless observations are pending.
+    stale: bool,
+    pending: VecDeque<Arc<Pending>>,
+    synced_at: Instant,
+    last_used: Instant,
+}
+impl Entry {
+    fn loaded(row: Option<StoredProtection>, at: Instant) -> Self {
+        let persisted = row.is_some();
+        let (state, expires_at) = row.map_or((State::default(), 0), |row| (row.state, row.expires_at));
+        Self {
+            state,
+            expires_at,
+            persisted,
+            stale: false,
+            pending: VecDeque::new(),
+            synced_at: at,
+            last_used: at,
+        }
+    }
+    /// An entry with pending observations is the database plus those observations,
+    /// which is the most current view this process has; it is never re-read.
+    fn usable(&self, flush_every: Duration) -> bool {
+        !self.pending.is_empty() || (!self.stale && self.synced_at.elapsed() < flush_every)
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+enum Recorded {
+    Full(Decision),
+    Queued { pending: Arc<Pending>, decision: Decision, through: bool, queued: usize },
+}
+
+pub(crate) struct WriteBehind {
+    store: Store,
+    flush_every: Duration,
+    max_pending: usize,
+    shards: Vec<Mutex<HashMap<String, Entry>>>,
+    /// Global observation order; the batch contract applies observations in this order.
+    queue: Mutex<VecDeque<Arc<Pending>>>,
+    next_seq: AtomicU64,
+    /// One flusher at a time, so committed order is queue order.
+    flushing: tokio::sync::Mutex<()>,
+    wake: Arc<tokio::sync::Notify>,
+    degraded_since: Mutex<Option<Instant>>,
+    counters: Counters,
+}
+
+impl WriteBehind {
+    pub(crate) fn new(store: Store, config: AccountingConfig) -> Self {
+        Self {
+            store,
+            flush_every: config.flush_every,
+            max_pending: config.max_pending,
+            shards: (0..SHARDS).map(|_| Mutex::new(HashMap::new())).collect(),
+            queue: Mutex::new(VecDeque::new()),
+            next_seq: AtomicU64::new(1),
+            flushing: tokio::sync::Mutex::new(()),
+            wake: Arc::new(tokio::sync::Notify::new()),
+            degraded_since: Mutex::new(None),
+            counters: Counters::default(),
+        }
+    }
+    /// Construct and spawn the background flusher, which stops when the last
+    /// strong reference is dropped.
+    pub(crate) fn start(store: Store, config: AccountingConfig) -> Arc<Self> {
+        let accounting = Arc::new(Self::new(store, config));
+        let weak = Arc::downgrade(&accounting);
+        let wake = accounting.wake.clone();
+        let every = accounting.flush_every;
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    () = tokio::time::sleep(every) => {}
+                    () = wake.notified() => {}
+                }
+                let Some(accounting) = weak.upgrade() else { break };
+                if accounting.flush_pending().await.is_err() {
+                    super::warning();
+                }
+            }
+        });
+        accounting
+    }
+
+    fn shard(&self, key: &str) -> &Mutex<HashMap<String, Entry>> {
+        use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
+        let hash = BuildHasherDefault::<DefaultHasher>::default().hash_one(key);
+        &self.shards[(hash as usize) % SHARDS]
+    }
+
+    fn degraded_too_long(&self) -> bool {
+        lock(&self.degraded_since).is_some_and(|since| since.elapsed() > self.flush_every * 2)
+    }
+
+    /// Run `f` on the subject's entry under its shard lock, loading the row first
+    /// when it is not cached (or is stale and has nothing pending). Concurrent
+    /// requests for one subject always evaluate the same entry, one at a time.
+    async fn with_entry<R>(
+        &self,
+        key: &str,
+        kind: &str,
+        now: i64,
+        f: impl FnOnce(&mut Entry) -> R,
+    ) -> Result<R, StoreError> {
+        {
+            let mut entries = lock(self.shard(key));
+            if let Some(entry) = entries.get_mut(key)
+                && entry.usable(self.flush_every)
+            {
+                entry.last_used = Instant::now();
+                return Ok(f(entry));
+            }
+        }
+        let started = Instant::now();
+        let row = self.store.request_protection_load(key, kind, now).await?;
+        bump(&self.counters.loads, 1);
+        let mut entries = lock(self.shard(key));
+        match entries.get_mut(key) {
+            // A concurrent request loaded (and possibly charged) it first, or a
+            // flush re-seeded it after our read began: keep the newer view.
+            Some(entry) if !entry.pending.is_empty() || entry.synced_at > started => {}
+            Some(entry) => *entry = Entry::loaded(row, started),
+            None => {
+                self.evict(&mut entries);
+                entries.insert(key.to_owned(), Entry::loaded(row, started));
+            }
+        }
+        let entry = entries.get_mut(key).expect("entry present under its shard lock");
+        entry.last_used = Instant::now();
+        Ok(f(entry))
+    }
+
+    /// Bounded cache. First drop entries that would be re-read anyway (no pending
+    /// observation and older than one flush), which loses nothing. Only if every
+    /// entry is fresh, drop the least recently used tenth of the idle ones. Entries
+    /// with pending observations are never evicted, so a shard can exceed its share
+    /// only by subjects that have queued observations (bounded by `MAX_PENDING`).
+    fn evict(&self, entries: &mut HashMap<String, Entry>) {
+        if entries.len() < SHARD_CAPACITY {
+            return;
+        }
+        let before = entries.len();
+        entries.retain(|_, entry| entry.usable(self.flush_every));
+        if entries.len() >= SHARD_CAPACITY {
+            let mut idle: Vec<_> = entries
+                .iter()
+                .filter(|(_, entry)| entry.pending.is_empty())
+                .map(|(key, entry)| (entry.last_used, key.clone()))
+                .collect();
+            idle.sort();
+            for (_, key) in idle.into_iter().take((SHARD_CAPACITY / 10).max(1)) {
+                entries.remove(&key);
+            }
+        }
+        bump(&self.counters.evictions, (before - entries.len()) as u64);
+    }
+
+    /// Charge (`signal == None`) or observe one request, deciding from the cache.
+    pub(crate) async fn record(
+        &self,
+        kind: &'static str,
+        value: &str,
+        policy: &Policy,
+        now: i64,
+        signal: Option<Signal>,
+        source: ProtectionSource<'_>,
+    ) -> Answer {
+        let prepared = match self.store.request_protection_prepare(kind, value, policy, now, signal, source) {
+            Ok(Some(prepared)) => prepared,
+            Ok(None) => return Answer::ok(Decision::default()),
+            Err(_) => return Answer::failed(Decision::default()),
+        };
+        let key = prepared.subject_key().to_owned();
+        let recorded = self
+            .with_entry(&key, kind, now, |entry| {
+                let mut queue = lock(&self.queue);
+                if queue.len() >= self.max_pending {
+                    // Refusals still apply; nothing is recorded.
+                    let (mut state, mut expires_at) = (entry.state.clone(), entry.expires_at);
+                    let step = evaluate_protection(
+                        &mut state, &mut expires_at, &prepared, policy, now, signal, source,
+                    );
+                    return Recorded::Full(step.decision);
+                }
+                let new_row = !entry.persisted || entry.expires_at <= now;
+                let step = evaluate_protection(
+                    &mut entry.state, &mut entry.expires_at, &prepared, policy, now, signal, source,
+                );
+                let pending = Arc::new(Pending {
+                    seq: self.next_seq.fetch_add(1, Ordering::Relaxed),
+                    kind,
+                    value: value.to_owned(),
+                    prepared: prepared.clone(),
+                    policy: policy.clone(),
+                    now,
+                    signal,
+                    country: source.country.map(str::to_owned),
+                    ip: source.ip.map(str::to_owned),
+                    durable: OnceLock::new(),
+                });
+                entry.pending.push_back(pending.clone());
+                queue.push_back(pending.clone());
+                Recorded::Queued {
+                    pending,
+                    decision: step.decision,
+                    through: step.transition || new_row,
+                    queued: queue.len(),
+                }
+            })
+            .await;
+        let (pending, decision, through, queued) = match recorded {
+            Err(_) => return Answer::failed(Decision::default()),
+            Ok(Recorded::Full(decision)) => {
+                bump(&self.counters.dropped, 1);
+                return Answer::failed(decision);
+            }
+            Ok(Recorded::Queued { pending, decision, through, queued }) => {
+                (pending, decision, through, queued)
+            }
+        };
+        if queued >= BATCH {
+            self.wake.notify_one();
+        }
+        if through {
+            bump(&self.counters.write_throughs, 1);
+            let flushed = self.drain(pending.seq).await;
+            return match (flushed, pending.durable.get()) {
+                (Ok(()), Some(durable)) => Answer::ok(*durable),
+                _ => {
+                    bump(&self.counters.write_through_failures, 1);
+                    Answer::failed(decision)
+                }
+            };
+        }
+        Answer { decision, storage_failed: self.degraded_too_long() }
+    }
+
+    /// Read an existing probe-path action without charging anything.
+    pub(crate) async fn probe_decision(
+        &self,
+        kind: &'static str,
+        value: &str,
+        policy: &Policy,
+        now: i64,
+    ) -> Answer {
+        if !policy.valid() || now < 0 {
+            return Answer::failed(Decision::default());
+        }
+        if policy.adaptive_mode == mw_store::request_protection_model::Mode::Off {
+            return Answer::ok(Decision::default());
+        }
+        let Ok(key) = self.store.request_protection_subject(kind, value) else {
+            return Answer::failed(Decision::default());
+        };
+        match self
+            .with_entry(&key, kind, now, |entry| {
+                if entry.expires_at <= now {
+                    Decision::default()
+                } else {
+                    entry.state.probe_decision(policy, now)
+                }
+            })
+            .await
+        {
+            Ok(decision) => Answer::ok(decision),
+            Err(_) => Answer::failed(Decision::default()),
+        }
+    }
+
+    /// Commit every observation up to and including `target`, in queue order.
+    async fn drain(&self, target: u64) -> Result<(), StoreError> {
+        let _flushing = self.flushing.lock().await;
+        self.drain_locked(target).await
+    }
+    /// `drain` for a caller that already holds `flushing`.
+    async fn drain_locked(&self, target: u64) -> Result<(), StoreError> {
+        loop {
+            let front = lock(&self.queue).front().map(|pending| pending.seq);
+            match front {
+                Some(seq) if seq <= target => self.flush_batch().await?,
+                _ => return Ok(()),
+            }
+        }
+    }
+
+    /// Commit everything queued now. Used by the background flusher.
+    pub(crate) async fn flush_pending(&self) -> Result<(), StoreError> {
+        let Some(last) = lock(&self.queue).back().map(|pending| pending.seq) else {
+            return Ok(());
+        };
+        self.drain(last).await
+    }
+
+    /// Graceful shutdown: commit everything queued before `deadline`.
+    pub(crate) async fn flush_all(&self, deadline: tokio::time::Instant) -> Result<(), FlushIncomplete> {
+        let done = tokio::time::timeout_at(deadline, self.flush_pending()).await;
+        let remaining = lock(&self.queue).len();
+        match done {
+            Ok(Ok(())) if remaining == 0 => Ok(()),
+            _ => Err(FlushIncomplete { remaining }),
+        }
+    }
+
+    /// One group of at most 64 from the front of the queue. Caller holds `flushing`.
+    async fn flush_batch(&self) -> Result<(), StoreError> {
+        let batch: Vec<Arc<Pending>> = lock(&self.queue).iter().take(BATCH).cloned().collect();
+        if batch.is_empty() {
+            return Ok(());
+        }
+        let observations: Vec<_> = batch.iter().map(|pending| pending.observation()).collect();
+        match self.store.request_protection_sqlite_batch_with_state(&observations).await {
+            Ok(results) => {
+                self.committed(&batch, results);
+                Ok(())
+            }
+            // A deterministic refusal (corrupt row, subject capacity) would fail the
+            // same group forever. Isolate it so the rest of the queue still commits.
+            Err(StoreError::Corrupt(_)) => {
+                for pending in &batch {
+                    match self
+                        .store
+                        .request_protection_sqlite_batch_with_state(&[pending.observation()])
+                        .await
+                    {
+                        Ok(results) => self.committed(std::slice::from_ref(pending), results),
+                        Err(StoreError::Corrupt(_)) => self.rejected(pending),
+                        Err(error) => return Err(self.degrade(error)),
+                    }
+                }
+                Ok(())
+            }
+            Err(error) => Err(self.degrade(error)),
+        }
+    }
+
+    fn degrade(&self, error: StoreError) -> StoreError {
+        bump(&self.counters.flush_failures, 1);
+        lock(&self.degraded_since).get_or_insert_with(Instant::now);
+        error
+    }
+
+    /// Re-seed each flushed subject from its committed row, then replay the
+    /// observations it queued after this group.
+    fn committed(&self, batch: &[Arc<Pending>], results: Vec<(ProtectionOutcome, Option<StoredProtection>)>) {
+        let mut last: HashMap<&str, (u64, Option<StoredProtection>)> = HashMap::new();
+        for (pending, (outcome, stored)) in batch.iter().zip(results) {
+            let _ = pending.durable.set(outcome.decision);
+            last.insert(pending.prepared.subject_key(), (pending.seq, stored));
+        }
+        let synced = Instant::now();
+        for (key, (seq, stored)) in last {
+            let mut entries = lock(self.shard(key));
+            let Some(entry) = entries.get_mut(key) else { continue };
+            while entry.pending.front().is_some_and(|pending| pending.seq <= seq) {
+                entry.pending.pop_front();
+            }
+            match stored {
+                Some(stored) => {
+                    entry.state = stored.state;
+                    entry.expires_at = stored.expires_at;
+                    entry.persisted = true;
+                    entry.stale = false;
+                    for pending in &entry.pending {
+                        pending.replay(&mut entry.state, &mut entry.expires_at);
+                    }
+                    entry.synced_at = synced;
+                }
+                None => entry.stale = true,
+            }
+        }
+        let mut queue = lock(&self.queue);
+        for pending in batch {
+            if queue.front().is_some_and(|front| front.seq == pending.seq) {
+                queue.pop_front();
+            }
+        }
+        drop(queue);
+        bump(&self.counters.flushed, batch.len() as u64);
+        bump(&self.counters.batches, 1);
+        *lock(&self.degraded_since) = None;
+    }
+
+    fn rejected(&self, pending: &Arc<Pending>) {
+        bump(&self.counters.rejected, 1);
+        let key = pending.prepared.subject_key();
+        if let Some(entry) = lock(self.shard(key)).get_mut(key) {
+            entry.pending.retain(|queued| queued.seq != pending.seq);
+            entry.stale = true;
+        }
+        let mut queue = lock(&self.queue);
+        if queue.front().is_some_and(|front| front.seq == pending.seq) {
+            queue.pop_front();
+        }
+    }
+
+    /// Policy or settings changed: drop every cached subject with nothing pending,
+    /// and re-read the rest after their next flush.
+    pub(crate) fn invalidate(&self) {
+        for shard in &self.shards {
+            let mut entries = lock(shard);
+            entries.retain(|_, entry| !entry.pending.is_empty());
+            for entry in entries.values_mut() {
+                entry.stale = true;
+            }
+        }
+        self.wake.notify_one();
+    }
+
+    /// Administrative clear: commit what is pending, clear the row with its
+    /// expected revision, then restart the cached subject from an absent row.
+    pub(crate) async fn clear(&self, key: &str, expected: &str, now: i64) -> Result<bool, StoreError> {
+        // Hold the flusher out until the cached subject matches the cleared row.
+        let _flushing = self.flushing.lock().await;
+        let last = lock(&self.queue).back().map(|pending| pending.seq);
+        if let Some(last) = last {
+            self.drain_locked(last).await?;
+        }
+        let cleared = self.store.clear_request_protection(key, expected, now).await?;
+        let mut entries = lock(self.shard(key));
+        if cleared && let Some(entry) = entries.get_mut(key) {
+            if entry.pending.is_empty() {
+                entries.remove(key);
+            } else {
+                // Observations recorded after the flush land on the absent row,
+                // exactly as the next flush will apply them.
+                entry.state = State::default();
+                entry.expires_at = 0;
+                entry.persisted = false;
+                for pending in &entry.pending {
+                    pending.replay(&mut entry.state, &mut entry.expires_at);
+                }
+            }
+        }
+        Ok(cleared)
+    }
+
+    pub(crate) fn status(&self) -> WriteBehindStatus {
+        let counter = |value: &AtomicU64| value.load(Ordering::Relaxed);
+        WriteBehindStatus {
+            pending: lock(&self.queue).len(),
+            flushed: counter(&self.counters.flushed),
+            batches: counter(&self.counters.batches),
+            write_throughs: counter(&self.counters.write_throughs),
+            write_through_failures: counter(&self.counters.write_through_failures),
+            flush_failures: counter(&self.counters.flush_failures),
+            rejected: counter(&self.counters.rejected),
+            dropped: counter(&self.counters.dropped),
+            loads: counter(&self.counters.loads),
+            degraded: lock(&self.degraded_since).is_some(),
+            cache_size: self.shards.iter().map(|shard| lock(shard).len()).sum(),
+            evictions: counter(&self.counters.evictions),
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "write_behind_tests.rs"]
+mod tests;
