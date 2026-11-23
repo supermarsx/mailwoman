@@ -44,6 +44,21 @@ beforeEach(() => {
 });
 
 describe('Your data (Settings)', () => {
+  it('presents readable browser/device metadata and keeps raw agents in collapsed details', async()=>{
+    const userAgent='Mozilla/5.0 (Android 16; Mobile; rv:160.0) Gecko/160.0 Firefox/160.0';
+    vi.mocked(api.listSessions).mockResolvedValue([{handle:'phone',current:true,userAgent,lastSeen:'2026-11-23T15:08:37.251442071+00:00',country:'PT'}]);
+    render(()=><YourData load={async()=>overview()}/>);
+    const list=await screen.findByTestId('yd-sessions');
+    await within(list).findByText('Phone');
+    expect(within(list).getByText('Firefox 160')).toBeInTheDocument();
+    expect(within(list).getByText('Android 16')).toBeInTheDocument();
+    expect(within(list).getByText('Portugal')).toBeInTheDocument();
+    expect(within(list).getByText('this device')).toBeInTheDocument();
+    expect(list.textContent).not.toContain('2026-11-23T15:08:37');
+    const details=list.querySelector('details')!;
+    expect(details.open).toBe(false);expect(details.textContent).toContain(userAgent);
+    expect(list.querySelectorAll('svg').length).toBeGreaterThanOrEqual(5);
+  });
   it('lists stored data with counts, size, retention and processors', async () => {
     render(() => <YourData load={async () => overview()} />);
     const mail = await screen.findByTestId('yd-cat-mail');

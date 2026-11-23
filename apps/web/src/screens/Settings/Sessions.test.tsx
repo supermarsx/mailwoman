@@ -7,15 +7,15 @@ it('keeps the current session safe and targets the selected device handle', asyn
   const service = new SettingsService();
   vi.spyOn(service, 'sessions').mockResolvedValue([
     { handle: 'current', username: 'alice@example.org', createdAt: 'today', lastSeen: 'now', current: true, deviceLabel: 'This laptop', userAgent:'Full browser technical details' },
-    { handle: 'other', username: 'alice@example.org', createdAt: 'yesterday', lastSeen: 'background poll', lastActivity: 'user interaction', current: false, deviceLabel: 'Phone', ip: '192.0.2.1', country: 'GB' },
+    { handle: 'other', username: 'alice@example.org', createdAt: 'yesterday', lastSeen: '2026-11-22T10:00:00Z', lastActivity: '2026-11-23T15:08:37.251442071+00:00', current: false, deviceLabel: 'Phone', ip: '192.0.2.1', country: 'GB' },
   ]);
   const revoke = vi.spyOn(service, 'revokeSession').mockResolvedValue(undefined);
   render(() => <Sessions service={service} />);
   await screen.findByText('This laptop');
-  expect(screen.getByText('Full browser technical details')).not.toBeVisible();fireEvent.click(screen.getByText('Client details'));expect(screen.getByText('Full browser technical details')).toBeVisible();
+  expect(screen.getByText('Full browser technical details')).not.toBeVisible();fireEvent.click(screen.getByText('Technical details'));expect(screen.getByText('Full browser technical details')).toBeVisible();
   expect(screen.getByRole('table', { name: 'Active sessions' })).toBeInTheDocument();
-  expect(screen.getByText('Last active user interaction')).toBeInTheDocument();
-  expect(screen.queryByText('Last active background poll')).not.toBeInTheDocument();
+  expect(screen.getByText(/Last active.*Nov 23, 2026/)).toBeInTheDocument();
+  expect(screen.queryByText(/Last active.*Nov 22, 2026/)).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Sign out This laptop' })).not.toBeInTheDocument();
   fireEvent.input(screen.getByRole('searchbox'), { target: { value: '192.0.2.1' } });
   expect(screen.queryByText('This laptop')).not.toBeInTheDocument();

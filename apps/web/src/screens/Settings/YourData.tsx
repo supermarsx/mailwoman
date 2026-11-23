@@ -1,3 +1,5 @@
+import {SessionDevice,sessionCountry,sessionTimestamp} from './SessionDevice.tsx';
+import * as deviceCss from './sessionDevice.css.ts';
 import {PrivacyDocumentPage,type PrivacyDocumentKind} from './PrivacyDocumentPage.tsx';
 import {useEntityNavigation} from './entityEditor.tsx';
 import {PersonalAccountBoundary} from './PersonalAccountBoundary.tsx';
@@ -102,10 +104,10 @@ function Devices(): JSX.Element {
   return <>
     <SettingsCard id="your-data-card-sessions" wide title={t('yd-sessions-title')}>
     <Show when={(sessions() ?? []).length > 0} fallback={<p class={css.meta}>{t('yd-sessions-none')}</p>}>
-      <ul class={css.list} data-testid="yd-sessions"><For each={sessions() ?? []}>{s => <li class={css.item}>
+      <ul class={css.list} data-testid="yd-sessions"><For each={sessions() ?? []}>{s => <li class={`${css.item} ${deviceCss.row}`}>
         <div class={css.itemMain}>
-          <span class={css.itemName}>{s.deviceLabel || s.userAgent || t('yd-session-unknown')}{s.current ? <> <span class={css.badge}>{t('yd-session-current')}</span></> : null}</span>
-          <span class={css.meta}>{s.lastSeen ?? ''}{s.country ? ` · ${s.country}` : ''}</span>
+          <SessionDevice userAgent={s.userAgent} deviceLabel={s.deviceLabel} badge={<Show when={s.current}><span class={css.badge}>{t('yd-session-current')}</span></Show>}/>
+          <div class={deviceCss.metadata}><span class={deviceCss.line}><Icon name="clock"/><span>{t('settings-sessions-last-seen',{when:sessionTimestamp(s.lastSeen)})}</span></span><Show when={s.country}><span class={deviceCss.line}><Icon name="globe"/>{sessionCountry(s.country!)}</span></Show></div>
         </div>
         <Show when={!s.current}><button type="button" class={css.ghost} onClick={() => void run(() => revokeSession(s.handle), refetch)}>{t('yd-revoke')}</button></Show>
       </li>}</For></ul>
@@ -128,7 +130,7 @@ function OwnedYourData(props:{load?:()=>Promise<PrivacyOverview>}):JSX.Element {
   const navigation=useEntityNavigation('privacy');
   const documentKind=():PrivacyDocumentKind|undefined=>navigation.route().editor?.id==='privacy-policy'?'policy':navigation.route().editor?.id==='processing-records'?'processing':undefined;
   const openDocument=(kind:PrivacyDocumentKind)=>void navigation.navigate({section:'privacy',card:'your-data-card-documents',editor:{kind:'edit',id:kind==='policy'?'privacy-policy':'processing-records'}});
-  onMount(() => { void loadCatalog('your-data'); });
+  onMount(() => { void loadCatalog('your-data'); void loadCatalog('settings'); });
   const [overview, { mutate }] = createResource(async () => { try { return await (props.load ?? loadOverview)(); } catch { return null; } });
   const body=()=> <Show when={overview()} fallback={<SettingsCard id="your-data-card-overview" title={t('yd-title')} testId="your-data"><p class={css.meta}>{overview.loading ? t('yd-loading') : t('yd-unavailable')}</p></SettingsCard>}>{o => <>
       <SettingsCard id="your-data-card-overview" wide title={t('yd-title')} description={t('yd-intro', { address: o().account.address })} testId="your-data">

@@ -1,3 +1,4 @@
+import {SessionDevice,sessionTimestamp} from './SessionDevice.tsx';
 import {useRealtime} from '../../realtime/context.ts';
 import {preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
 import {SearchInput} from '../../components/SearchInput.tsx';
@@ -143,9 +144,9 @@ export function Sessions(props: SessionsProps): JSX.Element {
           <thead><tr><th aria-label={t('settings-sessions-select')}/><th>{t('settings-sessions-account')}</th><th>{t('settings-sessions-device')}</th><th>{t('settings-sessions-location')}</th><th>{t('settings-sessions-activity')}</th><th>{t('settings-sessions-actions')}</th></tr></thead>
           <tbody><For each={shown()}>{(s) => <tr>
             <td><input type="checkbox" aria-label={t('settings-sessions-select-device',{device:s.deviceLabel||s.clientType||s.username})} checked={selected().has(s.handle)} disabled={busy()||s.current} onChange={event=>setSelected(previous=>{const next=new Set(previous);if(event.currentTarget.checked)next.add(s.handle);else next.delete(s.handle);return next;})}/></td>
-            <td>{isolate(s.username)}<Show when={linkedOriginView(s)}>{view=>linkedBlock(s,view())}</Show></td><td>{s.deviceLabel || s.clientType || '—'} {s.clientVersion}<Show when={s.userAgent}><details><summary>{t('settings-sessions-client-details')}</summary><p class={css.meta}>{s.userAgent}</p></details></Show></td>
+            <td>{isolate(s.username)}<Show when={linkedOriginView(s)}>{view=>linkedBlock(s,view())}</Show></td><td><SessionDevice userAgent={s.userAgent} deviceLabel={s.deviceLabel}/><Show when={s.clientVersion}><p class={css.meta}>{s.clientType} {s.clientVersion}</p></Show></td>
             <td>{s.ip || '—'}<p class={css.meta}>{countryDisplay(s.ip,s.country,t('settings-sessions-location-unavailable'))}</p></td>
-            <td>{t('settings-sessions-last-seen', { when: s.lastActivity ?? s.lastSeen })}<p class={css.meta}>{t('security-center-first-seen', { when: s.createdAt })}</p></td>
+            <td>{t('settings-sessions-last-seen', { when: sessionTimestamp(s.lastActivity ?? s.lastSeen) })}<p class={css.meta}>{t('security-center-first-seen', { when: sessionTimestamp(s.createdAt) })}</p></td>
             <td><Show when={s.current} fallback={<button type="button" class={css.danger} disabled={busy()} aria-label={t('settings-sessions-revoke-device', { device: s.deviceLabel || s.clientType || s.username })} title={t('settings-sessions-revoke-device', { device: s.deviceLabel || s.clientType || s.username })} onClick={() => void revoke(s.handle)}><Icon name="close" /></button>}><span class={css.badge}>{t('settings-sessions-current')}</span></Show></td>
           </tr>}</For></tbody>
         </table>
