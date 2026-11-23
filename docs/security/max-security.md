@@ -1,64 +1,121 @@
-# Max-security message opening
+# Message view modes and the reading floor
 
-Some messages are worth reading with the blast radius turned all the way down.
-V4 adds a **three-position switch** to the message toolbar that controls how far a
-message is stripped before it is rendered:
+The reader can show a message in three ways, from most to least content. The
+choice controls how much of the sender's HTML reaches your screen. An
+administrator can set a **Reading floor** that stops anyone from choosing a looser
+view than the deployment allows.
 
-1. **plain-text** — render the message as escaped plain text. No HTML, no remote
-   content, no inline media. The safest, lowest-fidelity view.
-2. **sanitized-no-media** — render sanitized HTML but with **all media stripped**
-   (the render CSP drops images/media). Layout and links survive; nothing is
-   fetched from a remote host.
-3. **full-sanitized** — the normal V2 reading experience: sanitized HTML in the
-   sandboxed iframe.
+<!-- screenshot: id=security/reader-view-mode-menu; screen=Reader (message open); state=View mode menu open, "Full" checked; element=the "View: Full" toolbar button and its menu -->
 
-All three render inside an opaque-origin message sandbox. The trusted outer
-reader and its inner message frame use `allow-scripts` without
-`allow-same-origin`; their CSP permits only the exact hashes of the fixed reader
-bridge and address-context handler. Sender scripts and event attributes are
-removed, and arbitrary scripts remain blocked. The opening mode changes media
-policy and sanitization without granting sender code execution.
+## The three view modes
 
-The fixed inner handler recognizes a real right-click on a mail address and
-reports only the address and pointer coordinates through a per-document
-MessageChannel. The outer bridge and app validate source, token, document
-revision and coordinates before opening the app's contact menu. Link consent
-still controls navigation independently; an inert email link can open contact
-details without enabling message links. The application shell's script policy
-is unchanged.
+The reader toolbar shows the current mode as **View: Full**, **View: No media** or
+**View: Plain text**. Opening it shows the **View mode** menu.
+
+| Mode | What is rendered | Images and media | Remote content |
+|---|---|---|---|
+| **Full** | Sanitized HTML with styling. | Inline (`cid:`) images and, depending on the remote-image policy, proxied or direct remote images. | Allowed only as the [remote-image policy](./egress.md) permits. |
+| **No media** | Sanitized HTML with layout and links. | None. The frame's Content Security Policy is `default-src 'none'; style-src 'unsafe-inline'`, so no image, media or font source is allowed. | None. |
+| **Plain text** | The message's text, escaped. No HTML is rendered. | None. | None. |
+
+**Full** is the default. When the reader is offline, it renders the cached body as
+**No media** whatever mode is selected.
+
+## How the mode is chosen
+
+The mode applies per sender. Choosing a mode in the **View mode** menu saves it for
+the sender's address (compared in lower case), and every later message from that
+address opens in the same mode. Messages from senders without a saved choice open
+in **Full**.
+
+These choices are stored in the browser's local storage (key `mw.maxsec.v1`). They
+are not saved on the server: another browser or device does not see them, and
+clearing site data removes them.
+
+The **Reading floor** then raises the result if it is below the floor. Modes looser
+than the floor are disabled in the **View mode** menu. In short: floor first, then
+the per-sender choice, then **Full**.
+
+## Setting a reading floor (administrators)
+
+<!-- screenshot: id=security/admin-reading-floor; screen=Admin console > Security policy; state=default policy; element=the "Reading floor" field and its options -->
+
+In the admin console, open **Security policy** and set **Reading floor**:
+
+| Option | Effect |
+|---|---|
+| **No floor** | Users may use any mode (default). |
+| **Sanitised HTML with media** | Same as no floor in practice: **Full** is the loosest mode. |
+| **Sanitised HTML without remote media** | Users can choose **No media** or **Plain text**, not **Full**. |
+| **Plain text only** | Every message opens as **Plain text**. |
+
+The policy is saved through `PUT /admin/security-policy`. Each server process reads
+it again within 30 seconds, and signed-in clients receive it as `maxSecurityFloor`
+from `GET /api/policy`.
+
+::: warning The floor is enforced by the Mailwoman client
+The server serves the floor to the client, and the client applies it. The server
+does not withhold HTML bodies or images when a floor is set. A modified client, or
+a direct JMAP or API request, can still fetch the full message. Use the floor to
+set what the Mailwoman apps display, not as an access control.
+:::
+
+## How the message frame is isolated
+
+All three modes render inside sandboxed frames with opaque origins:
+
+- The outer reader document is served by `/api/rc/frame` with a Content Security
+  Policy whose `script-src` lists only the SHA-256 hashes of two fixed scripts: the
+  reader bridge and the address context handler. It also sets `base-uri 'none'`
+  and `form-action 'none'`.
+- The message itself sits in a nested frame with `sandbox="allow-scripts"`
+  (plus `allow-popups` when you have allowed links in that message), never
+  `allow-same-origin`, so it cannot read the app's cookies, storage or DOM.
+- Before rendering, the body is sanitized: scripts, event handler attributes,
+  embedded documents, forms and executable URLs are removed. The address handler
+  reports a right-click on an email address back to the app through a
+  per-document channel, and the app checks the source, a random token, the
+  document revision and the coordinates before it opens the contact menu.
+
+Link consent is separate from the view mode: links stay inert until you allow them
+for that message, or until you trust the sender or the sender's domain for links.
 
 ## Attachments
 
-The intent is that in any of the reduced modes, attachments open **only via the
-re-encode preview jail** (the V2 viewer sandbox that renders a re-encoded
-preview), never the original bytes.
+::: warning View modes do not restrict attachment downloads
+The reader's attachment download and preview actions do not check the view mode.
+In **No media** and **Plain text**, attachments can still be downloaded as their
+original bytes (subject to the [`mail.allowDownload`](/admin/settings#mail.allowdownload) setting and the attachment
+risk policy). The view mode limits how the message body is displayed, not what
+files you can save.
+:::
 
-> ⚠️ **Not enforced yet (recorded 26.19).** The reader still has a download path
-> that fetches the original bytes over `/jmap/download/…` regardless of the
-> opening mode, so "there is no open-original path in these modes" is a
-> requirement, not a description. Nothing here is bypassing a check — the check
-> does not exist. Do not rely on the reduced modes to keep original attachment
-> bytes away from the client until this is closed; the rendering restrictions
-> above (opaque origins, fixed hash-authorized handlers, tightened CSP and
-> sanitize mode) do hold.
+The draft preview is the exception: it hides the download button for a draft
+attachment unless the effective mode for the sending address is **Full**.
 
-## Policy precedence
+## Encrypted messages
 
-The effective mode for a message is chosen by, in order of precedence:
+The view mode applies to decrypted OpenPGP messages too. Decryption and
+sanitizing happen in the browser (see [OpenPGP and S/MIME](./crypto.md)). A
+decrypted message opened in **Plain text** shows escaped text, and in **No media**
+shows sanitized HTML without images, the same as an unencrypted message.
 
-1. **Admin floor** (config) — an operator can set a *minimum* strictness that a
-   user cannot relax.
-2. **Per-sender policy** — a user's saved preference for that sender.
-3. **Global default** — the user's global setting.
+## What the view modes protect against
 
-The admin floor only ever *raises* strictness; a user may make a message stricter
-than the floor but never weaker. Per-sender overrides the global default within the
-bounds the floor allows.
+- **Tracking pixels and remote images**: **No media** and **Plain text** load no
+  images, so the sender learns nothing from image requests.
+- **Rendering tricks in HTML**: **Plain text** shows no layout, so hidden text,
+  look-alike buttons and styled phishing content are visible as plain text.
 
-## Relationship to end-to-end encryption
+They do not protect against:
 
-Max-security opening and E2EE are independent and compose cleanly: a decrypted
-end-to-end-encrypted body is sanitized **in the crypto worker** (never on the
-server) and then rendered honouring the selected max-security mode — so a decrypted
-message opened in `plain-text` shows escaped text, and in `sanitized-no-media` has
-its media stripped, exactly like a cleartext message.
+- Malicious attachments you download and open in another application.
+- Links you copy or follow by hand.
+- Reading by anyone who can fetch the message another way (see the warning above).
+
+## Related
+
+- [Remote content and outbound requests](./egress.md)
+- [PDF preview](./pdf-preview.md)
+- [Security policy (admin)](/admin/security-policy)
+- [Security model overview](./README.md)
