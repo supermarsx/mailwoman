@@ -1,6 +1,20 @@
 //! One bounded, ordered index publication owner. SQL remains authoritative.
 //! Fresh optimistic witnesses are rechecked after publication; no cross-DB
-//! atomicity, early acknowledgement or crash-safe dirty-journal claim is made.
+//! atomicity is claimed.
+//!
+//! Acknowledgement modes ([`PublicationAck`]):
+//! * `commit` (default): callers that await their waiter return after the index
+//!   commit. No journal rows are captured or acknowledged.
+//! * `journal` (SQLite only): store triggers (migration 0116) write a journal row
+//!   in the same transaction as every indexed source change. `Email/set` may
+//!   return after its SQL commit without awaiting the index. Durability comes
+//!   from the journal: the owner acknowledges rows only after a successful
+//!   index commit, startup replays what is left, and a sweeper retries rows no
+//!   publication covered. Read-your-writes comes from [`Publisher::read_fence`]:
+//!   every index-backed read waits until the account's publications handed off
+//!   before the read started are applied, and returns an error (never a stale
+//!   result) on timeout, poison, pending repair, erasure or an unfinished
+//!   startup replay.
 use crate::{
     backend::{EngineError, Result},
     v6::V6Hooks,
@@ -15,7 +29,34 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
+
+/// When a metadata mutation (`Email/set`) is acknowledged to the client.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PublicationAck {
+    /// After the sealed index commit (today's behaviour).
+    #[default]
+    Commit,
+    /// After the SQL commit that also wrote the journal row; reads are fenced.
+    Journal,
+}
+impl PublicationAck {
+    /// `commit` or `journal` (case-insensitive, surrounding space ignored).
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "commit" => Some(Self::Commit),
+            "journal" => Some(Self::Journal),
+            _ => None,
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Commit => "commit",
+            Self::Journal => "journal",
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct PublicationOptions {
@@ -29,6 +70,13 @@ pub struct PublicationOptions {
     pub collection_window: Duration,
     pub admission_timeout: Duration,
     pub revalidation_attempts: usize,
+    /// Acknowledgement mode. `Journal` takes effect only after
+    /// [`crate::Engine::start_index_publication`] has enabled trigger capture.
+    pub ack: PublicationAck,
+    /// Longest an index-backed read waits on its account's fence (journal mode).
+    pub read_fence_timeout: Duration,
+    /// Default deadline of [`crate::Engine::drain_index_publication`].
+    pub drain_timeout: Duration,
 }
 impl Default for PublicationOptions {
     fn default() -> Self {
@@ -43,6 +91,9 @@ impl Default for PublicationOptions {
             collection_window: Duration::from_millis(1),
             admission_timeout: Duration::from_secs(30),
             revalidation_attempts: 2,
+            ack: PublicationAck::Commit,
+            read_fence_timeout: Duration::from_secs(5),
+            drain_timeout: Duration::from_secs(10),
         }
     }
 }
@@ -60,6 +111,9 @@ impl PublicationOptions {
             || self.admission_timeout.is_zero()
             || self.admission_timeout > Duration::from_secs(60)
             || !(1..=4).contains(&self.revalidation_attempts)
+            || self.read_fence_timeout < Duration::from_millis(100)
+            || self.read_fence_timeout > Duration::from_secs(30)
+            || self.drain_timeout > Duration::from_secs(60)
         {
             return Err(error("invalid bounded index publication options"));
         }
@@ -153,6 +207,30 @@ pub struct PublicationStatus {
     pub max_pending_jobs: usize,
     pub max_pending_bytes: usize,
     pub max_batch_documents: usize,
+    /// Configured acknowledgement mode.
+    pub ack_mode: PublicationAck,
+    /// Whether `Email/set` currently returns before the index commit (journal
+    /// mode after trigger capture was enabled).
+    pub early_ack: bool,
+    /// Whether index reads are held back until the startup journal replay ends.
+    pub journal_replay_pending: bool,
+    /// Journal rows at the last observation (startup or sweeper pass); `None`
+    /// when the journal has not been inspected in this process.
+    pub journal_rows: Option<u64>,
+    /// Journal rows removed after successful publications.
+    pub journal_acknowledged_rows: u64,
+    /// Failed journal acknowledgement statements (rows stay for replay).
+    pub journal_ack_failures: u64,
+    /// Keys resubmitted from the journal by startup replay or the sweeper.
+    pub journal_replayed_keys: u64,
+    /// Reads that had to wait on their account's fence.
+    pub read_fence_waits: u64,
+    /// Reads refused because the fence did not open in time.
+    pub read_fence_timeouts: u64,
+    /// Reads refused because publication was unhealthy for the account.
+    pub read_fence_refusals: u64,
+    /// Admission closed by [`Publisher::drain`].
+    pub draining: bool,
 }
 #[derive(Default)]
 struct Stats {
@@ -170,6 +248,37 @@ struct Stats {
     requires_full_rebuild: AtomicBool,
     repair_epoch: AtomicU64,
 }
+/// Journal-mode state. All flags are inert in commit mode unless startup found
+/// leftover rows from an earlier journal-mode run.
+#[derive(Default)]
+struct JournalState {
+    /// The owner captures `index_journal_max_seq` and acknowledges rows.
+    active: AtomicBool,
+    /// `Email/set` does not await its waiter. Set only after capture is enabled.
+    early_ack: AtomicBool,
+    /// Reads wait (bounded) until startup replay has completed cleanly.
+    replay_pending: AtomicBool,
+    replay_done: Notify,
+    draining: AtomicBool,
+    sweeper_started: AtomicBool,
+    rows: AtomicU64,
+    rows_known: AtomicBool,
+    acknowledged: AtomicU64,
+    ack_failures: AtomicU64,
+    replayed: AtomicU64,
+    fence_waits: AtomicU64,
+    fence_timeouts: AtomicU64,
+    fence_refusals: AtomicU64,
+}
+/// Per-account publication watermark. `submitted` is assigned under its lock
+/// together with the channel send, so channel order equals sequence order and
+/// the FIFO owner advances `published` monotonically.
+#[derive(Default)]
+struct Watermark {
+    submitted: Mutex<u64>,
+    published: AtomicU64,
+    advanced: Notify,
+}
 struct AccountGate {
     epoch: AtomicU64,
     closed: AtomicBool,
@@ -179,6 +288,8 @@ struct Core {
     jobs: Arc<Semaphore>,
     bytes: Arc<Semaphore>,
     stats: Stats,
+    journal: JournalState,
+    watermarks: Mutex<HashMap<String, Arc<Watermark>>>,
     gates: Mutex<HashMap<String, Weak<AccountGate>>>,
     erasing: Mutex<HashMap<String, Arc<AccountGate>>>,
     dirty: Mutex<BTreeMap<(String, String), PublicationMode>>,
@@ -279,6 +390,7 @@ struct Job {
     kind: Kind,
     ack: oneshot::Sender<Result<IndexPublicationReceipt>>,
     _admission: Option<Admission>,
+    watermark: Option<(Arc<Watermark>, u64)>,
 }
 impl Job {
     fn ids(&self) -> &[String] {
@@ -288,6 +400,30 @@ impl Job {
         }
     }
 }
+/// Interval of the journal-mode sweeper.
+const JOURNAL_SWEEP_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Outcome of [`crate::Engine::start_index_publication`].
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JournalStartup {
+    pub mode: PublicationAck,
+    /// Keys resubmitted from leftover journal rows.
+    pub replayed_keys: u64,
+    /// Keys whose replay failed (their rows remain).
+    pub failed_keys: u64,
+    /// Journal rows after replay, when they could be counted.
+    pub remaining_rows: Option<u64>,
+    /// Whether fenced index reads are served. In journal mode `false` means the
+    /// sweeper keeps retrying and reads are refused until a clean pass.
+    pub ready: bool,
+}
+#[derive(Default)]
+struct ReplayPass {
+    keys: u64,
+    failed: u64,
+}
+
 pub struct AccountIndexErasure {
     publisher: Publisher,
     account: String,
@@ -302,6 +438,18 @@ impl AccountIndexErasure {
         let ticket = self.publisher.reserve_inner(&self.account, 0, true).await?;
         if !Arc::ptr_eq(&ticket.state.as_ref().unwrap().gate, &self.gate) {
             return Err(error("account erasure generation changed"));
+        }
+        // The caller has removed the account authoritatively. Purge its journal
+        // rows before the fence reopens, so no replay can recreate documents.
+        // Replay reconciles to current source anyway; this keeps the journal
+        // from holding an erased account's keys at all.
+        if self.publisher.0.core.journal.active.load(Ordering::Acquire) {
+            self.publisher
+                .0
+                .context
+                .store
+                .index_journal_purge_account(&self.account)
+                .await?;
         }
         ticket
             .send(Kind::FinishErase {
@@ -334,12 +482,21 @@ impl Publisher {
         options: PublicationOptions,
     ) -> Result<Self> {
         options.validate()?;
+        let journal = JournalState::default();
+        if options.ack == PublicationAck::Journal {
+            // Until startup enables capture and replays leftovers, early
+            // acknowledgement stays off and fenced reads are held back.
+            journal.active.store(true, Ordering::Release);
+            journal.replay_pending.store(true, Ordering::Release);
+        }
         Ok(Self(Arc::new(Producer {
             core: Arc::new(Core {
                 jobs: Arc::new(Semaphore::new(options.max_pending_jobs)),
                 bytes: Arc::new(Semaphore::new(options.max_pending_bytes)),
                 options,
                 stats: Stats::default(),
+                journal,
+                watermarks: Mutex::new(HashMap::new()),
                 gates: Mutex::new(HashMap::new()),
                 erasing: Mutex::new(HashMap::new()),
                 dirty: Mutex::new(BTreeMap::new()),
@@ -461,6 +618,9 @@ impl Publisher {
         if slots > core.options.max_batch_documents {
             return Err(error("index publication document limit exceeded"));
         }
+        if core.journal.draining.load(Ordering::Acquire) {
+            return Err(error("index publication is shutting down; admission is closed"));
+        }
         if !barrier
             && (core.stats.poisoned.load(Ordering::Acquire)
                 || self.0.context.search.publication_is_poisoned())
@@ -579,7 +739,412 @@ impl Publisher {
             max_pending_jobs: core.options.max_pending_jobs,
             max_pending_bytes: core.options.max_pending_bytes,
             max_batch_documents: core.options.max_batch_documents,
+            ack_mode: core.options.ack,
+            early_ack: core.journal.early_ack.load(Ordering::Acquire),
+            journal_replay_pending: core.journal.replay_pending.load(Ordering::Acquire),
+            journal_rows: core
+                .journal
+                .rows_known
+                .load(Ordering::Acquire)
+                .then(|| core.journal.rows.load(Ordering::Acquire)),
+            journal_acknowledged_rows: core.journal.acknowledged.load(Ordering::Relaxed),
+            journal_ack_failures: core.journal.ack_failures.load(Ordering::Relaxed),
+            journal_replayed_keys: core.journal.replayed.load(Ordering::Relaxed),
+            read_fence_waits: core.journal.fence_waits.load(Ordering::Relaxed),
+            read_fence_timeouts: core.journal.fence_timeouts.load(Ordering::Relaxed),
+            read_fence_refusals: core.journal.fence_refusals.load(Ordering::Relaxed),
+            draining: core.journal.draining.load(Ordering::Acquire),
         }
+    }
+    /// Whether `Email/set` may return without awaiting its publication: journal
+    /// mode, after trigger capture was enabled durably.
+    pub(crate) fn acknowledges_after_journal(&self) -> bool {
+        self.0.core.journal.early_ack.load(Ordering::Acquire)
+    }
+    /// Read-your-writes fence for an index-backed read of `account`.
+    ///
+    /// In commit mode (and no leftover startup replay) it returns at once and
+    /// changes nothing. In journal mode it waits until every publication of
+    /// this account handed off before the call has been applied by the owner,
+    /// bounded by `read_fence_timeout`, and then refuses (an error, never a
+    /// stale result) while the startup replay is unfinished, the owner is
+    /// poisoned or stopped, a full rebuild is required, the account is being
+    /// erased, or a repair of one of the account's keys is pending.
+    pub(crate) async fn read_fence(&self, account: &str) -> Result<()> {
+        let core = &self.0.core;
+        if core.options.ack != PublicationAck::Journal
+            && !core.journal.replay_pending.load(Ordering::Acquire)
+        {
+            return Ok(());
+        }
+        let deadline = tokio::time::Instant::now() + core.options.read_fence_timeout;
+        let mut waited = false;
+        loop {
+            let notified = core.journal.replay_done.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if !core.journal.replay_pending.load(Ordering::Acquire) {
+                break;
+            }
+            waited = true;
+            if tokio::time::timeout_at(deadline, notified).await.is_err() {
+                core.journal.fence_waits.fetch_add(1, Ordering::Relaxed);
+                core.journal.fence_timeouts.fetch_add(1, Ordering::Relaxed);
+                return Err(error(
+                    "search index is replaying its publication journal; retry",
+                ));
+            }
+        }
+        let watermark = core
+            .watermarks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(account)
+            .cloned();
+        if let Some(watermark) = watermark {
+            let target = *watermark
+                .submitted
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            loop {
+                let notified = watermark.advanced.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if watermark.published.load(Ordering::Acquire) >= target {
+                    break;
+                }
+                if let Err(reason) = self.fence_health(account) {
+                    if waited {
+                        core.journal.fence_waits.fetch_add(1, Ordering::Relaxed);
+                    }
+                    return Err(reason);
+                }
+                waited = true;
+                if tokio::time::timeout_at(deadline, notified).await.is_err() {
+                    core.journal.fence_waits.fetch_add(1, Ordering::Relaxed);
+                    core.journal.fence_timeouts.fetch_add(1, Ordering::Relaxed);
+                    return Err(error(
+                        "search index publication is behind for this account; retry",
+                    ));
+                }
+            }
+        }
+        if waited {
+            core.journal.fence_waits.fetch_add(1, Ordering::Relaxed);
+        }
+        self.fence_health(account)
+    }
+    fn fence_health(&self, account: &str) -> Result<()> {
+        let core = &self.0.core;
+        let refuse = |message: &str| {
+            core.journal.fence_refusals.fetch_add(1, Ordering::Relaxed);
+            Err(error(message))
+        };
+        if core.stats.poisoned.load(Ordering::Acquire)
+            || self.0.context.search.publication_is_poisoned()
+        {
+            return refuse("search index publication is paused pending repair");
+        }
+        if core.stats.requires_full_rebuild.load(Ordering::Acquire) {
+            return refuse("search index requires a full rebuild");
+        }
+        let started = self
+            .0
+            .sender
+            .lock()
+            .map(|sender| sender.as_ref().map(mpsc::Sender::is_closed))
+            .unwrap_or(Some(true));
+        if started == Some(true)
+            || (started.is_some() && !core.stats.running.load(Ordering::Acquire))
+        {
+            return refuse("search index publication owner stopped");
+        }
+        if core
+            .erasing
+            .lock()
+            .map_or(true, |erasing| erasing.contains_key(account))
+        {
+            return refuse("account index erasure is in progress");
+        }
+        let dirty = core.dirty.lock().map_or(true, |dirty| {
+            dirty
+                .range((account.to_owned(), String::new())..)
+                .next()
+                .is_some_and(|((owner, _), _)| owner == account)
+        });
+        if dirty {
+            return refuse("search index repair is pending for this account");
+        }
+        Ok(())
+    }
+    /// Close admission and wait until every accepted job has been processed,
+    /// or `timeout` elapses. Returns whether the queue drained. Rows of jobs
+    /// still queued at the deadline stay in the journal for the next start.
+    pub(crate) async fn drain(&self, timeout: Duration) -> bool {
+        let core = &self.0.core;
+        core.journal.draining.store(true, Ordering::Release);
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            if core.stats.pending_jobs.load(Ordering::Acquire) == 0 {
+                return true;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    }
+    pub(crate) fn drain_timeout(&self) -> Duration {
+        self.0.core.options.drain_timeout
+    }
+    /// Journal sequence to trim up to after a full rebuild; `None` when the
+    /// journal is not in use in this process. Capture BEFORE the source scan.
+    pub(crate) async fn journal_capture(&self) -> Result<Option<i64>> {
+        if !self.0.core.journal.active.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        Ok(Some(self.0.context.store.index_journal_max_seq().await?))
+    }
+    /// After a successful full rebuild: delete rows `<= upto`.
+    pub(crate) async fn journal_trim(&self, upto: i64) -> Result<()> {
+        let removed = self.0.context.store.index_journal_complete_all(upto).await?;
+        self.0
+            .core
+            .journal
+            .acknowledged
+            .fetch_add(removed, Ordering::Relaxed);
+        self.refresh_journal_rows().await;
+        Ok(())
+    }
+    pub(crate) async fn journal_rows(&self) -> Result<u64> {
+        let rows = self.0.context.store.index_journal_len().await?;
+        self.0.core.journal.rows.store(rows, Ordering::Release);
+        self.0.core.journal.rows_known.store(true, Ordering::Release);
+        Ok(rows)
+    }
+    async fn refresh_journal_rows(&self) {
+        if let Err(reason) = self.journal_rows().await {
+            tracing::warn!("index publication journal: row count unavailable: {reason}");
+        }
+    }
+    /// Startup: reconcile the journal with the configured mode.
+    ///
+    /// * journal: enable trigger capture (refused on PostgreSQL), turn on early
+    ///   acknowledgement, replay every row present, then open the read fence and
+    ///   start the sweeper. A replay with failures leaves the fence closed; the
+    ///   sweeper retries until a pass is clean.
+    /// * commit: if capture is enabled or rows exist (an earlier journal-mode
+    ///   run), disable capture, replay the rows and report. With neither, this is
+    ///   two reads and nothing else.
+    pub(crate) async fn start_journal(&self) -> Result<JournalStartup> {
+        let core = &self.0.core;
+        let store = &self.0.context.store;
+        match core.options.ack {
+            PublicationAck::Journal => {
+                store.set_index_journal_enabled(true).await?;
+                core.journal.early_ack.store(true, Ordering::Release);
+                let upto = store.index_journal_max_seq().await?;
+                let pass = self.replay_pass(upto).await;
+                let clean = matches!(&pass, Ok(pass) if pass.failed == 0);
+                if clean {
+                    core.journal.replay_pending.store(false, Ordering::Release);
+                    core.journal.replay_done.notify_waiters();
+                }
+                self.spawn_sweeper();
+                let rows = self.journal_rows().await.ok();
+                let pass = pass?;
+                Ok(JournalStartup {
+                    mode: PublicationAck::Journal,
+                    replayed_keys: pass.keys,
+                    failed_keys: pass.failed,
+                    remaining_rows: rows,
+                    ready: clean,
+                })
+            }
+            PublicationAck::Commit => {
+                let enabled = store.index_journal_enabled().await?;
+                let rows = store.index_journal_len().await?;
+                if !enabled && rows == 0 {
+                    return Ok(JournalStartup {
+                        mode: PublicationAck::Commit,
+                        replayed_keys: 0,
+                        failed_keys: 0,
+                        remaining_rows: Some(0),
+                        ready: true,
+                    });
+                }
+                core.journal.active.store(true, Ordering::Release);
+                core.journal.replay_pending.store(true, Ordering::Release);
+                let outcome = async {
+                    if enabled {
+                        // A control row left enabled makes migrate-store refuse
+                        // this file; commit mode must not keep capturing.
+                        store.set_index_journal_enabled(false).await?;
+                    }
+                    let upto = store.index_journal_max_seq().await?;
+                    self.replay_pass(upto).await
+                }
+                .await;
+                let remaining = self.journal_rows().await.ok();
+                // Commit mode keeps today's best-effort read semantics: the
+                // fence opens after one pass whatever its outcome; leftover
+                // rows are retried at the next start.
+                core.journal.replay_pending.store(false, Ordering::Release);
+                core.journal.replay_done.notify_waiters();
+                if remaining == Some(0) {
+                    core.journal.active.store(false, Ordering::Release);
+                }
+                let pass = outcome?;
+                Ok(JournalStartup {
+                    mode: PublicationAck::Commit,
+                    replayed_keys: pass.keys,
+                    failed_keys: pass.failed,
+                    remaining_rows: remaining,
+                    ready: true,
+                })
+            }
+        }
+    }
+    /// Resubmit every journal row with `seq <= upto` as a reconcile of the
+    /// current source and wait for the owner. The owner acknowledges the rows.
+    async fn replay_pass(&self, upto: i64) -> Result<ReplayPass> {
+        let core = &self.0.core;
+        let store = &self.0.context.store;
+        let chunk = core.options.max_batch_documents.min(256);
+        let mut pass = ReplayPass::default();
+        let mut after = 0i64;
+        while after < upto {
+            let page = store.index_journal_page(after, 1024).await?;
+            let Some(last) = page.last() else { break };
+            after = last.seq;
+            let mut groups: BTreeMap<String, BTreeMap<String, PublicationMode>> = BTreeMap::new();
+            for entry in page.iter().filter(|entry| entry.seq <= upto) {
+                // The mode is a hint; every mode below reconciles against current
+                // source. Metadata keeps legacy documents patchable.
+                let mode = match entry.mode {
+                    mw_store::index_publication::IndexJournalMode::Metadata => {
+                        PublicationMode::Metadata
+                    }
+                    mw_store::index_publication::IndexJournalMode::Reconcile => {
+                        PublicationMode::Reconcile
+                    }
+                    mw_store::index_publication::IndexJournalMode::Delete => {
+                        PublicationMode::DeleteIfAbsent
+                    }
+                };
+                groups
+                    .entry(entry.account_id.clone())
+                    .or_default()
+                    .entry(entry.stable_id.clone())
+                    .and_modify(|previous| *previous = previous.strongest(mode))
+                    .or_insert(mode);
+            }
+            let mut waiters = Vec::new();
+            for (account, keys) in groups {
+                if self.is_erasing(&account) {
+                    // Erasure completion purges these rows.
+                    continue;
+                }
+                let mut by_mode: BTreeMap<u8, (PublicationMode, Vec<String>)> = BTreeMap::new();
+                for (id, mode) in keys {
+                    by_mode.entry(mode.rank()).or_insert((mode, Vec::new())).1.push(id);
+                }
+                for (mode, ids) in by_mode.into_values() {
+                    for ids in ids.chunks(chunk) {
+                        pass.keys += ids.len() as u64;
+                        core.journal
+                            .replayed
+                            .fetch_add(ids.len() as u64, Ordering::Relaxed);
+                        let submitted = match self.reserve(&account, ids.len()).await {
+                            Ok(ticket) => ticket.submit(ids.to_vec(), mode),
+                            Err(reason) => Err(reason),
+                        };
+                        match submitted {
+                            Ok(waiter) => waiters.push((ids.len() as u64, waiter)),
+                            Err(reason) => {
+                                if !self.is_erasing(&account) {
+                                    pass.failed += ids.len() as u64;
+                                    tracing::warn!(
+                                        "index publication journal: replay deferred: {reason}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            for (keys, waiter) in waiters {
+                if let Err(reason) = waiter.await {
+                    pass.failed += keys;
+                    tracing::warn!("index publication journal: replay failed: {reason}");
+                }
+            }
+        }
+        Ok(pass)
+    }
+    fn is_erasing(&self, account: &str) -> bool {
+        self.0
+            .core
+            .erasing
+            .lock()
+            .map_or(true, |erasing| erasing.contains_key(account))
+    }
+    /// Background retry of journal rows that no publication acknowledged
+    /// (writers without a publication, failed publications). Each tick
+    /// resubmits rows that already existed at the previous tick, so in-flight
+    /// publications get one interval to acknowledge their own rows. While the
+    /// startup replay is unfinished it retries every row and opens the fence
+    /// after a clean pass. Holds only a weak reference to the producer.
+    fn spawn_sweeper(&self) {
+        if self.0.core.journal.sweeper_started.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let weak = Arc::downgrade(&self.0);
+        runtime.spawn(async move {
+            let mut previous = 0i64;
+            loop {
+                tokio::time::sleep(JOURNAL_SWEEP_INTERVAL).await;
+                let Some(producer) = weak.upgrade() else { break };
+                let publisher = Publisher(producer);
+                if publisher.0.core.journal.draining.load(Ordering::Acquire) {
+                    break;
+                }
+                publisher.sweep_once(&mut previous).await;
+            }
+        });
+    }
+    async fn sweep_once(&self, previous: &mut i64) {
+        let core = &self.0.core;
+        let current = match self.0.context.store.index_journal_max_seq().await {
+            Ok(seq) => seq,
+            Err(reason) => {
+                tracing::warn!("index publication journal: sweep skipped: {reason}");
+                return;
+            }
+        };
+        let pending = core.journal.replay_pending.load(Ordering::Acquire);
+        let upto = if pending { current } else { *previous };
+        *previous = current;
+        if upto <= 0 && !pending {
+            return;
+        }
+        match self.replay_pass(upto).await {
+            Ok(pass) if pass.failed == 0 && pending => {
+                core.journal.replay_pending.store(false, Ordering::Release);
+                core.journal.replay_done.notify_waiters();
+            }
+            Ok(_) => {}
+            Err(reason) => tracing::warn!("index publication journal: sweep failed: {reason}"),
+        }
+        self.refresh_journal_rows().await;
+    }
+    #[cfg(test)]
+    pub(crate) async fn sweep_for_test(&self, upto_previous: i64) {
+        let mut previous = upto_previous;
+        self.sweep_once(&mut previous).await;
     }
     /// Account-local DATA observation; never establishes ownership or auth.
     /// The result must also match a fresh joint Store/auth data observation.
@@ -681,17 +1246,35 @@ impl PublicationTicket {
         }
         let (tx, rx) = oneshot::channel();
         let core = state.admission.core.clone();
-        let job = Job {
+        let watermark = core.watermark(&state.account);
+        let mut job = Job {
             account: state.account,
             gate: state.gate,
             epoch: state.epoch,
             kind,
             ack: tx,
             _admission: Some(state.admission),
+            watermark: None,
         };
         core.stats.submitted.fetch_add(1, Ordering::Relaxed);
         core.stats.queued_jobs.fetch_add(1, Ordering::Relaxed);
-        if let Err(failed) = state.sender.try_send(job) {
+        let sent = {
+            // Sequence assignment and send under one per-account lock: channel
+            // order is sequence order, so the FIFO owner never publishes a
+            // higher sequence of this account before a lower one.
+            let mut submitted = watermark
+                .submitted
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let seq = *submitted + 1;
+            job.watermark = Some((watermark.clone(), seq));
+            let sent = state.sender.try_send(job);
+            if sent.is_ok() {
+                *submitted = seq;
+            }
+            sent
+        };
+        if let Err(failed) = sent {
             let job = failed.into_inner();
             core.remember_dirty(std::slice::from_ref(&job));
             core.stats.queued_jobs.fetch_sub(1, Ordering::Relaxed);
@@ -716,6 +1299,30 @@ impl Drop for PublicationTicket {
     }
 }
 impl Core {
+    fn watermark(&self, account: &str) -> Arc<Watermark> {
+        let mut marks = self
+            .watermarks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(mark) = marks.get(account) {
+            return mark.clone();
+        }
+        if marks.len() >= 10000 {
+            // Only settled marks nobody holds can go: a fence that finds no mark
+            // has nothing to wait for, which is exactly a settled mark's answer.
+            marks.retain(|_, mark| {
+                Arc::strong_count(mark) > 1
+                    || *mark
+                        .submitted
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        != mark.published.load(Ordering::Acquire)
+            });
+        }
+        let mark = Arc::new(Watermark::default());
+        marks.insert(account.to_owned(), mark.clone());
+        mark
+    }
     fn remember_dirty(&self, jobs: &[Job]) {
         self.remember_dirty_as(jobs, None);
     }
@@ -875,12 +1482,21 @@ async fn run_owner(context: Arc<Context>, core: Arc<Core>, mut receiver: mpsc::R
         #[cfg(test)]
         core.test_phase(PublicationTestPhase::BeforeAcknowledgement)
             .await;
-        for job in jobs {
+        for mut job in jobs {
             let outcome = match &result {
                 Ok(receipt) => Ok(*receipt),
                 Err(reason) => Err(error(&reason.to_string())),
             };
+            let watermark = job.watermark.take();
             let _ = job.ack.send(outcome);
+            // Released after the outcome is final: success is query-visible,
+            // and a failure is already recorded as dirty (or poison), which the
+            // read fence refuses on.
+            drop(job._admission.take());
+            if let Some((mark, seq)) = watermark {
+                mark.published.fetch_max(seq, Ordering::AcqRel);
+                mark.advanced.notify_waiters();
+            }
         }
     }
 }
@@ -991,6 +1607,20 @@ async fn reconcile(
                         }
                     )
                 });
+            // Journal protocol step 1: the bound is taken BEFORE the source read,
+            // so any change committed later has a higher seq and survives the
+            // acknowledgement below (SQLite: seq order is commit order).
+            let journal_upto = if core.journal.active.load(Ordering::Acquire) {
+                match context.store.index_journal_max_seq().await {
+                    Ok(seq) => Some(seq),
+                    Err(reason) => {
+                        tracing::warn!("index publication journal: bound unavailable, rows kept: {reason}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
             let snapshot = source_snapshot(context, &requests, metadata_snapshot).await?;
             let postures = live_postures(context, &requests).await;
             let mut changes = Vec::new();
@@ -1164,6 +1794,9 @@ async fn reconcile(
             let after_postures = live_postures(context, &requests).await;
             if snapshot.matches(&after)? && postures == after_postures {
                 current_jobs(jobs)?;
+                if let Some(upto) = journal_upto {
+                    acknowledge_journal(context, core, &requests, upto).await;
+                }
                 core.complete_dirty(jobs, force_rebuild);
                 return Ok(IndexPublicationReceipt {
                     publication,
@@ -1194,6 +1827,35 @@ async fn reconcile(
         core.stats.poisoned.store(true, Ordering::Release);
     }
     outcome
+}
+/// Journal protocol step 3, on the owner after a validated index commit. A
+/// failure only leaves rows to replay, which reconcile to current source.
+async fn acknowledge_journal(
+    context: &Context,
+    core: &Core,
+    requests: &[IndexPublicationRequest],
+    upto: i64,
+) {
+    let keys: Vec<(&str, &str, i64)> = requests
+        .iter()
+        .flat_map(|request| {
+            request
+                .stable_ids
+                .iter()
+                .map(move |id| (request.account_id.as_str(), id.as_str(), upto))
+        })
+        .collect();
+    for chunk in keys.chunks(mw_store::index_publication::MAX_INDEX_JOURNAL_BATCH) {
+        match context.store.index_journal_complete(chunk).await {
+            Ok(removed) => {
+                core.journal.acknowledged.fetch_add(removed, Ordering::Relaxed);
+            }
+            Err(reason) => {
+                core.journal.ack_failures.fetch_add(1, Ordering::Relaxed);
+                tracing::warn!("index publication journal: acknowledgement failed, rows kept: {reason}");
+            }
+        }
+    }
 }
 async fn attachment_flag(
     context: &Context,
@@ -1520,6 +2182,7 @@ async fn repair_dirty(context: &Context, core: &Core) -> Result<IndexPublication
                 },
                 ack,
                 _admission: None,
+                watermark: None,
             });
         }
         if !jobs.is_empty() {
@@ -1537,6 +2200,10 @@ async fn repair_dirty(context: &Context, core: &Core) -> Result<IndexPublication
         erasure_epoch: None,
     })
 }
+
+#[cfg(test)]
+#[path = "index_publication_journal_tests.rs"]
+mod journal_tests;
 
 #[cfg(test)]
 mod intent_contract_tests {

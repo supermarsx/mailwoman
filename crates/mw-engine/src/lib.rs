@@ -14,7 +14,7 @@ mod index_publication;
 mod mail_projection_proof;
 mod mail_data_publication;
 pub use mail_data_publication::{PreparedMetadataCandidate,PreparedMetadataBytes,PreparedMailStatus,PreparedMailOptions};
-pub use index_publication::{PublicationOptions, PublicationStatus, IndexPublicationReceipt, AccountIndexErasure};
+pub use index_publication::{PublicationOptions, PublicationStatus, IndexPublicationReceipt, AccountIndexErasure, PublicationAck, JournalStartup};
 #[cfg(test)]
 mod index_publication_tests;
 pub use attachment_metadata::encode_message_envelope;

@@ -357,6 +357,9 @@ impl Engine {
         senders: &HashSet<String>,
         index_allowed: bool,
     ) -> Result<FocusContext> {
+        // The correspondent signal reads Sent's To/Cc from the index. A refused
+        // read fence (journal mode) drops the signal rather than reading stale.
+        let index_allowed = index_allowed && self.index_read_fence(account_id).await.is_ok();
         let mut ctx = FocusContext::default();
         let sent = self
             .store()

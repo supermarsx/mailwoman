@@ -185,9 +185,27 @@ impl Engine {
 
     /// Persistent encrypted search with explicit constructor resource options.
     pub fn open_with_search_options(store: Store, dir: &Path, options: mw_search::WriterOptions) -> Result<Self> {
+        Self::open_with_search_and_publication_options(store,dir,options,crate::PublicationOptions::default())
+    }
+
+    /// [`Engine::new`] with explicit index publication options.
+    pub fn new_with_publication_options(store: Store, publication: crate::PublicationOptions) -> Result<Self> {
+        let search = Arc::new(
+            mw_search::Index::open_in_ram().expect("in-RAM search index construction cannot fail"),
+        );
+        Self::with_search_and_publication_options(store, search, publication)
+    }
+
+    /// [`Engine::open_with_search`] with explicit index publication options.
+    pub fn open_with_search_and_publication(store: Store, dir: &Path, publication: crate::PublicationOptions) -> Result<Self> {
+        Self::open_with_search_and_publication_options(store,dir,mw_search::WriterOptions::default(),publication)
+    }
+
+    /// Persistent encrypted search with explicit writer and publication options.
+    pub fn open_with_search_and_publication_options(store: Store, dir: &Path, options: mw_search::WriterOptions, publication: crate::PublicationOptions) -> Result<Self> {
         let search = mw_search::Index::open_sealed_with_writer_options(dir,store.search_file_key(),options)
             .map_err(|e| EngineError::Protocol(format!("open search index: {e}")))?;
-        let mut engine = Self::with_search(store, Arc::new(search));
+        let mut engine = Self::with_search_and_publication_options(store, Arc::new(search), publication)?;
         engine.search_dir = Some(dir.to_path_buf());
         Ok(engine)
     }
@@ -227,6 +245,26 @@ impl Engine {
     pub fn index_publication_status(&self)->crate::PublicationStatus {self.index_publisher.status()}
     pub(crate) async fn reserve_index_publication(&self,account:&str,slots:usize)->Result<crate::index_publication::PublicationTicket>{self.index_publisher.reserve(account,slots).await}
     pub async fn recover_index_publication(&self)->Result<()> {self.index_publisher.recover().await}
+    /// Startup hook: reconcile the publication journal with the configured
+    /// acknowledgement mode (see [`crate::PublicationAck`]). Journal mode: enables
+    /// trigger capture (an error on PostgreSQL), replays leftover rows, then
+    /// serves fenced index reads and starts the journal sweeper. Commit mode:
+    /// replays and disables a journal left by an earlier journal-mode run; two
+    /// reads otherwise. Call once, before serving traffic when possible; until it
+    /// has run in journal mode, `Email/set` still awaits the index and
+    /// index-backed reads are refused after the read-fence timeout.
+    pub async fn start_index_publication(&self)->Result<crate::JournalStartup>{self.index_publisher.start_journal().await}
+    /// Shutdown hook: close index publication admission and wait (at most the
+    /// configured `drain_timeout`) for accepted jobs. `true` when drained.
+    /// Undrained jobs' journal rows are replayed at the next start.
+    pub async fn drain_index_publication(&self)->bool{self.index_publisher.drain(self.index_publisher.drain_timeout()).await}
+    /// [`Engine::drain_index_publication`] with an explicit deadline.
+    pub async fn drain_index_publication_within(&self,timeout:std::time::Duration)->bool{self.index_publisher.drain(timeout).await}
+    /// Current journal row count (one SQL read). Index readiness requires 0.
+    pub async fn index_publication_journal_rows(&self)->Result<u64>{self.index_publisher.journal_rows().await}
+    /// Read-your-writes fence before an index-backed read of `account`; a no-op
+    /// in commit mode. See `Publisher::read_fence`.
+    pub(crate) async fn index_read_fence(&self,account:&str)->Result<()>{self.index_publisher.read_fence(account).await}
     #[cfg(test)]
     pub(crate) fn set_publication_test_hook(&self,hook:Option<crate::index_publication::PublicationTestHook>){self.index_publisher.set_test_hook(hook);}
 
@@ -1647,10 +1685,16 @@ impl Engine {
     /// [`Engine::rebuild_search_index`] for every account in the store.
     pub async fn rebuild_search_index_all(&self) -> Result<crate::maintenance::ReindexSummary> {
         let publication_epoch = self.index_publisher.begin_full_rebuild();
+        // Journal rows up to here describe source the scan below reads; rows
+        // written during the rebuild get higher sequences and are kept.
+        let journal_upto = self.index_publisher.journal_capture().await?;
         let accounts = crate::maintenance::all_account_ids(self).await?;
         let summary = crate::maintenance::rebuild_accounts(self, &accounts).await?;
         if summary.failed == 0 {
             self.index_publisher.finish_full_rebuild(publication_epoch).await?;
+            if let Some(upto) = journal_upto {
+                self.index_publisher.journal_trim(upto).await?;
+            }
         }
         Ok(summary)
     }

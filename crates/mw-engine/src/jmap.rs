@@ -933,6 +933,9 @@ impl Engine {
         semantic: Option<bool>,
         tie_breakers: &[mw_search::Sort],
     ) -> Result<mw_search::SearchHits> {
+        // Journal mode: wait for this account's handed-off publications (or
+        // refuse) before the index is consulted. No-op in commit mode.
+        self.index_read_fence(account_id).await?;
         let mailbox_ids: Vec<String> = self
             .store()
             .list_mailboxes(account_id)
@@ -1501,6 +1504,9 @@ impl Engine {
             } else {
                 self.account_posture_live(account_id).await==crate::v6::AccountPosture::Standard
             };
+        // A refused read fence leaves the index-derived fields unset, exactly
+        // like an index read error below; it never serves a stale projection.
+        let index_allowed = index_allowed && self.index_read_fence(account_id).await.is_ok();
         let list_projections = if index_allowed {
             self.search().fetch_list_projections(account_id,&owned_ids).unwrap_or_default()
         } else {HashMap::new()};
@@ -1968,6 +1974,12 @@ impl Engine {
                 let _ = ticket.track_metadata_ids(Vec::new());
             } else {
                 match ticket.submit(publication_ids, crate::index_publication::PublicationMode::Metadata) {
+                    // Journal mode: the SQL commit above also wrote the journal
+                    // rows (triggers), so the change is durable for the index.
+                    // Return without awaiting; the owned job is not cancelled by
+                    // dropping the waiter, and index reads of this account wait
+                    // on its read fence until the job is applied.
+                    Ok(waiter) if self.index_publisher.acknowledges_after_journal() => drop(waiter),
                     Ok(waiter) => { if let Err(error) = waiter.await { tracing::warn!("publishing Email/set updates failed: {error}"); } }
                     Err(error) => tracing::warn!("handing off Email/set updates failed: {error}"),
                 }
