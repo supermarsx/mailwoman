@@ -26,7 +26,7 @@ text-viewer-line-numbers = Numéros de ligne
 
 text-viewer-lines = { $count } lignes
 
-text-viewer-linked-unavailable = L'aperçu n'est pas encore disponible pour les boîtes aux lettres liées.
+text-viewer-linked-unavailable = L'aperçu n'est pas disponible pour les boîtes aux lettres liées.
 
 text-viewer-loading = Chargement du texte…
 

@@ -119,7 +119,7 @@ describe('KeysModule', () => {
     // What is made, that others will not trust it as is, and what the app cannot do with it yet.
     expect(note.textContent).toMatch(/RSA 3072-bit key and a certificate/);
     expect(note.textContent).toMatch(/will not trust it/);
-    expect(note.textContent).toMatch(/does not yet sign or decrypt mail with it/);
+    expect(note.textContent).toMatch(/The web app cannot sign or decrypt mail with it/);
 
     fireEvent.change(type, { target: { value: 'pgp' } });
     expect(within(dialog).queryByText(/self-signed/)).toBeNull();
@@ -163,7 +163,7 @@ describe('KeysModule', () => {
     // The dialog closed onto the new key's detail, which says what the certificate is.
     const section = await screen.findByRole('group', { name: 'S/MIME certificate' });
     expect(within(section).getByText(/This certificate is self-signed/)).toBeInTheDocument();
-    expect(within(section).getByText(/does not yet sign or decrypt mail with an S\/MIME key/)).toBeInTheDocument();
+    expect(within(section).getByText(/Signing and decrypting mail with an S\/MIME key is not available in the web app/)).toBeInTheDocument();
   });
 
   it('says so in the dialog when generation fails, and stores nothing', async () => {

@@ -26,7 +26,7 @@ text-viewer-line-numbers = Numeri di riga
 
 text-viewer-lines = { $count } linee
 
-text-viewer-linked-unavailable = L'anteprima non è ancora disponibile per le caselle di posta collegate.
+text-viewer-linked-unavailable = L'anteprima non è disponibile per le caselle di posta collegate.
 
 text-viewer-loading = Caricamento testo...
 

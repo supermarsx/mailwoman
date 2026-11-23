@@ -52,7 +52,7 @@ keys-smime-section = Certyfikat S/MIME
 keys-smime-self-signed = Ten certyfikat jest samopodpisany: został podpisany własnym kluczem, a nie przez urząd certyfikacji. Programy pocztowe innych osób nie będą mu ufać, dopóki ręcznie go nie zaakceptują lub dopóki urząd certyfikacji nie wystawi certyfikatu na podstawie poniższego pliku żądania.
 # $date is YYYY-MM-DD, taken from the certificate.
 keys-smime-valid-until = Ważny do { $date }.
-keys-smime-not-in-app = Mailwoman nie podpisuje ani nie odszyfrowuje jeszcze poczty kluczem S/MIME. Wyeksportuj klucz, aby używać go w innym programie pocztowym.
+keys-smime-not-in-app = Podpisywanie i odszyfrowywanie poczty kluczem S/MIME nie jest dostępne w aplikacji internetowej. Wyeksportuj klucz, aby użyć go w innym programie pocztowym.
 keys-smime-passphrase = Hasło tego klucza S/MIME
 keys-smime-export-help = Plik .p12 zawiera certyfikat i klucz prywatny. Klucz jest zaszyfrowany powyższym hasłem i to samo hasło otwiera plik w innym programie. Plik .csr nie zawiera klucza prywatnego.
 keys-smime-export = Eksportuj jako PKCS#12 (.p12)
@@ -85,7 +85,7 @@ keys-key-type = Typ klucza
 keys-openpgp = OpenPGP
 keys-smime = S/MIME
 # Under the type list while S/MIME is chosen: what will be made, and its limits.
-keys-generate-smime-note = Tworzy 3072-bitowy klucz RSA i certyfikat dla poniższego adresu, ważny przez dwa lata. Certyfikat jest samopodpisany: programy pocztowe innych osób nie będą mu ufać, dopóki ręcznie go nie zaakceptują lub dopóki urząd certyfikacji nie wystawi certyfikatu. Mailwoman nie podpisuje ani nie odszyfrowuje jeszcze nim poczty; później można go wyeksportować do innego programu pocztowego.
+keys-generate-smime-note = Tworzy 3072-bitowy klucz RSA i certyfikat dla poniższego adresu, ważny przez dwa lata. Certyfikat jest samopodpisany: programy pocztowe innych osób nie będą mu ufać, dopóki ręcznie go nie zaakceptują lub dopóki urząd certyfikacji nie wystawi certyfikatu. Aplikacja internetowa nie może nim podpisywać ani odszyfrowywać poczty; później można go wyeksportować do innego programu pocztowego.
 keys-name = Nazwa
 keys-email = E-mail
 keys-key-passphrase = Hasło klucza

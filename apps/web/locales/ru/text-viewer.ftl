@@ -26,7 +26,7 @@ text-viewer-line-numbers = Номера строк
 
 text-viewer-lines = { $count } линий
 
-text-viewer-linked-unavailable = Предварительная версия пока недоступна для связанных почтовых ящиков.
+text-viewer-linked-unavailable = Предварительная версия недоступна для связанных почтовых ящиков.
 
 text-viewer-loading = Загрузка текста…
 

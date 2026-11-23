@@ -386,9 +386,9 @@ props-message-id = معرف الرسالة
 
 props-message-title = الخصائص: { $subject }
 
-props-more-options = المزيد من الخيارات (لم يتم تطبيقها بعد)
+props-more-options = خيارات إضافية (لا يستخدمها التطبيق)
 
-props-more-options-help = يتم حفظ هذه الاختيارات في المجلد ولكن التطبيق لا يستخدمها بعد. إعدادها الآن لا يؤدي إلى أي شيء مرئي.
+props-more-options-help = تُحفظ هذه الخيارات مع المجلد، لكن التطبيق لا يستخدمها. ضبطها لا يُحدث أي أثر ظاهر.
 
 props-mtab-actions = الإجراءات
 

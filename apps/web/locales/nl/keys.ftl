@@ -52,7 +52,7 @@ keys-smime-section = S/MIME-certificaat
 keys-smime-self-signed = Dit certificaat is zelfondertekend: het is ondertekend met de eigen sleutel, niet door een certificeringsinstantie. De mailprogramma's van anderen vertrouwen het pas als ze het handmatig accepteren, of nadat een certificeringsinstantie een certificaat uitgeeft op basis van het aanvraagbestand hieronder.
 # $date is YYYY-MM-DD, taken from the certificate.
 keys-smime-valid-until = Geldig tot { $date }.
-keys-smime-not-in-app = Mailwoman ondertekent en ontsleutelt nog geen mail met een S/MIME-sleutel. Exporteer de sleutel om hem in een ander mailprogramma te gebruiken.
+keys-smime-not-in-app = Mail ondertekenen en ontsleutelen met een S/MIME-sleutel is niet beschikbaar in de webapp. Exporteer de sleutel om hem in een ander mailprogramma te gebruiken.
 keys-smime-passphrase = Wachtwoordzin voor deze S/MIME-sleutel
 keys-smime-export-help = Het .p12-bestand bevat het certificaat en de privésleutel. De sleutel wordt versleuteld met de wachtwoordzin hierboven, en dezelfde wachtwoordzin opent het bestand in een ander programma. Het .csr-bestand bevat geen privésleutel.
 keys-smime-export = Exporteren als PKCS#12 (.p12)
@@ -85,7 +85,7 @@ keys-key-type = Sleuteltype
 keys-openpgp = OpenPGP
 keys-smime = S/MIME
 # Under the type list while S/MIME is chosen: what will be made, and its limits.
-keys-generate-smime-note = Maakt een RSA-sleutel van 3072 bits en een certificaat voor het adres hieronder, twee jaar geldig. Het certificaat is zelfondertekend: de mailprogramma's van anderen vertrouwen het pas als ze het handmatig accepteren, of nadat een certificeringsinstantie er een uitgeeft. Mailwoman ondertekent en ontsleutelt er nog geen mail mee; daarna kunt u het exporteren voor een ander mailprogramma.
+keys-generate-smime-note = Maakt een RSA-sleutel van 3072 bits en een certificaat voor het adres hieronder, twee jaar geldig. Het certificaat is zelfondertekend: de mailprogramma's van anderen vertrouwen het pas als ze het handmatig accepteren, of nadat een certificeringsinstantie er een uitgeeft. De webapp kan er geen mail mee ondertekenen of ontsleutelen; daarna kunt u het exporteren voor een ander mailprogramma.
 keys-name = Naam
 keys-email = E-mail
 keys-key-passphrase = Wachtwoordzin voor de sleutel

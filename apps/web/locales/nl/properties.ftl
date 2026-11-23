@@ -370,9 +370,9 @@ props-message-id = Bericht-ID
 
 props-message-title = Eigenschappen: { $subject }
 
-props-more-options = Meer opties (nog niet toegepast)
+props-more-options = Meer opties (niet gebruikt door de app)
 
-props-more-options-help = Deze keuzes worden opgeslagen bij de map, maar de app maakt er nog geen gebruik van. Als u ze nu instelt, is er niets zichtbaar.
+props-more-options-help = Deze keuzes worden bij de map opgeslagen, maar de app gebruikt ze niet. Ze instellen heeft geen zichtbaar effect.
 
 props-mtab-actions = Acties
 

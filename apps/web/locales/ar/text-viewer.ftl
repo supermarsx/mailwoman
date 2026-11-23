@@ -26,7 +26,7 @@ text-viewer-line-numbers = أرقام الأسطر
 
 text-viewer-lines = { $count } خطوط
 
-text-viewer-linked-unavailable = المعاينة غير متاحة لصناديق البريد المرتبطة حتى الآن.
+text-viewer-linked-unavailable = المعاينة غير متاحة لصناديق البريد المرتبطة.
 
 text-viewer-loading = جارٍ تحميل النص…
 

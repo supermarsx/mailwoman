@@ -26,7 +26,7 @@ text-viewer-line-numbers = 行号
 
 text-viewer-lines = { $count }行
 
-text-viewer-linked-unavailable = 链接邮箱尚不支持预览。
+text-viewer-linked-unavailable = 链接邮箱不支持预览。
 
 text-viewer-loading = 正在加载文本...
 

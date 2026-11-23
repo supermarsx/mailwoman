@@ -52,7 +52,7 @@ keys-smime-section = S/MIME 证书
 keys-smime-self-signed = 此证书是自签名证书：它由自身的密钥签名，而不是由证书颁发机构签名。除非对方手动接受，或者证书颁发机构根据下方的请求文件颁发了证书，否则其他人的邮件程序不会信任它。
 # $date is YYYY-MM-DD, taken from the certificate.
 keys-smime-valid-until = 有效期至 { $date }。
-keys-smime-not-in-app = Mailwoman 目前还不能使用 S/MIME 密钥对邮件签名或解密。请导出密钥，在其他邮件程序中使用。
+keys-smime-not-in-app = 网页应用不支持用 S/MIME 密钥对邮件签名或解密。请导出该密钥，以便在其他邮件程序中使用。
 keys-smime-passphrase = 此 S/MIME 密钥的密码短语
 keys-smime-export-help = .p12 文件包含证书和私钥。私钥使用上方的密码短语加密，在其他程序中打开该文件也使用同一密码短语。.csr 文件不包含私钥。
 keys-smime-export = 导出为 PKCS#12 (.p12)
@@ -85,7 +85,7 @@ keys-key-type = 密钥类型
 keys-openpgp = OpenPGP
 keys-smime = S/MIME
 # Under the type list while S/MIME is chosen: what will be made, and its limits.
-keys-generate-smime-note = 为下方的地址生成一个 RSA 3072 位密钥和一个证书，有效期为两年。该证书是自签名的：除非对方手动接受，或者证书颁发机构颁发了证书，否则其他人的邮件程序不会信任它。Mailwoman 目前还不能用它对邮件签名或解密；生成后可以将其导出，供其他邮件程序使用。
+keys-generate-smime-note = 为下方的地址生成一个 RSA 3072 位密钥和一个证书，有效期为两年。该证书是自签名的：除非对方手动接受，或者证书颁发机构颁发了证书，否则其他人的邮件程序不会信任它。网页应用无法用它对邮件签名或解密；生成后可以将其导出，供其他邮件程序使用。
 keys-name = 姓名
 keys-email = 电子邮件
 keys-key-passphrase = 密钥密码短语

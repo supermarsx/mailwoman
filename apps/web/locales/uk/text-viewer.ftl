@@ -26,7 +26,7 @@ text-viewer-line-numbers = Номери рядків
 
 text-viewer-lines = { $count } рядків
 
-text-viewer-linked-unavailable = Попередній перегляд поки що недоступний для пов’язаних поштових скриньок.
+text-viewer-linked-unavailable = Попередній перегляд недоступний для пов’язаних поштових скриньок.
 
 text-viewer-loading = Завантаження тексту…
 

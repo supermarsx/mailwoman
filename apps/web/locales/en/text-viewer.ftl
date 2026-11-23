@@ -20,4 +20,4 @@ text-viewer-search-count = { $current } of { $total }
 text-viewer-search-none = No matches
 text-viewer-lines = { $count } lines
 text-viewer-encoding = { $encoding }
-text-viewer-linked-unavailable = Preview isn't available for linked mailboxes yet.
+text-viewer-linked-unavailable = Preview isn't available for linked mailboxes.

@@ -26,7 +26,7 @@ text-viewer-line-numbers = Numery linii
 
 text-viewer-lines = { $count } linii
 
-text-viewer-linked-unavailable = Podgląd nie jest jeszcze dostępny dla połączonych skrzynek pocztowych.
+text-viewer-linked-unavailable = Podgląd nie jest dostępny dla połączonych skrzynek pocztowych.
 
 text-viewer-loading = Ładowanie tekstu…
 

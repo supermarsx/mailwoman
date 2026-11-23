@@ -52,7 +52,7 @@ keys-smime-section = Certificado S/MIME
 keys-smime-self-signed = Este certificado é autoassinado: foi assinado pela sua própria chave e não por uma autoridade de certificação. Os programas de correio de outras pessoas não confiarão nele, a menos que o aceitem manualmente ou até uma autoridade de certificação emitir um certificado a partir do ficheiro de pedido abaixo.
 # $date is YYYY-MM-DD, taken from the certificate.
 keys-smime-valid-until = Válido até { $date }.
-keys-smime-not-in-app = O Mailwoman ainda não assina nem desencripta correio com uma chave S/MIME. Exporte a chave para a usar noutro programa de correio.
+keys-smime-not-in-app = Assinar e desencriptar correio com uma chave S/MIME não está disponível na aplicação web. Exporte a chave para a usar noutro programa de correio.
 keys-smime-passphrase = Frase-passe desta chave S/MIME
 keys-smime-export-help = O ficheiro .p12 contém o certificado e a chave privada. A chave é encriptada com a frase-passe acima, e a mesma frase-passe abre o ficheiro noutro programa. O ficheiro .csr não contém nenhuma chave privada.
 keys-smime-export = Exportar como PKCS#12 (.p12)
@@ -85,7 +85,7 @@ keys-key-type = Tipo de chave
 keys-openpgp = OpenPGP
 keys-smime = S/MIME
 # Under the type list while S/MIME is chosen: what will be made, and its limits.
-keys-generate-smime-note = Cria uma chave RSA de 3072 bits e um certificado para o endereço abaixo, válido durante dois anos. O certificado é autoassinado: os programas de correio de outras pessoas não confiarão nele, a menos que o aceitem manualmente ou até uma autoridade de certificação emitir um. O Mailwoman ainda não assina nem desencripta correio com ele; depois, pode exportá-lo para outro programa de correio.
+keys-generate-smime-note = Cria uma chave RSA de 3072 bits e um certificado para o endereço abaixo, válido durante dois anos. O certificado é autoassinado: os programas de correio de outras pessoas não confiarão nele, a menos que o aceitem manualmente ou até uma autoridade de certificação emitir um. A aplicação web não pode assinar nem desencriptar correio com ele; depois, pode exportá-lo para outro programa de correio.
 keys-name = Nome
 keys-email = E-mail
 keys-key-passphrase = Frase-passe da chave

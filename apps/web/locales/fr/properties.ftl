@@ -378,9 +378,9 @@ props-message-id = ID de message
 
 props-message-title = Propriétés : { $subject }
 
-props-more-options = Plus d'options (pas encore appliquées)
+props-more-options = Plus d'options (non utilisées par l'application)
 
-props-more-options-help = Ces choix sont enregistrés avec le dossier mais l'application ne les utilise pas encore. Les définir maintenant ne fait rien de visible.
+props-more-options-help = Ces choix sont enregistrés avec le dossier, mais l'application ne les utilise pas. Les modifier n'a aucun effet visible.
 
 props-mtab-actions = Actions
 

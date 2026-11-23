@@ -366,9 +366,9 @@ props-message-id = 消息ID
 
 props-message-title = 属性：{ $subject }
 
-props-more-options = 更多选项（尚未应用）
+props-more-options = 更多选项（应用不使用）
 
-props-more-options-help = 这些选择与文件夹一起保存，但应用程序尚未使用它们。现在设置它们没有任何可见的作用。
+props-more-options-help = 这些选项会随文件夹一起保存，但应用并不使用它们。设置它们没有可见的效果。
 
 props-mtab-actions = 行动
 

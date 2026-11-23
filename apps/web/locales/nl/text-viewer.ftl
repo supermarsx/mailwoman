@@ -26,7 +26,7 @@ text-viewer-line-numbers = Lijnnummers
 
 text-viewer-lines = { $count } lijnen
 
-text-viewer-linked-unavailable = Preview is nog niet beschikbaar voor gekoppelde mailboxen.
+text-viewer-linked-unavailable = Preview is niet beschikbaar voor gekoppelde mailboxen.
 
 text-viewer-loading = Tekst laden…
 

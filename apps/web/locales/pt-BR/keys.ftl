@@ -52,7 +52,7 @@ keys-smime-section = Certificado S/MIME
 keys-smime-self-signed = Este certificado é autoassinado: foi assinado pela própria chave, e não por uma autoridade certificadora. Os programas de e-mail de outras pessoas não vão confiar nele, a menos que o aceitem manualmente ou até que uma autoridade certificadora emita um certificado a partir do arquivo de solicitação abaixo.
 # $date is YYYY-MM-DD, taken from the certificate.
 keys-smime-valid-until = Válido até { $date }.
-keys-smime-not-in-app = O Mailwoman ainda não assina nem descriptografa mensagens com uma chave S/MIME. Exporte a chave para usá-la em outro programa de e-mail.
+keys-smime-not-in-app = Assinar e descriptografar mensagens com uma chave S/MIME não está disponível no app web. Exporte a chave para usá-la em outro programa de e-mail.
 keys-smime-passphrase = Frase secreta desta chave S/MIME
 keys-smime-export-help = O arquivo .p12 contém o certificado e a chave privada. A chave é criptografada com a frase secreta acima, e a mesma frase secreta abre o arquivo em outro programa. O arquivo .csr não contém chave privada.
 keys-smime-export = Exportar como PKCS#12 (.p12)
@@ -85,7 +85,7 @@ keys-key-type = Tipo de chave
 keys-openpgp = OpenPGP
 keys-smime = S/MIME
 # Under the type list while S/MIME is chosen: what will be made, and its limits.
-keys-generate-smime-note = Cria uma chave RSA de 3072 bits e um certificado para o endereço abaixo, válido por dois anos. O certificado é autoassinado: os programas de e-mail de outras pessoas não vão confiar nele, a menos que o aceitem manualmente ou até que uma autoridade certificadora emita um. O Mailwoman ainda não assina nem descriptografa mensagens com ele; depois você pode exportá-lo para outro programa de e-mail.
+keys-generate-smime-note = Cria uma chave RSA de 3072 bits e um certificado para o endereço abaixo, válido por dois anos. O certificado é autoassinado: os programas de e-mail de outras pessoas não vão confiar nele, a menos que o aceitem manualmente ou até que uma autoridade certificadora emita um. O app web não pode assinar nem descriptografar mensagens com ele; depois você pode exportá-lo para outro programa de e-mail.
 keys-name = Nome
 keys-email = E-mail
 keys-key-passphrase = Frase secreta da chave

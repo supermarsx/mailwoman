@@ -26,7 +26,7 @@ text-viewer-line-numbers = Números de línea
 
 text-viewer-lines = { $count } líneas
 
-text-viewer-linked-unavailable = La vista previa aún no está disponible para los buzones vinculados.
+text-viewer-linked-unavailable = La vista previa no está disponible para los buzones vinculados.
 
 text-viewer-loading = Cargando texto…
 

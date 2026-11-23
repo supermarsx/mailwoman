@@ -159,7 +159,7 @@ describe('folder Properties dialog',()=>{
   const more=await screen.findByTestId('props-ovr-more');
   expect(more.tagName).toBe('DETAILS');
   expect(more).not.toHaveAttribute('open');
-  expect(more).toHaveTextContent('More options (not applied yet)');
+  expect(more).toHaveTextContent('More options (not used by the app)');
   expect(within(screen.getByTestId('ovr-sort')).getByTestId('ovr-sort-later')).toHaveTextContent('Saved for later');
   expect(within(screen.getByTestId('ovr-counters')).queryByTestId('ovr-counters-later')).toBeNull();
  });

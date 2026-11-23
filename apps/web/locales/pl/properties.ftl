@@ -378,9 +378,9 @@ props-message-id = Identyfikator wiadomości
 
 props-message-title = Właściwości: { $subject }
 
-props-more-options = Więcej opcji (jeszcze nie zastosowane)
+props-more-options = Więcej opcji (nieużywane przez aplikację)
 
-props-more-options-help = Te wybory są zapisywane w folderze, ale aplikacja jeszcze z nich nie korzysta. Ustawienie ich teraz nie powoduje nic widocznego.
+props-more-options-help = Te wybory są zapisywane razem z folderem, ale aplikacja ich nie używa. Ich ustawienie nie daje widocznego efektu.
 
 props-mtab-actions = Działania
 

@@ -366,9 +366,9 @@ props-message-id = メッセージID
 
 props-message-title = プロパティ: { $subject }
 
-props-more-options = その他のオプション (まだ適用されていません)
+props-more-options = その他のオプション（アプリでは使用されません）
 
-props-more-options-help = これらの選択はフォルダーに保存されますが、アプリではまだ使用されていません。今それらを設定しても何も表示されません。
+props-more-options-help = これらの選択はフォルダーと一緒に保存されますが、アプリでは使用されません。設定しても目に見える変化はありません。
 
 props-mtab-actions = アクション
 

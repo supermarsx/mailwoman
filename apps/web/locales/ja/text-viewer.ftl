@@ -26,7 +26,7 @@ text-viewer-line-numbers = 行番号
 
 text-viewer-lines = { $count } 行
 
-text-viewer-linked-unavailable = リンクされたメールボックスではプレビューはまだ利用できません。
+text-viewer-linked-unavailable = リンクされたメールボックスではプレビューを利用できません。
 
 text-viewer-loading = テキストを読み込み中…
 

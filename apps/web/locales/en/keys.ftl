@@ -58,7 +58,7 @@ keys-smime-section = S/MIME certificate
 keys-smime-self-signed = This certificate is self-signed: it was signed by its own key, not by a certificate authority. Other people's mail programs will not trust it unless they accept it by hand, or until a certificate authority issues a certificate from the request file below.
 # $date is YYYY-MM-DD, taken from the certificate.
 keys-smime-valid-until = Valid until { $date }.
-keys-smime-not-in-app = Mailwoman does not yet sign or decrypt mail with an S/MIME key. Export the key to use it in another mail program.
+keys-smime-not-in-app = Signing and decrypting mail with an S/MIME key is not available in the web app. Export the key to use it in another mail program.
 keys-smime-passphrase = Passphrase for this S/MIME key
 keys-smime-export-help = The .p12 file holds the certificate and the private key. The key is encrypted with the passphrase above, and the same passphrase opens the file in another program. The .csr file holds no private key.
 keys-smime-export = Export as PKCS#12 (.p12)
@@ -91,7 +91,7 @@ keys-key-type = Key type
 keys-openpgp = OpenPGP
 keys-smime = S/MIME
 # Under the type list while S/MIME is chosen: what will be made, and its limits.
-keys-generate-smime-note = Makes an RSA 3072-bit key and a certificate for the address below, valid for two years. The certificate is self-signed: other people's mail programs will not trust it unless they accept it by hand, or until a certificate authority issues one. Mailwoman does not yet sign or decrypt mail with it; afterwards you can export it for another mail program.
+keys-generate-smime-note = Makes an RSA 3072-bit key and a certificate for the address below, valid for two years. The certificate is self-signed: other people's mail programs will not trust it unless they accept it by hand, or until a certificate authority issues one. The web app cannot sign or decrypt mail with it; afterwards you can export it for another mail program.
 keys-name = Name
 keys-email = Email
 keys-key-passphrase = Key passphrase

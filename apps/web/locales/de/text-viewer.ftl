@@ -26,7 +26,7 @@ text-viewer-line-numbers = Zeilennummern
 
 text-viewer-lines = { $count } Zeilen
 
-text-viewer-linked-unavailable = Für verknüpfte Postfächer ist die Vorschau noch nicht verfügbar.
+text-viewer-linked-unavailable = Für verknüpfte Postfächer ist die Vorschau nicht verfügbar.
 
 text-viewer-loading = Text wird geladen…
 
