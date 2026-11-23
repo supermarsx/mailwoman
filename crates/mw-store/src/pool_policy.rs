@@ -250,6 +250,14 @@ impl Store {
                 let cache_plan=crate::sqlite_page_cache::PageCachePlan::new(applied,plan.maximum)
                     .map_err(|e|StoreError::Corrupt(e.into()))?;
                 let registry=live.page_cache_registry();
+                // Managed databases move WAL checkpoints off request commits:
+                // every foreground connection disables the commit-time
+                // auto-checkpoint and one background task checkpoints instead.
+                // Set by connection hook, not connect options, so private copy,
+                // maintenance and conversion connections derived from the
+                // options keep SQLite's default.
+                let background_checkpoint=live.background_checkpoint_supported();
+                let checkpointer=live.clone();
                 tokio::spawn(async move {
                     let mut exclusive = live.exclusive().await;
                     let previous = exclusive.pool_options();
@@ -265,7 +273,12 @@ impl Store {
                     // still owns every new worker and its filesystem lease.
                     let options=cache_plan.apply(connection.clone());
                     let pool = plan.sqlite_options().after_connect(move|connection,_|{
-                        let registry=registry.clone();Box::pin(async move{registry.register(connection).await})
+                        let registry=registry.clone();Box::pin(async move{
+                            if background_checkpoint {
+                                sqlx::query("PRAGMA wal_autocheckpoint=0").execute(&mut *connection).await?;
+                            }
+                            registry.register(connection).await
+                        })
                     }).connect_lazy_with(options);
                     exclusive.replace_with_page_cache(pool.clone(),cache_plan.per_connection_kib);
                     let opened = pool.acquire().await.map(|connection| drop(connection));
@@ -282,6 +295,12 @@ impl Store {
                 })
                 .await
                 .map_err(|e| StoreError::Corrupt(format!("pool startup task: {e}")))??;
+                // Both successful branches leave a pool whose connections were
+                // opened through the hook above (the early return requires
+                // connections registered by it). The start is idempotent.
+                if background_checkpoint {
+                    checkpointer.start_wal_checkpointer();
+                }
             }
             Backend::Postgres(previous) => {
                 let capacity=q("SELECT current_setting('max_connections') AS maximum, current_setting('superuser_reserved_connections') AS super_reserved, current_setting('reserved_connections',true) AS reserved")

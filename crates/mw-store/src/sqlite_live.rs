@@ -13,9 +13,107 @@ use std::{
     fmt,
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
-    sync::{Arc, LazyLock, Mutex, Weak, OnceLock},
+    sync::{
+        Arc, LazyLock, Mutex, OnceLock, Weak,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
+    time::{Duration, SystemTime},
 };
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+
+/// How often the background checkpointer looks at the active WAL.
+pub(crate) const WAL_CHECKPOINT_TICK: Duration = Duration::from_millis(250);
+/// Tracked commits since the previous round that wake the checkpointer early.
+pub(crate) const WAL_CHECKPOINT_BURST_COMMITS: u64 = 128;
+/// WAL frames after which a round also runs `wal_checkpoint(RESTART)`, so the
+/// next writer starts again at the beginning of the WAL file. With 4 KiB pages
+/// this is 16 MiB. PASSIVE alone never resets the WAL while writes continue.
+pub(crate) const WAL_RESTART_FRAMES: i64 = 4096;
+/// Longest wait of a RESTART round for active writers or readers. A busy round
+/// is retried on the next tick.
+const WAL_RESTART_WAIT: Duration = Duration::from_millis(50);
+/// A WAL modified this recently may hide a later write inside the same
+/// file-system timestamp granule, so it is checked again on the next tick.
+const WAL_MTIME_SETTLE: Duration = Duration::from_secs(1);
+
+/// Background WAL checkpointing for the foreground pool of a managed database.
+///
+/// When `enabled`, foreground connections run with `PRAGMA wal_autocheckpoint=0`,
+/// so no request commit runs a checkpoint. The checkpointer runs
+/// `PRAGMA wal_checkpoint(PASSIVE)` on a private connection: at most
+/// [`WAL_CHECKPOINT_TICK`] after a write is seen (tracked commits and autocommit
+/// writes, or a changed WAL modification time), and at once after
+/// [`WAL_CHECKPOINT_BURST_COMMITS`] tracked commits. PASSIVE is the mode SQLite's
+/// own auto-checkpoint uses: it never waits for or blocks readers and writers,
+/// and like the auto-checkpoint it cannot pass frames an open read transaction
+/// still needs. Under continuous writes PASSIVE never catches up completely, so
+/// the WAL would not restart; when the WAL holds [`WAL_RESTART_FRAMES`] or more
+/// frames the round also runs `wal_checkpoint(RESTART)`, which waits at most
+/// [`WAL_RESTART_WAIT`] and blocks new writers only while it copies the frames
+/// PASSIVE left. Stated limit: the WAL grows to about [`WAL_RESTART_FRAMES`]
+/// frames plus the frames written during one round, unless a long read
+/// transaction pins it (as with SQLite's own auto-checkpoint). The last
+/// connection to close still checkpoints and removes the WAL, as before.
+/// Durability settings (`synchronous`, cipher) are unchanged.
+#[derive(Default)]
+pub(crate) struct WalCheckpoint {
+    enabled: AtomicBool,
+    running: AtomicBool,
+    writes: AtomicU64,
+    wake: tokio::sync::Notify,
+    rounds: AtomicU64,
+    restarts: AtomicU64,
+    failures: AtomicU64,
+    /// Test override of [`WAL_RESTART_FRAMES`]; 0 means the constant.
+    #[cfg(test)]
+    restart_frames: std::sync::atomic::AtomicI64,
+}
+impl WalCheckpoint {
+    fn restart_frames(&self) -> i64 {
+        #[cfg(test)]
+        {
+            let custom = self.restart_frames.load(Ordering::Relaxed);
+            if custom > 0 {
+                return custom;
+            }
+        }
+        WAL_RESTART_FRAMES
+    }
+    fn note_write(&self) {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return;
+        }
+        if self.writes.fetch_add(1, Ordering::Relaxed) + 1 == WAL_CHECKPOINT_BURST_COMMITS {
+            self.wake.notify_one();
+        }
+    }
+}
+/// Diagnostic counters of the background checkpointer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct WalCheckpointStats {
+    pub(crate) enabled: bool,
+    pub(crate) running: bool,
+    pub(crate) rounds: u64,
+    pub(crate) restarts: u64,
+    pub(crate) failures: u64,
+}
+enum Round {
+    Skipped,
+    Checkpointed,
+    Closed,
+}
+struct RunningGuard(Arc<WalCheckpoint>);
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        // A runtime shutdown drops the task; a later configuration may restart it.
+        self.0.running.store(false, Ordering::Release);
+    }
+}
+fn wal_file(database: &Path) -> PathBuf {
+    let mut name = database.as_os_str().to_os_string();
+    name.push("-wal");
+    PathBuf::from(name)
+}
 
 #[derive(Clone)]
 pub(crate) struct LiveSqlite {
@@ -29,6 +127,7 @@ struct Inner {
     rebuild: Arc<tokio::sync::Mutex<()>>,
     cache_policy: OnceLock<Option<u32>>,
     cache_registry: Arc<crate::sqlite_page_cache::Registry>,
+    wal: Arc<WalCheckpoint>,
 }
 struct Generation {
     pool: SqlitePool,
@@ -93,6 +192,7 @@ impl LiveSqlite {
                 rebuild: Arc::new(tokio::sync::Mutex::new(())),
                 cache_policy: OnceLock::new(),
                 cache_registry: Arc::new(Default::default()),
+                wal: Arc::default(),
             }),
         }
     }
@@ -224,6 +324,129 @@ impl LiveSqlite {
     pub(crate) async fn close(&self) {
         self.exclusive().await.close_old().await;
     }
+    /// Count one committed write for the background checkpointer.
+    pub(crate) fn note_write(&self) {
+        self.inner.wal.note_write();
+    }
+    /// Whether foreground connections should disable SQLite's commit-time
+    /// auto-checkpoint. Only managed (file-backed) databases get the
+    /// background checkpointer; private, in-memory and test pools keep SQLite's
+    /// default behaviour.
+    pub(crate) fn background_checkpoint_supported(&self) -> bool {
+        self.is_managed()
+    }
+    #[cfg(test)]
+    pub(crate) fn set_wal_restart_frames(&self, frames: i64) {
+        self.inner.wal.restart_frames.store(frames, Ordering::Relaxed);
+    }
+    pub(crate) fn wal_checkpoint_stats(&self) -> WalCheckpointStats {
+        let wal = &self.inner.wal;
+        WalCheckpointStats {
+            enabled: wal.enabled.load(Ordering::Acquire),
+            running: wal.running.load(Ordering::Acquire),
+            rounds: wal.rounds.load(Ordering::Relaxed),
+            restarts: wal.restarts.load(Ordering::Relaxed),
+            failures: wal.failures.load(Ordering::Relaxed),
+        }
+    }
+    /// Start the background checkpointer once per live manager. Call only after
+    /// the foreground pool runs with `wal_autocheckpoint=0`. The task holds no
+    /// strong reference between rounds and ends when the manager is dropped or
+    /// its pool is closed.
+    pub(crate) fn start_wal_checkpointer(&self) {
+        let wal = self.inner.wal.clone();
+        wal.enabled.store(true, Ordering::Release);
+        if wal.running.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let weak = Arc::downgrade(&self.inner);
+        tokio::spawn(async move {
+            let _running = RunningGuard(wal.clone());
+            let mut seen: Option<SystemTime> = None;
+            loop {
+                tokio::select! {
+                    _ = wal.wake.notified() => {}
+                    _ = tokio::time::sleep(WAL_CHECKPOINT_TICK) => {}
+                }
+                let Some(inner) = weak.upgrade() else { break };
+                let live = LiveSqlite { inner };
+                match live.wal_checkpoint_round(&mut seen).await {
+                    Ok(Round::Closed) => break,
+                    Ok(Round::Checkpointed) => {
+                        wal.rounds.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Ok(Round::Skipped) => {}
+                    Err(_) => {
+                        // Busy or failed open: the next tick retries. No request
+                        // depends on this round, and the WAL keeps its frames.
+                        wal.failures.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+        });
+    }
+    async fn wal_checkpoint_round(&self, seen: &mut Option<SystemTime>) -> Result<Round, Error> {
+        let writes = self.inner.wal.writes.swap(0, Ordering::AcqRel);
+        let pin = self.pin().await;
+        if pin.pool().is_closed() {
+            return Ok(Round::Closed);
+        }
+        let observed = std::fs::metadata(wal_file(pin.active_options().get_filename()))
+            .and_then(|meta| meta.modified());
+        let modified = match observed {
+            Ok(modified) => Some(modified),
+            // No WAL file: nothing to checkpoint.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && writes == 0 => {
+                *seen = None;
+                return Ok(Round::Skipped);
+            }
+            // Unknown modification time: check rather than skip.
+            Err(_) => None,
+        };
+        let recent = modified
+            .and_then(|at| SystemTime::now().duration_since(at).ok())
+            .is_none_or(|age| age < WAL_MTIME_SETTLE);
+        if writes == 0 && modified.is_some() && modified == *seen && !recent {
+            return Ok(Round::Skipped);
+        }
+        // The modification time read BEFORE the checkpoint: a write after this
+        // point changes it and is picked up by a later round.
+        *seen = modified;
+        let options = pin
+            .auxiliary_options()
+            .busy_timeout(WAL_RESTART_WAIT)
+            .pragma("wal_autocheckpoint", "0");
+        let mut connection = <SqliteConnection as sqlx::Connection>::connect_with(&options).await?;
+        let result = async {
+            // (busy, frames in the WAL, frames copied back)
+            let (_, frames, _): (i64, i64, i64) =
+                sqlx::query_as("PRAGMA wal_checkpoint(PASSIVE)")
+                    .fetch_one(&mut connection)
+                    .await?;
+            if frames >= self.inner.wal.restart_frames() {
+                sqlx::query(&format!("PRAGMA busy_timeout={}", WAL_RESTART_WAIT.as_millis()))
+                    .execute(&mut connection)
+                    .await?;
+                let (busy, _, _): (i64, i64, i64) =
+                    sqlx::query_as("PRAGMA wal_checkpoint(RESTART)")
+                        .fetch_one(&mut connection)
+                        .await?;
+                if busy == 0 {
+                    self.inner.wal.restarts.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    // Retry the restart on the next tick.
+                    self.inner.wal.writes.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            Ok::<_, Error>(())
+        }
+        .await;
+        let closed = sqlx::Connection::close(connection).await;
+        drop(pin);
+        result?;
+        closed?;
+        Ok(Round::Checkpointed)
+    }
 }
 
 async fn acquire_pinned(pin: &PinnedPool) -> Result<PoolConnection<Sqlite>, Error> {
@@ -274,6 +497,7 @@ impl Opening {
                 rebuild: Arc::new(tokio::sync::Mutex::new(())),
                 cache_policy: OnceLock::new(),
                 cache_registry: Arc::new(Default::default()),
+                wal: Arc::default(),
             }),
         };
         let mut registry = REGISTRY.lock().unwrap_or_else(|p| p.into_inner());
@@ -377,7 +601,9 @@ impl LiveTransaction {
             .take()
             .expect("live transaction")
             .commit()
-            .await
+            .await?;
+        self.pin._owner.wal.note_write();
+        Ok(())
     }
     pub(crate) async fn rollback(mut self) -> Result<(), Error> {
         self.transaction
@@ -440,6 +666,10 @@ impl<'c> Executor<'c> for &'c LiveSqlite {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "sqlite_live_checkpoint_tests.rs"]
+mod checkpoint_tests;
 
 #[cfg(test)]
 mod tests {

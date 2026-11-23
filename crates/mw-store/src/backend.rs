@@ -229,10 +229,15 @@ impl Sql {
         let mut query_timer = crate::pool_telemetry::QueryTimer::start(self.sql);
         let input_bytes = crate::database_growth::input_bytes(&self.args);
         let result = match backend {
-            Backend::Sqlite(p) => Ok(build_sqlite(self.sql, self.args)
-                .execute(p)
-                .await?
-                .rows_affected()),
+            Backend::Sqlite(p) => {
+                let rows = build_sqlite(self.sql, self.args)
+                    .execute(p)
+                    .await?
+                    .rows_affected();
+                // An autocommit write: tell the background WAL checkpointer.
+                p.note_write();
+                Ok(rows)
+            }
             Backend::Postgres(p) => {
                 let mut connection = crate::pool_telemetry::acquire(p).await?;
                 let sql = dialect::placeholders(self.sql, Dialect::Postgres);
